@@ -1,0 +1,19 @@
+export interface Role {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  is_system: boolean;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  employee_no?: string | null;
+  real_name: string;
+  email?: string | null;
+  status: string;
+  roles: Role[];
+  created_at: string;
+  updated_at: string;
+}
