@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 import app.core.redis_client as redis_module
 from app.services.redis_memory import (
     append_and_save,

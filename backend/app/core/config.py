@@ -3,6 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote as url_quote
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -57,7 +58,7 @@ class Settings(BaseSettings):
     def redis_url(self) -> str:
         """Assemble Redis URL from component fields, supporting both direct REDIS_URL env
         override and the per-component REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD format."""
-        password_part = f":{self.redis_password}@" if self.redis_password else ""
+        password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
         return f"redis://{password_part}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
 

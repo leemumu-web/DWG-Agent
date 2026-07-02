@@ -1,3 +1,65 @@
-# Infra
+# Infra — 基础设施配置
 
-当前阶段不使用 Docker/Nginx/Redis/MinIO，本目录只作为后续生产部署配置入口。
+本目录存放 Docker Compose、Nginx、MySQL、Redis、MinIO 的生产部署配置。
+
+## 当前状态
+
+| 组件 | 状态 | 启动方式 |
+|------|------|---------|
+| **Nginx** | ✅ 可用 | `docker compose up -d nginx` 或本地 `nginx.local.conf` |
+| **MySQL** | ✅ 可用 | `docker compose up -d mysql` |
+| **Redis** | ✅ 可用 | `docker compose up -d redis` |
+| **MinIO** | ✅ 可用 | `docker compose up -d minio` |
+| **Backend API** | ✅ 可用 | `docker compose up -d backend-api` |
+| **Celery Workers** | 配置文件就绪 | `docker compose --profile workers up -d`（阶段二实现） |
+| **Flower 监控** | 配置文件就绪 | `docker compose --profile monitoring up -d` |
+
+## 快速开始
+
+### 本地开发（无 Docker）— 阶段 A
+
+```bash
+# 1. 后端
+cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+
+# 2. 前端构建
+cd frontend && npm run build
+
+# 3. Nginx（可选，统一入口到 8080）
+sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
+# 访问 http://localhost:8080
+```
+
+### Docker Compose — 阶段 B
+
+```bash
+# 前置 1: 配置 .env 中的密码变量（MYSQL_PASSWORD, REDIS_PASSWORD 等）
+# 前置 2: 前端已构建（cd frontend && npm run build）
+
+# 启动核心服务
+docker compose up -d
+
+# 查看日志
+docker compose logs -f nginx backend-api
+
+# 停止
+docker compose down
+```
+
+访问: `http://localhost`
+
+## 目录
+
+```
+infra/
+├── nginx/             # Nginx 网关配置（详见 nginx/README.md）
+│   ├── nginx.conf         # Docker 版主配置（容器内路径）
+│   ├── nginx.local.conf   # 本地开发版主配置（宿主机路径）
+│   ├── conf.d/            # server 块配置
+│   ├── snippets/          # proxy/security/rate-limit 公共片段
+│   └── ssl/               # SSL 证书（阶段 C）
+├── mysql/
+│   └── init.sql           # 首次启动建库授权脚本
+├── redis/                 # Redis 配置占位
+└── minio/                 # MinIO 配置占位
+```
