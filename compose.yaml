@@ -1,12 +1,22 @@
 # DWG-Agent Platform — Docker Compose
 # 规范参考: §17.4 Docker Compose 服务结构
 #
-# 前置: cd frontend && npm run build
-# 启动: docker compose up -d
+# 前置条件:
+#   1. cd frontend && npm run build
+#   2. cp .env.docker.example .env.docker
+#   3. 修改 .env.docker 中所有 CHANGE_ME_* 值
 #
-# profiles 说明: 规范 §17.4 定义的是完整平台目标状态，未区分阶段。
-# 当前 worker 代码为占位（阶段二实现），使用 profiles 避免空 worker
-# 在 docker compose up 时崩溃。实现后移除 profiles 即可匹配规范。
+# 启动:
+#   docker compose up -d                              # 核心服务
+#   docker compose --profile workers up -d            # + Celery Workers (阶段二)
+#   docker compose --profile monitoring up -d         # + Flower 监控
+#
+# 说明:
+#   - .env.docker: Docker 服务名 (mysql/redis/minio) + MySQL/MinIO 配置
+#   - .env.docker.example: 可提交模板；.env.docker 为本机密钥文件，禁止提交
+#   - .env.example: 本地开发 (localhost + SQLite)
+#   - profiles: 规范 §17.4 未定义 profile，当前 worker 为占位代码
+#     故使用 profiles 避免空 worker 崩溃。实现后移除即可匹配规范。
 
 services:
   nginx:
@@ -32,7 +42,10 @@ services:
     # CMD defined in Dockerfile; override here only if needed for debugging
     # Default: gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --timeout 120
     env_file:
-      - .env
+      - .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
     depends_on:
       mysql:
         condition: service_healthy
@@ -55,7 +68,10 @@ services:
       dockerfile: Dockerfile
     command: uv run celery -A app.workers.celery_app worker -Q agent -n agent@%h --concurrency=2
     env_file:
-      - .env
+      - .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
     depends_on:
       redis:
         condition: service_healthy
@@ -73,7 +89,10 @@ services:
       dockerfile: Dockerfile
     command: uv run celery -A app.workers.celery_app worker -Q dxf -n dxf@%h --concurrency=2
     env_file:
-      - .env
+      - .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
     depends_on:
       redis:
         condition: service_healthy
@@ -93,7 +112,10 @@ services:
       dockerfile: Dockerfile
     command: uv run celery -A app.workers.celery_app worker -Q report -n report@%h --concurrency=2
     env_file:
-      - .env
+      - .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
     networks:
       - internal
     restart: unless-stopped
@@ -102,16 +124,23 @@ services:
 
   mysql:
     image: mysql:8.4
+    env_file:
+      - .env.docker
     environment:
-      MYSQL_DATABASE: dwg_agent
-      MYSQL_USER: dwg_user
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-mysql}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-mysql-root}
+      JWT_SECRET_KEY: ""
+      SUPER_ADMIN_PASSWORD: ""
+      DATABASE_URL: ""
+      CELERY_BROKER_URL: ""
+      CELERY_RESULT_BACKEND: ""
+      REDIS_PASSWORD: ""
+      MINIO_ACCESS_KEY: ""
+      MINIO_SECRET_KEY: ""
+      MINIO_ROOT_PASSWORD: ""
     volumes:
       - mysql_data:/var/lib/mysql
       - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-change-me-mysql-root}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\""]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -121,12 +150,25 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:-change-me-redis-password}
+    env_file:
+      - .env.docker
+    environment:
+      JWT_SECRET_KEY: ""
+      SUPER_ADMIN_PASSWORD: ""
+      DATABASE_URL: ""
+      CELERY_BROKER_URL: ""
+      CELERY_RESULT_BACKEND: ""
+      MYSQL_PASSWORD: ""
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ACCESS_KEY: ""
+      MINIO_SECRET_KEY: ""
+      MINIO_ROOT_PASSWORD: ""
+    command: sh -c 'redis-server /usr/local/etc/redis/redis.conf --requirepass "$$REDIS_PASSWORD"'
     volumes:
       - redis_data:/data
       - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change-me-redis-password}", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -137,9 +179,19 @@ services:
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
+    env_file:
+      - .env.docker
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      JWT_SECRET_KEY: ""
+      SUPER_ADMIN_PASSWORD: ""
+      DATABASE_URL: ""
+      CELERY_BROKER_URL: ""
+      CELERY_RESULT_BACKEND: ""
+      MYSQL_PASSWORD: ""
+      MYSQL_ROOT_PASSWORD: ""
+      REDIS_PASSWORD: ""
+      MINIO_ACCESS_KEY: ""
+      MINIO_SECRET_KEY: ""
     volumes:
       - minio_data:/data
     healthcheck:
@@ -157,7 +209,10 @@ services:
       dockerfile: Dockerfile
     command: uv run celery -A app.workers.celery_app flower --port=5555
     env_file:
-      - .env
+      - .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
     networks:
       - internal
     restart: unless-stopped

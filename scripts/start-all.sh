@@ -13,21 +13,11 @@ echo -e "${GREEN}═════════════════════
 
 # ── 1. MySQL ───────────────────────────────────────────────────
 step "1/5 MySQL"
-if port_free 3306; then
-    warn "MySQL 未运行，尝试启动..."
-    sudo systemctl start mariadb 2>/dev/null && ok "MariaDB 已启动" || err "MariaDB 启动失败，请手动启动"
-else
-    ok "MySQL 已运行 (:3306)"
-fi
+ensure_service 3306 mysql mariadb
 
 # ── 2. Redis ───────────────────────────────────────────────────
 step "2/5 Redis"
-if port_free 6379; then
-    warn "Redis 未运行，尝试启动..."
-    sudo systemctl start redis 2>/dev/null && ok "Redis 已启动" || err "Redis 启动失败，请手动启动"
-else
-    ok "Redis 已运行 (:6379)"
-fi
+ensure_service 6379 redis valkey
 
 # ── 3. Backend ─────────────────────────────────────────────────
 step "3/5 后端 FastAPI"
@@ -72,11 +62,10 @@ NGINX_PIDFILE="$PROJECT_ROOT/infra/nginx/logs/nginx.pid"
 if [ -f "$NGINX_PIDFILE" ] && sudo kill -0 "$(cat "$NGINX_PIDFILE")" 2>/dev/null; then
     ok "Nginx 已运行 (:8080)"
 else
-    # 端口被占但不是我们的 → 先停
+    # 端口被占但不是我们的 → 报错退出，让用户自行处理
     if ! port_free 8080; then
-        warn "端口 8080 被占用，尝试释放..."
-        sudo fuser -k 8080/tcp 2>/dev/null || true
-        sleep 1
+        err "端口 8080 已被占用，请先释放: sudo nginx -c $NGINX_CONF -s quit"
+        exit 1
     fi
     info "启动 Nginx (:8080)..."
     sudo nginx -c "$NGINX_CONF"

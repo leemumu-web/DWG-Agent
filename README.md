@@ -28,14 +28,16 @@
 - 权限守卫组件（路由级）
 - **Nginx 网关** — 本地开发（`nginx.local.conf`）+ Docker 部署（`nginx.conf`），SPA fallback / 反向代理 / 限流 / 安全头
 - **Docker Compose** — 9 服务编排（`compose.yaml`），profiles 分阶段启动
-- **MySQL 本机** — MariaDB 11.8，数据库 `dwg_agent`，17 张表，7 角色种子
+- **MySQL 本机** — MariaDB 11.8 运行中，库表已建（本地开发仍用 SQLite；Docker 部署用 `.env.docker` 切换 MySQL）
 
 已修正（详见 `docs/stage1-review.md`）：
 
 - Python 版本固定为 `>=3.12,<3.13`，新增 `backend/.python-version`
 - 前端 `package.json` 不再使用 `latest`，所有依赖固定为 `package-lock.json` 中的确切版本
 - 补齐 `GET /api/v1/files/{file_id}/download` 本机下载端点
-- `ruff check app tests` 与 `pytest` 均无错误
+- `ruff check .` 通过；pytest 153 passed, 0 failed
+- 深度审计完成 — 待处理项已归档 `docs/stage1-audit.md`
+- Compose: `cp .env.docker.example .env.docker && docker compose up -d`（`.env.docker` 使用 Docker 服务名 + MySQL/Redis/MinIO）
 
 暂不实现：
 
@@ -51,7 +53,8 @@ complete_framework/
 ├── README.md
 ├── CLAUDE.md                   # Agent 开发指令
 ├── DWG-Agent企业平台技术规范.md  # 核心规范文档
-├── .env.example                # 后端环境变量模板
+├── .env.example                # 本地开发环境变量模板
+├── .env.docker.example         # Docker Compose 环境变量模板
 ├── Makefile
 ├── compose.yaml                # Docker Compose 9 服务编排
 ├── backend/
@@ -67,7 +70,7 @@ complete_framework/
 │   │   ├── core/              # config / security / exceptions / constants / logger
 │   │   ├── db/                # base / session / init_db
 │   │   └── ...
-│   ├── tests/                 # 121 个测试（10 文件）
+│   ├── tests/                 # 153 测试（11 文件）
 │   └── migrations/            # Alembic（stage 1 尚未生成迁移文件）
 ├── frontend/
 │   ├── package.json           # 无 latest，版本已锁定
@@ -90,12 +93,12 @@ complete_framework/
 │   │   ├── nginx.conf         #   Docker 版（单文件自包含）
 │   │   └── nginx.local.conf   #   本机开发版
 │   ├── mysql/init.sql         #   MySQL 初始化脚本
-│   └── verify.sh              #   基础设施验证脚本（85 测试点）
+│   └── verify.sh              #   基础设施验证脚本（92 测试点）
 ├── docs/
 │   ├── stage1-review.md
 │   ├── api.md
 │   └── local-dev.md           #   本机开发详细说明
-└── scripts/                   # 运维脚本占位
+└── scripts/                   # 一键启停 / 状态检查 / 开发模式
 ```
 
 ## 本机启动
@@ -115,7 +118,7 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```bash
 uv run ruff check app tests     # 代码风格检查
-uv run pytest -q                # 121 个测试
+uv run pytest -q                # 153 测试 (153 passed, 0 failed)
 ```
 
 ### 前端
@@ -149,7 +152,10 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
 ### Docker Compose（阶段 B）
 
 ```bash
-# 前置：配置 .env（密码变量），前端已构建
+# 首次启动前：复制 Docker 专用模板并修改所有 CHANGE_ME_* 值
+cp .env.docker.example .env.docker
+
+# 前置：前端已构建
 docker compose up -d                              # 核心服务
 docker compose --profile workers up -d            # + Celery Workers（阶段二）
 docker compose --profile monitoring up -d         # + Flower 监控
@@ -161,13 +167,13 @@ docker compose --profile monitoring up -d         # + Flower 监控
 ```bash
 # MariaDB 已配置，数据库 dwg_agent，17 张表，7 角色种子
 sudo systemctl start mariadb
-# backend/.env 中: DATABASE_URL=mysql+pymysql://dwg_user:change-me-mysql@127.0.0.1:3306/dwg_agent
+# 如需让本地后端直连 MySQL，在 backend/.env 中设置 DATABASE_URL=mysql+pymysql://...
 ```
 
 ### 基础设施验证
 
 ```bash
-bash infra/verify.sh             # Nginx / Docker Compose / Dockerfile / MySQL 共 85 项检查
+bash infra/verify.sh             # Nginx / Docker Compose / Dockerfile / MySQL / 环境模板检查
 ```
 
 ### 默认账号

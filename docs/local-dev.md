@@ -105,9 +105,9 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf -s quit
 
 ```bash
 # 从仓库根目录执行
-# 前置：从模板创建 .env 并修改密码（首次）
-cp .env.example .env
-# 编辑 .env 中的 MYSQL_PASSWORD / REDIS_PASSWORD / MINIO_ROOT_PASSWORD
+# 前置：从 Docker 专用模板创建 .env.docker 并修改密码（首次）
+cp .env.docker.example .env.docker
+# 编辑 .env.docker 中所有 CHANGE_ME_* 值
 
 # 前置：frontend/dist/ 已构建
 cd frontend && npm run build && cd ..

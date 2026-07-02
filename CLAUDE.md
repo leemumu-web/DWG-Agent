@@ -30,7 +30,8 @@ and DB model layers end to end.
 complete_framework/
 ├── DWG-Agent企业平台技术规范.md   ← CORE SPEC (read first for any design question)
 ├── README.md                      ← human-facing overview
-├── .env.example                   ← backend env template
+├── .env.example                   ← local-dev env template
+├── .env.docker.example            ← Docker Compose env template
 │
 ├── backend/                       ← Python 3.12, uv, FastAPI
 │   ├── pyproject.toml             ← deps + ruff config
@@ -52,7 +53,7 @@ complete_framework/
 │   │   ├── storage/               ← PLACEHOLDER (base/local/minio stubs)
 │   │   ├── integrations/zwcad/    ← PLACEHOLDER (ZWCAD worker client)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 148 tests (pytest + fakeredis + real Redis)
+│   ├── tests/                     ← 153 tests (pytest + fakeredis + real Redis)
 │   │   └── conftest.py            ← FakeRedis autouse fixture
 │   ├── migrations/                ← Alembic (NO migrations yet — uses create_all)
 │   └── var/                       ← runtime data (SQLite DB, uploaded files)
@@ -72,7 +73,7 @@ complete_framework/
 ├── infra/                         ← DEPLOY CONFIG (nginx config, redis/ placeholder, Dockerfile later)
 ├── agents/                        ← PLACEHOLDER for future Agent definitions
 ├── cad-worker/                    ← PLACEHOLDER for Windows C# CAD Worker
-├── scripts/                       ← PLACEHOLDER for ops scripts
+├── scripts/                       ← 6 dev/ops shell scripts (lib.sh, start-dev, start-all, stop-all, status, init-db)
 └── tests/                         ← PLACEHOLDER for E2E / integration tests
 ```
 
@@ -83,7 +84,7 @@ complete_framework/
 ### Paths — relative to repo root
 
 - **All paths in docs, configs, and code MUST be relative to the repository root.** Never hardcode `/home/Creeken/...` or any user-specific absolute paths.
-- `CLAUDE.md`, `.env.example`, `compose.yaml`, `README.md` — all at repo root, reference sub-paths as `backend/...`, `frontend/...`, `infra/...`
+- `CLAUDE.md`, `.env.example`, `.env.docker.example`, `compose.yaml`, `README.md` — all at repo root, reference sub-paths as `backend/...`, `frontend/...`, `infra/...`
 - Within `backend/`: `app/core/config.py` uses `Path("./var/storage")` (relative to CWD at runtime)
 - Within `frontend/`: Vite config uses relative paths; `VITE_API_BASE_URL` is empty in dev (Vite proxy) and set via env in Docker
 - Nginx configs: Docker uses `nginx.conf` (container paths `/etc/nginx/...`, `/usr/share/nginx/html`); local dev uses `nginx.local.conf` (started via `nginx -c $(pwd)/infra/nginx/nginx.local.conf` from repo root)
@@ -151,7 +152,7 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests   # must pass
-uv run pytest -q              # must pass (148 tests expected)
+uv run pytest -q              # must pass (153 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`
@@ -170,7 +171,7 @@ uv run pytest -q              # must pass (148 tests expected)
 4. **Don't add async Redis or DB code** — the codebase is synchronous until Stage 2 Agent requires async.
 5. **Don't enable Agent features** — `AGENT_ENABLED=false` must keep returning 503.
 6. **Don't hardcode API URLs** — frontend uses `VITE_API_BASE_URL`, backend config is env-driven.
-7. **Don't commit `.env`** — only `.env.example` is tracked.
+7. **Don't commit `.env` or `.env.docker`** — only `.env.example` and `.env.docker.example` are tracked.
 8. **Don't put Docker/production configs in `app/`** — deployment configs go in `infra/`.
 9. **Don't write business logic in route handlers** — push to services.
 10. **Don't use `assert False` in tests** — use `raise AssertionError("message")` (ruff B011).
@@ -201,6 +202,7 @@ uv run pytest -q              # must pass (148 tests expected)
 | Compose infra | `compose.yaml` |
 | Dockerfile | `backend/Dockerfile` (multi-stage, non-root, HEALTHCHECK) |
 | Docker ignore | `backend/.dockerignore` |
+| Dev scripts | `scripts/` (lib.sh + start-dev.sh / start-all.sh / stop-all.sh / status.sh / init_db.sh) |
 | Test fixtures | `backend/tests/conftest.py` |
 | Config tests | `backend/tests/test_config.py` (Redis + MySQL) |
 | Session tests | `backend/tests/test_db_session.py` |

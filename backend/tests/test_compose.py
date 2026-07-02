@@ -13,11 +13,37 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 COMPOSE_PATH = REPO_ROOT / "compose.yaml"
 DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"
 DOCKERIGNORE_PATH = REPO_ROOT / "backend" / ".dockerignore"
+GITIGNORE_PATH = REPO_ROOT / ".gitignore"
+DOCKER_ENV_EXAMPLE_PATH = REPO_ROOT / ".env.docker.example"
+APP_SECRET_KEYS = {
+    "JWT_SECRET_KEY",
+    "SUPER_ADMIN_PASSWORD",
+    "DATABASE_URL",
+    "CELERY_BROKER_URL",
+    "CELERY_RESULT_BACKEND",
+}
+APP_SERVICE_NAMES = ("backend-api", "worker-agent", "worker-dxf", "worker-report", "flower")
 
 
 def _load():
     with open(COMPOSE_PATH) as f:
         return yaml.safe_load(f)
+
+
+def _assert_blank_environment(service: dict, keys: set[str]) -> None:
+    env = service.get("environment", {})
+    for key in keys:
+        assert env.get(key) == "", f"{key} should be scrubbed from {service}"
+
+
+class TestAppServices:
+    def test_app_services_use_docker_env_file_and_hide_root_passwords(self):
+        data = _load()
+        for name in APP_SERVICE_NAMES:
+            service = data["services"][name]
+            assert service["env_file"] == [".env.docker"]
+            assert service["environment"]["MYSQL_ROOT_PASSWORD"] == ""
+            assert service["environment"]["MINIO_ROOT_PASSWORD"] == ""
 
 
 class TestComposeYamlValid:
@@ -32,14 +58,17 @@ class TestComposeYamlValid:
 
 
 class TestMysqlService:
-    def test_mysql_env_has_fallbacks(self):
+    def test_mysql_uses_docker_env_file_and_scrubs_app_secrets(self):
         data = _load()
-        mysql_env = data["services"]["mysql"]["environment"]
-        assert "MYSQL_PASSWORD" in mysql_env
-        assert "MYSQL_ROOT_PASSWORD" in mysql_env
-        # Both env vars should include :- fallback syntax
-        assert ":-" in mysql_env["MYSQL_PASSWORD"]
-        assert ":-" in mysql_env["MYSQL_ROOT_PASSWORD"]
+        mysql = data["services"]["mysql"]
+        assert mysql["env_file"] == [".env.docker"]
+        _assert_blank_environment(
+            mysql,
+            APP_SECRET_KEYS
+            | {"REDIS_PASSWORD", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
+        )
+        assert "MYSQL_PASSWORD" not in mysql["environment"]
+        assert "MYSQL_ROOT_PASSWORD" not in mysql["environment"]
 
     def test_mysql_volumes_include_init_sql(self):
         data = _load()
@@ -50,14 +79,32 @@ class TestMysqlService:
     def test_mysql_has_healthcheck(self):
         data = _load()
         hc = data["services"]["mysql"]["healthcheck"]
-        assert "mysqladmin" in " ".join(hc["test"])
+        test_cmd = " ".join(hc["test"])
+        assert "mysqladmin" in test_cmd
+        assert "$${MYSQL_ROOT_PASSWORD}" in test_cmd
+        assert "${MYSQL_ROOT_PASSWORD:-" not in test_cmd
 
 
 class TestRedisService:
-    def test_redis_command_has_fallback(self):
+    def test_redis_uses_docker_env_file_without_root_env_interpolation(self):
         data = _load()
-        cmd = data["services"]["redis"]["command"]
-        assert ":-" in cmd, "REDIS_PASSWORD should have fallback"
+        redis = data["services"]["redis"]
+        assert redis["env_file"] == [".env.docker"]
+        _assert_blank_environment(
+            redis,
+            APP_SECRET_KEYS
+            | {
+                "MYSQL_PASSWORD",
+                "MYSQL_ROOT_PASSWORD",
+                "MINIO_ACCESS_KEY",
+                "MINIO_SECRET_KEY",
+                "MINIO_ROOT_PASSWORD",
+            },
+        )
+        assert "REDIS_PASSWORD" not in redis["environment"]
+        cmd = redis["command"]
+        assert "$$REDIS_PASSWORD" in cmd, "REDIS_PASSWORD should be read inside the container"
+        assert "${REDIS_PASSWORD" not in cmd, "command must not depend on root .env interpolation"
 
     def test_redis_conf_is_mounted(self):
         data = _load()
@@ -66,11 +113,52 @@ class TestRedisService:
 
 
 class TestMinioService:
-    def test_minio_env_has_fallbacks(self):
+    def test_minio_uses_docker_env_file_and_scrubs_unrelated_secrets(self):
         data = _load()
-        env = data["services"]["minio"]["environment"]
-        assert ":-" in env.get("MINIO_ROOT_USER", "")
-        assert ":-" in env.get("MINIO_ROOT_PASSWORD", "")
+        minio = data["services"]["minio"]
+        assert minio["env_file"] == [".env.docker"]
+        _assert_blank_environment(
+            minio,
+            APP_SECRET_KEYS
+            | {
+                "MYSQL_PASSWORD",
+                "MYSQL_ROOT_PASSWORD",
+                "REDIS_PASSWORD",
+                "MINIO_ACCESS_KEY",
+                "MINIO_SECRET_KEY",
+            },
+        )
+        assert "MINIO_ROOT_PASSWORD" not in minio["environment"]
+
+
+class TestDockerEnvironmentFiles:
+    def _env_keys(self, path: Path) -> set[str]:
+        return {
+            line.split("=", 1)[0]
+            for line in path.read_text().splitlines()
+            if line and not line.startswith("#") and "=" in line
+        }
+
+    def test_docker_env_example_exists(self):
+        assert DOCKER_ENV_EXAMPLE_PATH.exists(), ".env.docker.example must be committed"
+
+    def test_env_examples_have_same_keys(self):
+        local_keys = self._env_keys(REPO_ROOT / ".env.example")
+        docker_keys = self._env_keys(DOCKER_ENV_EXAMPLE_PATH)
+        assert docker_keys == local_keys
+
+    def test_docker_env_example_has_no_nested_compose_interpolation(self):
+        content = DOCKER_ENV_EXAMPLE_PATH.read_text()
+        assert "${" not in content, (
+            "env_file values must not depend on shell/root .env interpolation"
+        )
+        assert "mysql:3306" in content
+        assert "redis:6379" in content
+        assert "http://minio:9000" in content
+
+    def test_local_docker_env_is_gitignored(self):
+        content = GITIGNORE_PATH.read_text()
+        assert ".env.docker" in content
 
 
 # ── Dockerfile static checks ──────────────────────────────────────

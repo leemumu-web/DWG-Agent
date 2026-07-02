@@ -130,12 +130,14 @@ class TestMysqlDefaults:
     def test_user_default(self):
         assert Settings().mysql_user == "dwg_user"
 
-    def test_password_default(self):
+    def test_password_default(self, monkeypatch):
+        monkeypatch.setenv("MYSQL_PASSWORD", "")
         assert Settings().mysql_password == ""
 
 
 class TestMysqlUrl:
-    def test_url_no_password(self):
+    def test_url_no_password(self, monkeypatch):
+        monkeypatch.setenv("MYSQL_PASSWORD", "")
         s = Settings()
         assert s.mysql_url == "mysql+pymysql://dwg_user@mysql:3306/dwg_agent"
 

@@ -41,3 +41,26 @@ wait_port() {
     err "$label 超时未就绪"
     return 1
 }
+
+# 确保 systemd 服务运行（兼容多种命名: redis/valkey, mysql/mariadb）
+ensure_service() {
+    local port="$1"; shift
+    local names=("$@")
+    if ! port_free "$port"; then
+        return 0  # already running
+    fi
+    warn "${names[0]} (:${port}) 未运行，尝试启动..."
+    for name in "${names[@]}"; do
+        if systemctl is-active --quiet "$name" 2>/dev/null; then
+            ok "$name 已运行"
+            return 0
+        fi
+    done
+    for name in "${names[@]}"; do
+        if sudo systemctl start "$name" 2>/dev/null; then
+            ok "$name 已启动"
+            return 0
+        fi
+    done
+    err "无法启动 ${names[0]}，请手动启动"; return 1
+}

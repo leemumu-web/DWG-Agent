@@ -33,7 +33,7 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
 ### Docker Compose — 阶段 B
 
 ```bash
-# 前置 1: 配置 .env 中的密码变量（MYSQL_PASSWORD, REDIS_PASSWORD 等）
+# 前置 1: cp .env.docker.example .env.docker，并修改所有 CHANGE_ME_* 值
 # 前置 2: 前端已构建（cd frontend && npm run build）
 
 # 启动核心服务

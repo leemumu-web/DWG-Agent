@@ -1,6 +1,8 @@
 .env
+.env.docker
 *.db
 *.sqlite
+var/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
@@ -11,6 +13,7 @@ build/
 backend/var/
 frontend/.env
 backend/.env
+tempCodeRunnerFile.*
 .DS_Store
 tsconfig.tsbuildinfo
 

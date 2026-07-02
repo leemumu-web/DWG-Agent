@@ -33,7 +33,7 @@ echo -e "  MySQL:  $(port_free 3306 && echo -e "${DIM}未运行${NC}" || echo -e
 echo -e "  Redis: $(port_free 6379 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
 echo ""
 echo -e "  ${YELLOW}MySQL/Redis 通常保持运行，不予停止。${NC}"
-echo -e "  ${DIM}如需停止: sudo systemctl stop mariadb redis${NC}"
+echo -e "  ${DIM}如需停止: sudo systemctl stop mysql mariadb redis valkey${NC}"
 
 echo ""
 echo -e "${GREEN}  前端 + 后端 + Nginx 已停止${NC}"
