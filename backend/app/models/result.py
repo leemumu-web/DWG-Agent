@@ -27,7 +27,7 @@ class AnalysisResult(TimestampMixin, Base):
     reviews: Mapped[list["ReviewRecord"]] = relationship(back_populates="result", cascade="all, delete-orphan")
 
 
-class ReviewRecord(Base):
+class ReviewRecord(TimestampMixin, Base):
     __tablename__ = "review_records"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

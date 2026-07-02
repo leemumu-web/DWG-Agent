@@ -22,13 +22,13 @@ router = APIRouter()
 
 
 @router.get("")
-def list_projects(request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_projects(request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     projects = list(db.scalars(select(Project).where(Project.status != "deleted").order_by(Project.id.desc())).all())
     return page([ProjectRead.model_validate(p) for p in projects], 1, len(projects), len(projects), request.state.request_id)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_project(payload: ProjectCreate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def create_project(payload: ProjectCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     if db.scalar(select(Project).where(Project.code == payload.code)):
         raise AppHTTPException(409, "PROJECT_CODE_EXISTS", "Project code already exists.")
     project = Project(code=payload.code, name=payload.name, description=payload.description, owner_id=current_user.id, status="active")
@@ -41,7 +41,7 @@ def create_project(payload: ProjectCreate, request: Request, db: Session = Depen
 
 
 @router.get("/{project_id}")
-def get_project(project_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_project(project_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project or project.status == "deleted":
         raise not_found("Project")
@@ -49,7 +49,7 @@ def get_project(project_id: int, request: Request, db: Session = Depends(get_db)
 
 
 @router.patch("/{project_id}")
-def update_project(project_id: int, payload: ProjectUpdate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def update_project(project_id: int, payload: ProjectUpdate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project:
         raise not_found("Project")
@@ -62,7 +62,7 @@ def update_project(project_id: int, payload: ProjectUpdate, request: Request, db
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def delete_project(project_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project:
         raise not_found("Project")
@@ -73,13 +73,13 @@ def delete_project(project_id: int, db: Session = Depends(get_db), current_user:
 
 
 @router.get("/{project_id}/members")
-def list_project_members(project_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_project_members(project_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     members = list(db.scalars(select(ProjectMember).where(ProjectMember.project_id == project_id)).all())
     return page([ProjectMemberRead.model_validate(m) for m in members], 1, len(members), len(members), request.state.request_id)
 
 
 @router.post("/{project_id}/members", status_code=status.HTTP_201_CREATED)
-def add_project_member(project_id: int, payload: ProjectMemberCreate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def add_project_member(project_id: int, payload: ProjectMemberCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     member = ProjectMember(project_id=project_id, user_id=payload.user_id, project_role=payload.project_role)
     db.add(member)
     db.flush()
@@ -89,7 +89,7 @@ def add_project_member(project_id: int, payload: ProjectMemberCreate, request: R
 
 
 @router.patch("/{project_id}/members/{member_id}")
-def update_project_member(project_id: int, member_id: int, payload: ProjectMemberUpdate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def update_project_member(project_id: int, member_id: int, payload: ProjectMemberUpdate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     member = db.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
         raise not_found("ProjectMember")
@@ -100,7 +100,7 @@ def update_project_member(project_id: int, member_id: int, payload: ProjectMembe
 
 
 @router.delete("/{project_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project_member(project_id: int, member_id: int, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def delete_project_member(project_id: int, member_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
     member = db.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
         raise not_found("ProjectMember")

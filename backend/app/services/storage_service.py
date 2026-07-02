@@ -26,6 +26,20 @@ def validate_upload_name(filename: str) -> str:
     return ext
 
 
+def validate_dwg_header(first_chunk: bytes) -> None:
+    """Validate that the file starts with the DWG magic bytes (AC + version digits).
+
+    All DWG files begin with ``AC`` followed by four ASCII decimal digits
+    (e.g. ``AC1032`` for AutoCAD 2018-2024 format).  This catches files that
+    were renamed to ``.dwg`` but are actually a different format.
+    """
+    if len(first_chunk) < 6:
+        raise AppHTTPException(415, "FILE_NOT_DWG", "File is too small to be a valid DWG.")
+    header = first_chunk[:6]
+    if not (header[:2] == b"AC" and header[2:6].isdigit()):
+        raise AppHTTPException(415, "FILE_NOT_DWG", "File does not have a valid DWG header.")
+
+
 def build_storage_path(bucket: str, storage_key: str) -> Path:
     root = settings.local_storage_root.resolve()
     path = (root / bucket / storage_key).resolve()
@@ -48,7 +62,11 @@ async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | N
     max_size = settings.max_upload_size_mb * 1024 * 1024
 
     with destination.open("wb") as out:
+        first = True
         while chunk := await upload.read(1024 * 1024):
+            if first:
+                validate_dwg_header(chunk)
+                first = False
             size += len(chunk)
             if size > max_size:
                 destination.unlink(missing_ok=True)

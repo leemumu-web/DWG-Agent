@@ -13,6 +13,6 @@ router = APIRouter()
 
 
 @router.get("/pending")
-def list_pending_reviews(request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_pending_reviews(request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     results = list(db.scalars(select(AnalysisResult).where(AnalysisResult.status == "need_review").order_by(AnalysisResult.id.desc())).all())
     return page([AnalysisResultRead.model_validate(r) for r in results], 1, len(results), len(results), request.state.request_id)

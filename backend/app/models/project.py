@@ -20,7 +20,7 @@ class Project(TimestampMixin, Base):
     members: Mapped[list["ProjectMember"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
-class ProjectMember(Base):
+class ProjectMember(TimestampMixin, Base):
     __tablename__ = "project_members"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_member"),)
 

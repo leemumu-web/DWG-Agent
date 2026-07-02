@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Column, ForeignKey, String, Table
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -16,6 +16,7 @@ user_roles = Table(
     Base.metadata,
     Column("user_id", ForeignKey("sys_users.id"), primary_key=True),
     Column("role_id", ForeignKey("sys_roles.id"), primary_key=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )
 
 role_permissions = Table(

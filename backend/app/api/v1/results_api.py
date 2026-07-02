@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/{result_id}")
-def get_result(result_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_result(result_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     result = db.get(AnalysisResult, result_id)
     if not result:
         raise not_found("Result")
@@ -24,7 +24,7 @@ def get_result(result_id: int, request: Request, db: Session = Depends(get_db), 
 
 
 @router.get("/{result_id}/download-url")
-def get_result_download_url(result_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_result_download_url(result_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     result = db.get(AnalysisResult, result_id)
     if not result:
         raise not_found("Result")
@@ -32,7 +32,7 @@ def get_result_download_url(result_id: int, request: Request, db: Session = Depe
 
 
 @router.post("/{result_id}/reviews", status_code=status.HTTP_201_CREATED)
-def create_review(result_id: int, payload: ReviewCreate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def create_review(result_id: int, payload: ReviewCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     result = db.get(AnalysisResult, result_id)
     if not result:
         raise not_found("Result")
@@ -45,6 +45,6 @@ def create_review(result_id: int, payload: ReviewCreate, request: Request, db: S
 
 
 @router.get("/{result_id}/reviews")
-def list_result_reviews(result_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_result_reviews(result_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     reviews = [ReviewRead.model_validate(r) for r in db.scalars(select(ReviewRecord).where(ReviewRecord.result_id == result_id)).all()]
     return ok(reviews, request.state.request_id)

@@ -26,7 +26,7 @@ class Drawing(TimestampMixin, Base):
     )
 
 
-class DrawingVersion(Base):
+class DrawingVersion(TimestampMixin, Base):
     __tablename__ = "drawing_versions"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

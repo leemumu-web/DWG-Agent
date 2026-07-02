@@ -30,7 +30,7 @@ class AgentRun(TimestampMixin, Base):
     steps: Mapped[list["AgentRunStep"]] = relationship(back_populates="agent_run", cascade="all, delete-orphan")
 
 
-class AgentRunStep(Base):
+class AgentRunStep(TimestampMixin, Base):
     __tablename__ = "agent_run_steps"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

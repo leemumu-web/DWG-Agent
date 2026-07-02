@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_roles
-from app.core.constants import DELETED, ROLE_ADMIN
-from app.core.exceptions import not_found
+from app.core.constants import ACTIVE, DELETED, DISABLED, ROLE_ADMIN
+from app.core.exceptions import AppHTTPException, not_found
+from app.core.security import hash_password
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.common import ok, page
@@ -80,3 +82,45 @@ def remove_role(user_id: int, role_id: int, db: Session = Depends(get_db), curre
     write_audit_log(db, actor_user_id=current_user.id, action="users.roles.remove", resource_type="user", resource_id=user.id, after_json={"role_id": role_id})
     db.commit()
     return None
+
+
+@router.post("/{user_id}/password-reset-requests", status_code=status.HTTP_200_OK)
+def reset_user_password(user_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_roles(ROLE_ADMIN))):
+    """Admin-initiated password reset. Sets a temporary password that user must change."""
+    user = get_user_or_404(db, user_id)
+    if user.status == DELETED:
+        raise AppHTTPException(400, "USER_DELETED", "Cannot reset password for a deleted user.")
+    temp_password = f"temp-{uuid4().hex[:12]}"
+    user.password_hash = hash_password(temp_password)
+    user.password_algo = "argon2id"
+    write_audit_log(db, actor_user_id=current_user.id, action="users.password_reset", resource_type="user", resource_id=user.id)
+    db.commit()
+    return ok({"user_id": user.id, "temp_password": temp_password, "message": "Password has been reset. User must change on next login."}, request.state.request_id)
+
+
+@router.post("/{user_id}/disable-requests", status_code=status.HTTP_200_OK)
+def disable_user(user_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_roles(ROLE_ADMIN))):
+    """Disable a user account. Disabled users cannot authenticate."""
+    user = get_user_or_404(db, user_id)
+    if user.id == current_user.id:
+        raise AppHTTPException(400, "CANNOT_DISABLE_SELF", "Admin cannot disable their own account.")
+    if user.status == DELETED:
+        raise AppHTTPException(400, "USER_DELETED", "Cannot disable a deleted user.")
+    before = {"status": user.status}
+    user.status = DISABLED
+    write_audit_log(db, actor_user_id=current_user.id, action="users.disable", resource_type="user", resource_id=user.id, before_json=before, after_json={"status": DISABLED})
+    db.commit()
+    return ok(UserRead.model_validate(user), request.state.request_id)
+
+
+@router.post("/{user_id}/enable-requests", status_code=status.HTTP_200_OK)
+def enable_user(user_id: int, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_roles(ROLE_ADMIN))):
+    """Re-enable a previously disabled user account."""
+    user = get_user_or_404(db, user_id)
+    if user.status == DELETED:
+        raise AppHTTPException(400, "USER_DELETED", "Cannot enable a deleted user.")
+    before = {"status": user.status}
+    user.status = ACTIVE
+    write_audit_log(db, actor_user_id=current_user.id, action="users.enable", resource_type="user", resource_id=user.id, before_json=before, after_json={"status": ACTIVE})
+    db.commit()
+    return ok(UserRead.model_validate(user), request.state.request_id)

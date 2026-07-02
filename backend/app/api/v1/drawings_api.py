@@ -21,13 +21,13 @@ router = APIRouter()
 
 
 @router.get("")
-def list_drawings(request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_drawings(request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawings = list(db.scalars(select(Drawing).where(Drawing.status != "deleted").order_by(Drawing.id.desc())).all())
     return page([DrawingRead.model_validate(d) for d in drawings], 1, len(drawings), len(drawings), request.state.request_id)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_drawing(payload: DrawingCreate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def create_drawing(payload: DrawingCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawing = Drawing(project_id=payload.project_id, drawing_no=payload.drawing_no, title=payload.title, discipline=payload.discipline, status="active")
     db.add(drawing)
     db.flush()
@@ -42,7 +42,7 @@ def create_drawing(payload: DrawingCreate, request: Request, db: Session = Depen
 
 
 @router.get("/{drawing_id}")
-def get_drawing(drawing_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_drawing(drawing_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawing = db.get(Drawing, drawing_id)
     if not drawing or drawing.status == "deleted":
         raise not_found("Drawing")
@@ -50,7 +50,7 @@ def get_drawing(drawing_id: int, request: Request, db: Session = Depends(get_db)
 
 
 @router.patch("/{drawing_id}")
-def update_drawing(drawing_id: int, payload: DrawingUpdate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def update_drawing(drawing_id: int, payload: DrawingUpdate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawing = db.get(Drawing, drawing_id)
     if not drawing:
         raise not_found("Drawing")
@@ -62,7 +62,7 @@ def update_drawing(drawing_id: int, payload: DrawingUpdate, request: Request, db
 
 
 @router.delete("/{drawing_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_drawing(drawing_id: int, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def delete_drawing(drawing_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawing = db.get(Drawing, drawing_id)
     if not drawing:
         raise not_found("Drawing")
@@ -73,13 +73,13 @@ def delete_drawing(drawing_id: int, db: Session = Depends(get_db), current_user:
 
 
 @router.get("/{drawing_id}/versions")
-def list_versions(drawing_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_versions(drawing_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     versions = list(db.scalars(select(DrawingVersion).where(DrawingVersion.drawing_id == drawing_id).order_by(DrawingVersion.version_no)).all())
     return page([DrawingVersionRead.model_validate(v) for v in versions], 1, len(versions), len(versions), request.state.request_id)
 
 
 @router.post("/{drawing_id}/versions", status_code=status.HTTP_201_CREATED)
-def create_version(drawing_id: int, payload: DrawingVersionCreate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def create_version(drawing_id: int, payload: DrawingVersionCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawing = db.get(Drawing, drawing_id)
     if not drawing:
         raise not_found("Drawing")
@@ -94,5 +94,5 @@ def create_version(drawing_id: int, payload: DrawingVersionCreate, request: Requ
 
 
 @router.get("/{drawing_id}/preview")
-def get_preview(drawing_id: int, request: Request):
+def get_preview(drawing_id: int, request: Request, current_user: CurrentUser):
     return ok({"drawing_id": drawing_id, "preview": None, "message": "Preview generation is not implemented in stage 1."}, request.state.request_id)

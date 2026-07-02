@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.post("/agent-runs", status_code=status.HTTP_202_ACCEPTED)
-def create_agent_run(payload: AgentRunCreate, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def create_agent_run(payload: AgentRunCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     if not settings.agent_enabled:
         raise service_unavailable("AGENT_DISABLED", "Agent subsystem is intentionally disabled in stage 1.")
     run = AgentRun(
@@ -33,7 +33,7 @@ def create_agent_run(payload: AgentRunCreate, request: Request, db: Session = De
 
 
 @router.get("/agent-runs/{agent_run_id}")
-def get_agent_run(agent_run_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_agent_run(agent_run_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     run = db.get(AgentRun, agent_run_id)
     if not run:
         raise not_found("AgentRun")
@@ -41,13 +41,13 @@ def get_agent_run(agent_run_id: int, request: Request, db: Session = Depends(get
 
 
 @router.get("/agent-runs/{agent_run_id}/steps")
-def get_agent_run_steps(agent_run_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_agent_run_steps(agent_run_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     steps = list(db.scalars(select(AgentRunStep).where(AgentRunStep.agent_run_id == agent_run_id).order_by(AgentRunStep.id)).all())
     return page([AgentRunStepRead.model_validate(s) for s in steps], 1, len(steps), len(steps), request.state.request_id)
 
 
 @router.get("/agent-tools")
-def list_agent_tools(request: Request):
+def list_agent_tools(request: Request, current_user: CurrentUser):
     if not settings.agent_enabled:
         raise service_unavailable("AGENT_DISABLED", "Agent tools are intentionally disabled in stage 1.")
     return ok([], request.state.request_id)

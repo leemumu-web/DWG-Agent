@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = ""
     minio_secret_key: str = ""
+    # Bucket names per spec §10.2
+    minio_bucket_original: str = "dwg-original"
+    minio_bucket_derived: str = "dwg-derived"
+    minio_bucket_reports: str = "dwg-reports"
+    minio_bucket_temp: str = "dwg-temp"
 
     @property
     def cors_origins(self) -> list[str]:

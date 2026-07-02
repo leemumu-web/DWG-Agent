@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def upload_file(request: Request, upload: UploadFile = File(...), db: Session = Depends(get_db), current_user: CurrentUser = None):
+async def upload_file(request: Request, current_user: CurrentUser, upload: UploadFile = File(...), db: Session = Depends(get_db)):
     stored = await save_upload_file(db, upload, uploaded_by=current_user.id)
     write_audit_log(db, actor_user_id=current_user.id, action="files.upload", resource_type="file", resource_id=stored.id, after_json={"original_name": stored.original_name, "sha256": stored.sha256})
     db.commit()
@@ -25,13 +25,13 @@ async def upload_file(request: Request, upload: UploadFile = File(...), db: Sess
 
 
 @router.get("")
-def list_files(request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def list_files(request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     files = list(db.scalars(select(StoredFile).where(StoredFile.status != "deleted").order_by(StoredFile.id.desc())).all())
     return page([FileRead.model_validate(f) for f in files], 1, len(files), len(files), request.state.request_id)
 
 
 @router.get("/{file_id}")
-def get_file(file_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_file(file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
@@ -39,7 +39,7 @@ def get_file(file_id: int, request: Request, db: Session = Depends(get_db), curr
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_file(file_id: int, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def delete_file(file_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
     stored = db.get(StoredFile, file_id)
     if not stored:
         raise not_found("File")
@@ -50,7 +50,7 @@ def delete_file(file_id: int, db: Session = Depends(get_db), current_user: Curre
 
 
 @router.get("/{file_id}/download-url")
-def get_download_url(file_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def get_download_url(file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
@@ -60,7 +60,7 @@ def get_download_url(file_id: int, request: Request, db: Session = Depends(get_d
 
 
 @router.get("/{file_id}/download")
-def download_file(file_id: int, db: Session = Depends(get_db), current_user: CurrentUser = None):
+def download_file(file_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")

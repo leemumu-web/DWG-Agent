@@ -112,6 +112,7 @@ complete_framework/
 
 ### API Patterns
 
+- **All business endpoints require authentication** — `current_user: CurrentUser` (no `= None` default)
 - **All endpoints** return `{"data": …, "meta": {"request_id": …, "timestamp": …}}`
 - **List endpoints** add `"pagination": {"page": …, "page_size": …, "total": …}`
 - **Error responses** return `{"error": {"code": "…", "message": "…", "details": {}}, "meta": {…}}`
