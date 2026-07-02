@@ -4,15 +4,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.core.exceptions import not_found
-from backend.app.models.job import Job, JobStep
-from backend.app.models.result import AnalysisResult
-from backend.app.schemas.common import ok, page
-from backend.app.schemas.job_schema import JobCreate, JobRead, JobStepRead
-from backend.app.schemas.result_schema import AnalysisResultRead
-from backend.app.services.audit_service import write_audit_log
-from backend.app.services.job_service import create_job, run_local_stub_job
+from app.api.deps import CurrentUser, get_db
+from app.core.exceptions import not_found
+from app.models.job import Job, JobStep
+from app.models.result import AnalysisResult
+from app.schemas.common import ok, page
+from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
+from app.schemas.result_schema import AnalysisResultRead
+from app.services.audit_service import write_audit_log
+from app.services.job_service import create_job, run_local_stub_job
 
 router = APIRouter()
 

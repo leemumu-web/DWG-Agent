@@ -8,12 +8,12 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.core.config import settings
-from backend.app.core.constants import ACTIVE, ROLE_SUPER_ADMIN
-from backend.app.core.exceptions import AppHTTPException, forbidden
-from backend.app.core.security import decode_token
-from backend.app.db.session import get_db
-from backend.app.models.user import User
+from app.core.config import settings
+from app.core.constants import ACTIVE, ROLE_SUPER_ADMIN
+from app.core.exceptions import AppHTTPException, forbidden
+from app.core.security import decode_token
+from app.db.session import get_db
+from app.models.user import User
 
 DbSession = Annotated[Session, Depends(get_db)]
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_v1_prefix}/auth/sessions")

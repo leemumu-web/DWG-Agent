@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from backend.app.core.config import settings
-from backend.app.core.constants import (
+from app.core.config import settings
+from app.core.constants import (
     ROLE_ADMIN,
     ROLE_AUDITOR,
     ROLE_ENGINEER,
@@ -12,10 +12,10 @@ from backend.app.core.constants import (
     ROLE_SUPER_ADMIN,
     ROLE_VIEWER,
 )
-from backend.app.core.security import hash_password
-from backend.app.db.base import Base
-from backend.app.db.session import SessionLocal, engine
-from backend.app.models import Permission, Role, User
+from app.core.security import hash_password
+from app.db.base import Base
+from app.db.session import SessionLocal, engine
+from app.models import Permission, Role, User
 
 ROLE_SEEDS = [
     (ROLE_SUPER_ADMIN, "超级管理员"),

@@ -7,13 +7,13 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from backend.app.core.config import settings
-from backend.app.core.constants import JOB_QUEUED, JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
-from backend.app.db.session import SessionLocal
-from backend.app.models.file import StoredFile
-from backend.app.models.job import Job, JobStep
-from backend.app.models.result import AnalysisResult
-from backend.app.schemas.job_schema import JobCreate
+from app.core.config import settings
+from app.core.constants import JOB_QUEUED, JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
+from app.db.session import SessionLocal
+from app.models.file import StoredFile
+from app.models.job import Job, JobStep
+from app.models.result import AnalysisResult
+from app.schemas.job_schema import JobCreate
 
 
 def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:

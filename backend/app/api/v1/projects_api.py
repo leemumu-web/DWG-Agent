@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.core.exceptions import AppHTTPException, not_found
-from backend.app.models.project import Project, ProjectMember
-from backend.app.schemas.common import ok, page
-from backend.app.schemas.project_schema import (
+from app.api.deps import CurrentUser, get_db
+from app.core.exceptions import AppHTTPException, not_found
+from app.models.project import Project, ProjectMember
+from app.schemas.common import ok, page
+from app.schemas.project_schema import (
     ProjectCreate,
     ProjectMemberCreate,
     ProjectMemberRead,
@@ -16,7 +16,7 @@ from backend.app.schemas.project_schema import (
     ProjectRead,
     ProjectUpdate,
 )
-from backend.app.services.audit_service import write_audit_log
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 

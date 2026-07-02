@@ -4,18 +4,18 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.core.exceptions import not_found
-from backend.app.models.drawing import Drawing, DrawingVersion
-from backend.app.schemas.common import ok, page
-from backend.app.schemas.drawing_schema import (
+from app.api.deps import CurrentUser, get_db
+from app.core.exceptions import not_found
+from app.models.drawing import Drawing, DrawingVersion
+from app.schemas.common import ok, page
+from app.schemas.drawing_schema import (
     DrawingCreate,
     DrawingRead,
     DrawingUpdate,
     DrawingVersionCreate,
     DrawingVersionRead,
 )
-from backend.app.services.audit_service import write_audit_log
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 

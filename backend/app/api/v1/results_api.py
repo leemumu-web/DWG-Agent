@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.core.exceptions import not_found
-from backend.app.models.result import AnalysisResult, ReviewRecord
-from backend.app.schemas.common import ok
-from backend.app.schemas.file_schema import DownloadUrlRead
-from backend.app.schemas.result_schema import AnalysisResultRead, ReviewCreate, ReviewRead
-from backend.app.services.audit_service import write_audit_log
+from app.api.deps import CurrentUser, get_db
+from app.core.exceptions import not_found
+from app.models.result import AnalysisResult, ReviewRecord
+from app.schemas.common import ok
+from app.schemas.file_schema import DownloadUrlRead
+from app.schemas.result_schema import AnalysisResultRead, ReviewCreate, ReviewRead
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 
@@ -45,5 +46,5 @@ def create_review(result_id: int, payload: ReviewCreate, request: Request, db: S
 
 @router.get("/{result_id}/reviews")
 def list_result_reviews(result_id: int, request: Request, db: Session = Depends(get_db), current_user: CurrentUser = None):
-    reviews = [ReviewRead.model_validate(r) for r in db.query(ReviewRecord).filter(ReviewRecord.result_id == result_id).all()]
+    reviews = [ReviewRead.model_validate(r) for r in db.scalars(select(ReviewRecord).where(ReviewRecord.result_id == result_id)).all()]
     return ok(reviews, request.state.request_id)

@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from backend.app.core.config import settings
+from app.core.config import settings
 
 if settings.database_url.startswith("sqlite"):
     db_path = settings.database_url.replace("sqlite:///", "", 1)

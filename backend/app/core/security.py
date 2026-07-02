@@ -6,7 +6,7 @@ from typing import Any
 import jwt
 from pwdlib import PasswordHash
 
-from backend.app.core.config import settings
+from app.core.config import settings
 
 password_hash = PasswordHash.recommended()
 

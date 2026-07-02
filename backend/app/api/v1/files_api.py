@@ -5,13 +5,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.core.exceptions import not_found
-from backend.app.models.file import StoredFile
-from backend.app.schemas.common import ok, page
-from backend.app.schemas.file_schema import DownloadUrlRead, FileRead
-from backend.app.services.audit_service import write_audit_log
-from backend.app.services.storage_service import get_local_file_path, save_upload_file
+from app.api.deps import CurrentUser, get_db
+from app.core.exceptions import not_found
+from app.models.file import StoredFile
+from app.schemas.common import ok, page
+from app.schemas.file_schema import DownloadUrlRead, FileRead
+from app.services.audit_service import write_audit_log
+from app.services.storage_service import get_local_file_path, save_upload_file
 
 router = APIRouter()
 

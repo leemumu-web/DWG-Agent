@@ -5,8 +5,8 @@ from io import BytesIO
 
 from fastapi.testclient import TestClient
 
-from backend.app.db.init_db import init_db
-from backend.app.main import app
+from app.db.init_db import init_db
+from app.main import app
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:

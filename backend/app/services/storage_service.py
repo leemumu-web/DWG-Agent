@@ -8,10 +8,10 @@ from uuid import uuid4
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from backend.app.core.config import settings
-from backend.app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
-from backend.app.core.exceptions import AppHTTPException
-from backend.app.models.file import StoredFile
+from app.core.config import settings
+from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
+from app.core.exceptions import AppHTTPException
+from app.models.file import StoredFile
 
 
 def validate_upload_name(filename: str) -> str:

@@ -5,8 +5,8 @@ from typing import Any
 from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.app.db.base import Base
-from backend.app.models.mixins import TimestampMixin
+from app.db.base import Base
+from app.models.mixins import TimestampMixin
 
 
 class AuditLog(TimestampMixin, Base):

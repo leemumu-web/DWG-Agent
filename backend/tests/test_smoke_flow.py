@@ -4,8 +4,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from backend.app.db.init_db import init_db
-from backend.app.main import app
+from app.db.init_db import init_db
+from app.main import app
 
 
 def test_login_project_job_result_flow():

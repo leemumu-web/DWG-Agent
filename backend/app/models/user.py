@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from backend.app.db.base import Base
-from backend.app.models.mixins import TimestampMixin
-from backend.app.models.role import user_roles
+from app.db.base import Base
+from app.models.mixins import TimestampMixin
+from app.models.role import user_roles
 
 if TYPE_CHECKING:
-    from backend.app.models.role import Role
+    from app.models.role import Role
 
 
 class User(TimestampMixin, Base):

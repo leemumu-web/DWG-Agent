@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.models.result import AnalysisResult
-from backend.app.schemas.common import page
-from backend.app.schemas.result_schema import AnalysisResultRead
+from app.api.deps import CurrentUser, get_db
+from app.models.result import AnalysisResult
+from app.schemas.common import page
+from app.schemas.result_schema import AnalysisResultRead
 
 router = APIRouter()
 

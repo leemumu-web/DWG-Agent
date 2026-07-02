@@ -10,6 +10,7 @@ dist/
 build/
 backend/var/
 frontend/.env
+backend/.env
 .DS_Store
 tsconfig.tsbuildinfo
 

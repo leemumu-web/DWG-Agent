@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from backend.app.schemas.user_schema import UserRead
+from app.schemas.user_schema import UserRead
 
 
 class LoginRequest(BaseModel):

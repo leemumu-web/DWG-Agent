@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from backend.app.db.base import Base
-from backend.app.models.mixins import TimestampMixin
+from app.db.base import Base
+from app.models.mixins import TimestampMixin
 
 
 class StoredFile(TimestampMixin, Base):

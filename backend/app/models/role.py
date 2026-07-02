@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, Column, ForeignKey, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from backend.app.db.base import Base
-from backend.app.models.mixins import TimestampMixin
+from app.db.base import Base
+from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
-    from backend.app.models.user import User
+    from app.models.user import User
 
 user_roles = Table(
     "sys_user_roles",

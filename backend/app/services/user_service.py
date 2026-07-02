@@ -3,12 +3,12 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.core.constants import ACTIVE, DELETED
-from backend.app.core.exceptions import AppHTTPException, not_found
-from backend.app.core.security import hash_password
-from backend.app.models.role import Role
-from backend.app.models.user import User
-from backend.app.schemas.user_schema import UserCreate, UserUpdate
+from app.core.constants import ACTIVE, DELETED
+from app.core.exceptions import AppHTTPException, not_found
+from app.core.security import hash_password
+from app.models.role import Role
+from app.models.user import User
+from app.schemas.user_schema import UserCreate, UserUpdate
 
 
 def create_user(db: Session, payload: UserCreate) -> User:

@@ -3,14 +3,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import CurrentUser, get_db
-from backend.app.core.config import settings
-from backend.app.core.exceptions import AppHTTPException
-from backend.app.schemas.auth_schema import LoginRequest, LoginResponse
-from backend.app.schemas.common import ok
-from backend.app.schemas.user_schema import UserRead
-from backend.app.services.audit_service import write_audit_log
-from backend.app.services.auth_service import authenticate_user, build_login_token
+from app.api.deps import CurrentUser, get_db
+from app.core.config import settings
+from app.core.exceptions import AppHTTPException
+from app.schemas.auth_schema import LoginRequest, LoginResponse
+from app.schemas.common import ok
+from app.schemas.user_schema import UserRead
+from app.services.audit_service import write_audit_log
+from app.services.auth_service import authenticate_user, build_login_token
 
 router = APIRouter()
 

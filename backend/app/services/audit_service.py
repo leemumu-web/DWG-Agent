@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from backend.app.models.audit_log import AuditLog
+from app.models.audit_log import AuditLog
 
 
 def write_audit_log(

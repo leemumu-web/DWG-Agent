@@ -8,11 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from backend.app.api.v1.router import api_router
-from backend.app.core.config import settings
-from backend.app.core.exceptions import AppHTTPException
-from backend.app.core.logger import configure_logging
-from backend.app.schemas.common import meta, ok
+from app.api.v1.router import api_router
+from app.core.config import settings
+from app.core.exceptions import AppHTTPException
+from app.core.logger import configure_logging
+from app.schemas.common import meta, ok
 
 configure_logging()
 

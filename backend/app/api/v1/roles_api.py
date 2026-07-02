@@ -4,19 +4,19 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import get_db, require_roles
-from backend.app.core.constants import ROLE_SUPER_ADMIN
-from backend.app.core.exceptions import AppHTTPException, not_found
-from backend.app.models.role import Permission, Role
-from backend.app.models.user import User
-from backend.app.schemas.common import ok, page
-from backend.app.schemas.user_schema import (
+from app.api.deps import get_db, require_roles
+from app.core.constants import ROLE_SUPER_ADMIN
+from app.core.exceptions import AppHTTPException, not_found
+from app.models.role import Permission, Role
+from app.models.user import User
+from app.schemas.common import ok, page
+from app.schemas.user_schema import (
     PermissionRead,
     ReplaceRolePermissionsRequest,
     RoleCreate,
     RoleRead,
 )
-from backend.app.services.audit_service import write_audit_log
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 

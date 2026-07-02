@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from backend.app.api.v1 import agent_runs_api, audit_logs_api, auth_api, drawings_api, files_api, health_api, jobs_api, projects_api, results_api, reviews_api, roles_api
+from app.api.v1 import agent_runs_api, audit_logs_api, auth_api, drawings_api, files_api, health_api, jobs_api, projects_api, results_api, reviews_api, roles_api
 from fastapi import APIRouter
 
-from backend.app.api.v1 import (
+from app.api.v1 import (
     users_api,
 )
 

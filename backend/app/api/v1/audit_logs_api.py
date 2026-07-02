@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.api.deps import get_db, require_roles
-from backend.app.core.constants import ROLE_AUDITOR, ROLE_SUPER_ADMIN
-from backend.app.core.exceptions import not_found
-from backend.app.models.audit_log import AuditLog
-from backend.app.models.user import User
-from backend.app.schemas.audit_schema import AuditLogRead
-from backend.app.schemas.common import ok, page
+from app.api.deps import get_db, require_roles
+from app.core.constants import ROLE_AUDITOR, ROLE_SUPER_ADMIN
+from app.core.exceptions import not_found
+from app.models.audit_log import AuditLog
+from app.models.user import User
+from app.schemas.audit_schema import AuditLogRead
+from app.schemas.common import ok, page
 
 router = APIRouter()
 

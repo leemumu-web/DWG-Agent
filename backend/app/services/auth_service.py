@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.core.constants import ACTIVE
-from backend.app.core.security import create_access_token, verify_password
-from backend.app.models.user import User
+from app.core.constants import ACTIVE
+from app.core.security import create_access_token, verify_password
+from app.models.user import User
 
 
 def authenticate_user(db: Session, username: str, password: str) -> User | None:
