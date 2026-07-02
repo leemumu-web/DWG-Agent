@@ -19,7 +19,10 @@ export function AppLayout() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider width={240}>
-        <div className="brand">DWG-Agent</div>
+        <div className="brand">
+          <img src="/logo.png" alt="DWG-Agent Logo" className="brand-logo" />
+          <span className="brand-text">DWG-Agent</span>
+        </div>
         <Menu theme="dark" mode="inline" selectedKeys={[location.pathname]} items={items} />
       </Sider>
       <Layout>

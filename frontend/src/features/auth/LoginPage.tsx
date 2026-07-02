@@ -20,7 +20,10 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <Card className="login-card">
-        <Typography.Title level={3}>DWG-Agent 平台登录</Typography.Title>
+        <div className="login-brand">
+          <img src="/logo.png" alt="DWG-Agent Logo" className="login-logo" />
+          <Typography.Title level={3} style={{ margin: 0 }}>DWG-Agent 平台登录</Typography.Title>
+        </div>
         <Form layout="vertical" onFinish={onFinish} initialValues={{ username: 'admin', password: 'admin123456' }}>
           <Form.Item name="username" label="账号" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="password" label="密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
