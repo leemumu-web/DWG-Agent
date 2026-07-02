@@ -1,7 +1,0 @@
-{
-  "source": "local_stub",
-  "job_id": 10,
-  "task_type": "framework_smoke_test",
-  "precision_level": "normal",
-  "message": "Agent、DWG/DXF 与 CAD Worker 尚未接入；当前结果用于验证任务、结果、下载、审计链路。"
-}
