@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
@@ -12,11 +13,23 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppHTTPException
 from app.core.logger import configure_logging
+from app.core.redis_client import close_redis, get_redis, redis_health
+from app.db.session import db_health
 from app.schemas.common import meta, ok
 
 configure_logging()
 
-app = FastAPI(title=settings.app_name, debug=settings.debug)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: eagerly probe Redis so the log shows connected/unavailable early
+    get_redis()
+    yield
+    # Shutdown: clean up Redis connection pool
+    close_redis()
+
+
+app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,7 +81,20 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.get("/health")
 def root_health(request: Request):
-    return ok({"status": "ok", "service": "dwg-agent-backend"}, request.state.request_id)
+    components = {
+        "api": {"status": "ok", "message": "dwg-agent-backend is running."},
+        "database": db_health(),
+        "redis": redis_health(),
+    }
+    overall = all(c["status"] == "ok" for c in components.values())
+    return ok(
+        {
+            "status": "ok" if overall else "degraded",
+            "service": "dwg-agent-backend",
+            "components": components,
+        },
+        request.state.request_id,
+    )
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
