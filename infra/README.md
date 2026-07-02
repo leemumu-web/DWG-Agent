@@ -52,14 +52,13 @@ docker compose down
 
 ```
 infra/
-├── nginx/             # Nginx 网关配置（详见 nginx/README.md）
-│   ├── nginx.conf         # Docker 版主配置（容器内路径）
-│   ├── nginx.local.conf   # 本地开发版主配置（宿主机路径）
-│   ├── conf.d/            # server 块配置
-│   ├── snippets/          # proxy/security/rate-limit 公共片段
-│   └── ssl/               # SSL 证书（阶段 C）
+├── nginx/             # Nginx 网关（详见 nginx/README.md）
+│   ├── nginx.conf         # Docker 版 — 单文件自包含
+│   ├── nginx.local.conf   # 本地开发版
+│   ├── ssl/               # SSL 证书占位（阶段 C）
+│   └── logs/              # 运行时日志（.gitignore）
 ├── mysql/
-│   └── init.sql           # 首次启动建库授权脚本
+│   └── init.sql           # 手动初始化参考脚本
 ├── redis/                 # Redis 配置占位
 └── minio/                 # MinIO 配置占位
 ```

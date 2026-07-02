@@ -15,7 +15,15 @@ if settings.database_url.startswith("sqlite"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
 connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, pool_pre_ping=True, connect_args=connect_args)
+
+# MySQL connection pool — recycle connections before MySQL wait_timeout (default 28800s)
+pool_args: dict = {}
+if settings.database_url.startswith("mysql"):
+    pool_args = {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
+
+engine = create_engine(
+    settings.database_url, pool_pre_ping=True, connect_args=connect_args, **pool_args
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 # ---------------------------------------------------------------------------

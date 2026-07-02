@@ -1,37 +1,22 @@
-# ────────────────────────────────────────────────────────────────
-# DWG-Agent Platform — Docker Compose 服务编排
+# DWG-Agent Platform — Docker Compose
 # 规范参考: §17.4 Docker Compose 服务结构
 #
-# 启动方式:
-#   # 阶段 A/B — 核心服务
-#   docker compose up -d
+# 前置: cd frontend && npm run build
+# 启动: docker compose up -d
 #
-#   # 阶段 B+ — 含异步 Worker
-#   docker compose --profile workers up -d
-#
-#   # 完整平台 — 含监控
-#   docker compose --profile workers --profile monitoring up -d
-#
-# 前置条件:
-#   - 前端已构建: cd frontend && npm run build
-#   - .env 文件已配置（参考 .env.example）
-# ────────────────────────────────────────────────────────────────
-
-name: dwg-agent
+# profiles 说明: 规范 §17.4 定义的是完整平台目标状态，未区分阶段。
+# 当前 worker 代码为占位（阶段二实现），使用 profiles 避免空 worker
+# 在 docker compose up 时崩溃。实现后移除 profiles 即可匹配规范。
 
 services:
-  # ── 网关层 — Nginx ────────────────────────────────────────────
   nginx:
     image: nginx:1.27-alpine
     ports:
       - "80:80"
-      # - "443:443"   # 阶段 C: HTTPS 启用后取消注释
+      - "443:443"
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./infra/nginx/snippets:/etc/nginx/snippets:ro
-      - ./infra/nginx/ssl:/etc/nginx/ssl:ro
       - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       backend-api:
         condition: service_healthy
@@ -39,13 +24,7 @@ services:
       - public
       - internal
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ── 平台 API 层 — FastAPI ─────────────────────────────────────
   backend-api:
     build:
       context: ./backend
@@ -70,26 +49,15 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 15s
     networks:
       - internal
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ── 异步执行层 — Celery Workers ───────────────────────────────
-  # profile: workers — 阶段二起启用
 
   worker-agent:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: >
-      uv run celery -A app.workers.celery_app worker
-      -Q agent -n agent@%h --concurrency=2
+    command: uv run celery -A app.workers.celery_app worker -Q agent -n agent@%h --concurrency=2
     env_file:
       - .env
     depends_on:
@@ -107,9 +75,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: >
-      uv run celery -A app.workers.celery_app worker
-      -Q dxf -n dxf@%h --concurrency=2
+    command: uv run celery -A app.workers.celery_app worker -Q dxf -n dxf@%h --concurrency=2
     env_file:
       - .env
     depends_on:
@@ -129,60 +95,27 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: >
-      uv run celery -A app.workers.celery_app worker
-      -Q report -n report@%h --concurrency=2
+    command: uv run celery -A app.workers.celery_app worker -Q report -n report@%h --concurrency=2
     env_file:
       - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
     networks:
       - internal
     restart: unless-stopped
     profiles:
       - workers
-
-  worker-cad-dispatch:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: >
-      uv run celery -A app.workers.celery_app worker
-      -Q cad-dispatch -n cad-dispatch@%h --concurrency=2
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    networks:
-      - internal
-    restart: unless-stopped
-    profiles:
-      - workers
-
-  # ── 数据层 ────────────────────────────────────────────────────
 
   mysql:
     image: mysql:8.4
     environment:
       MYSQL_DATABASE: dwg_agent
       MYSQL_USER: dwg_user
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?err}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?err}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me-mysql}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me-mysql-root}
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-change-me-mysql-root}"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -192,14 +125,11 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    command: >
-      redis-server
-      --appendonly yes
-      --requirepass ${REDIS_PASSWORD:?err}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-change-me-redis}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change-me-redis}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -211,8 +141,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?err}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?err}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
     healthcheck:
@@ -224,37 +154,25 @@ services:
       - internal
     restart: unless-stopped
 
-  # ── 任务监控 — Flower ─────────────────────────────────────────
-  # profile: monitoring
-
   flower:
     build:
       context: ./backend
       dockerfile: Dockerfile
     command: uv run celery -A app.workers.celery_app flower --port=5555
-    ports:
-      - "5555:5555"
     env_file:
       - .env
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
       - internal
     restart: unless-stopped
     profiles:
       - monitoring
 
-# ── 持久化卷 ──────────────────────────────────────────────────
 volumes:
   mysql_data:
   redis_data:
   minio_data:
 
-# ── 网络 ──────────────────────────────────────────────────────
 networks:
-  # 对外暴露网络（仅 Nginx 接入）
   public:
-  # 内部服务网络（默认隔离，外部不可达）
   internal:
     internal: true

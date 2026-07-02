@@ -96,8 +96,12 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf -s quit
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework
 
-# 前置：配置 .env 密码变量（复制自 .env.example 并修改）
+# 前置：从模板创建 .env 并修改密码（首次）
+cp .env.example .env
+# 编辑 .env 中的 MYSQL_PASSWORD / REDIS_PASSWORD / MINIO_ROOT_PASSWORD
+
 # 前置：frontend/dist/ 已构建
+cd frontend && npm run build && cd ..
 
 # 核心服务
 docker compose up -d

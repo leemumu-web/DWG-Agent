@@ -19,6 +19,13 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./var/app.db"
 
+    # MySQL component fields (spec §18) — for Docker deployment; dev uses database_url above
+    mysql_host: str = "mysql"
+    mysql_port: int = 3306
+    mysql_database: str = "dwg_agent"
+    mysql_user: str = "dwg_user"
+    mysql_password: str = ""
+
     storage_backend: Literal["local", "minio"] = "local"
     local_storage_root: Path = Path("./var/storage")
     max_upload_size_mb: int = 512
@@ -60,6 +67,16 @@ class Settings(BaseSettings):
         override and the per-component REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD format."""
         password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
         return f"redis://{password_part}{self.redis_host}:{self.redis_port}/{self.redis_db}"
+
+    @property
+    def mysql_url(self) -> str:
+        """Assemble MySQL URL from component fields (spec §18), URL-encoding the password."""
+        user_part = (
+            f"{self.mysql_user}:{url_quote(self.mysql_password, safe='')}"
+            if self.mysql_password
+            else self.mysql_user
+        )
+        return f"mysql+pymysql://{user_part}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
 
 
 

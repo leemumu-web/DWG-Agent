@@ -52,7 +52,7 @@ complete_framework/
 │   │   ├── storage/               ← PLACEHOLDER (base/local/minio stubs)
 │   │   ├── integrations/zwcad/    ← PLACEHOLDER (ZWCAD worker client)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 83 tests (pytest + fakeredis + TestClient)
+│   ├── tests/                     ← 121 tests (pytest + fakeredis + TestClient)
 │   │   └── conftest.py            ← FakeRedis autouse fixture
 │   ├── migrations/                ← Alembic (NO migrations yet — uses create_all)
 │   └── var/                       ← runtime data (SQLite DB, uploaded files)
@@ -85,6 +85,8 @@ complete_framework/
 - **Backend:** Python **3.12 only** (`>=3.12,<3.13`), `uv` for package management
 - **Frontend:** React 19, TypeScript, Vite, Ant Design 6, TanStack Query, Zustand
 - **Database:** SQLite for dev (`sqlite:///./var/app.db`), MySQL for production
+- **MySQL config:** component fields (`mysql_host`/`mysql_port`/`mysql_database`/`mysql_user`/`mysql_password`) + computed `mysql_url` property, per spec §18
+- **MySQL pool:** `pool_recycle=3600`, `pool_size=10`, `max_overflow=20` (only when `DATABASE_URL` starts with `mysql`)
 - **ORM:** SQLAlchemy 2.x, synchronous session
 - **Schema:** Pydantic v2 with `model_config = ConfigDict(from_attributes=True)`
 - **Config:** pydantic-settings, `.env` file, `extra="ignore"`
@@ -136,13 +138,14 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests   # must pass
-uv run pytest -q              # must pass (83 tests expected)
+uv run pytest -q              # must pass (121 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`
 - No real Redis — `conftest.py` injects `FakeRedis` via module-level monkeypatch
 - No real HTTP — all tests are in-process
 - Test DB is the same SQLite as dev; `init_db()` is called in tests that need seeded data
+- MySQL fields tested via unit-level `Settings()` instantiation (no real MySQL server)
 
 ---
 
@@ -178,6 +181,12 @@ uv run pytest -q              # must pass (83 tests expected)
 | Auth service | `backend/app/services/auth_service.py` |
 | Job stub worker | `backend/app/services/job_service.py` |
 | File storage | `backend/app/services/storage_service.py` |
+| MySQL config | `backend/app/core/config.py` (mysql_* fields + mysql_url property) |
+| DB session + pool | `backend/app/db/session.py` |
+| MySQL init script | `infra/mysql/init.sql` |
+| Compose infra | `compose.yaml` |
 | Test fixtures | `backend/tests/conftest.py` |
+| Config tests | `backend/tests/test_config.py` (Redis + MySQL) |
+| Session tests | `backend/tests/test_db_session.py` |
 | Frontend router | `frontend/src/app/router.tsx` |
 | Frontend API client | `frontend/src/api/client.ts` |
