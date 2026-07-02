@@ -5,10 +5,10 @@ React + TypeScript + Vite 前端骨架。
 ## 快速启动
 
 ```bash
-# 首次安装（或 node_modules 不存在时）
-npm install
+# 首次安装 — 严格按 package-lock.json（推荐）
+npm ci
 
-# 日常增量安装（node_modules 已存在，比 npm ci 快 10 倍以上）
+# 日常增量安装 — 比 npm ci 快
 npm install --prefer-offline
 
 # 启动开发服务器

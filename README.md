@@ -1,7 +1,9 @@
-# DWG-Agent 企业级 CAD 智能处理平台 · 本机开发骨架
+# DWG-Agent 企业级 CAD 智能处理平台
 
-本仓库是基于《DWG-Agent 企业平台技术规范》落地的第一版工程框架。
-当前阶段明确 **不使用 Docker**，后端 Python 固定为 **3.12**，优先完成本机可运行的前后端骨架、RESTful API、数据库模型、文件上传、任务占位执行、审计与权限边界。
+基于《DWG-Agent 企业平台技术规范》（`DWG-Agent企业平台技术规范.md`，2456 行，25 节）落地的工程实现。
+后端 Python **3.12**，前端 React 19 + TypeScript，基础设施按三阶段推进。
+
+> 开发指南详见 `CLAUDE.md`，基础设施配置详见 `infra/`
 
 ## 当前实现范围
 
@@ -24,6 +26,9 @@
 - Axios API client、TanStack Query、Zustand、Ant Design 6
 - 登录页、工作台、项目页、文件页、图纸页、任务页、复核页、用户管理、审计日志页
 - 权限守卫组件（路由级）
+- **Nginx 网关** — 本地开发（`nginx.local.conf`）+ Docker 部署（`nginx.conf`），SPA fallback / 反向代理 / 限流 / 安全头
+- **Docker Compose** — 9 服务编排（`compose.yaml`），profiles 分阶段启动
+- **MySQL 本机** — MariaDB 11.8，数据库 `dwg_agent`，17 张表，7 角色种子
 
 已修正（详见 `docs/stage1-review.md`）：
 
@@ -34,21 +39,21 @@
 
 暂不实现：
 
-- Agent 内部 LangGraph 调用
-- DWG → DXF 转换与 ezdxf 解析
-- Windows ZWCAD Worker 实际调用
-- Docker Compose / Nginx / MinIO / Redis / Celery 生产编排
+- Agent 内部 LangGraph 调用（阶段二）
+- DWG → DXF 转换与 ezdxf 解析（阶段三）
+- Windows ZWCAD Worker 实际调用（阶段四）
+- Redis / MinIO / Celery 实际运行（compose 定义就绪，worker 代码占位）
 
 ## 目录结构
 
 ```text
 complete_framework/
 ├── README.md
-├── .env.example              # 后端环境变量模板
+├── CLAUDE.md                   # Agent 开发指令
+├── DWG-Agent企业平台技术规范.md  # 核心规范文档
+├── .env.example                # 后端环境变量模板
 ├── Makefile
-├── docs/
-│   ├── stage1-review.md      # 第一阶段审查结论
-│   └── api.md                # API 文档
+├── compose.yaml                # Docker Compose 9 服务编排
 ├── backend/
 │   ├── pyproject.toml         # Python >=3.12,<3.13
 │   ├── uv.lock                # 已提交，锁定全部依赖
@@ -58,11 +63,11 @@ complete_framework/
 │   │   ├── api/v1/            # 12 个路由模块
 │   │   ├── models/            # 10 个 ORM 模型
 │   │   ├── schemas/           # Pydantic v2
-│   │   ├── services/          # 6 个 service
+│   │   ├── services/          # 7 个 service
 │   │   ├── core/              # config / security / exceptions / constants / logger
 │   │   ├── db/                # base / session / init_db
 │   │   └── ...
-│   ├── tests/                 # 5 个集成测试
+│   ├── tests/                 # 121 个测试（10 文件）
 │   └── migrations/            # Alembic（stage 1 尚未生成迁移文件）
 ├── frontend/
 │   ├── package.json           # 无 latest，版本已锁定
@@ -80,7 +85,16 @@ complete_framework/
 │       └── hooks/
 ├── agents/                    # Agent 定义占位
 ├── cad-worker/                # Windows CAD Worker 占位
-├── infra/                     # Docker / Nginx 配置占位
+├── infra/                     # 基础设施配置（Nginx / MySQL / compose）
+│   ├── nginx/
+│   │   ├── nginx.conf         #   Docker 版（单文件自包含）
+│   │   └── nginx.local.conf   #   本机开发版
+│   ├── mysql/init.sql         #   MySQL 初始化脚本
+│   └── verify.sh              #   基础设施验证脚本（85 测试点）
+├── docs/
+│   ├── stage1-review.md
+│   ├── api.md
+│   └── local-dev.md           #   本机开发详细说明
 └── scripts/                   # 运维脚本占位
 ```
 
@@ -101,7 +115,7 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ```bash
 uv run ruff check app tests     # 代码风格检查
-uv run pytest -q                # 5 个集成测试
+uv run pytest -q                # 121 个测试
 ```
 
 ### 前端
@@ -120,6 +134,40 @@ npm run dev                     # 开发服务器 http://127.0.0.1:5173
 
 ```bash
 npm audit                       # 已知 0 vulnerabilities
+```
+
+### Nginx（可选，统一入口）
+
+```bash
+# 前置：后端已启动（127.0.0.1:8000），前端已构建（frontend/dist/）
+sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
+# 访问 http://localhost:8080 — SPA + API 反代 + 限流 + 安全头
+```
+
+详见 `infra/nginx/README.md`。
+
+### Docker Compose（阶段 B）
+
+```bash
+# 前置：配置 .env（密码变量），前端已构建
+docker compose up -d                              # 核心服务
+docker compose --profile workers up -d            # + Celery Workers（阶段二）
+docker compose --profile monitoring up -d         # + Flower 监控
+# 访问 http://localhost
+```
+
+### MySQL 本机
+
+```bash
+# MariaDB 已配置，数据库 dwg_agent，17 张表，7 角色种子
+sudo systemctl start mariadb
+# backend/.env 中: DATABASE_URL=mysql+pymysql://dwg_user:change-me-mysql@127.0.0.1:3306/dwg_agent
+```
+
+### 基础设施验证
+
+```bash
+bash infra/verify.sh             # Nginx / Docker Compose / Dockerfile / MySQL 共 85 项检查
 ```
 
 ### 默认账号

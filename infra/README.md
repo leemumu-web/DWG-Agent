@@ -58,7 +58,7 @@ infra/
 │   ├── ssl/               # SSL 证书占位（阶段 C）
 │   └── logs/              # 运行时日志（.gitignore）
 ├── mysql/
-│   └── init.sql           # 手动初始化参考脚本
+│   └── init.sql           # MySQL 初始化（compose 自动挂载到 /docker-entrypoint-initdb.d/）
 ├── redis/                 # Redis 配置占位
 └── minio/                 # MinIO 配置占位
 ```
