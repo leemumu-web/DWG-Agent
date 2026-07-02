@@ -1,5 +1,10 @@
 # 本机开发启动说明
 
+> **前置：所有命令在仓库根目录执行。**
+> ```bash
+> cd /path/to/complete_framework   # 替换为你的实际路径
+> ```
+
 当前阶段默认不使用 Docker。开发环境拆成三个层次：
 
 1. 后端 FastAPI：本机 `uv` 管理 Python 3.12 环境。
@@ -9,7 +14,12 @@
 ## 后端启动
 
 ```bash
-cd /home/Creeken/Paper/CAD_research/complete_framework/backend
+cd backend
+
+# Redis（可选但推荐——无 Redis 时后端以 degraded 模式运行）
+sudo pacman -S redis
+sudo systemctl enable --now redis
+
 uv python install 3.12  # 如果本机尚未安装 Python 3.12
 uv sync --locked
 cp ../.env.example .env
@@ -27,7 +37,7 @@ curl http://127.0.0.1:8000/api/v1/health
 ## 前端启动
 
 ```bash
-cd /home/Creeken/Paper/CAD_research/complete_framework/frontend
+cd frontend
 npm ci
 npm run dev
 ```
@@ -55,6 +65,7 @@ DATABASE_URL=mysql+pymysql://dwg_user:your_password@127.0.0.1:3306/dwg_agent
 然后重新执行：
 
 ```bash
+cd backend
 uv run python -m app.db.init_db
 ```
 
@@ -63,8 +74,7 @@ uv run python -m app.db.init_db
 Nginx 可选启动，将前后端统一到 `http://localhost:8080`：
 
 ```bash
-cd /home/Creeken/Paper/CAD_research/complete_framework
-
+# 从仓库根目录执行
 # 1. 确认后端已启动（127.0.0.1:8000）
 # 2. 确认前端已构建（frontend/dist/ 存在）
 
@@ -94,8 +104,7 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf -s quit
 ## Docker Compose 启动（阶段 B）
 
 ```bash
-cd /home/Creeken/Paper/CAD_research/complete_framework
-
+# 从仓库根目录执行
 # 前置：从模板创建 .env 并修改密码（首次）
 cp .env.example .env
 # 编辑 .env 中的 MYSQL_PASSWORD / REDIS_PASSWORD / MINIO_ROOT_PASSWORD

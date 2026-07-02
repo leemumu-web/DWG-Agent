@@ -50,8 +50,17 @@ class Settings(BaseSettings):
     redis_memory_ttl: int = 7200
     redis_max_messages: int = 20
 
-    celery_broker_url: str = "redis://localhost:6379/0"
-    celery_result_backend: str = "redis://localhost:6379/1"
+    @property
+    def celery_broker_url(self) -> str:
+        """Assemble Celery broker URL from Redis component fields, matching redis_url auth."""
+        password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        return f"redis://{password_part}{self.redis_host}:{self.redis_port}/0"
+
+    @property
+    def celery_result_backend(self) -> str:
+        """Assemble Celery result backend URL from Redis component fields."""
+        password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        return f"redis://{password_part}{self.redis_host}:{self.redis_port}/1"
 
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = ""
@@ -63,8 +72,11 @@ class Settings(BaseSettings):
 
     @property
     def redis_url(self) -> str:
-        """Assemble Redis URL from component fields, supporting both direct REDIS_URL env
-        override and the per-component REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD format."""
+        """Assemble Redis URL from component fields (REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD).
+
+        When password is empty the URL omits the auth segment entirely, producing
+        ``redis://host:port/db`` suitable for a passwordless local dev server.
+        """
         password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
         return f"redis://{password_part}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 

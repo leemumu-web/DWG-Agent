@@ -80,6 +80,38 @@ class TestRedisEnvMapping:
         assert "7000" in s.redis_url
 
 
+class TestCeleryUrls:
+    """Celery broker/result backend URLs computed from Redis component fields."""
+
+    def test_no_password_default(self):
+        s = Settings()
+        assert s.celery_broker_url == "redis://localhost:6379/0"
+        assert s.celery_result_backend == "redis://localhost:6379/1"
+
+    def test_with_password(self, monkeypatch):
+        monkeypatch.setenv("REDIS_PASSWORD", "s3cret")
+        s = Settings()
+        assert s.celery_broker_url == "redis://:s3cret@localhost:6379/0"
+        assert s.celery_result_backend == "redis://:s3cret@localhost:6379/1"
+
+    def test_password_encoded_for_url_safety(self, monkeypatch):
+        monkeypatch.setenv("REDIS_PASSWORD", "p@ss!")
+        s = Settings()
+        assert "%40" in s.celery_broker_url
+        assert "%21" in s.celery_broker_url
+
+    def test_consistent_with_redis_url(self, monkeypatch):
+        """Celery URLs share the same password+host+port as redis_url, only DB differs."""
+        monkeypatch.setenv("REDIS_PASSWORD", "shared-secret")
+        monkeypatch.setenv("REDIS_HOST", "redis.internal")
+        monkeypatch.setenv("REDIS_PORT", "6380")
+        s = Settings()
+        assert "shared-secret" in s.celery_broker_url
+        assert "redis.internal:6380" in s.celery_broker_url
+        assert s.celery_broker_url.endswith("/0")
+        assert s.celery_result_backend.endswith("/1")
+
+
 # ---------------------------------------------------------------------------
 # MySQL configuration (spec §18 component fields)
 # ---------------------------------------------------------------------------
@@ -163,9 +195,8 @@ class TestMysqlEnvMapping:
         assert s.redis_url == "redis://localhost:6379/0"
         assert s.redis_host == "localhost"
 
-    def test_mysql_url_can_serve_as_database_url(self):
+    def test_mysql_url_can_serve_as_database_url(self, monkeypatch):
         """mysql_url is a valid pymysql connection string suitable for DATABASE_URL."""
-        monkeypatch = __import__("pytest").MonkeyPatch()
         monkeypatch.setenv("MYSQL_PASSWORD", "test123")
         s = Settings()
         # mysql_url should be parseable as a valid SQLAlchemy URL

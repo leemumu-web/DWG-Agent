@@ -1,6 +1,6 @@
 # DWG-Agent Platform — Agent Instructions
 
-> **Spec authority:** `/home/Creeken/Paper/CAD_research/complete_framework/DWG-Agent企业平台技术规范.md`
+> **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root)
 > (2455 lines, 25 sections, v1.0)
 >
 > Every design decision flows from this document. When in doubt, read the spec first.
@@ -52,7 +52,7 @@ complete_framework/
 │   │   ├── storage/               ← PLACEHOLDER (base/local/minio stubs)
 │   │   ├── integrations/zwcad/    ← PLACEHOLDER (ZWCAD worker client)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 121 tests (pytest + fakeredis + TestClient)
+│   ├── tests/                     ← 148 tests (pytest + fakeredis + real Redis)
 │   │   └── conftest.py            ← FakeRedis autouse fixture
 │   ├── migrations/                ← Alembic (NO migrations yet — uses create_all)
 │   └── var/                       ← runtime data (SQLite DB, uploaded files)
@@ -79,6 +79,16 @@ complete_framework/
 ---
 
 ## 3. Key Conventions
+
+### Paths — relative to repo root
+
+- **All paths in docs, configs, and code MUST be relative to the repository root.** Never hardcode `/home/Creeken/...` or any user-specific absolute paths.
+- `CLAUDE.md`, `.env.example`, `compose.yaml`, `README.md` — all at repo root, reference sub-paths as `backend/...`, `frontend/...`, `infra/...`
+- Within `backend/`: `app/core/config.py` uses `Path("./var/storage")` (relative to CWD at runtime)
+- Within `frontend/`: Vite config uses relative paths; `VITE_API_BASE_URL` is empty in dev (Vite proxy) and set via env in Docker
+- Nginx configs: Docker uses `nginx.conf` (container paths `/etc/nginx/...`, `/usr/share/nginx/html`); local dev uses `nginx.local.conf` (started via `nginx -c $(pwd)/infra/nginx/nginx.local.conf` from repo root)
+- **Exception:** `infra/nginx/nginx.local.conf` (local dev only, NOT used in Docker) contains hardcoded paths because nginx requires absolute paths for `error_log`/`pid`/`access_log`/`root` directives. A sed command to auto-replace is documented in the file header. Docker deployment uses `infra/nginx/nginx.conf` which uses container-relative paths.
+- This convention ensures Docker builds and multi-developer workflows work without path edits.
 
 ### Language & Stack
 
@@ -120,11 +130,14 @@ complete_framework/
 
 ### Redis
 
+- **Server:** Valkey 9.1 (Redis-compatible), systemd `redis.service`, no password for local dev.
 - **Client:** sync `redis-py` 5.x with `hiredis`. Lazy init, no crash on unavailable.
-- **Testing:** `fakeredis[lua]` via `conftest.py` autouse fixture — never touches real Redis.
+- **Testing:** dual-layer — `fakeredis[lua]` via `conftest.py` autouse fixture + real Redis integration (`test_redis_real.py`, auto-skipped when Redis unavailable).
 - **Memory service:** `agent:memory:{session_id}` key, JSON list, TTL=7200s, max 20 messages.
 - **Cache service:** `cache:{namespace}:{key}` pattern, all methods safe when Redis is down.
+- **Celery URLs:** computed properties (`celery_broker_url` / `celery_result_backend`), auto-follow `redis_password`.
 - At Stage 1, memory/cache are **infrastructure only** (validated by tests, not called by runtime).
+- **Config:** `infra/redis/redis.conf` for Docker deployment (AOF, LRU, maxmemory 256mb).
 
 ### SQLite
 
@@ -138,7 +151,7 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests   # must pass
-uv run pytest -q              # must pass (121 tests expected)
+uv run pytest -q              # must pass (148 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`
@@ -184,7 +197,10 @@ uv run pytest -q              # must pass (121 tests expected)
 | MySQL config | `backend/app/core/config.py` (mysql_* fields + mysql_url property) |
 | DB session + pool | `backend/app/db/session.py` |
 | MySQL init script | `infra/mysql/init.sql` |
+| Redis config | `infra/redis/redis.conf` |
 | Compose infra | `compose.yaml` |
+| Dockerfile | `backend/Dockerfile` (multi-stage, non-root, HEALTHCHECK) |
+| Docker ignore | `backend/.dockerignore` |
 | Test fixtures | `backend/tests/conftest.py` |
 | Config tests | `backend/tests/test_config.py` (Redis + MySQL) |
 | Session tests | `backend/tests/test_db_session.py` |

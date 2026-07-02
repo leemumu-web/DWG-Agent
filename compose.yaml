@@ -29,12 +29,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: >
-      uv run gunicorn app.main:app
-      -k uvicorn.workers.UvicornWorker
-      --bind 0.0.0.0:8000
-      --workers 4
-      --timeout 120
+    # CMD defined in Dockerfile; override here only if needed for debugging
+    # Default: gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --timeout 120
     env_file:
       - .env
     depends_on:
@@ -125,11 +121,12 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-change-me-redis}
+    command: redis-server /usr/local/etc/redis/redis.conf --requirepass ${REDIS_PASSWORD:-change-me-redis-password}
     volumes:
       - redis_data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change-me-redis}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change-me-redis-password}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5

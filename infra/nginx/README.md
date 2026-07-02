@@ -37,8 +37,7 @@ infra/nginx/
 ### 阶段 A — 本地开发
 
 ```bash
-cd /home/Creeken/Paper/CAD_research/complete_framework
-
+# 从仓库根目录执行
 # 前置: 后端已启动（127.0.0.1:8000），前端已构建（frontend/dist/）
 
 sudo nginx -t -c $(pwd)/infra/nginx/nginx.local.conf        # 语法检查

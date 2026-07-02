@@ -122,7 +122,7 @@ uv run pytest -q                # 121 个测试
 
 ```bash
 cd frontend
-cp .env.example .env            # VITE_API_BASE_URL 默认 http://127.0.0.1:8000
+cp .env.example .env            # Nginx 反代（空=相对路径），直连时改为 http://127.0.0.1:8000
 npm ci                          # 依赖版本已锁定在 package-lock.json，无 latest
 npm run build                   # TypeScript 类型检查 + Vite 生产构建（可选但建议先跑一次）
 npm run dev                     # 开发服务器 http://127.0.0.1:5173

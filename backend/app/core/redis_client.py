@@ -37,13 +37,19 @@ def get_redis() -> redis.Redis | None:
         )
         _redis_client.ping()
         _redis_available = True
-        logger.info("Redis connected: %s", settings.redis_url)
+        logger.info(
+            "Redis connected: %s:%s/%s",
+            settings.redis_host,
+            settings.redis_port,
+            settings.redis_db,
+        )
     except (RedisConnectionError, RedisTimeoutError, OSError) as exc:
         _redis_available = False
         _redis_client = None
         logger.warning(
-            "Redis unavailable at %s: %s. Running without cache/memory.",
-            settings.redis_url,
+            "Redis unavailable at %s:%s: %s. Running without cache/memory.",
+            settings.redis_host,
+            settings.redis_port,
             exc,
         )
 
