@@ -19,8 +19,8 @@ work through two processing pipelines:
 | DWG → ZWCAD API (C#) | High | Windows CAD Worker node |
 
 The final system is a Docker Compose deployment: Nginx → FastAPI → MySQL/Redis/MinIO → Celery Workers.
-**We are currently at Stage 1** — a no-Docker, local-dev skeleton that validates the RESTful API
-and DB model layers end to end.
+**We are currently at Stage 1** — a local-dev platform that validates the RESTful API, RBAC, file
+management, and job lifecycle end to end. Docker Compose config is ready but not yet production-tested.
 
 ---
 
@@ -39,41 +39,41 @@ complete_framework/
 │   ├── .python-version            ← 3.12
 │   ├── app/
 │   │   ├── main.py                ← FastAPI app, lifespan, CORS, exception handlers
-│   │   ├── api/v1/                ← 12 route modules under /api/v1
+│   │   ├── api/v1/                ← 11 route modules under /api/v1
 │   │   │   └── router.py          ← central router assembly
-│   │   ├── core/                  ← config, security, exceptions, redis_client, constants, logger
+│   │   ├── core/                  ← config, security, permissions, exceptions, redis_client, constants, logger
 │   │   ├── db/                    ← base, session (engine + WAL pragmas), init_db (seeds)
 │   │   ├── models/                ← 10 SQLAlchemy ORM models
 │   │   ├── schemas/               ← Pydantic v2 request/response schemas
 │   │   ├── services/              ← business logic (auth, user, job, storage, audit, redis_memory, cache_service)
 │   │   ├── repositories/          ← PLACEHOLDER (empty __init__)
-│   │   ├── agents/                ← PLACEHOLDER (agent prompts/factory/tool_registry)
-│   │   ├── mcp_client/            ← PLACEHOLDER (MCP client + tool adapter)
-│   │   ├── workers/               ← PLACEHOLDER (Celery tasks)
-│   │   ├── storage/               ← PLACEHOLDER (base/local/minio stubs)
-│   │   ├── integrations/zwcad/    ← PLACEHOLDER (ZWCAD worker client)
+│   │   ├── agents/                ← Stage 2 (agent_factory, prompts, tool_registry stubs)
+│   │   ├── mcp_client/            ← Stage 2 (cad_mcp_client, mcp_tool_adapter stubs)
+│   │   ├── workers/               ← Stage 2 (celery_app + 4 task modules stubs)
+│   │   ├── storage/               ← base + local_storage (active), minio_storage (stub)
+│   │   ├── integrations/zwcad/    ← Stage 4 (client + schemas stubs)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 153 tests (pytest + fakeredis + real Redis)
-│   │   └── conftest.py            ← FakeRedis autouse fixture
-│   ├── migrations/                ← Alembic (NO migrations yet — uses create_all)
-│   └── var/                       ← runtime data (SQLite DB, uploaded files)
+│   ├── tests/                     ← 292 tests (pytest + fakeredis + real Redis)
+│   │   └── conftest.py            ← FakeRedis autouse fixture + SQLite memory isolation
+│   ├── migrations/                ← Alembic (2 versions: initial 17 tables + TimestampMixin fix)
+│   └── var/                       ← runtime data (uploaded files, app.db when using SQLite)
 │
 ├── frontend/                      ← React 19 + TypeScript + Vite
 │   ├── package.json               ← NO "latest" — all versions locked
 │   ├── package-lock.json
 │   └── src/
-│       ├── api/                   ← 9 Axios API client modules
+│       ├── api/                   ← 11 Axios API client modules + client.ts
 │       ├── app/                   ← router, layout, providers
-│       ├── features/              ← 8 page modules (login, dashboard, projects, files, …)
+│       ├── features/              ← 10 page modules (admin, auth, dashboard, drawings, files, jobs, profile, projects, reviews, users)
 │       ├── components/            ← 8 shared components
 │       ├── stores/                ← Zustand (auth.store.ts)
 │       └── types/                 ← TypeScript type definitions
 │
-├── docs/                          ← stage1-review.md, api.md
-├── infra/                         ← DEPLOY CONFIG (nginx config, redis/ placeholder, Dockerfile later)
+├── docs/                          ← 7 handover docs: architecture, api, database, deployment, development, security, roadmap
+├── infra/                         ← deploy config (nginx, mysql/init.sql, redis/redis.conf, minio/) + verify.sh
 ├── agents/                        ← PLACEHOLDER for future Agent definitions
 ├── cad-worker/                    ← PLACEHOLDER for Windows C# CAD Worker
-├── scripts/                       ← 6 dev/ops shell scripts (lib.sh, start-dev, start-all, stop-all, status, init-db)
+├── scripts/                       ← 6 dev/ops shell scripts (lib.sh, start-dev.sh, start-all.sh, stop-all.sh, status.sh, db.sh)
 └── tests/                         ← PLACEHOLDER for E2E / integration tests
 ```
 
@@ -95,7 +95,7 @@ complete_framework/
 
 - **Backend:** Python **3.12 only** (`>=3.12,<3.13`), `uv` for package management
 - **Frontend:** React 19, TypeScript, Vite, Ant Design 6, TanStack Query, Zustand
-- **Database:** SQLite for dev (`sqlite:///./var/app.db`), MySQL for production
+- **Database:** MySQL 8.x for runtime (`DATABASE_URL=mysql+pymysql://...`), SQLite memory for test isolation
 - **MySQL config:** component fields (`mysql_host`/`mysql_port`/`mysql_database`/`mysql_user`/`mysql_password`) + computed `mysql_url` property, per spec §18
 - **MySQL pool:** `pool_recycle=3600`, `pool_size=10`, `max_overflow=20` (only when `DATABASE_URL` starts with `mysql`)
 - **ORM:** SQLAlchemy 2.x, synchronous session
@@ -141,25 +141,25 @@ complete_framework/
 - At Stage 1, memory/cache are **infrastructure only** (validated by tests, not called by runtime).
 - **Config:** `infra/redis/redis.conf` for Docker deployment (AOF, LRU, maxmemory 256mb).
 
-### SQLite
+### SQLite (test isolation only)
 
-- WAL journal mode (enabled per-connection via SQLAlchemy `Engine.connect` event)
-- `PRAGMA foreign_keys=ON` — foreign key constraints are enforced
-- `PRAGMA busy_timeout=5000` — 5s retry on lock contention
+- Used by pytest via `StaticPool` + `conftest.py` autouse fixture — each test gets an isolated in-memory DB.
+- WAL journal mode, `foreign_keys=ON`, `busy_timeout=5000` pragmas set per-connection.
 - `db_health()` returns `{"status": "ok", "message": "Database is reachable."}`
+- Runtime database is MySQL; SQLite is never used outside tests.
 
 ### Testing
 
 ```bash
 cd backend
 uv run ruff check app tests   # must pass
-uv run pytest -q              # must pass (153 tests expected)
+uv run pytest -q              # must pass (292 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`
-- No real Redis — `conftest.py` injects `FakeRedis` via module-level monkeypatch
+- Dual Redis testing: `FakeRedis` via `conftest.py` autouse monkeypatch + real Redis integration (`test_redis_real.py`, auto-skipped when unavailable)
 - No real HTTP — all tests are in-process
-- Test DB is the same SQLite as dev; `init_db()` is called in tests that need seeded data
+- Test DB is isolated in-memory SQLite (`StaticPool`); does not touch runtime MySQL
 - MySQL fields tested via unit-level `Settings()` instantiation (no real MySQL server)
 
 ---
@@ -184,8 +184,15 @@ uv run pytest -q              # must pass (153 tests expected)
 | Purpose | Path |
 |---------|------|
 | **Core spec** | `DWG-Agent企业平台技术规范.md` |
-| Stage 1 review | `docs/stage1-review.md` |
+| Architecture | `docs/architecture.md` |
+| API reference | `docs/api.md` |
+| Database design | `docs/database.md` |
+| Deployment guide | `docs/deployment.md` |
+| Development guide | `docs/development.md` |
+| Security architecture | `docs/security.md` |
+| Roadmap (Stage 1-6) | `docs/roadmap.md` |
 | Backend config | `backend/app/core/config.py` |
+| Alembic migrations | `backend/migrations/versions/` (2 versions) |
 | FastAPI entry | `backend/app/main.py` |
 | Route assembly | `backend/app/api/v1/router.py` |
 | DB session + pragmas | `backend/app/db/session.py` |
@@ -207,5 +214,10 @@ uv run pytest -q              # must pass (153 tests expected)
 | Test fixtures | `backend/tests/conftest.py` |
 | Config tests | `backend/tests/test_config.py` (Redis + MySQL) |
 | Session tests | `backend/tests/test_db_session.py` |
+| Security tests | `backend/tests/test_security_boundaries.py` |
+| API regression tests | `backend/tests/test_api_regressions.py` |
+| New feature tests | `backend/tests/test_new_features.py` |
+| Path utils | `backend/app/utils/path_utils.py` (ensure_within_root) |
+| Permissions | `backend/app/core/permissions.py` |
 | Frontend router | `frontend/src/app/router.tsx` |
 | Frontend API client | `frontend/src/api/client.ts` |

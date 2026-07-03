@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     redis_password: str = ""
     redis_memory_ttl: int = 7200
     redis_max_messages: int = 20
+    celery_task_always_eager: bool = False
 
     @property
     def celery_broker_url(self) -> str:

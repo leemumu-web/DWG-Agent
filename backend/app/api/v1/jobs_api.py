@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ from app.schemas.common import ok, page_from_list
 from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
 from app.schemas.result_schema import AnalysisResultRead
 from app.services.audit_service import write_audit_log
-from app.services.job_service import create_job, run_local_stub_job
+from app.services.job_service import create_job, enqueue_stub_job
 
 router = APIRouter()
 PROJECT_JOB_WRITE_ROLES = {"project_owner", "project_engineer"}
@@ -48,7 +48,6 @@ def list_jobs(
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 def create_job_api(
     payload: JobCreate,
-    background_tasks: BackgroundTasks,
     request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -68,9 +67,10 @@ def create_job_api(
         resource_type="job",
         resource_id=job.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
-    background_tasks.add_task(run_local_stub_job, job.id)
+    enqueue_stub_job(job.id)
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 
@@ -108,6 +108,7 @@ def cancel_job(
         action="jobs.cancel",
         resource_type="job",
         resource_id=job.id,
+        request=request,
     )
     db.commit()
     return ok(JobRead.model_validate(job), request.state.request_id)
@@ -116,7 +117,6 @@ def cancel_job(
 @router.post("/{job_id}/retry-requests", status_code=status.HTTP_202_ACCEPTED)
 def retry_job(
     job_id: int,
-    background_tasks: BackgroundTasks,
     request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -140,9 +140,10 @@ def retry_job(
         action="jobs.retry",
         resource_type="job",
         resource_id=job.id,
+        request=request,
     )
     db.commit()
-    background_tasks.add_task(run_local_stub_job, job.id)
+    enqueue_stub_job(job.id)
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 

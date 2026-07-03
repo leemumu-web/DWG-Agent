@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,7 +26,8 @@ from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
 from app.schemas.file_schema import DownloadUrlRead, FileRead
 from app.services.audit_service import write_audit_log
-from app.services.storage_service import get_local_file_path, save_upload_file
+from app.services.storage_service import get_storage_backend, save_upload_file
+from app.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
 DOWNLOAD_URL_TTL_SECONDS = 300
@@ -54,6 +56,10 @@ def _validate_download_signature(file_id: int, expires: int, signature: str) -> 
         raise AppHTTPException(
             403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is invalid."
         )
+
+
+def _download_headers(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
 def _file_project_ids(db: Session, file_id: int) -> set[int]:
@@ -121,6 +127,7 @@ async def upload_file(
         resource_type="file",
         resource_id=stored.id,
         after_json={"original_name": stored.original_name, "sha256": stored.sha256},
+        request=request,
     )
     db.commit()
     return ok(FileRead.model_validate(stored), request.state.request_id)
@@ -170,6 +177,7 @@ def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: S
         action="files.delete",
         resource_type="file",
         resource_id=stored.id,
+        request=request,
     )
     db.commit()
     return None
@@ -189,6 +197,7 @@ def get_download_url(
         action="files.download_url",
         resource_type="file",
         resource_id=stored.id,
+        request=request,
     )
     db.commit()
     return ok(_build_signed_download_url(file_id), request.state.request_id)
@@ -212,19 +221,38 @@ def download_file(
             403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is required."
         )
     _validate_download_signature(file_id, expires, signature)
-    path = get_local_file_path(stored)
-    if not path.exists() or not path.is_file():
-        raise not_found("StoredFileObject")
+    storage = get_storage_backend()
+    try:
+        path = storage.local_path(stored.bucket, stored.storage_key)
+        if path is not None:
+            if not path.exists() or not path.is_file():
+                raise StorageObjectNotFound(f"{stored.bucket}/{stored.storage_key}")
+            response = FileResponse(
+                path,
+                media_type=stored.content_type or "application/octet-stream",
+                filename=stored.original_name,
+            )
+        else:
+            response = StreamingResponse(
+                storage.iter_file(stored.bucket, stored.storage_key),
+                media_type=stored.content_type or "application/octet-stream",
+                headers=_download_headers(stored.original_name),
+            )
+    except StorageObjectNotFound:
+        raise not_found("StoredFileObject") from None
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "STORAGE_READ_FAILED",
+            "Failed to read stored file object.",
+        ) from exc
     write_audit_log(
         db,
         actor_user_id=current_user.id,
         action="files.download",
         resource_type="file",
         resource_id=stored.id,
+        request=request,
     )
     db.commit()
-    return FileResponse(
-        path,
-        media_type=stored.content_type or "application/octet-stream",
-        filename=stored.original_name,
-    )
+    return response

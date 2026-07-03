@@ -52,8 +52,7 @@ COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
 
-# Create writable var/ directory for SQLite (dev mode) — spec requirement 6
-# Production overrides DATABASE_URL to MySQL, so this is dev-only safety.
+# Create writable var/ directory for local runtime artifacts.
 RUN mkdir -p /app/var && chown -R appuser:appuser /app/var
 
 USER appuser
@@ -65,10 +64,5 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["gunicorn", "app.main:app", \
-     "--bind", "0.0.0.0:8000", \
-     "--workers", "4", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--timeout", "120", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+CMD ["sh", "-c", \
+     "alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]

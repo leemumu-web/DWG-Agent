@@ -81,6 +81,7 @@ def create_project(
         resource_type="project",
         resource_id=project.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(ProjectRead.model_validate(project), request.state.request_id)
@@ -120,6 +121,7 @@ def update_project(
         resource_id=project.id,
         before_json=before,
         after_json=payload.model_dump(exclude_unset=True),
+        request=request,
     )
     db.commit()
     return ok(ProjectRead.model_validate(project), request.state.request_id)
@@ -138,6 +140,7 @@ def delete_project(project_id: int, request: Request, current_user: CurrentUser,
         action="projects.delete",
         resource_type="project",
         resource_id=project.id,
+        request=request,
     )
     db.commit()
     return None
@@ -201,6 +204,7 @@ def add_project_member(
         resource_type="project",
         resource_id=project_id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(ProjectMemberRead.model_validate(member), request.state.request_id)
@@ -227,6 +231,7 @@ def update_project_member(
         resource_type="project_member",
         resource_id=member.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(ProjectMemberRead.model_validate(member), request.state.request_id)
@@ -234,7 +239,7 @@ def update_project_member(
 
 @router.delete("/{project_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project_member(
-    project_id: int, member_id: int, current_user: CurrentUser, db: Session = Depends(get_db)
+    project_id: int, member_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
 ):
     member = db.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
@@ -247,6 +252,7 @@ def delete_project_member(
         action="project_members.delete",
         resource_type="project_member",
         resource_id=member.id,
+        request=request,
     )
     db.commit()
     return None

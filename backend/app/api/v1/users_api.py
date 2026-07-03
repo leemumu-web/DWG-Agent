@@ -89,6 +89,7 @@ def create_user_api(
         resource_type="user",
         resource_id=user.id,
         after_json={"username": user.username},
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -126,6 +127,7 @@ def update_self(
         resource_id=user.id,
         before_json=before,
         after_json=payload.model_dump(exclude_unset=True),
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -153,6 +155,7 @@ def update_user_api(
         resource_id=user.id,
         before_json=before,
         after_json=payload.model_dump(exclude_unset=True),
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -177,6 +180,7 @@ def delete_user_api(
         action="users.delete",
         resource_type="user",
         resource_id=user_id,
+        request=request,
     )
     db.commit()
     return None
@@ -204,6 +208,7 @@ def assign_role(
         resource_type="user",
         resource_id=user.id,
         after_json={"role_code": role.code},
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -235,6 +240,7 @@ def remove_role(
         resource_type="user",
         resource_id=user.id,
         after_json={"role_id": role_id},
+        request=request,
     )
     db.commit()
     return None
@@ -270,6 +276,7 @@ def reset_user_password(
         action="users.password_reset",
         resource_type="user",
         resource_id=user.id,
+        request=request,
     )
     db.commit()
     return ok(
@@ -307,6 +314,7 @@ def disable_user(
         resource_id=user_id,
         before_json=before,
         after_json={"status": DISABLED},
+        request=request,
     )
     db.commit()
     db.refresh(user)
@@ -334,6 +342,7 @@ def enable_user(
         resource_id=user_id,
         before_json=before,
         after_json={"status": ACTIVE},
+        request=request,
     )
     db.commit()
     db.refresh(user)

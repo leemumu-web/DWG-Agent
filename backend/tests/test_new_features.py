@@ -425,7 +425,7 @@ def test_user_can_update_own_real_name():
 
     # Viewer updates own real_name
     r = client.patch(
-        "/api/v1/auth/profile",
+        "/api/v1/users/me",
         headers=viewer_headers,
         json={"real_name": "Updated Name"},
     )
@@ -446,7 +446,7 @@ def test_user_can_update_own_email():
     }
 
     r = client.patch(
-        "/api/v1/auth/profile",
+        "/api/v1/users/me",
         headers=viewer_headers,
         json={"email": "new-email@example.com"},
     )
@@ -467,7 +467,7 @@ def test_user_cannot_change_own_status_via_me():
     }
 
     r = client.patch(
-        "/api/v1/auth/profile",
+        "/api/v1/users/me",
         headers=viewer_headers,
         json={"status": "disabled"},
     )
@@ -489,7 +489,7 @@ def test_self_update_rejects_html_in_real_name():
     }
 
     r = client.patch(
-        "/api/v1/auth/profile",
+        "/api/v1/users/me",
         headers=viewer_headers,
         json={"real_name": "<script>alert(1)</script>"},
     )
@@ -499,5 +499,5 @@ def test_self_update_rejects_html_in_real_name():
 def test_unauthenticated_self_update_rejected():
     """PATCH /users/me without auth token returns 401."""
     client = _client()
-    r = client.patch("/api/v1/auth/profile", json={"real_name": "No Auth"})
+    r = client.patch("/api/v1/users/me", json={"real_name": "No Auth"})
     assert r.status_code == 401, r.text

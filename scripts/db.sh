@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DWG-Agent — MySQL 运行数据库入口
-# 用法: bash scripts/db.sh <start|setup-user|init|check|status|shell|logs>
+# 用法: bash scripts/db.sh <start|setup-user|init|migrate|migration-test|check|status|shell|logs>
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -15,7 +15,10 @@ DWG-Agent MySQL helper
 Commands:
   start       启动本机 MySQL/MariaDB，并验证 backend/.env 应用凭据可登录
   setup-user  根据 backend/.env 创建/更新 dwg_agent 库、dwg_user 用户和授权
-  init        执行 app.db.init_db，补齐表与种子数据
+  init        执行 app.db.init_db + alembic upgrade head，补齐表、迁移与种子数据
+  migrate     执行 alembic upgrade head，修复已存在 MySQL schema 漂移
+  migration-test
+              创建临时 MySQL schema，从空库执行 alembic upgrade head 并验证表结构
   check       非破坏性检查：配置一致性、MySQL URL、应用凭据、schema、SQLite 退出状态
   status      打印数据库状态与诊断摘要
   shell       使用 backend/.env 中的应用凭据进入 mariadb/mysql shell
@@ -169,6 +172,29 @@ schema_check() {
         err "super_admin 种子用户不存在"
         return 1
     fi
+    timestamp_schema_check
+}
+
+timestamp_schema_check() {
+    local tables=(project_members drawing_versions review_records agent_run_steps)
+    local columns=(created_at updated_at)
+    local missing=() table column found
+    for table in "${tables[@]}"; do
+        for column in "${columns[@]}"; do
+            found="$(
+                mysql_app -N -B -e "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '$table' AND COLUMN_NAME = '$column';" 2>/dev/null || echo 0
+            )"
+            if [ "${found:-0}" -lt 1 ]; then
+                missing+=("$table.$column")
+            fi
+        done
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        err "MySQL schema 与 SQLAlchemy TimestampMixin 不一致: ${missing[*]}"
+        echo "  修复: bash scripts/db.sh migrate"
+        return 1
+    fi
+    ok "TimestampMixin 时间列已同步"
 }
 
 sqlite_fd_check() {
@@ -231,7 +257,108 @@ init_cmd() {
     start_cmd
     info "执行数据库初始化 / 种子数据..."
     (cd "$PROJECT_ROOT/backend" && uv run python -m app.db.init_db)
+    run_alembic_upgrade
     ok "数据库初始化完成"
+}
+
+migrate_cmd() {
+    start_cmd
+    run_alembic_upgrade
+    ok "Alembic 迁移完成"
+}
+
+migration_test_db_url() {
+    local database="$1"
+    python - "$DB_USER" "$DB_PASSWORD" "$DB_HOST" "$DB_PORT" "$database" <<'PY'
+from urllib.parse import quote
+import sys
+
+user, password, host, port, database = sys.argv[1:6]
+print(f"mysql+pymysql://{user}:{quote(password, safe='')}@{host}:{port}/{database}")
+PY
+}
+
+migration_test_cmd() {
+    start_cmd
+    local tmp_db="dwg_agent_migration_test_$$"
+    if [[ ! "$tmp_db" =~ ^[A-Za-z0-9_]+$ ]]; then
+        err "临时库名不安全: $tmp_db"
+        return 2
+    fi
+
+    cleanup_migration_test() {
+        sudo mariadb -e "DROP DATABASE IF EXISTS $tmp_db;" >/dev/null 2>&1 || true
+    }
+    trap cleanup_migration_test EXIT
+
+    info "创建临时 MySQL schema: $tmp_db"
+    sudo mariadb <<SQL
+CREATE DATABASE $tmp_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON $tmp_db.* TO '$DB_USER'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON $tmp_db.* TO '$DB_USER'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+
+    local test_database_url
+    test_database_url="$(migration_test_db_url "$tmp_db")"
+    info "从空 MySQL schema 执行 Alembic 全链路..."
+    (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run alembic upgrade head)
+    info "验证临时 schema 表结构..."
+    (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run python - <<'PY'
+from sqlalchemy import create_engine, inspect, text
+
+from app.core.config import settings
+
+expected_tables = {
+    "agent_run_steps",
+    "agent_runs",
+    "analysis_results",
+    "audit_logs",
+    "drawing_versions",
+    "drawings",
+    "files",
+    "job_steps",
+    "jobs",
+    "project_members",
+    "projects",
+    "review_records",
+    "sys_permissions",
+    "sys_role_permissions",
+    "sys_roles",
+    "sys_user_roles",
+    "sys_users",
+}
+timestamp_tables = (
+    "project_members",
+    "drawing_versions",
+    "review_records",
+    "agent_run_steps",
+)
+
+engine = create_engine(settings.database_url)
+with engine.connect() as conn:
+    inspector = inspect(conn)
+    tables = set(inspector.get_table_names())
+    version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    missing = sorted(expected_tables - tables)
+    if missing:
+        raise SystemExit(f"missing tables: {missing}")
+    for table in timestamp_tables:
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        missing_columns = {"created_at", "updated_at"} - columns
+        if missing_columns:
+            raise SystemExit(f"{table} missing {sorted(missing_columns)}")
+print(f"Alembic head: {version}; business tables: {len(expected_tables)}")
+PY
+    )
+    cleanup_migration_test
+    trap - EXIT
+    ok "临时 MySQL schema 迁移验证通过并已清理"
+}
+
+run_alembic_upgrade() {
+    info "执行 Alembic 迁移..."
+    (cd "$PROJECT_ROOT/backend" && uv run alembic upgrade head)
 }
 
 check_cmd() {
@@ -279,6 +406,8 @@ case "${1:-status}" in
     "start") start_cmd ;;
     "setup-user") setup_user_cmd ;;
     "init") init_cmd ;;
+    "migrate") migrate_cmd ;;
+    "migration-test") migration_test_cmd ;;
     "check") check_cmd ;;
     "status") status_cmd ;;
     "shell") shell_cmd ;;

@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev db-start db-setup db-init db-check db-status db-shell db-logs start-all start-dev status stop-all tree
+.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs start-all start-dev status stop-all tree
 
 backend-install:
 	cd backend && uv sync --locked
@@ -26,6 +26,12 @@ db-setup:
 
 db-init:
 	bash scripts/db.sh init
+
+db-migrate:
+	bash scripts/db.sh migrate
+
+db-migration-test:
+	bash scripts/db.sh migration-test
 
 db-check:
 	bash scripts/db.sh check

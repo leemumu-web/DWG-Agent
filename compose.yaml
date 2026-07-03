@@ -7,16 +7,17 @@
 #   3. 修改 .env.docker 中所有 CHANGE_ME_* 值
 #
 # 启动:
-#   docker compose up -d                              # 核心服务
-#   docker compose --profile workers up -d            # + Celery Workers (阶段二)
+#   docker compose up -d                              # 核心服务 + worker-report 假任务队列
+#   docker compose --profile workers up -d            # + Agent/DXF Worker 占位队列
 #   docker compose --profile monitoring up -d         # + Flower 监控
 #
 # 说明:
 #   - .env.docker: Docker 服务名 (mysql/redis/minio) + MySQL/MinIO 配置
 #   - .env.docker.example: 可提交模板；.env.docker 为本机密钥文件，禁止提交
-#   - .env.example: 本地开发 (localhost + SQLite)
-#   - profiles: 规范 §17.4 未定义 profile，当前 worker 为占位代码
-#     故使用 profiles 避免空 worker 崩溃。实现后移除即可匹配规范。
+#   - .env.example: 本地开发 (localhost + MySQL)
+#   - worker-report: 阶段一 Celery 假任务 worker，默认启动
+#   - profiles: Agent/DXF/CAD 具体处理暂未实现，仍以 profile 隔离
+#   - worker-cad-dispatch: 规范 §17.2 列出但为 Stage 4 预留（Windows CAD Worker 调度）
 
 services:
   nginx:
@@ -66,7 +67,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app worker -Q agent -n agent@%h --concurrency=2
+    command: celery -A app.workers.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
     env_file:
       - .env.docker
     environment:
@@ -87,7 +88,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app worker -Q dxf -n dxf@%h --concurrency=2
+    command: celery -A app.workers.celery_app:celery_app worker -Q dxf -n dxf@%h --concurrency=2
     env_file:
       - .env.docker
     environment:
@@ -110,17 +111,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app worker -Q report -n report@%h --concurrency=2
+    command: celery -A app.workers.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
     env_file:
       - .env.docker
     environment:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - internal
     restart: unless-stopped
-    profiles:
-      - workers
 
   mysql:
     image: mysql:8.4
@@ -207,7 +213,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app flower --port=5555
+    command: celery -A app.workers.celery_app:celery_app flower --port=5555
     env_file:
       - .env.docker
     environment:

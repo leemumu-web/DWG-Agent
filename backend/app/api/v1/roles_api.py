@@ -56,6 +56,7 @@ def create_role(
         resource_type="role",
         resource_id=role.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(RoleRead.model_validate(role), request.state.request_id)
@@ -100,6 +101,7 @@ def replace_role_permissions(
         resource_type="role",
         resource_id=role.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(RoleRead.model_validate(role), request.state.request_id)

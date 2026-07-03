@@ -1,222 +1,156 @@
 # DWG-Agent 企业级 CAD 智能处理平台
 
-基于《DWG-Agent 企业平台技术规范》（`DWG-Agent企业平台技术规范.md`，2456 行，25 节）落地的工程实现。
-后端 Python **3.12**，前端 React 19 + TypeScript，基础设施按三阶段推进。
+基于《DWG-Agent 企业平台技术规范》（`DWG-Agent企业平台技术规范.md`，2,455 行，25 节，v1.0）落地的工程实现。
 
-> 开发指南详见 `CLAUDE.md`，基础设施配置详见 `infra/`
+**当前阶段：Stage 1 平台骨架闭环** — 完整 RESTful API、RBAC 认证授权、项目管理、文件上传（DWG 校验）、任务生命周期、审计日志。
 
-## 当前实现范围
+> 交接文档：`docs/` | 开发规范：`CLAUDE.md` | 部署配置：`infra/`
 
-已实现：
+## 技术栈
 
-- FastAPI 后端工程骨架
-- SQLAlchemy 2.x ORM 模型 + `TimestampMixin`
-- MySQL 作为本机与 Docker 运行数据库；pytest 仅用进程内 SQLite test double 做隔离
-- RESTful `/api/v1` 路由结构，全部资源名使用复数名词
-- 登录、当前用户、用户管理、角色、权限（JWT + argon2id）
-- 项目、项目成员
-- DWG 文件上传到本地存储，后缀白名单 `.dwg`、大小上限 512MB、流式 SHA-256/MD5 哈希
-- 文件短期 download-url 与本机下载端点
-- 图纸、图纸版本
-- 任务创建，本机假任务从 `queued` 自动推进到 `succeeded`，生成 JobStep 与 JSON 结果文件
-- 任务步骤、任务结果、结果复核记录
-- 审计日志写入与查询（super_admin / auditor 角色保护）
-- Agent / DXF / ZWCAD 处理边界占位，Agent API 明确返回 503
-- React 19 + TypeScript + Vite 前端骨架
-- Axios API client、TanStack Query、Zustand、Ant Design 6
-- 登录页、工作台、项目页、文件页、图纸页、任务页、复核页、用户管理、审计日志页
-- 权限守卫组件（路由级）
-- **Nginx 网关** — 本地开发（`nginx.local.conf`）+ Docker 部署（`nginx.conf`），SPA fallback / 反向代理 / 限流 / 安全头
-- **Docker Compose** — 9 服务编排（`compose.yaml`），profiles 分阶段启动
-- **MySQL 本机** — MariaDB/MariaDB-compatible MySQL 运行数据库；Docker 部署使用 `.env.docker` 的服务名配置
+| 层 | 技术 |
+|----|------|
+| 前端 | React 19 + TypeScript + Vite + Ant Design 6 + TanStack Query + Zustand |
+| 后端 | Python 3.12 + FastAPI + SQLAlchemy 2.x（同步）+ Pydantic v2 |
+| 数据库 | MySQL 8.x（运行）+ SQLite 内存（测试隔离） |
+| 缓存/记忆 | Redis / Valkey 9.1 |
+| 文件存储 | 本地 FS（开发）/ MinIO（Docker 生产，adapter 已启用） |
+| 异步任务 | Celery（Stage 1 worker-report 假任务，Agent/DXF/CAD 队列后续接入） |
+| Agent | LangGraph + MCP + OpenAI-compatible LLM（Stage 2，API 边界就绪） |
+| 部署 | Docker Compose 9 服务编排 + Nginx 网关 |
+| 包管理 | uv（Python）+ npm（前端），依赖全部锁定 |
 
-已修正（详见 `docs/stage1-review.md`）：
+## 当前实现
 
-- Python 版本固定为 `>=3.12,<3.13`，新增 `backend/.python-version`
-- 前端 `package.json` 不再使用 `latest`，所有依赖固定为 `package-lock.json` 中的确切版本
-- 补齐 `GET /api/v1/files/{file_id}/download` 本机下载端点
-- `ruff check .` 通过；pytest 181 passed, 0 failed
-- 深度审计完成 — 待处理项已归档 `docs/stage1-audit.md`
-- Compose: `cp .env.docker.example .env.docker && docker compose up -d`（`.env.docker` 使用 Docker 服务名 + MySQL/Redis/MinIO）
+- **64 个 RESTful API 端点**，11 个路由模块，全部在 `/api/v1` 下，复数名词
+- **完整 RBAC**：5 表 IAM 模型，7 个全局角色 + 4 个项目级角色，原子状态转换
+- **认证**：JWT HS256 + jti 黑名单，Argon2id 密码哈希，HttpOnly refresh cookie，时序攻击防御
+- **项目管理**：CRUD + 成员管理（project_owner/engineer/reviewer/viewer），级联激活检查
+- **文件上传**：DWG 头校验（AC1012-AC1032），1024 字节最小 + 512MB 最大，流式 SHA-256/MD5，HMAC 签名下载 URL
+- **图纸版本管理**：版本递增 + 当前版本指针，预览占位
+- **任务生命周期**：queued → running → succeeded/failed/cancelled，状态守卫，取消/重试
+- **结果复核**：approved/rejected 决策，待复核列表
+- **审计日志**：33 种操作类型，super_admin/auditor 角色保护，不可变
+- **安全加固**：12/18 渗透测试 bug 已修复，CORS 收紧，异常不泄漏 traceback，路径穿越防护
+- **Alembic 迁移**：2 个版本（17 张表 initial + TimestampMixin 修复），`db.sh migration-test` CI 验证
+- **Redis 已部署**：Valkey 9.1，redis_client + redis_memory + cache_service 就绪，双轨测试（FakeRedis + 真实）
+- **Docker Compose**：9 服务编排，worker-report 默认启动，Agent/DXF 与 monitoring profiles，Dockerfile 多阶段构建
+- **前端**：10 个页面 + 11 个 API 客户端模块 + 8 个通用组件，路由级权限守卫
+- **307 测试**（20 个测试文件），ruff 0 错误
 
-暂不实现：
+暂不实现（Stage 2-4）：Agent 内部逻辑、DWG→DXF 转换、ezdxf 解析、Windows ZWCAD Worker。Celery report 假任务与 MinIO 存储后端已接入；本地开发默认 `STORAGE_BACKEND=local`，Docker 默认 `STORAGE_BACKEND=minio`。
 
-- Agent 内部 LangGraph 调用（阶段二）
-- DWG → DXF 转换与 ezdxf 解析（阶段三）
-- Windows ZWCAD Worker 实际调用（阶段四）
-- Redis / MinIO / Celery 实际运行（compose 定义就绪，worker 代码占位）
+## 快速启动
+
+```bash
+# 1. 环境准备
+sudo pacman -S redis mysql    # Arch Linux；其他发行版对应包名
+sudo systemctl enable --now redis mysqld
+
+# 2. 配置
+cp .env.example .env
+# 编辑 .env，修改所有 CHANGE_ME_* 值
+
+# 3. 数据库
+bash scripts/db.sh start         # 启动 MySQL
+bash scripts/db.sh setup-user    # 创建数据库用户（首次）
+bash scripts/db.sh init          # 创建库 + Alembic 迁移 + 种子数据
+
+# 4. 启动
+bash scripts/start-dev.sh        # 后端 :8000 + 前端 :5173 HMR
+```
+
+访问 `http://127.0.0.1:5173`，默认账号 `admin` / `SuperAdminPass1`。
+
+详细说明见 `docs/deployment.md`。
 
 ## 目录结构
 
-```text
+```
 complete_framework/
 ├── README.md
-├── CLAUDE.md                   # Agent 开发指令
-├── DWG-Agent企业平台技术规范.md  # 核心规范文档
-├── .env.example                # 本地开发环境变量模板
-├── .env.docker.example         # Docker Compose 环境变量模板
-├── Makefile
-├── compose.yaml                # Docker Compose 9 服务编排
+├── CLAUDE.md                        # Agent 开发指令（代码约定、仓库地图）
+├── DWG-Agent企业平台技术规范.md       # 核心规范文档（v1.0，25 节）
+├── .env.example                     # 本地开发环境变量模板
+├── .env.docker.example              # Docker Compose 环境变量模板
+├── compose.yaml                     # Docker Compose 9 服务编排
+├── Makefile                         # 常用命令快捷入口
 ├── backend/
-│   ├── pyproject.toml         # Python >=3.12,<3.13
-│   ├── uv.lock                # 已提交，锁定全部依赖
-│   ├── .python-version        # 3.12
+│   ├── pyproject.toml               # Python >=3.12,<3.13
+│   ├── uv.lock                      # 锁定依赖
+│   ├── .python-version              # 3.12
+│   ├── Dockerfile                   # 多阶段构建（非 root）
 │   ├── app/
-│   │   ├── main.py
-│   │   ├── api/v1/            # 12 个路由模块
-│   │   ├── models/            # 10 个 ORM 模型
-│   │   ├── schemas/           # Pydantic v2
-│   │   ├── services/          # 7 个 service
-│   │   ├── core/              # config / security / exceptions / constants / logger
-│   │   ├── db/                # base / session / init_db
-│   │   └── ...
-│   ├── tests/                 # 181 测试（13 文件）
-│   └── migrations/            # Alembic（stage 1 尚未生成迁移文件）
+│   │   ├── main.py                  # FastAPI 入口 + 异常处理器 + CORS
+│   │   ├── api/v1/                  # 11 路由模块，64 端点
+│   │   ├── core/                    # config, security, permissions, redis, exceptions
+│   │   ├── db/                      # session (连接池), init_db (种子)
+│   │   ├── models/                  # 10 个 SQLAlchemy ORM 模型（17 表）
+│   │   ├── schemas/                 # 10 个 Pydantic v2 模块
+│   │   ├── services/                # 7 个 service（auth, user, job, storage, audit, redis_memory, cache）
+│   │   ├── storage/                 # AbstractStorageBackend + local/minio 后端
+│   │   ├── utils/                   # path_utils（路径穿越防护）, file_hash, time_utils
+│   │   ├── agents/                  # Stage 2 占位
+│   │   ├── mcp_client/              # Stage 2 占位
+│   │   ├── workers/                 # Celery app + report stub task；Agent/DXF/CAD task 占位
+│   │   ├── integrations/zwcad/      # Stage 4 占位
+│   │   └── repositories/            # 占位
+│   ├── tests/                       # 307 测试（20 个 test_*.py）
+│   └── migrations/                  # Alembic（2 版本）
 ├── frontend/
-│   ├── package.json           # 无 latest，版本已锁定
-│   ├── package-lock.json      # 与 package.json 一致
-│   ├── vite.config.ts
-│   ├── tsconfig.json
-│   ├── .env.example           # VITE_API_BASE_URL
+│   ├── package.json                 # 版本锁定，无 latest
 │   └── src/
-│       ├── api/               # 9 个 API 客户端模块
-│       ├── app/               # router / layout / providers
-│       ├── features/          # 8 个页面模块
-│       ├── components/        # 8 个通用组件
-│       ├── stores/            # Zustand auth store
-│       ├── types/             # TypeScript 类型定义
-│       └── hooks/
-├── agents/                    # Agent 定义占位
-├── cad-worker/                # Windows CAD Worker 占位
-├── infra/                     # 基础设施配置（Nginx / MySQL / compose）
-│   ├── nginx/
-│   │   ├── nginx.conf         #   Docker 版（单文件自包含）
-│   │   └── nginx.local.conf   #   本机开发版
-│   ├── mysql/init.sql         #   MySQL 初始化脚本
-│   └── verify.sh              #   基础设施验证脚本（98 测试点）
-├── docs/
-│   ├── stage1-review.md
-│   ├── api.md
-│   └── local-dev.md           #   本机开发详细说明
-└── scripts/                   # MySQL / 一键启停 / 状态检查 / 开发模式
-```
-
-## 本机启动
-
-### 推荐脚本入口
-
-```bash
-cp .env.example .env
-cp .env.example backend/.env
-# 修改 .env 和 backend/.env 中所有 CHANGE_ME_* 值，并保持两者一致
-
-bash scripts/db.sh start        # 启动 MySQL/MariaDB 并验证应用凭据
-bash scripts/db.sh setup-user   # 首次部署/密码变更时创建或更新 dwg_user 授权
-bash scripts/db.sh init         # 创建表 + 种子数据（Super Admin、角色、权限）
-bash scripts/start-all.sh       # 后端 + 前端构建产物 + Nginx :8080
-bash scripts/status.sh          # MySQL/Redis/FastAPI/Nginx 全栈状态
-```
-
-可选验证：
-
-```bash
-cd backend
-uv run ruff check app tests     # 代码风格检查
-uv run pytest -q                # 181 测试 (181 passed, 0 failed)
-```
-
-### 后端手动启动
-
-```bash
-cd backend
-uv python install 3.12          # 如果本机尚未安装 Python 3.12
-uv sync --locked                # 按 uv.lock 精确安装
-../scripts/db.sh init           # 确保 MySQL schema 与种子数据就绪
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-### 前端
-
-```bash
-cd frontend
-cp .env.example .env            # Nginx 反代（空=相对路径），直连时改为 http://127.0.0.1:8000
-npm ci                          # 依赖版本已锁定在 package-lock.json，无 latest
-npm run build                   # TypeScript 类型检查 + Vite 生产构建（可选但建议先跑一次）
-npm run dev                     # 开发服务器 http://127.0.0.1:5173
-```
-
-> `npm run build` 目前存在 Vite chunk size warning（Ant Design 等依赖打入首包），不影响功能，后续做页面拆包时处理。
-
-可选验证：
-
-```bash
-npm audit                       # 已知 0 vulnerabilities
-```
-
-### Nginx（可选，统一入口）
-
-```bash
-# 前置：后端已启动（127.0.0.1:8000），前端已构建（frontend/dist/）
-sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
-# 访问 http://localhost:8080 — SPA + API 反代 + 限流 + 安全头
-```
-
-详见 `infra/nginx/README.md`。
-
-### Docker Compose（阶段 B）
-
-```bash
-# 首次启动前：复制 Docker 专用模板并修改所有 CHANGE_ME_* 值
-cp .env.docker.example .env.docker
-
-# 前置：前端已构建
-docker compose up -d                              # 核心服务
-docker compose --profile workers up -d            # + Celery Workers（阶段二）
-docker compose --profile monitoring up -d         # + Flower 监控
-# 访问 http://localhost
-```
-
-### MySQL 本机
-
-```bash
-# MariaDB/MySQL 已配置，数据库 dwg_agent，17 张表，7 角色种子
-bash scripts/db.sh start
-bash scripts/db.sh check
-bash scripts/db.sh shell        # 使用应用凭据进入数据库
-bash scripts/db.sh logs         # 查看 MySQL/MariaDB systemd 日志
-```
-
-### 基础设施验证
-
-```bash
-bash infra/verify.sh             # Nginx / Docker Compose / Dockerfile / MySQL / 环境模板检查
-```
-
-### 默认账号
-
-```text
-username: admin
-password: SuperAdminPass1
-```
-
-### 端到端验证流程
-
-```text
-1. curl -X POST http://127.0.0.1:8000/api/v1/auth/sessions \
-     -d '{"username":"admin","password":"admin123456"}' → 取 access_token
-2. 带 Authorization: Bearer <token> 上传 .dwg 文件 → 取 file_id
-3. POST /api/v1/projects → 取 project_id
-4. POST /api/v1/jobs → 任务从 queued 自动到 succeeded
-5. GET /api/v1/jobs/{id}/results → 取 result
-6. GET /api/v1/audit-logs → 查看操作记录
+│       ├── api/                     # 11 个 API 客户端模块
+│       ├── features/                # 10 个页面模块
+│       ├── components/              # 8 个通用组件
+│       ├── stores/                  # Zustand
+│       └── types/                   # TypeScript 类型
+├── docs/                            # 7 个交接文档
+│   ├── architecture.md              # 系统架构 + 实现状态矩阵
+│   ├── api.md                       # 64 端点完整参考
+│   ├── database.md                  # 数据库设计 + 表目录
+│   ├── deployment.md                # 部署运维指南
+│   ├── development.md               # 开发规范 + 教程
+│   ├── security.md                  # 安全架构 + 渗透修复
+│   └── roadmap.md                   # Stage 1-6 路线图
+├── infra/                           # 部署配置
+│   ├── nginx/                       # nginx.conf (Docker) + nginx.local.conf (本机)
+│   ├── mysql/init.sql               # 数据库初始化
+│   ├── redis/redis.conf             # Docker Redis 配置
+│   ├── minio/                       # MinIO 配置占位
+│   └── verify.sh                    # 基础设施验证
+├── scripts/                         # 6 个 dev/ops 脚本
+│   ├── db.sh                        # MySQL 管理（init/migrate/check/shell/logs）
+│   ├── start-dev.sh                 # 开发模式启动
+│   ├── start-all.sh                 # 全栈启动
+│   ├── stop-all.sh                  # 优雅停止
+│   ├── status.sh                    # 健康检查
+│   └── lib.sh                       # 共享函数
+├── agents/                          # Agent 定义占位（Stage 2）
+└── cad-worker/                      # Windows CAD Worker 占位（Stage 4）
 ```
 
 ## 开发原则
 
-- 初始阶段不依赖 Docker，本机开发直接启动。
-- 运行环境使用 MySQL；pytest 中的 SQLite 仅是显式测试替身，不能作为运行数据库结论。
-- 本地文件系统只用于开发验证，生产替换为 MinIO/NAS（storage 抽象层已预留）。
-- RESTful API 路径以 `/api/v1` 为准，资源名使用复数名词。
-- Agent、DXF、CAD Worker 均先保留边界，不把算法逻辑塞进 API 层。
-- 前端不硬编码 API 地址，通过 `VITE_API_BASE_URL` 环境变量注入。
-- 依赖版本全部锁定：后端 `uv.lock`，前端 `package-lock.json`，禁止使用 `latest`。
+- **规范优先**：所有设计决策以 `DWG-Agent企业平台技术规范.md` 为准。
+- **运行数据库**：MySQL 8.x；pytest 使用内存 SQLite 隔离，不作为部署结论。
+- **同步 API + 异步任务**：SQLAlchemy 2.x 同步 session + Redis 同步客户端；耗时任务通过 Celery worker 执行。
+- **API 约定**：RESTful `/api/v1`，复数名词，语义化 HTTP 状态码，统一响应格式。
+- **安全底线**：所有业务端点强制鉴权，RBAC 后端强校验，文件路径校验，异常不泄漏。
+- **依赖锁定**：`uv.lock` + `package-lock.json` 全部锁定，禁止 `latest`。
+- **代码质量**：ruff（E/F/I/UP/B），line-length=100，`from __future__ import annotations`。
+- **前端不硬编码**：API 地址通过 `VITE_API_BASE_URL` 环境变量注入。
+
+## 验证
+
+```bash
+cd backend
+uv run ruff check app tests     # 代码风格（0 errors）
+uv run pytest -q                # 307 测试（307 passed）
+
+cd ../frontend
+npm ci && npm run build         # 类型检查 + 生产构建
+npm audit                       # 0 vulnerabilities
+
+bash infra/verify.sh            # 基础设施验证（Nginx/Docker/MySQL/配置）
+```

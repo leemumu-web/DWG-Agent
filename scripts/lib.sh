@@ -39,6 +39,42 @@ kill_by_pidfile() {
     fi
 }
 
+pidfile_running() {
+    local pidfile="$1"
+    [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+start_report_worker() {
+    local pidfile="/tmp/dwg-agent-worker-report.pid"
+    local logfile="/tmp/dwg-agent-worker-report.log"
+    if pidfile_running "$pidfile"; then
+        ok "Celery worker-report 已运行"
+        return 0
+    fi
+
+    info "启动 Celery worker-report..."
+    local oldpwd="$PWD"
+    cd "$PROJECT_ROOT/backend"
+    if [ -x .venv/bin/celery ]; then
+        nohup .venv/bin/celery -A app.workers.celery_app:celery_app worker -Q report -n report-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 &
+    else
+        nohup uv run celery -A app.workers.celery_app:celery_app worker -Q report -n report-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 &
+    fi
+    local pid=$!
+    echo "$pid" > "$pidfile"
+    cd "$oldpwd"
+
+    sleep 2
+    if kill -0 "$pid" 2>/dev/null; then
+        ok "Celery worker-report 已启动"
+    else
+        err "Celery worker-report 启动失败，请检查: $logfile"
+        tail -20 "$logfile" 2>/dev/null || true
+        rm -f "$pidfile"
+        return 1
+    fi
+}
+
 # 等待端口就绪
 wait_port() {
     local host="$1" port="$2" timeout="${3:-30}" label="${4:-$host:$port}"

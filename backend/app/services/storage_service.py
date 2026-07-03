@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+from io import BytesIO
 from pathlib import Path
+from tempfile import SpooledTemporaryFile
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -12,6 +14,9 @@ from app.core.config import settings
 from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
 from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
+from app.storage.base import AbstractStorageBackend, StorageConfigurationError, StorageError
+from app.storage.local_storage import LocalFileStorage
+from app.storage.minio_storage import MinioStorage
 from app.utils.path_utils import ensure_within_root
 
 ALLOWED_DWG_MIME_TYPES = {
@@ -84,22 +89,44 @@ def build_storage_path(bucket: str, storage_key: str) -> Path:
     return ensure_within_root(root, path)
 
 
+def get_storage_backend() -> AbstractStorageBackend:
+    if settings.storage_backend == "local":
+        return LocalFileStorage(settings.local_storage_root)
+    if settings.storage_backend == "minio":
+        try:
+            return MinioStorage(
+                endpoint=settings.minio_endpoint,
+                access_key=settings.minio_access_key,
+                secret_key=settings.minio_secret_key,
+            )
+        except StorageConfigurationError as exc:
+            raise AppHTTPException(
+                500,
+                "STORAGE_BACKEND_MISCONFIGURED",
+                "Configured storage backend is not ready.",
+            ) from exc
+    raise AppHTTPException(
+        500,
+        "STORAGE_BACKEND_UNSUPPORTED",
+        f"Unsupported storage backend: {settings.storage_backend}",
+    )
+
+
 async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | None) -> StoredFile:
     original_name = upload.filename or "unnamed.dwg"
     file_ext = validate_upload_name(original_name)
     upload_content_type = validate_upload_mime(upload.content_type)
     bucket = "dwg-original"
-    storage_key = f"local/{uuid4().hex}{file_ext}"
-    destination = build_storage_path(bucket, storage_key)
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    storage_key = f"uploads/{uuid4().hex}{file_ext}"
+    storage = get_storage_backend()
 
     sha256 = hashlib.sha256()
     md5 = hashlib.md5()
     size = 0
     max_size = settings.max_upload_size_mb * 1024 * 1024
 
-    try:
-        with destination.open("wb") as out:
+    with SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode="w+b") as tmp:
+        try:
             first = True
             while chunk := await upload.read(1024 * 1024):
                 if first:
@@ -110,22 +137,35 @@ async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | N
                     raise AppHTTPException(413, "FILE_TOO_LARGE", "Uploaded file exceeds max size.")
                 sha256.update(chunk)
                 md5.update(chunk)
-                out.write(chunk)
+                tmp.write(chunk)
             if first:
                 validate_dwg_header(b"")
-    except AppHTTPException:
-        destination.unlink(missing_ok=True)
-        raise
+        except AppHTTPException:
+            raise
 
-    if size < MIN_DWG_SIZE_BYTES:
-        destination.unlink(missing_ok=True)
-        raise AppHTTPException(
-            415,
-            "FILE_NOT_DWG",
-            f"File too small ({size} bytes) — legitimate DWG files exceed {MIN_DWG_SIZE_BYTES} bytes.",
-        )
+        if size < MIN_DWG_SIZE_BYTES:
+            raise AppHTTPException(
+                415,
+                "FILE_NOT_DWG",
+                f"File too small ({size} bytes) — legitimate DWG files exceed {MIN_DWG_SIZE_BYTES} bytes.",
+            )
 
-    content_type = upload_content_type or mimetypes.guess_type(original_name)[0]
+        content_type = upload_content_type or mimetypes.guess_type(original_name)[0]
+        try:
+            storage.put_fileobj(
+                bucket,
+                storage_key,
+                tmp,
+                length=size,
+                content_type=content_type,
+            )
+        except StorageError as exc:
+            raise AppHTTPException(
+                503,
+                "STORAGE_WRITE_FAILED",
+                "Failed to persist uploaded file.",
+            ) from exc
+
     stored = StoredFile(
         bucket=bucket,
         storage_key=storage_key,
@@ -135,6 +175,50 @@ async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | N
         size_bytes=size,
         sha256=sha256.hexdigest(),
         md5=md5.hexdigest(),
+        uploaded_by=uploaded_by,
+        status="available",
+    )
+    db.add(stored)
+    db.flush()
+    return stored
+
+
+def save_bytes_as_file(
+    db: Session,
+    *,
+    bucket: str,
+    storage_key: str,
+    original_name: str,
+    file_ext: str,
+    content_type: str,
+    payload: bytes,
+    uploaded_by: int | None,
+) -> StoredFile:
+    storage = get_storage_backend()
+    try:
+        storage.put_fileobj(
+            bucket,
+            storage_key,
+            BytesIO(payload),
+            length=len(payload),
+            content_type=content_type,
+        )
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "STORAGE_WRITE_FAILED",
+            "Failed to persist generated file.",
+        ) from exc
+
+    stored = StoredFile(
+        bucket=bucket,
+        storage_key=storage_key,
+        original_name=original_name,
+        file_ext=file_ext,
+        content_type=content_type,
+        size_bytes=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        md5=hashlib.md5(payload).hexdigest(),
         uploaded_by=uploaded_by,
         status="available",
     )

@@ -14,7 +14,11 @@ bash "$PROJECT_ROOT/scripts/db.sh" start
 bash "$PROJECT_ROOT/scripts/db.sh" init
 ensure_service 6379 redis valkey
 
-# 2. 后端
+# 2. Celery worker
+step "Celery worker-report"
+start_report_worker
+
+# 3. 后端
 step "后端 (127.0.0.1:8000)"
 if port_free 8000; then
     info "启动后端..."
@@ -26,7 +30,7 @@ else
     ok "后端已运行"
 fi
 
-# 3. 前端
+# 4. 前端
 step "前端 Vite Dev Server"
 cd "$PROJECT_ROOT/frontend"
 

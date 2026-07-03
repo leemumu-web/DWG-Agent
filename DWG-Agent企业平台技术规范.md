@@ -831,6 +831,8 @@ Agent run 完成后的详情响应：
 }
 ```
 
+`decision` 有效值：`"approved"`（通过）、`"rejected"`（驳回）、`"needs_revision"`（需修改）。
+
 ### 7.13 审计 API
 
 | Method | Path | 说明 |
@@ -972,6 +974,8 @@ Excel/PDF 报告
 这些文件应保存到 MinIO / NAS。
 
 ### 9.2 核心表
+
+> **TimestampMixin 说明：** 除 `sys_permissions` 和 `job_steps` 外，所有表均通过 ORM `TimestampMixin` 自动获得 `created_at DATETIME NOT NULL` 和 `updated_at DATETIME NOT NULL` 列。以下各表定义中省略了 `updated_at` 列，实际建表时均包含。
 
 #### sys_users
 
@@ -1745,13 +1749,13 @@ backend-api
 worker-agent
 worker-dxf
 worker-report
-worker-cad-dispatch
+worker-cad-dispatch  （Stage 4 预留，当前 compose.yaml 中未包含）
 mysql
 redis
 minio
 flower
-prometheus，可选
-grafana，可选
+prometheus，可选（Stage 6）
+grafana，可选（Stage 6）
 ```
 
 ### 17.3 不应强行容器化的服务
@@ -1940,7 +1944,7 @@ COPY migrations ./migrations
 
 EXPOSE 8000
 
-CMD ["uv", "run", "gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+CMD ["sh", "-c", "alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
 ```
 
 生产要求：
@@ -2225,8 +2229,9 @@ dwg-agent-platform/
 │   ├── api.md
 │   ├── database.md
 │   ├── deployment.md
-│   ├── agent.md
-│   └── cad-worker-protocol.md
+│   ├── development.md
+│   ├── roadmap.md
+│   └── security.md
 ├── frontend/
 ├── backend/
 ├── agents/

@@ -7,14 +7,14 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.constants import JOB_QUEUED, JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
+from app.core.constants import JOB_CANCELLED, JOB_QUEUED, JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
+from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
 from app.models.drawing import Drawing
-from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.schemas.job_schema import JobCreate
+from app.services.storage_service import save_bytes_as_file
 
 
 def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
@@ -39,12 +39,21 @@ def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
     return job
 
 
-def run_local_stub_job(job_id: int) -> None:
-    """本阶段不接入 Celery/DXF/CAD，只用本地占位任务验证状态链路。"""
+def enqueue_stub_job(job_id: int) -> str:
+    from app.workers.tasks_report import run_stub_job_task
+
+    async_result = run_stub_job_task.delay(job_id)
+    return str(async_result.id)
+
+
+def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
+    """Celery fake task for Stage 1: prove queue/status/result/review plumbing."""
     db = SessionLocal()
     try:
         job = db.get(Job, job_id)
         if not job:
+            return
+        if job.status != JOB_QUEUED:
             return
         started_at = datetime.now(UTC)
         job.status = JOB_RUNNING
@@ -54,10 +63,10 @@ def run_local_stub_job(job_id: int) -> None:
             JobStep(
                 job_id=job.id,
                 step_name="dispatch_stub_worker",
-                worker_name="local_stub",
+                worker_name=worker_name,
                 status="succeeded",
                 input_json={"pipeline": PIPELINE_STUB},
-                output_json={"message": "Local no-Docker framework stub accepted the job."},
+                output_json={"message": "Celery framework stub accepted the job."},
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )
@@ -72,28 +81,18 @@ def run_local_stub_job(job_id: int) -> None:
             "message": "Agent、DWG/DXF 与 CAD Worker 尚未接入；当前结果用于验证任务、结果、下载、审计链路。",
         }
         bucket = "dwg-derived"
-        storage_key = f"local/job-{job.id}/{uuid4().hex}.json"
-        path = (settings.local_storage_root / bucket / storage_key).resolve()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        import hashlib
-
-        raw = path.read_bytes()
-        result_file = StoredFile(
+        storage_key = f"jobs/{job.id}/{uuid4().hex}.json"
+        raw = json.dumps(result_payload, ensure_ascii=False, indent=2).encode("utf-8")
+        result_file = save_bytes_as_file(
+            db,
             bucket=bucket,
             storage_key=storage_key,
             original_name=f"job-{job.id}-result.json",
             file_ext=".json",
             content_type="application/json",
-            size_bytes=len(raw),
-            sha256=hashlib.sha256(raw).hexdigest(),
-            md5=hashlib.md5(raw).hexdigest(),
+            payload=raw,
             uploaded_by=job.created_by,
-            status="available",
         )
-        db.add(result_file)
-        db.flush()
 
         result = AnalysisResult(
             job_id=job.id,
@@ -111,7 +110,7 @@ def run_local_stub_job(job_id: int) -> None:
             JobStep(
                 job_id=job.id,
                 step_name="write_stub_result",
-                worker_name="local_stub",
+                worker_name=worker_name,
                 status="succeeded",
                 input_json={"result_file_id": result_file.id},
                 output_json={"analysis_result": "created"},
@@ -123,5 +122,33 @@ def run_local_stub_job(job_id: int) -> None:
         job.progress = 100
         job.finished_at = datetime.now(UTC)
         db.commit()
+    except AppHTTPException:
+        db.rollback()
+        raise
     finally:
         db.close()
+
+
+def cancel_job(db: Session, job: Job) -> Job:
+    """Cancel a job. Raises 409 if job is already in a terminal state."""
+    if job.status in ("succeeded", "failed", "cancelled"):
+        raise AppHTTPException(
+            409,
+            "JOB_NOT_CANCELLABLE",
+            f"Job cannot be cancelled because it is already {job.status}.",
+        )
+    job.status = JOB_CANCELLED
+    return job
+
+
+def retry_job(db: Session, job: Job) -> Job:
+    """Retry a failed or cancelled job. Raises 409 if job is not retryable."""
+    if job.status not in ("failed", "cancelled"):
+        raise AppHTTPException(
+            409,
+            "JOB_NOT_RETRYABLE",
+            f"Job cannot be retried because it is {job.status}. Only failed or cancelled jobs can be retried.",
+        )
+    job.status = JOB_QUEUED
+    job.progress = 0
+    return job

@@ -16,11 +16,46 @@ def test_database_script_provides_mysql_runtime_entrypoints():
 
     assert db_script.exists()
     content = db_script.read_text(encoding="utf-8")
-    for command in ("start", "setup-user", "init", "check", "status", "shell", "logs"):
+    for command in (
+        "start",
+        "setup-user",
+        "init",
+        "migrate",
+        "migration-test",
+        "check",
+        "status",
+        "shell",
+        "logs",
+    ):
         assert f'"{command}")' in content
     assert "DATABASE_URL" in content
     assert "mysql+pymysql" in content
     assert "SQLite" in content
+
+
+def test_database_script_runs_alembic_and_checks_timestamp_schema():
+    content = _read("scripts/db.sh")
+
+    assert "uv run alembic upgrade head" in content
+    for table in (
+        "project_members",
+        "drawing_versions",
+        "review_records",
+        "agent_run_steps",
+    ):
+        assert table in content
+    assert "created_at" in content
+    assert "updated_at" in content
+
+
+def test_database_script_exposes_isolated_mysql_migration_test():
+    content = _read("scripts/db.sh")
+
+    assert '"migration-test")' in content
+    assert "dwg_agent_migration_test_" in content
+    assert "CREATE DATABASE" in content
+    assert "DROP DATABASE IF EXISTS" in content
+    assert "uv run alembic upgrade head" in content
 
 
 def test_start_scripts_delegate_database_startup_to_db_script():
@@ -31,6 +66,17 @@ def test_start_scripts_delegate_database_startup_to_db_script():
         assert "ensure_service 3306" not in content
 
 
+def test_start_stop_status_scripts_manage_report_worker():
+    for path in ("scripts/start-all.sh", "scripts/start-dev.sh"):
+        assert "start_report_worker" in _read(path)
+
+    assert "dwg-agent-worker-report.pid" in _read("scripts/stop-all.sh")
+
+    status_content = _read("scripts/status.sh")
+    assert "dwg-agent-worker-report.pid" in status_content
+    assert "worker-report" in status_content
+
+
 def test_stop_all_does_not_kill_unowned_backend_port():
     content = _read("scripts/stop-all.sh")
 
@@ -38,10 +84,26 @@ def test_stop_all_does_not_kill_unowned_backend_port():
     assert "端口 8000 仍被占用" in content
 
 
+def test_status_script_uses_side_effect_free_health_probe():
+    content = _read("scripts/status.sh")
+
+    assert "http://127.0.0.1:8080/health" in content
+    assert "/api/v1/auth/sessions" not in content
+    assert "password" not in content.lower()
+
+
 def test_makefile_exposes_database_script_targets():
     content = _read("Makefile")
 
-    for target in ("db-start:", "db-setup:", "db-init:", "db-status:", "db-shell:"):
+    for target in (
+        "db-start:",
+        "db-setup:",
+        "db-init:",
+        "db-migrate:",
+        "db-migration-test:",
+        "db-status:",
+        "db-shell:",
+    ):
         assert target in content
 
 

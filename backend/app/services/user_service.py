@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -81,3 +82,11 @@ def transition_user_status(
         update(User).where(User.id == user_id, User.status != DELETED).values(**values)
     )
     return result.rowcount > 0
+
+
+def reset_user_password(db: Session, user: User) -> str:
+    """Reset a user's password to a temporary value. Returns the temp password."""
+    temp_password = f"temp-{uuid4().hex[:12]}"
+    user.password_hash = hash_password(temp_password)
+    user.password_algo = "argon2id"
+    return temp_password

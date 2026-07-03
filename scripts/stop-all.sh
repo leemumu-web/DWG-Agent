@@ -18,7 +18,7 @@ else
 fi
 
 # 2. Backend
-step "2/3 后端"
+step "2/4 后端"
 kill_by_pidfile /tmp/dwg-agent-backend.pid "后端 (uvicorn)"
 if ! port_free 8000; then
     warn "端口 8000 仍被占用；未执行强制 kill，请确认是否为外部启动的后端进程"
@@ -27,8 +27,12 @@ else
     ok "后端 :8000 已释放"
 fi
 
-# 3. Infrastructure (optional - ask)
-step "3/3 MySQL + Redis"
+# 3. Celery Worker
+step "3/4 Celery worker-report"
+kill_by_pidfile /tmp/dwg-agent-worker-report.pid "Celery worker-report"
+
+# 4. Infrastructure (optional - ask)
+step "4/4 MySQL + Redis"
 echo -e "  MySQL:  $(port_free 3306 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
 echo -e "  Redis: $(port_free 6379 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
 echo ""

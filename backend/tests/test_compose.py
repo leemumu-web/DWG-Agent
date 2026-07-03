@@ -178,6 +178,10 @@ class TestDockerfile:
         assert "USER appuser" in content, "Must run as non-root user (spec §17.5-4)"
         assert "useradd" in content or "adduser" in content, "Must create appuser"
 
+    def test_runtime_runs_alembic_before_gunicorn(self):
+        content = DOCKERFILE_PATH.read_text()
+        assert "alembic upgrade head && exec gunicorn" in content
+
     def test_has_healthcheck(self):
         content = DOCKERFILE_PATH.read_text()
         assert "HEALTHCHECK" in content, "Dockerfile should have HEALTHCHECK"

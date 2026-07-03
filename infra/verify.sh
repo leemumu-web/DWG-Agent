@@ -226,15 +226,21 @@ wd_cmd = wd.get("command", "")
 if "-Q dxf" not in str(wd_cmd):
     errors.append("worker-dxf 队列名错误")
 
-# 2.7 worker-report: NO depends_on (spec §17.4 line 1847-1856)
+# 2.7 worker-report: Stage 1 Celery fake task worker, default profile
 wr = svcs.get("worker-report", {})
 wr_cmd = wr.get("command", "")
 if "-Q report" not in str(wr_cmd):
     errors.append("worker-report 队列名错误")
-if wr.get("depends_on"):
-    errors.append("worker-report 不应有 depends_on (规范 §17.4)")
-if "workers" not in wr.get("profiles", []):
-    errors.append("worker-report 缺少 profiles: workers")
+if "app.workers.celery_app:celery_app" not in str(wr_cmd):
+    errors.append("worker-report Celery app 路径错误")
+if "uv run celery" in str(wr_cmd):
+    errors.append("worker-report 不应依赖 runtime 镜像中的 uv")
+wr_deps = set(wr.get("depends_on", {}).keys())
+for dep in {"redis", "mysql", "minio"}:
+    if dep not in wr_deps:
+        errors.append(f"worker-report 缺少 depends_on: {dep}")
+if "profiles" in wr:
+    errors.append("worker-report 应默认启动，不应设置 profiles")
 
 # 2.8 mysql
 mysql = svcs.get("mysql", {})
@@ -319,8 +325,8 @@ if nets.get("internal", {}).get("internal") != True:
 if "worker-cad-dispatch" in names:
     errors.append("worker-cad-dispatch 不应在 compose 中 (规范 §17.4)")
 
-# 2.15 所有 worker 有 profiles
-for w in ["worker-agent", "worker-dxf", "worker-report"]:
+# 2.15 具体 Agent/DXF worker 仍以 profiles 隔离；worker-report 默认启动
+for w in ["worker-agent", "worker-dxf"]:
     if "workers" not in svcs[w].get("profiles", []):
         errors.append(f"{w} 缺少 profiles: workers")
 
@@ -430,6 +436,22 @@ if $MYSQL_AVAILABLE; then
         fail "MySQL" "表总数不足: $TOTAL_TABLES (期望 ≥15)"
     fi
 
+    # 4.2b TimestampMixin schema drift
+    MISSING_TS_COLUMNS=()
+    for t in project_members drawing_versions review_records agent_run_steps; do
+        for c in created_at updated_at; do
+            EXISTS=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='dwg_agent' AND TABLE_NAME='$t' AND COLUMN_NAME='$c'" 2>/dev/null || echo 0)
+            if [ "${EXISTS:-0}" -lt 1 ]; then
+                MISSING_TS_COLUMNS+=("$t.$c")
+            fi
+        done
+    done
+    if [ "${#MISSING_TS_COLUMNS[@]}" -eq 0 ]; then
+        pass "MySQL: TimestampMixin 时间列已同步"
+    else
+        fail "MySQL" "TimestampMixin 时间列缺失: ${MISSING_TS_COLUMNS[*]}"
+    fi
+
     # 4.3 角色种子
     ROLE_COUNT=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM dwg_agent.sys_roles" 2>/dev/null)
     if [ "${ROLE_COUNT:-0}" -ge 7 ]; then
@@ -519,7 +541,7 @@ REQUIRED_FILES=(
     "infra/nginx/README.md"
     ".env.example"
     ".env.docker.example"
-    "docs/local-dev.md"
+    "docs/deployment.md"
 )
 
 for f in "${REQUIRED_FILES[@]}"; do

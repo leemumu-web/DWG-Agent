@@ -92,6 +92,7 @@ def create_review(
         resource_type="result",
         resource_id=result.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(ReviewRead.model_validate(review), request.state.request_id)

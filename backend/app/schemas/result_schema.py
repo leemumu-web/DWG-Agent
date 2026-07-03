@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -24,7 +24,7 @@ class AnalysisResultRead(BaseModel):
 
 
 class ReviewCreate(BaseModel):
-    decision: str
+    decision: Literal["approved", "rejected", "needs_revision"]
     comment: str | None = None
 
 

@@ -86,6 +86,7 @@ def create_drawing(
         resource_type="drawing",
         resource_id=drawing.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(DrawingRead.model_validate(drawing), request.state.request_id)
@@ -125,6 +126,7 @@ def update_drawing(
         resource_type="drawing",
         resource_id=drawing.id,
         after_json=payload.model_dump(exclude_unset=True),
+        request=request,
     )
     db.commit()
     return ok(DrawingRead.model_validate(drawing), request.state.request_id)
@@ -144,6 +146,7 @@ def delete_drawing(drawing_id: int, request: Request, current_user: CurrentUser,
         action="drawings.delete",
         resource_type="drawing",
         resource_id=drawing.id,
+        request=request,
     )
     db.commit()
     return None
@@ -215,6 +218,7 @@ def create_version(
         resource_type="drawing",
         resource_id=drawing.id,
         after_json=payload.model_dump(),
+        request=request,
     )
     db.commit()
     return ok(DrawingVersionRead.model_validate(version), request.state.request_id)
