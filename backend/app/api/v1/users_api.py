@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_roles, user_role_codes
+from app.api.deps import (
+    get_current_user,
+    get_db,
+    is_admin,
+    require_roles,
+    user_role_codes,
+)
 from app.core.constants import ACTIVE, DELETED, DISABLED, ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.core.security import hash_password
@@ -16,7 +21,12 @@ from app.models.user import User
 from app.schemas.common import ok, page_from_list
 from app.schemas.user_schema import AssignRoleRequest, UserCreate, UserRead, UserUpdate
 from app.services.audit_service import write_audit_log
-from app.services.user_service import create_user, get_user_or_404, update_user
+from app.services.user_service import (
+    create_user,
+    get_user_or_404,
+    transition_user_status,
+    update_user,
+)
 
 router = APIRouter()
 
@@ -73,6 +83,7 @@ def create_user_api(
         resource_type="user",
         resource_id=user.id,
         after_json={"username": user.username},
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -96,7 +107,7 @@ def update_user_api(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
-    user = get_user_or_404(db, user_id)
+    user = get_user_or_404(db, user_id, for_update=True)
     _require_super_admin_target(db, current_user, user)
     if user.id == current_user.id and payload.status is not None and payload.status != ACTIVE:
         raise AppHTTPException(
@@ -112,6 +123,7 @@ def update_user_api(
         resource_id=user.id,
         before_json=before,
         after_json=payload.model_dump(exclude_unset=True),
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -120,6 +132,7 @@ def update_user_api(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user_api(
     user_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
@@ -127,14 +140,15 @@ def delete_user_api(
     _require_super_admin_target(db, current_user, user)
     if user.id == current_user.id:
         raise AppHTTPException(400, "CANNOT_DELETE_SELF", "Admin cannot delete their own account.")
-    user.status = DELETED
-    user.deleted_at = datetime.now(UTC)
+    if not transition_user_status(db, user_id, DELETED, set_deleted_at=True):
+        raise AppHTTPException(400, "USER_DELETED", "User has already been deleted.")
     write_audit_log(
         db,
         actor_user_id=current_user.id,
         action="users.delete",
         resource_type="user",
-        resource_id=user.id,
+        resource_id=user_id,
+        request=request,
     )
     db.commit()
     return None
@@ -162,6 +176,7 @@ def assign_role(
         resource_type="user",
         resource_id=user.id,
         after_json={"role_code": role.code},
+        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -171,6 +186,7 @@ def assign_role(
 def remove_role(
     user_id: int,
     role_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
@@ -192,6 +208,7 @@ def remove_role(
         resource_type="user",
         resource_id=user.id,
         after_json={"role_id": role_id},
+        request=request,
     )
     db.commit()
     return None
@@ -202,10 +219,19 @@ def reset_user_password(
     user_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+    current_user: User = Depends(get_current_user),
 ):
     """Admin-initiated password reset. Sets a temporary password that user must change."""
     user = get_user_or_404(db, user_id)
+    # Authorisation: only admin/super_admin may reset passwords (§8.3)
+    if not is_admin(current_user):
+        if current_user.id == user_id:
+            raise AppHTTPException(
+                400,
+                "SELF_RESET_NOT_IMPLEMENTED",
+                "Self-service password reset is not yet implemented. Please contact an administrator.",
+            )
+        raise forbidden()
     _require_super_admin_target(db, current_user, user)
     if user.status == DELETED:
         raise AppHTTPException(400, "USER_DELETED", "Cannot reset password for a deleted user.")
@@ -218,6 +244,7 @@ def reset_user_password(
         action="users.password_reset",
         resource_type="user",
         resource_id=user.id,
+        request=request,
     )
     db.commit()
     return ok(
@@ -244,20 +271,21 @@ def disable_user(
         raise AppHTTPException(
             400, "CANNOT_DISABLE_SELF", "Admin cannot disable their own account."
         )
-    if user.status == DELETED:
-        raise AppHTTPException(400, "USER_DELETED", "Cannot disable a deleted user.")
     before = {"status": user.status}
-    user.status = DISABLED
+    if not transition_user_status(db, user_id, DISABLED):
+        raise AppHTTPException(400, "USER_DELETED", "Cannot disable a deleted user.")
     write_audit_log(
         db,
         actor_user_id=current_user.id,
         action="users.disable",
         resource_type="user",
-        resource_id=user.id,
+        resource_id=user_id,
         before_json=before,
         after_json={"status": DISABLED},
+        request=request,
     )
     db.commit()
+    db.refresh(user)
     return ok(UserRead.model_validate(user), request.state.request_id)
 
 
@@ -271,18 +299,19 @@ def enable_user(
     """Re-enable a previously disabled user account."""
     user = get_user_or_404(db, user_id)
     _require_super_admin_target(db, current_user, user)
-    if user.status == DELETED:
-        raise AppHTTPException(400, "USER_DELETED", "Cannot enable a deleted user.")
     before = {"status": user.status}
-    user.status = ACTIVE
+    if not transition_user_status(db, user_id, ACTIVE):
+        raise AppHTTPException(400, "USER_DELETED", "Cannot enable a deleted user.")
     write_audit_log(
         db,
         actor_user_id=current_user.id,
         action="users.enable",
         resource_type="user",
-        resource_id=user.id,
+        resource_id=user_id,
         before_json=before,
         after_json={"status": ACTIVE},
+        request=request,
     )
     db.commit()
+    db.refresh(user)
     return ok(UserRead.model_validate(user), request.state.request_id)

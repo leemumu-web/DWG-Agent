@@ -15,9 +15,10 @@ from app.core.security import decode_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth_schema import ChangePasswordRequest, LoginRequest, LoginResponse
 from app.schemas.common import ok
-from app.schemas.user_schema import UserRead
+from app.schemas.user_schema import UserRead, UserSelfUpdate
 from app.services.audit_service import write_audit_log
 from app.services.auth_service import authenticate_user, build_login_token, build_refresh_token
+from app.services.user_service import update_user_self
 
 router = APIRouter()
 REFRESH_COOKIE_NAME = "dwg_refresh_token"
@@ -55,7 +56,8 @@ def create_session(
     token = build_login_token(user)
     _set_refresh_cookie(response, build_refresh_token(user))
     write_audit_log(
-        db, actor_user_id=user.id, action="auth.login", resource_type="user", resource_id=user.id
+        db, actor_user_id=user.id, action="auth.login", resource_type="user", resource_id=user.id,
+        request=request,
     )
     db.commit()
     data = LoginResponse(
@@ -88,6 +90,7 @@ def delete_current_session(
         action="auth.logout",
         resource_type="user",
         resource_id=current_user.id,
+        request=request,
     )
     db.commit()
     _clear_refresh_cookie(response)
@@ -140,6 +143,30 @@ def get_me(request: Request, current_user: CurrentUser):
     return ok(UserRead.model_validate(current_user), request.state.request_id)
 
 
+@router.patch("/profile")
+def update_profile(
+    payload: UserSelfUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Update the current user's own profile — safe fields only (no status changes)."""
+    before = {"real_name": current_user.real_name, "email": current_user.email}
+    update_user_self(db, current_user, payload)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="auth.profile_update",
+        resource_type="user",
+        resource_id=current_user.id,
+        before_json=before,
+        after_json=payload.model_dump(exclude_unset=True),
+        request=request,
+    )
+    db.commit()
+    return ok(UserRead.model_validate(current_user), request.state.request_id)
+
+
 @router.patch("/password")
 def change_password(
     payload: ChangePasswordRequest,
@@ -161,6 +188,7 @@ def change_password(
         action="auth.password_change",
         resource_type="user",
         resource_id=current_user.id,
+        request=request,
     )
     db.commit()
     return ok({"changed": True}, request.state.request_id)

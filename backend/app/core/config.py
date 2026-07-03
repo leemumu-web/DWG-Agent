@@ -43,6 +43,19 @@ class Settings(BaseSettings):
     dxf_pipeline_enabled: bool = False
     cad_worker_enabled: bool = False
 
+    # LLM — spec §18.1 (Stage 2: Agent subsystem)
+    model_name: str = "deepseek-chat"
+    model_api_key: str = ""
+    model_base_url: str = "https://api.deepseek.com"
+
+    # MCP — spec §18.1 (Stage 2: MCP client)
+    mcp_cad_command: str = "uvx"
+    mcp_cad_args: str = "cad-mcp-server,stdio"
+
+    # CAD Worker — spec §18.1 (Stage 4: Windows CAD node)
+    cad_worker_api_base: str = "http://cad-worker.internal:8080"
+    cad_worker_api_key: str = ""
+
     # Redis — component fields per spec §18; redis_url is a computed property
     redis_host: str = "localhost"
     redis_port: int = 6379

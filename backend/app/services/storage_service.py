@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
 from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
+from app.utils.path_utils import ensure_within_root
 
 ALLOWED_DWG_MIME_TYPES = {
     "application/acad",
@@ -77,11 +78,10 @@ def validate_dwg_header(first_chunk: bytes) -> None:
 
 
 def build_storage_path(bucket: str, storage_key: str) -> Path:
-    root = settings.local_storage_root.resolve()
-    path = (root / bucket / storage_key).resolve()
-    if not str(path).startswith(str(root)):
-        raise AppHTTPException(400, "INVALID_STORAGE_PATH", "Invalid storage path.")
-    return path
+    """Build a storage path and validate it stays inside the configured root (§6.2.6)."""
+    root = settings.local_storage_root
+    path = root / bucket / storage_key
+    return ensure_within_root(root, path)
 
 
 async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | None) -> StoredFile:

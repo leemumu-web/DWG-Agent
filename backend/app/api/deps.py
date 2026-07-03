@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.constants import ACTIVE, ROLE_ADMIN, ROLE_SUPER_ADMIN
-from app.core.exceptions import AppHTTPException, forbidden
+from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.core.security import decode_token
 from app.db.session import get_db
 from app.models.project import Project, ProjectMember
@@ -73,6 +73,11 @@ def has_global_project_access(user: User) -> bool:
     return bool({ROLE_SUPER_ADMIN, ROLE_ADMIN}.intersection(user_role_codes(user)))
 
 
+def is_admin(user: User) -> bool:
+    """Return True if the user holds admin or super_admin global permissions (§8.3)."""
+    return has_global_project_access(user)
+
+
 def get_project_membership(db: Session, user: User, project_id: int) -> ProjectMember | None:
     return db.scalar(
         select(ProjectMember).where(
@@ -85,6 +90,7 @@ def get_project_membership(db: Session, user: User, project_id: int) -> ProjectM
 def require_project_member(db: Session, user: User, project_id: int) -> ProjectMember | None:
     if has_global_project_access(user):
         return None
+    require_active_project(db, project_id)
     member = get_project_membership(db, user, project_id)
     if not member:
         raise forbidden("Project membership is required.")
@@ -95,8 +101,6 @@ def require_active_project(db: Session, project_id: int) -> None:
     """Raise 404 if the project does not exist or has been soft-deleted."""
     project = db.get(Project, project_id)
     if not project or project.status == "deleted":
-        from app.core.exceptions import not_found
-
         raise not_found("Project")
 
 

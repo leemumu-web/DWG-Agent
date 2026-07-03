@@ -524,13 +524,18 @@ def test_get_nonexistent_resource_returns_404():
         ("GET", "/api/v1/jobs/99999"),
         ("GET", "/api/v1/results/99999"),
         ("GET", "/api/v1/audit-logs/99999"),
-        ("GET", "/api/v1/agent-runs/99999"),
     ]
 
     for method, path in paths:
         resp = client.get(path, headers=headers)
         assert resp.status_code == 404, f"{method} {path} returned {resp.status_code}: {resp.text}"
         assert resp.json()["error"]["code"] == "NOT_FOUND", f"{path} error code mismatch"
+
+    # Agent endpoints return 503 when agent_enabled=false (stage 1), consistently
+    # for all CRUD operations — 404 is only reachable when the agent is live.
+    resp = client.get("/api/v1/agent-runs/99999", headers=headers)
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "AGENT_DISABLED"
 
 
 # ---------------------------------------------------------------------------

@@ -104,6 +104,20 @@ class UserUpdate(BaseModel):
         return v
 
 
+class UserSelfUpdate(BaseModel):
+    """Fields a user may update on their own profile — status changes excluded."""
+
+    real_name: str | None = Field(default=None, min_length=1, max_length=64)
+    email: EmailStr | None = None
+
+    @field_validator("real_name")
+    @classmethod
+    def _reject_html_in_real_name(cls, v: str | None) -> str | None:
+        if v is not None and _HTML_TAG_RE.search(v):
+            raise ValueError("real_name contains HTML — not allowed.")
+        return v
+
+
 class RoleCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=64)

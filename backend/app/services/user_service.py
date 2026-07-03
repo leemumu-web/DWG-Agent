@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import UTC, datetime
+
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -8,7 +10,7 @@ from app.core.constants import ACTIVE, DELETED
 from app.core.exceptions import AppHTTPException, not_found
 from app.core.security import hash_password
 from app.models.user import User
-from app.schemas.user_schema import UserCreate, UserUpdate
+from app.schemas.user_schema import UserCreate, UserSelfUpdate, UserUpdate
 
 
 def create_user(db: Session, payload: UserCreate) -> User:
@@ -37,8 +39,11 @@ def create_user(db: Session, payload: UserCreate) -> User:
     return user
 
 
-def get_user_or_404(db: Session, user_id: int) -> User:
-    user = db.get(User, user_id)
+def get_user_or_404(db: Session, user_id: int, *, for_update: bool = False) -> User:
+    if for_update:
+        user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    else:
+        user = db.get(User, user_id)
     if not user or user.status == DELETED:
         raise not_found("User")
     return user
@@ -50,3 +55,29 @@ def update_user(db: Session, user: User, payload: UserUpdate) -> User:
         setattr(user, key, str(value) if key == "email" and value else value)
     db.flush()
     return user
+
+
+def update_user_self(db: Session, user: User, payload: UserSelfUpdate) -> User:
+    """Apply safe self-service profile fields — no status changes allowed."""
+    data = payload.model_dump(exclude_unset=True)
+    for key, value in data.items():
+        setattr(user, key, str(value) if key == "email" and value else value)
+    db.flush()
+    return user
+
+
+def transition_user_status(
+    db: Session, user_id: int, to_status: str, *, set_deleted_at: bool = False
+) -> bool:
+    """Atomically update a user's status — returns True if a row was updated.
+
+    Uses ``UPDATE ... WHERE status != 'deleted'`` to eliminate the TOCTOU
+    race window between the SELECT and UPDATE in disable/delete/enable flows.
+    """
+    values: dict = {"status": to_status}
+    if set_deleted_at:
+        values["deleted_at"] = datetime.now(UTC)
+    result = db.execute(
+        update(User).where(User.id == user_id, User.status != DELETED).values(**values)
+    )
+    return result.rowcount > 0

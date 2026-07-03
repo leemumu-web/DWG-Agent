@@ -43,6 +43,10 @@ def create_agent_run(
 def get_agent_run(
     agent_run_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
 ):
+    if not settings.agent_enabled:
+        raise service_unavailable(
+            "AGENT_DISABLED", "Agent subsystem is intentionally disabled in stage 1."
+        )
     run = db.get(AgentRun, agent_run_id)
     if not run:
         raise not_found("AgentRun")
@@ -58,6 +62,10 @@ def get_agent_run_steps(
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
+    if not settings.agent_enabled:
+        raise service_unavailable(
+            "AGENT_DISABLED", "Agent subsystem is intentionally disabled in stage 1."
+        )
     steps = list(
         db.scalars(
             select(AgentRunStep)

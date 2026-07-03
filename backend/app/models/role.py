@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ role_permissions = Table(
 class Role(TimestampMixin, Base):
     __tablename__ = "sys_roles"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     description: Mapped[str | None] = mapped_column(String(255))
@@ -45,7 +45,7 @@ class Role(TimestampMixin, Base):
 class Permission(Base):
     __tablename__ = "sys_permissions"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     resource: Mapped[str] = mapped_column(String(64), nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)

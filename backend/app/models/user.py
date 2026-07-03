@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 from app.models.role import user_roles
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class User(TimestampMixin, Base):
     __tablename__ = "sys_users"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     employee_no: Mapped[str | None] = mapped_column(String(64))
     real_name: Mapped[str] = mapped_column(String(64), nullable=False)

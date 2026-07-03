@@ -6,14 +6,14 @@ from typing import Any
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 
 
 class Job(TimestampMixin, Base):
     __tablename__ = "jobs"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), index=True)
     drawing_id: Mapped[int | None] = mapped_column(ForeignKey("drawings.id"), index=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
@@ -37,7 +37,7 @@ class Job(TimestampMixin, Base):
 class JobStep(Base):
     __tablename__ = "job_steps"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
     step_name: Mapped[str] = mapped_column(String(128), nullable=False)
     worker_name: Mapped[str | None] = mapped_column(String(128))

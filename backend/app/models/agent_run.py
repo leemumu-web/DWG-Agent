@@ -6,16 +6,16 @@ from typing import Any
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 
 
 class AgentRun(TimestampMixin, Base):
     __tablename__ = "agent_runs"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("sys_users.id"))
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"))
     drawing_id: Mapped[int | None] = mapped_column(ForeignKey("drawings.id"))
     file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"))
@@ -35,7 +35,7 @@ class AgentRun(TimestampMixin, Base):
 class AgentRunStep(TimestampMixin, Base):
     __tablename__ = "agent_run_steps"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     agent_run_id: Mapped[int] = mapped_column(
         ForeignKey("agent_runs.id"), nullable=False, index=True
     )

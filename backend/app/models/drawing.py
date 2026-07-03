@@ -3,14 +3,14 @@ from __future__ import annotations
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 
 
 class Drawing(TimestampMixin, Base):
     __tablename__ = "drawings"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     drawing_no: Mapped[str | None] = mapped_column(String(128))
     title: Mapped[str | None] = mapped_column(String(255))
@@ -29,7 +29,7 @@ class Drawing(TimestampMixin, Base):
 class DrawingVersion(TimestampMixin, Base):
     __tablename__ = "drawing_versions"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     drawing_id: Mapped[int] = mapped_column(ForeignKey("drawings.id"), nullable=False)
     file_id: Mapped[int] = mapped_column(ForeignKey("files.id"), nullable=False)
     version_no: Mapped[int] = mapped_column(nullable=False)

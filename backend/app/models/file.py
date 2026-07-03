@@ -3,14 +3,14 @@ from __future__ import annotations
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 
 
 class StoredFile(TimestampMixin, Base):
     __tablename__ = "files"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     bucket: Mapped[str] = mapped_column(String(128), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)

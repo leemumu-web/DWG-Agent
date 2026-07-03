@@ -6,14 +6,14 @@ from typing import Any
 from sqlalchemy import DECIMAL, JSON, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 
 
 class AnalysisResult(TimestampMixin, Base):
     __tablename__ = "analysis_results"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
     drawing_id: Mapped[int | None] = mapped_column(ForeignKey("drawings.id"), index=True)
     result_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -32,7 +32,7 @@ class AnalysisResult(TimestampMixin, Base):
 class ReviewRecord(TimestampMixin, Base):
     __tablename__ = "review_records"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     result_id: Mapped[int] = mapped_column(
         ForeignKey("analysis_results.id"), nullable=False, index=True
     )
