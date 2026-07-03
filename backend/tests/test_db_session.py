@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import text
 
 from app.core.config import Settings, settings
-from app.db.session import SessionLocal, connect_args, db_health, engine, get_db, pool_args
+from app.db.session import SessionLocal, db_health, engine, get_db, pool_args
 
 
 class TestEngineConfiguration:
@@ -24,28 +24,9 @@ class TestPoolArgs:
     def test_pool_args_is_dict(self):
         assert isinstance(pool_args, dict)
 
-    def test_pool_args_empty_for_sqlite(self):
-        """When DATABASE_URL is sqlite, pool_args must be empty (no MySQL tuning)."""
-        assert settings.database_url.startswith("sqlite")
-        assert pool_args == {}
-
-    def test_pool_args_would_be_populated_for_mysql(self):
-        """Simulate the conditional: if url starts with mysql, pool_args gets values."""
-        simulated = {}
-        if "mysql+pymysql://user@host/db".startswith("mysql"):
-            simulated = {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
-        assert simulated == {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
-
-
-class TestSQLiteConnectArgs:
-    def test_check_same_thread_false_for_sqlite(self):
-        """SQLite needs check_same_thread=False for FastAPI multi-thread access."""
-        assert connect_args == {"check_same_thread": False}
-
-    def test_engine_created_successfully(self):
-        """The SQLite engine is created at module import time without error."""
-        assert engine is not None
-        assert engine.name == "sqlite"
+    def test_pool_args_always_populated(self):
+        """pool_args is unconditional, always providing MySQL tuning values."""
+        assert pool_args == {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
 
 
 class TestDbHealth:
@@ -98,11 +79,6 @@ class TestMySQLPoolConfiguration:
     that the pool_args dict is NOT populated for SQLite, then verify the
     conditional independently.
     """
-
-    def test_pytest_sqlite_url_does_not_trigger_mysql_pool(self):
-        """The pytest SQLite override must not set MySQL pool tuning."""
-        assert settings.database_url.startswith("sqlite")
-        assert pool_args == {}
 
     def test_mysql_url_triggers_pool_condition(self):
         """Verify the conditional: pool_recycle=3600 would be set for mysql:// URLs."""

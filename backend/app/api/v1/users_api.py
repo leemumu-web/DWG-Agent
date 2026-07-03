@@ -26,6 +26,21 @@ def _require_super_admin_role_manager(current_user: User, role_code: str) -> Non
         raise forbidden("Only super_admin can manage the super_admin role.")
 
 
+_CANNOT_MANAGE_SUPER_ADMIN = AppHTTPException(
+    400,
+    "CANNOT_MANAGE_SUPER_ADMIN",
+    "Only super_admin can manage super_admin accounts.",
+)
+
+
+def _require_super_admin_target(db: Session, current_user: User, target_user: User) -> None:
+    """Raise if *current_user* is not super_admin but *target_user* is."""
+    if ROLE_SUPER_ADMIN not in user_role_codes(current_user) and ROLE_SUPER_ADMIN in user_role_codes(
+        target_user
+    ):
+        raise _CANNOT_MANAGE_SUPER_ADMIN
+
+
 @router.get("")
 def list_users(
     request: Request,
@@ -83,6 +98,7 @@ def update_user_api(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     user = get_user_or_404(db, user_id)
+    _require_super_admin_target(db, current_user, user)
     if user.id == current_user.id and payload.status is not None and payload.status != ACTIVE:
         raise AppHTTPException(
             400, "CANNOT_DISABLE_SELF", "Admin cannot disable their own account."
@@ -109,6 +125,7 @@ def delete_user_api(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     user = get_user_or_404(db, user_id)
+    _require_super_admin_target(db, current_user, user)
     if user.id == current_user.id:
         raise AppHTTPException(400, "CANNOT_DELETE_SELF", "Admin cannot delete their own account.")
     user.status = DELETED
@@ -190,6 +207,7 @@ def reset_user_password(
 ):
     """Admin-initiated password reset. Sets a temporary password that user must change."""
     user = get_user_or_404(db, user_id)
+    _require_super_admin_target(db, current_user, user)
     if user.status == DELETED:
         raise AppHTTPException(400, "USER_DELETED", "Cannot reset password for a deleted user.")
     temp_password = f"temp-{uuid4().hex[:12]}"
@@ -222,6 +240,7 @@ def disable_user(
 ):
     """Disable a user account. Disabled users cannot authenticate."""
     user = get_user_or_404(db, user_id)
+    _require_super_admin_target(db, current_user, user)
     if user.id == current_user.id:
         raise AppHTTPException(
             400, "CANNOT_DISABLE_SELF", "Admin cannot disable their own account."
@@ -252,6 +271,7 @@ def enable_user(
 ):
     """Re-enable a previously disabled user account."""
     user = get_user_or_404(db, user_id)
+    _require_super_admin_target(db, current_user, user)
     if user.status == DELETED:
         raise AppHTTPException(400, "USER_DELETED", "Cannot enable a deleted user.")
     before = {"status": user.status}

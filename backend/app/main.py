@@ -23,8 +23,18 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: eagerly probe Redis so the log shows connected/unavailable early
+    # Startup: eagerly probe Redis and initialise DB schema/seed data
     get_redis()
+    try:
+        from app.db.init_db import init_db
+
+        init_db()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Database initialisation failed — may already be initialised or MySQL is unreachable."
+        )
     yield
     # Shutdown: clean up Redis connection pool
     close_redis()

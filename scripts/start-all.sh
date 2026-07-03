@@ -26,9 +26,9 @@ if port_free 8000; then
     info "启动后端 (127.0.0.1:8000)..."
     cd "$PROJECT_ROOT/backend"
     if [ -x .venv/bin/uvicorn ]; then
-        nohup .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
+        nohup .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
     else
-        nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
+        nohup uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
     fi
     BACKEND_PID=$!
     echo $BACKEND_PID > /tmp/dwg-agent-backend.pid

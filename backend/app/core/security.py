@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -24,6 +25,7 @@ def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None
     expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     payload: dict[str, Any] = {
         "sub": subject,
+        "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
         "type": "access",
@@ -38,6 +40,7 @@ def create_refresh_token(subject: str, extra_claims: dict[str, Any] | None = Non
     expire = now + timedelta(days=settings.jwt_refresh_token_expire_days)
     payload: dict[str, Any] = {
         "sub": subject,
+        "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": int(expire.timestamp()),
         "type": "refresh",

@@ -1,43 +1,20 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from pathlib import Path
 
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
-if settings.database_url.startswith("sqlite"):
-    db_path = settings.database_url.replace("sqlite:///", "", 1)
-    if db_path != ":memory":
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-
 # MySQL connection pool — recycle connections before MySQL wait_timeout (default 28800s)
-pool_args: dict = {}
+pool_args = {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
+
+engine_kwargs: dict = {"pool_pre_ping": True}
 if settings.database_url.startswith("mysql"):
-    pool_args = {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
-
-engine = create_engine(
-    settings.database_url, pool_pre_ping=True, connect_args=connect_args, **pool_args
-)
+    engine_kwargs.update(pool_args)
+engine = create_engine(settings.database_url, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
-
-# ---------------------------------------------------------------------------
-# SQLite hardening — applied on every new connection (pragmas are per-connection)
-# ---------------------------------------------------------------------------
-if settings.database_url.startswith("sqlite"):
-
-    @event.listens_for(Engine, "connect")
-    def _set_sqlite_pragmas(dbapi_connection, _connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL;")
-        cursor.execute("PRAGMA foreign_keys=ON;")
-        cursor.execute("PRAGMA busy_timeout=5000;")
-        cursor.close()
 
 
 def get_db() -> Generator[Session, None, None]:

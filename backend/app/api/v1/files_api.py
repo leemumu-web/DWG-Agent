@@ -195,12 +195,11 @@ def download_file(
     if not stored or stored.status == "deleted":
         raise not_found("File")
     _require_file_read_access(db, current_user, stored)
-    if expires is not None or signature is not None:
-        if expires is None or signature is None:
-            raise AppHTTPException(
-                403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is incomplete."
-            )
-        _validate_download_signature(file_id, expires, signature)
+    if expires is None or signature is None:
+        raise AppHTTPException(
+            403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is required."
+        )
+    _validate_download_signature(file_id, expires, signature)
     path = get_local_file_path(stored)
     if not path.exists() or not path.is_file():
         raise not_found("StoredFileObject")

@@ -13,7 +13,7 @@ from app.api.deps import (
 )
 from app.core.exceptions import not_found
 from app.models.drawing import Drawing, DrawingVersion
-from app.models.project import ProjectMember
+from app.models.project import Project, ProjectMember
 from app.schemas.common import ok, page_from_list
 from app.schemas.drawing_schema import (
     DrawingCreate,
@@ -54,6 +54,9 @@ def create_drawing(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
+    project = db.get(Project, payload.project_id)
+    if not project or project.status == "deleted":
+        raise not_found("Project")
     require_project_role(db, current_user, payload.project_id, PROJECT_WRITE_ROLES)
     drawing = Drawing(
         project_id=payload.project_id,

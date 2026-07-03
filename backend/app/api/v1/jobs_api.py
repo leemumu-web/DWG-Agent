@@ -11,7 +11,7 @@ from app.api.deps import (
     require_project_member,
     require_project_role,
 )
-from app.core.exceptions import not_found
+from app.core.exceptions import AppHTTPException, not_found
 from app.models.drawing import Drawing
 from app.models.job import Job, JobStep
 from app.models.project import ProjectMember
@@ -93,6 +93,12 @@ def cancel_job(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
+    if job.status in ("succeeded", "failed", "cancelled"):
+        raise AppHTTPException(
+            409,
+            "JOB_NOT_CANCELLABLE",
+            f"Job cannot be cancelled because it is already {job.status}.",
+        )
     if job.project_id is not None:
         require_project_role(db, current_user, job.project_id, PROJECT_JOB_WRITE_ROLES)
     job.status = "cancelled"

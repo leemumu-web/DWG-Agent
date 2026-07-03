@@ -37,7 +37,9 @@ def test_dwg_upload_download_and_audit_flow():
     assert download_url.json()["data"]["url"].startswith(f"/api/v1/files/{file_id}/download?")
     assert download_url.json()["data"]["expires_in"] == 300
 
-    downloaded = client.get(f"/api/v1/files/{file_id}/download", headers=headers)
+    # Must use signed URL — unsigned download is rejected
+    signed_url = download_url.json()["data"]["url"]
+    downloaded = client.get(signed_url, headers=headers)
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.content == b"AC1027-DWG-STUB"
 

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 import jwt
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db
+from app.api.deps import CurrentUser, get_db, get_raw_access_token
 from app.core.config import settings
 from app.core.constants import ACTIVE
 from app.core.exceptions import AppHTTPException
@@ -66,8 +68,20 @@ def create_session(
 
 @router.delete("/sessions/current", status_code=status.HTTP_204_NO_CONTENT)
 def delete_current_session(
-    response: Response, current_user: CurrentUser, db: Session = Depends(get_db)
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    token: Annotated[str, Depends(get_raw_access_token)],
+    db: Session = Depends(get_db),
 ):
+    from app.services.auth_service import blacklist_access_token
+
+    # Blacklist access token
+    blacklist_access_token(token)
+    # Blacklist refresh token (if present in cookie)
+    refresh = request.cookies.get(REFRESH_COOKIE_NAME)
+    if refresh:
+        blacklist_access_token(refresh)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -97,6 +111,15 @@ def refresh_token(request: Request, db: Session = Depends(get_db)):
         raise AppHTTPException(
             status.HTTP_401_UNAUTHORIZED, "INVALID_TOKEN", "Invalid refresh token."
         ) from None
+
+    # Check if refresh token has been revoked
+    from app.services.auth_service import is_token_blacklisted
+
+    jti = payload.get("jti")
+    if jti and is_token_blacklisted(jti):
+        raise AppHTTPException(
+            status.HTTP_401_UNAUTHORIZED, "TOKEN_REVOKED", "Refresh token has been revoked."
+        )
 
     user = db.scalar(select(User).where(User.id == user_id))
     if not user or user.status != ACTIVE:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 import jwt
@@ -37,6 +38,21 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Db
             "Invalid access token.",
         ) from None
 
+    # Check token blacklist (logout invalidation)
+    from app.services.auth_service import is_token_blacklisted
+
+    jti = payload.get("jti")
+    if not jti:
+        logging.getLogger(__name__).warning(
+            "Token accepted without jti — cannot be revoked (pre-rollout token?)."
+        )
+    elif is_token_blacklisted(jti):
+        raise AppHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "TOKEN_REVOKED",
+            "Access token has been revoked.",
+        )
+
     user = db.scalar(select(User).where(User.id == user_id))
     if not user or user.status != ACTIVE:
         raise AppHTTPException(
@@ -46,6 +62,11 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Db
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+async def get_raw_access_token(token: Annotated[str, Depends(oauth2_scheme)]) -> str:
+    """Return the raw JWT access token string — for logout blacklisting."""
+    return token
 
 
 def user_role_codes(user: User) -> set[str]:

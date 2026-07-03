@@ -286,3 +286,73 @@ P3: 菜单按角色动态过滤(当前所有用户可见所有菜单项)
 ```
 
 新增测试精确覆盖了我们发现的所有critical/major bug回归点。
+
+---
+
+## 八、MySQL迁移关键发现
+
+### 8.1 数据库已切换至MySQL
+`.env` 中 `DATABASE_URL=mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent`，17张表存在于MariaDB 11.8
+
+### 8.2 🔴 CRITICAL: 表结构过期 — 项目创建阻塞
+
+**现象:** `POST /api/v1/projects` 返回500，后端报错 `Unknown column 'created_at' in 'INSERT INTO'`
+
+**根因:** `project_members` 表在MySQL中缺少 `created_at` 和 `updated_at` 列。SQLAlchemy Model (`ProjectMember(TimestampMixin)`) 期望这些列，但MySQL表是用旧版Model创建的。
+
+**受影响的表:**
+| 表 | 缺失列 | 影响 |
+|----|--------|------|
+| project_members | created_at, updated_at | **阻塞所有项目创建** |
+| drawing_versions | created_at, updated_at | **阻塞图纸版本创建** |
+| review_records | created_at, updated_at | **阻塞审核提交** |
+| agent_run_steps | created_at, updated_at | Agent启用后阻塞 |
+
+**不受影响的已验证功能:**
+- 登录/认证 ✅ (sys_users列完整)
+- 文件上传 ✅ (files列完整)  
+- 用户管理 ✅ (sys_users列完整)
+- 角色/权限 ✅ (sys_roles/sys_permissions完整)
+- 审计日志 ✅ (audit_logs列完整)
+- 查询已有数据 ✅ (SELECT不受影响)
+
+**对比:** SQLite开发模式下 `init_db()` 使用 `create_all` 总是创建最新schema，此问题不存在。MySQL表创建于早期，后续Model更新未通过Alembic迁移同步。
+
+### 8.3 MySQL优势验证
+- VARCHAR(N)真正强制 ✅ (SQLite忽略)
+- DECIMAL(5,4)真正强制 ✅ (SQLite忽略)
+- FK约束真正强制 ✅
+- 死锁检测正常 ✅
+- 连接池正常 (5并发) ✅
+- 事务回滚正常 ✅
+- utf8mb4_unicode_ci / InnoDB ✅
+- 慢查询日志: OFF ⚠️ (生产应启用)
+
+### 8.4 下载签名安全分析
+
+- 签名URL: HMAC-SHA256签名, 带expires参数 ✅
+- 过期检测: expires超时正确返回403 ✅
+- 篡改检测: 修改expires/signature正确返回403 ✅
+- **软性强制**: `expires=None and signature=None` 时不校验 — 旧直接访问路径仍有效 ⚠️
+  - 根因: `if expires is not None or signature is not None:` 条件
+  - 且 `_require_file_read_access` 在签名验证前执行, token仍需验证
+  - 签名URL不提供额外安全增益(因token检查已足够)
+
+### 8.5 _require_super_admin_target 验证
+
+- `admin`角色用户无法禁用/管理 `super_admin` 用户 ✅ (CANNOT_MANAGE_SUPER_ADMIN)
+- 只有 `super_admin` 可以管理 `super_admin` 角色的账户
+
+### 8.6 当前仍存在的问题
+
+| 问题 | 严重度 | 状态 |
+|------|--------|------|
+| MySQL project_members/drawing_versions/review_records 缺列 | 🔴 Critical | 阻塞项目创建/版本/审核 |
+| 下载签名非强制 | 🔵 Minor | 无安全增益但功能正确 |
+| start-all.sh 不带 --reload | 🔵 Minor | 影响开发体验 |
+| JWT登出不失效 | ✅ **已修复!** | Redis黑名单+jti, TOKEN_REVOKED |
+| Refresh Token未失效 | ✅ **已修复!** | 登出同时黑名单access+refresh, 双TOKEN_REVOKED |
+| SYS-001 DB初始化lifespan | ✅ **已修复!** | lifespan调用init_db()含异常处理 |
+| SYS-002 start-all.sh reload | ✅ **已修复!** | 新增--reload参数 |
+| Nginx /admin 拦截SPA | 🔵 Minor | 影响直接URL访问 |
+| db_health 不检测表存在 | 🟡 Major | MySQL连接失败更易检测 |
