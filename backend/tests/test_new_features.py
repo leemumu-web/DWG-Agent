@@ -404,3 +404,100 @@ def test_delete_nonexistent_user_returns_404():
 
     r = client.delete("/api/v1/users/99999", headers=headers)
     assert r.status_code == 404, r.text
+
+
+# =============================================================================
+# PATCH /users/me — self-update endpoint (BUG-12)
+# =============================================================================
+
+
+def test_user_can_update_own_real_name():
+    """Any authenticated user can PATCH their own real_name."""
+    client = _client()
+    headers = _admin(client)
+
+    viewer_user = _unique("selfupdate")
+    viewer_pass = "ViewerPass1234"
+    _create_user(client, headers, viewer_user, viewer_pass, roles=["viewer"])
+    viewer_headers = {
+        "Authorization": f"Bearer {client.post('/api/v1/auth/sessions', json={'username': viewer_user, 'password': viewer_pass}).json()['data']['access_token']}"
+    }
+
+    # Viewer updates own real_name
+    r = client.patch(
+        "/api/v1/auth/profile",
+        headers=viewer_headers,
+        json={"real_name": "Updated Name"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["real_name"] == "Updated Name"
+
+
+def test_user_can_update_own_email():
+    """Any authenticated user can PATCH their own email."""
+    client = _client()
+    headers = _admin(client)
+
+    viewer_user = _unique("selfemail")
+    viewer_pass = "ViewerPass1234"
+    _create_user(client, headers, viewer_user, viewer_pass, roles=["viewer"])
+    viewer_headers = {
+        "Authorization": f"Bearer {client.post('/api/v1/auth/sessions', json={'username': viewer_user, 'password': viewer_pass}).json()['data']['access_token']}"
+    }
+
+    r = client.patch(
+        "/api/v1/auth/profile",
+        headers=viewer_headers,
+        json={"email": "new-email@example.com"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["email"] == "new-email@example.com"
+
+
+def test_user_cannot_change_own_status_via_me():
+    """PATCH /users/me silently ignores status — not a field on UserSelfUpdate."""
+    client = _client()
+    headers = _admin(client)
+
+    viewer_user = _unique("selfstatus")
+    viewer_pass = "ViewerPass1234"
+    _create_user(client, headers, viewer_user, viewer_pass, roles=["viewer"])
+    viewer_headers = {
+        "Authorization": f"Bearer {client.post('/api/v1/auth/sessions', json={'username': viewer_user, 'password': viewer_pass}).json()['data']['access_token']}"
+    }
+
+    r = client.patch(
+        "/api/v1/auth/profile",
+        headers=viewer_headers,
+        json={"status": "disabled"},
+    )
+    # Accepted (status silently ignored) — status unchanged
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["status"] == "active"
+
+
+def test_self_update_rejects_html_in_real_name():
+    """PATCH /users/me must reject HTML tags in real_name."""
+    client = _client()
+    headers = _admin(client)
+
+    viewer_user = _unique("selfhtml")
+    viewer_pass = "ViewerPass1234"
+    _create_user(client, headers, viewer_user, viewer_pass, roles=["viewer"])
+    viewer_headers = {
+        "Authorization": f"Bearer {client.post('/api/v1/auth/sessions', json={'username': viewer_user, 'password': viewer_pass}).json()['data']['access_token']}"
+    }
+
+    r = client.patch(
+        "/api/v1/auth/profile",
+        headers=viewer_headers,
+        json={"real_name": "<script>alert(1)</script>"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_unauthenticated_self_update_rejected():
+    """PATCH /users/me without auth token returns 401."""
+    client = _client()
+    r = client.patch("/api/v1/auth/profile", json={"real_name": "No Auth"})
+    assert r.status_code == 401, r.text

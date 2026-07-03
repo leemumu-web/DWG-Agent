@@ -57,7 +57,6 @@ def create_session(
     _set_refresh_cookie(response, build_refresh_token(user))
     write_audit_log(
         db, actor_user_id=user.id, action="auth.login", resource_type="user", resource_id=user.id,
-        request=request,
     )
     db.commit()
     data = LoginResponse(
@@ -90,7 +89,6 @@ def delete_current_session(
         action="auth.logout",
         resource_type="user",
         resource_id=current_user.id,
-        request=request,
     )
     db.commit()
     _clear_refresh_cookie(response)
@@ -161,7 +159,6 @@ def update_profile(
         resource_id=current_user.id,
         before_json=before,
         after_json=payload.model_dump(exclude_unset=True),
-        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(current_user), request.state.request_id)
@@ -188,7 +185,6 @@ def change_password(
         action="auth.password_change",
         resource_type="user",
         resource_id=current_user.id,
-        request=request,
     )
     db.commit()
     return ok({"changed": True}, request.state.request_id)

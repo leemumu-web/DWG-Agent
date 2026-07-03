@@ -131,7 +131,7 @@ def update_drawing(
 
 
 @router.delete("/{drawing_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_drawing(drawing_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
+def delete_drawing(drawing_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     drawing = db.get(Drawing, drawing_id)
     if not drawing or drawing.status == "deleted":
         raise not_found("Drawing")

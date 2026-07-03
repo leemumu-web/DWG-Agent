@@ -20,6 +20,7 @@ from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
+from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
 from app.schemas.file_schema import DownloadUrlRead, FileRead
@@ -59,12 +60,22 @@ def _file_project_ids(db: Session, file_id: int) -> set[int]:
     drawing_project_ids = db.scalars(
         select(Drawing.project_id)
         .join(DrawingVersion, DrawingVersion.drawing_id == Drawing.id)
-        .where(DrawingVersion.file_id == file_id, Drawing.status != "deleted")
+        .join(Project, Project.id == Drawing.project_id)
+        .where(
+            DrawingVersion.file_id == file_id,
+            Drawing.status != "deleted",
+            Project.status != "deleted",
+        )
     ).all()
     result_project_ids = db.scalars(
         select(Job.project_id)
         .join(AnalysisResult, AnalysisResult.job_id == Job.id)
-        .where(AnalysisResult.result_file_id == file_id, Job.project_id.is_not(None))
+        .join(Project, Project.id == Job.project_id)
+        .where(
+            AnalysisResult.result_file_id == file_id,
+            Job.project_id.is_not(None),
+            Project.status != "deleted",
+        )
     ).all()
     return {
         project_id
@@ -147,7 +158,7 @@ def get_file(
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_file(file_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
+def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
@@ -186,6 +197,7 @@ def get_download_url(
 @router.get("/{file_id}/download")
 def download_file(
     file_id: int,
+    request: Request,
     current_user: CurrentUser,
     expires: int | None = Query(default=None),
     signature: str | None = Query(default=None),

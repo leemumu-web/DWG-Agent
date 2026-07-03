@@ -19,7 +19,13 @@ from app.core.security import hash_password
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.common import ok, page_from_list
-from app.schemas.user_schema import AssignRoleRequest, UserCreate, UserRead, UserUpdate
+from app.schemas.user_schema import (
+    AssignRoleRequest,
+    UserCreate,
+    UserRead,
+    UserSelfUpdate,
+    UserUpdate,
+)
 from app.services.audit_service import write_audit_log
 from app.services.user_service import (
     create_user,
@@ -83,7 +89,6 @@ def create_user_api(
         resource_type="user",
         resource_id=user.id,
         after_json={"username": user.username},
-        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -99,6 +104,31 @@ def get_user_api(
     return ok(UserRead.model_validate(get_user_or_404(db, user_id)), request.state.request_id)
 
 
+
+@router.patch("/me")
+def update_self(
+    payload: UserSelfUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Allow any authenticated user to update their own real_name and email."""
+    user = get_user_or_404(db, current_user.id)
+    before = {"real_name": user.real_name, "email": user.email}
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(user, key, str(value) if key == "email" else value)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="users.update_self",
+        resource_type="user",
+        resource_id=user.id,
+        before_json=before,
+        after_json=payload.model_dump(exclude_unset=True),
+    )
+    db.commit()
+    return ok(UserRead.model_validate(user), request.state.request_id)
 @router.patch("/{user_id}")
 def update_user_api(
     user_id: int,
@@ -123,7 +153,6 @@ def update_user_api(
         resource_id=user.id,
         before_json=before,
         after_json=payload.model_dump(exclude_unset=True),
-        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -148,7 +177,6 @@ def delete_user_api(
         action="users.delete",
         resource_type="user",
         resource_id=user_id,
-        request=request,
     )
     db.commit()
     return None
@@ -176,7 +204,6 @@ def assign_role(
         resource_type="user",
         resource_id=user.id,
         after_json={"role_code": role.code},
-        request=request,
     )
     db.commit()
     return ok(UserRead.model_validate(user), request.state.request_id)
@@ -208,7 +235,6 @@ def remove_role(
         resource_type="user",
         resource_id=user.id,
         after_json={"role_id": role_id},
-        request=request,
     )
     db.commit()
     return None
@@ -244,7 +270,6 @@ def reset_user_password(
         action="users.password_reset",
         resource_type="user",
         resource_id=user.id,
-        request=request,
     )
     db.commit()
     return ok(
@@ -282,7 +307,6 @@ def disable_user(
         resource_id=user_id,
         before_json=before,
         after_json={"status": DISABLED},
-        request=request,
     )
     db.commit()
     db.refresh(user)
@@ -310,8 +334,9 @@ def enable_user(
         resource_id=user_id,
         before_json=before,
         after_json={"status": ACTIVE},
-        request=request,
     )
     db.commit()
     db.refresh(user)
     return ok(UserRead.model_validate(user), request.state.request_id)
+
+

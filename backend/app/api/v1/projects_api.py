@@ -126,7 +126,7 @@ def update_project(
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project(project_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
+def delete_project(project_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
     if not project or project.status == "deleted":
         raise not_found("Project")
