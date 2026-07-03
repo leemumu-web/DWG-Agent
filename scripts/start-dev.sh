@@ -12,8 +12,7 @@ echo -e "${BLUE}═════════════════════�
 step "基础设施"
 bash "$PROJECT_ROOT/scripts/db.sh" start
 bash "$PROJECT_ROOT/scripts/db.sh" init
-check_port() { port_free "$1" && warn "$2 (:${1}) 未运行" || ok "$2 (:${1})"; }
-check_port 6379 "Redis"
+ensure_service 6379 redis valkey
 
 # 2. 后端
 step "后端 (127.0.0.1:8000)"

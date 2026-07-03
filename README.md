@@ -196,7 +196,7 @@ bash infra/verify.sh             # Nginx / Docker Compose / Dockerfile / MySQL /
 
 ```text
 username: admin
-password: admin123456
+password: SuperAdminPass1
 ```
 
 ### 端到端验证流程

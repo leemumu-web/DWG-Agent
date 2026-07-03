@@ -18,6 +18,18 @@ step() { echo -e "\n${BLUE}── $1 ──${NC}"; }
 # 端口占用检查
 port_free() { ! ss -tlnp "sport = :$1" 2>/dev/null | grep -q ":$1"; }
 
+# 端口状态检查（返回 0=运行中, 1=未运行，供 health-check 聚合）
+check_port() {
+    local port="$1" label="$2"
+    if port_free "$port"; then
+        warn "$label — 未运行 (:${port})"
+        return 1
+    else
+        ok "$label — :$port"
+        return 0
+    fi
+}
+
 # 进程按 PID 文件杀
 kill_by_pidfile() {
     local pidfile="$1" label="${2:-process}"

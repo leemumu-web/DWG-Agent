@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = 14
 
     super_admin_username: str = "admin"
-    super_admin_password: str = "admin123456"
+    super_admin_password: str = "SuperAdminPass1"
     super_admin_real_name: str = "系统管理员"
 
     agent_enabled: bool = False

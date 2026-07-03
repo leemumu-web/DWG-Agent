@@ -203,7 +203,7 @@ uv run pytest -q              # must pass (153 tests expected)
 | Compose infra | `compose.yaml` |
 | Dockerfile | `backend/Dockerfile` (multi-stage, non-root, HEALTHCHECK) |
 | Docker ignore | `backend/.dockerignore` |
-| Dev scripts | `scripts/` (lib.sh + start-dev.sh / start-all.sh / stop-all.sh / status.sh / init_db.sh) |
+| Dev scripts | `scripts/` (lib.sh + start-dev.sh / start-all.sh / stop-all.sh / status.sh / db.sh) |
 | Test fixtures | `backend/tests/conftest.py` |
 | Config tests | `backend/tests/test_config.py` (Redis + MySQL) |
 | Session tests | `backend/tests/test_db_session.py` |

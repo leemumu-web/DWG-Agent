@@ -31,13 +31,6 @@ def test_start_scripts_delegate_database_startup_to_db_script():
         assert "ensure_service 3306" not in content
 
 
-def test_init_db_script_delegates_to_database_entrypoint():
-    content = _read("scripts/init_db.sh")
-
-    assert 'scripts/db.sh" init' in content
-    assert "python -m app.db.init_db" not in content
-
-
 def test_stop_all_does_not_kill_unowned_backend_port():
     content = _read("scripts/stop-all.sh")
 

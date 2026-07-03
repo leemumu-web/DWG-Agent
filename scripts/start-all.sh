@@ -85,7 +85,7 @@ fi
 
 # ── Summary ────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}═══════════════════════════/home/mayue/Creeken/vLLM═══════════════════════════${NC}"
+echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  全栈启动完成${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo ""
@@ -94,7 +94,7 @@ echo -e "  API:   ${BLUE}http://localhost:8080/api/v1${NC}"
 echo -e "  Health:${BLUE}http://localhost:8080/health${NC}"
 echo -e "  后端直达: ${DIM}http://127.0.0.1:8000${NC}"
 echo ""
-echo -e "  登录:  ${YELLOW}admin / admin123456${NC}"
+echo -e "  登录:  ${YELLOW}admin / SuperAdminPass1${NC}"
 echo -e "  停止:  ${YELLOW}bash scripts/stop-all.sh${NC}"
 echo -e "  状态:  ${YELLOW}bash scripts/status.sh${NC}"
 echo ""

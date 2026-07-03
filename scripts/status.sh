@@ -7,17 +7,6 @@ echo -e "${BLUE}═════════════════════�
 echo -e "${BLUE}  DWG-Agent 状态检查${NC}"
 echo -e "${BLUE}══════════════════════════════════════════════════════${NC}"
 
-check_port() {
-    local port="$1" label="$2"
-    if port_free "$port"; then
-        err "$label — 未运行"
-        return 1
-    else
-        ok "$label — :$port"
-        return 0
-    fi
-}
-
 ALL_OK=true
 
 # 1. Infrastructure
@@ -30,10 +19,7 @@ step "后端"
 if check_port 8000 "FastAPI"; then
     HEALTH=$(curl -s http://127.0.0.1:8000/health 2>/dev/null || echo "")
     if echo "$HEALTH" | grep -q '"status":"ok"'; then
-        ok "健康检查: all ok"
-    elif echo "$HEALTH" | grep -q '"status":"degraded"'; then
-        warn "健康检查: degraded"
-        echo "$HEALTH" | python3 -m json.tool 2>/dev/null | grep -E '"(status|message)"' | sed 's/^/    /'
+        ok "健康检查: ok"
     else
         warn "健康检查: 无响应"
     fi
@@ -46,7 +32,7 @@ step "网关"
 if check_port 8080 "Nginx"; then
     LOGIN_TEST=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8080/api/v1/auth/sessions \
         -H 'Content-Type: application/json' \
-        -d '{"username":"admin","password":"admin123456"}' 2>/dev/null || echo "000")
+        -d '{"username":"admin","password":"SuperAdminPass1"}' 2>/dev/null || echo "000")
     if [ "$LOGIN_TEST" = "200" ] || [ "$LOGIN_TEST" = "201" ]; then
         ok "API 反向代理正常 (POST /auth/sessions → $LOGIN_TEST)"
     else
