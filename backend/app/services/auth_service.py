@@ -14,10 +14,29 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
+# Dummy argon2id hash for constant-time comparison when the user does not exist.
+# Uses the same parameters (m=65536, t=3, p=4) as PasswordHash.recommended()
+# so that verify_password takes the same wall-clock time on both code paths.
+_DUMMY_VERIFY_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "c29tZXNhbHRzb21lc2FsdHNvbQ$"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+)
+
 
 def authenticate_user(db: Session, username: str, password: str) -> User | None:
+    """Authenticate a user by username and password.
+
+    The function always performs one argon2id verification so that the
+    wall-clock time is indistinguishable for valid users, invalid
+    passwords, and non-existent usernames — closing the timing
+    side-channel that would otherwise allow user enumeration.
+    """
     user = db.scalar(select(User).where(User.username == username))
     if not user or user.status != ACTIVE:
+        # User does not exist or is not active — burn equivalent CPU time
+        # on a dummy hash to prevent timing-based username enumeration.
+        verify_password(password, _DUMMY_VERIFY_HASH)
         return None
     if not verify_password(password, user.password_hash):
         return None

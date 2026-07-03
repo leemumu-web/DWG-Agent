@@ -62,6 +62,11 @@ def validate_upload_mime(content_type: str | None) -> str | None:
     return normalized
 
 
+# Minimum DWG file size in bytes — legitimate DWG files are never this small;
+# the threshold prevents trivial DoS via header-only uploads.
+MIN_DWG_SIZE_BYTES = 1024
+
+
 def validate_dwg_header(first_chunk: bytes) -> None:
     """Validate that the file starts with a supported DWG version signature."""
     if len(first_chunk) < 6:
@@ -111,6 +116,14 @@ async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | N
     except AppHTTPException:
         destination.unlink(missing_ok=True)
         raise
+
+    if size < MIN_DWG_SIZE_BYTES:
+        destination.unlink(missing_ok=True)
+        raise AppHTTPException(
+            415,
+            "FILE_NOT_DWG",
+            f"File too small ({size} bytes) — legitimate DWG files exceed {MIN_DWG_SIZE_BYTES} bytes.",
+        )
 
     content_type = upload_content_type or mimetypes.guess_type(original_name)[0]
     stored = StoredFile(

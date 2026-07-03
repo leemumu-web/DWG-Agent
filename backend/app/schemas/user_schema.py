@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.core.constants import ACTIVE, DISABLED
+
+# Common passwords banned in production — prevents the laziest brute-force wins.
+_COMMON_PASSWORDS = frozenset({
+    "password", "password123", "admin123", "admin123456", "12345678",
+    "123456789", "qwerty123", "abc12345", "letmein12", "welcome123",
+    "changeme12", "pass1234", "pass12345", "pass123456",
+    "Password123", "Admin123456", "Qwerty1234",
+})
+
+_HTML_TAG_RE = re.compile(r"<\s*[a-zA-Z/]")
 
 
 class RoleRead(BaseModel):
@@ -40,12 +51,43 @@ class UserRead(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=8)
+    username: str = Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_.@-]+$",
+        description="Username — letters, digits, underscore, dot, at-sign, hyphen only.",
+    )
+    password: str = Field(
+        min_length=12,
+        description="Password — minimum 12 characters, must contain upper + lower + digit.",
+    )
     real_name: str = Field(min_length=1, max_length=64)
     employee_no: str | None = Field(default=None, max_length=64)
     email: EmailStr | None = None
-    role_codes: list[str] = Field(default_factory=list)
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, v: str) -> str:
+        return v.strip()
+
+    @field_validator("real_name")
+    @classmethod
+    def _reject_html_in_real_name(cls, v: str) -> str:
+        if _HTML_TAG_RE.search(v):
+            raise ValueError("real_name contains HTML — not allowed.")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def _enforce_password_complexity(cls, v: str) -> str:
+        if v.lower() in _COMMON_PASSWORDS:
+            raise ValueError("This password is too common — choose a stronger one.")
+        if not (any(c.islower() for c in v) and any(c.isupper() for c in v) and any(c.isdigit() for c in v)):
+            raise ValueError(
+                "Password must contain at least one uppercase letter, "
+                "one lowercase letter, and one digit."
+            )
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -53,6 +95,13 @@ class UserUpdate(BaseModel):
     employee_no: str | None = Field(default=None, max_length=64)
     email: EmailStr | None = None
     status: Literal[ACTIVE, DISABLED] | None = None
+
+    @field_validator("real_name")
+    @classmethod
+    def _reject_html_in_real_name(cls, v: str | None) -> str | None:
+        if v is not None and _HTML_TAG_RE.search(v):
+            raise ValueError("real_name contains HTML — not allowed.")
+        return v
 
 
 class RoleCreate(BaseModel):

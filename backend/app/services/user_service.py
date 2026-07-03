@@ -7,12 +7,16 @@ from sqlalchemy.orm import Session
 from app.core.constants import ACTIVE, DELETED
 from app.core.exceptions import AppHTTPException, not_found
 from app.core.security import hash_password
-from app.models.role import Role
 from app.models.user import User
 from app.schemas.user_schema import UserCreate, UserUpdate
 
 
 def create_user(db: Session, payload: UserCreate) -> User:
+    """Create a user from *payload*.
+
+    Role assignment is handled separately via ``POST /users/{id}/roles`` so
+    that every role grant passes through the RBAC checks in the API layer.
+    """
     exists = db.scalar(select(User).where(User.username == payload.username))
     if exists:
         raise AppHTTPException(409, "USERNAME_EXISTS", "Username already exists.")
@@ -24,9 +28,6 @@ def create_user(db: Session, payload: UserCreate) -> User:
         password_hash=hash_password(payload.password),
         status=ACTIVE,
     )
-    if payload.role_codes:
-        roles = list(db.scalars(select(Role).where(Role.code.in_(payload.role_codes))).all())
-        user.roles.extend(roles)
     db.add(user)
     try:
         db.flush()

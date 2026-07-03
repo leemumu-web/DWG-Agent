@@ -64,8 +64,7 @@ def create_user_api(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
-    for role_code in payload.role_codes:
-        _require_super_admin_role_manager(current_user, role_code)
+    """Create a user (roles must be assigned separately via ``POST /users/{id}/roles``)."""
     user = create_user(db, payload)
     write_audit_log(
         db,
