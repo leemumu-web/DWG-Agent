@@ -8,7 +8,6 @@ from app.api.v1 import (
     auth_api,
     drawings_api,
     files_api,
-    health_api,
     jobs_api,
     projects_api,
     results_api,
@@ -18,7 +17,6 @@ from app.api.v1 import (
 )
 
 api_router = APIRouter()
-api_router.include_router(health_api.router, tags=["health"])
 api_router.include_router(auth_api.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users_api.router, prefix="/users", tags=["users"])
 api_router.include_router(roles_api.router, tags=["roles"])

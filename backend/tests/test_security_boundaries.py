@@ -435,7 +435,7 @@ def test_public_endpoints_do_not_require_auth():
     client = _client()
 
     assert client.get("/health").status_code == 200
-    assert client.get("/api/v1/health").status_code == 200
+    assert client.get("/health").status_code == 200
 
     # Login with bad credentials returns 401 (not 403/500)
     resp = client.post(

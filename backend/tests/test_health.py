@@ -25,23 +25,3 @@ class TestRootHealth:
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["data"]["status"] == "ok"
-
-
-class TestV1Health:
-    def test_health_returns_ok(self):
-        client = TestClient(app)
-        response = client.get("/api/v1/health")
-        assert response.status_code == 200
-        data = response.json()["data"]
-        assert data["status"] == "ok"
-        assert "components" not in data
-
-    def test_health_always_returns_200(self, monkeypatch):
-        import app.core.redis_client as redis_module
-
-        monkeypatch.setattr(redis_module, "_redis_client", None)
-        monkeypatch.setattr(redis_module, "_redis_available", False)
-        client = TestClient(app)
-        response = client.get("/api/v1/health")
-        assert response.status_code == 200
-        assert response.json()["data"]["status"] == "ok"
