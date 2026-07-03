@@ -67,9 +67,7 @@ def delete_session_history(session_id: str) -> None:
     r.delete(_make_key(session_id))
 
 
-def append_and_save(
-    session_id: str, new_messages: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
+def append_and_save(session_id: str, new_messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Full flow per spec §11.5: read → append → truncate → save → return.
 
     This is the convenience entry-point that Agent code will call in Stage 2.

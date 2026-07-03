@@ -99,10 +99,10 @@ class TestMySQLPoolConfiguration:
     conditional independently.
     """
 
-    def test_sqlite_url_does_not_trigger_mysql_pool(self):
-        """With the current SQLite URL, pool_size should NOT be set to MySQL values."""
-        # SQLAlchemy default pool_size is 5 when using QueuePool
-        assert engine.pool.size() <= 5  # SQLite pool; MySQL would have been 10
+    def test_pytest_sqlite_url_does_not_trigger_mysql_pool(self):
+        """The pytest SQLite override must not set MySQL pool tuning."""
+        assert settings.database_url.startswith("sqlite")
+        assert pool_args == {}
 
     def test_mysql_url_triggers_pool_condition(self):
         """Verify the conditional: pool_recycle=3600 would be set for mysql:// URLs."""
@@ -110,8 +110,8 @@ class TestMySQLPoolConfiguration:
         assert mysql_url.startswith("mysql")
         # The conditional in session.py is: if settings.database_url.startswith("mysql")
 
-    def test_settings_database_url_is_sqlite(self):
-        """Sanity: the current test environment uses SQLite, not MySQL."""
+    def test_settings_database_url_is_pytest_sqlite_override(self):
+        """Sanity: pytest explicitly overrides the runtime MySQL URL."""
         s = Settings()
         assert s.database_url.startswith("sqlite")
         assert not s.database_url.startswith("mysql")
@@ -123,5 +123,5 @@ class TestMySQLPoolConfiguration:
         s = Settings(MYSQL_PASSWORD="test")
         url = make_url(s.mysql_url)
         assert url.drivername == "mysql+pymysql"
-        assert url.host == "mysql"
+        assert url.host == "127.0.0.1"
         assert url.database == "dwg_agent"

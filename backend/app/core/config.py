@@ -17,10 +17,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     backend_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    database_url: str = "sqlite:///./var/app.db"
+    database_url: str = "mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent"
 
-    # MySQL component fields (spec §18) — for Docker deployment; dev uses database_url above
-    mysql_host: str = "mysql"
+    # MySQL component fields (spec §18); Docker overrides host to the service name mysql
+    mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306
     mysql_database: str = "dwg_agent"
     mysql_user: str = "dwg_user"
@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-me-in-dev"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 14
 
     super_admin_username: str = "admin"
     super_admin_password: str = "admin123456"
@@ -53,13 +54,17 @@ class Settings(BaseSettings):
     @property
     def celery_broker_url(self) -> str:
         """Assemble Celery broker URL from Redis component fields, matching redis_url auth."""
-        password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        password_part = (
+            f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        )
         return f"redis://{password_part}{self.redis_host}:{self.redis_port}/0"
 
     @property
     def celery_result_backend(self) -> str:
         """Assemble Celery result backend URL from Redis component fields."""
-        password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        password_part = (
+            f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        )
         return f"redis://{password_part}{self.redis_host}:{self.redis_port}/1"
 
     minio_endpoint: str = "http://localhost:9000"
@@ -82,7 +87,9 @@ class Settings(BaseSettings):
         When password is empty the URL omits the auth segment entirely, producing
         ``redis://host:port/db`` suitable for a passwordless local dev server.
         """
-        password_part = f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        password_part = (
+            f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
+        )
         return f"redis://{password_part}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     @property
@@ -93,8 +100,9 @@ class Settings(BaseSettings):
             if self.mysql_password
             else self.mysql_user
         )
-        return f"mysql+pymysql://{user_part}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
-
+        return (
+            f"mysql+pymysql://{user_part}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+        )
 
 
 @lru_cache

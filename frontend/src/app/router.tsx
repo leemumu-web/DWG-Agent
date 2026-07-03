@@ -9,7 +9,9 @@ import { JobsPage } from '../features/jobs/JobsPage';
 import { ReviewsPage } from '../features/reviews/ReviewsPage';
 import { UsersPage } from '../features/users/UsersPage';
 import { AuditLogsPage } from '../features/admin/AuditLogsPage';
-import { RequireAuth } from '../components/PermissionGuard';
+import { RolesPage } from '../features/admin/RolesPage';
+import { ProfilePage } from '../features/profile/ProfilePage';
+import { RequireAuth, RequireRoles } from '../components/PermissionGuard';
 
 export function AppRouter() {
   return (
@@ -23,9 +25,19 @@ export function AppRouter() {
             <Route path="/files" element={<FilesPage />} />
             <Route path="/drawings" element={<DrawingsPage />} />
             <Route path="/jobs" element={<JobsPage />} />
-            <Route path="/reviews" element={<ReviewsPage />} />
-            <Route path="/admin/users" element={<UsersPage />} />
-            <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route element={<RequireRoles allowed={['admin', 'reviewer']} />}>
+              <Route path="/reviews" element={<ReviewsPage />} />
+            </Route>
+            <Route element={<RequireRoles allowed={['admin']} />}>
+              <Route path="/admin/users" element={<UsersPage />} />
+            </Route>
+            <Route element={<RequireRoles allowed={[]} />}>
+              <Route path="/admin/roles" element={<RolesPage />} />
+            </Route>
+            <Route element={<RequireRoles allowed={['auditor']} />}>
+              <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
+            </Route>
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

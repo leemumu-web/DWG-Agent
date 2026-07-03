@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -50,7 +51,11 @@ async def add_request_id(request: Request, call_next):
 
 @app.exception_handler(AppHTTPException)
 async def app_http_exception_handler(request: Request, exc: AppHTTPException):
-    detail = exc.detail if isinstance(exc.detail, dict) else {"code": "ERROR", "message": str(exc.detail), "details": {}}
+    detail = (
+        exc.detail
+        if isinstance(exc.detail, dict)
+        else {"code": "ERROR", "message": str(exc.detail), "details": {}}
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": detail, "meta": meta(request.state.request_id)},
@@ -73,7 +78,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(
         status_code=422,
         content={
-            "error": {"code": "VALIDATION_ERROR", "message": "Request validation failed.", "details": {"errors": exc.errors()}},
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed.",
+                "details": {"errors": jsonable_encoder(exc.errors())},
+            },
             "meta": meta(getattr(request.state, "request_id", "unknown")),
         },
     )

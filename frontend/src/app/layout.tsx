@@ -11,7 +11,9 @@ const items = [
   { key: '/jobs', label: <Link to="/jobs">任务</Link> },
   { key: '/reviews', label: <Link to="/reviews">复核</Link> },
   { key: '/admin/users', label: <Link to="/admin/users">用户管理</Link> },
+  { key: '/admin/roles', label: <Link to="/admin/roles">角色权限</Link> },
   { key: '/admin/audit-logs', label: <Link to="/admin/audit-logs">审计日志</Link> },
+  { key: '/profile', label: <Link to="/profile">个人中心</Link> },
 ];
 
 export function AppLayout() {

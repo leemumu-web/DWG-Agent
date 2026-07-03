@@ -31,7 +31,9 @@ from app.core.redis_client import get_redis
 def _real_redis_available() -> bool:
     """Return True if a real Redis server is reachable at the configured URL."""
     try:
-        r = Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1, decode_responses=True)
+        r = Redis.from_url(
+            settings.redis_url, socket_connect_timeout=1, socket_timeout=1, decode_responses=True
+        )
         r.ping()
         r.close()
         return True
@@ -40,7 +42,9 @@ def _real_redis_available() -> bool:
 
 
 _real_redis_skip = not _real_redis_available()
-pytestmark = pytest.mark.skipif(_real_redis_skip, reason="Real Redis not available — skipping integration tests")
+pytestmark = pytest.mark.skipif(
+    _real_redis_skip, reason="Real Redis not available — skipping integration tests"
+)
 
 # Unique prefix so concurrent test runs across sessions don't collide
 PREFIX = f"__test_redis_real_{uuid4().hex[:8]}__"

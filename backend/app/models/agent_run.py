@@ -27,14 +27,18 @@ class AgentRun(TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    steps: Mapped[list["AgentRunStep"]] = relationship(back_populates="agent_run", cascade="all, delete-orphan")
+    steps: Mapped[list["AgentRunStep"]] = relationship(
+        back_populates="agent_run", cascade="all, delete-orphan"
+    )
 
 
 class AgentRunStep(TimestampMixin, Base):
     __tablename__ = "agent_run_steps"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    agent_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
+    agent_run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_runs.id"), nullable=False, index=True
+    )
     step_type: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str | None] = mapped_column(String(255))
     tool_name: Mapped[str | None] = mapped_column(String(128))

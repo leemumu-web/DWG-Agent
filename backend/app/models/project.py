@@ -17,7 +17,9 @@ class Project(TimestampMixin, Base):
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
 
-    members: Mapped[list["ProjectMember"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    members: Mapped[list["ProjectMember"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class ProjectMember(TimestampMixin, Base):

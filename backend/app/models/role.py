@@ -36,7 +36,9 @@ class Role(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(String(255))
     is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    permissions: Mapped[list["Permission"]] = relationship(secondary=role_permissions, back_populates="roles")
+    permissions: Mapped[list["Permission"]] = relationship(
+        secondary=role_permissions, back_populates="roles"
+    )
     users: Mapped[list["User"]] = relationship(secondary=user_roles, back_populates="roles")
 
 
@@ -49,4 +51,6 @@ class Permission(Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
 
-    roles: Mapped[list[Role]] = relationship(secondary=role_permissions, back_populates="permissions")
+    roles: Mapped[list[Role]] = relationship(
+        secondary=role_permissions, back_populates="permissions"
+    )

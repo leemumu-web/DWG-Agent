@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.constants import ACTIVE
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, create_refresh_token, verify_password
 from app.models.user import User
 
 
@@ -23,3 +23,7 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
 
 def build_login_token(user: User) -> str:
     return create_access_token(subject=str(user.id), extra_claims={"username": user.username})
+
+
+def build_refresh_token(user: User) -> str:
+    return create_refresh_token(subject=str(user.id), extra_claims={"username": user.username})

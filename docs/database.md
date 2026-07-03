@@ -20,7 +20,8 @@
 - `review_records`
 - `audit_logs`
 
-本机开发默认使用 SQLite。生产切换 MySQL 时保持 SQLAlchemy 模型不变，修改 `DATABASE_URL` 即可。
+本机与 Docker 运行数据库均以 MySQL 为目标；本机使用 `127.0.0.1:3306`，Docker 使用服务名 `mysql`。
+pytest 的内存 SQLite 仅作为隔离 test double，不代表运行数据库口径。
 
 初始化命令：
 

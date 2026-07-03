@@ -13,7 +13,8 @@ echo -e "${GREEN}═════════════════════
 
 # ── 1. MySQL ───────────────────────────────────────────────────
 step "1/5 MySQL"
-ensure_service 3306 mysql mariadb
+bash "$PROJECT_ROOT/scripts/db.sh" start
+bash "$PROJECT_ROOT/scripts/db.sh" init
 
 # ── 2. Redis ───────────────────────────────────────────────────
 step "2/5 Redis"
@@ -24,7 +25,11 @@ step "3/5 后端 FastAPI"
 if port_free 8000; then
     info "启动后端 (127.0.0.1:8000)..."
     cd "$PROJECT_ROOT/backend"
-    uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+    if [ -x .venv/bin/uvicorn ]; then
+        nohup .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
+    else
+        nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
+    fi
     BACKEND_PID=$!
     echo $BACKEND_PID > /tmp/dwg-agent-backend.pid
     wait_port 127.0.0.1 8000 30 "后端 :8000"
@@ -80,7 +85,7 @@ fi
 
 # ── Summary ────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}═══════════════════════════/home/mayue/Creeken/vLLM═══════════════════════════${NC}"
 echo -e "${GREEN}  全栈启动完成${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo ""

@@ -13,7 +13,10 @@ class AppHTTPException(HTTPException):
         message: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(status_code=status_code, detail={"code": code, "message": message, "details": details or {}})
+        super().__init__(
+            status_code=status_code,
+            detail={"code": code, "message": message, "details": details or {}},
+        )
 
 
 def not_found(resource: str) -> AppHTTPException:

@@ -568,7 +568,11 @@ busy_timeout = 5000ms
 | N17 | 63个孤儿文件 | 🔵 Minor | 多次DB重置累积，占用存储 |
 | N18 | /health vs /api/v1/health | 🔵 Minor | service名不一致(dwg-agent-backend vs backend-api) |
 | N19 | Pydantic不验证字符串长度 | 🟡 Major | 无Field(max_length)限制，依赖DB层(而SQLite不执行) |
-| N20 | /auth/me无权限要求 | 🔵 Minor | 任何有效token可查看任何用户信息(通过users API) |
+| N20 | Nginx /admin拦截SPA路由 | 🔵 Minor | 直接访问/admin/users返回404,仅客户端导航可用,刷新即404 |
+| N21 | 0字节DWG绕过验证 | 🟡 Major | 空文件while循环不执行,头部验证被跳过,SHA256=e3b0c44...(空串) |
+| N22 | PermissionGuard是no-op | 🟡 Major | 渲染{children}但不检查任何权限,仅RequireAuth检查token |
+| N23 | DELETE /roles/{id}缺失 | 🔵 Minor | roles_api只有4个路由,缺少DELETE端点 |
+| N24 | 软删项目code不可重用 | 🔵 Minor | deleted状态的项目仍占用code,导致PROJECT_CODE_EXISTS |
 
 ---
 
@@ -633,5 +637,80 @@ DWG-Agent Stage 1骨架已完整打通了"用户→项目→文件→任务→Wo
 
 ---
 
-*报告生成时间: 2026-07-03 00:06 CST*
-*探索耗时: ~3小时，涵盖API黑盒测试、源码审查、数据库/Redis深层分析、基础设施验证*
+---
+
+## 十四、已有安全审计交叉验证
+
+系统已进行两轮专业红队安全评估 + 一次Nginx专项审计，报告位于:
+- `tests/red-team-baseline-20260702/README.md` — Round 1 (10项发现)
+- `tests/red-team-deep-20260702/README.md` — Round 2 深度渗透 (14项发现)
+- `tests/red-team-deep-20260702/nginx-security-audit.md` — Nginx专项 (13项发现)
+- `tests/red-team-deep-20260702/attack_chain_poc.py` — 完整攻击链PoC
+- `tests/red-team-deep-20260702/nginx-hardening-verification.md` — Nginx加固验证
+
+### 红队Round 1关键发现 (未在本文其他部分覆盖的)
+
+| ID | 严重度 | 发现 | 本文是否覆盖 |
+|----|--------|------|-------------|
+| C-01 | 🔴 Critical | 默认凭据admin/admin123456硬编码 | ✅ 第12.2节N2 |
+| H-01 | 🟠 High | Debug模式泄露Python traceback | ✅ N5 |
+| H-02 | 🟠 High | DEBUG=true生产环境 | ✅ N5 |
+| M-01 | 🟡 Medium | JWT密钥长度不足(16字节<32) | ⚠️ 本文未覆盖 |
+| M-02 | 🟡 Medium | Token存localStorage | ✅ N6 |
+| M-03 | 🟡 Medium | 缺少CSP头(nginx.local.conf已修复) | ⚠️ 部分修复 |
+| M-04 | 🟡 Medium | CORS allow_credentials风险 | ⚠️ 本文未覆盖 |
+
+### 红队Round 2关键发现 (本文未覆盖的)
+
+| ID | 严重度 | 发现 | 说明 |
+|----|--------|------|------|
+| C-04 | 🔴 Critical | **允许空密码用户** | `password: str`无min_length, 空字符串→有效argon2id hash→可登录 |
+| C-05 | 🔴 Critical | **admin可创建super_admin** | `role_codes`无白名单, admin可提权创建super_admin后门 |
+| H-05 | 🟠 High | **竞态条件→用户创建500** | 5并发同用户名请求, 4个返回500 IntegrityError |
+| M-06 | 🟡 Medium | 文件上传仅靠扩展名校验 | 虽有DWG头检查但0字节绕过+扩展名可伪装 |
+| M-07 | 🟡 Medium | JWT缺少token type校验 | decode_token未验证"type":"access"字段 |
+| L-05 | 🔵 Low | Swagger UI暴露(:8000) | /docs + /openapi.json 交互式API文档公开 |
+| L-06 | 🔵 Low | Unicode用户名规范化 | 大小写敏感, 未做NFC规范化 |
+| L-07 | 🔵 Low | 删除不存在角色→204 | 应返回404而非204(幂等性掩盖攻击) |
+
+### 攻击链PoC验证
+
+`attack_chain_poc.py` 实现了完整的30秒攻击链:
+```
+侦察(端口8000暴露) → 爆破(无nginx限流, 3次命中admin123456) →
+后门(空密码super_admin) → IDOR(低权限用户接管全平台) →
+登出无效(token持续可用30分钟)
+```
+
+### Nginx审计关键差异
+
+| 配置项 | nginx.local.conf (本地) | nginx.conf (Docker) | 风险 |
+|--------|------------------------|---------------------|------|
+| 监听 | 8080 | 80 | — |
+| upstream | 127.0.0.1:8000 | backend-api:8000 | — |
+| `use epoll` | ✅ | ❌ | Docker缺少epoll |
+| `tcp_nodelay` | ✅ | ❌ | Docker缺少 |
+| CSP | ✅ (已添加) | ✅ | 均已修复 |
+| `server_tokens` | off | off | 均已关闭 |
+| `proxy_intercept_errors` | off | on | Docker版更安全 |
+| /admin拦截 | `return 404` | `return 404` | 一致, SPA冲突 |
+
+---
+
+*报告生成时间: 2026-07-03 00:31 CST*
+*探索耗时: ~4小时，涵盖API全端点、前端全页面、DB全表、Redis全服务、Nginx全配置、Docker全服务、红队报告交叉验证*
+
+---
+
+## 十五、2026-07-03 修复后校正
+
+本节为后续修复追加记录，不改写上方探索快照的历史结论。
+
+- 资源级 RBAC：项目、文件、图纸、任务、结果、复核接口已补项目成员/项目角色或文件归属校验，并新增越权回归测试。
+- 文件安全：已补 DWG 头校验、0 字节 DWG 拒绝、上传 MIME allowlist、下载端点资源权限校验，`download-url` 已带 HMAC `expires/signature`。
+- Token 前端策略：已从 `localStorage` 调整为 `sessionStorage`，并移除登录表单默认密码预填；登录已设置 HttpOnly refresh cookie，`/auth/tokens/refresh` 已返回新 access token；access token 黑名单仍待实现。
+- 前端占位：图纸、待复核、用户、角色权限、审计日志、个人中心已由占位替换为基础可用页面；项目/图纸/任务详情页仍待增强。
+- Nginx SPA：已从敏感路径拦截中移除 `/admin`，避免刷新前端管理页返回 404，仍保留 `wp-admin/phpMyAdmin/config` 等探测路径拦截。
+- 认证接口：`/auth/password` 已支持旧密码校验后修改并写审计。
+- 验证：新增 `backend/tests/test_api_regressions.py` 与 `backend/tests/test_scripts.py`；后端 `pytest -q` 为 181 passed；前端 `npm run build` 已通过。
+- 数据库口径校正：运行环境统一为 MySQL；pytest 中的 SQLite 只作为显式 test double，不代表部署/运行数据库。

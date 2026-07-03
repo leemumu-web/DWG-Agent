@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db
+from app.api.deps import (
+    CurrentUser,
+    get_db,
+    has_global_project_access,
+    require_project_member,
+    require_project_role,
+)
 from app.core.exceptions import AppHTTPException, not_found
 from app.models.project import Project, ProjectMember
-from app.schemas.common import ok, page
+from app.schemas.common import ok, page_from_list
 from app.schemas.project_schema import (
     ProjectCreate,
     ProjectMemberCreate,
@@ -19,44 +25,95 @@ from app.schemas.project_schema import (
 from app.services.audit_service import write_audit_log
 
 router = APIRouter()
+PROJECT_WRITE_ROLES = {"project_owner", "project_engineer"}
+PROJECT_OWNER_ROLES = {"project_owner"}
 
 
 @router.get("")
-def list_projects(request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
-    projects = list(db.scalars(select(Project).where(Project.status != "deleted").order_by(Project.id.desc())).all())
-    return page([ProjectRead.model_validate(p) for p in projects], 1, len(projects), len(projects), request.state.request_id)
+def list_projects(
+    request: Request,
+    current_user: CurrentUser,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Project).where(Project.status != "deleted").order_by(Project.id.desc())
+    if not has_global_project_access(current_user):
+        stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == current_user.id)
+    projects = list(db.scalars(stmt).all())
+    return page_from_list(
+        [ProjectRead.model_validate(p) for p in projects], page, page_size, request.state.request_id
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_project(payload: ProjectCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
+def create_project(
+    payload: ProjectCreate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
     if db.scalar(select(Project).where(Project.code == payload.code)):
         raise AppHTTPException(409, "PROJECT_CODE_EXISTS", "Project code already exists.")
-    project = Project(code=payload.code, name=payload.name, description=payload.description, owner_id=current_user.id, status="active")
+    project = Project(
+        code=payload.code,
+        name=payload.name,
+        description=payload.description,
+        owner_id=current_user.id,
+        status="active",
+    )
     db.add(project)
     db.flush()
-    db.add(ProjectMember(project_id=project.id, user_id=current_user.id, project_role="project_owner"))
-    write_audit_log(db, actor_user_id=current_user.id, action="projects.create", resource_type="project", resource_id=project.id, after_json=payload.model_dump())
+    db.add(
+        ProjectMember(project_id=project.id, user_id=current_user.id, project_role="project_owner")
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="projects.create",
+        resource_type="project",
+        resource_id=project.id,
+        after_json=payload.model_dump(),
+    )
     db.commit()
     return ok(ProjectRead.model_validate(project), request.state.request_id)
 
 
 @router.get("/{project_id}")
-def get_project(project_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
+def get_project(
+    project_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
+):
     project = db.get(Project, project_id)
     if not project or project.status == "deleted":
         raise not_found("Project")
+    require_project_member(db, current_user, project.id)
     return ok(ProjectRead.model_validate(project), request.state.request_id)
 
 
 @router.patch("/{project_id}")
-def update_project(project_id: int, payload: ProjectUpdate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
+def update_project(
+    project_id: int,
+    payload: ProjectUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.status == "deleted":
         raise not_found("Project")
+    require_project_role(db, current_user, project.id, PROJECT_WRITE_ROLES)
     before = {"name": project.name, "description": project.description, "status": project.status}
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
-    write_audit_log(db, actor_user_id=current_user.id, action="projects.update", resource_type="project", resource_id=project.id, before_json=before, after_json=payload.model_dump(exclude_unset=True))
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="projects.update",
+        resource_type="project",
+        resource_id=project.id,
+        before_json=before,
+        after_json=payload.model_dump(exclude_unset=True),
+    )
     db.commit()
     return ok(ProjectRead.model_validate(project), request.state.request_id)
 
@@ -64,47 +121,125 @@ def update_project(project_id: int, payload: ProjectUpdate, request: Request, cu
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.status == "deleted":
         raise not_found("Project")
+    require_project_role(db, current_user, project.id, PROJECT_OWNER_ROLES)
     project.status = "deleted"
-    write_audit_log(db, actor_user_id=current_user.id, action="projects.delete", resource_type="project", resource_id=project.id)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="projects.delete",
+        resource_type="project",
+        resource_id=project.id,
+    )
     db.commit()
     return None
 
 
 @router.get("/{project_id}/members")
-def list_project_members(project_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
-    members = list(db.scalars(select(ProjectMember).where(ProjectMember.project_id == project_id)).all())
-    return page([ProjectMemberRead.model_validate(m) for m in members], 1, len(members), len(members), request.state.request_id)
+def list_project_members(
+    project_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    project = db.get(Project, project_id)
+    if not project or project.status == "deleted":
+        raise not_found("Project")
+    require_project_member(db, current_user, project.id)
+    members = list(
+        db.scalars(select(ProjectMember).where(ProjectMember.project_id == project_id)).all()
+    )
+    return page_from_list(
+        [ProjectMemberRead.model_validate(m) for m in members],
+        page,
+        page_size,
+        request.state.request_id,
+    )
 
 
 @router.post("/{project_id}/members", status_code=status.HTTP_201_CREATED)
-def add_project_member(project_id: int, payload: ProjectMemberCreate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
-    member = ProjectMember(project_id=project_id, user_id=payload.user_id, project_role=payload.project_role)
+def add_project_member(
+    project_id: int,
+    payload: ProjectMemberCreate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    project = db.get(Project, project_id)
+    if not project or project.status == "deleted":
+        raise not_found("Project")
+    require_project_role(db, current_user, project.id, PROJECT_OWNER_ROLES)
+    existing = db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == payload.user_id,
+        )
+    )
+    if existing:
+        raise AppHTTPException(
+            409, "PROJECT_MEMBER_EXISTS", "User is already a member of this project."
+        )
+    member = ProjectMember(
+        project_id=project_id, user_id=payload.user_id, project_role=payload.project_role
+    )
     db.add(member)
     db.flush()
-    write_audit_log(db, actor_user_id=current_user.id, action="project_members.create", resource_type="project", resource_id=project_id, after_json=payload.model_dump())
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="project_members.create",
+        resource_type="project",
+        resource_id=project_id,
+        after_json=payload.model_dump(),
+    )
     db.commit()
     return ok(ProjectMemberRead.model_validate(member), request.state.request_id)
 
 
 @router.patch("/{project_id}/members/{member_id}")
-def update_project_member(project_id: int, member_id: int, payload: ProjectMemberUpdate, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
+def update_project_member(
+    project_id: int,
+    member_id: int,
+    payload: ProjectMemberUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
     member = db.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
         raise not_found("ProjectMember")
+    require_project_role(db, current_user, project_id, PROJECT_OWNER_ROLES)
     member.project_role = payload.project_role
-    write_audit_log(db, actor_user_id=current_user.id, action="project_members.update", resource_type="project_member", resource_id=member.id, after_json=payload.model_dump())
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="project_members.update",
+        resource_type="project_member",
+        resource_id=member.id,
+        after_json=payload.model_dump(),
+    )
     db.commit()
     return ok(ProjectMemberRead.model_validate(member), request.state.request_id)
 
 
 @router.delete("/{project_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_project_member(project_id: int, member_id: int, current_user: CurrentUser, db: Session = Depends(get_db)):
+def delete_project_member(
+    project_id: int, member_id: int, current_user: CurrentUser, db: Session = Depends(get_db)
+):
     member = db.get(ProjectMember, member_id)
     if not member or member.project_id != project_id:
         raise not_found("ProjectMember")
+    require_project_role(db, current_user, project_id, PROJECT_OWNER_ROLES)
     db.delete(member)
-    write_audit_log(db, actor_user_id=current_user.id, action="project_members.delete", resource_type="project_member", resource_id=member.id)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="project_members.delete",
+        resource_type="project_member",
+        resource_id=member.id,
+    )
     db.commit()
     return None

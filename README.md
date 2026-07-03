@@ -11,7 +11,7 @@
 
 - FastAPI 后端工程骨架
 - SQLAlchemy 2.x ORM 模型 + `TimestampMixin`
-- 本机 SQLite 默认开发数据库，后续可切 MySQL（`DATABASE_URL` 配置项已保留）
+- MySQL 作为本机与 Docker 运行数据库；pytest 仅用进程内 SQLite test double 做隔离
 - RESTful `/api/v1` 路由结构，全部资源名使用复数名词
 - 登录、当前用户、用户管理、角色、权限（JWT + argon2id）
 - 项目、项目成员
@@ -28,14 +28,14 @@
 - 权限守卫组件（路由级）
 - **Nginx 网关** — 本地开发（`nginx.local.conf`）+ Docker 部署（`nginx.conf`），SPA fallback / 反向代理 / 限流 / 安全头
 - **Docker Compose** — 9 服务编排（`compose.yaml`），profiles 分阶段启动
-- **MySQL 本机** — MariaDB 11.8 运行中，库表已建（本地开发仍用 SQLite；Docker 部署用 `.env.docker` 切换 MySQL）
+- **MySQL 本机** — MariaDB/MariaDB-compatible MySQL 运行数据库；Docker 部署使用 `.env.docker` 的服务名配置
 
 已修正（详见 `docs/stage1-review.md`）：
 
 - Python 版本固定为 `>=3.12,<3.13`，新增 `backend/.python-version`
 - 前端 `package.json` 不再使用 `latest`，所有依赖固定为 `package-lock.json` 中的确切版本
 - 补齐 `GET /api/v1/files/{file_id}/download` 本机下载端点
-- `ruff check .` 通过；pytest 153 passed, 0 failed
+- `ruff check .` 通过；pytest 181 passed, 0 failed
 - 深度审计完成 — 待处理项已归档 `docs/stage1-audit.md`
 - Compose: `cp .env.docker.example .env.docker && docker compose up -d`（`.env.docker` 使用 Docker 服务名 + MySQL/Redis/MinIO）
 
@@ -70,7 +70,7 @@ complete_framework/
 │   │   ├── core/              # config / security / exceptions / constants / logger
 │   │   ├── db/                # base / session / init_db
 │   │   └── ...
-│   ├── tests/                 # 153 测试（11 文件）
+│   ├── tests/                 # 181 测试（13 文件）
 │   └── migrations/            # Alembic（stage 1 尚未生成迁移文件）
 ├── frontend/
 │   ├── package.json           # 无 latest，版本已锁定
@@ -93,32 +93,46 @@ complete_framework/
 │   │   ├── nginx.conf         #   Docker 版（单文件自包含）
 │   │   └── nginx.local.conf   #   本机开发版
 │   ├── mysql/init.sql         #   MySQL 初始化脚本
-│   └── verify.sh              #   基础设施验证脚本（92 测试点）
+│   └── verify.sh              #   基础设施验证脚本（98 测试点）
 ├── docs/
 │   ├── stage1-review.md
 │   ├── api.md
 │   └── local-dev.md           #   本机开发详细说明
-└── scripts/                   # 一键启停 / 状态检查 / 开发模式
+└── scripts/                   # MySQL / 一键启停 / 状态检查 / 开发模式
 ```
 
 ## 本机启动
 
-### 后端
+### 推荐脚本入口
 
 ```bash
-cd backend
-uv python install 3.12          # 如果本机尚未安装 Python 3.12
-uv sync --locked                # 按 uv.lock 精确安装
-cp ../.env.example .env         # 按需修改 DATABASE_URL 等配置
-uv run python -m app.db.init_db # 创建表 + 种子数据（Super Admin、角色、权限）
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+cp .env.example .env
+cp .env.example backend/.env
+# 修改 .env 和 backend/.env 中所有 CHANGE_ME_* 值，并保持两者一致
+
+bash scripts/db.sh start        # 启动 MySQL/MariaDB 并验证应用凭据
+bash scripts/db.sh setup-user   # 首次部署/密码变更时创建或更新 dwg_user 授权
+bash scripts/db.sh init         # 创建表 + 种子数据（Super Admin、角色、权限）
+bash scripts/start-all.sh       # 后端 + 前端构建产物 + Nginx :8080
+bash scripts/status.sh          # MySQL/Redis/FastAPI/Nginx 全栈状态
 ```
 
 可选验证：
 
 ```bash
+cd backend
 uv run ruff check app tests     # 代码风格检查
-uv run pytest -q                # 153 测试 (153 passed, 0 failed)
+uv run pytest -q                # 181 测试 (181 passed, 0 failed)
+```
+
+### 后端手动启动
+
+```bash
+cd backend
+uv python install 3.12          # 如果本机尚未安装 Python 3.12
+uv sync --locked                # 按 uv.lock 精确安装
+../scripts/db.sh init           # 确保 MySQL schema 与种子数据就绪
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### 前端
@@ -165,9 +179,11 @@ docker compose --profile monitoring up -d         # + Flower 监控
 ### MySQL 本机
 
 ```bash
-# MariaDB 已配置，数据库 dwg_agent，17 张表，7 角色种子
-sudo systemctl start mariadb
-# 如需让本地后端直连 MySQL，在 backend/.env 中设置 DATABASE_URL=mysql+pymysql://...
+# MariaDB/MySQL 已配置，数据库 dwg_agent，17 张表，7 角色种子
+bash scripts/db.sh start
+bash scripts/db.sh check
+bash scripts/db.sh shell        # 使用应用凭据进入数据库
+bash scripts/db.sh logs         # 查看 MySQL/MariaDB systemd 日志
 ```
 
 ### 基础设施验证
@@ -198,7 +214,7 @@ password: admin123456
 ## 开发原则
 
 - 初始阶段不依赖 Docker，本机开发直接启动。
-- 本机 SQLite 只用于开发验证，生产通过 `DATABASE_URL` 切换 MySQL。
+- 运行环境使用 MySQL；pytest 中的 SQLite 仅是显式测试替身，不能作为运行数据库结论。
 - 本地文件系统只用于开发验证，生产替换为 MinIO/NAS（storage 抽象层已预留）。
 - RESTful API 路径以 `/api/v1` 为准，资源名使用复数名词。
 - Agent、DXF、CAD Worker 均先保留边界，不把算法逻辑塞进 API 层。

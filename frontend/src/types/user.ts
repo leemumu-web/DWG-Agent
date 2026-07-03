@@ -6,6 +6,14 @@ export interface Role {
   is_system: boolean;
 }
 
+export interface Permission {
+  id: number;
+  code: string;
+  resource: string;
+  action: string;
+  name: string;
+}
+
 export interface User {
   id: number;
   username: string;

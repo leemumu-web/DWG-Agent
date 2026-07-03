@@ -24,14 +24,18 @@ class AnalysisResult(TimestampMixin, Base):
     tool_version: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), default="succeeded", nullable=False)
 
-    reviews: Mapped[list["ReviewRecord"]] = relationship(back_populates="result", cascade="all, delete-orphan")
+    reviews: Mapped[list["ReviewRecord"]] = relationship(
+        back_populates="result", cascade="all, delete-orphan"
+    )
 
 
 class ReviewRecord(TimestampMixin, Base):
     __tablename__ = "review_records"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    result_id: Mapped[int] = mapped_column(ForeignKey("analysis_results.id"), nullable=False, index=True)
+    result_id: Mapped[int] = mapped_column(
+        ForeignKey("analysis_results.id"), nullable=False, index=True
+    )
     reviewer_id: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     decision: Mapped[str] = mapped_column(String(32), nullable=False)
     comment: Mapped[str | None] = mapped_column(Text)

@@ -29,7 +29,9 @@ class Job(TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    steps: Mapped[list["JobStep"]] = relationship(back_populates="job", cascade="all, delete-orphan")
+    steps: Mapped[list["JobStep"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
 
 
 class JobStep(Base):

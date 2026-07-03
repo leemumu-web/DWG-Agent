@@ -22,7 +22,7 @@ ALL_OK=true
 
 # 1. Infrastructure
 step "基础设施"
-check_port 3306 "MySQL"   || ALL_OK=false
+bash "$PROJECT_ROOT/scripts/db.sh" status || ALL_OK=false
 check_port 6379 "Redis"   || ALL_OK=false
 
 # 2. Backend

@@ -8,23 +8,29 @@
 当前阶段默认不使用 Docker。开发环境拆成三个层次：
 
 1. 后端 FastAPI：本机 `uv` 管理 Python 3.12 环境。
-2. 数据库：默认 SQLite；需要接近生产时切换 MySQL。
+2. 数据库：默认 MySQL（本机 `127.0.0.1:3306`）；pytest 才使用内存 SQLite test double。
 3. 前端 React：本机 `npm` 启动 Vite dev server。
 
 ## 后端启动
 
 ```bash
-cd backend
-
 # Redis（可选但推荐——无 Redis 时后端以 degraded 模式运行）
 sudo pacman -S redis
 sudo systemctl enable --now redis
 
+cp .env.example .env
+cp .env.example backend/.env
+# 修改 .env 和 backend/.env 中所有 CHANGE_ME_* 值，并保持两者一致
+
+cd backend
 uv python install 3.12  # 如果本机尚未安装 Python 3.12
 uv sync --locked
-cp ../.env.example .env
-uv run python -m app.db.init_db
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+cd ..
+
+bash scripts/db.sh start
+bash scripts/db.sh setup-user   # 首次部署/密码变更时执行
+bash scripts/db.sh init
+bash scripts/start-dev.sh       # 后端 --reload + Vite HMR
 ```
 
 健康检查：
@@ -48,25 +54,29 @@ npm run dev
 http://127.0.0.1:5173
 ```
 
-## 数据库切换到 MySQL
+## MySQL 数据库配置
 
-把 `.env` 中的：
-
-```text
-DATABASE_URL=sqlite:///./var/app.db
-```
-
-改成：
+`.env` / `backend/.env` 中默认使用：
 
 ```text
 DATABASE_URL=mysql+pymysql://dwg_user:your_password@127.0.0.1:3306/dwg_agent
 ```
 
-然后重新执行：
+初始化或补齐种子数据：
 
 ```bash
-cd backend
-uv run python -m app.db.init_db
+bash scripts/db.sh init
+```
+
+Docker Compose 不复用本机 `127.0.0.1`，而是通过 `.env.docker` 使用容器服务名 `mysql`。
+
+常用数据库调试入口：
+
+```bash
+bash scripts/db.sh status       # 配置、凭据、schema、SQLite 退出状态
+bash scripts/db.sh check        # 非破坏性检查，适合 CI/本机验收
+bash scripts/db.sh shell        # 使用应用凭据进入 MySQL shell
+bash scripts/db.sh logs         # 查看 MySQL/MariaDB systemd 日志
 ```
 
 ## Nginx 启动（阶段 A — 本地开发）

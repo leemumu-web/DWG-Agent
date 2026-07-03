@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.constants import ACTIVE, DELETED
@@ -27,7 +28,11 @@ def create_user(db: Session, payload: UserCreate) -> User:
         roles = list(db.scalars(select(Role).where(Role.code.in_(payload.role_codes))).all())
         user.roles.extend(roles)
     db.add(user)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise AppHTTPException(409, "USERNAME_EXISTS", "Username already exists.") from None
     return user
 
 

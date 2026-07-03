@@ -48,7 +48,9 @@ class TestSaveSessionHistory:
         msgs = [
             {
                 "role": "assistant",
-                "tool_calls": [{"name": "parse_dxf", "args": {"layers": ["0", "A-WALL"], "precision": 0.001}}],
+                "tool_calls": [
+                    {"name": "parse_dxf", "args": {"layers": ["0", "A-WALL"], "precision": 0.001}}
+                ],
                 "content": None,
             }
         ]

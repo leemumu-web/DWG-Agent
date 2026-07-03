@@ -1,10 +1,10 @@
-.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev tree
+.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev db-start db-setup db-init db-check db-status db-shell db-logs start-all start-dev status stop-all tree
 
 backend-install:
 	cd backend && uv sync --locked
 
 backend-init-db:
-	cd backend && uv run python -m app.db.init_db
+	bash scripts/db.sh init
 
 backend-dev:
 	cd backend && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
@@ -17,6 +17,39 @@ frontend-install:
 
 frontend-dev:
 	cd frontend && npm run dev
+
+db-start:
+	bash scripts/db.sh start
+
+db-setup:
+	bash scripts/db.sh setup-user
+
+db-init:
+	bash scripts/db.sh init
+
+db-check:
+	bash scripts/db.sh check
+
+db-status:
+	bash scripts/db.sh status
+
+db-shell:
+	bash scripts/db.sh shell
+
+db-logs:
+	bash scripts/db.sh logs
+
+start-all:
+	bash scripts/start-all.sh
+
+start-dev:
+	bash scripts/start-dev.sh
+
+status:
+	bash scripts/status.sh
+
+stop-all:
+	bash scripts/stop-all.sh
 
 tree:
 	find . -maxdepth 4 -type f | sort

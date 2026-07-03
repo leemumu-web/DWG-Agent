@@ -80,7 +80,7 @@ assert_grep "$NGINX_DOCKER" 'server backend-api:8000'  "nginx.conf: upstream →
 assert_grep "$NGINX_DOCKER" 'keepalive 32'             "nginx.conf: upstream keepalive"
 
 # 1.5 关键指令 — 限流
-assert_grep "$NGINX_DOCKER" 'limit_req_zone.*zone=login.*rate=10r/s'  "nginx.conf: 登录限流 10r/s"
+assert_grep "$NGINX_DOCKER" 'limit_req_zone.*zone=login.*rate=2r/s'   "nginx.conf: 登录限流 2r/s"
 assert_grep "$NGINX_DOCKER" 'limit_req_zone.*zone=api.*rate=100r/s'   "nginx.conf: API 限流 100r/s"
 assert_grep "$NGINX_DOCKER" 'limit_req_status 429'                    "nginx.conf: 限流返回 429"
 
@@ -454,6 +454,45 @@ if $MYSQL_AVAILABLE; then
     else
         fail "MySQL" "dwg_user 权限检查失败"
     fi
+
+    # 4.6 应用 DATABASE_URL 凭据可实际登录
+    if [ -f .env ]; then
+        mapfile -t APP_DB < <(python - <<'PY'
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
+
+value = ""
+for line in Path(".env").read_text(encoding="utf-8").splitlines():
+    if line.startswith("DATABASE_URL="):
+        value = line.split("=", 1)[1].strip().strip('"').strip("'")
+        break
+url = urlsplit(value)
+print(url.scheme)
+print(url.hostname or "")
+print(url.port or 3306)
+print(unquote(url.username or ""))
+print(unquote(url.password or ""))
+print(url.path.lstrip("/"))
+PY
+)
+        APP_DB_SCHEME="${APP_DB[0]:-}"
+        APP_DB_HOST="${APP_DB[1]:-}"
+        APP_DB_PORT="${APP_DB[2]:-3306}"
+        APP_DB_USER="${APP_DB[3]:-}"
+        APP_DB_PASSWORD="${APP_DB[4]:-}"
+        APP_DB_NAME="${APP_DB[5]:-}"
+        if [[ "$APP_DB_SCHEME" == mysql* ]]; then
+            if MYSQL_PWD="$APP_DB_PASSWORD" mariadb -h "$APP_DB_HOST" -P "$APP_DB_PORT" -u "$APP_DB_USER" "$APP_DB_NAME" -e "SELECT 1" &>/dev/null; then
+                pass "MySQL: .env DATABASE_URL 应用凭据可登录"
+            else
+                fail "MySQL" ".env DATABASE_URL 应用凭据无法登录"
+            fi
+        else
+            fail "MySQL" ".env DATABASE_URL 不是 mysql+pymysql URL"
+        fi
+    else
+        fail "MySQL" ".env 不存在，无法验证应用数据库凭据"
+    fi
 else
     dim "  MySQL 未运行或不可达 — 跳过集成测试"
     dim "  启动: sudo systemctl start mariadb"
@@ -471,6 +510,11 @@ REQUIRED_FILES=(
     "infra/nginx/.gitignore"
     "infra/nginx/ssl/.gitkeep"
     "infra/mysql/init.sql"
+    "scripts/db.sh"
+    "scripts/start-all.sh"
+    "scripts/start-dev.sh"
+    "scripts/status.sh"
+    "scripts/stop-all.sh"
     "infra/README.md"
     "infra/nginx/README.md"
     ".env.example"

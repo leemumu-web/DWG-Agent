@@ -24,7 +24,7 @@ export function LoginPage() {
           <img src="/logo.png" alt="DWG-Agent Logo" className="login-logo" />
           <Typography.Title level={3} style={{ margin: 0 }}>DWG-Agent 平台登录</Typography.Title>
         </div>
-        <Form layout="vertical" onFinish={onFinish} initialValues={{ username: 'admin', password: 'admin123456' }}>
+        <Form layout="vertical" onFinish={onFinish}>
           <Form.Item name="username" label="账号" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="password" label="密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
           <Button type="primary" htmlType="submit" block>登录</Button>

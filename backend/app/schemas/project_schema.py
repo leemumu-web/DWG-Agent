@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectCreate(BaseModel):
-    code: str
-    name: str
+    code: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
     description: str | None = None
 
 
 class ProjectUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
-    status: str | None = None
+    status: str | None = Field(default=None, max_length=32)
 
 
 class ProjectRead(BaseModel):
@@ -31,11 +31,11 @@ class ProjectRead(BaseModel):
 
 class ProjectMemberCreate(BaseModel):
     user_id: int
-    project_role: str
+    project_role: str = Field(min_length=1, max_length=64)
 
 
 class ProjectMemberUpdate(BaseModel):
-    project_role: str
+    project_role: str = Field(min_length=1, max_length=64)
 
 
 class ProjectMemberRead(BaseModel):

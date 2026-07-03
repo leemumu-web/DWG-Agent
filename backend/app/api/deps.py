@@ -9,10 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.constants import ACTIVE, ROLE_SUPER_ADMIN
+from app.core.constants import ACTIVE, ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.core.exceptions import AppHTTPException, forbidden
 from app.core.security import decode_token
 from app.db.session import get_db
+from app.models.project import ProjectMember
 from app.models.user import User
 
 DbSession = Annotated[Session, Depends(get_db)]
@@ -26,6 +27,8 @@ def get_request_id(request: Request) -> str:
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DbSession) -> User:
     try:
         payload = decode_token(token)
+        if payload.get("type") != "access":
+            raise ValueError("Token type is not access.")
         user_id = int(payload.get("sub"))
     except (jwt.PyJWTError, TypeError, ValueError):
         raise AppHTTPException(
@@ -36,7 +39,9 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Db
 
     user = db.scalar(select(User).where(User.id == user_id))
     if not user or user.status != ACTIVE:
-        raise AppHTTPException(status.HTTP_401_UNAUTHORIZED, "USER_NOT_ACTIVE", "User is not active.")
+        raise AppHTTPException(
+            status.HTTP_401_UNAUTHORIZED, "USER_NOT_ACTIVE", "User is not active."
+        )
     return user
 
 
@@ -45,6 +50,42 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 def user_role_codes(user: User) -> set[str]:
     return {role.code for role in user.roles}
+
+
+def has_global_project_access(user: User) -> bool:
+    return bool({ROLE_SUPER_ADMIN, ROLE_ADMIN}.intersection(user_role_codes(user)))
+
+
+def get_project_membership(db: Session, user: User, project_id: int) -> ProjectMember | None:
+    return db.scalar(
+        select(ProjectMember).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user.id,
+        )
+    )
+
+
+def require_project_member(db: Session, user: User, project_id: int) -> ProjectMember | None:
+    if has_global_project_access(user):
+        return None
+    member = get_project_membership(db, user, project_id)
+    if not member:
+        raise forbidden("Project membership is required.")
+    return member
+
+
+def require_project_role(
+    db: Session,
+    user: User,
+    project_id: int,
+    allowed_project_roles: set[str],
+) -> ProjectMember | None:
+    if has_global_project_access(user):
+        return None
+    member = require_project_member(db, user, project_id)
+    if member and member.project_role in allowed_project_roles:
+        return member
+    raise forbidden("Project role is not allowed for this action.")
 
 
 def require_roles(*allowed_roles: str):

@@ -119,7 +119,7 @@ class TestCeleryUrls:
 
 class TestMysqlDefaults:
     def test_host_default(self):
-        assert Settings().mysql_host == "mysql"
+        assert Settings().mysql_host == "127.0.0.1"
 
     def test_port_default(self):
         assert Settings().mysql_port == 3306
@@ -139,12 +139,12 @@ class TestMysqlUrl:
     def test_url_no_password(self, monkeypatch):
         monkeypatch.setenv("MYSQL_PASSWORD", "")
         s = Settings()
-        assert s.mysql_url == "mysql+pymysql://dwg_user@mysql:3306/dwg_agent"
+        assert s.mysql_url == "mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent"
 
     def test_url_with_password(self, monkeypatch):
         monkeypatch.setenv("MYSQL_PASSWORD", "s3cret")
         s = Settings()
-        assert s.mysql_url == "mysql+pymysql://dwg_user:s3cret@mysql:3306/dwg_agent"
+        assert s.mysql_url == "mysql+pymysql://dwg_user:s3cret@127.0.0.1:3306/dwg_agent"
 
     def test_url_with_special_chars_in_password(self, monkeypatch):
         monkeypatch.setenv("MYSQL_PASSWORD", "p@ss:word!")
@@ -186,10 +186,10 @@ class TestMysqlEnvMapping:
         assert "4000" in s.mysql_url
         assert "prod_user" in s.mysql_url
 
-    def test_database_url_still_defaults_to_sqlite(self):
-        """MySQL component fields must not affect the existing database_url default."""
+    def test_database_url_uses_pytest_override(self):
+        """Pytest explicitly uses an isolated DB URL; runtime env files use MySQL."""
         s = Settings()
-        assert s.database_url == "sqlite:///./var/app.db"
+        assert s.database_url == "sqlite://"
 
     def test_mysql_fields_dont_interfere_with_redis(self):
         """Redis URL must be unaffected by MySQL component fields."""
@@ -206,7 +206,7 @@ class TestMysqlEnvMapping:
 
         url = make_url(s.mysql_url)
         assert url.drivername == "mysql+pymysql"
-        assert url.host == "mysql"
+        assert url.host == "127.0.0.1"
         assert url.port == 3306
         assert url.database == "dwg_agent"
         assert url.username == "dwg_user"

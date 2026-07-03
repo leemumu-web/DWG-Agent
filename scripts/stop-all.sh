@@ -21,8 +21,8 @@ fi
 step "2/3 后端"
 kill_by_pidfile /tmp/dwg-agent-backend.pid "后端 (uvicorn)"
 if ! port_free 8000; then
-    warn "端口 8000 仍被占用，强制释放..."
-    sudo fuser -k 8000/tcp 2>/dev/null && ok "已释放 :8000" || true
+    warn "端口 8000 仍被占用；未执行强制 kill，请确认是否为外部启动的后端进程"
+    echo -e "  ${DIM}诊断: ss -ltnp 'sport = :8000'${NC}"
 else
     ok "后端 :8000 已释放"
 fi
@@ -33,7 +33,7 @@ echo -e "  MySQL:  $(port_free 3306 && echo -e "${DIM}未运行${NC}" || echo -e
 echo -e "  Redis: $(port_free 6379 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
 echo ""
 echo -e "  ${YELLOW}MySQL/Redis 通常保持运行，不予停止。${NC}"
-echo -e "  ${DIM}如需停止: sudo systemctl stop mysql mariadb redis valkey${NC}"
+echo -e "  ${DIM}数据库诊断: bash scripts/db.sh status | bash scripts/db.sh logs${NC}"
 
 echo ""
 echo -e "${GREEN}  前端 + 后端 + Nginx 已停止${NC}"

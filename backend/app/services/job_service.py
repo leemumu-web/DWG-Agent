@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.constants import JOB_QUEUED, JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
 from app.db.session import SessionLocal
+from app.models.drawing import Drawing
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
@@ -17,8 +18,13 @@ from app.schemas.job_schema import JobCreate
 
 
 def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
+    project_id = payload.project_id
+    if project_id is None and payload.drawing_id is not None:
+        drawing = db.get(Drawing, payload.drawing_id)
+        if drawing:
+            project_id = drawing.project_id
     job = Job(
-        project_id=payload.project_id,
+        project_id=project_id,
         drawing_id=payload.drawing_id,
         created_by=created_by,
         task_type=payload.task_type,
