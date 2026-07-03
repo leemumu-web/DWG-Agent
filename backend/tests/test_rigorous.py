@@ -21,7 +21,12 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def _login(client: TestClient, username: str = "admin", password: str = "admin123456") -> dict[str, str]:
+def _dwg_bytes() -> bytes:
+    """Return a valid DWG header + padding to meet the 1024-byte minimum."""
+    return b"AC1027" + b"\x00" * 1018  # 6 + 1018 = 1024
+
+
+def _login(client: TestClient, username: str = "admin", password: str = "SuperAdminPass1") -> dict[str, str]:
     resp = client.post(
         "/api/v1/auth/sessions", json={"username": username, "password": password}
     )
@@ -111,7 +116,7 @@ def test_username_with_special_chars_accepted():
         resp = client.post(
             "/api/v1/users",
             headers=headers,
-            json={"username": _unique(name), "password": "pass12345678", "real_name": name, "role_codes": ["viewer"]},
+            json={"username": _unique(name), "password": "TestPass1234", "real_name": name},
         )
         assert resp.status_code == 201, f"Username {name!r} rejected: {resp.text}"
 
@@ -133,9 +138,8 @@ def test_real_name_with_unicode_accepted():
             headers=headers,
             json={
                 "username": _unique("unicode"),
-                "password": "pass12345678",
+                "password": "TestPass1234",
                 "real_name": real_name,
-                "role_codes": ["viewer"],
             },
         )
         assert resp.status_code == 201, f"real_name {real_name!r} rejected: {resp.text}"
@@ -179,9 +183,8 @@ def test_sql_injection_in_username_not_interpreted():
             headers=headers,
             json={
                 "username": _unique("sqli"),
-                "password": "pass12345678",
+                "password": "TestPass1234",
                 "real_name": payload,
-                "role_codes": ["viewer"],
             },
         )
         # Must NOT cause 500 or schema changes
@@ -259,15 +262,15 @@ def test_cancel_failed_job_is_rejected():
         assert c2.json()["error"]["code"] == "JOB_NOT_CANCELLABLE"
 
 
-def test_retry_succeeded_job_creates_new_queued_state():
-    """Retrying a succeeded job must re-queue it."""
+def test_retry_rejected_for_succeeded_job():
+    """BUG-9: retrying a succeeded job must return 409 — only failed/cancelled allowed."""
     client = _client()
     headers = _login(client)
 
     project = client.post(
         "/api/v1/projects",
         headers=headers,
-        json={"code": _unique("RETRYJOB"), "name": "Retry Job Test"},
+        json={"code": _unique("RETRYJOB"), "name": "Retry Reject Test"},
     )
     project_id = project.json()["data"]["id"]
 
@@ -278,12 +281,14 @@ def test_retry_succeeded_job_creates_new_queued_state():
     )
     job_id = job.json()["data"]["id"]
 
+    # Wait for the background stub to finish (it runs synchronously in test)
     import time
-    time.sleep(0.1)
+    time.sleep(0.15)
 
+    # Retrying a succeeded job must be rejected
     retry = client.post(f"/api/v1/jobs/{job_id}/retry-requests", headers=headers)
-    assert retry.status_code == 202, retry.text
-    assert retry.json()["data"]["status"] == "queued"
+    assert retry.status_code == 409, f"Expected 409, got: {retry.text}"
+    assert retry.json()["error"]["code"] == "JOB_NOT_RETRYABLE"
 
 
 # ===========================================================================
@@ -300,7 +305,7 @@ def test_add_same_member_twice_is_rejected():
     viewer_id = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": viewer_user, "password": "pass12345678", "real_name": "Twice Member", "role_codes": ["viewer"]},
+        json={"username": viewer_user, "password": "TestPass1234", "real_name": "Twice Member"},
     ).json()["data"]["id"]
 
     project = client.post(
@@ -393,7 +398,7 @@ def test_drawing_version_number_increments_correctly():
         r = client.post(
             "/api/v1/files",
             headers=headers,
-            files={"upload": (name, BytesIO(b"AC1027-VERSION-TEST-STUB"), "application/acad")},
+            files={"upload": (name, BytesIO(_dwg_bytes()), "application/acad")},
         )
         assert r.status_code == 201, r.text
         return r.json()["data"]["id"]
@@ -431,7 +436,7 @@ def test_create_version_for_nonexistent_drawing_returns_404():
     file_r = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("ghost.dwg", BytesIO(b"AC1027-GHOST-DWG"), "application/acad")},
+        files={"upload": ("ghost.dwg", BytesIO(_dwg_bytes()), "application/acad")},
     )
     file_id = file_r.json()["data"]["id"]
 
@@ -465,7 +470,7 @@ def test_drawing_current_version_id_updated_on_new_version():
     file_r = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("curv.dwg", BytesIO(b"AC1027-CURVER-TEST"), "application/acad")},
+        files={"upload": ("curv.dwg", BytesIO(_dwg_bytes()), "application/acad")},
     )
     file_id = file_r.json()["data"]["id"]
 
@@ -588,7 +593,7 @@ def test_post_without_content_type_returns_422():
     client = _client()
     resp = client.post(
         "/api/v1/auth/sessions",
-        content='{"username":"admin","password":"admin123456"}',
+        content='{"username":"admin","password":"SuperAdminPass1"}',
         headers={"Content-Type": ""},
     )
     # FastAPI returns 422 for missing/empty content-type with JSON body
@@ -630,7 +635,7 @@ def test_username_exactly_64_chars_accepted():
     resp = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": name, "password": "pass12345678", "real_name": "MaxLen", "role_codes": ["viewer"]},
+        json={"username": name, "password": "TestPass1234", "real_name": "MaxLen"},
     )
     assert resp.status_code == 201, resp.text
 
@@ -643,7 +648,7 @@ def test_username_65_chars_rejected():
     resp = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": name, "password": "pass12345678", "real_name": "TooLong", "role_codes": ["viewer"]},
+        json={"username": name, "password": "TestPass1234", "real_name": "TooLong"},
     )
     assert resp.status_code == 422, resp.text
 
@@ -763,7 +768,7 @@ def test_assign_nonexistent_role_to_user_returns_404():
     user_id = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": viewer_user, "password": "pass12345678", "real_name": "Bad Role", "role_codes": ["viewer"]},
+        json={"username": viewer_user, "password": "TestPass1234", "real_name": "Bad Role"},
     ).json()["data"]["id"]
 
     resp = client.post(

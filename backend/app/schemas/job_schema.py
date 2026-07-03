@@ -9,7 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field
 class JobCreate(BaseModel):
     drawing_id: int | None = None
     project_id: int | None = None
-    task_type: str = Field(default="framework_smoke_test", min_length=1, max_length=64)
+    task_type: str = Field(
+        default="framework_smoke_test",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-z][a-z0-9_]+$",
+        description="Task type — lowercase snake_case identifier.",
+    )
     precision_level: str = Field(default="normal", min_length=1, max_length=32)
     params: dict[str, Any] = Field(default_factory=dict)
 

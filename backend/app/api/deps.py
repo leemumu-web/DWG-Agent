@@ -4,7 +4,7 @@ import logging
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Request, status
+from fastapi import Depends, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,15 +14,11 @@ from app.core.constants import ACTIVE, ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.core.exceptions import AppHTTPException, forbidden
 from app.core.security import decode_token
 from app.db.session import get_db
-from app.models.project import ProjectMember
+from app.models.project import Project, ProjectMember
 from app.models.user import User
 
 DbSession = Annotated[Session, Depends(get_db)]
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_v1_prefix}/auth/sessions")
-
-
-def get_request_id(request: Request) -> str:
-    return getattr(request.state, "request_id", "unknown")
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: DbSession) -> User:
@@ -93,6 +89,15 @@ def require_project_member(db: Session, user: User, project_id: int) -> ProjectM
     if not member:
         raise forbidden("Project membership is required.")
     return member
+
+
+def require_active_project(db: Session, project_id: int) -> None:
+    """Raise 404 if the project does not exist or has been soft-deleted."""
+    project = db.get(Project, project_id)
+    if not project or project.status == "deleted":
+        from app.core.exceptions import not_found
+
+        raise not_found("Project")
 
 
 def require_project_role(

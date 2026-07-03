@@ -23,7 +23,7 @@ def _client() -> TestClient:
 def _admin_headers(client: TestClient) -> dict[str, str]:
     resp = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     assert resp.status_code == 201, resp.text
     return {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
@@ -54,7 +54,7 @@ def test_dwg_valid_headers_accepted():
         b"AC1032",
     ]
     for header in valid_headers:
-        payload = header + b"-DWG-TEST-STUB"
+        payload = header + b"X" * 1024
         resp = client.post(
             "/api/v1/files",
             headers=headers,
@@ -76,7 +76,7 @@ def test_dwg_invalid_headers_rejected():
         (b"AC1002", "unknown format"),
     ]
     for header, label in invalid_headers:
-        payload = header + b"-DWG-FAKE-STUB"
+        payload = header + b"X" * 1024
         resp = client.post(
             "/api/v1/files",
             headers=headers,
@@ -134,9 +134,9 @@ def test_project_soft_delete_does_not_cascade_to_drawings():
     # Project should be 404
     assert client.get(f"/api/v1/projects/{project_id}", headers=headers).status_code == 404
 
-    # Drawing still accessible (current behaviour — no cascade)
+    # Drawing NOT accessible — BUG-7: soft-deleted project cascades to drawings
     drawing_after = client.get(f"/api/v1/drawings/{drawing_id}", headers=headers)
-    assert drawing_after.status_code == 200, drawing_after.text
+    assert drawing_after.status_code == 404, drawing_after.text
 
 
 def test_deleted_project_code_not_reusable():
@@ -179,14 +179,14 @@ def test_duplicate_username_returns_409_not_500():
     r1 = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": username, "password": "pass12345678", "real_name": "First"},
+        json={"username": username, "password": "TestPass1234", "real_name": "First"},
     )
     assert r1.status_code == 201, r1.text
 
     r2 = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": username, "password": "pass87654321", "real_name": "Second"},
+        json={"username": username, "password": "TestPass5678", "real_name": "Second"},
     )
     assert r2.status_code == 409, r2.text
     assert r2.json()["error"]["code"] == "USERNAME_EXISTS"
@@ -245,19 +245,24 @@ def test_admin_cannot_modify_super_admin_via_patch():
     super_admin_id = me.json()["data"]["id"]
 
     admin2_user = _unique("patch-admin")
-    client.post(
+    r = client.post(
         "/api/v1/users",
         headers=admin_headers,
         json={
             "username": admin2_user,
-            "password": "pass12345678",
+            "password": "TestPass1234",
             "real_name": "Patch Admin",
-            "role_codes": ["admin"],
         },
+    )
+    admin2_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{admin2_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "admin"},
     )
     login2 = client.post(
         "/api/v1/auth/sessions",
-        json={"username": admin2_user, "password": "pass12345678"},
+        json={"username": admin2_user, "password": "TestPass1234"},
     )
     admin2_headers = {"Authorization": f"Bearer {login2.json()['data']['access_token']}"}
 
@@ -293,12 +298,16 @@ def test_project_member_delete_is_hard_delete():
         headers=headers,
         json={
             "username": viewer_user,
-            "password": "member-pass-123",
+            "password": "MemberPass123",
             "real_name": "Member Viewer",
-            "role_codes": ["viewer"],
         },
     )
     viewer_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{viewer_id}/roles",
+        headers=headers,
+        json={"role_code": "viewer"},
+    )
 
     add = client.post(
         f"/api/v1/projects/{project_id}/members",
@@ -330,11 +339,17 @@ def test_deleted_user_login_returns_401_not_500():
     headers = _admin_headers(client)
 
     username = _unique("del-login")
-    user_id = client.post(
+    r = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": username, "password": "pass12345678", "real_name": "Delete Login", "role_codes": ["viewer"]},
-    ).json()["data"]["id"]
+        json={"username": username, "password": "TestPass1234", "real_name": "Delete Login"},
+    )
+    user_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{user_id}/roles",
+        headers=headers,
+        json={"role_code": "viewer"},
+    )
 
     # Delete
     client.delete(f"/api/v1/users/{user_id}", headers=headers)
@@ -342,7 +357,7 @@ def test_deleted_user_login_returns_401_not_500():
     # Try to login as deleted user
     resp = client.post(
         "/api/v1/auth/sessions",
-        json={"username": username, "password": "pass12345678"},
+        json={"username": username, "password": "TestPass1234"},
     )
     assert resp.status_code == 401, resp.text
     assert resp.json()["error"]["code"] == "INVALID_CREDENTIALS"
@@ -354,12 +369,18 @@ def test_disabled_user_can_be_reenabled():
     headers = _admin_headers(client)
 
     username = _unique("reenable")
-    password = "reenable-pass-123"
-    user_id = client.post(
+    password = "ReenablePass123"
+    r = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": username, "password": password, "real_name": "Re-enable", "role_codes": ["viewer"]},
-    ).json()["data"]["id"]
+        json={"username": username, "password": password, "real_name": "Re-enable"},
+    )
+    user_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{user_id}/roles",
+        headers=headers,
+        json={"role_code": "viewer"},
+    )
 
     # Disable
     client.post(f"/api/v1/users/{user_id}/disable-requests", headers=headers)
@@ -382,12 +403,18 @@ def test_user_password_reset_makes_old_password_invalid():
     headers = _admin_headers(client)
 
     username = _unique("pwd-reset")
-    old_password = "old-pass-123"
-    user_id = client.post(
+    old_password = "OldPassword123"
+    r = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": username, "password": old_password, "real_name": "Pwd Reset", "role_codes": ["viewer"]},
-    ).json()["data"]["id"]
+        json={"username": username, "password": old_password, "real_name": "Pwd Reset"},
+    )
+    user_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{user_id}/roles",
+        headers=headers,
+        json={"role_code": "viewer"},
+    )
 
     # Verify old password works
     r1 = client.post("/api/v1/auth/sessions", json={"username": username, "password": old_password})
@@ -418,10 +445,16 @@ def test_audit_logs_filtered_by_resource_type():
     headers = _admin_headers(client)
 
     # Create a user to generate audit entries
-    client.post(
+    r = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": _unique("audit-filt"), "password": "pass12345678", "real_name": "Audit Filter", "role_codes": ["viewer"]},
+        json={"username": _unique("audit-filt"), "password": "TestPass1234", "real_name": "Audit Filter"},
+    )
+    user_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{user_id}/roles",
+        headers=headers,
+        json={"role_code": "viewer"},
     )
 
     # Fetch only user-related audit entries
@@ -444,15 +477,20 @@ def test_audit_logs_page_size_respected():
 
     # Generate enough entries
     for _ in range(3):
-        client.post(
+        r = client.post(
             "/api/v1/users",
             headers=headers,
             json={
                 "username": _unique("page-test"),
-                "password": "pass12345678",
+                "password": "TestPass1234",
                 "real_name": "Page Test",
-                "role_codes": ["viewer"],
             },
+        )
+        user_id = r.json()["data"]["id"]
+        client.post(
+            f"/api/v1/users/{user_id}/roles",
+            headers=headers,
+            json={"role_code": "viewer"},
         )
 
     resp = client.get("/api/v1/audit-logs?page=1&page_size=2", headers=headers)
@@ -486,7 +524,7 @@ def test_dwg_upload_accepts_all_allowed_mime_types():
         resp = client.post(
             "/api/v1/files",
             headers=headers,
-            files={"upload": ("mime-test.dwg", BytesIO(b"AC1027-MIME-TEST-STUB"), mime)},
+            files={"upload": ("mime-test.dwg", BytesIO(b"AC1027" + b"X" * 1024), mime)},
         )
         assert resp.status_code == 201, f"MIME {mime} rejected: {resp.text}"
 
@@ -499,7 +537,7 @@ def test_dwg_upload_accepts_octet_stream_as_fallback():
     resp = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("octet.dwg", BytesIO(b"AC1027-OCTET-STREAM"), "application/octet-stream")},
+        files={"upload": ("octet.dwg", BytesIO(b"AC1027" + b"X" * 1024), "application/octet-stream")},
     )
     assert resp.status_code == 201, resp.text
 
@@ -512,7 +550,7 @@ def test_dwg_upload_rejects_unlisted_mime():
     resp = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("bad.dwg", BytesIO(b"AC1027-BAD-MIME"), "image/png")},
+        files={"upload": ("bad.dwg", BytesIO(b"AC1027" + b"X" * 1024), "image/png")},
     )
     assert resp.status_code == 415, resp.text
     assert resp.json()["error"]["code"] == "FILE_MIME_NOT_ALLOWED"
@@ -526,6 +564,6 @@ def test_dwg_upload_mime_with_charset_is_normalised():
     resp = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("charset.dwg", BytesIO(b"AC1027-CHARSET"), "application/acad; charset=utf-8")},
+        files={"upload": ("charset.dwg", BytesIO(b"AC1027" + b"X" * 1024), "application/acad; charset=utf-8")},
     )
     assert resp.status_code == 201, resp.text

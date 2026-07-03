@@ -124,6 +124,12 @@ def retry_job(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
+    if job.status not in ("failed", "cancelled"):
+        raise AppHTTPException(
+            409,
+            "JOB_NOT_RETRYABLE",
+            f"Job cannot be retried because it is {job.status}. Only failed or cancelled jobs can be retried.",
+        )
     if job.project_id is not None:
         require_project_role(db, current_user, job.project_id, PROJECT_JOB_WRITE_ROLES)
     job.status = "queued"

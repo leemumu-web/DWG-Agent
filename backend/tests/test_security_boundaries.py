@@ -47,11 +47,18 @@ def _create_user(
             "username": username,
             "password": password,
             "real_name": real_name,
-            "role_codes": role_codes,
         },
     )
     assert resp.status_code == 201, resp.text
-    return resp.json()["data"]["id"]
+    user_id = resp.json()["data"]["id"]
+    for role_code in role_codes:
+        role_resp = client.post(
+            f"/api/v1/users/{user_id}/roles",
+            headers=admin_headers,
+            json={"role_code": role_code},
+        )
+        assert role_resp.status_code == 201, f"Failed to assign role {role_code}: {role_resp.text}"
+    return user_id
 
 
 # ---------------------------------------------------------------------------
@@ -62,14 +69,14 @@ def _create_user(
 def test_admin_cannot_delete_super_admin():
     """An admin user cannot soft-delete a super_admin account."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     me = client.get("/api/v1/auth/me", headers=admin_headers)
     super_admin_id = me.json()["data"]["id"]
 
     # Create a second admin to act as the attacker
     admin2_user = _unique("rogue-admin")
-    admin2_pass = "rogue-pass-123"
+    admin2_pass = "RoguePass1234"
     _create_user(client, admin_headers, admin2_user, admin2_pass, "Rogue Admin", ["admin"])
     admin2_headers = _login(client, admin2_user, admin2_pass)
 
@@ -81,13 +88,13 @@ def test_admin_cannot_delete_super_admin():
 def test_admin_cannot_disable_super_admin():
     """An admin user cannot disable a super_admin account."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     me = client.get("/api/v1/auth/me", headers=admin_headers)
     super_admin_id = me.json()["data"]["id"]
 
     admin2_user = _unique("rogue-admin2")
-    admin2_pass = "rogue-pass-456"
+    admin2_pass = "RoguePass4567"
     _create_user(client, admin_headers, admin2_user, admin2_pass, "Rogue Admin 2", ["admin"])
     admin2_headers = _login(client, admin2_user, admin2_pass)
 
@@ -101,13 +108,13 @@ def test_admin_cannot_disable_super_admin():
 def test_admin_cannot_reset_super_admin_password():
     """An admin user cannot reset a super_admin password (account takeover)."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     me = client.get("/api/v1/auth/me", headers=admin_headers)
     super_admin_id = me.json()["data"]["id"]
 
     admin2_user = _unique("rogue-admin3")
-    admin2_pass = "rogue-pass-789"
+    admin2_pass = "RoguePass7890"
     _create_user(client, admin_headers, admin2_user, admin2_pass, "Rogue Admin 3", ["admin"])
     admin2_headers = _login(client, admin2_user, admin2_pass)
 
@@ -121,13 +128,13 @@ def test_admin_cannot_reset_super_admin_password():
 def test_admin_cannot_enable_super_admin():
     """An admin user cannot re-enable a disabled super_admin account."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     me = client.get("/api/v1/auth/me", headers=admin_headers)
     super_admin_id = me.json()["data"]["id"]
 
     admin2_user = _unique("rogue-admin4")
-    admin2_pass = "rogue-pass-abc"
+    admin2_pass = "RoguePassAbc1"
     _create_user(client, admin_headers, admin2_user, admin2_pass, "Rogue Admin 4", ["admin"])
     admin2_headers = _login(client, admin2_user, admin2_pass)
 
@@ -149,7 +156,7 @@ def test_refresh_token_cannot_be_used_as_access_token():
 
     login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     assert login.status_code == 201, login.text
 
@@ -172,7 +179,7 @@ def test_access_token_cannot_refresh():
 
     login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     access_token = login.json()["data"]["access_token"]
 
@@ -188,10 +195,10 @@ def test_access_token_cannot_refresh():
 def test_disabled_user_refresh_token_is_rejected():
     """After a user is disabled, their refresh token must be rejected."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     username = _unique("disable-refresh")
-    password = "disable-me-123"
+    password = "DisableMe12345"
     user_id = _create_user(client, admin_headers, username, password, "Disable Test", ["viewer"])
 
     # Login to get refresh cookie
@@ -214,10 +221,10 @@ def test_disabled_user_refresh_token_is_rejected():
 def test_disabled_user_cannot_login():
     """A disabled user must not be able to login."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     username = _unique("disable-login")
-    password = "disable-login-123"
+    password = "DisableLogin123"
     user_id = _create_user(client, admin_headers, username, password, "Login Disable", ["viewer"])
 
     # First login should work
@@ -240,10 +247,10 @@ def test_disabled_user_cannot_login():
 def test_disabled_user_active_token_is_rejected():
     """A user with a valid access token must get 401 after being disabled."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     username = _unique("disable-mid-session")
-    password = "mid-session-123"
+    password = "MidSession1234"
     user_id = _create_user(
         client, admin_headers, username, password, "Mid-Session", ["viewer"]
     )
@@ -270,20 +277,20 @@ def test_disabled_user_active_token_is_rejected():
 def test_viewer_cannot_see_unowned_files_in_list():
     """A viewer must not see files uploaded by other users in list_files."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     # Admin uploads a file
     upload = client.post(
         "/api/v1/files",
         headers=admin_headers,
-        files={"upload": ("admin-file.dwg", BytesIO(b"AC1027-ADMIN-FILE-STUB"), "application/acad")},
+        files={"upload": ("admin-file.dwg", BytesIO(b"AC1027" + b"X" * 1024), "application/acad")},
     )
     assert upload.status_code == 201, upload.text
     admin_file_id = upload.json()["data"]["id"]
 
     # Create viewer and have them upload a file
     viewer_user = _unique("file-list-viewer")
-    viewer_pass = "viewer-pass-123"
+    viewer_pass = "ViewerPass1234"
     _create_user(client, admin_headers, viewer_user, viewer_pass, "File List Viewer", ["viewer"])
     viewer_headers = _login(client, viewer_user, viewer_pass)
 
@@ -291,7 +298,7 @@ def test_viewer_cannot_see_unowned_files_in_list():
         "/api/v1/files",
         headers=viewer_headers,
         files={
-            "upload": ("viewer-file.dwg", BytesIO(b"AC1027-VIEWER-FILE-STUB"), "application/acad")
+            "upload": ("viewer-file.dwg", BytesIO(b"AC1027" + b"X" * 1024), "application/acad")
         },
     )
     assert viewer_upload.status_code == 201, viewer_upload.text
@@ -308,12 +315,12 @@ def test_viewer_cannot_see_unowned_files_in_list():
 def test_signed_download_url_expiry_is_enforced():
     """An expired signed download URL must be rejected."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     upload = client.post(
         "/api/v1/files",
         headers=admin_headers,
-        files={"upload": ("expire-test.dwg", BytesIO(b"AC1027-EXPIRE-TEST"), "application/acad")},
+        files={"upload": ("expire-test.dwg", BytesIO(b"AC1027" + b"X" * 1024), "application/acad")},
     )
     assert upload.status_code == 201, upload.text
     file_id = upload.json()["data"]["id"]
@@ -338,12 +345,12 @@ def test_signed_download_url_expiry_is_enforced():
 def test_signed_download_url_with_wrong_signature_rejected():
     """A download URL with a tampered signature must be rejected."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     upload = client.post(
         "/api/v1/files",
         headers=admin_headers,
-        files={"upload": ("sig-test.dwg", BytesIO(b"AC1027-SIG-TEST"), "application/acad")},
+        files={"upload": ("sig-test.dwg", BytesIO(b"AC1027" + b"X" * 1024), "application/acad")},
     )
     assert upload.status_code == 201, upload.text
     file_id = upload.json()["data"]["id"]
@@ -361,14 +368,14 @@ def test_signed_download_url_with_wrong_signature_rejected():
 def test_signed_url_for_wrong_file_rejected():
     """A signature valid for file A must not work for file B."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     # Upload two files
     for name in ("file-a.dwg", "file-b.dwg"):
         resp = client.post(
             "/api/v1/files",
             headers=admin_headers,
-            files={"upload": (name, BytesIO(b"AC1027-DWG-TEST-STUB"), "application/acad")},
+            files={"upload": (name, BytesIO(b"AC1027" + b"X" * 1024), "application/acad")},
         )
         assert resp.status_code == 201, resp.text
 
@@ -392,7 +399,7 @@ def test_signed_url_for_wrong_file_rejected():
 def test_unauthenticated_endpoints_return_401():
     """All business API endpoints must return 401 when no token is provided."""
     client = _client()
-    _login(client, "admin", "admin123456")  # ensures DB is seeded
+    _login(client, "admin", "SuperAdminPass1")  # ensures DB is seeded
 
     # Endpoints that MUST require auth (should return 401, not 403 or 500)
     protected_paths = [
@@ -446,11 +453,11 @@ def test_public_endpoints_do_not_require_auth():
 def test_create_user_with_empty_username_rejected():
     """Empty username must be rejected by Pydantic validation (422)."""
     client = _client()
-    headers = _login(client, "admin", "admin123456")
+    headers = _login(client, "admin", "SuperAdminPass1")
     resp = client.post(
         "/api/v1/users",
         headers=headers,
-        json={"username": "", "password": "pass12345678", "real_name": "Empty"},
+        json={"username": "", "password": "TestPass1234", "real_name": "Empty"},
     )
     assert resp.status_code == 422, resp.text
 
@@ -458,7 +465,7 @@ def test_create_user_with_empty_username_rejected():
 def test_create_user_with_short_password_rejected():
     """Password shorter than 8 chars must be rejected by Pydantic validation."""
     client = _client()
-    headers = _login(client, "admin", "admin123456")
+    headers = _login(client, "admin", "SuperAdminPass1")
     resp = client.post(
         "/api/v1/users",
         headers=headers,
@@ -477,7 +484,7 @@ def test_login_with_empty_body_returns_422():
 def test_change_password_rejects_empty_fields():
     """Password change with empty fields must validate."""
     client = _client()
-    headers = _login(client, "admin", "admin123456")
+    headers = _login(client, "admin", "SuperAdminPass1")
 
     resp = client.patch(
         "/api/v1/auth/password",
@@ -490,10 +497,10 @@ def test_change_password_rejects_empty_fields():
 def test_delete_already_deleted_user_returns_404():
     """Soft-deleting an already soft-deleted user returns 404 (not 500)."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     username = _unique("double-delete")
-    user_id = _create_user(client, admin_headers, username, "pass12345678", "DoubleDelete", ["viewer"])
+    user_id = _create_user(client, admin_headers, username, "TestPass1234", "DoubleDelete", ["viewer"])
 
     # First delete
     resp1 = client.delete(f"/api/v1/users/{user_id}", headers=admin_headers)
@@ -507,7 +514,7 @@ def test_delete_already_deleted_user_returns_404():
 def test_get_nonexistent_resource_returns_404():
     """Accessing non-existent resource IDs returns 404 consistently."""
     client = _client()
-    headers = _login(client, "admin", "admin123456")
+    headers = _login(client, "admin", "SuperAdminPass1")
 
     paths = [
         ("GET", "/api/v1/users/99999"),
@@ -534,10 +541,10 @@ def test_get_nonexistent_resource_returns_404():
 def test_user_lifecycle_operations_are_audited():
     """Create, disable, enable, password-reset must all produce audit entries."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     username = _unique("audit-lifecycle")
-    user_id = _create_user(client, admin_headers, username, "lifecycle123", "Audit Lifecycle", ["viewer"])
+    user_id = _create_user(client, admin_headers, username, "Lifecycle12345", "Audit Lifecycle", ["viewer"])
 
     client.post(f"/api/v1/users/{user_id}/disable-requests", headers=admin_headers)
     client.post(f"/api/v1/users/{user_id}/enable-requests", headers=admin_headers)
@@ -554,14 +561,14 @@ def test_user_lifecycle_operations_are_audited():
 def test_login_and_logout_are_audited():
     """Login and logout must be recorded in audit log."""
     client = _client()
-    headers = _login(client, "admin", "admin123456")
+    headers = _login(client, "admin", "SuperAdminPass1")
 
     client.delete("/api/v1/auth/sessions/current", headers=headers)
 
     logs = client.get("/api/v1/audit-logs?page_size=50", headers=headers)
     # After logout, we have no cookie — use original headers which still have valid token
     # Wait, the token is valid (stateless JWT). Let me re-login to check audit.
-    headers2 = _login(client, "admin", "admin123456")
+    headers2 = _login(client, "admin", "SuperAdminPass1")
     logs = client.get("/api/v1/audit-logs?page_size=50", headers=headers2)
     actions = {item["action"] for item in logs.json()["data"]}
     assert "auth.login" in actions
@@ -576,10 +583,10 @@ def test_login_and_logout_are_audited():
 def test_project_viewer_cannot_add_members():
     """A user with project_viewer role cannot add members to the project."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     viewer_user = _unique("proj-viewer")
-    viewer_pass = "viewer-pass-123"
+    viewer_pass = "ViewerPass1234"
     viewer_id = _create_user(
         client, admin_headers, viewer_user, viewer_pass, "Project Viewer", ["viewer"]
     )
@@ -604,7 +611,7 @@ def test_project_viewer_cannot_add_members():
     # Viewer tries to add a member
     target_user = _unique("target-member")
     target_id = _create_user(
-        client, admin_headers, target_user, "target-pass-123", "Target", ["viewer"]
+        client, admin_headers, target_user, "TargetPass1234", "Target", ["viewer"]
     )
 
     resp = client.post(
@@ -618,10 +625,10 @@ def test_project_viewer_cannot_add_members():
 def test_project_viewer_cannot_update_project():
     """A user with project_viewer role cannot modify project metadata."""
     client = _client()
-    admin_headers = _login(client, "admin", "admin123456")
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
 
     viewer_user = _unique("proj-viewer2")
-    viewer_pass = "viewer2-pass-123"
+    viewer_pass = "Viewer2Pass123"
     viewer_id = _create_user(
         client, admin_headers, viewer_user, viewer_pass, "Project Viewer 2", ["viewer"]
     )

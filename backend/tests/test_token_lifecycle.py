@@ -16,7 +16,7 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def _login(client: TestClient, username: str = "admin", password: str = "admin123456") -> dict[str, str]:
+def _login(client: TestClient, username: str = "admin", password: str = "SuperAdminPass1") -> dict[str, str]:
     resp = client.post(
         "/api/v1/auth/sessions", json={"username": username, "password": password}
     )
@@ -86,7 +86,7 @@ def test_logout_clears_refresh_cookie():
 
     login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     assert login.status_code == 201
     # Cookie must be set on login
@@ -134,10 +134,10 @@ def test_every_login_produces_different_jti():
     client = _client()
 
     resp1 = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     resp2 = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     import base64
     import json
@@ -167,7 +167,7 @@ def test_refresh_returns_new_access_token_with_different_jti():
     client = _client()
 
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     old_jti = _decode_jti(login.json()["data"]["access_token"])
 
@@ -183,7 +183,7 @@ def test_refresh_preserves_user_identity():
     client = _client()
 
     client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     refresh = client.post("/api/v1/auth/tokens/refresh")
     new_token = refresh.json()["data"]["access_token"]
@@ -228,7 +228,7 @@ def test_refresh_with_access_type_token_in_cookie_is_rejected():
     client = _client()
 
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     access_token = login.json()["data"]["access_token"]
 
@@ -259,7 +259,7 @@ def test_password_change_does_not_revoke_existing_tokens():
     resp = client.patch(
         "/api/v1/auth/password",
         headers=headers,
-        json={"current_password": "admin123456", "new_password": "new-admin-pass-123"},
+        json={"current_password": "SuperAdminPass1", "new_password": "NewAdminPass1"},
     )
     assert resp.status_code == 200, resp.text
 
@@ -283,7 +283,7 @@ def test_app_starts_with_db_initialised():
     client = TestClient(app)
     resp = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     # NOTE: with the in-memory SQLite test fixture the lifespan init_db()
     # may run before the fixture patches are fully active.  The key invariant

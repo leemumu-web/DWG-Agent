@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -91,6 +92,23 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
                 "code": "VALIDATION_ERROR",
                 "message": "Request validation failed.",
                 "details": {"errors": jsonable_encoder(exc.errors())},
+            },
+            "meta": meta(getattr(request.state, "request_id", "unknown")),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Catch-all handler — logs the full traceback but never leaks it to clients."""
+    logging.getLogger(__name__).exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Internal server error." if not settings.debug else str(exc),
+                "details": {},
             },
             "meta": meta(getattr(request.state, "request_id", "unknown")),
         },

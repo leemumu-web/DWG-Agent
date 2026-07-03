@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 from app.db.init_db import init_db
 from app.main import app
 
+_DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
+
 
 def auth_headers(client: TestClient) -> dict[str, str]:
     init_db()
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     assert login.status_code == 201, login.text
     token = login.json()["data"]["access_token"]
@@ -25,7 +27,7 @@ def test_dwg_upload_download_and_audit_flow():
     upload = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("sample.dwg", BytesIO(b"AC1027-DWG-STUB"), "application/acad")},
+        files={"upload": ("sample.dwg", BytesIO(_DWG_STUB), "application/acad")},
     )
     assert upload.status_code == 201, upload.text
     file_id = upload.json()["data"]["id"]
@@ -41,7 +43,7 @@ def test_dwg_upload_download_and_audit_flow():
     signed_url = download_url.json()["data"]["url"]
     downloaded = client.get(signed_url, headers=headers)
     assert downloaded.status_code == 200, downloaded.text
-    assert downloaded.content == b"AC1027-DWG-STUB"
+    assert downloaded.content == _DWG_STUB
 
     audit_logs = client.get("/api/v1/audit-logs", headers=headers)
     assert audit_logs.status_code == 200, audit_logs.text

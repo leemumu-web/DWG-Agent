@@ -20,7 +20,7 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def _login(client: TestClient, username: str = "admin", password: str = "admin123456") -> dict[str, str]:
+def _login(client: TestClient, username: str = "admin", password: str = "SuperAdminPass1") -> dict[str, str]:
     resp = client.post(
         "/api/v1/auth/sessions", json={"username": username, "password": password}
     )
@@ -48,7 +48,7 @@ def test_password_change_keeps_old_access_token_valid():
 
     # Login and get a token
     login1 = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     old_token = login1.json()["data"]["access_token"]
     old_headers = {"Authorization": f"Bearer {old_token}"}
@@ -57,7 +57,7 @@ def test_password_change_keeps_old_access_token_valid():
     client.patch(
         "/api/v1/auth/password",
         headers=old_headers,
-        json={"current_password": "admin123456", "new_password": "new-passphrase-123"},
+        json={"current_password": "SuperAdminPass1", "new_password": "NewPassphrase123"},
     )
 
     # Old token STILL works (CURRENT BEHAVIOUR)
@@ -66,14 +66,14 @@ def test_password_change_keeps_old_access_token_valid():
 
     # New password works for fresh login
     client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "new-passphrase-123"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "NewPassphrase123"}
     )
     # Restore original password for other tests
-    new_headers = _login(client, "admin", "new-passphrase-123")
+    new_headers = _login(client, "admin", "NewPassphrase123")
     client.patch(
         "/api/v1/auth/password",
         headers=new_headers,
-        json={"current_password": "new-passphrase-123", "new_password": "admin123456"},
+        json={"current_password": "NewPassphrase123", "new_password": "SuperAdminPass1"},
     )
 
 
@@ -86,7 +86,7 @@ def test_password_change_does_not_blacklist_old_tokens():
     client = _client()
 
     login1 = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     old_token = login1.json()["data"]["access_token"]
     old_headers = {"Authorization": f"Bearer {old_token}"}
@@ -95,7 +95,7 @@ def test_password_change_does_not_blacklist_old_tokens():
     client.patch(
         "/api/v1/auth/password",
         headers=old_headers,
-        json={"current_password": "admin123456", "new_password": "temp-pass-456"},
+        json={"current_password": "SuperAdminPass1", "new_password": "TempPass45678"},
     )
 
     # Old token still works on MULTIPLE endpoints
@@ -107,7 +107,7 @@ def test_password_change_does_not_blacklist_old_tokens():
     client.patch(
         "/api/v1/auth/password",
         headers=old_headers,
-        json={"current_password": "temp-pass-456", "new_password": "admin123456"},
+        json={"current_password": "TempPass45678", "new_password": "SuperAdminPass1"},
     )
 
 
@@ -126,7 +126,7 @@ def test_refresh_cookie_persists_but_not_rotated():
     client = _client()
 
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     assert login.status_code == 201
     old_refresh = client.cookies.get("dwg_refresh_token")
@@ -164,19 +164,24 @@ def test_admin_can_modify_super_admin_real_name():
 
     # Create another admin
     admin2_user = _unique("mod-admin")
-    client.post(
+    r = client.post(
         "/api/v1/users",
         headers=admin_headers,
         json={
             "username": admin2_user,
-            "password": "pass12345678",
+            "password": "TestPass1234",
             "real_name": "Modify Admin",
-            "role_codes": ["admin"],
         },
+    )
+    admin2_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{admin2_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "admin"},
     )
     admin2_login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": admin2_user, "password": "pass12345678"},
+        json={"username": admin2_user, "password": "TestPass1234"},
     )
     admin2_headers = {"Authorization": f"Bearer {admin2_login.json()['data']['access_token']}"}
 
@@ -204,19 +209,24 @@ def test_admin_cannot_disable_super_admin_via_patch_status():
     super_admin_id = me.json()["data"]["id"]
 
     admin2_user = _unique("status-admin")
-    client.post(
+    r = client.post(
         "/api/v1/users",
         headers=admin_headers,
         json={
             "username": admin2_user,
-            "password": "pass12345678",
+            "password": "TestPass1234",
             "real_name": "Status Admin",
-            "role_codes": ["admin"],
         },
+    )
+    admin2_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{admin2_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "admin"},
     )
     admin2_login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": admin2_user, "password": "pass12345678"},
+        json={"username": admin2_user, "password": "TestPass1234"},
     )
     admin2_headers = {"Authorization": f"Bearer {admin2_login.json()['data']['access_token']}"}
 
@@ -241,19 +251,24 @@ def test_admin_cannot_modify_super_admin_name_via_patch():
     super_admin_id = me.json()["data"]["id"]
 
     admin2_user = _unique("name-admin")
-    client.post(
+    r = client.post(
         "/api/v1/users",
         headers=admin_headers,
         json={
             "username": admin2_user,
-            "password": "pass12345678",
+            "password": "TestPass1234",
             "real_name": "Name Admin",
-            "role_codes": ["admin"],
         },
+    )
+    admin2_id = r.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{admin2_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "admin"},
     )
     admin2_login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": admin2_user, "password": "pass12345678"},
+        json={"username": admin2_user, "password": "TestPass1234"},
     )
     admin2_headers = {"Authorization": f"Bearer {admin2_login.json()['data']['access_token']}"}
 
@@ -298,27 +313,9 @@ def test_drawing_accessible_after_project_soft_delete():
     # Project is 404
     assert client.get(f"/api/v1/projects/{project_id}", headers=headers).status_code == 404
 
-    # Drawing STILL accessible
+    # Drawing is NOW INACCESSIBLE — BUG-7: soft-deleted project cascades to drawings
     d = client.get(f"/api/v1/drawings/{drawing_id}", headers=headers)
-    assert d.status_code == 200, f"Drawing should still be accessible: {d.text}"
-    assert d.json()["data"]["status"] == "active"
-
-    # Can still create new versions of the drawing
-    # (upload a file first, then create version)
-    upload = client.post(
-        "/api/v1/files",
-        headers=headers,
-        files={"upload": ("cascade-test.dwg", __import__("io").BytesIO(b"AC1027-CASCADE-TEST"), "application/acad")},
-    )
-    assert upload.status_code == 201
-    file_id = upload.json()["data"]["id"]
-
-    version = client.post(
-        f"/api/v1/drawings/{drawing_id}/versions",
-        headers=headers,
-        json={"file_id": file_id, "source": "test"},
-    )
-    assert version.status_code == 201, f"Cannot create version on drawing of deleted project: {version.text}"
+    assert d.status_code == 404, f"Drawing of deleted project must return 404: {d.text}"
 
 
 # ===========================================================================
@@ -355,7 +352,7 @@ def test_refresh_token_revoked_after_logout():
     client = _client()
 
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     assert login.status_code == 201
     refresh_value = client.cookies.get("dwg_refresh_token")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -63,7 +64,13 @@ def create_project(
         status="active",
     )
     db.add(project)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise AppHTTPException(
+            409, "PROJECT_CODE_EXISTS", "Project code already exists (concurrent creation)."
+        ) from None
     db.add(
         ProjectMember(project_id=project.id, user_id=current_user.id, project_role="project_owner")
     )

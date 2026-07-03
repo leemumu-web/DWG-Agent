@@ -13,7 +13,7 @@ def test_login_project_job_result_flow():
     client = TestClient(app)
 
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "admin", "password": "admin123456"}
+        "/api/v1/auth/sessions", json={"username": "admin", "password": "SuperAdminPass1"}
     )
     assert login.status_code == 201, login.text
     token = login.json()["data"]["access_token"]

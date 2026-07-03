@@ -3,19 +3,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel
-
-
-class Meta(BaseModel):
-    request_id: str
-    timestamp: datetime
-
-
-class Pagination(BaseModel):
-    page: int
-    page_size: int
-    total: int
-
 
 def meta(request_id: str) -> dict[str, Any]:
     return {"request_id": request_id, "timestamp": datetime.now(UTC).isoformat()}

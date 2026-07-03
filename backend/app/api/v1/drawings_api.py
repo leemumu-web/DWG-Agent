@@ -8,6 +8,7 @@ from app.api.deps import (
     CurrentUser,
     get_db,
     has_global_project_access,
+    require_active_project,
     require_project_member,
     require_project_role,
 )
@@ -97,6 +98,7 @@ def get_drawing(
     drawing = db.get(Drawing, drawing_id)
     if not drawing or drawing.status == "deleted":
         raise not_found("Drawing")
+    require_active_project(db, drawing.project_id)
     require_project_member(db, current_user, drawing.project_id)
     return ok(DrawingRead.model_validate(drawing), request.state.request_id)
 
@@ -112,6 +114,7 @@ def update_drawing(
     drawing = db.get(Drawing, drawing_id)
     if not drawing or drawing.status == "deleted":
         raise not_found("Drawing")
+    require_active_project(db, drawing.project_id)
     require_project_role(db, current_user, drawing.project_id, PROJECT_WRITE_ROLES)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(drawing, key, value)
@@ -132,6 +135,7 @@ def delete_drawing(drawing_id: int, current_user: CurrentUser, db: Session = Dep
     drawing = db.get(Drawing, drawing_id)
     if not drawing or drawing.status == "deleted":
         raise not_found("Drawing")
+    require_active_project(db, drawing.project_id)
     require_project_role(db, current_user, drawing.project_id, PROJECT_WRITE_ROLES)
     drawing.status = "deleted"
     write_audit_log(
@@ -157,6 +161,7 @@ def list_versions(
     drawing = db.get(Drawing, drawing_id)
     if not drawing or drawing.status == "deleted":
         raise not_found("Drawing")
+    require_active_project(db, drawing.project_id)
     require_project_member(db, current_user, drawing.project_id)
     versions = list(
         db.scalars(

@@ -18,6 +18,8 @@ from app.schemas.project_schema import ProjectCreate
 from app.schemas.user_schema import UserCreate
 from app.services.user_service import create_user
 
+_DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
+
 
 def _client(*, raise_server_exceptions: bool = True) -> TestClient:
     init_db()
@@ -27,7 +29,7 @@ def _client(*, raise_server_exceptions: bool = True) -> TestClient:
 def _admin_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     assert response.status_code == 201, response.text
     token = response.json()["data"]["access_token"]
@@ -42,7 +44,7 @@ def test_admin_cannot_delete_self():
     client = _client()
     root_headers = _admin_headers(client)
     username = _unique("self-delete-admin")
-    password = "admin-pass-123"
+    password = "AdminPass1234"
 
     created = client.post(
         "/api/v1/users",
@@ -51,11 +53,17 @@ def test_admin_cannot_delete_self():
             "username": username,
             "password": password,
             "real_name": "Self Delete Guard",
-            "role_codes": ["admin"],
         },
     )
     assert created.status_code == 201, created.text
     user_id = created.json()["data"]["id"]
+
+    role_resp = client.post(
+        f"/api/v1/users/{user_id}/roles",
+        headers=root_headers,
+        json={"role_code": "admin"},
+    )
+    assert role_resp.status_code == 201, role_resp.text
 
     login = client.post(
         "/api/v1/auth/sessions",
@@ -126,7 +134,7 @@ def test_create_user_integrity_error_returns_conflict():
     db = FailingFlushDb()
 
     with pytest.raises(AppHTTPException) as exc_info:
-        create_user(db, UserCreate(username="race", password="password123", real_name="Race"))
+        create_user(db, UserCreate(username="race", password="Password12345", real_name="Race"))
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "USERNAME_EXISTS"
@@ -138,7 +146,7 @@ def test_wrong_content_type_returns_validation_error_not_500():
 
     response = client.post(
         "/api/v1/auth/sessions",
-        data='{"username":"admin","password":"admin123456"}',
+        data='{"username":"admin","password":"SuperAdminPass1"}',
         headers={"Content-Type": "text/plain"},
     )
 
@@ -168,7 +176,7 @@ def test_login_sets_refresh_cookie_and_refresh_returns_access_token():
 
     login = client.post(
         "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "admin123456"},
+        json={"username": "admin", "password": "SuperAdminPass1"},
     )
     assert login.status_code == 201, login.text
     assert client.cookies.get("dwg_refresh_token")
@@ -189,8 +197,8 @@ def test_change_password_requires_current_password_and_updates_credentials():
     client = _client()
     root_headers = _admin_headers(client)
     username = _unique("password-user")
-    old_password = "old-pass-123"
-    new_password = "new-pass-123"
+    old_password = "OldPass12345"
+    new_password = "NewPass12345"
 
     created = client.post(
         "/api/v1/users",
@@ -199,10 +207,15 @@ def test_change_password_requires_current_password_and_updates_credentials():
             "username": username,
             "password": old_password,
             "real_name": "Password User",
-            "role_codes": ["viewer"],
         },
     )
     assert created.status_code == 201, created.text
+    user_id = created.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{user_id}/roles",
+        headers=root_headers,
+        json={"role_code": "viewer"},
+    )
 
     login = client.post(
         "/api/v1/auth/sessions",
@@ -214,7 +227,7 @@ def test_change_password_requires_current_password_and_updates_credentials():
     rejected = client.patch(
         "/api/v1/auth/password",
         headers=headers,
-        json={"current_password": "wrong-pass-123", "new_password": new_password},
+        json={"current_password": "WrongPass1234", "new_password": new_password},
     )
     assert rejected.status_code == 400, rejected.text
     assert rejected.json()["error"]["code"] == "INVALID_CURRENT_PASSWORD"
@@ -342,7 +355,7 @@ def test_dwg_upload_rejects_disallowed_mime_type():
     response = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("mime.dwg", BytesIO(b"AC1027-DWG-STUB"), "text/plain")},
+        files={"upload": ("mime.dwg", BytesIO(_DWG_STUB), "text/plain")},
     )
 
     assert response.status_code == 415, response.text
@@ -356,7 +369,7 @@ def test_dwg_upload_rejects_unknown_ac_version_header():
     response = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("fake-version.dwg", BytesIO(b"AC0000-DWG-STUB"), "application/acad")},
+        files={"upload": ("fake-version.dwg", BytesIO(b"AC0000" + b"\x00" * 1018), "application/acad")},
     )
 
     assert response.status_code == 415, response.text
@@ -370,13 +383,13 @@ def test_unrelated_user_cannot_access_private_uploaded_file():
     upload = client.post(
         "/api/v1/files",
         headers=admin_headers,
-        files={"upload": ("private.dwg", BytesIO(b"AC1027-DWG-STUB"), "application/acad")},
+        files={"upload": ("private.dwg", BytesIO(_DWG_STUB), "application/acad")},
     )
     assert upload.status_code == 201, upload.text
     file_id = upload.json()["data"]["id"]
 
     viewer_username = _unique("file-viewer")
-    viewer_password = "viewer-pass-123"
+    viewer_password = "ViewerPass1234"
     created = client.post(
         "/api/v1/users",
         headers=admin_headers,
@@ -384,10 +397,15 @@ def test_unrelated_user_cannot_access_private_uploaded_file():
             "username": viewer_username,
             "password": viewer_password,
             "real_name": "File Viewer",
-            "role_codes": ["viewer"],
         },
     )
     assert created.status_code == 201, created.text
+    viewer_id = created.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{viewer_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "viewer"},
+    )
 
     login = client.post(
         "/api/v1/auth/sessions",
@@ -416,7 +434,7 @@ def test_download_url_is_signed_and_rejects_tampering():
     upload = client.post(
         "/api/v1/files",
         headers=headers,
-        files={"upload": ("signed.dwg", BytesIO(b"AC1027-DWG-STUB"), "application/acad")},
+        files={"upload": ("signed.dwg", BytesIO(_DWG_STUB), "application/acad")},
     )
     assert upload.status_code == 201, upload.text
     file_id = upload.json()["data"]["id"]
@@ -430,7 +448,7 @@ def test_download_url_is_signed_and_rejects_tampering():
 
     downloaded = client.get(url, headers=headers)
     assert downloaded.status_code == 200, downloaded.text
-    assert downloaded.content == b"AC1027-DWG-STUB"
+    assert downloaded.content == _DWG_STUB
 
     tampered = client.get(url.replace("signature=", "signature=x"), headers=headers)
     assert tampered.status_code == 403, tampered.text
@@ -452,7 +470,7 @@ def test_admin_cannot_grant_super_admin_role():
     root_headers = _admin_headers(client)
 
     admin_username = _unique("limited-admin")
-    admin_password = "admin-pass-123"
+    admin_password = "AdminPass1234"
     created_admin = client.post(
         "/api/v1/users",
         headers=root_headers,
@@ -460,10 +478,15 @@ def test_admin_cannot_grant_super_admin_role():
             "username": admin_username,
             "password": admin_password,
             "real_name": "Limited Admin",
-            "role_codes": ["admin"],
         },
     )
     assert created_admin.status_code == 201, created_admin.text
+    admin_id = created_admin.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{admin_id}/roles",
+        headers=root_headers,
+        json={"role_code": "admin"},
+    )
 
     login = client.post(
         "/api/v1/auth/sessions",
@@ -472,32 +495,26 @@ def test_admin_cannot_grant_super_admin_role():
     assert login.status_code == 201, login.text
     admin_headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
-    blocked_create = client.post(
-        "/api/v1/users",
-        headers=admin_headers,
-        json={
-            "username": _unique("forbidden-root"),
-            "password": "root-pass-123",
-            "real_name": "Forbidden Root",
-            "role_codes": ["super_admin"],
-        },
-    )
-    assert blocked_create.status_code == 403, blocked_create.text
-
+    # Admin cannot grant super_admin role via the role assignment endpoint
     target = client.post(
         "/api/v1/users",
         headers=root_headers,
         json={
             "username": _unique("target-user"),
-            "password": "target-pass-123",
+            "password": "TargetPass1234",
             "real_name": "Target User",
-            "role_codes": ["viewer"],
         },
     )
     assert target.status_code == 201, target.text
+    target_id = target.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{target_id}/roles",
+        headers=root_headers,
+        json={"role_code": "viewer"},
+    )
 
     blocked_assign = client.post(
-        f"/api/v1/users/{target.json()['data']['id']}/roles",
+        f"/api/v1/users/{target_id}/roles",
         headers=admin_headers,
         json={"role_code": "super_admin"},
     )
@@ -509,7 +526,7 @@ def test_project_access_requires_membership_and_role():
     admin_headers = _admin_headers(client)
 
     viewer_username = _unique("project-viewer")
-    viewer_password = "viewer-pass-123"
+    viewer_password = "ViewerPass1234"
     created = client.post(
         "/api/v1/users",
         headers=admin_headers,
@@ -517,11 +534,15 @@ def test_project_access_requires_membership_and_role():
             "username": viewer_username,
             "password": viewer_password,
             "real_name": "Project Viewer",
-            "role_codes": ["viewer"],
         },
     )
     assert created.status_code == 201, created.text
     viewer_id = created.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{viewer_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "viewer"},
+    )
 
     project = client.post(
         "/api/v1/projects",
@@ -564,7 +585,7 @@ def test_project_scoped_drawing_job_and_result_require_membership():
     admin_headers = _admin_headers(client)
 
     viewer_username = _unique("resource-viewer")
-    viewer_password = "viewer-pass-123"
+    viewer_password = "ViewerPass1234"
     created = client.post(
         "/api/v1/users",
         headers=admin_headers,
@@ -572,10 +593,15 @@ def test_project_scoped_drawing_job_and_result_require_membership():
             "username": viewer_username,
             "password": viewer_password,
             "real_name": "Resource Viewer",
-            "role_codes": ["viewer"],
         },
     )
     assert created.status_code == 201, created.text
+    viewer_id = created.json()["data"]["id"]
+    client.post(
+        f"/api/v1/users/{viewer_id}/roles",
+        headers=admin_headers,
+        json={"role_code": "viewer"},
+    )
 
     project = client.post(
         "/api/v1/projects",

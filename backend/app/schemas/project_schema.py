@@ -9,8 +9,8 @@ class ProjectCreate(BaseModel):
     code: str = Field(
         min_length=1,
         max_length=64,
-        pattern=r"^[A-Z0-9_-]+$",
-        description="Project code — uppercase letters, digits, underscore, hyphen only.",
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="Project code — letters, digits, underscore, hyphen only.",
     )
     name: str = Field(min_length=1, max_length=128)
     description: str | None = None
