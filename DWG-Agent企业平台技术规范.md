@@ -216,7 +216,7 @@ React 任务详情页
 | 数据缓存 | TanStack Query | 列表、分页、任务状态刷新 |
 | 前端状态 | Zustand | 当前用户、权限、token（sessionStorage） |
 | 网关 | Nginx 1.27-alpine | HTTPS、静态资源、反代、上传限制、限流 |
-| 后端语言 | Python 3.12（`>=3.12,<3.13`） | 平台 API、Agent API、Worker |
+| 后端语言 | Python 3.12 | 平台 API、Agent API、Worker |
 | 包管理 | uv | 依赖锁定（`uv.lock` 已提交） |
 | API 框架 | FastAPI | RESTful API、OpenAPI、依赖注入 |
 | Schema | Pydantic v2（`from_attributes=True`） | 请求/响应校验、配置模型 |

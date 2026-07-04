@@ -1,7 +1,7 @@
 # DWG-Agent Platform — Agent Instructions
 
 > **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root)
-> (1317 lines, 25 sections, v2.0 — aligned with Stage 1 implementation)
+> (1296 lines, 25 sections, v2.0 — aligned with Stage 1 implementation)
 >
 > Every design decision flows from this document. When in doubt, read the spec first.
 
@@ -86,7 +86,7 @@ complete_framework/
 - **All paths in docs, configs, and code MUST be relative to the repository root.** Never hardcode `/home/Creeken/...` or any user-specific absolute paths.
 - `CLAUDE.md`, `.env.example`, `.env.docker.example`, `compose.yaml`, `README.md` — all at repo root, reference sub-paths as `backend/...`, `frontend/...`, `infra/...`
 - Within `backend/`: `app/core/config.py` uses `Path("./var/storage")` (relative to CWD at runtime)
-- Within `frontend/`: Vite config uses relative paths; `VITE_API_BASE_URL` is empty in dev (Vite proxy) and set via env in Docker
+- Within `frontend/`: Vite config uses relative paths; `VITE_API_BASE_URL` should be set to `http://127.0.0.1:8000` for local dev (no proxy) and is empty in Docker (Nginx handles routing)
 - Nginx configs: Docker uses `nginx.conf` (container paths `/etc/nginx/...`, `/usr/share/nginx/html`); local dev uses `nginx.local.conf` (started via `nginx -c $(pwd)/infra/nginx/nginx.local.conf` from repo root)
 - **Exception:** `infra/nginx/nginx.local.conf` (local dev only, NOT used in Docker) contains hardcoded paths because nginx requires absolute paths for `error_log`/`pid`/`access_log`/`root` directives. A sed command to auto-replace is documented in the file header. Docker deployment uses `infra/nginx/nginx.conf` which uses container-relative paths.
 - This convention ensures Docker builds and multi-developer workflows work without path edits.
@@ -104,7 +104,7 @@ complete_framework/
 
 ### Code Style
 
-- `ruff` with `select = ["E", "F", "I", "UP", "B"]`, line-length=100
+- `ruff` with `select = ["E", "F", "I", "UP", "B", "W"]`, line-length=100
 - All files begin with `from __future__ import annotations`
 - Type hints required (ruff UP rules enforce `X | None` over `Optional[X]`)
 - Import style: `from collections.abc import Callable` (not `from typing import Callable`)

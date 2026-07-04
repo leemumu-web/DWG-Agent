@@ -1,8 +1,8 @@
 # API 参考 -- DWG-Agent 平台
 
 > 版本: v1.0 | 基础路径: `/api/v1` | Stage 1 (生产就绪骨架)
-> 63 个端点，位于 `/api/v1` 下，分布在 11 个路由模块中，外加 1 个健康检查端点位于 `/` (共 64 个)。
-> 规范依据: `DWG-Agent企业平台技术规范.md` 第 7 节。
+> 63 个端点位于 `/api/v1` 下，分布在 11 个路由模块中，外加 1 个健康检查端点位于 `/health`（共 64 个）。
+> 规范依据: `DWG-Agent企业平台技术规范.md` (v2.0) 第 7 节。
 
 ---
 
@@ -213,7 +213,6 @@ Cookie: dwg_refresh_token=<jwt>
 
 ```
 HTTP/1.1 200 OK
-Set-Cookie: dwg_refresh_token=<new-jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth
 
 {
   "data": {
@@ -313,7 +312,7 @@ HTTP/1.1 204 No Content
 | 状态码 | 代码 | 条件 |
 |--------|------|------|
 | 401 | `INVALID_CREDENTIALS` | 用户名或密码错误 |
-| 401 | `USER_NOT_ACTIVE` | 账号已被禁用或删除 |
+| 401 | `INVALID_CREDENTIALS` | 账号已被禁用或删除（时序安全：与密码错误返回相同响应） |
 | 422 | (Pydantic) | 用户名/密码格式校验失败 |
 
 ---
@@ -332,7 +331,7 @@ HTTP/1.1 204 No Content
 ```json
 {
   "data": {
-    "message": "Password changed successfully."
+    "changed": true
   },
   "meta": {
     "request_id": "req_...",
@@ -379,7 +378,7 @@ curl -X POST http://localhost:8000/api/v1/files \
   "data": {
     "id": 1001,
     "bucket": "dwg-original",
-    "storage_key": "dwg-original/project/1/drawing/123/v1/source.dwg",
+    "storage_key": "uploads/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.dwg",
     "original_name": "building-A.dwg",
     "file_ext": ".dwg",
     "content_type": "application/x-dwg",

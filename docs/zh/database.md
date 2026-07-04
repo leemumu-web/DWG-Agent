@@ -210,7 +210,7 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
 | `bucket` | VARCHAR(128) | NOT NULL | 存储桶名称 (`dwg-original` 等) |
-| `storage_key` | VARCHAR(512) | NOT NULL, INDEXED | 桶内路径 (`local/{uuid}.dwg`) |
+| `storage_key` | VARCHAR(512) | NOT NULL, INDEXED | 桶内路径 (`uploads/{uuid}.dwg`) |
 | `original_name` | VARCHAR(255) | NOT NULL | 用户提供的文件名（仅用于显示） |
 | `file_ext` | VARCHAR(32) | NOT NULL | 小写扩展名，含点号 (`.dwg`) |
 | `content_type` | VARCHAR(128) | NULLABLE | 上传时或检测得到的 MIME 类型 |

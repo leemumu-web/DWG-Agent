@@ -31,7 +31,7 @@
 | MinIO | Docker存储后端就绪 | 三层抽象：`base.py` / `local_storage.py` / `minio_storage.py`；本地开发使用本地存储，Docker使用MinIO |
 | Celery | 阶段1伪任务就绪 | 真实Celery应用，Redis作为broker/result backend；`worker-report` 运行 `run_stub_job` 执行 queued→running→succeeded 流程 |
 | Nginx | 生产环境 + 本地开发双配置 | `infra/nginx/nginx.conf`（Docker）、`infra/nginx/nginx.local.conf`（本地开发）；反向代理 `/api/v1/*` 到后端；SPA静态文件服务 |
-| Alembic | 2个迁移版本 | `40452ddd24e7_initial.py`（17张表）+ `b8f9e7d6c5a4_add_missing_timestamp_columns.py`（TimestampMixin修复）；`scripts/db.sh migration-test` 验证端到端流程 |
+| Alembic | 3个迁移版本 | `40452ddd24e7_initial.py`（17张表）+ `b8f9e7d6c5a4_add_missing_timestamp_columns.py`（TimestampMixin修复）+ `c3d2e1f0a9b8_fix_audit_logs_resource_id_type.py`（resource_id类型修复）；`scripts/db.sh migration-test` 验证端到端流程 |
 
 ### 2.2 后端 -- 11个路由模块共64个API端点
 

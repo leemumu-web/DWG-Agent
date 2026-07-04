@@ -995,7 +995,7 @@ tar czf storage_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C backend var/storage
 - Celery `worker-report` 模拟任务，演示队列 → 运行中 → 成功的作业流程
 - 项目、图纸、文件和作业的增删改查操作
 - 审计日志（所有变更操作均被记录）
-- 数据库迁移（Alembic，2 个版本，17 张表）
+- 数据库迁移（Alembic，3 个版本，17 张表）
 - 引导超级管理员种子数据
 - 432 条测试通过（pytest + FakeRedis；当 Redis 可用时运行真实 Redis 测试）
 - Docker Compose 部署，包含 9 个服务

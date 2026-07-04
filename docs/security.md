@@ -255,7 +255,6 @@ All 8 permissions are granted to `super_admin` at seed time.
 - **All business endpoints require `current_user: CurrentUser`** -- no endpoint accepts `= None` as a default.
 - The only unauthenticated endpoints are `POST /auth/sessions` (login), `POST /auth/tokens/refresh`, and `GET /health`.
 - `OAuth2PasswordBearer` extracts the `Authorization: Bearer <token>` header automatically.
-- WebSocket and SSE endpoints (for job events) also validate the token on connect.
 
 ### 3.2 CORS policy
 
@@ -338,7 +337,7 @@ Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
 
 ### 4.3 Storage path security
 
-- **Storage paths never use user-provided filenames.** The `storage_key` is `local/{uuid4().hex}{ext}`.
+- **Storage paths never use user-provided filenames.** The `storage_key` is `uploads/{uuid4().hex}{ext}`.
 - **`original_name`** is stored as metadata only and never interpolated into file paths.
 - **Path traversal guard:** `ensure_within_root(root, candidate)` resolves both paths and checks that the candidate's resolved path starts with the root's resolved path. Any escape attempt raises 400 `INVALID_STORAGE_PATH`.
 - **Original files are never overwritten.** Each upload creates a new storage key.

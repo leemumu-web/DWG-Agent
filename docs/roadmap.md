@@ -31,7 +31,7 @@
 | MinIO | Docker storage backend ready | Three-layer abstraction: `base.py` / `local_storage.py` / `minio_storage.py`; local dev uses local storage, Docker uses MinIO |
 | Celery | Stage 1 fake task ready | Real Celery app with Redis broker/result backend; `worker-report` runs `run_stub_job` for queued→running→succeeded flow |
 | Nginx | Production + local dev dual config | `infra/nginx/nginx.conf` (Docker), `infra/nginx/nginx.local.conf` (local dev); reverse proxy `/api/v1/*` to backend; SPA static serving |
-| Alembic | 2 migration versions | `40452ddd24e7_initial.py` (17 tables) + `b8f9e7d6c5a4_add_missing_timestamp_columns.py` (TimestampMixin fix); `scripts/db.sh migration-test` validates end-to-end |
+| Alembic | 3 migration versions | `40452ddd24e7_initial.py` (17 tables) + `b8f9e7d6c5a4_add_missing_timestamp_columns.py` (TimestampMixin fix) + `c3d2e1f0a9b8_fix_audit_logs_resource_id_type.py` (resource_id type fix); `scripts/db.sh migration-test` validates end-to-end |
 
 ### 2.2 Backend -- 64 API Endpoints across 11 Route Modules
 

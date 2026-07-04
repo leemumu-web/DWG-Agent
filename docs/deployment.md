@@ -995,7 +995,7 @@ The following components are **configured but not operational** in Stage 1:
 - Celery `worker-report` fake task for queued → running → succeeded job flow
 - Project, drawing, file, and job CRUD operations
 - Audit logging (all mutations recorded)
-- Database migrations (Alembic, 2 versions, 17 tables)
+- Database migrations (Alembic, 3 versions, 17 tables)
 - Bootstrap super admin seeding
 - 432 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
 - Docker Compose deployment with 9 services

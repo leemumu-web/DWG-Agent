@@ -19,7 +19,7 @@ kind of code belongs there.
 
 ```
 complete_framework/
-├── DWG-Agent企业平台技术规范.md   ← Ground truth for all design decisions (v2.0, 1317 lines)
+├── DWG-Agent企业平台技术规范.md   ← Ground truth for all design decisions (v2.0, 1296 lines)
 ├── CLAUDE.md                      ← Agent instructions — conventions, don'ts, file map
 ├── README.md                      ← Human-facing project overview
 ├── compose.yaml                   ← Docker Compose for all services

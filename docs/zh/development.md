@@ -14,7 +14,7 @@
 
 ```
 complete_framework/
-├── DWG-Agent企业平台技术规范.md   ← 所有设计决策的权威来源（v2.0, 1317行）
+├── DWG-Agent企业平台技术规范.md   ← 所有设计决策的权威来源（v2.0, 1296行）
 ├── CLAUDE.md                      ← Agent 指令 — 约定、禁止事项、文件映射
 ├── README.md                      ← 面向人类读者的项目概述
 ├── compose.yaml                   ← 所有服务的 Docker Compose 配置

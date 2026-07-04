@@ -1,7 +1,7 @@
 # API Reference -- DWG-Agent Platform
 
 > Version: v1.0 | Base path: `/api/v1` | Stage 1 (production-ready skeleton)
-> 64 endpoints under `/api/v1` across 11 route modules, plus 1 health endpoint at `/health` (64 total).
+> 63 endpoints under `/api/v1` across 11 route modules, plus 1 health endpoint at `/health` (64 total).
 > Spec authority: `DWG-Agent企业平台技术规范.md` (v2.0) section 7.
 
 ---
@@ -213,7 +213,6 @@ The endpoint reads the HttpOnly cookie automatically. No request body is needed.
 
 ```
 HTTP/1.1 200 OK
-Set-Cookie: dwg_refresh_token=<new-jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth
 
 {
   "data": {
@@ -313,7 +312,7 @@ Create a new session. Returns an access token and sets a refresh token cookie.
 | Status | Code | Condition |
 |--------|------|-----------|
 | 401 | `INVALID_CREDENTIALS` | Wrong username or password |
-| 401 | `USER_NOT_ACTIVE` | Account is disabled or deleted |
+| 401 | `INVALID_CREDENTIALS` | Account is disabled or deleted (timing-safe: same response as wrong password) |
 | 422 | (Pydantic) | Validation failure on username/password format |
 
 ---
@@ -332,7 +331,7 @@ Create a new session. Returns an access token and sets a refresh token cookie.
 ```json
 {
   "data": {
-    "message": "Password changed successfully."
+    "changed": true
   },
   "meta": {
     "request_id": "req_...",
@@ -379,7 +378,7 @@ curl -X POST http://localhost:8000/api/v1/files \
   "data": {
     "id": 1001,
     "bucket": "dwg-original",
-    "storage_key": "dwg-original/project/1/drawing/123/v1/source.dwg",
+    "storage_key": "uploads/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.dwg",
     "original_name": "building-A.dwg",
     "file_ext": ".dwg",
     "content_type": "application/x-dwg",

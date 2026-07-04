@@ -1,24 +1,60 @@
+# ============================================================
+# DWG-Agent .gitignore
+# Principle: track everything by default; ignore only secrets,
+# build artifacts, dependencies, caches, and runtime data.
+# ============================================================
+
+# --- Secrets (never commit) ---
 .env
 .env.docker
-*.db
-*.sqlite
-var/
+*.pem
+*.key
+
+# --- Dependencies ---
+node_modules/
+.venv/
+venv/
+
+# --- Build artifacts ---
+dist/
+build/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+tsconfig.tsbuildinfo
+
+# --- Caches ---
 __pycache__/
 .pytest_cache/
 .ruff_cache/
-.venv/
-node_modules/
-dist/
-build/
+.mypy_cache/
+.vite/
+
+# --- Runtime data (filesystem-based storage, logs, dbs) ---
+var/
 backend/var/
-frontend/.env
-backend/.env
-tempCodeRunnerFile.*
+*.db
+*.sqlite
+*.db-journal
+*.sqlite-journal
+infra/nginx/logs/
+logs/
+
+# --- IDE / Editor ---
 .vscode/
 .idea/
 .DS_Store
-tsconfig.tsbuildinfo
+Thumbs.db
+*~
 
-backend/.python-version.local
-backend/.venv
-frontend/.vite/
+# --- OS temp files ---
+*.swp
+*.swo
+*.swn
+*.bak
+
+# --- Binary archives (use git-lfs or external storage) ---
+*.zip
+*.tar.gz
+*.7z

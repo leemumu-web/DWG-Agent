@@ -107,28 +107,28 @@ sys_users  ──< sys_user_roles  >── sys_roles  ──< sys_role_permissio
                                     └──────────┬──────────────────┘
                                                │
                                     ┌──────────▼──────────────────┐
-                                    │ sys_user_roles              │
+                                    │ sys_user_roles               │
                                     │  user_id FK, role_id FK      │
                                     │  PK: (user_id, role_id)      │
                                     └──────────┬──────────────────┘
                                                │
                  ┌─────────────────────────────▼──────┐
-                 │ sys_roles                          │
-                 │  code, is_system                   │
+                 │ sys_roles                           │
+                 │  code, is_system                    │
                  │  super_admin, admin, engineer, ...  │
                  └──────────┬─────────────────────────┘
                             │
                  ┌──────────▼─────────────────────────┐
-                 │ sys_role_permissions               │
+                 │ sys_role_permissions                │
                  │  role_id FK, permission_id FK       │
                  │  PK: (role_id, permission_id)       │
                  └──────────┬─────────────────────────┘
                             │
                  ┌──────────▼─────────────────────────┐
-                 │ sys_permissions                     │
+                 │ sys_permissions                      │
                  │  code, resource, action              │
                  │  例如 "users:read", "jobs:write"     │
-                 └────────────────────────────────────┘
+                 └──────────────────────────────────────┘
 ```
 
 ### 2.2 七个全局角色
@@ -155,9 +155,9 @@ sys_users  ──< sys_user_roles  >── sys_roles  ──< sys_role_permissio
 ### 2.4 权限决策树
 
 ```
-                    ┌─────────────────────────────────────────┐
+                    ┌──────────────────────────────────────────┐
                     │         传入的 API 请求                  │
-                    │   （所有业务端点均需认证）                │
+                    │   （所有业务端点均需认证）                 │
                     └────────────────────┬────────────────────┘
                                          │
                                          ▼
@@ -178,9 +178,9 @@ sys_users  ──< sys_user_roles  >── sys_roles  ──< sys_role_permissio
                               ┌─────────┴──────────┐
                               │ 是                   │ 否 → 401 (USER_NOT_ACTIVE)
                               ▼                      │
-                    ┌─────────────────────────────────────────┐
+                    ┌──────────────────────────────────────────┐
                     │  3. 用户是否拥有授予访问权限的           │
-                    │     全局角色？                           │
+                    │     全局角色？                            │
                     │     - super_admin → 绕过所有检查         │
                     │     - admin → 全局项目访问权限           │
                     │     - role_codes ∩ required_roles ≠ ∅    │
@@ -337,7 +337,7 @@ allow_headers = ["Authorization", "Content-Type"]
 
 ### 4.3 存储路径安全
 
-- **存储路径绝不使用用户提供的文件名。** `storage_key` 的格式为 `local/{uuid4().hex}{ext}`。
+- **存储路径绝不使用用户提供的文件名。** `storage_key` 的格式为 `uploads/{uuid4().hex}{ext}`。
 - **`original_name`** 仅作为元数据存储，绝不拼接到文件路径中。
 - **路径穿越防护：** `ensure_within_root(root, candidate)` 解析两个路径并检查候选路径的解析结果是否以根路径的解析结果为前缀。任何逃逸尝试都会引发 400 `INVALID_STORAGE_PATH`。
 - **原始文件绝不覆盖。** 每次上传都会创建新的存储键。

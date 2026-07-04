@@ -2,7 +2,7 @@
 
 > **Target audience:** Senior engineer taking over maintenance or extension of this codebase.
 > **Stage:** 1 (platform skeleton). Stages 2-6 are planned but not started.
-> **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root, v2.0, 25 sections, 1317 lines).
+> **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root, v2.0, 25 sections, 1296 lines).
 
 ---
 
@@ -250,7 +250,7 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 - Define validation rules (that is the schema layer)
 - Know about HTTP or API concerns
 
-#### Core Layer -- `app/core/` (8 modules, ~388 lines)
+#### Core Layer -- `app/core/` (8 modules, 438 lines)
 
 | Module | Responsibility |
 |--------|---------------|
@@ -756,7 +756,7 @@ Tables 1-12 are active in Stage 1. Tables 13-14 (agent_runs, agent_run_steps) ar
 
 ### 8.4 Migrations
 
-Two Alembic versions in `backend/migrations/versions/`:
+Three Alembic versions in `backend/migrations/versions/`:
 
 1. `40452ddd24e7` -- **initial**: Creates all 17 tables with columns, constraints, indexes
 2. `b8f9e7d6c5a4` -- **add_missing_timestamp_columns**: Backfills `created_at`/`updated_at` for tables that missed the `TimestampMixin` in the initial migration
@@ -951,20 +951,20 @@ def _isolate_test_db(monkeypatch):
 
 | Component | Status | Lines | Tests | Notes |
 |-----------|--------|-------|-------|-------|
-| FastAPI app (main.py) | Done | 125 | Covered | Lifespan, CORS, X-Request-ID, 4 exception handlers, /health |
-| API routes (11 modules) | Done | 2,008 | Covered | All 64 endpoints return proper envelopes |
-| Pydantic schemas (10 modules) | Done | 505 | Covered | All use v2 `from_attributes=True` |
+| FastAPI app (main.py) | Done | 134 | Covered | Lifespan, CORS, X-Request-ID, 4 exception handlers, /health |
+| API routes (11 modules) | Done | 2,048 | Covered | All 64 endpoints return proper envelopes |
+| Pydantic schemas (10 modules) | Done | 513 | Covered | All use v2 `from_attributes=True` |
 | Business services (12 modules) | Done | ~1191 | Covered | Auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache |
 | SQLAlchemy models (17 tables) | Done | 401 | Covered | All with TimestampMixin, relationships, constraints |
-| Core infrastructure (8 modules) | Done | ~388 | Covered | Config, security, permissions, exceptions, Redis, logger, constants, validators |
+| Core infrastructure (8 modules) | Done | 438 | Covered | Config, security, permissions, exceptions, Redis, logger, constants, validators |
 | DB session + pool | Done | -- | Covered | MySQL pool config, SQLite WAL pragmas, health check |
 | DB init + seed data | Done | -- | Covered | Super admin, 7 roles, 8 permissions |
-| Alembic migrations | Done | 2 | Covered | Initial 17 tables + TimestampMixin backfill |
+| Alembic migrations | Done | 3 | Covered | Initial 17 tables + TimestampMixin backfill + resource_id type fix |
 | Redis/Valkey client | Done | 80 | Covered | Lazy init, graceful degradation, FakeRedis + real |
 | Token blacklist | Done | -- | Covered | jti-based, TTL-matched, fail-open |
 | File upload + validation | Done | -- | Covered | DWG header, SHA-256, path traversal guard, HMAC URLs |
 | Audit logging | Done | 44 | Covered | Structured audit trail writes |
-| Docker Compose (9 services) | Done | 236 | Covered | worker-report default, Agent/DXF + monitoring profiles |
+| Docker Compose (9 services) | Done | 260 | Covered | worker-report default, Agent/DXF + monitoring profiles |
 | Dockerfile (backend) | Done | -- | Validated | Multi-stage, non-root, HEALTHCHECK, uv sync |
 | Nginx config (Docker + local) | Done | -- | Validated | Rate limiting, proxy, static serving |
 | Frontend (React 19 + TS + Vite) | Done | -- | Manual | 10 page features, 12 API client files (11 modules + client.ts), auth store, router |
@@ -1030,7 +1030,7 @@ All flags are in `app/core/config.py` / `.env`:
 
 ```
 complete_framework/
-├── DWG-Agent企业平台技术规范.md          ← Spec v2.0 (1317 lines, 25 sections)
+├── DWG-Agent企业平台技术规范.md          ← Spec v2.0 (1296 lines, 25 sections)
 ├── README.md
 ├── .env.example                          ← Local dev env template (tracked)
 ├── .env.docker.example                   ← Docker env template (tracked)
@@ -1050,7 +1050,7 @@ complete_framework/
 │   ├── Dockerfile                        ← Multi-stage, non-root
 │   ├── .dockerignore
 │   ├── alembic.ini                       ← Targets MySQL
-│   ├── migrations/versions/              ← 2 Alembic versions
+│   ├── migrations/versions/              ← 3 Alembic versions
 │   ├── tests/                            ← 24 files, 432 tests
 │   │   └── conftest.py                   ← FakeRedis autouse + SQLite isolation
 │   ├── var/storage/                      ← Runtime file storage (gitignored)

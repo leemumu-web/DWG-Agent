@@ -210,7 +210,7 @@ File metadata store. The actual file bytes live in storage (local filesystem or 
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
 | `bucket` | VARCHAR(128) | NOT NULL | Storage bucket name (`dwg-original`, etc.) |
-| `storage_key` | VARCHAR(512) | NOT NULL, INDEXED | Path within bucket (`local/{uuid}.dwg`) |
+| `storage_key` | VARCHAR(512) | NOT NULL, INDEXED | Path within bucket (`uploads/{uuid}.dwg`) |
 | `original_name` | VARCHAR(255) | NOT NULL | User-provided filename (display only) |
 | `file_ext` | VARCHAR(32) | NOT NULL | Lowercase extension including dot (`.dwg`) |
 | `content_type` | VARCHAR(128) | NULLABLE | MIME type from upload or detection |
