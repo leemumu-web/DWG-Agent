@@ -13,16 +13,25 @@ usage() {
 DWG-Agent MySQL helper
 
 Commands:
-  start       启动本机 MySQL/MariaDB，并验证 backend/.env 应用凭据可登录
-  setup-user  根据 backend/.env 创建/更新 dwg_agent 库、dwg_user 用户和授权
-  init        执行 app.db.init_db + alembic upgrade head，补齐表、迁移与种子数据
-  migrate     执行 alembic upgrade head，修复已存在 MySQL schema 漂移
+  start         启动本机 MySQL/MariaDB，并验证 backend/.env 应用凭据可登录
+  setup-user    根据 backend/.env 创建/更新 dwg_agent 库、dwg_user 用户和授权
+  init          执行 app.db.init_db + alembic upgrade head，补齐表、迁移与种子数据
+  migrate       执行 alembic upgrade head，修复已存在 MySQL schema 漂移
   migration-test
-              创建临时 MySQL schema，从空库执行 alembic upgrade head 并验证表结构
-  check       非破坏性检查：配置一致性、MySQL URL、应用凭据、schema、SQLite 退出状态
-  status      打印数据库状态与诊断摘要
-  shell       使用 backend/.env 中的应用凭据进入 mariadb/mysql shell
-  logs        查看 mysql/mariadb systemd 日志
+                创建临时 MySQL schema，从空库执行 alembic upgrade head 并验证表结构
+  check         非破坏性检查：配置一致性、MySQL URL、应用凭据、schema、SQLite 退出状态
+  status        打印数据库状态与诊断摘要
+  shell         使用 backend/.env 中的应用凭据进入 mariadb/mysql shell
+  logs          查看 mysql/mariadb systemd 日志
+  tables        列出所有表及行数
+  backup [file] 导出全库到指定文件（默认 dwg_agent_<timestamp>.sql.gz）
+  restore <file>
+                从备份文件恢复数据库（需确认）
+  reset         删除并重建数据库 + 迁移 + 种子（开发专用，需确认）
+  history       显示 Alembic 迁移历史
+  downgrade <rev>
+                回滚到指定 Alembic 版本（如 -1 回退一个迁移）
+  revision <msg> 创建新的 Alembic 迁移文件
 
 SQLite policy:
   运行入口不再接受 sqlite:// DATABASE_URL。pytest 可显式使用 SQLite test double，
@@ -361,6 +370,105 @@ run_alembic_upgrade() {
     (cd "$PROJECT_ROOT/backend" && uv run alembic upgrade head)
 }
 
+# ── backup ────────────────────────────────────────────────────
+backup_cmd() {
+    local outfile="${1:-dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz}"
+    start_cmd
+    pick_mysql_client
+    info "备份 $DB_NAME → $outfile"
+    MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" \
+        --single-transaction --routines --triggers --events --skip-column-statistics \
+        | gzip > "$outfile"
+    local size
+    size="$(du -h "$outfile" | cut -f1)"
+    ok "备份完成: $outfile ($size)"
+}
+
+# ── restore ───────────────────────────────────────────────────
+restore_cmd() {
+    local infile="${1:-}"
+    [ -n "$infile" ] || { err "用法: bash scripts/db.sh restore <文件>"; return 2; }
+    [ -f "$infile" ] || { err "文件不存在: $infile"; return 2; }
+    start_cmd
+    pick_mysql_client
+
+    echo ""
+    echo -e "  ${RED}即将覆盖数据库 $DB_NAME 的全部数据！${NC}"
+    echo -n "  输入 yes 确认: "
+    read -r confirm
+    [ "$confirm" = "yes" ] || { ok "已取消"; return 0; }
+
+    info "恢复 $infile → $DB_NAME"
+    if file "$infile" | grep -q "gzip"; then
+        gunzip < "$infile" | MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME"
+    else
+        MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" < "$infile"
+    fi
+    ok "恢复完成"
+}
+
+# ── reset ─────────────────────────────────────────────────────
+reset_cmd() {
+    [ "${RESET_CONFIRM:-}" = "yes" ] || {
+        echo ""
+        echo -e "  ${RED}即将删除数据库 $DB_NAME 并重建！${NC}"
+        echo -n "  输入 yes 确认（或设置 RESET_CONFIRM=yes 跳过提示）: "
+        read -r confirm
+        [ "$confirm" = "yes" ] || { ok "已取消"; return 0; }
+    }
+    require_mysql_url
+    pick_mysql_client
+
+    info "删除数据库 $DB_NAME..."
+    MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" \
+        -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null \
+        || sudo mariadb -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+    ok "数据库已重建"
+    info "执行迁移 + 种子..."
+    (cd "$PROJECT_ROOT/backend" && uv run alembic upgrade head && uv run python -m app.db.init_db)
+    ok "重置完成: 迁移 + 种子数据已就绪"
+}
+
+# ── history ───────────────────────────────────────────────────
+history_cmd() {
+    (cd "$PROJECT_ROOT/backend" && uv run alembic history)
+}
+
+# ── downgrade ─────────────────────────────────────────────────
+downgrade_cmd() {
+    local rev="${1:--1}"
+    info "回滚 Alembic 到: $rev"
+    (cd "$PROJECT_ROOT/backend" && uv run alembic downgrade "$rev")
+    ok "回滚完成"
+}
+
+# ── revision ──────────────────────────────────────────────────
+revision_cmd() {
+    local msg="${1:-auto}"
+    shift 2>/dev/null || true
+    info "创建 Alembic 迁移: $msg"
+    (cd "$PROJECT_ROOT/backend" && uv run alembic revision --autogenerate -m "$msg")
+    ok "迁移文件已创建: migrations/versions/"
+}
+
+# ── tables ────────────────────────────────────────────────────
+tables_cmd() {
+    start_cmd
+    pick_mysql_client
+    info "表统计 ($DB_NAME):"
+    echo ""
+    printf "  %-30s %8s\n" "TABLE" "ROWS"
+    printf "  %-30s %8s\n" "------------------------------" "--------"
+    MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" \
+        -N -e "SELECT TABLE_NAME, TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB_NAME' ORDER BY TABLE_NAME;" 2>/dev/null \
+        | while read -r table rows; do printf "  %-30s %8s\n" "$table" "$rows"; done
+    local total
+    total="$(MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" -N -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$DB_NAME';" 2>/dev/null)"
+    echo "  ──────────────────────────────  ────────"
+    printf "  %-30s %8s\n" "$total tables total" ""
+}
+
 check_cmd() {
     ensure_env_consistency
     require_mysql_url
@@ -403,15 +511,22 @@ logs_cmd() {
 }
 
 case "${1:-status}" in
-    "start") start_cmd ;;
-    "setup-user") setup_user_cmd ;;
-    "init") init_cmd ;;
-    "migrate") migrate_cmd ;;
-    "migration-test") migration_test_cmd ;;
-    "check") check_cmd ;;
-    "status") status_cmd ;;
-    "shell") shell_cmd ;;
-    "logs") logs_cmd ;;
+    "start")           start_cmd ;;
+    "setup-user")      setup_user_cmd ;;
+    "init")            init_cmd ;;
+    "migrate")         migrate_cmd ;;
+    "migration-test")  migration_test_cmd ;;
+    "check")           check_cmd ;;
+    "status")          status_cmd ;;
+    "shell")           shell_cmd ;;
+    "logs")            logs_cmd ;;
+    "tables")          tables_cmd ;;
+    "backup")          backup_cmd "${2:-}" ;;
+    "restore")         restore_cmd "${2:-}" ;;
+    "reset")           reset_cmd ;;
+    "history")         history_cmd ;;
+    "downgrade")       downgrade_cmd "${2:--1}" ;;
+    "revision")        revision_cmd "${2:-auto}" ;;
     "help"|"--help"|"-h") usage ;;
     *) usage; exit 2 ;;
 esac

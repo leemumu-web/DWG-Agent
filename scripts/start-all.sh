@@ -11,13 +11,28 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  DWG-Agent 一键启动${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 
+# ── 0. Pre-flight ──────────────────────────────────────────────
+if [ ! -f "$PROJECT_ROOT/.env" ]; then
+    err ".env 不存在，请从 .env.example 复制并配置"
+    exit 1
+fi
+if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
+    err "backend/.env 不存在，请从 .env.example 复制并配置"
+    exit 1
+fi
+
 # ── 1. MySQL ───────────────────────────────────────────────────
-step "1/5 MySQL"
+step "1/6 MySQL"
 bash "$PROJECT_ROOT/scripts/db.sh" start
-bash "$PROJECT_ROOT/scripts/db.sh" init
+if bash "$PROJECT_ROOT/scripts/db.sh" check >/dev/null 2>&1; then
+    ok "MySQL 已就绪，跳过初始化"
+else
+    info "MySQL 需要初始化..."
+    bash "$PROJECT_ROOT/scripts/db.sh" init
+fi
 
 # ── 2. Redis ───────────────────────────────────────────────────
-step "2/5 Redis"
+step "2/6 Redis"
 ensure_service 6379 redis valkey
 
 # ── 3. Celery Worker ───────────────────────────────────────────
@@ -93,9 +108,9 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  全栈启动完成${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  前端:  ${BLUE}http://localhost:8080${NC}"
-echo -e "  API:   ${BLUE}http://localhost:8080/api/v1${NC}"
-echo -e "  Health:${BLUE}http://localhost:8080/health${NC}"
+echo -e "  前端:    ${BLUE}http://localhost:8080${NC}"
+echo -e "  API 文档: ${BLUE}http://localhost:8080/docs${NC}"
+echo -e "  Health:  ${BLUE}http://localhost:8080/health${NC}"
 echo -e "  后端直达: ${DIM}http://127.0.0.1:8000${NC}"
 echo ""
 echo -e "  登录:  ${YELLOW}admin / SuperAdminPass1${NC}"

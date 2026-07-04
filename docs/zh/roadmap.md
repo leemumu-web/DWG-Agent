@@ -101,10 +101,10 @@ pytest -q               →  432 passed, 0 failed
                                               ↓
                                     LangGraph create_react_agent
                                               ↓
-                              ┌───────┼───────┐
-                              ↓       ↓       ↓
-                          MCP客户端  LLM    Redis记忆
-                         (CAD工具) (DeepSeek) (会话历史)
+                                      ┌───────┼───────┐
+                                      ↓       ↓       ↓
+                                   MCP客户端  LLM    Redis记忆
+                                (CAD工具) (DeepSeek) (会话历史)
 ```
 
 ### 3.2 已有组件（无需为此编写新代码）
@@ -401,7 +401,7 @@ REDIS_MAX_MESSAGES=20
    ```bash
    # 方案A：使用workers profile的Docker Compose
    docker compose --profile workers up -d
-
+   
    # 方案B：本地开发
    celery -A app.workers.celery_app worker -Q agent -n agent@%h --concurrency=2
    ```
@@ -423,7 +423,7 @@ REDIS_MAX_MESSAGES=20
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"session_id":"test","task":"列出可用工具"}'
-
+   
    # 轮询状态（将9001替换为返回的ID）
    curl http://localhost:8000/api/v1/agent-runs/9001 \
      -H "Authorization: Bearer $TOKEN"
@@ -957,7 +957,7 @@ else:
               │          ↓               ↓
               │     ┌──────────────────────┐
               │     │ waiting_cad_worker   │ （仅阶段4）
-              │     └─────────┬────────────┘
+              │     └─────────┬────────────┘             
               │               ↓
               │          ┌──────────┐
               │          │validating│

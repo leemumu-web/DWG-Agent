@@ -362,8 +362,8 @@ backend/
 | 415 | 类型不支持 | 非 `.dwg` 文件 |
 | 422 | 校验失败 | Pydantic 校验失败 |
 | 429 | 请求过多 | 登录失败限流 |
-| 500 | 服务异常 | 未预期异常（`DEBUG=false` 时不泄露 traceback） |
 | 503 | 不可用 | Agent 未启用、MCP 不可用、CAD Worker 不可达 |
+| 500 | 服务异常 | 未预期异常（`DEBUG=false` 时不泄露 traceback） |
 
 ### 7.3 响应格式
 
