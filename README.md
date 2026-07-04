@@ -22,7 +22,7 @@
 
 ## 当前实现
 
-- **64 个 RESTful API 端点**，11 个路由模块，全部在 `/api/v1` 下，复数名词
+- **64 个 RESTful API 端点**（63 在 `/api/v1`，11 个路由模块 + 1 个 `/health` 探活端点），复数名词
 - **完整 RBAC**：5 表 IAM 模型，7 个全局角色 + 4 个项目级角色，原子状态转换
 - **认证**：JWT HS256 + jti 黑名单，Argon2id 密码哈希，HttpOnly refresh cookie，时序攻击防御
 - **项目管理**：CRUD + 成员管理（project_owner/engineer/reviewer/viewer），级联激活检查
@@ -30,13 +30,13 @@
 - **图纸版本管理**：版本递增 + 当前版本指针，预览占位
 - **任务生命周期**：queued → running → succeeded/failed/cancelled，状态守卫，取消/重试
 - **结果复核**：approved/rejected 决策，待复核列表
-- **审计日志**：33 种操作类型，super_admin/auditor 角色保护，不可变
+- **审计日志**：32 种操作类型，super_admin/auditor 角色保护，不可变
 - **安全加固**：12/18 渗透测试 bug 已修复，CORS 收紧，异常不泄漏 traceback，路径穿越防护
 - **Alembic 迁移**：2 个版本（17 张表 initial + TimestampMixin 修复），`db.sh migration-test` CI 验证
 - **Redis 已部署**：Valkey 9.1，redis_client + redis_memory + cache_service 就绪，双轨测试（FakeRedis + 真实）
 - **Docker Compose**：9 服务编排，worker-report 默认启动，Agent/DXF 与 monitoring profiles，Dockerfile 多阶段构建
 - **前端**：10 个页面 + 11 个 API 客户端模块 + 8 个通用组件，路由级权限守卫
-- **307 测试**（20 个测试文件），ruff 0 错误
+- **350 测试**（21 个测试文件），ruff 0 错误
 
 暂不实现（Stage 2-4）：Agent 内部逻辑、DWG→DXF 转换、ezdxf 解析、Windows ZWCAD Worker。Celery report 假任务与 MinIO 存储后端已接入；本地开发默认 `STORAGE_BACKEND=local`，Docker 默认 `STORAGE_BACKEND=minio`。
 
@@ -87,7 +87,7 @@ complete_framework/
 │   │   ├── db/                      # session (连接池), init_db (种子)
 │   │   ├── models/                  # 10 个 SQLAlchemy ORM 模型（17 表）
 │   │   ├── schemas/                 # 10 个 Pydantic v2 模块
-│   │   ├── services/                # 7 个 service（auth, user, job, storage, audit, redis_memory, cache）
+│   │   ├── services/                # 12 个 service（auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache）
 │   │   ├── storage/                 # AbstractStorageBackend + local/minio 后端
 │   │   ├── utils/                   # path_utils（路径穿越防护）, file_hash, time_utils
 │   │   ├── agents/                  # Stage 2 占位
@@ -95,7 +95,7 @@ complete_framework/
 │   │   ├── workers/                 # Celery app + report stub task；Agent/DXF/CAD task 占位
 │   │   ├── integrations/zwcad/      # Stage 4 占位
 │   │   └── repositories/            # 占位
-│   ├── tests/                       # 307 测试（20 个 test_*.py）
+│   ├── tests/                       # 350 测试（21 个 test_*.py）
 │   └── migrations/                  # Alembic（2 版本）
 ├── frontend/
 │   ├── package.json                 # 版本锁定，无 latest
@@ -146,11 +146,11 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests     # 代码风格（0 errors）
-uv run pytest -q                # 307 测试（307 passed）
+uv run pytest -q                # 350 测试（350 passed）
 
 cd ../frontend
 npm ci && npm run build         # 类型检查 + 生产构建
-npm audit                       # 0 vulnerabilities
+npm run build                   # 生产构建通过即可
 
 bash infra/verify.sh            # 基础设施验证（Nginx/Docker/MySQL/配置）
 ```

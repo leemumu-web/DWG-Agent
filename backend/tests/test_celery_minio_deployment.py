@@ -5,10 +5,13 @@ from io import BytesIO
 from pathlib import Path
 
 import yaml
+from fastapi.testclient import TestClient
 
 import app.services.job_service as job_service
-from app.core.constants import JOB_CANCELLED
+from app.core.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
+from app.core.exceptions import AppHTTPException
 from app.db.init_db import init_db
+from app.main import app
 from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.services.job_service import run_local_stub_job
@@ -96,6 +99,51 @@ def test_files_api_uses_storage_backend_instead_of_local_path_only():
     assert "get_storage_backend" in content
 
 
+def test_result_download_url_is_signed_and_downloads_generated_file():
+    init_db()
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    assert login.status_code == 201, login.text
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+
+    project = client.post(
+        "/api/v1/projects",
+        headers=headers,
+        json={"code": "RESULT-DOWNLOAD", "name": "Result Download"},
+    )
+    assert project.status_code == 201, project.text
+
+    job = client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "project_id": project.json()["data"]["id"],
+            "task_type": "framework_smoke_test",
+        },
+    )
+    assert job.status_code == 202, job.text
+    job_id = job.json()["data"]["id"]
+
+    run_local_stub_job(job_id)
+
+    results = client.get(f"/api/v1/jobs/{job_id}/results", headers=headers)
+    assert results.status_code == 200, results.text
+    result_id = results.json()["data"][0]["id"]
+
+    download_url = client.get(f"/api/v1/results/{result_id}/download-url", headers=headers)
+    assert download_url.status_code == 200, download_url.text
+    url = download_url.json()["data"]["url"]
+    assert "expires=" in url
+    assert "signature=" in url
+
+    download = client.get(url, headers=headers)
+    assert download.status_code == 200, download.text
+    assert b"local_stub" in download.content
+
+
 def test_celery_app_registers_stage1_stub_task():
     from app.core.config import settings
     from app.workers.celery_app import celery_app
@@ -111,6 +159,54 @@ def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
     assert "BackgroundTasks" not in content
     assert "background_tasks.add_task" not in content
     assert "enqueue_stub_job" in content
+
+
+def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
+    from app.api.v1 import jobs_api
+
+    init_db()
+    client = TestClient(app, raise_server_exceptions=False)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    assert login.status_code == 201, login.text
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+
+    project = client.post(
+        "/api/v1/projects",
+        headers=headers,
+        json={"code": "CELERY-DOWN", "name": "Celery Down"},
+    )
+    assert project.status_code == 201, project.text
+
+    def fail_enqueue(job_id: int) -> str:
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(jobs_api, "enqueue_stub_job", fail_enqueue)
+
+    response = client.post(
+        "/api/v1/jobs",
+        headers=headers,
+        json={
+            "project_id": project.json()["data"]["id"],
+            "task_type": "framework_smoke_test",
+            "precision_level": "normal",
+        },
+    )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "JOB_ENQUEUE_FAILED"
+
+    db = job_service.SessionLocal()
+    try:
+        job = db.query(Job).order_by(Job.id.desc()).first()
+        assert job is not None
+        assert job.status == JOB_FAILED
+        assert job.error_code == "JOB_ENQUEUE_FAILED"
+        assert job.error_message == "redis unavailable"
+    finally:
+        db.close()
 
 
 def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default():
@@ -139,6 +235,27 @@ def test_env_examples_expose_celery_eager_flag_with_consistent_keys():
     assert local_keys == docker_keys
 
 
+def test_deployment_docs_match_computed_celery_url_behavior():
+    content = (REPO_ROOT / "docs/deployment.md").read_text()
+
+    assert "direct " + chr(96) + "os.environ" not in content
+    assert "derived from " + chr(96) + "REDIS_*" in content
+    assert "CELERY_BROKER_URL" in content
+    assert "CELERY_RESULT_BACKEND" in content
+
+
+def test_infra_docs_show_worker_report_as_default_and_profile_workers_as_deferred():
+    infra = (REPO_ROOT / "infra/README.md").read_text()
+    nginx = (REPO_ROOT / "infra/nginx/README.md").read_text()
+
+    assert "Celery worker-report" in infra
+    assert "docker compose up -d worker-report" in infra
+    assert "Agent/DXF workers" in infra
+    assert "docker compose --profile workers up -d" in infra
+    assert "核心服务 + worker-report" in nginx
+    assert "Agent/DXF placeholder workers" in nginx
+
+
 def test_stub_worker_does_not_overwrite_cancelled_job():
     init_db()
     db = job_service.SessionLocal()
@@ -163,6 +280,45 @@ def test_stub_worker_does_not_overwrite_cancelled_job():
         job = db.get(Job, job_id)
         assert job is not None
         assert job.status == JOB_CANCELLED
+        assert db.query(AnalysisResult).filter(AnalysisResult.job_id == job_id).count() == 0
+    finally:
+        db.close()
+
+
+def test_stub_worker_marks_job_failed_when_result_storage_fails(monkeypatch):
+    init_db()
+    db = job_service.SessionLocal()
+    try:
+        job = Job(
+            task_type="storage_failure",
+            precision_level="normal",
+            pipeline="local_stub",
+            status=JOB_QUEUED,
+            progress=0,
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    def fail_storage(*args, **kwargs):
+        raise AppHTTPException(503, "STORAGE_WRITE_FAILED", "storage unavailable")
+
+    monkeypatch.setattr(job_service, "save_bytes_as_file", fail_storage)
+
+    try:
+        run_local_stub_job(job_id)
+    except AppHTTPException:
+        pass
+
+    db = job_service.SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        assert job is not None
+        assert job.status == JOB_FAILED
+        assert job.error_code == "STUB_WORKER_FAILED"
+        assert job.error_message == "storage unavailable"
         assert db.query(AnalysisResult).filter(AnalysisResult.job_id == job_id).count() == 0
     finally:
         db.close()

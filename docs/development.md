@@ -38,15 +38,15 @@ complete_framework/
 │   │   ├── main.py                ← FastAPI app creation, lifespan, CORS, exception handlers
 │   │   ├── api/v1/                ← Route handlers (thin — no business logic)
 │   │   │   ├── router.py          ← Central router: mounts all sub-routers under /api/v1
-│   │   │   ├── auth_api.py        ← POST /sessions, DELETE /sessions/current, POST /tokens/refresh
+│   │   │   ├── auth_api.py        ← POST /sessions, DELETE /sessions/current, POST /tokens/refresh, GET /me, PATCH /password
 │   │   │   ├── users_api.py       ← CRUD users, role assignment, password reset
 │   │   │   ├── roles_api.py       ← CRUD roles, permission assignment
 │   │   │   ├── projects_api.py    ← CRUD projects, member management
 │   │   │   ├── files_api.py       ← Upload, list, download-url, delete
 │   │   │   ├── drawings_api.py    ← CRUD drawings, version management
 │   │   │   ├── jobs_api.py        ← Create, list, cancel, retry, results
-│   │   │   ├── results_api.py     ← Result detail, download, review submission
-│   │   │   ├── reviews_api.py     ← Pending reviews list, review history
+│   │   │   ├── results_api.py     ← Result detail, download-url, review submission, review history
+│   │   │   ├── reviews_api.py     ← Pending reviews list
 │   │   │   ├── audit_logs_api.py  ← Audit log listing (super_admin/auditor only)
 │   │   │   └── agent_runs_api.py  ← (Stage 2 — currently returns 503)
 │   │   ├── core/                  ← Cross-cutting infrastructure
@@ -86,7 +86,12 @@ complete_framework/
 │   │   ├── services/              ← Business logic — all state-changing operations
 │   │   │   ├── auth_service.py    ← Login, logout, token refresh, password change
 │   │   │   ├── user_service.py    ← User CRUD, role assignment, enable/disable
+│   │   │   ├── project_service.py ← Project CRUD, member management
+│   │   │   ├── file_service.py    ← File upload validation, metadata, download URL signing
+│   │   │   ├── drawing_service.py ← Drawing/version CRUD, version increment
 │   │   │   ├── job_service.py     ← Job lifecycle, status transitions
+│   │   │   ├── review_service.py  ← Review submission, pending reviews
+│   │   │   ├── agent_service.py   ← Agent execution orchestration (Stage 2)
 │   │   │   ├── storage_service.py ← File save, retrieve, delete (local + MinIO)
 │   │   │   ├── audit_service.py   ← write_audit_log(), list audit logs
 │   │   │   ├── redis_memory.py    ← Agent session memory (Stage 2 infra)
@@ -95,7 +100,7 @@ complete_framework/
 │   │   │                           (DB access to be extracted from services in Stage 2+)
 │   │   ├── agents/                ← PLACEHOLDER — agent_factory, prompts, tool_registry stubs
 │   │   ├── mcp_client/            ← PLACEHOLDER — MCP client + adapter stubs
-│   │   ├── workers/               ← PLACEHOLDER — celery_app + 4 task module stubs
+│   │   ├── workers/               ← celery_app + report task active; agent/dxf/cad task stubs
 │   │   ├── storage/               ← Storage abstraction layer
 │   │   │   ├── base.py            ← Abstract StorageBackend
 │   │   │   ├── local_storage.py   ← Local filesystem (active in Stage 1)
@@ -105,7 +110,7 @@ complete_framework/
 │   │       ├── path_utils.py      ← ensure_within_root() — all file paths MUST pass through this
 │   │       ├── file_hash.py       ← SHA-256 computation
 │   │       └── time_utils.py      ← Timestamp formatting
-│   ├── tests/                     ← 307 tests, 20 test files (pytest)
+│   ├── tests/                     ← 350 tests, 21 test files (pytest)
 │   │   ├── conftest.py            ← Autouse fixtures: FakeRedis + in-memory SQLite isolation
 │   │   ├── test_health.py         ← Health endpoint
 │   │   ├── test_config.py         ← Settings validation (MySQL, Redis, Celery URL computation)
@@ -124,6 +129,8 @@ complete_framework/
 │   │   ├── test_redis_memory.py         ← Agent memory service tests
 │   │   ├── test_redis_real.py           ← Real Redis integration (auto-skipped)
 │   │   ├── test_compose.py              ← Docker Compose config validation
+│   │   ├── test_celery_minio_deployment.py ← Celery/MinIO deployment config validation
+│   │   ├── test_cross_audit_fixes.py     ← Cross-cutting audit fix validation
 │   │   ├── test_migrations.py           ← Alembic migration tests
 │   │   └── test_scripts.py              ← Shell script validation
 │   ├── migrations/               ← Alembic
@@ -617,8 +624,7 @@ uv run pytest -x
 uv run pytest -k "login"
 ```
 
-Expected: 307 tests passing. Zero failures, zero skips (unless Redis is not running,
-in which case `test_redis_real.py` tests are skipped).
+Expected: 350 passed, 0 failed when Redis is available. If Redis is unavailable, the 13 tests in `test_redis_real.py` are skipped.
 
 ### 4.3 Linting Before Tests
 
@@ -736,6 +742,7 @@ if some_condition:
 | `test_deep_verify.py` | Deeper validation of business rules and data integrity |
 | `test_edge_cases.py` | Boundary conditions: empty inputs, max-length strings, etc. |
 | `test_stage1_boundaries.py` | Verifies that Stage 2+ features return 503 (not 500) |
+| `test_health.py` | Health endpoint |
 | `test_config.py` | Settings validation, MySQL/Redis URL computation |
 | `test_db_session.py` | Engine creation, WAL pragmas, connection pooling |
 | `test_redis_client.py` | Redis client initialization and failure modes |
@@ -744,6 +751,8 @@ if some_condition:
 | `test_cache_service.py` | Cache layer get/set/delete/namespace operations |
 | `test_migrations.py` | Alembic migration up/down/roundtrip |
 | `test_compose.py` | Docker Compose config validation |
+| `test_celery_minio_deployment.py` | Celery/MinIO deployment config validation |
+| `test_cross_audit_fixes.py` | Cross-cutting audit fix validation |
 | `test_scripts.py` | Shell script validation |
 
 ---
@@ -1157,7 +1166,7 @@ Before committing any change:
 # Backend changes
 cd backend
 uv run ruff check app tests          # Must pass with 0 errors
-uv run pytest -q                     # Must pass 307+ tests
+uv run pytest -q                     # Must pass 350+ tests
 
 # Frontend changes
 cd frontend
@@ -1238,7 +1247,7 @@ chore(backend): update ruff to 0.7.0
 ### 10.4 Pull Request Checklist
 
 - [ ] `uv run ruff check app tests` passes (0 errors)
-- [ ] `uv run pytest -q` passes (all 307+ tests)
+- [ ] `uv run pytest -q` passes (all 350+ tests)
 - [ ] `npx tsc --noEmit` passes (frontend type check)
 - [ ] New endpoints have corresponding tests (happy path + security boundaries)
 - [ ] State-changing operations write audit logs

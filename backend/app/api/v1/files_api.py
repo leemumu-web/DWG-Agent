@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import time
-from urllib.parse import quote
-
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
@@ -16,7 +11,6 @@ from app.api.deps import (
     get_project_membership,
     has_global_project_access,
 )
-from app.core.config import settings
 from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
@@ -24,42 +18,17 @@ from app.models.job import Job
 from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
-from app.schemas.file_schema import DownloadUrlRead, FileRead
+from app.schemas.file_schema import FileRead
 from app.services.audit_service import write_audit_log
+from app.services.file_service import (
+    build_signed_download_url,
+    download_headers,
+    validate_download_signature,
+)
 from app.services.storage_service import get_storage_backend, save_upload_file
 from app.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
-DOWNLOAD_URL_TTL_SECONDS = 300
-
-
-def _download_signature(file_id: int, expires: int) -> str:
-    payload = f"{file_id}:{expires}".encode()
-    secret = settings.jwt_secret_key.encode()
-    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
-
-
-def _build_signed_download_url(file_id: int) -> DownloadUrlRead:
-    expires = int(time.time()) + DOWNLOAD_URL_TTL_SECONDS
-    signature = _download_signature(file_id, expires)
-    return DownloadUrlRead(
-        url=f"/api/v1/files/{file_id}/download?expires={expires}&signature={signature}",
-        expires_in=DOWNLOAD_URL_TTL_SECONDS,
-    )
-
-
-def _validate_download_signature(file_id: int, expires: int, signature: str) -> None:
-    if expires < int(time.time()):
-        raise AppHTTPException(403, "DOWNLOAD_URL_EXPIRED", "Download URL has expired.")
-    expected = _download_signature(file_id, expires)
-    if not hmac.compare_digest(expected, signature):
-        raise AppHTTPException(
-            403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is invalid."
-        )
-
-
-def _download_headers(filename: str) -> dict[str, str]:
-    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
 def _file_project_ids(db: Session, file_id: int) -> set[int]:
@@ -200,7 +169,7 @@ def get_download_url(
         request=request,
     )
     db.commit()
-    return ok(_build_signed_download_url(file_id), request.state.request_id)
+    return ok(build_signed_download_url(file_id), request.state.request_id)
 
 
 @router.get("/{file_id}/download")
@@ -220,7 +189,7 @@ def download_file(
         raise AppHTTPException(
             403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is required."
         )
-    _validate_download_signature(file_id, expires, signature)
+    validate_download_signature(file_id, expires, signature)
     storage = get_storage_backend()
     try:
         path = storage.local_path(stored.bucket, stored.storage_key)
@@ -236,7 +205,7 @@ def download_file(
             response = StreamingResponse(
                 storage.iter_file(stored.bucket, stored.storage_key),
                 media_type=stored.content_type or "application/octet-stream",
-                headers=_download_headers(stored.original_name),
+                headers=download_headers(stored.original_name),
             )
     except StorageObjectNotFound:
         raise not_found("StoredFileObject") from None

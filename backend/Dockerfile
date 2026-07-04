@@ -2,10 +2,12 @@
 # 规范参考: §17.5 后端 Dockerfile 要求
 #
 # Multi-stage: builder installs deps, runtime is minimal.
+# Uses the Python 3.12 + uv slim base that is reachable from this deployment
+# environment, avoiding Docker Hub python manifest timeouts.
 # All production requirements §17.5-1..6 are met.
 
 # ── Stage 1: build dependencies ──────────────────────────────────
-FROM python:3.12-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -18,18 +20,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv package manager
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-# Install dependencies (layer cached unless pyproject.toml/uv.lock change)
-COPY pyproject.toml uv.lock ./
+# Install dependencies (layer cached unless package metadata or lockfile change)
+COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 
 # ── Stage 2: runtime ─────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV HOME=/home/appuser
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Create non-root user (spec §17.5 requirement 4)
@@ -52,8 +52,8 @@ COPY app ./app
 COPY alembic.ini ./
 COPY migrations ./migrations
 
-# Create writable var/ directory for local runtime artifacts.
-RUN mkdir -p /app/var && chown -R appuser:appuser /app/var
+# Create writable directories for runtime artifacts and user-level control/cache files.
+RUN mkdir -p /app/var /home/appuser && chown -R appuser:appuser /app/var /home/appuser
 
 USER appuser
 

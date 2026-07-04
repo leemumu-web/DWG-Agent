@@ -231,7 +231,7 @@ Key facts:
 ```bash
 cd backend
 uv run ruff check app tests    # lint (must pass)
-uv run pytest -q               # 307 tests (must pass)
+uv run pytest -q               # 350 tests (must pass)
 ```
 
 Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external services required. Real Redis integration tests in `test_redis_real.py` auto-skip when Redis is unavailable.
@@ -282,11 +282,11 @@ Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external
 
 | Service | Image | Ports | Profile | Health Check |
 |---|---|---|---|---|
-| `nginx` | `nginx:1.27-alpine` | 80, 443 | -- | depends_on backend-api healthy |
+| `nginx` | `ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine` | 80→8080, 443→8443 | -- | depends_on backend-api healthy |
 | `backend-api` | Self-built | 8000 (internal) | -- | `curl /health` every 10s |
-| `mysql` | `mysql:8.4` | 3306 (internal) | -- | `mysqladmin ping` every 10s |
-| `redis` | `redis:7.4-alpine` | 6379 (internal) | -- | `redis-cli ping` every 10s |
-| `minio` | `minio/minio:latest` | 9000, 9001 (internal) | -- | `curl /minio/health/live` |
+| `mysql` | `container-registry.oracle.com/mysql/community-server:8.4` | 3306 (internal) | -- | `mysqladmin ping` every 10s |
+| `redis` | `ghcr.io/valkey-io/valkey:9.0-alpine` | 6379 (internal) | -- | `redis-cli ping` every 10s |
+| `minio` | `quay.io/minio/minio:latest` | 9000, 9001 (internal) | -- | `curl /minio/health/live` |
 | `worker-agent` | Self-built | -- | `workers` | -- |
 | `worker-dxf` | Self-built | -- | `workers` | -- |
 | `worker-report` | Self-built | -- | -- | depends_on mysql/redis/minio |
@@ -364,12 +364,12 @@ Flower dashboard: `http://localhost:5555` (internal network, configure port mapp
 Located at `backend/Dockerfile` (multi-stage build):
 
 **Stage 1 (builder):**
-- Base: `python:3.12-slim`
-- Installs `uv` from `ghcr.io/astral-sh/uv:latest`
+- Base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
+- Uses uv from the base image; no `uv:latest` copy stage
 - Runs `uv sync --frozen --no-dev` to create venv
 
 **Stage 2 (runtime):**
-- Base: `python:3.12-slim`
+- Base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - Creates non-root user `appuser` (uid 1000)
 - Installs `curl` + `ca-certificates` for healthcheck
 - Copies `.venv` from builder, then `app/`, `alembic.ini`, `migrations/`
@@ -456,7 +456,7 @@ Connection pool settings (hardcoded in `app/db/session.py`, MySQL only):
 **Computed: `settings.celery_broker_url`** -- `redis://.../{host}:{port}/0`
 **Computed: `settings.celery_result_backend`** -- `redis://.../{host}:{port}/1`
 
-The `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` env vars in `.env` are also set for Celery's direct `os.environ` reads.
+Runtime Celery URLs are derived from `REDIS_*` component fields in `config.py` so Redis and Celery cannot drift. The `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` entries remain in env templates as spec-compatible mirror values; keep them aligned with the Redis fields when copying env files.
 
 ### 5.4 Storage
 
@@ -681,7 +681,7 @@ This runs inside the container, independent of Docker Compose health checks.
 ### 7.4 Nginx Monitoring Points
 
 - **Access log format:** `extended` format includes `$request_id`, `$request_time`, `$upstream_connect_time`, `$upstream_header_time`, `$upstream_response_time`.
-- **Auth log:** Login endpoint (`/api/v1/auth/sessions`) logs separately to `/var/log/nginx/auth-access.log` for audit purposes.
+- **Auth log:** Login endpoint (`/api/v1/auth/sessions`) uses the same stdout access stream in Docker; local/system Nginx deployments may route it to a dedicated auth log if configured.
 - **Rate limiting:** Login endpoint rate-limited to 2 req/s (burst 3), general API to 100 req/s (burst 20) -- both return HTTP 429 when exceeded.
 - **Health endpoint:** `access_log off` for `/health` to reduce log noise.
 
@@ -990,7 +990,7 @@ The following components are **configured but not operational** in Stage 1:
 - Audit logging (all mutations recorded)
 - Database migrations (Alembic, 2 versions, 17 tables)
 - Bootstrap super admin seeding
-- 307 passing tests (pytest + FakeRedis)
+- 350 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
 - Docker Compose deployment with 9 services
 - Nginx gateway with rate limiting, security headers, SPA fallback
 

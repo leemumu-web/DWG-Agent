@@ -5,9 +5,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.constants import JOB_CANCELLED, JOB_QUEUED, JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
+from app.core.constants import (
+    JOB_CANCELLED,
+    JOB_FAILED,
+    JOB_QUEUED,
+    JOB_RUNNING,
+    JOB_SUCCEEDED,
+    PIPELINE_STUB,
+)
 from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
 from app.models.drawing import Drawing
@@ -46,6 +54,30 @@ def enqueue_stub_job(job_id: int) -> str:
     return str(async_result.id)
 
 
+def _exception_message(exc: Exception) -> str:
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str) and message:
+            return message
+    message = str(exc)
+    return message or exc.__class__.__name__
+
+
+def _mark_job_failed(job_id: int, exc: Exception) -> None:
+    db = SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        if job and job.status not in (JOB_SUCCEEDED, JOB_CANCELLED):
+            job.status = JOB_FAILED
+            job.error_code = "STUB_WORKER_FAILED"
+            job.error_message = _exception_message(exc)
+            job.finished_at = datetime.now(UTC)
+            db.commit()
+    finally:
+        db.close()
+
+
 def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
     """Celery fake task for Stage 1: prove queue/status/result/review plumbing."""
     db = SessionLocal()
@@ -71,7 +103,7 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
                 finished_at=datetime.now(UTC),
             )
         )
-        db.flush()
+        db.commit()
 
         result_payload = {
             "source": "local_stub",
@@ -83,6 +115,12 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
         bucket = "dwg-derived"
         storage_key = f"jobs/{job.id}/{uuid4().hex}.json"
         raw = json.dumps(result_payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+        job = db.scalars(select(Job).where(Job.id == job_id).with_for_update()).one_or_none()
+        if not job or job.status != JOB_RUNNING:
+            db.rollback()
+            return
+
         result_file = save_bytes_as_file(
             db,
             bucket=bucket,
@@ -122,8 +160,9 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
         job.progress = 100
         job.finished_at = datetime.now(UTC)
         db.commit()
-    except AppHTTPException:
+    except Exception as exc:
         db.rollback()
+        _mark_job_failed(job_id, exc)
         raise
     finally:
         db.close()

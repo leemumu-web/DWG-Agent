@@ -154,6 +154,9 @@ def require_absent(service, keys, label):
         if key in env:
             errors.append(f"{label} 不应覆盖自身必需环境变量: {key}")
 
+def healthcheck_cmd(service):
+    return " ".join(service.get("healthcheck", {}).get("test", []))
+
 # 2.1 服务数量 (spec §17.4: 9 services)
 names = list(svcs.keys())
 expected = {"nginx","backend-api","worker-agent","worker-dxf","worker-report","mysql","redis","minio","flower"}
@@ -166,7 +169,7 @@ if missing:
 
 # 2.2 nginx
 nginx = svcs.get("nginx", {})
-if nginx.get("image") != "nginx:1.27-alpine":
+if nginx.get("image") != "ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine":
     errors.append(f"nginx image: {nginx.get('image')}")
 nginx_vols = [v.split(":")[0] for v in nginx.get("volumes", [])]
 if "./frontend/dist" not in nginx_vols:
@@ -176,10 +179,10 @@ if "./infra/nginx/nginx.conf" not in nginx_vols:
 if len(nginx_vols) != 2:
     errors.append(f"nginx 卷数量应为 2, 实际 {len(nginx_vols)}: {nginx_vols}")
 nginx_ports = nginx.get("ports", [])
-if "80:80" not in str(nginx_ports):
-    errors.append("nginx 缺少 80:80")
-if "443:443" not in str(nginx_ports):
-    errors.append("nginx 缺少 443:443")
+if "80:8080" not in str(nginx_ports):
+    errors.append("nginx 缺少 80:8080")
+if "443:8443" not in str(nginx_ports):
+    errors.append("nginx 缺少 443:8443")
 nginx_deps = list(nginx.get("depends_on", {}).keys())
 if "backend-api" not in nginx_deps:
     errors.append(f"nginx depends_on: {nginx_deps}")
@@ -219,12 +222,18 @@ wa = svcs.get("worker-agent", {})
 wa_cmd = wa.get("command", "")
 if "-Q agent" not in str(wa_cmd):
     errors.append("worker-agent 队列名错误")
+wa_hc = healthcheck_cmd(wa)
+if "/app/.venv/bin/celery" not in wa_hc or "inspect ping" not in wa_hc or "agent@$$HOSTNAME" not in wa_hc:
+    errors.append("worker-agent healthcheck 应使用 celery inspect ping")
 
 # 2.6 worker-dxf
 wd = svcs.get("worker-dxf", {})
 wd_cmd = wd.get("command", "")
 if "-Q dxf" not in str(wd_cmd):
     errors.append("worker-dxf 队列名错误")
+wd_hc = healthcheck_cmd(wd)
+if "/app/.venv/bin/celery" not in wd_hc or "inspect ping" not in wd_hc or "dxf@$$HOSTNAME" not in wd_hc:
+    errors.append("worker-dxf healthcheck 应使用 celery inspect ping")
 
 # 2.7 worker-report: Stage 1 Celery fake task worker, default profile
 wr = svcs.get("worker-report", {})
@@ -241,10 +250,13 @@ for dep in {"redis", "mysql", "minio"}:
         errors.append(f"worker-report 缺少 depends_on: {dep}")
 if "profiles" in wr:
     errors.append("worker-report 应默认启动，不应设置 profiles")
+wr_hc = healthcheck_cmd(wr)
+if "/app/.venv/bin/celery" not in wr_hc or "inspect ping" not in wr_hc or "report@$$HOSTNAME" not in wr_hc:
+    errors.append("worker-report healthcheck 应使用 celery inspect ping")
 
 # 2.8 mysql
 mysql = svcs.get("mysql", {})
-if mysql.get("image") != "mysql:8.4":
+if mysql.get("image") != "container-registry.oracle.com/mysql/community-server:8.4":
     errors.append(f"mysql image: {mysql.get('image')}")
 require_blank(
     mysql,
@@ -260,7 +272,7 @@ if "${MYSQL_ROOT_PASSWORD:-" in mysql_hc:
 
 # 2.9 redis (uses redis.conf file + env_file password)
 redis = svcs.get("redis", {})
-if redis.get("image") != "redis:7.4-alpine":
+if redis.get("image") != "ghcr.io/valkey-io/valkey:9.0-alpine":
     errors.append(f"redis image: {redis.get('image')}")
 redis_cmd = str(redis.get("command", ""))
 redis_vols = [v.split(":")[0] for v in redis.get("volumes", [])]
@@ -285,7 +297,7 @@ if "$${REDIS_PASSWORD}" not in redis_hc:
 
 # 2.10 minio
 minio = svcs.get("minio", {})
-if "minio/minio" not in str(minio.get("image", "")):
+if minio.get("image") != "quay.io/minio/minio:latest":
     errors.append(f"minio image: {minio.get('image')}")
 minio_cmd = minio.get("command", "")
 if "console-address" not in str(minio_cmd):
@@ -306,6 +318,9 @@ if flower.get("ports"):
     errors.append("flower 不应有 ports (规范 §17.4)")
 if "monitoring" not in flower.get("profiles", []):
     errors.append("flower 缺少 profiles: monitoring")
+flower_hc = healthcheck_cmd(flower)
+if "localhost:5555" not in flower_hc:
+    errors.append("flower healthcheck 应探测 localhost:5555")
 
 # 2.12 volumes
 vols = list(data.get("volumes", {}).keys())
@@ -353,8 +368,8 @@ DOCKERFILE="backend/Dockerfile"
 assert_file "$DOCKERFILE" "Dockerfile 存在"
 
 # 3.1 基础镜像 (multi-stage: builder + runtime)
-assert_grep "$DOCKERFILE" 'FROM python:3.12-slim AS builder'  "Dockerfile: FROM python:3.12-slim AS builder"
-assert_grep "$DOCKERFILE" 'FROM python:3.12-slim AS runtime'  "Dockerfile: FROM python:3.12-slim AS runtime"
+assert_grep "$DOCKERFILE" 'FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder'  "Dockerfile: FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder"
+assert_grep "$DOCKERFILE" 'FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime'  "Dockerfile: FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime"
 
 # 3.2 环境变量
 for var in PYTHONDONTWRITEBYTECODE PYTHONUNBUFFERED UV_PROJECT_ENVIRONMENT; do

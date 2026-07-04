@@ -1,7 +1,7 @@
 # API Reference -- DWG-Agent Platform
 
 > Version: v1.0 | Base path: `/api/v1` | Stage 1 (production-ready skeleton)
-> 64 endpoints across 11 route modules.
+> 63 endpoints under `/api/v1` across 11 route modules, plus 1 health endpoint at `/` (64 total).
 > Spec authority: `DWG-Agent企业平台技术规范.md` section 7.
 
 ---
@@ -949,7 +949,7 @@ All future-stage capabilities are gated behind boolean feature flags in `backend
 
 | Flag | Default | Controls | Stage |
 |------|---------|----------|-------|
-| `AGENT_ENABLED` | `false` | All 4 `/api/v1/agent-runs` + `/api/v1/agent-tools` endpoints | Stage 2 |
+| `AGENT_ENABLED` | `false` | All 4 agent endpoints (3 `/api/v1/agent-runs/*` + `/api/v1/agent-tools`) | Stage 2 |
 | `DXF_PIPELINE_ENABLED` | `false` | DXF processing in job pipeline selection | Stage 3 |
 | `CAD_WORKER_ENABLED` | `false` | CAD Worker dispatch in job pipeline selection | Stage 4 |
 

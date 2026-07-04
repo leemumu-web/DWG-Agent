@@ -10,7 +10,7 @@
 
 | Stage | Name | Status | Key Deliverables | Dependencies | Est. Effort |
 |-------|------|--------|------------------|--------------|-------------|
-| **1** | Platform Skeleton | **DONE** | Auth, RBAC, projects, file upload, job lifecycle, audit, 64 API endpoints, 307 tests, React frontend (10 pages), MinIO/Celery deployment base | None | Completed |
+| **1** | Platform Skeleton | **DONE** | Auth, RBAC, projects, file upload, job lifecycle, audit, 64 API endpoints, 350 tests, React frontend (10 pages), MinIO/Celery deployment base | None | Completed |
 | **2** | Agent Subsystem | **NEXT** | LangGraph `create_react_agent`, DeepSeek LLM, MCP client, Redis session memory, Agent Celery task body, `/api/v1/agent-runs` live, AgentSteps UI | Stage 1 | 2-3 weeks |
 | **3** | DXF Pipeline | Planned | DWG Converter abstraction, ezdxf parsing Worker, entities.json extraction, structured result display, low-confidence review | Stage 2 (for Agent tool integration) | 2-3 weeks |
 | **4** | Windows CAD Worker | Planned | ASP.NET Core Worker Service, ZWCAD API integration, pull-based task dispatch, cad_result.json export, CAD crash recovery | Stage 1 (internal API), Stage 2 (for dispatch tool) | 3-4 weeks |
@@ -27,7 +27,7 @@
 |-----------|--------|---------|
 | Docker Compose | Config ready, not production-tested | 9 services (nginx, backend-api, worker-agent, worker-dxf, worker-report, mysql, redis, minio, flower); worker-report default, profiles for Agent/DXF and monitoring; `.env.docker.example` template |
 | MySQL 8.x | Runtime database | `DATABASE_URL=mysql+pymysql://...`; pool: `pool_size=10, max_overflow=20, pool_recycle=3600`; WAL pragmas; `init.sql` seed script |
-| Redis (Valkey 9.1) | Deployed and validated | Systemd-managed; `redis_client` (lazy init, no-crash on unavailable), `redis_memory`, `cache_service` all tested; FakeRedis (121 tests) + real Redis (13 tests) dual-layer validation |
+| Redis (Valkey 9.1) | Deployed and validated | Systemd-managed; `redis_client` (lazy init, no-crash on unavailable), `redis_memory`, `cache_service` all tested; FakeRedis (337 non-real-Redis tests via conftest autouse) + real Redis integration (13 tests) dual-layer validation |
 | MinIO | Docker storage backend ready | Three-layer abstraction: `base.py` / `local_storage.py` / `minio_storage.py`; local dev uses local storage, Docker uses MinIO |
 | Celery | Stage 1 fake task ready | Real Celery app with Redis broker/result backend; `worker-report` runs `run_stub_job` for queued→running→succeeded flow |
 | Nginx | Production + local dev dual config | `infra/nginx/nginx.conf` (Docker), `infra/nginx/nginx.local.conf` (local dev); reverse proxy `/api/v1/*` to backend; SPA static serving |
@@ -37,7 +37,7 @@
 
 | Module | Endpoints | Key Features |
 |--------|-----------|--------------|
-| **Auth** (6) | POST sessions, DELETE sessions/current, POST tokens/refresh, GET me, PATCH profile, PATCH password | Login/logout with JWT access token + HttpOnly refresh cookie; token blacklist on logout; password change with old-password verification |
+| **Auth** (5) | POST sessions, DELETE sessions/current, POST tokens/refresh, GET me, PATCH password | Login/logout with JWT access token + HttpOnly refresh cookie; token blacklist on logout; password change with old-password verification |
 | **Users** (11) | Full CRUD + role management + password reset + disable/enable | Admin-only; soft-delete; `super_admin` protection (can't delete/disable); self-update via `PATCH /users/me`; username pattern `^[a-zA-Z0-9_.@-]+$`; password min 12 chars with complexity |
 | **Roles** (4) | GET roles, POST roles, GET permissions, PUT permissions | 7 global roles + 4 project roles; 5 RBAC tables; super_admin bypasses all checks |
 | **Projects** (9) | CRUD + member management (4 project roles) | Cascade active-status check (`require_active_project`); deleted projects → 404 for all members; creator auto-assigned `project_owner` |
@@ -58,11 +58,11 @@
 - **SessionStorage** token storage (not localStorage)
 - **npm ci + npm run build** pass clean
 
-### 2.4 Test Coverage -- 307 Tests
+### 2.4 Test Coverage -- 350 Tests
 
 ```text
 ruff check app tests    →  All checks passed (0 errors)
-pytest -q               →  307 passed, 0 failed
+pytest -q               →  350 passed, 0 failed
 ```
 
 Test domains covered:
@@ -1040,7 +1040,7 @@ All workers (DXF, CAD, Report) must report errors using these standard codes:
 
 ### Stage 1 (Baseline)
 - [x] 64 API endpoints operational
-- [x] 307 tests passing
+- [x] 350 tests passing
 - [x] RBAC with 7 global + 4 project roles
 - [x] DWG upload with header validation
 - [x] Job lifecycle from queued to succeeded

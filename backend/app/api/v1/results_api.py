@@ -9,9 +9,9 @@ from app.core.exceptions import not_found
 from app.models.job import Job
 from app.models.result import AnalysisResult, ReviewRecord
 from app.schemas.common import ok
-from app.schemas.file_schema import DownloadUrlRead
 from app.schemas.result_schema import AnalysisResultRead, ReviewCreate, ReviewRead
 from app.services.audit_service import write_audit_log
+from app.services.file_service import build_signed_download_url
 
 router = APIRouter()
 PROJECT_REVIEW_ROLES = {"project_owner", "project_reviewer"}
@@ -59,10 +59,7 @@ def get_result_download_url(
     _require_result_member(db, current_user, result)
     if result.result_file_id is None:
         raise not_found("Result file")
-    return ok(
-        DownloadUrlRead(url=f"/api/v1/files/{result.result_file_id}/download", expires_in=300),
-        request.state.request_id,
-    )
+    return ok(build_signed_download_url(result.result_file_id), request.state.request_id)
 
 
 @router.post("/{result_id}/reviews", status_code=status.HTTP_201_CREATED)

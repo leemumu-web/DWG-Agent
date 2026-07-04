@@ -122,7 +122,7 @@ The codebase follows the six-layer architecture defined in Spec Section 6. Below
 │    Pydantic v2 request/response validation                   │
 │    DOES NOT: contain business rules, DB access               │
 ├──────────────────────────────────────────────────────────────┤
-│ 3. Service Layer          app/services/        7 modules     │
+│ 3. Service Layer          app/services/        12 modules    │
 │    Business logic orchestration, cross-cutting workflows     │
 │    DOES NOT: depend on FastAPI Request, do raw SQL           │
 ├──────────────────────────────────────────────────────────────┤
@@ -143,15 +143,17 @@ Horizontal (cross-cutting):
 ┌──────────────────────────────────────────────────────────────┐
 │ Agent Layer     app/agents/          3 stubs    (Stage 2)    │
 │ MCP Layer       app/mcp_client/      2 stubs    (Stage 2)    │
-│ Worker Layer    app/workers/         5 stubs    (Stage 2)    │
-│ Storage Layer   app/storage/         1 stub     (Stage 3)    │
+│ Worker Layer    app/workers/         celery_app + report task │
+│                                      + agent/dxf/cad stubs    │
+│ Storage Layer   app/storage/          local dev + MinIO       │
+│                                      Docker backend           │
 │ Integration     app/integrations/zwcad/ 2 stubs (Stage 4)   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.2 Layer Details
 
-#### API Layer -- `app/api/v1/` (11 route modules, 64 endpoints)
+#### API Layer -- `app/api/v1/` (11 route modules, 63 under /api/v1 + 1 health = 64 total endpoints)
 
 | Module | Endpoints | Spec Section | Status |
 |--------|-----------|-------------|--------|
@@ -159,12 +161,12 @@ Horizontal (cross-cutting):
 | `users_api.py` | GET/POST users, GET/PATCH/DELETE user, POST/DELETE user roles, password-reset/enable/disable requests | 7.6 | Done |
 | `roles_api.py` | GET/POST roles, GET permissions, PUT role permissions | 7.6 | Done |
 | `projects_api.py` | GET/POST projects, GET/PATCH/DELETE project, GET/POST members, PATCH/DELETE member | 7.7 | Done |
-| `files_api.py` | POST files, GET files, GET/DELETE file, GET download-url | 7.8 | Done |
+| `files_api.py` | POST files, GET files, GET/DELETE file, GET download-url, GET download | 7.8 | Done |
 | `drawings_api.py` | GET/POST drawings, GET/PATCH/DELETE drawing, GET/POST versions, GET preview | 7.9 | Done |
 | `jobs_api.py` | GET/POST jobs, GET job, POST cancel/retry, GET steps/logs/results | 7.10 | Done |
 | `agent_runs_api.py` | POST agent-runs, GET agent-run, GET agent-run steps, GET agent-tools | 7.11 | Done (503 gated) |
-| `results_api.py` | GET result, GET download-url | 7.12 | Done |
-| `reviews_api.py` | GET pending reviews, POST reviews, GET review history | 7.12 | Done |
+| `results_api.py` | GET result, GET download-url, POST review, GET review history | 7.12 | Done |
+| `reviews_api.py` | GET pending reviews | 7.12 | Done |
 | `audit_logs_api.py` | GET audit-logs, GET audit-log | 7.13 | Done |
 
 **DOES:**
@@ -196,10 +198,15 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Access the database
 - Perform side effects
 
-#### Service Layer -- `app/services/` (7 modules, 679 lines)
+#### Service Layer -- `app/services/` (12 modules, ~1100 lines)
 
 | Service | Responsibility | Key Dependencies |
 |---------|---------------|-----------------|
+| `project_service.py` | Project CRUD, member management, role assignment | `Project`/`ProjectMember` models, `audit_service` |
+| `file_service.py` | File metadata management, permission checks | `StoredFile` model |
+| `drawing_service.py` | Drawing CRUD, version management (auto-increment version_no) | `Drawing`/`DrawingVersion` models |
+| `review_service.py` | Review submission, approval/rejection decisions | `ReviewRecord` model |
+| `agent_service.py` | Agent run orchestration (Stage 2 stub) | `AgentRun` model |
 | `auth_service.py` | Login with timing-safe user lookup, JWT issuance, token blacklisting | `security.py`, `redis_client`, `User` model |
 | `user_service.py` | User CRUD, profile, atomic status transitions, soft delete | `User` model, `audit_service` |
 | `job_service.py` | Job creation, Celery stub dispatch, status lifecycle updates | `Job`/`JobStep` models |
@@ -243,7 +250,7 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 - Define validation rules (that is the schema layer)
 - Know about HTTP or API concerns
 
-#### Core Layer -- `app/core/` (7 modules, 342 lines)
+#### Core Layer -- `app/core/` (7 modules, ~343 lines)
 
 | Module | Responsibility |
 |--------|---------------|
@@ -347,13 +354,15 @@ Designated placeholder for future extraction of DB read/write patterns from serv
 
 Future (Stage 2-4) additions below this line:
 - - - - - - - - - - - - - - - - - - - - - - - -
-┌──────────┐  ┌──────────┐  ┌──────────┐
-│ agents/  │  │mcp_client│  │ workers/ │
-│ (LangGr) │──│/ (MCP)   │  │ (Celery) │
-└──────────┘  └──────────┘  └──────────┘
+┌──────────┐  ┌──────────┐  ┌─────────────────┐
+│ agents/  │  │mcp_client│  │ workers/        │
+│ (LangGr) │──│/ (MCP)   │  │ (Celery real,   │
+│          │  │          │  │ tasks Stage 2+) │
+└──────────┘  └──────────┘  └─────────────────┘
                                    │
 ┌──────────────────────────────────┼──────────┐
-│ storage/ (MinIO adapter)         │          │
+│ storage/ (local dev,             │          │
+│   MinIO Docker backend)          │          │
 │ integrations/zwcad/ (C# Worker)  │          │
 └──────────────────────────────────────────────┘
 ```
@@ -465,7 +474,7 @@ storage_service.save_uploaded_file(db, user, file)
   ├── Read first 6 bytes → validate DWG magic header (AC1012–AC1032)
   ├── Validate minimum 1024 bytes
   ├── ensure_within_root(storage_root, target_path) → path traversal guard
-  ├── Write file to local FS (Stage 1) / MinIO (Stage 3)
+  ├── Write file through StorageBackend (local dev / MinIO Docker)
   ├── INSERT INTO files (bucket, storage_key, original_name, sha256, size, ...)
   ├── Write audit log (FILE_UPLOADED)
   ▼
@@ -542,7 +551,7 @@ The task body is intentionally fake; Agent/DXF/CAD processing stays deferred.
 - Zero setup -- no external MySQL server dependency for CI/dev
 - `StaticPool` ensures full isolation (each test gets its own in-memory DB)
 - WAL mode + `foreign_keys=ON` + `busy_timeout=5000` applied per-connection
-- 307 tests run in 0.13s collection + fast execution
+- 350 tests run with fast collection and execution
 
 **MySQL connection pool:** `pool_recycle=3600` (recycle before MySQL's default `wait_timeout` of 28800s), `pool_size=10`, `max_overflow=20`. Applied only when `database_url` starts with `mysql`.
 
@@ -756,7 +765,7 @@ Alembic targets MySQL: `sqlalchemy.url = mysql+pymysql://dwg_user@127.0.0.1:3306
 
 ### 9.1 Server
 
-Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.service`. No password for local development. Docker deployment uses Redis 7.4-alpine with `requirepass`.
+Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.service`. No password for local development. Docker deployment uses `ghcr.io/valkey-io/valkey:9.0-alpine` with `requirepass`.
 
 ### 9.2 Client (`app/core/redis_client.py`)
 
@@ -778,7 +787,7 @@ Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.servic
 ### 9.4 Testing Strategy
 
 Dual-layer Redis testing:
-1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers ~290 tests with zero external dependency.
+1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 337 non-real-Redis tests (350 total - 13 real-Redis-only) with zero external dependency.
 2. **Real Redis** (`test_redis_real.py`): Integration tests against the actual local Valkey instance. Auto-skipped (`pytest.skip`) when Redis is unreachable.
 
 ---
@@ -880,7 +889,7 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | Redis integration | Real Valkey 9.1 local instance | Integration safety net (`test_redis_real.py`) |
 | Fixtures | `conftest.py` | DB setup/teardown, auth headers, test data factories |
 
-### 12.2 Test Categories (20 files, 307 tests)
+### 12.2 Test Categories (21 files, 350 tests)
 
 | Category | Files | Focus |
 |----------|-------|-------|
@@ -928,21 +937,21 @@ def db():
 | FastAPI app (main.py) | Done | 125 | Covered | Lifespan, CORS, X-Request-ID, 4 exception handlers, /health |
 | API routes (11 modules) | Done | 1,911 | Covered | All 64 endpoints return proper envelopes |
 | Pydantic schemas (10 modules) | Done | 491 | Covered | All use v2 `from_attributes=True` |
-| Business services (7 modules) | Done | 679 | Covered | Auth, user, job, storage, audit, redis_memory, cache |
+| Business services (12 modules) | Done | ~1100 | Covered | Auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache |
 | SQLAlchemy models (17 tables) | Done | 401 | Covered | All with TimestampMixin, relationships, constraints |
-| Core infrastructure (7 modules) | Done | 342 | Covered | Config, security, permissions, exceptions, Redis, logger |
+| Core infrastructure (7 modules) | Done | ~343 | Covered | Config, security, permissions, exceptions, Redis, logger |
 | DB session + pool | Done | -- | Covered | MySQL pool config, SQLite WAL pragmas, health check |
-| DB init + seed data | Done | -- | Covered | Super admin, 7 roles, 20+ permissions |
+| DB init + seed data | Done | -- | Covered | Super admin, 7 roles, 8 permissions |
 | Alembic migrations | Done | 2 | Covered | Initial 17 tables + TimestampMixin backfill |
 | Redis/Valkey client | Done | 80 | Covered | Lazy init, graceful degradation, FakeRedis + real |
 | Token blacklist | Done | -- | Covered | jti-based, TTL-matched, fail-open |
 | File upload + validation | Done | -- | Covered | DWG header, SHA-256, path traversal guard, HMAC URLs |
 | Audit logging | Done | 44 | Covered | Structured audit trail writes |
-| Docker Compose (9 services) | Done | 230 | Covered | worker-report default, Agent/DXF + monitoring profiles |
+| Docker Compose (9 services) | Done | 236 | Covered | worker-report default, Agent/DXF + monitoring profiles |
 | Dockerfile (backend) | Done | -- | Validated | Multi-stage, non-root, HEALTHCHECK, uv sync |
 | Nginx config (Docker + local) | Done | -- | Validated | Rate limiting, proxy, static serving |
 | Frontend (React 19 + TS + Vite) | Done | -- | Manual | 10 page features, 12 API clients, auth store, router |
-| 307 tests | Done | -- | -- | 20 test files, all passing |
+| 350 tests | Done | -- | -- | 21 test files, all passing |
 
 ### Stage 2 -- Not Started (Agent, MCP, Real CAD Processing)
 
@@ -1008,7 +1017,7 @@ complete_framework/
 ├── README.md
 ├── .env.example                          ← Local dev env template (tracked)
 ├── .env.docker.example                   ← Docker env template (tracked)
-├── compose.yaml                          ← 10 services, 3 volumes, 2 networks
+├── compose.yaml                          ← 9 services, 3 volumes, 2 networks
 ├── CLAUDE.md                             ← Agent instructions for this repo
 │
 ├── backend/                              ← Python 3.12, uv, FastAPI
@@ -1019,7 +1028,7 @@ complete_framework/
 │   ├── .dockerignore
 │   ├── alembic.ini                       ← Targets MySQL
 │   ├── migrations/versions/              ← 2 Alembic versions
-│   ├── tests/                            ← 20 files, 307 tests
+│   ├── tests/                            ← 21 files, 350 tests
 │   │   └── conftest.py                   ← FakeRedis autouse + SQLite isolation
 │   ├── var/storage/                      ← Runtime file storage (gitignored)
 │   └── app/
@@ -1027,15 +1036,15 @@ complete_framework/
 │       ├── api/v1/                       ← 11 route modules
 │       │   └── router.py                 ← Central router assembly
 │       ├── schemas/                      ← 10 Pydantic v2 modules
-│       ├── services/                     ← 7 business logic modules
+│       ├── services/                     ← 12 business logic modules
 │       ├── models/                       ← 10 ORM model files (17 tables)
 │       ├── core/                         ← 7 infrastructure modules
 │       ├── db/                           ← session, base, init_db
 │       ├── utils/                        ← path_utils, file_hash, time_utils
 │       ├── agents/                       ← 3 stubs (Stage 2)
 │       ├── mcp_client/                   ← 2 stubs (Stage 2)
-│       ├── workers/                      ← 5 stubs (Stage 2)
-│       ├── storage/                      ← 3 stubs (Stage 3)
+│       ├── workers/                      ← celery_app (real) + 4 task modules (1 Stage 1 stub, 3 Stage 2 stubs)
+│       ├── storage/                      ← 3 files (base + local dev + MinIO deploy backend)
 │       ├── integrations/zwcad/           ← 2 stubs (Stage 4)
 │       └── repositories/                 ← Empty placeholder
 │
@@ -1091,7 +1100,7 @@ complete_framework/
 6. Start Redis and the relevant Celery worker queues
 7. Set `AGENT_ENABLED=true` in `.env`
 
-### Switching storage to MinIO (Stage 3)
+### Switching storage to MinIO
 
 1. Set `STORAGE_BACKEND=minio`, configure MinIO endpoint + credentials
 3. Start MinIO container: `docker compose up minio -d`
@@ -1100,4 +1109,4 @@ complete_framework/
 ---
 
 *Document version: 2.0 -- last updated 2026-07-03*
-*Corresponds to codebase at Stage 1 completion (307 tests, 64 endpoints, 17 tables)*
+*Corresponds to codebase at Stage 1 completion (350 tests, 64 endpoints, 17 tables)*

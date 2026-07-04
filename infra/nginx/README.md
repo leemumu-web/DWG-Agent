@@ -30,7 +30,7 @@ infra/nginx/
 └── logs/               # 运行时日志（.gitignore）
 ```
 
-`nginx.conf` 是完全自包含的单文件（nginx:1.27-alpine 只挂载此文件和 `frontend/dist`）。
+`nginx.conf` 是完全自包含的单文件（Docker 使用 `ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine`，只挂载此文件和 `frontend/dist`）。
 
 ## 启动
 
@@ -52,8 +52,8 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf -s quit    # 停止
 
 ```bash
 # 根目录
-docker compose up -d                              # 核心服务
-docker compose --profile workers up -d            # + Celery Workers
+docker compose up -d                              # 核心服务 + worker-report
+docker compose --profile workers up -d            # + Agent/DXF placeholder workers
 docker compose --profile monitoring up -d         # + Flower
 
 docker compose exec nginx nginx -s reload         # 单独重载 nginx

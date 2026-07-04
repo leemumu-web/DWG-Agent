@@ -482,7 +482,6 @@ audit_logs
 | `auth.login` | user | Successful user login |
 | `auth.logout` | user | User logs out |
 | `auth.password_change` | user | User changes their own password |
-| `auth.profile_update` | user | User updates their own profile via /users/me |
 | `users.create` | user | Admin creates a new user |
 | `users.update` | user | Admin modifies user details |
 | `users.update_self` | user | User updates their own profile via /users/me |

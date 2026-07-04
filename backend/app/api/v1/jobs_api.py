@@ -11,6 +11,7 @@ from app.api.deps import (
     require_project_member,
     require_project_role,
 )
+from app.core.constants import JOB_FAILED
 from app.core.exceptions import AppHTTPException, not_found
 from app.models.drawing import Drawing
 from app.models.job import Job, JobStep
@@ -70,7 +71,19 @@ def create_job_api(
         request=request,
     )
     db.commit()
-    enqueue_stub_job(job.id)
+    try:
+        enqueue_stub_job(job.id)
+    except Exception as exc:
+        job.status = JOB_FAILED
+        job.error_code = "JOB_ENQUEUE_FAILED"
+        job.error_message = str(exc) or exc.__class__.__name__
+        db.commit()
+        raise AppHTTPException(
+            503,
+            "JOB_ENQUEUE_FAILED",
+            "Job was created but could not be dispatched to Celery.",
+            {"job_id": job.id},
+        ) from exc
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 

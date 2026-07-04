@@ -11,7 +11,8 @@
 | **Redis** | ✅ 可用 | `docker compose up -d redis` |
 | **MinIO** | ✅ 可用 | `docker compose up -d minio` |
 | **Backend API** | ✅ 可用 | `docker compose up -d backend-api` |
-| **Celery Workers** | 配置文件就绪 | `docker compose --profile workers up -d`（阶段二实现） |
+| **Celery worker-report** | ✅ 可用 | `docker compose up -d worker-report` |
+| **Agent/DXF workers** | 阶段二/三占位 | `docker compose --profile workers up -d` |
 | **Flower 监控** | 配置文件就绪 | `docker compose --profile monitoring up -d` |
 
 ## 快速开始
@@ -36,7 +37,7 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
 # 前置 1: cp .env.docker.example .env.docker，并修改所有 CHANGE_ME_* 值
 # 前置 2: 前端已构建（cd frontend && npm run build）
 
-# 启动核心服务
+# 启动核心服务（含 backend-api、MySQL、Redis、MinIO、worker-report）
 docker compose up -d
 
 # 查看日志

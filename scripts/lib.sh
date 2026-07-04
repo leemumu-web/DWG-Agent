@@ -41,7 +41,11 @@ kill_by_pidfile() {
 
 pidfile_running() {
     local pidfile="$1"
-    [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+    if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+        return 0
+    fi
+    [ -f "$pidfile" ] && rm -f "$pidfile"
+    return 1
 }
 
 start_report_worker() {
@@ -55,24 +59,42 @@ start_report_worker() {
     info "启动 Celery worker-report..."
     local oldpwd="$PWD"
     cd "$PROJECT_ROOT/backend"
+    local celery_cmd
     if [ -x .venv/bin/celery ]; then
-        nohup .venv/bin/celery -A app.workers.celery_app:celery_app worker -Q report -n report-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 &
+        celery_cmd=".venv/bin/celery"
     else
-        nohup uv run celery -A app.workers.celery_app:celery_app worker -Q report -n report-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 &
+        celery_cmd="uv run celery"
     fi
+    nohup setsid $celery_cmd -A app.workers.celery_app:celery_app worker -Q report -n report-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 </dev/null &
     local pid=$!
     echo "$pid" > "$pidfile"
-    cd "$oldpwd"
 
-    sleep 2
-    if kill -0 "$pid" 2>/dev/null; then
+    local node="report-local@$(hostname)"
+    local ready=false
+    for _ in $(seq 1 12); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            cd "$oldpwd"
+            err "Celery worker-report 启动失败，请检查: $logfile"
+            tail -40 "$logfile" 2>/dev/null || true
+            rm -f "$pidfile"
+            return 1
+        fi
+        if $celery_cmd -A app.workers.celery_app:celery_app inspect ping -d "$node" >/dev/null 2>&1; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+    cd "$oldpwd"
+    if $ready; then
         ok "Celery worker-report 已启动"
-    else
-        err "Celery worker-report 启动失败，请检查: $logfile"
-        tail -20 "$logfile" 2>/dev/null || true
-        rm -f "$pidfile"
-        return 1
+        return 0
     fi
+    err "Celery worker-report 未通过 inspect ping，请检查: $logfile"
+    tail -40 "$logfile" 2>/dev/null || true
+    kill "$pid" 2>/dev/null || true
+    rm -f "$pidfile"
+    return 1
 }
 
 # 等待端口就绪

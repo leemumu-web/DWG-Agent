@@ -45,15 +45,15 @@ complete_framework/
 │   │   ├── db/                    ← base, session (engine + WAL pragmas), init_db (seeds)
 │   │   ├── models/                ← 10 SQLAlchemy ORM models
 │   │   ├── schemas/               ← Pydantic v2 request/response schemas
-│   │   ├── services/              ← business logic (auth, user, job, storage, audit, redis_memory, cache_service)
+│   │   ├── services/              ← 12 business services (auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache_service)
 │   │   ├── repositories/          ← PLACEHOLDER (empty __init__)
 │   │   ├── agents/                ← Stage 2 (agent_factory, prompts, tool_registry stubs)
 │   │   ├── mcp_client/            ← Stage 2 (cad_mcp_client, mcp_tool_adapter stubs)
-│   │   ├── workers/               ← Stage 2 (celery_app + 4 task modules stubs)
-│   │   ├── storage/               ← base + local_storage (active), minio_storage (stub)
+│   │   ├── workers/               ← celery_app (real) + tasks_report (real stub job) + 3 task stubs (agent/dxf/cad)
+│   │   ├── storage/               ← base + local_storage (active), minio_storage (113 lines, ready for Docker)
 │   │   ├── integrations/zwcad/    ← Stage 4 (client + schemas stubs)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 292 tests (pytest + fakeredis + real Redis)
+│   ├── tests/                     ← 350 tests, 21 files (pytest + fakeredis + real Redis)
 │   │   └── conftest.py            ← FakeRedis autouse fixture + SQLite memory isolation
 │   ├── migrations/                ← Alembic (2 versions: initial 17 tables + TimestampMixin fix)
 │   └── var/                       ← runtime data (uploaded files, app.db when using SQLite)
@@ -153,7 +153,7 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests   # must pass
-uv run pytest -q              # must pass (292 tests expected)
+uv run pytest -q              # must pass (350 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`
@@ -201,7 +201,13 @@ uv run pytest -q              # must pass (292 tests expected)
 | Redis memory | `backend/app/services/redis_memory.py` |
 | Cache service | `backend/app/services/cache_service.py` |
 | Auth service | `backend/app/services/auth_service.py` |
-| Job stub worker | `backend/app/services/job_service.py` |
+| User service | `backend/app/services/user_service.py` |
+| Job service | `backend/app/services/job_service.py` |
+| Project service | `backend/app/services/project_service.py` |
+| File service | `backend/app/services/file_service.py` |
+| Drawing service | `backend/app/services/drawing_service.py` |
+| Review service | `backend/app/services/review_service.py` |
+| Agent service | `backend/app/services/agent_service.py` (Stage 2) |
 | File storage | `backend/app/services/storage_service.py` |
 | MySQL config | `backend/app/core/config.py` (mysql_* fields + mysql_url property) |
 | DB session + pool | `backend/app/db/session.py` |

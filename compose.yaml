@@ -21,10 +21,10 @@
 
 services:
   nginx:
-    image: nginx:1.27-alpine
+    image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:8080"
+      - "443:8443"
     volumes:
       - ./frontend/dist:/usr/share/nginx/html:ro
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -78,6 +78,12 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/app/.venv/bin/celery -A app.workers.celery_app:celery_app inspect ping -d agent@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
     networks:
       - internal
     restart: unless-stopped
@@ -101,6 +107,12 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/app/.venv/bin/celery -A app.workers.celery_app:celery_app inspect ping -d dxf@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
     networks:
       - internal
     restart: unless-stopped
@@ -124,12 +136,18 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/app/.venv/bin/celery -A app.workers.celery_app:celery_app inspect ping -d report@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 10s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
     networks:
       - internal
     restart: unless-stopped
 
   mysql:
-    image: mysql:8.4
+    image: container-registry.oracle.com/mysql/community-server:8.4
     env_file:
       - .env.docker
     environment:
@@ -155,7 +173,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.4-alpine
+    image: ghcr.io/valkey-io/valkey:9.0-alpine
     env_file:
       - .env.docker
     environment:
@@ -183,7 +201,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     env_file:
       - .env.docker
@@ -219,6 +237,12 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5555/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - internal
     restart: unless-stopped
