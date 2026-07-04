@@ -1,7 +1,7 @@
 # DWG-Agent Platform — Agent Instructions
 
 > **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root)
-> (2455 lines, 25 sections, v1.0)
+> (1317 lines, 25 sections, v2.0 — aligned with Stage 1 implementation)
 >
 > Every design decision flows from this document. When in doubt, read the spec first.
 
@@ -41,8 +41,8 @@ complete_framework/
 │   │   ├── main.py                ← FastAPI app, lifespan, CORS, exception handlers
 │   │   ├── api/v1/                ← 11 route modules under /api/v1
 │   │   │   └── router.py          ← central router assembly
-│   │   ├── core/                  ← config, security, permissions, exceptions, redis_client, constants, logger
-│   │   ├── db/                    ← base, session (engine + WAL pragmas), init_db (seeds)
+│   │   ├── core/                  ← config, security, permissions, exceptions, redis_client, constants, logger, validators
+│   │   ├── db/                    ← base, session (engine + pool config), init_db (seeds)
 │   │   ├── models/                ← 10 SQLAlchemy ORM models
 │   │   ├── schemas/               ← Pydantic v2 request/response schemas
 │   │   ├── services/              ← 12 business services (auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache_service)
@@ -55,7 +55,7 @@ complete_framework/
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
 │   ├── tests/                     ← 432 tests, 24 files (pytest + fakeredis + real Redis)
 │   │   └── conftest.py            ← FakeRedis autouse fixture + SQLite memory isolation
-│   ├── migrations/                ← Alembic (2 versions: initial 17 tables + TimestampMixin fix)
+│   ├── migrations/                ← Alembic (3 versions: initial 17 tables + TimestampMixin fix + resource_id type fix)
 │   └── var/                       ← runtime data (uploaded files, app.db when using SQLite)
 │
 ├── frontend/                      ← React 19 + TypeScript + Vite
@@ -144,7 +144,8 @@ complete_framework/
 ### SQLite (test isolation only)
 
 - Used by pytest via `StaticPool` + `conftest.py` autouse fixture — each test gets an isolated in-memory DB.
-- WAL journal mode, `foreign_keys=ON`, `busy_timeout=5000` pragmas set per-connection.
+- `foreign_keys=ON` pragma set per-connection in conftest.py (SQLite disables FK enforcement by default).
+- WAL journal mode and busy_timeout are intentionally NOT set: the in-memory database behind StaticPool has exactly one connection, making those pragmas meaningless.
 - `db_health()` returns `{"status": "ok", "message": "Database is reachable."}`
 - Runtime database is MySQL; SQLite is never used outside tests.
 
@@ -192,7 +193,7 @@ uv run pytest -q              # must pass (432 tests expected)
 | Security architecture | `docs/security.md` |
 | Roadmap (Stage 1-6) | `docs/roadmap.md` |
 | Backend config | `backend/app/core/config.py` |
-| Alembic migrations | `backend/migrations/versions/` (2 versions) |
+| Alembic migrations | `backend/migrations/versions/` (3 versions) |
 | FastAPI entry | `backend/app/main.py` |
 | Route assembly | `backend/app/api/v1/router.py` |
 | DB session + pragmas | `backend/app/db/session.py` |
@@ -225,5 +226,6 @@ uv run pytest -q              # must pass (432 tests expected)
 | New feature tests | `backend/tests/test_new_features.py` |
 | Path utils | `backend/app/utils/path_utils.py` (ensure_within_root) |
 | Permissions | `backend/app/core/permissions.py` |
+| Validators | `backend/app/core/validators.py` (sort column whitelist) |
 | Frontend router | `frontend/src/app/router.tsx` |
 | Frontend API client | `frontend/src/api/client.ts` |

@@ -16,7 +16,7 @@ class AuditLog(TimestampMixin, Base):
     actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    resource_id: Mapped[int | None] = mapped_column(index=True)
+    resource_id: Mapped[int | None] = mapped_column(PKType, index=True)
     ip_address: Mapped[str | None] = mapped_column(String(64))
     user_agent: Mapped[str | None] = mapped_column(String(512))
     before_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)

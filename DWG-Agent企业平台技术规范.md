@@ -1,27 +1,27 @@
 # DWG-Agent 企业级 CAD 智能处理平台技术规范
 
-> 版本：v1.0  
+> 版本：v2.0（与 Stage 1 实现对齐）  
 > 适用范围：公司内部 Ubuntu 主服务器 + MySQL + React 前端 + FastAPI 后端 + Agent + DWG/DXF 双轨处理 + 中望 CAD 高精度处理  
-> 规范目标：将原有 Sorting-Agent 规范升级为面向生产的 DWG 文件智能处理平台规范，确保前后端分离、RESTful API、Docker 部署、权限安全、任务可追踪、结果可复核、架构可扩展。
+> 规范目标：定义 DWG 文件智能处理平台的技术方向、核心架构和关键边界。详细实现文档见 `docs/` 目录。
 
 ---
 
 ## 0. 文档定位
 
-本技术文档综合以下设计目标：
+本技术规范定义 DWG-Agent 平台的**技术方向、核心架构和关键工程边界**。
+详细实现细节见对应文档：
 
-1. 建设公司内部 DWG 文件处理平台。
-2. 主服务器基于 Ubuntu，核心数据库使用 MySQL。
-3. 前端采用 React + TypeScript + Vite。
-4. 后端采用 Python + FastAPI，并使用 uv 管理 Python 项目环境。
-5. Agent 层参考原有 Sorting-Agent 规范，使用 LangGraph `create_react_agent`、OpenAI-compatible LLM、MCP 工具协议、Redis 短期记忆。
-6. 低精度/简单任务走 DWG → DXF → Python 开源处理路线。
-7. 高精度/复杂任务走 Windows CAD Worker + C# + 中望 CAD API 路线。
-8. 系统必须支持企业账号、RBAC 权限、Super Admin、文件管理、任务管理、审计日志、人工复核。
-9. API 必须遵守 RESTful 资源建模规范。
-10. 部署必须充分发挥 Docker 容器的环境隔离、依赖固定、服务编排、可迁移和可扩展能力。
+| 领域 | 详细文档 |
+|------|---------|
+| 系统架构与分层 | `docs/architecture.md` |
+| API 参考（64 端点） | `docs/api.md` |
+| 数据库设计（17 表） | `docs/database.md` |
+| 部署与运维 | `docs/deployment.md` |
+| 开发工作流 | `docs/development.md` |
+| 安全架构 | `docs/security.md` |
+| 分阶段路线 | `docs/roadmap.md` |
 
-本系统不是单纯的 Agent Demo，也不是普通文件上传后台，而是一套面向公司内部生产流程的 **CAD 文件智能处理平台**。
+本规范不再重复 `docs/` 中已有的详细表结构、API 参数、部署步骤等内容，只保留架构决策和工程边界。
 
 ---
 
@@ -207,270 +207,130 @@ React 任务详情页
 
 ## 4. 技术栈总表
 
-| 模块 | 技术栈 | 应用说明 | 生产要求 |
-|---|---|---|---|
-| 前端框架 | React 18+ | 企业后台和 Agent 交互界面 | 组件化、类型化、禁止硬编码 API 地址 |
-| 前端语言 | TypeScript | 类型约束，前后端 Schema 对齐 | 所有 API 响应必须有类型定义 |
-| 前端构建 | Vite | 开发热更新、生产构建 | 生产构建产物由 Nginx 托管 |
-| UI 组件 | Ant Design / Arco Design | 表格、表单、上传、后台管理 | 统一视觉规范 |
-| 请求管理 | Axios / fetch wrapper | RESTful API 调用 | 必须封装在 `src/api/` |
-| 数据缓存 | TanStack Query | 列表、分页、任务状态刷新 | 避免组件内手写重复请求逻辑 |
-| 前端状态 | Zustand | 当前用户、权限、菜单、临时状态 | 不存长期敏感 token |
-| 网关 | Nginx | HTTPS、静态资源、反代、上传限制 | 唯一对外入口 |
-| 后端语言 | Python 3.11/3.12 | 平台 API、Agent API、Worker | 使用 uv 管理 |
-| 包管理 | uv | Python 依赖锁定和运行 | 必须提交 `uv.lock` |
-| API 框架 | FastAPI | RESTful API、OpenAPI、依赖注入 | API 只做短请求和任务调度 |
-| Schema | Pydantic v2 | 请求/响应校验、配置模型 | 前后端类型对齐 |
-| 配置 | pydantic-settings | `.env` 配置读取 | `.env` 不进 Git |
-| ORM | SQLAlchemy 2.x | MySQL 数据访问 | 禁止散落原生 SQL |
-| 迁移 | Alembic | 数据库版本迁移 | 所有 schema 变更必须迁移化 |
-| 数据库 | MySQL 8.x | 用户、权限、项目、任务、审计 | 开启备份和慢查询日志 |
-| 文件存储 | MinIO / NAS | DWG、DXF、JSON、PNG、报告 | 原始文件不可覆盖 |
-| 缓存 | Redis | 短期状态、Agent 记忆、任务进度 | 不作为最终状态库 |
-| 异步任务 | Celery | DXF、Agent、报告、CAD 调度 | 任务必须幂等、可重试 |
-| Broker | Redis / RabbitMQ | Celery 消息代理 | MVP Redis，生产可升级 RabbitMQ |
-| Agent | LangGraph `create_react_agent` | LLM 自动工具调用 | 平台硬规则不交给 LLM |
-| LLM 接入 | langchain-openai ChatOpenAI | DeepSeek/Qwen/OpenAI-compatible | API Key 不进代码 |
-| 工具协议 | MCP | Agent 调用外部工具 | MCP stdio stdout 只能输出 JSON |
-| DXF 解析 | ezdxf | DXF 图层、文本、块、几何解析 | 不负责原生 DWG 解析 |
-| DWG 转换 | Converter 抽象层 | DWG → DXF | 底层实现可替换 |
-| 高精度 CAD | C# + 中望 CAD API | 原生 DWG、高精度尺寸、构件识别 | Windows 节点独立运行 |
-| CAD 服务 | ASP.NET Core Worker Service | CAD 任务拉取、执行、回传 | 内网 API Key / mTLS |
-| 容器 | Docker Compose | Ubuntu 主服务编排 | CAD GUI 不放 Linux Docker |
-| 监控 | Flower / Logs / Prometheus | 任务、服务、队列、资源监控 | 每个 job 有 trace 信息 |
-| 审计 | audit_logs | 关键操作追踪 | 用户、文件、任务、审核都留痕 |
+| 模块 | 技术栈 | 说明 |
+|---|---|---|
+| 前端框架 | React 19 + TypeScript | 企业后台和 Agent 交互界面 |
+| 前端构建 | Vite | 开发热更新、生产构建 |
+| UI 组件 | Ant Design 6 | 表格、表单、上传、后台管理 |
+| 请求管理 | Axios（封装于 `src/api/`） | RESTful API 调用 |
+| 数据缓存 | TanStack Query | 列表、分页、任务状态刷新 |
+| 前端状态 | Zustand | 当前用户、权限、token（sessionStorage） |
+| 网关 | Nginx 1.27-alpine | HTTPS、静态资源、反代、上传限制、限流 |
+| 后端语言 | Python 3.12（`>=3.12,<3.13`） | 平台 API、Agent API、Worker |
+| 包管理 | uv | 依赖锁定（`uv.lock` 已提交） |
+| API 框架 | FastAPI | RESTful API、OpenAPI、依赖注入 |
+| Schema | Pydantic v2（`from_attributes=True`） | 请求/响应校验、配置模型 |
+| 配置 | pydantic-settings（`extra="ignore"`） | `.env` 配置读取，组件字段 + 计算属性 |
+| ORM | SQLAlchemy 2.x（同步 session） | MySQL 数据访问 |
+| 迁移 | Alembic（3 版本） | 17 表初始 + TimestampMixin 修复 + resource_id 类型修复 |
+| 数据库 | MySQL 8.x | 用户、权限、项目、任务、审计（池：`pool_size=10, max_overflow=20, pool_recycle=3600`） |
+| 文件存储 | 双后端抽象（LocalFileStorage / MinioStorage） | 本地开发用本地 FS，Docker 部署用 MinIO |
+| 缓存 | Valkey 9.x（Redis 兼容） | 短期状态、Agent 记忆、任务进度、token 黑名单 |
+| 异步任务 | Celery（Redis broker/result backend） | Stage 1：worker-report 假任务；Stage 2+：agent/dxf/cad 队列 |
+| Agent | LangGraph `create_react_agent`（Stage 2） | LLM 自动工具调用 |
+| LLM 接入 | langchain-openai `ChatOpenAI`（Stage 2） | DeepSeek / OpenAI-compatible |
+| 工具协议 | MCP（Stage 2） | Agent 调用外部工具 |
+| DXF 解析 | ezdxf（Stage 3） | DXF 图层、文本、块、几何解析 |
+| DWG 转换 | Converter 抽象层（Stage 3） | DWG → DXF |
+| 高精度 CAD | C# + 中望 CAD API（Stage 4） | Windows 节点独立运行 |
+| 容器 | Docker Compose（9 服务 + profiles） | Ubuntu 主服务编排 |
+| 监控 | Flower / Nginx access log / 结构化日志 | 任务、服务、队列监控 |
+| 审计 | `audit_logs` 表 | 30+ 操作类型全覆盖 |
 
 ---
 
 ## 5. 前端技术规范
 
-### 5.1 前端目录结构
+### 5.1 技术栈
 
-```text
-frontend/
-├── src/
-│   ├── main.tsx
-│   ├── App.tsx
-│   ├── app/
-│   │   ├── router.tsx
-│   │   ├── providers.tsx
-│   │   └── layout.tsx
-│   ├── api/
-│   │   ├── client.ts
-│   │   ├── auth.api.ts
-│   │   ├── users.api.ts
-│   │   ├── roles.api.ts
-│   │   ├── projects.api.ts
-│   │   ├── files.api.ts
-│   │   ├── drawings.api.ts
-│   │   ├── jobs.api.ts
-│   │   ├── results.api.ts
-│   │   ├── reviews.api.ts
-│   │   └── agent-runs.api.ts
-│   ├── components/
-│   │   ├── FileUpload.tsx
-│   │   ├── TaskInput.tsx
-│   │   ├── AgentSteps.tsx
-│   │   ├── ResultPanel.tsx
-│   │   ├── DrawingPreview.tsx
-│   │   ├── JobTimeline.tsx
-│   │   ├── PermissionGuard.tsx
-│   │   └── ReviewPanel.tsx
-│   ├── features/
-│   │   ├── auth/
-│   │   ├── users/
-│   │   ├── projects/
-│   │   ├── files/
-│   │   ├── drawings/
-│   │   ├── jobs/
-│   │   ├── reviews/
-│   │   └── admin/
-│   ├── hooks/
-│   ├── stores/
-│   ├── types/
-│   │   ├── auth.ts
-│   │   ├── user.ts
-│   │   ├── project.ts
-│   │   ├── file.ts
-│   │   ├── drawing.ts
-│   │   ├── job.ts
-│   │   ├── result.ts
-│   │   └── agent.ts
-│   └── utils/
-├── public/
-├── index.html
-├── vite.config.ts
-├── tsconfig.json
-├── package.json
-├── package-lock.json
-└── .env.example
+React 19 + TypeScript + Vite + Ant Design 6 + TanStack Query + Zustand。
+
+### 5.2 目录结构（概要）
+
+```
+frontend/src/
+├── api/          ← 12 个 API 客户端模块（11 资源 + client.ts）
+├── app/          ← router, layout, providers
+├── features/     ← 10 个页面模块（auth, dashboard, users, projects, files, drawings, jobs, reviews, profile, admin）
+├── components/   ← 8 个共享组件（FileUpload, PermissionGuard 已实现，其余 Stage 2+ 占位）
+├── stores/       ← Zustand（auth.store.ts）
+└── types/        ← 9 个 TypeScript 类型文件
 ```
 
-### 5.2 前端页面
+详细目录和开发工作流见 `docs/development.md`。
+
+### 5.3 前端页面（10 页）
 
 | 路由 | 页面 | 权限 |
 |---|---|---|
-| `/login` | 登录页 | 未登录用户 |
-| `/dashboard` | 工作台 | 已登录用户 |
-| `/projects` | 项目列表 | 项目成员 / 管理员 |
-| `/projects/:projectId` | 项目详情 | 项目成员 |
-| `/drawings/:drawingId` | 图纸详情 | 项目成员 |
-| `/files` | 文件管理 | 已登录用户 |
-| `/jobs` | 任务列表 | 已登录用户 |
-| `/jobs/:jobId` | 任务详情 | 任务可见用户 |
+| `/login` | 登录页 | 公开 |
+| `/dashboard` | 工作台 | 已登录 |
+| `/projects` / `/:id` | 项目列表/详情 | 项目成员 |
+| `/drawings/:id` | 图纸详情 | 项目成员 |
+| `/files` | 文件管理 | 已登录 |
+| `/jobs` / `/:id` | 任务列表/详情 | 已登录 |
 | `/reviews` | 待复核列表 | reviewer / admin |
-| `/admin/users` | 用户管理 | super_admin / admin |
-| `/admin/roles` | 角色权限 | super_admin |
-| `/admin/audit-logs` | 审计日志 | super_admin / auditor |
-| `/profile` | 个人中心 | 已登录用户 |
+| `/admin/users` / `/admin/roles` / `/admin/audit-logs` | 管理后台 | super_admin / admin / auditor |
+| `/profile` | 个人中心 | 已登录 |
 
-### 5.3 前端交互要求
+### 5.4 前端交互要求
 
-1. 所有 API 请求必须通过 `src/api/` 封装。
-2. 组件中禁止直接写 `fetch('/api/...')`。
-3. 后端地址必须来自 `VITE_API_BASE_URL`。
-4. 前端类型必须和后端 Pydantic Schema 保持一致。
-5. 权限控制分三层：
-   - 路由级权限；
-   - 菜单级权限；
-   - 组件/按钮级权限。
-6. 前端权限只用于体验优化，最终权限由后端决定。
-7. 大文件上传必须展示进度和失败重试。
-8. 任务详情页必须展示：
-   - 当前状态；
-   - 任务步骤；
-   - Worker 日志摘要；
-   - Agent steps；
-   - 结果文件；
-   - 审核状态。
+1. 所有 API 请求通过 `src/api/` 封装，禁止组件中直接 `fetch()`。
+2. API 基地址来自 `VITE_API_BASE_URL`（开发时指向 `http://127.0.0.1:8000`，Docker 下为空走 Nginx 代理）。
+3. 权限控制分三层：路由级、菜单级、组件/按钮级。前端权限仅用于 UX 优化，最终权限由后端决定。
+4. Token 存 `sessionStorage`（非 `localStorage`），Axios 拦截器自动注入 `Authorization` header。
 
 ---
 
 ## 6. 后端平台技术规范
 
-### 6.1 后端目录结构
+### 6.1 后端目录结构（概要）
 
-```text
-backend/
-├── pyproject.toml
-├── uv.lock
-├── alembic.ini
-├── migrations/
-├── app/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── api/
-│   │   ├── __init__.py
-│   │   └── v1/
-│   │       ├── __init__.py
-│   │       ├── router.py
-│   │       ├── auth_api.py
-│   │       ├── users_api.py
-│   │       ├── roles_api.py
-│   │       ├── projects_api.py
-│   │       ├── files_api.py
-│   │       ├── drawings_api.py
-│   │       ├── jobs_api.py
-│   │       ├── results_api.py
-│   │       ├── reviews_api.py
-│   │       ├── audit_logs_api.py
-│   │       ├── agent_runs_api.py
-│   │       └── agent_tools_api.py
-│   ├── core/
-│   │   ├── config.py
-│   │   ├── security.py
-│   │   ├── permissions.py
-│   │   ├── exceptions.py
-│   │   ├── logger.py
-│   │   └── constants.py
-│   ├── db/
-│   │   ├── base.py
-│   │   ├── session.py
-│   │   └── init_db.py
-│   ├── models/
-│   │   ├── user.py
-│   │   ├── role.py
-│   │   ├── permission.py
-│   │   ├── project.py
-│   │   ├── file.py
-│   │   ├── drawing.py
-│   │   ├── job.py
-│   │   ├── result.py
-│   │   ├── review.py
-│   │   └── audit_log.py
-│   ├── schemas/
-│   │   ├── auth_schema.py
-│   │   ├── user_schema.py
-│   │   ├── project_schema.py
-│   │   ├── file_schema.py
-│   │   ├── drawing_schema.py
-│   │   ├── job_schema.py
-│   │   ├── result_schema.py
-│   │   ├── review_schema.py
-│   │   └── agent_schema.py
-│   ├── repositories/
-│   ├── services/
-│   │   ├── auth_service.py
-│   │   ├── user_service.py
-│   │   ├── project_service.py
-│   │   ├── file_service.py
-│   │   ├── drawing_service.py
-│   │   ├── job_service.py
-│   │   ├── review_service.py
-│   │   ├── audit_service.py
-│   │   └── agent_service.py
-│   ├── agents/
-│   │   ├── agent_factory.py
-│   │   ├── prompts.py
-│   │   └── tool_registry.py
-│   ├── mcp_client/
-│   │   ├── cad_mcp_client.py
-│   │   └── mcp_tool_adapter.py
-│   ├── workers/
-│   │   ├── celery_app.py
-│   │   ├── tasks_agent.py
-│   │   ├── tasks_dxf.py
-│   │   ├── tasks_cad.py
-│   │   └── tasks_report.py
-│   ├── storage/
-│   │   ├── base.py
-│   │   ├── local_storage.py
-│   │   └── minio_storage.py
-│   ├── integrations/
-│   │   └── zwcad/
-│   │       ├── client.py
-│   │       └── schemas.py
-│   └── utils/
-│       ├── path_utils.py
-│       ├── file_hash.py
-│       └── time_utils.py
-└── tests/
 ```
+backend/
+├── pyproject.toml + uv.lock + .python-version
+├── alembic.ini + migrations/versions/（3 版本）
+├── Dockerfile（多阶段构建，非 root，HEALTHCHECK）
+├── tests/（24 文件，432 测试）
+└── app/
+    ├── main.py              ← FastAPI app, lifespan, CORS, 4 异常处理器
+    ├── api/v1/              ← 11 路由模块 + router.py 组装
+    ├── core/                ← config, security, permissions, exceptions, redis_client, logger, validators, constants
+    ├── db/                  ← base, session（引擎 + 池配置 + WAL pragma）, init_db（种子数据）
+    ├── models/              ← 10 ORM 模型文件（17 表，TimestampMixin）
+    ├── schemas/             ← 10 Pydantic v2 模块
+    ├── services/            ← 12 业务服务（auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache_service）
+    ├── workers/             ← celery_app（真实） + tasks_report（Stage 1 假任务） + agent/dxf/cad 占位
+    ├── storage/             ← base + local_storage（开发） + minio_storage（Docker 部署）
+    ├── agents/              ← 3 占位（Stage 2）
+    ├── mcp_client/          ← 2 占位（Stage 2）
+    ├── integrations/zwcad/  ← 2 占位（Stage 4）
+    ├── repositories/        ← 空占位
+    └── utils/               ← path_utils, file_hash, time_utils
+```
+
+详细目录和开发工作流见 `docs/development.md`。
 
 ### 6.2 后端分层要求
 
-| 层 | 目录 | 职责 |
-|---|---|---|
-| API 层 | `app/api/v1` | 路由、参数接收、权限依赖、响应封装 |
-| Schema 层 | `app/schemas` | Pydantic 请求/响应模型 |
-| Service 层 | `app/services` | 业务流程编排 |
-| Repository 层 | `app/repositories` | 数据库读写封装 |
-| Model 层 | `app/models` | SQLAlchemy ORM 表模型 |
-| Agent 层 | `app/agents` | LangGraph Agent 创建和工具注册 |
-| MCP 层 | `app/mcp_client` | MCP 连接、工具列表、工具调用 |
-| Worker 层 | `app/workers` | Celery 任务定义 |
-| Storage 层 | `app/storage` | 本地/MinIO 存储抽象 |
-| Integration 层 | `app/integrations` | 外部系统，如中望 CAD Worker |
-| Core 层 | `app/core` | 配置、安全、异常、日志、权限 |
+| 层 | 目录 | 职责 | 禁止 |
+|---|---|---|---|
+| API 层 | `app/api/v1` | 路由、参数解析、权限依赖、响应封装 | 业务逻辑、直接 DB 查询 |
+| Schema 层 | `app/schemas` | Pydantic v2 请求/响应模型 | 业务规则、DB 访问 |
+| Service 层 | `app/services` | 业务流程编排 | 依赖 FastAPI Request |
+| Repository 层 | `app/repositories` | DB 读写封装（未来提取） | 业务规则 |
+| Model 层 | `app/models` | SQLAlchemy ORM 表模型 | 业务逻辑、校验 |
+| Agent 层 | `app/agents` | LangGraph Agent + 工具注册（Stage 2） | 直接访问 DB/文件系统 |
+| Worker 层 | `app/workers` | Celery 任务定义 | 复制业务逻辑 |
+| Storage 层 | `app/storage` | 本地/MinIO 存储抽象 | — |
+| Core 层 | `app/core` | 配置、安全、异常、日志、Redis、权限 | 领域逻辑 |
 
-要求：
+### 6.3 关键工程决策
 
-1. API 层不写复杂业务逻辑。
-2. Service 层不直接依赖 FastAPI Request。
-3. Repository 层不处理业务规则。
-4. Worker 任务必须调用 Service，而不是复制业务逻辑。
-5. Agent 代码不得直接访问数据库和文件系统，必须通过工具或 Service 边界调用。
-6. 文件路径必须经过 `path_utils.py` 校验。
+1. **同步 API + Celery 异步边界**：FastAPI 使用同步 SQLAlchemy session 和同步 Redis。长耗时任务跨越 Celery 边界执行。
+2. **MySQL 运行时 + SQLite 测试隔离**：生产用 MySQL 8.x（`pool_size=10, max_overflow=20, pool_recycle=3600`），测试用 SQLite `:memory:` + `StaticPool` 实现每测试隔离。
+3. **组件字段配置模式**：配置使用 `mysql_host`/`mysql_port`/`mysql_user`/`mysql_password` 等组件字段 + 计算属性 `mysql_url`/`redis_url`/`celery_broker_url`，而非单一 `DATABASE_URL` 字符串。
+4. **特性开关**：`AGENT_ENABLED`、`DXF_PIPELINE_ENABLED`、`CAD_WORKER_ENABLED` 三个布尔开关，默认 `false`。禁用时返回 503（错误码 `AGENT_DISABLED`）。
 
 ---
 
@@ -478,375 +338,57 @@ backend/
 
 ### 7.1 总原则
 
-正式接口统一使用：
+- 所有接口统一在 `/api/v1` 下。
+- 资源名使用复数名词，复合名用 kebab-case（如 `agent-runs`、`audit-logs`）。
+- 使用 HTTP Method 表达动作，不使用 `/getUser` 这类动词接口。
+- 使用 HTTP Status Code 表达结果（200/201/202/204），不统一包装为 `200 + code:0`。
+- 所有业务端点必须鉴权（`current_user: CurrentUser`，无 `= None` 默认值）。
+- 公开端点仅：`POST /auth/sessions`（登录）、`POST /auth/tokens/refresh`、`GET /health`。
 
-```text
-/api/v1
-```
+### 7.2 HTTP 状态码
 
-RESTful API 必须遵守以下约定：
-
-1. 资源名使用复数名词。
-2. 使用 HTTP Method 表达动作。
-3. 使用 HTTP Status Code 表达请求结果。
-4. 不使用 `/getUser`、`/createTask`、`/deleteFile` 这类动词接口。
-5. 不把所有响应都包装成 `200 OK + code: 0`。
-6. 非资源型动作要谨慎建模为子资源或状态变更。
-7. Agent 执行建模为 `agent-runs` 资源，不使用 `/api/agent/run` 作为正式主接口。
-
-### 7.2 HTTP 方法语义
-
-| 方法 | 语义 | 示例 |
+| 状态码 | 语义 | 使用场景 |
 |---|---|---|
-| GET | 查询资源 | `GET /api/v1/jobs/{job_id}` |
-| POST | 创建资源或提交子资源 | `POST /api/v1/jobs` |
-| PATCH | 局部更新资源 | `PATCH /api/v1/users/{user_id}` |
-| PUT | 整体替换资源，谨慎使用 | `PUT /api/v1/roles/{role_id}/permissions` |
-| DELETE | 删除资源或解除关系 | `DELETE /api/v1/project-members/{member_id}` |
+| 200 | 成功 | GET、PATCH、PUT 成功返回数据 |
+| 201 | 已创建 | POST 创建资源成功 |
+| 202 | 已接受 | 异步操作（创建任务、Agent run、取消/重试） |
+| 204 | 无内容 | DELETE、登出成功 |
+| 400 | 请求错误 | 参数组合不合法 |
+| 401 | 未认证 | 无/过期/黑名单 token |
+| 403 | 无权限 | 已认证但越权 |
+| 404 | 不存在 | 资源不存在（或无权访问） |
+| 409 | 冲突 | 用户名重复、状态不允许操作 |
+| 413 | 文件过大 | 上传超过 `MAX_UPLOAD_SIZE_MB`（默认 512MB） |
+| 415 | 类型不支持 | 非 `.dwg` 文件 |
+| 422 | 校验失败 | Pydantic 校验失败 |
+| 429 | 请求过多 | 登录失败限流 |
+| 500 | 服务异常 | 未预期异常（`DEBUG=false` 时不泄露 traceback） |
+| 503 | 不可用 | Agent 未启用、MCP 不可用、CAD Worker 不可达 |
 
-### 7.3 HTTP 状态码规范
+### 7.3 响应格式
 
-| 状态码 | 含义 | 使用场景 |
+**成功：** `{"data": {...}, "meta": {"request_id": "...", "timestamp": "..."}}`  
+**列表：** 增加 `"pagination": {"page": 1, "page_size": 20, "total": 120, "total_pages": 6}`  
+**错误：** `{"error": {"code": "ERROR_CODE", "message": "...", "details": {}}, "meta": {...}}`
+
+### 7.4 API 端点总览（11 模块，64 端点）
+
+| 模块 | 端点 | 关键功能 |
 |---|---|---|
-| 200 OK | 请求成功 | 查询、更新成功且返回数据 |
-| 201 Created | 创建成功 | 创建用户、项目、任务、上传会话 |
-| 202 Accepted | 已接收，异步处理中 | 创建耗时任务、Agent run、CAD 任务 |
-| 204 No Content | 成功但无响应体 | 删除、登出、取消关系 |
-| 400 Bad Request | 请求语义错误 | 参数组合不合法 |
-| 401 Unauthorized | 未认证 | 未登录、token 无效 |
-| 403 Forbidden | 已认证但无权限 | 越权访问项目/文件 |
-| 404 Not Found | 资源不存在 | job_id 不存在 |
-| 409 Conflict | 资源冲突 | 用户名重复、任务状态不允许重试 |
-| 413 Payload Too Large | 文件过大 | 上传超过限制 |
-| 415 Unsupported Media Type | 文件类型不支持 | 上传非 DWG 文件 |
-| 422 Unprocessable Entity | 字段校验失败 | Pydantic 校验失败 |
-| 429 Too Many Requests | 请求过多 | 登录失败限流 |
-| 500 Internal Server Error | 服务异常 | 未预期异常 |
-| 503 Service Unavailable | 依赖不可用 | MCP 未连接、CAD Worker 不可用 |
+| Auth（5） | sessions, tokens/refresh, me, password | 登录/登出/刷新/改密，access token + HttpOnly refresh cookie |
+| Users（11） | CRUD + roles + password-reset + disable/enable | 软删除，super_admin 保护，自更新 `PATCH /users/me` |
+| Roles（4） | CRUD roles + permissions | 7 全局角色，8 权限 |
+| Projects（9） | CRUD + member 管理 | 4 项目角色，级联 active 状态检查 |
+| Files（6） | upload, list, download-url, download | DWG 校验（header/size/hash），HMAC 签名下载 URL（TTL=300s） |
+| Drawings（8） | CRUD + version + preview | 版本号自增，项目隔离 |
+| Jobs（9） | create, cancel, retry, steps, logs, results | 状态机：pending→queued→running→succeeded/failed/cancelled |
+| Results（4） | detail, download-url, review | 复核 decision：approved/rejected/needs_revision |
+| Reviews（1） | pending list | 按项目成员过滤 |
+| Audit（2） | list + detail | super_admin / auditor 专属 |
+| Agent（4） | agent-runs CRUD, agent-tools | Stage 1 均返回 503（`AGENT_ENABLED=false`） |
+| Health（1） | GET /health | 公开，返回 `{"data": {"status": "ok"}}` |
 
-### 7.4 响应格式
-
-成功响应：
-
-```json
-{
-  "data": {},
-  "meta": {
-    "request_id": "req_20260702_000001",
-    "timestamp": "2026-07-02T10:00:00+08:00"
-  }
-}
-```
-
-分页响应：
-
-```json
-{
-  "data": [],
-  "pagination": {
-    "page": 1,
-    "page_size": 20,
-    "total": 120
-  },
-  "meta": {
-    "request_id": "req_20260702_000002"
-  }
-}
-```
-
-错误响应：
-
-```json
-{
-  "error": {
-    "code": "FILE_TYPE_NOT_ALLOWED",
-    "message": "Only DWG files are allowed.",
-    "details": {
-      "field": "file",
-      "allowed_extensions": [".dwg"]
-    }
-  },
-  "meta": {
-    "request_id": "req_20260702_000003"
-  }
-}
-```
-
-### 7.5 认证 API
-
-| Method | Path | 说明 | 状态码 |
-|---|---|---|---|
-| POST | `/api/v1/auth/sessions` | 登录，创建会话 | 201 |
-| DELETE | `/api/v1/auth/sessions/current` | 登出当前会话 | 204 |
-| POST | `/api/v1/auth/tokens/refresh` | 刷新 access token | 200 |
-| GET | `/api/v1/auth/me` | 当前用户信息 | 200 |
-| PATCH | `/api/v1/auth/password` | 修改当前用户密码 | 200 |
-
-登录请求：
-
-```json
-{
-  "username": "10001",
-  "password": "********"
-}
-```
-
-登录响应：
-
-```json
-{
-  "data": {
-    "access_token": "eyJ...",
-    "token_type": "Bearer",
-    "expires_in": 1800,
-    "user": {
-      "id": 1,
-      "username": "10001",
-      "real_name": "张三",
-      "roles": ["engineer"]
-    }
-  }
-}
-```
-
-### 7.6 用户与权限 API
-
-| Method | Path | 说明 |
-|---|---|---|
-| GET | `/api/v1/users` | 用户列表 |
-| POST | `/api/v1/users` | 创建用户 |
-| GET | `/api/v1/users/{user_id}` | 用户详情 |
-| PATCH | `/api/v1/users/{user_id}` | 修改用户 |
-| DELETE | `/api/v1/users/{user_id}` | 软删除用户 |
-| POST | `/api/v1/users/{user_id}/roles` | 给用户分配角色 |
-| DELETE | `/api/v1/users/{user_id}/roles/{role_id}` | 移除用户角色 |
-| POST | `/api/v1/users/{user_id}/password-reset-requests` | 管理员发起密码重置 |
-| POST | `/api/v1/users/{user_id}/disable-requests` | 禁用用户 |
-| POST | `/api/v1/users/{user_id}/enable-requests` | 启用用户 |
-| GET | `/api/v1/roles` | 角色列表 |
-| POST | `/api/v1/roles` | 创建角色 |
-| GET | `/api/v1/permissions` | 权限列表 |
-| PUT | `/api/v1/roles/{role_id}/permissions` | 替换角色权限集合 |
-
-说明：
-
-- 禁用、启用、重置密码这类动作会产生审计记录，因此可以建模为 `*-requests` 子资源。
-- 删除用户默认软删除，保留历史任务和审计关系。
-
-### 7.7 项目 API
-
-| Method | Path | 说明 |
-|---|---|---|
-| GET | `/api/v1/projects` | 项目列表 |
-| POST | `/api/v1/projects` | 创建项目 |
-| GET | `/api/v1/projects/{project_id}` | 项目详情 |
-| PATCH | `/api/v1/projects/{project_id}` | 修改项目 |
-| DELETE | `/api/v1/projects/{project_id}` | 归档/软删除项目 |
-| GET | `/api/v1/projects/{project_id}/members` | 项目成员 |
-| POST | `/api/v1/projects/{project_id}/members` | 添加项目成员 |
-| PATCH | `/api/v1/projects/{project_id}/members/{member_id}` | 修改项目成员角色 |
-| DELETE | `/api/v1/projects/{project_id}/members/{member_id}` | 移除项目成员 |
-
-### 7.8 文件 API
-
-普通上传：
-
-| Method | Path | 说明 |
-|---|---|---|
-| POST | `/api/v1/files` | 上传文件 |
-| GET | `/api/v1/files` | 文件列表 |
-| GET | `/api/v1/files/{file_id}` | 文件详情 |
-| DELETE | `/api/v1/files/{file_id}` | 删除文件，默认软删除 |
-| GET | `/api/v1/files/{file_id}/download-url` | 获取短期下载 URL |
-
-大文件分片上传：
-
-| Method | Path | 说明 |
-|---|---|---|
-| POST | `/api/v1/uploads` | 创建上传会话 |
-| PUT | `/api/v1/uploads/{upload_id}/parts/{part_number}` | 上传分片 |
-| POST | `/api/v1/uploads/{upload_id}/complete` | 完成上传并合并 |
-| DELETE | `/api/v1/uploads/{upload_id}` | 取消上传 |
-
-上传响应：
-
-```json
-{
-  "data": {
-    "id": 1001,
-    "original_name": "A-001.dwg",
-    "file_ext": ".dwg",
-    "size_bytes": 12345678,
-    "sha256": "...",
-    "storage_key": "dwg-original/project/1/drawing/123/v1/source.dwg",
-    "status": "available"
-  }
-}
-```
-
-### 7.9 图纸 API
-
-| Method | Path | 说明 |
-|---|---|---|
-| GET | `/api/v1/drawings` | 图纸列表 |
-| POST | `/api/v1/drawings` | 创建图纸记录 |
-| GET | `/api/v1/drawings/{drawing_id}` | 图纸详情 |
-| PATCH | `/api/v1/drawings/{drawing_id}` | 修改图纸元数据 |
-| DELETE | `/api/v1/drawings/{drawing_id}` | 归档图纸 |
-| GET | `/api/v1/drawings/{drawing_id}/versions` | 图纸版本列表 |
-| POST | `/api/v1/drawings/{drawing_id}/versions` | 上传新版本 |
-| GET | `/api/v1/drawings/{drawing_id}/preview` | 获取图纸预览 |
-
-### 7.10 任务 API
-
-| Method | Path | 说明 | 推荐状态码 |
-|---|---|---|---|
-| GET | `/api/v1/jobs` | 任务列表 | 200 |
-| POST | `/api/v1/jobs` | 创建处理任务 | 202 |
-| GET | `/api/v1/jobs/{job_id}` | 任务详情 | 200 |
-| POST | `/api/v1/jobs/{job_id}/cancellation-requests` | 请求取消任务 | 202 |
-| POST | `/api/v1/jobs/{job_id}/retry-requests` | 请求重试任务 | 202 |
-| GET | `/api/v1/jobs/{job_id}/steps` | 任务步骤 | 200 |
-| GET | `/api/v1/jobs/{job_id}/logs` | 任务日志 | 200 |
-| GET | `/api/v1/jobs/{job_id}/events` | SSE 任务事件流 | 200 |
-| GET | `/api/v1/jobs/{job_id}/results` | 任务结果 | 200 |
-
-创建任务请求：
-
-```json
-{
-  "drawing_id": 123,
-  "task_type": "extract_layers",
-  "precision_level": "normal",
-  "params": {
-    "include_hidden_layers": false,
-    "export_preview": true
-  }
-}
-```
-
-创建任务响应：
-
-```json
-{
-  "data": {
-    "id": 456,
-    "status": "queued",
-    "pipeline": "dxf_open_source",
-    "created_at": "2026-07-02T10:00:00+08:00"
-  }
-}
-```
-
-### 7.11 Agent API
-
-原规范中的 `POST /api/agent/run` 在正式平台中改为 RESTful 资源：
-
-| Method | Path | 说明 | 状态码 |
-|---|---|---|---|
-| POST | `/api/v1/agent-runs` | 创建一次 Agent 执行 | 202 |
-| GET | `/api/v1/agent-runs/{agent_run_id}` | 查询 Agent 执行详情 | 200 |
-| GET | `/api/v1/agent-runs/{agent_run_id}/steps` | 查询 Agent 步骤 | 200 |
-| GET | `/api/v1/agent-tools` | 查询当前 Agent 可用工具 | 200 |
-| GET | `/health` | 服务健康检查 | 200 |
-
-Agent run 请求：
-
-```json
-{
-  "session_id": "sess_001",
-  "task": "帮我提取这张 DWG 里的所有图层和文字",
-  "file_id": 1001,
-  "context": {
-    "project_id": 1,
-    "drawing_id": 123
-  }
-}
-```
-
-Agent run 响应：
-
-```json
-{
-  "data": {
-    "id": 9001,
-    "session_id": "sess_001",
-    "status": "queued",
-    "answer": null,
-    "history_count": 4,
-    "created_at": "2026-07-02T10:00:00+08:00"
-  }
-}
-```
-
-Agent run 完成后的详情响应：
-
-```json
-{
-  "data": {
-    "id": 9001,
-    "session_id": "sess_001",
-    "status": "succeeded",
-    "answer": "已完成图层和文字提取，共发现 18 个图层、326 个文字对象。",
-    "steps": [
-      {
-        "type": "tool_call",
-        "title": "parse_dxf_entities",
-        "tool_name": "parse_dxf_entities",
-        "arguments": {
-          "file_id": 1001
-        },
-        "status": "success"
-      }
-    ],
-    "output_file_id": 2001,
-    "history_count": 6
-  }
-}
-```
-
-说明：
-
-- 可以在开发期保留 `/api/agent/run` 作为兼容别名，但正式文档、前端和联调均以 `/api/v1/agent-runs` 为准。
-- Agent 执行属于异步资源创建，因此默认返回 `202 Accepted`。
-- Agent 工具查询使用 `GET /api/v1/agent-tools`，而不是 `/api/agent/tools`。
-
-### 7.12 结果与复核 API
-
-| Method | Path | 说明 |
-|---|---|---|
-| GET | `/api/v1/results/{result_id}` | 结果详情 |
-| GET | `/api/v1/results/{result_id}/download-url` | 结果文件下载 URL |
-| GET | `/api/v1/reviews/pending` | 待复核列表 |
-| POST | `/api/v1/results/{result_id}/reviews` | 提交复核记录 |
-| GET | `/api/v1/results/{result_id}/reviews` | 复核历史 |
-
-复核请求：
-
-```json
-{
-  "decision": "approved",
-  "comment": "结果与图纸标注一致。"
-}
-```
-
-`decision` 有效值：`"approved"`（通过）、`"rejected"`（驳回）、`"needs_revision"`（需修改）。
-
-### 7.13 审计 API
-
-| Method | Path | 说明 |
-|---|---|---|
-| GET | `/api/v1/audit-logs` | 审计日志列表 |
-| GET | `/api/v1/audit-logs/{audit_log_id}` | 审计日志详情 |
-
-仅允许：
-
-```text
-super_admin
-auditor
-```
-
-访问。
+完整端点参数、请求/响应示例见 `docs/api.md`。
 
 ---
 
@@ -854,412 +396,157 @@ auditor
 
 ### 8.1 账号体系
 
-系统采用企业内部账号体系：
+- `username`：内部账号/工号，pattern `^[a-zA-Z0-9_.@-]+$`
+- `real_name`：真实姓名，拒绝 HTML 标签
+- `email`：企业邮箱
+- `password_hash`：Argon2id（`pwdlib.PasswordHash.recommended()`，m=65536, t=3, p=4）
+- `status`：`active` / `disabled` / `deleted`（软删除，保留审计引用）
 
-```text
-username：内部账号/工号
-real_name：真实姓名
-email：企业邮箱
-password_hash：密码哈希
-status：active / disabled / deleted
+### 8.2 密码安全
+
+1. 最小长度 12 字符，必须包含大写+小写+数字。
+2. 拒绝常见弱密码（内置黑名单）。
+3. 管理员不能查看用户密码，重置密码写入审计日志。
+4. 用户禁用后 **所有 token 立即失效**（密码变更也触发全设备登出）。
+5. **时序攻击防御**：用户不存在或已禁用时，仍执行一次完整 Argon2id 验证（对比预计算的 dummy hash），消除用户名枚举的时序侧信道。
+
+### 8.3 Token 策略
+
+- **access_token**：JWT HS256，`sub`=user_id，`jti`=UUID4，过期 30 分钟。前端存 `sessionStorage`。
+- **refresh_token**：JWT HS256，过期 14 天。`HttpOnly; SameSite=Lax` Cookie（生产加 `Secure`）。
+- **登出黑名单**：`jti` 写入 Redis（`blacklist:jti:{jti}`），TTL = 剩余有效期，自清理。Redis 不可用时降级（fail-open）。
+- **密码变更失效**：token 签发时间早于 `password_changed_at` → 401。
+
+### 8.4 RBAC 模型（5 表）
+
+```
+sys_users ──< sys_user_roles >── sys_roles ──< sys_role_permissions >── sys_permissions
+     │
+     └── projects ──< project_members >── sys_users
 ```
 
-密码要求：
-
-1. 后端不保存明文密码。
-2. 使用 Argon2id 或 bcrypt 哈希。
-3. 管理员不能查看用户密码。
-4. 管理员重置密码必须写入审计日志。
-5. 用户禁用后，refresh token 必须失效。
-
-### 8.2 Token 策略
-
-推荐：
-
-```text
-access_token：短期有效，前端内存保存
-refresh_token：HttpOnly + Secure + SameSite Cookie
-```
-
-不推荐：
-
-```text
-长期 token 存 localStorage
-```
-
-### 8.3 RBAC 模型
-
-角色表：
-
-```text
-sys_users
-sys_roles
-sys_permissions
-sys_user_roles
-sys_role_permissions
-```
-
-推荐全局角色：
+### 8.5 全局角色（7 个，`is_system=True` 保护）
 
 | 角色 | 说明 |
 |---|---|
-| `super_admin` | 超级管理员，拥有全局管理权限 |
-| `admin` | 系统管理员，可管理用户、项目和任务 |
-| `engineer` | 工程师，可上传文件、创建任务、查看项目结果 |
-| `reviewer` | 复核员，可审核机器处理结果 |
-| `operator` | 操作员，可处理分配任务 |
-| `viewer` | 只读用户 |
-| `auditor` | 审计员，可查看审计日志 |
+| `super_admin` | 绕过所有权限检查，完全系统访问 |
+| `admin` | 用户管理、项目管理、全局项目查看 |
+| `engineer` | 上传文件、创建任务、查看所属项目结果 |
+| `reviewer` | 审核分析结果 |
+| `operator` | 执行分配任务 |
+| `viewer` | 只读访问 |
+| `auditor` | 查看审计日志 |
 
-项目级角色：
+### 8.6 项目角色（4 个）
 
-| 项目角色 | 说明 |
+| 角色 | 能力 |
 |---|---|
-| `project_owner` | 项目负责人 |
-| `project_engineer` | 项目工程师 |
-| `project_reviewer` | 项目复核员 |
-| `project_viewer` | 项目只读成员 |
+| `project_owner` | 项目管理、成员管理、文件/图纸/任务/结果完全控制 |
+| `project_engineer` | 上传文件、创建图纸、提交任务、查看结果 |
+| `project_reviewer` | 审核分析结果 |
+| `project_viewer` | 只读 |
 
-权限判断顺序：
+### 8.7 权限判断顺序
 
-```text
-是否登录
-  ↓
-用户是否启用
-  ↓
-是否具备全局权限
-  ↓
-是否属于目标项目
-  ↓
-是否具备项目级资源权限
-  ↓
-是否允许具体 action
 ```
+已认证？ → 否 → 401
+用户活跃？ → 否 → 401
+super_admin？ → 是 → 允许全部
+admin 全局权限？ → 是 → 允许
+项目成员？ → 否 → 403
+项目角色允许此操作？ → 否 → 403
+→ 允许
+```
+
+### 8.8 关键实现细节
+
+- **`require_project_member()`** 内嵌 `require_active_project()`：项目软删除后所有成员访问级联返回 404。
+- **`super_admin` 保护**：非 super_admin 不能管理 super_admin 账号。
+- **自操作保护**：不能删除/禁用自己的账号。
+- **原子状态转换**：`transition_user_status()` 使用 `UPDATE WHERE + rowcount`（消除 SELECT→UPDATE 的 TOCTOU 窗口）。
+- **`FOR UPDATE`**：`get_user_or_404(for_update=True)` 提供悲观行锁。
 
 ---
 
 ## 9. MySQL 数据库设计
 
-### 9.1 数据库职责
+### 9.1 核心原则
 
-MySQL 只保存结构化业务数据：
+- MySQL 8.x 只保存结构化业务数据，不存文件本体（文件在 MinIO/NAS）。
+- 所有表使用 `TimestampMixin`（`created_at` + `updated_at`），用户表额外有 `deleted_at`（软删除）。
+- 所有 FK 使用默认 `NO ACTION`（MySQL RESTRICT），禁用级联删除——通过应用层软删除保护审计链。
+- 迁移使用 Alembic（当前 3 版本），`_pk_type()` helper 兼容 MySQL `BIGINT` 和 SQLite `INTEGER`。
 
-```text
-用户
-角色
-权限
-项目
-项目成员
-文件元数据
-图纸版本
-任务状态
-任务步骤
-Agent run 记录
-分析结果索引
-复核记录
-审计日志
+### 9.2 表总览（17 表）
+
+| # | 表 | 用途 |
+|---|---|---|
+| 1 | `sys_users` | 用户身份（username UNIQUE, password_hash, status, soft-delete） |
+| 2 | `sys_roles` | 角色定义（code UNIQUE, is_system 保护） |
+| 3 | `sys_permissions` | 权限定义（resource + action） |
+| 4 | `sys_user_roles` | 用户↔角色 M2M |
+| 5 | `sys_role_permissions` | 角色↔权限 M2M |
+| 6 | `projects` | 项目容器（code UNIQUE, owner_id, status） |
+| 7 | `project_members` | 项目成员（project_role, UNIQUE(project_id, user_id)） |
+| 8 | `files` | 文件元数据（storage_key, sha256, bucket, status） |
+| 9 | `drawings` | 图纸记录（current_version_id 循环 FK） |
+| 10 | `drawing_versions` | 版本记录（version_no 自增） |
+| 11 | `jobs` | 处理任务（task_type, pipeline, status, params_json, error_code） |
+| 12 | `job_steps` | 任务步骤（step_name, worker_name, input/output_json） |
+| 13 | `agent_runs` | Agent 执行记录（session_id, task, status, answer） |
+| 14 | `agent_run_steps` | Agent 步骤（step_type, tool_name, arguments_json） |
+| 15 | `analysis_results` | 分析结果（result_type, result_json, confidence DECIMAL(5,4)） |
+| 16 | `review_records` | 复核记录（decision: approved/rejected/needs_revision） |
+| 17 | `audit_logs` | 审计日志（action, resource_type, before/after_json, ip_address） |
+
+详细表结构、列定义、索引和 ER 图见 `docs/database.md`。
+
+### 9.3 连接池配置
+
+```python
+engine = create_engine(
+    settings.mysql_url,
+    pool_pre_ping=True, pool_recycle=3600, pool_size=10, max_overflow=20,
+)
 ```
 
-MySQL 不保存：
+### 9.4 SQLite 测试隔离
 
-```text
-DWG 文件本体
-DXF 文件本体
-PNG/SVG 预览图
-Excel/PDF 报告
-大型 JSON 文件
-```
-
-这些文件应保存到 MinIO / NAS。
-
-### 9.2 核心表
-
-> **TimestampMixin 说明：** 除 `sys_permissions` 和 `job_steps` 外，所有表均通过 ORM `TimestampMixin` 自动获得 `created_at DATETIME NOT NULL` 和 `updated_at DATETIME NOT NULL` 列。以下各表定义中省略了 `updated_at` 列，实际建表时均包含。
-
-#### sys_users
-
-```text
-id BIGINT PK
-username VARCHAR(64) UNIQUE NOT NULL
-employee_no VARCHAR(64)
-real_name VARCHAR(64) NOT NULL
-email VARCHAR(128)
-password_hash VARCHAR(255) NOT NULL
-password_algo VARCHAR(32) NOT NULL
-status VARCHAR(32) NOT NULL
-last_login_at DATETIME NULL
-created_at DATETIME NOT NULL
-updated_at DATETIME NOT NULL
-deleted_at DATETIME NULL
-```
-
-#### sys_roles
-
-```text
-id BIGINT PK
-code VARCHAR(64) UNIQUE NOT NULL
-name VARCHAR(64) NOT NULL
-description VARCHAR(255)
-is_system BOOLEAN NOT NULL
-created_at DATETIME NOT NULL
-updated_at DATETIME NOT NULL
-```
-
-#### sys_permissions
-
-```text
-id BIGINT PK
-code VARCHAR(128) UNIQUE NOT NULL
-resource VARCHAR(64) NOT NULL
-action VARCHAR(64) NOT NULL
-name VARCHAR(128) NOT NULL
-```
-
-#### sys_user_roles
-
-```text
-user_id BIGINT FK
-role_id BIGINT FK
-created_at DATETIME NOT NULL
-```
-
-#### projects
-
-```text
-id BIGINT PK
-code VARCHAR(64) UNIQUE NOT NULL
-name VARCHAR(128) NOT NULL
-description TEXT
-owner_id BIGINT FK
-status VARCHAR(32) NOT NULL
-created_at DATETIME NOT NULL
-updated_at DATETIME NOT NULL
-```
-
-#### project_members
-
-```text
-id BIGINT PK
-project_id BIGINT FK
-user_id BIGINT FK
-project_role VARCHAR(64) NOT NULL
-created_at DATETIME NOT NULL
-```
-
-#### files
-
-```text
-id BIGINT PK
-bucket VARCHAR(128) NOT NULL
-storage_key VARCHAR(512) NOT NULL
-original_name VARCHAR(255) NOT NULL
-file_ext VARCHAR(32) NOT NULL
-content_type VARCHAR(128)
-size_bytes BIGINT NOT NULL
-sha256 VARCHAR(64) NOT NULL
-md5 VARCHAR(32)
-uploaded_by BIGINT FK
-status VARCHAR(32) NOT NULL
-created_at DATETIME NOT NULL
-updated_at DATETIME NOT NULL
-```
-
-#### drawings
-
-```text
-id BIGINT PK
-project_id BIGINT FK
-drawing_no VARCHAR(128)
-title VARCHAR(255)
-discipline VARCHAR(64)
-current_version_id BIGINT NULL
-status VARCHAR(32) NOT NULL
-created_at DATETIME NOT NULL
-updated_at DATETIME NOT NULL
-```
-
-#### drawing_versions
-
-```text
-id BIGINT PK
-drawing_id BIGINT FK
-file_id BIGINT FK
-version_no INT NOT NULL
-source VARCHAR(64)
-created_by BIGINT FK
-created_at DATETIME NOT NULL
-```
-
-#### jobs
-
-```text
-id BIGINT PK
-project_id BIGINT FK
-drawing_id BIGINT FK
-created_by BIGINT FK
-task_type VARCHAR(64) NOT NULL
-precision_level VARCHAR(32) NOT NULL
-pipeline VARCHAR(64)
-status VARCHAR(32) NOT NULL
-priority INT NOT NULL DEFAULT 0
-progress INT NOT NULL DEFAULT 0
-params_json JSON
-error_code VARCHAR(64)
-error_message TEXT
-created_at DATETIME NOT NULL
-started_at DATETIME NULL
-finished_at DATETIME NULL
-```
-
-#### job_steps
-
-```text
-id BIGINT PK
-job_id BIGINT FK
-step_name VARCHAR(128) NOT NULL
-worker_name VARCHAR(128)
-status VARCHAR(32) NOT NULL
-input_json JSON
-output_json JSON
-error_message TEXT
-started_at DATETIME NULL
-finished_at DATETIME NULL
-```
-
-#### agent_runs
-
-```text
-id BIGINT PK
-session_id VARCHAR(128) NOT NULL
-user_id BIGINT FK
-project_id BIGINT NULL
-drawing_id BIGINT NULL
-file_id BIGINT NULL
-task TEXT NOT NULL
-status VARCHAR(32) NOT NULL
-answer TEXT NULL
-output_file_id BIGINT NULL
-history_count INT NOT NULL DEFAULT 0
-created_at DATETIME NOT NULL
-started_at DATETIME NULL
-finished_at DATETIME NULL
-```
-
-#### agent_run_steps
-
-```text
-id BIGINT PK
-agent_run_id BIGINT FK
-step_type VARCHAR(64) NOT NULL
-title VARCHAR(255)
-tool_name VARCHAR(128)
-arguments_json JSON
-content TEXT
-status VARCHAR(32) NOT NULL
-created_at DATETIME NOT NULL
-```
-
-#### analysis_results
-
-```text
-id BIGINT PK
-job_id BIGINT FK
-drawing_id BIGINT FK
-result_type VARCHAR(64) NOT NULL
-result_json JSON
-confidence DECIMAL(5,4)
-result_file_id BIGINT NULL
-algorithm_version VARCHAR(64)
-tool_version VARCHAR(64)
-status VARCHAR(32) NOT NULL
-created_at DATETIME NOT NULL
-```
-
-#### review_records
-
-```text
-id BIGINT PK
-result_id BIGINT FK
-reviewer_id BIGINT FK
-decision VARCHAR(32) NOT NULL
-comment TEXT
-created_at DATETIME NOT NULL
-```
-
-#### audit_logs
-
-```text
-id BIGINT PK
-actor_user_id BIGINT NULL
-action VARCHAR(128) NOT NULL
-resource_type VARCHAR(64) NOT NULL
-resource_id BIGINT NULL
-ip_address VARCHAR(64)
-user_agent VARCHAR(512)
-before_json JSON
-after_json JSON
-created_at DATETIME NOT NULL
-```
+pytest 使用 SQLite `:memory:` + `StaticPool`，每测试完全隔离。`foreign_keys=ON` pragma 由 conftest 自动设置。
 
 ---
 
 ## 10. 文件存储设计
 
-### 10.1 存储选型
+### 10.1 双后端抽象
 
-开发环境可以使用本地目录：
-
-```text
-uploads/
-outputs/
-data/
+```
+app/storage/
+├── base.py           ← AbstractStorageBackend（save / retrieve / delete）
+├── local_storage.py  ← LocalFileStorage（开发环境，backend/var/storage/）
+└── minio_storage.py  ← MinioStorage（Docker 部署）
 ```
 
-生产环境推荐：
+通过 `STORAGE_BACKEND=local|minio` 切换。
 
-```text
-MinIO 或公司 NAS
-```
+### 10.2 Bucket 设计（4 个）
 
-### 10.2 Bucket 设计
+| Bucket | 内容 | 规则 |
+|---|---|---|
+| `dwg-original` | 原始 DWG | 永不覆盖 |
+| `dwg-derived` | DXF、JSON、PNG、SVG | 允许重算 |
+| `dwg-reports` | Excel、PDF、ZIP | 按需生成 |
+| `dwg-temp` | 临时文件 | Worker 生命周期内有效 |
 
-```text
-dwg-original    原始 DWG
-dwg-derived     DXF、JSON、PNG、SVG 等派生文件
-dwg-reports     Excel、PDF、ZIP 报告
-dwg-temp        临时文件
-```
+### 10.3 文件安全要求
 
-### 10.3 对象路径规范
-
-```text
-dwg-original/project/{project_id}/drawing/{drawing_id}/v{version}/source.dwg
-
-dwg-derived/project/{project_id}/drawing/{drawing_id}/job/{job_id}/converted.dxf
-
-dwg-derived/project/{project_id}/drawing/{drawing_id}/job/{job_id}/entities.json
-
-dwg-derived/project/{project_id}/drawing/{drawing_id}/job/{job_id}/preview.png
-
-dwg-reports/project/{project_id}/drawing/{drawing_id}/job/{job_id}/report.xlsx
-```
-
-### 10.4 文件安全要求
-
-1. 原始 DWG 永不覆盖。
-2. 派生文件允许重算。
-3. 所有文件必须计算 SHA-256。
-4. 禁止使用用户提供的路径作为存储路径。
-5. 文件名只作为展示字段，不作为真实存储路径。
-6. 上传必须校验：
-   - 文件扩展名；
-   - MIME 类型；
-   - 文件头；
-   - 文件大小；
-   - SHA-256。
-7. 下载必须先通过后端权限校验，再返回短期下载 URL。
-8. Worker 处理文件必须使用 sandbox 目录。
-9. 任务结束后清理临时目录。
+1. 存储路径由后端生成（`local/{uuid4().hex}{ext}`），不使用用户文件名。
+2. `original_name` 仅作展示字段。
+3. 所有文件计算 SHA-256 + MD5。
+4. 上传校验链：扩展名（`.dwg`） → MIME → DWG 文件头（AC1012-AC1032） → 大小（≥1024 字节，≤512MB） → 流式哈希。
+5. 路径穿越防护：`ensure_within_root(root, candidate)` 拒绝 `../` 和符号链接逃逸。
+6. 下载：先校验权限（项目成员或全局管理员），再返回 HMAC-SHA256 签名 URL（TTL=300s）。
+7. 原始文件只读，不允许覆盖写入。
 
 ---
 
@@ -1346,36 +633,15 @@ call_tool(tool_name, arguments) -> str
 4. MCP tool description 必须包含完整参数说明。
 5. Agent 代码不能直接使用 pandas/openpyxl/ezdxf 等业务库；这些应在工具服务或 Worker 中使用。
 
-### 11.5 Redis 短期记忆
+### 11.5 Redis 短期记忆（已实现，待运行时调用）
 
-Redis 保存：
-
-```text
-session_id -> messages
-```
-
-配置项：
-
-```text
-REDIS_MEMORY_TTL=7200
-REDIS_MAX_MESSAGES=20
-```
-
-执行流程：
-
-```text
-读取 session 历史消息
-  ↓
-拼接当前用户消息
-  ↓
-agent.ainvoke({"messages": history + [user_msg]})
-  ↓
-提取 answer 和 tool steps
-  ↓
-截断历史消息
-  ↓
-写回 Redis 并设置 TTL
-```
+- Key pattern: `agent:memory:{session_id}`
+- 数据类型: JSON list
+- TTL: `REDIS_MEMORY_TTL=7200`（2 小时）
+- 最大消息数: `REDIS_MAX_MESSAGES=20`
+- 实现文件: `app/services/redis_memory.py`（78 行，已通过测试验证）
+- 缓存服务: `app/services/cache_service.py`（84 行，`cache:{namespace}:{key}` 模式，Redis 不可用时安全降级）
+- Stage 1 状态: 基础设施就绪，已测试但未在请求路径中调用
 
 ---
 
@@ -1424,78 +690,45 @@ CAD 专业能力可以封装为内部 Tool Service 或内部 MCP Server；
 
 ## 13. 异步任务与 Celery 设计
 
-### 13.1 为什么必须异步
+### 13.1 设计原则
 
-DWG/DXF/CAD 处理具有以下特点：
+- FastAPI 负责创建任务、查询状态；Celery 负责异步执行。
+- 前端通过轮询或 SSE 获取进度。
+- 队列: `agent`、`dxf`、`cad`、`report`、`maintenance`。
+- Broker/Result Backend: Redis（生产可升级 RabbitMQ）。
 
-```text
-文件大；
-耗时长；
-可能失败；
-需要重试；
-需要记录步骤；
-可能调用外部 Windows CAD Worker；
-不适合阻塞 HTTP 请求。
-```
+### 13.2 当前实现状态
 
-因此：
+| 组件 | 状态 | 说明 |
+|---|---|---|
+| `celery_app.py` | **已实现** | Redis broker/result backend，queue routing，eager mode for tests |
+| `tasks_report.py` | **已实现** | `run_stub_job`：queued→running→succeeded 假任务，写入 job_steps + analysis_results |
+| `tasks_agent.py` | 占位 | Stage 2 |
+| `tasks_dxf.py` | 占位 | Stage 3 |
+| `tasks_cad.py` | 占位 | Stage 4 |
 
-```text
-FastAPI 负责创建任务；
-Celery 负责执行任务；
-前端通过任务查询或 SSE 获取进度。
-```
-
-### 13.2 队列划分
-
-```text
-agent      Agent 执行和工具编排
-dxf        DWG→DXF、DXF 解析、低精度处理
-cad        CAD Worker 任务派发、状态轮询、回调处理
-report     Excel/PDF/ZIP 报告生成
-maintenance 临时文件清理、失败任务修复
-```
+Celery URL 从 Redis 组件字段自动计算，与 Redis 配置保持同步。
 
 ### 13.3 任务状态机
 
 ```text
-pending
-queued
-running
-waiting_cad_worker
-validating
-need_review
-succeeded
-failed
-cancelled
+pending → queued → running → validating → need_review → succeeded
+  │         │         │            │
+  │         │         │            └──→ waiting_cad_worker → validating → ...
+  │         │         │
+  └── (auto)         ├──→ cancelled（仅 queued/running 可取消）
+                     └──→ failed（仅 running/validating 可失败）
+                              │
+                              └──→ retry → queued（仅 failed/cancelled 可重试）
 ```
 
-状态说明：
-
-| 状态 | 含义 |
-|---|---|
-| `pending` | 任务已创建，尚未入队 |
-| `queued` | 已投递到队列 |
-| `running` | Worker 正在处理 |
-| `waiting_cad_worker` | 等待 Windows CAD Worker 执行或回调 |
-| `validating` | 结果校验中 |
-| `need_review` | 需要人工复核 |
-| `succeeded` | 任务完成 |
-| `failed` | 任务失败 |
-| `cancelled` | 任务取消 |
-
-### 13.4 任务工程要求
+### 13.4 工程要求
 
 1. 任务必须幂等。
-2. 任务必须有超时控制。
-3. 失败必须写入 `jobs.error_code` 和 `jobs.error_message`。
-4. 每个任务步骤必须写入 `job_steps`。
-5. Worker 日志必须带 `job_id`。
-6. 可重试任务必须区分：
-   - 临时失败；
-   - 业务失败；
-   - 不可重试失败。
-7. 大型中间结果应写入 MinIO，MySQL 只记录索引。
+2. 失败写入 `jobs.error_code` + `jobs.error_message`。
+3. 每个步骤写入 `job_steps`（step_name, worker_name, status, input/output_json）。
+4. Worker 日志必须带 `job_id`。
+5. 大型中间结果写入 MinIO，MySQL 只记录索引。
 
 ---
 
@@ -1724,310 +957,93 @@ DXF 解析置信度 < 0.85 → CAD Worker
 
 ## 17. Docker 与部署规范
 
-### 17.1 Docker 的作用
+### 17.1 容器化原则
 
-Docker 在本系统中的作用：
+- 应容器化的：nginx, backend-api, worker-*, mysql, redis(valkey), minio, flower。
+- 不应容器化的：中望 CAD 桌面软件（依赖 Windows GUI、许可证服务、.NET/COM 环境）。
 
-```text
-固定运行环境；
-隔离服务依赖；
-一键部署；
-便于回滚；
-统一日志；
-分离网络边界；
-管理数据卷；
-支持 Worker 横向扩展；
-降低服务器迁移成本。
+### 17.2 服务总览（9 服务，2 profiles）
+
+| 服务 | 镜像 | Profile | 说明 |
+|---|---|---|---|
+| `nginx` | `nginxinc/nginx-unprivileged:1.27-alpine` | — | React 静态资源 + `/api/v1/*` 反代 + 限流 |
+| `backend-api` | 自构建（`backend/Dockerfile`） | — | gunicorn + uvicorn, 4 workers, HEALTHCHECK `/health` |
+| `mysql` | `oracle/mysql-community-server:8.4` | — | `mysqladmin ping` 健康检查 |
+| `redis` | `valkey/valkey:9.0-alpine` | — | AOF, requirepass, maxmemory 256mb |
+| `minio` | `minio/minio:latest` | — | S3 兼容对象存储 |
+| `worker-agent` | 自构建 | `workers` | Celery agent 队列 |
+| `worker-dxf` | 自构建 | `workers` | Celery dxf 队列 |
+| `worker-report` | 自构建 | —（默认启动） | Stage 1 假任务，Stage 5 报告生成 |
+| `flower` | 自构建 | `monitoring` | Celery 监控面板（`:5555`） |
+
+```bash
+docker compose up -d                                          # 核心服务（含 worker-report）
+docker compose --profile workers --profile monitoring up -d   # 全量
 ```
 
-### 17.2 应容器化的服务
+### 17.3 网络
 
-```text
-nginx
-backend-api
-worker-agent
-worker-dxf
-worker-report
-worker-cad-dispatch  （Stage 4 预留，当前 compose.yaml 中未包含）
-mysql
-redis
-minio
-flower
-prometheus，可选（Stage 6）
-grafana，可选（Stage 6）
-```
+- `public`：Nginx 对外（80/443）。
+- `internal`（`internal: true`）：所有后端服务，不对外暴露。
 
-### 17.3 不应强行容器化的服务
+### 17.4 Dockerfile 关键特性
 
-```text
-中望 CAD 桌面软件
-AutoCAD / ZWCAD GUI
-依赖 Windows 桌面会话和许可证的 CAD 插件环境
-```
+- 多阶段构建（uv python3.12-bookworm-slim）。
+- 非 root 用户 `appuser`（uid 1000）。
+- HEALTHCHECK: `curl -f http://localhost:8000/health`（15s interval, 3s timeout, 5 retries）。
+- CMD: `alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120`
 
-### 17.4 Docker Compose 服务结构
-
-```yaml
-services:
-  nginx:
-    image: nginx:1.27-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html:ro
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      backend-api:
-        condition: service_healthy
-    networks:
-      - public
-      - internal
-    restart: unless-stopped
-
-  backend-api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: >
-      uv run gunicorn app.main:app
-      -k uvicorn.workers.UvicornWorker
-      --bind 0.0.0.0:8000
-      --workers 4
-      --timeout 120
-    env_file:
-      - .env
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks:
-      - internal
-    restart: unless-stopped
-
-  worker-agent:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app worker -Q agent -n agent@%h --concurrency=2
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-    networks:
-      - internal
-    restart: unless-stopped
-
-  worker-dxf:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app worker -Q dxf -n dxf@%h --concurrency=2
-    env_file:
-      - .env
-    depends_on:
-      redis:
-        condition: service_healthy
-      mysql:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    networks:
-      - internal
-    restart: unless-stopped
-
-  worker-report:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app worker -Q report -n report@%h --concurrency=2
-    env_file:
-      - .env
-    networks:
-      - internal
-    restart: unless-stopped
-
-  mysql:
-    image: mysql:8.4
-    environment:
-      MYSQL_DATABASE: dwg_agent
-      MYSQL_USER: dwg_user
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      - internal
-    restart: unless-stopped
-
-  redis:
-    image: redis:7.4-alpine
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
-    volumes:
-      - redis_data:/data
-    networks:
-      - internal
-    restart: unless-stopped
-
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-    volumes:
-      - minio_data:/data
-    networks:
-      - internal
-    restart: unless-stopped
-
-  flower:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: uv run celery -A app.workers.celery_app flower --port=5555
-    env_file:
-      - .env
-    networks:
-      - internal
-    restart: unless-stopped
-
-volumes:
-  mysql_data:
-  redis_data:
-  minio_data:
-
-networks:
-  public:
-  internal:
-    internal: true
-```
-
-### 17.5 后端 Dockerfile 要求
-
-```dockerfile
-FROM python:3.12-slim AS base
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV UV_PROJECT_ENVIRONMENT=/app/.venv
-ENV PATH="/app/.venv/bin:$PATH"
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
-
-COPY app ./app
-COPY alembic.ini ./
-COPY migrations ./migrations
-
-EXPOSE 8000
-
-CMD ["sh", "-c", "alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
-```
-
-生产要求：
-
-1. 依赖必须在镜像构建阶段安装。
-2. 运行容器时不允许临时安装依赖。
-3. `.env` 不打入镜像。
-4. 不使用 root 用户运行生产服务。
-5. API 容器不保存持久文件。
-6. 所有持久数据使用 volume 或外部存储。
+完整 `compose.yaml` 和部署步骤见 `docs/deployment.md`。
 
 ---
 
 ## 18. 配置规范
 
-### 18.1 `.env.example`
+### 18.1 配置模式
 
-```text
-# App
-APP_ENV=development
-DEBUG=false
-API_BASE_URL=http://localhost:8000
+配置使用 **pydantic-settings**（`extra="ignore"`），采用**组件字段 + 计算属性**模式：
 
-# MySQL
-MYSQL_HOST=mysql
-MYSQL_PORT=3306
-MYSQL_DATABASE=dwg_agent
-MYSQL_USER=dwg_user
-MYSQL_PASSWORD=
-MYSQL_ROOT_PASSWORD=
+```python
+mysql_host: str = "127.0.0.1"
+mysql_port: int = 3306
+mysql_password: str = ""
 
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_MEMORY_TTL=7200
-REDIS_MAX_MESSAGES=20
-
-# Celery
-CELERY_BROKER_URL=redis://:password@redis:6379/0
-CELERY_RESULT_BACKEND=redis://:password@redis:6379/1
-
-# MinIO
-MINIO_ENDPOINT=http://minio:9000
-MINIO_ROOT_USER=
-MINIO_ROOT_PASSWORD=
-MINIO_ACCESS_KEY=
-MINIO_SECRET_KEY=
-MINIO_BUCKET_ORIGINAL=dwg-original
-MINIO_BUCKET_DERIVED=dwg-derived
-MINIO_BUCKET_REPORTS=dwg-reports
-MINIO_BUCKET_TEMP=dwg-temp
-
-# JWT
-JWT_SECRET_KEY=
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
-JWT_REFRESH_TOKEN_EXPIRE_DAYS=14
-
-# LLM
-MODEL_NAME=deepseek-chat
-MODEL_API_KEY=
-MODEL_BASE_URL=https://api.deepseek.com
-
-# MCP
-MCP_CAD_COMMAND=uvx
-MCP_CAD_ARGS=cad-mcp-server,stdio
-
-# CAD Worker
-CAD_WORKER_API_BASE=http://cad-worker.internal:8080
-CAD_WORKER_API_KEY=
-
-# Frontend
-VITE_API_BASE_URL=http://localhost:8000
+@property
+def mysql_url(self) -> str: ...
+@property
+def redis_url(self) -> str: ...
+@property
+def celery_broker_url(self) -> str: ...  # 自动跟随 REDIS_PASSWORD
+@property
+def celery_result_backend(self) -> str: ...
 ```
 
-### 18.2 配置要求
+优势：Docker Compose 可分别覆盖各组件（如 `MYSQL_HOST=mysql`），无需重建完整 URL。
 
-1. `.env.example` 可以提交。
-2. `.env` 不能提交。
-3. 生产密钥不能进入 Git。
-4. 前端只允许暴露 `VITE_` 前缀变量。
-5. 后端配置必须通过 `pydantic-settings` 读取。
-6. 不允许在代码中硬编码数据库、模型、CAD Worker、MinIO 地址。
+### 18.2 关键配置项
+
+| 分类 | 变量 | 默认值 |
+|---|---|---|
+| App | `APP_ENV`, `DEBUG`, `API_V1_PREFIX=/api/v1` | — |
+| MySQL | `MYSQL_HOST/PORT/DATABASE/USER/PASSWORD` | 127.0.0.1:3306 |
+| Redis/Valkey | `REDIS_HOST/PORT/DB/PASSWORD` | localhost:6379, 无密码 |
+| Redis 记忆 | `REDIS_MEMORY_TTL=7200`, `REDIS_MAX_MESSAGES=20` | — |
+| JWT | `JWT_SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES=30`, `REFRESH_TOKEN_EXPIRE_DAYS=14` | — |
+| 存储 | `STORAGE_BACKEND=local|minio`, `MAX_UPLOAD_SIZE_MB=512` | local |
+| MinIO | `MINIO_ENDPOINT/ROOT_USER/ROOT_PASSWORD` + 4 bucket 名 | — |
+| Super Admin | `SUPER_ADMIN_USERNAME/PASSWORD/REAL_NAME` | admin / 系统管理员 |
+| 特性开关 | `AGENT_ENABLED/DXF_PIPELINE_ENABLED/CAD_WORKER_ENABLED` | 全部 `false` |
+| LLM | `MODEL_NAME/MODEL_API_KEY/MODEL_BASE_URL` | deepseek-chat |
+| CORS | `BACKEND_CORS_ORIGINS` | localhost:5173 |
+
+### 18.3 配置要求
+
+1. `.env.example` / `.env.docker.example` 可提交，`.env` / `.env.docker` 不可提交。
+2. 所有密钥、密码、API Key 来自环境变量，**禁止硬编码**。
+3. 前端只暴露 `VITE_` 前缀变量。
+4. 特性开关支持分阶段上线和紧急回滚（设回 `false` 即可恢复 503）。
+
+完整配置参考见 `docs/deployment.md`。
 
 ---
 
@@ -2035,410 +1051,237 @@ VITE_API_BASE_URL=http://localhost:8000
 
 ### 19.1 账号安全
 
-1. 密码使用 Argon2id 或 bcrypt。
-2. 禁止明文保存密码。
-3. 登录失败必须限流。
-4. 用户禁用后 token 立即失效。
-5. refresh token 使用 HttpOnly Cookie。
-6. 管理员操作必须写审计日志。
+- 密码 Argon2id（`pwdlib.PasswordHash.recommended()`），最小 12 字符，大写+小写+数字，弱密码黑名单。
+- **时序攻击防御**：用户不存在/已禁用时仍执行完整 Argon2id 验证（dummy hash），消除用户名枚举的时序侧信道。
+- 登录限流（Nginx `limit_req_zone`，2 req/s burst 3）。
+- 用户禁用/密码变更后所有 token 立即失效。
 
 ### 19.2 API 安全
 
-1. 所有业务 API 必须鉴权。
-2. 管理 API 必须检查角色和权限。
-3. 文件、项目、任务访问必须检查归属关系。
-4. 所有输入由 Pydantic 校验。
-5. 所有错误响应不得暴露敏感堆栈信息。
-6. 内网服务调用使用 API Key 或 mTLS。
+- 所有业务端点强制鉴权（`current_user: CurrentUser`，无 `= None`）。
+- 输入校验：username pattern、real_name HTML 标签拒绝、task_type pattern、email 格式。
+- 4 层异常处理器，所有 500 不泄露 traceback（`DEBUG=false`）。
+- CORS 显式枚举 origins/methods/headers，不设 `*`。
+- 健康端点只返回 `{"status": "ok"}`。
 
 ### 19.3 文件安全
 
-1. 限制上传大小。
-2. 限制文件类型。
-3. 校验文件头。
-4. 计算 SHA-256。
-5. 禁止路径穿越。
-6. Worker 使用 sandbox。
-7. 原始文件只读。
-8. 派生文件与原始文件分桶存储。
+- 上传校验链：扩展名 → MIME → DWG header（AC1012-AC1032） → 大小（≥1024B, ≤512MB） → SHA-256 + MD5。
+- 路径穿越防护：`ensure_within_root()` 拒绝 `../` 和符号链接。
+- HMAC-SHA256 签名下载 URL（TTL=300s）+ 权限校验。
 
-### 19.4 CAD Worker 安全
+### 19.4 Token 安全
 
-1. Windows 节点只开放内网访问。
-2. CAD Worker 使用独立低权限系统账号。
-3. 每个任务独立 sandbox。
-4. 不允许 Worker 访问非任务目录。
-5. CAD Worker 日志不得输出密钥。
-6. CAD Worker 必须验证后端签发的任务和下载 URL。
+- JWT HS256，`jti` (UUID4) 标识，`type` 区分 access/refresh。
+- 登出时 `jti` 写入 Redis 黑名单（`blacklist:jti:{jti}`，TTL=剩余有效期，自清理）。
+- access_token 存 `sessionStorage`（非 `localStorage`）。
+- refresh_token 存 `HttpOnly; SameSite=Lax` Cookie（生产加 `Secure`）。
+
+### 19.5 渗透测试修复（12/18 fixed）
+
+| ID | 发现 | 严重度 | 修复 |
+|---|---|---|---|
+| H1 | 登录时序侧信道 | Critical | Dummy Argon2id hash |
+| H6 | 用户名注入 | High | Pattern `^[a-zA-Z0-9_.@-]+$` |
+| BUG-1 | UserCreate 批量分配角色 | High | 移除字段，独立 RBAC 端点 |
+| BUG-2 | 弱密码策略 | High | 12 字符 + 复杂度 + 黑名单 |
+| BUG-3 | real_name HTML 注入 | Medium | HTML 标签拒绝 |
+| BUG-4 | 健康端点信息泄露 | Low | `{"status":"ok"}` |
+| BUG-5 | DWG 大小校验不足 | Medium | 1024 字节最小 + header 验证 |
+| BUG-6 | 竞态条件 500 traceback | Medium | IntegrityError→409 |
+| BUG-7 | 软删除级联泄露 | Medium | require_active_project 嵌入 |
+| BUG-8 | task_type 无校验 | Low | Pattern `^[a-z][a-z0-9_]+$` |
+| BUG-9 | 重试无状态守卫 | Medium | 仅 failed/cancelled 可重试 |
+| BUG-12 | 无自更新端点 | Low | `PATCH /users/me` |
+
+剩余 6 项无法复现或为部署层面关注。详见 `docs/security.md`。
+
+### 19.6 已知差距
+
+| 差距 | 缓解 |
+|---|---|
+| 无 refresh token rotation | 建议实现 OAuth 2.0 标准 rotation |
+| 审计日志无保留策略 | 建议定期归档 |
+| 签名下载 URL 非独立 capability token | 下载端点额外校验认证（defense-in-depth） |
 
 ---
 
 ## 20. 日志、监控与审计
 
-### 20.1 日志字段
+### 20.1 日志要求
 
-所有后端和 Worker 日志必须尽可能包含：
+- 所有请求自动分配 `X-Request-ID`（传入则透传，否则生成 UUID4）。
+- 日志字段：`request_id, user_id, project_id, job_id, agent_run_id, worker_name, duration_ms, error_code`。
+- Nginx access log：extended 格式含 `$request_id, $request_time, $upstream_response_time`。
 
-```text
-request_id
-user_id
-project_id
-drawing_id
-file_id
-job_id
-agent_run_id
-worker_name
-task_type
-pipeline
-status
-duration_ms
-error_code
-error_message
-```
+### 20.2 监控
 
-### 20.2 最低监控能力
+- Docker logs / `docker compose logs -f <service>`
+- Nginx access/error log + FastAPI 结构化日志 + Celery worker log
+- Flower（`:5555`，via `monitoring` profile）
+- 健康检查聚合：`scripts/status.sh`（本地）, `infra/verify.sh`（全面验证）
 
-```text
-Docker logs
-Nginx access log
-FastAPI structured log
-Celery worker log
-Flower
-MySQL slow query log
-MinIO access log
-CAD Worker local log
-```
+### 20.3 审计（30+ 操作类型）
 
-### 20.3 生产增强监控
+登录/登出、用户 CRUD、角色权限变更、项目变更、成员变更、文件上传/删除/下载、任务创建/取消/重试、结果审核。审计日志不可变（无 API 修改/删除）。
 
-```text
-Prometheus
-Grafana
-Loki
-OpenTelemetry
-Sentry，可选
-```
+### 20.4 生产增强（Stage 6）
 
-### 20.4 审计事件
-
-必须审计：
-
-```text
-用户登录/登出
-用户创建/禁用/删除
-角色权限变更
-项目创建/删除
-文件上传/删除/下载
-任务创建/取消/重试
-高精度 CAD 任务调用
-结果审核通过/驳回
-管理员重置密码
-```
+Prometheus + Grafana + Loki + OpenTelemetry + Sentry（可选）。
 
 ---
 
 ## 21. 测试规范
 
-### 21.1 后端测试
+### 21.1 后端测试（当前：24 文件，432 测试）
 
-技术：
+**技术栈：** pytest + `fastapi.testclient.TestClient`（进程内） + SQLite `:memory:` + `StaticPool` + FakeRedis
 
-```text
-pytest
-pytest-asyncio
-httpx TestClient
-factory_boy
-testcontainers，可选
+**双层 Redis 测试：**
+1. FakeRedis（`fakeredis[lua]`）：`conftest.py` autouse fixture monkeypatch，覆盖 419 测试，零外部依赖。
+2. Real Redis（`test_redis_real.py`）：真实 Valkey 集成测试，Redis 不可用时自动 `pytest.skip`。
+
+**测试领域：** 登录/token、RBAC 深度验证、文件上传/DWG 校验、任务生命周期、审计日志、Redis 客户端/记忆/缓存、安全边界（时序攻击/路径穿越/HTML 注入/SQL 完整性）、API 回归、配置、Docker Compose 验证、Celery/MinIO 部署验证、迁移测试、Shell 脚本验证。
+
+**质量门：**
+```bash
+cd backend
+uv run ruff check app tests    # 必须 0 错误
+uv run pytest -q               # 必须 432 passed
 ```
 
-必须覆盖：
+### 21.2 前端测试（计划）
 
-```text
-登录与 token
-RBAC 权限
-项目权限
-文件上传
-文件越权访问
-任务创建
-Agent run 创建
-Celery 任务投递
-MinIO 文件写入
-审计日志写入
-```
+Vitest + React Testing Library + Playwright。
 
-### 21.2 前端测试
+### 21.3 CAD Worker 测试（Stage 4 计划）
 
-技术：
-
-```text
-Vitest
-React Testing Library
-Playwright
-```
-
-必须覆盖：
-
-```text
-登录流程
-权限路由
-文件上传
-任务列表
-任务详情
-Agent steps 展示
-复核流程
-管理员用户管理
-```
-
-### 21.3 CAD Worker 测试
-
-技术：
-
-```text
-xUnit / NUnit
-固定 DWG 样本库
-Golden JSON 对比
-```
-
-必须覆盖：
-
-```text
-打开 DWG
-提取图层
-提取文本
-提取尺寸
-高精度测量
-CAD 崩溃恢复
-许可证不可用错误
-结果 JSON schema 校验
-```
+xUnit/NUnit + 固定 DWG 样本库 + Golden JSON 对比。
 
 ---
 
-## 22. 推荐仓库结构
+## 22. 仓库结构
 
 ```text
-dwg-agent-platform/
-├── README.md
-├── .env.example
-├── compose.yaml
-├── compose.prod.yaml
-├── Makefile
-├── docs/
-│   ├── architecture.md
-│   ├── api.md
-│   ├── database.md
-│   ├── deployment.md
-│   ├── development.md
-│   ├── roadmap.md
-│   └── security.md
-├── frontend/
-├── backend/
-├── agents/
-│   ├── cad-agent/
-│   ├── excel-agent/
-│   └── report-agent/
-├── cad-worker/
-│   ├── ZwCadWorker.Api/
-│   ├── ZwCadWorker.Core/
-│   ├── ZwCadWorker.Plugin/
-│   └── tests/
-├── infra/
-│   ├── nginx/
-│   ├── mysql/
-│   ├── redis/
-│   └── minio/
-└── scripts/
-    ├── migrate.sh
-    ├── seed_admin.sh
-    ├── backup.sh
-    └── restore.sh
+complete_framework/
+├── DWG-Agent企业平台技术规范.md   ← 本文件
+├── CLAUDE.md / README.md
+├── .env.example / .env.docker.example
+├── compose.yaml                   ← 9 服务 + 2 profiles
+├── backend/                       ← Python 3.12, uv, FastAPI
+│   ├── app/ (api/core/db/models/schemas/services/workers/storage/...)
+│   ├── tests/ (24 文件, 432 测试) + migrations/versions/ (3 迁移)
+├── frontend/                      ← React 19 + TS + Vite + Ant Design 6
+├── docs/                          ← 7 份交接文档
+├── infra/                         ← nginx/mysql/redis/minio 配置 + verify.sh
+├── scripts/                       ← 6 脚本 (lib.sh/db.sh/start-dev.sh/...)
+├── agents/                        ← 占位（未来 Agent 定义）
+├── cad-worker/                    ← 占位（未来 Windows C# Worker）
+└── tests/                         ← 占位（E2E/集成测试）
 ```
 
-说明：
-
-1. `frontend/` 是 React 前端。
-2. `backend/` 是平台主后端。
-3. `agents/` 放不同 Agent 子模块。
-4. `cad-worker/` 放 Windows C# CAD Worker。
-5. `infra/` 放 Nginx、MySQL、Redis、MinIO 配置。
-6. `docs/` 放架构、API、数据库、部署、CAD Worker 协议文档。
-7. `scripts/` 放迁移、初始化、备份脚本。
+详细目录见 `docs/development.md`。
 
 ---
 
 ## 23. 分阶段落地路线
 
-### 阶段一：平台骨架闭环
+### 阶段一：平台骨架闭环 —— ✅ 已完成
 
-目标：完成从用户到任务结果的最小生产骨架。
+**交付物：** RESTful API 全闭环（64 端点，11 路由模块），RBAC（7 全局 + 4 项目角色），JWT 认证（access + refresh + jti 黑名单），DWG 文件上传（header 校验 + SHA-256），任务生命周期（queued→running→succeeded），Celery worker-report 假任务，审计日志（30+ 操作类型），432 测试，Docker Compose 9 服务，React 19 前端（10 页面）。
 
-```text
-Docker Compose 启动 nginx/backend/mysql/redis/minio
-FastAPI 项目初始化
-Alembic 迁移
-Super Admin 初始化
-登录/用户/RBAC
-项目管理
-文件上传到 MinIO
-任务创建
-Celery 假任务
-任务状态展示
-审计日志落库
-```
+**验收结果：**
+- [x] 用户能登录/刷新/登出
+- [x] 管理员能管理用户/角色/权限
+- [x] 用户能上传 DWG（header/大小/hash 校验）
+- [x] 用户能创建任务（含 job_steps + analysis_results）
+- [x] 结果文件能通过签名 URL 下载
+- [x] 审计日志全部落库
+- [x] 432 测试通过，ruff 0 错误
 
-验收：
+### 阶段二～六（详见 `docs/roadmap.md`）
 
-```text
-用户能登录；
-管理员能创建账号；
-用户能上传 DWG；
-用户能创建任务；
-任务能从 queued 到 succeeded；
-结果文件能下载；
-审计日志能查。
-```
-
-### 阶段二：Agent 子系统接入
-
-```text
-接入 LangGraph create_react_agent
-接入 ChatOpenAI-compatible LLM
-接入 MCP Client
-实现 Redis session memory
-实现 /api/v1/agent-runs
-前端展示 AgentSteps
-MCP 失败时返回 503 而不是服务崩溃
-```
-
-验收：
-
-```text
-用户能发起自然语言任务；
-Agent 能调用工具；
-步骤能展示；
-Redis 能保存多轮历史；
-工具不可用时错误可控。
-```
-
-### 阶段三：DXF 普通管线
-
-```text
-实现 DWG Converter 抽象
-实现 DXF 解析 Worker
-提取图层/文字/块/线段
-生成 entities.json
-前端展示结构化结果
-低置信度进入人工复核
-```
-
-### 阶段四：Windows 中望 CAD Worker
-
-```text
-搭建 ASP.NET Core Worker Service
-接入中望 CAD API
-实现 DWG 打开、图层、文本、尺寸提取
-实现结果 JSON 回传
-实现 CAD 进程保活和崩溃恢复
-实现许可证检查
-```
-
-### 阶段五：业务算法与报告
-
-```text
-LaR 左右进识别
-构件清单比对
-材料表提取
-报告生成
-批量任务
-人工复核闭环
-```
-
-### 阶段六：生产增强
-
-```text
-RabbitMQ 替代 Redis Broker，可选
-Prometheus/Grafana 监控
-Loki 日志聚合
-备份恢复策略
-CI/CD
-多 CAD Worker 节点扩展
-```
+| Stage | 名称 | 关键交付物 |
+|---|---|---|
+| **2** | Agent 子系统 | LangGraph `create_react_agent` + DeepSeek LLM + MCP Client + Redis Memory + AgentSteps UI |
+| **3** | DXF 管线 | DWG Converter 抽象 + ezdxf 解析 Worker + entities.json 输出 + 低置信度复核 |
+| **4** | Windows CAD Worker | ASP.NET Core Worker Service + ZWCAD API + pull-based 任务派发 + CAD 崩溃恢复 |
+| **5** | 业务算法 | LaR 识别 + 构件比对 + 材料表提取 + 报告生成 + 批量任务 |
+| **6** | 生产增强 | RabbitMQ（可选）+ Prometheus/Grafana + Loki + CI/CD + 多 CAD Worker 扩展 |
 
 ---
 
 ## 24. 验收清单
 
-### 24.1 架构验收
+### 24.1 架构验收（Stage 1 已全部通过 ✅）
 
-- [ ] 前后端严格分离。
-- [ ] API 符合 RESTful 资源规范。
-- [ ] 后端不直接执行长耗时 CAD 任务。
-- [ ] MySQL 不存大文件。
-- [ ] 文件存储有 MinIO/NAS 抽象。
-- [ ] Agent 使用 LangGraph `create_react_agent`。
-- [ ] Agent 工具通过 MCP / Tool Adapter 调用。
-- [ ] Redis 短期记忆可用。
-- [ ] Celery 任务可异步执行。
-- [ ] Windows CAD Worker 与 Ubuntu 主服务解耦。
-- [ ] Docker Compose 可启动主服务。
+- [x] 前后端严格分离（React SPA ↔ FastAPI RESTful API）
+- [x] API 符合 RESTful 资源规范（复数名词，HTTP method/status 语义）
+- [x] 后端不直接执行长耗时任务（Celery 异步边界）
+- [x] MySQL 不存文件本体（文件在 storage backend）
+- [x] 双存储后端抽象（LocalFileStorage / MinioStorage）
+- [x] Celery 任务可异步执行（Redis broker/result backend）
+- [x] Docker Compose 可启动主服务（9 服务 + 2 profiles）
+- [ ] Agent 使用 LangGraph `create_react_agent`（Stage 2）
+- [ ] Windows CAD Worker 与 Ubuntu 主服务解耦（Stage 4）
 
-### 24.2 API 验收
+### 24.2 API 验收（Stage 1 已全部通过 ✅）
 
-- [ ] 所有接口在 `/api/v1` 下。
-- [ ] 资源名使用复数名词。
-- [ ] 创建资源返回 201 或 202。
-- [ ] 删除成功返回 204。
-- [ ] 错误响应使用 `error.code`。
-- [ ] 不使用统一 `200 + code:0` 代替 HTTP 语义。
-- [ ] Agent 执行使用 `/api/v1/agent-runs`。
-- [ ] 文件下载使用短期 download-url。
+- [x] 所有接口在 `/api/v1` 下（64 端点，11 模块）
+- [x] 资源名使用复数名词，kebab-case 复合名
+- [x] 创建资源返回 201 或 202
+- [x] 删除成功返回 204
+- [x] 错误响应使用 `error.code`（`UPPER_SNAKE_CASE`）
+- [x] Agent 执行使用 `/api/v1/agent-runs`（当前返回 503，错误码 `AGENT_DISABLED`）
+- [x] 文件下载使用 HMAC 签名短期 URL（TTL=300s）
 
-### 24.3 安全验收
+### 24.3 安全验收（Stage 1 已全部通过 ✅）
 
-- [ ] 密码不明文保存。
-- [ ] RBAC 后端强校验。
-- [ ] 项目级权限可用。
-- [ ] 文件路径经过安全校验。
-- [ ] 上传文件校验后缀、大小、hash。
-- [ ] 管理员操作写审计。
-- [ ] CAD Worker 使用内网认证。
-- [ ] `.env` 不入 Git。
+- [x] 密码 Argon2id 哈希，不明文保存
+- [x] RBAC 后端强校验（super_admin 绕过 + 项目级权限）
+- [x] 文件路径经过 `ensure_within_root()` 安全校验
+- [x] 上传校验：扩展名 + MIME + DWG header + 大小 + SHA-256
+- [x] 管理员操作写审计日志
+- [x] 时序攻击防御（dummy hash）
+- [x] `.env` 不入 Git
+- [x] Token jti 黑名单 + 密码变更失效
+- [ ] CAD Worker 内网认证（Stage 4）
 
-### 24.4 工程验收
+### 24.4 工程验收（Stage 1 已全部通过 ✅）
 
-- [ ] `uv sync` 可安装后端依赖。
-- [ ] `uv.lock` 已提交。
-- [ ] `npm install` 可安装前端依赖。
-- [ ] 前端不硬编码 API 地址。
-- [ ] Alembic 迁移可执行。
-- [ ] Docker 镜像构建成功。
-- [ ] Worker 日志包含 `job_id`。
-- [ ] README 和 docs 完整。
+- [x] `uv sync` 可安装后端依赖，`uv.lock` 已提交
+- [x] `npm ci` 可安装前端依赖，`package-lock.json` 已提交
+- [x] `uv run ruff check app tests` 0 错误
+- [x] `uv run pytest -q` 432 passed
+- [x] Alembic 迁移可执行（3 版本，含 migration-test 验证）
+- [x] Docker 镜像构建成功（multi-stage, non-root, HEALTHCHECK）
+- [x] Worker 日志包含 `job_id`
+- [x] README + docs（7 份）完整
 
 ---
 
 ## 25. 最终结论
 
-本规范将原有 Sorting-Agent 项目规范升级为完整的企业级 DWG-Agent 平台规范。最终系统不是单个 Agent 应用，而是：
+DWG-Agent 是一套面向公司内部生产流程的 **CAD 文件智能处理平台**。最终系统由以下子系统构成：
 
 ```text
-企业账号系统
-+ 项目/图纸/文件管理
-+ RESTful API 后端
-+ MySQL 元数据
-+ MinIO 文件存储
-+ Redis 缓存与短期记忆
-+ Celery 异步任务
-+ LangGraph Agent 编排
-+ MCP 工具调用
-+ Python DXF 普通处理
-+ Windows C# 中望 CAD 高精度处理
-+ 人工复核
-+ 审计日志
-+ Docker Compose 部署
+企业账号系统（Argon2id + JWT jti + RBAC 5 表）
++ 项目/图纸/文件管理（17 表，级联权限）
++ RESTful API 后端（64 端点，11 模块）
++ MySQL 元数据（pool_size=10 + pool_recycle=3600）
++ 双后端文件存储（LocalFS / MinIO，4 bucket）
++ Valkey 缓存/记忆/黑名单/进度（lazy init, fail-safe）
++ Celery 异步任务（Redis broker, 4 队列, 1 任务已实现）
++ LangGraph Agent 编排（Stage 2）
++ MCP 工具调用（Stage 2）
++ Python DXF 普通处理（Stage 3）
++ Windows C# 中望 CAD 高精度处理（Stage 4）
++ 人工复核闭环（decision: approved/rejected/needs_revision）
++ 审计日志不可变（30+ 操作类型）
++ Docker Compose 部署（9 服务 + 2 profiles）
 ```
 
-最重要的工程边界是：
+最重要的工程边界：
 
 ```text
 前端不解析 DWG；
@@ -2450,10 +1293,4 @@ CAD Worker 不管理业务权限；
 所有正式接口遵守 RESTful API 资源规范。
 ```
 
-推荐优先跑通：
-
-```text
-用户 → 项目 → 文件 → 任务 → Worker → 结果 → 复核 → 审计
-```
-
-在这条主链路稳定后，再逐步增强 Agent 智能编排、DXF 解析能力、中望 CAD 高精度能力和具体业务算法。
+**当前状态（v2.0）：Stage 1 已完成**，主链路 `用户 → 项目 → 文件 → 任务 → Worker → 结果 → 复核 → 审计` 全闭环，432 测试通过。详细实施指南、API 参考和架构文档见 `docs/` 目录。

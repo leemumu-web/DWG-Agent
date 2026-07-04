@@ -2,7 +2,7 @@
 
 > **Target audience:** Senior engineer taking over maintenance or extension of this codebase.
 > **Stage:** 1 (platform skeleton). Stages 2-6 are planned but not started.
-> **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root, v1.0, 25 sections, 2455 lines).
+> **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root, v2.0, 25 sections, 1317 lines).
 
 ---
 
@@ -134,7 +134,7 @@ The codebase follows the six-layer architecture defined in Spec Section 6. Below
 │    SQLAlchemy 2.x ORM models (17 tables)                     │
 │    DOES NOT: contain biz logic, validation (that's schemas)  │
 ├──────────────────────────────────────────────────────────────┤
-│ 6. Core / Infrastructure  app/core/            7 modules     │
+│ 6. Core / Infrastructure  app/core/            8 modules     │
 │    Config, security, permissions, exceptions, Redis, logging │
 │    DOES NOT: contain domain logic                            │
 └──────────────────────────────────────────────────────────────┘
@@ -198,7 +198,7 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Access the database
 - Perform side effects
 
-#### Service Layer -- `app/services/` (12 modules, ~1100 lines)
+#### Service Layer -- `app/services/` (12 modules, ~1191 lines)
 
 | Service | Responsibility | Key Dependencies |
 |---------|---------------|-----------------|
@@ -221,7 +221,7 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Coordinate transactional boundaries
 
 **DOES NOT:**
-- Depend on `fastapi.Request` or `fastapi.Response`
+- Depend on `fastapi.Request` or `fastapi.Response` (acceptable: `UploadFile` and other Starlette data types; `Request` in `TYPE_CHECKING` blocks for type hints only)
 - Contain route-level logic (param extraction, HTTP response construction)
 - Issue raw SQL (uses SQLAlchemy ORM)
 
@@ -250,7 +250,7 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 - Define validation rules (that is the schema layer)
 - Know about HTTP or API concerns
 
-#### Core Layer -- `app/core/` (7 modules, ~343 lines)
+#### Core Layer -- `app/core/` (8 modules, ~388 lines)
 
 | Module | Responsibility |
 |--------|---------------|
@@ -261,6 +261,7 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 | `redis_client.py` | Lazy-init sync Redis client with hiredis, graceful degradation when unavailable |
 | `constants.py` | File size limits, allowed extensions, user status constants |
 | `logger.py` | Logging configuration helpers |
+| `validators.py` | Sort column whitelist validation per resource (prevents SQL injection via sort_by params) |
 
 **DOES:**
 - Provide infrastructure that every other layer depends on
@@ -272,7 +273,7 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 
 #### Agent Layer -- `app/agents/` (3 files, all stubs)
 
-All three files (`agent_factory.py`, `prompts.py`, `tool_registry.py`) are single-line docstring stubs. Target: Stage 2.
+All three files are stubs/placeholders: `agent_factory.py` and `tool_registry.py` are single-line docstring stubs; `prompts.py` contains a `SYSTEM_PROMPT` constant placeholder. Target: Stage 2.
 
 Spec reference: Section 11 (Agent technical spec). When implemented:
 - `agent_factory.py` will create LangGraph `create_react_agent` with `ChatOpenAI` model
@@ -490,13 +491,13 @@ GET /api/v1/files/{file_id}/download-url
 Auth + file ownership / project membership check
   │
   ▼
-storage_service.generate_download_url(file)
+file_service.build_signed_download_url(file_id)
   ├── HMAC-SHA256(file_id + exp_timestamp, secret) → signature
-  ├── URL = /api/v1/files/{file_id}/download?exp={ts}&sig={hex}
+  ├── URL = /api/v1/files/{file_id}/download?expires={ts}&signature={sig}
   ├── TTL = 300 seconds
   ▼
-GET /api/v1/files/{file_id}/download?exp={ts}&sig={hex}
-  ├── Verify exp not expired
+GET /api/v1/files/{file_id}/download?expires={ts}&signature={sig}
+  ├── Verify expires not expired
   ├── Recompute HMAC → compare with sig (constant-time)
   └── Stream file with Content-Disposition header
 ```
@@ -582,19 +583,22 @@ _DUMMY_VERIFY_HASH = (
 
 ### 6.5 Atomic Status Transitions
 
-**Decision:** User status changes (active ↔ disabled) use `UPDATE WHERE + rowcount` instead of read-modify-write:
+**Decision:** User status changes (active ↔ disabled, soft-delete) use `UPDATE WHERE + rowcount` instead of read-modify-write:
 
 ```python
-def transition_user_status(db, user_id, new_status):
+def transition_user_status(db, user_id, to_status, *, set_deleted_at=False):
+    values = {"status": to_status}
+    if set_deleted_at:
+        values["deleted_at"] = datetime.now(UTC)
     result = db.execute(
-        update(User).where(User.id == user_id, User.status != new_status)
-        .values(status=new_status)
+        update(User)
+        .where(User.id == user_id, User.status != DELETED)
+        .values(**values)
     )
-    if result.rowcount == 0:
-        raise ConflictError("Status already transitioned or user not found")
+    return result.rowcount > 0  # caller decides whether to raise
 ```
 
-**Why:** Prevents race conditions where two admins simultaneously toggle a user's status. `rowcount == 0` means someone else already made the change (or the user was deleted). This is a common pattern in optimistic concurrency control.
+**Why:** Prevents TOCTOU race conditions where a SELECT followed by UPDATE leaves a window for another admin to concurrently toggle a user's status. The `WHERE status != DELETED` guard ensures soft-deleted users cannot be modified. Returning `bool` instead of raising lets callers decide the error semantics. This is a common pattern in optimistic concurrency control.
 
 ### 6.6 SELECT FOR UPDATE for Write Protection
 
@@ -622,7 +626,7 @@ def transition_user_status(db, user_id, new_status):
 
 **Decision:** Three boolean feature flags in `Settings`: `agent_enabled`, `dxf_pipeline_enabled`, `cad_worker_enabled`. All default to `False`.
 
-**Why:** The spec defines a 6-stage rollout. Feature flags let us merge code to main while keeping it dark, test individual subsystems independently, and do canary rollouts. At Stage 1, `agent_enabled=false` returns 503 from `/api/v1/agent-runs` with a clear error message (`AGENT_NOT_AVAILABLE`).
+**Why:** The spec defines a 6-stage rollout. Feature flags let us merge code to main while keeping it dark, test individual subsystems independently, and do canary rollouts. At Stage 1, `agent_enabled=false` returns 503 from `/api/v1/agent-runs` with a clear error message (`AGENT_DISABLED`).
 
 ### 6.10 Config from Component Fields, Not Monolithic URLs
 
@@ -787,7 +791,7 @@ Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.servic
 ### 9.4 Testing Strategy
 
 Dual-layer Redis testing:
-1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 416 non-real-Redis tests (432 total - 16 real-Redis-only) with zero external dependency.
+1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 419 non-real-Redis tests (432 total - 13 real-Redis-only) with zero external dependency.
 2. **Real Redis** (`test_redis_real.py`): Integration tests against the actual local Valkey instance. Auto-skipped (`pytest.skip`) when Redis is unreachable.
 
 ---
@@ -800,7 +804,10 @@ Files are stored through `AbstractStorageBackend`. Local development defaults to
 - File save (write bytes through selected backend)
 - File retrieval (local `FileResponse` or MinIO streaming response)
 - File deletion (remove file, soft-delete DB record)
-- Download URL generation (HMAC-signed, 300s TTL)
+
+The `file_service.py` handles:
+- Download URL generation (HMAC-signed, 300s TTL, via `build_signed_download_url`)
+- File read access checks (project membership, ownership, global admin)
 
 ### 10.2 Storage Backends
 
@@ -872,7 +879,7 @@ All responses follow a consistent envelope:
 
 ### 11.4 Error Code Convention
 
-Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable. Examples: `NOT_FOUND`, `FORBIDDEN`, `FILE_TYPE_NOT_ALLOWED`, `AGENT_NOT_AVAILABLE`, `INVALID_STORAGE_PATH`. Frontend code can switch on `error.code` without parsing `error.message`.
+Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable. Examples: `NOT_FOUND`, `FORBIDDEN`, `FILE_TYPE_NOT_ALLOWED`, `AGENT_DISABLED`, `INVALID_STORAGE_PATH`. Frontend code can switch on `error.code` without parsing `error.message`.
 
 ---
 
@@ -894,14 +901,15 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | Category | Files | Focus |
 |----------|-------|-------|
 | API regression | `test_api_regressions.py` | All 64 endpoints return correct status codes and shapes |
-| Security boundaries | `test_security_boundaries.py` | Auth required, RBAC enforcement, path traversal defense |
+| Security boundaries | `test_security_boundaries.py`, `test_rbac_deep.py` | Auth required, RBAC enforcement, path traversal defense |
 | Token lifecycle | `test_token_lifecycle.py` | Login, refresh, blacklist, expiry, jti validation |
 | Redis stack | `test_redis_client.py`, `test_redis_memory.py`, `test_cache_service.py`, `test_redis_real.py` | Client init, memory TTL, cache fallback, real integration |
 | Config | `test_config.py` | MySQL/Redis URL assembly, component fields, feature flags |
 | DB session | `test_db_session.py` | Engine creation, health check, WAL pragmas |
 | Edge cases | `test_edge_cases.py`, `test_rigorous.py`, `test_deep_verify.py` | Concurrent ops, large payloads, Unicode, null handling |
+| Service layer | `test_service_layer.py` | Service function unit tests (user, file, project, auth) |
 | Stage 1 boundaries | `test_stage1_boundaries.py` | Agent 503, Celery fake task, feature flag gates |
-| Flow tests | `test_smoke_flow.py` | End-to-end: register → login → upload → job → result |
+| Flow tests | `test_smoke_flow.py`, `test_job_lifecycle.py` | End-to-end: register → login → upload → job → result |
 | Celery/MinIO deploy | `test_celery_minio_deployment.py` | Celery worker health, MinIO bucket ops, E2E job pipeline |
 | Cross-audit fixes | `test_cross_audit_fixes.py` | Pentest bug regression tests (31 test functions) |
 | Scripts validation | `test_scripts.py` | Shell scripts syntax, lib.sh functions, db.sh operations |
@@ -914,19 +922,25 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 ```python
 # conftest.py (simplified)
 @pytest.fixture(autouse=True)
-def _fake_redis(monkeypatch):
-    """Every test gets FakeRedis -- no test talks to real Redis by accident."""
-    fake = FakeRedis()
-    monkeypatch.setattr("app.core.redis_client.get_redis", lambda: fake)
-    monkeypatch.setattr("app.core.redis_client._redis", fake)
+def _isolate_redis_client(monkeypatch):
+    """Replace the real Redis singleton with FakeRedis for every test."""
+    fake = FakeRedis(decode_responses=True)
+    monkeypatch.setattr("app.core.redis_client._redis_client", fake)
+    monkeypatch.setattr("app.core.redis_client._redis_available", True)
+    yield
+    fake.flushall()
+    fake.close()
 
-@pytest.fixture
-def db():
-    """Each test gets its own in-memory SQLite database."""
+@pytest.fixture(autouse=True)
+def _isolate_test_db(monkeypatch):
+    """Use one in-memory SQLite connection per test."""
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(bind=engine)
-    with Session(bind=engine) as session:
-        yield session
+    TestSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    app.dependency_overrides[original_get_db] = _override_get_db
+    # ... also monkeypatches SessionLocal/engine in init_db, job_service, db.session
+    yield
+    app.dependency_overrides.clear()
 ```
 
 ---
@@ -938,11 +952,11 @@ def db():
 | Component | Status | Lines | Tests | Notes |
 |-----------|--------|-------|-------|-------|
 | FastAPI app (main.py) | Done | 125 | Covered | Lifespan, CORS, X-Request-ID, 4 exception handlers, /health |
-| API routes (11 modules) | Done | 1,911 | Covered | All 64 endpoints return proper envelopes |
-| Pydantic schemas (10 modules) | Done | 491 | Covered | All use v2 `from_attributes=True` |
-| Business services (12 modules) | Done | ~1100 | Covered | Auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache |
+| API routes (11 modules) | Done | 2,008 | Covered | All 64 endpoints return proper envelopes |
+| Pydantic schemas (10 modules) | Done | 505 | Covered | All use v2 `from_attributes=True` |
+| Business services (12 modules) | Done | ~1191 | Covered | Auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache |
 | SQLAlchemy models (17 tables) | Done | 401 | Covered | All with TimestampMixin, relationships, constraints |
-| Core infrastructure (7 modules) | Done | ~343 | Covered | Config, security, permissions, exceptions, Redis, logger |
+| Core infrastructure (8 modules) | Done | ~388 | Covered | Config, security, permissions, exceptions, Redis, logger, constants, validators |
 | DB session + pool | Done | -- | Covered | MySQL pool config, SQLite WAL pragmas, health check |
 | DB init + seed data | Done | -- | Covered | Super admin, 7 roles, 8 permissions |
 | Alembic migrations | Done | 2 | Covered | Initial 17 tables + TimestampMixin backfill |
@@ -1005,7 +1019,7 @@ All flags are in `app/core/config.py` / `.env`:
 
 | Flag | Default | Stage | Effect When False |
 |------|---------|-------|--------------------|
-| `AGENT_ENABLED` | `false` | 2 | `POST /api/v1/agent-runs` → 503 `AGENT_NOT_AVAILABLE` |
+| `AGENT_ENABLED` | `false` | 2 | `POST /api/v1/agent-runs` → 503 `AGENT_DISABLED` |
 | `DXF_PIPELINE_ENABLED` | `false` | 3 | DXF-related Celery tasks not processed |
 | `CAD_WORKER_ENABLED` | `false` | 4 | CAD Worker endpoints return 503 |
 | `DEBUG` | `true` (dev) | All | Controls stack trace in 500 responses; must be `false` in production |
@@ -1016,12 +1030,18 @@ All flags are in `app/core/config.py` / `.env`:
 
 ```
 complete_framework/
-├── DWG-Agent企业平台技术规范.md          ← Spec v1.0 (2455 lines, 25 sections)
+├── DWG-Agent企业平台技术规范.md          ← Spec v2.0 (1317 lines, 25 sections)
 ├── README.md
 ├── .env.example                          ← Local dev env template (tracked)
 ├── .env.docker.example                   ← Docker env template (tracked)
 ├── compose.yaml                          ← 9 services, 3 volumes, 2 networks
 ├── CLAUDE.md                             ← Agent instructions for this repo
+├── Makefile                              ← Dev shortcuts (install, test, lint, run)
+├── image.png                             ← Architecture diagram
+├── EXPLORATION_REPORT.md                 ← Initial exploration report
+├── FRONTEND_EXPLORATION.md               ← Frontend exploration report
+├── REINVESTIGATION_REPORT.md             ← Reinvestigation report
+├── var/                                  ← Runtime data (gitignored)
 │
 ├── backend/                              ← Python 3.12, uv, FastAPI
 │   ├── pyproject.toml                    ← Dependencies + ruff config
@@ -1041,7 +1061,7 @@ complete_framework/
 │       ├── schemas/                      ← 10 Pydantic v2 modules
 │       ├── services/                     ← 12 business logic modules
 │       ├── models/                       ← 10 ORM model files (17 tables)
-│       ├── core/                         ← 7 infrastructure modules
+│       ├── core/                         ← 8 infrastructure modules
 │       ├── db/                           ← session, base, init_db
 │       ├── utils/                        ← path_utils, file_hash, time_utils
 │       ├── agents/                       ← 3 stubs (Stage 2)

@@ -177,7 +177,7 @@ def upgrade() -> None:
         _fk_id_column("actor_user_id"),
         sa.Column("action", sa.String(length=128), nullable=False),
         sa.Column("resource_type", sa.String(length=64), nullable=False),
-        sa.Column("resource_id", sa.Integer(), nullable=True),
+        _fk_id_column("resource_id"),
         sa.Column("ip_address", sa.String(length=64), nullable=True),
         sa.Column("user_agent", sa.String(length=512), nullable=True),
         sa.Column("before_json", sa.JSON(), nullable=True),

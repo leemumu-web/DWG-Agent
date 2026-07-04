@@ -8,14 +8,15 @@ from urllib.parse import quote
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_project_membership, has_global_project_access
 from app.core.config import settings
 from app.core.exceptions import AppHTTPException, forbidden
+from app.core.permissions import get_project_membership, has_global_project_access
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.project import Project
 from app.models.result import AnalysisResult
+from app.models.user import User
 from app.schemas.file_schema import DownloadUrlRead
 
 DOWNLOAD_URL_TTL_SECONDS = 300
@@ -78,7 +79,7 @@ def file_project_ids(db: Session, file_id: int) -> set[int]:
     }
 
 
-def can_read_file(db: Session, current_user: CurrentUser, stored: StoredFile) -> bool:
+def can_read_file(db: Session, current_user: User, stored: StoredFile) -> bool:
     if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
         return True
     return any(
@@ -88,13 +89,13 @@ def can_read_file(db: Session, current_user: CurrentUser, stored: StoredFile) ->
 
 
 def require_file_read_access(
-    db: Session, current_user: CurrentUser, stored: StoredFile
+    db: Session, current_user: User, stored: StoredFile
 ) -> None:
     if not can_read_file(db, current_user, stored):
         raise forbidden("File access is restricted.")
 
 
-def require_file_delete_access(current_user: CurrentUser, stored: StoredFile) -> None:
+def require_file_delete_access(current_user: User, stored: StoredFile) -> None:
     if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
         return
     raise forbidden("Only the uploader or an administrator can delete this file.")

@@ -10,6 +10,7 @@ from app.core.exceptions import not_found, service_unavailable
 from app.models.agent_run import AgentRun, AgentRunStep
 from app.schemas.agent_schema import AgentRunCreate, AgentRunRead, AgentRunStepRead
 from app.schemas.common import ok, page_from_list
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 
@@ -35,6 +36,15 @@ def create_agent_run(
         status="queued",
     )
     db.add(run)
+    db.flush()
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="agent_runs.create",
+        resource_type="agent_run",
+        resource_id=run.id,
+        request=request,
+    )
     db.commit()
     return ok(AgentRunRead.model_validate(run), request.state.request_id)
 

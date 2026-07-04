@@ -1,8 +1,8 @@
 # API Reference -- DWG-Agent Platform
 
 > Version: v1.0 | Base path: `/api/v1` | Stage 1 (production-ready skeleton)
-> 63 endpoints under `/api/v1` across 11 route modules, plus 1 health endpoint at `/` (64 total).
-> Spec authority: `DWG-Agent企业平台技术规范.md` section 7.
+> 64 endpoints under `/api/v1` across 11 route modules, plus 1 health endpoint at `/health` (64 total).
+> Spec authority: `DWG-Agent企业平台技术规范.md` (v2.0) section 7.
 
 ---
 
@@ -86,10 +86,10 @@
 | # | Method | Path | Summary | Auth |
 |---|--------|------|---------|------|
 | 45 | GET | `/api/v1/jobs` | List jobs (admin sees all, others see own projects) | Authenticated |
-| 46 | POST | `/api/v1/jobs` | Create processing job | project_owner / project_engineer / project_reviewer |
+| 46 | POST | `/api/v1/jobs` | Create processing job | project_owner / project_engineer |
 | 47 | GET | `/api/v1/jobs/{job_id}` | Job detail (status, progress, error info) | Project member |
-| 48 | POST | `/api/v1/jobs/{job_id}/cancellation-requests` | Request cancellation (only queued/running) | project_owner / project_engineer / project_reviewer |
-| 49 | POST | `/api/v1/jobs/{job_id}/retry-requests` | Request retry (only failed/cancelled) | project_owner / project_engineer / project_reviewer |
+| 48 | POST | `/api/v1/jobs/{job_id}/cancellation-requests` | Request cancellation (only queued/running) | project_owner / project_engineer |
+| 49 | POST | `/api/v1/jobs/{job_id}/retry-requests` | Request retry (only failed/cancelled) | project_owner / project_engineer |
 | 50 | GET | `/api/v1/jobs/{job_id}/steps` | List job execution steps | Project member |
 | 51 | GET | `/api/v1/jobs/{job_id}/logs` | Get job logs (Stage 1 placeholder) | Project member |
 | 52 | GET | `/api/v1/jobs/{job_id}/events` | SSE event stream (Stage 1 placeholder) | Project member |
@@ -101,7 +101,7 @@
 |---|--------|------|---------|------|
 | 54 | GET | `/api/v1/results/{result_id}` | Result detail | Project member (via job → drawing → project) |
 | 55 | GET | `/api/v1/results/{result_id}/download-url` | Result file download URL | Project member |
-| 56 | POST | `/api/v1/results/{result_id}/reviews` | Submit review (approved / rejected) | project_owner / project_reviewer |
+| 56 | POST | `/api/v1/results/{result_id}/reviews` | Submit review (approved / rejected / needs_revision) | project_owner / project_reviewer |
 | 57 | GET | `/api/v1/results/{result_id}/reviews` | Review history | Project member |
 
 ### 1.9 Reviews -- `/api/v1`
@@ -150,11 +150,11 @@ Content-Type: application/json
 }
 ```
 
-On success, you receive an `access_token` in the response body and a `refresh_token` is set as an HttpOnly cookie.
+On success, you receive an `access_token` in the response body and a `dwg_refresh_token` is set as an HttpOnly cookie.
 
 ```
 HTTP/1.1 201 Created
-Set-Cookie: refresh_token=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth/tokens/refresh
+Set-Cookie: dwg_refresh_token=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth
 
 {
   "data": {
@@ -175,7 +175,7 @@ Set-Cookie: refresh_token=<jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/au
   },
   "meta": {
     "request_id": "req_20260703_000001",
-    "timestamp": "2026-07-03T10:00:00+08:00"
+    "timestamp": "2026-07-03T10:00:00+00:00"
   }
 }
 ```
@@ -206,24 +206,35 @@ When the access token expires, use the refresh cookie to obtain a new one:
 
 ```
 POST /api/v1/auth/tokens/refresh
-Cookie: refresh_token=<jwt>
+Cookie: dwg_refresh_token=<jwt>
 ```
 
 The endpoint reads the HttpOnly cookie automatically. No request body is needed.
 
 ```
 HTTP/1.1 200 OK
-Set-Cookie: refresh_token=<new-jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth/tokens/refresh
+Set-Cookie: dwg_refresh_token=<new-jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v1/auth
 
 {
   "data": {
     "access_token": "eyJhbGciOiJIUzI1NiIs...",
     "token_type": "Bearer",
-    "expires_in": 1800
+    "expires_in": 1800,
+    "user": {
+      "id": 1,
+      "username": "10001",
+      "real_name": "Zhang San",
+      "employee_no": "10001",
+      "email": "zhangsan@company.local",
+      "status": "active",
+      "roles": [
+        {"id": 3, "code": "engineer", "name": "Engineer"}
+      ]
+    }
   },
   "meta": {
     "request_id": "req_20260703_000002",
-    "timestamp": "2026-07-03T10:25:00+08:00"
+    "timestamp": "2026-07-03T10:25:00+00:00"
   }
 }
 ```
@@ -233,7 +244,7 @@ Set-Cookie: refresh_token=<new-jwt>; HttpOnly; Secure; SameSite=Lax; Path=/api/v
 ```
 DELETE /api/v1/auth/sessions/current
 Authorization: Bearer <access_token>
-Cookie: refresh_token=<jwt>
+Cookie: dwg_refresh_token=<jwt>
 ```
 
 Both tokens are added to a Redis blacklist. Subsequent use of either token returns 401.
@@ -293,7 +304,7 @@ Create a new session. Returns an access token and sets a refresh token cookie.
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:00:00+08:00"
+    "timestamp": "2026-07-03T10:00:00+00:00"
   }
 }
 ```
@@ -325,7 +336,7 @@ Create a new session. Returns an access token and sets a refresh token cookie.
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:00:00+08:00"
+    "timestamp": "2026-07-03T10:00:00+00:00"
   }
 }
 ```
@@ -333,7 +344,7 @@ Create a new session. Returns an access token and sets a refresh token cookie.
 **Error responses:**
 | Status | Code | Condition |
 |--------|------|-----------|
-| 401 | `INVALID_CREDENTIALS` | Current password is wrong |
+| 400 | `INVALID_CURRENT_PASSWORD` | Current password is wrong |
 | 422 | (Pydantic) | New password fails complexity check |
 
 ---
@@ -377,12 +388,12 @@ curl -X POST http://localhost:8000/api/v1/files \
     "md5": "d41d8cd98f00b204e9800998ecf8427e",
     "uploaded_by": 1,
     "status": "available",
-    "created_at": "2026-07-03T10:05:00+08:00",
-    "updated_at": "2026-07-03T10:05:00+08:00"
+    "created_at": "2026-07-03T10:05:00+00:00",
+    "updated_at": "2026-07-03T10:05:00+00:00"
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:05:00+08:00"
+    "timestamp": "2026-07-03T10:05:00+00:00"
   }
 }
 ```
@@ -390,11 +401,10 @@ curl -X POST http://localhost:8000/api/v1/files \
 **Error responses:**
 | Status | Code | Condition |
 |--------|------|-----------|
-| 400 | `FILE_TYPE_NOT_ALLOWED` | Extension is not `.dwg` |
-| 400 | `INVALID_DWG_HEADER` | File does not start with a valid DWG header |
-| 400 | `FILE_TOO_SMALL` | File is under 1024 bytes |
+| 415 | `FILE_TYPE_NOT_ALLOWED` | Extension is not `.dwg` |
+| 415 | `FILE_NOT_DWG` | File does not start with a valid DWG header, or is too small (< 1024 bytes) |
+| 415 | `FILE_MIME_NOT_ALLOWED` | MIME type not in DWG allowlist |
 | 413 | `FILE_TOO_LARGE` | File exceeds `MAX_UPLOAD_SIZE_MB` (default 512 MB) |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | MIME type not in DWG allowlist |
 
 ---
 
@@ -406,12 +416,12 @@ Returns an HMAC-signed temporary URL for downloading the file. The URL is valid 
 ```json
 {
   "data": {
-    "url": "http://localhost:8000/api/v1/files/1001/download?expires=1751523900&signature=abc123...",
+    "url": "/api/v1/files/1001/download?expires=1751523900&signature=abc123...",
     "expires_in": 300
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:05:00+08:00"
+    "timestamp": "2026-07-03T10:05:00+00:00"
   }
 }
 ```
@@ -466,13 +476,13 @@ Returns an HMAC-signed temporary URL for downloading the file. The URL is valid 
     },
     "error_code": null,
     "error_message": null,
-    "created_at": "2026-07-03T10:10:00+08:00",
+    "created_at": "2026-07-03T10:10:00+00:00",
     "started_at": null,
     "finished_at": null
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:10:00+08:00"
+    "timestamp": "2026-07-03T10:10:00+00:00"
   }
 }
 ```
@@ -504,13 +514,13 @@ Poll this endpoint to track a job's progress.
     },
     "error_code": null,
     "error_message": null,
-    "created_at": "2026-07-03T10:10:00+08:00",
-    "started_at": "2026-07-03T10:10:01+08:00",
+    "created_at": "2026-07-03T10:10:00+00:00",
+    "started_at": "2026-07-03T10:10:01+00:00",
     "finished_at": null
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:12:00+08:00"
+    "timestamp": "2026-07-03T10:12:00+00:00"
   }
 }
 ```
@@ -534,13 +544,13 @@ Poll this endpoint to track a job's progress.
     },
     "error_code": null,
     "error_message": null,
-    "created_at": "2026-07-03T10:10:00+08:00",
-    "started_at": "2026-07-03T10:10:01+08:00",
-    "finished_at": "2026-07-03T10:13:30+08:00"
+    "created_at": "2026-07-03T10:10:00+00:00",
+    "started_at": "2026-07-03T10:10:01+00:00",
+    "finished_at": "2026-07-03T10:13:30+00:00"
   },
   "meta": {
     "request_id": "req_...",
-    "timestamp": "2026-07-03T10:14:00+08:00"
+    "timestamp": "2026-07-03T10:14:00+00:00"
   }
 }
 ```
@@ -554,9 +564,9 @@ Poll this endpoint to track a job's progress.
     "progress": 72,
     "error_code": "DXF_PARSE_ERROR",
     "error_message": "ezdxf failed to parse entity at line 2541: invalid group code.",
-    "created_at": "2026-07-03T10:10:00+08:00",
-    "started_at": "2026-07-03T10:10:01+08:00",
-    "finished_at": "2026-07-03T10:11:45+08:00"
+    "created_at": "2026-07-03T10:10:00+00:00",
+    "started_at": "2026-07-03T10:10:01+00:00",
+    "finished_at": "2026-07-03T10:11:45+00:00"
   },
   "meta": {
     "request_id": "req_..."
@@ -578,7 +588,7 @@ Only jobs in `queued` or `running` status can be cancelled. Jobs already in a te
   "data": {
     "id": 456,
     "status": "cancelled",
-    "finished_at": "2026-07-03T10:15:00+08:00"
+    "finished_at": "2026-07-03T10:15:00+00:00"
   },
   "meta": {
     "request_id": "req_..."
@@ -589,7 +599,7 @@ Only jobs in `queued` or `running` status can be cancelled. Jobs already in a te
 **Error responses:**
 | Status | Code | Condition |
 |--------|------|-----------|
-| 409 | `JOB_ALREADY_TERMINAL` | Job is already succeeded / failed / cancelled |
+| 409 | `JOB_NOT_CANCELLABLE` | Job is already succeeded / failed / cancelled |
 
 ---
 
@@ -603,16 +613,18 @@ Only jobs in `failed` or `cancelled` status can be retried.
 ```json
 {
   "data": {
-    "id": 457,
+    "id": 456,
     "status": "queued",
-    "original_job_id": 456,
-    "created_at": "2026-07-03T10:16:00+08:00"
+    "progress": 0,
+    "created_at": "2026-07-03T10:16:00+00:00"
   },
   "meta": {
     "request_id": "req_..."
   }
 }
 ```
+
+The job is retried in-place: its status is reset to `queued` and progress is reset to 0, then re-enqueued.
 
 **Error responses:**
 | Status | Code | Condition |
@@ -641,7 +653,7 @@ Only jobs in `failed` or `cancelled` status can be retried.
     "project_id": 1,
     "user_id": 5,
     "project_role": "project_engineer",
-    "created_at": "2026-07-03T10:20:00+08:00"
+    "created_at": "2026-07-03T10:20:00+00:00"
   },
   "meta": {
     "request_id": "req_..."
@@ -667,7 +679,7 @@ Only jobs in `failed` or `cancelled` status can be retried.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| `decision` | string | Yes | `"approved"` or `"rejected"` |
+| `decision` | string | Yes | `"approved"`, `"rejected"`, or `"needs_revision"` |
 | `comment` | string | No | Review notes |
 
 **Success response (201 Created):**
@@ -679,7 +691,7 @@ Only jobs in `failed` or `cancelled` status can be retried.
     "reviewer_id": 1,
     "decision": "approved",
     "comment": "All extracted layers match the drawing.",
-    "created_at": "2026-07-03T10:30:00+08:00"
+    "created_at": "2026-07-03T10:30:00+00:00"
   },
   "meta": {
     "request_id": "req_..."
@@ -698,7 +710,7 @@ Only jobs in `failed` or `cancelled` status can be retried.
   "data": { ... },
   "meta": {
     "request_id": "req_20260703_000001",
-    "timestamp": "2026-07-03T10:00:00+08:00"
+    "timestamp": "2026-07-03T10:00:00+00:00"
   }
 }
 ```
@@ -716,7 +728,7 @@ Only jobs in `failed` or `cancelled` status can be retried.
   },
   "meta": {
     "request_id": "req_20260703_000001",
-    "timestamp": "2026-07-03T10:00:00+08:00"
+    "timestamp": "2026-07-03T10:00:00+00:00"
   }
 }
 ```
@@ -734,7 +746,7 @@ Only jobs in `failed` or `cancelled` status can be retried.
   },
   "meta": {
     "request_id": "req_20260703_000003",
-    "timestamp": "2026-07-03T10:00:00+08:00"
+    "timestamp": "2026-07-03T10:00:00+00:00"
   }
 }
 ```
@@ -758,11 +770,13 @@ All list endpoints (`GET /api/v1/users`, `GET /api/v1/projects`, `GET /api/v1/fi
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `page` | int | 1 | Page number (1-indexed) |
-| `page_size` | int | 20 | Items per page (max 100) |
+| `page_size` | int | 20 | Items per page (max 200) |
+| `sort_by` | string | `"created_at"` | Column to sort by (varies per endpoint) |
+| `sort_dir` | string | `"desc"` | Sort direction: `asc` or `desc` |
 
 **Example:**
 ```
-GET /api/v1/projects?page=2&page_size=50
+GET /api/v1/projects?page=2&page_size=50&sort_by=name&sort_dir=asc
 ```
 
 The response includes a `pagination` object with `page`, `page_size`, `total`, and `total_pages`.
@@ -775,7 +789,6 @@ List endpoints accept optional query filters. Common filters include:
 |-----------|------|---------|-------------|
 | `status` | string | `?status=active` | Filter by resource status |
 | `project_id` | int | `?project_id=1` | Filter by parent project |
-| `search` | string | `?search=Building` | Full-text search (name/title) |
 
 Specific filter parameters vary per endpoint. Check the OpenAPI schema at `/docs` for the full list.
 
@@ -816,56 +829,74 @@ Specific filter parameters vary per endpoint. Check the OpenAPI schema at `/docs
 | Code | HTTP | Message |
 |------|------|---------|
 | `INVALID_CREDENTIALS` | 401 | Incorrect username or password. |
-| `INVALID_TOKEN` | 401 | Access token is invalid or expired. |
-| `TOKEN_REVOKED` | 401 | Token has been revoked (logged out). |
+| `INVALID_TOKEN` | 401 | Access token or refresh token is invalid or expired. |
+| `TOKEN_REVOKED` | 401 | Token has been revoked (logged out or password changed). |
 | `USER_NOT_ACTIVE` | 401 | Account is disabled or deleted. |
-| `INVALID_REFRESH_TOKEN` | 401 | Refresh token cookie is missing or invalid. |
+| `INVALID_CURRENT_PASSWORD` | 400 | Current password is incorrect. |
 
 ### 7.2 Authorization Errors
 
 | Code | HTTP | Message |
 |------|------|---------|
-| `FORBIDDEN` | 403 | Insufficient permissions for this action. |
-| `PROJECT_MEMBERSHIP_REQUIRED` | 403 | User is not a member of the target project. |
-| `PROJECT_ROLE_NOT_ALLOWED` | 403 | Project role does not permit this action. |
-| `CANNOT_MODIFY_SUPER_ADMIN` | 403 | Cannot modify users with super_admin role. |
-| `CANNOT_MODIFY_SELF` | 403 | Cannot perform this action on your own account. |
+| `FORBIDDEN` | 403 | Insufficient permissions for this action (generic). |
+| `CANNOT_MANAGE_SUPER_ADMIN` | 400 | Only super_admin can manage super_admin accounts. |
+| `CANNOT_DISABLE_SELF` | 400 | Admin cannot disable their own account. |
+| `CANNOT_DELETE_SELF` | 400 | Admin cannot delete their own account. |
+| `CANNOT_REMOVE_OWN_ROLE` | 400 | Admin cannot remove roles from their own account. |
 
 ### 7.3 Resource Errors
 
 | Code | HTTP | Message |
 |------|------|---------|
 | `NOT_FOUND` | 404 | The requested resource does not exist. |
-| `USERNAME_ALREADY_EXISTS` | 409 | A user with this username already exists. |
-| `ROLE_CODE_ALREADY_EXISTS` | 409 | A role with this code already exists. |
+| `USERNAME_EXISTS` | 409 | A user with this username already exists. |
+| `ROLE_EXISTS` | 409 | A role with this code already exists. |
+| `PROJECT_CODE_EXISTS` | 409 | A project with this code already exists. |
+| `USER_DELETED` | 400 | User has already been deleted. |
+| `SELF_RESET_NOT_IMPLEMENTED` | 400 | Self-service password reset is not yet implemented. |
 
 ### 7.4 File Errors
 
 | Code | HTTP | Message |
 |------|------|---------|
-| `FILE_TYPE_NOT_ALLOWED` | 400 | Only `.dwg` files are accepted. |
-| `INVALID_DWG_HEADER` | 400 | File does not contain a valid DWG header (expected AC1012-AC1032). |
-| `FILE_TOO_SMALL` | 400 | File is too small (minimum 1024 bytes). |
+| `FILE_TYPE_NOT_ALLOWED` | 415 | Only `.dwg` files are accepted. |
+| `FILE_MIME_NOT_ALLOWED` | 415 | MIME type is not in the DWG allowlist. |
+| `FILE_NOT_DWG` | 415 | File does not have a valid DWG header, or is too small (< 1024 bytes). |
 | `FILE_TOO_LARGE` | 413 | File exceeds the maximum upload size. |
-| `UNSUPPORTED_MEDIA_TYPE` | 415 | MIME type is not in the DWG allowlist. |
-| `STORAGE_ERROR` | 500 | Could not write file to storage backend. |
 
-### 7.5 Job Errors
+### 7.5 Download Errors
 
 | Code | HTTP | Message |
 |------|------|---------|
-| `JOB_ALREADY_TERMINAL` | 409 | Job has already reached a terminal state and cannot be cancelled. |
+| `INVALID_DOWNLOAD_SIGNATURE` | 403 | Download URL signature is missing or invalid. |
+| `DOWNLOAD_URL_EXPIRED` | 403 | Download URL has expired (TTL=300s). |
+
+### 7.6 Storage Errors
+
+| Code | HTTP | Message |
+|------|------|---------|
+| `STORAGE_WRITE_FAILED` | 503 | Failed to persist file to storage backend. |
+| `STORAGE_READ_FAILED` | 503 | Failed to read stored file object. |
+| `STORAGE_BACKEND_MISCONFIGURED` | 500 | Configured storage backend is not ready. |
+| `STORAGE_BACKEND_UNSUPPORTED` | 500 | Unsupported storage backend. |
+
+### 7.7 Job Errors
+
+| Code | HTTP | Message |
+|------|------|---------|
+| `JOB_NOT_CANCELLABLE` | 409 | Job cannot be cancelled because it is already in a terminal state. |
 | `JOB_NOT_RETRYABLE` | 409 | Job cannot be retried in its current state (only failed/cancelled). |
-| `INVALID_TASK_TYPE` | 400 | task_type format is invalid (must be `^[a-z][a-z0-9_]+$`). |
+| `JOB_ENQUEUE_FAILED` | 503 | Job was created but could not be dispatched to Celery. |
 
-### 7.6 Service Errors
+### 7.8 Service Errors
 
 | Code | HTTP | Message |
 |------|------|---------|
-| `AGENT_NOT_ENABLED` | 503 | Agent subsystem is not enabled (AGENT_ENABLED=false). |
-| `DXF_PIPELINE_NOT_ENABLED` | 503 | DXF pipeline is not enabled (DXF_PIPELINE_ENABLED=false). |
-| `CAD_WORKER_NOT_ENABLED` | 503 | CAD Worker is not enabled (CAD_WORKER_ENABLED=false). |
+| `AGENT_DISABLED` | 503 | Agent subsystem is intentionally disabled in Stage 1. |
 | `INTERNAL_ERROR` | 500 | An unexpected server error occurred. |
+| `VALIDATION_ERROR` | 422 | Request validation failed (Pydantic). |
+| `INVALID_SORT_COLUMN` | 422 | The provided sort column is not in the allowed list for this resource. |
+| `INVALID_SORT_RESOURCE` | 422 | Sorting is not supported for this resource type. |
 
 ---
 
@@ -893,7 +924,7 @@ Controlled via the `project_members` table. Managed by `project_owner` through `
 |------|-------------|----------|-------------------|-----------------|------------|-------------------|
 | `project_owner` | `PROJECT_OWNER_ROLES` | Yes | Yes | Yes | Yes | Yes |
 | `project_engineer` | `PROJECT_WRITE_ROLES` | Yes | Yes | Yes | No | No |
-| `project_reviewer` | -- | Yes | No | Yes | Yes | No |
+| `project_reviewer` | -- | Yes | No | No | Yes | No |
 | `project_viewer` | -- | Yes | No | No | No | No |
 
 ### 8.3 Role Combination Rules

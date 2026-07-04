@@ -27,7 +27,7 @@ The authentication path is:
    - This eliminates the timing side-channel (previously 40x faster to reject non-existent users). See pentest finding H1.
 3. **Token issuance on success:**
    - **Access token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"access"`, expiry = 30 minutes. Returned in the JSON response body.
-   - **Refresh token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"refresh"`, expiry = 14 days. Set as `HttpOnly; Secure; SameSite=Lax` cookie on the `/auth/tokens/refresh` path.
+   - **Refresh token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"refresh"`, expiry = 14 days. Set as `HttpOnly; SameSite=Lax` cookie on the `/api/v1/auth` path. The `Secure` flag is set only when `APP_ENV=production` (not in development mode).
 4. **Login response** includes `access_token`, `token_type` ("Bearer"), `expires_in` (1800 seconds), and a summary user object.
 
 ### 1.2 Token structure
@@ -79,6 +79,7 @@ Every authenticated request flows through `get_current_user()` in `app/api/deps.
 3. Check `jti` against the Redis blacklist -- return 401 `TOKEN_REVOKED` if blacklisted.
 4. Look up the user by `sub` in the database.
 5. Reject if the user does not exist or `status` != `"active"`.
+6. Check whether the token was issued before the last password change -- return 401 `TOKEN_REVOKED` (password changed) if stale. This invalidates all tokens across all devices when the user changes their password.
 
 ### 1.6 Password management
 
@@ -280,7 +281,7 @@ Notable: `allow_methods` is explicitly enumerated (not `["*"]`). `OPTIONS`, `HEA
 
 ### 3.4 Exception handling and information leakage
 
-Three exception handlers cover the full error surface:
+Four exception handlers cover the full error surface:
 
 | Handler | Status | Behavior |
 |---|---|---|
@@ -289,7 +290,7 @@ Three exception handlers cover the full error surface:
 | `RequestValidationError` | 422 | Returns structured Pydantic error details. |
 | `Exception` (catch-all) | 500 | Logs full traceback internally. Returns `"Internal server error."` when `debug=False`. Returns `str(exc)` only when `debug=True`. **Never leaks traceback.** |
 
-The health endpoint returns only `{"data": {"status": "ok"}}` -- no database status, version, uptime, or dependency info (closes BUG-4).
+The health endpoint returns `{"data": {"status": "ok"}, "meta": {"request_id": "...", "timestamp": "..."}}` -- no database status, version, uptime, or dependency info (closes BUG-4).
 
 ### 3.5 Resource isolation
 
@@ -317,7 +318,7 @@ Every file upload passes through this pipeline (in order):
 3. DWG header validation  → First 6 bytes must match AC1012-AC1032 (AutoCAD R13 through 2018+)
 4. Size enforcement       → Max: max_upload_size_mb (512 MiB default), Min: 1024 bytes
 5. Streaming hash         → SHA-256 + MD5 computed during chunked read
-6. Atomic cleanup         → On any validation failure, the written file is unlinked
+6. Temp buffer cleanup      → SpooledTemporaryFile automatically cleans the in-memory/os-buffer after use. However, if the storage backend write (`put_fileobj`) fails mid-write, a partial file may remain in the storage backend (e.g. MinIO or local filesystem) — the application does not attempt to unlink partially-written files from the backend.
 ```
 
 ### 4.2 Supported DWG versions
@@ -344,7 +345,7 @@ Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
 
 ### 4.4 Download security
 
-- **HMAC-signed download URLs** (`GET /files/{file_id}/download-url`): URLs include `expires` (TTL=300s) and `signature` parameters. The signature is HMAC-SHA256 over `file_id|expires`.
+- **HMAC-signed download URLs** (`GET /files/{file_id}/download-url`): URLs include `expires` (TTL=300s) and `signature` parameters. The signature is HMAC-SHA256 over `file_id:expires`.
 - **Permission check before URL generation:** The caller must have access to the file's project (or global access). Cross-project download requests are rejected before any URL is generated.
 - **Note:** The signed URL TTL is enforced by the backend at download time, but the URL itself is not a cryptographically self-contained capability token -- the download endpoint also requires authentication (see Section 5.3, remaining gaps).
 
@@ -510,6 +511,7 @@ audit_logs
 | `jobs.create` | job | User submits a processing job |
 | `jobs.cancel` | job | User cancels a job |
 | `jobs.retry` | job | User retries a failed/cancelled job |
+| `agent_runs.create` | agent_run | User creates an agent run |
 | `reviews.create` | result | Reviewer approves or rejects an analysis result |
 
 ### 7.3 Access control for audit logs

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     backend_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    database_url: str = "mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent"
+    database_url: str = "mysql+pymysql://dwg_user:CHANGE_ME_MYSQL_PASSWORD@127.0.0.1:3306/dwg_agent"
 
     # MySQL component fields (spec §18); Docker overrides host to the service name mysql
     mysql_host: str = "127.0.0.1"
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     local_storage_root: Path = Path("./var/storage")
     max_upload_size_mb: int = 512
 
-    jwt_secret_key: str = "change-me-in-dev"
+    jwt_secret_key: str = "change-me-in-dev-change-me-in-prod-32chars"
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 14

@@ -27,7 +27,7 @@
 |-----------|--------|---------|
 | Docker Compose | Config ready, not production-tested | 9 services (nginx, backend-api, worker-agent, worker-dxf, worker-report, mysql, redis, minio, flower); worker-report default, profiles for Agent/DXF and monitoring; `.env.docker.example` template |
 | MySQL 8.x | Runtime database | `DATABASE_URL=mysql+pymysql://...`; pool: `pool_size=10, max_overflow=20, pool_recycle=3600`; WAL pragmas; `init.sql` seed script |
-| Redis (Valkey) | Deployed and validated | Systemd-managed; `redis_client` (lazy init, no-crash on unavailable), `redis_memory`, `cache_service` all tested; FakeRedis (416 non-real-Redis tests via conftest autouse) + real Redis integration (16 tests) dual-layer validation |
+| Redis (Valkey) | Deployed and validated | Systemd-managed; `redis_client` (lazy init, no-crash on unavailable), `redis_memory`, `cache_service` all tested; FakeRedis (419 non-real-Redis tests via conftest autouse) + real Redis integration (13 tests) dual-layer validation |
 | MinIO | Docker storage backend ready | Three-layer abstraction: `base.py` / `local_storage.py` / `minio_storage.py`; local dev uses local storage, Docker uses MinIO |
 | Celery | Stage 1 fake task ready | Real Celery app with Redis broker/result backend; `worker-report` runs `run_stub_job` for queued→running→succeeded flow |
 | Nginx | Production + local dev dual config | `infra/nginx/nginx.conf` (Docker), `infra/nginx/nginx.local.conf` (local dev); reverse proxy `/api/v1/*` to backend; SPA static serving |
@@ -53,16 +53,16 @@
 
 - **10 pages:** Login, Dashboard, Projects, Drawings, Files, Jobs, Reviews, Admin (Users/Roles/Audit), Profile
 - **12 API client files** under `src/api/` (11 modules + client.ts)
-- **8 shared components:** FileUpload, TaskInput, AgentSteps, ResultPanel, DrawingPreview, JobTimeline, PermissionGuard, ReviewPanel
+- **8 shared components:** FileUpload, TaskInput, AgentSteps, ResultPanel, DrawingPreview, JobTimeline, PermissionGuard, ReviewPanel (6 of 8 are Stage 2+ stubs; only FileUpload and PermissionGuard have full implementations)
 - **Route-level auth guards** with role-based access
 - **SessionStorage** token storage (not localStorage)
 - **npm ci + npm run build** pass clean
 
-### 2.4 Test Coverage -- 350 Tests
+### 2.4 Test Coverage -- 432 Tests
 
 ```text
 ruff check app tests    →  All checks passed (0 errors)
-pytest -q               →  350 passed, 0 failed
+pytest -q               →  432 passed, 0 failed
 ```
 
 Test domains covered:
@@ -88,7 +88,7 @@ Test domains covered:
 | No SSE event streaming (endpoint defined, returns placeholder) | Stage 2 |
 | No chunked upload | Stage 6 |
 | Frontend detail pages are basic | Ongoing |
-| Access token not revocable mid-life (only blacklisted on logout) | Stage 6 |
+| No admin token introspection/revocation endpoint | Stage 6 |
 
 ---
 
@@ -118,7 +118,7 @@ User → POST /api/v1/agent-runs → FastAPI → Celery agent queue
 | Tool registry stub | `backend/app/agents/tool_registry.py` | Placeholder -- register MCP→LangChain tool adapters |
 | MCP client stub | `backend/app/mcp_client/cad_mcp_client.py` | Placeholder -- implement connect/list_tools/call_tool |
 | MCP tool adapter stub | `backend/app/mcp_client/mcp_tool_adapter.py` | Placeholder -- wrap MCP tools as LangChain tools |
-| Redis memory service | `backend/app/services/redis_memory.py` | **Fully implemented and tested** -- calls `set_memory()`/`get_memory()` on `agent:memory:{session_id}` key, TTL=7200s, max 20 messages |
+| Redis memory service | `backend/app/services/redis_memory.py` | **Fully implemented and tested** -- calls `save_session_history()`/`get_session_history()` on `agent:memory:{session_id}` key, TTL=7200s, max 20 messages |
 | Redis client | `backend/app/core/redis_client.py` | **Fully implemented** -- lazy-init, no-crash on unavailable, sync redis-py |
 | Cache service | `backend/app/services/cache_service.py` | **Fully implemented** -- generic `cache:{namespace}:{key}` pattern |
 | Celery app | `backend/app/workers/celery_app.py` | Implemented -- Redis broker/result backend, queue routing, eager mode for tests |
@@ -209,12 +209,12 @@ def execute_agent_run(self, agent_run_id: int):
     1. Load agent_run from DB
     2. Get/create MCP client connection
     3. Create agent via agent_factory
-    4. Load session history from Redis (redis_memory.get_memory)
+    4. Load session history from Redis (redis_memory.get_session_history)
     5. Call agent.ainvoke() or agent.invoke()
     6. Extract final answer and tool-call steps
     7. Save steps to agent_run_steps table
     8. Update agent_run status + answer
-    9. Save updated history to Redis (redis_memory.set_memory)
+    9. Save updated history to Redis (redis_memory.save_session_history)
     10. On failure: retry or mark failed with error
     """
 ```
@@ -912,7 +912,7 @@ Stage 5 layers specific business algorithms on top of the raw extraction pipelin
 | P0 | **Rate limiting** | Per-user and per-IP rate limiting on auth and upload endpoints |
 | P1 | **Monitoring** | Prometheus metrics (API latency, worker queue depth, error rates), Grafana dashboards |
 | P1 | **Log aggregation** | Loki for centralized log querying across all containers |
-| P1 | **Token blacklist middleware** | Real-time access token revocation (currently only on logout) |
+| P1 | **Admin token management** | Admin endpoint for token introspection and manual revocation (basic jti-blacklist and password-change invalidation already implemented) |
 | P2 | **RabbitMQ broker** | Replace Redis as Celery broker for production reliability (optional) |
 | P2 | **Multi CAD Worker scaling** | Load-balanced CAD Worker nodes with health-aware dispatch |
 | P3 | **Chunked upload** | Resumable large file uploads with progress tracking |

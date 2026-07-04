@@ -19,7 +19,7 @@ kind of code belongs there.
 
 ```
 complete_framework/
-├── DWG-Agent企业平台技术规范.md   ← Ground truth for all design decisions (2455 lines)
+├── DWG-Agent企业平台技术规范.md   ← Ground truth for all design decisions (v2.0, 1317 lines)
 ├── CLAUDE.md                      ← Agent instructions — conventions, don'ts, file map
 ├── README.md                      ← Human-facing project overview
 ├── compose.yaml                   ← Docker Compose for all services
@@ -56,6 +56,7 @@ complete_framework/
 │   │   │   ├── exceptions.py      ← AppHTTPException (use this, not bare HTTPException)
 │   │   │   ├── redis_client.py    ← Lazy-init sync Redis client (safe when unavailable)
 │   │   │   ├── logger.py          ← Structured logging
+│   │   │   ├── validators.py      ← Field-level validators (phone, password, etc.)
 │   │   │   └── constants.py       ← Enums, string constants
 │   │   ├── db/                    ← Database setup
 │   │   │   ├── base.py            ← SQLAlchemy declarative Base
@@ -143,7 +144,7 @@ complete_framework/
 │   ├── package.json               ← All versions locked — NO "latest"
 │   ├── package-lock.json
 │   ├── tsconfig.json
-│   ├── vite.config.ts             ← Dev proxy → localhost:8000, build → dist/
+│   ├── vite.config.ts             ← Vite config (no proxy; set VITE_API_BASE_URL for local dev)
 │   ├── index.html
 │   └── src/
 │       ├── main.tsx               ← ReactDOM entry
@@ -176,15 +177,15 @@ complete_framework/
 │       │   ├── reviews/           ← Pending reviews + review form
 │       │   ├── profile/           ← User profile page
 │       │   └── admin/             ← Roles, audit logs (super_admin)
-│       ├── components/            ← Shared UI components (8 components)
-│       │   ├── FileUpload.tsx
-│       │   ├── TaskInput.tsx
-│       │   ├── AgentSteps.tsx
-│       │   ├── ResultPanel.tsx
-│       │   ├── DrawingPreview.tsx
-│       │   ├── JobTimeline.tsx
-│       │   ├── PermissionGuard.tsx
-│       │   └── ReviewPanel.tsx
+│       ├── components/            ← Shared UI components (2 real + 6 stubs)
+│       │   ├── FileUpload.tsx        [REAL]
+│       │   ├── PermissionGuard.tsx   [REAL]
+│       │   ├── TaskInput.tsx         [STUB — placeholder]
+│       │   ├── AgentSteps.tsx        [STUB — placeholder]
+│       │   ├── ResultPanel.tsx       [STUB — placeholder]
+│       │   ├── DrawingPreview.tsx    [STUB — placeholder]
+│       │   ├── JobTimeline.tsx       [STUB — placeholder]
+│       │   └── ReviewPanel.tsx       [STUB — placeholder]
 │       ├── stores/                ← Zustand stores
 │       │   └── auth.store.ts      ← Current user, roles, token
 │       └── types/                 ← TypeScript type definitions
@@ -195,7 +196,8 @@ complete_framework/
 │           ├── drawing.ts
 │           ├── job.ts
 │           ├── result.ts
-│           └── agent.ts
+│           ├── agent.ts
+│           └── audit.ts
 │
 ├── docs/                          ← Handover documentation (7 docs including this one)
 │   ├── architecture.md            ← System architecture overview
@@ -315,6 +317,7 @@ FastAPI `Request` objects.
 ```python
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models.notification import Notification
 from app.schemas.notification_schema import NotificationCreate
@@ -329,10 +332,10 @@ def create_notification(db: Session, user_id: int, data: NotificationCreate) -> 
 
 
 def list_notifications(db: Session, user_id: int, is_read: bool | None = None):
-    query = db.query(Notification).filter(Notification.user_id == user_id)
+    stmt = select(Notification).where(Notification.user_id == user_id)
     if is_read is not None:
-        query = query.filter(Notification.is_read == is_read)
-    return query.order_by(Notification.created_at.desc()).all()
+        stmt = stmt.where(Notification.is_read == is_read)
+    return db.scalars(stmt.order_by(Notification.created_at.desc())).all()
 ```
 
 **Step 5: Add route handler** (`app/api/v1/notifications_api.py`)
@@ -343,10 +346,11 @@ responses. No business logic lives here.
 ```python
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
+from app.api.deps import CurrentUser
 from app.db.session import get_db
-from app.core.dependencies import CurrentUser
+from app.schemas.common import ok
 from app.schemas.notification_schema import NotificationCreate, NotificationResponse
 from app.services import notification_service
 
@@ -356,23 +360,26 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 @router.post("", status_code=201)
 def create_notification(
     payload: NotificationCreate,
-    db: Session = Depends(get_db),
     current_user: CurrentUser,
+    request: Request,
+    db: Session = Depends(get_db),
 ):
     notification = notification_service.create_notification(db, current_user.id, payload)
-    return {"data": NotificationResponse.model_validate(notification).model_dump()}
+    return ok(NotificationResponse.model_validate(notification).model_dump(), request.state.request_id)
 
 
 @router.get("")
 def list_notifications(
     is_read: bool | None = Query(None),
-    db: Session = Depends(get_db),
     current_user: CurrentUser,
+    request: Request,
+    db: Session = Depends(get_db),
 ):
     notifications = notification_service.list_notifications(db, current_user.id, is_read)
-    return {
-        "data": [NotificationResponse.model_validate(n).model_dump() for n in notifications]
-    }
+    return ok(
+        [NotificationResponse.model_validate(n).model_dump() for n in notifications],
+        request.state.request_id,
+    )
 ```
 
 **Step 6: Register in the central router** (`app/api/v1/router.py`)
@@ -463,23 +470,28 @@ Every endpoint returns one of these shapes:
 ### 2.4 Dependency Parameter Order
 
 FastAPI resolves parameters positionally. The correct order in a route function signature
-is:
+must respect **Python's syntax rule**: parameters without defaults MUST come before
+parameters with defaults.
+
+Since `CurrentUser` (an `Annotated[..., Depends(...)]` type) has no `= default` in the
+function signature, it must appear **before** `Depends()` and `Query()` parameters,
+which do have defaults:
 
 ```python
 @router.patch("/{user_id}")
 def update_user(
-    user_id: int,                    # 1. Path parameters
-    payload: UserUpdate,             # 2. Request body
-    page: int = Query(1),            # 3. Query parameters
-    db: Session = Depends(get_db),   # 4. Depends() dependencies
-    current_user: CurrentUser,        # 5. Non-Depends() dependencies (no = None!)
-    file: UploadFile | None = None,  # 6. UploadFile — always LAST
+    user_id: int,                         # 1. Path parameters (no default)
+    payload: UserUpdate,                  # 2. Request body (no default)
+    current_user: CurrentUser,            # 3. Annotated Depends (no default — MUST come before defaults)
+    page: int = Query(1),                 # 4. Query parameters (have defaults)
+    db: Session = Depends(get_db),        # 5. Explicit Depends() (have defaults)
+    file: UploadFile | None = None,       # 6. UploadFile — always LAST
 ):
 ```
 
-Getting this order wrong is a common source of FastAPI startup errors and 422 responses.
-The key rule: path params first, then body, then query params, then `Depends()`, then
-bare dependencies like `CurrentUser`, then `UploadFile` last.
+Getting this order wrong causes Python `SyntaxError`, not just FastAPI 422 responses.
+The key rule: **all parameters without defaults first**, then parameters with defaults,
+with `UploadFile` always last.
 
 ---
 
@@ -490,9 +502,8 @@ bare dependencies like `CurrentUser`, then `UploadFile` last.
 **Step 1: Add API client module** (`src/api/notifications.api.ts`)
 
 All HTTP calls go through `src/api/client.ts`, which is an Axios instance with:
-- Automatic `Authorization: Bearer <token>` header injection
-- 401 interceptor that attempts token refresh
-- Base URL from `VITE_API_BASE_URL` env var
+- Automatic `Authorization: Bearer <token>` header injection (reads token from `sessionStorage` via Zustand store)
+- Base URL from `VITE_API_BASE_URL` env var (defaults to empty string)
 
 ```typescript
 import client from './client';
@@ -555,9 +566,10 @@ Wrap routes that require specific roles with the `PermissionGuard` component:
 
 ### 3.2 Frontend Conventions
 
-**API base URL:** Always use `VITE_API_BASE_URL` env var. In development it is empty
-(Vite proxy handles routing to localhost:8000). In Docker, nginx serves the built
-frontend and proxies `/api/v1/` to the backend, so the env var may also be empty.
+**API base URL:** Always use `VITE_API_BASE_URL` env var. For local development against
+a running backend, set it to `http://127.0.0.1:8000` (the Vite dev server has no built-in
+proxy). In Docker, nginx serves the built frontend and proxies `/api/v1/` to the backend,
+so the env var may be empty.
 
 **Token storage:** `sessionStorage` only — never `localStorage`. This mitigates XSS-based
 token theft. The Axios interceptor in `client.ts` reads from `sessionStorage` on every
@@ -624,7 +636,7 @@ uv run pytest -x
 uv run pytest -k "login"
 ```
 
-Expected: 350 passed, 0 failed when Redis is available. If Redis is unavailable, the 13 tests in `test_redis_real.py` are skipped.
+Expected: 432 passed, 0 failed when Redis is available. If Redis is unavailable, the 13 tests in `test_redis_real.py` are skipped.
 
 ### 4.3 Linting Before Tests
 
@@ -741,6 +753,9 @@ if some_condition:
 | `test_rigorous.py` | Exhaustive edge case and error handling tests |
 | `test_deep_verify.py` | Deeper validation of business rules and data integrity |
 | `test_edge_cases.py` | Boundary conditions: empty inputs, max-length strings, etc. |
+| `test_job_lifecycle.py` | Job status transitions, cancel, retry lifecycle |
+| `test_rbac_deep.py` | Deep RBAC permission checking across roles and resources |
+| `test_service_layer.py` | Service-layer unit tests (business logic isolated from HTTP) |
 | `test_stage1_boundaries.py` | Verifies that Stage 2+ features return 503 (not 500) |
 | `test_health.py` | Health endpoint |
 | `test_config.py` | Settings validation, MySQL/Redis URL computation |
@@ -761,12 +776,13 @@ if some_condition:
 
 ### 5.1 Python (Backend)
 
-**File header:** Every `.py` file begins with:
+**File header:** Every functional `.py` file begins with:
 ```python
 from __future__ import annotations
 ```
 This enables PEP 604 syntax (`X | None`, `list[dict]`) in all files, even ones that
-define models with forward references.
+define models with forward references. **Exceptions:** `__init__.py` files (which contain
+no type annotations) and placeholder/stub files for future stages are exempt.
 
 **Type hints:**
 - Use `X | None`, not `Optional[X]` (enforced by ruff UP007).
@@ -900,26 +916,18 @@ means different developers and CI builds get different versions with no warning.
 ### 7.1 FastAPI Dependency Order
 
 Getting parameter order wrong in a FastAPI route function is the #1 source of
-confusing 422 errors. FastAPI resolves parameters positionally. The correct order:
+confusing 422 errors. **The fundamental constraint is Python syntax**: parameters
+without defaults MUST come before parameters with defaults.
 
-1. Path parameters (e.g., `user_id: int`)
-2. Request body (e.g., `payload: UserUpdate`)
-3. Query parameters (e.g., `page: int = Query(1)`)
-4. `Depends()` dependencies (e.g., `db: Session = Depends(get_db)`)
-5. Bare dependencies with no default (e.g., `current_user: CurrentUser`)
-6. `UploadFile` — always last
+Since `CurrentUser` (an `Annotated[..., Depends(...)]` type) has no `= default` in
+the signature, it must appear **before** `Depends()` and `Query()` parameters:
 
-Example of a **broken** signature:
-```python
-# WRONG: current_user before Depends()
-@router.patch("/{user_id}")
-def update_user(
-    user_id: int,
-    current_user: CurrentUser,      # ← Should come AFTER Depends()
-    payload: UserUpdate,
-    db: Session = Depends(get_db),
-):
-```
+1. Path parameters (e.g., `user_id: int`) -- no default
+2. Request body (e.g., `payload: UserUpdate`) -- no default
+3. Annotated Depends with no default (e.g., `current_user: CurrentUser`)
+4. Query parameters (e.g., `page: int = Query(1)`) -- has default
+5. `Depends()` dependencies (e.g., `db: Session = Depends(get_db)`) -- has default
+6. `UploadFile` -- always last
 
 Example of a **correct** signature:
 ```python
@@ -927,8 +935,20 @@ Example of a **correct** signature:
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser,       # ← After Depends(), before UploadFile
+    current_user: CurrentUser,       # No default — must precede Depends()
+    db: Session = Depends(get_db),   # Has default — must follow non-default params
+):
+```
+
+Example of a **broken** signature (Python `SyntaxError`):
+```python
+# WRONG: parameter without default follows parameter with default
+@router.patch("/{user_id}")
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    db: Session = Depends(get_db),   # Has default
+    current_user: CurrentUser,       # No default — SyntaxError!
 ):
 ```
 
@@ -1015,17 +1035,26 @@ if condition:
 ```python
 # WRONG — route handler contains business logic
 @router.post("/{file_id}/process")
-def process_file(file_id: int, db: Session = Depends(get_db), current_user: CurrentUser):
-    file = db.query(File).filter(...).first()
+def process_file(
+    file_id: int,
+    current_user: CurrentUser,               # No default — must precede Depends()
+    db: Session = Depends(get_db),
+):
+    file = db.scalar(select(File).where(File.id == file_id))
     if file.status != "available":
         raise AppHTTPException(...)
     # ... more logic inline ...
 
 # RIGHT — route delegates to service
 @router.post("/{file_id}/process")
-def process_file(file_id: int, db: Session = Depends(get_db), current_user: CurrentUser):
+def process_file(
+    file_id: int,
+    current_user: CurrentUser,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     result = file_service.process_file(db, file_id, current_user.id)
-    return {"data": FileResponse.model_validate(result).model_dump()}
+    return ok(FileResponse.model_validate(result).model_dump(), request.state.request_id)
 ```
 
 ### 7.9 Stage 2+ Features Must Return 503
@@ -1046,8 +1075,9 @@ import client from '@/api/client';
 const resp = await client.get('/api/v1/users');
 ```
 
-The client's `baseURL` comes from `VITE_API_BASE_URL`, which is empty in dev (Vite proxy
-handles it) and may be set in production.
+The client's `baseURL` comes from `VITE_API_BASE_URL`, which should be set to the
+backend URL for local dev (e.g., `http://127.0.0.1:8000`) and may be empty in
+Docker/nginx deployments.
 
 ---
 
@@ -1125,7 +1155,7 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "W"]
 ignore = ["B008", "E501", "UP037"]
 ```
 
@@ -1135,6 +1165,7 @@ Rules breakdown:
 - `I` — isort (import ordering)
 - `UP` — pyupgrade (modern Python syntax: `X | None`, `list[]`, `from __future__ import annotations`)
 - `B` — flake8-bugbear (common bug patterns: mutable defaults, `assert False`, bare except)
+- `W` — pycodestyle warnings (trailing whitespace, blank line issues)
 
 Excluded rules:
 - `B008` — Do not perform function calls in argument defaults (too noisy with FastAPI
@@ -1166,7 +1197,7 @@ Before committing any change:
 # Backend changes
 cd backend
 uv run ruff check app tests          # Must pass with 0 errors
-uv run pytest -q                     # Must pass 350+ tests
+uv run pytest -q                     # Must pass 432 tests
 
 # Frontend changes
 cd frontend
@@ -1247,7 +1278,7 @@ chore(backend): update ruff to 0.7.0
 ### 10.4 Pull Request Checklist
 
 - [ ] `uv run ruff check app tests` passes (0 errors)
-- [ ] `uv run pytest -q` passes (all 350+ tests)
+- [ ] `uv run pytest -q` passes (all 432 tests)
 - [ ] `npx tsc --noEmit` passes (frontend type check)
 - [ ] New endpoints have corresponding tests (happy path + security boundaries)
 - [ ] State-changing operations write audit logs
@@ -1301,5 +1332,5 @@ cd frontend && npx tsc --noEmit && npm run build
 8. `docs/roadmap.md` — Stage delivery roadmap
 9. `backend/app/core/config.py` — All configuration knobs
 10. `backend/app/core/exceptions.py` — AppHTTPException definition
-9. `backend/app/main.py` — How the FastAPI app is assembled
-10. `backend/app/api/v1/router.py` — How routes are mounted
+11. `backend/app/main.py` — How the FastAPI app is assembled
+12. `backend/app/api/v1/router.py` — How routes are mounted

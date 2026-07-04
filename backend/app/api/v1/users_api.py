@@ -25,6 +25,7 @@ from app.schemas.user_schema import (
     UserUpdate,
 )
 from app.services.audit_service import write_audit_log
+from app.services.auth_service import record_password_change
 from app.services.user_service import (
     create_user,
     get_user_or_404,
@@ -289,6 +290,11 @@ def reset_user_password(
         request=request,
     )
     db.commit()
+
+    # Invalidate all existing tokens for the target user — admin-initiated
+    # password resets must also revoke active sessions (BUG-19 extension).
+    record_password_change(user.id)
+
     return ok(
         {
             "user_id": user.id,

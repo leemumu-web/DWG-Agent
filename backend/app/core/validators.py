@@ -36,5 +36,10 @@ def validate_sort_by(resource: str, value: str, default: str = "created_at") -> 
     if not clean:
         return default
     if clean not in allowed:
-        return default
+        raise AppHTTPException(
+            422,
+            "INVALID_SORT_COLUMN",
+            f"Sort column {clean!r} is not allowed for {resource!r}. "
+            f"Valid columns: {', '.join(sorted(allowed))}.",
+        )
     return clean

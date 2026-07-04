@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,7 +18,12 @@ def page(
 ) -> dict[str, Any]:
     return {
         "data": data,
-        "pagination": {"page": page_no, "page_size": page_size, "total": total},
+        "pagination": {
+            "page": page_no,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": math.ceil(total / page_size) if page_size > 0 else 0,
+        },
         "meta": meta(request_id),
     }
 

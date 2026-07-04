@@ -7,7 +7,7 @@ os.environ.setdefault("CELERY_TASK_ALWAYS_EAGER", "true")
 
 import pytest
 from fakeredis import FakeRedis
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -50,6 +50,19 @@ def _isolate_test_db(monkeypatch):
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+        """Enable FK enforcement on SQLite connections (disabled by default).
+
+        We intentionally do NOT set journal_mode=WAL or busy_timeout because
+        this is an in-memory database behind StaticPool -- there is only one
+        connection, so WAL concurrency and lock-timeout tuning are meaningless.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     Base.metadata.create_all(bind=engine)
     TestSessionLocal = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=False

@@ -262,7 +262,7 @@ Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external
             │        │      │      │                              │
             │   ┌────▼──┐ ┌─▼──┐ ┌─▼────┐                         │
             │   │ mysql │ │redis│ │minio │                         │
-            │   │ 8.4   │ │7.4  │ │latest│                         │
+            │   │ 8.4   │ │9.0  │ │latest│                         │
             │   └───────┘ └─────┘ └──────┘                         │
             │                                                      │
             │   ┌──────────┐ ┌──────────┐ ┌───────────┐           │
@@ -374,7 +374,7 @@ Located at `backend/Dockerfile` (multi-stage build):
 - Installs `curl` + `ca-certificates` for healthcheck
 - Copies `.venv` from builder, then `app/`, `alembic.ini`, `migrations/`
 - Creates writable `/app/var/` owned by `appuser`
-- HEALTHCHECK: `curl -f http://localhost:8000/health` every 15s, 5 retries
+- HEALTHCHECK: `curl -f http://localhost:8000/health` every 15s, timeout 3s, 5 retries
 - CMD: `alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -`
 
 ### 4.5 Volumes
@@ -418,7 +418,7 @@ All configuration is driven by environment variables. The canonical definitions 
 | `APP_ENV` | `development` | Environment: `development` / `production` |
 | `DEBUG` | `true` | Debug mode (disable in production) |
 | `API_V1_PREFIX` | `/api/v1` | API URL prefix |
-| `BACKEND_CORS_ORIGINS` | `http://localhost:5173,...` | Comma-separated CORS origins |
+| `BACKEND_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated CORS origins |
 
 **Computed: `settings.cors_origins`** -- splits `BACKEND_CORS_ORIGINS` into a list.
 
@@ -432,7 +432,9 @@ All configuration is driven by environment variables. The canonical definitions 
 | `MYSQL_DATABASE` | `dwg_agent` | `dwg_agent` | Database name |
 | `MYSQL_USER` | `dwg_user` | `dwg_user` | Application user |
 | `MYSQL_PASSWORD` | (required) | (required) | Application user password |
-| `MYSQL_ROOT_PASSWORD` | (required) | (required) | MySQL root password |
+| `MYSQL_ROOT_PASSWORD` | (required) | (required) | MySQL root password [^1] |
+
+[^1]: `MYSQL_ROOT_PASSWORD` is an **infrastructure-only variable**. It is used by `compose.yaml` for the MySQL container health check (`mysqladmin ping -u root -p`). It is NOT a field in `backend/app/core/config.py` (which has `extra="ignore"`) -- the backend application never reads it. It is defined in `.env.example` and `.env.docker.example` solely for Compose consumption.
 
 **Computed: `settings.mysql_url`** -- assembled from component fields with URL-encoded password.
 
@@ -451,6 +453,7 @@ Connection pool settings (hardcoded in `app/db/session.py`, MySQL only):
 | `REDIS_PASSWORD` | (empty) | (required) | Auth password |
 | `REDIS_MEMORY_TTL` | `7200` | `7200` | Agent memory TTL (seconds) |
 | `REDIS_MAX_MESSAGES` | `20` | `20` | Max messages per session |
+| `CELERY_TASK_ALWAYS_EAGER` | `false` | `false` | Execute tasks synchronously (tests override to `true`) |
 
 **Computed: `settings.redis_url`** -- assembled from component fields.
 **Computed: `settings.celery_broker_url`** -- `redis://.../{host}:{port}/0`
@@ -484,7 +487,7 @@ Docker Compose passes `MINIO_ROOT_USER` to both `MINIO_ACCESS_KEY` and `MINIO_RO
 
 | Variable | Default | Description |
 |---|---|---|
-| `JWT_SECRET_KEY` | (placeholder) | **MUST CHANGE** -- at least 32 random characters |
+| `JWT_SECRET_KEY` | `change-me-in-dev-change-me-in-prod-32chars` | **MUST CHANGE** -- at least 32 random characters |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token TTL |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | Refresh token TTL |
@@ -664,6 +667,10 @@ The endpoint does **not** expose internal component details (database URL, Redis
 | `mysql` | `mysqladmin ping -h localhost -u root -p"${MYSQL_ROOT_PASSWORD}"` | 10s | 3s | 5 |
 | `redis` | `redis-cli -a "${REDIS_PASSWORD}" ping` | 10s | 3s | 5 |
 | `minio` | `curl -f http://localhost:9000/minio/health/live` | 10s | 3s | 5 |
+| `worker-agent` | `celery inspect ping -d agent@$HOSTNAME` | 10s | 8s | 5 |
+| `worker-dxf` | `celery inspect ping -d dxf@$HOSTNAME` | 10s | 8s | 5 |
+| `worker-report` | `celery inspect ping -d report@$HOSTNAME` | 10s | 8s | 5 |
+| `flower` | `curl -fsS http://localhost:5555/` | 10s | 5s | 5 |
 
 Nginx `depends_on` `backend-api` with `condition: service_healthy`, so Nginx will not start (and therefore not accept traffic) until the backend is healthy.
 

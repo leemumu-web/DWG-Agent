@@ -47,15 +47,19 @@ engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
                         poolclass=StaticPool)
 ```
 
-**SQLite pragmas set on each test connection:**
+**SQLite pragma set on each test connection:**
 
 | Pragma | Value | Purpose |
 |---|---|---|
-| `journal_mode` | WAL | Write-Ahead Logging -- allows concurrent reads during writes |
 | `foreign_keys` | ON | Enforce FK constraints (SQLite disables them by default) |
-| `busy_timeout` | 5000ms | Wait up to 5s on lock contention before failing |
 
-These pragmas are applied via a `@event.listens_for(engine, "connect")` handler in the test conftest. They do NOT affect the runtime MySQL engine.
+This pragma is applied via a `@event.listens_for(engine, "connect")` handler in the test conftest. It does NOT affect the runtime MySQL engine.
+
+**Why only `foreign_keys`?** The test database uses in-memory SQLite behind `StaticPool`, which provides exactly one connection. In this configuration:
+- `journal_mode=WAL` is meaningless -- WAL enables concurrent reads during writes, but a single connection has no concurrency.
+- `busy_timeout` is meaningless -- with one connection there is never lock contention.
+
+These two pragmas would only matter for file-backed SQLite with a connection pool. They are intentionally omitted.
 
 ### 1.3 MySQL vs SQLite type mapping
 
@@ -99,7 +103,7 @@ Core user identity table. Supports soft-delete via `deleted_at` timestamp.
 | `email` | VARCHAR(128) | NULLABLE | Contact email |
 | `password_hash` | VARCHAR(255) | NOT NULL | Argon2id hash of the password |
 | `password_algo` | VARCHAR(32) | NOT NULL, DEFAULT 'argon2id' | Algorithm tag for future migration |
-| `status` | VARCHAR(32) | NOT NULL, INDEXED | `active` / `disabled` / `deleted` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'active', INDEXED | `active` / `disabled` / `deleted` |
 | `last_login_at` | DATETIME | NULLABLE | Timestamp of last successful login |
 | `deleted_at` | DATETIME | NULLABLE, INDEXED | Soft-delete timestamp (NULL = not deleted) |
 | `created_at` | DATETIME | NOT NULL | Record creation timestamp |
@@ -119,7 +123,7 @@ Global role definitions. System roles are seeded and protected.
 | `code` | VARCHAR(64) | UNIQUE, NOT NULL, INDEXED | Machine-readable role code (e.g. `super_admin`) |
 | `name` | VARCHAR(64) | NOT NULL | Human-readable display name |
 | `description` | VARCHAR(255) | NULLABLE | Role purpose description |
-| `is_system` | BOOLEAN | NOT NULL | If TRUE, role is seeded and should not be deleted |
+| `is_system` | BOOLEAN | NOT NULL, DEFAULT FALSE | If TRUE, role is seeded and should not be deleted |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -175,7 +179,7 @@ Project container for organizing drawings, files, and jobs.
 | `name` | VARCHAR(128) | NOT NULL | Project display name |
 | `description` | TEXT | NULLABLE | Project details |
 | `owner_id` | BIGINT | FK → `sys_users.id` | Project owner (typically the creator) |
-| `status` | VARCHAR(32) | NOT NULL | `active` / `archived` / `deleted` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'active' | `active` / `archived` / `deleted` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -214,7 +218,7 @@ File metadata store. The actual file bytes live in storage (local filesystem or 
 | `sha256` | VARCHAR(64) | NOT NULL, INDEXED | SHA-256 hex digest (64 chars) |
 | `md5` | VARCHAR(32) | NULLABLE | MD5 hex digest (32 chars) |
 | `uploaded_by` | BIGINT | FK → `sys_users.id` | Uploader user ID |
-| `status` | VARCHAR(32) | NOT NULL | `available` / `deleted` / `processing` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` / `processing` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -234,7 +238,7 @@ Logical drawing record with version tracking.
 | `title` | VARCHAR(255) | NULLABLE | Drawing title |
 | `discipline` | VARCHAR(64) | NULLABLE | Engineering discipline code |
 | `current_version_id` | BIGINT | FK → `drawing_versions.id` | Points to the latest version |
-| `status` | VARCHAR(32) | NOT NULL | `active` / `archived` / `deleted` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'active' | `active` / `archived` / `deleted` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -266,13 +270,13 @@ Asynchronous processing job for a DWG drawing.
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
-| `project_id` | BIGINT | FK → `projects.id`, INDEXED | Project scope |
-| `drawing_id` | BIGINT | FK → `drawings.id`, INDEXED | Target drawing |
-| `created_by` | BIGINT | FK → `sys_users.id` | Job submitter |
+| `project_id` | BIGINT | NULLABLE, FK → `projects.id`, INDEXED | Project scope |
+| `drawing_id` | BIGINT | NULLABLE, FK → `drawings.id`, INDEXED | Target drawing |
+| `created_by` | BIGINT | NULLABLE, FK → `sys_users.id` | Job submitter |
 | `task_type` | VARCHAR(64) | NOT NULL | Task code (e.g. `extract_layers`, `count_blocks`) |
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high` (determines pipeline routing) |
 | `pipeline` | VARCHAR(64) | NULLABLE | Assigned pipeline: `dxf_open_source` / `zwcad_worker` / `local_stub` |
-| `status` | VARCHAR(32) | NOT NULL, INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
 | `priority` | INT | NOT NULL, DEFAULT 0 | Higher = more urgent |
 | `progress` | INT | NOT NULL, DEFAULT 0 | 0-100 percentage |
 | `params_json` | JSON | NULLABLE | Task-specific parameters |
@@ -321,7 +325,7 @@ Records of LLM Agent execution sessions.
 | `drawing_id` | BIGINT | FK → `drawings.id` | Drawing context |
 | `file_id` | BIGINT | FK → `files.id` | Input file context |
 | `task` | TEXT | NOT NULL | Natural language task description |
-| `status` | VARCHAR(32) | NOT NULL | `queued` / `running` / `succeeded` / `failed` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued' | `queued` / `running` / `succeeded` / `failed` |
 | `answer` | TEXT | NULLABLE | Final LLM response text |
 | `output_file_id` | BIGINT | FK → `files.id` | Result file if the agent produced one |
 | `history_count` | INT | NOT NULL, DEFAULT 0 | Number of conversation turns in this session |
@@ -347,6 +351,7 @@ Individual tool calls and reasoning steps within an agent run.
 | `content` | TEXT | NULLABLE | Step output or reasoning content |
 | `status` | VARCHAR(32) | NOT NULL | `success` / `error` / `skipped` |
 | `created_at` | DATETIME | NOT NULL | |
+| `updated_at` | DATETIME | NOT NULL | |
 
 **Indexes:** `ix_agent_run_steps_agent_run_id`
 
@@ -367,7 +372,7 @@ Output of a processing job -- the structured analysis data.
 | `result_file_id` | BIGINT | FK → `files.id` | Output file (Excel, PDF, etc.) |
 | `algorithm_version` | VARCHAR(64) | NULLABLE | Version of the processing algorithm |
 | `tool_version` | VARCHAR(64) | NULLABLE | Version of the processing tool |
-| `status` | VARCHAR(32) | NOT NULL | `pending_review` / `approved` / `rejected` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'succeeded' | `succeeded` (initial) / `pending_review` / `approved` / `rejected` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -505,6 +510,7 @@ The following tables use MySQL's native JSON type (SQLite falls back to TEXT):
 |---|---|---|
 | `40452ddd24e7` | Initial -- creates all 17 business tables with explicit circular FK handling | 2026-07-03 |
 | `b8f9e7d6c5a4` | TimestampMixin fix -- idempotent migration for old MySQL databases missing `created_at`/`updated_at` columns | 2026-07-03 |
+| `c3d2e1f0a9b8` | Fix `audit_logs.resource_id` type -- `Integer` to `BigInteger` for consistency with all other ID columns | 2026-07-04 |
 
 ### 4.2 How to create a new migration
 
@@ -585,6 +591,8 @@ The `init_db()` function in `backend/app/db/init_db.py` is called automatically 
 
 **7 roles:**
 
+> **Note:** The `name` column stores Chinese display names in the seed data (e.g. "超级管理员" for `super_admin`). The table below shows English translations for readability.
+
 | Code | Name | `is_system` |
 |---|---|---|
 | `super_admin` | Super Admin | True |
@@ -616,7 +624,7 @@ All 8 permissions are assigned to the `super_admin` role at seed time.
 |---|---|
 | `username` | From `SUPER_ADMIN_USERNAME` env (default: `admin`) |
 | `password_hash` | Argon2id hash of `SUPER_ADMIN_PASSWORD` env |
-| `real_name` | From `SUPER_ADMIN_REAL_NAME` env (default: "System Admin") |
+| `real_name` | From `SUPER_ADMIN_REAL_NAME` env (default: "系统管理员") |
 | `status` | `active` |
 | `roles` | `[super_admin]` |
 

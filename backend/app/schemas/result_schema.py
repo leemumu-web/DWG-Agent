@@ -35,3 +35,4 @@ class ReviewRead(BaseModel):
     reviewer_id: int | None = None
     decision: str
     comment: str | None = None
+    created_at: datetime

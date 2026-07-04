@@ -49,3 +49,4 @@ class ProjectMemberRead(BaseModel):
     project_id: int
     user_id: int
     project_role: str
+    created_at: datetime
