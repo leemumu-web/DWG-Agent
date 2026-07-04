@@ -12,6 +12,7 @@ from app.api.deps import (
     has_global_project_access,
 )
 from app.core.exceptions import AppHTTPException, forbidden, not_found
+from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
@@ -31,27 +32,33 @@ from app.storage.base import StorageError, StorageObjectNotFound
 router = APIRouter()
 
 
-def _file_project_ids(db: Session, file_id: int) -> set[int]:
-    drawing_project_ids = db.scalars(
+def _file_project_ids(db: Session, file_id: int, *, include_deleted: bool = False) -> set[int]:
+    drawing_stmt = (
         select(Drawing.project_id)
         .join(DrawingVersion, DrawingVersion.drawing_id == Drawing.id)
         .join(Project, Project.id == Drawing.project_id)
         .where(
             DrawingVersion.file_id == file_id,
             Drawing.status != "deleted",
-            Project.status != "deleted",
         )
-    ).all()
-    result_project_ids = db.scalars(
+    )
+    if not include_deleted:
+        drawing_stmt = drawing_stmt.where(Project.status != "deleted")
+    drawing_project_ids = db.scalars(drawing_stmt).all()
+
+    result_stmt = (
         select(Job.project_id)
         .join(AnalysisResult, AnalysisResult.job_id == Job.id)
         .join(Project, Project.id == Job.project_id)
         .where(
             AnalysisResult.result_file_id == file_id,
             Job.project_id.is_not(None),
-            Project.status != "deleted",
         )
-    ).all()
+    )
+    if not include_deleted:
+        result_stmt = result_stmt.where(Project.status != "deleted")
+    result_project_ids = db.scalars(result_stmt).all()
+
     return {
         project_id
         for project_id in (*drawing_project_ids, *result_project_ids)
@@ -60,22 +67,42 @@ def _file_project_ids(db: Session, file_id: int) -> set[int]:
 
 
 def _can_read_file(db: Session, current_user: CurrentUser, stored: StoredFile) -> bool:
+    active_project_ids = _file_project_ids(db, stored.id, include_deleted=False)
+
+    # If the file is attached to projects but all of them have been soft-deleted,
+    # treat it as inaccessible regardless of global role / uploader status.
+    if not active_project_ids and _file_project_ids(db, stored.id, include_deleted=True):
+        return False
+
     if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
         return True
     return any(
         get_project_membership(db, current_user, project_id)
-        for project_id in _file_project_ids(db, stored.id)
+        for project_id in active_project_ids
     )
 
 
 def _require_file_read_access(
     db: Session, current_user: CurrentUser, stored: StoredFile
 ) -> None:
+    # If the file is attached only to soft-deleted projects, treat as not found
+    # so that soft-deleting a project cascades to its file metadata (BUG-7).
+    active_ids = _file_project_ids(db, stored.id, include_deleted=False)
+    all_ids = _file_project_ids(db, stored.id, include_deleted=True)
+    if not active_ids and all_ids:
+        raise not_found("File")
     if not _can_read_file(db, current_user, stored):
         raise forbidden("File access is restricted.")
 
 
-def _require_file_delete_access(current_user: CurrentUser, stored: StoredFile) -> None:
+def _require_file_delete_access(
+    db: Session, current_user: CurrentUser, stored: StoredFile
+) -> None:
+    # If all associated projects are soft-deleted, treat the file as not found (BUG-7).
+    active_ids = _file_project_ids(db, stored.id, include_deleted=False)
+    all_ids = _file_project_ids(db, stored.id, include_deleted=True)
+    if not active_ids and all_ids:
+        raise not_found("File")
     if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
         return
     raise forbidden("Only the uploader or an administrator can delete this file.")
@@ -108,11 +135,20 @@ def list_files(
     current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
+    sort_column = validate_sort_by("files", sort_by)
+    sort_dir_value = sort_dir.strip().lower()
+    order_clause = getattr(StoredFile, sort_column)
+    if sort_dir_value == "asc":
+        order_clause = order_clause.asc()
+    else:
+        order_clause = order_clause.desc()
     files = list(
         db.scalars(
-            select(StoredFile).where(StoredFile.status != "deleted").order_by(StoredFile.id.desc())
+            select(StoredFile).where(StoredFile.status != "deleted").order_by(order_clause)
         ).all()
     )
     if not has_global_project_access(current_user):
@@ -138,7 +174,7 @@ def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: S
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
-    _require_file_delete_access(current_user, stored)
+    _require_file_delete_access(db, current_user, stored)
     stored.status = "deleted"
     write_audit_log(
         db,

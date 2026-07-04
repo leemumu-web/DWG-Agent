@@ -10,7 +10,7 @@
 
 | Stage | Name | Status | Key Deliverables | Dependencies | Est. Effort |
 |-------|------|--------|------------------|--------------|-------------|
-| **1** | Platform Skeleton | **DONE** | Auth, RBAC, projects, file upload, job lifecycle, audit, 64 API endpoints, 350 tests, React frontend (10 pages), MinIO/Celery deployment base | None | Completed |
+| **1** | Platform Skeleton | **DONE** | Auth, RBAC, projects, file upload, job lifecycle, audit, 64 API endpoints, 432 tests, React frontend (10 pages), MinIO/Celery deployment base | None | Completed |
 | **2** | Agent Subsystem | **NEXT** | LangGraph `create_react_agent`, DeepSeek LLM, MCP client, Redis session memory, Agent Celery task body, `/api/v1/agent-runs` live, AgentSteps UI | Stage 1 | 2-3 weeks |
 | **3** | DXF Pipeline | Planned | DWG Converter abstraction, ezdxf parsing Worker, entities.json extraction, structured result display, low-confidence review | Stage 2 (for Agent tool integration) | 2-3 weeks |
 | **4** | Windows CAD Worker | Planned | ASP.NET Core Worker Service, ZWCAD API integration, pull-based task dispatch, cad_result.json export, CAD crash recovery | Stage 1 (internal API), Stage 2 (for dispatch tool) | 3-4 weeks |
@@ -27,7 +27,7 @@
 |-----------|--------|---------|
 | Docker Compose | Config ready, not production-tested | 9 services (nginx, backend-api, worker-agent, worker-dxf, worker-report, mysql, redis, minio, flower); worker-report default, profiles for Agent/DXF and monitoring; `.env.docker.example` template |
 | MySQL 8.x | Runtime database | `DATABASE_URL=mysql+pymysql://...`; pool: `pool_size=10, max_overflow=20, pool_recycle=3600`; WAL pragmas; `init.sql` seed script |
-| Redis (Valkey 9.1) | Deployed and validated | Systemd-managed; `redis_client` (lazy init, no-crash on unavailable), `redis_memory`, `cache_service` all tested; FakeRedis (337 non-real-Redis tests via conftest autouse) + real Redis integration (13 tests) dual-layer validation |
+| Redis (Valkey) | Deployed and validated | Systemd-managed; `redis_client` (lazy init, no-crash on unavailable), `redis_memory`, `cache_service` all tested; FakeRedis (416 non-real-Redis tests via conftest autouse) + real Redis integration (16 tests) dual-layer validation |
 | MinIO | Docker storage backend ready | Three-layer abstraction: `base.py` / `local_storage.py` / `minio_storage.py`; local dev uses local storage, Docker uses MinIO |
 | Celery | Stage 1 fake task ready | Real Celery app with Redis broker/result backend; `worker-report` runs `run_stub_job` for queued→running→succeeded flow |
 | Nginx | Production + local dev dual config | `infra/nginx/nginx.conf` (Docker), `infra/nginx/nginx.local.conf` (local dev); reverse proxy `/api/v1/*` to backend; SPA static serving |
@@ -52,7 +52,7 @@
 ### 2.3 Frontend -- React 19 + TypeScript + Vite
 
 - **10 pages:** Login, Dashboard, Projects, Drawings, Files, Jobs, Reviews, Admin (Users/Roles/Audit), Profile
-- **11 API client modules** under `src/api/` (one per resource + client.ts)
+- **12 API client files** under `src/api/` (11 modules + client.ts)
 - **8 shared components:** FileUpload, TaskInput, AgentSteps, ResultPanel, DrawingPreview, JobTimeline, PermissionGuard, ReviewPanel
 - **Route-level auth guards** with role-based access
 - **SessionStorage** token storage (not localStorage)
@@ -658,7 +658,7 @@ CAD Worker (Windows)              FastAPI Backend (Linux)
 | CAD worker task stub | `backend/app/workers/tasks_cad.py` | Placeholder -- needs dispatch task |
 | Config fields | `backend/app/core/config.py` | `cad_worker_api_base`, `cad_worker_api_key` ready |
 | Feature flag | `backend/app/core/config.py` | `cad_worker_enabled: bool = False` |
-| Docker Compose worker | `compose.yaml` | `worker-cad-dispatch` service under `profiles: [workers]` (Stage 4) |
+| Docker Compose worker | `compose.yaml` | Comment-only reference — `worker-cad-dispatch` reserved for Stage 4 implementation |
 
 ### 5.4 What Needs to Be Built
 
@@ -1040,7 +1040,7 @@ All workers (DXF, CAD, Report) must report errors using these standard codes:
 
 ### Stage 1 (Baseline)
 - [x] 64 API endpoints operational
-- [x] 350 tests passing
+- [x] 432 tests passing
 - [x] RBAC with 7 global + 4 project roles
 - [x] DWG upload with header validation
 - [x] Job lifecycle from queued to succeeded

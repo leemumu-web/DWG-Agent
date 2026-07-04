@@ -16,11 +16,12 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /app
 
 # System deps for uv + potential C extensions (hiredis via wheel, no gcc needed)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Install dependencies (layer cached unless package metadata or lockfile change)
+# Install dependencies (layer cached unless pyproject.toml or uv.lock change)
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 
@@ -39,10 +40,11 @@ RUN groupadd --system --gid 1000 appuser && \
 WORKDIR /app
 
 # Runtime system deps: curl for healthcheck only
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     curl \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Copy virtualenv from builder (single layer, ~120 MB)
 COPY --from=builder /app/.venv /app/.venv

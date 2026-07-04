@@ -7,6 +7,7 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.constants import ACTIVE
 from app.core.redis_client import get_redis
 from app.core.security import create_access_token, create_refresh_token, verify_password
@@ -51,6 +52,53 @@ def build_login_token(user: User) -> str:
 
 def build_refresh_token(user: User) -> str:
     return create_refresh_token(subject=str(user.id), extra_claims={"username": user.username})
+
+
+# ---------------------------------------------------------------------------
+# Password-change timestamp — Redis-backed so that existing tokens issued
+# before the change are rejected without a DB migration.
+# ---------------------------------------------------------------------------
+PWD_CHANGE_PREFIX = "pwd_change:user:"
+
+
+def record_password_change(user_id: int) -> None:
+    """Store the timestamp of the last password change for *user_id* in Redis.
+
+    Any access / refresh token issued before this timestamp is considered stale.
+    """
+    client = get_redis()
+    if client is None:
+        logger.warning("Password-change timestamp skipped — Redis unavailable.")
+        return
+    try:
+        now_ts = int(datetime.now(UTC).timestamp())
+        # Keep the key for twice the refresh-token lifetime so that even
+        # long-lived refresh tokens are reliably rejected.
+        ttl = settings.jwt_refresh_token_expire_days * 24 * 3600 * 2
+        client.setex(PWD_CHANGE_PREFIX + str(user_id), ttl, str(now_ts))
+        logger.info("Password-change recorded: user=%d ts=%d", user_id, now_ts)
+    except Exception:
+        logger.exception("Failed to record password-change timestamp.")
+
+
+def is_token_stale_for_password_change(user_id: int, token_iat: int) -> bool:
+    """Return True if the token (issued at *token_iat*) predates the last
+    password change for *user_id*.
+
+    If Redis is unavailable returns False (fail-open for availability).
+    """
+    client = get_redis()
+    if client is None:
+        return False
+    try:
+        stored = client.get(PWD_CHANGE_PREFIX + str(user_id))
+        if stored is None:
+            return False
+        pwd_change_ts = int(stored)
+        return token_iat <= pwd_change_ts
+    except Exception:
+        logger.exception("Password-change staleness check failed — assuming not stale.")
+        return False
 
 
 # ---------------------------------------------------------------------------

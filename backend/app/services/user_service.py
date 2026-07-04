@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
-from uuid import uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -85,8 +85,12 @@ def transition_user_status(
 
 
 def reset_user_password(db: Session, user: User) -> str:
-    """Reset a user's password to a temporary value. Returns the temp password."""
-    temp_password = f"temp-{uuid4().hex[:12]}"
+    """Reset a user's password to a cryptographically random temporary value.
+
+    Returns the plain-text temporary password — the caller MUST communicate
+    it to the user through a secure channel.
+    """
+    temp_password = secrets.token_urlsafe(16)
     user.password_hash = hash_password(temp_password)
     user.password_algo = "argon2id"
     return temp_password

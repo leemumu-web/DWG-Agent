@@ -209,7 +209,7 @@ bash scripts/db.sh migration-test # create temp schema, run full migration, veri
 
 `db.sh` enforces MySQL-only URLs at the shell level -- `sqlite://` URLs are rejected for runtime operations. SQLite is reserved exclusively for pytest isolation.
 
-### 3.7 Redis (Valkey 9.1)
+### 3.7 Redis (Valkey 9.x)
 
 ```bash
 # Check status
@@ -231,7 +231,7 @@ Key facts:
 ```bash
 cd backend
 uv run ruff check app tests    # lint (must pass)
-uv run pytest -q               # 350 tests (must pass)
+uv run pytest -q               # 432 tests (must pass)
 ```
 
 Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external services required. Real Redis integration tests in `test_redis_real.py` auto-skip when Redis is unavailable.
@@ -287,10 +287,10 @@ Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external
 | `mysql` | `container-registry.oracle.com/mysql/community-server:8.4` | 3306 (internal) | -- | `mysqladmin ping` every 10s |
 | `redis` | `ghcr.io/valkey-io/valkey:9.0-alpine` | 6379 (internal) | -- | `redis-cli ping` every 10s |
 | `minio` | `quay.io/minio/minio:latest` | 9000, 9001 (internal) | -- | `curl /minio/health/live` |
-| `worker-agent` | Self-built | -- | `workers` | -- |
-| `worker-dxf` | Self-built | -- | `workers` | -- |
-| `worker-report` | Self-built | -- | -- | depends_on mysql/redis/minio |
-| `flower` | Self-built | 5555 (internal) | `monitoring` | -- |
+| `worker-agent` | Self-built | -- | `workers` | `celery inspect ping` every 10s |
+| `worker-dxf` | Self-built | -- | `workers` | `celery inspect ping` every 10s |
+| `worker-report` | Self-built | -- | -- | `celery inspect ping` every 10s |
+| `flower` | Self-built | 5555 (internal) | `monitoring` | `curl :5555` every 10s |
 
 ### 4.3 Step-by-Step Deployment
 
@@ -408,7 +408,7 @@ docker compose --profile workers --profile monitoring down -v
 
 ## 5. Configuration Reference
 
-All configuration is driven by environment variables. The canonical definitions live in `backend/app/core/config.py` (pydantic-settings, 44 fields + 5 computed properties).
+All configuration is driven by environment variables. The canonical definitions live in `backend/app/core/config.py` (pydantic-settings, 45 fields + 5 computed properties).
 
 ### 5.1 Application
 
@@ -990,7 +990,7 @@ The following components are **configured but not operational** in Stage 1:
 - Audit logging (all mutations recorded)
 - Database migrations (Alembic, 2 versions, 17 tables)
 - Bootstrap super admin seeding
-- 350 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
+- 432 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
 - Docker Compose deployment with 9 services
 - Nginx gateway with rate limiting, security headers, SPA fallback
 

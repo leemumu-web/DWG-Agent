@@ -551,7 +551,7 @@ The task body is intentionally fake; Agent/DXF/CAD processing stays deferred.
 - Zero setup -- no external MySQL server dependency for CI/dev
 - `StaticPool` ensures full isolation (each test gets its own in-memory DB)
 - WAL mode + `foreign_keys=ON` + `busy_timeout=5000` applied per-connection
-- 350 tests run with fast collection and execution
+- 432 tests run with fast collection and execution
 
 **MySQL connection pool:** `pool_recycle=3600` (recycle before MySQL's default `wait_timeout` of 28800s), `pool_size=10`, `max_overflow=20`. Applied only when `database_url` starts with `mysql`.
 
@@ -787,7 +787,7 @@ Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.servic
 ### 9.4 Testing Strategy
 
 Dual-layer Redis testing:
-1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 337 non-real-Redis tests (350 total - 13 real-Redis-only) with zero external dependency.
+1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 416 non-real-Redis tests (432 total - 16 real-Redis-only) with zero external dependency.
 2. **Real Redis** (`test_redis_real.py`): Integration tests against the actual local Valkey instance. Auto-skipped (`pytest.skip`) when Redis is unreachable.
 
 ---
@@ -886,10 +886,10 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | HTTP client | `fastapi.testclient.TestClient` | In-process API testing |
 | DB isolation | SQLite `:memory:` + `StaticPool` | Per-test isolated database |
 | Redis isolation | `fakeredis[lua]` autouse monkeypatch | Zero-dependency Redis simulation |
-| Redis integration | Real Valkey 9.1 local instance | Integration safety net (`test_redis_real.py`) |
+| Redis integration | Real Valkey local instance | Integration safety net (`test_redis_real.py`) |
 | Fixtures | `conftest.py` | DB setup/teardown, auth headers, test data factories |
 
-### 12.2 Test Categories (21 files, 350 tests)
+### 12.2 Test Categories (24 files, 432 tests)
 
 | Category | Files | Focus |
 |----------|-------|-------|
@@ -902,6 +902,9 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | Edge cases | `test_edge_cases.py`, `test_rigorous.py`, `test_deep_verify.py` | Concurrent ops, large payloads, Unicode, null handling |
 | Stage 1 boundaries | `test_stage1_boundaries.py` | Agent 503, Celery fake task, feature flag gates |
 | Flow tests | `test_smoke_flow.py` | End-to-end: register → login → upload → job → result |
+| Celery/MinIO deploy | `test_celery_minio_deployment.py` | Celery worker health, MinIO bucket ops, E2E job pipeline |
+| Cross-audit fixes | `test_cross_audit_fixes.py` | Pentest bug regression tests (31 test functions) |
+| Scripts validation | `test_scripts.py` | Shell scripts syntax, lib.sh functions, db.sh operations |
 | Migration tests | `test_migrations.py` | Alembic version count, table existence |
 | Compose tests | `test_compose.py` | YAML parse, service count, required services present |
 | Health | `test_health.py` | `/health` endpoint, DB health check function |
@@ -950,8 +953,8 @@ def db():
 | Docker Compose (9 services) | Done | 236 | Covered | worker-report default, Agent/DXF + monitoring profiles |
 | Dockerfile (backend) | Done | -- | Validated | Multi-stage, non-root, HEALTHCHECK, uv sync |
 | Nginx config (Docker + local) | Done | -- | Validated | Rate limiting, proxy, static serving |
-| Frontend (React 19 + TS + Vite) | Done | -- | Manual | 10 page features, 12 API clients, auth store, router |
-| 350 tests | Done | -- | -- | 21 test files, all passing |
+| Frontend (React 19 + TS + Vite) | Done | -- | Manual | 10 page features, 12 API client files (11 modules + client.ts), auth store, router |
+| 432 tests | Done | -- | -- | 24 test files, all passing |
 
 ### Stage 2 -- Not Started (Agent, MCP, Real CAD Processing)
 
@@ -1028,7 +1031,7 @@ complete_framework/
 │   ├── .dockerignore
 │   ├── alembic.ini                       ← Targets MySQL
 │   ├── migrations/versions/              ← 2 Alembic versions
-│   ├── tests/                            ← 21 files, 350 tests
+│   ├── tests/                            ← 24 files, 432 tests
 │   │   └── conftest.py                   ← FakeRedis autouse + SQLite isolation
 │   ├── var/storage/                      ← Runtime file storage (gitignored)
 │   └── app/
@@ -1051,7 +1054,7 @@ complete_framework/
 ├── frontend/                             ← React 19 + TypeScript + Vite
 │   ├── package.json                      ← All deps pinned
 │   └── src/
-│       ├── api/                          ← 12 API client modules
+│       ├── api/                          ← 12 API client files (11 modules + client.ts)
 │       ├── features/                     ← 10 page modules
 │       ├── components/                   ← 8 shared components (2 real, 6 stubs)
 │       ├── stores/                       ← Zustand auth store
@@ -1109,4 +1112,4 @@ complete_framework/
 ---
 
 *Document version: 2.0 -- last updated 2026-07-03*
-*Corresponds to codebase at Stage 1 completion (350 tests, 64 endpoints, 17 tables)*
+*Corresponds to codebase at Stage 1 completion (432 tests, 64 endpoints, 17 tables)*

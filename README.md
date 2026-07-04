@@ -13,7 +13,7 @@
 | 前端 | React 19 + TypeScript + Vite + Ant Design 6 + TanStack Query + Zustand |
 | 后端 | Python 3.12 + FastAPI + SQLAlchemy 2.x（同步）+ Pydantic v2 |
 | 数据库 | MySQL 8.x（运行）+ SQLite 内存（测试隔离） |
-| 缓存/记忆 | Redis / Valkey 9.1 |
+| 缓存/记忆 | Redis / Valkey（本地 9.1，Docker 9.0-alpine） |
 | 文件存储 | 本地 FS（开发）/ MinIO（Docker 生产，adapter 已启用） |
 | 异步任务 | Celery（Stage 1 worker-report 假任务，Agent/DXF/CAD 队列后续接入） |
 | Agent | LangGraph + MCP + OpenAI-compatible LLM（Stage 2，API 边界就绪） |
@@ -33,10 +33,10 @@
 - **审计日志**：32 种操作类型，super_admin/auditor 角色保护，不可变
 - **安全加固**：12/18 渗透测试 bug 已修复，CORS 收紧，异常不泄漏 traceback，路径穿越防护
 - **Alembic 迁移**：2 个版本（17 张表 initial + TimestampMixin 修复），`db.sh migration-test` CI 验证
-- **Redis 已部署**：Valkey 9.1，redis_client + redis_memory + cache_service 就绪，双轨测试（FakeRedis + 真实）
+- **Redis 已部署**：Valkey (Docker 9.0-alpine)，redis_client + redis_memory + cache_service 就绪，双轨测试（FakeRedis + 真实 Redis）
 - **Docker Compose**：9 服务编排，worker-report 默认启动，Agent/DXF 与 monitoring profiles，Dockerfile 多阶段构建
-- **前端**：10 个页面 + 11 个 API 客户端模块 + 8 个通用组件，路由级权限守卫
-- **350 测试**（21 个测试文件），ruff 0 错误
+- **前端**：10 个页面 + 12 个 API 客户端文件（11 模块 + client.ts）+ 8 个通用组件，路由级权限守卫
+- **432 测试**（24 个测试文件），ruff 0 错误
 
 暂不实现（Stage 2-4）：Agent 内部逻辑、DWG→DXF 转换、ezdxf 解析、Windows ZWCAD Worker。Celery report 假任务与 MinIO 存储后端已接入；本地开发默认 `STORAGE_BACKEND=local`，Docker 默认 `STORAGE_BACKEND=minio`。
 
@@ -95,12 +95,12 @@ complete_framework/
 │   │   ├── workers/                 # Celery app + report stub task；Agent/DXF/CAD task 占位
 │   │   ├── integrations/zwcad/      # Stage 4 占位
 │   │   └── repositories/            # 占位
-│   ├── tests/                       # 350 测试（21 个 test_*.py）
+│   ├── tests/                       # 432 测试（24 个 test_*.py）
 │   └── migrations/                  # Alembic（2 版本）
 ├── frontend/
 │   ├── package.json                 # 版本锁定，无 latest
 │   └── src/
-│       ├── api/                     # 11 个 API 客户端模块
+│       ├── api/                     # 12 个 API 客户端文件（11 模块 + client.ts）
 │       ├── features/                # 10 个页面模块
 │       ├── components/              # 8 个通用组件
 │       ├── stores/                  # Zustand
@@ -146,7 +146,7 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests     # 代码风格（0 errors）
-uv run pytest -q                # 350 测试（350 passed）
+uv run pytest -q                # 432 测试（432 passed）
 
 cd ../frontend
 npm ci && npm run build         # 类型检查 + 生产构建

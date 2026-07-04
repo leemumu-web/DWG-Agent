@@ -13,6 +13,7 @@ from app.api.deps import (
 )
 from app.core.constants import JOB_FAILED
 from app.core.exceptions import AppHTTPException, not_found
+from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing
 from app.models.job import Job, JobStep
 from app.models.project import ProjectMember
@@ -33,9 +34,18 @@ def list_jobs(
     current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Job).order_by(Job.id.desc())
+    sort_column = validate_sort_by("jobs", sort_by)
+    sort_dir_value = sort_dir.strip().lower()
+    order_clause = getattr(Job, sort_column)
+    if sort_dir_value == "asc":
+        order_clause = order_clause.asc()
+    else:
+        order_clause = order_clause.desc()
+    stmt = select(Job).order_by(order_clause)
     if not has_global_project_access(current_user):
         stmt = stmt.join(ProjectMember, ProjectMember.project_id == Job.project_id).where(
             ProjectMember.user_id == current_user.id

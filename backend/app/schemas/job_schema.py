@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Reserved / dangerous param key prefixes — blocks prototype-pollution vectors
+# (__proto__, constructor, $where, etc.) even though Python backends are not
+# directly vulnerable; params may be forwarded to front-ends or analytics.
+_FORBIDDEN_PARAM_KEY_RE = re.compile(r"^(\$|__|constructor$)")
 
 
 class JobCreate(BaseModel):
@@ -18,6 +24,14 @@ class JobCreate(BaseModel):
     )
     precision_level: str = Field(default="normal", min_length=1, max_length=32)
     params: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("params")
+    @classmethod
+    def _reject_dangerous_keys(cls, v: dict[str, Any]) -> dict[str, Any]:
+        for key in v:
+            if _FORBIDDEN_PARAM_KEY_RE.search(key):
+                raise ValueError(f"Param key {key!r} is not allowed.")
+        return v
 
 
 class JobRead(BaseModel):

@@ -110,7 +110,7 @@ complete_framework/
 │   │       ├── path_utils.py      ← ensure_within_root() — all file paths MUST pass through this
 │   │       ├── file_hash.py       ← SHA-256 computation
 │   │       └── time_utils.py      ← Timestamp formatting
-│   ├── tests/                     ← 350 tests, 21 test files (pytest)
+│   ├── tests/                     ← 432 tests, 24 test files (pytest)
 │   │   ├── conftest.py            ← Autouse fixtures: FakeRedis + in-memory SQLite isolation
 │   │   ├── test_health.py         ← Health endpoint
 │   │   ├── test_config.py         ← Settings validation (MySQL, Redis, Celery URL computation)

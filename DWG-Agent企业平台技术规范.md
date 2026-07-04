@@ -364,7 +364,6 @@ backend/
 │   │   └── v1/
 │   │       ├── __init__.py
 │   │       ├── router.py
-│   │       ├── health_api.py
 │   │       ├── auth_api.py
 │   │       ├── users_api.py
 │   │       ├── roles_api.py

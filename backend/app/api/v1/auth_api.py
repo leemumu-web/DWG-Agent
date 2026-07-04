@@ -129,6 +129,17 @@ def refresh_token(request: Request, db: Session = Depends(get_db)):
             status.HTTP_401_UNAUTHORIZED, "USER_NOT_ACTIVE", "User is not active."
         )
 
+    # Check whether the refresh token was issued before the last password change.
+    from app.services.auth_service import is_token_stale_for_password_change
+
+    token_iat = int(payload.get("iat", 0))
+    if token_iat and is_token_stale_for_password_change(user_id, token_iat):
+        raise AppHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "TOKEN_REVOKED",
+            "Refresh token has been revoked (password changed).",
+        )
+
     data = LoginResponse(
         access_token=build_login_token(user),
         expires_in=settings.jwt_access_token_expire_minutes * 60,
@@ -166,4 +177,11 @@ def change_password(
         request=request,
     )
     db.commit()
+
+    # Invalidate all existing tokens for this user — any token issued
+    # before this moment is considered stale.
+    from app.services.auth_service import record_password_change
+
+    record_password_change(current_user.id)
+
     return ok({"changed": True}, request.state.request_id)

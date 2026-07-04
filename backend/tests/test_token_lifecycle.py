@@ -247,10 +247,10 @@ def test_refresh_with_access_type_token_in_cookie_is_rejected():
 
 
 def test_password_change_does_not_revoke_existing_tokens():
-    """After password change, existing access tokens remain valid until expiry.
+    """After password change, existing access tokens are REVOKED (BUG-19 fix).
 
-    This is the CURRENT behaviour.  Changing it would require per-user token
-    version tracking (Stage 2+).
+    Password change records a timestamp in Redis; get_current_user checks
+    whether the token was issued before the last password change.
     """
     client = _client()
     headers = _login(client)
@@ -263,9 +263,24 @@ def test_password_change_does_not_revoke_existing_tokens():
     )
     assert resp.status_code == 200, resp.text
 
-    # Old token still works (current behaviour)
+    # Old token MUST be rejected now (BUG-19 fix)
     me = client.get("/api/v1/auth/me", headers=headers)
-    assert me.status_code == 200, me.text
+    assert me.status_code == 401, f"Old token should be rejected: {me.text}"
+
+    # Login with new password
+    login2 = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "NewAdminPass1"},
+    )
+    assert login2.status_code == 201, f"New password login: {login2.text}"
+    new_headers = {"Authorization": f"Bearer {login2.json()['data']['access_token']}"}
+
+    # Restore original password so other tests aren't affected
+    client.patch(
+        "/api/v1/auth/password",
+        headers=new_headers,
+        json={"current_password": "NewAdminPass1", "new_password": "SuperAdminPass1"},
+    )
 
 
 # ---------------------------------------------------------------------------

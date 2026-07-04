@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,7 +13,7 @@ from app.api.deps import (
 )
 from app.core.constants import ACTIVE, DELETED, DISABLED, ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.core.exceptions import AppHTTPException, forbidden, not_found
-from app.core.security import hash_password
+from app.core.validators import validate_sort_by
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.common import ok, page_from_list
@@ -32,6 +30,9 @@ from app.services.user_service import (
     get_user_or_404,
     transition_user_status,
     update_user,
+)
+from app.services.user_service import (
+    reset_user_password as _reset_user_password_svc,
 )
 
 router = APIRouter()
@@ -62,11 +63,22 @@ def list_users(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(ROLE_ADMIN)),
 ):
+    sort_column = validate_sort_by("users", sort_by)
+    sort_dir_value = sort_dir.strip().lower()
+    order_clause = getattr(User, sort_column)
+    if sort_dir_value == "asc":
+        order_clause = order_clause.asc()
+    else:
+        order_clause = order_clause.desc()
     users = list(
-        db.scalars(select(User).where(User.status != DELETED).order_by(User.id.desc())).all()
+        db.scalars(
+            select(User).where(User.status != DELETED).order_by(order_clause)
+        ).all()
     )
     return page_from_list(
         [UserRead.model_validate(u) for u in users], page, page_size, request.state.request_id
@@ -267,9 +279,7 @@ def reset_user_password(
     _require_super_admin_target(db, current_user, user)
     if user.status == DELETED:
         raise AppHTTPException(400, "USER_DELETED", "Cannot reset password for a deleted user.")
-    temp_password = f"temp-{uuid4().hex[:12]}"
-    user.password_hash = hash_password(temp_password)
-    user.password_algo = "argon2id"
+    temp_password = _reset_user_password_svc(db, user)
     write_audit_log(
         db,
         actor_user_id=current_user.id,

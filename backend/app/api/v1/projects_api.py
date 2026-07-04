@@ -13,6 +13,7 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.exceptions import AppHTTPException, not_found
+from app.core.validators import validate_sort_by
 from app.models.project import Project, ProjectMember
 from app.schemas.common import ok, page_from_list
 from app.schemas.project_schema import (
@@ -36,9 +37,36 @@ def list_projects(
     current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
+    status: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Project).where(Project.status != "deleted").order_by(Project.id.desc())
+    # Validate sort_by against whitelist (BUG-13)
+    sort_column = validate_sort_by("projects", sort_by)
+    sort_dir_value = sort_dir.strip().lower()
+
+    # Validate status filter (BUG-14)
+    if status is not None:
+        status = status.strip().lower()
+        if status not in ("active", "deleted"):
+            raise AppHTTPException(
+                422,
+                "INVALID_STATUS_FILTER",
+                "Status must be 'active', 'deleted', or omitted.",
+            )
+
+    order_clause = getattr(Project, sort_column)
+    if sort_dir_value == "asc":
+        order_clause = order_clause.asc()
+    else:
+        order_clause = order_clause.desc()
+
+    stmt = select(Project).order_by(order_clause)
+    if status is not None:
+        stmt = stmt.where(Project.status == status)
+    else:
+        stmt = stmt.where(Project.status != "deleted")
     if not has_global_project_access(current_user):
         stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == current_user.id)
     projects = list(db.scalars(stmt).all())

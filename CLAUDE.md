@@ -53,7 +53,7 @@ complete_framework/
 │   │   ├── storage/               ← base + local_storage (active), minio_storage (113 lines, ready for Docker)
 │   │   ├── integrations/zwcad/    ← Stage 4 (client + schemas stubs)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 350 tests, 21 files (pytest + fakeredis + real Redis)
+│   ├── tests/                     ← 432 tests, 24 files (pytest + fakeredis + real Redis)
 │   │   └── conftest.py            ← FakeRedis autouse fixture + SQLite memory isolation
 │   ├── migrations/                ← Alembic (2 versions: initial 17 tables + TimestampMixin fix)
 │   └── var/                       ← runtime data (uploaded files, app.db when using SQLite)
@@ -62,7 +62,7 @@ complete_framework/
 │   ├── package.json               ← NO "latest" — all versions locked
 │   ├── package-lock.json
 │   └── src/
-│       ├── api/                   ← 11 Axios API client modules + client.ts
+│       ├── api/                   ← 12 API client files (11 modules + client.ts)
 │       ├── app/                   ← router, layout, providers
 │       ├── features/              ← 10 page modules (admin, auth, dashboard, drawings, files, jobs, profile, projects, reviews, users)
 │       ├── components/            ← 8 shared components
@@ -132,7 +132,7 @@ complete_framework/
 
 ### Redis
 
-- **Server:** Valkey 9.1 (Redis-compatible), systemd `redis.service`, no password for local dev.
+- **Server:** Valkey (Redis-compatible, Docker 9.0-alpine), systemd `redis.service`, no password for local dev.
 - **Client:** sync `redis-py` 5.x with `hiredis`. Lazy init, no crash on unavailable.
 - **Testing:** dual-layer — `fakeredis[lua]` via `conftest.py` autouse fixture + real Redis integration (`test_redis_real.py`, auto-skipped when Redis unavailable).
 - **Memory service:** `agent:memory:{session_id}` key, JSON list, TTL=7200s, max 20 messages.
@@ -153,7 +153,7 @@ complete_framework/
 ```bash
 cd backend
 uv run ruff check app tests   # must pass
-uv run pytest -q              # must pass (350 tests expected)
+uv run pytest -q              # must pass (432 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`

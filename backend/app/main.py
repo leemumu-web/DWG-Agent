@@ -40,7 +40,17 @@ async def lifespan(app: FastAPI):
     close_redis()
 
 
-app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+app = FastAPI(
+    title=settings.app_name,
+    debug=settings.debug,
+    lifespan=lifespan,
+    # Disable interactive docs and OpenAPI schema in production-like environments
+    # to prevent unauthorised API discovery (see pen-test finding BUG-21).
+    # Enabled only when explicitly in development mode OR debug is on.
+    docs_url="/docs" if (settings.app_env == "development" or settings.debug) else None,
+    redoc_url="/redoc" if (settings.app_env == "development" or settings.debug) else None,
+    openapi_url="/openapi.json" if (settings.app_env == "development" or settings.debug) else None,
+)
 
 app.add_middleware(
     CORSMiddleware,

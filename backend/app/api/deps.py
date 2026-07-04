@@ -54,6 +54,18 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Db
         raise AppHTTPException(
             status.HTTP_401_UNAUTHORIZED, "USER_NOT_ACTIVE", "User is not active."
         )
+
+    # Check whether the token was issued before the last password change.
+    from app.services.auth_service import is_token_stale_for_password_change
+
+    token_iat = int(payload.get("iat", 0))
+    if token_iat and is_token_stale_for_password_change(user_id, token_iat):
+        raise AppHTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "TOKEN_REVOKED",
+            "Access token has been revoked (password changed).",
+        )
+
     return user
 
 

@@ -13,6 +13,7 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.exceptions import not_found
+from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.project import Project, ProjectMember
 from app.schemas.common import ok, page_from_list
@@ -35,9 +36,18 @@ def list_drawings(
     current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Drawing).where(Drawing.status != "deleted").order_by(Drawing.id.desc())
+    sort_column = validate_sort_by("drawings", sort_by)
+    sort_dir_value = sort_dir.strip().lower()
+    order_clause = getattr(Drawing, sort_column)
+    if sort_dir_value == "asc":
+        order_clause = order_clause.asc()
+    else:
+        order_clause = order_clause.desc()
+    stmt = select(Drawing).where(Drawing.status != "deleted").order_by(order_clause)
     if not has_global_project_access(current_user):
         stmt = stmt.join(ProjectMember, ProjectMember.project_id == Drawing.project_id).where(
             ProjectMember.user_id == current_user.id
