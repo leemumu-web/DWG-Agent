@@ -1,7 +1,8 @@
 import { apiClient, type ApiEnvelope } from './client';
-import type { AnalysisResult } from '../types/result';
 
-export async function getResult(resultId: number) {
-  const res = await apiClient.get<ApiEnvelope<AnalysisResult>>(`/api/v1/results/${resultId}`);
+export async function getResultDownloadUrl(resultId: number) {
+  const res = await apiClient.get<ApiEnvelope<{ url: string; expires_in: number }>>(
+    `/api/v1/results/${resultId}/download-url`
+  );
   return res.data.data;
 }

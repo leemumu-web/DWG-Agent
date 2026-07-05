@@ -63,3 +63,23 @@ export async function getFileDownloadUrl(fileId: number) {
   );
   return res.data.data;
 }
+
+/** Download a file via the signed URL, using fetch() with auth headers
+ *  because browser <a> clicks don't send Authorization headers. */
+export async function downloadFile(fileId: number, filename: string): Promise<void> {
+  const { url } = await getFileDownloadUrl(fileId);
+  const fullUrl = apiUrl(url);
+  const res = await fetch(fullUrl, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+  }, 100);
+}

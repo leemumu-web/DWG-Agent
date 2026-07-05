@@ -22,8 +22,10 @@ import {
   CloudOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { listFiles, getFileDownloadUrl } from '../../api/files.api';
-import { listJobs, retryJob } from '../../api/jobs.api';
+import { listFiles, downloadFile } from '../../api/files.api';
+import { listJobs, getJobResults, retryJob } from '../../api/jobs.api';
+import { getResultDownloadUrl } from '../../api/results.api';
+import { useAuthStore } from '../../stores/auth.store';
 import { FileUpload } from '../../components/FileUpload';
 import type { StoredFile } from '../../types/file';
 import type { Job } from '../../types/job';
@@ -44,12 +46,25 @@ const STATUS: Record<string, { color: string; bg: string; label: string; icon: R
   cancelled:  { color: '#8c8c8c', bg: '#fafafa', label: '已取消',   icon: <CloseCircleFilled   style={{ color: '#8c8c8c' }} /> },
 };
 
-function triggerDownload(url: string, filename: string) {
+function resolveUrl(pathOrUrl: string): string {
+  if (pathOrUrl.startsWith('http')) return pathOrUrl;
+  const base = import.meta.env.VITE_API_BASE_URL || '';
+  return `${base}${pathOrUrl}`;
+}
+
+async function fetchBlobDownload(pathOrUrl: string, filename: string) {
+  const token = useAuthStore.getState().accessToken;
+  const res = await fetch(resolveUrl(pathOrUrl), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = filename;
+  a.href = blobUrl; a.download = filename;
   document.body.appendChild(a);
   a.click();
-  setTimeout(() => document.body.removeChild(a), 100);
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 100);
 }
 
 // ── page ─────────────────────────────────────────────────────────────────────
@@ -81,8 +96,18 @@ export function FilesPage() {
   const refresh = useCallback(() => { filesQ.refetch(); jobsQ.refetch(); }, [filesQ, jobsQ]);
 
   const handleDownload = useCallback(async (file: StoredFile) => {
-    try { const { url } = await getFileDownloadUrl(file.id); triggerDownload(url, file.original_name); }
-    catch { message.error('获取下载链接失败'); }
+    try { await downloadFile(file.id, file.original_name); }
+    catch { message.error('下载失败'); }
+  }, []);
+
+  const handleDownloadDxf = useCallback(async (job: Job, sourceName: string) => {
+    try {
+      const results = await getJobResults(job.id);
+      const dxfResult = results.find((r) => r.result_type === 'convert_dwg_to_dxf');
+      if (!dxfResult?.result_file_id) { message.error('DXF 结果文件未找到'); return; }
+      const { url } = await getResultDownloadUrl(dxfResult.id);
+      await fetchBlobDownload(url, sourceName.replace(/\.dwg$/i, '.dxf'));
+    } catch { message.error('获取 DXF 下载链接失败'); }
   }, []);
 
   const handleRetry = useCallback(async (jobId: number) => {
@@ -153,14 +178,26 @@ export function FilesPage() {
       </Typography.Text>,
     },
     {
-      title: '', width: 60, align: 'center' as const,
+      title: '操作', width: 90, align: 'center' as const,
       render: (_: unknown, record: StoredFile) => {
         const job = jobsByFileId.get(record.id);
+        const isSucceeded = job?.status === 'succeeded';
         const retryable = job?.status === 'failed' || job?.status === 'cancelled';
         return (
           <Space size={2}>
-            <Tooltip title="下载文件"><Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)} /></Tooltip>
-            {retryable && job && <Tooltip title="重新转换"><Button type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => handleRetry(job.id)} /></Tooltip>}
+            <Tooltip title="下载源文件 (DWG)">
+              <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)} />
+            </Tooltip>
+            {isSucceeded && job && (
+              <Tooltip title="下载 DXF 结果">
+                <Button type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />} onClick={() => handleDownloadDxf(job, record.original_name)} />
+              </Tooltip>
+            )}
+            {retryable && job && (
+              <Tooltip title="重新转换">
+                <Button type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => handleRetry(job.id)} />
+              </Tooltip>
+            )}
           </Space>
         );
       },
