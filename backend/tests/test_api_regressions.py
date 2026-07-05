@@ -348,7 +348,8 @@ def test_empty_dwg_upload_is_rejected():
     assert response.json()["error"]["code"] == "FILE_NOT_DWG"
 
 
-def test_dwg_upload_rejects_disallowed_mime_type():
+def test_dwg_upload_accepts_valid_dwg_regardless_of_mime():
+    """MIME 检查改为 pass-through（DWG header 是真正防线）；有效 DWG 内容应被接受。"""
     client = _client()
     headers = _admin_headers(client)
 
@@ -358,8 +359,7 @@ def test_dwg_upload_rejects_disallowed_mime_type():
         files={"upload": ("mime.dwg", BytesIO(_DWG_STUB), "text/plain")},
     )
 
-    assert response.status_code == 415, response.text
-    assert response.json()["error"]["code"] == "FILE_MIME_NOT_ALLOWED"
+    assert response.status_code == 201, response.text
 
 
 def test_dwg_upload_rejects_unknown_ac_version_header():

@@ -14,7 +14,9 @@ from app.core.constants import (
     JOB_QUEUED,
     JOB_RUNNING,
     JOB_SUCCEEDED,
+    PIPELINE_DXF,
     PIPELINE_STUB,
+    TASK_DWG_TO_DXF,
 )
 from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
@@ -23,6 +25,13 @@ from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.schemas.job_schema import JobCreate
 from app.services.storage_service import save_bytes_as_file
+
+
+def _pipeline_for(task_type: str) -> str:
+    """返回 task_type 对应的 pipeline 标识（spec §16.3 管线选择）。"""
+    if task_type == TASK_DWG_TO_DXF:
+        return PIPELINE_DXF
+    return PIPELINE_STUB
 
 
 def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
@@ -37,7 +46,7 @@ def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
         created_by=created_by,
         task_type=payload.task_type,
         precision_level=payload.precision_level,
-        pipeline=PIPELINE_STUB,
+        pipeline=_pipeline_for(payload.task_type),
         status=JOB_QUEUED,
         progress=0,
         params_json=payload.params,
@@ -52,6 +61,25 @@ def enqueue_stub_job(job_id: int) -> str:
 
     async_result = run_stub_job_task.delay(job_id)
     return str(async_result.id)
+
+
+def enqueue_dxf_job(job_id: int) -> str:
+    """投递 DWG→DXF 转换任务到 Celery dxf 队列（spec §14.4）。"""
+    from app.workers.tasks_dxf import convert_dwg_to_dxf_task
+
+    async_result = convert_dwg_to_dxf_task.delay(job_id)
+    return str(async_result.id)
+
+
+def enqueue_job(job_id: int, pipeline: str) -> str:
+    """按 pipeline 投递到对应 Celery 队列（spec §13.2 队列设计）。
+
+    返回 Celery task_id。pipeline 未知时投递到 report 队列（兜底 stub）。
+    """
+    if pipeline == PIPELINE_DXF:
+        return enqueue_dxf_job(job_id)
+    # 默认走 report（local_stub），向后兼容 Stage 1 的 framework_smoke_test 等。
+    return enqueue_stub_job(job_id)
 
 
 def _exception_message(exc: Exception) -> str:

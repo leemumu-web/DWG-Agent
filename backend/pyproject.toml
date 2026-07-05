@@ -22,6 +22,10 @@ dependencies = [
     "celery[redis]>=5.4,<6",
     "flower>=2.0,<3",
     "minio>=7.2,<8",
+    # DWG→DXF 转换库（本地 path 依赖，指向 Stages/dwg2dxf 独立包）。
+    # 该包零 Python 依赖，仅需宿主机的 ODA File Converter 二进制 + xvfb-run。
+    # 实际路径解析见 [tool.uv.sources]（相对路径以本 pyproject.toml 为基准）。
+    "dwg-converter>=0.1.0",
 ]
 
 [dependency-groups]
@@ -38,6 +42,16 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.hatch.metadata]
+# 允许 project.dependencies 中使用 file: 直引（dwg-converter path 依赖）
+allow-direct-references = true
+
+[tool.uv.sources]
+# 本地路径依赖：相对路径以本 pyproject.toml 所在目录（backend/）为基准。
+# editable=true 让 dwg_converter 包的 __file__ 指回源码目录，使 check_env.py
+# 能正确定位 Stages/dwg2dxf/tools/oda/ 下的 ODA 二进制。
+dwg-converter = { path = "../Stages/dwg2dxf", editable = true }
 
 [tool.ruff]
 line-length = 100

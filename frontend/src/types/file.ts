@@ -7,6 +7,7 @@ export interface StoredFile {
   content_type?: string | null;
   size_bytes: number;
   sha256: string;
+  md5?: string | null;
   status: string;
   created_at: string;
   updated_at: string;

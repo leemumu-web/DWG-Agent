@@ -542,8 +542,8 @@ def test_dwg_upload_accepts_octet_stream_as_fallback():
     assert resp.status_code == 201, resp.text
 
 
-def test_dwg_upload_rejects_unlisted_mime():
-    """MIME types not in the allowlist must be rejected with FILE_MIME_NOT_ALLOWED."""
+def test_dwg_upload_accepts_valid_dwg_regardless_of_mime():
+    """MIME 检查改为 pass-through（DWG header 是真正防线）；有效 DWG 内容应被接受。"""
     client = _client()
     headers = _admin_headers(client)
 
@@ -552,8 +552,7 @@ def test_dwg_upload_rejects_unlisted_mime():
         headers=headers,
         files={"upload": ("bad.dwg", BytesIO(b"AC1027" + b"X" * 1024), "image/png")},
     )
-    assert resp.status_code == 415, resp.text
-    assert resp.json()["error"]["code"] == "FILE_MIME_NOT_ALLOWED"
+    assert resp.status_code == 201, resp.text
 
 
 def test_dwg_upload_mime_with_charset_is_normalised():

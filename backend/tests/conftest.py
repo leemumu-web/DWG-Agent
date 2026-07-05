@@ -83,6 +83,7 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.db.init_db.engine", engine)
     monkeypatch.setattr("app.db.init_db.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.job_service.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.services.dxf_service.SessionLocal", TestSessionLocal)
 
     # db_health() uses the module-level engine directly
     monkeypatch.setattr("app.db.session.engine", engine)

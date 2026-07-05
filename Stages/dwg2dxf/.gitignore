@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# uv
+# uv.lock 入库以锁定依赖版本，保证 GitHub 下载后 uv sync 重建一致。
+# 如不想锁定，删掉此注释下方那行外的逻辑即可（默认保留 uv.lock）。
+
+# 测试 / 缓存
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 运行产物：转换出的 DXF 不入库
+samples/input/*
+!samples/input/.gitkeep
+samples/output/*
+!samples/output/.gitkeep
+
+# convert/ 工作区：输入 dwg 与输出 dxf 都不入库，只保留脚本与目录结构
+convert/input_dwg/*
+!convert/input_dwg/.gitkeep
+convert/output_dxf/*
+!convert/output_dxf/.gitkeep
+
+# 日志
+logs/*
+!logs/.gitkeep
+
+# ODA 可执行文件直接入库（AppImage 约 82MB，<GitHub 100MB 单文件限制），
+# 让 GitHub 下载后无需额外下载 ODA 即可开箱即用。
+# 如需换版本，直接替换 tools/oda/ODAFileConverter.AppImage 后提交。
+
+# 临时 / 系统
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

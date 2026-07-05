@@ -158,7 +158,7 @@ def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
 
     assert "BackgroundTasks" not in content
     assert "background_tasks.add_task" not in content
-    assert "enqueue_stub_job" in content
+    assert "enqueue_job" in content
 
 
 def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
@@ -180,10 +180,10 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     )
     assert project.status_code == 201, project.text
 
-    def fail_enqueue(job_id: int) -> str:
+    def fail_enqueue(job_id: int, pipeline: str) -> str:
         raise RuntimeError("redis unavailable")
 
-    monkeypatch.setattr(jobs_api, "enqueue_stub_job", fail_enqueue)
+    monkeypatch.setattr(jobs_api, "enqueue_job", fail_enqueue)
 
     response = client.post(
         "/api/v1/jobs",

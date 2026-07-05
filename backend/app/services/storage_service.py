@@ -28,6 +28,23 @@ ALLOWED_DWG_MIME_TYPES = {
     "application/x-autocad",
     "application/x-dwg",
     "image/vnd.dwg",
+    # Common browser fallbacks for .dwg (varies by OS / MIME database):
+    "application/vnd.dwg",
+    "application/x-extension-dwg",
+    "drawing/x-dwg",
+    "image/x-dwg",
+    "model/vnd.dwg",
+}
+
+# MIME types that browsers send for unrecognised binary files — allow these
+# through because the DWG header check (§10.3 ¶4) is the real security boundary.
+_BINARY_FALLBACK_MIME = {
+    "",
+    "application/binary",
+    "application/download",
+    "application/x-binary",
+    "application/x-msdownload",
+    "binary/octet-stream",
 }
 
 SUPPORTED_DWG_HEADERS = {
@@ -55,16 +72,19 @@ def validate_upload_name(filename: str) -> str:
 
 
 def validate_upload_mime(content_type: str | None) -> str | None:
+    """Validate the upload Content-Type, or pass through unknown types.
+
+    MIME-type filtering is a first-pass hint; the DWG header check
+    (AC1012–AC1032 bytes, §10.3 ¶4) is the real security boundary.
+    Browsers/OSes report wildly different MIME for .dwg files, so
+    we never block on MIME alone.
+    """
     if not content_type:
         return None
     normalized = content_type.split(";", 1)[0].strip().lower()
-    if normalized not in ALLOWED_DWG_MIME_TYPES:
-        raise AppHTTPException(
-            415,
-            "FILE_MIME_NOT_ALLOWED",
-            "Uploaded file MIME type is not allowed for DWG uploads.",
-            {"allowed_mime_types": sorted(ALLOWED_DWG_MIME_TYPES)},
-        )
+    if normalized in ALLOWED_DWG_MIME_TYPES or normalized in _BINARY_FALLBACK_MIME:
+        return normalized
+    # Pass-through for unknown MIME — DWG header check catches non-DWG files
     return normalized
 
 

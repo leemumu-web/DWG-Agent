@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,8 +14,9 @@ from app.api.deps import (
     require_project_member,
     require_project_role,
 )
-from app.core.constants import JOB_FAILED
-from app.core.exceptions import AppHTTPException, not_found
+from app.core.config import settings
+from app.core.constants import JOB_FAILED, TASK_DWG_TO_DXF
+from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing
 from app.models.job import Job, JobStep
@@ -22,7 +26,8 @@ from app.schemas.common import ok, page_from_list
 from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
 from app.schemas.result_schema import AnalysisResultRead
 from app.services.audit_service import write_audit_log
-from app.services.job_service import create_job, enqueue_stub_job
+from app.services.job_events import job_event_stream
+from app.services.job_service import create_job, enqueue_job
 
 router = APIRouter()
 PROJECT_JOB_WRITE_ROLES = {"project_owner", "project_engineer"}
@@ -70,6 +75,12 @@ def create_job_api(
         if not drawing or drawing.status == "deleted":
             raise not_found("Drawing")
         require_project_role(db, current_user, drawing.project_id, PROJECT_JOB_WRITE_ROLES)
+    # DXF 管线特性开关：未启用时拒绝 DXF 转换任务（spec §18.2 特性开关）
+    if payload.task_type == TASK_DWG_TO_DXF and not settings.dxf_pipeline_enabled:
+        raise service_unavailable(
+            "DXF_PIPELINE_DISABLED",
+            "DXF conversion pipeline is disabled. Set DXF_PIPELINE_ENABLED=true to enable.",
+        )
     job = create_job(db, payload, created_by=current_user.id)
     write_audit_log(
         db,
@@ -82,7 +93,7 @@ def create_job_api(
     )
     db.commit()
     try:
-        enqueue_stub_job(job.id)
+        enqueue_job(job.id, job.pipeline)
     except Exception as exc:
         job.status = JOB_FAILED
         job.error_code = "JOB_ENQUEUE_FAILED"
@@ -166,7 +177,7 @@ def retry_job(
         request=request,
     )
     db.commit()
-    enqueue_stub_job(job.id)
+    enqueue_job(job.id, job.pipeline or "local_stub")
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 
@@ -211,22 +222,79 @@ def get_job_logs(
     )
 
 
+def _job_snapshot(db: Session, job_id: int) -> dict:
+    """从 DB 读取当前任务状态快照，用于 SSE 初始帧和终态兜底。"""
+    job = db.get(Job, job_id)
+    if not job:
+        return {"type": "snapshot", "job_id": job_id, "status": "unknown"}
+    steps = list(
+        db.scalars(
+            select(JobStep).where(JobStep.job_id == job_id).order_by(JobStep.id)
+        ).all()
+    )
+    return {
+        "type": "snapshot",
+        "job_id": job_id,
+        "status": job.status,
+        "progress": job.progress,
+        "pipeline": job.pipeline,
+        "task_type": job.task_type,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "steps": [
+            {"step_name": s.step_name, "status": s.status, "error_message": s.error_message}
+            for s in steps
+        ],
+    }
+
+
 @router.get("/{job_id}/events")
 def get_job_events(
     job_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
 ):
+    """Server-Sent Events 端点：任务进度实时推送（spec §13.1 SSE 推送）。
+
+    先发 DB 快照，再订阅 Redis pub/sub 频道 job:events:{job_id}。
+    每 25s 无消息时发 keepalive 心跳。Redis 不可用时仅发快照后结束。
+    终态事件（done/error）后发终态快照兜底。
+    """
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
     if job.project_id is not None:
         require_project_member(db, current_user, job.project_id)
-    return ok(
-        {
-            "job_id": job_id,
-            "events": [],
-            "message": "SSE will be implemented after async queue is introduced.",
-        },
-        request.state.request_id,
+
+    TERMINAL = {"succeeded", "failed", "cancelled"}
+
+    def event_stream():
+        # 初始快照
+        snapshot = _job_snapshot(db, job_id)
+        yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+        if snapshot["status"] in TERMINAL:
+            return
+
+        stream = job_event_stream(job_id)
+        if stream is None:
+            # Redis 不可用 — 只发快照结束
+            return
+
+        for event in stream:
+            if event is None:
+                yield ": keepalive\n\n"
+                continue
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            if event.get("type") in {"done", "error"}:
+                break
+
+        # 终态快照兜底（worker 可能先写 DB 才发 pub/sub）
+        db.refresh(db.get(Job, job_id))
+        final_snapshot = _job_snapshot(db, job_id)
+        yield f"data: {json.dumps(final_snapshot, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 

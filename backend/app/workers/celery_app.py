@@ -37,4 +37,5 @@ celery_app.conf.update(
 
 # Import task modules once so tests, shell probes, and Flower can see registered
 # tasks immediately after importing app.workers.celery_app.
+from app.workers import tasks_dxf as _tasks_dxf  # noqa: E402,F401
 from app.workers import tasks_report as _tasks_report  # noqa: E402,F401

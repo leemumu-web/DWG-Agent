@@ -43,6 +43,14 @@ class Settings(BaseSettings):
     dxf_pipeline_enabled: bool = False
     cad_worker_enabled: bool = False
 
+    # DXF 转换 — ODA File Converter 引擎参数（spec §14, Stage 3 DXF 管线）
+    oda_converter_version: str = "ACAD2018"  # ODA 输出 DXF 版本
+    oda_converter_audit: bool = True  # 转换时是否做 audit 修复
+    oda_converter_timeout: int = 300  # 单文件转换超时秒（ODA 默认 120，工程图纸可能更大）
+    oda_converter_retries: int = 1  # 失败重试次数（不含首次）
+    oda_xvfb_run: bool = True  # 宿主机用 xvfb-run 提供无头 X；Docker 部署需另装
+    oda_home: str = ""  # ODA 二进制目录；空则用 dwg_converter 内置路径探测
+
     # LLM — spec §18.1 (Stage 2: Agent subsystem)
     model_name: str = "deepseek-chat"
     model_api_key: str = ""
