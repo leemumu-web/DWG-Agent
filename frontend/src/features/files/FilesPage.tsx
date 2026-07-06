@@ -86,14 +86,17 @@ export function FilesPage() {
   });
   const jobsQ = useQuery({ queryKey: ['jobs'], queryFn: listJobs, staleTime: 2000 });
 
-  // All files (now includes both DWG and DXF from all buckets, not just dwg-original)
   const allFiles = filesQ.data ?? [];
 
-  // Split: DWG source files and DXF results for display
   const dwgFiles = useMemo(
     () => allFiles.filter((f) => f.file_ext === '.dwg'),
     [allFiles],
   );
+
+  // Always show DWG rows only — DXF info is embedded in each row
+  // via the conversion status column and DXF download button.
+  // This cuts the table size in half.
+  const tableFiles = dwgFiles;
 
   const hasActive = useMemo(
     () => (jobsQ.data ?? []).some((j) => j.status === 'queued' || j.status === 'running'),
@@ -117,21 +120,31 @@ export function FilesPage() {
     return map;
   }, [jobsQ.data]);
 
+  // Periodic clock tick so stuck-queued detection stays fresh.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 15_000);
+    return () => clearInterval(id);
+  }, []);
+
   // Files that need (re-)conversion:
   //   no job, failed, cancelled, OR stuck-queued (>60s old, no progress)
-  const NOW = Date.now();
   const pendingFiles = useMemo(
-    () => dwgFiles.filter((f) => {
-      const j = jobsByFileId.get(f.id);
-      if (!j) return true;
-      if (j.status === 'failed' || j.status === 'cancelled') return true;
-      if (j.status === 'queued' && j.progress === 0) {
-        const age = NOW - new Date(j.created_at).getTime();
-        if (age > 60_000) return true; // stuck for >1 minute
-      }
-      return false;
-    }),
-    [dwgFiles, jobsByFileId, NOW],
+    () => {
+      const now = Date.now();
+      return dwgFiles.filter((f) => {
+        const j = jobsByFileId.get(f.id);
+        if (!j) return true;
+        if (j.status === 'failed' || j.status === 'cancelled') return true;
+        if (j.status === 'queued' && j.progress === 0) {
+          const age = now - new Date(j.created_at).getTime();
+          if (age > 60_000) return true;
+        }
+        return false;
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dwgFiles, jobsByFileId, tick],
   );
 
   const refresh = useCallback(() => { filesQ.refetch(); jobsQ.refetch(); batchesQ.refetch(); }, [filesQ, jobsQ, batchesQ]);
@@ -173,29 +186,30 @@ export function FilesPage() {
   const handleResumeAll = useCallback(async () => {
     setPauseLoading(true);
     try {
-      // 1. Cancel all stuck queued jobs first
+      // 1. Cancel all stuck queued/running jobs
       await cancelAllJobs();
-      // 2. Wait a beat for DB to settle
-      await new Promise((r) => setTimeout(r, 500));
-      // 3. Re-submit jobs for all pending files (3 concurrent)
-      const queue = [...pendingFiles];
-      let count = 0;
-      if (queue.length > 0) {
-        const worker = async () => {
-          while (queue.length > 0) {
-            const f = queue.shift()!;
-            try { await createDxfJob(f.id); count++; } catch { /* skip */ }
-          }
-        };
-        await Promise.all(
-          Array.from({ length: Math.min(3, pendingFiles.length) }, () => worker()),
-        );
-      }
-      if (count > 0) {
-        message.success(`已提交 ${count} 个转换任务`);
-      } else {
+      // 2. Wait for DB to settle, then refresh to get latest state
+      await new Promise((r) => setTimeout(r, 1000));
+      // 3. Re-submit jobs for pending files (3 concurrent pool)
+      const targets = [...pendingFiles];
+      if (targets.length === 0) {
         message.info('没有需要转换的文件');
+        refresh();
+        setPauseLoading(false);
+        return;
       }
+      let count = 0;
+      const queue = [...targets];
+      const worker = async () => {
+        while (queue.length > 0) {
+          const f = queue.shift()!;
+          try { await createDxfJob(f.id); count++; } catch { /* skip */ }
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(3, targets.length) }, () => worker()),
+      );
+      message.success(`已提交 ${count} 个转换任务`);
       refresh();
     } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
     setPauseLoading(false);
@@ -272,33 +286,34 @@ export function FilesPage() {
   // ── file table columns ────────────────────────────────────────────────────
   const columns = [
     {
-      title: '类型', dataIndex: 'file_ext', width: 50, align: 'center' as const,
-      render: (ext: string) => (
-        <Tag style={{ margin: 0, borderRadius: 4 }} color={ext === '.dwg' ? 'blue' : 'green'}>
-          {ext.replace('.', '').toUpperCase()}
-        </Tag>
-      ),
-    },
-    {
       title: '文件名', dataIndex: 'original_name',
-      render: (name: string) => (
-        <Space>
-          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 32, height: 32, borderRadius: 8, background: '#f5f5f5' }}>
-            <FileOutlined style={{ color: '#8c8c8c', fontSize: 15 }} />
-          </span>
-          <Tooltip title={name}><Typography.Text style={{ maxWidth: 300 }} ellipsis>{name}</Typography.Text></Tooltip>
-        </Space>
-      ),
+      render: (name: string, record: StoredFile) => {
+        const job = jobsByFileId.get(record.id);
+        const done = job?.status === 'succeeded';
+        return (
+          <Space>
+            <Tag
+              style={{ margin: 0, borderRadius: 4, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
+              color={done ? 'success' : 'processing'}
+            >
+              {done ? 'DXF' : 'DWG'}
+            </Tag>
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 32, borderRadius: 8, background: '#f5f5f5' }}>
+              <FileOutlined style={{ color: '#8c8c8c', fontSize: 15 }} />
+            </span>
+            <Tooltip title={name}><Typography.Text style={{ maxWidth: 400 }} ellipsis>{name}</Typography.Text></Tooltip>
+          </Space>
+        );
+      },
     },
     {
       title: '大小', dataIndex: 'size_bytes', width: 90, align: 'right' as const,
       render: (v: number) => <Typography.Text type="secondary">{fmtSize(v)}</Typography.Text>,
     },
     {
-      title: '转换状态', width: 180,
+      title: '转换状态', width: 220,
       render: (_: unknown, record: StoredFile) => {
-        if (record.file_ext !== '.dwg') return <Typography.Text type="secondary">—</Typography.Text>;
         const job = jobsByFileId.get(record.id);
         if (!job) return <Typography.Text type="secondary">未转换</Typography.Text>;
         const s = STATUS[job.status] ?? STATUS.cancelled;
@@ -307,7 +322,7 @@ export function FilesPage() {
             <Tag style={{ color: s.color, background: s.bg, border: 'none', borderRadius: 6 }}>
               {s.icon} <span style={{ marginLeft: 4 }}>{s.label}</span>
             </Tag>
-            <Progress percent={job.progress} size="small" style={{ width: 56, margin: 0 }}
+            <Progress percent={job.progress} size="small" style={{ width: 80, margin: 0 }}
               strokeColor={s.color}
               status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : undefined} />
           </Space>
@@ -325,13 +340,6 @@ export function FilesPage() {
     {
       title: '操作', width: 100, align: 'center' as const,
       render: (_: unknown, record: StoredFile) => {
-        if (record.file_ext !== '.dwg') {
-          return (
-            <Tooltip title="下载 DXF">
-              <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)} />
-            </Tooltip>
-          );
-        }
         const job = jobsByFileId.get(record.id);
         const isSucceeded = job?.status === 'succeeded';
         const isFailed = job?.status === 'failed' || job?.status === 'cancelled';
@@ -398,7 +406,7 @@ export function FilesPage() {
       {/* ── stats ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
-          { label: '全部文件', value: allFiles.length, icon: <FileOutlined />, color: '#1677ff', bg: '#e6f4ff' },
+          { label: '全部文件', value: tableFiles.length, icon: <FileOutlined />, color: '#1677ff', bg: '#e6f4ff' },
           { label: '已转换 DXF', value: succeeded, icon: <CheckCircleFilled />, color: '#52c41a', bg: '#f6ffed' },
           { label: '处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#faad14', bg: '#fffbe6' },
           { label: '存储总量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#722ed1', bg: '#f9f0ff' },
@@ -567,7 +575,7 @@ export function FilesPage() {
       {/* ── file table ───────────────────────────────────────────────── */}
       <Table
         rowKey="id"
-        dataSource={allFiles}
+        dataSource={tableFiles}
         columns={columns}
         rowSelection={rowSelection}
         loading={isFirstLoad}

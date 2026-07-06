@@ -35,16 +35,41 @@ async function throwOnHttpError(res: Response): Promise<void> {
   throw new Error(detail);
 }
 
+/** fetch() wrapper with timeout and retry for upload/download operations. */
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit & { timeout?: number },
+  retries = 1,
+): Promise<Response> {
+  const timeout = init.timeout ?? 120_000;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      return res;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      // Wait before retry (exponential backoff)
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error('fetch failed after retries');
+}
+
 export async function uploadDwg(file: File, batchName?: string): Promise<StoredFile> {
   const form = new FormData();
   form.append('upload', file);
   let url = apiUrl('/api/v1/files');
   if (batchName) url += `?batch_name=${encodeURIComponent(batchName)}`;
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: 'POST',
     headers: authHeaders(),
     body: form,
-  });
+    timeout: 120_000,
+  }, 1);
   await throwOnHttpError(res);
   const json = await res.json();
   return json.data as StoredFile;
@@ -52,11 +77,12 @@ export async function uploadDwg(file: File, batchName?: string): Promise<StoredF
 
 export async function uploadDwgAndConvert(file: File, batchName?: string) {
   const stored = await uploadDwg(file, batchName);
-  const res = await fetch(apiUrl('/api/v1/jobs'), {
+  const res = await fetchWithTimeout(apiUrl('/api/v1/jobs'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ task_type: 'convert_dwg_to_dxf', precision_level: 'normal', params: { file_id: stored.id, batch_name: batchName || null } }),
-  });
+    timeout: 30_000,
+  }, 1);
   await throwOnHttpError(res);
   const json = await res.json();
   return { file: stored, job: json.data as Job };
@@ -74,7 +100,7 @@ export async function getFileDownloadUrl(fileId: number) {
 export async function downloadFile(fileId: number, filename: string): Promise<void> {
   const { url } = await getFileDownloadUrl(fileId);
   const fullUrl = apiUrl(url);
-  const res = await fetch(fullUrl, { headers: authHeaders() });
+  const res = await fetchWithTimeout(fullUrl, { headers: authHeaders(), timeout: 120_000 }, 1);
   if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
   const blob = await res.blob();
   triggerBlobDownload(blob, filename);

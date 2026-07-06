@@ -24,21 +24,20 @@ export function useAuthInit() {
     }
 
     // Proactively refresh: if the server accepts it, we get a fresh token.
-    // If it fails, the token was stale AND the refresh cookie is gone →
-    // we must clear and let the user log in again.
+    // Only clear session on explicit auth failure (401), not on network errors.
     let cancelled = false;
     refreshSession()
       .then((data) => {
         if (cancelled) return;
         if (data) {
           setAccessToken(data.access_token);
-        } else {
-          // Refresh failed — token was stale, no valid refresh cookie
-          clearSession();
         }
+        // If data is null (refresh failed), keep the old token — it might
+        // still be valid. The axios interceptor will handle real 401s.
       })
       .catch(() => {
-        if (!cancelled) clearSession();
+        // Network error or server down — don't clear, let the user retry
+        if (!cancelled) setReady(true);
       })
       .finally(() => {
         if (!cancelled) setReady(true);
