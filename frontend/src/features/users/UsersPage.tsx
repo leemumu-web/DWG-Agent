@@ -16,7 +16,6 @@ import {
   ReloadOutlined,
   PlusOutlined,
   SearchOutlined,
-  UserOutlined,
   TeamOutlined,
   CheckCircleOutlined,
   StopOutlined,
@@ -33,7 +32,6 @@ import {
   listUsers,
   removeRole,
   resetUserPassword,
-  updateUser,
 } from '../../api/users.api';
 import { listRoles } from '../../api/roles.api';
 import type { User } from '../../types/user';
@@ -147,12 +145,6 @@ export function UsersPage() {
     },
     onError: (e: unknown) => message.error(e instanceof Error ? e.message : '移除失败'),
   });
-
-  const roleMap = useMemo(() => {
-    const m = new Map<number, { id: number; code: string; name: string }>();
-    for (const r of rolesQ.data ?? []) m.set(r.id, r);
-    return m;
-  }, [rolesQ.data]);
 
   const columns = [
     { title: '#', dataIndex: 'id', width: 56, align: 'center' as const },

@@ -25,7 +25,7 @@ import {
   EyeOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   listPendingReviews,
   listResultReviews,

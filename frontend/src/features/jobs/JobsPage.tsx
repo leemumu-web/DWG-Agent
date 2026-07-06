@@ -16,7 +16,6 @@ import {
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { createFrameworkSmokeJob, getJob, getJobSteps, getJobResults, listJobs, retryJob } from '../../api/jobs.api';
-import { getResultDownloadUrl } from '../../api/results.api';
 import { downloadFile } from '../../api/files.api';
 import { JobTimeline } from '../../components/JobTimeline';
 import { useJobEvents } from '../../hooks/useJobEvents';

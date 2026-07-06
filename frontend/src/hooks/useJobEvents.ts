@@ -68,9 +68,7 @@ export function useJobEvents(
     // cut, network blip, server restart). We only close manually for terminal
     // job states or hard auth errors (401/403/404). Without this distinction,
     // a single 1h Nginx cut would orphan the stream for a still-running job.
-    let closed = false;
     const close = () => {
-      closed = true;
       esRef.current?.close();
       esRef.current = null;
     };

@@ -28,7 +28,6 @@ interface ApiError {
  *  - 0/no-response: network or backend down */
 function describeError(e: ApiError): string {
   if (e.response) {
-    const code = e.response.data?.error?.code;
     const msg = e.response.data?.error?.message;
     const status = e.response.status;
     if (status === 401) return msg || '账号或密码不正确';

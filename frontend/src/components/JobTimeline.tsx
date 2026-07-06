@@ -28,7 +28,7 @@ export function JobTimeline({ steps }: { steps: JobStep[] }) {
     return <Empty description="暂无步骤记录" />;
   }
 
-  const items = steps.map((step, i) => ({
+  const items = steps.map((step) => ({
     title: stepLabel(step),
     description: (
       <div>

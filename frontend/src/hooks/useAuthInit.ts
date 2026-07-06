@@ -3,10 +3,9 @@ import { useAuthStore } from '../stores/auth.store';
 import { refreshSession } from '../api/auth.api';
 
 /**
- * On app mount: verify the stored access token is still valid.
- * If expired, try to refresh silently via the HttpOnly refresh cookie.
- * If the refresh also fails, clear the session (the RequireAuth guard
- * will then redirect to /login).
+ * On app mount: try to silently refresh the access token via the HttpOnly
+ * refresh cookie. On network/server errors, keep the existing token — the
+ * axios 401 interceptor handles real auth failures and redirects to /login.
  *
  * This prevents the "page refresh → 401 → error state flash" issue.
  */
@@ -14,7 +13,6 @@ export function useAuthInit() {
   const [ready, setReady] = useState(false);
   const token = useAuthStore((s) => s.accessToken);
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
-  const clearSession = useAuthStore((s) => s.clearSession);
 
   useEffect(() => {
     if (!token) {
