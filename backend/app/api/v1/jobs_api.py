@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -341,7 +342,10 @@ def cancel_all_active(
     db: Session = Depends(get_db),
 ):
     """Cancel all currently queued or running jobs (admin only).
-    Best-effort Celery revocation accompanies the DB update."""
+    Best-effort Celery revocation accompanies the DB update.
+
+    Uses a bulk SQL UPDATE to avoid the MySQL 1020 error caused by
+    the Celery worker modifying the same rows concurrently."""
     import logging
 
     from app.workers.celery_app import celery_app
@@ -352,28 +356,44 @@ def cancel_all_active(
         raise AppHTTPException(
             403, "FORBIDDEN", "Only administrators can cancel all jobs."
         )
-    active = list(
-        db.scalars(
-            select(Job).where(Job.status.in_(["queued", "running", "pending"]))
-        ).all()
-    )
-    cancelled_count = 0
-    for job in active:
-        job.status = "cancelled"
-        job.error_code = "CANCELLED_BY_ADMIN"
-        job.error_message = "Cancelled by administrator via bulk cancel."
-        cancelled_count += 1
-        write_audit_log(
-            db,
-            actor_user_id=current_user.id,
-            action="jobs.cancel_all",
-            resource_type="job",
-            resource_id=job.id,
-            request=request,
+
+    # Bulk UPDATE bypasses ORM optimistic-locking conflicts with Celery worker
+    now = datetime.now(UTC)
+    result = db.execute(
+        update(Job)
+        .where(Job.status.in_(["queued", "running", "pending"]))
+        .values(
+            status="cancelled",
+            error_code="CANCELLED_BY_ADMIN",
+            error_message="Cancelled by administrator via bulk cancel.",
+            updated_at=now,
         )
+    )
+    cancelled_count = result.rowcount
+    cancelled_ids = [
+        row.id for row in
+        db.execute(
+            select(Job.id).where(
+                Job.status == "cancelled",
+                Job.error_code == "CANCELLED_BY_ADMIN",
+                Job.updated_at == now,
+            )
+        ).all()
+    ]
+
+    # Single audit log for the batch operation
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="jobs.cancel_all",
+        resource_type="job",
+        resource_id=0,
+        after_json={"cancelled_count": cancelled_count, "cancelled_ids": cancelled_ids},
+        request=request,
+    )
     db.commit()
 
-    # Best-effort: revoke running/pending Celery tasks
+    # Best-effort: revoke running/pending Celery tasks (no per-job data needed)
     _celery_revoked = 0
     try:
         inspector = celery_app.control.inspect(timeout=2.0)

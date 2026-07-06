@@ -117,13 +117,21 @@ export function FilesPage() {
     return map;
   }, [jobsQ.data]);
 
-  // Files that need (re-)conversion: no job OR job failed/cancelled
+  // Files that need (re-)conversion:
+  //   no job, failed, cancelled, OR stuck-queued (>60s old, no progress)
+  const NOW = Date.now();
   const pendingFiles = useMemo(
     () => dwgFiles.filter((f) => {
       const j = jobsByFileId.get(f.id);
-      return !j || j.status === 'failed' || j.status === 'cancelled';
+      if (!j) return true;
+      if (j.status === 'failed' || j.status === 'cancelled') return true;
+      if (j.status === 'queued' && j.progress === 0) {
+        const age = NOW - new Date(j.created_at).getTime();
+        if (age > 60_000) return true; // stuck for >1 minute
+      }
+      return false;
     }),
-    [dwgFiles, jobsByFileId],
+    [dwgFiles, jobsByFileId, NOW],
   );
 
   const refresh = useCallback(() => { filesQ.refetch(); jobsQ.refetch(); batchesQ.refetch(); }, [filesQ, jobsQ, batchesQ]);
@@ -165,15 +173,24 @@ export function FilesPage() {
   const handleResumeAll = useCallback(async () => {
     setPauseLoading(true);
     try {
+      // 1. Cancel all stuck queued jobs first
+      await cancelAllJobs();
+      // 2. Wait a beat for DB to settle
+      await new Promise((r) => setTimeout(r, 500));
+      // 3. Re-submit jobs for all pending files (3 concurrent)
       const queue = [...pendingFiles];
       let count = 0;
-      const worker = async () => {
-        while (queue.length > 0) {
-          const f = queue.shift()!;
-          try { await createDxfJob(f.id); count++; } catch { /* skip failures */ }
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(3, queue.length || 1) }, () => worker()));
+      if (queue.length > 0) {
+        const worker = async () => {
+          while (queue.length > 0) {
+            const f = queue.shift()!;
+            try { await createDxfJob(f.id); count++; } catch { /* skip */ }
+          }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(3, pendingFiles.length) }, () => worker()),
+        );
+      }
       if (count > 0) {
         message.success(`已提交 ${count} 个转换任务`);
       } else {
