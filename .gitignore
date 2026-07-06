@@ -7,6 +7,8 @@
 # --- Secrets (never commit) ---
 .env
 .env.docker
+.env.production
+.env.*.local
 *.pem
 *.key
 
@@ -23,6 +25,11 @@ build/
 *.egg-info/
 *.egg
 tsconfig.tsbuildinfo
+
+# --- Test artifacts ---
+test-results/
+playwright-report/
+.nyc_output/
 
 # --- Caches ---
 __pycache__/
