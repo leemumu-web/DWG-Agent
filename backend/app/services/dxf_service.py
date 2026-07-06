@@ -31,6 +31,9 @@ from app.core.config import settings
 if settings.oda_home:
     os.environ.setdefault("ODA_HOME", settings.oda_home)
 
+# 框架集成适配层 — dwg_converter.framework 提供统一错误码映射
+from dwg_converter.framework import ERROR_CODES as _EC
+
 from app.core.constants import (
     JOB_FAILED,
     JOB_QUEUED,
@@ -51,8 +54,8 @@ from app.storage.base import StorageError, StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
 
-ERROR_CODE_DXF_FAILED = "DXF_CONVERSION_FAILED"
-ERROR_CODE_SOURCE_MISSING = "DXF_SOURCE_FILE_MISSING"
+ERROR_CODE_DXF_FAILED = _EC["DXF_CONVERSION_FAILED"]
+ERROR_CODE_SOURCE_MISSING = _EC["DXF_SOURCE_MISSING"]
 _DXF_CONTENT_TYPE = "application/dxf"
 _DXF_EXT = ".dxf"
 _ALGO_VERSION = "oda-file-converter"

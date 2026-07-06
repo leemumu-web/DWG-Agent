@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     CurrentUser,
+    CurrentUserOrQuery,
     get_db,
     has_global_project_access,
     require_project_member,
@@ -250,13 +251,16 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
 
 @router.get("/{job_id}/events")
 def get_job_events(
-    job_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
+    job_id: int, request: Request, current_user: CurrentUserOrQuery, db: Session = Depends(get_db)
 ):
     """Server-Sent Events 端点：任务进度实时推送（spec §13.1 SSE 推送）。
 
     先发 DB 快照，再订阅 Redis pub/sub 频道 job:events:{job_id}。
     每 25s 无消息时发 keepalive 心跳。Redis 不可用时仅发快照后结束。
     终态事件（done/error）后发终态快照兜底。
+
+    鉴权：前端 EventSource 不支持自定义请求头，通过 ?token=<jwt> 查询参数传递。
+    Authorization header 仍然优先。
     """
     job = db.get(Job, job_id)
     if not job:

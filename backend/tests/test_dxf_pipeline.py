@@ -250,7 +250,7 @@ def test_run_dxf_conversion_oda_failure():
 
 
 def test_run_dxf_conversion_source_missing():
-    """源文件不存在 → job failed, error_code=DXF_SOURCE_FILE_MISSING。"""
+    """源文件不存在 → job failed, error_code=DXF_SOURCE_MISSING。"""
     init_db()
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -274,7 +274,7 @@ def test_run_dxf_conversion_source_missing():
     assert jobv.status_code == 200
     jd = jobv.json()["data"]
     assert jd["status"] == JOB_FAILED
-    assert jd["error_code"] == "DXF_SOURCE_FILE_MISSING"
+    assert jd["error_code"] == "DXF_SOURCE_MISSING"
 
 
 # ── job events ────────────────────────────────────────────────────────────────

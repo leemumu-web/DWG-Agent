@@ -13,6 +13,7 @@ from app.api.v1 import (
     results_api,
     reviews_api,
     roles_api,
+    system_api,
     users_api,
 )
 
@@ -28,3 +29,4 @@ api_router.include_router(results_api.router, prefix="/results", tags=["results"
 api_router.include_router(reviews_api.router, prefix="/reviews", tags=["reviews"])
 api_router.include_router(audit_logs_api.router, prefix="/audit-logs", tags=["audit-logs"])
 api_router.include_router(agent_runs_api.router, tags=["agent-runs"])
+api_router.include_router(system_api.router, prefix="/system", tags=["system"])
