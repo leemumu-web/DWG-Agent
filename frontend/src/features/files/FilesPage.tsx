@@ -8,7 +8,6 @@ import {
   Tooltip,
   Typography,
   message,
-  Card,
 } from 'antd';
 import {
   DownloadOutlined,
@@ -25,7 +24,6 @@ import { useQuery } from '@tanstack/react-query';
 import { listFiles, downloadFile } from '../../api/files.api';
 import { listJobs, getJobResults, retryJob } from '../../api/jobs.api';
 import { getResultDownloadUrl } from '../../api/results.api';
-import { useAuthStore } from '../../stores/auth.store';
 import { FileUpload } from '../../components/FileUpload';
 import type { StoredFile } from '../../types/file';
 import type { Job } from '../../types/job';
@@ -46,32 +44,17 @@ const STATUS: Record<string, { color: string; bg: string; label: string; icon: R
   cancelled:  { color: '#8c8c8c', bg: '#fafafa', label: '已取消',   icon: <CloseCircleFilled   style={{ color: '#8c8c8c' }} /> },
 };
 
-function resolveUrl(pathOrUrl: string): string {
-  if (pathOrUrl.startsWith('http')) return pathOrUrl;
-  const base = import.meta.env.VITE_API_BASE_URL || '';
-  return `${base}${pathOrUrl}`;
-}
-
-async function fetchBlobDownload(pathOrUrl: string, filename: string) {
-  const token = useAuthStore.getState().accessToken;
-  const res = await fetch(resolveUrl(pathOrUrl), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const blob = await res.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = blobUrl; a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); }, 100);
-}
-
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export function FilesPage() {
   const filesQ = useQuery({ queryKey: ['files'], queryFn: listFiles });
   const jobsQ = useQuery({ queryKey: ['jobs'], queryFn: listJobs });
+
+  // Only user-uploaded DWG files (dwg-original bucket), not system DXF outputs
+  const dwgFiles = useMemo(
+    () => (filesQ.data ?? []).filter((f) => f.file_ext === '.dwg' && f.bucket === 'dwg-original'),
+    [filesQ.data],
+  );
 
   const hasActive = useMemo(
     () => (jobsQ.data ?? []).some((j) => j.status === 'queued' || j.status === 'running'),
@@ -97,7 +80,7 @@ export function FilesPage() {
 
   const handleDownload = useCallback(async (file: StoredFile) => {
     try { await downloadFile(file.id, file.original_name); }
-    catch { message.error('下载失败'); }
+    catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
   }, []);
 
   const handleDownloadDxf = useCallback(async (job: Job, sourceName: string) => {
@@ -106,21 +89,24 @@ export function FilesPage() {
       const dxfResult = results.find((r) => r.result_type === 'convert_dwg_to_dxf');
       if (!dxfResult?.result_file_id) { message.error('DXF 结果文件未找到'); return; }
       const { url } = await getResultDownloadUrl(dxfResult.id);
-      await fetchBlobDownload(url, sourceName.replace(/\.dwg$/i, '.dxf'));
-    } catch { message.error('获取 DXF 下载链接失败'); }
+      // Reuse downloadFile from files.api — handles auth, blob, and <a> click
+      await downloadFile(dxfResult.result_file_id, sourceName.replace(/\.dwg$/i, '.dxf'));
+    } catch (err) { message.error(err instanceof Error ? err.message : '获取 DXF 下载链接失败'); }
   }, []);
 
   const handleRetry = useCallback(async (jobId: number) => {
     try { await retryJob(jobId); message.success('已重新提交'); refresh(); }
-    catch { message.error('重试失败'); }
+    catch (err) { message.error(err instanceof Error ? err.message : '重试失败'); }
   }, [refresh]);
 
-  const files = filesQ.data ?? [];
-  const succeeded = files.filter((f) => jobsByFileId.get(f.id)?.status === 'succeeded').length;
-  const processing = files.filter((f) => { const s = jobsByFileId.get(f.id)?.status; return s === 'running' || s === 'queued'; }).length;
-  const dxfCount = files.filter((f) => f.file_ext === '.dxf').length;
-  const totalSize = files.reduce((s, f) => s + f.size_bytes, 0);
-  const isFirstLoad = filesQ.isLoading && files.length === 0;
+  // Stats — based on DWG files + job status, not raw .dxf count
+  const succeeded = dwgFiles.filter((f) => jobsByFileId.get(f.id)?.status === 'succeeded').length;
+  const processing = dwgFiles.filter((f) => {
+    const s = jobsByFileId.get(f.id)?.status; return s === 'running' || s === 'queued';
+  }).length;
+  const dxfConverted = succeeded;
+  const totalSize = (filesQ.data ?? []).reduce((s, f) => s + f.size_bytes, 0);
+  const isFirstLoad = filesQ.isLoading && (filesQ.data ?? []).length === 0;
 
   // ── table columns ──────────────────────────────────────────────────────────
 
@@ -134,17 +120,13 @@ export function FilesPage() {
           <span style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             width: 32, height: 32, borderRadius: 8,
-            background: r.file_ext === '.dxf' ? '#e6f4ff' : '#f5f5f5',
+            background: '#f5f5f5',
           }}>
-            {r.file_ext === '.dxf'
-              ? <FileTextOutlined style={{ color: '#1677ff', fontSize: 15 }} />
-              : <FileOutlined style={{ color: '#8c8c8c', fontSize: 15 }} />
-            }
+            <FileOutlined style={{ color: '#8c8c8c', fontSize: 15 }} />
           </span>
           <Tooltip title={name}>
             <Typography.Text style={{ maxWidth: 300 }} ellipsis>{name}</Typography.Text>
           </Tooltip>
-          {r.file_ext === '.dxf' && <Tag color="blue" style={{ fontSize: 11, lineHeight: '18px' }}>DXF</Tag>}
         </Space>
       ),
     },
@@ -222,8 +204,8 @@ export function FilesPage() {
       {/* stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         {[
-          { label: '全部文件', value: files.length, icon: <FileOutlined />, color: '#1677ff', bg: '#e6f4ff' },
-          { label: '已转换 DXF', value: dxfCount, icon: <CheckCircleFilled />, color: '#52c41a', bg: '#f6ffed' },
+          { label: '全部文件', value: dwgFiles.length, icon: <FileOutlined />, color: '#1677ff', bg: '#e6f4ff' },
+          { label: '已转换 DXF', value: dxfConverted, icon: <CheckCircleFilled />, color: '#52c41a', bg: '#f6ffed' },
           { label: '处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#faad14', bg: '#fffbe6' },
           { label: '存储总量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#722ed1', bg: '#f9f0ff' },
         ].map((s) => (
@@ -243,10 +225,10 @@ export function FilesPage() {
       {/* upload */}
       <FileUpload onUploaded={refresh} />
 
-      {/* table */}
+      {/* table — only user-uploaded DWG files */}
       <Table
         rowKey="id"
-        dataSource={files}
+        dataSource={dwgFiles}
         columns={columns}
         loading={isFirstLoad}
         size="middle"

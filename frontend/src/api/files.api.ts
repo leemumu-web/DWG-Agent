@@ -3,8 +3,12 @@ import { useAuthStore } from '../stores/auth.store';
 import type { StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
+/** Fetch ALL files (large page_size to avoid pagination gaps —
+ *  the FilesPage in-memory files↔jobs join needs the full list). */
 export async function listFiles() {
-  const res = await apiClient.get<PageEnvelope<StoredFile>>('/api/v1/files');
+  const res = await apiClient.get<PageEnvelope<StoredFile>>('/api/v1/files', {
+    params: { page_size: 2000 },
+  });
   return res.data.data;
 }
 

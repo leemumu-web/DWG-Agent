@@ -16,8 +16,12 @@ export interface JobResult {
   updated_at: string;
 }
 
+/** Fetch ALL jobs (large page_size — the FilesPage in-memory files↔jobs
+ *  join via params.file_id needs every job to be present). */
 export async function listJobs() {
-  const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/jobs');
+  const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/jobs', {
+    params: { page_size: 2000 },
+  });
   return res.data.data;
 }
 
