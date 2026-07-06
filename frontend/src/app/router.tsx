@@ -26,9 +26,9 @@ export function AppRouter() {
             <Route path="/drawings" element={<DrawingsPage />} />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
-            <Route element={<RequireRoles allowed={['admin', 'reviewer']} />}>
-              <Route path="/reviews" element={<ReviewsPage />} />
-            </Route>
+            {/* /reviews/pending is "authenticated" per spec §1.9 — admins see all,
+                other users see pending reviews scoped to their projects. */}
+            <Route path="/reviews" element={<ReviewsPage />} />
             <Route element={<RequireRoles allowed={['admin']} />}>
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />

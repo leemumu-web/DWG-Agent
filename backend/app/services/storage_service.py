@@ -59,6 +59,60 @@ SUPPORTED_DWG_HEADERS = {
 }
 
 
+def sanitize_filename(name: str) -> str:
+    """Strip path traversal, control chars, and injection vectors from a filename.
+
+    Keeps: alphanumerics, CJK characters, dots, dashes, underscores, spaces,
+    and common safe punctuation.  Everything else is replaced with '_'.
+    Leading dots and dashes are stripped (prevents hidden files on Unix).
+    The result is never empty — falls back to 'unnamed'.
+
+    Call this on every user-supplied filename before storing, serving, or
+    embedding in headers / archive paths.
+    """
+    import unicodedata
+
+    # 1. Normalise Unicode (NFKC) to collapse look-alike characters
+    name = unicodedata.normalize("NFKC", name)
+
+    # 2. Strip directory separators and null bytes
+    for ch in ("\x00", "/", "\\"):
+        name = name.replace(ch, "_")
+
+    # 3. Collapse ".." to prevent traversal
+    while ".." in name:
+        name = name.replace("..", ".")
+
+    # 4. Keep only safe characters
+    safe: list[str] = []
+    for ch in name:
+        cp = ord(ch)
+        if (
+            ch in "._- @()+,"          # common safe punctuation
+            or ch.isalnum()             # A-Z a-z 0-9 + Unicode alnum (covers CJK)
+            or cp > 127                 # non-ASCII (CJK, Cyrillic, etc.)
+        ) and cp >= 32:                 # no control chars
+            safe.append(ch)
+        else:
+            safe.append("_")
+    clean = "".join(safe)
+
+    # 5. Strip leading dots/dashes (hidden files) and trailing dots/spaces (Windows)
+    clean = clean.lstrip(".-").rstrip(". ")
+
+    # 6. Fallback
+    if not clean:
+        clean = "unnamed"
+
+    # 7. Truncate to reasonable max
+    if len(clean) > 200:
+        ext = clean.rsplit(".", 1)[-1] if "." in clean else ""
+        base = clean.rsplit(".", 1)[0] if "." in clean else clean
+        clean = base[: 200 - len(ext) - 1] + "." + ext if ext else base[:200]
+
+    return clean
+
+
 def validate_upload_name(filename: str) -> str:
     ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_UPLOAD_EXTENSIONS:
@@ -132,8 +186,10 @@ def get_storage_backend() -> AbstractStorageBackend:
     )
 
 
-async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | None) -> StoredFile:
-    original_name = upload.filename or "unnamed.dwg"
+async def save_upload_file(
+    db: Session, upload: UploadFile, uploaded_by: int | None, batch_name: str | None = None
+) -> StoredFile:
+    original_name = sanitize_filename(upload.filename or "unnamed.dwg")
     file_ext = validate_upload_name(original_name)
     upload_content_type = validate_upload_mime(upload.content_type)
     bucket = "dwg-original"
@@ -195,6 +251,7 @@ async def save_upload_file(db: Session, upload: UploadFile, uploaded_by: int | N
         size_bytes=size,
         sha256=sha256.hexdigest(),
         md5=md5.hexdigest(),
+        batch_name=batch_name,
         uploaded_by=uploaded_by,
         status="available",
     )
@@ -213,6 +270,7 @@ def save_bytes_as_file(
     content_type: str,
     payload: bytes,
     uploaded_by: int | None,
+    batch_name: str | None = None,
 ) -> StoredFile:
     storage = get_storage_backend()
     try:
@@ -239,6 +297,7 @@ def save_bytes_as_file(
         size_bytes=len(payload),
         sha256=hashlib.sha256(payload).hexdigest(),
         md5=hashlib.md5(payload).hexdigest(),
+        batch_name=batch_name,
         uploaded_by=uploaded_by,
         status="available",
     )

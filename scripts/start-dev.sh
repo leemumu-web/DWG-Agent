@@ -36,9 +36,11 @@ else
 fi
 ensure_service 6379 redis valkey
 
-# 2. Celery worker
+# 2. Celery workers
 step "Celery worker-report"
 start_report_worker
+step "Celery worker-dxf"
+start_dxf_worker
 
 # 3. 后端
 step "后端 (127.0.0.1:8000)"

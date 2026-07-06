@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
@@ -19,14 +21,15 @@ from app.models.job import Job
 from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
-from app.schemas.file_schema import FileRead
+from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest
 from app.services.audit_service import write_audit_log
 from app.services.file_service import (
     build_signed_download_url,
+    build_zip,
     download_headers,
     validate_download_signature,
 )
-from app.services.storage_service import get_storage_backend, save_upload_file
+from app.services.storage_service import get_storage_backend, sanitize_filename, save_upload_file
 from app.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
@@ -113,9 +116,13 @@ async def upload_file(
     request: Request,
     current_user: CurrentUser,
     upload: UploadFile = File(...),
+    batch_name: str = Query(""),
     db: Session = Depends(get_db),
 ):
-    stored = await save_upload_file(db, upload, uploaded_by=current_user.id)
+    stored = await save_upload_file(
+        db, upload, uploaded_by=current_user.id,
+        batch_name=sanitize_filename(batch_name.strip()) if batch_name.strip() else None,
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -137,6 +144,7 @@ def list_files(
     page_size: int = Query(20, ge=1, le=200),
     sort_by: str = Query("created_at"),
     sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
+    batch_name: str = Query(""),
     db: Session = Depends(get_db),
 ):
     sort_column = validate_sort_by("files", sort_by)
@@ -146,16 +154,55 @@ def list_files(
         order_clause = order_clause.asc()
     else:
         order_clause = order_clause.desc()
-    files = list(
-        db.scalars(
-            select(StoredFile).where(StoredFile.status != "deleted").order_by(order_clause)
-        ).all()
-    )
+    stmt = select(StoredFile).where(StoredFile.status != "deleted")
+    if batch_name.strip():
+        stmt = stmt.where(StoredFile.batch_name == batch_name.strip())
+    files = list(db.scalars(stmt.order_by(order_clause)).all())
     if not has_global_project_access(current_user):
         files = [stored for stored in files if _can_read_file(db, current_user, stored)]
     return page_from_list(
         [FileRead.model_validate(f) for f in files], page, page_size, request.state.request_id
     )
+
+
+# ── batches ─────────────────────────────────────────────────────────────────
+# NOTE: must be registered BEFORE /{file_id} to avoid route shadowing.
+
+
+@router.get("/batches")
+def list_batches(
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Return all distinct batch names with file counts and latest created_at."""
+    from sqlalchemy import func as sa_func
+
+    rows = list(
+        db.execute(
+            select(
+                StoredFile.batch_name,
+                sa_func.count(StoredFile.id).label("file_count"),
+                sa_func.max(StoredFile.created_at).label("latest_created_at"),
+            )
+            .where(
+                StoredFile.batch_name.is_not(None),
+                StoredFile.batch_name != "",
+                StoredFile.status != "deleted",
+            )
+            .group_by(StoredFile.batch_name)
+            .order_by(sa_func.max(StoredFile.created_at).desc())
+        ).all()
+    )
+    batches = [
+        {
+            "name": r.batch_name,
+            "file_count": r.file_count,
+            "latest_created_at": r.latest_created_at.isoformat(),
+        }
+        for r in rows
+    ]
+    return ok(batches, request.state.request_id)
 
 
 @router.get("/{file_id}")
@@ -261,3 +308,123 @@ def download_file(
     )
     db.commit()
     return response
+
+
+# ── bulk operations ──────────────────────────────────────────────────────────
+
+
+@router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
+def bulk_delete_files(
+    request: Request,
+    payload: BulkDeleteRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    if not payload.file_ids:
+        raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
+    stored_list = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.id.in_(payload.file_ids), StoredFile.status != "deleted"
+            )
+        ).all()
+    )
+    for s in stored_list:
+        _require_file_delete_access(db, current_user, s)
+        s.status = "deleted"
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="files.bulk_delete",
+            resource_type="file",
+            resource_id=s.id,
+            request=request,
+        )
+    db.commit()
+    return None
+
+
+@router.post("/download-zip")
+def download_zip_endpoint(
+    request: Request,
+    payload: ZipDownloadRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Build a zip archive with selected files' DWG and/or DXF versions,
+    stream it directly, and clean up the temp file on completion."""
+    import os
+    import tempfile
+
+    if not payload.file_ids:
+        raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
+    if not payload.formats:
+        raise AppHTTPException(
+            422, "INVALID_PARAMS", "formats must not be empty — choose at least dwg or dxf."
+        )
+
+    # Verify access
+    stored_list = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.id.in_(payload.file_ids), StoredFile.status != "deleted"
+            )
+        ).all()
+    )
+    if len(stored_list) != len(payload.file_ids):
+        raise not_found("File")
+    for s in stored_list:
+        _require_file_read_access(db, current_user, s)
+
+    clean_name = sanitize_filename(payload.folder_name) or "图纸导出"
+    zip_bytes, _ = build_zip(db, payload.file_ids, payload.formats, clean_name)
+
+    # Write to a temp file so we can stream it and delete after download.
+    # MinIO / local both work — the zip is ephemeral (temp file, not stored bucket).
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp_path = tmp.name
+    try:
+        tmp.write(zip_bytes)
+        tmp.close()
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    def _stream_and_cleanup():
+        try:
+            with open(tmp_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):  # 1 MiB chunks
+                    yield chunk
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="files.download_zip",
+        resource_type="file",
+        resource_id=0,
+        after_json={
+            "file_ids": payload.file_ids,
+            "formats": payload.formats,
+            "folder": clean_name,
+        },
+        request=request,
+    )
+    db.commit()
+
+    encoded_filename = quote(f"{clean_name}.zip")
+    return StreamingResponse(
+        _stream_and_cleanup(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Content-Length": str(len(zip_bytes)),
+        },
+    )

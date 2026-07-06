@@ -329,3 +329,77 @@ def get_job_results(
         page_size,
         request.state.request_id,
     )
+
+
+# ── global control ───────────────────────────────────────────────────────────
+
+
+@router.post("/cancel-all-active")
+def cancel_all_active(
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Cancel all currently queued or running jobs (admin only).
+    Best-effort Celery revocation accompanies the DB update."""
+    import logging
+
+    from app.workers.celery_app import celery_app
+
+    logger = logging.getLogger(__name__)
+
+    if not has_global_project_access(current_user):
+        raise AppHTTPException(
+            403, "FORBIDDEN", "Only administrators can cancel all jobs."
+        )
+    active = list(
+        db.scalars(
+            select(Job).where(Job.status.in_(["queued", "running", "pending"]))
+        ).all()
+    )
+    cancelled_count = 0
+    for job in active:
+        job.status = "cancelled"
+        job.error_code = "CANCELLED_BY_ADMIN"
+        job.error_message = "Cancelled by administrator via bulk cancel."
+        cancelled_count += 1
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="jobs.cancel_all",
+            resource_type="job",
+            resource_id=job.id,
+            request=request,
+        )
+    db.commit()
+
+    # Best-effort: revoke running/pending Celery tasks
+    _celery_revoked = 0
+    try:
+        inspector = celery_app.control.inspect(timeout=2.0)
+        active_tasks = (inspector.active() or {}).values()
+        reserved_tasks = (inspector.reserved() or {}).values()
+        for tasks in (*active_tasks, *reserved_tasks):
+            for t in tasks:
+                try:
+                    celery_app.control.revoke(t["id"], terminate=True, signal="SIGTERM")
+                    _celery_revoked += 1
+                except Exception:
+                    pass
+
+        # Purge queued messages from dxf/report/agent/cad queues
+        for q in ("dxf", "report", "agent", "cad"):
+            try:
+                celery_app.control.purge(queue=q)
+            except Exception:
+                pass
+    except Exception:
+        logger.exception("Celery revocation failed (best-effort)")
+
+    return ok(
+        {
+            "cancelled_count": cancelled_count,
+            "celery_revoked": _celery_revoked,
+        },
+        request.state.request_id,
+    )

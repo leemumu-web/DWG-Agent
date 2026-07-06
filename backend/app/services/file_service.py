@@ -51,6 +51,135 @@ def download_headers(filename: str) -> dict[str, str]:
     return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
+def build_dxf_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile | None]:
+    """For each source DWG file_id, find the DXF result file (if any) via
+    Job(params_json.file_id) → AnalysisResult → result_file_id.
+
+    Optimisation: O(n+m) single-scan build instead of nested loops."""
+    from app.core.constants import TASK_DWG_TO_DXF
+
+    file_ids_set = frozenset(file_ids)
+    file_id_to_job: dict[int, Job] = {}
+    for j in db.scalars(
+        select(Job).where(
+            Job.task_type == TASK_DWG_TO_DXF,
+            Job.status == "succeeded",
+        )
+    ).all():
+        fid = (j.params_json or {}).get("file_id") if isinstance(j.params_json, dict) else None
+        if isinstance(fid, int) and fid in file_ids_set and fid not in file_id_to_job:
+            file_id_to_job[fid] = j
+
+    if not file_id_to_job:
+        return {fid: None for fid in file_ids}
+
+    job_id_to_result: dict[int, AnalysisResult] = {}
+    result_file_ids: list[int] = []
+    for r in db.scalars(
+        select(AnalysisResult).where(
+            AnalysisResult.job_id.in_([j.id for j in file_id_to_job.values()]),
+            AnalysisResult.result_type == TASK_DWG_TO_DXF,
+            AnalysisResult.result_file_id.is_not(None),
+            AnalysisResult.status == "succeeded",
+        )
+    ).all():
+        if r.job_id is not None and r.result_file_id is not None:
+            job_id_to_result[r.job_id] = r
+            result_file_ids.append(r.result_file_id)
+
+    if not result_file_ids:
+        return {fid: None for fid in file_ids}
+
+    dxf_files: dict[int, StoredFile] = {}
+    for f in db.scalars(
+        select(StoredFile).where(
+            StoredFile.id.in_(result_file_ids),
+            StoredFile.status != "deleted",
+        )
+    ).all():
+        dxf_files[f.id] = f
+
+    out: dict[int, StoredFile | None] = {fid: None for fid in file_ids}
+    for fid, job in file_id_to_job.items():
+        result = job_id_to_result.get(job.id)
+        if result and result.result_file_id:
+            out[fid] = dxf_files.get(result.result_file_id)
+    return out
+
+
+def build_zip(
+    db: Session,
+    file_ids: list[int],
+    formats: list[str],
+    folder_name: str,
+) -> tuple[bytes, str]:
+    """Build a zip archive containing DWG and/or DXF files for the given
+    source file ids.  Returns (zip_bytes, filename)."""
+    import io
+    import zipfile
+
+    from app.services.storage_service import get_storage_backend
+
+    storage = get_storage_backend()
+    want_dwg = "dwg" in formats
+    want_dxf = "dxf" in formats
+
+    # Load source DWG files
+    source_files: dict[int, StoredFile] = {}
+    for f in db.scalars(
+        select(StoredFile).where(
+            StoredFile.id.in_(file_ids), StoredFile.status != "deleted"
+        )
+    ).all():
+        source_files[f.id] = f
+
+    # Load DXF results
+    dxf_map = build_dxf_result_map(db, file_ids) if want_dxf else {}
+
+    def _stem(f: StoredFile) -> str:
+        return f.original_name.rsplit(".", 1)[0] if "." in f.original_name else f.original_name
+
+    # Two-pass dedup: count occurrences first, then assign suffixes
+    stems: list[str] = [_stem(source_files[fid]) for fid in file_ids if fid in source_files]
+    stem_count: dict[str, int] = {}
+    for s in stems:
+        stem_count[s] = stem_count.get(s, 0) + 1
+    stem_seq: dict[str, int] = {}
+
+    def _read(bucket: str, key: str) -> bytes | None:
+        try:
+            return b"".join(storage.iter_file(bucket, key))
+        except Exception:
+            return None
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fid in file_ids:
+            src = source_files.get(fid)
+            if not src:
+                continue
+            stem = _stem(src)
+            seq = stem_seq.get(stem, 0) + 1
+            stem_seq[stem] = seq
+            # Only disambiguate when the stem appears more than once
+            disamb = f"({seq})" if stem_count.get(stem, 0) > 1 else ""
+
+            if want_dwg:
+                dwg_bytes = _read(src.bucket, src.storage_key)
+                if dwg_bytes:
+                    zf.writestr(f"{folder_name}/{stem}{disamb}.dwg", dwg_bytes)
+
+            if want_dxf:
+                dxf_file = dxf_map.get(fid)
+                if dxf_file:
+                    dxf_bytes = _read(dxf_file.bucket, dxf_file.storage_key)
+                    if dxf_bytes:
+                        zf.writestr(f"{folder_name}/{stem}{disamb}.dxf", dxf_bytes)
+
+    buf.seek(0)
+    return buf.getvalue(), f"{folder_name}.zip"
+
+
 def file_project_ids(db: Session, file_id: int) -> set[int]:
     drawing_project_ids = db.scalars(
         select(Drawing.project_id)

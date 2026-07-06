@@ -18,6 +18,7 @@ class FileRead(BaseModel):
     md5: str | None = None
     uploaded_by: int | None = None
     status: str
+    batch_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -25,3 +26,13 @@ class FileRead(BaseModel):
 class DownloadUrlRead(BaseModel):
     url: str
     expires_in: int
+
+
+class BulkDeleteRequest(BaseModel):
+    file_ids: list[int]
+
+
+class ZipDownloadRequest(BaseModel):
+    file_ids: list[int]
+    formats: list[str]  # each element is "dwg" or "dxf"
+    folder_name: str = "图纸导出"

@@ -1,28 +1,17 @@
-import { apiClient, type ApiEnvelope, type PageEnvelope } from './client';
+import { apiClient, fetchAllPages, type ApiEnvelope, type PageEnvelope } from './client';
 import type { Job, JobStep } from '../types/job';
+import type { AnalysisResult } from '../types/result';
 
-export interface JobResult {
-  id: number;
-  job_id: number;
-  drawing_id?: number | null;
-  result_type: string;
-  result_json?: Record<string, unknown> | null;
-  confidence: number;
-  result_file_id?: number | null;
-  algorithm_version?: string | null;
-  tool_version?: string | null;
-  status: string;
-  created_at: string;
-  updated_at: string;
-}
+/** Re-export so existing `import type { JobResult }` keeps working. The
+ *  canonical type lives in types/result.ts (AnalysisResult) — job results
+ *  and pending reviews are the same backend AnalysisResultRead shape. */
+export type JobResult = AnalysisResult;
 
-/** Fetch ALL jobs (large page_size — the FilesPage in-memory files↔jobs
- *  join via params.file_id needs every job to be present). */
+/** Fetch ALL jobs across pages (the FilesPage in-memory files↔jobs join
+ *  via params.file_id needs every job to be present). Uses page_size=200
+ *  (the backend hard maximum) and aggregates pages until total is reached. */
 export async function listJobs() {
-  const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/jobs', {
-    params: { page_size: 2000 },
-  });
-  return res.data.data;
+  return fetchAllPages<Job>('/api/v1/jobs');
 }
 
 export async function getJob(jobId: number) {
@@ -36,7 +25,9 @@ export async function getJobSteps(jobId: number) {
 }
 
 export async function getJobResults(jobId: number) {
-  const res = await apiClient.get<PageEnvelope<JobResult>>(`/api/v1/jobs/${jobId}/results`);
+  const res = await apiClient.get<PageEnvelope<JobResult>>(`/api/v1/jobs/${jobId}/results`, {
+    params: { page_size: 200 },
+  });
   return res.data.data;
 }
 
@@ -60,5 +51,12 @@ export async function createFrameworkSmokeJob() {
     precision_level: 'normal',
     params: { source: 'frontend' },
   });
+  return res.data.data;
+}
+
+export async function cancelAllJobs(): Promise<{ cancelled_count: number }> {
+  const res = await apiClient.post<ApiEnvelope<{ cancelled_count: number }>>(
+    '/api/v1/jobs/cancel-all-active',
+  );
   return res.data.data;
 }

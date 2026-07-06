@@ -19,6 +19,7 @@ import { createFrameworkSmokeJob, getJob, getJobSteps, getJobResults, listJobs, 
 import { getResultDownloadUrl } from '../../api/results.api';
 import { downloadFile } from '../../api/files.api';
 import { JobTimeline } from '../../components/JobTimeline';
+import { useJobEvents } from '../../hooks/useJobEvents';
 import type { Job, JobStep } from '../../types/job';
 
 const statusColor: Record<string, string> = {
@@ -42,6 +43,13 @@ export function JobsPage() {
   const [drawerJob, setDrawerJob] = useState<Job | null>(null);
   const [drawerSteps, setDrawerSteps] = useState<JobStep[]>([]);
   const [drawerLoading, setDrawerLoading] = useState(false);
+
+  // SSE: when the drawer is open, subscribe to the live event stream so the
+  // progress bar and steps update in real time (no 3s polling lag).
+  useJobEvents(drawerJobId, (update) => {
+    setDrawerJob((prev) => (prev ? { ...prev, ...update.jobPatch } : prev));
+    if (update.steps) setDrawerSteps(update.steps);
+  });
 
   async function openDetail(jobId: number) {
     setDrawerJobId(jobId);
@@ -167,7 +175,13 @@ export function JobsPage() {
         dataSource={query.data ?? []}
         columns={columns}
         size="middle"
-        pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 个任务` }}
+        pagination={{
+          defaultPageSize: 20,
+          pageSizeOptions: [10, 20, 30, 50, 100],
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (t, range) => `${range[0]}-${range[1]} / 共 ${t} 个任务`,
+        }}
       />
       <Drawer
         title={

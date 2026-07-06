@@ -46,10 +46,11 @@ from app.core.constants import (
     TASK_DWG_TO_DXF,
 )
 from app.db.session import SessionLocal
+from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.services.job_events import make_event, publish_job_event
-from app.services.storage_service import get_storage_backend, save_bytes_as_file
+from app.services.storage_service import get_storage_backend, sanitize_filename, save_bytes_as_file
 from app.storage.base import StorageError, StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
@@ -330,7 +331,11 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 return
 
             dxf_bytes = dxf_path.read_bytes()
-            source_stem = Path(source_path).stem
+            # Use the original DWG filename — the work-dir path may be a temp name
+            source_file = db.get(StoredFile, source_file_id)
+            source_base = (source_file.original_name if source_file else Path(source_path).name)
+            source_base = sanitize_filename(source_base)
+            source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
             storage_key = f"jobs/{job.id}/{uuid4().hex}{_DXF_EXT}"
             dxf_file = save_bytes_as_file(
                 db,
@@ -341,6 +346,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 content_type=_DXF_CONTENT_TYPE,
                 payload=dxf_bytes,
                 uploaded_by=job.created_by,
+                batch_name=source_file.batch_name if source_file else None,
             )
 
             # 行锁重读 job，防并发取消

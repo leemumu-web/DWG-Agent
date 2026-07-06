@@ -19,5 +19,6 @@ class StoredFile(TimestampMixin, Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     md5: Mapped[str | None] = mapped_column(String(32))
+    batch_name: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     status: Mapped[str] = mapped_column(String(32), default="available", nullable=False)
