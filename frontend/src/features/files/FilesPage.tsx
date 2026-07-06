@@ -312,7 +312,7 @@ export function FilesPage() {
       render: (v: number) => <Typography.Text type="secondary">{fmtSize(v)}</Typography.Text>,
     },
     {
-      title: '转换状态', width: 220,
+      title: '转换状态', width: 280,
       render: (_: unknown, record: StoredFile) => {
         const job = jobsByFileId.get(record.id);
         if (!job) return <Typography.Text type="secondary">未转换</Typography.Text>;
@@ -322,7 +322,7 @@ export function FilesPage() {
             <Tag style={{ color: s.color, background: s.bg, border: 'none', borderRadius: 6 }}>
               {s.icon} <span style={{ marginLeft: 4 }}>{s.label}</span>
             </Tag>
-            <Progress percent={job.progress} size="small" style={{ width: 80, margin: 0 }}
+            <Progress percent={job.progress} size="small" style={{ width: 120, margin: 0 }}
               strokeColor={s.color}
               status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : undefined} />
           </Space>
