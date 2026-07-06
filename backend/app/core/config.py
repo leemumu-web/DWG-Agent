@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 14
+    # Refresh-cookie Secure flag. None = auto (Secure iff app_env=="production").
+    # Set False explicitly for HTTP-only intranet deployments (e.g. company VPN
+    # with no public exposure) where a Secure cookie would be silently dropped
+    # by the browser, breaking the refresh flow. Never set False on public TLS
+    # frontends — the 14-day refresh token must not travel in cleartext there.
+    refresh_cookie_secure: bool | None = None
 
     super_admin_username: str = "admin"
     super_admin_password: str = "SuperAdminPass1"
@@ -125,6 +131,18 @@ class Settings(BaseSettings):
         return (
             f"mysql+pymysql://{user_part}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
         )
+
+    @property
+    def refresh_cookie_secure_enabled(self) -> bool:
+        """Resolve the refresh-cookie Secure flag.
+
+        Defaults to ``app_env == "production"``; override explicitly via the
+        ``REFRESH_COOKIE_SECURE`` env var (e.g. ``false`` for an HTTP-only
+        intranet deployment behind a VPN with no public exposure).
+        """
+        if self.refresh_cookie_secure is not None:
+            return self.refresh_cookie_secure
+        return self.app_env == "production"
 
 
 @lru_cache
