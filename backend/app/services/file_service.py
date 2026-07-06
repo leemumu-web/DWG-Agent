@@ -51,18 +51,25 @@ def download_headers(filename: str) -> dict[str, str]:
     return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
-def build_dxf_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile | None]:
-    """For each source DWG file_id, find the DXF result file (if any) via
-    Job(params_json.file_id) → AnalysisResult → result_file_id.
+def build_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile | None]:
+    """For each source file_id, find the conversion result file (if any).
 
-    Optimisation: O(n+m) single-scan build instead of nested loops."""
-    from app.core.constants import TASK_DWG_TO_DXF
+    Works for both DWG→DXF and DXF→DWG pipelines generically:
+    - Source .dwg files → look for TASK_DWG_TO_DXF results (→ .dxf)
+    - Source .dxf files → look for TASK_DXF_TO_DWG results (→ .dwg)
+
+    Optimisation: O(n+m) single-scan build instead of nested loops.
+    """
+    from app.core.constants import TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
 
     file_ids_set = frozenset(file_ids)
+    if not file_ids_set:
+        return {}
+
     file_id_to_job: dict[int, Job] = {}
     for j in db.scalars(
         select(Job).where(
-            Job.task_type == TASK_DWG_TO_DXF,
+            Job.task_type.in_([TASK_DWG_TO_DXF, TASK_DXF_TO_DWG]),
             Job.status == "succeeded",
         )
     ).all():
@@ -73,12 +80,12 @@ def build_dxf_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFi
     if not file_id_to_job:
         return {fid: None for fid in file_ids}
 
+    job_ids = [j.id for j in file_id_to_job.values()]
     job_id_to_result: dict[int, AnalysisResult] = {}
     result_file_ids: list[int] = []
     for r in db.scalars(
         select(AnalysisResult).where(
-            AnalysisResult.job_id.in_([j.id for j in file_id_to_job.values()]),
-            AnalysisResult.result_type == TASK_DWG_TO_DXF,
+            AnalysisResult.job_id.in_(job_ids),
             AnalysisResult.result_file_id.is_not(None),
             AnalysisResult.status == "succeeded",
         )
@@ -90,21 +97,25 @@ def build_dxf_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFi
     if not result_file_ids:
         return {fid: None for fid in file_ids}
 
-    dxf_files: dict[int, StoredFile] = {}
+    result_files: dict[int, StoredFile] = {}
     for f in db.scalars(
         select(StoredFile).where(
             StoredFile.id.in_(result_file_ids),
             StoredFile.status != "deleted",
         )
     ).all():
-        dxf_files[f.id] = f
+        result_files[f.id] = f
 
     out: dict[int, StoredFile | None] = {fid: None for fid in file_ids}
     for fid, job in file_id_to_job.items():
         result = job_id_to_result.get(job.id)
         if result and result.result_file_id:
-            out[fid] = dxf_files.get(result.result_file_id)
+            out[fid] = result_files.get(result.result_file_id)
     return out
+
+
+# Legacy alias — kept for backward compatibility with existing callers.
+build_dxf_result_map = build_result_map
 
 
 def build_zip(
@@ -113,8 +124,14 @@ def build_zip(
     formats: list[str],
     folder_name: str,
 ) -> tuple[bytes, str]:
-    """Build a zip archive containing DWG and/or DXF files for the given
-    source file ids.  Returns (zip_bytes, filename)."""
+    """Build a zip archive containing requested format versions for the given
+    source file ids.  Returns (zip_bytes, filename).
+
+    Direction-agnostic:
+    - "dwg" format → include DWG version (source if source is .dwg, or result if .dwg)
+    - "dxf" format → include DXF version (source if source is .dxf, or result if .dxf)
+    - Works for both /files/dwg2dxf and /files/dxf2dwg pages.
+    """
     import io
     import zipfile
 
@@ -124,7 +141,7 @@ def build_zip(
     want_dwg = "dwg" in formats
     want_dxf = "dxf" in formats
 
-    # Load source DWG files
+    # Load source files
     source_files: dict[int, StoredFile] = {}
     for f in db.scalars(
         select(StoredFile).where(
@@ -133,8 +150,8 @@ def build_zip(
     ).all():
         source_files[f.id] = f
 
-    # Load DXF results
-    dxf_map = build_dxf_result_map(db, file_ids) if want_dxf else {}
+    # Load conversion results (either DWG→DXF or DXF→DWG)
+    result_map = build_result_map(db, file_ids)
 
     def _stem(f: StoredFile) -> str:
         return f.original_name.rsplit(".", 1)[0] if "." in f.original_name else f.original_name
@@ -164,13 +181,27 @@ def build_zip(
             # Only disambiguate when the stem appears more than once
             disamb = f"({seq})" if stem_count.get(stem, 0) > 1 else ""
 
-            if want_dwg:
-                dwg_bytes = _read(src.bucket, src.storage_key)
-                if dwg_bytes:
-                    zf.writestr(f"{folder_name}/{stem}{disamb}.dwg", dwg_bytes)
+            result = result_map.get(fid)
 
+            # DWG format: source if source is .dwg, or result if result is .dwg
+            if want_dwg:
+                dwg_file = None
+                if src.file_ext == ".dwg":
+                    dwg_file = src
+                elif result and result.file_ext == ".dwg":
+                    dwg_file = result
+                if dwg_file:
+                    dwg_bytes = _read(dwg_file.bucket, dwg_file.storage_key)
+                    if dwg_bytes:
+                        zf.writestr(f"{folder_name}/{stem}{disamb}.dwg", dwg_bytes)
+
+            # DXF format: source if source is .dxf, or result if result is .dxf
             if want_dxf:
-                dxf_file = dxf_map.get(fid)
+                dxf_file = None
+                if src.file_ext == ".dxf":
+                    dxf_file = src
+                elif result and result.file_ext == ".dxf":
+                    dxf_file = result
                 if dxf_file:
                     dxf_bytes = _read(dxf_file.bucket, dxf_file.storage_key)
                     if dxf_bytes:

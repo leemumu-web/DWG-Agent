@@ -453,3 +453,145 @@ class TestFilenameEdgeCases:
         data = r.json()["data"]
         assert data["storage_key"].startswith("uploads/")
         assert ".." not in data["storage_key"]
+
+
+# ── ZIP upload tests ─────────────────────────────────────────────────────────
+
+
+class TestZipUpload:
+    """Integration tests for POST /api/v1/files/upload-zip."""
+
+    def _zip_bytes(self, files: dict[str, bytes]) -> bytes:
+        """Build an in-memory ZIP archive from {filename: payload}."""
+        import io
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for name, payload in files.items():
+                zf.writestr(name, payload)
+        return buf.getvalue()
+
+    def test_extracts_dwg_files_and_sets_batch_name(self):
+        client = _client()
+        h = _admin(client)
+        zip_data = self._zip_bytes({
+            "plan.dwg": _valid_dwg(),
+            "section.dwg": _valid_dwg(),
+        })
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("project.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()["data"]
+        assert data["batch_name"] == "project"
+        assert data["success_count"] == 2
+        assert data["skipped_count"] == 0
+        assert len(data["files"]) == 2
+        for f in data["files"]:
+            assert f["file_ext"] == ".dwg"
+            assert f["batch_name"] == "project"
+
+    def test_filters_by_extension(self):
+        client = _client()
+        h = _admin(client)
+        zip_data = self._zip_bytes({
+            "drawing.dwg": _valid_dwg(),
+            "readme.txt": b"hello world",
+        })
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("mixed.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()["data"]
+        assert data["success_count"] == 1
+        assert data["skipped_count"] == 1
+
+    def test_dxf_filter_skips_dwg_files(self):
+        client = _client()
+        h = _admin(client)
+        zip_data = self._zip_bytes({"a.dwg": _valid_dwg()})
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dxf",
+            headers=h,
+            files={"upload": ("dwg_only.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()["data"]
+        assert data["success_count"] == 0
+        assert data["skipped_count"] == 1
+
+    def test_rejects_non_zip_file(self):
+        client = _client()
+        h = _admin(client)
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("fake.zip", io.BytesIO(b"not a zip file"), "application/zip")},
+        )
+        assert r.status_code == 415, r.text
+        assert "FILE_NOT_ZIP" in r.json()["error"]["code"]
+
+    def test_strips_path_from_zip_entries(self):
+        """Files stored with full paths in the ZIP should be extracted
+        to just their basename."""
+        client = _client()
+        h = _admin(client)
+        zip_data = self._zip_bytes({
+            "deeply/nested/path/plan.dwg": _valid_dwg(),
+        })
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("nested.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()["data"]
+        assert data["success_count"] == 1
+        assert data["files"][0]["original_name"] == "plan.dwg"
+
+    def test_empty_zip_returns_error(self):
+        client = _client()
+        h = _admin(client)
+        zip_data = self._zip_bytes({})
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("empty.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+        assert r.status_code == 422, r.text
+        assert "ZIP_EMPTY" in r.json()["error"]["code"]
+
+    def test_skips_directories(self):
+        client = _client()
+        h = _admin(client)
+        # Manually craft a ZIP with a directory entry
+        import io as _io
+        import zipfile as _zipfile
+        buf = _io.BytesIO()
+        with _zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("folder/", "")  # directory entry
+            zf.writestr("folder/a.dwg", _valid_dwg())
+        r = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("with_dirs.zip", io.BytesIO(buf.getvalue()), "application/zip")},
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()["data"]
+        assert data["success_count"] == 1  # only the .dwg file, not the directory
+
+    def test_missing_file_ext_param(self):
+        client = _client()
+        h = _admin(client)
+        zip_data = self._zip_bytes({"a.dwg": _valid_dwg()})
+        r = client.post(
+            "/api/v1/files/upload-zip",
+            headers=h,
+            files={"upload": ("test.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+        # Default is .dwg, so it should work
+        assert r.status_code == 201, r.text

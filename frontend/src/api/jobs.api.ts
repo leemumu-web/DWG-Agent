@@ -7,11 +7,14 @@ import type { AnalysisResult } from '../types/result';
  *  and pending reviews are the same backend AnalysisResultRead shape. */
 export type JobResult = AnalysisResult;
 
-/** Fetch ALL jobs across pages (the FilesPage in-memory files↔jobs join
- *  via params.file_id needs every job to be present). Uses page_size=200
+/** Fetch ALL jobs across pages, optionally filtered by task_type.
+ *  The FilesPage in-memory files↔jobs join via params.file_id needs every
+ *  job for the given task type to be present. Uses page_size=200
  *  (the backend hard maximum) and aggregates pages until total is reached. */
-export async function listJobs() {
-  return fetchAllPages<Job>('/api/v1/jobs');
+export async function listJobs(taskType?: string) {
+  const params: Record<string, unknown> = {};
+  if (taskType) params.task_type = taskType;
+  return fetchAllPages<Job>('/api/v1/jobs', params);
 }
 
 export async function getJob(jobId: number) {
@@ -39,6 +42,15 @@ export async function retryJob(jobId: number) {
 export async function createDxfJob(fileId: number) {
   const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
     task_type: 'convert_dwg_to_dxf',
+    precision_level: 'normal',
+    params: { file_id: fileId },
+  });
+  return res.data.data;
+}
+
+export async function createDxf2DwgJob(fileId: number) {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+    task_type: 'convert_dxf_to_dwg',
     precision_level: 'normal',
     params: { file_id: fileId },
   });

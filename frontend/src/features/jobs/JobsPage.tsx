@@ -37,7 +37,7 @@ const pipelineLabel: Record<string, string> = {
 };
 
 export function JobsPage() {
-  const query = useQuery({ queryKey: ['jobs'], queryFn: listJobs, refetchInterval: 3000 });
+  const query = useQuery({ queryKey: ['jobs'], queryFn: () => listJobs(), refetchInterval: 3000 });
   const [drawerJobId, setDrawerJobId] = useState<number | null>(null);
   const [drawerJob, setDrawerJob] = useState<Job | null>(null);
   const [drawerSteps, setDrawerSteps] = useState<JobStep[]>([]);

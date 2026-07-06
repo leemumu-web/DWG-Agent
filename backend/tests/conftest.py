@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 
-os.environ.setdefault("DATABASE_URL", "sqlite://")
-os.environ.setdefault("CELERY_TASK_ALWAYS_EAGER", "true")
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["CELERY_TASK_ALWAYS_EAGER"] = "true"
 
 import pytest
 from fakeredis import FakeRedis
@@ -84,6 +84,7 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.db.init_db.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.job_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf_service.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.services.dxf2dwg_service.SessionLocal", TestSessionLocal)
 
     # db_health() uses the module-level engine directly
     monkeypatch.setattr("app.db.session.engine", engine)

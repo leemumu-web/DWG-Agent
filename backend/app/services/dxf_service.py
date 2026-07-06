@@ -61,6 +61,34 @@ _DXF_CONTENT_TYPE = "application/dxf"
 _DXF_EXT = ".dxf"
 _ALGO_VERSION = "oda-file-converter"
 
+# DWG header magic → ODA File Converter version string.
+# Keeping the same output version as the source avoids unnecessary binary
+# restructuring (AC1015 → ACAD2000, not ACAD2018), reducing round-trip loss.
+_DWG_VERSION_MAP: dict[bytes, str] = {
+    b"AC1012": "ACAD2018",  # R13  → earliest ODA supports
+    b"AC1014": "ACAD2018",  # R14  → earliest ODA supports
+    b"AC1015": "ACAD2000",
+    b"AC1018": "ACAD2004",
+    b"AC1021": "ACAD2007",
+    b"AC1024": "ACAD2010",
+    b"AC1027": "ACAD2013",
+    b"AC1032": "ACAD2018",
+}
+
+
+def _detect_dwg_output_version(source_path: Path) -> str:
+    """Read the DWG header to pick a matching ODA output version.
+
+    Falls back to settings.oda_converter_version when the header is
+    unreadable or unknown.
+    """
+    try:
+        with source_path.open("rb") as fh:
+            header = fh.read(6)
+        return _DWG_VERSION_MAP.get(header, settings.oda_converter_version)
+    except OSError:
+        return settings.oda_converter_version
+
 
 def _exception_message(exc: Exception) -> str:
     detail = getattr(exc, "detail", None)
@@ -263,10 +291,11 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 raise AppError(f"dwg_converter 包不可用: {exc}") from exc
 
             try:
+                output_version = _detect_dwg_output_version(source_path)
                 result = convert_file(
                     source=source_path,
                     target_dir=out_dir,
-                    version=settings.oda_converter_version,
+                    version=output_version,
                     audit=settings.oda_converter_audit,
                     timeout=settings.oda_converter_timeout,
                     retries=settings.oda_converter_retries,
@@ -290,7 +319,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 db, job_id, STEP_RUN_ODA_CONVERT, worker_name,
                 "succeeded" if result.success else "failed",
                 input_json={
-                    "version": settings.oda_converter_version,
+                    "version": output_version,
                     "audit": settings.oda_converter_audit,
                     "timeout": settings.oda_converter_timeout,
                 },
@@ -339,7 +368,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
             storage_key = f"jobs/{job.id}/{uuid4().hex}{_DXF_EXT}"
             dxf_file = save_bytes_as_file(
                 db,
-                bucket="dwg-derived",
+                bucket=settings.minio_bucket_dxf_derived,
                 storage_key=storage_key,
                 original_name=f"{source_stem}{_DXF_EXT}",
                 file_ext=_DXF_EXT,
@@ -371,7 +400,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 confidence=Decimal("1.0000"),
                 result_file_id=dxf_file.id,
                 algorithm_version=_ALGO_VERSION,
-                tool_version=settings.oda_converter_version,
+                tool_version=output_version,
                 status="succeeded",
             )
             db.add(analysis)

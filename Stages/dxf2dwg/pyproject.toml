@@ -1,0 +1,34 @@
+[project]
+name = "dxf-converter"
+version = "0.1.0"
+description = "DXF → DWG 转换后端封装，基于 ODA File Converter"
+requires-python = ">=3.12"
+dependencies = []
+
+# ezdxf 只在 DXF 解析阶段（后续步骤）需要，转换链路本身不依赖。
+# 单独列为可选依赖，转换后端保持零硬依赖。
+[project.optional-dependencies]
+parse = ["ezdxf>=1.0"]
+
+[project.scripts]
+dxf-converter = "dxf_converter.__main__:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ezdxf>=1.0",
+]
+
+[tool.uv]
+package = true

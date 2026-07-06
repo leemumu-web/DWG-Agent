@@ -17,7 +17,7 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.config import settings
-from app.core.constants import JOB_FAILED, TASK_DWG_TO_DXF
+from app.core.constants import JOB_FAILED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
 from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing
@@ -43,6 +43,7 @@ def list_jobs(
     page_size: int = Query(20, ge=1, le=200),
     sort_by: str = Query("created_at"),
     sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
+    task_type: str = Query("", description="Filter by task type, e.g. 'convert_dwg_to_dxf'"),
     db: Session = Depends(get_db),
 ):
     sort_column = validate_sort_by("jobs", sort_by)
@@ -53,6 +54,8 @@ def list_jobs(
     else:
         order_clause = order_clause.desc()
     stmt = select(Job).order_by(order_clause)
+    if task_type.strip():
+        stmt = stmt.where(Job.task_type == task_type.strip())
     if not has_global_project_access(current_user):
         stmt = stmt.join(ProjectMember, ProjectMember.project_id == Job.project_id).where(
             ProjectMember.user_id == current_user.id
@@ -77,11 +80,16 @@ def create_job_api(
         if not drawing or drawing.status == "deleted":
             raise not_found("Drawing")
         require_project_role(db, current_user, drawing.project_id, PROJECT_JOB_WRITE_ROLES)
-    # DXF 管线特性开关：未启用时拒绝 DXF 转换任务（spec §18.2 特性开关）
+    # Pipeline feature gates
     if payload.task_type == TASK_DWG_TO_DXF and not settings.dxf_pipeline_enabled:
         raise service_unavailable(
             "DXF_PIPELINE_DISABLED",
-            "DXF conversion pipeline is disabled. Set DXF_PIPELINE_ENABLED=true to enable.",
+            "DWG→DXF pipeline is disabled. Set DXF_PIPELINE_ENABLED=true to enable.",
+        )
+    if payload.task_type == TASK_DXF_TO_DWG and not settings.dxf2dwg_pipeline_enabled:
+        raise service_unavailable(
+            "DXF2DWG_PIPELINE_DISABLED",
+            "DXF→DWG pipeline is disabled. Set DXF2DWG_PIPELINE_ENABLED=true to enable.",
         )
     job = create_job(db, payload, created_by=current_user.id)
     write_audit_log(

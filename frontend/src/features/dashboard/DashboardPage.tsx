@@ -30,7 +30,7 @@ export function DashboardPage() {
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: listProjects, staleTime: 10_000 });
   const filesQ = useQuery({ queryKey: ['files'], queryFn: () => listFiles(), staleTime: 5000 });
-  const jobsQ = useQuery({ queryKey: ['jobs'], queryFn: listJobs, staleTime: 3000, refetchInterval: 5000 });
+  const jobsQ = useQuery({ queryKey: ['jobs'], queryFn: () => listJobs(), staleTime: 3000, refetchInterval: 5000 });
   const reviewsQ = useQuery({ queryKey: ['reviews', 'pending'], queryFn: listPendingReviews, staleTime: 10_000 });
 
   const refresh = useCallback(() => {

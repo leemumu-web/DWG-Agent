@@ -36,3 +36,10 @@ class ZipDownloadRequest(BaseModel):
     file_ids: list[int]
     formats: list[str]  # each element is "dwg" or "dxf"
     folder_name: str = "图纸导出"
+
+
+class ZipUploadResult(BaseModel):
+    batch_name: str
+    files: list[FileRead]
+    success_count: int
+    skipped_count: int

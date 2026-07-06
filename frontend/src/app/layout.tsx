@@ -33,7 +33,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
   { key: '/projects', label: '项目', icon: <ProjectOutlined /> },
-  { key: '/files', label: '文件', icon: <FileOutlined /> },
+  { key: '/files', label: '文件转换', icon: <FileOutlined /> },
   { key: '/drawings', label: '图纸', icon: <FileImageOutlined /> },
   { key: '/jobs', label: '任务', icon: <CloudOutlined /> },
   { key: '/reviews', label: '复核', icon: <AuditOutlined /> },

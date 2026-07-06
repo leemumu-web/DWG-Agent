@@ -26,6 +26,8 @@ dependencies = [
     # 该包零 Python 依赖，仅需宿主机的 ODA File Converter 二进制 + xvfb-run。
     # 实际路径解析见 [tool.uv.sources]（相对路径以本 pyproject.toml 为基准）。
     "dwg-converter>=0.1.0",
+    # DXF→DWG 转换库（本地 path 依赖，指向 Stages/dxf2dwg 独立包）。
+    "dxf-converter>=0.1.0",
 ]
 
 [dependency-groups]
@@ -52,6 +54,7 @@ allow-direct-references = true
 # editable=true 让 dwg_converter 包的 __file__ 指回源码目录，使 check_env.py
 # 能正确定位 Stages/dwg2dxf/tools/oda/ 下的 ODA 二进制。
 dwg-converter = { path = "../Stages/dwg2dxf", editable = true }
+dxf-converter = { path = "../Stages/dxf2dwg", editable = true }
 
 [tool.ruff]
 line-length = 100

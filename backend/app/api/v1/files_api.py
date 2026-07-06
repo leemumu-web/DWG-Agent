@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import mimetypes
+from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import SpooledTemporaryFile
 from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -13,6 +18,7 @@ from app.api.deps import (
     get_project_membership,
     has_global_project_access,
 )
+from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
 from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing, DrawingVersion
@@ -21,7 +27,7 @@ from app.models.job import Job
 from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
-from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest
+from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest, ZipUploadResult
 from app.services.audit_service import write_audit_log
 from app.services.file_service import (
     build_signed_download_url,
@@ -29,7 +35,14 @@ from app.services.file_service import (
     download_headers,
     validate_download_signature,
 )
-from app.services.storage_service import get_storage_backend, sanitize_filename, save_upload_file
+from app.services.storage_service import (
+    get_storage_backend,
+    sanitize_filename,
+    save_bytes_as_file,
+    save_upload_file,
+    validate_dwg_header,
+    validate_upload_name,
+)
 from app.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
@@ -136,6 +149,178 @@ async def upload_file(
     return ok(FileRead.model_validate(stored), request.state.request_id)
 
 
+@router.post("/upload-zip", status_code=status.HTTP_201_CREATED)
+async def upload_zip(
+    request: Request,
+    current_user: CurrentUser,
+    upload: UploadFile = File(...),
+    file_ext: str = Query(".dwg", description="只提取此扩展名的文件 (.dwg 或 .dxf)"),
+    db: Session = Depends(get_db),
+):
+    """Upload a .zip archive, extract matching files, and auto-create StoredFile records.
+
+    The ZIP filename (minus .zip) becomes the batch_name for all extracted files.
+    Only files matching ``file_ext`` are imported; others are counted as skipped.
+    """
+    import io
+    import zipfile
+
+    from app.core.config import settings
+
+    # ── validate the upload is a .zip ──────────────────────────────────────
+    zip_original = sanitize_filename(upload.filename or "unnamed.zip")
+    if not zip_original.lower().endswith(".zip"):
+        raise AppHTTPException(
+            415, "FILE_TYPE_NOT_ALLOWED",
+            "Only .zip archives are accepted by this endpoint.",
+        )
+    validate_upload_name(zip_original)  # 校验 .zip 在 ALLOWED_UPLOAD_EXTENSIONS 白名单内
+    if not file_ext.strip():
+        raise AppHTTPException(422, "INVALID_PARAMS", "file_ext query parameter is required.")
+    target_ext = file_ext.strip().lower()
+    if target_ext not in (".dwg", ".dxf"):
+        raise AppHTTPException(
+            422, "INVALID_PARAMS",
+            "file_ext must be .dwg or .dxf.",
+        )
+    if target_ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        raise AppHTTPException(
+            422, "INVALID_PARAMS",
+            f"Target extension {target_ext} is not allowed.",
+        )
+
+    # Derive batch_name from the ZIP filename
+    batch_name = sanitize_filename(zip_original[: -len(".zip")] if zip_original.lower().endswith(".zip") else zip_original.rsplit(".", 1)[0])
+    if not batch_name or batch_name == "unnamed":
+        batch_name = f"导入_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+
+    # ── buffer the upload ──────────────────────────────────────────────────
+    max_upload = settings.max_upload_size_mb * 1024 * 1024
+    zip_bytes_total = 0
+    with SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode="w+b") as tmp:
+        while chunk := await upload.read(1024 * 1024):
+            zip_bytes_total += len(chunk)
+            if zip_bytes_total > max_upload:
+                raise AppHTTPException(
+                    413, "FILE_TOO_LARGE",
+                    f"ZIP archive exceeds max upload size ({settings.max_upload_size_mb} MB).",
+                )
+            tmp.write(chunk)
+        tmp.seek(0)
+
+        # ── extract ────────────────────────────────────────────────────────
+        try:
+            zf = zipfile.ZipFile(tmp, "r")
+        except (zipfile.BadZipFile, io.UnsupportedOperation) as e:
+            raise AppHTTPException(
+                415, "FILE_NOT_ZIP",
+                "The uploaded file is not a valid ZIP archive.",
+            ) from e
+
+        bad_names = zf.testzip()
+        if bad_names is not None:
+            raise AppHTTPException(
+                415, "ZIP_CORRUPTED",
+                f"ZIP archive contains corrupted entry: {bad_names}",
+            )
+
+        extracted: list[StoredFile] = []
+        skipped = 0
+        total_extracted_bytes = 0
+        max_extract = settings.max_zip_extract_mb * 1024 * 1024
+        entry_count = 0
+
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            entry_count += 1
+            if entry_count > settings.max_zip_entry_count:
+                raise AppHTTPException(
+                    413, "ZIP_TOO_MANY_FILES",
+                    f"ZIP archive contains more than {settings.max_zip_entry_count} files.",
+                )
+
+            # Path traversal defence: sanitize + strip any directory components
+            entry_name = sanitize_filename(info.filename.rsplit("/", 1)[-1] if "/" in info.filename else info.filename)
+            entry_ext = Path(entry_name).suffix.lower()
+            if entry_ext != target_ext:
+                skipped += 1
+                continue
+
+            # Read entry
+            entry_bytes = zf.read(info)
+            total_extracted_bytes += len(entry_bytes)
+            if total_extracted_bytes > max_extract:
+                raise AppHTTPException(
+                    413, "ZIP_TOO_LARGE",
+                    f"Extracted content exceeds {settings.max_zip_extract_mb} MB limit.",
+                )
+
+            # DWG header validation
+            if entry_ext == ".dwg":
+                try:
+                    validate_dwg_header(entry_bytes[:6])
+                except AppHTTPException:
+                    skipped += 1
+                    continue
+
+            # Persist via save_bytes_as_file (reuses existing storage logic)
+            content_type = mimetypes.guess_type(entry_name)[0]
+            bucket = (
+                settings.minio_bucket_original
+                if entry_ext == ".dwg"
+                else settings.minio_bucket_dxf_original
+            )
+            storage_key = f"uploads/{uuid4().hex}{entry_ext}"
+            stored = save_bytes_as_file(
+                db,
+                bucket=bucket,
+                storage_key=storage_key,
+                original_name=entry_name,
+                file_ext=entry_ext,
+                content_type=content_type or "application/octet-stream",
+                payload=entry_bytes,
+                uploaded_by=current_user.id,
+                batch_name=batch_name,
+            )
+            extracted.append(stored)
+
+    if not extracted and skipped == 0:
+        raise AppHTTPException(
+            422, "ZIP_EMPTY",
+            "The ZIP archive contains no files.",
+        )
+
+    # ── audit log ──────────────────────────────────────────────────────────
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="files.upload_zip",
+        resource_type="file",
+        resource_id=0,
+        after_json={
+            "batch_name": batch_name,
+            "target_ext": target_ext,
+            "success_count": len(extracted),
+            "skipped_count": skipped,
+            "zip_original": zip_original,
+            "zip_size": zip_bytes_total,
+        },
+        request=request,
+    )
+    db.commit()
+
+    return ok(
+        ZipUploadResult(
+            batch_name=batch_name,
+            files=[FileRead.model_validate(f) for f in extracted],
+            success_count=len(extracted),
+            skipped_count=skipped,
+        ).model_dump(),
+        request.state.request_id,
+    )
+
+
 @router.get("")
 def list_files(
     request: Request,
@@ -145,6 +330,7 @@ def list_files(
     sort_by: str = Query("created_at"),
     sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     batch_name: str = Query(""),
+    file_ext: str = Query("", description="Filter by file extension, e.g. '.dwg' or '.dxf'"),
     db: Session = Depends(get_db),
 ):
     sort_column = validate_sort_by("files", sort_by)
@@ -157,6 +343,8 @@ def list_files(
     stmt = select(StoredFile).where(StoredFile.status != "deleted")
     if batch_name.strip():
         stmt = stmt.where(StoredFile.batch_name == batch_name.strip())
+    if file_ext.strip():
+        stmt = stmt.where(StoredFile.file_ext == file_ext.strip())
     files = list(db.scalars(stmt.order_by(order_clause)).all())
     if not has_global_project_access(current_user):
         files = [stored for stored in files if _can_read_file(db, current_user, stored)]
@@ -173,10 +361,19 @@ def list_files(
 def list_batches(
     request: Request,
     current_user: CurrentUser,
+    file_ext: str = Query("", description="Filter batches by file extension, e.g. '.dwg' or '.dxf'"),
     db: Session = Depends(get_db),
 ):
     """Return all distinct batch names with file counts and latest created_at."""
     from sqlalchemy import func as sa_func
+
+    where_clauses = [
+        StoredFile.batch_name.is_not(None),
+        StoredFile.batch_name != "",
+        StoredFile.status != "deleted",
+    ]
+    if file_ext.strip():
+        where_clauses.append(StoredFile.file_ext == file_ext.strip())
 
     rows = list(
         db.execute(
@@ -185,11 +382,7 @@ def list_batches(
                 sa_func.count(StoredFile.id).label("file_count"),
                 sa_func.max(StoredFile.created_at).label("latest_created_at"),
             )
-            .where(
-                StoredFile.batch_name.is_not(None),
-                StoredFile.batch_name != "",
-                StoredFile.status != "deleted",
-            )
+            .where(*where_clauses)
             .group_by(StoredFile.batch_name)
             .order_by(sa_func.max(StoredFile.created_at).desc())
         ).all()

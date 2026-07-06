@@ -3,16 +3,19 @@ import { useAuthStore } from '../stores/auth.store';
 import type { BatchInfo, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
-/** Fetch ALL files, optionally filtered by batch_name. */
-export async function listFiles(batchName?: string) {
+/** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
+export async function listFiles(batchName?: string, fileExt?: string) {
   const params: Record<string, unknown> = {};
   if (batchName) params.batch_name = batchName;
+  if (fileExt) params.file_ext = fileExt;
   return fetchAllPages<StoredFile>('/api/v1/files', params);
 }
 
-/** List all distinct batches (folder names). */
-export async function listBatches() {
-  const res = await apiClient.get<ApiEnvelope<BatchInfo[]>>('/api/v1/files/batches');
+/** List distinct batches (folder names), optionally filtered by file_ext. */
+export async function listBatches(fileExt?: string) {
+  const params: Record<string, unknown> = {};
+  if (fileExt) params.file_ext = fileExt;
+  const res = await apiClient.get<ApiEnvelope<BatchInfo[]>>('/api/v1/files/batches', { params });
   return res.data.data;
 }
 
@@ -59,7 +62,7 @@ async function fetchWithTimeout(
   throw new Error('fetch failed after retries');
 }
 
-export async function uploadDwg(file: File, batchName?: string): Promise<StoredFile> {
+export async function uploadFile(file: File, batchName?: string): Promise<StoredFile> {
   const form = new FormData();
   form.append('upload', file);
   let url = apiUrl('/api/v1/files');
@@ -75,8 +78,8 @@ export async function uploadDwg(file: File, batchName?: string): Promise<StoredF
   return json.data as StoredFile;
 }
 
-export async function uploadDwgAndConvert(file: File, batchName?: string) {
-  const stored = await uploadDwg(file, batchName);
+export async function uploadFileAndConvert(file: File, batchName?: string) {
+  const stored = await uploadFile(file, batchName);
   const res = await fetchWithTimeout(apiUrl('/api/v1/jobs'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -86,6 +89,29 @@ export async function uploadDwgAndConvert(file: File, batchName?: string) {
   await throwOnHttpError(res);
   const json = await res.json();
   return { file: stored, job: json.data as Job };
+}
+
+export interface ZipUploadResult {
+  batch_name: string;
+  files: StoredFile[];
+  success_count: number;
+  skipped_count: number;
+}
+
+/** Upload a .zip archive — backend extracts matching files and returns them as a batch. */
+export async function uploadZip(file: File, fileExt: string): Promise<ZipUploadResult> {
+  const form = new FormData();
+  form.append('upload', file);
+  const url = apiUrl(`/api/v1/files/upload-zip?file_ext=${encodeURIComponent(fileExt)}`);
+  const res = await fetchWithTimeout(url, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+    timeout: 300_000,  // 5 min for large archives
+  }, 1);
+  await throwOnHttpError(res);
+  const json = await res.json();
+  return json.data as ZipUploadResult;
 }
 
 export async function getFileDownloadUrl(fileId: number) {
@@ -147,34 +173,36 @@ export async function bulkDeleteFiles(fileIds: number[]): Promise<void> {
   await apiClient.post('/api/v1/files/bulk-delete', { file_ids: fileIds });
 }
 
-/** Upload a folder — process all .dwg files with max 3 concurrent uploads.
- *  The folder name becomes the batch_name for all files in it. */
+/** Upload a folder — process all matching files with max 3 concurrent uploads.
+ *  The folder name becomes the batch_name for all files in it.
+ *  @param fileExt  only upload files matching this extension (e.g. '.dwg', '.dxf')
+ *  @param onFile   upload+convert callback: receives (file, batchName) → result */
 export async function uploadFolder(
   files: File[],
   batchName: string,
+  opts?: { fileExt?: string; onFile?: (file: File, batchName: string) => Promise<unknown> },
 ): Promise<{ total: number; success: number }> {
-  const dwgFiles = files.filter((f) => f.name.toLowerCase().endsWith('.dwg'));
-  if (dwgFiles.length === 0) return { total: 0, success: 0 };
+  const ext = opts?.fileExt || '.dwg';
+  const onFile = opts?.onFile || ((f: File, bn: string) => uploadFileAndConvert(f, bn));
+  const matched = files.filter((f) => f.name.toLowerCase().endsWith(ext));
+  if (matched.length === 0) return { total: 0, success: 0 };
 
-  const queue = [...dwgFiles];
+  const queue = [...matched];
   let success = 0;
-  let failed = 0;
 
   const worker = async () => {
     while (queue.length > 0) {
       const f = queue.shift()!;
       try {
-        await uploadDwgAndConvert(f, batchName);
+        await onFile(f, batchName);
         success++;
-      } catch {
-        failed++;
-      }
+      } catch { /* per-file failure, continue with others */ }
     }
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(3, dwgFiles.length) }, () => worker()),
+    Array.from({ length: Math.min(3, matched.length) }, () => worker()),
   );
 
-  return { total: dwgFiles.length, success };
+  return { total: matched.length, success };
 }

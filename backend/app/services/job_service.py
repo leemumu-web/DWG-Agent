@@ -8,6 +8,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.constants import (
     JOB_CANCELLED,
     JOB_FAILED,
@@ -15,8 +16,10 @@ from app.core.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_DXF,
+    PIPELINE_DXF2DWG,
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
+    TASK_DXF_TO_DWG,
 )
 from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
@@ -31,6 +34,8 @@ def _pipeline_for(task_type: str) -> str:
     """返回 task_type 对应的 pipeline 标识（spec §16.3 管线选择）。"""
     if task_type == TASK_DWG_TO_DXF:
         return PIPELINE_DXF
+    if task_type == TASK_DXF_TO_DWG:
+        return PIPELINE_DXF2DWG
     return PIPELINE_STUB
 
 
@@ -64,21 +69,30 @@ def enqueue_stub_job(job_id: int) -> str:
 
 
 def enqueue_dxf_job(job_id: int) -> str:
-    """投递 DWG→DXF 转换任务到 Celery dxf 队列（spec §14.4）。"""
+    """投递 DWG→DXF 转换任务到 Celery dxf 队列。"""
     from app.workers.tasks_dxf import convert_dwg_to_dxf_task
 
     async_result = convert_dwg_to_dxf_task.delay(job_id)
     return str(async_result.id)
 
 
+def enqueue_dxf2dwg_job(job_id: int) -> str:
+    """投递 DXF→DWG 转换任务到 Celery dxf2dwg 队列。"""
+    from app.workers.tasks_dxf2dwg import convert_dxf_to_dwg_task
+
+    async_result = convert_dxf_to_dwg_task.delay(job_id)
+    return str(async_result.id)
+
+
 def enqueue_job(job_id: int, pipeline: str) -> str:
-    """按 pipeline 投递到对应 Celery 队列（spec §13.2 队列设计）。
+    """按 pipeline 投递到对应 Celery 队列。
 
     返回 Celery task_id。pipeline 未知时投递到 report 队列（兜底 stub）。
     """
     if pipeline == PIPELINE_DXF:
         return enqueue_dxf_job(job_id)
-    # 默认走 report（local_stub），向后兼容 Stage 1 的 framework_smoke_test 等。
+    if pipeline == PIPELINE_DXF2DWG:
+        return enqueue_dxf2dwg_job(job_id)
     return enqueue_stub_job(job_id)
 
 
@@ -140,7 +154,7 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
             "precision_level": job.precision_level,
             "message": "Agent、DWG/DXF 与 CAD Worker 尚未接入；当前结果用于验证任务、结果、下载、审计链路。",
         }
-        bucket = "dwg-derived"
+        bucket = settings.minio_bucket_derived
         storage_key = f"jobs/{job.id}/{uuid4().hex}.json"
         raw = json.dumps(result_payload, ensure_ascii=False, indent=2).encode("utf-8")
 

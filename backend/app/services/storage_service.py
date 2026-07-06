@@ -192,7 +192,11 @@ async def save_upload_file(
     original_name = sanitize_filename(upload.filename or "unnamed.dwg")
     file_ext = validate_upload_name(original_name)
     upload_content_type = validate_upload_mime(upload.content_type)
-    bucket = "dwg-original"
+    bucket = (
+        settings.minio_bucket_original
+        if file_ext == ".dwg"
+        else settings.minio_bucket_dxf_original
+    )
     storage_key = f"uploads/{uuid4().hex}{file_ext}"
     storage = get_storage_backend()
 
@@ -206,7 +210,8 @@ async def save_upload_file(
             first = True
             while chunk := await upload.read(1024 * 1024):
                 if first:
-                    validate_dwg_header(chunk)
+                    if file_ext == ".dwg":
+                        validate_dwg_header(chunk)
                     first = False
                 size += len(chunk)
                 if size > max_size:
@@ -215,11 +220,12 @@ async def save_upload_file(
                 md5.update(chunk)
                 tmp.write(chunk)
             if first:
-                validate_dwg_header(b"")
+                if file_ext == ".dwg":
+                    validate_dwg_header(b"")
         except AppHTTPException:
             raise
 
-        if size < MIN_DWG_SIZE_BYTES:
+        if file_ext == ".dwg" and size < MIN_DWG_SIZE_BYTES:
             raise AppHTTPException(
                 415,
                 "FILE_NOT_DWG",

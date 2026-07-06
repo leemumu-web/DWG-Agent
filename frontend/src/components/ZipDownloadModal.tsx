@@ -91,10 +91,10 @@ export function ZipDownloadModal({ open, fileIds, fileCount, onClose, onDone }: 
           </Typography.Text>
           <Space direction="vertical">
             <Checkbox checked={dwg} onChange={(e) => setDwg(e.target.checked)}>
-              下载 DWG 原始文件
+              包含 DWG 文件
             </Checkbox>
             <Checkbox checked={dxf} onChange={(e) => setDxf(e.target.checked)}>
-              下载 DXF 转换结果
+              包含 DXF 文件
             </Checkbox>
           </Space>
         </div>

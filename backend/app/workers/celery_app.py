@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.workers.tasks_agent",
         "app.workers.tasks_cad",
         "app.workers.tasks_dxf",
+        "app.workers.tasks_dxf2dwg",
         "app.workers.tasks_report",
     ],
 )
@@ -27,6 +28,7 @@ celery_app.conf.update(
     task_routes={
         "app.workers.tasks_agent.*": {"queue": "agent"},
         "app.workers.tasks_dxf.*": {"queue": "dxf"},
+        "app.workers.tasks_dxf2dwg.*": {"queue": "dxf2dwg"},
         "app.workers.tasks_cad.*": {"queue": "cad"},
         "app.workers.tasks_report.*": {"queue": "report"},
     },
@@ -38,4 +40,5 @@ celery_app.conf.update(
 # Import task modules once so tests, shell probes, and Flower can see registered
 # tasks immediately after importing app.workers.celery_app.
 from app.workers import tasks_dxf as _tasks_dxf  # noqa: E402,F401
+from app.workers import tasks_dxf2dwg as _tasks_dxf2dwg  # noqa: E402,F401
 from app.workers import tasks_report as _tasks_report  # noqa: E402,F401

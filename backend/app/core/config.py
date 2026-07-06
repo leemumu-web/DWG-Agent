@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "minio"] = "local"
     local_storage_root: Path = Path("./var/storage")
     max_upload_size_mb: int = 512
+    max_zip_extract_mb: int = 2048     # max total uncompressed size when extracting a ZIP
+    max_zip_entry_count: int = 1000    # max number of files inside a single ZIP
 
     jwt_secret_key: str = "change-me-in-dev-change-me-in-prod-32chars"
     jwt_algorithm: str = "HS256"
@@ -47,15 +49,21 @@ class Settings(BaseSettings):
 
     agent_enabled: bool = False
     dxf_pipeline_enabled: bool = False
+    dxf2dwg_pipeline_enabled: bool = False
     cad_worker_enabled: bool = False
 
-    # DXF 转换 — ODA File Converter 引擎参数（spec §14, Stage 3 DXF 管线）
-    oda_converter_version: str = "ACAD2018"  # ODA 输出 DXF 版本
-    oda_converter_audit: bool = True  # 转换时是否做 audit 修复
-    oda_converter_timeout: int = 300  # 单文件转换超时秒（ODA 默认 120，工程图纸可能更大）
-    oda_converter_retries: int = 1  # 失败重试次数（不含首次）
-    oda_xvfb_run: bool = True  # 宿主机用 xvfb-run 提供无头 X；Docker 部署需另装
-    oda_home: str = ""  # ODA 二进制目录；空则用 dwg_converter 内置路径探测
+    # DWG→DXF — ODA Converter 引擎参数
+    oda_converter_version: str = "ACAD2018"
+    oda_converter_audit: bool = True
+    oda_converter_timeout: int = 300
+    oda_converter_retries: int = 1
+    oda_xvfb_run: bool = True
+    # DXF→DWG — 同 ODA，输入输出互换
+    dxf2dwg_converter_version: str = "ACAD2018"
+    dxf2dwg_converter_audit: bool = True
+    dxf2dwg_converter_timeout: int = 300
+    dxf2dwg_converter_retries: int = 1
+    oda_home: str = ""
 
     # LLM — spec §18.1 (Stage 2: Agent subsystem)
     model_name: str = "deepseek-chat"
@@ -103,6 +111,9 @@ class Settings(BaseSettings):
     minio_bucket_derived: str = "dwg-derived"
     minio_bucket_reports: str = "dwg-reports"
     minio_bucket_temp: str = "dwg-temp"
+    # Direction-specific buckets for DXF uploads and DXF derived results
+    minio_bucket_dxf_original: str = "dxf-original"
+    minio_bucket_dxf_derived: str = "dxf-derived"
 
     @property
     def cors_origins(self) -> list[str]:
