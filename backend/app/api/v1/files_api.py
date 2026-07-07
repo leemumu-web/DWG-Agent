@@ -648,10 +648,14 @@ def get_excel_preview(
 
     ws = wb[target_sheet]
     rows_iter = ws.iter_rows(values_only=True)
+
+    # First row is always the header, remaining rows are data.
+    # Simple and predictable — no heuristic scoring that can accidentally
+    # discard real data rows as "metadata".
     try:
-        headers_raw = next(rows_iter)
+        headers_raw: tuple[object, ...] = next(rows_iter)
     except StopIteration:
-        headers_raw = []
+        headers_raw = ()
 
     # Build clean, unique headers. Empty cells become "Col A", "Col B", ...
     # Duplicates get a numeric suffix ("Name", "Name_2", "Name_3").
@@ -671,27 +675,28 @@ def get_excel_preview(
     # (openpyxl iter_rows may return rows wider than the header row)
     _max_data_cols = 0
 
-    MAX_PREVIEW_ROWS = 2000
     data_rows: list[dict[str, object]] = []
-    for row in rows_iter:
-        if len(data_rows) >= MAX_PREVIEW_ROWS:
-            break
+
+    def _extract_row(row: tuple[object, ...]) -> dict[str, object]:
+        """Convert an openpyxl row tuple into a column-keyed dict."""
+        nonlocal _max_data_cols
         if len(row) > _max_data_cols:
             _max_data_cols = len(row)
         row_dict: dict[str, object] = {}
         for idx, val in enumerate(row):
-            # Extend headers if data row is wider than header row
             while idx >= len(headers):
                 headers.append(f"Col {_column_letter(len(headers))}")
             col_name = headers[idx]
-            # Convert to JSON-safe types
             if val is None:
                 row_dict[col_name] = None
             elif isinstance(val, (int, float)):
                 row_dict[col_name] = val
             else:
                 row_dict[col_name] = str(val)
-        data_rows.append(row_dict)
+        return row_dict
+
+    for row in rows_iter:
+        data_rows.append(_extract_row(row))
 
     wb.close()
 

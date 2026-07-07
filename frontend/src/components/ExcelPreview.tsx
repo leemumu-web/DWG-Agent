@@ -91,6 +91,15 @@ function cellRender(v: unknown): React.ReactNode {
     return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatted}</span>;
   }
   const s = String(v);
+  // Auto-detect numeric strings (common in raw_like_original sheet where
+  // openpyxl returns numbers as strings from data_only mode)
+  const numericStr = s.match(/^-?\d+(\.\d+)?$/);
+  if (numericStr) {
+    const n = parseFloat(s);
+    return <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+      {Number.isInteger(n) ? n.toLocaleString() : n.toFixed(3)}
+    </span>;
+  }
   if (SUMMARY_MARKERS.includes(s)) return <Text strong style={{ color: '#1677ff' }}>{s}</Text>;
   return <span title={s.length > 30 ? s : undefined}>{s}</span>;
 }
@@ -184,14 +193,24 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
   const loadEnhanced = useCallback(async (fid: number) => {
     enhancedAbortRef.current = false;
     setLuckyLoading(true); setLuckyError(null);
+    let blobUrl: string | null = null;
     try {
       await ensureLuckyExcel();
       if (enhancedAbortRef.current) return;
-      const { url } = await getFileDownloadUrl(fid);
+      // Get signed download URL, then fetch the file via authenticated API
+      // client.  LuckyExcel's transformExcelToLuckyByUrl fetches directly
+      // without auth headers, so we pre-download the blob and pass a local
+      // blob: URL instead.
+      const { url: downloadPath } = await getFileDownloadUrl(fid);
       if (enhancedAbortRef.current) return;
-      const fullUrl = `${apiClient.defaults.baseURL || ''}${url}`;
+      const response = await apiClient.get(downloadPath, { responseType: 'arraybuffer' });
+      if (enhancedAbortRef.current) return;
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      blobUrl = URL.createObjectURL(blob);
       const exportData = await new Promise<LuckyExportJson>((resolve, reject) => {
-        window.LuckyExcel!.transformExcelToLuckyByUrl(fullUrl, fileName || 'preview.xlsx', resolve, reject);
+        window.LuckyExcel!.transformExcelToLuckyByUrl(blobUrl!, fileName || 'preview.xlsx', resolve, reject);
       });
       if (enhancedAbortRef.current) return;
       setLuckyData(exportData);
@@ -202,6 +221,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
       message.error('增强预览加载失败，已切回快速预览');
       setMode('fast');
     } finally {
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
       setLuckyLoading(false);
     }
   }, [fileName, ensureLuckyExcel]);
@@ -284,7 +304,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
       const numeric = NUMERIC_COLS.has(String(h));
       const w = computeColWidth(String(h), rows, String(h));
       return {
-        title: h, dataIndex: h, key: h, width: w, ellipsis: true,
+        title: h, dataIndex: h, key: h, width: w,
         align: (numeric ? 'right' : 'left') as 'right' | 'left',
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap', fontWeight: 600, fontSize: 12 } }),
         render: cellRender,
@@ -300,7 +320,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
       const w = (colWidths as Record<number, number>)[idx];
       return {
         title: h, dataIndex: h, key: h,
-        width: w || undefined, ellipsis: !w,
+        width: w || undefined,
         align: (numeric ? 'right' : 'left') as 'right' | 'left',
         onHeaderCell: () => ({ style: { whiteSpace: 'nowrap', fontWeight: 600, fontSize: 12 } }),
         onCell: (record: Record<string, unknown>) => {
@@ -442,9 +462,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
       {/* ── Loading skeleton ─────────────────────────────────────────────── */}
       {isLoading && (
         <div style={{ padding: '8px 0' }}>
-          <Skeleton active paragraph={{ rows: 8 }} title={false} />
-          <Skeleton active paragraph={{ rows: 8 }} title={false} />
-          <Skeleton active paragraph={{ rows: 8 }} title={false} />
+          <Skeleton active paragraph={{ rows: 6 }} title={{ width: '40%' }} />
         </div>
       )}
 
@@ -466,11 +484,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
             dataSource={data.rows.map((r, i) => ({ ...r, _rowIdx: i }))}
             rowKey="_rowIdx" columns={fastCols} rowClassName={rowClassName}
             scroll={{ x: 'max-content', y: 'calc(94vh - 260px)' }}
-            pagination={{
-              size: 'small', showSizeChanger: true, showQuickJumper: true,
-              showTotal: (t, range) => `${range[0]}-${range[1]} / ${t} 行`,
-              pageSizeOptions: ['25', '50', '100', '200'], defaultPageSize: 50,
-            }}
+            pagination={false}
             bordered sticky={{ offsetHeader: 0 }}
           />
         </div>
@@ -487,11 +501,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
             dataSource={luckyTable.rows} rowKey="_rowIdx"
             columns={luckyCols} rowClassName={rowClassName}
             scroll={{ x: 'max-content', y: 'calc(94vh - 260px)' }}
-            pagination={{
-              size: 'small', showSizeChanger: true, showQuickJumper: true,
-              showTotal: (t, range) => `${range[0]}-${range[1]} / ${t} 行`,
-              pageSizeOptions: ['25', '50', '100', '200'], defaultPageSize: 50,
-            }}
+            pagination={false}
             bordered sticky={{ offsetHeader: 0 }}
           />
         </div>

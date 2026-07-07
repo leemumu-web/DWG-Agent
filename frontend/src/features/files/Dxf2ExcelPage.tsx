@@ -28,12 +28,10 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
   CloseOutlined,
-  FileExcelOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import {
   listBatches,
-  listFiles,
   uploadZip,
   uploadFolder,
   uploadFile,
@@ -44,14 +42,6 @@ import { listJobs, getJobResults, createDxf2ExcelJob, retryJob, cancelJob } from
 import ExcelPreview from '../../components/ExcelPreview';
 import type { BatchInfo } from '../../types/file';
 import type { Job } from '../../types/job';
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
   succeeded: { color: '#52c41a', bg: '#f6ffed', label: '已完成', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> },
