@@ -1,6 +1,6 @@
 import { apiClient, fetchAllPages, type ApiEnvelope } from './client';
 import { useAuthStore } from '../stores/auth.store';
-import type { BatchInfo, StoredFile } from '../types/file';
+import type { BatchInfo, ExcelPreviewResponse, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
 /** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
@@ -205,4 +205,41 @@ export async function uploadFolder(
   );
 
   return { total: matched.length, success };
+}
+
+/** Soft-delete all files in a batch (folder). */
+export async function deleteBatch(batchName: string): Promise<void> {
+  await apiClient.delete(`/api/v1/files/batches/${encodeURIComponent(batchName)}`);
+}
+
+/** Download all files in a batch as a ZIP archive. */
+export async function downloadBatchZip(batchName: string): Promise<void> {
+  const url = apiUrl(
+    `/api/v1/files/batches/${encodeURIComponent(batchName)}/download-zip`,
+  );
+  const res = await fetchWithTimeout(url, { headers: authHeaders(), timeout: 300_000 }, 1);
+  if (!res.ok) {
+    let msg = `下载失败: HTTP ${res.status}`;
+    try {
+      const b = await res.json();
+      msg = (b as { error?: { message?: string } })?.error?.message || msg;
+    } catch { /* use status text */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  triggerBlobDownload(blob, `${batchName}.zip`);
+}
+
+/** Fetch Excel file preview data (sheets, headers, rows) from backend. */
+export async function fetchExcelPreview(
+  fileId: number,
+  sheet?: string,
+): Promise<ExcelPreviewResponse> {
+  const params: Record<string, unknown> = {};
+  if (sheet) params.sheet = sheet;
+  const res = await apiClient.get<ApiEnvelope<ExcelPreviewResponse>>(
+    `/api/v1/files/${fileId}/excel-preview`,
+    { params },
+  );
+  return res.data.data;
 }

@@ -144,6 +144,7 @@ def validate_upload_mime(content_type: str | None) -> str | None:
 
 # Minimum DWG file size in bytes — legitimate DWG files are never this small;
 # the threshold prevents trivial DoS via header-only uploads.
+# (ODA File Converter provides the real validation during conversion.)
 MIN_DWG_SIZE_BYTES = 1024
 
 

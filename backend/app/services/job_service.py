@@ -17,9 +17,11 @@ from app.core.constants import (
     JOB_SUCCEEDED,
     PIPELINE_DXF,
     PIPELINE_DXF2DWG,
+    PIPELINE_DXF2EXCEL,
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
+    TASK_DXF_TO_EXCEL,
 )
 from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
@@ -36,6 +38,8 @@ def _pipeline_for(task_type: str) -> str:
         return PIPELINE_DXF
     if task_type == TASK_DXF_TO_DWG:
         return PIPELINE_DXF2DWG
+    if task_type == TASK_DXF_TO_EXCEL:
+        return PIPELINE_DXF2EXCEL
     return PIPELINE_STUB
 
 
@@ -84,6 +88,14 @@ def enqueue_dxf2dwg_job(job_id: int) -> str:
     return str(async_result.id)
 
 
+def enqueue_dxf2excel_job(job_id: int) -> str:
+    """投递 DXF→Excel 提取任务到 Celery dxf2excel 队列。"""
+    from app.workers.tasks_dxf2excel import extract_dxf_to_excel_task
+
+    async_result = extract_dxf_to_excel_task.delay(job_id)
+    return str(async_result.id)
+
+
 def enqueue_job(job_id: int, pipeline: str) -> str:
     """按 pipeline 投递到对应 Celery 队列。
 
@@ -93,6 +105,8 @@ def enqueue_job(job_id: int, pipeline: str) -> str:
         return enqueue_dxf_job(job_id)
     if pipeline == PIPELINE_DXF2DWG:
         return enqueue_dxf2dwg_job(job_id)
+    if pipeline == PIPELINE_DXF2EXCEL:
+        return enqueue_dxf2excel_job(job_id)
     return enqueue_stub_job(job_id)
 
 

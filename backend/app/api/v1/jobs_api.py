@@ -17,7 +17,7 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.config import settings
-from app.core.constants import JOB_FAILED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
+from app.core.constants import JOB_FAILED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG, TASK_DXF_TO_EXCEL
 from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing
@@ -90,6 +90,11 @@ def create_job_api(
         raise service_unavailable(
             "DXF2DWG_PIPELINE_DISABLED",
             "DXF→DWG pipeline is disabled. Set DXF2DWG_PIPELINE_ENABLED=true to enable.",
+        )
+    if payload.task_type == TASK_DXF_TO_EXCEL and not settings.dxf2excel_pipeline_enabled:
+        raise service_unavailable(
+            "DXF2EXCEL_PIPELINE_DISABLED",
+            "DXF→Excel pipeline is disabled. Set DXF2EXCEL_PIPELINE_ENABLED=true to enable.",
         )
     job = create_job(db, payload, created_by=current_user.id)
     write_audit_log(

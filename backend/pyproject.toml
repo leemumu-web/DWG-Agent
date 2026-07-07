@@ -28,6 +28,8 @@ dependencies = [
     "dwg-converter>=0.1.0",
     # DXF→DWG 转换库（本地 path 依赖，指向 Stages/dxf2dwg 独立包）。
     "dxf-converter>=0.1.0",
+    # DXF→Excel 材料表提取库（本地 path 依赖，指向 Stages/dxf2excel 独立包）。
+    "dxf2excel>=0.1.0",
 ]
 
 [dependency-groups]
@@ -55,6 +57,7 @@ allow-direct-references = true
 # 能正确定位 Stages/dwg2dxf/tools/oda/ 下的 ODA 二进制。
 dwg-converter = { path = "../Stages/dwg2dxf", editable = true }
 dxf-converter = { path = "../Stages/dxf2dwg", editable = true }
+dxf2excel = { path = "../Stages/dxf2excel", editable = true }
 
 [tool.ruff]
 line-length = 100

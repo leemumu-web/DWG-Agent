@@ -20,3 +20,13 @@ export interface BatchInfo {
   file_count: number;
   latest_created_at: string;
 }
+
+export interface ExcelPreviewResponse {
+  file: string;
+  file_id: number;
+  sheets: string[];
+  sheet: string;
+  headers: string[];
+  rows: Record<string, unknown>[];
+  total_rows: number;
+}

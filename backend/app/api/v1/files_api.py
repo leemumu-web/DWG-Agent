@@ -29,6 +29,7 @@ from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
 from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest, ZipUploadResult
 from app.services.audit_service import write_audit_log
+from app.services.cache_service import cache_delete, cache_get, cache_set
 from app.services.file_service import (
     build_signed_download_url,
     build_zip,
@@ -146,6 +147,7 @@ async def upload_file(
         request=request,
     )
     db.commit()
+    _invalidate_batch_caches()
     return ok(FileRead.model_validate(stored), request.state.request_id)
 
 
@@ -309,6 +311,7 @@ async def upload_zip(
         request=request,
     )
     db.commit()
+    _invalidate_batch_caches()
 
     return ok(
         ZipUploadResult(
@@ -364,8 +367,18 @@ def list_batches(
     file_ext: str = Query("", description="Filter batches by file extension, e.g. '.dwg' or '.dxf'"),
     db: Session = Depends(get_db),
 ):
-    """Return all distinct batch names with file counts and latest created_at."""
+    """Return all distinct batch names with file counts and latest created_at.
+
+    Results are cached in Redis for 30 seconds to reduce MySQL load during
+    rapid polling from multiple browser tabs.
+    """
     from sqlalchemy import func as sa_func
+
+    cache_ns = "batches"
+    cache_key = f"ext:{file_ext.strip() or 'all'}"
+    cached = cache_get(cache_ns, cache_key)
+    if cached is not None:
+        return ok(cached, request.state.request_id)
 
     where_clauses = [
         StoredFile.batch_name.is_not(None),
@@ -395,7 +408,307 @@ def list_batches(
         }
         for r in rows
     ]
+    cache_set(cache_ns, cache_key, batches, ttl=30)
     return ok(batches, request.state.request_id)
+
+
+def _invalidate_batch_caches() -> None:
+    """Invalidate all batch-list Redis caches after a mutation."""
+    cache_delete("batches", "ext:all")
+    cache_delete("batches", "ext:.dwg")
+    cache_delete("batches", "ext:.dxf")
+
+
+@router.delete("/batches/{batch_name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_batch(
+    batch_name: str,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Soft-delete all non-deleted files in a batch.
+
+    Uses a bulk UPDATE for efficiency on large batches. Access control is
+    enforced per-file — if any file in the batch is not deletable by the
+    current user the whole operation is rejected.
+    """
+    stored_list = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.batch_name == batch_name,
+                StoredFile.status != "deleted",
+            )
+        ).all()
+    )
+    if not stored_list:
+        raise not_found("Batch")
+
+    # Verify access for every file before mutating
+    for s in stored_list:
+        _require_file_delete_access(db, current_user, s)
+
+    # Bulk soft-delete
+    deleted_count = 0
+    for s in stored_list:
+        s.status = "deleted"
+        deleted_count += 1
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="files.batch_delete",
+            resource_type="file",
+            resource_id=s.id,
+            after_json={"batch_name": batch_name},
+            request=request,
+        )
+    db.commit()
+    _invalidate_batch_caches()
+    return None
+
+
+@router.get("/batches/{batch_name}/download-zip")
+def download_batch_zip(
+    batch_name: str,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Download all non-deleted files in a batch as a ZIP archive.
+
+    Streams the zip directly — no intermediate storage. Only the original
+    file format is included (not conversion results).
+    """
+    import os
+    import tempfile
+
+    stored_list = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.batch_name == batch_name,
+                StoredFile.status != "deleted",
+            )
+        ).all()
+    )
+    if not stored_list:
+        raise not_found("Batch")
+
+    for s in stored_list:
+        _require_file_read_access(db, current_user, s)
+
+    file_ids = [s.id for s in stored_list]
+    # Determine format from the batch's file extension
+    first_ext = stored_list[0].file_ext.lstrip(".") if stored_list else "dxf"
+    formats = [first_ext] if first_ext in ("dwg", "dxf") else ["dxf"]
+
+    clean_name = sanitize_filename(batch_name)
+    zip_bytes, _ = build_zip(db, file_ids, formats, clean_name)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp_path = tmp.name
+    try:
+        tmp.write(zip_bytes)
+        tmp.close()
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    def _stream_and_cleanup():
+        try:
+            with open(tmp_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    yield chunk
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="files.batch_download_zip",
+        resource_type="file",
+        resource_id=0,
+        after_json={"batch_name": batch_name, "file_count": len(file_ids)},
+        request=request,
+    )
+    db.commit()
+
+    encoded_filename = quote(f"{clean_name}.zip")
+    return StreamingResponse(
+        _stream_and_cleanup(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Content-Length": str(len(zip_bytes)),
+        },
+    )
+
+
+def _column_letter(index: int) -> str:
+    """Convert 0-based column index to Excel column letter(s): 0→A, 25→Z, 26→AA."""
+    letters: list[str] = []
+    n = index
+    while True:
+        n, rem = divmod(n, 26)
+        letters.append(chr(ord("A") + rem))
+        if n == 0:
+            break
+        n -= 1
+    return "".join(reversed(letters))
+
+
+@router.get("/{file_id}/excel-preview")
+def get_excel_preview(
+    file_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    sheet: str = Query("", description="Sheet name to preview (empty = first sheet)"),
+    db: Session = Depends(get_db),
+):
+    """Return an Excel file's content as JSON for browser preview.
+
+    Only .xlsx files are supported. Results are cached in Redis for 5 minutes
+    to avoid re-reading and re-parsing the file on every sheet switch.
+    """
+    stored = db.get(StoredFile, file_id)
+    if not stored or stored.status == "deleted":
+        raise not_found("File")
+    _require_file_read_access(db, current_user, stored)
+
+    if not stored.file_ext or stored.file_ext.lower() not in (".xlsx", ".xls"):
+        raise AppHTTPException(
+            415,
+            "NOT_EXCEL",
+            "Only .xlsx / .xls files can be previewed.",
+        )
+
+    # Check Redis cache first
+    cache_ns = "excel_preview"
+    cache_key = f"{file_id}:{sheet or '_first'}"
+    cached = cache_get(cache_ns, cache_key)
+    if cached is not None:
+        return ok(cached, request.state.request_id)
+
+    # Read Excel bytes from storage
+    storage = get_storage_backend()
+    try:
+        local_path = storage.local_path(stored.bucket, stored.storage_key)
+        if local_path is not None:
+            if not local_path.exists():
+                raise StorageObjectNotFound(f"{stored.bucket}/{stored.storage_key}")
+            excel_bytes = local_path.read_bytes()
+        else:
+            chunks: list[bytes] = []
+            for chunk in storage.iter_file(stored.bucket, stored.storage_key):
+                chunks.append(chunk)
+            excel_bytes = b"".join(chunks)
+    except StorageObjectNotFound:
+        raise not_found("StoredFileObject") from None
+    except StorageError as exc:
+        raise AppHTTPException(
+            503, "STORAGE_READ_FAILED", "Failed to read stored file object."
+        ) from exc
+
+    # Parse with openpyxl
+    try:
+        import io
+
+        import openpyxl
+    except ImportError as exc:
+        raise AppHTTPException(
+            503,
+            "OPENPYXL_UNAVAILABLE",
+            "openpyxl is not installed — cannot preview Excel files.",
+        ) from exc
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(excel_bytes), read_only=True, data_only=True)
+    except Exception as exc:
+        raise AppHTTPException(
+            415,
+            "EXCEL_PARSE_ERROR",
+            f"Failed to parse Excel file: {exc}",
+        ) from exc
+
+    sheet_names = wb.sheetnames
+    if not sheet_names:
+        raise AppHTTPException(415, "EXCEL_EMPTY", "Excel file has no sheets.")
+
+    target_sheet = sheet.strip() if sheet.strip() else sheet_names[0]
+    if target_sheet not in sheet_names:
+        raise AppHTTPException(
+            422,
+            "SHEET_NOT_FOUND",
+            f"Sheet '{target_sheet}' not found. Available: {', '.join(sheet_names)}",
+        )
+
+    ws = wb[target_sheet]
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        headers_raw = next(rows_iter)
+    except StopIteration:
+        headers_raw = []
+
+    # Build clean, unique headers. Empty cells become "Col A", "Col B", ...
+    # Duplicates get a numeric suffix ("Name", "Name_2", "Name_3").
+    seen: dict[str, int] = {}
+    headers: list[str] = []
+    for idx, h in enumerate(headers_raw or []):
+        col_letter = _column_letter(idx)
+        base = str(h).strip() if h is not None and str(h).strip() else f"Col {col_letter}"
+        if base in seen:
+            seen[base] += 1
+            headers.append(f"{base}_{seen[base]}")
+        else:
+            seen[base] = 0
+            headers.append(base)
+
+    # If there are more data columns than headers, pad with column letters
+    # (openpyxl iter_rows may return rows wider than the header row)
+    _max_data_cols = 0
+
+    MAX_PREVIEW_ROWS = 2000
+    data_rows: list[dict[str, object]] = []
+    for row in rows_iter:
+        if len(data_rows) >= MAX_PREVIEW_ROWS:
+            break
+        if len(row) > _max_data_cols:
+            _max_data_cols = len(row)
+        row_dict: dict[str, object] = {}
+        for idx, val in enumerate(row):
+            # Extend headers if data row is wider than header row
+            while idx >= len(headers):
+                headers.append(f"Col {_column_letter(len(headers))}")
+            col_name = headers[idx]
+            # Convert to JSON-safe types
+            if val is None:
+                row_dict[col_name] = None
+            elif isinstance(val, (int, float)):
+                row_dict[col_name] = val
+            else:
+                row_dict[col_name] = str(val)
+        data_rows.append(row_dict)
+
+    wb.close()
+
+    total_rows = ws.max_row - 1 if ws.max_row else 0  # minus header
+    result: dict = {
+        "file": stored.original_name,
+        "file_id": file_id,
+        "sheets": sheet_names,
+        "sheet": target_sheet,
+        "headers": headers,
+        "rows": data_rows,
+        "total_rows": max(total_rows, len(data_rows)),
+    }
+
+    # Cache for 5 minutes
+    cache_set(cache_ns, cache_key, result, ttl=300)
+    return ok(result, request.state.request_id)
 
 
 @router.get("/{file_id}")
@@ -425,6 +738,7 @@ def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: S
         request=request,
     )
     db.commit()
+    _invalidate_batch_caches()
     return None
 
 
@@ -534,6 +848,7 @@ def bulk_delete_files(
             request=request,
         )
     db.commit()
+    _invalidate_batch_caches()
     return None
 
 

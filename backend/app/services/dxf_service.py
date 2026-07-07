@@ -49,6 +49,7 @@ from app.db.session import SessionLocal
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.services.dxf_stats import _count_dxf_stats, dxf_entity_summary
 from app.services.job_events import make_event, publish_job_event
 from app.services.storage_service import get_storage_backend, sanitize_filename, save_bytes_as_file
 from app.storage.base import StorageError, StorageObjectNotFound
@@ -64,9 +65,11 @@ _ALGO_VERSION = "oda-file-converter"
 # DWG header magic → ODA File Converter version string.
 # Keeping the same output version as the source avoids unnecessary binary
 # restructuring (AC1015 → ACAD2000, not ACAD2018), reducing round-trip loss.
+# ODA File Converter supports ACAD13/ACAD14 for R13/R14 — mapping these to
+# ACAD2018 would gratuitously upgrade the file 8 generations.
 _DWG_VERSION_MAP: dict[bytes, str] = {
-    b"AC1012": "ACAD2018",  # R13  → earliest ODA supports
-    b"AC1014": "ACAD2018",  # R14  → earliest ODA supports
+    b"AC1012": "ACAD13",    # R13
+    b"AC1014": "ACAD14",    # R14
     b"AC1015": "ACAD2000",
     b"AC1018": "ACAD2004",
     b"AC1021": "ACAD2007",
@@ -74,6 +77,9 @@ _DWG_VERSION_MAP: dict[bytes, str] = {
     b"AC1027": "ACAD2013",
     b"AC1032": "ACAD2018",
 }
+
+# All known ODA output versions — used to validate resolved versions.
+_KNOWN_ODA_VERSIONS: frozenset[str] = frozenset(_DWG_VERSION_MAP.values())
 
 
 def _detect_dwg_output_version(source_path: Path) -> str:
@@ -305,7 +311,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 _add_step(
                     db, job_id, STEP_RUN_ODA_CONVERT, worker_name, "failed",
                     input_json={
-                        "version": settings.oda_converter_version,
+                        "version": output_version,
                         "audit": settings.oda_converter_audit,
                         "timeout": settings.oda_converter_timeout,
                     },
@@ -360,6 +366,11 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 return
 
             dxf_bytes = dxf_path.read_bytes()
+            dxf_stats = _count_dxf_stats(dxf_path)
+            logger.info(
+                "DXF conversion stats for job %s: %s", job_id, dxf_entity_summary(dxf_stats),
+            )
+
             # Use the original DWG filename — the work-dir path may be a temp name
             source_file = db.get(StoredFile, source_file_id)
             source_base = (source_file.original_name if source_file else Path(source_path).name)
@@ -391,6 +402,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 "source_file_id": source_file_id,
                 "dxf_file_id": dxf_file.id,
                 "convert_result": result.to_dict(),
+                "dxf_stats": dxf_stats,
             }
             analysis = AnalysisResult(
                 job_id=job.id,
@@ -408,7 +420,12 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
             _add_step(
                 db, job_id, STEP_PERSIST_DXF, worker_name, "succeeded",
                 input_json={"dxf_size": len(dxf_bytes)},
-                output_json={"dxf_file_id": dxf_file.id, "analysis_result_id": analysis.id},
+                output_json={
+                    "dxf_file_id": dxf_file.id,
+                    "analysis_result_id": analysis.id,
+                    "entity_counts": dxf_stats.get("entity_counts", {}),
+                    "total_entities": dxf_stats.get("total_entities", 0),
+                },
                 started_at=persist_started,
             )
             job.status = JOB_SUCCEEDED

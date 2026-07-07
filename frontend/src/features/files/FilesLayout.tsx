@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Tabs } from 'antd';
-import { SwapOutlined, UndoOutlined } from '@ant-design/icons';
+import { SwapOutlined, UndoOutlined, TableOutlined } from '@ant-design/icons';
 
 const tabs = [
   {
@@ -18,6 +18,15 @@ const tabs = [
       <span>
         <UndoOutlined style={{ marginRight: 6 }} />
         DXF → DWG
+      </span>
+    ),
+  },
+  {
+    key: '/files/dxf2excel',
+    label: (
+      <span>
+        <TableOutlined style={{ marginRight: 6 }} />
+        DXF → Excel
       </span>
     ),
   },

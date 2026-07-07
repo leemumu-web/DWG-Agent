@@ -195,6 +195,55 @@ start_dxf2dwg_worker() {
     return 1
 }
 
+start_dxf2excel_worker() {
+    local pidfile="/tmp/dwg-agent-worker-dxf2excel.pid"
+    local logfile="/tmp/dwg-agent-worker-dxf2excel.log"
+    if pidfile_running "$pidfile"; then
+        ok "Celery worker-dxf2excel 已运行"
+        return 0
+    fi
+
+    info "启动 Celery worker-dxf2excel..."
+    local oldpwd="$PWD"
+    cd "$PROJECT_ROOT/backend"
+    local celery_cmd
+    if [ -x .venv/bin/celery ]; then
+        celery_cmd=".venv/bin/celery"
+    else
+        celery_cmd="uv run celery"
+    fi
+    nohup setsid $celery_cmd -A app.workers.celery_app:celery_app worker -Q dxf2excel -n dxf2excel-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 </dev/null &
+    local pid=$!
+    echo "$pid" > "$pidfile"
+
+    local node="dxf2excel-local@$(hostname)"
+    local ready=false
+    for _ in $(seq 1 12); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            cd "$oldpwd"
+            err "Celery worker-dxf2excel 启动失败，请检查: $logfile"
+            tail -40 "$logfile" 2>/dev/null || true
+            rm -f "$pidfile"
+            return 1
+        fi
+        if grep -q "$node" "$logfile" 2>/dev/null; then
+            ready=true
+            break
+        fi
+        sleep 1
+    done
+    cd "$oldpwd"
+    if $ready; then
+        ok "Celery worker-dxf2excel 已启动 (concurrency=1)"
+        return 0
+    fi
+    err "Celery worker-dxf2excel 未通过 inspect ping，请检查: $logfile"
+    tail -40 "$logfile" 2>/dev/null || true
+    kill "$pid" 2>/dev/null || true
+    rm -f "$pidfile"
+    return 1
+}
+
 # 等待端口就绪
 wait_port() {
     local host="$1" port="$2" timeout="${3:-30}" label="${4:-$host:$port}"

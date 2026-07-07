@@ -57,12 +57,26 @@ export async function createDxf2DwgJob(fileId: number) {
   return res.data.data;
 }
 
+export async function createDxf2ExcelJob(batchName: string) {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+    task_type: 'extract_dxf_to_excel',
+    precision_level: 'normal',
+    params: { batch_name: batchName },
+  });
+  return res.data.data;
+}
+
 export async function createFrameworkSmokeJob() {
   const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
     task_type: 'framework_smoke_test',
     precision_level: 'normal',
     params: { source: 'frontend' },
   });
+  return res.data.data;
+}
+
+export async function cancelJob(jobId: number) {
+  const res = await apiClient.post<ApiEnvelope<Job>>(`/api/v1/jobs/${jobId}/cancellation-requests`);
   return res.data.data;
 }
 

@@ -46,6 +46,7 @@ from app.db.session import SessionLocal
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.services.dxf_stats import _count_dxf_stats, dxf_entity_summary
 from app.services.job_events import make_event, publish_job_event
 from app.services.storage_service import get_storage_backend, sanitize_filename, save_bytes_as_file
 from app.storage.base import StorageError, StorageObjectNotFound
@@ -62,12 +63,12 @@ _ALGO_VERSION = "oda-file-converter"
 # The DXF header variable $ACADVER indicates which DWG version the DXF was
 # saved from.  Matching this avoids unnecessary version upgrades on round-trips.
 #
-# NOTE: ODA File Converter always writes $ACADVER=AC1032 in the DXF header
-# regardless of the requested output version, so $ACADVER alone is unreliable
-# for DXFs produced by our own DWG→DXF pipeline.  For those files we instead
-# look up the original DWG version via AnalysisResult (see
-# _resolve_source_dwg_version).
+# When the source DXF was produced by our own DWG→DXF pipeline we prefer the
+# AnalysisResult reverse-lookup (_resolve_source_dwg_version) as it directly
+# captures the original DWG version without needing to read the file.
 _DXF_ACADVER_MAP: dict[str, str] = {
+    "AC1012": "ACAD13",
+    "AC1014": "ACAD14",
     "AC1015": "ACAD2000",
     "AC1018": "ACAD2004",
     "AC1021": "ACAD2007",
@@ -75,6 +76,11 @@ _DXF_ACADVER_MAP: dict[str, str] = {
     "AC1027": "ACAD2013",
     "AC1032": "ACAD2018",
 }
+
+# All known ODA output versions — used to validate resolved versions
+# before passing them to the converter (prevents corrupted metadata
+# from causing silent conversion failures).
+_KNOWN_ODA_VERSIONS: frozenset[str] = frozenset(_DXF_ACADVER_MAP.values())
 
 
 def _resolve_source_dwg_version(db: Session, source_file_id: int) -> str | None:
@@ -111,9 +117,9 @@ def _detect_dxf_output_version(source_path: Path) -> str:
     output DWG version.  Falls back to settings.dxf2dwg_converter_version
     when the header is unreadable or doesn't contain a recognised value.
 
-    Prefer ``_resolve_source_dwg_version()`` for DXFs that were produced
-    by our own DWG→DXF pipeline — the AnalysisResult lookup is more
-    reliable than $ACADVER (which ODA always writes as AC1032).
+    Prefer ``_resolve_source_dwg_version()`` for DXFs produced by our
+    own DWG→DXF pipeline — it avoids an extra file read and is more
+    reliable for edge cases.
     """
     try:
         with source_path.open("r", encoding="utf-8", errors="ignore") as fh:
@@ -121,12 +127,15 @@ def _detect_dxf_output_version(source_path: Path) -> str:
                 line = fh.readline()
                 if not line:
                     break
-                if line.strip().startswith("$ACADVER"):
-                    parts = line.strip().split()
-                    if len(parts) >= 2:
-                        val = parts[1].strip()
-                        if val in _DXF_ACADVER_MAP:
-                            return _DXF_ACADVER_MAP[val]
+                # DXF format: group-code line, then value line.
+                # $ACADVER is on its own line (after group code 9);
+                # the version string follows on the line after group
+                # code 1.  We must skip one line to reach the value.
+                if line.strip() == "$ACADVER":
+                    fh.readline()  # skip group code (1)
+                    val_line = fh.readline().strip()
+                    if val_line in _DXF_ACADVER_MAP:
+                        return _DXF_ACADVER_MAP[val_line]
                     break
         return settings.dxf2dwg_converter_version
     except OSError:
@@ -317,6 +326,12 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 started_at=started_at,
             )
             job.progress = 30
+
+            # Count entities in the source DXF for fidelity tracking.
+            source_stats = _count_dxf_stats(source_path)
+            logger.info(
+                "DXF source stats for job %s: %s", job_id, dxf_entity_summary(source_stats),
+            )
             db.commit()
             publish_job_event(
                 job_id,
@@ -335,13 +350,21 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
 
             try:
                 # Prefer reverse-lookup through AnalysisResult for round-trip
-                # fidelity (ODA always writes $ACADVER=AC1032, which would
-                # mislead the header-based detection).  Fall back to $ACADVER
-                # scanning for externally-produced DXFs.
-                output_version = (
-                    _resolve_source_dwg_version(db, source_file_id)
-                    or _detect_dxf_output_version(source_path)
-                )
+                # fidelity.  Fall back to $ACADVER scanning for external DXFs.
+                # Guard against corrupted metadata: if the resolved version is
+                # not a known ODA version string, discard it and fall through.
+                resolved = _resolve_source_dwg_version(db, source_file_id)
+                if resolved and resolved in _KNOWN_ODA_VERSIONS:
+                    output_version = resolved
+                elif resolved:
+                    logger.warning(
+                        "Ignoring unknown version %r from AnalysisResult for job %s — "
+                        "falling back to $ACADVER detection",
+                        resolved, job_id,
+                    )
+                    output_version = _detect_dxf_output_version(source_path)
+                else:
+                    output_version = _detect_dxf_output_version(source_path)
                 result = convert_file(
                     source=source_path,
                     target_dir=out_dir,
@@ -355,7 +378,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 _add_step(
                     db, job_id, STEP_RUN_ODA_CONVERT_DXF, worker_name, "failed",
                     input_json={
-                        "version": settings.dxf2dwg_converter_version,
+                        "version": output_version,
                         "audit": settings.dxf2dwg_converter_audit,
                         "timeout": settings.dxf2dwg_converter_timeout,
                     },
@@ -441,6 +464,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 "source_file_id": source_file_id,
                 "dwg_file_id": dwg_file.id,
                 "convert_result": result.to_dict(),
+                "source_dxf_stats": source_stats,
             }
             analysis = AnalysisResult(
                 job_id=job.id,
@@ -458,7 +482,12 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             _add_step(
                 db, job_id, STEP_PERSIST_DWG, worker_name, "succeeded",
                 input_json={"dwg_size": len(dwg_bytes)},
-                output_json={"dwg_file_id": dwg_file.id, "analysis_result_id": analysis.id},
+                output_json={
+                    "dwg_file_id": dwg_file.id,
+                    "analysis_result_id": analysis.id,
+                    "source_entity_counts": source_stats.get("entity_counts", {}),
+                    "source_total_entities": source_stats.get("total_entities", 0),
+                },
                 started_at=persist_started,
             )
             job.status = JOB_SUCCEEDED

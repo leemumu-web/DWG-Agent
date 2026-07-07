@@ -41,4 +41,11 @@ STEP_DOWNLOAD_SOURCE_DXF = "download_source_dxf"
 STEP_RUN_ODA_CONVERT_DXF = "run_oda_convert_dxf"
 STEP_PERSIST_DWG = "persist_dwg_result"
 
+# DXF→Excel pipeline
+PIPELINE_DXF2EXCEL = "dxf2excel"
+TASK_DXF_TO_EXCEL = "extract_dxf_to_excel"
+STEP_DOWNLOAD_DXF_BATCH = "download_dxf_batch"
+STEP_RUN_DXF2EXCEL = "run_dxf2excel_pipeline"
+STEP_PERSIST_EXCEL = "persist_excel_result"
+
 ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip"}

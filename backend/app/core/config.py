@@ -65,6 +65,9 @@ class Settings(BaseSettings):
     dxf2dwg_converter_retries: int = 1
     oda_home: str = ""
 
+    # DXF→Excel material-table extraction
+    dxf2excel_pipeline_enabled: bool = False
+
     # LLM — spec §18.1 (Stage 2: Agent subsystem)
     model_name: str = "deepseek-chat"
     model_api_key: str = ""

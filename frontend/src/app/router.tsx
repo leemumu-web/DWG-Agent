@@ -6,6 +6,7 @@ import { ProjectsPage } from '../features/projects/ProjectsPage';
 import { FilesLayout } from '../features/files/FilesLayout';
 import { Dwg2DxfPage } from '../features/files/Dwg2DxfPage';
 import { Dxf2DwgPage } from '../features/files/Dxf2DwgPage';
+import { Dxf2ExcelPage } from '../features/files/Dxf2ExcelPage';
 import { DrawingsPage } from '../features/drawings/DrawingsPage';
 import { JobsPage } from '../features/jobs/JobsPage';
 import { ReviewsPage } from '../features/reviews/ReviewsPage';
@@ -28,6 +29,7 @@ export function AppRouter() {
               <Route index element={<Navigate to="/files/dwg2dxf" replace />} />
               <Route path="dwg2dxf" element={<Dwg2DxfPage />} />
               <Route path="dxf2dwg" element={<Dxf2DwgPage />} />
+              <Route path="dxf2excel" element={<Dxf2ExcelPage />} />
             </Route>
             <Route path="/drawings" element={<DrawingsPage />} />
             <Route path="/jobs" element={<JobsPage />} />
