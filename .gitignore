@@ -65,3 +65,12 @@ Thumbs.db
 *.zip
 *.tar.gz
 *.7z
+
+# --- Nested repositories (concurrent-process workspaces with own .git) ---
+Stages/dxf2excel/
+
+# --- Local working data (test files, docs, CAD samples — never commit) ---
+Data/
+
+# --- Package-manager artifacts in wrong directories ---
+/backend/package-lock.json
