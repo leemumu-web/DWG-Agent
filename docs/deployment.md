@@ -231,7 +231,7 @@ Key facts:
 ```bash
 cd backend
 uv run ruff check app tests    # lint (must pass)
-uv run pytest -q               # 432 tests (must pass)
+uv run pytest -q               # ~599 tests (must pass)
 ```
 
 Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external services required. Real Redis integration tests in `test_redis_real.py` auto-skip when Redis is unavailable.
@@ -361,21 +361,27 @@ Flower dashboard: `http://localhost:5555` (internal network, configure port mapp
 
 ### 4.4 Dockerfile Details
 
-Located at `backend/Dockerfile` (multi-stage build):
+Located at `backend/Dockerfile` (multi-stage build). **Build context = 仓库根** (`context: .` in `compose.yaml`, `dockerfile: backend/Dockerfile`), not `./backend` — because `backend/pyproject.toml` declares `dwg-converter / dxf-converter / dxf2excel` as editable path dependencies pointing at `../Stages/{dwg2dxf,dxf2dwg,dxf2excel}`, which are outside the `backend/` directory. The repo-root context lets `COPY Stages/...` reach them so `uv sync --frozen` can resolve the lock's pinned editable sources.
 
 **Stage 1 (builder):**
 - Base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - Uses uv from the base image; no `uv:latest` copy stage
-- Runs `uv sync --frozen --no-dev` to create venv
+- `WORKDIR /app`; copies `backend/{pyproject.toml,uv.lock,README.md}` to `/app/backend/` and `Stages/{dwg2dxf,dxf2dwg,dxf2excel}` to `/app/Stages/` (mirrors repo layout so `../Stages/*` resolves)
+- Runs `uv sync --frozen --no-dev` to create `/app/.venv`; all deps ship as prebuilt wheels (hiredis, argon2, ezdxf, pandas, openpyxl) — no compiler needed
 
 **Stage 2 (runtime):**
 - Base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - Creates non-root user `appuser` (uid 1000)
-- Installs `curl` + `ca-certificates` for healthcheck
-- Copies `.venv` from builder, then `app/`, `alembic.ini`, `migrations/`
-- Creates writable `/app/var/` owned by `appuser`
-- HEALTHCHECK: `curl -f http://localhost:8000/health` every 15s, timeout 3s, 5 retries
-- CMD: `alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -`
+- Installs runtime system deps: `curl` + `ca-certificates` (healthcheck), `xvfb` (headless X for ODA AppImage), `libfuse2` (AppImage FUSE extraction)
+- `ENV ODA_HOME=/app/oda` — `dwg_converter.check_env` locates the ODA binary here
+- Copies `.venv` and `Stages/` (editable `.pth` points there) from builder, then `app/`, `alembic.ini`, `migrations/`
+- Copies the 85 MB ODA File Converter AppImage to `/app/oda` (owned by `appuser`) — DXF/agent worker pipeline ready on enable
+- Creates writable `/app/var/` and `/home/appuser` owned by `appuser`
+- HEALTHCHECK: `curl -f http://localhost:8000/health` every 15s, timeout 3s, 5 retries, `start-period=40s` (tolerates alembic + seed + gunicorn boot)
+- CMD: `alembic upgrade head && python -m app.db.init_db && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -`
+  - `init_db` seeds roles/permissions/super_admin idempotently (skips existing) — first-run deployment is immediately loginable with `admin` + `SUPER_ADMIN_PASSWORD`.
+
+A root-level `.dockerignore` (repo root) excludes every package's `.venv/`, `build/`, `__pycache__/`, `samples/`, `logs/`, `frontend/node_modules/`, `Data/`, `*.zip`, and secret files (`.env`, `.env.docker`) from the build context. The legacy `backend/.dockerignore` was removed because dockerignore must live at the context root.
 
 ### 4.5 Volumes
 
@@ -408,7 +414,7 @@ docker compose --profile workers --profile monitoring down -v
 
 ## 5. Configuration Reference
 
-All configuration is driven by environment variables. The canonical definitions live in `backend/app/core/config.py` (pydantic-settings, 45 fields + 5 computed properties).
+All configuration is driven by environment variables. The canonical definitions live in `backend/app/core/config.py` (pydantic-settings, 62 fields + 6 computed properties).
 
 ### 5.1 Application
 
@@ -467,7 +473,9 @@ Runtime Celery URLs are derived from `REDIS_*` component fields in `config.py` s
 |---|---|---|
 | `STORAGE_BACKEND` | `local` | `local` or `minio` |
 | `LOCAL_STORAGE_ROOT` | `./var/storage` | Local filesystem path (relative to CWD) |
-| `MAX_UPLOAD_SIZE_MB` | `512` | Maximum file upload size |
+| `MAX_UPLOAD_SIZE_MB` | `512` | Maximum single-upload size (matches Nginx `client_max_body_size 512m`) |
+| `MAX_ZIP_EXTRACT_MB` | `2048` | Max total uncompressed size when extracting a ZIP (config.py only -- not in `.env` templates) |
+| `MAX_ZIP_ENTRY_COUNT` | `1000` | Max number of files inside a single ZIP (config.py only -- not in `.env` templates) |
 
 ### 5.5 MinIO (Object Storage)
 
@@ -477,9 +485,11 @@ Runtime Celery URLs are derived from `REDIS_*` component fields in `config.py` s
 | `MINIO_ACCESS_KEY` / `MINIO_ROOT_USER` | (required) | MinIO access key |
 | `MINIO_SECRET_KEY` / `MINIO_ROOT_PASSWORD` | (required) | MinIO secret key |
 | `MINIO_BUCKET_ORIGINAL` | `dwg-original` | Uploaded DWG files |
-| `MINIO_BUCKET_DERIVED` | `dwg-derived` | Processed derivatives |
-| `MINIO_BUCKET_REPORTS` | `dwg-reports` | Generated reports |
-| `MINIO_BUCKET_TEMP` | `dwg-temp` | Temporary files |
+| `MINIO_BUCKET_DERIVED` | `dwg-derived` | Processed derivatives (DXF→DWG output + stub JSON results) |
+| `MINIO_BUCKET_REPORTS` | `dwg-reports` | Generated reports (DXF→Excel `.xlsx`) |
+| `MINIO_BUCKET_TEMP` | `dwg-temp` | Temporary files (reserved) |
+| `MINIO_BUCKET_DXF_ORIGINAL` | `dxf-original` | Uploaded non-DWG (e.g. `.dxf`) files (config.py only -- not in `.env` templates) |
+| `MINIO_BUCKET_DXF_DERIVED` | `dxf-derived` | DWG→DXF converted output (config.py only -- not in `.env` templates) |
 
 Docker Compose passes `MINIO_ROOT_USER` to both `MINIO_ACCESS_KEY` and `MINIO_ROOT_USER`, and `MINIO_ROOT_PASSWORD` to both `MINIO_SECRET_KEY` and `MINIO_ROOT_PASSWORD`.
 
@@ -491,6 +501,7 @@ Docker Compose passes `MINIO_ROOT_USER` to both `MINIO_ACCESS_KEY` and `MINIO_RO
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Access token TTL |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | Refresh token TTL |
+| `REFRESH_COOKIE_SECURE` | (unset → auto) | Secure flag on the `dwg_refresh_token` cookie. Unset = auto (Secure iff `APP_ENV=production`). Set `false` for an HTTP-only intranet so browsers don't drop the cookie and silently break refresh. Commented out in both `.env` templates. Resolved via the `refresh_cookie_secure_enabled` property. |
 
 ### 5.7 Super Admin Bootstrap
 
@@ -506,13 +517,32 @@ This user is seeded by `app/db/init_db.py` on first run.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `AGENT_ENABLED` | `false` | When false, `/api/v1/agent-runs/*` returns 503 |
-| `DXF_PIPELINE_ENABLED` | `false` | When false, DXF parsing endpoints return 503 |
-| `CAD_WORKER_ENABLED` | `false` | When false, CAD worker endpoints return 503 |
+| `AGENT_ENABLED` | `false` | When false, all four agent endpoints (`POST /api/v1/agent-runs`, `GET /api/v1/agent-runs/{id}`, `GET /api/v1/agent-runs/{id}/steps`, `GET /api/v1/agent-tools`) return 503 `AGENT_DISABLED` |
+| `DXF_PIPELINE_ENABLED` | `false` | When false, `POST /api/v1/jobs` with `task_type=convert_dwg_to_dxf` returns 503 `DXF_PIPELINE_DISABLED` |
+| `DXF2DWG_PIPELINE_ENABLED` | `false` | When false, `POST /api/v1/jobs` with `task_type=convert_dxf_to_dwg` returns 503 `DXF2DWG_PIPELINE_DISABLED` |
+| `DXF2EXCEL_PIPELINE_ENABLED` | `false` | When false, `POST /api/v1/jobs` with `task_type=extract_dxf_to_excel` returns 503 `DXF2EXCEL_PIPELINE_DISABLED` |
+| `CAD_WORKER_ENABLED` | `false` | Surfaced in `GET /api/v1/system/health` features; does **not** directly gate any HTTP endpoint (enforced at the worker/pipeline layer) |
 
-All three are `false` in Stage 1. These are parsed as Python booleans (`true`/`false`, case-insensitive).
+All five default to `false`. They are parsed as Python booleans (`true`/`false`, case-insensitive). Only `AGENT_ENABLED`, `DXF_PIPELINE_ENABLED`, and `CAD_WORKER_ENABLED` appear in the `.env` templates; `DXF2DWG_PIPELINE_ENABLED` and `DXF2EXCEL_PIPELINE_ENABLED` are defined in `config.py` only -- add them manually to override the default.
 
-### 5.9 LLM (Stage 2)
+### 5.9 ODA Converter (DWG↔DXF Engines)
+
+These parameters drive the ODA File Converter subprocess used by the DWG→DXF and DXF→DWG pipelines. **None of them appear in the `.env` templates** -- they run on the `config.py` defaults below unless set explicitly. The backend Dockerfile bakes the ODA AppImage into the image at `/app/oda` and sets `ODA_HOME` via `ENV`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `ODA_CONVERTER_VERSION` | `ACAD2018` | DWG→DXF output CAD version |
+| `ODA_CONVERTER_AUDIT` | `true` | Run ODA audit pass on DWG→DXF |
+| `ODA_CONVERTER_TIMEOUT` | `300` | DWG→DXF conversion timeout (seconds) |
+| `ODA_CONVERTER_RETRIES` | `1` | DWG→DXF retry count |
+| `ODA_XVFB_RUN` | `true` | Wrap ODA in `xvfb-run` (headless X) |
+| `DXF2DWG_CONVERTER_VERSION` | `ACAD2018` | DXF→DWG output CAD version |
+| `DXF2DWG_CONVERTER_AUDIT` | `true` | Run ODA audit pass on DXF→DWG |
+| `DXF2DWG_CONVERTER_TIMEOUT` | `300` | DXF→DWG conversion timeout (seconds) |
+| `DXF2DWG_CONVERTER_RETRIES` | `1` | DXF→DWG retry count |
+| `ODA_HOME` | (empty) | ODA install path; `check_env.py` prefers `$ODA_HOME`. Dockerfile sets `ODA_HOME=/app/oda` |
+
+### 5.10 LLM (Stage 2)
 
 | Variable | Default | Description |
 |---|---|---|
@@ -520,21 +550,21 @@ All three are `false` in Stage 1. These are parsed as Python booleans (`true`/`f
 | `MODEL_API_KEY` | (empty) | API key for LLM provider |
 | `MODEL_BASE_URL` | `https://api.deepseek.com` | LLM API base URL |
 
-### 5.10 MCP (Stage 2)
+### 5.11 MCP (Stage 2)
 
 | Variable | Default | Description |
 |---|---|---|
 | `MCP_CAD_COMMAND` | `uvx` | MCP client command |
 | `MCP_CAD_ARGS` | `cad-mcp-server,stdio` | MCP client arguments |
 
-### 5.11 CAD Worker (Stage 4)
+### 5.12 CAD Worker (Stage 4)
 
 | Variable | Default | Description |
 |---|---|---|
 | `CAD_WORKER_API_BASE` | `http://cad-worker.internal:8080` | Windows CAD Worker endpoint |
 | `CAD_WORKER_API_KEY` | (empty) | Auth key for CAD Worker |
 
-### 5.12 Frontend
+### 5.13 Frontend
 
 | Variable | Default | Description |
 |---|---|---|
@@ -556,7 +586,10 @@ Sourced by all other scripts. Provides:
 | `check_port <port> <label>` | Reports port status (health check aggregation) |
 | `kill_by_pidfile <pidfile> <label>` | Kills process by PID file |
 | `pidfile_running <pidfile>` | Checks whether a PID file points to a live process |
-| `start_report_worker` | Starts local Celery `worker-report` and writes `/tmp/dwg-agent-worker-report.pid` |
+| `start_report_worker` | Starts local Celery `worker-report` (`-Q report --concurrency=1`), PID `/tmp/dwg-agent-worker-report.pid` |
+| `start_dxf_worker` | Starts local Celery `worker-dxf` (`-Q dxf --concurrency=2`), PID `/tmp/dwg-agent-worker-dxf.pid` |
+| `start_dxf2dwg_worker` | Starts local Celery `worker-dxf2dwg` (`-Q dxf2dwg --concurrency=2`), PID `/tmp/dwg-agent-worker-dxf2dwg.pid` |
+| `start_dxf2excel_worker` | Starts local Celery `worker-dxf2excel` (`-Q dxf2excel --concurrency=1`), PID `/tmp/dwg-agent-worker-dxf2excel.pid` |
 | `wait_port <host> <port> <timeout> <label>` | Blocks until port is accepting connections |
 | `ensure_service <port> <name...>` | Starts systemd service if port not listening |
 | `ok` / `warn` / `err` / `info` / `step` | Coloured console output |
@@ -592,8 +625,8 @@ Key behaviours:
 Usage: bash scripts/start-dev.sh
 ```
 
-- Starts MySQL + Redis, initializes database, starts local Celery `worker-report`, backend (`uvicorn --reload` on `:8000`) and frontend (Vite HMR on `:5173`).
-- Writes PID files to `/tmp/dwg-agent-worker-report.pid`, `/tmp/dwg-agent-backend.pid`, and `/tmp/dwg-agent-frontend.pid`.
+- Starts MySQL + Redis, initializes database, starts all four local Celery workers (`worker-report`, `worker-dxf`, `worker-dxf2dwg`, `worker-dxf2excel`), backend (`uvicorn --reload` on `:8000`) and frontend (Vite HMR on `:5173`).
+- Writes PID files to `/tmp/dwg-agent-worker-report.pid`, `/tmp/dwg-agent-worker-dxf.pid`, `/tmp/dwg-agent-worker-dxf2dwg.pid`, `/tmp/dwg-agent-worker-dxf2excel.pid`, `/tmp/dwg-agent-backend.pid`, and `/tmp/dwg-agent-frontend.pid`.
 - Automatically detects if `VITE_API_BASE_URL` is empty (Nginx mode) and temporarily sets it to `http://127.0.0.1:8000` for direct backend access.
 - Blocks until Ctrl+C (uses `wait`), then prints stop instructions.
 
@@ -630,8 +663,8 @@ Checks:
 1. MySQL status (via `db.sh status`)
 2. Redis port 6379
 3. Celery worker-report PID
-3. Backend port 8000 + `GET /health` endpoint
-4. Nginx port 8080 + API reverse proxy + SPA static serving
+4. Backend port 8000 + `GET /health` endpoint
+5. Nginx port 8080 + API reverse proxy + SPA static serving
 
 Prints a colour-coded summary with "all ok" or "partial failure" and recovery hints.
 
@@ -679,7 +712,7 @@ Nginx `depends_on` `backend-api` with `condition: service_healthy`, so Nginx wil
 The backend Dockerfile has a built-in HEALTHCHECK instruction for container runtimes:
 
 ```dockerfile
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
+HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
     CMD curl -f http://localhost:8000/health || exit 1
 ```
 
@@ -858,7 +891,7 @@ bash scripts/db.sh migration-test
 
 ### 8.9 Agent Endpoints Return 503
 
-This is **expected behaviour in Stage 1**. The feature flag `AGENT_ENABLED=false` causes all `/api/v1/agent-runs/*` endpoints to return 503 with message "Agent subsystem not yet available." The same applies to DXF pipeline and CAD Worker endpoints with their respective flags.
+This is **expected behaviour in Stage 1**. The feature flag `AGENT_ENABLED=false` causes all `/api/v1/agent-runs/*` endpoints to return 503 (error code `AGENT_DISABLED`) with message "Agent subsystem is intentionally disabled in stage 1." The same applies to DXF pipeline and CAD Worker endpoints with their respective flags.
 
 ### 8.10 Redis Unavailable (Local Dev)
 
@@ -975,7 +1008,7 @@ The following components are **configured but not operational** in Stage 1:
 | Component | Status | Behaviour | Stage Planned |
 |---|---|---|---|
 | **Agent subsystem** | Feature-flagged off | `/api/v1/agent-runs/*` returns 503 | Stage 2 |
-| **DXF pipeline** | Feature-flagged off | DXF parsing endpoints return 503 | Stage 2 |
+| **DXF pipeline** | Feature-flagged off | `POST /api/v1/jobs` DWG↔DXF / DXF→Excel conversion tasks return 503 | Stage 3 |
 | **CAD Worker** | Feature-flagged off | CAD worker endpoints return 503 | Stage 4 |
 | **Agent/DXF Celery Workers** | Compose profile only | `worker-agent` and `worker-dxf` start but concrete task bodies are deferred | Stage 2/3 |
 | **MinIO (object storage)** | Docker default | Backend uses MinIO when `STORAGE_BACKEND=minio`; local dev still defaults to local FS | Done for deployment |
@@ -988,16 +1021,16 @@ The following components are **configured but not operational** in Stage 1:
 
 ### What IS running and verified in Stage 1:
 
-- Full RESTful API with 11 route modules under `/api/v1`
+- Full RESTful API with 12 route modules under `/api/v1`
 - RBAC with 7 roles, permissions, and user-role mapping
 - JWT authentication (access + refresh tokens)
 - File upload/download via storage backend (local in dev, MinIO in Docker)
 - Celery `worker-report` fake task for queued → running → succeeded job flow
 - Project, drawing, file, and job CRUD operations
 - Audit logging (all mutations recorded)
-- Database migrations (Alembic, 3 versions, 17 tables)
+- Database migrations (Alembic, 4 versions, 17 tables)
 - Bootstrap super admin seeding
-- 432 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
+- ~599 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
 - Docker Compose deployment with 9 services
 - Nginx gateway with rate limiting, security headers, SPA fallback
 

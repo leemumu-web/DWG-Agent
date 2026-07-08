@@ -1,7 +1,7 @@
 # DWG-Agent 平台 -- 数据库设计与运维
 
 > **受众:** 数据库管理员、平台运维人员、后端开发者
-> **最后更新:** 2026-07-03
+> **最后更新:** 2026-07-08
 > **范围:** 引擎配置、表目录、实体关系、迁移管理、种子数据、备份策略
 
 ---
@@ -15,9 +15,11 @@
 **配置** (`backend/app/db/session.py`):
 
 ```python
-engine = create_engine(settings.database_url, pool_pre_ping=True,
-                        pool_recycle=3600, pool_size=10, max_overflow=20)
-# pool_args 仅在 DATABASE_URL 以 "mysql" 开头时生效
+engine_kwargs = {"pool_pre_ping": True}                       # 始终应用
+if settings.database_url.startswith("mysql"):
+    engine_kwargs.update({"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20})
+engine = create_engine(settings.database_url, **engine_kwargs)
+# pool_args（recycle/size/overflow）仅在 DATABASE_URL 以 "mysql" 开头时生效
 ```
 
 | 参数 | 值 | 说明 |
@@ -87,6 +89,8 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 ---
 
 ## 2. 完整表目录
+
+该 schema 共有 **17 张表**（全部由初始迁移创建），按下列领域分组。除 `sys_permissions`、`sys_role_permissions`、`sys_user_roles` 和 `job_steps` 之外，每张表都携带来自 `TimestampMixin` 的 `created_at`/`updated_at` 两列（`sys_user_roles` 仅有 `created_at`）。
 
 ### 2.1 身份与访问管理 (IAM) -- 5 张表
 
@@ -217,12 +221,15 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 | `size_bytes` | BIGINT | NOT NULL | 文件大小（字节） |
 | `sha256` | VARCHAR(64) | NOT NULL, INDEXED | SHA-256 十六进制摘要（64 个字符） |
 | `md5` | VARCHAR(32) | NULLABLE | MD5 十六进制摘要（32 个字符） |
+| `batch_name` | VARCHAR(128) | NULLABLE, INDEXED | 多文件 DXF/Excel 上传的批次分组标签（如 ZIP 主名）。由迁移 `53cd59adf848` 添加 |
 | `uploaded_by` | BIGINT | FK → `sys_users.id` | 上传者用户 ID |
-| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` / `processing` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
-**索引:** `ix_files_sha256`, `ix_files_storage_key`
+**索引:** `ix_files_sha256`, `ix_files_storage_key`, `ix_files_batch_name`
+
+**批量上传:** `batch_name` 将一起上传的文件分组（带 `batch_name` 查询参数的单文件上传，或以主名解压的 `.zip`），使 DXF→Excel 管道以及批量下载/删除端点能够一次性操作整组文件。未分组上传时其值为 `NULL`。
 
 ### 2.4 图纸与版本 -- 2 张表
 
@@ -273,9 +280,9 @@ DWG 图纸的异步处理作业。
 | `project_id` | BIGINT | NULLABLE, FK → `projects.id`, INDEXED | 项目范围 |
 | `drawing_id` | BIGINT | NULLABLE, FK → `drawings.id`, INDEXED | 目标图纸 |
 | `created_by` | BIGINT | NULLABLE, FK → `sys_users.id` | 作业提交者 |
-| `task_type` | VARCHAR(64) | NOT NULL | 任务代码（如 `extract_layers`, `count_blocks`） |
+| `task_type` | VARCHAR(64) | NOT NULL | 任务代码: `convert_dwg_to_dxf` / `convert_dxf_to_dwg` / `extract_dxf_to_excel` |
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high`（决定管道路由） |
-| `pipeline` | VARCHAR(64) | NULLABLE | 分配的管道: `dxf_open_source` / `zwcad_worker` / `local_stub` |
+| `pipeline` | VARCHAR(64) | NULLABLE | 分配的管道: `local_stub` / `dxf_open_source` / `dxf2dwg_open_source` / `dxf2excel` / `zwcad_worker` |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
 | `priority` | INT | NOT NULL, DEFAULT 0 | 越高越紧急 |
 | `progress` | INT | NOT NULL, DEFAULT 0 | 0-100 百分比 |
@@ -372,7 +379,7 @@ Agent 运行中的单个工具调用和推理步骤。
 | `result_file_id` | BIGINT | FK → `files.id` | 输出文件（Excel, PDF 等） |
 | `algorithm_version` | VARCHAR(64) | NULLABLE | 处理算法的版本 |
 | `tool_version` | VARCHAR(64) | NULLABLE | 处理工具的版本 |
-| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'succeeded' | `succeeded`（初始）/ `pending_review` / `approved` / `rejected` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'succeeded' | `succeeded`（初始）/ `need_review` / `approved` / `rejected` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -404,7 +411,7 @@ Agent 运行中的单个工具调用和推理步骤。
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
 | `actor_user_id` | BIGINT | FK → `sys_users.id` | 执行操作的人（系统操作为 NULL） |
-| `action` | VARCHAR(128) | NOT NULL, INDEXED | 操作代码（如 `user.create`） |
+| `action` | VARCHAR(128) | NOT NULL, INDEXED | 操作代码（如 `users.create`） |
 | `resource_type` | VARCHAR(64) | NOT NULL | 资源命名空间 |
 | `resource_id` | BIGINT | NULLABLE, INDEXED | 受影响的资源 ID |
 | `ip_address` | VARCHAR(64) | NULLABLE | 客户端 IP |
@@ -415,6 +422,8 @@ Agent 运行中的单个工具调用和推理步骤。
 | `updated_at` | DATETIME | NOT NULL | |
 
 **索引:** `ix_audit_logs_action`, `ix_audit_logs_resource_id`
+
+**说明:** `resource_id` 是**多态指针**，并非真正的外键 -- 它存储受影响资源的 ID（不限资源类型），因此不存在 FK 约束。迁移 `c3d2e1f0a9b8` 将其类型从 `Integer` 修正为 `BIGINT`，与其他所有 ID 列保持一致。
 
 ---
 
@@ -511,6 +520,9 @@ agent_runs ──< agent_run_steps
 | `40452ddd24e7` | 初始迁移 -- 创建全部 17 张业务表，并显式处理循环 FK | 2026-07-03 |
 | `b8f9e7d6c5a4` | TimestampMixin 修复 -- 用于缺少 `created_at`/`updated_at` 列的旧 MySQL 数据库的幂等迁移 | 2026-07-03 |
 | `c3d2e1f0a9b8` | 修复 `audit_logs.resource_id` 类型 -- `Integer` 改为 `BigInteger`，与其他所有 ID 列保持一致 | 2026-07-04 |
+| `53cd59adf848` | 添加 `files.batch_name` VARCHAR(128) 可空列 + 索引 `ix_files_batch_name` -- 支持 DXF/Excel 批量上传 | 2026-07-06 |
+
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848`；**`53cd59adf848` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -558,13 +570,12 @@ uv run alembic history
 ### 4.4 CI 验证
 
 `scripts/db.sh migration-test` 命令执行以下操作：
-1. 创建临时 MySQL 数据库（或在没有 MySQL 的 CI 环境中使用 SQLite）。
-2. 运行 `alembic upgrade head`。
-3. 运行 `alembic downgrade base`（回滚所有迁移）。
-4. 再次运行 `alembic upgrade head`（验证幂等性）。
-5. 删除临时数据库。
+1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
+2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
+3. 验证生成的 schema：断言全部 **17 张预期业务表** 均存在，且四张后期回填时间戳列的表（`project_members`、`drawing_versions`、`review_records`、`agent_run_steps`）现已携带 `created_at` 和 `updated_at`。
+4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
-这验证了升级和降级路径均有效，且可以从零重建 schema。
+这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
 
 ### 4.5 编写安全的迁移
 
@@ -692,6 +703,9 @@ mysqldump -h 127.0.0.1 -u dwg_user -p \
 # MinIO 镜像到备份位置
 mc mirror minio/dwg-original backup/dwg-original --watch
 mc mirror minio/dwg-derived backup/dwg-derived --watch
+mc mirror minio/dxf-original backup/dxf-original --watch
+mc mirror minio/dxf-derived backup/dxf-derived --watch
+mc mirror minio/dwg-reports backup/dwg-reports --watch
 
 # 本地存储 rsync
 rsync -avz --delete var/storage/ backup@backup-server:/backups/dwg-agent/storage/

@@ -231,7 +231,7 @@ sudo systemctl restart redis
 ```bash
 cd backend
 uv run ruff check app tests    # 代码检查（必须通过）
-uv run pytest -q               # 432 条测试（必须通过）
+uv run pytest -q               # 约 599 条测试（必须通过）
 ```
 
 测试使用 SQLite 内存数据库（`StaticPool`）和 FakeRedis —— 无需外部服务。`test_redis_real.py` 中的真实 Redis 集成测试在 Redis 不可用时会自动跳过。
@@ -361,21 +361,27 @@ Flower 面板：`http://localhost:5555`（内部网络，如需外部访问请�
 
 ### 4.4 Dockerfile 详情
 
-位于 `backend/Dockerfile`（多阶段构建）：
+位于 `backend/Dockerfile`（多阶段构建）。**构建上下文 = 仓库根**（`compose.yaml` 中 `context: .`、`dockerfile: backend/Dockerfile`），而非 `./backend` —— 因为 `backend/pyproject.toml` 将 `dwg-converter / dxf-converter / dxf2excel` 声明为指向 `../Stages/{dwg2dxf,dxf2dwg,dxf2excel}` 的 editable path 依赖，这些路径在 `backend/` 目录之外。以仓库根为上下文才能让 `COPY Stages/...` 触及它们，从而使 `uv sync --frozen` 解析 lock 中锁定的 editable 源。
 
 **阶段 1（builder）：**
 - 基础镜像：`ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - 使用基础镜像自带的 uv；无需 `uv:latest` 复制阶段
-- 运行 `uv sync --frozen --no-dev` 创建虚拟环境
+- `WORKDIR /app`；将 `backend/{pyproject.toml,uv.lock,README.md}` 复制到 `/app/backend/`，将 `Stages/{dwg2dxf,dxf2dwg,dxf2excel}` 复制到 `/app/Stages/`（复刻仓库结构，使 `../Stages/*` 可解析）
+- 运行 `uv sync --frozen --no-dev` 创建 `/app/.venv`；所有依赖均以预编译 wheel 分发（hiredis、argon2、ezdxf、pandas、openpyxl）—— 无需编译器
 
 **阶段 2（runtime）：**
 - 基础镜像：`ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - 创建非 root 用户 `appuser`（uid 1000）
-- 安装 `curl` + `ca-certificates` 用于健康检查
-- 从 builder 阶段复制 `.venv`，然后复制 `app/`、`alembic.ini`、`migrations/`
-- 创建可写目录 `/app/var/`，所有者为 `appuser`
-- HEALTHCHECK：每 15 秒 `curl -f http://localhost:8000/health`，超时 3s，5 次重试
-- CMD：`alembic upgrade head && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -`
+- 安装运行时系统依赖：`curl` + `ca-certificates`（健康检查）、`xvfb`（ODA AppImage 所需的无头 X）、`libfuse2`（AppImage FUSE 解压）
+- `ENV ODA_HOME=/app/oda` —— `dwg_converter.check_env` 在此定位 ODA 二进制
+- 从 builder 复制 `.venv` 和 `Stages/`（editable `.pth` 指向此处），然后复制 `app/`、`alembic.ini`、`migrations/`
+- 将 85 MB 的 ODA File Converter AppImage 复制到 `/app/oda`（所有者为 `appuser`）—— 启用后 DXF/agent worker 管线即就绪
+- 创建可写目录 `/app/var/` 和 `/home/appuser`，所有者为 `appuser`
+- HEALTHCHECK：每 15 秒 `curl -f http://localhost:8000/health`，超时 3s，5 次重试，`start-period=40s`（容忍 alembic + 种子 + gunicorn 启动）
+- CMD：`alembic upgrade head && python -m app.db.init_db && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -`
+  - `init_db` 幂等地种子角色/权限/超级管理员（已存在则跳过）—— 首次部署即可用 `admin` + `SUPER_ADMIN_PASSWORD` 登录。
+
+仓库根级的 `.dockerignore`（位于仓库根）会从构建上下文中排除每个包的 `.venv/`、`build/`、`__pycache__/`、`samples/`、`logs/`、`frontend/node_modules/`、`Data/`、`*.zip` 以及密钥文件（`.env`、`.env.docker`）。旧的 `backend/.dockerignore` 已删除，因为 dockerignore 必须位于上下文根目录。
 
 ### 4.5 卷
 
@@ -408,7 +414,7 @@ docker compose --profile workers --profile monitoring down -v
 
 ## 5. 配置参考
 
-所有配置均通过环境变量驱动。规范定义位于 `backend/app/core/config.py`（pydantic-settings，45 个字段 + 5 个计算属性）。
+所有配置均通过环境变量驱动。规范定义位于 `backend/app/core/config.py`（pydantic-settings，62 个字段 + 6 个计算属性）。
 
 ### 5.1 应用
 
@@ -467,7 +473,9 @@ docker compose --profile workers --profile monitoring down -v
 |---|---|---|
 | `STORAGE_BACKEND` | `local` | `local` 或 `minio` |
 | `LOCAL_STORAGE_ROOT` | `./var/storage` | 本地文件系统路径（相对于 CWD） |
-| `MAX_UPLOAD_SIZE_MB` | `512` | 最大文件上传大小 |
+| `MAX_UPLOAD_SIZE_MB` | `512` | 最大单次上传大小（与 Nginx `client_max_body_size 512m` 一致） |
+| `MAX_ZIP_EXTRACT_MB` | `2048` | 解压 ZIP 时的最大解压总大小（仅 config.py -- 不在 `.env` 模板中） |
+| `MAX_ZIP_ENTRY_COUNT` | `1000` | 单个 ZIP 内最大文件数（仅 config.py -- 不在 `.env` 模板中） |
 
 ### 5.5 MinIO（对象存储）
 
@@ -477,9 +485,11 @@ docker compose --profile workers --profile monitoring down -v
 | `MINIO_ACCESS_KEY` / `MINIO_ROOT_USER` | （必填） | MinIO 访问密钥 |
 | `MINIO_SECRET_KEY` / `MINIO_ROOT_PASSWORD` | （必填） | MinIO 密钥 |
 | `MINIO_BUCKET_ORIGINAL` | `dwg-original` | 上传的 DWG 文件 |
-| `MINIO_BUCKET_DERIVED` | `dwg-derived` | 处理后的衍生文件 |
-| `MINIO_BUCKET_REPORTS` | `dwg-reports` | 生成的报告 |
-| `MINIO_BUCKET_TEMP` | `dwg-temp` | 临时文件 |
+| `MINIO_BUCKET_DERIVED` | `dwg-derived` | 处理后的衍生文件（DXF→DWG 输出 + 桩 JSON 结果） |
+| `MINIO_BUCKET_REPORTS` | `dwg-reports` | 生成的报告（DXF→Excel `.xlsx`） |
+| `MINIO_BUCKET_TEMP` | `dwg-temp` | 临时文件（预留） |
+| `MINIO_BUCKET_DXF_ORIGINAL` | `dxf-original` | 上传的非 DWG（如 `.dxf`）文件（仅 config.py -- 不在 `.env` 模板中） |
+| `MINIO_BUCKET_DXF_DERIVED` | `dxf-derived` | DWG→DXF 转换输出（仅 config.py -- 不在 `.env` 模板中） |
 
 Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MINIO_ROOT_USER`，将 `MINIO_ROOT_PASSWORD` 同时传递给 `MINIO_SECRET_KEY` 和 `MINIO_ROOT_PASSWORD`。
 
@@ -491,6 +501,7 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 | `JWT_ALGORITHM` | `HS256` | JWT 签名算法 |
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | 访问令牌 TTL |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `14` | 刷新令牌 TTL |
+| `REFRESH_COOKIE_SECURE` | （未设置 → 自动） | `dwg_refresh_token` cookie 的 Secure 标志。未设置 = 自动（仅当 `APP_ENV=production` 时为 Secure）。HTTP-only 内网部署设为 `false`，避免浏览器丢弃该 cookie 而导致刷新流程静默失效。两份 `.env` 模板中均已注释掉。通过 `refresh_cookie_secure_enabled` 属性解析。 |
 
 ### 5.7 超级管理员引导
 
@@ -506,13 +517,32 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 
 | 变量 | 默认值 | 效果 |
 |---|---|---|
-| `AGENT_ENABLED` | `false` | 为 false 时，`/api/v1/agent-runs/*` 返回 503 |
-| `DXF_PIPELINE_ENABLED` | `false` | 为 false 时，DXF 解析端点返回 503 |
-| `CAD_WORKER_ENABLED` | `false` | 为 false 时，CAD Worker 端点返回 503 |
+| `AGENT_ENABLED` | `false` | 为 false 时，全部四个 agent 端点（`POST /api/v1/agent-runs`、`GET /api/v1/agent-runs/{id}`、`GET /api/v1/agent-runs/{id}/steps`、`GET /api/v1/agent-tools`）返回 503 `AGENT_DISABLED` |
+| `DXF_PIPELINE_ENABLED` | `false` | 为 false 时，`task_type=convert_dwg_to_dxf` 的 `POST /api/v1/jobs` 返回 503 `DXF_PIPELINE_DISABLED` |
+| `DXF2DWG_PIPELINE_ENABLED` | `false` | 为 false 时，`task_type=convert_dxf_to_dwg` 的 `POST /api/v1/jobs` 返回 503 `DXF2DWG_PIPELINE_DISABLED` |
+| `DXF2EXCEL_PIPELINE_ENABLED` | `false` | 为 false 时，`task_type=extract_dxf_to_excel` 的 `POST /api/v1/jobs` 返回 503 `DXF2EXCEL_PIPELINE_DISABLED` |
+| `CAD_WORKER_ENABLED` | `false` | 在 `GET /api/v1/system/health` 的 features 中呈现；**不**直接拦截任何 HTTP 端点（在 worker/管线层强制） |
 
-这三个开关在阶段一中均为 `false`。它们按 Python 布尔值解析（`true`/`false`，不区分大小写）。
+这五个开关默认均为 `false`。它们按 Python 布尔值解析（`true`/`false`，不区分大小写）。仅 `AGENT_ENABLED`、`DXF_PIPELINE_ENABLED` 和 `CAD_WORKER_ENABLED` 出现在 `.env` 模板中；`DXF2DWG_PIPELINE_ENABLED` 和 `DXF2EXCEL_PIPELINE_ENABLED` 仅定义于 `config.py` -- 需手动添加以覆盖默认值。
 
-### 5.9 LLM（阶段二）
+### 5.9 ODA 转换器（DWG↔DXF 引擎）
+
+以下参数驱动 DWG→DXF 和 DXF→DWG 管线所用的 ODA File Converter 子进程。**它们均不出现在 `.env` 模板中** -- 除非显式设置，否则按下方 `config.py` 默认值运行。后端 Dockerfile 会将 ODA AppImage 内置进镜像的 `/app/oda`，并通过 `ENV` 设置 `ODA_HOME`。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ODA_CONVERTER_VERSION` | `ACAD2018` | DWG→DXF 输出 CAD 版本 |
+| `ODA_CONVERTER_AUDIT` | `true` | 对 DWG→DXF 执行 ODA 审计 |
+| `ODA_CONVERTER_TIMEOUT` | `300` | DWG→DXF 转换超时（秒） |
+| `ODA_CONVERTER_RETRIES` | `1` | DWG→DXF 重试次数 |
+| `ODA_XVFB_RUN` | `true` | 用 `xvfb-run` 包装 ODA（无头 X） |
+| `DXF2DWG_CONVERTER_VERSION` | `ACAD2018` | DXF→DWG 输出 CAD 版本 |
+| `DXF2DWG_CONVERTER_AUDIT` | `true` | 对 DXF→DWG 执行 ODA 审计 |
+| `DXF2DWG_CONVERTER_TIMEOUT` | `300` | DXF→DWG 转换超时（秒） |
+| `DXF2DWG_CONVERTER_RETRIES` | `1` | DXF→DWG 重试次数 |
+| `ODA_HOME` | （空） | ODA 安装路径；`check_env.py` 优先读取 `$ODA_HOME`。Dockerfile 设为 `ODA_HOME=/app/oda` |
+
+### 5.10 LLM（阶段二）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -520,21 +550,21 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 | `MODEL_API_KEY` | （空） | LLM 提供商的 API 密钥 |
 | `MODEL_BASE_URL` | `https://api.deepseek.com` | LLM API 基础 URL |
 
-### 5.10 MCP（阶段二）
+### 5.11 MCP（阶段二）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MCP_CAD_COMMAND` | `uvx` | MCP 客户端命令 |
 | `MCP_CAD_ARGS` | `cad-mcp-server,stdio` | MCP 客户端参数 |
 
-### 5.11 CAD Worker（阶段四）
+### 5.12 CAD Worker（阶段四）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `CAD_WORKER_API_BASE` | `http://cad-worker.internal:8080` | Windows CAD Worker 端点 |
 | `CAD_WORKER_API_KEY` | （空） | CAD Worker 认证密钥 |
 
-### 5.12 前端
+### 5.13 前端
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -556,7 +586,10 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 | `check_port <port> <label>` | 报告端口状态（健康检查聚合） |
 | `kill_by_pidfile <pidfile> <label>` | 通过 PID 文件终止进程 |
 | `pidfile_running <pidfile>` | 检查一个 PID 文件是否指向一个存活的进程 |
-| `start_report_worker` | 启动本地 Celery `worker-report` 并写入 `/tmp/dwg-agent-worker-report.pid` |
+| `start_report_worker` | 启动本地 Celery `worker-report`（`-Q report --concurrency=1`），PID `/tmp/dwg-agent-worker-report.pid` |
+| `start_dxf_worker` | 启动本地 Celery `worker-dxf`（`-Q dxf --concurrency=2`），PID `/tmp/dwg-agent-worker-dxf.pid` |
+| `start_dxf2dwg_worker` | 启动本地 Celery `worker-dxf2dwg`（`-Q dxf2dwg --concurrency=2`），PID `/tmp/dwg-agent-worker-dxf2dwg.pid` |
+| `start_dxf2excel_worker` | 启动本地 Celery `worker-dxf2excel`（`-Q dxf2excel --concurrency=1`），PID `/tmp/dwg-agent-worker-dxf2excel.pid` |
 | `wait_port <host> <port> <timeout> <label>` | 阻塞等待端口接受连接 |
 | `ensure_service <port> <name...>` | 如果端口未在监听，则启动 systemd 服务 |
 | `ok` / `warn` / `err` / `info` / `step` | 带颜色的控制台输出 |
@@ -592,8 +625,8 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 用法: bash scripts/start-dev.sh
 ```
 
-- 启动 MySQL + Redis，初始化数据库，启动本地 Celery `worker-report`、后端（`uvicorn --reload` 监听 `:8000`）和前端（Vite HMR 监听 `:5173`）。
-- 将 PID 文件写入 `/tmp/dwg-agent-worker-report.pid`、`/tmp/dwg-agent-backend.pid` 和 `/tmp/dwg-agent-frontend.pid`。
+- 启动 MySQL + Redis，初始化数据库，启动全部四个本地 Celery worker（`worker-report`、`worker-dxf`、`worker-dxf2dwg`、`worker-dxf2excel`）、后端（`uvicorn --reload` 监听 `:8000`）和前端（Vite HMR 监听 `:5173`）。
+- 将 PID 文件写入 `/tmp/dwg-agent-worker-report.pid`、`/tmp/dwg-agent-worker-dxf.pid`、`/tmp/dwg-agent-worker-dxf2dwg.pid`、`/tmp/dwg-agent-worker-dxf2excel.pid`、`/tmp/dwg-agent-backend.pid` 和 `/tmp/dwg-agent-frontend.pid`。
 - 自动检测 `VITE_API_BASE_URL` 是否为空（Nginx 模式），并临时将其设置为 `http://127.0.0.1:8000` 以直接访问后端。
 - 阻塞等待直到 Ctrl+C（使用 `wait`），然后打印停止说明。
 
@@ -630,8 +663,8 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 1. MySQL 状态（通过 `db.sh status`）
 2. Redis 端口 6379
 3. Celery worker-report PID
-3. 后端端口 8000 + `GET /health` 端点
-4. Nginx 端口 8080 + API 反向代理 + SPA 静态文件服务
+4. 后端端口 8000 + `GET /health` 端点
+5. Nginx 端口 8080 + API 反向代理 + SPA 静态文件服务
 
 打印带颜色编码的摘要，显示"全部正常"或"部分失败"及恢复提示。
 
@@ -679,7 +712,7 @@ Nginx 通过 `depends_on` `backend-api` 并设置 `condition: service_healthy`�
 后端 Dockerfile 内置了面向容器运行时的 HEALTHCHECK 指令：
 
 ```dockerfile
-HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
+HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
     CMD curl -f http://localhost:8000/health || exit 1
 ```
 
@@ -858,7 +891,7 @@ bash scripts/db.sh migration-test
 
 ### 8.9 Agent 端点返回 503
 
-这是**阶段一的预期行为**。功能开关 `AGENT_ENABLED=false` 导致所有 `/api/v1/agent-runs/*` 端点返回 503，附带消息"Agent subsystem not yet available."（Agent 子系统尚未可用）。DXF 管道和 CAD Worker 端点与其各自的功能开关同理。
+这是**阶段一的预期行为**。功能开关 `AGENT_ENABLED=false` 导致所有 `/api/v1/agent-runs/*` 端点返回 503（错误码 `AGENT_DISABLED`），附带消息"Agent subsystem is intentionally disabled in stage 1."（Agent 子系统在阶段一被有意禁用）。DXF 管道和 CAD Worker 端点与其各自的功能开关同理。
 
 ### 8.10 Redis 不可用（本地开发）
 
@@ -975,7 +1008,7 @@ tar czf storage_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C backend var/storage
 | 组件 | 状态 | 行为 | 计划阶段 |
 |---|---|---|---|
 | **Agent 子系统** | 功能开关关闭 | `/api/v1/agent-runs/*` 返回 503 | 阶段二 |
-| **DXF 管道** | 功能开关关闭 | DXF 解析端点返回 503 | 阶段二 |
+| **DXF 管道** | 功能开关关闭 | `POST /api/v1/jobs` 的 DWG↔DXF / DXF→Excel 转换任务返回 503 | 阶段三 |
 | **CAD Worker** | 功能开关关闭 | CAD Worker 端点返回 503 | 阶段四 |
 | **Agent/DXF Celery Worker** | 仅 Compose profile | `worker-agent` 和 `worker-dxf` 可以启动，但具体任务体被推迟 | 阶段二/三 |
 | **MinIO（对象存储）** | Docker 默认启用 | 当 `STORAGE_BACKEND=minio` 时后端使用 MinIO；本地开发仍默认使用本地文件系统 | 部署已完成 |
@@ -988,16 +1021,16 @@ tar czf storage_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C backend var/storage
 
 ### 阶段一中正在运行且已验证的功能：
 
-- 完整的 RESTful API，涵盖 `/api/v1` 下的 11 个路由模块
+- 完整的 RESTful API，涵盖 `/api/v1` 下的 12 个路由模块
 - RBAC 包含 7 个角色、权限和用户-角色映射
 - JWT 认证（访问令牌 + 刷新令牌）
 - 通过存储后端进行文件上传/下载（本地开发用 local，Docker 中用 MinIO）
 - Celery `worker-report` 模拟任务，演示队列 → 运行中 → 成功的作业流程
 - 项目、图纸、文件和作业的增删改查操作
 - 审计日志（所有变更操作均被记录）
-- 数据库迁移（Alembic，3 个版本，17 张表）
+- 数据库迁移（Alembic，4 个版本，17 张表）
 - 引导超级管理员种子数据
-- 432 条测试通过（pytest + FakeRedis；当 Redis 可用时运行真实 Redis 测试）
+- 约 599 条测试通过（pytest + FakeRedis；当 Redis 可用时运行真实 Redis 测试）
 - Docker Compose 部署，包含 9 个服务
 - Nginx 网关，具备速率限制、安全头和 SPA 回退功能
 

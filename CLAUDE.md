@@ -69,7 +69,7 @@ complete_framework/
 │       ├── stores/                ← Zustand (auth.store.ts)
 │       └── types/                 ← TypeScript type definitions
 │
-├── docs/                          ← 7 handover docs: architecture, api, database, deployment, development, security, roadmap
+├── docs/                          ← 8 handover docs (architecture, api, database, deployment, development, security, roadmap, workflow-verification) + README index; Chinese mirror under docs/zh/
 ├── infra/                         ← deploy config (nginx, mysql/init.sql, redis/redis.conf, minio/) + verify.sh
 ├── agents/                        ← PLACEHOLDER for future Agent definitions
 ├── cad-worker/                    ← PLACEHOLDER for Windows C# CAD Worker
@@ -192,6 +192,8 @@ uv run pytest -q              # must pass (432 tests expected)
 | Development guide | `docs/development.md` |
 | Security architecture | `docs/security.md` |
 | Roadmap (Stage 1-6) | `docs/roadmap.md` |
+| Workflow verification | `docs/workflow-verification.md` |
+| Docs index (EN/ZH) | `docs/README.md` / `docs/zh/README.md` |
 | Backend config | `backend/app/core/config.py` |
 | Alembic migrations | `backend/migrations/versions/` (3 versions) |
 | FastAPI entry | `backend/app/main.py` |

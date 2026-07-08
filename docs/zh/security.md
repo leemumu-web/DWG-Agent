@@ -1,7 +1,7 @@
 # DWG-Agent 平台 -- 安全架构
 
 > **目标读者：** 安全审计人员、平台运维人员、私有化部署工程师
-> **最后更新：** 2026-07-03
+> **最后更新：** 2026-07-08
 > **范围：** 身份认证、RBAC、API 安全、文件安全、渗透测试修复、部署清单、审计日志覆盖范围
 
 ---
@@ -27,7 +27,7 @@ POST /api/v1/auth/sessions
    - 这消除了时序侧信道（此前拒绝不存在用户的响应速度快 40 倍）。参见渗透测试发现 H1。
 3. **成功后颁发令牌：**
    - **访问令牌：** JWT HS256，`sub` = 用户 ID，`jti` = 随机 UUID4，`type` = `"access"`，有效期 = 30 分钟。在 JSON 响应体中返回。
-   - **刷新令牌：** JWT HS256，`sub` = 用户 ID，`jti` = 随机 UUID4，`type` = `"refresh"`，有效期 = 14 天。以 `HttpOnly; SameSite=Lax` Cookie 设置在 `/api/v1/auth` 路径上。`Secure` 标志仅在 `APP_ENV=production` 时设置（开发模式下不设置）。
+   - **刷新令牌：** JWT HS256，`sub` = 用户 ID，`jti` = 随机 UUID4，`type` = `"refresh"`，有效期 = 14 天。以 `HttpOnly; SameSite=Lax` Cookie 形式设置，Cookie 名为 `dwg_refresh_token`，作用域限定在 `/api/v1/auth` 路径，`max_age` = 14 天。`Secure` 标志由 `refresh_cookie_secure_enabled` 解析：默认在 `APP_ENV=production` 时开启、否则关闭，但当显式设置 `REFRESH_COOKIE_SECURE` 时即与 `APP_ENV` **解耦**。仅 HTTP 的内网/VPN 部署即使处于生产环境也可设置 `REFRESH_COOKIE_SECURE=false`，以免浏览器静默丢弃该 Cookie 从而破坏令牌刷新；切勿在面向公网的 TLS 前端设置为 `false`（14 天的刷新令牌不得以明文传输）。
 4. **登录响应** 包含 `access_token`、`token_type`（"Bearer"）、`expires_in`（1800 秒）以及摘要用户对象。
 
 ### 1.2 令牌结构
@@ -56,8 +56,8 @@ POST /api/v1/auth/sessions
 POST /api/v1/auth/tokens/refresh
 ```
 
-- 刷新令牌从 `refresh_token` Cookie 中读取。
-- 颁发新的访问令牌。刷新令牌本身**不会被轮换**（参见第 5.3 节，剩余缺陷）。
+- 刷新令牌从 `dwg_refresh_token` HttpOnly Cookie 中读取（该端点没有 `Authorization: Bearer` 依赖）。Cookie 缺失/无效或令牌 `type` 非 `refresh` 时返回 401 `INVALID_TOKEN`；`jti` 被列入黑名单时返回 401 `TOKEN_REVOKED`；用户不活跃/不存在时返回 401 `USER_NOT_ACTIVE`；令牌在最后一次密码修改之前签发时返回 401 `TOKEN_REVOKED (password changed)`。
+- 颁发新的访问令牌。刷新令牌本身**不会被轮换**（参见第 5.3 节，剩余缺陷）。令牌刷新**不会**写入审计日志。
 
 ### 1.4 登出
 
@@ -66,7 +66,7 @@ DELETE /api/v1/auth/sessions/current
 ```
 
 - 提取访问令牌的 `jti` 并存入 Redis，TTL = 令牌剩余有效期（`exp - now`）。
-- 刷新令牌的 `jti` 同样被加入黑名单。
+- 刷新令牌（当存在时，从 `dwg_refresh_token` Cookie 中读取）的 `jti` 同样被加入黑名单，并清除该 Cookie。
 - Redis 键遵循 `blacklist:jti:{jti}` 模式 -- 它们在 TTL 到期后自动过期，无需清理作业。
 - 如果 Redis 不可用，黑名单操作将被静默跳过（降级模式，记录警告日志）。
 
@@ -252,9 +252,9 @@ sys_users  ──< sys_user_roles  >── sys_roles  ──< sys_role_permissio
 ### 3.1 认证强制
 
 - **所有业务端点均需要 `current_user: CurrentUser`** -- 没有任何端点接受 `= None` 作为默认值。
-- 唯一不需要认证的端点是 `POST /auth/sessions`（登录）、`POST /auth/tokens/refresh` 和 `GET /health`。
+- 唯一不需要认证的（"public"）端点是 `POST /auth/sessions`（登录）、`POST /auth/tokens/refresh`（通过 HttpOnly 刷新 Cookie 校验，而非 Bearer 令牌）以及根路径 `GET /health`。
 - `OAuth2PasswordBearer` 自动提取 `Authorization: Bearer <token>` 请求头。
-- WebSocket 和 SSE 端点（用于作业事件）同样在连接时验证令牌。
+- **SSE 认证：** 作业事件流 `GET /api/v1/jobs/{job_id}/events` 仍需有效的访问令牌，但通过 `?token=<jwt>` 查询参数接收令牌（`get_current_user_from_query` / `CurrentUserOrQuery`），因为 `EventSource` 无法设置请求头。当存在 `Authorization: Bearer` 请求头时仍优先使用。系统中不存在 WebSocket 端点。
 
 ### 3.2 CORS 策略
 
@@ -303,6 +303,11 @@ allow_headers = ["Authorization", "Content-Type"]
 - **状态转换：** `transition_user_status()` 使用 `UPDATE ... WHERE` 并检查 rowcount -- 不存在 SELECT 后 UPDATE 的时间间隙。
 - **`FOR UPDATE`：** 可通过 `get_user_or_404(for_update=True)` 在需要时使用悲观锁。
 
+### 3.7 API 文档暴露（BUG-21）
+
+- 交互式文档与 schema 端点（`/docs`、`/redoc`、`/openapi.json`）**仅**在 `app_env == "development"` **或** `debug` 为真时挂载。在类生产部署中，三者均被设置为 `None`，因此 FastAPI 应用对它们返回 404 -- 这可防止未授权的 API 面探测（渗透测试发现 BUG-21）。
+- **请求 ID 中间件：** `add_request_id` 读取入站的 `X-Request-ID` 请求头或生成 `req_<uuid4 hex>`，将其存储在 `request.state.request_id` 上，在 `X-Request-ID` 响应头中回显，并包含在每个响应信封的 `meta.request_id` 中。
+
 ---
 
 ## 4. 文件安全措施
@@ -312,12 +317,13 @@ allow_headers = ["Authorization", "Content-Type"]
 每个文件上传按顺序经过以下流水线：
 
 ```
-1. 扩展名白名单    → 仅 .dwg（ALLOWED_UPLOAD_EXTENSIONS = {".dwg"}）
-2. MIME 类型检查   → 8 种可接受的 DWG 相关 MIME 类型（application/acad, application/dwg 等）
-3. DWG 文件头验证  → 前 6 个字节必须匹配 AC1012-AC1032（AutoCAD R13 至 2018+）
-4. 大小限制        → 最大值：max_upload_size_mb（默认 512 MiB），最小值：1024 字节
-5. 流式哈希        → 分块读取时计算 SHA-256 + MD5
-6. 临时缓冲清理    → SpooledTemporaryFile 在使用后自动清理内存/OS 缓冲区。然而，若存储后端写入（`put_fileobj`）在中途失败，存储后端（如 MinIO 或本地文件系统）中可能会遗留部分不完整的文件 -- 应用层不会尝试从后端移除已部分写入的文件。
+1. 扩展名白名单    → ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip"}；其它一律 → 415 FILE_TYPE_NOT_ALLOWED（details 中返回允许列表）
+2. MIME 类型检查   → 仅作提示性建议 —— 一组 DWG 相关 MIME 类型加二进制回退类型；从不拦截（DWG 文件头才是真正的边界）
+3. DWG 文件头验证  → 仅针对 .dwg 上传：前 6 个字节必须匹配 AC1012-AC1032（AutoCAD R13 至 2018+）→ 415 FILE_NOT_DWG。.dxf/.zip 跳过此步（ZIP 按条目逐个校验，参见 4.6）
+4. 大小限制        → 最大值：max_upload_size_mb（默认 512 MiB），适用于所有上传 → 413 FILE_TOO_LARGE。最小值：1024 字节（MIN_DWG_SIZE_BYTES）仅对 .dwg 强制 → 415 FILE_NOT_DWG
+5. 文件名净化      → sanitize_filename() 进行 NFKC 归一化，剥离路径分隔符/".."/控制字符，去除前导点/短横线与尾部点/空格，截断至 200 字符，回退为 "unnamed"
+6. 流式哈希        → 以 1 MiB 分块读入 16 MiB 的 SpooledTemporaryFile 时计算 SHA-256 + MD5
+7. 临时缓冲清理    → SpooledTemporaryFile 在使用后自动清理内存/OS 缓冲区。然而，若存储后端写入（`put_fileobj`）在中途失败，存储后端（如 MinIO 或本地文件系统）中可能会遗留部分不完整的文件 -- 应用层不会尝试从后端移除已部分写入的文件。
 ```
 
 ### 4.2 支持的 DWG 版本
@@ -354,11 +360,28 @@ allow_headers = ["Authorization", "Content-Type"]
 - **MD5：** 次要哈希，用于遗留兼容性，存储于 `files.md5`。
 - 两者均在流式上传过程中计算（对文件数据单次遍历）。
 
+### 4.6 ZIP 上传防护（`POST /api/v1/files/upload-zip`）
+
+批量 DWG/DXF 上传以 `.zip` 形式到达；解压过程针对 zip 炸弹和路径穿越攻击进行了防护：
+
+| 防护 | 限制 / 规则 | 违规 |
+|---|---|---|
+| 归档类型 | 文件名必须以 `.zip` 结尾并通过扩展名白名单；必须是有效的 ZIP | 415 `FILE_NOT_ZIP` |
+| 损坏检测 | `zf.testzip()` 必须返回 `None` | 415 `ZIP_CORRUPTED` |
+| 上传缓冲 | 流式字节数 ≤ `max_upload_size_mb`（512 MiB） | 413 `FILE_TOO_LARGE` |
+| 条目数量 | ≤ `max_zip_entry_count`（**1000**） | 413 `ZIP_TOO_MANY_FILES` |
+| 解压后大小 | 累计解压字节数 ≤ `max_zip_extract_mb`（**2048 MiB**）—— 核心 zip 炸弹防护 | 413 `ZIP_TOO_LARGE` |
+| 路径穿越 | 每个条目名称被缩减为其 basename 并通过 `sanitize_filename` 处理（剥离目录组件） | （静默净化） |
+| 逐条目过滤 | 条目扩展名必须等于目标 `file_ext`（`.dwg`/`.dxf`）；不匹配的条目被跳过；`.dwg` 条目经文件头验证，失败则跳过 | （跳过并计数） |
+| 空结果 | 至少必须解压出或跳过一个文件 | 422 `ZIP_EMPTY` |
+
+两个大小上限（`MAX_ZIP_EXTRACT_MB`、`MAX_ZIP_ENTRY_COUNT`）仅存在于 `core/config.py`，在两个 `.env` 模板中均**不**存在，因此除非手动添加，否则以默认值运行。
+
 ---
 
 ## 5. 渗透测试发现处置
 
-### 5.1 已修复（18 项中的 12 项）
+### 5.1 已修复（16 项）
 
 | ID | 发现 | 严重程度 | 修复方案 | 文件 |
 |---|---|---|---|---|
@@ -370,19 +393,21 @@ allow_headers = ["Authorization", "Content-Type"]
 | BUG-4 | 健康检查端点信息泄露 -- 数据库状态、版本 | **低危** | 简化为 `{"data": {"status": "ok"}}`。 | `app/main.py` |
 | BUG-5 | DWG 大小验证过小 -- 接受小于 1024 字节的文件 | **中危** | 上传后强制 `MIN_DWG_SIZE_BYTES = 1024`，结合文件头验证。 | `app/services/storage_service.py` |
 | BUG-6 | 竞态条件导致 500 错误并泄露堆栈跟踪 | **中危** | 捕获 `IntegrityError` 并转换为 409。兜底 `Exception` 处理器在生产环境返回 `"Internal server error."`。 | `app/services/user_service.py`、`app/main.py` |
-| BUG-7 | 软删除级联 -- 已删除项目仍在文件列表中可见 | **中危** | 在 `require_project_member()` 中添加 `require_active_project()` 检查。文件列表按项目成员身份过滤。 | `app/api/deps.py` |
+| BUG-7 | 软删除级联 -- 已删除项目仍在文件列表中可见 | **中危** | 在 `require_project_member()` 中添加 `require_active_project()` 检查。当文件关联的所有项目均被软删除时，该文件被视为未找到。 | `app/api/deps.py`、`app/api/v1/files_api.py` |
 | BUG-8 | `task_type` 字段未验证 -- 接受任意字符串 | **低危** | 模式约束 `^[a-z][a-z0-9_]+$`。 | `app/schemas/job_schema.py` |
 | BUG-9 | 无状态保护的重试 -- 任何作业都可被重试 | **中危** | 仅 `failed` 或 `cancelled` 状态的作业可重试。 | `app/services/job_service.py` |
 | BUG-12 | 用户无自助更新端点 | **低危** | 新增 `PATCH /users/me`，使用 `UserSelfUpdate` schema（不允许更改状态）。 | `app/api/v1/users_api.py` |
+| BUG-13 | `sort_by` 查询参数未验证 -- SQL 注入 / 列枚举 | **高危** | `validate_sort_by()` 按资源对可排序列进行白名单校验；未知列 → 422 `INVALID_SORT_COLUMN`，未知资源 → 422 `INVALID_SORT_RESOURCE`。 | `app/core/validators.py`、`app/api/v1/projects_api.py` |
+| BUG-14 | `status` 过滤参数未验证 | **中危** | 状态过滤值针对允许集合进行校验（422 `INVALID_STATUS_FILTER`）。 | `app/api/v1/projects_api.py` |
+| BUG-19 | 管理员重置密码未吊销目标用户的活跃会话 | **中危** | 管理员发起的密码重置现在会记录密码修改时间戳，从而吊销目标用户现有的访问/刷新令牌。 | `app/api/v1/users_api.py` |
+| BUG-21 | 生产环境暴露交互式 API 文档/schema | **低危** | 除非 `app_env == "development"` 或 `debug` 开启，否则将 `/docs`、`/redoc`、`/openapi.json` 设置为 `None`。 | `app/main.py` |
 
-### 5.2 按设计不修复（18 项中的 6 项）
+### 5.2 按设计不修复（4 项）
 
 | ID | 发现 | 理由 |
 |---|---|---|
 | BUG-10 | 纳秒级 TOCTOU 时间窗口 | 实际风险可忽略 -- 在 Web 应用场景中该窗口太小，无法可靠利用。不值得引入应用级可序列化事务的复杂度。 |
 | BUG-11 | 根本原因不明，无法复现 | 多次尝试后无法复现。无遥测数据可供诊断。已归档供生产环境监控。 |
-| BUG-13 | 当前 API 中不存在该参数 | 发现中引用的参数在任何已部署的 API 端点中均不存在。该发现可能针对的是过时/预发布版本。 |
-| BUG-14 | 当前 API 中不存在该参数 | 同 BUG-13。 |
 | C1 | JWT 密钥强度 | 部署层面的问题，非代码问题。生产部署必须使用密码学安全的随机密钥（参见清单 6.1）。 |
 | C2 | 端口 8000 暴露 | 基础设施层面的问题。Docker Compose 将 backend-api 仅放置在 `internal` 网络上。Nginx 是面向公网的服务，监听 80/443 端口。若不使用 Docker 部署，请遵循清单（第 6.5 节）。 |
 
@@ -423,7 +448,7 @@ allow_headers = ["Authorization", "Content-Type"]
 
 - [ ] 获取 TLS 证书（Let's Encrypt 或内部 CA）。
 - [ ] 在 Nginx 中配置 `ssl_certificate` 和 `ssl_certificate_key`。
-- [ ] 在 Cookie 上设置 `secure` 标志（`refresh_token` Cookie 的代码中已包含）。
+- [ ] 在 Cookie 上设置 `secure` 标志（由 `refresh_cookie_secure_enabled` 为 `dwg_refresh_token` Cookie 解析；参见第 1.1 节）。
 - [ ] 在 Nginx 中设置 HSTS 头部。
 
 ### 6.4 应用加固
@@ -465,9 +490,9 @@ allow_headers = ["Authorization", "Content-Type"]
 audit_logs
 ├── id              BIGINT 主键
 ├── actor_user_id   BIGINT 外键 → sys_users.id（可为空 -- 用于系统操作）
-├── action          VARCHAR(128)    例如 "user.create"、"file.upload"、"auth.logout"
-├── resource_type   VARCHAR(64)     例如 "user"、"project"、"file"、"job"、"result"
-├── resource_id     BIGINT          受影响资源的 ID
+├── action          VARCHAR(128)    例如 "users.create"、"files.upload"、"auth.logout"
+├── resource_type   VARCHAR(64)     例如 "user"、"project"、"project_member"、"file"、"drawing"、"job"、"role"、"result"、"agent_run"
+├── resource_id     BIGINT          受影响资源的 ID（一个建立索引的普通指针，并非真正的外键）
 ├── ip_address      VARCHAR(64)     请求中的客户端 IP
 ├── user_agent      VARCHAR(512)    User-Agent 请求头
 ├── before_json     JSON            操作前的资源状态（用于更新/删除）
@@ -499,10 +524,15 @@ audit_logs
 | `project_members.create` | project | 项目所有者向项目添加成员 |
 | `project_members.update` | project_member | 项目所有者更改成员的项目角色 |
 | `project_members.delete` | project_member | 项目所有者从项目中移除成员 |
-| `files.upload` | file | 用户上传 DWG 文件 |
+| `files.upload` | file | 用户上传单个 DWG/DXF 文件 |
+| `files.upload_zip` | file | 用户上传 ZIP；匹配的条目被批量解压 |
 | `files.delete` | file | 用户删除文件 |
+| `files.bulk_delete` | file | 用户批量软删除一组文件 |
+| `files.batch_delete` | file | 用户软删除一个批次中的所有文件 |
 | `files.download_url` | file | 用户请求签名下载 URL |
 | `files.download` | file | 用户通过签名 URL 下载文件 |
+| `files.download_zip` | file | 用户将所选文件下载为 ZIP |
+| `files.batch_download_zip` | file | 用户将整个批次下载为 ZIP |
 | `drawings.create` | drawing | 用户创建图纸 |
 | `drawings.update` | drawing | 用户修改图纸元数据 |
 | `drawings.delete` | drawing | 用户归档图纸 |
@@ -510,8 +540,11 @@ audit_logs
 | `jobs.create` | job | 用户提交处理作业 |
 | `jobs.cancel` | job | 用户取消作业 |
 | `jobs.retry` | job | 用户重试失败/已取消的作业 |
+| `jobs.cancel_all` | job | 管理员取消所有活跃作业（`POST /jobs/cancel-all-active`） |
 | `agent_runs.create` | agent_run | 用户创建 Agent 运行 |
 | `reviews.create` | result | 审核员批准或拒绝分析结果 |
+
+**不记录审计：** 令牌刷新（`POST /auth/tokens/refresh`）、`GET /me` 以及读取/列表（GET）端点通常不写入审计记录。
 
 ### 7.3 审计日志的访问控制
 

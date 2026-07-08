@@ -1,7 +1,7 @@
 # DWG-Agent 平台路线图
 
 > 产品负责人与集成工程师视角的六阶段交付计划。
-> 当前阶段：**阶段1已完成，阶段2为下一阶段。**
+> 当前阶段：**阶段1已完成。阶段3的转换管线（DWG→DXF、DXF→DWG、DXF→Excel）已实现，但默认通过功能开关关闭；阶段2的Agent子系统仍为受开关控制的存根，是下一个待激活目标。**
 > 规范依据：`DWG-Agent企业平台技术规范.md` 第11-15节、第23节。
 
 ---
@@ -10,12 +10,12 @@
 
 | 阶段 | 名称 | 状态 | 核心交付物 | 依赖项 | 预估工时 |
 |-------|------|--------|------------------|--------------|-------------|
-| **1** | 平台骨架 | **已完成** | 认证、RBAC、项目、文件上传、作业生命周期、审计、64个API端点、432个测试、React前端（10个页面）、MinIO/Celery部署基础 | 无 | 已完成 |
-| **2** | Agent子系统 | **下一阶段** | LangGraph `create_react_agent`、DeepSeek LLM、MCP客户端、Redis会话记忆、Agent Celery任务体、`/api/v1/agent-runs` 上线、AgentSteps界面 | 阶段1 | 2-3周 |
-| **3** | DXF管线 | 计划中 | DWG转换器抽象层、ezdxf解析Worker、entities.json提取、结构化结果展示、低置信度复核 | 阶段2（用于Agent工具集成） | 2-3周 |
-| **4** | Windows CAD工作节点 | 计划中 | ASP.NET Core Worker Service、ZWCAD API集成、拉取式任务分发、cad_result.json导出、CAD崩溃恢复 | 阶段1（内部API）、阶段2（用于分发工具） | 3-4周 |
-| **5** | 业务算法 | 计划中 | LaR左右进标注、构件表比对、材料表提取、Excel/PDF/ZIP报告、批量任务、复核闭环 | 阶段3、阶段4 | 4-6周 |
-| **6** | 生产环境加固 | 计划中 | RabbitMQ（可选）、Prometheus/Grafana、Loki、备份/恢复、CI/CD、多CAD工作节点扩展、速率限制、令牌黑名单中间件 | 阶段5 | 持续进行 |
+| **1** | 平台骨架 | **已完成** | 认证、RBAC、项目、文件上传/批次/zip、作业生命周期、审计、12个模块共73个API端点（+ 根路径 `GET /health`）、432个测试、React前端（10个页面）、MinIO/Celery部署基础 | 无 | 已完成 |
+| **2** | Agent子系统 | **下一阶段**（存根） | LangGraph `create_react_agent`、DeepSeek LLM、MCP客户端、Redis会话记忆、Agent Celery任务体、`/api/v1/agent-runs` 上线、AgentSteps界面 | 阶段1 | 2-3周 |
+| **3** | DXF管线 | **已实现**（功能开关关闭） | 通过ODA File Converter实现DWG→DXF与DXF→DWG转换、批量DXF→Excel材料表提取；真实的 `dxf`/`dxf2dwg`/`dxf2excel` Celery worker + `job_steps` + `AnalysisResult`；`GET /system/health/oda` | 无（独立于Agent） | 已完成（默认关闭） |
+| **4** | Windows CAD工作节点 | 计划中（存根） | ASP.NET Core Worker Service、ZWCAD API集成、拉取式任务分发、cad_result.json导出、CAD崩溃恢复 | 阶段1（内部API）、阶段2（用于分发工具） | 3-4周 |
+| **5** | 业务算法 | **部分完成** | 材料表提取（DXF→Excel）已在阶段3提前交付；复核闭环基础组件已上线（`review_service`、`/reviews`、`AnalysisResult`）；LaR标注、构件表比对、Excel/PDF/ZIP报告、批量编排仍待构建 | 阶段3、阶段4 | 4-6周 |
+| **6** | 生产环境加固 | **部分完成** | 令牌JTI黑名单 + 密码变更失效已交付；Celery队列卫生配置已就绪。剩余：RabbitMQ（可选）、Prometheus/Grafana、Loki、备份/恢复、CI/CD、多CAD工作节点扩展、速率限制 | 阶段5 | 持续进行 |
 
 ---
 
@@ -26,34 +26,35 @@
 | 组件 | 状态 | 详情 |
 |-----------|--------|---------|
 | Docker Compose | 配置就绪，尚未经过生产环境测试 | 9个服务（nginx、backend-api、worker-agent、worker-dxf、worker-report、mysql、redis、minio、flower）；worker-report为默认服务，Agent/DXF和监控使用profiles按需启动；`.env.docker.example` 模板 |
-| MySQL 8.x | 运行时数据库 | `DATABASE_URL=mysql+pymysql://...`；连接池：`pool_size=10, max_overflow=20, pool_recycle=3600`；WAL编译指令；`init.sql` 种子脚本 |
+| MySQL 8.x | 运行时数据库 | `DATABASE_URL=mysql+pymysql://...`；连接池（仅MySQL）：`pool_size=10, max_overflow=20, pool_recycle=3600` 以及 `pool_pre_ping=True`；`init.sql` 种子脚本。MySQL上不设置WAL/会话pragma——SQLite的 `foreign_keys=ON` pragma仅存在于 `tests/conftest.py` 中 |
 | Redis (Valkey) | 已部署并验证 | Systemd管理；`redis_client`（延迟初始化，不可用时无崩溃）、`redis_memory`、`cache_service` 均已测试；FakeRedis（通过conftest autouse进行419个非真实Redis测试）+ 真实Redis集成（13个测试）双层验证 |
 | MinIO | Docker存储后端就绪 | 三层抽象：`base.py` / `local_storage.py` / `minio_storage.py`；本地开发使用本地存储，Docker使用MinIO |
-| Celery | 阶段1伪任务就绪 | 真实Celery应用，Redis作为broker/result backend；`worker-report` 运行 `run_stub_job` 执行 queued→running→succeeded 流程 |
+| Celery | 存根任务 + 真实转换任务 | 真实Celery应用，Redis作为broker/result backend；`worker-report` 运行 `run_stub_job`（queued→running→succeeded）；`tasks_dxf`/`tasks_dxf2dwg`/`tasks_dxf2excel` 是委托给各自服务的真实转换任务体（功能开关关闭）；`tasks_agent`/`tasks_cad` 未注册任何任务（存根） |
 | Nginx | 生产环境 + 本地开发双配置 | `infra/nginx/nginx.conf`（Docker）、`infra/nginx/nginx.local.conf`（本地开发）；反向代理 `/api/v1/*` 到后端；SPA静态文件服务 |
-| Alembic | 3个迁移版本 | `40452ddd24e7_initial.py`（17张表）+ `b8f9e7d6c5a4_add_missing_timestamp_columns.py`（TimestampMixin修复）+ `c3d2e1f0a9b8_fix_audit_logs_resource_id_type.py`（resource_id类型修复）；`scripts/db.sh migration-test` 验证端到端流程 |
+| Alembic | 4个迁移版本 | `40452ddd24e7_initial.py`（17张表）→ `b8f9e7d6c5a4_add_missing_timestamp_columns.py`（TimestampMixin修复）→ `c3d2e1f0a9b8_fix_audit_logs_resource_id_type.py`（resource_id类型修复）→ `53cd59adf848_add_batch_name_to_files.py`（`files.batch_name` + 索引，用于DXF/Excel批量上传，当前head）；`scripts/db.sh migration-test` 验证端到端流程 |
 
-### 2.2 后端 -- 11个路由模块共64个API端点
+### 2.2 后端 -- 12个路由模块共73个API端点（+ 根路径 `GET /health`）
 
 | 模块 | 端点数 | 关键特性 |
 |--------|-----------|--------------|
 | **Auth**（认证）(5) | POST sessions、DELETE sessions/current、POST tokens/refresh、GET me、PATCH password | 使用JWT access token + HttpOnly refresh cookie进行登录/登出；登出时令牌黑名单；修改密码需验证旧密码 |
 | **Users**（用户）(11) | 完整CRUD + 角色管理 + 密码重置 + 禁用/启用 | 仅管理员可用；软删除；`super_admin` 保护（不可删除/禁用）；通过 `PATCH /users/me` 自行更新；用户名模式 `^[a-zA-Z0-9_.@-]+$`；密码最少12字符且需满足复杂度要求 |
-| **Roles**（角色）(4) | GET roles、POST roles、GET permissions、PUT permissions | 7个全局角色 + 4个项目角色；5张RBAC表；super_admin绕过所有检查 |
+| **Roles**（角色）(4) | GET roles、POST roles、GET permissions、PUT roles/{id}/permissions | 7个全局角色 + 4个项目角色；5张RBAC表；super_admin绕过所有检查；roles/permissions挂载时无额外前缀 |
 | **Projects**（项目）(9) | CRUD + 成员管理（4个项目角色） | 级联激活状态检查（`require_active_project`）；已删除项目 → 对所有成员返回404；创建者自动分配 `project_owner` |
-| **Files**（文件）(6) | 上传、列表、详情、删除、下载URL、下载 | DWG校验：文件头（AC1012-AC1032）、最小1024字节、扩展名白名单、SHA-256/MD5哈希；HMAC签名下载URL（TTL=300秒）；所有权 + 项目成员访问控制 |
-| **Drawings**（图纸）(8) | CRUD + 版本管理 + 预览 | 自动递增 `version_no`；项目范围隔离；阶段1中预览端点返回占位内容 |
-| **Jobs**（作业）(9) | 创建、取消、重试、步骤、日志、事件、结果 | 状态机：pending→queued→running→succeeded/failed/cancelled；取消/重试的状态守卫；阶段1存根worker使用Celery worker-report自动推进状态 |
-| **Results**（结果）(4) | 详情、下载URL、提交复核、复核历史 | `approved`/`rejected` 决策；置信度评分 |
-| **Reviews**（复核）(1) | 待处理列表 | 按项目成员身份过滤 |
-| **Audit**（审计）(2) | 列表（最近200条）、详情 | 仅super_admin + auditor可用；记录登录、用户管理、角色变更、文件操作、作业操作、复核操作 |
-| **Agent**（智能体）(4) | POST agent-runs、GET agent-runs/{id}、GET steps、GET tools | `AGENT_ENABLED=false` 时全部返回503；资源模型已建立，启用时无需前端改动 |
+| **Files**（文件）(13) | 上传（单个）、upload-zip、列表、批次、批次删除、批次下载zip、excel-preview、详情、删除、下载URL、下载、批量删除、下载zip | DWG校验：文件头（AC1012-AC1032）、最小1024字节、扩展名白名单 `{.dwg,.dxf,.zip}`、SHA-256/MD5哈希；zip炸弹防护（条目数 + 解压后大小上限）；HMAC签名下载URL（TTL=300秒）；通过 `batch_name` 进行批次分组（Redis缓存30秒）；通过openpyxl进行Excel预览（缓存5分钟）；所有权 + 项目成员访问控制 |
+| **Drawings**（图纸）(8) | CRUD + 版本管理 + 预览 | 自动递增 `version_no`；项目范围隔离；`GET /drawings/{id}/preview` 仍返回阶段1占位存根 |
+| **Jobs**（作业）(10) | 列表、创建、获取、取消、重试、步骤、日志、事件（SSE）、结果、cancel-all-active | 状态机：pending→queued→running→succeeded/failed/cancelled；取消/重试的状态守卫；`POST /jobs` 按 `task_type` 进行功能开关门控（503 `DXF_PIPELINE_DISABLED`/`DXF2DWG_PIPELINE_DISABLED`/`DXF2EXCEL_PIPELINE_DISABLED`）；`GET /jobs/{id}/events` 是真实的SSE流（Redis pub/sub，`?token=` 认证）；`GET /jobs/{id}/logs` 仍为存根；`POST /jobs/cancel-all-active` 仅管理员 |
+| **Results**（结果）(4) | 详情、下载URL、提交复核、复核历史 | `approved`/`rejected` 决策；置信度评分；复核历史列表不分页返回 |
+| **Reviews**（复核）(1) | 待处理列表 | `status=need_review` 的结果，按项目成员身份过滤 |
+| **Audit**（审计）(2) | 列表（最近200条）、详情 | 仅super_admin + auditor可用；记录登录、用户管理、角色变更、文件操作、作业操作、复核操作、agent运行创建 |
+| **Agent**（智能体）(4) | POST agent-runs、GET agent-runs/{id}、GET steps、GET tools | `AGENT_ENABLED=false`（默认）时全部返回503；资源模型已建立，启用时无需前端改动 |
+| **System**（系统）(2) | GET system/health、GET system/health/oda | `GET /system/health` 报告 `{redis, features{agent,dxf_pipeline,cad_worker}, storage_backend}`；`GET /system/health/oda` 报告ODA File Converter环境健康（`oda_found`、`oda_executable`、`ezdxf_available`） |
 
 ### 2.3 前端 -- React 19 + TypeScript + Vite
 
-- **10个页面：** 登录、仪表盘、项目、图纸、文件、作业、复核、管理（用户/角色/审计）、个人资料
-- **12个API客户端文件** 位于 `src/api/`（11个模块 + client.ts）
-- **8个共享组件：** FileUpload、TaskInput、AgentSteps、ResultPanel、DrawingPreview、JobTimeline、PermissionGuard、ReviewPanel（其中6个为阶段2+的存根组件，仅FileUpload和PermissionGuard有完整实现）
+- **约14个页面组件**，采用功能优先（feature-first）方式组织于 `src/features/*Page.tsx`（无 `src/pages/` 目录）：登录、仪表盘、项目、图纸、文件、作业、复核、管理、个人资料 —— 其中**文件**拆分为 `FilesLayout` 加 `dwg2dxf`/`dxf2dwg`/`dxf2excel` 子页面，**管理**拆分为 Users/Roles/AuditLogs（详见 `src/app/router.tsx`）
+- **13个API客户端文件** 位于 `src/api/`（12个模块 + client.ts）
+- **7个共享组件** 位于 `src/components/`，均已实现：ConversionPage、ExcelPreview、FileUpload、JobTimeline、PermissionGuard、ui、ZipDownloadModal（ConversionPage/ExcelPreview/ZipDownloadModal 驱动阶段3的转换界面）。阶段2+的组件（TaskInput、AgentSteps、ResultPanel、DrawingPreview、ReviewPanel）尚未创建，仍待构建 —— 见 §3.3.7。
 - **路由级认证守卫** 具备基于角色的访问控制
 - **SessionStorage** 令牌存储（非localStorage）
 - **npm ci + npm run build** 构建通过
@@ -81,14 +82,14 @@ pytest -q               →  432 passed, 0 failed
 | 限制项 | 解决阶段 |
 |------------|-----------------|
 | Docker Compose未经生产环境测试 | 阶段2（渐进加固） |
-| Agent/DXF/CAD工作节点的任务体为存根 | 阶段2-4 |
-| Agent对所有请求返回503 | 阶段2 |
-| 无DWG→DXF转换 | 阶段3 |
-| 无ZWCAD集成 | 阶段4 |
-| 无SSE事件流（端点已定义，返回占位内容） | 阶段2 |
+| Agent + Windows-CAD工作节点的任务体为存根（`tasks_agent`/`tasks_cad` 未注册任何任务） | 阶段2 / 阶段4 |
+| Agent对所有请求返回503（`AGENT_ENABLED=false`） | 阶段2 |
+| DWG↔DXF 与 DXF→Excel 转换已实现但默认关闭（`DXF_PIPELINE_ENABLED`/`DXF2DWG_PIPELINE_ENABLED`/`DXF2EXCEL_PIPELINE_ENABLED`） | 按env启用（需ODA二进制） |
+| 无ZWCAD高精度集成 | 阶段4 |
+| SSE作业事件流已上线（`GET /jobs/{id}/events`）；`GET /jobs/{id}/logs` 和 `GET /drawings/{id}/preview` 仍返回占位存根 | 阶段2 / 持续 |
 | 无分块上传 | 阶段6 |
 | 前端详情页较为基础 | 持续改进 |
-| 无管理员令牌内省/撤销端点 | 阶段6 |
+| 无管理员令牌内省/撤销端点（jti黑名单 + 密码变更失效已实现） | 阶段6 |
 
 ---
 
@@ -133,7 +134,7 @@ pytest -q               →  432 passed, 0 failed
 
 #### 3.3.1 Celery Agent任务集成
 
-**文件：** `backend/app/workers/tasks_agent.py`、`backend/app/workers/tasks_dxf.py`、`backend/app/workers/tasks_cad.py`
+**文件：** `backend/app/workers/tasks_agent.py`（仍为存根）。注意：`tasks_dxf`/`tasks_dxf2dwg`/`tasks_dxf2excel` 已是真实的阶段3转换任务；仅 `tasks_agent`（阶段2）和 `tasks_cad`（阶段4）仍为存根。
 
 Celery应用本身已存在。阶段2应在现有Redis后端应用之上添加真实的Agent任务体，并在FastAPI服务中保持平台安全检查：
 
@@ -239,6 +240,8 @@ def execute_agent_run(self, agent_run_id: int):
 - LLM推理步骤
 - 最终答案展示
 - 错误状态（MCP不可用、工具失败、超时）
+
+需与其一同创建的其他阶段2+共享组件（目前 `src/components/` 下均不存在）：`TaskInput.tsx`（自然语言任务输入）、`ResultPanel.tsx`（结构化结果展示）、`DrawingPreview.tsx`（图纸预览）、`ReviewPanel.tsx`（复核决策界面）。
 
 ### 3.4 配置清单
 
@@ -441,126 +444,82 @@ REDIS_MAX_MESSAGES=20
 
 ---
 
-## 4. 阶段3：DXF管线 -- 技术规范
+## 4. 阶段3：DXF管线 -- 已实现（默认通过功能开关关闭）
+
+> **状态更新：** 下述三条转换管线均已完整接入真实引擎，仅通过功能开关启用（全部默认 `False`）。本路线图早期草稿曾将阶段3描述为"计划中 / 无DWG→DXF转换"；代码现已与之矛盾，管线已上线。
 
 ### 4.1 范围
 
-阶段3实现用于低/中精度任务的开源DWG处理管线。
+阶段3交付三条开源转换管线。每条管线共享相同的状态机形态：`queued→running`、每个阶段一行 `job_steps`、在Redis通道 `job:events:{job_id}` 上通过 `publish_job_event` 上报进度、通过 `save_bytes_as_file` 持久化输出、注册 `AnalysisResult`；失败时设置 `job.status`/`error_code` 而不抛出异常（环境错误如缺失ODA二进制除外）。
 
-**范围内：**
-- DWG转换器抽象层（可插拔后端）
-- DWG → DXF转换（通过ODA File Converter、LibreDWG或商业SDK）
-- 基于ezdxf的实体提取：图层、文本、块、线段、多段线、圆、弧
-- 结构化 `entities.json` 输出
-- 低置信度自动标记 → `need_review` 状态
-- 前端结构化结果展示
+| 管线 | `task_type` | `pipeline` | 引擎 | 启用开关 | 输出桶 |
+|----------|-------------|-----------|--------|-------------|---------------|
+| DWG → DXF（正向） | `convert_dwg_to_dxf` | `dxf_open_source` | ODA File Converter子进程（`Stages/dwg2dxf`，`xvfb-run` 无头） | `DXF_PIPELINE_ENABLED` | `dxf-derived` |
+| DXF → DWG（反向） | `convert_dxf_to_dwg` | `dxf2dwg_open_source` | ODA File Converter子进程（`Stages/dxf2dwg`） | `DXF2DWG_PIPELINE_ENABLED` | `dwg-derived` |
+| DXF → Excel（批量材料表） | `extract_dxf_to_excel` | `dxf2excel` | 纯Python网格/表格恢复（`Stages/dxf2excel`） | `DXF2EXCEL_PIPELINE_ENABLED` | `dwg-reports` |
 
-**范围外：**
-- 高精度测量（→ 阶段4，ZWCAD）
-- 复杂动态块（→ 阶段4）
-- 3D实体（→ 阶段4）
-- 代理对象（→ 阶段4）
+**引擎说明：** DWG↔DXF转换路径是 **ODA File Converter** 子进程，*而非* ezdxf。ezdxf仅是可选的解析期依赖（由 `dxf_stats` 用于实体计数汇总）。DXF→Excel路径是纯Python（blocks→grid→cells→classify→normalize），不使用ODA。
 
-### 4.2 管线流程
+**范围外（→ 阶段4，ZWCAD）：**
+- 高精度测量
+- 复杂动态块
+- 3D实体
+- 代理对象
+
+### 4.2 管线流程（三条通用）
 
 ```
-DWG文件（MinIO / 本地存储）
-  ↓ 下载到worker沙箱
-DWG转换器（抽象层）
-  ↓ 转换
-converted.dxf（临时文件）
-  ↓ ezdxf读取
-entities.json（结构化输出）
-  ↓ 规则处理
-result.json（最终分析结果）
-  ↓ 上传到MinIO
-analysis_results表（MySQL索引）
-  ↓ 置信度检查
-≥ 0.85 → succeeded
-< 0.85 → CAD工作节点（回退到高精度管线，依据规范§16.3）
+源文件（MinIO / 本地存储）
+  ↓ 暂存到worker沙箱（download_source_* 步骤）
+ODA File Converter子进程  |  dxf2excel 纯Python管线
+  ↓ 转换 / 提取（run_oda_convert* | run_dxf2excel_pipeline 步骤）
+转换产物（.dxf / .dwg / .xlsx）
+  ↓ save_bytes_as_file → 输出桶（persist_* 步骤）
+AnalysisResult 行（MySQL索引） + job_steps + SSE事件
+  ↓
+job.status = succeeded   （失败 → job.status=failed + error_code，不抛出）
 ```
 
-### 4.3 已有组件
+各管线的作业步骤名（来自 `app/core/constants.py`）：
+- **DWG→DXF：** `download_source_dwg` → `run_oda_convert` → `persist_dxf_result`
+- **DXF→DWG：** `download_source_dxf` → `run_oda_convert_dxf` → `persist_dwg_result`
+- **DXF→Excel：** `download_dxf_batch` → `run_dxf2excel_pipeline` → `persist_excel_result`
+
+### 4.3 已实现的内容
 
 | 组件 | 文件 | 状态 |
 |-----------|------|--------|
-| DXF任务存根 | `backend/app/workers/tasks_dxf.py` | 占位 -- 需要真实的DXF处理任务 |
-| 功能开关 | `backend/app/core/config.py` | `dxf_pipeline_enabled: bool = False` |
-| Docker Compose worker | `compose.yaml` | `worker-dxf` 服务定义在 `profiles: [workers]` 下 |
-| 存储抽象 | `backend/app/storage/` | Base + local + MinIO适配器就绪 |
+| DWG→DXF服务 | `backend/app/services/dxf_service.py` | 真实 -- 暂存源文件、调用 `dwg_converter.convert_file`（ODA）、持久化DXF、DWG文件头→版本自动映射 |
+| DXF→DWG服务 | `backend/app/services/dxf2dwg_service.py` | 真实 -- 反向转换；`$ACADVER` 检测 + 通过 `AnalysisResult.tool_version` 反查原始DWG版本 |
+| DXF→Excel服务 | `backend/app/services/dxf2excel_service.py` | 真实 -- 批量（N个DXF → 1个 `.xlsx`）；Redis进度缓存 + 逐文件SSE进度 |
+| DXF统计辅助 | `backend/app/services/dxf_stats.py` | 真实 -- 标准库DXF实体/section计数器（无ezdxf依赖） |
+| DWG→DXF worker任务 | `backend/app/workers/tasks_dxf.py` | 真实 -- 队列 `dxf` 上的 `convert_dwg_to_dxf`，委托给 `dxf_service` |
+| DXF→DWG worker任务 | `backend/app/workers/tasks_dxf2dwg.py` | 真实 -- 队列 `dxf2dwg` 上的 `convert_dxf_to_dwg` |
+| DXF→Excel worker任务 | `backend/app/workers/tasks_dxf2excel.py` | 真实 -- 队列 `dxf2excel` 上的 `extract_dxf_to_excel` |
+| SSE进度通道 | `backend/app/services/job_events.py` | 真实 -- Redis pub/sub `job:events:{job_id}`，keepalive，终态兜底 |
+| 功能开关 | `backend/app/core/config.py` | `dxf_pipeline_enabled`、`dxf2dwg_pipeline_enabled`、`dxf2excel_pipeline_enabled`（全部默认 `False`） |
+| 作业门控 | `backend/app/api/v1/jobs_api.py` | 开关关闭时，`POST /jobs` 按 `task_type` 返回 503 `DXF_PIPELINE_DISABLED`/`DXF2DWG_PIPELINE_DISABLED`/`DXF2EXCEL_PIPELINE_DISABLED` |
+| ODA健康端点 | `backend/app/api/v1/system_api.py` | `GET /api/v1/system/health/oda` → `dwg_converter.framework.health_check`（`oda_found`、`oda_executable`、`ezdxf_available`） |
+| 转换引擎 | `Stages/{dwg2dxf,dxf2dwg,dxf2excel}` | 真实的可编辑路径依赖包；ODA AppImage在Docker镜像中烘焙至 `/app/oda` |
+| Docker Compose worker | `compose.yaml` | `worker-dxf`（队列 `dxf`）位于 `profiles: [workers]` 下；`dxf2dwg`/`dxf2excel` 队列在 `celery_app.task_routes` 中路由，本地由 `scripts/lib.sh` 启动 |
 
-### 4.4 需要构建的内容
+### 4.4 剩余工作（阶段3 → 阶段5增强）
 
-1. **DWG转换器抽象层**（`backend/app/integrations/converter/`）
-   - `base.py` -- 抽象接口：`convert(dwg_path) -> dxf_path`
-   - `oda_converter.py` -- ODA File Converter实现
-   - `libredwg_converter.py` -- LibreDWG/dwg2dxf实现
-   - 配置驱动的后端选择
+转换 + 持久化骨干已完成。尚未构建：
 
-2. **DXF解析服务**（`backend/app/services/dxf_service.py`）
-   - `extract_layers(dxf_path) -> list[str]`
-   - `extract_texts(dxf_path) -> list[dict]`
-   - `extract_blocks(dxf_path) -> list[dict]`
-   - `extract_geometry(dxf_path) -> list[dict]`（线段、多段线、圆、弧）
-   - `extract_all(dxf_path) -> entities.json`
+1. 超出当前 `dxf_stats` 实体计数汇总的丰富结构化实体提取（含逐实体几何的 `entities.json`）-- 属阶段5提取项。
+2. 置信度评分 + 自动 `< 0.85 → need_review` 路由（常量 `JOB_VALIDATING`/`JOB_NEED_REVIEW` 已存在；自动标记尚未接线）。
+3. 前端结构化结果面板（`frontend/src/components/ResultPanel.tsx` 仍为存根）。
 
-3. **DXF worker任务**（`backend/app/workers/tasks_dxf.py`）
-   - 从存储下载DWG到沙箱
-   - 调用DWG转换器
-   - 调用ezdxf解析器
-   - 计算置信度分数
-   - 上传派生文件（converted.dxf、entities.json、preview.png）
-   - 写入 `analysis_results` 行
-   - 转换作业状态
+### 4.5 接口契约：DXF转换结果
 
-4. **结构化结果前端**（`frontend/src/components/ResultPanel.tsx`）
-   - 图层树视图
-   - 实体表格（类型/图层/坐标）
-   - 文本内容搜索
-   - 置信度指示器
-
-### 4.5 接口契约：entities.json输出Schema
+成功时每次转换会注册一行 `AnalysisResult`（桶见§4.1的表格）以及每阶段一行 `job_steps`。`AnalysisResult` 携带 `result_type`（= `task_type`）、`result_file_id`（转换产物）、`tool_version`（源CAD版本，用于往返保真）以及 `result_json` 汇总。`dxf_stats` 辅助函数贡献实体/section计数汇总，例如：
 
 ```json
 {
   "source": "dxf",
   "converter": "oda_file_converter",
-  "converter_version": "25.6.0",
-  "parser": "ezdxf",
-  "parser_version": "1.4.0",
-  "confidence": 0.92,
-  "layers": ["0", "DIM", "TEXT", "STEEL", "CONCRETE"],
-  "entities": [
-    {
-      "type": "TEXT",
-      "layer": "TEXT",
-      "text": "BH650*300*14*24",
-      "position": [120.5, 88.0],
-      "rotation": 0.0,
-      "height": 3.5,
-      "style": "STANDARD"
-    },
-    {
-      "type": "LINE",
-      "layer": "STEEL",
-      "start": [0.0, 0.0],
-      "end": [1000.0, 0.0]
-    },
-    {
-      "type": "CIRCLE",
-      "layer": "DIM",
-      "center": [500.0, 300.0],
-      "radius": 25.0
-    },
-    {
-      "type": "INSERT",
-      "layer": "STEEL",
-      "block_name": "BEAM_SECTION",
-      "position": [200.0, 150.0],
-      "scale": [1.0, 1.0, 1.0],
-      "rotation": 0.0
-    }
-  ],
+  "tool_version": "ACAD2018",
   "stats": {
     "total_entities": 1247,
     "text_count": 326,
@@ -568,35 +527,39 @@ analysis_results表（MySQL索引）
     "circle_count": 45,
     "arc_count": 89,
     "insert_count": 207
-  }
+  },
+  "layers": ["0", "DIM", "TEXT", "STEEL", "CONCRETE"]
 }
 ```
 
+> 更丰富的逐实体 `entities.json` schema（带坐标的单条TEXT/LINE/CIRCLE/INSERT记录）是 **阶段5提取增强**，当前阶段3转换路径并不产出。
+
 ### 4.6 接口契约：DXF作业创建
 
-**请求（POST /api/v1/jobs）：**
+**请求（`POST /api/v1/jobs`）** -- `JobCreate` 字段：`drawing_id`、`project_id`、`task_type`（小写snake_case，`^[a-z][a-z0-9_]+$`）、`precision_level`（默认 `normal`）、`params`（自由格式字典；`$`/`__`/`constructor` 键被拒绝）：
+
 ```json
 {
   "drawing_id": 123,
   "project_id": 1,
-  "task_type": "extract_all_dxf",
+  "task_type": "convert_dwg_to_dxf",
   "precision_level": "normal",
-  "params": {
-    "include_hidden_layers": false,
-    "export_preview": true,
-    "force_dxf_pipeline": true
-  }
+  "params": {}
 }
 ```
 
-**响应（202 Accepted）：**
+对于DXF→Excel，`params` 携带源分组，例如 `{"batch_name": "shop-drawings-2026-07"}`，该批次中的N个DXF文件产出一个 `.xlsx`。
+
+**响应（202 Accepted）** -- 服务端将 `task_type`→`pipeline` 映射（`convert_dwg_to_dxf`→`dxf_open_source`、`convert_dxf_to_dwg`→`dxf2dwg_open_source`、`extract_dxf_to_excel`→`dxf2excel`、其它→`local_stub`）：
+
 ```json
 {
   "data": {
     "id": 456,
     "status": "queued",
     "pipeline": "dxf_open_source",
-    "task_type": "extract_all_dxf",
+    "task_type": "convert_dwg_to_dxf",
+    "progress": 0,
     "created_at": "2026-07-03T10:00:00+08:00"
   },
   "meta": {
@@ -605,6 +568,8 @@ analysis_results表（MySQL索引）
   }
 }
 ```
+
+若匹配的管线开关关闭，`POST /jobs` 返回 **503**，错误码为 `DXF_PIPELINE_DISABLED` / `DXF2DWG_PIPELINE_DISABLED` / `DXF2EXCEL_PIPELINE_DISABLED`。
 
 ---
 
@@ -887,7 +852,7 @@ cad-worker/
 |-----------|-------|--------|----------|
 | **LaR左右进标注识别** | entities.json或cad_result.json | 带方向标注的实体 | DXF或CAD |
 | **构件表比对** | 两个版本的图纸 | 差异报告（新增/删除/变更） | DXF或CAD |
-| **材料表提取** | 含BOM/明细表的图纸 | 结构化材料清单 | DXF或CAD |
+| **材料表提取** | 批量DXF文件（`batch_name`） | 结构化材料清单 → `.xlsx` | DXF→Excel（**已在阶段3交付**，`extract_dxf_to_excel`） |
 | **报告生成** | 分析结果 | Excel、PDF或ZIP | 报告worker |
 | **批量任务编排** | 多个图纸 | 批量结果汇总 | 所有worker |
 | **人工复核闭环** | need_review结果 | 带反馈的批准/驳回 | 复核API |
@@ -924,6 +889,8 @@ cad-worker/
 ### 8.1 管线选择逻辑（阶段2+）
 
 系统必须确定性地将任务路由到正确的管线。此逻辑位于作业服务中，不在LLM Agent中。
+
+> **当前实现**（`job_service._pipeline_for`）将 `task_type` 直接映射到管线（见§4.6：`convert_dwg_to_dxf`→`dxf_open_source`、`convert_dxf_to_dwg`→`dxf2dwg_open_source`、`extract_dxf_to_excel`→`dxf2excel`、其它→`local_stub`）。下方基于置信度/精度的回退路由是 **阶段4目标**，待ZWCAD工作节点就绪后启用（`waiting_cad_worker` 状态 + `zwcad_worker` 管线常量已定义但尚未路由）。
 
 ```
 if 用户指定 precision_level == "high":
@@ -994,6 +961,8 @@ Agent（阶段2）将工具视为扁平列表。工具实现路由到正确的�
 | `create_processing_job` | FastAPI服务 | 阶段2 |
 | `get_job_status` | FastAPI服务 | 阶段2 |
 | `convert_dwg_to_dxf` | Celery DXF worker | 阶段3 |
+| `convert_dxf_to_dwg` | Celery DXF2DWG worker | 阶段3 |
+| `extract_dxf_to_excel` | Celery DXF2Excel worker | 阶段3 |
 | `parse_dxf_entities` | Celery DXF worker | 阶段3 |
 | `extract_layers` | Celery DXF worker | 阶段3 |
 | `extract_texts` | Celery DXF worker | 阶段3 |
@@ -1020,6 +989,8 @@ Agent（阶段2）将工具视为扁平列表。工具实现路由到正确的�
 | `SCHEMA_VALIDATION_FAILED` | 结果JSON与schema不匹配 | 否 |
 | `UNKNOWN_ERROR` | 未分类的失败 | 否 |
 
+**阶段3实时错误码**（当前DXF服务实际发出的）：`DXF_CONVERSION_FAILED` / `DXF_SOURCE_MISSING`（DWG→DXF，`dxf_service`）、`DWG_CONVERSION_FAILED` / `DXF_SOURCE_FILE_MISSING`（DXF→DWG，`dxf2dwg_service`）、以及 `DXF2EXCEL_EMPTY_BATCH` / `DXF2EXCEL_PIPELINE_FAILED` / `DXF2EXCEL_NO_OUTPUT` / `DXF2EXCEL_UNAVAILABLE` / `DXF2EXCEL_STORAGE_FAILED`（DXF→Excel，`dxf2excel_service`）。在API层，`POST /jobs` 以 503 `DXF_PIPELINE_DISABLED` / `DXF2DWG_PIPELINE_DISABLED` / `DXF2EXCEL_PIPELINE_DISABLED` 对关闭的管线进行门控。
+
 ---
 
 ## 9. 风险登记表
@@ -1039,7 +1010,7 @@ Agent（阶段2）将工具视为扁平列表。工具实现路由到正确的�
 ## 10. 成功指标（按阶段）
 
 ### 阶段1（基线）
-- [x] 64个API端点可运行
+- [x] 73个API端点（+ 根路径 `GET /health`）可运行
 - [x] 432个测试通过
 - [x] RBAC具备7个全局角色 + 4个项目角色
 - [x] DWG上传带文件头校验
@@ -1054,6 +1025,8 @@ Agent（阶段2）将工具视为扁平列表。工具实现路由到正确的�
 - [ ] AgentSteps前端组件正确渲染工具调用和答案
 
 ### 阶段3（目标）
+
+_（管线已实现并通过功能开关关闭；下方的比率为运行时目标，待以真实ODA二进制启用后测定。）_
 - [ ] 标准DWG文件的DWG→DXF转换成功率 > 90%
 - [ ] 小于50MB文件的entities.json提取在60秒内完成
 - [ ] 低置信度检测正确标记 > 80%的问题文件

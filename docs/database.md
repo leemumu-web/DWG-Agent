@@ -1,7 +1,7 @@
 # DWG-Agent Platform -- Database Design & Operations
 
 > **Audience:** DBAs, platform operators, backend developers
-> **Last updated:** 2026-07-03
+> **Last updated:** 2026-07-08
 > **Scope:** Engine configuration, table catalog, entity relationships, migration management, seed data, backup strategy
 
 ---
@@ -15,9 +15,11 @@ The production/runtime database engine is MySQL 8.x, accessed via `mysql+pymysql
 **Configuration** (`backend/app/db/session.py`):
 
 ```python
-engine = create_engine(settings.database_url, pool_pre_ping=True,
-                        pool_recycle=3600, pool_size=10, max_overflow=20)
-# pool_args are only applied when DATABASE_URL starts with "mysql"
+engine_kwargs = {"pool_pre_ping": True}                       # always applied
+if settings.database_url.startswith("mysql"):
+    engine_kwargs.update({"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20})
+engine = create_engine(settings.database_url, **engine_kwargs)
+# pool_args (recycle/size/overflow) are only applied when DATABASE_URL starts with "mysql"
 ```
 
 | Parameter | Value | Rationale |
@@ -87,6 +89,8 @@ This allows Docker Compose to override individual components (e.g. `MYSQL_HOST=m
 ---
 
 ## 2. Complete Table Catalog
+
+The schema has **17 tables** total (all created by the initial migration), grouped into the domains below. Every table except `sys_permissions`, `sys_role_permissions`, `sys_user_roles`, and `job_steps` carries the `created_at`/`updated_at` pair from `TimestampMixin` (`sys_user_roles` has only `created_at`).
 
 ### 2.1 Identity & Access Management (IAM) -- 5 tables
 
@@ -217,12 +221,15 @@ File metadata store. The actual file bytes live in storage (local filesystem or 
 | `size_bytes` | BIGINT | NOT NULL | File size in bytes |
 | `sha256` | VARCHAR(64) | NOT NULL, INDEXED | SHA-256 hex digest (64 chars) |
 | `md5` | VARCHAR(32) | NULLABLE | MD5 hex digest (32 chars) |
+| `batch_name` | VARCHAR(128) | NULLABLE, INDEXED | Batch grouping label for multi-file DXF/Excel uploads (e.g. ZIP stem). Added by migration `53cd59adf848` |
 | `uploaded_by` | BIGINT | FK → `sys_users.id` | Uploader user ID |
-| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` / `processing` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
-**Indexes:** `ix_files_sha256`, `ix_files_storage_key`
+**Indexes:** `ix_files_sha256`, `ix_files_storage_key`, `ix_files_batch_name`
+
+**Batch uploads:** `batch_name` groups files uploaded together (single-file upload with a `batch_name` query param, or a `.zip` extracted under its stem) so the DXF→Excel pipeline and batch download/delete endpoints can operate on a whole set at once. It is `NULL` for ungrouped uploads.
 
 ### 2.4 Drawing & Versioning -- 2 tables
 
@@ -273,9 +280,9 @@ Asynchronous processing job for a DWG drawing.
 | `project_id` | BIGINT | NULLABLE, FK → `projects.id`, INDEXED | Project scope |
 | `drawing_id` | BIGINT | NULLABLE, FK → `drawings.id`, INDEXED | Target drawing |
 | `created_by` | BIGINT | NULLABLE, FK → `sys_users.id` | Job submitter |
-| `task_type` | VARCHAR(64) | NOT NULL | Task code (e.g. `extract_layers`, `count_blocks`) |
+| `task_type` | VARCHAR(64) | NOT NULL | Task code: `convert_dwg_to_dxf` / `convert_dxf_to_dwg` / `extract_dxf_to_excel` |
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high` (determines pipeline routing) |
-| `pipeline` | VARCHAR(64) | NULLABLE | Assigned pipeline: `dxf_open_source` / `zwcad_worker` / `local_stub` |
+| `pipeline` | VARCHAR(64) | NULLABLE | Assigned pipeline: `local_stub` / `dxf_open_source` / `dxf2dwg_open_source` / `dxf2excel` / `zwcad_worker` |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
 | `priority` | INT | NOT NULL, DEFAULT 0 | Higher = more urgent |
 | `progress` | INT | NOT NULL, DEFAULT 0 | 0-100 percentage |
@@ -372,7 +379,7 @@ Output of a processing job -- the structured analysis data.
 | `result_file_id` | BIGINT | FK → `files.id` | Output file (Excel, PDF, etc.) |
 | `algorithm_version` | VARCHAR(64) | NULLABLE | Version of the processing algorithm |
 | `tool_version` | VARCHAR(64) | NULLABLE | Version of the processing tool |
-| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'succeeded' | `succeeded` (initial) / `pending_review` / `approved` / `rejected` |
+| `status` | VARCHAR(32) | NOT NULL, DEFAULT 'succeeded' | `succeeded` (initial) / `need_review` / `approved` / `rejected` |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
@@ -404,7 +411,7 @@ Immutable audit trail for all significant actions.
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
 | `actor_user_id` | BIGINT | FK → `sys_users.id` | Who performed the action (NULL for system actions) |
-| `action` | VARCHAR(128) | NOT NULL, INDEXED | Action code (e.g. `user.create`) |
+| `action` | VARCHAR(128) | NOT NULL, INDEXED | Action code (e.g. `users.create`) |
 | `resource_type` | VARCHAR(64) | NOT NULL | Resource namespace |
 | `resource_id` | BIGINT | NULLABLE, INDEXED | Affected resource ID |
 | `ip_address` | VARCHAR(64) | NULLABLE | Client IP |
@@ -415,6 +422,8 @@ Immutable audit trail for all significant actions.
 | `updated_at` | DATETIME | NOT NULL | |
 
 **Indexes:** `ix_audit_logs_action`, `ix_audit_logs_resource_id`
+
+**Note:** `resource_id` is a **polymorphic pointer**, not a real foreign key — it stores the affected resource's ID regardless of its type, so no FK constraint exists. Migration `c3d2e1f0a9b8` corrected its type from `Integer` to `BIGINT` for consistency with every other ID column.
 
 ---
 
@@ -511,6 +520,9 @@ The following tables use MySQL's native JSON type (SQLite falls back to TEXT):
 | `40452ddd24e7` | Initial -- creates all 17 business tables with explicit circular FK handling | 2026-07-03 |
 | `b8f9e7d6c5a4` | TimestampMixin fix -- idempotent migration for old MySQL databases missing `created_at`/`updated_at` columns | 2026-07-03 |
 | `c3d2e1f0a9b8` | Fix `audit_logs.resource_id` type -- `Integer` to `BigInteger` for consistency with all other ID columns | 2026-07-04 |
+| `53cd59adf848` | Add `files.batch_name` VARCHAR(128) nullable + index `ix_files_batch_name` -- supports DXF/Excel batch uploads | 2026-07-06 |
+
+The linear chain is `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848`; **`53cd59adf848` is the current head.**
 
 ### 4.2 How to create a new migration
 
@@ -558,13 +570,12 @@ uv run alembic history
 ### 4.4 CI verification
 
 The `scripts/db.sh migration-test` command:
-1. Creates a temporary MySQL database (or uses SQLite for CI without MySQL).
-2. Runs `alembic upgrade head`.
-3. Runs `alembic downgrade base` (rolls back all migrations).
-4. Runs `alembic upgrade head` again (verifies idempotency).
-5. Drops the temporary database.
+1. Creates a **temporary** MySQL schema (utf8mb4) and grants the app user access to it.
+2. Runs `alembic upgrade head` against that empty schema via a scoped `DATABASE_URL`.
+3. Verifies the resulting schema: asserts all **17 expected business tables** are present, and that the four tables whose timestamp columns were backfilled later (`project_members`, `drawing_versions`, `review_records`, `agent_run_steps`) now carry `created_at` and `updated_at`.
+4. Drops the temporary schema (also on error, via an `EXIT` trap).
 
-This verifies that both upgrade and downgrade paths are valid and that the schema can be rebuilt from scratch.
+This verifies that the full migration chain rebuilds the schema from scratch and that the `TimestampMixin` columns are consistent. (It does not exercise a downgrade path.)
 
 ### 4.5 Writing safe migrations
 
@@ -692,6 +703,9 @@ mysqldump -h 127.0.0.1 -u dwg_user -p \
 # MinIO mirror to a backup location
 mc mirror minio/dwg-original backup/dwg-original --watch
 mc mirror minio/dwg-derived backup/dwg-derived --watch
+mc mirror minio/dxf-original backup/dxf-original --watch
+mc mirror minio/dxf-derived backup/dxf-derived --watch
+mc mirror minio/dwg-reports backup/dwg-reports --watch
 
 # Local storage rsync
 rsync -avz --delete var/storage/ backup@backup-server:/backups/dwg-agent/storage/

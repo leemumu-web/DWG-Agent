@@ -2,7 +2,7 @@
 
 > **面向读者：** 首席开发者、新工程师、任何需要理解本代码库组织方式以及如何有效贡献的人。
 >
-> **当前状态：** 第一阶段已完成 — 包含 RESTful API、RBAC、文件管理和作业生命周期的平台骨架。第二阶段（Agent 子系统）、第三阶段（DXF 流水线）和第四阶段（ZWCAD Worker）已规划但尚未实现。
+> **当前状态：** 第一阶段已完成 — 包含 RESTful API、RBAC、文件管理和作业生命周期的平台骨架。第三阶段（DWG↔DXF 与 DXF→Excel 流水线）已在代码中完整实现，但默认通过功能开关禁用。第二阶段（Agent 子系统）和第四阶段（ZWCAD Worker）仍为桩代码。
 >
 > **权威来源：** 每一个设计决策都追溯到仓库根目录下的 `DWG-Agent企业平台技术规范.md`（技术规范）。如有疑问，请先阅读规范。
 
@@ -20,7 +20,7 @@ complete_framework/
 ├── compose.yaml                   ← 所有服务的 Docker Compose 配置
 ├── .env.example                   ← 本地开发环境模板
 ├── .env.docker.example            ← Docker Compose 环境模板
-├── Makefile                       ← （计划中）常用任务的便捷目标
+├── Makefile                       ← 便捷目标（后端/前端/数据库/脚本的封装）
 │
 ├── backend/                       ← Python 3.12, uv, FastAPI — 主要代码库
 │   ├── pyproject.toml             ← 依赖项、ruff 配置、构建设置
@@ -43,7 +43,8 @@ complete_framework/
 │   │   │   ├── results_api.py     ← 结果详情、下载链接、审核提交、审核历史
 │   │   │   ├── reviews_api.py     ← 待审核列表
 │   │   │   ├── audit_logs_api.py  ← 审计日志列表（仅 super_admin/auditor）
-│   │   │   └── agent_runs_api.py  ← （第二阶段 — 当前返回 503）
+│   │   │   ├── agent_runs_api.py  ← （第二阶段 — AGENT_ENABLED=false 时返回 503）
+│   │   │   └── system_api.py      ← GET /system/health, GET /system/health/oda
 │   │   ├── core/                  ← 横切关注点基础设施
 │   │   │   ├── config.py          ← pydantic-settings，所有环境变量，MySQL/Redis/Celery URL
 │   │   │   ├── security.py        ← JWT 创建/验证，密码哈希（argon2）
@@ -51,14 +52,14 @@ complete_framework/
 │   │   │   ├── exceptions.py      ← AppHTTPException（请使用此异常，不要使用裸 HTTPException）
 │   │   │   ├── redis_client.py    ← 惰性初始化同步 Redis 客户端（不可用时安全降级）
 │   │   │   ├── logger.py          ← 结构化日志
-│   │   │   ├── validators.py      ← 字段级验证器（手机号、密码等）
+│   │   │   ├── validators.py      ← 排序列白名单（validate_sort_by — SQLi 防护，BUG-13）
 │   │   │   └── constants.py       ← 枚举、字符串常量
 │   │   ├── db/                    ← 数据库设置
 │   │   │   ├── base.py            ← SQLAlchemy 声明式 Base
-│   │   │   ├── session.py         ← 引擎创建（MySQL/SQLite）、WAL pragma、get_db 生成器
+│   │   │   ├── session.py         ← 引擎创建（pool_pre_ping + 仅 MySQL 的连接池参数）、get_db 生成器
 │   │   │   └── init_db.py         ← 种子数据：默认角色、权限、管理员用户
 │   │   ├── models/                ← SQLAlchemy ORM 模型（10个文件）
-│   │   │   ├── mixins.py          ← TimestampMixin（created_at, updated_at, deleted_at）
+│   │   │   ├── mixins.py          ← TimestampMixin（created_at, updated_at）
 │   │   │   ├── user.py            ← 用户模型，含状态、密码字段
 │   │   │   ├── role.py            ← 角色 + 权限 + 关联表
 │   │   │   ├── project.py         ← 项目 + 项目成员
@@ -79,24 +80,29 @@ complete_framework/
 │   │   │   ├── result_schema.py   ← 结果响应、审核提交
 │   │   │   ├── audit_schema.py    ← 审计日志响应
 │   │   │   └── agent_schema.py    ← AgentRun 创建、响应（第二阶段）
-│   │   ├── services/              ← 业务逻辑 — 所有状态变更操作
+│   │   ├── services/              ← 业务逻辑 — 所有状态变更操作（17 个模块）
 │   │   │   ├── auth_service.py    ← 登录、登出、令牌刷新、密码修改
 │   │   │   ├── user_service.py    ← 用户 CRUD、角色分配、启用/禁用
 │   │   │   ├── project_service.py ← 项目 CRUD、成员管理
-│   │   │   ├── file_service.py    ← 文件上传验证、元数据、下载链接签名
+│   │   │   ├── file_service.py    ← 签名下载链接、结果映射 + ZIP 构建、访问检查
 │   │   │   ├── drawing_service.py ← 图纸/版本 CRUD、版本递增
-│   │   │   ├── job_service.py     ← 作业生命周期、状态转换
+│   │   │   ├── job_service.py     ← 作业生命周期、入队路由、run_local_stub_job
 │   │   │   ├── review_service.py  ← 审核提交、待审核列表
-│   │   │   ├── agent_service.py   ← Agent 执行编排（第二阶段）
-│   │   │   ├── storage_service.py ← 文件保存、检索、删除（本地 + MinIO）
+│   │   │   ├── agent_service.py   ← Agent 编排（第二阶段 — 抛出 NotImplementedError）
+│   │   │   ├── storage_service.py ← 文件保存/检索/删除 + 校验（本地 + MinIO）
 │   │   │   ├── audit_service.py   ← write_audit_log()、审计日志列表
 │   │   │   ├── redis_memory.py    ← Agent 会话记忆（第二阶段基础设施）
-│   │   │   └── cache_service.py   ← 通用缓存层（第二阶段基础设施）
+│   │   │   ├── cache_service.py   ← 通用缓存层（由 dxf2excel 使用）
+│   │   │   ├── dxf_service.py     ← 通过 ODA 子进程编排 DWG→DXF（第三阶段）
+│   │   │   ├── dxf2dwg_service.py ← 通过 ODA 反向编排 DXF→DWG（第三阶段）
+│   │   │   ├── dxf2excel_service.py ← 批量 DXF→Excel 材料表提取（第三阶段）
+│   │   │   ├── dxf_stats.py       ← 标准库 DXF 实体/段计数器（保真度指标）
+│   │   │   └── job_events.py      ← Redis 发布/订阅作业进度 + SSE 流
 │   │   ├── repositories/          ← 占位 — 空的 __init__.py
 │   │   │                           （数据库访问将在第二阶段+从 services 中提取）
 │   │   ├── agents/                ← 占位 — agent_factory、prompts、tool_registry 桩代码
 │   │   ├── mcp_client/            ← 占位 — MCP 客户端 + 适配器桩代码
-│   │   ├── workers/               ← celery_app + report 任务已激活；agent/dxf/cad 任务桩代码
+│   │   ├── workers/               ← celery_app + report/dxf/dxf2dwg/dxf2excel 任务已实现；agent/cad 任务桩代码
 │   │   ├── storage/               ← 存储抽象层
 │   │   │   ├── base.py            ← 抽象 StorageBackend
 │   │   │   ├── local_storage.py   ← 本地文件系统（第一阶段已激活）
@@ -104,9 +110,8 @@ complete_framework/
 │   │   ├── integrations/zwcad/    ← 占位 — ZWCAD Worker 客户端 + Schema（第四阶段）
 │   │   └── utils/                 ← 工具函数
 │   │       ├── path_utils.py      ← ensure_within_root() — 所有文件路径必须经过此函数处理
-│   │       ├── file_hash.py       ← SHA-256 计算
-│   │       └── time_utils.py      ← 时间戳格式化
-│   ├── tests/                     ← 432 个测试，24 个测试文件（pytest）
+│   │       └── file_hash.py       ← SHA-256 计算
+│   ├── tests/                     ← 599 个测试，31 个测试文件（pytest）
 │   │   ├── conftest.py            ← 自动使用 fixture：FakeRedis + 内存 SQLite 隔离
 │   │   ├── test_health.py         ← 健康检查端点
 │   │   ├── test_config.py         ← 设置验证（MySQL、Redis、Celery URL 计算）
@@ -119,11 +124,21 @@ complete_framework/
 │   │   ├── test_rigorous.py             ← 边缘情况和错误处理
 │   │   ├── test_deep_verify.py          ← 更深层次的验证测试
 │   │   ├── test_edge_cases.py           ← 边界条件测试
-│   │   ├── test_stage1_boundaries.py    ← 第一阶段范围边界测试
+│   │   ├── test_stage1_boundaries.py    ← 第一阶段范围边界测试（禁用功能 → 503）
+│   │   ├── test_adversarial_auth.py     ← 对抗性认证/令牌攻击测试
+│   │   ├── test_adversarial_files.py    ← 对抗性上传/zip 炸弹/路径遍历测试
+│   │   ├── test_adversarial_jobs.py     ← 对抗性作业生命周期/RBAC 测试
+│   │   ├── test_job_lifecycle.py        ← 作业状态转换、取消、重试
+│   │   ├── test_rbac_deep.py            ← 跨角色和资源的深度 RBAC
+│   │   ├── test_service_layer.py        ← 服务层单元测试
+│   │   ├── test_file_service.py         ← 文件服务（签名链接、ZIP、访问）测试
+│   │   ├── test_dxf_pipeline.py         ← DWG→DXF 流水线测试（第三阶段）
+│   │   ├── test_dxf2dwg_pipeline.py     ← DXF→DWG 流水线测试（第三阶段）
+│   │   ├── test_dxf2excel_pipeline.py   ← DXF→Excel 流水线测试（第三阶段）
 │   │   ├── test_cache_service.py        ← 缓存层测试（FakeRedis）
 │   │   ├── test_redis_client.py         ← Redis 客户端连接测试
 │   │   ├── test_redis_memory.py         ← Agent 记忆服务测试
-│   │   ├── test_redis_real.py           ← 真实 Redis 集成测试（自动跳过）
+│   │   ├── test_redis_real.py           ← 真实 Redis 集成测试（13 个测试，自动跳过）
 │   │   ├── test_compose.py              ← Docker Compose 配置验证
 │   │   ├── test_celery_minio_deployment.py ← Celery/MinIO 部署配置验证
 │   │   ├── test_cross_audit_fixes.py     ← 横切审计修复验证
@@ -132,8 +147,13 @@ complete_framework/
 │   ├── migrations/               ← Alembic
 │   │   ├── env.py                 ← 迁移环境（导入 Base + 所有模型）
 │   │   ├── script.py.mako         ← 新迁移模板
-│   │   └── versions/              ← 2 个迁移脚本
+│   │   └── versions/              ← 4 个迁移脚本（初始 17 表 → 时间戳修复 → resource_id 类型 → batch_name）
 │   └── var/                       ← 运行时数据 — 上传文件、SQLite 数据库（gitignored）
+│
+├── Stages/                        ← 独立的流水线引擎包（后端的 uv 路径依赖）
+│   ├── dwg2dxf/                   ← dwg-converter：通过 ODA File Converter 实现 DWG→DXF（内置 tools/oda AppImage）
+│   ├── dxf2dwg/                   ← dxf-converter：通过 ODA File Converter 实现 DXF→DWG 反向转换
+│   └── dxf2excel/                 ← dxf2excel：纯 Python DXF→Excel 材料表提取
 │
 ├── frontend/                      ← React 19 + TypeScript + Vite + Ant Design 6
 │   ├── package.json               ← 所有版本已锁定 — 禁止使用 "latest"
@@ -144,7 +164,7 @@ complete_framework/
 │   └── src/
 │       ├── main.tsx               ← ReactDOM 入口
 │       ├── App.tsx                ← 根组件
-│       ├── api/                   ← 所有 API 调用通过此层（11 个模块）
+│       ├── api/                   ← 所有 API 调用通过此层（12 个模块 + client.ts）
 │       │   ├── client.ts          ← Axios 实例，含拦截器（认证头、401 刷新）
 │       │   ├── auth.api.ts        ← login, logout, refresh, me, changePassword
 │       │   ├── users.api.ts       ← 用户 CRUD
@@ -156,7 +176,8 @@ complete_framework/
 │       │   ├── results.api.ts     ← 结果详情、审核提交
 │       │   ├── reviews.api.ts     ← 待审核列表
 │       │   ├── agent-runs.api.ts  ← Agent 执行（第二阶段）
-│       │   └── audit-logs.api.ts  ← 审计日志列表
+│       │   ├── audit-logs.api.ts  ← 审计日志列表
+│       │   └── system.api.ts      ← 系统/ODA 健康检查
 │       ├── app/                   ← 应用外壳
 │       │   ├── router.tsx         ← 路由定义，含权限守卫
 │       │   ├── providers.tsx      ← TanStack Query、Ant Design ConfigProvider
@@ -172,15 +193,16 @@ complete_framework/
 │       │   ├── reviews/           ← 待审核 + 审核表单
 │       │   ├── profile/           ← 用户个人资料页
 │       │   └── admin/             ← 角色、审计日志（super_admin）
-│       ├── components/            ← 共享 UI 组件（2 个真实 + 6 个桩代码）
-│       │   ├── FileUpload.tsx        [REAL]
-│       │   ├── PermissionGuard.tsx   [REAL]
-│       │   ├── TaskInput.tsx         [STUB — 占位]
-│       │   ├── AgentSteps.tsx        [STUB — 占位]
-│       │   ├── ResultPanel.tsx       [STUB — 占位]
-│       │   ├── DrawingPreview.tsx    [STUB — 占位]
-│       │   ├── JobTimeline.tsx       [STUB — 占位]
-│       │   └── ReviewPanel.tsx       [STUB — 占位]
+│       ├── components/            ← 共享 UI 组件（7 个文件）
+│       │   ├── FileUpload.tsx         ← 拖拽文件上传
+│       │   ├── PermissionGuard.tsx    ← 基于角色的渲染守卫
+│       │   ├── ConversionPage.tsx     ← DWG/DXF 转换启动 UI
+│       │   ├── ExcelPreview.tsx       ← Excel 结果预览
+│       │   ├── ZipDownloadModal.tsx   ← 批量 ZIP 下载对话框
+│       │   ├── JobTimeline.tsx        ← 作业步骤/进度时间线
+│       │   └── ui.tsx                 ← 共享 UI 原语
+│       ├── hooks/                 ← 自定义 React hooks
+│       ├── utils/                 ← 前端工具函数
 │       ├── stores/                ← Zustand 状态管理
 │       │   └── auth.store.ts      ← 当前用户、角色、令牌
 │       └── types/                 ← TypeScript 类型定义
@@ -194,14 +216,16 @@ complete_framework/
 │           ├── agent.ts
 │           └── audit.ts
 │
-├── docs/                          ← 交接文档（含本文档共 7 份）
+├── docs/                          ← 交接文档（8 份 + zh/ 翻译）
 │   ├── architecture.md            ← 系统架构概览
 │   ├── api.md                     ← API 参考
 │   ├── database.md                ← 数据库 Schema 参考
 │   ├── deployment.md              ← 部署与运维指南
 │   ├── development.md             ← 本文档
 │   ├── roadmap.md                 ← 六阶段交付路线图
-│   └── security.md                ← 安全架构与渗透测试发现
+│   ├── security.md                ← 安全架构与渗透测试发现
+│   ├── workflow-verification.md   ← 端到端工作流验证记录
+│   └── zh/                        ← 上述文档的中文翻译
 │
 ├── infra/                         ← 部署基础设施配置
 │   ├── nginx/
@@ -593,7 +617,7 @@ uv run pytest -x
 uv run pytest -k "login"
 ```
 
-预期：Redis 可用时 432 通过，0 失败。如果 Redis 不可用，`test_redis_real.py` 中的 13 个测试将被跳过。
+预期：Redis 可用时 599 通过，0 失败。如果 Redis 不可用，`test_redis_real.py` 中的 13 个测试将被跳过。
 
 ### 4.3 测试前进行 Lint 检查
 
@@ -708,11 +732,18 @@ if some_condition:
 | `test_new_features.py` | 最近实现功能的测试 |
 | `test_rigorous.py` | 穷举边缘情况和错误处理测试 |
 | `test_deep_verify.py` | 业务规则和数据完整性的更深层次验证 |
+| `test_edge_cases.py` | 边界条件：空输入、最大长度字符串等 |
 | `test_job_lifecycle.py` | 作业状态转换、取消、重试生命周期 |
 | `test_rbac_deep.py` | 跨角色和资源的深度 RBAC 权限检查 |
 | `test_service_layer.py` | 服务层单元测试（与 HTTP 隔离的业务逻辑） |
-| `test_edge_cases.py` | 边界条件：空输入、最大长度字符串等 |
-| `test_stage1_boundaries.py` | 验证第二阶段+功能返回 503（而非 500） |
+| `test_file_service.py` | 文件服务：签名下载链接、ZIP 构建、访问检查 |
+| `test_dxf_pipeline.py` | DWG→DXF 流水线（第三阶段）：转换、步骤、结果持久化 |
+| `test_dxf2dwg_pipeline.py` | DXF→DWG 反向流水线（第三阶段） |
+| `test_dxf2excel_pipeline.py` | DXF→Excel 材料表提取流水线（第三阶段） |
+| `test_adversarial_auth.py` | 对抗性认证/令牌攻击面 |
+| `test_adversarial_files.py` | 对抗性上传：zip 炸弹、路径遍历、错误文件头 |
+| `test_adversarial_jobs.py` | 对抗性作业生命周期与 RBAC 探测 |
+| `test_stage1_boundaries.py` | 验证禁用的第二阶段+功能返回 503（而非 500） |
 | `test_health.py` | 健康检查端点 |
 | `test_config.py` | 设置验证、MySQL/Redis URL 计算 |
 | `test_db_session.py` | 引擎创建、WAL pragma、连接池 |
@@ -829,6 +860,8 @@ uv sync
 
 **Python 版本：** 在 `pyproject.toml` 中锁定为 `>=3.12,<3.13`。`.python-version` 文件告知 `uv` 明确使用 Python 3.12。
 
+**本地路径依赖（陷阱）：** 三个运行时依赖——`dwg-converter`、`dxf-converter` 和 `dxf2excel`——是**可编辑的本地路径依赖**，通过 `backend/pyproject.toml` 中的 `[tool.uv.sources]` 从 `Stages/dwg2dxf`、`Stages/dxf2dwg` 和 `Stages/dxf2excel` 解析。由于这些路径相对于 `backend/`，Docker 构建上下文必须是**仓库根目录**（`dockerfile: backend/Dockerfile`），以便 `../Stages/*` 能正确解析。`editable=true` 使每个包的 `__file__` 指向其源码树，从而让 `check_env.py` 能定位 `Stages/dwg2dxf/tools/oda/` 下捆绑的 ODA 二进制。切勿在不更新 `[tool.uv.sources]` 的情况下移动或重命名 `Stages/` 目录。
+
 ### 6.2 前端：npm
 
 **添加依赖：**
@@ -905,7 +938,7 @@ def list_projects(current_user: CurrentUser):
     ...
 ```
 
-唯一应接受未认证请求的端点是 `/health` 和 `POST /api/v1/auth/sessions`（登录）。
+唯一应接受未认证请求的端点是 `/health`、`POST /api/v1/auth/sessions`（登录）和 `POST /api/v1/auth/tokens/refresh`（通过 httpOnly 的 `dwg_refresh_token` cookie 验证，而非 Bearer 令牌）。
 
 ### 7.3 使用 AppHTTPException，而非 HTTPException
 
@@ -994,9 +1027,9 @@ def process_file(
     return ok(FileResponse.model_validate(result).model_dump(), request.state.request_id)
 ```
 
-### 7.9 第二阶段+功能必须返回 503
+### 7.9 禁用的功能必须返回 503
 
-Agent-run 端点和其他第二阶段+功能当前已禁用。它们必须返回 `503 Service Unavailable`，而不是 `500 Internal Server Error`。`test_stage1_boundaries.py` 测试验证了这一点。如果启用某项功能，请更新这些测试。
+Agent-run 端点（第二阶段）在 `AGENT_ENABLED=false` 时被禁用，必须返回 `503 Service Unavailable`，而不是 `500 Internal Server Error`。同样的规则适用于第三阶段流水线——它们已完整实现但默认关闭：当对应的 `*_PIPELINE_ENABLED` 开关为 false 时，`POST /api/v1/jobs` 返回 503（`DXF_PIPELINE_DISABLED` / `DXF2DWG_PIPELINE_DISABLED` / `DXF2EXCEL_PIPELINE_DISABLED`）。`test_stage1_boundaries.py` 测试验证了这一点。如果启用某项功能，请更新这些测试。
 
 ### 7.10 不要在前端硬编码 API URL
 
@@ -1116,7 +1149,7 @@ uv run ruff check --fix app tests    # 自动修复安全问题
 # 后端更改
 cd backend
 uv run ruff check app tests          # 必须 0 错误通过
-uv run pytest -q                     # 必须 432 测试通过
+uv run pytest -q                     # 必须 599 测试通过
 
 # 前端更改
 cd frontend
@@ -1197,7 +1230,7 @@ chore(backend): update ruff to 0.7.0
 ### 10.4 Pull Request 检查清单
 
 - [ ] `uv run ruff check app tests` 通过（0 错误）
-- [ ] `uv run pytest -q` 通过（全部 432 测试）
+- [ ] `uv run pytest -q` 通过（全部 599 测试）
 - [ ] `npx tsc --noEmit` 通过（前端类型检查）
 - [ ] 新端点有对应的测试（正向路径 + 安全边界）
 - [ ] 状态变更操作写入了审计日志

@@ -1,7 +1,7 @@
 # DWG-Agent Platform -- Security Architecture
 
 > **Audience:** Security auditors, platform operators, on-premise deployment engineers
-> **Last updated:** 2026-07-03
+> **Last updated:** 2026-07-08
 > **Scope:** Authentication, RBAC, API security, file security, pentest remediation, deployment checklist, audit log coverage
 
 ---
@@ -27,7 +27,7 @@ The authentication path is:
    - This eliminates the timing side-channel (previously 40x faster to reject non-existent users). See pentest finding H1.
 3. **Token issuance on success:**
    - **Access token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"access"`, expiry = 30 minutes. Returned in the JSON response body.
-   - **Refresh token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"refresh"`, expiry = 14 days. Set as `HttpOnly; SameSite=Lax` cookie on the `/api/v1/auth` path. The `Secure` flag is set only when `APP_ENV=production` (not in development mode).
+   - **Refresh token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"refresh"`, expiry = 14 days. Set as an `HttpOnly; SameSite=Lax` cookie named `dwg_refresh_token`, scoped to the `/api/v1/auth` path, with `max_age` = 14 days. The `Secure` flag is resolved by `refresh_cookie_secure_enabled`: it defaults to on when `APP_ENV=production` and off otherwise, but is **decoupled** from `APP_ENV` when `REFRESH_COOKIE_SECURE` is set explicitly. An HTTP-only intranet/VPN deployment can set `REFRESH_COOKIE_SECURE=false` even in production so the browser does not silently drop the cookie and break token refresh; never set `false` on a public TLS frontend (the 14-day refresh token must not travel in cleartext).
 4. **Login response** includes `access_token`, `token_type` ("Bearer"), `expires_in` (1800 seconds), and a summary user object.
 
 ### 1.2 Token structure
@@ -56,8 +56,8 @@ Both token types share the same payload shape:
 POST /api/v1/auth/tokens/refresh
 ```
 
-- The refresh token is read from the `refresh_token` cookie.
-- A new access token is issued. The refresh token itself is **not rotated** (see Section 5.3, remaining gaps).
+- The refresh token is read from the `dwg_refresh_token` HttpOnly cookie (there is no `Authorization: Bearer` dependency on this endpoint). A missing/invalid cookie or a non-`refresh` token type returns 401 `INVALID_TOKEN`; a blacklisted `jti` returns 401 `TOKEN_REVOKED`; an inactive/absent user returns 401 `USER_NOT_ACTIVE`; a token issued before the last password change returns 401 `TOKEN_REVOKED (password changed)`.
+- A new access token is issued. The refresh token itself is **not rotated** (see Section 5.3, remaining gaps). Token refresh is **not** written to the audit log.
 
 ### 1.4 Logout
 
@@ -66,7 +66,7 @@ DELETE /api/v1/auth/sessions/current
 ```
 
 - The access token's `jti` is extracted and stored in Redis with TTL = remaining token lifetime (`exp - now`).
-- The refresh token's `jti` is similarly blacklisted.
+- The refresh token (read from the `dwg_refresh_token` cookie, when present) has its `jti` similarly blacklisted, and the cookie is cleared.
 - Redis keys follow the pattern `blacklist:jti:{jti}` -- they self-expire after TTL, no cleanup job needed.
 - If Redis is unavailable, blacklisting is silently skipped (degraded mode, logged as warning).
 
@@ -253,8 +253,9 @@ All 8 permissions are granted to `super_admin` at seed time.
 ### 3.1 Authentication enforcement
 
 - **All business endpoints require `current_user: CurrentUser`** -- no endpoint accepts `= None` as a default.
-- The only unauthenticated endpoints are `POST /auth/sessions` (login), `POST /auth/tokens/refresh`, and `GET /health`.
+- The only unauthenticated ("public") endpoints are `POST /auth/sessions` (login), `POST /auth/tokens/refresh` (validated via the HttpOnly refresh cookie, not a Bearer token), and the root `GET /health`.
 - `OAuth2PasswordBearer` extracts the `Authorization: Bearer <token>` header automatically.
+- **SSE authentication:** the job-events stream `GET /api/v1/jobs/{job_id}/events` still requires a valid access token but accepts it via a `?token=<jwt>` query parameter (`get_current_user_from_query` / `CurrentUserOrQuery`), because `EventSource` cannot set request headers. An `Authorization: Bearer` header still takes priority when present. There are no WebSocket endpoints.
 
 ### 3.2 CORS policy
 
@@ -303,6 +304,11 @@ The health endpoint returns `{"data": {"status": "ok"}, "meta": {"request_id": "
 - **Status transitions:** `transition_user_status()` uses `UPDATE ... WHERE` with rowcount check -- no SELECT-then-UPDATE gap.
 - **`FOR UPDATE`:** Available via `get_user_or_404(for_update=True)` for pessimistic locking when needed.
 
+### 3.7 API documentation exposure (BUG-21)
+
+- The interactive docs and schema endpoints (`/docs`, `/redoc`, `/openapi.json`) are mounted **only** when `app_env == "development"` **or** `debug` is true. In a production-like deployment all three are set to `None`, so the FastAPI app returns 404 for them -- this prevents unauthorised API surface discovery (pentest finding BUG-21).
+- **Request-ID middleware:** `add_request_id` reads an inbound `X-Request-ID` header or generates `req_<uuid4 hex>`, stores it on `request.state.request_id`, echoes it back in the `X-Request-ID` response header, and includes it in every response envelope's `meta.request_id`.
+
 ---
 
 ## 4. File Security Measures
@@ -312,12 +318,13 @@ The health endpoint returns `{"data": {"status": "ok"}, "meta": {"request_id": "
 Every file upload passes through this pipeline (in order):
 
 ```
-1. Extension whitelist    → .dwg only (ALLOWED_UPLOAD_EXTENSIONS = {".dwg"})
-2. MIME type check        → 8 accepted DWG-related MIME types (application/acad, application/dwg, etc.)
-3. DWG header validation  → First 6 bytes must match AC1012-AC1032 (AutoCAD R13 through 2018+)
-4. Size enforcement       → Max: max_upload_size_mb (512 MiB default), Min: 1024 bytes
-5. Streaming hash         → SHA-256 + MD5 computed during chunked read
-6. Temp buffer cleanup      → SpooledTemporaryFile automatically cleans the in-memory/os-buffer after use. However, if the storage backend write (`put_fileobj`) fails mid-write, a partial file may remain in the storage backend (e.g. MinIO or local filesystem) — the application does not attempt to unlink partially-written files from the backend.
+1. Extension whitelist    → ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip"}; anything else → 415 FILE_TYPE_NOT_ALLOWED (allowed list returned in details)
+2. MIME type check        → advisory hint only — a set of DWG-related MIME types plus binary fallbacks; NEVER blocks (the DWG header is the real boundary)
+3. DWG header validation  → for .dwg uploads only: first 6 bytes must match AC1012-AC1032 (AutoCAD R13 through 2018+) → 415 FILE_NOT_DWG. .dxf/.zip skip this (ZIP is validated per-entry, see 4.6)
+4. Size enforcement       → Max: max_upload_size_mb (512 MiB default) for all uploads → 413 FILE_TOO_LARGE. Min: 1024 bytes (MIN_DWG_SIZE_BYTES) enforced for .dwg only → 415 FILE_NOT_DWG
+5. Filename sanitization  → sanitize_filename() NFKC-normalizes, strips path separators/".."/control chars, strips leading dots/dashes + trailing dots/spaces, truncates to 200 chars, falls back to "unnamed"
+6. Streaming hash         → SHA-256 + MD5 computed during 1 MiB chunked read into a 16 MiB SpooledTemporaryFile
+7. Temp buffer cleanup    → SpooledTemporaryFile automatically cleans the in-memory/os-buffer after use. However, if the storage backend write (`put_fileobj`) fails mid-write, a partial file may remain in the storage backend (e.g. MinIO or local filesystem) — the application does not attempt to unlink partially-written files from the backend.
 ```
 
 ### 4.2 Supported DWG versions
@@ -354,11 +361,28 @@ Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
 - **MD5:** Secondary hash for legacy compatibility, stored in `files.md5`.
 - Both are computed during the streaming upload (single pass over the file data).
 
+### 4.6 ZIP upload guards (`POST /api/v1/files/upload-zip`)
+
+Batch DWG/DXF uploads arrive as a `.zip`; extraction is guarded against zip-bomb and path-traversal attacks:
+
+| Guard | Limit / rule | Violation |
+|---|---|---|
+| Archive type | Filename must end `.zip` and pass the extension whitelist; must be a valid ZIP | 415 `FILE_NOT_ZIP` |
+| Corruption | `zf.testzip()` must return `None` | 415 `ZIP_CORRUPTED` |
+| Upload buffer | Streamed bytes ≤ `max_upload_size_mb` (512 MiB) | 413 `FILE_TOO_LARGE` |
+| Entry count | ≤ `max_zip_entry_count` (**1000**) | 413 `ZIP_TOO_MANY_FILES` |
+| Uncompressed size | Accumulated extracted bytes ≤ `max_zip_extract_mb` (**2048 MiB**) — the core zip-bomb defence | 413 `ZIP_TOO_LARGE` |
+| Path traversal | Each entry name reduced to its basename and passed through `sanitize_filename` (directory components stripped) | (sanitized silently) |
+| Per-entry filter | Entry extension must equal the target `file_ext` (`.dwg`/`.dxf`); non-matching entries skipped; `.dwg` entries are header-validated and skipped on failure | (skipped, counted) |
+| Empty result | At least one file must be extracted or skipped | 422 `ZIP_EMPTY` |
+
+The two size ceilings (`MAX_ZIP_EXTRACT_MB`, `MAX_ZIP_ENTRY_COUNT`) exist in `core/config.py` only and are **not** present in either `.env` template, so they run on their defaults unless added manually.
+
 ---
 
 ## 5. Pentest Findings Resolution
 
-### 5.1 Fixed (12 out of 18)
+### 5.1 Fixed (16 findings)
 
 | ID | Finding | Severity | Fix | File |
 |---|---|---|---|---|
@@ -370,19 +394,21 @@ Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
 | BUG-4 | Health endpoint infoleak -- database status, version | **Low** | Simplified to `{"data": {"status": "ok"}}`. | `app/main.py` |
 | BUG-5 | DWG size validation too small -- accepted < 1024 bytes | **Medium** | `MIN_DWG_SIZE_BYTES = 1024` enforced after upload, combined with header validation. | `app/services/storage_service.py` |
 | BUG-6 | Race condition causing 500 with traceback leak | **Medium** | `IntegrityError` caught and converted to 409. Catch-all `Exception` handler returns `"Internal server error."` in production. | `app/services/user_service.py`, `app/main.py` |
-| BUG-7 | Soft-delete cascade -- deleted projects still visible in file listings | **Medium** | `require_active_project()` check added to `require_project_member()`. File listing filtered by project membership. | `app/api/deps.py` |
+| BUG-7 | Soft-delete cascade -- deleted projects still visible in file listings | **Medium** | `require_active_project()` check added to `require_project_member()`. A file whose projects are all soft-deleted is treated as not-found. | `app/api/deps.py`, `app/api/v1/files_api.py` |
 | BUG-8 | `task_type` field unvalidated -- accepted arbitrary strings | **Low** | Pattern constraint `^[a-z][a-z0-9_]+$`. | `app/schemas/job_schema.py` |
 | BUG-9 | Retry without state guard -- any job could be retried | **Medium** | Only `failed` or `cancelled` jobs are retryable. | `app/services/job_service.py` |
 | BUG-12 | No self-update endpoint for users | **Low** | `PATCH /users/me` added with `UserSelfUpdate` schema (no status changes allowed). | `app/api/v1/users_api.py` |
+| BUG-13 | `sort_by` query parameter unvalidated -- SQL injection / column enumeration | **High** | `validate_sort_by()` whitelists sortable columns per resource; unknown column → 422 `INVALID_SORT_COLUMN`, unknown resource → 422 `INVALID_SORT_RESOURCE`. | `app/core/validators.py`, `app/api/v1/projects_api.py` |
+| BUG-14 | `status` filter parameter unvalidated | **Medium** | Status-filter value validated against an allowed set (422 `INVALID_STATUS_FILTER`). | `app/api/v1/projects_api.py` |
+| BUG-19 | Admin password reset did not revoke the target's active sessions | **Medium** | Admin-initiated password reset now records a password-change timestamp, revoking the target user's existing access/refresh tokens. | `app/api/v1/users_api.py` |
+| BUG-21 | Interactive API docs/schema exposed in production | **Low** | `/docs`, `/redoc`, `/openapi.json` set to `None` unless `app_env == "development"` or `debug` is on. | `app/main.py` |
 
-### 5.2 Not fixed by design (6 out of 18)
+### 5.2 Not fixed by design (4 findings)
 
 | ID | Finding | Rationale |
 |---|---|---|
 | BUG-10 | Nanosecond-level TOCTOU window | Risk is negligible in practice -- the window is too small to exploit reliably in a web application context. Not worth the complexity of application-level serializable transactions. |
 | BUG-11 | Unclear root cause, cannot reproduce | Unable to reproduce after multiple attempts. No telemetry to diagnose. Filed for monitoring in production. |
-| BUG-13 | Parameter not present in current API | The parameter referenced in the finding does not exist in any deployed API endpoint. The finding may have been against a stale/staging version. |
-| BUG-14 | Parameter not present in current API | Same as BUG-13. |
 | C1 | JWT secret key strength | Deployment concern, not a code issue. Production deployment must use a cryptographically random key (see checklist 6.1). |
 | C2 | Port 8000 exposed | Infrastructure concern. Docker Compose places backend-api on the `internal` network only. Nginx is the public-facing service on ports 80/443. If deploying without Docker, follow the checklist (Section 6.5). |
 
@@ -423,7 +449,7 @@ Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
 
 - [ ] Obtain TLS certificate (Let's Encrypt or internal CA).
 - [ ] Configure Nginx with `ssl_certificate` and `ssl_certificate_key`.
-- [ ] Set `secure` flag on cookies (already in code for `refresh_token` cookie).
+- [ ] Set `secure` flag on cookies (resolved by `refresh_cookie_secure_enabled` for the `dwg_refresh_token` cookie; see Section 1.1).
 - [ ] Set HSTS header in Nginx.
 
 ### 6.4 Application hardening
@@ -465,9 +491,9 @@ Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
 audit_logs
 ├── id              BIGINT PK
 ├── actor_user_id   BIGINT FK → sys_users.id (nullable -- for system actions)
-├── action          VARCHAR(128)    e.g. "user.create", "file.upload", "auth.logout"
-├── resource_type   VARCHAR(64)     e.g. "user", "project", "file", "job", "result"
-├── resource_id     BIGINT          ID of the affected resource
+├── action          VARCHAR(128)    e.g. "users.create", "files.upload", "auth.logout"
+├── resource_type   VARCHAR(64)     e.g. "user", "project", "project_member", "file", "drawing", "job", "role", "result", "agent_run"
+├── resource_id     BIGINT          ID of the affected resource (a plain indexed pointer, NOT a real FK)
 ├── ip_address      VARCHAR(64)     Client IP from request
 ├── user_agent      VARCHAR(512)    User-Agent header
 ├── before_json     JSON            Resource state before the action (for updates/deletes)
@@ -499,10 +525,15 @@ audit_logs
 | `project_members.create` | project | Owner adds a member to a project |
 | `project_members.update` | project_member | Owner changes a member's project role |
 | `project_members.delete` | project_member | Owner removes a member from a project |
-| `files.upload` | file | User uploads a DWG file |
+| `files.upload` | file | User uploads a single DWG/DXF file |
+| `files.upload_zip` | file | User uploads a ZIP; matching entries are batch-extracted |
 | `files.delete` | file | User deletes a file |
+| `files.bulk_delete` | file | User bulk soft-deletes a set of files |
+| `files.batch_delete` | file | User soft-deletes all files in a batch |
 | `files.download_url` | file | User requests a signed download URL |
 | `files.download` | file | User downloads a file via signed URL |
+| `files.download_zip` | file | User downloads selected files as a ZIP |
+| `files.batch_download_zip` | file | User downloads a whole batch as a ZIP |
 | `drawings.create` | drawing | User creates a drawing |
 | `drawings.update` | drawing | User modifies drawing metadata |
 | `drawings.delete` | drawing | User archives a drawing |
@@ -510,8 +541,11 @@ audit_logs
 | `jobs.create` | job | User submits a processing job |
 | `jobs.cancel` | job | User cancels a job |
 | `jobs.retry` | job | User retries a failed/cancelled job |
+| `jobs.cancel_all` | job | Admin cancels all active jobs (`POST /jobs/cancel-all-active`) |
 | `agent_runs.create` | agent_run | User creates an agent run |
 | `reviews.create` | result | Reviewer approves or rejects an analysis result |
+
+**Not audited:** token refresh (`POST /auth/tokens/refresh`), `GET /me`, and read/list (GET) endpoints generally do not write audit records.
 
 ### 7.3 Access control for audit logs
 

@@ -1,14 +1,14 @@
 # DWG-Agent Platform -- Architecture Document
 
 > **Target audience:** Senior engineer taking over maintenance or extension of this codebase.
-> **Stage:** 1 (platform skeleton). Stages 2-6 are planned but not started.
+> **Stage:** 1 complete (platform skeleton). Stage 3 pipelines (DWG→DXF, DXF→DWG, DXF→Excel) are fully implemented in code but disabled by default behind feature flags. Stages 2 (Agent) and 4 (Windows CAD Worker) remain stubs; Stages 5/6 are partial.
 > **Spec authority:** `DWG-Agent企业平台技术规范.md` (repo root, v2.0, 25 sections, 1296 lines).
 
 ---
 
 ## 1. System Overview
 
-DWG-Agent is an enterprise CAD intelligent processing platform for internal company use. It accepts DWG drawing uploads, manages projects/drawings/files with full RBAC, and will eventually route natural-language tasks through an LLM Agent to two processing pipelines: a low-precision Linux DXF pipeline (Python/ezdxf) and a high-precision Windows CAD Worker pipeline (C#/ZWCAD API).
+DWG-Agent is an enterprise CAD intelligent processing platform for internal company use. It accepts DWG/DXF drawing uploads, manages projects/drawings/files with full RBAC, and routes conversion/extraction jobs to three real Linux pipelines — DWG→DXF, DXF→DWG (both ODA File Converter subprocesses), and batch DXF→Excel material-table extraction (pure-Python) — with a high-precision Windows CAD Worker (C#/ZWCAD API) planned for Stage 4 and an LLM Agent for natural-language tasks planned for Stage 2. (Note: the DXF conversion path uses the ODA File Converter, not ezdxf; ezdxf is only an optional parsing dependency.)
 
 At Stage 1, the platform provides a complete RESTful API, authentication/RBAC, project/file/drawing/job lifecycle management, file upload with DWG validation, and audit logging -- everything a user needs to upload and manage DWG files before the actual CAD processing pipelines come online.
 
@@ -16,8 +16,8 @@ At Stage 1, the platform provides a complete RESTful API, authentication/RBAC, p
 DWG-Agent Platform (Stage 1)
 ═══════════════════════════════════════════════════
   User → React SPA → Nginx → FastAPI → MySQL (metadata)
-                                    → Local FS (files)
-                                    → Redis/Valkey (cache/memory/blasklist)
+                                    → Local FS / MinIO (files)
+                                    → Redis/Valkey (cache/memory/blacklist/pub-sub)
 ```
 
 ---
@@ -57,10 +57,11 @@ The spec defines a two-node deployment with all Linux services containerized via
 │                       │                    │                │
 │  ┌────────────────────┼────────────────────┘                │
 │  │  Celery Workers    │                                     │
-│  │  - worker-agent    │                                     │
-│  │  - worker-dxf      │                                     │
-│  │  - worker-report   │                                     │
-│  │  - worker-cad-dispatch                                    │
+│  │  - worker-report (default, always on)                     │
+│  │  - worker-dxf      (workers profile)                      │
+│  │  - worker-agent    (workers profile)                      │
+│  │  - flower          (monitoring profile)                   │
+│  │  (worker-cad-dispatch reserved for Stage 4, not in compose)│
 │  └────────────────────┘                                     │
 └──────────────────────────┼──────────────────────────────────┘
                            │ Internal network (API Key / mTLS)
@@ -114,7 +115,7 @@ The codebase follows the six-layer architecture defined in Spec Section 6. Below
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ 1. API Layer              app/api/v1/         11 modules     │
+│ 1. API Layer              app/api/v1/         12 modules     │
 │    Routes, param parsing, auth deps, response wrapping       │
 │    DOES NOT: contain business logic, DB queries, file I/O    │
 ├──────────────────────────────────────────────────────────────┤
@@ -122,7 +123,7 @@ The codebase follows the six-layer architecture defined in Spec Section 6. Below
 │    Pydantic v2 request/response validation                   │
 │    DOES NOT: contain business rules, DB access               │
 ├──────────────────────────────────────────────────────────────┤
-│ 3. Service Layer          app/services/        12 modules    │
+│ 3. Service Layer          app/services/        17 modules    │
 │    Business logic orchestration, cross-cutting workflows     │
 │    DOES NOT: depend on FastAPI Request, do raw SQL           │
 ├──────────────────────────────────────────────────────────────┤
@@ -143,31 +144,34 @@ Horizontal (cross-cutting):
 ┌──────────────────────────────────────────────────────────────┐
 │ Agent Layer     app/agents/          3 stubs    (Stage 2)    │
 │ MCP Layer       app/mcp_client/      2 stubs    (Stage 2)    │
-│ Worker Layer    app/workers/         celery_app + report task │
-│                                      + agent/dxf/cad stubs    │
+│ Worker Layer    app/workers/         celery_app + report/dxf/ │
+│                                      dxf2dwg/dxf2excel (real)  │
+│                                      + agent/cad stubs         │
 │ Storage Layer   app/storage/          local dev + MinIO       │
 │                                      Docker backend           │
 │ Integration     app/integrations/zwcad/ 2 stubs (Stage 4)   │
+│ Engines         Stages/{dwg2dxf,dxf2dwg,dxf2excel} (real)    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ### 3.2 Layer Details
 
-#### API Layer -- `app/api/v1/` (11 route modules, 63 under /api/v1 + 1 health = 64 total endpoints)
+#### API Layer -- `app/api/v1/` (12 route modules, 73 under /api/v1 + 1 root health = 74 total endpoints)
 
 | Module | Endpoints | Spec Section | Status |
 |--------|-----------|-------------|--------|
 | `auth_api.py` | POST sessions, DELETE sessions, POST refresh, GET me, PATCH password | 7.5 | Done |
-| `users_api.py` | GET/POST users, GET/PATCH/DELETE user, POST/DELETE user roles, password-reset/enable/disable requests | 7.6 | Done |
+| `users_api.py` | GET/POST users, GET/PATCH/DELETE user, PATCH me (self profile), POST/DELETE user roles, password-reset/enable/disable requests | 7.6 | Done |
 | `roles_api.py` | GET/POST roles, GET permissions, PUT role permissions | 7.6 | Done |
 | `projects_api.py` | GET/POST projects, GET/PATCH/DELETE project, GET/POST members, PATCH/DELETE member | 7.7 | Done |
-| `files_api.py` | POST files, GET files, GET/DELETE file, GET download-url, GET download | 7.8 | Done |
+| `files_api.py` | POST files, POST upload-zip, GET files, GET/DELETE batches, GET batch download-zip, GET excel-preview, GET/DELETE file, GET download-url, GET download, POST bulk-delete, POST download-zip | 7.8 | Done |
 | `drawings_api.py` | GET/POST drawings, GET/PATCH/DELETE drawing, GET/POST versions, GET preview | 7.9 | Done |
-| `jobs_api.py` | GET/POST jobs, GET job, POST cancel/retry, GET steps/logs/results | 7.10 | Done |
+| `jobs_api.py` | GET/POST jobs, GET job, POST cancellation-requests/retry-requests, GET steps/logs/results, GET events (SSE), POST cancel-all-active | 7.10 | Done |
 | `agent_runs_api.py` | POST agent-runs, GET agent-run, GET agent-run steps, GET agent-tools | 7.11 | Done (503 gated) |
-| `results_api.py` | GET result, GET download-url, POST review, GET review history | 7.12 | Done |
+| `results_api.py` | GET result, GET download-url, POST/GET reviews | 7.12 | Done |
 | `reviews_api.py` | GET pending reviews | 7.12 | Done |
 | `audit_logs_api.py` | GET audit-logs, GET audit-log | 7.13 | Done |
+| `system_api.py` | GET system/health, GET system/health/oda | 18.2 | Done |
 
 **DOES:**
 - Parse path/query/body parameters via FastAPI dependency injection
@@ -182,7 +186,7 @@ Horizontal (cross-cutting):
 - Access filesystem directly
 - Import `app.models` directly (uses schemas for I/O)
 
-**Router assembly** (`router.py`): All 11 route modules are assembled into a single `api_router` mounted at `/api/v1` in `main.py`.
+**Router assembly** (`router.py`): All 12 route modules are assembled into a single `api_router` mounted at `/api/v1` in `main.py`. Most sub-routers carry a prefix (`/auth`, `/users`, `/projects`, `/files`, `/drawings`, `/jobs`, `/results`, `/reviews`, `/audit-logs`, `/system`); `roles_api` and `agent_runs_api` are mounted WITHOUT an extra prefix (their in-file decorator paths are already full sub-paths, e.g. `/roles`, `/permissions`, `/agent-runs`, `/agent-tools`). The root `GET /health` lives on the app itself, NOT under `/api/v1`.
 
 #### Schema Layer -- `app/schemas/` (10 Pydantic v2 modules)
 
@@ -198,7 +202,7 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Access the database
 - Perform side effects
 
-#### Service Layer -- `app/services/` (12 modules, ~1191 lines)
+#### Service Layer -- `app/services/` (17 modules)
 
 | Service | Responsibility | Key Dependencies |
 |---------|---------------|-----------------|
@@ -214,6 +218,11 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 | `audit_service.py` | Structured audit trail writes (who, what, resource, before/after, IP, UA) | `AuditLog` model |
 | `redis_memory.py` | Agent session memory store (`agent:memory:{session_id}`, JSON list, TTL=7200s, max 20 msgs) | `redis_client` |
 | `cache_service.py` | Generic key-value cache (`cache:{namespace}:{key}`, graceful degradation when Redis down) | `redis_client` |
+| `dxf_service.py` | **DWG→DXF** orchestration: stage source → `dwg_converter.convert_file` (ODA subprocess) → persist DXF to `dxf-derived` → `AnalysisResult` + `job_steps` + SSE events (Real, flag-gated) | `Stages/dwg2dxf`, `storage_service`, `job_events` |
+| `dxf2dwg_service.py` | **DXF→DWG** reverse orchestration: `dxf_converter.convert_file` (ODA) → persist DWG to `dwg-derived`; `$ACADVER`/reverse-lookup version detection (Real, flag-gated) | `Stages/dxf2dwg`, `storage_service` |
+| `dxf2excel_service.py` | **Batch DXF→Excel** material-table extraction: files by `batch_name` → `dxf2excel.pipeline.process_file` → `write_excel` → persist `.xlsx` to `dwg-reports`; Redis progress cache (Real, flag-gated) | `Stages/dxf2excel`, `cache_service`, `job_events` |
+| `dxf_stats.py` | Stdlib DXF entity/section counter for fidelity metrics (no ezdxf dependency) | -- |
+| `job_events.py` | Redis pub/sub progress channel `job:events:{job_id}` (`publish_job_event`, `job_event_stream` SSE, keepalive, 600s cap), fail-safe | `redis_client` |
 
 **DOES:**
 - Orchestrate business workflows across models, schemas, and external services
@@ -225,7 +234,7 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Contain route-level logic (param extraction, HTTP response construction)
 - Issue raw SQL (uses SQLAlchemy ORM)
 
-#### Model Layer -- `app/models/` (10 files, 17 tables, 401 lines)
+#### Model Layer -- `app/models/` (10 files, 17 tables, ~402 lines)
 
 All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixin` (provides `created_at`, `updated_at`).
 
@@ -250,7 +259,7 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 - Define validation rules (that is the schema layer)
 - Know about HTTP or API concerns
 
-#### Core Layer -- `app/core/` (8 modules, 438 lines)
+#### Core Layer -- `app/core/` (8 modules, ~500 lines)
 
 | Module | Responsibility |
 |--------|---------------|
@@ -290,19 +299,24 @@ Spec reference: Section 12 (MCP tool layer). When implemented:
 
 Critical design constraint from spec (Section 11.4): MCP connection failure must NOT crash the service; tools unavailable returns 503 on agent-runs.
 
-#### Worker Layer -- `app/workers/` (5 files)
+#### Worker Layer -- `app/workers/` (celery_app + 6 task modules)
 
-`celery_app.py` defines the real Celery application using Redis broker/result backend from config. `tasks_report.py` registers the Stage 1 `run_stub_job` task used by normal job creation. `tasks_agent.py`, `tasks_dxf.py`, and `tasks_cad.py` remain placeholders because concrete Agent/DXF/CAD processing is intentionally deferred.
+`celery_app.py` defines the real Celery application (`"dwg_agent"`) using the Redis broker (DB 0) / result backend (DB 1) from config, with `task_acks_late`, `task_reject_on_worker_lost`, `worker_prefetch_multiplier=1`, and a `task_always_eager` toggle for tests. Queue routing: `agent→agent`, `dxf→dxf`, `dxf2dwg→dxf2dwg`, `dxf2excel→dxf2excel`, `cad→cad`, `report→report`, default `default`.
 
-Spec reference: Section 13 (Celery design). At Stage 1, jobs are asynchronous Celery fake tasks; the fake task only proves dispatch, status transitions, result file creation, and audit/review plumbing.
+Task modules:
+- `tasks_report.py` → `run_stub_job` (queue **report**) → `job_service.run_local_stub_job` — the Stage 1 framework fake task (Real).
+- `tasks_dxf.py` → `convert_dwg_to_dxf` (queue **dxf**) → `dxf_service.run_dxf_conversion` (Real, flag-gated).
+- `tasks_dxf2dwg.py` → `convert_dxf_to_dwg` (queue **dxf2dwg**) → `dxf2dwg_service.run_dxf_to_dwg_conversion` (Real, flag-gated).
+- `tasks_dxf2excel.py` → `extract_dxf_to_excel` (queue **dxf2excel**) → `dxf2excel_service.run_dxf2excel_extraction` (Real, flag-gated).
+- `tasks_agent.py` (queue agent) and `tasks_cad.py` (queue cad) — docstring-only stubs that register no task (Stage 2 / Stage 4).
 
-Future stages will add real work to the `agent`, `dxf`, and `cad` queues while preserving the same task state machine.
+Spec reference: Section 13 (Celery design). Real DXF pipelines share the same task state machine as the Stage 1 fake task (queued→running→succeeded/failed, `job_steps` per stage, `AnalysisResult`, audit/review plumbing).
 
 #### Storage Layer -- `app/storage/` (3 files)
 
 `base.py` defines `AbstractStorageBackend`; `local_storage.py` implements filesystem storage for local development; `minio_storage.py` implements the S3-compatible MinIO backend used by Docker deployment. `storage_service.py` performs DWG validation, hashing, and metadata creation, then writes bytes through the selected backend.
 
-Spec reference: Section 10 (file storage). Four buckets defined: `dwg-original`, `dwg-derived`, `dwg-reports`, `dwg-temp`.
+Spec reference: Section 10 (file storage). Six buckets defined: `dwg-original`, `dwg-derived`, `dwg-reports`, `dwg-temp`, plus direction-specific `dxf-original` (DXF uploads) and `dxf-derived` (DWG→DXF output).
 
 #### Integration Layer -- `app/integrations/zwcad/` (2 files, all stubs)
 
@@ -327,7 +341,7 @@ Designated placeholder for future extraction of DB read/write patterns from serv
                              │ mounts
                     ┌────────▼─────────┐
                     │  api/v1/router.py │
-                    │  (11 route mods)  │
+                    │  (12 route mods)  │
                     └────────┬─────────┘
                              │
               ┌──────────────┼──────────────┐
@@ -353,17 +367,20 @@ Designated placeholder for future extraction of DB read/write patterns from serv
                                          │  (Redis)   │
                                          └────────────┘
 
-Future (Stage 2-4) additions below this line:
+Future (Stage 2/4) and flag-gated (Stage 3) additions below this line:
 - - - - - - - - - - - - - - - - - - - - - - - -
 ┌──────────┐  ┌──────────┐  ┌─────────────────┐
 │ agents/  │  │mcp_client│  │ workers/        │
-│ (LangGr) │──│/ (MCP)   │  │ (Celery real,   │
-│          │  │          │  │ tasks Stage 2+) │
+│ (LangGr) │──│/ (MCP)   │  │ (Celery real;   │
+│ Stage 2  │  │ Stage 2  │  │ dxf/dxf2dwg/    │
+│          │  │          │  │ dxf2excel real, │
+│          │  │          │  │ agent/cad stub) │
 └──────────┘  └──────────┘  └─────────────────┘
                                    │
 ┌──────────────────────────────────┼──────────┐
 │ storage/ (local dev,             │          │
 │   MinIO Docker backend)          │          │
+│ Stages/{dwg2dxf,dxf2dwg,dxf2excel}│ (engines)│
 │ integrations/zwcad/ (C# Worker)  │          │
 └──────────────────────────────────────────────┘
 ```
@@ -438,7 +455,8 @@ auth_service.authenticate_user(db, username, password)
 build_login_token(user) + build_refresh_token(user)
   ├── JWT HS256, sub=user.id, jti=UUID4, exp=now+30min (access) / +14d (refresh)
   ▼
-Response: {access_token, refresh_token, token_type, expires_in, user}
+Response body: {access_token, token_type, expires_in, user}
+  (refresh token set separately as httponly cookie dwg_refresh_token; path /api/v1/auth; Secure per refresh_cookie_secure_enabled)
 ```
 
 ### 5.3 Logout / Token Blacklisting
@@ -467,13 +485,13 @@ POST /api/v1/files (multipart/form-data, file field)
   ▼
 Route handler
   ├── Auth: CurrentUser
-  ├── Validate: file extension (.dwg)
+  ├── Validate: file extension (.dwg/.dxf/.zip accepted)
   ├── Validate: file size (max_upload_size_mb setting)
   ▼
 storage_service.save_uploaded_file(db, user, file)
   ├── Compute SHA-256 hash
-  ├── Read first 6 bytes → validate DWG magic header (AC1012–AC1032)
-  ├── Validate minimum 1024 bytes
+  ├── Read first 6 bytes → validate DWG magic header (AC1012–AC1032) [.dwg only]
+  ├── Validate minimum 1024 bytes [.dwg only]
   ├── ensure_within_root(storage_root, target_path) → path traversal guard
   ├── Write file through StorageBackend (local dev / MinIO Docker)
   ├── INSERT INTO files (bucket, storage_key, original_name, sha256, size, ...)
@@ -502,30 +520,92 @@ GET /api/v1/files/{file_id}/download?expires={ts}&signature={sig}
   └── Stream file with Content-Disposition header
 ```
 
-### 5.6 Job Lifecycle (Stage 1 -- Celery Fake Task)
+### 5.6 Job Lifecycle & Enqueue Routing
 
 ```
-POST /api/v1/jobs {drawing_id, task_type, precision_level, params}
+POST /api/v1/jobs {project_id|drawing_id, task_type, precision_level, params}  → 202
   │
+  ▼
+jobs_api.create_job
+  ├── require_project_role write roles (via project_id or drawing's project)
+  ├── Feature-flag gate per task_type:
+  │     convert_dwg_to_dxf  → 503 DXF_PIPELINE_DISABLED      if !dxf_pipeline_enabled
+  │     convert_dxf_to_dwg  → 503 DXF2DWG_PIPELINE_DISABLED  if !dxf2dwg_pipeline_enabled
+  │     extract_dxf_to_excel→ 503 DXF2EXCEL_PIPELINE_DISABLED if !dxf2excel_pipeline_enabled
   ▼
 job_service.create_job(db, user, data)
-  ├── Validate drawing exists and user has project access
-  ├── INSERT INTO jobs (status="queued", ...)
-  ├── Write audit log (JOB_CREATED)
+  ├── Map task_type → pipeline; INSERT INTO jobs (status="queued", ...)
+  ├── Write audit log (jobs.create)
   ▼
-job_service.enqueue_stub_job(job_id)
-  │
-  ▼
-Celery worker-report consumes app.workers.tasks_report.run_stub_job
-  ├── status → "running"
-  ├── INSERT INTO job_steps (step_name="dispatch_stub_worker")
-  ├── Write JSON result file via StorageBackend (local or MinIO)
-  ├── INSERT INTO analysis_results
-  ├── INSERT INTO job_steps (step_name="write_stub_result")
-  └── status → "succeeded"
+job_service.enqueue_job(job_id)   # router → dxf / dxf2dwg / dxf2excel / report(stub) queue
+  ├── 503 JOB_ENQUEUE_FAILED if Celery dispatch fails (job marked failed)
 ```
 
-The task body is intentionally fake; Agent/DXF/CAD processing stays deferred.
+**Stage 1 framework stub path** (any unmapped task_type → `PIPELINE_STUB` / `local_stub`):
+
+```
+Celery worker-report consumes app.workers.tasks_report.run_stub_job
+  ├── status → "running"; INSERT job_steps
+  ├── Write JSON result file via StorageBackend (dwg-derived)
+  ├── INSERT analysis_results; status → "succeeded"
+```
+
+The stub task body is intentionally fake; it exercises the full result/download/audit/review chain. The three real pipelines below share the same state-machine shape (queued→running, per-stage `job_steps`, `publish_job_event`, persist via `save_bytes_as_file`, register `AnalysisResult`).
+
+### 5.7 DWG → DXF Pipeline (Stage 3 forward, flag-gated)
+
+```
+task_type="convert_dwg_to_dxf"  → enqueue_dxf_job → tasks_dxf.convert_dwg_to_dxf_task
+  ▼
+dxf_service.run_dxf_conversion
+  ├── step download_source_dwg   (stage source from storage)
+  ├── step run_oda_convert       (Stages/dwg2dxf dwg_converter.convert_file — ODA File
+  │                               Converter AppImage via xvfb-run, headless; NOT ezdxf)
+  ├── step persist_dxf_result    (write DXF → bucket dxf-derived)
+  ├── AnalysisResult + SSE events; error_code DXF_CONVERSION_FAILED / DXF_SOURCE_MISSING
+```
+
+Health probe: `GET /api/v1/system/health/oda`.
+
+### 5.8 DXF → DWG Pipeline (Stage 3 reverse, flag-gated)
+
+```
+task_type="convert_dxf_to_dwg"  → enqueue_dxf2dwg_job → tasks_dxf2dwg.convert_dxf_to_dwg_task
+  ▼
+dxf2dwg_service.run_dxf_to_dwg_conversion
+  ├── step download_source_dxf
+  ├── step run_oda_convert_dxf   (Stages/dxf2dwg dxf_converter.convert_file — ODA inverse;
+  │                               version via reverse-lookup on AnalysisResult.tool_version
+  │                               else $ACADVER scan)
+  ├── step persist_dwg_result    (write DWG → bucket dwg-derived)
+  ├── error_code DWG_CONVERSION_FAILED
+```
+
+Note: this is the ODA-based reverse conversion — NOT the high-precision ZWCAD path (Stage 4, still stub).
+
+### 5.9 DXF → Excel Pipeline (batch material-table extraction, flag-gated)
+
+```
+task_type="extract_dxf_to_excel" (params carry batch_name)
+  → enqueue_dxf2excel_job → tasks_dxf2excel.extract_dxf_to_excel_task
+  ▼
+dxf2excel_service.run_dxf2excel_extraction   (N DXF → 1 Job → 1 .xlsx)
+  ├── step download_dxf_batch     (query files by batch_name)
+  ├── step run_dxf2excel_pipeline (Stages/dxf2excel pipeline.process_file — pure-Python
+  │                                grid/table recovery, no ODA; per-file SSE progress)
+  ├── step persist_excel_result   (write .xlsx → bucket dwg-reports)
+  ├── Redis progress cache namespace dxf2excel
+```
+
+### 5.10 SSE Job Progress
+
+```
+GET /api/v1/jobs/{job_id}/events   (media_type text/event-stream, ?token=<jwt> or Bearer)
+  ├── Emit initial DB snapshot
+  ├── Subscribe Redis pub/sub channel job:events:{job_id}
+  ├── ": keepalive" comment on idle; terminal snapshot fallback
+  └── Ends immediately if job already terminal or Redis unavailable (not enveloped)
+```
 
 ---
 
@@ -552,7 +632,7 @@ The task body is intentionally fake; Agent/DXF/CAD processing stays deferred.
 - Zero setup -- no external MySQL server dependency for CI/dev
 - `StaticPool` ensures full isolation (each test gets its own in-memory DB)
 - WAL mode + `foreign_keys=ON` + `busy_timeout=5000` applied per-connection
-- 432 tests run with fast collection and execution
+- 599 tests run with fast collection and execution
 
 **MySQL connection pool:** `pool_recycle=3600` (recycle before MySQL's default `wait_timeout` of 28800s), `pool_size=10`, `max_overflow=20`. Applied only when `database_url` starts with `mysql`.
 
@@ -624,9 +704,9 @@ def transition_user_status(db, user_id, to_status, *, set_deleted_at=False):
 
 ### 6.9 Feature Flags for Staged Rollout
 
-**Decision:** Three boolean feature flags in `Settings`: `agent_enabled`, `dxf_pipeline_enabled`, `cad_worker_enabled`. All default to `False`.
+**Decision:** Five boolean feature flags in `Settings`, all default `False`: `agent_enabled`, `dxf_pipeline_enabled`, `dxf2dwg_pipeline_enabled`, `dxf2excel_pipeline_enabled`, `cad_worker_enabled`.
 
-**Why:** The spec defines a 6-stage rollout. Feature flags let us merge code to main while keeping it dark, test individual subsystems independently, and do canary rollouts. At Stage 1, `agent_enabled=false` returns 503 from `/api/v1/agent-runs` with a clear error message (`AGENT_DISABLED`).
+**Why:** The spec defines a 6-stage rollout. Feature flags let us merge code to main while keeping it dark, test individual subsystems independently, and do canary rollouts. At Stage 1, `agent_enabled=false` returns 503 `AGENT_DISABLED` from `/api/v1/agent-runs`; the three DXF pipeline flags each gate `POST /api/v1/jobs` per `task_type` with their own 503 code (`DXF_PIPELINE_DISABLED` / `DXF2DWG_PIPELINE_DISABLED` / `DXF2EXCEL_PIPELINE_DISABLED`). `cad_worker_enabled` is surfaced in `GET /api/v1/system/health` but does not directly gate an HTTP endpoint (enforced at the worker/pipeline layer).
 
 ### 6.10 Config from Component Fields, Not Monolithic URLs
 
@@ -741,7 +821,7 @@ def get_db() -> Generator[Session, None, None]:
 | 5 | `sys_role_permissions` | (role_id, permission_id) | roles.id, permissions.id | M2M join |
 | 6 | `projects` | id | owner_id → users.id | code UNIQUE, status |
 | 7 | `project_members` | id | project_id → projects.id, user_id → users.id | project_role enum |
-| 8 | `files` | id | uploaded_by → users.id | storage_key, sha256, status |
+| 8 | `files` | id | uploaded_by → users.id | storage_key, sha256, status, `batch_name` (indexed, DXF/Excel batch uploads) |
 | 9 | `drawings` | id | project_id → projects.id | current_version_id self-ref |
 | 10 | `drawing_versions` | id | drawing_id → drawings.id, file_id → files.id, created_by → users.id | version_no |
 | 11 | `jobs` | id | project_id, drawing_id, created_by | task_type, precision_level, pipeline, status, params_json |
@@ -752,14 +832,16 @@ def get_db() -> Generator[Session, None, None]:
 | 16 | `review_records` | id | result_id → analysis_results.id, reviewer_id → users.id | decision (approved/rejected), comment |
 | 17 | `audit_logs` | id | actor_user_id → users.id | action, resource_type, resource_id, before/after_json, ip_address |
 
-Tables 1-12 are active in Stage 1. Tables 13-14 (agent_runs, agent_run_steps) are created and queryable but only written to in Stage 2. Tables 15-16 (analysis_results, review_records) are created and partially used (simulated job results write to analysis_results; review records are functional).
+Tables 1-12 are active in Stage 1. Tables 13-14 (agent_runs, agent_run_steps) are created and queryable but only written to in Stage 2. Tables 15-16 (analysis_results, review_records) are created and functional — the Stage 1 stub job and the three real DXF pipelines (when flag-enabled) both populate `job_steps` and `analysis_results`; review records are fully functional.
 
 ### 8.4 Migrations
 
-Three Alembic versions in `backend/migrations/versions/`:
+Four Alembic versions in `backend/migrations/versions/` (linear chain):
 
-1. `40452ddd24e7` -- **initial**: Creates all 17 tables with columns, constraints, indexes
-2. `b8f9e7d6c5a4` -- **add_missing_timestamp_columns**: Backfills `created_at`/`updated_at` for tables that missed the `TimestampMixin` in the initial migration
+1. `40452ddd24e7` -- **initial**: Creates all 17 tables with columns, constraints, indexes; adds the deferred `drawings.current_version_id` → `drawing_versions.id` named FK after both tables exist.
+2. `b8f9e7d6c5a4` -- **add_missing_timestamp_columns**: Backfills `created_at`/`updated_at` for `project_members`, `drawing_versions`, `review_records`, `agent_run_steps` that missed the `TimestampMixin` in the initial migration.
+3. `c3d2e1f0a9b8` -- **fix_audit_logs_resource_id_type**: Alters `audit_logs.resource_id` from `Integer` → BIGINT for consistency with other ID columns.
+4. `53cd59adf848` -- **add_batch_name_to_files** (current head): Adds `files.batch_name` VARCHAR(128) nullable + index `ix_files_batch_name` for DXF/Excel batch uploads.
 
 Alembic targets MySQL: `sqlalchemy.url = mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent`
 
@@ -791,7 +873,7 @@ Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.servic
 ### 9.4 Testing Strategy
 
 Dual-layer Redis testing:
-1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 419 non-real-Redis tests (432 total - 13 real-Redis-only) with zero external dependency.
+1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 586 non-real-Redis tests (599 total - 13 real-Redis-only) with zero external dependency.
 2. **Real Redis** (`test_redis_real.py`): Integration tests against the actual local Valkey instance. Auto-skipped (`pytest.skip`) when Redis is unreachable.
 
 ---
@@ -820,11 +902,13 @@ app/storage/
 └── minio_storage.py  # MinioStorage (S3-compatible)
 ```
 
-The storage backend is selected via `STORAGE_BACKEND=local|minio`. MinIO uses four buckets per Spec Section 10.2:
+The storage backend is selected via `STORAGE_BACKEND=local|minio`. MinIO uses six buckets per Spec Section 10.2:
 - `dwg-original` -- raw DWG uploads (never overwritten)
-- `dwg-derived` -- DXF, JSON, PNG, SVG derivatives
-- `dwg-reports` -- Excel, PDF, ZIP reports
-- `dwg-temp` -- temporary worker sandbox files (auto-cleaned)
+- `dwg-derived` -- DXF→DWG output DWG + stub JSON results, and other DWG-derived artifacts
+- `dwg-reports` -- Excel (DXF→Excel `.xlsx`), PDF, ZIP reports
+- `dwg-temp` -- temporary worker sandbox files (reserved; no writer yet)
+- `dxf-original` -- uploaded non-`.dwg` files (e.g. `.dxf`)
+- `dxf-derived` -- DWG→DXF output DXF
 
 ---
 
@@ -896,11 +980,12 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | Redis integration | Real Valkey local instance | Integration safety net (`test_redis_real.py`) |
 | Fixtures | `conftest.py` | DB setup/teardown, auth headers, test data factories |
 
-### 12.2 Test Categories (24 files, 432 tests)
+### 12.2 Test Categories (31 files, 599 tests)
 
 | Category | Files | Focus |
 |----------|-------|-------|
-| API regression | `test_api_regressions.py` | All 64 endpoints return correct status codes and shapes |
+| API regression | `test_api_regressions.py` | All 74 endpoints return correct status codes and shapes |
+| Adversarial inputs | `test_adversarial_auth.py`, `test_adversarial_files.py`, `test_adversarial_jobs.py` | Malformed/abusive payloads against auth, file, and job endpoints |
 | Security boundaries | `test_security_boundaries.py`, `test_rbac_deep.py` | Auth required, RBAC enforcement, path traversal defense |
 | Token lifecycle | `test_token_lifecycle.py` | Login, refresh, blacklist, expiry, jti validation |
 | Redis stack | `test_redis_client.py`, `test_redis_memory.py`, `test_cache_service.py`, `test_redis_real.py` | Client init, memory TTL, cache fallback, real integration |
@@ -908,7 +993,10 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | DB session | `test_db_session.py` | Engine creation, health check, WAL pragmas |
 | Edge cases | `test_edge_cases.py`, `test_rigorous.py`, `test_deep_verify.py` | Concurrent ops, large payloads, Unicode, null handling |
 | Service layer | `test_service_layer.py` | Service function unit tests (user, file, project, auth) |
+| File service | `test_file_service.py` | Signed download URLs, ZIP builder, project-scoped read/delete access checks |
+| New features | `test_new_features.py` | Batch upload, excel-preview, bulk-delete, download-zip |
 | Stage 1 boundaries | `test_stage1_boundaries.py` | Agent 503, Celery fake task, feature flag gates |
+| DXF pipelines (Stage 3) | `test_dxf_pipeline.py`, `test_dxf2dwg_pipeline.py`, `test_dxf2excel_pipeline.py` | Real DWG→DXF, DXF→DWG, DXF→Excel conversion/extraction (flag-gated) |
 | Flow tests | `test_smoke_flow.py`, `test_job_lifecycle.py` | End-to-end: register → login → upload → job → result |
 | Celery/MinIO deploy | `test_celery_minio_deployment.py` | Celery worker health, MinIO bucket ops, E2E job pipeline |
 | Cross-audit fixes | `test_cross_audit_fixes.py` | Pentest bug regression tests (31 test functions) |
@@ -952,14 +1040,14 @@ def _isolate_test_db(monkeypatch):
 | Component | Status | Lines | Tests | Notes |
 |-----------|--------|-------|-------|-------|
 | FastAPI app (main.py) | Done | 134 | Covered | Lifespan, CORS, X-Request-ID, 4 exception handlers, /health |
-| API routes (11 modules) | Done | 2,048 | Covered | All 64 endpoints return proper envelopes |
+| API routes (12 modules) | Done | -- | Covered | All 74 endpoints (73 under /api/v1 + root /health) return proper envelopes |
 | Pydantic schemas (10 modules) | Done | 513 | Covered | All use v2 `from_attributes=True` |
-| Business services (12 modules) | Done | ~1191 | Covered | Auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache |
-| SQLAlchemy models (17 tables) | Done | 401 | Covered | All with TimestampMixin, relationships, constraints |
-| Core infrastructure (8 modules) | Done | 438 | Covered | Config, security, permissions, exceptions, Redis, logger, constants, validators |
+| Business services (17 modules) | Done | -- | Covered | auth, user, job, job_events, project, file, drawing, review, agent, storage, audit, redis_memory, cache, dxf, dxf_stats, dxf2dwg, dxf2excel |
+| SQLAlchemy models (17 tables) | Done | 402 | Covered | All with TimestampMixin, relationships, constraints |
+| Core infrastructure (8 modules) | Done | ~500 | Covered | Config, security, permissions, exceptions, Redis, logger, constants, validators |
 | DB session + pool | Done | -- | Covered | MySQL pool config, SQLite WAL pragmas, health check |
 | DB init + seed data | Done | -- | Covered | Super admin, 7 roles, 8 permissions |
-| Alembic migrations | Done | 3 | Covered | Initial 17 tables + TimestampMixin backfill + resource_id type fix |
+| Alembic migrations | Done | 4 | Covered | Initial 17 tables + TimestampMixin backfill + resource_id type fix + files.batch_name |
 | Redis/Valkey client | Done | 80 | Covered | Lazy init, graceful degradation, FakeRedis + real |
 | Token blacklist | Done | -- | Covered | jti-based, TTL-matched, fail-open |
 | File upload + validation | Done | -- | Covered | DWG header, SHA-256, path traversal guard, HMAC URLs |
@@ -968,9 +1056,9 @@ def _isolate_test_db(monkeypatch):
 | Dockerfile (backend) | Done | -- | Validated | Multi-stage, non-root, HEALTHCHECK, uv sync |
 | Nginx config (Docker + local) | Done | -- | Validated | Rate limiting, proxy, static serving |
 | Frontend (React 19 + TS + Vite) | Done | -- | Manual | 10 page features, 12 API client files (11 modules + client.ts), auth store, router |
-| 432 tests | Done | -- | -- | 24 test files, all passing |
+| 599 tests | Done | -- | -- | 31 test files, all passing |
 
-### Stage 2 -- Not Started (Agent, MCP, Real CAD Processing)
+### Stage 2 -- Not Started (Agent, MCP)
 
 | Component | Status | Lines | Notes |
 |-----------|--------|-------|-------|
@@ -979,23 +1067,27 @@ def _isolate_test_db(monkeypatch):
 | Tool registry | Stub | 1 | `app/agents/tool_registry.py` |
 | MCP CAD client | Stub | 1 | `app/mcp_client/cad_mcp_client.py` |
 | MCP tool adapter | Stub | 1 | `app/mcp_client/mcp_tool_adapter.py` |
-| Celery app | Done | -- | Redis broker/result backend configured |
-| Agent tasks | Stub | 1 | `app/workers/tasks_agent.py` |
-| DXF tasks | Stub | 1 | `app/workers/tasks_dxf.py` |
-| CAD dispatch tasks | Stub | 1 | `app/workers/tasks_cad.py` |
-| Report tasks | Stage 1 stub | -- | `run_stub_job` creates fake result files |
-| Agent runs API | Real (503) | 90 | Returns 503 when `AGENT_ENABLED=false` |
-| Redis memory runtime | Infra only | 78 | Validated by tests, not called in request path |
-| Cache runtime | Infra only | 84 | Validated by tests, not called in request path |
+| Celery app | Done | -- | Redis broker (DB 0) / result backend (DB 1), queue routing |
+| Agent tasks | Stub | 1 | `app/workers/tasks_agent.py` (registers no task) |
+| Agent service | Stub | -- | `create_agent_run` raises `NotImplementedError` |
+| Report tasks | Real (Stage 1 stub job) | -- | `run_stub_job` creates fake result files |
+| Agent runs API | Real (503) | -- | Returns 503 `AGENT_DISABLED` when `AGENT_ENABLED=false` |
+| Redis memory runtime | Infra only | -- | Validated by tests, not called in request path |
+| Cache runtime | Real | -- | Used by DXF→Excel pipeline for progress caching |
 
-### Stage 3 -- Not Started (DXF Pipeline)
+### Stage 3 -- Implemented / real, flag-gated off (DXF Pipelines)
+
+> The `docs/roadmap.md` still lists Stage 3 as "Planned" — that is **stale**. The backend contains fully-wired real conversion/extraction services, disabled by default via feature flags.
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| DWG→DXF converter | Not started | Abstract layer, expected to use ODA File Converter or LibreDWG |
-| ezdxf parsing worker | Not started | Layer/text/block/geometry extraction |
-| entities.json output | Not started | Structured JSON per spec Section 14.5 |
-| Low confidence → review | Not started | Auto-flag results with confidence < 0.85 |
+| DWG→DXF service | Real (flag-gated) | `dxf_service.run_dxf_conversion`; ODA File Converter via `Stages/dwg2dxf`; output → `dxf-derived`; flag `dxf_pipeline_enabled` |
+| DXF→DWG service | Real (flag-gated) | `dxf2dwg_service.run_dxf_to_dwg_conversion`; ODA inverse via `Stages/dxf2dwg`; output → `dwg-derived`; flag `dxf2dwg_pipeline_enabled` |
+| DXF→Excel service | Real (flag-gated) | `dxf2excel_service.run_dxf2excel_extraction`; pure-Python `Stages/dxf2excel`; batch by `batch_name`; output `.xlsx` → `dwg-reports`; flag `dxf2excel_pipeline_enabled` |
+| DXF Celery tasks | Real | `tasks_dxf`, `tasks_dxf2dwg`, `tasks_dxf2excel` (queues dxf/dxf2dwg/dxf2excel) |
+| dxf_stats helper | Real | Stdlib DXF entity/section counter for fidelity metrics |
+| SSE progress | Real | `job_events` Redis pub/sub → `GET /api/v1/jobs/{id}/events` |
+| ODA health endpoint | Real | `GET /api/v1/system/health/oda` |
 
 ### Stage 4 -- Not Started (Windows CAD Worker)
 
@@ -1005,11 +1097,16 @@ def _isolate_test_db(monkeypatch):
 | ZWCAD API plugin (C#) | Not started | Layer/text/dimension/block extraction |
 | ZWCAD client | Stub | `app/integrations/zwcad/client.py` |
 | ZWCAD schemas | Stub | `app/integrations/zwcad/schemas.py` |
+| CAD dispatch tasks | Stub | `app/workers/tasks_cad.py` (registers no task) |
 | CAD Worker safety | Not started | Process crash recovery, license check, sandbox per task |
 
-### Stage 5-6 -- Not Started
+Constants `PIPELINE_CAD="zwcad_worker"` and `JOB_WAITING_CAD_WORKER` are defined but never routed; `cad_worker_enabled` (default False) is surfaced only in `GET /api/v1/system/health`; `cad-worker/` is a placeholder directory.
 
-Business algorithms (LaR, material takeoff, batch processing), production hardening (RabbitMQ, Prometheus, Grafana, Loki, CI/CD, multi-node scaling).
+### Stage 5-6 -- Partial
+
+**Stage 5** (business algorithms): foundations only — review-loop primitives (`review_service`, `reviews_api`, `AnalysisResult`) are functional, and DXF→Excel material-table extraction (a Stage-5 item) shipped early inside Stage 3. Higher-level LaR entry, BOM comparison, and report-generation algorithms are not present.
+
+**Stage 6** (production hardening): partial — token JTI blacklist + password-change staleness (a Stage-6 item) shipped early in `auth_service`; Celery queue-hygiene config present; `infra/` carries Docker/Nginx/MinIO/Redis configs. No Prometheus/Loki/rate-limiting/chunked-upload in code yet.
 
 ---
 
@@ -1019,10 +1116,14 @@ All flags are in `app/core/config.py` / `.env`:
 
 | Flag | Default | Stage | Effect When False |
 |------|---------|-------|--------------------|
-| `AGENT_ENABLED` | `false` | 2 | `POST /api/v1/agent-runs` → 503 `AGENT_DISABLED` |
-| `DXF_PIPELINE_ENABLED` | `false` | 3 | DXF-related Celery tasks not processed |
-| `CAD_WORKER_ENABLED` | `false` | 4 | CAD Worker endpoints return 503 |
-| `DEBUG` | `true` (dev) | All | Controls stack trace in 500 responses; must be `false` in production |
+| `AGENT_ENABLED` | `false` | 2 | All four agent endpoints (`POST /api/v1/agent-runs`, `GET /agent-runs/{id}`, `GET /agent-runs/{id}/steps`, `GET /agent-tools`) → 503 `AGENT_DISABLED` |
+| `DXF_PIPELINE_ENABLED` | `false` | 3 | `POST /api/v1/jobs` with `task_type=convert_dwg_to_dxf` → 503 `DXF_PIPELINE_DISABLED` |
+| `DXF2DWG_PIPELINE_ENABLED` | `false` | 3 | `POST /api/v1/jobs` with `task_type=convert_dxf_to_dwg` → 503 `DXF2DWG_PIPELINE_DISABLED` |
+| `DXF2EXCEL_PIPELINE_ENABLED` | `false` | 3 | `POST /api/v1/jobs` with `task_type=extract_dxf_to_excel` → 503 `DXF2EXCEL_PIPELINE_DISABLED` |
+| `CAD_WORKER_ENABLED` | `false` | 4 | Surfaced in `GET /api/v1/system/health` only; does not directly gate any HTTP endpoint (enforced at worker/pipeline layer) |
+| `DEBUG` | `true` (dev) | All | Controls stack trace in 500 responses; must be `false` in production. Also gates `/docs`/`/redoc`/`/openapi.json` (mounted only when `APP_ENV=development` or `DEBUG=true`) |
+
+Note: `system_api /system/health` reports only three flags (`agent`, `dxf_pipeline`, `cad_worker`); `dxf2dwg`/`dxf2excel` exist and gate jobs but are not in the health payload.
 
 ---
 
@@ -1050,26 +1151,31 @@ complete_framework/
 │   ├── Dockerfile                        ← Multi-stage, non-root
 │   ├── .dockerignore
 │   ├── alembic.ini                       ← Targets MySQL
-│   ├── migrations/versions/              ← 3 Alembic versions
-│   ├── tests/                            ← 24 files, 432 tests
+│   ├── migrations/versions/              ← 4 Alembic versions
+│   ├── tests/                            ← 31 files, 599 tests
 │   │   └── conftest.py                   ← FakeRedis autouse + SQLite isolation
 │   ├── var/storage/                      ← Runtime file storage (gitignored)
 │   └── app/
 │       ├── main.py                       ← FastAPI app, lifespan, middleware
-│       ├── api/v1/                       ← 11 route modules
+│       ├── api/v1/                       ← 12 route modules
 │       │   └── router.py                 ← Central router assembly
 │       ├── schemas/                      ← 10 Pydantic v2 modules
-│       ├── services/                     ← 12 business logic modules
+│       ├── services/                     ← 17 business logic modules
 │       ├── models/                       ← 10 ORM model files (17 tables)
 │       ├── core/                         ← 8 infrastructure modules
 │       ├── db/                           ← session, base, init_db
 │       ├── utils/                        ← path_utils, file_hash, time_utils
 │       ├── agents/                       ← 3 stubs (Stage 2)
 │       ├── mcp_client/                   ← 2 stubs (Stage 2)
-│       ├── workers/                      ← celery_app (real) + 4 task modules (1 Stage 1 stub, 3 Stage 2 stubs)
+│       ├── workers/                      ← celery_app (real) + 6 task modules (report/dxf/dxf2dwg/dxf2excel real, agent/cad stubs)
 │       ├── storage/                      ← 3 files (base + local dev + MinIO deploy backend)
 │       ├── integrations/zwcad/           ← 2 stubs (Stage 4)
 │       └── repositories/                 ← Empty placeholder
+│
+├── Stages/                               ← Editable path-dep engine packages
+│   ├── dwg2dxf/                          ← DWG→DXF (ODA File Converter + AppImage)
+│   ├── dxf2dwg/                          ← DXF→DWG (ODA inverse)
+│   └── dxf2excel/                        ← DXF→Excel (pure-Python grid/table recovery)
 │
 ├── frontend/                             ← React 19 + TypeScript + Vite
 │   ├── package.json                      ← All deps pinned
@@ -1131,5 +1237,5 @@ complete_framework/
 
 ---
 
-*Document version: 2.0 -- last updated 2026-07-03*
-*Corresponds to codebase at Stage 1 completion (432 tests, 64 endpoints, 17 tables)*
+*Document version: 2.1 -- last updated 2026-07-08*
+*Corresponds to codebase at Stage 1 complete + Stage 3 DXF pipelines implemented (flag-gated off) — 74 endpoints, 17 tables, 4 migrations*

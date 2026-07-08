@@ -4,8 +4,9 @@
 > codebase is put together and how to contribute to it effectively.
 >
 > **Status:** Stage 1 complete — platform skeleton with RESTful API, RBAC, file management,
-> and job lifecycle. Stage 2 (Agent subsystem), Stage 3 (DXF pipeline), and Stage 4 (ZWCAD
-> Worker) are planned but not yet implemented.
+> and job lifecycle. Stage 3 (DWG↔DXF and DXF→Excel pipelines) is fully implemented in code but
+> disabled by default behind feature flags. Stage 2 (Agent subsystem) and Stage 4 (ZWCAD Worker)
+> remain stubs.
 >
 > **Authority:** Every design decision traces back to `DWG-Agent企业平台技术规范.md` (the
 > spec) in the repository root. When in doubt, read the spec first.
@@ -25,7 +26,7 @@ complete_framework/
 ├── compose.yaml                   ← Docker Compose for all services
 ├── .env.example                   ← Template for local dev environment
 ├── .env.docker.example            ← Template for Docker Compose environment
-├── Makefile                       ← (Planned) convenience targets for common tasks
+├── Makefile                       ← Convenience targets (backend/frontend/db/scripts wrappers)
 │
 ├── backend/                       ← Python 3.12, uv, FastAPI — the main codebase
 │   ├── pyproject.toml             ← Dependencies, ruff config, build settings
@@ -48,7 +49,8 @@ complete_framework/
 │   │   │   ├── results_api.py     ← Result detail, download-url, review submission, review history
 │   │   │   ├── reviews_api.py     ← Pending reviews list
 │   │   │   ├── audit_logs_api.py  ← Audit log listing (super_admin/auditor only)
-│   │   │   └── agent_runs_api.py  ← (Stage 2 — currently returns 503)
+│   │   │   ├── agent_runs_api.py  ← (Stage 2 — returns 503 while AGENT_ENABLED=false)
+│   │   │   └── system_api.py      ← GET /system/health, GET /system/health/oda
 │   │   ├── core/                  ← Cross-cutting infrastructure
 │   │   │   ├── config.py          ← pydantic-settings, all env vars, MySQL/Redis/Celery URLs
 │   │   │   ├── security.py        ← JWT creation/verification, password hashing (argon2)
@@ -56,14 +58,14 @@ complete_framework/
 │   │   │   ├── exceptions.py      ← AppHTTPException (use this, not bare HTTPException)
 │   │   │   ├── redis_client.py    ← Lazy-init sync Redis client (safe when unavailable)
 │   │   │   ├── logger.py          ← Structured logging
-│   │   │   ├── validators.py      ← Field-level validators (phone, password, etc.)
+│   │   │   ├── validators.py      ← Sort-column whitelist (validate_sort_by — SQLi guard, BUG-13)
 │   │   │   └── constants.py       ← Enums, string constants
 │   │   ├── db/                    ← Database setup
 │   │   │   ├── base.py            ← SQLAlchemy declarative Base
-│   │   │   ├── session.py         ← Engine creation (MySQL/SQLite), WAL pragmas, get_db generator
+│   │   │   ├── session.py         ← Engine creation (pool_pre_ping + MySQL-only pool args), get_db generator
 │   │   │   └── init_db.py         ← Seed data: default roles, permissions, admin user
 │   │   ├── models/                ← SQLAlchemy ORM models (10 files)
-│   │   │   ├── mixins.py          ← TimestampMixin (created_at, updated_at, deleted_at)
+│   │   │   ├── mixins.py          ← TimestampMixin (created_at, updated_at)
 │   │   │   ├── user.py            ← User model with status, password fields
 │   │   │   ├── role.py            ← Role + Permission + association tables
 │   │   │   ├── project.py         ← Project + ProjectMember
@@ -84,24 +86,29 @@ complete_framework/
 │   │   │   ├── result_schema.py   ← ResultResponse, ReviewSubmit
 │   │   │   ├── audit_schema.py    ← AuditLogResponse
 │   │   │   └── agent_schema.py    ← AgentRunCreate, AgentRunResponse (Stage 2)
-│   │   ├── services/              ← Business logic — all state-changing operations
+│   │   ├── services/              ← Business logic — all state-changing operations (17 modules)
 │   │   │   ├── auth_service.py    ← Login, logout, token refresh, password change
 │   │   │   ├── user_service.py    ← User CRUD, role assignment, enable/disable
 │   │   │   ├── project_service.py ← Project CRUD, member management
-│   │   │   ├── file_service.py    ← File upload validation, metadata, download URL signing
+│   │   │   ├── file_service.py    ← Signed download URLs, result-map + ZIP builder, access checks
 │   │   │   ├── drawing_service.py ← Drawing/version CRUD, version increment
-│   │   │   ├── job_service.py     ← Job lifecycle, status transitions
+│   │   │   ├── job_service.py     ← Job lifecycle, enqueue router, run_local_stub_job
 │   │   │   ├── review_service.py  ← Review submission, pending reviews
-│   │   │   ├── agent_service.py   ← Agent execution orchestration (Stage 2)
-│   │   │   ├── storage_service.py ← File save, retrieve, delete (local + MinIO)
+│   │   │   ├── agent_service.py   ← Agent orchestration (Stage 2 — raises NotImplementedError)
+│   │   │   ├── storage_service.py ← File save/retrieve/delete + validation (local + MinIO)
 │   │   │   ├── audit_service.py   ← write_audit_log(), list audit logs
 │   │   │   ├── redis_memory.py    ← Agent session memory (Stage 2 infra)
-│   │   │   └── cache_service.py   ← Generic cache layer (Stage 2 infra)
+│   │   │   ├── cache_service.py   ← Generic cache layer (used by dxf2excel)
+│   │   │   ├── dxf_service.py     ← DWG→DXF orchestration via ODA subprocess (Stage 3)
+│   │   │   ├── dxf2dwg_service.py ← DXF→DWG reverse orchestration via ODA (Stage 3)
+│   │   │   ├── dxf2excel_service.py ← Batch DXF→Excel material-table extraction (Stage 3)
+│   │   │   ├── dxf_stats.py       ← Stdlib DXF entity/section counter (fidelity metrics)
+│   │   │   └── job_events.py      ← Redis pub/sub job progress + SSE stream
 │   │   ├── repositories/          ← PLACEHOLDER — empty __init__.py
 │   │   │                           (DB access to be extracted from services in Stage 2+)
 │   │   ├── agents/                ← PLACEHOLDER — agent_factory, prompts, tool_registry stubs
 │   │   ├── mcp_client/            ← PLACEHOLDER — MCP client + adapter stubs
-│   │   ├── workers/               ← celery_app + report task active; agent/dxf/cad task stubs
+│   │   ├── workers/               ← celery_app + report/dxf/dxf2dwg/dxf2excel tasks real; agent/cad task stubs
 │   │   ├── storage/               ← Storage abstraction layer
 │   │   │   ├── base.py            ← Abstract StorageBackend
 │   │   │   ├── local_storage.py   ← Local filesystem (active in Stage 1)
@@ -109,9 +116,8 @@ complete_framework/
 │   │   ├── integrations/zwcad/    ← PLACEHOLDER — ZWCAD Worker client + schemas (Stage 4)
 │   │   └── utils/                 ← Utility functions
 │   │       ├── path_utils.py      ← ensure_within_root() — all file paths MUST pass through this
-│   │       ├── file_hash.py       ← SHA-256 computation
-│   │       └── time_utils.py      ← Timestamp formatting
-│   ├── tests/                     ← 432 tests, 24 test files (pytest)
+│   │       └── file_hash.py       ← SHA-256 computation
+│   ├── tests/                     ← 599 tests, 31 test files (pytest)
 │   │   ├── conftest.py            ← Autouse fixtures: FakeRedis + in-memory SQLite isolation
 │   │   ├── test_health.py         ← Health endpoint
 │   │   ├── test_config.py         ← Settings validation (MySQL, Redis, Celery URL computation)
@@ -124,11 +130,21 @@ complete_framework/
 │   │   ├── test_rigorous.py             ← Edge cases and error handling
 │   │   ├── test_deep_verify.py          ← Deeper validation tests
 │   │   ├── test_edge_cases.py           ← Boundary condition tests
-│   │   ├── test_stage1_boundaries.py    ← Stage 1 scope boundary tests
+│   │   ├── test_stage1_boundaries.py    ← Stage 1 scope boundary tests (disabled features → 503)
+│   │   ├── test_adversarial_auth.py     ← Adversarial auth/token attack tests
+│   │   ├── test_adversarial_files.py    ← Adversarial upload/zip-bomb/path-traversal tests
+│   │   ├── test_adversarial_jobs.py     ← Adversarial job-lifecycle/RBAC tests
+│   │   ├── test_job_lifecycle.py        ← Job status transitions, cancel, retry
+│   │   ├── test_rbac_deep.py            ← Deep RBAC across roles and resources
+│   │   ├── test_service_layer.py        ← Service-layer unit tests
+│   │   ├── test_file_service.py         ← File service (signed URLs, ZIP, access) tests
+│   │   ├── test_dxf_pipeline.py         ← DWG→DXF pipeline tests (Stage 3)
+│   │   ├── test_dxf2dwg_pipeline.py     ← DXF→DWG pipeline tests (Stage 3)
+│   │   ├── test_dxf2excel_pipeline.py   ← DXF→Excel pipeline tests (Stage 3)
 │   │   ├── test_cache_service.py        ← Cache layer tests (FakeRedis)
 │   │   ├── test_redis_client.py         ← Redis client connectivity tests
 │   │   ├── test_redis_memory.py         ← Agent memory service tests
-│   │   ├── test_redis_real.py           ← Real Redis integration (auto-skipped)
+│   │   ├── test_redis_real.py           ← Real Redis integration (13 tests, auto-skipped)
 │   │   ├── test_compose.py              ← Docker Compose config validation
 │   │   ├── test_celery_minio_deployment.py ← Celery/MinIO deployment config validation
 │   │   ├── test_cross_audit_fixes.py     ← Cross-cutting audit fix validation
@@ -137,8 +153,13 @@ complete_framework/
 │   ├── migrations/               ← Alembic
 │   │   ├── env.py                 ← Migration environment (imports Base + all models)
 │   │   ├── script.py.mako         ← Template for new migrations
-│   │   └── versions/              ← 2 migration scripts
+│   │   └── versions/              ← 4 migration scripts (initial 17 tables → timestamp fix → resource_id type → batch_name)
 │   └── var/                       ← Runtime data — uploaded files, SQLite DB (gitignored)
+│
+├── Stages/                        ← Standalone pipeline engine packages (uv path deps of backend)
+│   ├── dwg2dxf/                   ← dwg-converter: DWG→DXF via ODA File Converter (bundles tools/oda AppImage)
+│   ├── dxf2dwg/                   ← dxf-converter: DXF→DWG reverse via ODA File Converter
+│   └── dxf2excel/                 ← dxf2excel: pure-Python DXF→Excel material-table extraction
 │
 ├── frontend/                      ← React 19 + TypeScript + Vite + Ant Design 6
 │   ├── package.json               ← All versions locked — NO "latest"
@@ -149,7 +170,7 @@ complete_framework/
 │   └── src/
 │       ├── main.tsx               ← ReactDOM entry
 │       ├── App.tsx                ← Root component
-│       ├── api/                   ← All API calls go through here (11 modules)
+│       ├── api/                   ← All API calls go through here (12 modules + client.ts)
 │       │   ├── client.ts          ← Axios instance with interceptors (auth header, 401 refresh)
 │       │   ├── auth.api.ts        ← login, logout, refresh, me, changePassword
 │       │   ├── users.api.ts       ← User CRUD
@@ -161,7 +182,8 @@ complete_framework/
 │       │   ├── results.api.ts     ← Result detail, review submission
 │       │   ├── reviews.api.ts     ← Pending reviews
 │       │   ├── agent-runs.api.ts  ← Agent execution (Stage 2)
-│       │   └── audit-logs.api.ts  ← Audit log listing
+│       │   ├── audit-logs.api.ts  ← Audit log listing
+│       │   └── system.api.ts      ← System/ODA health
 │       ├── app/                   ← Application shell
 │       │   ├── router.tsx         ← Route definitions with permission guards
 │       │   ├── providers.tsx      ← TanStack Query, Ant Design ConfigProvider
@@ -177,15 +199,16 @@ complete_framework/
 │       │   ├── reviews/           ← Pending reviews + review form
 │       │   ├── profile/           ← User profile page
 │       │   └── admin/             ← Roles, audit logs (super_admin)
-│       ├── components/            ← Shared UI components (2 real + 6 stubs)
-│       │   ├── FileUpload.tsx        [REAL]
-│       │   ├── PermissionGuard.tsx   [REAL]
-│       │   ├── TaskInput.tsx         [STUB — placeholder]
-│       │   ├── AgentSteps.tsx        [STUB — placeholder]
-│       │   ├── ResultPanel.tsx       [STUB — placeholder]
-│       │   ├── DrawingPreview.tsx    [STUB — placeholder]
-│       │   ├── JobTimeline.tsx       [STUB — placeholder]
-│       │   └── ReviewPanel.tsx       [STUB — placeholder]
+│       ├── components/            ← Shared UI components (7 files)
+│       │   ├── FileUpload.tsx         ← Drag-drop file upload
+│       │   ├── PermissionGuard.tsx    ← Role-based render guard
+│       │   ├── ConversionPage.tsx     ← DWG/DXF conversion launcher UI
+│       │   ├── ExcelPreview.tsx       ← Excel result preview
+│       │   ├── ZipDownloadModal.tsx   ← Batch ZIP download dialog
+│       │   ├── JobTimeline.tsx        ← Job step/progress timeline
+│       │   └── ui.tsx                 ← Shared UI primitives
+│       ├── hooks/                 ← Custom React hooks
+│       ├── utils/                 ← Frontend utilities
 │       ├── stores/                ← Zustand stores
 │       │   └── auth.store.ts      ← Current user, roles, token
 │       └── types/                 ← TypeScript type definitions
@@ -199,14 +222,16 @@ complete_framework/
 │           ├── agent.ts
 │           └── audit.ts
 │
-├── docs/                          ← Handover documentation (7 docs including this one)
+├── docs/                          ← Handover documentation (8 docs + zh/ translations)
 │   ├── architecture.md            ← System architecture overview
 │   ├── api.md                     ← API reference
 │   ├── database.md                ← Database schema reference
 │   ├── deployment.md              ← Deployment & operations guide
 │   ├── development.md             ← This document
 │   ├── roadmap.md                 ← 6-stage delivery roadmap
-│   └── security.md                ← Security architecture & pentest findings
+│   ├── security.md                ← Security architecture & pentest findings
+│   ├── workflow-verification.md   ← End-to-end workflow verification notes
+│   └── zh/                        ← Chinese translations of the above
 │
 ├── infra/                         ← Deployment infrastructure configs
 │   ├── nginx/
@@ -636,7 +661,7 @@ uv run pytest -x
 uv run pytest -k "login"
 ```
 
-Expected: 432 passed, 0 failed when Redis is available. If Redis is unavailable, the 13 tests in `test_redis_real.py` are skipped.
+Expected: 599 passed, 0 failed when Redis is available. If Redis is unavailable, the 13 tests in `test_redis_real.py` are skipped.
 
 ### 4.3 Linting Before Tests
 
@@ -756,7 +781,14 @@ if some_condition:
 | `test_job_lifecycle.py` | Job status transitions, cancel, retry lifecycle |
 | `test_rbac_deep.py` | Deep RBAC permission checking across roles and resources |
 | `test_service_layer.py` | Service-layer unit tests (business logic isolated from HTTP) |
-| `test_stage1_boundaries.py` | Verifies that Stage 2+ features return 503 (not 500) |
+| `test_file_service.py` | File service: signed download URLs, ZIP builder, access checks |
+| `test_dxf_pipeline.py` | DWG→DXF pipeline (Stage 3): conversion, steps, result persistence |
+| `test_dxf2dwg_pipeline.py` | DXF→DWG reverse pipeline (Stage 3) |
+| `test_dxf2excel_pipeline.py` | DXF→Excel material-table extraction pipeline (Stage 3) |
+| `test_adversarial_auth.py` | Adversarial auth/token attack surface |
+| `test_adversarial_files.py` | Adversarial uploads: zip-bombs, path traversal, bad headers |
+| `test_adversarial_jobs.py` | Adversarial job-lifecycle and RBAC probing |
+| `test_stage1_boundaries.py` | Verifies that disabled Stage 2+ features return 503 (not 500) |
 | `test_health.py` | Health endpoint |
 | `test_config.py` | Settings validation, MySQL/Redis URL computation |
 | `test_db_session.py` | Engine creation, WAL pragmas, connection pooling |
@@ -883,6 +915,15 @@ trees.
 **Python version:** Locked to `>=3.12,<3.13` in `pyproject.toml`. The `.python-version`
 file tells `uv` to use Python 3.12 specifically.
 
+**Local path dependencies (pitfall):** Three runtime dependencies — `dwg-converter`,
+`dxf-converter`, and `dxf2excel` — are **editable local path deps** resolved from
+`Stages/dwg2dxf`, `Stages/dxf2dwg`, and `Stages/dxf2excel` via `[tool.uv.sources]` in
+`backend/pyproject.toml`. Because these paths are relative to `backend/`, the Docker build
+context must be the **repo root** (`dockerfile: backend/Dockerfile`) so `../Stages/*` resolves.
+`editable=true` keeps each package's `__file__` pointing at its source tree so `check_env.py`
+can locate the bundled ODA binary under `Stages/dwg2dxf/tools/oda/`. Never move or rename the
+`Stages/` directory without updating `[tool.uv.sources]`.
+
 ### 6.2 Frontend: npm
 
 **Adding a dependency:**
@@ -964,8 +1005,9 @@ def list_projects(current_user: CurrentUser):
     ...
 ```
 
-The only endpoints that should accept unauthenticated requests are `/health` and
-`POST /api/v1/auth/sessions` (login).
+The only endpoints that should accept unauthenticated requests are `/health`,
+`POST /api/v1/auth/sessions` (login), and `POST /api/v1/auth/tokens/refresh` (validated via
+the httpOnly `dwg_refresh_token` cookie rather than a Bearer token).
 
 ### 7.3 Use AppHTTPException, Not HTTPException
 
@@ -1057,12 +1099,14 @@ def process_file(
     return ok(FileResponse.model_validate(result).model_dump(), request.state.request_id)
 ```
 
-### 7.9 Stage 2+ Features Must Return 503
+### 7.9 Disabled Features Must Return 503
 
-Agent-run endpoints and other Stage 2+ features are currently disabled. They must
-return `503 Service Unavailable`, not `500 Internal Server Error`. The
-`test_stage1_boundaries.py` tests verify this. If enabling a feature, update these
-tests.
+Agent-run endpoints (Stage 2) are disabled while `AGENT_ENABLED=false` and must return
+`503 Service Unavailable`, not `500 Internal Server Error`. The same rule applies to the
+Stage 3 pipelines, which are fully implemented but gated off by default: `POST /api/v1/jobs`
+returns 503 (`DXF_PIPELINE_DISABLED` / `DXF2DWG_PIPELINE_DISABLED` / `DXF2EXCEL_PIPELINE_DISABLED`)
+when the corresponding `*_PIPELINE_ENABLED` flag is false. The `test_stage1_boundaries.py`
+tests verify this. If enabling a feature, update these tests.
 
 ### 7.10 Don't Hardcode API URLs in Frontend
 
@@ -1197,7 +1241,7 @@ Before committing any change:
 # Backend changes
 cd backend
 uv run ruff check app tests          # Must pass with 0 errors
-uv run pytest -q                     # Must pass 432 tests
+uv run pytest -q                     # Must pass 599 tests
 
 # Frontend changes
 cd frontend
@@ -1278,7 +1322,7 @@ chore(backend): update ruff to 0.7.0
 ### 10.4 Pull Request Checklist
 
 - [ ] `uv run ruff check app tests` passes (0 errors)
-- [ ] `uv run pytest -q` passes (all 432 tests)
+- [ ] `uv run pytest -q` passes (all 599 tests)
 - [ ] `npx tsc --noEmit` passes (frontend type check)
 - [ ] New endpoints have corresponding tests (happy path + security boundaries)
 - [ ] State-changing operations write audit logs
