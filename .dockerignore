@@ -1,0 +1,62 @@
+# ──────────────────────────────────────────────────────────────────
+# Build context = 仓库根（compose.yaml: context: ., dockerfile: backend/Dockerfile）
+# 只把构建 backend 镜像所需的最小集合送进 Docker daemon，排除：
+#   - 各包的虚拟环境 / 构建产物 / 缓存（Stages 子包各自有 .venv build/，会膨胀数百 MB）
+#   - 测试 / lint 缓存（镜像内不需要）
+#   - 前端 node_modules（前端由宿主 npm run build 后挂载 dist）
+#   - 数据 / 样本 / 日志 / 运行时产物
+#   - 密钥文件（.env / .env.docker 禁止进镜像）
+#   - VCS / IDE / 压缩包
+# ──────────────────────────────────────────────────────────────────
+
+# ── Python（所有包：backend + Stages/* + third_parts）──────────
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.venv/
+**/build/
+**/dist/
+
+# ── Backend 运行时数据（volume 挂载，非镜像）──────────────────
+backend/var/
+
+# ── Stages 子包：样本 / 日志 / 临时产物（不进镜像）────────────
+Stages/*/samples/
+Stages/*/logs/
+Stages/*/convert/output/
+Stages/*/convert/tmp/
+
+# ── Frontend（宿主 build 后挂载 frontend/dist，无需进 backend 镜像）
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── 数据 / 仓库根运行时产物 ────────────────────────────────────
+Data/
+var/
+*.db
+*.sqlite3
+
+# ── 密钥（禁止进镜像，规范 §18.3 / §17.5）──────────────────────
+.env
+.env.local
+.env.docker
+backend/.env
+
+# ── VCS / IDE / OS / 压缩包 ────────────────────────────────────
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.zip
+*.tar.gz
+
+# ── 文档 / 报告（镜像不需要；但保留 backend/README.md —— Dockerfile 显式 COPY）
+*.md
+!backend/README.md
+docs/
+image.png

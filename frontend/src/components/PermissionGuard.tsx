@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth.store';
 
@@ -19,8 +18,4 @@ export function RequireRoles({ allowed }: { allowed: string[] }) {
   }
 
   return <Navigate to="/dashboard" replace />;
-}
-
-export function PermissionGuard({ children }: { children: ReactNode }) {
-  return <>{children}</>;
 }

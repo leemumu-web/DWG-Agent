@@ -700,7 +700,6 @@ def get_excel_preview(
 
     wb.close()
 
-    total_rows = ws.max_row - 1 if ws.max_row else 0  # minus header
     result: dict = {
         "file": stored.original_name,
         "file_id": file_id,
@@ -708,7 +707,7 @@ def get_excel_preview(
         "sheet": target_sheet,
         "headers": headers,
         "rows": data_rows,
-        "total_rows": max(total_rows, len(data_rows)),
+        "total_rows": len(data_rows),
     }
 
     # Cache for 5 minutes

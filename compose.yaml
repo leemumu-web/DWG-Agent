@@ -38,8 +38,8 @@ services:
 
   backend-api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     # CMD defined in Dockerfile; override here only if needed for debugging
     # Default: gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --timeout 120
     env_file:
@@ -65,8 +65,8 @@ services:
 
   worker-agent:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: celery -A app.workers.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
     env_file:
       - .env.docker
@@ -92,8 +92,8 @@ services:
 
   worker-dxf:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: celery -A app.workers.celery_app:celery_app worker -Q dxf -n dxf@%h --concurrency=2
     env_file:
       - .env.docker
@@ -121,8 +121,8 @@ services:
 
   worker-report:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: celery -A app.workers.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
     env_file:
       - .env.docker
@@ -229,8 +229,8 @@ services:
 
   flower:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     command: celery -A app.workers.celery_app:celery_app flower --port=5555
     env_file:
       - .env.docker

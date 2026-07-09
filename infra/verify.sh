@@ -383,10 +383,21 @@ assert_grep "$DOCKERFILE" 'curl'               "Dockerfile: curl (健康检查)"
 assert_grep "$DOCKERFILE" 'ghcr.io/astral-sh/uv'   "Dockerfile: uv 安装"
 assert_grep "$DOCKERFILE" 'uv sync --frozen --no-dev'  "Dockerfile: uv sync"
 
-# 3.5 应用代码
-assert_grep "$DOCKERFILE" 'COPY app ./app'          "Dockerfile: COPY app"
-assert_grep "$DOCKERFILE" 'COPY alembic.ini'        "Dockerfile: COPY alembic.ini"
-assert_grep "$DOCKERFILE" 'COPY migrations'         "Dockerfile: COPY migrations"
+# 3.5 应用代码 (build context = 仓库根, 故源路径带 backend/ 前缀)
+assert_grep "$DOCKERFILE" 'COPY backend/app ./app'      "Dockerfile: COPY app"
+assert_grep "$DOCKERFILE" 'COPY backend/alembic.ini'    "Dockerfile: COPY alembic.ini"
+assert_grep "$DOCKERFILE" 'COPY backend/migrations'     "Dockerfile: COPY migrations"
+
+# 3.5.1 editable path 依赖：Stages/ 必须进 builder，否则 uv sync --frozen 失败
+assert_grep "$DOCKERFILE" 'COPY Stages/dwg2dxf'         "Dockerfile: COPY Stages/dwg2dxf (editable path 依赖)"
+assert_grep "$DOCKERFILE" 'COPY Stages/dxf2dwg'         "Dockerfile: COPY Stages/dxf2dwg (editable path 依赖)"
+assert_grep "$DOCKERFILE" 'COPY Stages/dxf2excel'       "Dockerfile: COPY Stages/dxf2excel (editable path 依赖)"
+# 3.5.2 ODA 运行时 + init_db 种子（首次启动可用 admin 登录）
+assert_grep "$DOCKERFILE" 'tools/oda'                   "Dockerfile: COPY ODA 二进制"
+assert_grep "$DOCKERFILE" 'app.db.init_db'              "Dockerfile: CMD 含 init_db 种子"
+
+# 3.5.3 根 .dockerignore 存在（context=根后排除 Stages/.venv 等膨胀源）
+assert_file ".dockerignore" ".dockerignore 存在 (context=仓库根)"
 
 # 3.6 EXPOSE + CMD
 assert_grep "$DOCKERFILE" 'EXPOSE 8000'             "Dockerfile: EXPOSE 8000"

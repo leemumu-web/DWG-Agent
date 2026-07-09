@@ -1,0 +1,19 @@
+[project]
+name = "multi_split"
+version = "1.0.0"
+description = "钢结构型材/板材智能拆分工具 — 从 SunFire VBA 转译"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+    "openpyxl>=3.0",
+    "numpy>=1.24",
+    "click>=8.0",
+]
+
+[project.scripts]
+multi-split = "multi_split.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
