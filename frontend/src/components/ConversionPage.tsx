@@ -32,6 +32,7 @@ import {
   InboxOutlined,
   CloudOutlined,
   FileZipOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -45,6 +46,7 @@ import {
 } from '../api/files.api';
 import { listJobs, getJobResults, retryJob, cancelAllJobs } from '../api/jobs.api';
 import { ZipDownloadModal } from '../components/ZipDownloadModal';
+import { DxfPreviewModal } from '../components/DxfPreviewModal';
 import type { BatchInfo, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
@@ -88,6 +90,8 @@ export function ConversionPage(props: ConversionPageProps) {
   const [selectedBatchNames, setSelectedBatchNames] = useState<string[]>([]);
   const [zipModalOpen, setZipModalOpen] = useState(false);
   const [batchZipModalOpen, setBatchZipModalOpen] = useState(false);
+  const [previewFileId, setPreviewFileId] = useState<number | null>(null);
+  const [previewFileName, setPreviewFileName] = useState<string>('');
   const [pauseLoading, setPauseLoading] = useState(false);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
@@ -372,16 +376,41 @@ export function ConversionPage(props: ConversionPageProps) {
         const job = jobsByFileId.get(record.id);
         const isSucceeded = job?.status === 'succeeded';
         const isFailed = job?.status === 'failed' || job?.status === 'cancelled';
+        const isDxfSource = record.file_ext === '.dxf';
         return (
           <Space size={2}>
+            {isDxfSource && (
+              <Tooltip title="预览 DXF">
+                <Button type="text" size="small" icon={<EyeOutlined style={{ color: '#13c2c2' }} />}
+                  onClick={() => { setPreviewFileId(record.id); setPreviewFileName(record.original_name); }} />
+              </Tooltip>
+            )}
             <Tooltip title={`下载 ${p.tagPending}`}>
               <Button aria-label={`下载 ${p.tagPending}`} type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)} />
             </Tooltip>
             {isSucceeded && job && (
-              <Tooltip title={p.downloadResultLabel}>
-                <Button aria-label={p.downloadResultLabel} type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />}
-                  onClick={() => handleDownloadResult(job, record.original_name)} />
-              </Tooltip>
+              <>
+                {p.resultExt === '.dxf' && (
+                  <Tooltip title="预览转换结果 DXF">
+                    <Button type="text" size="small" icon={<EyeOutlined style={{ color: '#1677ff' }} />}
+                      onClick={async () => {
+                        try {
+                          const results = await getJobResults(job.id);
+                          const result = results.find((r) => r.result_type === p.resultType);
+                          if (!result?.result_file_id) { message.error('DXF 结果未找到'); return; }
+                          setPreviewFileId(result.result_file_id);
+                          setPreviewFileName(record.original_name.replace(
+                            new RegExp('\\' + p.fileExt + '$', 'i'), p.resultExt,
+                          ));
+                        } catch (err) { message.error(err instanceof Error ? err.message : '获取预览失败'); }
+                      }} />
+                  </Tooltip>
+                )}
+                <Tooltip title={p.downloadResultLabel}>
+                  <Button type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />}
+                    onClick={() => handleDownloadResult(job, record.original_name)} />
+                </Tooltip>
+              </>
             )}
             {isFailed && job && (
               <Tooltip title="重试转换">
@@ -679,6 +708,12 @@ export function ConversionPage(props: ConversionPageProps) {
         fileCount={batchZipFileIds.length}
         onClose={() => { setBatchZipModalOpen(false); setSelectedBatchNames([]); }}
         onDone={() => { setBatchZipModalOpen(false); setSelectedBatchNames([]); refresh(); }}
+      />
+      <DxfPreviewModal
+        fileId={previewFileId}
+        fileName={previewFileName}
+        open={previewFileId !== null}
+        onClose={() => { setPreviewFileId(null); setPreviewFileName(''); }}
       />
     </>
   );

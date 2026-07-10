@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { apiClient, fetchAllPages, type ApiEnvelope } from './client';
-import type { BatchInfo, ExcelPreviewResponse, StoredFile } from '../types/file';
+import { useAuthStore } from '../stores/auth.store';
+import type { BatchInfo, DxfPreviewResponse, ExcelPreviewResponse, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
 /** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
@@ -202,6 +203,14 @@ export async function fetchExcelPreview(
   const res = await apiClient.get<ApiEnvelope<ExcelPreviewResponse>>(
     `/api/v1/files/${fileId}/excel-preview`,
     { params },
+  );
+  return res.data.data;
+}
+
+/** Fetch DXF file preview data (rendered PNG URL + metadata). */
+export async function fetchDxfPreview(fileId: number): Promise<DxfPreviewResponse> {
+  const res = await apiClient.get<ApiEnvelope<DxfPreviewResponse>>(
+    `/api/v1/files/${fileId}/dxf-preview`,
   );
   return res.data.data;
 }

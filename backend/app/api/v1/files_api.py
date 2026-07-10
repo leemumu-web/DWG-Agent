@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,6 +50,8 @@ from app.services.storage_service import (
 from app.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def _file_project_association_exists(
@@ -749,6 +752,81 @@ def get_excel_preview(
         "rows": data_rows,
         "total_rows": len(data_rows),
     }
+
+    return ok(result, request.state.request_id)
+
+
+@router.get("/{file_id}/dxf-preview")
+def get_dxf_preview(  # ← sync def — FastAPI runs CPU-bound rendering in thread pool
+    file_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Read a DXF file from storage, render to PNG, and return preview metadata.
+
+    The PNG is cached in storage under ``previews/{file_id}_{sha256[:8]}.png``
+    so subsequent requests for the same file content skip re-rendering.
+
+    Returns ``{file_id, file_name, preview_url, entity_counts, total_entities,
+    layers, layer_colors, bounds, cached}``.
+    """
+    stored = db.get(StoredFile, file_id)
+    if not stored or stored.status == "deleted":
+        raise not_found("File")
+    _require_file_read_access(db, current_user, stored)
+
+    if not stored.file_ext or stored.file_ext.lower() != ".dxf":
+        raise AppHTTPException(
+            415, "NOT_DXF",
+            "Only .dxf files can be previewed with this endpoint.",
+        )
+
+    # Read DXF bytes from storage
+    storage = get_storage_backend()
+    try:
+        local_path = storage.local_path(stored.bucket, stored.storage_key)
+        if local_path is not None:
+            if not local_path.exists():
+                raise StorageObjectNotFound(f"{stored.bucket}/{stored.storage_key}")
+            dxf_bytes = local_path.read_bytes()
+        else:
+            chunks: list[bytes] = []
+            for chunk in storage.iter_file(stored.bucket, stored.storage_key):
+                chunks.append(chunk)
+            dxf_bytes = b"".join(chunks)
+    except StorageObjectNotFound:
+        raise not_found("StoredFileObject") from None
+    except StorageError as exc:
+        raise AppHTTPException(
+            503, "STORAGE_READ_FAILED", "Failed to read stored file object."
+        ) from exc
+
+    # Check ezdxf import (server startup should have it, but guard for safety)
+    try:
+        from app.services.dxf_preview_service import preview_dxf  # noqa: F811
+    except ImportError as exc:
+        raise AppHTTPException(
+            503, "EZDXF_UNAVAILABLE",
+            "ezdxf is not installed — cannot preview DXF files.",
+        ) from exc
+
+    try:
+        result = preview_dxf(
+            file_id=stored.id,
+            original_name=stored.original_name,
+            sha256=stored.sha256 or "",
+            dxf_bytes=dxf_bytes,
+            storage=storage,
+        )
+    except AppHTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("DXF preview failed for file_id=%s: %s", file_id, exc)
+        raise AppHTTPException(
+            415, "DXF_PREVIEW_FAILED",
+            "DXF 文件预览失败，请确认文件格式正确且未损坏。",
+        ) from exc
 
     return ok(result, request.state.request_id)
 
