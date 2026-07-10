@@ -41,6 +41,7 @@ COPY backend/pyproject.toml backend/uv.lock backend/README.md ./backend/
 COPY Stages/dwg2dxf ./Stages/dwg2dxf
 COPY Stages/dxf2dwg ./Stages/dxf2dwg
 COPY Stages/dxf2excel ./Stages/dxf2excel
+COPY Stages/excel_final ./Stages/excel_final
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend

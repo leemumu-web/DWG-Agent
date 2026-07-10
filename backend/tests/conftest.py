@@ -67,9 +67,9 @@ def _isolate_test_db(monkeypatch):
     # FastAPI dep override — key is the same function object that Depends(get_db) captured
     app.dependency_overrides[original_get_db] = _override_get_db
 
-    # These modules import SessionLocal / engine at module level — their local
+    # These modules import SessionLocal at module level — their local
     # names must point to our test objects:
-    monkeypatch.setattr("app.db.init_db.engine", engine)
+    # Note: init_db.py no longer imports engine — only SessionLocal
     monkeypatch.setattr("app.db.init_db.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.job_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf_service.SessionLocal", TestSessionLocal)

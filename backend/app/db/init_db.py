@@ -13,9 +13,12 @@ from app.core.constants import (
     ROLE_VIEWER,
 )
 from app.core.security import hash_password
-from app.db.base import Base
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal
 from app.models import Permission, Role, User
+
+# NOTE: Do NOT import Base / engine here — Alembic migrations own the schema.
+# Calling Base.metadata.create_all() after alembic upgrade head would
+# conflict with tables already created by migrations.
 
 ROLE_SEEDS = [
     (ROLE_SUPER_ADMIN, "超级管理员"),
@@ -40,7 +43,9 @@ PERMISSION_SEEDS = [
 
 
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    # Schema is managed by Alembic (alembic upgrade head runs before this).
+    # Do NOT call Base.metadata.create_all() here — it would conflict with
+    # tables already created by migrations.
     db = SessionLocal()
     try:
         for code, name in ROLE_SEEDS:
