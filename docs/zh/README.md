@@ -13,7 +13,7 @@
 | [architecture.md](architecture.md) | 系统总览、物理拓扑、分层架构、数据流、RBAC 模型、存储、实现状态矩阵、功能开关清单。 |
 | [api.md](api.md) | 完整 REST API 参考 —— 全部 `/api/v1` 端点、认证、统一响应/错误信封、分页、状态码、角色、任务状态机、管线常量、功能开关。 |
 | [database.md](database.md) | 引擎与连接池配置、完整表目录、实体关系、Alembic 迁移、种子数据、备份/恢复。 |
-| [deployment.md](deployment.md) | 前置依赖、5 分钟快速上手、本地开发环境、Docker Compose 拓扑、环境变量参考、Nginx/MySQL/Redis/MinIO/ODA 配置。 |
+| [deployment.md](deployment.md) | 前置依赖、5 分钟快速上手、本地开发环境、Docker Compose 拓扑、环境变量参考、Nginx/MySQL/MinIO/Celery SQL transport/ODA 配置。 |
 | [development.md](development.md) | 仓库结构导览、后端与前端工作流、测试策略、代码规范、依赖管理、常见陷阱。 |
 | [security.md](security.md) | 认证流程、RBAC 模型、API 与文件安全措施、渗透测试问题修复、生产安全清单、审计日志覆盖。 |
 | [roadmap.md](roadmap.md) | 六阶段交付计划、Stage 1 完成报告、各阶段规格、接口契约、风险登记、成功指标。 |

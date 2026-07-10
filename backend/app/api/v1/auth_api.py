@@ -78,11 +78,11 @@ def delete_current_session(
     from app.services.auth_service import blacklist_access_token
 
     # Blacklist access token
-    blacklist_access_token(token)
+    blacklist_access_token(db, token)
     # Blacklist refresh token (if present in cookie)
     refresh = request.cookies.get(REFRESH_COOKIE_NAME)
     if refresh:
-        blacklist_access_token(refresh)
+        blacklist_access_token(db, refresh)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -118,7 +118,7 @@ def refresh_token(request: Request, db: Session = Depends(get_db)):
     from app.services.auth_service import is_token_blacklisted
 
     jti = payload.get("jti")
-    if jti and is_token_blacklisted(jti):
+    if jti and is_token_blacklisted(db, jti):
         raise AppHTTPException(
             status.HTTP_401_UNAUTHORIZED, "TOKEN_REVOKED", "Refresh token has been revoked."
         )
@@ -132,8 +132,8 @@ def refresh_token(request: Request, db: Session = Depends(get_db)):
     # Check whether the refresh token was issued before the last password change.
     from app.services.auth_service import is_token_stale_for_password_change
 
-    token_iat = int(payload.get("iat", 0))
-    if token_iat and is_token_stale_for_password_change(user_id, token_iat):
+    token_iat = float(payload.get("iat", 0))
+    if token_iat and is_token_stale_for_password_change(db, user_id, token_iat):
         raise AppHTTPException(
             status.HTTP_401_UNAUTHORIZED,
             "TOKEN_REVOKED",
@@ -176,12 +176,10 @@ def change_password(
         resource_id=current_user.id,
         request=request,
     )
-    db.commit()
-
-    # Invalidate all existing tokens for this user — any token issued
-    # before this moment is considered stale.
     from app.services.auth_service import record_password_change
 
-    record_password_change(current_user.id)
+    # Persist the new hash, audit record and revocation marker atomically.
+    record_password_change(db, current_user.id)
+    db.commit()
 
     return ok({"changed": True}, request.state.request_id)

@@ -48,4 +48,12 @@ STEP_DOWNLOAD_DXF_BATCH = "download_dxf_batch"
 STEP_RUN_DXF2EXCEL = "run_dxf2excel_pipeline"
 STEP_PERSIST_EXCEL = "persist_excel_result"
 
-ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip"}
+# Excel→final part-list pipeline (excel_final)
+PIPELINE_EXCEL_FINAL = "excel_final"
+TASK_EXCEL_FINAL = "process_excel_final"
+STEP_DOWNLOAD_EXCEL_SOURCE = "download_excel_source"
+STEP_RUN_EXCEL_FINAL = "run_excel_final_pipeline"
+STEP_IMPORT_PARTS_DB = "import_parts_to_db"
+STEP_PERSIST_EXCEL_FINAL = "persist_excel_final_result"
+
+ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip", ".xlsx", ".xls"}

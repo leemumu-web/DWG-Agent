@@ -40,7 +40,6 @@ from app.db.session import SessionLocal
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
-from app.services.cache_service import cache_delete, cache_set
 from app.services.job_events import make_event, publish_job_event
 from app.services.storage_service import (
     get_storage_backend,
@@ -60,19 +59,6 @@ ERROR_CODE_STORAGE_FAILED = "DXF2EXCEL_STORAGE_FAILED"
 _EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _EXCEL_EXT = ".xlsx"
 _ALGO_VERSION = "dxf2excel"
-_CACHE_NS = "dxf2excel"
-_CACHE_TTL = 600  # 10 min — covers typical batch processing time
-
-
-def _cache_job_progress(job_id: int, data: dict) -> None:
-    """Write job progress snapshot to Redis for fast frontend polling."""
-    cache_set(_CACHE_NS, f"job:{job_id}:progress", data, ttl=_CACHE_TTL)
-
-
-def _invalidate_job_cache(job_id: int) -> None:
-    """Remove Redis cached data for a completed/failed job."""
-    cache_delete(_CACHE_NS, f"job:{job_id}:progress")
-    cache_delete(_CACHE_NS, f"job:{job_id}:result")
 
 
 def _exception_message(exc: Exception) -> str:
@@ -97,9 +83,8 @@ def _mark_job_failed(
             job.error_code = error_code
             job.error_message = _exception_message(exc)
             job.finished_at = datetime.now(UTC)
-            db.commit()
-            _invalidate_job_cache(job_id)
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="error",
@@ -108,6 +93,7 @@ def _mark_job_failed(
                     message=job.error_message or error_code,
                 ),
             )
+            db.commit()
     except Exception:
         logger.exception("Failed to mark dxf2excel job %s as failed", job_id)
     finally:
@@ -244,17 +230,18 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
         job.progress = 10
         job.started_at = started_at
         job.pipeline = PIPELINE_DXF2EXCEL
-        db.flush()
-        _cache_job_progress(
-            job_id,
-            {"status": JOB_RUNNING, "progress": 10, "batch_name": batch_name},
-        )
         publish_job_event(
+            db,
             job_id,
             make_event(
-                type_="status", status=JOB_RUNNING, progress=10, message=f"开始提取: {batch_name}"
+                type_="status",
+                status=JOB_RUNNING,
+                progress=10,
+                message=f"开始提取: {batch_name}",
+                batch_name=batch_name,
             ),
         )
+        db.commit()
 
         with tempfile.TemporaryDirectory(prefix=f"dxf2excel_job_{job_id}_") as work_dir_str:
             work_dir = Path(work_dir_str)
@@ -291,16 +278,8 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 started_at=download_started,
             )
             job.progress = 30
-            db.commit()
-            _cache_job_progress(
-                job_id,
-                {
-                    "status": JOB_RUNNING, "progress": 30,
-                    "step": STEP_DOWNLOAD_DXF_BATCH,
-                    "stats": download_stats,
-                },
-            )
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="progress",
@@ -308,8 +287,10 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     step_name=STEP_DOWNLOAD_DXF_BATCH,
                     status=JOB_RUNNING,
                     message=f"已下载 {download_stats['downloaded']}/{download_stats['dxf_count']} 个 DXF",
+                    stats=download_stats,
                 ),
             )
+            db.commit()
 
             if not dxf_paths:
                 _mark_job_failed(
@@ -373,22 +354,8 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 # Per-file progress: 30 → 70 mapped across all files
                 file_progress = 30 + int(40 * (i + 1) / total_files)
                 job.progress = file_progress
-                # Push every file to Redis for fast frontend polling
-                _cache_job_progress(
-                    job_id,
-                    {
-                        "status": JOB_RUNNING, "progress": file_progress,
-                        "step": STEP_RUN_DXF2EXCEL,
-                        "file_index": i + 1, "total_files": total_files,
-                        "current_file": fp.name,
-                    },
-                )
-                # Commit to MySQL every N files so polling sees intermediate values
-                if (i + 1) % _COMMIT_EVERY_N == 0:
-                    db.commit()
-                else:
-                    db.flush()
                 publish_job_event(
+                    db,
                     job_id,
                     make_event(
                         type_="progress",
@@ -396,8 +363,19 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                         step_name=STEP_RUN_DXF2EXCEL,
                         status=JOB_RUNNING,
                         message=f"提取中: {i + 1}/{total_files} — {fp.name}",
+                        file_index=i + 1,
+                        total_files=total_files,
+                        current_file=fp.name,
                     ),
                 )
+                # Commit to MySQL every N files so polling sees intermediate values
+                if (i + 1) % _COMMIT_EVERY_N == 0:
+                    db.commit()
+                else:
+                    db.flush()
+
+            # Release any tail batch before Excel generation, which can be slow.
+            db.commit()
 
             # Count stats from collected results
             pipeline_stats["tables_found"] = len(all_tables)
@@ -434,16 +412,8 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 started_at=pipeline_started,
             )
             job.progress = 70
-            db.commit()
-            _cache_job_progress(
-                job_id,
-                {
-                    "status": JOB_RUNNING, "progress": 70,
-                    "step": STEP_RUN_DXF2EXCEL,
-                    "stats": pipeline_stats,
-                },
-            )
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="progress",
@@ -453,8 +423,10 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     message=f"材料表提取完成: {success_count}/{total_files} 个文件, "
                     f"{pipeline_stats['tables_found']} 张表, "
                     f"{pipeline_stats['data_rows']} 行数据",
+                    stats=pipeline_stats,
                 ),
             )
+            db.commit()
 
             # ---- 4. 持久化 Excel ----
             persist_started = datetime.now(UTC)
@@ -526,25 +498,8 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
             job.status = JOB_SUCCEEDED
             job.progress = 100
             job.finished_at = datetime.now(UTC)
-            db.commit()
-            # Cache final result for fast frontend polling
-            cache_set(
-                _CACHE_NS, f"job:{job_id}:result",
-                {
-                    "status": JOB_SUCCEEDED, "progress": 100,
-                    "excel_file_id": excel_file.id,
-                    "excel_name": f"{output_basename}{_EXCEL_EXT}",
-                    "tables_found": pipeline_stats["tables_found"],
-                    "data_rows": pipeline_stats["data_rows"],
-                    "warnings_count": pipeline_stats["warnings_count"],
-                },
-                ttl=3600,  # 1 hour for completed results
-            )
-            _cache_job_progress(
-                job_id,
-                {"status": JOB_SUCCEEDED, "progress": 100},
-            )
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="done",
@@ -554,8 +509,14 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     message=f"Excel 已生成: {pipeline_stats['tables_found']} 张表, "
                     f"{pipeline_stats['data_rows']} 行数据, "
                     f"{pipeline_stats['warnings_count']} 个警告",
+                    excel_file_id=excel_file.id,
+                    excel_name=f"{output_basename}{_EXCEL_EXT}",
+                    tables_found=pipeline_stats["tables_found"],
+                    data_rows=pipeline_stats["data_rows"],
+                    warnings_count=pipeline_stats["warnings_count"],
                 ),
             )
+            db.commit()
 
     except Exception as exc:
         db.rollback()

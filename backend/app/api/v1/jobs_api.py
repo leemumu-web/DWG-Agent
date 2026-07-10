@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import (
     CurrentUser,
@@ -17,7 +17,13 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.config import settings
-from app.core.constants import JOB_FAILED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG, TASK_DXF_TO_EXCEL
+from app.core.constants import (
+    JOB_FAILED,
+    TASK_DWG_TO_DXF,
+    TASK_DXF_TO_DWG,
+    TASK_DXF_TO_EXCEL,
+    TASK_EXCEL_FINAL,
+)
 from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing
@@ -28,7 +34,7 @@ from app.schemas.common import ok, page_from_list
 from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
 from app.schemas.result_schema import AnalysisResultRead
 from app.services.audit_service import write_audit_log
-from app.services.job_events import job_event_stream
+from app.services.job_events import job_event_stream, make_event, publish_job_event
 from app.services.job_service import create_job, enqueue_job
 
 router = APIRouter()
@@ -96,6 +102,11 @@ def create_job_api(
             "DXF2EXCEL_PIPELINE_DISABLED",
             "DXF→Excel pipeline is disabled. Set DXF2EXCEL_PIPELINE_ENABLED=true to enable.",
         )
+    if payload.task_type == TASK_EXCEL_FINAL and not settings.excel_final_pipeline_enabled:
+        raise service_unavailable(
+            "EXCEL_FINAL_PIPELINE_DISABLED",
+            "Excel→Final pipeline is disabled. Set EXCEL_FINAL_PIPELINE_ENABLED=true to enable.",
+        )
     job = create_job(db, payload, created_by=current_user.id)
     write_audit_log(
         db,
@@ -113,6 +124,16 @@ def create_job_api(
         job.status = JOB_FAILED
         job.error_code = "JOB_ENQUEUE_FAILED"
         job.error_message = str(exc) or exc.__class__.__name__
+        publish_job_event(
+            db,
+            job.id,
+            make_event(
+                type_="error",
+                status=JOB_FAILED,
+                error_code=job.error_code,
+                message=job.error_message,
+            ),
+        )
         db.commit()
         raise AppHTTPException(
             503,
@@ -151,6 +172,11 @@ def cancel_job(
     if job.project_id is not None:
         require_project_role(db, current_user, job.project_id, PROJECT_JOB_WRITE_ROLES)
     job.status = "cancelled"
+    publish_job_event(
+        db,
+        job.id,
+        make_event(type_="done", status="cancelled", progress=job.progress, message="任务已取消"),
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -183,6 +209,15 @@ def retry_job(
         require_project_role(db, current_user, job.project_id, PROJECT_JOB_WRITE_ROLES)
     job.status = "queued"
     job.progress = 0
+    job.error_code = None
+    job.error_message = None
+    job.started_at = None
+    job.finished_at = None
+    publish_job_event(
+        db,
+        job.id,
+        make_event(type_="status", status="queued", progress=0, message="任务已重新入队"),
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -256,6 +291,7 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
         "task_type": job.task_type,
         "error_code": job.error_code,
         "error_message": job.error_message,
+        "progress_data": job.progress_data,
         "steps": [
             {"step_name": s.step_name, "status": s.status, "error_message": s.error_message}
             for s in steps
@@ -267,11 +303,10 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
 def get_job_events(
     job_id: int, request: Request, current_user: CurrentUserOrQuery, db: Session = Depends(get_db)
 ):
-    """Server-Sent Events 端点：任务进度实时推送（spec §13.1 SSE 推送）。
+    """Server-Sent Events 端点：从 MySQL 任务行流式推送进度。
 
-    先发 DB 快照，再订阅 Redis pub/sub 频道 job:events:{job_id}。
-    每 25s 无消息时发 keepalive 心跳。Redis 不可用时仅发快照后结束。
-    终态事件（done/error）后发终态快照兜底。
+    先发送数据库快照，再以短事务轮询最新状态；空轮次发送 keepalive。
+    终态事件后再发送一帧终态快照兜底。
 
     鉴权：前端 EventSource 不支持自定义请求头，通过 ?token=<jwt> 查询参数传递。
     Authorization header 仍然优先。
@@ -282,20 +317,24 @@ def get_job_events(
     if job.project_id is not None:
         require_project_member(db, current_user, job.project_id)
 
-    TERMINAL = {"succeeded", "failed", "cancelled"}
+    terminal = {"succeeded", "failed", "cancelled"}
+    initial_snapshot = _job_snapshot(db, job_id)
+    bind = db.get_bind()
+    stream_sessions = sessionmaker(
+        bind=bind,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    # Release the request transaction before the long-lived response starts.
+    db.rollback()
 
     def event_stream():
-        # 初始快照
-        snapshot = _job_snapshot(db, job_id)
-        yield f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
-        if snapshot["status"] in TERMINAL:
+        yield f"data: {json.dumps(initial_snapshot, ensure_ascii=False)}\n\n"
+        if initial_snapshot["status"] in terminal:
             return
 
-        stream = job_event_stream(job_id)
-        if stream is None:
-            # Redis 不可用 — 只发快照结束
-            return
-
+        stream = job_event_stream(stream_sessions, job_id)
         for event in stream:
             if event is None:
                 yield ": keepalive\n\n"
@@ -304,9 +343,8 @@ def get_job_events(
             if event.get("type") in {"done", "error"}:
                 break
 
-        # 终态快照兜底（worker 可能先写 DB 才发 pub/sub）
-        db.refresh(db.get(Job, job_id))
-        final_snapshot = _job_snapshot(db, job_id)
+        with stream_sessions() as final_db:
+            final_snapshot = _job_snapshot(final_db, job_id)
         yield f"data: {json.dumps(final_snapshot, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -379,6 +417,12 @@ def cancel_all_active(
             status="cancelled",
             error_code="CANCELLED_BY_ADMIN",
             error_message="Cancelled by administrator via bulk cancel.",
+            progress_data={
+                "type": "done",
+                "status": "cancelled",
+                "message": "Cancelled by administrator via bulk cancel.",
+                "error_code": "CANCELLED_BY_ADMIN",
+            },
             updated_at=now,
         )
     )
@@ -406,22 +450,11 @@ def cancel_all_active(
     )
     db.commit()
 
-    # Best-effort: revoke running/pending Celery tasks (no per-job data needed)
+    # SQLAlchemy transport has no fanout/remote-control support, so workers
+    # converge on the cancelled DB state and queued messages are purged directly.
     _celery_revoked = 0
     try:
-        inspector = celery_app.control.inspect(timeout=2.0)
-        active_tasks = (inspector.active() or {}).values()
-        reserved_tasks = (inspector.reserved() or {}).values()
-        for tasks in (*active_tasks, *reserved_tasks):
-            for t in tasks:
-                try:
-                    celery_app.control.revoke(t["id"], terminate=True, signal="SIGTERM")
-                    _celery_revoked += 1
-                except Exception:
-                    pass
-
-        # Purge queued messages from dxf/report/agent/cad queues
-        for q in ("dxf", "report", "agent", "cad"):
+        for q in ("dxf", "dxf2dwg", "dxf2excel", "excel_final", "report", "agent", "cad"):
             try:
                 celery_app.control.purge(queue=q)
             except Exception:

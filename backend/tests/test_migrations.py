@@ -5,6 +5,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = PROJECT_ROOT / "backend" / "migrations" / "versions"
 INITIAL_REVISION = VERSIONS_DIR / "40452ddd24e7_initial.py"
+MYSQL_BACKEND_REVISION = VERSIONS_DIR / "1d1696c7e854_remove_redis_add_mysql_backend.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -53,3 +54,17 @@ def test_initial_revision_creates_all_model_tables():
     assert "\n    pass\n" not in source
     for table in MODEL_TABLES:
         assert f'"{table}"' in source or f"'{table}'" in source
+
+
+def test_mysql_backend_revision_creates_durable_runtime_state():
+    source = MYSQL_BACKEND_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "53cd59adf848"' in source
+    for table in ("agent_memory", "token_blacklist"):
+        assert f'"{table}"' in source
+        assert f'op.drop_table("{table}")' in source
+    assert 'op.add_column("jobs"' in source
+    assert '"progress_data"' in source
+    assert 'op.add_column(\n        "sys_users"' in source
+    assert '"password_changed_at"' in source
+    assert 'ix_token_blacklist_expires_at' in source

@@ -9,7 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_name: str = "DWG-Agent Platform"
     app_env: str = "development"
@@ -17,7 +21,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     backend_cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    database_url: str = "mysql+pymysql://dwg_user:CHANGE_ME_MYSQL_PASSWORD@127.0.0.1:3306/dwg_agent"
+    # Optional full-DSN override. Runtime defaults to the MYSQL_* component fields;
+    # tests use DATABASE_URL=sqlite:// for isolated in-memory sessions.
+    database_url: str | None = None
 
     # MySQL component fields (spec §18); Docker overrides host to the service name mysql
     mysql_host: str = "127.0.0.1"
@@ -68,6 +74,9 @@ class Settings(BaseSettings):
     # DXF→Excel material-table extraction
     dxf2excel_pipeline_enabled: bool = False
 
+    # Excel→final part-list processing (excel_final pipeline)
+    excel_final_pipeline_enabled: bool = False
+
     # LLM — spec §18.1 (Stage 2: Agent subsystem)
     model_name: str = "deepseek-chat"
     model_api_key: str = ""
@@ -81,30 +90,37 @@ class Settings(BaseSettings):
     cad_worker_api_base: str = "http://cad-worker.internal:8080"
     cad_worker_api_key: str = ""
 
-    # Redis — component fields per spec §18; redis_url is a computed property
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
-    redis_password: str = ""
-    redis_memory_ttl: int = 7200
-    redis_max_messages: int = 20
+    # Agent memory retention (seconds) — applies to MySQL-backed agent_memory rows
+    agent_memory_ttl: int = 7200
+    agent_max_messages: int = 20
     celery_task_always_eager: bool = False
 
     @property
+    def sqlalchemy_database_url(self) -> str:
+        """Return the authoritative SQLAlchemy DSN for the application database."""
+        return self.database_url or self.mysql_url
+
+    @property
+    def celery_database_url(self) -> str:
+        """Return the MySQL DSN shared by Celery's broker and result backend.
+
+        A MySQL ``DATABASE_URL`` override is authoritative. SQLite is reserved for
+        eager unit tests, where Celery still exposes the production-shaped MySQL
+        transport configuration but never opens a broker connection.
+        """
+        if self.database_url and self.database_url.startswith("mysql"):
+            return self.database_url
+        return self.mysql_url
+
+    @property
     def celery_broker_url(self) -> str:
-        """Assemble Celery broker URL from Redis component fields, matching redis_url auth."""
-        password_part = (
-            f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
-        )
-        return f"redis://{password_part}{self.redis_host}:{self.redis_port}/0"
+        """Return Celery's SQLAlchemy broker URL using the authoritative MySQL DSN."""
+        return f"sqla+{self.celery_database_url}"
 
     @property
     def celery_result_backend(self) -> str:
-        """Assemble Celery result backend URL from Redis component fields."""
-        password_part = (
-            f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
-        )
-        return f"redis://{password_part}{self.redis_host}:{self.redis_port}/1"
+        """Return Celery's database result-backend URL using the same MySQL DSN."""
+        return f"db+{self.celery_database_url}"
 
     minio_endpoint: str = "http://localhost:9000"
     minio_access_key: str = ""
@@ -121,18 +137,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [item.strip() for item in self.backend_cors_origins.split(",") if item.strip()]
-
-    @property
-    def redis_url(self) -> str:
-        """Assemble Redis URL from component fields (REDIS_HOST/REDIS_PORT/REDIS_DB/REDIS_PASSWORD).
-
-        When password is empty the URL omits the auth segment entirely, producing
-        ``redis://host:port/db`` suitable for a passwordless local dev server.
-        """
-        password_part = (
-            f":{url_quote(self.redis_password, safe='')}@" if self.redis_password else ""
-        )
-        return f"redis://{password_part}{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     @property
     def mysql_url(self) -> str:

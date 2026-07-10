@@ -21,6 +21,8 @@
 
 # ── Backend 运行时数据（volume 挂载，非镜像）──────────────────
 backend/var/
+backend/tests/
+tests/
 
 # ── Stages 子包：样本 / 日志 / 临时产物（不进镜像）────────────
 Stages/*/samples/

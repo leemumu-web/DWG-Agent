@@ -79,7 +79,7 @@ start_report_worker() {
             rm -f "$pidfile"
             return 1
         fi
-        if $celery_cmd -A app.workers.celery_app:celery_app inspect ping -d "$node" >/dev/null 2>&1; then
+        if grep -q "$node" "$logfile" 2>/dev/null; then
             ready=true
             break
         fi
@@ -90,7 +90,7 @@ start_report_worker() {
         ok "Celery worker-report 已启动"
         return 0
     fi
-    err "Celery worker-report 未通过 inspect ping，请检查: $logfile"
+    err "Celery worker-report 未完成启动，请检查: $logfile"
     tail -40 "$logfile" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
@@ -139,7 +139,7 @@ start_dxf_worker() {
         ok "Celery worker-dxf 已启动 (concurrency=2)"
         return 0
     fi
-    err "Celery worker-dxf 未通过 inspect ping，请检查: $logfile"
+    err "Celery worker-dxf 未完成启动，请检查: $logfile"
     tail -40 "$logfile" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
@@ -188,7 +188,7 @@ start_dxf2dwg_worker() {
         ok "Celery worker-dxf2dwg 已启动 (concurrency=2)"
         return 0
     fi
-    err "Celery worker-dxf2dwg 未通过 inspect ping，请检查: $logfile"
+    err "Celery worker-dxf2dwg 未完成启动，请检查: $logfile"
     tail -40 "$logfile" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
@@ -237,7 +237,7 @@ start_dxf2excel_worker() {
         ok "Celery worker-dxf2excel 已启动 (concurrency=1)"
         return 0
     fi
-    err "Celery worker-dxf2excel 未通过 inspect ping，请检查: $logfile"
+    err "Celery worker-dxf2excel 未完成启动，请检查: $logfile"
     tail -40 "$logfile" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
@@ -259,7 +259,7 @@ wait_port() {
     return 1
 }
 
-# 确保 systemd 服务运行（兼容多种命名: redis/valkey, mysql/mariadb）
+# 确保 systemd 服务运行（兼容 mysql/mariadb 等发行版服务名）
 ensure_service() {
     local port="$1"; shift
     local names=("$@")

@@ -7,6 +7,7 @@ from app.api.v1 import (
     audit_logs_api,
     auth_api,
     drawings_api,
+    excel_final_api,
     files_api,
     jobs_api,
     projects_api,
@@ -30,3 +31,4 @@ api_router.include_router(reviews_api.router, prefix="/reviews", tags=["reviews"
 api_router.include_router(audit_logs_api.router, prefix="/audit-logs", tags=["audit-logs"])
 api_router.include_router(agent_runs_api.router, tags=["agent-runs"])
 api_router.include_router(system_api.router, prefix="/system", tags=["system"])
+api_router.include_router(excel_final_api.router, prefix="/excel-final", tags=["excel-final"])

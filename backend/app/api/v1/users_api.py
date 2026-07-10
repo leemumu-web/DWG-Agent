@@ -289,11 +289,9 @@ def reset_user_password(
         resource_id=user.id,
         request=request,
     )
+    # Persist the reset, audit record and revocation marker atomically.
+    record_password_change(db, user.id)
     db.commit()
-
-    # Invalidate all existing tokens for the target user — admin-initiated
-    # password resets must also revoke active sessions (BUG-19 extension).
-    record_password_change(user.id)
 
     return ok(
         {
@@ -363,5 +361,4 @@ def enable_user(
     db.commit()
     db.refresh(user)
     return ok(UserRead.model_validate(user), request.state.request_id)
-
 

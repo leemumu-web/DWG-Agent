@@ -242,14 +242,14 @@ def test_refresh_with_access_type_token_in_cookie_is_rejected():
 
 
 # ---------------------------------------------------------------------------
-# Password change — existing tokens not revoked (current Stage 1 behaviour)
+# Password change — all existing tokens are revoked
 # ---------------------------------------------------------------------------
 
 
-def test_password_change_does_not_revoke_existing_tokens():
+def test_password_change_revokes_existing_tokens_and_new_token_works_immediately():
     """After password change, existing access tokens are REVOKED (BUG-19 fix).
 
-    Password change records a timestamp in Redis; get_current_user checks
+    Password change records a timestamp in MySQL; get_current_user checks
     whether the token was issued before the last password change.
     """
     client = _client()
@@ -274,6 +274,7 @@ def test_password_change_does_not_revoke_existing_tokens():
     )
     assert login2.status_code == 201, f"New password login: {login2.text}"
     new_headers = {"Authorization": f"Bearer {login2.json()['data']['access_token']}"}
+    assert client.get("/api/v1/auth/me", headers=new_headers).status_code == 200
 
     # Restore original password so other tests aren't affected
     client.patch(
@@ -308,7 +309,7 @@ def test_app_starts_with_db_initialised():
 
 
 # ---------------------------------------------------------------------------
-# Blacklist: fail-open when Redis is down
+# MySQL-backed token blacklist
 # ---------------------------------------------------------------------------
 
 

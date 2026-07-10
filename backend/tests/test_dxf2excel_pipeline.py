@@ -16,10 +16,14 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.init_db import init_db
 from app.main import app
+from app.models.job import Job
+from app.models.result import AnalysisResult
 
 SAMPLE_DXF_DIR = Path(__file__).resolve().parents[2] / "Stages" / "dxf2excel" / "original_dxf"
 
@@ -96,6 +100,8 @@ class TestServiceHelpers:
         data = check.json()["data"]
         assert data["status"] == "failed"
         assert data["error_code"] == "DXF2EXCEL_EMPTY_BATCH"
+        assert data["progress_data"]["type"] == "error"
+        assert data["progress_data"]["error_code"] == "DXF2EXCEL_EMPTY_BATCH"
 
     def test_mark_job_failed_skips_terminal(self, monkeypatch):
         """_mark_job_failed 不覆盖已处于终态的 job（succeeded/cancelled）。"""
@@ -118,6 +124,58 @@ class TestServiceHelpers:
 
         check = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
         assert check.json()["data"]["status"] == "cancelled"
+
+    def test_successful_run_persists_terminal_progress_in_same_transaction(
+        self, db: Session, monkeypatch, tmp_path: Path
+    ):
+        from app.services import dxf2excel_service as service
+
+        monkeypatch.setattr(settings, "storage_backend", "local")
+        monkeypatch.setattr(settings, "local_storage_root", tmp_path / "storage")
+
+        job = Job(
+            task_type="extract_dxf_to_excel",
+            precision_level="normal",
+            pipeline="dxf2excel",
+            status="queued",
+            progress=0,
+            params_json={"batch_name": "mysql-progress"},
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+        def fake_stage(_db: Session, _batch_name: str, work_dir: Path):
+            source = work_dir / "sample.dxf"
+            source.write_text("0\nEOF\n", encoding="utf-8")
+            return [source], {
+                "dxf_count": 1,
+                "downloaded": 1,
+                "total_bytes": source.stat().st_size,
+                "errors": [],
+            }
+
+        def fake_write(output_path: Path, _tables: list, _warnings: list) -> None:
+            output_path.write_bytes(b"PK\x03\x04mysql-backed-progress")
+
+        monkeypatch.setattr(service, "_stage_dxf_batch", fake_stage)
+        monkeypatch.setattr("dxf2excel.pipeline.process_file", lambda _path: ([], []))
+        monkeypatch.setattr("dxf2excel.excel_writer.write_excel", fake_write)
+
+        service.run_dxf2excel_extraction(job_id, worker_name="test-worker")
+
+        db.expire_all()
+        persisted = db.get(Job, job_id)
+        assert persisted is not None
+        assert persisted.status == "succeeded"
+        assert persisted.progress == 100
+        assert persisted.progress_data is not None
+        assert persisted.progress_data["type"] == "done"
+        assert persisted.progress_data["status"] == "succeeded"
+        assert persisted.progress_data["excel_file_id"] > 0
+        assert db.scalar(
+            select(AnalysisResult).where(AnalysisResult.job_id == job_id)
+        ) is not None
 
 
 # ── Feature gate ──────────────────────────────────────────────────────────────

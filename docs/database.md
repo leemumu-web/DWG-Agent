@@ -90,9 +90,9 @@ This allows Docker Compose to override individual components (e.g. `MYSQL_HOST=m
 
 ## 2. Complete Table Catalog
 
-The schema has **17 tables** total (all created by the initial migration), grouped into the domains below. Every table except `sys_permissions`, `sys_role_permissions`, `sys_user_roles`, and `job_steps` carries the `created_at`/`updated_at` pair from `TimestampMixin` (`sys_user_roles` has only `created_at`).
+The application schema has **19 business tables**: 17 from the initial migration plus `token_blacklist` and `agent_memory`. Celery's SQL transport/result backend manages four additional tables (`kombu_queue`, `kombu_message`, `celery_taskmeta`, `celery_tasksetmeta`), and Alembic owns `alembic_version`.
 
-### 2.1 Identity & Access Management (IAM) -- 5 tables
+### 2.1 Identity & Access Management (IAM) -- 6 tables
 
 #### `sys_users`
 
@@ -109,6 +109,7 @@ Core user identity table. Supports soft-delete via `deleted_at` timestamp.
 | `password_algo` | VARCHAR(32) | NOT NULL, DEFAULT 'argon2id' | Algorithm tag for future migration |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'active', INDEXED | `active` / `disabled` / `deleted` |
 | `last_login_at` | DATETIME | NULLABLE | Timestamp of last successful login |
+| `password_changed_at` | DATETIME | NULLABLE | Tokens issued at or before this instant are rejected |
 | `deleted_at` | DATETIME | NULLABLE, INDEXED | Soft-delete timestamp (NULL = not deleted) |
 | `created_at` | DATETIME | NOT NULL | Record creation timestamp |
 | `updated_at` | DATETIME | NOT NULL | Record last modification timestamp |
@@ -169,6 +170,15 @@ Many-to-many join between roles and their permissions.
 | `permission_id` | BIGINT | PK (composite), FK → `sys_permissions.id` | |
 
 **Primary key:** `(role_id, permission_id)` -- prevents duplicate permission grants.
+
+#### `token_blacklist`
+
+Durable JWT revocation records. Expired rows are removed during subsequent logout operations.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `jti` | VARCHAR(36) | PK | JWT identifier |
+| `expires_at` | DATETIME | NOT NULL, INDEXED | Token expiry; rows past this time no longer revoke |
 
 ### 2.2 Project & Membership -- 2 tables
 
@@ -289,6 +299,7 @@ Asynchronous processing job for a DWG drawing.
 | `params_json` | JSON | NULLABLE | Task-specific parameters |
 | `error_code` | VARCHAR(64) | NULLABLE | Machine-readable error code on failure |
 | `error_message` | TEXT | NULLABLE | Human-readable error description |
+| `progress_data` | JSON | NULLABLE | Latest durable SSE payload (message, step, result metadata) |
 | `created_at` | DATETIME | NOT NULL | |
 | `started_at` | DATETIME | NULLABLE | When worker picked up the job |
 | `finished_at` | DATETIME | NULLABLE | When job reached terminal state |
@@ -296,7 +307,7 @@ Asynchronous processing job for a DWG drawing.
 
 **Indexes:** `ix_jobs_project_id`, `ix_jobs_drawing_id`, `ix_jobs_status`
 
-**Job lifecycle states:** `pending` (created, not yet queued) → `queued` (in Redis/Celery queue) → `running` (worker executing) → `succeeded` / `failed` / `cancelled`. Intermediate states: `waiting_cad_worker`, `validating`, `need_review`.
+**Job lifecycle states:** `pending` (created, not yet queued) → `queued` (in the MySQL-backed Celery queue) → `running` (worker executing) → `succeeded` / `failed` / `cancelled`. Intermediate states: `waiting_cad_worker`, `validating`, `need_review`.
 
 #### `job_steps`
 
@@ -317,7 +328,7 @@ Granular execution steps within a job.
 
 **Indexes:** `ix_job_steps_job_id`
 
-### 2.6 Agent Execution -- 2 tables
+### 2.6 Agent Execution -- 3 tables
 
 #### `agent_runs`
 
@@ -361,6 +372,17 @@ Individual tool calls and reasoning steps within an agent run.
 | `updated_at` | DATETIME | NOT NULL | |
 
 **Indexes:** `ix_agent_run_steps_agent_run_id`
+
+#### `agent_memory`
+
+One row per Agent session. `messages` stores the bounded JSON conversation history; `updated_at` is compared with `AGENT_MEMORY_TTL` on read and expired rows are deleted in the caller's transaction.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `session_id` | VARCHAR(128) | PK | Stable Agent session identifier |
+| `messages` | JSON | NOT NULL | At most `AGENT_MAX_MESSAGES` recent messages |
+| `created_at` | DATETIME | NOT NULL | Creation time |
+| `updated_at` | DATETIME | NOT NULL | Last write, used for TTL enforcement |
 
 ### 2.7 Results & Review -- 2 tables
 
@@ -521,8 +543,9 @@ The following tables use MySQL's native JSON type (SQLite falls back to TEXT):
 | `b8f9e7d6c5a4` | TimestampMixin fix -- idempotent migration for old MySQL databases missing `created_at`/`updated_at` columns | 2026-07-03 |
 | `c3d2e1f0a9b8` | Fix `audit_logs.resource_id` type -- `Integer` to `BigInteger` for consistency with all other ID columns | 2026-07-04 |
 | `53cd59adf848` | Add `files.batch_name` VARCHAR(128) nullable + index `ix_files_batch_name` -- supports DXF/Excel batch uploads | 2026-07-06 |
+| `1d1696c7e854` | Add `agent_memory`, `token_blacklist`, `jobs.progress_data`, and `sys_users.password_changed_at` | 2026-07-10 |
 
-The linear chain is `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848`; **`53cd59adf848` is the current head.**
+The linear chain is `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854`; **`1d1696c7e854` is the current head.**
 
 ### 4.2 How to create a new migration
 
@@ -671,7 +694,7 @@ This runs the complete initialization: create database if needed, run all migrat
 |---|---|---|
 | MySQL database (`dwg_agent`) | **Critical** | `mysqldump` --single-transaction |
 | File storage (MinIO / local `var/storage/`) | **Critical** | `mc mirror` (MinIO) or `rsync` (local) |
-| Redis data | Low | AOF/RDB persistence, not typically backed up separately |
+| Celery SQL tables and durable runtime state | Included in MySQL backup | Same `mysqldump`; no separate state-store backup |
 | Configuration (`.env.docker`, `compose.yaml`) | High | Git + encrypted backup |
 | Nginx config (`infra/nginx/`) | Medium | Git |
 

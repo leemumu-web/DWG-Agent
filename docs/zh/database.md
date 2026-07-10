@@ -90,9 +90,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-该 schema 共有 **17 张表**（全部由初始迁移创建），按下列领域分组。除 `sys_permissions`、`sys_role_permissions`、`sys_user_roles` 和 `job_steps` 之外，每张表都携带来自 `TimestampMixin` 的 `created_at`/`updated_at` 两列（`sys_user_roles` 仅有 `created_at`）。
+应用 schema 共有 **19 张业务表**：初始迁移创建 17 张，迁移 `1d1696c7e854` 新增 `token_blacklist` 和 `agent_memory`。此外，Celery 的 SQL 传输与结果后端管理 `kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta` 四张表，Alembic 管理 `alembic_version`。
 
-### 2.1 身份与访问管理 (IAM) -- 5 张表
+### 2.1 身份与访问管理 (IAM) -- 6 张表
 
 #### `sys_users`
 
@@ -109,6 +109,7 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 | `password_algo` | VARCHAR(32) | NOT NULL, DEFAULT 'argon2id' | 算法标签，便于未来迁移 |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'active', INDEXED | `active` / `disabled` / `deleted` |
 | `last_login_at` | DATETIME | NULLABLE | 上次成功登录的时间戳 |
+| `password_changed_at` | DATETIME | NULLABLE | 在此时刻或之前签发的 Token 均被拒绝 |
 | `deleted_at` | DATETIME | NULLABLE, INDEXED | 软删除时间戳（NULL = 未删除） |
 | `created_at` | DATETIME | NOT NULL | 记录创建时间戳 |
 | `updated_at` | DATETIME | NOT NULL | 记录最后修改时间戳 |
@@ -169,6 +170,15 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 | `permission_id` | BIGINT | PK (复合), FK → `sys_permissions.id` | |
 
 **主键:** `(role_id, permission_id)` -- 防止重复授予同一权限。
+
+#### `token_blacklist`
+
+持久化 JWT 撤销记录。后续登出操作会顺带删除已过期记录。
+
+| 列 | 类型 | 约束 | 描述 |
+|---|---|---|---|
+| `jti` | VARCHAR(36) | PK | JWT 唯一标识 |
+| `expires_at` | DATETIME | NOT NULL, INDEXED | Token 到期时间；超过该时间的记录不再产生撤销效果 |
 
 ### 2.2 项目与成员 -- 2 张表
 
@@ -289,6 +299,7 @@ DWG 图纸的异步处理作业。
 | `params_json` | JSON | NULLABLE | 任务特定参数 |
 | `error_code` | VARCHAR(64) | NULLABLE | 失败时的机器可读错误代码 |
 | `error_message` | TEXT | NULLABLE | 人类可读的错误描述 |
+| `progress_data` | JSON | NULLABLE | 最新的持久化 SSE 载荷（消息、步骤和结果元数据） |
 | `created_at` | DATETIME | NOT NULL | |
 | `started_at` | DATETIME | NULLABLE | Worker 接收作业的时间 |
 | `finished_at` | DATETIME | NULLABLE | 作业达到终态的时间 |
@@ -296,7 +307,7 @@ DWG 图纸的异步处理作业。
 
 **索引:** `ix_jobs_project_id`, `ix_jobs_drawing_id`, `ix_jobs_status`
 
-**作业生命周期状态:** `pending`（已创建，尚未入队）→ `queued`（已在 Redis/Celery 队列中）→ `running`（Worker 正在执行）→ `succeeded` / `failed` / `cancelled`。中间状态: `waiting_cad_worker`, `validating`, `need_review`。
+**作业生命周期状态:** `pending`（已创建，尚未入队）→ `queued`（已进入 MySQL 支撑的 Celery 队列）→ `running`（Worker 正在执行）→ `succeeded` / `failed` / `cancelled`。中间状态: `waiting_cad_worker`, `validating`, `need_review`。
 
 #### `job_steps`
 
@@ -317,7 +328,7 @@ DWG 图纸的异步处理作业。
 
 **索引:** `ix_job_steps_job_id`
 
-### 2.6 Agent 执行 -- 2 张表
+### 2.6 Agent 执行 -- 3 张表
 
 #### `agent_runs`
 
@@ -361,6 +372,17 @@ Agent 运行中的单个工具调用和推理步骤。
 | `updated_at` | DATETIME | NOT NULL | |
 
 **索引:** `ix_agent_run_steps_agent_run_id`
+
+#### `agent_memory`
+
+每个 Agent 会话一行。`messages` 保存有界 JSON 对话历史；读取时以 `updated_at` 和 `AGENT_MEMORY_TTL` 判断过期，并在调用方事务中删除过期行。
+
+| 列 | 类型 | 约束 | 描述 |
+|---|---|---|---|
+| `session_id` | VARCHAR(128) | PK | 稳定的 Agent 会话标识 |
+| `messages` | JSON | NOT NULL | 最近最多 `AGENT_MAX_MESSAGES` 条消息 |
+| `created_at` | DATETIME | NOT NULL | 创建时间 |
+| `updated_at` | DATETIME | NOT NULL | 最后写入时间，用于 TTL 判断 |
 
 ### 2.7 结果与审查 -- 2 张表
 
@@ -521,8 +543,9 @@ agent_runs ──< agent_run_steps
 | `b8f9e7d6c5a4` | TimestampMixin 修复 -- 用于缺少 `created_at`/`updated_at` 列的旧 MySQL 数据库的幂等迁移 | 2026-07-03 |
 | `c3d2e1f0a9b8` | 修复 `audit_logs.resource_id` 类型 -- `Integer` 改为 `BigInteger`，与其他所有 ID 列保持一致 | 2026-07-04 |
 | `53cd59adf848` | 添加 `files.batch_name` VARCHAR(128) 可空列 + 索引 `ix_files_batch_name` -- 支持 DXF/Excel 批量上传 | 2026-07-06 |
+| `1d1696c7e854` | 新增 `agent_memory`、`token_blacklist`、`jobs.progress_data` 和 `sys_users.password_changed_at` | 2026-07-10 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848`；**`53cd59adf848` 是当前 head。**
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854`；**`1d1696c7e854` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -671,7 +694,7 @@ bash scripts/db.sh init
 |---|---|---|
 | MySQL 数据库 (`dwg_agent`) | **关键** | `mysqldump` --single-transaction |
 | 文件存储 (MinIO / 本地 `var/storage/`) | **关键** | `mc mirror` (MinIO) 或 `rsync` (本地) |
-| Redis 数据 | 低 | AOF/RDB 持久化，通常不单独备份 |
+| Celery SQL 表及持久化运行状态 | 已包含在 MySQL 备份中 | 使用同一次 `mysqldump`，无需独立状态存储备份 |
 | 配置文件 (`.env.docker`, `compose.yaml`) | 高 | Git + 加密备份 |
 | Nginx 配置 (`infra/nginx/`) | 中 | Git |
 

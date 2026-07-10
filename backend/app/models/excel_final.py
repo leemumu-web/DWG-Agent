@@ -1,0 +1,104 @@
+"""SQLAlchemy models for excel_final pipeline — processed steel part data.
+
+Three tables mirror the Excel output sheets:
+  - excel_final_batches    — processing run metadata
+  - excel_final_parts      — 整理表 (27-column final part list)
+  - excel_final_components — 构件表 (component summary)
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
+
+
+class ExcelFinalBatch(Base):
+    __tablename__ = "excel_final_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="init_table",
+        comment="init_table / tekla_tsv"
+    )
+    source_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    component_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    part_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_gross_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    parts: Mapped[list[ExcelFinalPart]] = relationship(
+        "ExcelFinalPart", back_populates="batch", cascade="all, delete-orphan"
+    )
+    components: Mapped[list[ExcelFinalComponent]] = relationship(
+        "ExcelFinalComponent", back_populates="batch", cascade="all, delete-orphan"
+    )
+
+
+class ExcelFinalPart(Base):
+    __tablename__ = "excel_final_parts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("excel_final_batches.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    component_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    part_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    part_no: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    profile_spec: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    spec: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    width: Mapped[float | None] = mapped_column(Float, nullable=True)
+    length: Mapped[float | None] = mapped_column(Float, nullable=True)
+    left_inset: Mapped[float | None] = mapped_column(Float, nullable=True)
+    right_inset: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cut_length: Mapped[float | None] = mapped_column(Float, nullable=True)
+    material: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    qty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_length: Mapped[float | None] = mapped_column(Float, nullable=True)
+    density: Mapped[float | None] = mapped_column(Float, nullable=True)
+    theo_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    theo_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    table_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    gross_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    table_gross_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    surface_area: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_surface_area: Mapped[float | None] = mapped_column(Float, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    batch: Mapped[ExcelFinalBatch] = relationship("ExcelFinalBatch", back_populates="parts")
+
+
+class ExcelFinalComponent(Base):
+    __tablename__ = "excel_final_components"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("excel_final_batches.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    component_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    batch: Mapped[ExcelFinalBatch] = relationship("ExcelFinalBatch", back_populates="components")

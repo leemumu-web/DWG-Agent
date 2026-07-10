@@ -2,7 +2,6 @@ import { apiClient, type ApiEnvelope } from './client';
 
 export interface SystemHealth {
   status: string;
-  redis: boolean;
   features: {
     agent: boolean;
     dxf_pipeline: boolean;

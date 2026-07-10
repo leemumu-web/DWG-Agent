@@ -49,6 +49,7 @@ class JobRead(BaseModel):
     params_json: dict[str, Any] | None = None
     error_code: str | None = None
     error_message: str | None = None
+    progress_data: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None = None

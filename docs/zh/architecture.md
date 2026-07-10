@@ -15,9 +15,11 @@ DWG-Agent 是一个面向企业内部使用的企业级 CAD 智能处理平台�
 ```
 DWG-Agent 平台（阶段 1）
 ═══════════════════════════════════════════════════
-  用户 → React SPA → Nginx → FastAPI → MySQL（元数据）
+  用户 → React SPA → Nginx → FastAPI → MySQL（元数据 + 运行状态）
                                     → 本地文件系统 / MinIO（文件）
-                                    → Redis/Valkey（缓存/内存/黑名单/发布订阅）
+
+  FastAPI / Celery workers → MySQL（任务队列/结果、令牌撤销、
+                                    Agent 记忆、持久化作业进度）
 ```
 
 ---
@@ -46,21 +48,21 @@ DWG-Agent 平台（阶段 1）
 │  │  - 项目/文件/图纸/作业/审核/审计                       │   │
 │  │  - Celery 任务分发                                    │    │
 │  └───────┬────────────┬──────────────┬──────────────────┘     │
-│          │            │              │                        │
-│          ▼            ▼              ▼                        │
-│  ┌────────────┐ ┌────────────┐ ┌───────────────────────┐      │
-│  │ MySQL :3306│ │ Redis:6379 │ │ MinIO :9000            │     │
-│  │ 元数据     │ │ 缓存/      │ │ DWG/DXF/结果文件        │    │
-│  │            │ │ 内存/       │ │                        │    │
-│  │            │ │ 进度        │ │                        │    │
-│  └────────────┘ └─────┬──────┘ └───────────┬───────────┘      │
-│                       │                    │                  │
-│  ┌────────────────────┼────────────────────┘                  │
+│          │                           │                        │
+│          ▼                           ▼                        │
+│  ┌─────────────────────┐   ┌───────────────────────────┐      │
+│  │ MySQL :3306          │   │ MinIO :9000               │     │
+│  │ 元数据 + 鉴权        │   │ DWG/DXF/结果文件           │    │
+│  │ 队列/结果/事件       │   │                           │    │
+│  └──────────┬──────────┘   └─────────────┬─────────────┘     │
+│             │                            │                   │
+│  ┌──────────┴────────────────────────────┘                   │
 │  │  Celery Workers    │                                       │
 │  │  - worker-report (默认, 始终启动)                          │
 │  │  - worker-dxf      (workers profile)                       │
+│  │  - worker-dxf2dwg  (workers profile)                       │
+│  │  - worker-dxf2excel(workers profile)                       │
 │  │  - worker-agent    (workers profile)                       │
-│  │  - flower          (monitoring profile)                    │
 │  │  (worker-cad-dispatch 为阶段 4 预留, 不在 compose 中)       │
 │  └────────────────────┘                                       │
 └──────────────────────────┼──────────────────────────────────┘
@@ -95,15 +97,16 @@ FastAPI (localhost:8000)
   │ SQLAlchemy 2.x 同步
   ▼
 MySQL 8.x (localhost:3306)
-  │
-Redis/Valkey 9.1 (localhost:6379, systemd)
-  │
+  ├── 应用记录 + 持久化鉴权/作业/Agent 状态
+  └── Celery SQL 队列与结果表
+      │
+      ▼
 Celery worker-report（report 队列, 本地 pidfile）
   │
 本地文件系统 (backend/var/storage/)
 ```
 
-**与规范的关键差异：** 本地开发默认仍使用本地文件系统，且没有 Windows CAD 节点。Docker 部署默认使用 MinIO，并启动 `worker-report` 用于阶段 1 的模拟任务；Agent/DXF workers 和 Flower 仍放在 `workers` / `monitoring` profiles 之后。
+**与规范的关键差异：** 本地开发默认使用本地文件系统，且没有 Windows CAD 节点。Docker 部署使用 MinIO 并默认启动 `worker-report`；Agent 与三个 DXF worker 均位于 `workers` profile。MySQL 是唯一运行数据库，同时承载 Celery 传输与结果。
 
 ---
 
@@ -123,7 +126,7 @@ Celery worker-report（report 队列, 本地 pidfile）
 │    Pydantic v2 请求/响应验证                                    │
 │    不做: 包含业务规则, 数据库访问                               │
 ├──────────────────────────────────────────────────────────────┤
-│ 3. Service 层             app/services/        17 个模块        │
+│ 3. Service 层             app/services/        16 个模块        │
 │    业务逻辑编排, 跨领域工作流                                   │
 │    不做: 依赖 FastAPI Request, 执行原始 SQL                     │
 ├──────────────────────────────────────────────────────────────┤
@@ -131,12 +134,12 @@ Celery worker-report（report 队列, 本地 pidfile）
 │    数据库读写封装（未来抽取）                                     │
 │    不做: 处理业务规则（当前不适用）                               │
 ├──────────────────────────────────────────────────────────────┤
-│ 5. Model 层               app/models/          10 个模块        │
-│    SQLAlchemy 2.x ORM 模型（17 张表）                             │
+│ 5. Model 层               app/models/          12 个模块        │
+│    SQLAlchemy 2.x ORM 模型（19 张业务表）                          │
 │    不做: 包含业务逻辑, 验证（那是 schema 的职责）                 │
 ├──────────────────────────────────────────────────────────────┤
-│ 6. Core / 基础设施         app/core/            8 个模块        │
-│    配置, 安全, 权限, 异常, Redis, 日志, 验证器                  │
+│ 6. Core / 基础设施         app/core/            7 个模块        │
+│    配置, 安全, 权限, 异常, 日志, 验证器                         │
 │    不做: 包含领域逻辑                                           │
 └─────────────────────────────────────────────────────────────────┘
 
@@ -202,7 +205,7 @@ Celery worker-report（report 队列, 本地 pidfile）
 - 访问数据库
 - 执行副作用
 
-#### Service 层 -- `app/services/`（17 个模块）
+#### Service 层 -- `app/services/`（16 个模块）
 
 | Service | 职责 | 关键依赖 |
 |---------|---------------|-----------------|
@@ -211,18 +214,17 @@ Celery worker-report（report 队列, 本地 pidfile）
 | `drawing_service.py` | 图纸 CRUD, 版本管理（自动递增 version_no） | `Drawing`/`DrawingVersion` 模型 |
 | `review_service.py` | 审核提交, 批准/拒绝决策 | `ReviewRecord` 模型 |
 | `agent_service.py` | Agent 运行编排（阶段 2 桩） | `AgentRun` 模型 |
-| `auth_service.py` | 带时间安全用户查找的登录, JWT 签发, 令牌黑名单 | `security.py`, `redis_client`, `User` 模型 |
+| `auth_service.py` | 带时间安全用户查找的登录、JWT 签发、持久化令牌撤销与密码变更失效 | `security.py`、`TokenBlacklist`、`User` 模型 |
 | `user_service.py` | 用户 CRUD, 个人信息, 原子状态转换, 软删除 | `User` 模型, `audit_service` |
 | `job_service.py` | 作业创建, Celery 桩分发, 状态生命周期更新 | `Job`/`JobStep` 模型 |
 | `storage_service.py` | 文件保存/检索/删除, DWG 文件头验证, SHA-256 哈希, 下载 URL 签名 | `path_utils.py`, `file_hash.py`, `StoredFile` 模型 |
 | `audit_service.py` | 结构化审计追踪写入（谁, 什么, 资源, 变更前后, IP, UA） | `AuditLog` 模型 |
-| `redis_memory.py` | Agent 会话记忆存储 (`agent:memory:{session_id}`, JSON 列表, TTL=7200s, 最多 20 条消息) | `redis_client` |
-| `cache_service.py` | 通用键值缓存 (`cache:{namespace}:{key}`, Redis 不可用时优雅降级) | `redis_client` |
+| `agent_memory.py` | MySQL Agent 会话历史，限制消息数量并在读取时执行 TTL 过期（阶段 2 基础设施） | `AgentMemory` 模型 |
 | `dxf_service.py` | **DWG→DXF** 编排：暂存源文件 → `dwg_converter.convert_file`（ODA 子进程）→ 持久化 DXF 到 `dxf-derived` → `AnalysisResult` + `job_steps` + SSE 事件（真实, 开关拦截） | `Stages/dwg2dxf`, `storage_service`, `job_events` |
 | `dxf2dwg_service.py` | **DXF→DWG** 反向编排：`dxf_converter.convert_file`（ODA）→ 持久化 DWG 到 `dwg-derived`；`$ACADVER`/反查版本检测（真实, 开关拦截） | `Stages/dxf2dwg`, `storage_service` |
-| `dxf2excel_service.py` | **批量 DXF→Excel** 材料表提取：按 `batch_name` 查询文件 → `dxf2excel.pipeline.process_file` → `write_excel` → 持久化 `.xlsx` 到 `dwg-reports`；Redis 进度缓存（真实, 开关拦截） | `Stages/dxf2excel`, `cache_service`, `job_events` |
+| `dxf2excel_service.py` | **批量 DXF→Excel** 材料表提取：按 `batch_name` 直接查询文件 → `dxf2excel.pipeline.process_file` → `write_excel` → 持久化 `.xlsx` 到 `dwg-reports`；进度与作业状态同事务提交（真实, 开关拦截） | `Stages/dxf2excel`, `job_events` |
 | `dxf_stats.py` | 标准库 DXF 实体/段计数器, 用于保真度指标（无 ezdxf 依赖） | -- |
-| `job_events.py` | Redis 发布订阅进度通道 `job:events:{job_id}`（`publish_job_event`、`job_event_stream` SSE、keepalive、600s 上限）, 故障安全 | `redis_client` |
+| `job_events.py` | 将最新进度写入 `jobs.progress_data`；SSE 每次轮询使用新的短生命周期 MySQL session，含 keepalive 和 600 秒上限 | `Job` 模型、session factory |
 
 **职责:**
 - 跨模型、schema 和外部服务编排业务工作流
@@ -234,7 +236,7 @@ Celery worker-report（report 队列, 本地 pidfile）
 - 包含路由层逻辑（参数提取、HTTP 响应构造）
 - 执行原始 SQL（使用 SQLAlchemy ORM）
 
-#### Model 层 -- `app/models/`（10 个文件, 17 张表, ~402 行）
+#### Model 层 -- `app/models/`（12 个文件, 19 张表, ~419 行）
 
 所有模型继承自 `Base`（SQLAlchemy `DeclarativeBase`）和 `TimestampMixin`（提供 `created_at`、`updated_at`）。
 
@@ -267,7 +269,6 @@ Celery worker-report（report 队列, 本地 pidfile）
 | `security.py` | 密码哈希（Argon2id, 通过 `pwdlib`）, JWT 创建/解码（HS256, jti 声明） |
 | `permissions.py` | `app/api/deps` 的规范导入接口（权限检查函数） |
 | `exceptions.py` | `AppHTTPException` 基类 + 工厂函数 (`not_found`, `forbidden`, `service_unavailable`) |
-| `redis_client.py` | 带 hiredis 的延迟初始化同步 Redis 客户端, 不可用时优雅降级 |
 | `constants.py` | 文件大小限制, 允许的扩展名, 用户状态常量 |
 | `logger.py` | 日志配置辅助工具 |
 | `validators.py` | 按资源排序的列白名单验证（防止通过 sort_by 参数注入 SQL） |
@@ -301,7 +302,7 @@ Celery worker-report（report 队列, 本地 pidfile）
 
 #### Worker 层 -- `app/workers/`（celery_app + 6 个任务模块）
 
-`celery_app.py` 定义了真实的 Celery 应用（`"dwg_agent"`），使用配置中的 Redis broker（DB 0）/ result backend（DB 1），配置了 `task_acks_late`、`task_reject_on_worker_lost`、`worker_prefetch_multiplier=1`，以及供测试用的 `task_always_eager` 开关。队列路由：`agent→agent`、`dxf→dxf`、`dxf2dwg→dxf2dwg`、`dxf2excel→dxf2excel`、`cad→cad`、`report→report`, 默认 `default`。
+`celery_app.py` 定义了真实的 Celery 应用（`"dwg_agent"`），使用 Kombu 的 SQLAlchemy MySQL 传输和 Celery 数据库结果后端，两者均从应用的有效 MySQL DSN 派生。它配置了 `task_acks_late`、`task_reject_on_worker_lost`、`worker_prefetch_multiplier=1`、24 小时结果清理，以及供测试使用的 `task_always_eager` 开关。由于 SQL 传输不支持 fanout/remote control，任务事件广播和基于 inspect 的健康检查均被禁用。队列路由：`agent→agent`、`dxf→dxf`、`dxf2dwg→dxf2dwg`、`dxf2excel→dxf2excel`、`cad→cad`、`report→report`，默认 `default`。
 
 任务模块：
 - `tasks_report.py` → `run_stub_job`（队列 **report**）→ `job_service.run_local_stub_job` —— 阶段 1 框架模拟任务（真实）。
@@ -357,15 +358,14 @@ Celery worker-report（report 队列, 本地 pidfile）
                      ┌──────▼───────▼─┐ ┌──▼──────▼──┐
                      │   models/      │ │  core/     │
                      │ (SQLAlchemy)   │ │ (config,   │
-                     │ 17 张表        │ │  security, │
-                     └───────┬────────┘ │  redis,    │
-                             │          │  exceptions│
-                     ┌───────▼────────┐ └──────┬─────┘
-                     │    MySQL 8.x   │        │
-                     │  (运行时数据库)  │  ┌─────▼──────┐
-                     └────────────────┘  │ Valkey 9.1 │
-                                         │  (Redis)   │
-                                         └────────────┘
+                     │ 19 张业务表     │ │  security, │
+                     └───────┬────────┘ │  exceptions│
+                             │          └────────────┘
+                     ┌───────▼──────────────────────┐
+                     │ MySQL 8.x                    │
+                     │ 应用数据 + 持久化状态 +       │
+                     │ Celery SQL 队列/结果          │
+                     └──────────────────────────────┘
 
 未来（阶段 2/4）及开关拦截（阶段 3）在以下分隔线后添加:
 - - - - - - - - - - - - - - - - - - - - - - - -
@@ -468,13 +468,13 @@ DELETE /api/v1/auth/sessions/current
 从当前访问令牌中提取 jti（不验证直接解码）
   │
   ▼
-Redis SETEX "blacklist:jti:{jti}" TTL=(exp - now) value="1"
-  ├── TTL 匹配令牌的剩余有效期 → 键自动清理
-  ├── Redis 不可用 → 记录 warning, 跳过（降级模式）
+在请求事务中 INSERT/UPDATE token_blacklist(jti, expires_at)
+  ├── 已过期记录不产生撤销效果，并在后续登出时清理
+  ├── 数据库错误故障关闭，不会静默重新启用已撤销令牌
   ▼
 认证依赖在每次认证请求上检查 is_token_blacklisted(jti)
-  ├── Redis 命中 → 401
-  └── Redis 未命中 / 不可用 → 允许（为可用性而选择故障开放）
+  ├── MySQL 中存在有效记录 → 401
+  └── 记录不存在或已过期 → 继续
 ```
 
 ### 5.4 文件上传流程
@@ -593,7 +593,7 @@ dxf2excel_service.run_dxf2excel_extraction   （N 个 DXF → 1 个作业 → 1 
   ├── 步骤 run_dxf2excel_pipeline （Stages/dxf2excel pipeline.process_file —— 纯 Python
   │                                网格/表格恢复, 无 ODA；逐文件 SSE 进度）
   ├── 步骤 persist_excel_result   （写入 .xlsx → 存储桶 dwg-reports）
-  ├── Redis 进度缓存命名空间 dxf2excel
+  └── 每次进度事件与权威作业状态一同提交到 jobs.progress_data
 ```
 
 ### 5.10 SSE 作业进度
@@ -601,9 +601,10 @@ dxf2excel_service.run_dxf2excel_extraction   （N 个 DXF → 1 个作业 → 1 
 ```
 GET /api/v1/jobs/{job_id}/events   （media_type text/event-stream, ?token=<jwt> 或 Bearer）
   ├── 发出初始数据库快照
-  ├── 订阅 Redis 发布订阅通道 job:events:{job_id}
-  ├── 空闲时发送 ": keepalive" 注释；终态快照回退
-  └── 若作业已终态或 Redis 不可用则立即结束（不包装信封）
+  ├── 回滚请求读事务并释放连接
+  ├── 每次轮询使用一个新的短生命周期 MySQL session
+  ├── 仅发送变化的持久化快照；空闲时发送 ": keepalive"
+  └── 在终态、作业消失、数据库错误或 600 秒上限时结束
 ```
 
 ---
@@ -612,7 +613,7 @@ GET /api/v1/jobs/{job_id}/events   （media_type text/event-stream, ?token=<jwt>
 
 ### 6.1 同步 API + Celery Worker 边界
 
-**决策：** FastAPI 请求处理函数使用 SQLAlchemy 2.x 同步 session 和同步 Redis 客户端。作业执行跨越显式的 Celery 边界，在 worker 进程中运行。
+**决策：** FastAPI 请求处理函数使用 SQLAlchemy 2.x 同步 session。作业执行跨越显式的 Celery 边界，在 worker 进程中运行；应用状态和 Celery 传输/结果状态均持久化到 MySQL。
 
 **原因：** API 操作保持短小简单，而即使是阶段 1 的模拟作业也遵循生产级的任务分发模式。这使请求延迟有上限，避免在 FastAPI 内运行长耗时的 CAD 工作。
 
@@ -651,14 +652,15 @@ _DUMMY_VERIFY_HASH = (
 
 ### 6.4 基于 jti 的 JWT 令牌黑名单
 
-**决策：** JWT 包含 `jti`（JWT ID）声明（UUID4）。登出时，`jti` 被存储到 Redis 中，TTL 匹配令牌的剩余有效期。认证依赖在每次请求时检查黑名单。
+**决策：** JWT 包含 `jti`（JWT ID）声明（UUID4）。登出时将 `jti` 及过期时间写入 MySQL。认证依赖在每次请求时检查持久化黑名单；密码变更则在同一事务中设置 `sys_users.password_changed_at`，立即拒绝更早签发的 access/refresh token。
 
-**原因：** JWT 本质上是无状态的 -- 没有黑名单就无法"撤销"它们。替代方案（短生命周期令牌 + 频繁刷新）会带来更差的用户体验。基于 jti 的黑名单配合 Redis TTL 提供了：
+**原因：** JWT 本质上是无状态的，没有服务端持久状态就无法撤销。MySQL 方案提供：
 - 即时登出（下次请求即拒绝令牌）
-- 无永久存储增长（键随令牌过期自动过期）
-- 优雅降级（Redis 宕机 = 故障开放，令牌仍然有效）
+- 密码变更后立即撤销此前所有令牌
+- API 多进程与重启之间行为一致
+- 通过过期判断和登出清理限制表增长
 
-**权衡：** 每次认证请求都需要一次 Redis `EXISTS` 调用。这会增加约 0.1ms 延迟。对于内部企业平台来说可以接受。
+**权衡：** 每次认证请求可能执行一次主键索引查询，会增加数据库负载，但消除了分裂状态和故障开放问题，并让鉴权状态与用户数据处于同一事务系统。
 
 ### 6.5 原子状态转换
 
@@ -709,13 +711,13 @@ def transition_user_status(db, user_id, to_status, *, set_deleted_at=False):
 
 ### 6.10 基于组件字段的配置，而非单体 URL
 
-**决策：** 配置使用组件字段（`mysql_host`、`mysql_port`、`mysql_database`、`mysql_user`、`mysql_password`），配合计算属性 `mysql_url` 和 `redis_url`，而不是单一的 `DATABASE_URL` 字符串。
+**决策：** 配置使用 MySQL 组件字段（`mysql_host`、`mysql_port`、`mysql_database`、`mysql_user`、`mysql_password`）和计算 URL。可选的 `DATABASE_URL` 仅作为权威兼容覆盖；Celery broker/result URL 始终从同一有效 MySQL DSN 派生。
 
 **原因：** 规范第 18 章定义了此模式。它支持：
 - 按组件的 Docker 覆盖（例如 Docker 中用 `MYSQL_HOST=mysql`，开发中用 `127.0.0.1`）
 - 密码中特殊字符的 URL 编码（通过 `urllib.parse.quote`）
 - `.env` 文件中清晰的关注点分离
-- 从相同的 Redis 组件编程组装 Celery broker/result URL
+- 应用 SQLAlchemy、Celery broker 和 Celery result 使用同一配置源
 
 ---
 
@@ -809,11 +811,11 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 ```
 
-### 8.3 全部 17 张表
+### 8.3 全部 19 张表
 
 | # | 表 | 主键 | 外键 | 备注 |
 |---|-------|-------------|--------------|-------|
-| 1 | `sys_users` | id | -- | username UNIQUE, password_hash, status, 软删除 |
+| 1 | `sys_users` | id | -- | username UNIQUE, password_hash, password_changed_at, status, 软删除 |
 | 2 | `sys_roles` | id | -- | code UNIQUE, is_system 标志 |
 | 3 | `sys_permissions` | id | -- | code UNIQUE, resource + action |
 | 4 | `sys_user_roles` | (user_id, role_id) | users.id, roles.id | 多对多关联 |
@@ -823,57 +825,56 @@ def get_db() -> Generator[Session, None, None]:
 | 8 | `files` | id | uploaded_by → users.id | storage_key, sha256, status, `batch_name`（索引, DXF/Excel 批量上传） |
 | 9 | `drawings` | id | project_id → projects.id | current_version_id 自引用 |
 | 10 | `drawing_versions` | id | drawing_id → drawings.id, file_id → files.id, created_by → users.id | version_no |
-| 11 | `jobs` | id | project_id, drawing_id, created_by | task_type, precision_level, pipeline, status, params_json |
+| 11 | `jobs` | id | project_id, drawing_id, created_by | task_type, pipeline, status, progress_data |
 | 12 | `job_steps` | id | job_id → jobs.id | step_name, worker_name, status, input/output_json |
 | 13 | `agent_runs` | id | user_id, project_id, drawing_id, file_id | session_id, task, status, answer, output_file_id |
 | 14 | `agent_run_steps` | id | agent_run_id → agent_runs.id | step_type, tool_name, arguments_json, status |
 | 15 | `analysis_results` | id | job_id, drawing_id | result_type, result_json, confidence, result_file_id |
 | 16 | `review_records` | id | result_id → analysis_results.id, reviewer_id → users.id | decision (approved/rejected), comment |
 | 17 | `audit_logs` | id | actor_user_id → users.id | action, resource_type, resource_id, before/after_json, ip_address |
+| 18 | `token_blacklist` | jti | -- | 持久化的 JWT 吊销，过期时间已索引 |
+| 19 | `agent_memory` | session_id | -- | 有界的 JSON 历史，由应用强制执行 TTL |
 
-表 1-12 在阶段 1 中处于活跃状态。表 13-14（agent_runs, agent_run_steps）已创建并可查询，但仅在阶段 2 写入。表 15-16（analysis_results, review_records）已创建且功能可用 —— 阶段 1 模拟作业以及三个真实 DXF 流水线（开关启用时）都会填充 `job_steps` 和 `analysis_results`；审核记录功能完整可用。
+表 1-12 和 15-18 处于活跃状态。表 13-14 已创建并可查询，但仅在阶段 2 写入。表 19 是阶段 2 基础设施，其读/写/过期行为已经过测试。Celery 另外拥有四张 SQL 传输/结果表，Alembic 拥有 `alembic_version`。
 
 ### 8.4 迁移
 
-`backend/migrations/versions/` 中有四个 Alembic 版本（线性链）：
+`backend/migrations/versions/` 中有五个 Alembic 版本（线性链）：
 
 1. `40452ddd24e7` -- **initial**：创建全部 17 张表及其列、约束、索引；在两张表创建后添加延迟的 `drawings.current_version_id` → `drawing_versions.id` 命名外键。
 2. `b8f9e7d6c5a4` -- **add_missing_timestamp_columns**：为初始迁移中遗漏 `TimestampMixin` 的 `project_members`、`drawing_versions`、`review_records`、`agent_run_steps` 回填 `created_at`/`updated_at`。
 3. `c3d2e1f0a9b8` -- **fix_audit_logs_resource_id_type**：将 `audit_logs.resource_id` 从 `Integer` → BIGINT, 以与其他 ID 列保持一致。
-4. `53cd59adf848` -- **add_batch_name_to_files**（当前 head）：添加 `files.batch_name` VARCHAR(128) nullable + 索引 `ix_files_batch_name`, 用于 DXF/Excel 批量上传。
+4. `53cd59adf848` -- **add_batch_name_to_files**：添加 `files.batch_name` VARCHAR(128) nullable + 索引 `ix_files_batch_name`, 用于 DXF/Excel 批量上传。
+5. `1d1696c7e854` -- **remove_redis_add_mysql_backend**（当前 head）：创建 `token_blacklist` 和 `agent_memory`；添加 `jobs.progress_data` 和 `sys_users.password_changed_at`。
 
-Alembic 目标为 MySQL：`sqlalchemy.url = mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent`
+Alembic 读取应用所使用的同一个 `settings.sqlalchemy_database_url`。
 
 ---
 
-## 9. Redis / Valkey 基础设施
+## 9. MySQL 支持的运行时状态
 
-### 9.1 服务器
+### 9.1 单一权威 DSN
 
-Valkey 9.1（Redis 兼容分支），通过 systemd 作为 `redis.service` 本地运行。本地开发无密码。Docker 部署使用 `ghcr.io/valkey-io/valkey:9.0-alpine` 并配置 `requirepass`。
+`Settings.sqlalchemy_database_url` 会选用可选的 MySQL `DATABASE_URL` 覆盖值，或从 `MYSQL_*` 组装 DSN。Celery 从同一个生效的 DSN 派生出 `sqla+mysql+pymysql://...` 和 `db+mysql+pymysql://...`，防止应用与队列配置发生漂移。
 
-### 9.2 客户端 (`app/core/redis_client.py`)
+### 9.2 运行时状态归属
 
-- 同步 `redis-py` 5.x，使用 `hiredis` 解析器以提升性能
-- 延迟初始化：`get_redis()` 在首次调用时创建连接池
-- Redis 不可用时返回 `None` 而非崩溃（所有调用方均处理此情况）
-- `close_redis()` 在 FastAPI 关闭时调用（lifespan）
+| 能力 | MySQL 存储 | 保留 / 一致性 |
+|------------|---------------|-------------------------|
+| 令牌吊销 | `token_blacklist` | 过期时间已索引；登出时清理；数据库出错时 fail closed（拒绝放行） |
+| 密码吊销 | `sys_users.password_changed_at` | 与密码更新/重置原子性写入 |
+| Agent 记忆 | `agent_memory` | 消息数量有界；读取时强制执行 TTL |
+| 作业进度 / SSE | `jobs.progress_data` + 状态字段 | 与作业状态处于同一调用方事务中 |
+| Celery broker | `kombu_queue`, `kombu_message` | SQLAlchemy 传输；无 fanout/远程控制 |
+| Celery 结果 | `celery_taskmeta`, `celery_tasksetmeta` | worker 启动时清理 24 小时过期数据 |
 
-### 9.3 使用模式
+### 9.3 连接与轮询规范
 
-| 服务 | 键模式 | 数据 | TTL | 阶段 |
-|---------|-----------|------|-----|-------|
-| 令牌黑名单 | `blacklist:jti:{jti}` | "1" | 令牌剩余有效期 | 1（活跃） |
-| Agent 记忆 | `agent:memory:{session_id}` | JSON 消息列表 | 7200s | 1（仅基础设施） |
-| 缓存 | `cache:{namespace}:{key}` | 任意 | 可变 | 1（仅基础设施） |
-| Celery broker | `redis://.../0` | 任务消息 | -- | 2+ |
-| Celery results | `redis://.../1` | 任务结果 | -- | 2+ |
+API 请求使用短事务。SSE 在开始流式传输前显式释放请求会话，并为每次轮询创建一个独立会话，因此 MySQL 的 `REPEATABLE READ` 不会固定过时的快照，也不会将连接池连接占用长达十分钟。Worker 原子性地写入状态、进度、错误详情以及最新事件。
 
 ### 9.4 测试策略
 
-双层 Redis 测试：
-1. **FakeRedis** (`fakeredis[lua]`)：`conftest.py` 中的自动使用 fixture 通过 monkeypatch 将 `get_redis()` 替换为返回 `FakeRedis` 实例。这覆盖了 586 个非真实 Redis 测试（599 总计 - 13 个真实 Redis 专用），零外部依赖。
-2. **真实 Redis** (`test_redis_real.py`)：针对实际本地 Valkey 实例的集成测试。Redis 不可达时自动跳过 (`pytest.skip`)。
+单元/API 测试使用 SQLite 隔离，同时走相同的 ORM 路径。迁移测试验证新增的表和列。运行时验收测试还会检查遗留的模块、依赖、compose 服务和环境变量键是否已被移除，并通过一个真实的 MySQL/Celery 集成探针验证任务派发、执行与结果持久化。
 
 ---
 
@@ -975,8 +976,8 @@ app/storage/
 | 运行器 | pytest | 测试发现和执行 |
 | HTTP 客户端 | `fastapi.testclient.TestClient` | 进程内 API 测试 |
 | 数据库隔离 | SQLite `:memory:` + `StaticPool` | 每测试隔离数据库 |
-| Redis 隔离 | `fakeredis[lua]` 自动使用 monkeypatch | 零依赖 Redis 模拟 |
-| Redis 集成 | 真实 Valkey 本地实例 | 集成安全网 (`test_redis_real.py`) |
+| MySQL 迁移集成 | 本地 MariaDB/MySQL | 完整 Alembic 链与 schema 验证 |
+| Celery 集成 | MySQL SQL 传输 + result backend | 真实的派发/执行/结果持久化探针 |
 | Fixtures | `conftest.py` | 数据库设置/拆卸, 认证头, 测试数据工厂 |
 
 ### 12.2 测试类别（31 个文件, 599 个测试）
@@ -987,8 +988,8 @@ app/storage/
 | 对抗性输入 | `test_adversarial_auth.py`, `test_adversarial_files.py`, `test_adversarial_jobs.py` | 针对认证、文件、作业端点的畸形/滥用负载 |
 | 安全边界 | `test_security_boundaries.py`, `test_rbac_deep.py` | 需要认证, RBAC 强制执行, 路径遍历防御 |
 | 令牌生命周期 | `test_token_lifecycle.py` | 登录, 刷新, 黑名单, 过期, jti 验证 |
-| Redis 栈 | `test_redis_client.py`, `test_redis_memory.py`, `test_cache_service.py`, `test_redis_real.py` | 客户端初始化, 记忆 TTL, 缓存回退, 真实集成 |
-| 配置 | `test_config.py` | MySQL/Redis URL 组装, 组件字段, 功能开关 |
+| MySQL 运行时迁移 | `test_mysql_runtime.py`, `test_job_events_mysql.py`, `test_agent_memory.py` | 已移除组件的守卫, 持久化 SSE 轮询, Agent 记忆 TTL |
+| 配置 | `test_config.py` | 生效的 MySQL URL 组装, Celery URL 派生, 功能开关 |
 | 数据库 session | `test_db_session.py` | 引擎创建, 健康检查, WAL pragmas |
 | 边缘情况 | `test_edge_cases.py`, `test_rigorous.py`, `test_deep_verify.py` | 并发操作, 大负载, Unicode, null 处理 |
 | Service 层 | `test_service_layer.py` | Service 函数单元测试（用户、文件、项目、认证） |
@@ -1008,16 +1009,6 @@ app/storage/
 
 ```python
 # conftest.py (简化)
-@pytest.fixture(autouse=True)
-def _isolate_redis_client(monkeypatch):
-    """将真实 Redis 单例替换为 FakeRedis，每个测试独享。"""
-    fake = FakeRedis(decode_responses=True)
-    monkeypatch.setattr("app.core.redis_client._redis_client", fake)
-    monkeypatch.setattr("app.core.redis_client._redis_available", True)
-    yield
-    fake.flushall()
-    fake.close()
-
 @pytest.fixture(autouse=True)
 def _isolate_test_db(monkeypatch):
     """每个测试使用独立的内存 SQLite 连接。"""
@@ -1041,17 +1032,16 @@ def _isolate_test_db(monkeypatch):
 | FastAPI 应用 (main.py) | 已完成 | 134 | 已覆盖 | Lifespan, CORS, X-Request-ID, 4 个异常处理器, /health |
 | API 路由 (12 个模块) | 已完成 | -- | 已覆盖 | 全部 74 个端点（/api/v1 下 73 个 + 根 /health）返回正确信封 |
 | Pydantic schemas (10 个模块) | 已完成 | 513 | 已覆盖 | 全部使用 v2 `from_attributes=True` |
-| 业务 service (17 个模块) | 已完成 | -- | 已覆盖 | auth, user, job, job_events, project, file, drawing, review, agent, storage, audit, redis_memory, cache, dxf, dxf_stats, dxf2dwg, dxf2excel |
-| SQLAlchemy 模型 (17 张表) | 已完成 | 402 | 已覆盖 | 全部带 TimestampMixin, 关系, 约束 |
-| Core 基础设施 (8 个模块) | 已完成 | ~500 | 已覆盖 | Config, security, permissions, exceptions, Redis, logger, constants, validators |
+| 业务 service (16 个模块) | 已完成 | -- | 已覆盖 | auth, user, job, job_events, project, file, drawing, review, agent, agent_memory, storage, audit, dxf, dxf_stats, dxf2dwg, dxf2excel |
+| SQLAlchemy 模型 (19 张业务表) | 已完成 | -- | 已覆盖 | 含持久化的令牌黑名单、Agent 记忆与作业进度 |
+| Core 基础设施 (7 个模块) | 已完成 | -- | 已覆盖 | Config, security, permissions, exceptions, logger, constants, validators |
 | 数据库 session + 连接池 | 已完成 | -- | 已覆盖 | MySQL 连接池配置, SQLite WAL pragmas, 健康检查 |
 | 数据库初始化 + 种子数据 | 已完成 | -- | 已覆盖 | 超级管理员, 7 个角色, 8 个权限 |
-| Alembic 迁移 | 已完成 | 4 | 已覆盖 | 初始 17 张表 + TimestampMixin 回填 + resource_id 类型修复 + files.batch_name |
-| Redis/Valkey 客户端 | 已完成 | 80 | 已覆盖 | 延迟初始化, 优雅降级, FakeRedis + 真实 |
-| 令牌黑名单 | 已完成 | -- | 已覆盖 | 基于 jti, TTL 匹配, 故障开放 |
+| Alembic 迁移 | 已完成 | 5 | 已覆盖 | 从初始 schema 到 MySQL 运行时状态迁移 |
+| 令牌黑名单 | 已完成 | -- | 已覆盖 | MySQL 支持的 jti 过期；数据库出错时 fail closed |
 | 文件上传 + 验证 | 已完成 | -- | 已覆盖 | DWG 文件头, SHA-256, 路径遍历防护, HMAC URL |
 | 审计日志 | 已完成 | 44 | 已覆盖 | 结构化审计追踪写入 |
-| Docker Compose (9 个服务) | 已完成 | 260 | 已覆盖 | worker-report 默认, Agent/DXF + 监控 profiles |
+| Docker Compose (9 个服务) | 已完成 | -- | 已覆盖 | MySQL/MinIO/后端/nginx 以及五个队列专属 worker |
 | Dockerfile (后端) | 已完成 | -- | 已验证 | 多阶段, 非 root, HEALTHCHECK, uv sync |
 | Nginx 配置 (Docker + 本地) | 已完成 | -- | 已验证 | 速率限制, 代理, 静态服务 |
 | 前端 (React 19 + TS + Vite) | 已完成 | -- | 手动 | 10 个页面功能, 12 个 API 客户端文件（11 个模块 + client.ts）, auth store, router |
@@ -1066,13 +1056,12 @@ def _isolate_test_db(monkeypatch):
 | 工具注册表 | 桩 | 1 | `app/agents/tool_registry.py` |
 | MCP CAD 客户端 | 桩 | 1 | `app/mcp_client/cad_mcp_client.py` |
 | MCP 工具适配器 | 桩 | 1 | `app/mcp_client/mcp_tool_adapter.py` |
-| Celery 应用 | 已完成 | -- | Redis broker（DB 0）/ result backend（DB 1）, 队列路由 |
+| Celery 应用 | 已完成 | -- | MySQL SQLAlchemy broker/数据库 result backend, 队列路由 |
 | Agent 任务 | 桩 | 1 | `app/workers/tasks_agent.py`（不注册任何任务） |
 | Agent service | 桩 | -- | `create_agent_run` 抛出 `NotImplementedError` |
 | Report 任务 | 真实（阶段 1 模拟作业） | -- | `run_stub_job` 创建模拟结果文件 |
 | Agent runs API | 真实 (503) | -- | `AGENT_ENABLED=false` 时返回 503 `AGENT_DISABLED` |
-| Redis 记忆运行时 | 仅基础设施 | -- | 测试已验证, 请求路径中未调用 |
-| 缓存运行时 | 真实 | -- | 被 DXF→Excel 流水线用于进度缓存 |
+| Agent 记忆运行时 | 仅基础设施 | -- | MySQL 支持并经测试验证；尚未在请求路径中调用 |
 
 ### 阶段 3 -- 已实现 / 真实, 默认开关拦截（DXF 流水线）
 
@@ -1085,7 +1074,7 @@ def _isolate_test_db(monkeypatch):
 | DXF→Excel service | 真实（开关拦截） | `dxf2excel_service.run_dxf2excel_extraction`；纯 Python `Stages/dxf2excel`；按 `batch_name` 批处理；输出 `.xlsx` → `dwg-reports`；开关 `dxf2excel_pipeline_enabled` |
 | DXF Celery 任务 | 真实 | `tasks_dxf`、`tasks_dxf2dwg`、`tasks_dxf2excel`（队列 dxf/dxf2dwg/dxf2excel） |
 | dxf_stats 辅助 | 真实 | 标准库 DXF 实体/段计数器, 用于保真度指标 |
-| SSE 进度 | 真实 | `job_events` Redis 发布订阅 → `GET /api/v1/jobs/{id}/events` |
+| SSE 进度 | 真实 | 持久化的 `jobs.progress_data` 轮询 → `GET /api/v1/jobs/{id}/events` |
 | ODA 健康端点 | 真实 | `GET /api/v1/system/health/oda` |
 
 ### 阶段 4 -- 未开始（Windows CAD Worker）
@@ -1105,7 +1094,7 @@ def _isolate_test_db(monkeypatch):
 
 **阶段 5**（业务算法）：仅有基础 —— 审核环路原语（`review_service`、`reviews_api`、`AnalysisResult`）功能可用, 且 DXF→Excel 材料表提取（属阶段 5 项目）已提前在阶段 3 内交付。更高层的 LaR 录入、BOM 比对与报告生成算法尚不存在。
 
-**阶段 6**（生产加固）：部分实现 —— 令牌 JTI 黑名单 + 密码变更时效性（属阶段 6 项目）已提前在 `auth_service` 中交付；Celery 队列卫生配置已就位；`infra/` 携带 Docker/Nginx/MinIO/Redis 配置。代码中尚无 Prometheus/Loki/速率限制/分块上传。
+**阶段 6**（生产加固）：部分实现 —— 令牌 JTI 黑名单 + 密码变更时效性（属阶段 6 项目）已提前在 `auth_service` 中交付；Celery 队列卫生配置已就位；`infra/` 携带 Docker/Nginx/MySQL/MinIO 配置。代码中尚无 Prometheus/Loki/速率限制/分块上传。
 
 ---
 
@@ -1150,18 +1139,18 @@ complete_framework/
 │   ├── Dockerfile                        ← 多阶段, 非 root
 │   ├── .dockerignore
 │   ├── alembic.ini                       ← 目标为 MySQL
-│   ├── migrations/versions/              ← 4 个 Alembic 版本
+│   ├── migrations/versions/              ← 5 个 Alembic 版本
 │   ├── tests/                            ← 31 个文件, 599 个测试
-│   │   └── conftest.py                   ← FakeRedis 自动使用 + SQLite 隔离
+│   │   └── conftest.py                   ← SQLite 隔离与应用依赖覆盖
 │   ├── var/storage/                      ← 运行时文件存储（gitignore）
 │   └── app/
 │       ├── main.py                       ← FastAPI 应用, lifespan, 中间件
 │       ├── api/v1/                       ← 12 个路由模块
 │       │   └── router.py                 ← 中央路由组装
 │       ├── schemas/                      ← 10 个 Pydantic v2 模块
-│       ├── services/                     ← 17 个业务逻辑模块
-│       ├── models/                       ← 10 个 ORM 模型文件（17 张表）
-│       ├── core/                         ← 8 个基础设施模块
+│       ├── services/                     ← 16 个业务逻辑模块
+│       ├── models/                       ← 12 个 ORM 模型文件（19 张业务表）
+│       ├── core/                         ← 7 个基础设施模块
 │       ├── db/                           ← session, base, init_db
 │       ├── utils/                        ← path_utils, file_hash, time_utils
 │       ├── agents/                       ← 3 个桩（阶段 2）
@@ -1190,7 +1179,6 @@ complete_framework/
 ├── infra/                                ← 部署配置
 │   ├── nginx/                            ← Docker + 本地开发配置
 │   ├── mysql/init.sql                    ← 数据库 + 用户创建
-│   ├── redis/redis.conf                  ← AOF, LRU, maxmemory
 │   ├── minio/                            ← 占位符
 │   └── verify.sh                         ← 部署验证
 ├── scripts/                              ← 6 个开发/运维 shell 脚本
@@ -1225,7 +1213,7 @@ complete_framework/
 3. 实现 `app/agents/tool_registry.py`（MCP 到 LangChain 适配器）
 4. 实现 `app/mcp_client/cad_mcp_client.py` 和 `mcp_tool_adapter.py`
 5. 在现有 Celery 应用基础上添加 Agent 任务实现
-6. 启动 Redis 和相关的 Celery worker 队列
+6. 应用最新的 MySQL 迁移并启动相关的 Celery worker 队列
 7. 在 `.env` 中设置 `AGENT_ENABLED=true`
 
 ### 切换存储到 MinIO
@@ -1237,4 +1225,4 @@ complete_framework/
 ---
 
 *文档版本: 2.1 -- 最后更新于 2026-07-08*
-*对应于阶段 1 完成 + 阶段 3 DXF 流水线已实现（默认开关拦截）的代码库 —— 74 个端点, 17 张表, 4 个迁移*
+*对应于阶段 1 完成 + 阶段 3 DXF 流水线已实现（默认开关拦截）的代码库 —— 74 个端点, 19 张表, 5 个迁移*

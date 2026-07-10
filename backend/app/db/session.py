@@ -11,9 +11,9 @@ from app.core.config import settings
 pool_args = {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
 
 engine_kwargs: dict = {"pool_pre_ping": True}
-if settings.database_url.startswith("mysql"):
+if settings.sqlalchemy_database_url.startswith("mysql"):
     engine_kwargs.update(pool_args)
-engine = create_engine(settings.database_url, **engine_kwargs)
+engine = create_engine(settings.sqlalchemy_database_url, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 

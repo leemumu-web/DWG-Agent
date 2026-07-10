@@ -18,7 +18,7 @@ work through two processing pipelines:
 | DWG → DXF → Python (ezdxf) | Low/medium | Linux Celery worker |
 | DWG → ZWCAD API (C#) | High | Windows CAD Worker node |
 
-The final system is a Docker Compose deployment: Nginx → FastAPI → MySQL/Redis/MinIO → Celery Workers.
+The final system is a Docker Compose deployment: Nginx → FastAPI → MySQL/MinIO → Celery Workers.
 **We are currently at Stage 1** — a local-dev platform that validates the RESTful API, RBAC, file
 management, and job lifecycle end to end. Docker Compose config is ready but not yet production-tested.
 
@@ -41,11 +41,11 @@ complete_framework/
 │   │   ├── main.py                ← FastAPI app, lifespan, CORS, exception handlers
 │   │   ├── api/v1/                ← 11 route modules under /api/v1
 │   │   │   └── router.py          ← central router assembly
-│   │   ├── core/                  ← config, security, permissions, exceptions, redis_client, constants, logger, validators
+│   │   ├── core/                  ← config, security, permissions, exceptions, constants, logger, validators
 │   │   ├── db/                    ← base, session (engine + pool config), init_db (seeds)
-│   │   ├── models/                ← 10 SQLAlchemy ORM models
+│   │   ├── models/                ← 12 SQLAlchemy ORM model files
 │   │   ├── schemas/               ← Pydantic v2 request/response schemas
-│   │   ├── services/              ← 12 business services (auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache_service)
+│   │   ├── services/              ← business services, including MySQL-backed auth, job events, and agent memory
 │   │   ├── repositories/          ← PLACEHOLDER (empty __init__)
 │   │   ├── agents/                ← Stage 2 (agent_factory, prompts, tool_registry stubs)
 │   │   ├── mcp_client/            ← Stage 2 (cad_mcp_client, mcp_tool_adapter stubs)
@@ -53,9 +53,9 @@ complete_framework/
 │   │   ├── storage/               ← base + local_storage (active), minio_storage (113 lines, ready for Docker)
 │   │   ├── integrations/zwcad/    ← Stage 4 (client + schemas stubs)
 │   │   └── utils/                 ← path_utils, file_hash, time_utils
-│   ├── tests/                     ← 432 tests, 24 files (pytest + fakeredis + real Redis)
-│   │   └── conftest.py            ← FakeRedis autouse fixture + SQLite memory isolation
-│   ├── migrations/                ← Alembic (3 versions: initial 17 tables + TimestampMixin fix + resource_id type fix)
+│   ├── tests/                     ← 558 tests collected across 30 files (pytest + SQLite isolation)
+│   │   └── conftest.py            ← per-test SQLite memory isolation + DB fixture
+│   ├── migrations/                ← Alembic (5 versions; current head adds durable runtime state)
 │   └── var/                       ← runtime data (uploaded files, app.db when using SQLite)
 │
 ├── frontend/                      ← React 19 + TypeScript + Vite
@@ -70,7 +70,7 @@ complete_framework/
 │       └── types/                 ← TypeScript type definitions
 │
 ├── docs/                          ← 8 handover docs (architecture, api, database, deployment, development, security, roadmap, workflow-verification) + README index; Chinese mirror under docs/zh/
-├── infra/                         ← deploy config (nginx, mysql/init.sql, redis/redis.conf, minio/) + verify.sh
+├── infra/                         ← deploy config (nginx, mysql/init.sql, minio/) + verify.sh
 ├── agents/                        ← PLACEHOLDER for future Agent definitions
 ├── cad-worker/                    ← PLACEHOLDER for Windows C# CAD Worker
 ├── scripts/                       ← 6 dev/ops shell scripts (lib.sh, start-dev.sh, start-all.sh, stop-all.sh, status.sh, db.sh)
@@ -130,16 +130,15 @@ complete_framework/
 5. **Agent code** — no direct DB or filesystem access; use tools or Service boundaries.
 6. **File paths** — must pass through `app/utils/path_utils.py` validation.
 
-### Redis
+### MySQL-backed runtime state
 
-- **Server:** Valkey (Redis-compatible, Docker 9.0-alpine), systemd `redis.service`, no password for local dev.
-- **Client:** sync `redis-py` 5.x with `hiredis`. Lazy init, no crash on unavailable.
-- **Testing:** dual-layer — `fakeredis[lua]` via `conftest.py` autouse fixture + real Redis integration (`test_redis_real.py`, auto-skipped when Redis unavailable).
-- **Memory service:** `agent:memory:{session_id}` key, JSON list, TTL=7200s, max 20 messages.
-- **Cache service:** `cache:{namespace}:{key}` pattern, all methods safe when Redis is down.
-- **Celery URLs:** computed properties (`celery_broker_url` / `celery_result_backend`), auto-follow `redis_password`.
-- At Stage 1, memory/cache are **infrastructure only** (validated by tests, not called by runtime).
-- **Config:** `infra/redis/redis.conf` for Docker deployment (AOF, LRU, maxmemory 256mb).
+- **Single source:** `Settings.sqlalchemy_database_url` uses an optional `DATABASE_URL` override, otherwise `MYSQL_*` component fields.
+- **Token revocation:** `token_blacklist` stores JWT `jti` and expiry; password changes use `sys_users.password_changed_at`.
+- **Agent memory:** `agent_memory` stores JSON history, with application-enforced TTL=7200s and max 20 messages.
+- **Job events:** workers atomically store the latest payload in `jobs.progress_data`; SSE polls with a fresh short-lived session every iteration.
+- **Celery:** Kombu SQLAlchemy broker (`sqla+mysql+pymysql`) and database result backend (`db+mysql+pymysql`) derive from the same effective MySQL DSN.
+- **Transport limitation:** SQLAlchemy transport has no fanout/remote control; Flower and `celery inspect ping` are intentionally absent.
+- **Direct reads:** batch lists query MySQL and Excel previews read authoritative storage; no cross-request process cache exists.
 
 ### SQLite (test isolation only)
 
@@ -158,7 +157,7 @@ uv run pytest -q              # must pass (432 tests expected)
 ```
 
 - Tests use `TestClient` from `fastapi.testclient`
-- Dual Redis testing: `FakeRedis` via `conftest.py` autouse monkeypatch + real Redis integration (`test_redis_real.py`, auto-skipped when unavailable)
+- MySQL-backed services are tested against isolated SQLite plus explicit real-MySQL migration/Celery verification
 - No real HTTP — all tests are in-process
 - Test DB is isolated in-memory SQLite (`StaticPool`); does not touch runtime MySQL
 - MySQL fields tested via unit-level `Settings()` instantiation (no real MySQL server)
@@ -170,7 +169,7 @@ uv run pytest -q              # must pass (432 tests expected)
 1. **Don't implement without reading the spec** — `DWG-Agent企业平台技术规范.md` is the ground truth.
 2. **Don't add to pyproject.toml without using `uv add`** — the lock file must stay consistent.
 3. **Don't use `latest` in frontend `package.json`** — every dependency is pinned.
-4. **Don't add async Redis or DB code** — the codebase is synchronous until Stage 2 Agent requires async.
+4. **Don't add async DB code** — the codebase is synchronous until Stage 2 Agent requires async.
 5. **Don't enable Agent features** — `AGENT_ENABLED=false` must keep returning 503.
 6. **Don't hardcode API URLs** — frontend uses `VITE_API_BASE_URL`, backend config is env-driven.
 7. **Don't commit `.env` or `.env.docker`** — only `.env.example` and `.env.docker.example` are tracked.
@@ -200,9 +199,9 @@ uv run pytest -q              # must pass (432 tests expected)
 | Route assembly | `backend/app/api/v1/router.py` |
 | DB session + pragmas | `backend/app/db/session.py` |
 | DB seed data | `backend/app/db/init_db.py` |
-| Redis client | `backend/app/core/redis_client.py` |
-| Redis memory | `backend/app/services/redis_memory.py` |
-| Cache service | `backend/app/services/cache_service.py` |
+| Agent memory | `backend/app/services/agent_memory.py` |
+| Durable job events | `backend/app/services/job_events.py` |
+| Token blacklist | `backend/app/models/token_blacklist.py` |
 | Auth service | `backend/app/services/auth_service.py` |
 | User service | `backend/app/services/user_service.py` |
 | Job service | `backend/app/services/job_service.py` |
@@ -215,13 +214,12 @@ uv run pytest -q              # must pass (432 tests expected)
 | MySQL config | `backend/app/core/config.py` (mysql_* fields + mysql_url property) |
 | DB session + pool | `backend/app/db/session.py` |
 | MySQL init script | `infra/mysql/init.sql` |
-| Redis config | `infra/redis/redis.conf` |
 | Compose infra | `compose.yaml` |
 | Dockerfile | `backend/Dockerfile` (multi-stage, non-root, HEALTHCHECK) |
 | Docker ignore | `backend/.dockerignore` |
 | Dev scripts | `scripts/` (lib.sh + start-dev.sh / start-all.sh / stop-all.sh / status.sh / db.sh) |
 | Test fixtures | `backend/tests/conftest.py` |
-| Config tests | `backend/tests/test_config.py` (Redis + MySQL) |
+| Config tests | `backend/tests/test_config.py` (MySQL + Celery SQL transport) |
 | Session tests | `backend/tests/test_db_session.py` |
 | Security tests | `backend/tests/test_security_boundaries.py` |
 | API regression tests | `backend/tests/test_api_regressions.py` |

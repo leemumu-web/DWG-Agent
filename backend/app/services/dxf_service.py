@@ -116,8 +116,8 @@ def _mark_job_failed(job_id: int, exc: Exception, error_code: str = ERROR_CODE_D
             job.error_code = error_code
             job.error_message = _exception_message(exc)
             job.finished_at = datetime.now(UTC)
-            db.commit()
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="error",
@@ -126,6 +126,7 @@ def _mark_job_failed(job_id: int, exc: Exception, error_code: str = ERROR_CODE_D
                     message=job.error_message or error_code,
                 ),
             )
+            db.commit()
     except Exception:
         logger.exception("Failed to mark job %s as failed", job_id)
     finally:
@@ -231,11 +232,12 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
         job.progress = 10
         job.started_at = started_at
         job.pipeline = PIPELINE_DXF
-        db.flush()
         publish_job_event(
+            db,
             job_id,
             make_event(type_="status", status=JOB_RUNNING, progress=10, message="开始转换"),
         )
+        db.commit()
 
         with tempfile.TemporaryDirectory(prefix=f"dxf_job_{job_id}_") as work_dir_str:
             work_dir = Path(work_dir_str)
@@ -280,11 +282,12 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 started_at=started_at,
             )
             job.progress = 30
-            db.commit()
             publish_job_event(
+                db,
                 job_id,
                 make_event(type_="progress", progress=30, step_name=STEP_DOWNLOAD_SOURCE, message="源文件已就绪"),
             )
+            db.commit()
 
             # ---- 2. 调 ODA 转换 ----
             convert_started = datetime.now(UTC)
@@ -334,8 +337,8 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                 started_at=convert_started,
             )
             job.progress = 70
-            db.commit()
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="progress",
@@ -345,6 +348,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                     message="ODA 转换完成" if result.success else f"ODA 转换失败: {result.error}",
                 ),
             )
+            db.commit()
 
             if not result.success:
                 _mark_job_failed(
@@ -431,8 +435,8 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
             job.status = JOB_SUCCEEDED
             job.progress = 100
             job.finished_at = datetime.now(UTC)
-            db.commit()
             publish_job_event(
+                db,
                 job_id,
                 make_event(
                     type_="done",
@@ -442,6 +446,7 @@ def run_dxf_conversion(job_id: int, worker_name: str = "celery_dxf") -> None:
                     message="DXF 转换完成",
                 ),
             )
+            db.commit()
     except Exception as exc:
         db.rollback()
         _mark_job_failed(job_id, exc, error_code=ERROR_CODE_DXF_FAILED)

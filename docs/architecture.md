@@ -15,9 +15,11 @@ At Stage 1, the platform provides a complete RESTful API, authentication/RBAC, p
 ```
 DWG-Agent Platform (Stage 1)
 ═══════════════════════════════════════════════════
-  User → React SPA → Nginx → FastAPI → MySQL (metadata)
+  User → React SPA → Nginx → FastAPI → MySQL (metadata + runtime state)
                                     → Local FS / MinIO (files)
-                                    → Redis/Valkey (cache/memory/blacklist/pub-sub)
+
+  FastAPI / Celery workers → MySQL (task queue/results, token revocation,
+                                    Agent memory, durable job progress)
 ```
 
 ---
@@ -46,21 +48,21 @@ The spec defines a two-node deployment with all Linux services containerized via
 │  │  - Project/File/Drawing/Job/Review/Audit              │  │
 │  │  - Celery task dispatch                               │  │
 │  └───────┬────────────┬──────────────┬──────────────────┘  │
-│          │            │              │                      │
-│          ▼            ▼              ▼                      │
-│  ┌────────────┐ ┌────────────┐ ┌───────────────────────┐   │
-│  │ MySQL :3306│ │ Redis:6379 │ │ MinIO :9000            │   │
-│  │ metadata   │ │ cache/     │ │ DWG/DXF/result files   │   │
-│  │            │ │ memory/     │ │                        │   │
-│  │            │ │ progress    │ │                        │   │
-│  └────────────┘ └─────┬──────┘ └───────────┬───────────┘   │
-│                       │                    │                │
-│  ┌────────────────────┼────────────────────┘                │
+│          │                           │                      │
+│          ▼                           ▼                      │
+│  ┌─────────────────────┐   ┌───────────────────────────┐   │
+│  │ MySQL :3306          │   │ MinIO :9000               │   │
+│  │ metadata + auth      │   │ DWG/DXF/result files      │   │
+│  │ queue/results/events │   │                           │   │
+│  └──────────┬──────────┘   └─────────────┬─────────────┘   │
+│             │                            │                 │
+│  ┌──────────┴────────────────────────────┘                 │
 │  │  Celery Workers    │                                     │
 │  │  - worker-report (default, always on)                     │
 │  │  - worker-dxf      (workers profile)                      │
+│  │  - worker-dxf2dwg  (workers profile)                      │
+│  │  - worker-dxf2excel(workers profile)                      │
 │  │  - worker-agent    (workers profile)                      │
-│  │  - flower          (monitoring profile)                   │
 │  │  (worker-cad-dispatch reserved for Stage 4, not in compose)│
 │  └────────────────────┘                                     │
 └──────────────────────────┼──────────────────────────────────┘
@@ -95,15 +97,16 @@ FastAPI (localhost:8000)
   │ SQLAlchemy 2.x sync
   ▼
 MySQL 8.x (localhost:3306)
-  │
-Redis/Valkey 9.1 (localhost:6379, systemd)
-  │
+  ├── Application records + durable auth/job/Agent state
+  └── Celery SQL queue and result tables
+      │
+      ▼
 Celery worker-report (report queue, local pidfile)
   │
 Local FS (backend/var/storage/)
 ```
 
-**Key difference from spec:** Local development still uses local FS by default and has no Windows CAD node. Docker deployment uses MinIO by default and starts `worker-report` for the Stage 1 fake task; Agent/DXF workers and Flower remain behind `workers` / `monitoring` profiles.
+**Key difference from spec:** Local development uses local FS by default and has no Windows CAD node. Docker deployment uses MinIO and starts `worker-report` by default; Agent and all three DXF workers are behind the `workers` profile. MySQL is the only runtime database and also backs Celery transport/results.
 
 ---
 
@@ -131,12 +134,12 @@ The codebase follows the six-layer architecture defined in Spec Section 6. Below
 │    DB read/write encapsulation (future extraction)           │
 │    DOES NOT: handle business rules (currently n/a)           │
 ├──────────────────────────────────────────────────────────────┤
-│ 5. Model Layer            app/models/          10 modules    │
-│    SQLAlchemy 2.x ORM models (17 tables)                     │
+│ 5. Model Layer            app/models/          12 modules    │
+│    SQLAlchemy 2.x ORM models (19 business tables)            │
 │    DOES NOT: contain biz logic, validation (that's schemas)  │
 ├──────────────────────────────────────────────────────────────┤
-│ 6. Core / Infrastructure  app/core/            8 modules     │
-│    Config, security, permissions, exceptions, Redis, logging │
+│ 6. Core / Infrastructure  app/core/            7 modules     │
+│    Config, security, permissions, exceptions, logging        │
 │    DOES NOT: contain domain logic                            │
 └──────────────────────────────────────────────────────────────┘
 
@@ -202,7 +205,7 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Access the database
 - Perform side effects
 
-#### Service Layer -- `app/services/` (17 modules)
+#### Service Layer -- `app/services/` (16 modules)
 
 | Service | Responsibility | Key Dependencies |
 |---------|---------------|-----------------|
@@ -211,18 +214,17 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 | `drawing_service.py` | Drawing CRUD, version management (auto-increment version_no) | `Drawing`/`DrawingVersion` models |
 | `review_service.py` | Review submission, approval/rejection decisions | `ReviewRecord` model |
 | `agent_service.py` | Agent run orchestration (Stage 2 stub) | `AgentRun` model |
-| `auth_service.py` | Login with timing-safe user lookup, JWT issuance, token blacklisting | `security.py`, `redis_client`, `User` model |
+| `auth_service.py` | Login with timing-safe user lookup, JWT issuance, durable token revocation and password-change invalidation | `security.py`, `TokenBlacklist`, `User` models |
 | `user_service.py` | User CRUD, profile, atomic status transitions, soft delete | `User` model, `audit_service` |
 | `job_service.py` | Job creation, Celery stub dispatch, status lifecycle updates | `Job`/`JobStep` models |
 | `storage_service.py` | File save/retrieve/delete, DWG header validation, SHA-256 hashing, download URL signing | `path_utils.py`, `file_hash.py`, `StoredFile` model |
 | `audit_service.py` | Structured audit trail writes (who, what, resource, before/after, IP, UA) | `AuditLog` model |
-| `redis_memory.py` | Agent session memory store (`agent:memory:{session_id}`, JSON list, TTL=7200s, max 20 msgs) | `redis_client` |
-| `cache_service.py` | Generic key-value cache (`cache:{namespace}:{key}`, graceful degradation when Redis down) | `redis_client` |
+| `agent_memory.py` | MySQL Agent session history with bounded messages and read-time TTL expiry (Stage 2 infrastructure) | `AgentMemory` model |
 | `dxf_service.py` | **DWG→DXF** orchestration: stage source → `dwg_converter.convert_file` (ODA subprocess) → persist DXF to `dxf-derived` → `AnalysisResult` + `job_steps` + SSE events (Real, flag-gated) | `Stages/dwg2dxf`, `storage_service`, `job_events` |
 | `dxf2dwg_service.py` | **DXF→DWG** reverse orchestration: `dxf_converter.convert_file` (ODA) → persist DWG to `dwg-derived`; `$ACADVER`/reverse-lookup version detection (Real, flag-gated) | `Stages/dxf2dwg`, `storage_service` |
-| `dxf2excel_service.py` | **Batch DXF→Excel** material-table extraction: files by `batch_name` → `dxf2excel.pipeline.process_file` → `write_excel` → persist `.xlsx` to `dwg-reports`; Redis progress cache (Real, flag-gated) | `Stages/dxf2excel`, `cache_service`, `job_events` |
+| `dxf2excel_service.py` | **Batch DXF→Excel** material-table extraction: files queried by `batch_name` → `dxf2excel.pipeline.process_file` → `write_excel` → persist `.xlsx` to `dwg-reports`; progress committed with job state (Real, flag-gated) | `Stages/dxf2excel`, `job_events` |
 | `dxf_stats.py` | Stdlib DXF entity/section counter for fidelity metrics (no ezdxf dependency) | -- |
-| `job_events.py` | Redis pub/sub progress channel `job:events:{job_id}` (`publish_job_event`, `job_event_stream` SSE, keepalive, 600s cap), fail-safe | `redis_client` |
+| `job_events.py` | Stores the latest progress event in `jobs.progress_data`; SSE polls with a fresh short-lived MySQL session, keepalive and 600s cap | `Job` model, session factory |
 
 **DOES:**
 - Orchestrate business workflows across models, schemas, and external services
@@ -234,7 +236,7 @@ All schemas use `model_config = ConfigDict(from_attributes=True)` for ORM-mode d
 - Contain route-level logic (param extraction, HTTP response construction)
 - Issue raw SQL (uses SQLAlchemy ORM)
 
-#### Model Layer -- `app/models/` (10 files, 17 tables, ~402 lines)
+#### Model Layer -- `app/models/` (12 files, 19 tables, ~419 lines)
 
 All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixin` (provides `created_at`, `updated_at`).
 
@@ -267,7 +269,6 @@ All models inherit from `Base` (SQLAlchemy `DeclarativeBase`) and `TimestampMixi
 | `security.py` | Password hashing (Argon2id via `pwdlib`), JWT create/decode (HS256, jti claim) |
 | `permissions.py` | Canonical import surface for `app/api/deps` (permission check functions) |
 | `exceptions.py` | `AppHTTPException` base + factory functions (`not_found`, `forbidden`, `service_unavailable`) |
-| `redis_client.py` | Lazy-init sync Redis client with hiredis, graceful degradation when unavailable |
 | `constants.py` | File size limits, allowed extensions, user status constants |
 | `logger.py` | Logging configuration helpers |
 | `validators.py` | Sort column whitelist validation per resource (prevents SQL injection via sort_by params) |
@@ -301,7 +302,7 @@ Critical design constraint from spec (Section 11.4): MCP connection failure must
 
 #### Worker Layer -- `app/workers/` (celery_app + 6 task modules)
 
-`celery_app.py` defines the real Celery application (`"dwg_agent"`) using the Redis broker (DB 0) / result backend (DB 1) from config, with `task_acks_late`, `task_reject_on_worker_lost`, `worker_prefetch_multiplier=1`, and a `task_always_eager` toggle for tests. Queue routing: `agent→agent`, `dxf→dxf`, `dxf2dwg→dxf2dwg`, `dxf2excel→dxf2excel`, `cad→cad`, `report→report`, default `default`.
+`celery_app.py` defines the real Celery application (`"dwg_agent"`) using Kombu's SQLAlchemy MySQL transport and Celery's database result backend, both derived from the effective application MySQL DSN. It enables `task_acks_late`, `task_reject_on_worker_lost`, `worker_prefetch_multiplier=1`, 24-hour result cleanup, and a `task_always_eager` toggle for tests. Because the SQL transport has no fanout/remote-control support, task event broadcasts and inspect-based health checks are disabled. Queue routing: `agent→agent`, `dxf→dxf`, `dxf2dwg→dxf2dwg`, `dxf2excel→dxf2excel`, `cad→cad`, `report→report`, default `default`.
 
 Task modules:
 - `tasks_report.py` → `run_stub_job` (queue **report**) → `job_service.run_local_stub_job` — the Stage 1 framework fake task (Real).
@@ -357,15 +358,14 @@ Designated placeholder for future extraction of DB read/write patterns from serv
                      ┌──────▼───────▼─┐ ┌──▼──────▼──┐
                      │   models/      │ │  core/     │
                      │ (SQLAlchemy)   │ │ (config,   │
-                     │ 17 tables      │ │  security, │
-                     └───────┬────────┘ │  redis,    │
-                             │          │  exceptions│
-                     ┌───────▼────────┐ └──────┬─────┘
-                     │    MySQL 8.x   │        │
-                     │  (runtime DB)  │  ┌─────▼──────┐
-                     └────────────────┘  │ Valkey 9.1 │
-                                         │  (Redis)   │
-                                         └────────────┘
+                     │ 19 tables      │ │  security, │
+                     └───────┬────────┘ │  exceptions│
+                             │          └────────────┘
+                     ┌───────▼──────────────────────┐
+                     │ MySQL 8.x                    │
+                     │ app data + durable state +   │
+                     │ Celery SQL queue/results     │
+                     └──────────────────────────────┘
 
 Future (Stage 2/4) and flag-gated (Stage 3) additions below this line:
 - - - - - - - - - - - - - - - - - - - - - - - -
@@ -468,13 +468,13 @@ DELETE /api/v1/auth/sessions/current
 Extract jti from current access token (decode without verification)
   │
   ▼
-Redis SETEX "blacklist:jti:{jti}" TTL=(exp - now) value="1"
-  ├── TTL matches token's remaining lifetime → keys self-clean
-  ├── Redis unavailable → log warning, skip (degraded mode)
+INSERT/UPDATE token_blacklist(jti, expires_at) in the request transaction
+  ├── Expired rows are ignored and cleaned during later logout operations
+  ├── Database errors fail closed instead of silently re-enabling revoked tokens
   ▼
 auth dependency checks is_token_blacklisted(jti) on every authenticated request
-  ├── Redis hit → 401
-  └── Redis miss / unavailable → allow (fail-open for availability)
+  ├── Active MySQL row → 401
+  └── Missing/expired row → continue
 ```
 
 ### 5.4 File Upload Flow
@@ -594,7 +594,7 @@ dxf2excel_service.run_dxf2excel_extraction   (N DXF → 1 Job → 1 .xlsx)
   ├── step run_dxf2excel_pipeline (Stages/dxf2excel pipeline.process_file — pure-Python
   │                                grid/table recovery, no ODA; per-file SSE progress)
   ├── step persist_excel_result   (write .xlsx → bucket dwg-reports)
-  ├── Redis progress cache namespace dxf2excel
+  └── Commit each progress event to jobs.progress_data with authoritative job state
 ```
 
 ### 5.10 SSE Job Progress
@@ -602,9 +602,10 @@ dxf2excel_service.run_dxf2excel_extraction   (N DXF → 1 Job → 1 .xlsx)
 ```
 GET /api/v1/jobs/{job_id}/events   (media_type text/event-stream, ?token=<jwt> or Bearer)
   ├── Emit initial DB snapshot
-  ├── Subscribe Redis pub/sub channel job:events:{job_id}
-  ├── ": keepalive" comment on idle; terminal snapshot fallback
-  └── Ends immediately if job already terminal or Redis unavailable (not enveloped)
+  ├── Roll back the request read transaction and release its connection
+  ├── Poll jobs with one fresh short-lived MySQL session per iteration
+  ├── Emit only changed durable snapshots; send ": keepalive" while idle
+  └── End on terminal state, missing job, database error, or the 600s cap
 ```
 
 ---
@@ -613,7 +614,7 @@ GET /api/v1/jobs/{job_id}/events   (media_type text/event-stream, ?token=<jwt> o
 
 ### 6.1 Synchronous API + Celery Worker Boundary
 
-**Decision:** FastAPI request handlers use SQLAlchemy 2.x sync sessions and sync Redis clients. Job execution crosses an explicit Celery boundary and runs in worker processes.
+**Decision:** FastAPI request handlers use SQLAlchemy 2.x synchronous sessions. Job execution crosses an explicit Celery boundary and runs in worker processes; both application state and Celery transport/result state are persisted in MySQL.
 
 **Why:** API operations stay short-lived and simple, while even the Stage 1 fake job follows the production task-dispatch shape. This keeps request latency bounded and avoids running long CAD work inside FastAPI.
 
@@ -652,14 +653,15 @@ _DUMMY_VERIFY_HASH = (
 
 ### 6.4 JWT with jti-Based Token Blacklisting
 
-**Decision:** JWTs include a `jti` (JWT ID) claim (UUID4). On logout, the `jti` is stored in Redis with TTL matching the token's remaining lifetime. The auth dependency checks the blacklist on every request.
+**Decision:** JWTs include a `jti` (JWT ID) claim (UUID4). On logout, the `jti` and its expiry are stored in MySQL. The auth dependency checks this durable blacklist on every request, and password changes atomically set `sys_users.password_changed_at` so older access and refresh tokens are rejected immediately.
 
-**Why:** JWTs are stateless by design -- you cannot "revoke" them without a blacklist. The alternative (short-lived tokens + frequent refresh) creates a worse UX. jti-based blacklisting with Redis TTL gives us:
+**Why:** JWTs are stateless by design -- you cannot revoke them without durable server-side state. The MySQL-backed design gives us:
 - Immediate logout (next request rejects the token)
-- No permanent storage growth (keys auto-expire with TTL matching token expiry)
-- Graceful degradation (Redis down = fail-open, tokens still work)
+- Immediate revocation of all pre-password-change tokens
+- Consistent behavior across API workers and restarts
+- Bounded growth through expiry checks and cleanup on logout
 
-**Trade-off:** Every authenticated request does a Redis `EXISTS` call. This adds ~0.1ms latency. Acceptable for an internal enterprise platform.
+**Trade-off:** Every authenticated request may perform an indexed primary-key lookup. This adds database load, but removes split-brain/fail-open behavior and keeps authentication state in the same transactional system as users.
 
 ### 6.5 Atomic Status Transitions
 
@@ -710,13 +712,13 @@ def transition_user_status(db, user_id, to_status, *, set_deleted_at=False):
 
 ### 6.10 Config from Component Fields, Not Monolithic URLs
 
-**Decision:** Config uses component fields (`mysql_host`, `mysql_port`, `mysql_database`, `mysql_user`, `mysql_password`) with computed `mysql_url` and `redis_url` properties, rather than a single `DATABASE_URL` string.
+**Decision:** Config uses MySQL component fields (`mysql_host`, `mysql_port`, `mysql_database`, `mysql_user`, `mysql_password`) with computed URLs. An optional `DATABASE_URL` remains as an authoritative compatibility override. Celery broker/result URLs are always derived from the same effective MySQL DSN.
 
 **Why:** Spec Section 18 defines this pattern. It enables:
 - Docker override per-component (e.g., `MYSQL_HOST=mysql` in Docker, `127.0.0.1` in dev)
 - URL-encoding of special characters in passwords (via `urllib.parse.quote`)
 - Clear separation of concerns in `.env` files
-- Programmatic assembly of Celery broker/result URLs from the same Redis components
+- One source of truth for application SQLAlchemy, Celery broker, and Celery result connections
 
 ---
 
@@ -776,7 +778,7 @@ Does user's project role permit this action?
 ```python
 # MySQL runtime
 engine = create_engine(
-    settings.database_url,  # mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent
+    settings.sqlalchemy_database_url,
     pool_pre_ping=True,     # verify connections before use
     pool_recycle=3600,      # recycle before MySQL wait_timeout
     pool_size=10,
@@ -810,11 +812,11 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 ```
 
-### 8.3 All 17 Tables
+### 8.3 All 19 Business Tables
 
 | # | Table | Primary Keys | Foreign Keys | Notes |
 |---|-------|-------------|--------------|-------|
-| 1 | `sys_users` | id | -- | username UNIQUE, password_hash, status, soft-delete |
+| 1 | `sys_users` | id | -- | username UNIQUE, password_hash, password_changed_at, status, soft-delete |
 | 2 | `sys_roles` | id | -- | code UNIQUE, is_system flag |
 | 3 | `sys_permissions` | id | -- | code UNIQUE, resource + action |
 | 4 | `sys_user_roles` | (user_id, role_id) | users.id, roles.id | M2M join |
@@ -824,57 +826,56 @@ def get_db() -> Generator[Session, None, None]:
 | 8 | `files` | id | uploaded_by → users.id | storage_key, sha256, status, `batch_name` (indexed, DXF/Excel batch uploads) |
 | 9 | `drawings` | id | project_id → projects.id | current_version_id self-ref |
 | 10 | `drawing_versions` | id | drawing_id → drawings.id, file_id → files.id, created_by → users.id | version_no |
-| 11 | `jobs` | id | project_id, drawing_id, created_by | task_type, precision_level, pipeline, status, params_json |
+| 11 | `jobs` | id | project_id, drawing_id, created_by | task_type, pipeline, status, progress_data |
 | 12 | `job_steps` | id | job_id → jobs.id | step_name, worker_name, status, input/output_json |
 | 13 | `agent_runs` | id | user_id, project_id, drawing_id, file_id | session_id, task, status, answer, output_file_id |
 | 14 | `agent_run_steps` | id | agent_run_id → agent_runs.id | step_type, tool_name, arguments_json, status |
 | 15 | `analysis_results` | id | job_id, drawing_id | result_type, result_json, confidence, result_file_id |
 | 16 | `review_records` | id | result_id → analysis_results.id, reviewer_id → users.id | decision (approved/rejected), comment |
 | 17 | `audit_logs` | id | actor_user_id → users.id | action, resource_type, resource_id, before/after_json, ip_address |
+| 18 | `token_blacklist` | jti | -- | durable JWT revocation with indexed expiry |
+| 19 | `agent_memory` | session_id | -- | bounded JSON history with application-enforced TTL |
 
-Tables 1-12 are active in Stage 1. Tables 13-14 (agent_runs, agent_run_steps) are created and queryable but only written to in Stage 2. Tables 15-16 (analysis_results, review_records) are created and functional — the Stage 1 stub job and the three real DXF pipelines (when flag-enabled) both populate `job_steps` and `analysis_results`; review records are fully functional.
+Tables 1-12 and 15-18 are active. Tables 13-14 are created and queryable but only written to in Stage 2. Table 19 is Stage 2 infrastructure with tested read/write/expiry behavior. Celery additionally owns four SQL transport/result tables, and Alembic owns `alembic_version`.
 
 ### 8.4 Migrations
 
-Four Alembic versions in `backend/migrations/versions/` (linear chain):
+Five Alembic versions in `backend/migrations/versions/` (linear chain):
 
 1. `40452ddd24e7` -- **initial**: Creates all 17 tables with columns, constraints, indexes; adds the deferred `drawings.current_version_id` → `drawing_versions.id` named FK after both tables exist.
 2. `b8f9e7d6c5a4` -- **add_missing_timestamp_columns**: Backfills `created_at`/`updated_at` for `project_members`, `drawing_versions`, `review_records`, `agent_run_steps` that missed the `TimestampMixin` in the initial migration.
 3. `c3d2e1f0a9b8` -- **fix_audit_logs_resource_id_type**: Alters `audit_logs.resource_id` from `Integer` → BIGINT for consistency with other ID columns.
-4. `53cd59adf848` -- **add_batch_name_to_files** (current head): Adds `files.batch_name` VARCHAR(128) nullable + index `ix_files_batch_name` for DXF/Excel batch uploads.
+4. `53cd59adf848` -- **add_batch_name_to_files**: Adds `files.batch_name` VARCHAR(128) nullable + index `ix_files_batch_name` for DXF/Excel batch uploads.
+5. `1d1696c7e854` -- **remove_redis_add_mysql_backend** (current head): Creates `token_blacklist` and `agent_memory`; adds `jobs.progress_data` and `sys_users.password_changed_at`.
 
-Alembic targets MySQL: `sqlalchemy.url = mysql+pymysql://dwg_user@127.0.0.1:3306/dwg_agent`
+Alembic reads the same `settings.sqlalchemy_database_url` used by the application.
 
 ---
 
-## 9. Redis / Valkey Infrastructure
+## 9. MySQL-Backed Runtime State
 
-### 9.1 Server
+### 9.1 Single Authoritative DSN
 
-Valkey 9.1 (Redis-compatible fork), running locally via systemd as `redis.service`. No password for local development. Docker deployment uses `ghcr.io/valkey-io/valkey:9.0-alpine` with `requirepass`.
+`Settings.sqlalchemy_database_url` selects the optional MySQL `DATABASE_URL` override or assembles a DSN from `MYSQL_*`. Celery derives `sqla+mysql+pymysql://...` and `db+mysql+pymysql://...` from that same effective DSN, preventing application and queue configuration drift.
 
-### 9.2 Client (`app/core/redis_client.py`)
+### 9.2 Runtime State Ownership
 
-- Sync `redis-py` 5.x with `hiredis` parser for performance
-- Lazy initialization: `get_redis()` creates the connection pool on first call
-- Returns `None` instead of crashing when Redis is unavailable (all callers handle this)
-- `close_redis()` called during FastAPI shutdown (lifespan)
+| Capability | MySQL storage | Retention / consistency |
+|------------|---------------|-------------------------|
+| Token revocation | `token_blacklist` | Expiry indexed; cleanup on logout; fail closed on DB error |
+| Password revocation | `sys_users.password_changed_at` | Written atomically with password update/reset |
+| Agent memory | `agent_memory` | Bounded messages; TTL enforced on read |
+| Job progress / SSE | `jobs.progress_data` + status fields | Same caller transaction as job state |
+| Celery broker | `kombu_queue`, `kombu_message` | SQLAlchemy transport; no fanout/remote control |
+| Celery results | `celery_taskmeta`, `celery_tasksetmeta` | 24-hour expiry cleanup on worker startup |
 
-### 9.3 Usage Patterns
+### 9.3 Connection and Polling Discipline
 
-| Service | Key Pattern | Data | TTL | Stage |
-|---------|-----------|------|-----|-------|
-| Token blacklist | `blacklist:jti:{jti}` | "1" | remaining token lifetime | 1 (active) |
-| Agent memory | `agent:memory:{session_id}` | JSON list of messages | 7200s | 1 (infra only) |
-| Cache | `cache:{namespace}:{key}` | arbitrary | variable | 1 (infra only) |
-| Celery broker | `redis://.../0` | task messages | -- | 2+ |
-| Celery results | `redis://.../1` | task results | -- | 2+ |
+API requests use short transactions. SSE explicitly releases the request session before streaming and creates one session per poll so MySQL `REPEATABLE READ` cannot pin a stale snapshot or hold a pool connection for ten minutes. Workers write status, progress, error details and the latest event atomically.
 
 ### 9.4 Testing Strategy
 
-Dual-layer Redis testing:
-1. **FakeRedis** (`fakeredis[lua]`): Autouse fixture in `conftest.py` monkeypatches `get_redis()` to return a `FakeRedis` instance. This covers 586 non-real-Redis tests (599 total - 13 real-Redis-only) with zero external dependency.
-2. **Real Redis** (`test_redis_real.py`): Integration tests against the actual local Valkey instance. Auto-skipped (`pytest.skip`) when Redis is unreachable.
+Unit/API tests use SQLite isolation while exercising the same ORM paths. Migration tests validate the new tables and columns. Runtime acceptance tests additionally check that legacy modules, dependencies, compose services and environment keys are absent, and a real MySQL/Celery integration probe validates dispatch, execution and result persistence.
 
 ---
 
@@ -976,8 +977,8 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | Runner | pytest | Test discovery and execution |
 | HTTP client | `fastapi.testclient.TestClient` | In-process API testing |
 | DB isolation | SQLite `:memory:` + `StaticPool` | Per-test isolated database |
-| Redis isolation | `fakeredis[lua]` autouse monkeypatch | Zero-dependency Redis simulation |
-| Redis integration | Real Valkey local instance | Integration safety net (`test_redis_real.py`) |
+| MySQL migration integration | Local MariaDB/MySQL | Full Alembic chain and schema verification |
+| Celery integration | MySQL SQL transport + result backend | Real dispatch/execution/result persistence probe |
 | Fixtures | `conftest.py` | DB setup/teardown, auth headers, test data factories |
 
 ### 12.2 Test Categories (31 files, 599 tests)
@@ -988,8 +989,8 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 | Adversarial inputs | `test_adversarial_auth.py`, `test_adversarial_files.py`, `test_adversarial_jobs.py` | Malformed/abusive payloads against auth, file, and job endpoints |
 | Security boundaries | `test_security_boundaries.py`, `test_rbac_deep.py` | Auth required, RBAC enforcement, path traversal defense |
 | Token lifecycle | `test_token_lifecycle.py` | Login, refresh, blacklist, expiry, jti validation |
-| Redis stack | `test_redis_client.py`, `test_redis_memory.py`, `test_cache_service.py`, `test_redis_real.py` | Client init, memory TTL, cache fallback, real integration |
-| Config | `test_config.py` | MySQL/Redis URL assembly, component fields, feature flags |
+| MySQL runtime migration | `test_mysql_runtime.py`, `test_job_events_mysql.py`, `test_agent_memory.py` | Removed-component guard, durable SSE polling, Agent memory TTL |
+| Config | `test_config.py` | Effective MySQL URL assembly, Celery URL derivation, feature flags |
 | DB session | `test_db_session.py` | Engine creation, health check, WAL pragmas |
 | Edge cases | `test_edge_cases.py`, `test_rigorous.py`, `test_deep_verify.py` | Concurrent ops, large payloads, Unicode, null handling |
 | Service layer | `test_service_layer.py` | Service function unit tests (user, file, project, auth) |
@@ -1009,16 +1010,6 @@ Error codes are `UPPER_SNAKE_CASE` strings that are machine-parseable and stable
 
 ```python
 # conftest.py (simplified)
-@pytest.fixture(autouse=True)
-def _isolate_redis_client(monkeypatch):
-    """Replace the real Redis singleton with FakeRedis for every test."""
-    fake = FakeRedis(decode_responses=True)
-    monkeypatch.setattr("app.core.redis_client._redis_client", fake)
-    monkeypatch.setattr("app.core.redis_client._redis_available", True)
-    yield
-    fake.flushall()
-    fake.close()
-
 @pytest.fixture(autouse=True)
 def _isolate_test_db(monkeypatch):
     """Use one in-memory SQLite connection per test."""
@@ -1042,17 +1033,16 @@ def _isolate_test_db(monkeypatch):
 | FastAPI app (main.py) | Done | 134 | Covered | Lifespan, CORS, X-Request-ID, 4 exception handlers, /health |
 | API routes (12 modules) | Done | -- | Covered | All 74 endpoints (73 under /api/v1 + root /health) return proper envelopes |
 | Pydantic schemas (10 modules) | Done | 513 | Covered | All use v2 `from_attributes=True` |
-| Business services (17 modules) | Done | -- | Covered | auth, user, job, job_events, project, file, drawing, review, agent, storage, audit, redis_memory, cache, dxf, dxf_stats, dxf2dwg, dxf2excel |
-| SQLAlchemy models (17 tables) | Done | 402 | Covered | All with TimestampMixin, relationships, constraints |
-| Core infrastructure (8 modules) | Done | ~500 | Covered | Config, security, permissions, exceptions, Redis, logger, constants, validators |
+| Business services (16 modules) | Done | -- | Covered | auth, user, job, job_events, project, file, drawing, review, agent, agent_memory, storage, audit, dxf, dxf_stats, dxf2dwg, dxf2excel |
+| SQLAlchemy models (19 business tables) | Done | -- | Covered | Includes durable token blacklist, Agent memory and job progress |
+| Core infrastructure (7 modules) | Done | -- | Covered | Config, security, permissions, exceptions, logger, constants, validators |
 | DB session + pool | Done | -- | Covered | MySQL pool config, SQLite WAL pragmas, health check |
 | DB init + seed data | Done | -- | Covered | Super admin, 7 roles, 8 permissions |
-| Alembic migrations | Done | 4 | Covered | Initial 17 tables + TimestampMixin backfill + resource_id type fix + files.batch_name |
-| Redis/Valkey client | Done | 80 | Covered | Lazy init, graceful degradation, FakeRedis + real |
-| Token blacklist | Done | -- | Covered | jti-based, TTL-matched, fail-open |
+| Alembic migrations | Done | 5 | Covered | Initial schema through MySQL runtime-state migration |
+| Token blacklist | Done | -- | Covered | MySQL-backed jti expiry; database errors fail closed |
 | File upload + validation | Done | -- | Covered | DWG header, SHA-256, path traversal guard, HMAC URLs |
 | Audit logging | Done | 44 | Covered | Structured audit trail writes |
-| Docker Compose (9 services) | Done | 260 | Covered | worker-report default, Agent/DXF + monitoring profiles |
+| Docker Compose (9 services) | Done | -- | Covered | MySQL/MinIO/backend/nginx plus five queue-specific workers |
 | Dockerfile (backend) | Done | -- | Validated | Multi-stage, non-root, HEALTHCHECK, uv sync |
 | Nginx config (Docker + local) | Done | -- | Validated | Rate limiting, proxy, static serving |
 | Frontend (React 19 + TS + Vite) | Done | -- | Manual | 10 page features, 12 API client files (11 modules + client.ts), auth store, router |
@@ -1067,13 +1057,12 @@ def _isolate_test_db(monkeypatch):
 | Tool registry | Stub | 1 | `app/agents/tool_registry.py` |
 | MCP CAD client | Stub | 1 | `app/mcp_client/cad_mcp_client.py` |
 | MCP tool adapter | Stub | 1 | `app/mcp_client/mcp_tool_adapter.py` |
-| Celery app | Done | -- | Redis broker (DB 0) / result backend (DB 1), queue routing |
+| Celery app | Done | -- | MySQL SQLAlchemy broker/database result backend, queue routing |
 | Agent tasks | Stub | 1 | `app/workers/tasks_agent.py` (registers no task) |
 | Agent service | Stub | -- | `create_agent_run` raises `NotImplementedError` |
 | Report tasks | Real (Stage 1 stub job) | -- | `run_stub_job` creates fake result files |
 | Agent runs API | Real (503) | -- | Returns 503 `AGENT_DISABLED` when `AGENT_ENABLED=false` |
-| Redis memory runtime | Infra only | -- | Validated by tests, not called in request path |
-| Cache runtime | Real | -- | Used by DXF→Excel pipeline for progress caching |
+| Agent memory runtime | Infra only | -- | MySQL-backed and validated by tests; not called in request path yet |
 
 ### Stage 3 -- Implemented / real, flag-gated off (DXF Pipelines)
 
@@ -1086,7 +1075,7 @@ def _isolate_test_db(monkeypatch):
 | DXF→Excel service | Real (flag-gated) | `dxf2excel_service.run_dxf2excel_extraction`; pure-Python `Stages/dxf2excel`; batch by `batch_name`; output `.xlsx` → `dwg-reports`; flag `dxf2excel_pipeline_enabled` |
 | DXF Celery tasks | Real | `tasks_dxf`, `tasks_dxf2dwg`, `tasks_dxf2excel` (queues dxf/dxf2dwg/dxf2excel) |
 | dxf_stats helper | Real | Stdlib DXF entity/section counter for fidelity metrics |
-| SSE progress | Real | `job_events` Redis pub/sub → `GET /api/v1/jobs/{id}/events` |
+| SSE progress | Real | Durable `jobs.progress_data` polling → `GET /api/v1/jobs/{id}/events` |
 | ODA health endpoint | Real | `GET /api/v1/system/health/oda` |
 
 ### Stage 4 -- Not Started (Windows CAD Worker)
@@ -1106,7 +1095,7 @@ Constants `PIPELINE_CAD="zwcad_worker"` and `JOB_WAITING_CAD_WORKER` are defined
 
 **Stage 5** (business algorithms): foundations only — review-loop primitives (`review_service`, `reviews_api`, `AnalysisResult`) are functional, and DXF→Excel material-table extraction (a Stage-5 item) shipped early inside Stage 3. Higher-level LaR entry, BOM comparison, and report-generation algorithms are not present.
 
-**Stage 6** (production hardening): partial — token JTI blacklist + password-change staleness (a Stage-6 item) shipped early in `auth_service`; Celery queue-hygiene config present; `infra/` carries Docker/Nginx/MinIO/Redis configs. No Prometheus/Loki/rate-limiting/chunked-upload in code yet.
+**Stage 6** (production hardening): partial — durable token JTI blacklist + password-change staleness shipped early in `auth_service`; Celery queue hygiene and result cleanup are configured; `infra/` carries Docker/Nginx/MySQL/MinIO configs. No Prometheus/Loki/application rate-limiting/chunked upload in code yet.
 
 ---
 
@@ -1135,7 +1124,7 @@ complete_framework/
 ├── README.md
 ├── .env.example                          ← Local dev env template (tracked)
 ├── .env.docker.example                   ← Docker env template (tracked)
-├── compose.yaml                          ← 9 services, 3 volumes, 2 networks
+├── compose.yaml                          ← 9 services, 2 volumes, 2 networks
 ├── CLAUDE.md                             ← Agent instructions for this repo
 ├── Makefile                              ← Dev shortcuts (install, test, lint, run)
 ├── image.png                             ← Architecture diagram
@@ -1151,18 +1140,18 @@ complete_framework/
 │   ├── Dockerfile                        ← Multi-stage, non-root
 │   ├── .dockerignore
 │   ├── alembic.ini                       ← Targets MySQL
-│   ├── migrations/versions/              ← 4 Alembic versions
-│   ├── tests/                            ← 31 files, 599 tests
-│   │   └── conftest.py                   ← FakeRedis autouse + SQLite isolation
+│   ├── migrations/versions/              ← 5 Alembic versions
+│   ├── tests/                            ← 30 test files
+│   │   └── conftest.py                   ← SQLite isolation and app overrides
 │   ├── var/storage/                      ← Runtime file storage (gitignored)
 │   └── app/
 │       ├── main.py                       ← FastAPI app, lifespan, middleware
 │       ├── api/v1/                       ← 12 route modules
 │       │   └── router.py                 ← Central router assembly
 │       ├── schemas/                      ← 10 Pydantic v2 modules
-│       ├── services/                     ← 17 business logic modules
-│       ├── models/                       ← 10 ORM model files (17 tables)
-│       ├── core/                         ← 8 infrastructure modules
+│       ├── services/                     ← 16 business logic modules
+│       ├── models/                       ← 12 ORM model files (19 business tables)
+│       ├── core/                         ← 7 infrastructure modules
 │       ├── db/                           ← session, base, init_db
 │       ├── utils/                        ← path_utils, file_hash, time_utils
 │       ├── agents/                       ← 3 stubs (Stage 2)
@@ -1191,7 +1180,6 @@ complete_framework/
 ├── infra/                                ← Deployment configs
 │   ├── nginx/                            ← Docker + local dev configs
 │   ├── mysql/init.sql                    ← DB + user creation
-│   ├── redis/redis.conf                  ← AOF, LRU, maxmemory
 │   ├── minio/                            ← Placeholder
 │   └── verify.sh                         ← Deployment verification
 ├── scripts/                              ← 6 dev/ops shell scripts
@@ -1226,7 +1214,7 @@ complete_framework/
 3. Implement `app/agents/tool_registry.py` (MCP-to-LangChain adapter)
 4. Implement `app/mcp_client/cad_mcp_client.py` and `mcp_tool_adapter.py`
 5. Add Agent task implementation on top of the existing Celery app
-6. Start Redis and the relevant Celery worker queues
+6. Apply the latest MySQL migration and start the relevant Celery worker queues
 7. Set `AGENT_ENABLED=true` in `.env`
 
 ### Switching storage to MinIO
@@ -1238,4 +1226,4 @@ complete_framework/
 ---
 
 *Document version: 2.1 -- last updated 2026-07-08*
-*Corresponds to codebase at Stage 1 complete + Stage 3 DXF pipelines implemented (flag-gated off) — 74 endpoints, 17 tables, 4 migrations*
+*Corresponds to codebase at Stage 1 complete + Stage 3 DXF pipelines implemented (flag-gated off) — 74 endpoints, 19 tables, 5 migrations*

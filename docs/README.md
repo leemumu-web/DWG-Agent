@@ -13,7 +13,7 @@
 | [architecture.md](architecture.md) | System overview, physical topology, layered architecture, data flow, RBAC model, storage, implementation-status matrix, feature-flag inventory. |
 | [api.md](api.md) | Full REST API reference — all `/api/v1` endpoints, authentication, unified response/error envelope, pagination, status codes, roles, job-status state machine, pipeline constants, feature flags. |
 | [database.md](database.md) | Engine & pool configuration, complete table catalog, entity relationships, Alembic migrations, seed data, backup/restore. |
-| [deployment.md](deployment.md) | Prerequisites, 5-minute quick start, local-dev setup, Docker Compose topology, environment-variable reference, Nginx/MySQL/Redis/MinIO/ODA configuration. |
+| [deployment.md](deployment.md) | Prerequisites, 5-minute quick start, local-dev setup, Docker Compose topology, environment-variable reference, Nginx/MySQL/MinIO/Celery SQL transport/ODA configuration. |
 | [development.md](development.md) | Repository walkthrough, backend & frontend workflows, testing strategy, code conventions, dependency management, common pitfalls. |
 | [security.md](security.md) | Authentication flow, RBAC model, API & file security measures, pentest-findings resolution, production security checklist, audit-log coverage. |
 | [roadmap.md](roadmap.md) | Six-stage delivery plan, Stage 1 completion report, per-stage specifications, interface contracts, risk register, success metrics. |

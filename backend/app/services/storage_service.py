@@ -119,7 +119,7 @@ def validate_upload_name(filename: str) -> str:
         raise AppHTTPException(
             415,
             "FILE_TYPE_NOT_ALLOWED",
-            "Only DWG files are allowed in this stage.",
+            "File type not allowed for upload.",
             {"allowed_extensions": sorted(ALLOWED_UPLOAD_EXTENSIONS)},
         )
     return ext
@@ -192,11 +192,16 @@ async def save_upload_file(
 ) -> StoredFile:
     original_name = sanitize_filename(upload.filename or "unnamed.dwg")
     file_ext = validate_upload_name(original_name)
+    is_excel = file_ext in (".xlsx", ".xls")
     upload_content_type = validate_upload_mime(upload.content_type)
     bucket = (
-        settings.minio_bucket_original
-        if file_ext == ".dwg"
-        else settings.minio_bucket_dxf_original
+        settings.minio_bucket_reports
+        if is_excel
+        else (
+            settings.minio_bucket_original
+            if file_ext == ".dwg"
+            else settings.minio_bucket_dxf_original
+        )
     )
     storage_key = f"uploads/{uuid4().hex}{file_ext}"
     storage = get_storage_backend()
@@ -223,6 +228,12 @@ async def save_upload_file(
             if first:
                 if file_ext == ".dwg":
                     validate_dwg_header(b"")
+            if size == 0:
+                raise AppHTTPException(
+                    422,
+                    "EMPTY_FILE",
+                    "Uploaded file is empty — content must be at least 1 byte.",
+                )
         except AppHTTPException:
             raise
 

@@ -22,7 +22,7 @@ if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
 fi
 
 # ── 1. MySQL ───────────────────────────────────────────────────
-step "1/6 MySQL"
+step "1/5 MySQL"
 bash "$PROJECT_ROOT/scripts/db.sh" start
 if bash "$PROJECT_ROOT/scripts/db.sh" check >/dev/null 2>&1; then
     ok "MySQL 已就绪，跳过初始化"
@@ -31,16 +31,12 @@ else
     bash "$PROJECT_ROOT/scripts/db.sh" init
 fi
 
-# ── 2. Redis ───────────────────────────────────────────────────
-step "2/6 Redis"
-ensure_service 6379 redis valkey
-
-# ── 3. Celery Worker ───────────────────────────────────────────
-step "3/6 Celery worker-report"
+# ── 2. Celery Worker ───────────────────────────────────────────
+step "2/5 Celery worker-report"
 start_report_worker
 
-# ── 4. Backend ─────────────────────────────────────────────────
-step "4/6 后端 FastAPI"
+# ── 3. Backend ─────────────────────────────────────────────────
+step "3/5 后端 FastAPI"
 if port_free 8000; then
     info "启动后端 (127.0.0.1:8000)..."
     cd "$PROJECT_ROOT/backend"
@@ -56,8 +52,8 @@ else
     ok "后端已运行 (:8000)"
 fi
 
-# ── 5. Frontend ────────────────────────────────────────────────
-step "5/6 前端 React"
+# ── 4. Frontend ────────────────────────────────────────────────
+step "4/5 前端 React"
 FRONTEND_DIST="$PROJECT_ROOT/frontend/dist"
 NEED_BUILD=false
 
@@ -77,8 +73,8 @@ if $NEED_BUILD; then
     ok "前端构建完成"
 fi
 
-# ── 6. Nginx ───────────────────────────────────────────────────
-step "6/6 Nginx 网关"
+# ── 5. Nginx ───────────────────────────────────────────────────
+step "5/5 Nginx 网关"
 NGINX_CONF="$PROJECT_ROOT/infra/nginx/nginx.local.conf"
 NGINX_PIDFILE="$PROJECT_ROOT/infra/nginx/logs/nginx.pid"
 

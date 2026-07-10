@@ -31,14 +31,16 @@ else
     ok "后端 :8000 已释放"
 fi
 
-# 4. Celery Worker
-step "4/4 Celery worker-report"
+# 4. Celery Workers
+step "4/4 Celery workers"
 kill_by_pidfile /tmp/dwg-agent-worker-report.pid "Celery worker-report"
+kill_by_pidfile /tmp/dwg-agent-worker-dxf.pid "Celery worker-dxf"
+kill_by_pidfile /tmp/dwg-agent-worker-dxf2dwg.pid "Celery worker-dxf2dwg"
+kill_by_pidfile /tmp/dwg-agent-worker-dxf2excel.pid "Celery worker-dxf2excel"
 echo -e "  MySQL:  $(port_free 3306 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
-echo -e "  Redis: $(port_free 6379 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
 echo ""
-echo -e "  ${YELLOW}MySQL/Redis 通常保持运行，不予停止。${NC}"
+echo -e "  ${YELLOW}MySQL 通常保持运行，不予停止。${NC}"
 echo -e "  ${DIM}数据库诊断: bash scripts/db.sh status | bash scripts/db.sh logs${NC}"
 
 echo ""
-echo -e "${GREEN}  前端 + 后端 + Nginx 已停止${NC}"
+echo -e "${GREEN}  前端 + 后端 + Celery + Nginx 已停止${NC}"

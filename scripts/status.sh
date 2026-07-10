@@ -12,7 +12,6 @@ ALL_OK=true
 # 1. Infrastructure
 step "基础设施"
 bash "$PROJECT_ROOT/scripts/db.sh" status || ALL_OK=false
-check_port 6379 "Redis"   || ALL_OK=false
 if pidfile_running /tmp/dwg-agent-worker-report.pid; then
     ok "Celery worker-report — pid $(cat /tmp/dwg-agent-worker-report.pid)"
 else
@@ -23,11 +22,11 @@ fi
 # 2. Backend
 step "后端"
 if check_port 8000 "FastAPI"; then
-    HEALTH=$(curl -s http://127.0.0.1:8000/health 2>/dev/null || echo "")
+    HEALTH=$(curl -s http://127.0.0.1:8000/health/ready 2>/dev/null || echo "")
     if echo "$HEALTH" | grep -q '"status":"ok"'; then
         ok "健康检查: ok"
     else
-        warn "健康检查: 无响应"
+        warn "就绪检查: MySQL 不可达或后端无响应"
         ALL_OK=false
     fi
 else

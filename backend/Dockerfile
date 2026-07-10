@@ -23,7 +23,7 @@ ENV UV_PROJECT_ENVIRONMENT=/app/.venv
 
 WORKDIR /app
 
-# Builder 系统依赖：仅 ca-certificates。所有 Python 依赖（hiredis / argon2 / ezdxf /
+# Builder 系统依赖：仅 ca-certificates。所有 Python 依赖（argon2 / ezdxf /
 # pandas / openpyxl）在 CPython 3.12 + manylinux 下均有预编译 wheel，无需 gcc。
 # UV_LINK_MODE=disable 关闭进度链接，保持构建日志干净（PyPI 慢时改用 index via env）。
 RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \

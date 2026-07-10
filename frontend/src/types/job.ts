@@ -12,6 +12,7 @@ export interface Job {
   params_json?: Record<string, unknown> | null;
   error_code?: string | null;
   error_message?: string | null;
+  progress_data?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   started_at?: string | null;

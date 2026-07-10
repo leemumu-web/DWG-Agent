@@ -1,6 +1,6 @@
 # Infra — 基础设施配置
 
-本目录存放 Docker Compose、Nginx、MySQL、Redis、MinIO 的生产部署配置。
+本目录存放 Docker Compose、Nginx、MySQL、MinIO 的生产部署配置。
 
 ## 当前状态
 
@@ -8,12 +8,10 @@
 |------|------|---------|
 | **Nginx** | ✅ 可用 | `docker compose up -d nginx` 或本地 `nginx.local.conf` |
 | **MySQL** | ✅ 可用 | `docker compose up -d mysql` |
-| **Redis** | ✅ 可用 | `docker compose up -d redis` |
 | **MinIO** | ✅ 可用 | `docker compose up -d minio` |
 | **Backend API** | ✅ 可用 | `docker compose up -d backend-api` |
 | **Celery worker-report** | ✅ 可用 | `docker compose up -d worker-report` |
-| **Agent/DXF workers** | 阶段二/三占位 | `docker compose --profile workers up -d` |
-| **Flower 监控** | 配置文件就绪 | `docker compose --profile monitoring up -d` |
+| **Agent/DXF workers** | DXF 三条队列已配置，Agent 仍为占位 | `docker compose --profile workers up -d` |
 
 ## 快速开始
 
@@ -37,7 +35,7 @@ sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
 # 前置 1: cp .env.docker.example .env.docker，并修改所有 CHANGE_ME_* 值
 # 前置 2: 前端已构建（cd frontend && npm run build）
 
-# 启动核心服务（含 backend-api、MySQL、Redis、MinIO、worker-report）
+# 启动核心服务（含 backend-api、MySQL、MinIO、worker-report）
 docker compose up -d
 
 # 查看日志
@@ -60,6 +58,5 @@ infra/
 │   └── logs/              # 运行时日志（.gitignore）
 ├── mysql/
 │   └── init.sql           # MySQL 初始化（compose 自动挂载到 /docker-entrypoint-initdb.d/）
-├── redis/                 # Redis 配置占位
 └── minio/                 # MinIO 配置占位
 ```

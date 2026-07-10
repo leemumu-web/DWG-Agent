@@ -419,11 +419,15 @@ def test_user_password_reset_makes_old_password_invalid():
     # Verify old password works
     r1 = client.post("/api/v1/auth/sessions", json={"username": username, "password": old_password})
     assert r1.status_code == 201
+    old_headers = {"Authorization": f"Bearer {r1.json()['data']['access_token']}"}
 
     # Admin resets password
     reset = client.post(f"/api/v1/users/{user_id}/password-reset-requests", headers=headers)
     assert reset.status_code == 200
     temp_password = reset.json()["data"]["temp_password"]
+
+    # The already-issued access token is revoked by the persisted password-change marker.
+    assert client.get("/api/v1/auth/me", headers=old_headers).status_code == 401
 
     # Old password no longer works
     r2 = client.post("/api/v1/auth/sessions", json={"username": username, "password": old_password})
@@ -432,6 +436,8 @@ def test_user_password_reset_makes_old_password_invalid():
     # New temp password works
     r3 = client.post("/api/v1/auth/sessions", json={"username": username, "password": temp_password})
     assert r3.status_code == 201, r3.text
+    new_headers = {"Authorization": f"Bearer {r3.json()['data']['access_token']}"}
+    assert client.get("/api/v1/auth/me", headers=new_headers).status_code == 200
 
 
 # ---------------------------------------------------------------------------

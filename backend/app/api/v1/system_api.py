@@ -13,11 +13,7 @@ router = APIRouter()
 
 @router.get("/health")
 def get_system_health(request: Request, current_user: CurrentUser):
-    """系统健康概览：数据库、Redis、ODA 状态、特性开关。"""
-    from app.core.redis_client import get_redis
-
-    redis_ok = get_redis() is not None
-
+    """系统健康概览：数据库、特性开关。"""
     features = {
         "agent": settings.agent_enabled,
         "dxf_pipeline": settings.dxf_pipeline_enabled,
@@ -27,7 +23,6 @@ def get_system_health(request: Request, current_user: CurrentUser):
     return ok(
         {
             "status": "ok",
-            "redis": redis_ok,
             "features": features,
             "storage_backend": settings.storage_backend,
         },

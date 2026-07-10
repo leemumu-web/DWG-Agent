@@ -29,7 +29,6 @@ from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
 from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest, ZipUploadResult
 from app.services.audit_service import write_audit_log
-from app.services.cache_service import cache_delete, cache_get, cache_set
 from app.services.file_service import (
     build_signed_download_url,
     build_zip,
@@ -147,7 +146,6 @@ async def upload_file(
         request=request,
     )
     db.commit()
-    _invalidate_batch_caches()
     return ok(FileRead.model_validate(stored), request.state.request_id)
 
 
@@ -311,7 +309,6 @@ async def upload_zip(
         request=request,
     )
     db.commit()
-    _invalidate_batch_caches()
 
     return ok(
         ZipUploadResult(
@@ -367,18 +364,8 @@ def list_batches(
     file_ext: str = Query("", description="Filter batches by file extension, e.g. '.dwg' or '.dxf'"),
     db: Session = Depends(get_db),
 ):
-    """Return all distinct batch names with file counts and latest created_at.
-
-    Results are cached in Redis for 30 seconds to reduce MySQL load during
-    rapid polling from multiple browser tabs.
-    """
+    """Query MySQL for distinct batch names, file counts and latest creation times."""
     from sqlalchemy import func as sa_func
-
-    cache_ns = "batches"
-    cache_key = f"ext:{file_ext.strip() or 'all'}"
-    cached = cache_get(cache_ns, cache_key)
-    if cached is not None:
-        return ok(cached, request.state.request_id)
 
     where_clauses = [
         StoredFile.batch_name.is_not(None),
@@ -408,15 +395,7 @@ def list_batches(
         }
         for r in rows
     ]
-    cache_set(cache_ns, cache_key, batches, ttl=30)
     return ok(batches, request.state.request_id)
-
-
-def _invalidate_batch_caches() -> None:
-    """Invalidate all batch-list Redis caches after a mutation."""
-    cache_delete("batches", "ext:all")
-    cache_delete("batches", "ext:.dwg")
-    cache_delete("batches", "ext:.dxf")
 
 
 @router.delete("/batches/{batch_name}", status_code=status.HTTP_204_NO_CONTENT)
@@ -462,7 +441,6 @@ def delete_batch(
             request=request,
         )
     db.commit()
-    _invalidate_batch_caches()
     return None
 
 
@@ -569,11 +547,7 @@ def get_excel_preview(
     sheet: str = Query("", description="Sheet name to preview (empty = first sheet)"),
     db: Session = Depends(get_db),
 ):
-    """Return an Excel file's content as JSON for browser preview.
-
-    Only .xlsx files are supported. Results are cached in Redis for 5 minutes
-    to avoid re-reading and re-parsing the file on every sheet switch.
-    """
+    """Read an Excel file from authoritative storage and return preview JSON."""
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
@@ -585,13 +559,6 @@ def get_excel_preview(
             "NOT_EXCEL",
             "Only .xlsx / .xls files can be previewed.",
         )
-
-    # Check Redis cache first
-    cache_ns = "excel_preview"
-    cache_key = f"{file_id}:{sheet or '_first'}"
-    cached = cache_get(cache_ns, cache_key)
-    if cached is not None:
-        return ok(cached, request.state.request_id)
 
     # Read Excel bytes from storage
     storage = get_storage_backend()
@@ -710,8 +677,6 @@ def get_excel_preview(
         "total_rows": len(data_rows),
     }
 
-    # Cache for 5 minutes
-    cache_set(cache_ns, cache_key, result, ttl=300)
     return ok(result, request.state.request_id)
 
 
@@ -742,7 +707,6 @@ def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: S
         request=request,
     )
     db.commit()
-    _invalidate_batch_caches()
     return None
 
 
@@ -850,9 +814,8 @@ def bulk_delete_files(
             resource_type="file",
             resource_id=s.id,
             request=request,
-        )
+    )
     db.commit()
-    _invalidate_batch_caches()
     return None
 
 

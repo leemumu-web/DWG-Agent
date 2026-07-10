@@ -40,18 +40,11 @@ def _unique(prefix: str) -> str:
 def test_password_change_invalidates_old_access_token():
     """After password change, old access tokens MUST be rejected.
 
-    BUG-19 fix: password change records a timestamp in Redis, and
-    get_current_user / refresh_token check whether the token was issued
-    before the last password change.
+    BUG-19 fix: password change records a timestamp on the User model
+    (password_changed_at), and get_current_user / refresh_token check
+    whether the token was issued before the last password change.
     """
-    import app.core.redis_client as redis_module
-    from app.services.auth_service import PWD_CHANGE_PREFIX, is_token_stale_for_password_change
-
     client = _client()
-
-    # Verify FakeRedis is properly injected
-    rclient = redis_module.get_redis()
-    assert rclient is not None, "Redis client should be available (FakeRedis fixture)"
 
     # Login and get a token
     login1 = client.post(
@@ -65,19 +58,6 @@ def test_password_change_invalidates_old_access_token():
         "/api/v1/auth/password",
         headers=old_headers,
         json={"current_password": "SuperAdminPass1", "new_password": "NewPassphrase123"},
-    )
-
-    # Verify the Redis key was actually stored
-    pwd_key = PWD_CHANGE_PREFIX + "1"
-    stored = rclient.get(pwd_key)
-    assert stored is not None, f"Password-change key {pwd_key!r} was NOT stored in Redis! Keys: {rclient.keys('*')}"
-
-    # Verify the staleness check works
-    import jwt
-    payload = jwt.decode(old_token, options={"verify_signature": False})
-    token_iat = int(payload["iat"])
-    assert is_token_stale_for_password_change(1, token_iat), (
-        f"is_token_stale returned False for iat={token_iat}, pwd_change_ts={stored}"
     )
 
     # Old token MUST be rejected
@@ -101,20 +81,13 @@ def test_password_change_invalidates_old_access_token():
         headers=new_headers,
         json={"current_password": "NewPassphrase123", "new_password": "SuperAdminPass1"},
     )
-    # Restore original password for other tests
-    new_headers = _login(client, "admin", "NewPassphrase123")
-    client.patch(
-        "/api/v1/auth/password",
-        headers=new_headers,
-        json={"current_password": "NewPassphrase123", "new_password": "SuperAdminPass1"},
-    )
 
 
 def test_password_change_does_not_blacklist_old_tokens():
     """After password change, old tokens are rejected via password-change
     timestamp check — NOT via the JTI blacklist (different mechanism).
 
-    BUG-19 fix: password change records a timestamp in Redis rather than
+    BUG-19 fix: password change records a timestamp on the User model rather than
     blacklisting every individual token JTI (which would be impractical).
     """
     client = _client()
@@ -417,7 +390,7 @@ def test_refresh_token_revoked_after_logout():
 
     # Attempt to refresh with the revoked token
     resp = client.post("/api/v1/auth/tokens/refresh")
-    # CORRECTLY rejected — the refresh token jti is in the Redis blacklist
+    # CORRECTLY rejected — the refresh token jti is in the token blacklist
     assert resp.status_code == 401, f"Expected 401 TOKEN_REVOKED, got: {resp.text}"
     assert resp.json()["error"]["code"] == "TOKEN_REVOKED"
     assert "Refresh token has been revoked" in resp.json()["error"]["message"]

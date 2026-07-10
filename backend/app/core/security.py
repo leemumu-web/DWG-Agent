@@ -26,7 +26,10 @@ def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None
     payload: dict[str, Any] = {
         "sub": subject,
         "jti": str(uuid.uuid4()),
-        "iat": int(now.timestamp()),
+        # JWT NumericDate permits fractional seconds. Keeping the fraction avoids
+        # treating a fresh token issued in the same second as a password change
+        # as stale while still accepting older integer-iat tokens.
+        "iat": now.timestamp(),
         "exp": int(expire.timestamp()),
         "type": "access",
     }
@@ -41,7 +44,7 @@ def create_refresh_token(subject: str, extra_claims: dict[str, Any] | None = Non
     payload: dict[str, Any] = {
         "sub": subject,
         "jti": str(uuid.uuid4()),
-        "iat": int(now.timestamp()),
+        "iat": now.timestamp(),
         "exp": int(expire.timestamp()),
         "type": "refresh",
     }

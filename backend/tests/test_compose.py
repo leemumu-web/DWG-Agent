@@ -12,17 +12,22 @@ import yaml
 REPO_ROOT = Path(__file__).parent.parent.parent
 COMPOSE_PATH = REPO_ROOT / "compose.yaml"
 DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"
-DOCKERIGNORE_PATH = REPO_ROOT / "backend" / ".dockerignore"
+DOCKERIGNORE_PATH = REPO_ROOT / ".dockerignore"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 DOCKER_ENV_EXAMPLE_PATH = REPO_ROOT / ".env.docker.example"
 APP_SECRET_KEYS = {
     "JWT_SECRET_KEY",
     "SUPER_ADMIN_PASSWORD",
     "DATABASE_URL",
-    "CELERY_BROKER_URL",
-    "CELERY_RESULT_BACKEND",
 }
-APP_SERVICE_NAMES = ("backend-api", "worker-agent", "worker-dxf", "worker-report", "flower")
+APP_SERVICE_NAMES = (
+    "backend-api",
+    "worker-agent",
+    "worker-dxf",
+    "worker-dxf2dwg",
+    "worker-dxf2excel",
+    "worker-report",
+)
 
 
 def _load():
@@ -45,27 +50,17 @@ class TestAppServices:
             assert service["environment"]["MYSQL_ROOT_PASSWORD"] == ""
             assert service["environment"]["MINIO_ROOT_PASSWORD"] == ""
 
-    def test_worker_services_override_api_healthcheck_with_celery_ping(self):
+    def test_worker_services_use_process_healthchecks_without_remote_control(self):
         data = _load()
-        expected_nodes = {
-            "worker-agent": "agent@$$HOSTNAME",
-            "worker-dxf": "dxf@$$HOSTNAME",
-            "worker-report": "report@$$HOSTNAME",
-        }
-
-        for service_name, node_name in expected_nodes.items():
+        for service_name in APP_SERVICE_NAMES[1:]:
             command = " ".join(data["services"][service_name]["healthcheck"]["test"])
-            assert "/app/.venv/bin/celery" in command
-            assert "inspect ping" in command
-            assert node_name in command
+            assert "/proc/1/cmdline" in command
+            assert "inspect" not in command
             assert "localhost:8000/health" not in command
 
-    def test_flower_overrides_api_healthcheck_with_flower_http_probe(self):
+    def test_unsupported_flower_service_is_absent(self):
         data = _load()
-
-        command = " ".join(data["services"]["flower"]["healthcheck"]["test"])
-        assert "localhost:5555" in command
-        assert "localhost:8000/health" not in command
+        assert "flower" not in data["services"]
 
 
 class TestComposeYamlValid:
@@ -74,9 +69,18 @@ class TestComposeYamlValid:
 
     def test_has_expected_services(self):
         data = _load()
-        services = data.get("services", {})
-        for name in ("nginx", "backend-api", "mysql", "redis", "minio"):
-            assert name in services, f"Missing service: {name}"
+        assert set(data.get("services", {})) == {
+            "nginx",
+            "backend-api",
+            "worker-agent",
+            "worker-dxf",
+            "worker-dxf2dwg",
+            "worker-dxf2excel",
+            "worker-excel-final",
+            "worker-report",
+            "mysql",
+            "minio",
+        }
 
     def test_core_infra_images_do_not_depend_on_docker_hub(self):
         data = _load()
@@ -86,7 +90,6 @@ class TestComposeYamlValid:
         assert services["mysql"]["image"] == (
             "container-registry.oracle.com/mysql/community-server:8.4"
         )
-        assert services["redis"]["image"] == "ghcr.io/valkey-io/valkey:9.0-alpine"
         assert services["minio"]["image"] == "quay.io/minio/minio:latest"
         assert "80:8080" in services["nginx"]["ports"]
 
@@ -119,7 +122,7 @@ class TestMysqlService:
         _assert_blank_environment(
             mysql,
             APP_SECRET_KEYS
-            | {"REDIS_PASSWORD", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
+            | {"MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
         )
         assert "MYSQL_PASSWORD" not in mysql["environment"]
         assert "MYSQL_ROOT_PASSWORD" not in mysql["environment"]
@@ -139,33 +142,6 @@ class TestMysqlService:
         assert "${MYSQL_ROOT_PASSWORD:-" not in test_cmd
 
 
-class TestRedisService:
-    def test_redis_uses_docker_env_file_without_root_env_interpolation(self):
-        data = _load()
-        redis = data["services"]["redis"]
-        assert redis["env_file"] == [".env.docker"]
-        _assert_blank_environment(
-            redis,
-            APP_SECRET_KEYS
-            | {
-                "MYSQL_PASSWORD",
-                "MYSQL_ROOT_PASSWORD",
-                "MINIO_ACCESS_KEY",
-                "MINIO_SECRET_KEY",
-                "MINIO_ROOT_PASSWORD",
-            },
-        )
-        assert "REDIS_PASSWORD" not in redis["environment"]
-        cmd = redis["command"]
-        assert "$$REDIS_PASSWORD" in cmd, "REDIS_PASSWORD should be read inside the container"
-        assert "${REDIS_PASSWORD" not in cmd, "command must not depend on root .env interpolation"
-
-    def test_redis_conf_is_mounted(self):
-        data = _load()
-        mounts = [v.split(":")[0] for v in data["services"]["redis"]["volumes"]]
-        assert "./infra/redis/redis.conf" in mounts, "redis.conf should be mounted"
-
-
 class TestMinioService:
     def test_minio_uses_docker_env_file_and_scrubs_unrelated_secrets(self):
         data = _load()
@@ -177,7 +153,6 @@ class TestMinioService:
             | {
                 "MYSQL_PASSWORD",
                 "MYSQL_ROOT_PASSWORD",
-                "REDIS_PASSWORD",
                 "MINIO_ACCESS_KEY",
                 "MINIO_SECRET_KEY",
             },
@@ -207,7 +182,6 @@ class TestDockerEnvironmentFiles:
             "env_file values must not depend on shell/root .env interpolation"
         )
         assert "mysql:3306" in content
-        assert "redis:6379" in content
         assert "http://minio:9000" in content
 
     def test_local_docker_env_is_gitignored(self):
@@ -242,7 +216,7 @@ class TestDockerfile:
     def test_copies_packaging_readme_before_uv_sync(self):
         content = DOCKERFILE_PATH.read_text()
 
-        assert "COPY pyproject.toml uv.lock README.md ./" in content
+        assert "COPY backend/pyproject.toml backend/uv.lock backend/README.md ./backend/" in content
 
     def test_has_non_root_user(self):
         content = DOCKERFILE_PATH.read_text()
@@ -253,7 +227,8 @@ class TestDockerfile:
 
     def test_runtime_runs_alembic_before_gunicorn(self):
         content = DOCKERFILE_PATH.read_text()
-        assert "alembic upgrade head && exec gunicorn" in content
+        assert content.index("alembic upgrade head") < content.index("python -m app.db.init_db")
+        assert content.index("python -m app.db.init_db") < content.index("exec gunicorn")
 
     def test_has_healthcheck(self):
         content = DOCKERFILE_PATH.read_text()

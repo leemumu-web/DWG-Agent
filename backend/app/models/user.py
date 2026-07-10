@@ -26,6 +26,7 @@ class User(TimestampMixin, Base):
     password_algo: Mapped[str] = mapped_column(String(32), default="argon2id", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
     roles: Mapped[list["Role"]] = relationship(secondary=user_roles, back_populates="users")

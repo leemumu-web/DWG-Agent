@@ -19,13 +19,13 @@ from app.services.job_service import run_local_stub_job
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_runtime_dependencies_include_celery_flower_and_minio():
+def test_runtime_dependencies_include_celery_and_minio_without_flower():
     pyproject = tomllib.loads((REPO_ROOT / "backend/pyproject.toml").read_text())
     deps = "\n".join(pyproject["project"]["dependencies"])
 
     assert "celery" in deps
-    assert "flower" in deps
     assert "minio" in deps
+    assert "flower" not in deps
 
 
 def test_minio_storage_backend_creates_bucket_and_streams_objects():
@@ -153,6 +153,29 @@ def test_celery_app_registers_stage1_stub_task():
     assert "app.workers.tasks_report.run_stub_job" in celery_app.tasks
 
 
+def test_mysql_result_rows_have_bounded_retention():
+    from app.workers.celery_app import celery_app
+
+    assert celery_app.conf.result_expires == 24 * 60 * 60
+
+
+def test_worker_startup_cleans_expired_mysql_result_rows():
+    from app.workers import celery_app as celery_module
+
+    calls: list[str] = []
+
+    class FakeBackend:
+        def cleanup(self) -> None:
+            calls.append("cleanup")
+
+    class FakeApp:
+        backend = FakeBackend()
+
+    celery_module.cleanup_expired_task_results(FakeApp())
+
+    assert calls == ["cleanup"]
+
+
 def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
     content = (REPO_ROOT / "backend/app/api/v1/jobs_api.py").read_text()
 
@@ -181,7 +204,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     assert project.status_code == 201, project.text
 
     def fail_enqueue(job_id: int, pipeline: str) -> str:
-        raise RuntimeError("redis unavailable")
+        raise RuntimeError("mysql broker unavailable")
 
     monkeypatch.setattr(jobs_api, "enqueue_job", fail_enqueue)
 
@@ -204,7 +227,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
         assert job is not None
         assert job.status == JOB_FAILED
         assert job.error_code == "JOB_ENQUEUE_FAILED"
-        assert job.error_message == "redis unavailable"
+        assert job.error_message == "mysql broker unavailable"
     finally:
         db.close()
 
@@ -212,7 +235,13 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
 def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default():
     data = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text())
 
-    for service_name in ("worker-agent", "worker-dxf", "worker-report", "flower"):
+    for service_name in (
+        "worker-agent",
+        "worker-dxf",
+        "worker-dxf2dwg",
+        "worker-dxf2excel",
+        "worker-report",
+    ):
         command = data["services"][service_name]["command"]
         assert "uv run celery" not in command
         assert "app.workers.celery_app:celery_app" in command
@@ -235,13 +264,13 @@ def test_env_examples_expose_celery_eager_flag_with_consistent_keys():
     assert local_keys == docker_keys
 
 
-def test_deployment_docs_match_computed_celery_url_behavior():
+def test_deployment_docs_match_mysql_derived_celery_url_behavior():
     content = (REPO_ROOT / "docs/deployment.md").read_text()
 
     assert "direct " + chr(96) + "os.environ" not in content
-    assert "derived from " + chr(96) + "REDIS_*" in content
-    assert "CELERY_BROKER_URL" in content
-    assert "CELERY_RESULT_BACKEND" in content
+    assert "derived from the effective MySQL DSN" in content
+    assert "sqla+mysql+pymysql://" in content
+    assert "db+mysql+pymysql://" in content
 
 
 def test_infra_docs_show_worker_report_as_default_and_profile_workers_as_deferred():

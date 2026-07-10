@@ -6,8 +6,8 @@ happy path. The behaviors asserted are grounded in the actual implementation:
 * ``decode_token`` uses PyJWT defaults (exp verified; aud/iss NOT; no leeway).
 * ``require_roles`` lets ``super_admin`` bypass every check.
 * Password-change staleness compares ``token_iat <= pwd_change_ts`` (boundary-inclusive).
-* Redis-backed revocation is fail-OPEN: when Redis is down, blacklist + password-change
-  checks return False, so revoked tokens stay valid.
+* Token revocation is MySQL-backed; blacklist + password-change staleness checks are
+  performed against the database.
 * ``get_current_user`` accepts tokens WITHOUT a ``jti`` (warns, cannot revoke).
 * Refresh endpoint does NOT rotate the refresh token — a stolen cookie replays forever.
 * ``authenticate_user`` burns a dummy argon2id hash to close timing enumeration.
@@ -29,7 +29,7 @@ from app.core.security import decode_token
 from app.db.init_db import init_db
 from app.main import app
 from app.services.auth_service import (
-    PWD_CHANGE_PREFIX,
+    is_token_blacklisted,
     record_password_change,
 )
 
@@ -259,80 +259,95 @@ class TestJtiOptionality:
 
 
 class TestPasswordChangeStaleness:
-    def test_token_issued_after_password_change_still_valid(self):
+    def test_token_issued_after_password_change_still_valid(self, db):
         """A token whose iat is strictly AFTER pwd_change_ts must remain valid."""
         client = _client()
         _admin(client)
         # Record a password change "in the past" relative to a fresh token.
-        record_password_change(1)
+        record_password_change(db, 1)
+        db.commit()
         # Slight delay so the new token's iat is strictly greater.
         time.sleep(1.1)
         new_h = _admin(client)  # fresh login -> fresh token iat > pwd_change_ts
         r = client.get("/api/v1/auth/me", headers=new_h)
         assert r.status_code == 200, "token issued after pwd change must stay valid"
 
-    def test_token_issued_at_exact_boundary_rejected(self):
+    def test_token_issued_at_exact_boundary_rejected(self, db):
         """iat == pwd_change_ts is rejected because the check is ``iat <= pwd_change_ts``."""
         client = _client()
         h = _admin(client)
-        # Capture the iat of the just-issued token, then record a password change
-        # with that exact timestamp.
+        # Capture the iat of the just-issued token, then set password_changed_at
+        # to that exact iat timestamp on the user.
         token = h["Authorization"].removeprefix("Bearer ")
         decoded = decode_token(token)
-        iat = int(decoded["iat"])
-        # Write the pwd-change key with the token's own iat to hit the boundary.
-        from app.core.redis_client import get_redis
+        iat = float(decoded["iat"])
+        # Set password_changed_at using the db fixture (verified to work in
+        # test_token_issued_after_password_change_still_valid).
+        from datetime import UTC, datetime
 
-        r = get_redis()
-        assert r is not None, "FakeRedis should be available in tests"
-        ttl = settings.jwt_refresh_token_expire_days * 24 * 3600 * 2
-        r.setex(PWD_CHANGE_PREFIX + "1", ttl, str(iat))
+        from app.models.user import User
+
+        user = db.get(User, 1)
+        assert user is not None, "Admin user (id=1) not found in test DB"
+        user.password_changed_at = datetime.fromtimestamp(iat, tz=UTC)
+        db.commit()
         # Now the token must be rejected: iat <= pwd_change_ts (equal).
         resp = client.get("/api/v1/auth/me", headers=h)
-        assert resp.status_code == 401
+        assert resp.status_code == 401, f"Expected 401, got {resp.status_code}: {resp.text}"
         assert resp.json()["error"]["code"] == "TOKEN_REVOKED"
 
 
 # ---------------------------------------------------------------------------
-# Redis fail-OPEN behavior — revocation silently fails when Redis is down
+# Token revocation — MySQL-backed (no fail-open; DB is source of truth)
 # ---------------------------------------------------------------------------
 
 
-class TestRedisFailOpenRevocation:
-    """When Redis is unavailable, blacklist + password-change checks return False,
-    so revoked/stale tokens stay valid. This is a deliberate availability trade-off
-    and the tests pin it down so it can't silently change."""
+class TestTokenRevocation:
+    def test_blacklist_database_error_does_not_fail_open(self, db, monkeypatch):
+        def fail_get(*_args, **_kwargs):
+            raise RuntimeError("database unavailable")
 
-    def test_blacklisted_token_still_valid_when_redis_down(self, monkeypatch):
-        """With Redis returning None, a blacklisted token is no longer revoked."""
+        monkeypatch.setattr(db, "get", fail_get)
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            is_token_blacklisted(db, "untrusted-jti")
+
+    def test_blacklisted_token_is_revoked(self):
+        """Logout blacklists the token; subsequent requests are rejected."""
         client = _client()
         h = _admin(client)
         # Logout normally blacklists the token.
         client.delete("/api/v1/auth/sessions/current", headers=h)
-        # With Redis up, the token is now revoked.
+        # The token is now revoked.
         assert client.get("/api/v1/auth/me", headers=h).status_code == 401
-        # Now simulate Redis going away: get_redis() returns None.
-        import app.core.redis_client as rmod
 
-        monkeypatch.setattr(rmod, "_redis_available", False)
-        monkeypatch.setattr(rmod, "_redis_client", None)
-        # is_token_blacklisted returns False -> token is accepted again.
-        resp = client.get("/api/v1/auth/me", headers=h)
-        assert resp.status_code == 200, "fail-open: blacklisted token accepted when Redis down"
-
-    def test_password_change_does_not_revoke_when_redis_down(self, monkeypatch):
-        """record_password_change is a no-op when Redis is down; old tokens stay valid."""
+    def test_password_change_revokes_tokens(self):
+        """After a password change, existing tokens are rejected."""
         client = _client()
         h = _admin(client)
-        import app.core.redis_client as rmod
-
-        monkeypatch.setattr(rmod, "_redis_available", False)
-        monkeypatch.setattr(rmod, "_redis_client", None)
-        # This should record a password change, but Redis is down -> skipped.
-        record_password_change(1)
-        # The pre-change token must still be valid.
+        new_password = "NewPassphrase123!"
+        # Change password (min 12 chars with upper+lower+digit)
+        resp_patch = client.patch(
+            "/api/v1/auth/password",
+            headers=h,
+            json={"current_password": "SuperAdminPass1", "new_password": new_password},
+        )
+        assert resp_patch.status_code == 200, f"Password change failed: {resp_patch.text}"
+        # The pre-change token must be rejected.
         resp = client.get("/api/v1/auth/me", headers=h)
-        assert resp.status_code == 200
+        assert resp.status_code == 401
+        # Login with new password to restore original
+        login_resp = client.post(
+            "/api/v1/auth/sessions",
+            json={"username": "admin", "password": new_password},
+        )
+        assert login_resp.status_code == 201
+        new_h = {"Authorization": f"Bearer {login_resp.json()['data']['access_token']}"}
+        client.patch(
+            "/api/v1/auth/password",
+            headers=new_h,
+            json={"current_password": new_password, "new_password": "SuperAdminPass1"},
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@
 | 前端 | React 19 + TypeScript + Vite + Ant Design 6 + TanStack Query + Zustand |
 | 后端 | Python 3.12 + FastAPI + SQLAlchemy 2.x（同步）+ Pydantic v2 |
 | 数据库 | MySQL 8.x（运行）+ SQLite 内存（测试隔离） |
-| 缓存/记忆 | Redis / Valkey（本地 9.1，Docker 9.0-alpine） |
+| 运行状态 | MySQL 持久化 token 吊销、Agent 记忆、任务进度与 Celery 队列 |
 | 文件存储 | 本地 FS（开发）/ MinIO（Docker 生产，adapter 已启用） |
 | 异步任务 | Celery（Stage 1 worker-report 假任务，Agent/DXF/CAD 队列后续接入） |
 | Agent | LangGraph + MCP + OpenAI-compatible LLM（Stage 2，API 边界就绪） |
@@ -32,9 +32,9 @@
 - **结果复核**：approved/rejected 决策，待复核列表
 - **审计日志**：32 种操作类型，super_admin/auditor 角色保护，不可变
 - **安全加固**：12/18 渗透测试 bug 已修复，CORS 收紧，异常不泄漏 traceback，路径穿越防护
-- **Alembic 迁移**：2 个版本（17 张表 initial + TimestampMixin 修复），`db.sh migration-test` CI 验证
-- **Redis 已部署**：Valkey (Docker 9.0-alpine)，redis_client + redis_memory + cache_service 就绪，双轨测试（FakeRedis + 真实 Redis）
-- **Docker Compose**：9 服务编排，worker-report 默认启动，Agent/DXF 与 monitoring profiles，Dockerfile 多阶段构建
+- **Alembic 迁移**：5 个版本，最新迁移新增 token 黑名单、Agent 记忆和任务进度持久化，`db.sh migration-test` 验证
+- **MySQL 单一事实源**：认证吊销、密码变更、Agent 记忆和 SSE 任务进度均持久化；批次列表直接查库
+- **Docker Compose**：9 服务编排，worker-report 默认启动，4 个具体 worker 由 `workers` profile 启用，Dockerfile 多阶段构建
 - **前端**：10 个页面 + 12 个 API 客户端文件（11 模块 + client.ts）+ 8 个通用组件，路由级权限守卫
 - **432 测试**（24 个测试文件），ruff 0 错误
 
@@ -44,8 +44,8 @@
 
 ```bash
 # 1. 环境准备
-sudo pacman -S redis mysql    # Arch Linux；其他发行版对应包名
-sudo systemctl enable --now redis mysqld
+sudo pacman -S mariadb        # Arch Linux；其他发行版安装 MySQL 8.x/MariaDB
+sudo systemctl enable --now mariadb
 
 # 2. 配置
 cp .env.example .env
@@ -83,11 +83,11 @@ complete_framework/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI 入口 + 异常处理器 + CORS
 │   │   ├── api/v1/                  # 11 路由模块，64 端点
-│   │   ├── core/                    # config, security, permissions, redis, exceptions
+│   │   ├── core/                    # config, security, permissions, exceptions
 │   │   ├── db/                      # session (连接池), init_db (种子)
-│   │   ├── models/                  # 10 个 SQLAlchemy ORM 模型（17 表）
+│   │   ├── models/                  # SQLAlchemy ORM（含 token_blacklist / agent_memory）
 │   │   ├── schemas/                 # 10 个 Pydantic v2 模块
-│   │   ├── services/                # 12 个 service（auth, user, job, project, file, drawing, review, agent, storage, audit, redis_memory, cache）
+│   │   ├── services/                # 业务服务（含 MySQL Agent memory 与 job events）
 │   │   ├── storage/                 # AbstractStorageBackend + local/minio 后端
 │   │   ├── utils/                   # path_utils（路径穿越防护）, file_hash, time_utils
 │   │   ├── agents/                  # Stage 2 占位
@@ -116,7 +116,6 @@ complete_framework/
 ├── infra/                           # 部署配置
 │   ├── nginx/                       # nginx.conf (Docker) + nginx.local.conf (本机)
 │   ├── mysql/init.sql               # 数据库初始化
-│   ├── redis/redis.conf             # Docker Redis 配置
 │   ├── minio/                       # MinIO 配置占位
 │   └── verify.sh                    # 基础设施验证
 ├── scripts/                         # 6 个 dev/ops 脚本
@@ -134,7 +133,7 @@ complete_framework/
 
 - **规范优先**：所有设计决策以 `DWG-Agent企业平台技术规范.md` 为准。
 - **运行数据库**：MySQL 8.x；pytest 使用内存 SQLite 隔离，不作为部署结论。
-- **同步 API + 异步任务**：SQLAlchemy 2.x 同步 session + Redis 同步客户端；耗时任务通过 Celery worker 执行。
+- **同步 API + 异步任务**：SQLAlchemy 2.x 同步 session；Celery 使用 MySQL SQLAlchemy transport 执行耗时任务。
 - **API 约定**：RESTful `/api/v1`，复数名词，语义化 HTTP 状态码，统一响应格式。
 - **安全底线**：所有业务端点强制鉴权，RBAC 后端强校验，文件路径校验，异常不泄漏。
 - **依赖锁定**：`uv.lock` + `package-lock.json` 全部锁定，禁止 `latest`。

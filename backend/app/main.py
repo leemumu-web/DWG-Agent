@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +15,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import AppHTTPException
 from app.core.logger import configure_logging
-from app.core.redis_client import close_redis, get_redis
+from app.db.session import db_health
 from app.schemas.common import meta, ok
 
 configure_logging()
@@ -23,8 +23,7 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: eagerly probe Redis and initialise DB schema/seed data
-    get_redis()
+    # Startup: initialise DB schema/seed data
     try:
         from app.db.init_db import init_db
 
@@ -36,8 +35,6 @@ async def lifespan(app: FastAPI):
             "Database initialisation failed — may already be initialised or MySQL is unreachable."
         )
     yield
-    # Shutdown: clean up Redis connection pool
-    close_redis()
 
 
 app = FastAPI(
@@ -129,6 +126,27 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def root_health(request: Request):
     """Lightweight health check — no infrastructure details exposed."""
     return ok({"status": "ok"}, request.state.request_id)
+
+
+@app.get("/health/ready")
+def readiness_health(request: Request, response: Response):
+    """Readiness probe that verifies the authoritative database is reachable."""
+    database = db_health()
+    ready = database["status"] == "ok"
+    if not ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return ok(
+        {
+            "status": "ok" if ready else "error",
+            "database": {
+                "status": database["status"],
+                "message": (
+                    "Database is reachable." if ready else "Database is unavailable."
+                ),
+            },
+        },
+        request.state.request_id,
+    )
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)

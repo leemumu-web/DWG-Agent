@@ -6,30 +6,16 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["CELERY_TASK_ALWAYS_EAGER"] = "true"
 
 import pytest
-from fakeredis import FakeRedis
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.core.redis_client as redis_module
 from app.db.base import Base
 from app.db.session import get_db as original_get_db
 from app.main import app
 
-
-@pytest.fixture(autouse=True)
-def _isolate_redis_client(monkeypatch):
-    """Replace the real Redis module-level singleton with a FakeRedis for every test.
-
-    This ensures tests never touch a real Redis server and provide full isolation
-    between test cases (keys are flushed on teardown).
-    """
-    fake = FakeRedis(decode_responses=True)
-    monkeypatch.setattr(redis_module, "_redis_client", fake)
-    monkeypatch.setattr(redis_module, "_redis_available", True)
-    yield
-    fake.flushall()
-    fake.close()
+# Module-level vars set by _isolate_test_db so the db fixture can use them.
+_test_session_factory: sessionmaker | None = None
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +31,8 @@ def _isolate_test_db(monkeypatch):
     test double. StaticPool is required because SQLite in-memory databases are
     scoped to one DB-API connection.
     """
+    global _test_session_factory
+
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -67,6 +55,7 @@ def _isolate_test_db(monkeypatch):
     TestSessionLocal = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
     )
+    _test_session_factory = TestSessionLocal
 
     def _override_get_db():
         db = TestSessionLocal()
@@ -93,3 +82,14 @@ def _isolate_test_db(monkeypatch):
     yield
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def db() -> Session:
+    """Provide a fresh SQLAlchemy session for direct service-layer tests."""
+    assert _test_session_factory is not None, "_isolate_test_db must run first (autouse)"
+    session = _test_session_factory()
+    try:
+        yield session
+    finally:
+        session.close()

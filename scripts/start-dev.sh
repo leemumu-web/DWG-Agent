@@ -34,7 +34,6 @@ else
     info "MySQL 需要初始化..."
     bash "$PROJECT_ROOT/scripts/db.sh" init
 fi
-ensure_service 6379 redis valkey
 
 # 2. Celery workers
 step "Celery worker-report"

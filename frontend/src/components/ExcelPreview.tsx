@@ -442,7 +442,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
             ]}
           />
           <Tooltip title={mode === 'fast'
-            ? '后端 Redis 缓存解析，毫秒级加载，适合快速浏览数据'
+            ? '后端从权威存储读取并解析，适合快速浏览表格数据'
             : 'LuckyExcel 客户端解析，显示合并单元格和原始格式，首次加载需下载 ~344KB 脚本'}>
             <Text type="secondary" style={{ fontSize: 11, maxWidth: 280, display: 'inline-block', lineHeight: 1.3 }}>
               {mode === 'fast' ? '后端解析 · 秒开' : '客户端解析 · 含格式'}

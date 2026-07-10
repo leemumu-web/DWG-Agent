@@ -18,10 +18,12 @@ from app.core.constants import (
     PIPELINE_DXF,
     PIPELINE_DXF2DWG,
     PIPELINE_DXF2EXCEL,
+    PIPELINE_EXCEL_FINAL,
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
     TASK_DXF_TO_EXCEL,
+    TASK_EXCEL_FINAL,
 )
 from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
@@ -29,6 +31,7 @@ from app.models.drawing import Drawing
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.schemas.job_schema import JobCreate
+from app.services.job_events import make_event, publish_job_event
 from app.services.storage_service import save_bytes_as_file
 
 
@@ -40,6 +43,8 @@ def _pipeline_for(task_type: str) -> str:
         return PIPELINE_DXF2DWG
     if task_type == TASK_DXF_TO_EXCEL:
         return PIPELINE_DXF2EXCEL
+    if task_type == TASK_EXCEL_FINAL:
+        return PIPELINE_EXCEL_FINAL
     return PIPELINE_STUB
 
 
@@ -62,6 +67,11 @@ def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
     )
     db.add(job)
     db.flush()
+    publish_job_event(
+        db,
+        job.id,
+        make_event(type_="status", status=JOB_QUEUED, progress=0, message="任务已入队"),
+    )
     return job
 
 
@@ -96,6 +106,14 @@ def enqueue_dxf2excel_job(job_id: int) -> str:
     return str(async_result.id)
 
 
+def enqueue_excel_final_job(job_id: int) -> str:
+    """投递 Excel→零件清单 处理任务到 Celery excel_final 队列。"""
+    from app.workers.tasks_excel_final import process_excel_final_task
+
+    async_result = process_excel_final_task.delay(job_id)
+    return str(async_result.id)
+
+
 def enqueue_job(job_id: int, pipeline: str) -> str:
     """按 pipeline 投递到对应 Celery 队列。
 
@@ -107,6 +125,8 @@ def enqueue_job(job_id: int, pipeline: str) -> str:
         return enqueue_dxf2dwg_job(job_id)
     if pipeline == PIPELINE_DXF2EXCEL:
         return enqueue_dxf2excel_job(job_id)
+    if pipeline == PIPELINE_EXCEL_FINAL:
+        return enqueue_excel_final_job(job_id)
     return enqueue_stub_job(job_id)
 
 
@@ -129,6 +149,16 @@ def _mark_job_failed(job_id: int, exc: Exception) -> None:
             job.error_code = "STUB_WORKER_FAILED"
             job.error_message = _exception_message(exc)
             job.finished_at = datetime.now(UTC)
+            publish_job_event(
+                db,
+                job.id,
+                make_event(
+                    type_="error",
+                    status=JOB_FAILED,
+                    error_code=job.error_code,
+                    message=job.error_message,
+                ),
+            )
             db.commit()
     finally:
         db.close()
@@ -158,6 +188,11 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )
+        )
+        publish_job_event(
+            db,
+            job.id,
+            make_event(type_="status", status=JOB_RUNNING, progress=20, message="任务已接收"),
         )
         db.commit()
 
@@ -215,6 +250,11 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
         job.status = JOB_SUCCEEDED
         job.progress = 100
         job.finished_at = datetime.now(UTC)
+        publish_job_event(
+            db,
+            job.id,
+            make_event(type_="done", status=JOB_SUCCEEDED, progress=100, message="任务已完成"),
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -233,6 +273,11 @@ def cancel_job(db: Session, job: Job) -> Job:
             f"Job cannot be cancelled because it is already {job.status}.",
         )
     job.status = JOB_CANCELLED
+    publish_job_event(
+        db,
+        job.id,
+        make_event(type_="done", status=JOB_CANCELLED, progress=job.progress, message="任务已取消"),
+    )
     return job
 
 
@@ -246,4 +291,13 @@ def retry_job(db: Session, job: Job) -> Job:
         )
     job.status = JOB_QUEUED
     job.progress = 0
+    job.error_code = None
+    job.error_message = None
+    job.started_at = None
+    job.finished_at = None
+    publish_job_event(
+        db,
+        job.id,
+        make_event(type_="status", status=JOB_QUEUED, progress=0, message="任务已重新入队"),
+    )
     return job

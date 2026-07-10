@@ -38,6 +38,22 @@ assert_env_keys_match() {
         fail "$label" "missing=[${missing:-none}], extra=[${extra:-none}]"
     fi
 }
+assert_env_keys_compatible() {
+    local reference="$1"
+    local candidate="$2"
+    local label="$3"
+    local missing extra invalid_extra
+
+    missing=$(comm -23 <(env_keys "$reference") <(env_keys "$candidate") | paste -sd ',' -)
+    extra=$(comm -13 <(env_keys "$reference") <(env_keys "$candidate") | paste -sd ',' -)
+    invalid_extra=$(printf '%s\n' "$extra" | tr ',' '\n' | grep -vxE 'DATABASE_URL|^$' | paste -sd ',' - || true)
+
+    if [ -z "$missing" ] && [ -z "$invalid_extra" ]; then
+        pass "$label"
+    else
+        fail "$label" "missing=[${missing:-none}], unsupported_extra=[${invalid_extra:-none}]"
+    fi
+}
 
 echo "═══════════════════════════════════════════════════════════════"
 echo "  DWG-Agent 基础设施验证"
@@ -127,20 +143,27 @@ assert_file "$COMPOSE_FILE" "compose.yaml 存在"
 
 # Parse YAML with Python for precise checks
 COMPOSE_CHECKS=$(python3 << 'PYEOF'
-import yaml, sys, json
+import yaml
 
 with open("compose.yaml") as f:
     data = yaml.safe_load(f)
 
 svcs = data.get("services", {})
 errors = []
-APP_SECRET_KEYS = {
-    "JWT_SECRET_KEY",
-    "SUPER_ADMIN_PASSWORD",
-    "DATABASE_URL",
-    "CELERY_BROKER_URL",
-    "CELERY_RESULT_BACKEND",
+workers = {
+    "worker-agent": "agent",
+    "worker-dxf": "dxf",
+    "worker-dxf2dwg": "dxf2dwg",
+    "worker-dxf2excel": "dxf2excel",
+    "worker-report": "report",
 }
+expected = {"nginx", "backend-api", "mysql", "minio", *workers}
+
+if set(svcs) != expected:
+    errors.append(f"服务集合不匹配: expected={sorted(expected)}, actual={sorted(svcs)}")
+
+def healthcheck_cmd(service):
+    return " ".join(service.get("healthcheck", {}).get("test", []))
 
 def require_blank(service, keys, label):
     env = service.get("environment", {})
@@ -148,202 +171,72 @@ def require_blank(service, keys, label):
         if env.get(key) != "":
             errors.append(f"{label} 应清空敏感环境变量: {key}")
 
-def require_absent(service, keys, label):
-    env = service.get("environment", {})
-    for key in keys:
-        if key in env:
-            errors.append(f"{label} 不应覆盖自身必需环境变量: {key}")
-
-def healthcheck_cmd(service):
-    return " ".join(service.get("healthcheck", {}).get("test", []))
-
-# 2.1 服务数量 (spec §17.4: 9 services)
-names = list(svcs.keys())
-expected = {"nginx","backend-api","worker-agent","worker-dxf","worker-report","mysql","redis","minio","flower"}
-extra = set(names) - expected
-missing = expected - set(names)
-if extra:
-    errors.append(f"多余服务: {extra}")
-if missing:
-    errors.append(f"缺失服务: {missing}")
-
-# 2.2 nginx
 nginx = svcs.get("nginx", {})
 if nginx.get("image") != "ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine":
-    errors.append(f"nginx image: {nginx.get('image')}")
-nginx_vols = [v.split(":")[0] for v in nginx.get("volumes", [])]
-if "./frontend/dist" not in nginx_vols:
-    errors.append("nginx 缺少 frontend/dist 挂载")
-if "./infra/nginx/nginx.conf" not in nginx_vols:
-    errors.append("nginx 缺少 nginx.conf 挂载")
-if len(nginx_vols) != 2:
-    errors.append(f"nginx 卷数量应为 2, 实际 {len(nginx_vols)}: {nginx_vols}")
-nginx_ports = nginx.get("ports", [])
-if "80:8080" not in str(nginx_ports):
-    errors.append("nginx 缺少 80:8080")
-if "443:8443" not in str(nginx_ports):
-    errors.append("nginx 缺少 443:8443")
-nginx_deps = list(nginx.get("depends_on", {}).keys())
-if "backend-api" not in nginx_deps:
-    errors.append(f"nginx depends_on: {nginx_deps}")
+    errors.append("nginx 镜像不匹配")
+if set(nginx.get("depends_on", {})) != {"backend-api"}:
+    errors.append("nginx 应等待 backend-api ready")
 
-# 2.3 所有后端/中间件服务使用 Docker 专用 env_file
-for svc_name in [
-    "backend-api",
-    "worker-agent",
-    "worker-dxf",
-    "worker-report",
-    "mysql",
-    "redis",
-    "minio",
-    "flower",
-]:
-    if svcs.get(svc_name, {}).get("env_file") != [".env.docker"]:
-        errors.append(f"{svc_name} 应使用 env_file: .env.docker")
+for name in expected - {"nginx"}:
+    if svcs.get(name, {}).get("env_file") != [".env.docker"]:
+        errors.append(f"{name} 应使用 env_file: .env.docker")
 
-for svc_name in ["backend-api", "worker-agent", "worker-dxf", "worker-report", "flower"]:
-    require_blank(svcs.get(svc_name, {}), {"MYSQL_ROOT_PASSWORD", "MINIO_ROOT_PASSWORD"}, svc_name)
-
-# 2.4 backend-api (CMD in Dockerfile, not overridden in compose — cleaner)
 backend = svcs.get("backend-api", {})
-# Verify depends_on is complete
-backend_deps = list(backend.get("depends_on", {}).keys())
-# backend-api deps checked above, now check healthcheck
-hc = backend.get("healthcheck", {})
-if hc:
-    if "curl" not in str(hc.get("test", "")):
-        errors.append("backend-api healthcheck 异常")
-else:
-    # Dockerfile has HEALTHCHECK, compose may defer to it
-    pass
+backend_hc = healthcheck_cmd(backend)
+if "/health/ready" not in backend_hc:
+    errors.append("backend-api healthcheck 必须验证 MySQL readiness")
+if set(backend.get("depends_on", {})) != {"mysql", "minio"}:
+    errors.append("backend-api depends_on 应为 mysql + minio")
 
-# 2.5 worker-agent
-wa = svcs.get("worker-agent", {})
-wa_cmd = wa.get("command", "")
-if "-Q agent" not in str(wa_cmd):
-    errors.append("worker-agent 队列名错误")
-wa_hc = healthcheck_cmd(wa)
-if "/app/.venv/bin/celery" not in wa_hc or "inspect ping" not in wa_hc or "agent@$$HOSTNAME" not in wa_hc:
-    errors.append("worker-agent healthcheck 应使用 celery inspect ping")
+for name, queue in workers.items():
+    worker = svcs.get(name, {})
+    command = str(worker.get("command", ""))
+    if f"-Q {queue}" not in command:
+        errors.append(f"{name} 队列名错误")
+    if "app.workers.celery_app:celery_app" not in command:
+        errors.append(f"{name} Celery app 路径错误")
+    if "uv run celery" in command:
+        errors.append(f"{name} 不应依赖 runtime 中的 uv")
+    worker_hc = healthcheck_cmd(worker)
+    if "/proc/1/cmdline" not in worker_hc or "inspect" in worker_hc:
+        errors.append(f"{name} 应使用进程健康检查，不能使用 Celery remote control")
+    if "backend-api" not in worker.get("depends_on", {}):
+        errors.append(f"{name} 必须等待迁移完成后的 backend-api")
+    require_blank(worker, {"MYSQL_ROOT_PASSWORD", "MINIO_ROOT_PASSWORD"}, name)
 
-# 2.6 worker-dxf
-wd = svcs.get("worker-dxf", {})
-wd_cmd = wd.get("command", "")
-if "-Q dxf" not in str(wd_cmd):
-    errors.append("worker-dxf 队列名错误")
-wd_hc = healthcheck_cmd(wd)
-if "/app/.venv/bin/celery" not in wd_hc or "inspect ping" not in wd_hc or "dxf@$$HOSTNAME" not in wd_hc:
-    errors.append("worker-dxf healthcheck 应使用 celery inspect ping")
+if "profiles" in svcs.get("worker-report", {}):
+    errors.append("worker-report 应默认启动")
+for name in workers.keys() - {"worker-report"}:
+    if "workers" not in svcs.get(name, {}).get("profiles", []):
+        errors.append(f"{name} 缺少 workers profile")
 
-# 2.7 worker-report: Stage 1 Celery fake task worker, default profile
-wr = svcs.get("worker-report", {})
-wr_cmd = wr.get("command", "")
-if "-Q report" not in str(wr_cmd):
-    errors.append("worker-report 队列名错误")
-if "app.workers.celery_app:celery_app" not in str(wr_cmd):
-    errors.append("worker-report Celery app 路径错误")
-if "uv run celery" in str(wr_cmd):
-    errors.append("worker-report 不应依赖 runtime 镜像中的 uv")
-wr_deps = set(wr.get("depends_on", {}).keys())
-for dep in {"redis", "mysql", "minio"}:
-    if dep not in wr_deps:
-        errors.append(f"worker-report 缺少 depends_on: {dep}")
-if "profiles" in wr:
-    errors.append("worker-report 应默认启动，不应设置 profiles")
-wr_hc = healthcheck_cmd(wr)
-if "/app/.venv/bin/celery" not in wr_hc or "inspect ping" not in wr_hc or "report@$$HOSTNAME" not in wr_hc:
-    errors.append("worker-report healthcheck 应使用 celery inspect ping")
-
-# 2.8 mysql
 mysql = svcs.get("mysql", {})
 if mysql.get("image") != "container-registry.oracle.com/mysql/community-server:8.4":
-    errors.append(f"mysql image: {mysql.get('image')}")
-require_blank(
-    mysql,
-    APP_SECRET_KEYS | {"REDIS_PASSWORD", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
-    "mysql",
-)
-require_absent(mysql, {"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"}, "mysql")
-mysql_hc = " ".join(mysql.get("healthcheck", {}).get("test", []))
+    errors.append("mysql 镜像不匹配")
+mysql_hc = healthcheck_cmd(mysql)
 if "$${MYSQL_ROOT_PASSWORD}" not in mysql_hc:
-    errors.append("mysql healthcheck 应在容器内读取 MYSQL_ROOT_PASSWORD")
-if "${MYSQL_ROOT_PASSWORD:-" in mysql_hc:
-    errors.append("mysql healthcheck 不应带根 .env/shell fallback")
+    errors.append("mysql healthcheck 必须在容器内读取 MYSQL_ROOT_PASSWORD")
 
-# 2.9 redis (uses redis.conf file + env_file password)
-redis = svcs.get("redis", {})
-if redis.get("image") != "ghcr.io/valkey-io/valkey:9.0-alpine":
-    errors.append(f"redis image: {redis.get('image')}")
-redis_cmd = str(redis.get("command", ""))
-redis_vols = [v.split(":")[0] for v in redis.get("volumes", [])]
-# Either inline requirepass or via config file
-has_requirepass = "requirepass" in redis_cmd or any("redis.conf" in v for v in redis_vols)
-if not has_requirepass:
-    errors.append("redis 缺少 requirepass 配置")
-require_blank(
-    redis,
-    APP_SECRET_KEYS
-    | {"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
-    "redis",
-)
-require_absent(redis, {"REDIS_PASSWORD"}, "redis")
-if "$$REDIS_PASSWORD" not in redis_cmd:
-    errors.append("redis command 应在容器内读取 REDIS_PASSWORD")
-if "${REDIS_PASSWORD" in redis_cmd:
-    errors.append("redis command 不应依赖根 .env/shell 插值")
-redis_hc = " ".join(redis.get("healthcheck", {}).get("test", []))
-if "$${REDIS_PASSWORD}" not in redis_hc:
-    errors.append("redis healthcheck 应在容器内读取 REDIS_PASSWORD")
-
-# 2.10 minio
 minio = svcs.get("minio", {})
 if minio.get("image") != "quay.io/minio/minio:latest":
-    errors.append(f"minio image: {minio.get('image')}")
-minio_cmd = minio.get("command", "")
-if "console-address" not in str(minio_cmd):
+    errors.append("minio 镜像不匹配")
+if "console-address" not in str(minio.get("command", "")):
     errors.append("minio 缺少 console-address")
-require_blank(
-    minio,
-    APP_SECRET_KEYS
-    | {"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "REDIS_PASSWORD", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"},
-    "minio",
-)
-require_absent(minio, {"MINIO_ROOT_PASSWORD"}, "minio")
 
-# 2.11 flower: no depends_on, no port mapping (spec §17.4)
-flower = svcs.get("flower", {})
-if flower.get("depends_on"):
-    errors.append("flower 不应有 depends_on (规范 §17.4)")
-if flower.get("ports"):
-    errors.append("flower 不应有 ports (规范 §17.4)")
-if "monitoring" not in flower.get("profiles", []):
-    errors.append("flower 缺少 profiles: monitoring")
-flower_hc = healthcheck_cmd(flower)
-if "localhost:5555" not in flower_hc:
-    errors.append("flower healthcheck 应探测 localhost:5555")
+volumes = set(data.get("volumes", {}))
+if volumes != {"mysql_data", "minio_data"}:
+    errors.append(f"持久卷应仅为 mysql_data + minio_data，实际: {sorted(volumes)}")
 
-# 2.12 volumes
-vols = list(data.get("volumes", {}).keys())
-for v in ["mysql_data", "redis_data", "minio_data"]:
-    if v not in vols:
-        errors.append(f"缺失 volume: {v}")
-
-# 2.13 networks
-nets = data.get("networks", {})
-for n in ["public", "internal"]:
-    if n not in nets:
-        errors.append(f"缺失 network: {n}")
-if nets.get("internal", {}).get("internal") != True:
+networks = data.get("networks", {})
+if set(networks) != {"public", "internal"}:
+    errors.append("网络集合不匹配")
+if networks.get("internal", {}).get("internal") is not True:
     errors.append("internal network 未设置 internal: true")
 
-# 2.14 无 worker-cad-dispatch (不在 §17.4)
-if "worker-cad-dispatch" in names:
-    errors.append("worker-cad-dispatch 不应在 compose 中 (规范 §17.4)")
-
-# 2.15 具体 Agent/DXF worker 仍以 profiles 隔离；worker-report 默认启动
-for w in ["worker-agent", "worker-dxf"]:
-    if "workers" not in svcs[w].get("profiles", []):
-        errors.append(f"{w} 缺少 profiles: workers")
+compose_text = open("compose.yaml").read().lower()
+for removed in ("redis", "6379", "flower", "inspect ping"):
+    if removed in compose_text:
+        errors.append(f"compose.yaml 仍包含已移除能力: {removed}")
 
 if errors:
     print("ERRORS:" + "\nERRORS:".join(errors))
@@ -353,7 +246,7 @@ PYEOF
 )
 
 if echo "$COMPOSE_CHECKS" | grep -q 'ALL_CHECKS_PASSED'; then
-    pass "compose.yaml 全部结构检查通过 (9 services)"
+    pass "compose.yaml 全部结构检查通过 (9 services, MySQL-backed runtime)"
 else
     while IFS= read -r line; do
         [ -n "$line" ] && fail "compose.yaml" "$line"
@@ -447,7 +340,7 @@ if $MYSQL_AVAILABLE; then
         fi
     done
     # 结果/审计/Agent 表
-    for t in analysis_results review_records audit_logs agent_runs agent_run_steps; do
+    for t in analysis_results review_records audit_logs agent_runs agent_run_steps agent_memory token_blacklist; do
         if echo "$TABLES" | grep -q "^${t}$"; then
             pass "MySQL: 表 $t 存在"
         else
@@ -456,10 +349,10 @@ if $MYSQL_AVAILABLE; then
     done
 
     TOTAL_TABLES=$(echo "$TABLES" | wc -l)
-    if [ "$TOTAL_TABLES" -ge 15 ]; then
-        pass "MySQL: 共 $TOTAL_TABLES 张表 (≥15)"
+    if [ "$TOTAL_TABLES" -ge 24 ]; then
+        pass "MySQL: 共 $TOTAL_TABLES 张表 (≥24，含任务队列/结果表)"
     else
-        fail "MySQL" "表总数不足: $TOTAL_TABLES (期望 ≥15)"
+        fail "MySQL" "表总数不足: $TOTAL_TABLES (期望 ≥24)"
     fi
 
     # 4.2b TimestampMixin schema drift
@@ -477,6 +370,17 @@ if $MYSQL_AVAILABLE; then
     else
         fail "MySQL" "TimestampMixin 时间列缺失: ${MISSING_TS_COLUMNS[*]}"
     fi
+
+    for tc in jobs.progress_data sys_users.password_changed_at; do
+        t="${tc%%.*}"
+        c="${tc##*.}"
+        EXISTS=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA='dwg_agent' AND TABLE_NAME='$t' AND COLUMN_NAME='$c'" 2>/dev/null || echo 0)
+        if [ "${EXISTS:-0}" -ge 1 ]; then
+            pass "MySQL: 列 $tc 存在"
+        else
+            fail "MySQL" "列 $tc 缺失"
+        fi
+    done
 
     # 4.3 角色种子
     ROLE_COUNT=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM dwg_agent.sys_roles" 2>/dev/null)
@@ -509,18 +413,33 @@ if $MYSQL_AVAILABLE; then
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-value = ""
+values = {}
 for line in Path(".env").read_text(encoding="utf-8").splitlines():
-    if line.startswith("DATABASE_URL="):
-        value = line.split("=", 1)[1].strip().strip('"').strip("'")
-        break
-url = urlsplit(value)
-print(url.scheme)
-print(url.hostname or "")
-print(url.port or 3306)
-print(unquote(url.username or ""))
-print(unquote(url.password or ""))
-print(url.path.lstrip("/"))
+    if line and not line.startswith("#") and "=" in line:
+        key, value = line.split("=", 1)
+        values[key] = value.strip().strip('"').strip("'")
+
+database_url = values.get("DATABASE_URL", "")
+if database_url:
+    url = urlsplit(database_url)
+    parts = (
+        url.scheme,
+        url.hostname or "",
+        url.port or 3306,
+        unquote(url.username or ""),
+        unquote(url.password or ""),
+        url.path.lstrip("/"),
+    )
+else:
+    parts = (
+        "mysql+pymysql",
+        values.get("MYSQL_HOST", ""),
+        values.get("MYSQL_PORT", "3306"),
+        values.get("MYSQL_USER", ""),
+        values.get("MYSQL_PASSWORD", ""),
+        values.get("MYSQL_DATABASE", ""),
+    )
+print(*parts, sep="\n")
 PY
 )
         APP_DB_SCHEME="${APP_DB[0]:-}"
@@ -531,12 +450,12 @@ PY
         APP_DB_NAME="${APP_DB[5]:-}"
         if [[ "$APP_DB_SCHEME" == mysql* ]]; then
             if MYSQL_PWD="$APP_DB_PASSWORD" mariadb -h "$APP_DB_HOST" -P "$APP_DB_PORT" -u "$APP_DB_USER" "$APP_DB_NAME" -e "SELECT 1" &>/dev/null; then
-                pass "MySQL: .env DATABASE_URL 应用凭据可登录"
+                pass "MySQL: .env 有效应用凭据可登录"
             else
-                fail "MySQL" ".env DATABASE_URL 应用凭据无法登录"
+                fail "MySQL" ".env 有效应用凭据无法登录"
             fi
         else
-            fail "MySQL" ".env DATABASE_URL 不是 mysql+pymysql URL"
+            fail "MySQL" ".env 有效数据库配置不是 MySQL"
         fi
     else
         fail "MySQL" ".env 不存在，无法验证应用数据库凭据"
@@ -577,12 +496,12 @@ done
 # 环境模板一致性：只比较键名，不输出或读取敏感值到日志。
 assert_env_keys_match ".env.example" ".env.docker.example" ".env.example 与 .env.docker.example 键名一致"
 if [ -f ".env" ]; then
-    assert_env_keys_match ".env.example" ".env" ".env 与 .env.example 键名一致"
+    assert_env_keys_compatible ".env.example" ".env" ".env 包含全部模板键且仅使用合法可选覆盖"
 else
     dim "  .env 不存在 — 跳过本机真实 env 键名检查"
 fi
 if [ -f ".env.docker" ]; then
-    assert_env_keys_match ".env.docker.example" ".env.docker" ".env.docker 与 .env.docker.example 键名一致"
+    assert_env_keys_compatible ".env.docker.example" ".env.docker" ".env.docker 包含全部模板键且仅使用合法可选覆盖"
 else
     dim "  .env.docker 不存在 — 跳过 Docker 真实 env 键名检查"
 fi

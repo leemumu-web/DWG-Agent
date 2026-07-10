@@ -10,8 +10,8 @@ from app.db.session import SessionLocal, db_health, engine, get_db, pool_args
 
 class TestEngineConfiguration:
     def test_engine_uses_configured_url(self):
-        """Engine URL matches settings.database_url."""
-        assert str(engine.url) == settings.database_url
+        """Engine URL matches the effective application database URL."""
+        assert str(engine.url) == settings.sqlalchemy_database_url
 
     def test_pool_pre_ping_enabled(self):
         """pool_pre_ping is True regardless of backend (stored as _pre_ping on pool)."""
@@ -84,13 +84,13 @@ class TestMySQLPoolConfiguration:
         """Verify the conditional: pool_recycle=3600 would be set for mysql:// URLs."""
         mysql_url = "mysql+pymysql://user:pass@host:3306/db"
         assert mysql_url.startswith("mysql")
-        # The conditional in session.py is: if settings.database_url.startswith("mysql")
+        # The conditional in session.py uses settings.sqlalchemy_database_url.
 
     def test_settings_database_url_is_pytest_sqlite_override(self):
         """Sanity: pytest explicitly overrides the runtime MySQL URL."""
         s = Settings()
-        assert s.database_url.startswith("sqlite")
-        assert not s.database_url.startswith("mysql")
+        assert s.sqlalchemy_database_url.startswith("sqlite")
+        assert not s.sqlalchemy_database_url.startswith("mysql")
 
     def test_mysql_url_from_settings_is_compatible(self):
         """settings.mysql_url is a valid connection string that could replace DATABASE_URL."""
