@@ -28,6 +28,7 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
   CloseOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -169,6 +170,20 @@ export function Dxf2ExcelPage() {
       if (!excel?.result_file_id) { message.error('Excel 结果未找到'); return; }
       await downloadFile(excel.result_file_id, `${batchName}.xlsx`);
     } catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
+  }, [jobsByBatch]);
+
+  const handleSubmitToExcelFinal = useCallback(async (batchName: string) => {
+    try {
+      const job = jobsByBatch.get(batchName);
+      if (!job) { message.error('未找到提取任务'); return; }
+      const results = await getJobResults(job.id);
+      const excel = results.find((r) => r.result_type === 'extract_dxf_to_excel');
+      if (!excel?.result_file_id) { message.error('Excel 结果文件未找到，请先完成提取'); return; }
+      // Submit to excel_final pipeline using existing file_id
+      const { processFile } = await import('../../api/excel-final.api');
+      const jobResult = await processFile(excel.result_file_id);
+      message.success(`已提交至零件清单处理 (Job #${jobResult.job_id})。请切换到「Excel → 零件清单」Tab 查看进度`);
+    } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
   }, [jobsByBatch]);
 
   const handleRetry = useCallback(async (batchName: string) => {
@@ -541,6 +556,10 @@ export function Dxf2ExcelPage() {
                             <Tooltip title="下载 Excel">
                               <Button size="small" icon={<DownloadOutlined />}
                                 onClick={() => handleDownloadExcel(b.name)} />
+                            </Tooltip>
+                            <Tooltip title="提交至零件清单">
+                              <Button size="small" icon={<SendOutlined />} style={{ color: '#1677ff' }}
+                                onClick={() => handleSubmitToExcelFinal(b.name)} />
                             </Tooltip>
                             <Tooltip title="重新提取">
                               <Button size="small" icon={<ReloadOutlined />}

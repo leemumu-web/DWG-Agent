@@ -1,0 +1,63 @@
+# DWG-Agent — Docker Compose 开发模式覆盖
+# 用法:
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d              # 核心服务
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d --profile workers  # + worker
+#
+# 与生产模式的区别:
+#   - 后端使用 uvicorn --reload（代码改动自动重启，无需重建镜像）
+#   - 挂载后端源码 ./backend/app:/app/app（改 Python 代码即生效）
+#   - 挂载 Stages 引擎包 ./Stages:/app/Stages（改算法代码即生效）
+#   - 挂载测试数据 ./test-data:/app/test-data（放下 DXF/Excel 即可分析）
+#   - 暴露后端 8000 端口（可直连调试：http://localhost:8000/docs）
+#   - 移除 healthcheck 和 restart（避免开发中频繁重启）
+#
+# 使用示例:
+#   # 在 test-data/ 下放一个 DXF，然后在容器内测试:
+#   docker compose -f compose.yaml -f compose.dev.yaml exec backend-api \
+#     python -c "import ezdxf; doc=ezdxf.readfile('/app/test-data/test.dxf'); print(doc.layers.names())"
+
+services:
+  backend-api:
+    ports:
+      - "8000:8000"
+    volumes:
+      # 实时挂载后端源码 — 改代码自动生效（uvicorn --reload 检测到变更自动重启）
+      - ./backend/app:/app/app
+      - ./backend/migrations:/app/migrations
+      - ./backend/alembic.ini:/app/alembic.ini
+      # 实时挂载 Stages 引擎包
+      - ./Stages:/app/Stages
+      # 测试数据目录 — 容器内路径 /app/test-data
+      - ./test-data:/app/test-data
+    command:
+      - sh
+      - -c
+      - |
+        alembic upgrade head && \
+        python -m app.db.init_db && \
+        exec uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  # Worker 也挂载源码和测试数据（profile: workers 时生效）
+  worker-excel-final:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages:/app/Stages
+      - ./test-data:/app/test-data
+    restart: "no"
+
+  worker-dxf:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages:/app/Stages
+      - ./test-data:/app/test-data
+    restart: "no"
+
+  worker-dxf2excel:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages:/app/Stages
+      - ./test-data:/app/test-data
+    restart: "no"
