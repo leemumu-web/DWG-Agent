@@ -686,9 +686,8 @@ def run_excel_final_processing(
                     batch.total_net_weight = float(total_net) if total_net else None
 
                 db_stats = {
-                    "batch_id": batch.id,
-                    **parts_stats,
-                    **comps_stats,
+                    "parts_imported": parts_stats.get("parts_imported", 0),
+                    "components_imported": comps_stats.get("components_imported", 0),
                 }
             except Exception as exc:
                 logger.exception("DB import failed for excel_final job %s", job_id)
