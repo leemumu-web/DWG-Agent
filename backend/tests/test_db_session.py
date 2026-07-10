@@ -26,7 +26,13 @@ class TestPoolArgs:
 
     def test_pool_args_always_populated(self):
         """pool_args is unconditional, always providing MySQL tuning values."""
-        assert pool_args == {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
+        assert pool_args == {
+            "pool_recycle": 3600,
+            "pool_size": 2,
+            "max_overflow": 2,
+            "pool_timeout": 30,
+            "pool_use_lifo": True,
+        }
 
 
 class TestDbHealth:
@@ -101,3 +107,11 @@ class TestMySQLPoolConfiguration:
         assert url.drivername == "mysql+pymysql"
         assert url.host == "127.0.0.1"
         assert url.database == "dwg_agent"
+
+    def test_pool_defaults_are_bounded_for_multiprocess_deployment(self):
+        s = Settings(_env_file=None)
+
+        assert s.db_pool_size == 2
+        assert s.db_pool_max_overflow == 2
+        assert s.db_pool_timeout_seconds == 30
+        assert s.db_pool_recycle_seconds == 3600

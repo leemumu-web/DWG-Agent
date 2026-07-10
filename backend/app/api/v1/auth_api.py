@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db, get_raw_access_token
 from app.core.config import settings
-from app.core.constants import ACTIVE
+from app.core.constants import ACTIVE, JOB_EVENTS_COOKIE_NAME
 from app.core.exceptions import AppHTTPException
 from app.core.security import decode_token, hash_password, verify_password
 from app.models.user import User
@@ -40,6 +40,25 @@ def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
 
 
+def _set_job_events_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        JOB_EVENTS_COOKIE_NAME,
+        token,
+        max_age=settings.jwt_access_token_expire_minutes * 60,
+        httponly=True,
+        secure=settings.refresh_cookie_secure_enabled,
+        samesite="lax",
+        path=f"{settings.api_v1_prefix}/jobs",
+    )
+
+
+def _clear_job_events_cookie(response: Response) -> None:
+    response.delete_cookie(
+        JOB_EVENTS_COOKIE_NAME,
+        path=f"{settings.api_v1_prefix}/jobs",
+    )
+
+
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 def create_session(
     payload: LoginRequest,
@@ -54,6 +73,7 @@ def create_session(
         )
     token = build_login_token(user)
     _set_refresh_cookie(response, build_refresh_token(user))
+    _set_job_events_cookie(response, token)
     write_audit_log(
         db, actor_user_id=user.id, action="auth.login", resource_type="user", resource_id=user.id,
         request=request,
@@ -93,12 +113,13 @@ def delete_current_session(
     )
     db.commit()
     _clear_refresh_cookie(response)
+    _clear_job_events_cookie(response)
     response.status_code = status.HTTP_204_NO_CONTENT
     return None
 
 
 @router.post("/tokens/refresh")
-def refresh_token(request: Request, db: Session = Depends(get_db)):
+def refresh_token(request: Request, response: Response, db: Session = Depends(get_db)):
     token = request.cookies.get(REFRESH_COOKIE_NAME)
     if not token:
         raise AppHTTPException(
@@ -140,8 +161,10 @@ def refresh_token(request: Request, db: Session = Depends(get_db)):
             "Refresh token has been revoked (password changed).",
         )
 
+    access_token = build_login_token(user)
+    _set_job_events_cookie(response, access_token)
     data = LoginResponse(
-        access_token=build_login_token(user),
+        access_token=access_token,
         expires_in=settings.jwt_access_token_expire_minutes * 60,
         user=UserRead.model_validate(user),
     )
@@ -157,6 +180,7 @@ def get_me(request: Request, current_user: CurrentUser):
 def change_password(
     payload: ChangePasswordRequest,
     request: Request,
+    response: Response,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
@@ -181,5 +205,7 @@ def change_password(
     # Persist the new hash, audit record and revocation marker atomically.
     record_password_change(db, current_user.id)
     db.commit()
+    _clear_refresh_cookie(response)
+    _clear_job_events_cookie(response)
 
     return ok({"changed": True}, request.state.request_id)

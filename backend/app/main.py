@@ -17,6 +17,7 @@ from app.core.exceptions import AppHTTPException
 from app.core.logger import configure_logging
 from app.db.session import db_health
 from app.schemas.common import meta, ok
+from app.services.storage_service import storage_health
 
 configure_logging()
 
@@ -130,9 +131,10 @@ def root_health(request: Request):
 
 @app.get("/health/ready")
 def readiness_health(request: Request, response: Response):
-    """Readiness probe that verifies the authoritative database is reachable."""
+    """Readiness probe for the authoritative database and configured storage."""
     database = db_health()
-    ready = database["status"] == "ok"
+    storage = storage_health()
+    ready = database["status"] == "ok" and storage["status"] == "ok"
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return ok(
@@ -140,8 +142,14 @@ def readiness_health(request: Request, response: Response):
             "status": "ok" if ready else "error",
             "database": {
                 "status": database["status"],
+                "message": ("Database is reachable." if ready else "Database is unavailable."),
+            },
+            "storage": {
+                "status": storage["status"],
                 "message": (
-                    "Database is reachable." if ready else "Database is unavailable."
+                    "Storage is reachable."
+                    if storage["status"] == "ok"
+                    else "Storage is unavailable."
                 ),
             },
         },

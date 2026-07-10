@@ -41,7 +41,7 @@ function describeError(e: ApiError): string {
 }
 
 const HIGHLIGHTS = [
-  { icon: <ThunderboltOutlined />, title: '双流水线', desc: 'ezdxf 速处理 + ZWCAD 高精' },
+  { icon: <ThunderboltOutlined />, title: '多流水线', desc: 'ODA 转换 + 表格提取' },
   { icon: <ApartmentOutlined />, title: '项目级 RBAC', desc: '全局角色 + 项目角色' },
   { icon: <AuditOutlined />, title: '完整留痕', desc: '关键操作审计可追溯' },
   { icon: <SafetyOutlined />, title: '安全凭证', desc: '短时令牌 + 刷新 Cookie' },
@@ -137,8 +137,7 @@ export function LoginPage() {
             企业级 CAD 智能处理平台
           </Typography.Title>
           <Typography.Paragraph style={{ color: 'rgba(255,255,255,0.85)', fontSize: 15, maxWidth: 480 }}>
-            接收 DWG 图纸,经 LLM Agent 理解自然语言任务,路由至 ezdxf 速处理或 ZWCAD
-            高精流水线,端到端覆盖上传、解析、复核与审计。
+            接收 DWG/DXF 与工程表格，按任务路由至转换、提取和审核流程，覆盖上传、处理、复核与审计。
           </Typography.Paragraph>
 
           <div style={{ marginTop: 32, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 480 }}>
@@ -185,13 +184,13 @@ export function LoginPage() {
             登录
           </Typography.Title>
           <Typography.Text type="secondary">
-            使用平台账号登录,新会话生效后旧令牌自动失效。
+            使用平台账号登录；密码变更会立即撤销现有会话。
           </Typography.Text>
 
           <Form
             layout="vertical"
             onFinish={onFinish}
-            autoComplete="off"
+            autoComplete="on"
             style={{ marginTop: 28 }}
             requiredMark={false}
           >
@@ -204,6 +203,7 @@ export function LoginPage() {
                 size="large"
                 prefix={<UserOutlined />}
                 placeholder="用户名 / 工号"
+                autoComplete="username"
                 autoFocus
               />
             </Form.Item>
@@ -212,7 +212,12 @@ export function LoginPage() {
               label="密码"
               rules={[{ required: true, message: '请输入密码' }]}
             >
-              <Input.Password size="large" prefix={<LockOutlined />} placeholder="登录密码" />
+              <Input.Password
+                size="large"
+                prefix={<LockOutlined />}
+                placeholder="登录密码"
+                autoComplete="current-password"
+              />
             </Form.Item>
             <Form.Item style={{ marginBottom: 12 }}>
               <Button

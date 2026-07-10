@@ -44,6 +44,8 @@ step "Celery worker-dxf2dwg"
 start_dxf2dwg_worker
 step "Celery worker-dxf2excel"
 start_dxf2excel_worker
+step "Celery worker-excel-final"
+start_excel_final_worker
 
 # 3. 后端
 step "后端 (127.0.0.1:8000)"

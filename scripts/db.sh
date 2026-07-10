@@ -319,12 +319,16 @@ from sqlalchemy import create_engine, inspect, text
 from app.core.config import settings
 
 expected_tables = {
+    "agent_memory",
     "agent_run_steps",
     "agent_runs",
     "analysis_results",
     "audit_logs",
     "drawing_versions",
     "drawings",
+    "excel_final_batches",
+    "excel_final_components",
+    "excel_final_parts",
     "files",
     "job_steps",
     "jobs",
@@ -336,6 +340,7 @@ expected_tables = {
     "sys_roles",
     "sys_user_roles",
     "sys_users",
+    "token_blacklist",
 }
 timestamp_tables = (
     "project_members",
@@ -344,7 +349,17 @@ timestamp_tables = (
     "agent_run_steps",
 )
 
-engine = create_engine(settings.database_url)
+expected_columns = {
+    "jobs": {"progress_data"},
+    "sys_users": {"password_changed_at"},
+}
+expected_bigint_columns = {
+    "excel_final_batches": {"id", "job_id", "file_id"},
+    "excel_final_parts": {"id", "batch_id"},
+    "excel_final_components": {"id", "batch_id"},
+}
+
+engine = create_engine(settings.sqlalchemy_database_url)
 with engine.connect() as conn:
     inspector = inspect(conn)
     tables = set(inspector.get_table_names())
@@ -352,11 +367,47 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
+    if version != "7f2a9c4e6b10":
+        raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}
         missing_columns = {"created_at", "updated_at"} - columns
         if missing_columns:
             raise SystemExit(f"{table} missing {sorted(missing_columns)}")
+    for table, required_columns in expected_columns.items():
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        missing_columns = required_columns - columns
+        if missing_columns:
+            raise SystemExit(f"{table} missing {sorted(missing_columns)}")
+    for table, required_columns in expected_bigint_columns.items():
+        columns = {
+            column["name"]: str(column["type"]).upper()
+            for column in inspector.get_columns(table)
+        }
+        wrong_types = {
+            column: columns.get(column)
+            for column in required_columns
+            if not columns.get(column, "").startswith("BIGINT")
+        }
+        if wrong_types:
+            raise SystemExit(f"{table} identifier types are not BIGINT: {wrong_types}")
+    batch_fks = {
+        tuple(foreign_key["constrained_columns"]): (
+            foreign_key["referred_table"],
+            foreign_key.get("options", {}).get("ondelete"),
+        )
+        for foreign_key in inspector.get_foreign_keys("excel_final_batches")
+    }
+    if batch_fks.get(("job_id",)) != ("jobs", "CASCADE"):
+        raise SystemExit(f"invalid Excel Final job FK: {batch_fks.get(('job_id',))}")
+    if batch_fks.get(("file_id",)) != ("files", "SET NULL"):
+        raise SystemExit(f"invalid Excel Final file FK: {batch_fks.get(('file_id',))}")
+    unique_columns = {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("excel_final_batches")
+    }
+    if ("job_id",) not in unique_columns:
+        raise SystemExit("excel_final_batches.job_id is not unique")
 print(f"Alembic head: {version}; business tables: {len(expected_tables)}")
 PY
     )

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -33,6 +34,8 @@ from app.models.result import AnalysisResult
 from app.schemas.job_schema import JobCreate
 from app.services.job_events import make_event, publish_job_event
 from app.services.storage_service import save_bytes_as_file
+
+logger = logging.getLogger(__name__)
 
 
 def _pipeline_for(task_type: str) -> str:
@@ -73,6 +76,48 @@ def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
         make_event(type_="status", status=JOB_QUEUED, progress=0, message="任务已入队"),
     )
     return job
+
+
+def claim_queued_job(
+    db: Session,
+    job_id: int,
+    *,
+    pipeline: str,
+    progress: int,
+    message: str,
+    event_data: dict[str, object] | None = None,
+) -> Job | None:
+    """Atomically transition one queued job to running.
+
+    The conditional UPDATE is the cross-process idempotency boundary. Only the
+    worker whose statement updates one row may perform external side effects.
+    """
+    started_at = datetime.now(UTC)
+    event = make_event(
+        type_="status",
+        status=JOB_RUNNING,
+        progress=progress,
+        message=message,
+        **(event_data or {}),
+    )
+    event["job_id"] = job_id
+    result = db.execute(
+        update(Job)
+        .where(Job.id == job_id, Job.status == JOB_QUEUED)
+        .values(
+            status=JOB_RUNNING,
+            progress=progress,
+            pipeline=pipeline,
+            started_at=started_at,
+            progress_data=event,
+            updated_at=started_at,
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        return None
+    db.commit()
+    return db.get(Job, job_id, populate_existing=True)
 
 
 def enqueue_stub_job(job_id: int) -> str:
@@ -130,6 +175,46 @@ def enqueue_job(job_id: int, pipeline: str) -> str:
     return enqueue_stub_job(job_id)
 
 
+def dispatch_committed_job(db: Session, job: Job) -> str:
+    """Dispatch a committed job and compensate a definite broker failure.
+
+    If the broker call raises after delivery, a worker may already have claimed
+    the row. In that case its non-queued DB state wins and is never overwritten.
+    """
+    try:
+        return enqueue_job(job.id, job.pipeline or PIPELINE_STUB)
+    except Exception as exc:
+        logger.exception("Celery dispatch failed for job_id=%s", job.id)
+        db.rollback()
+        current = db.get(Job, job.id, populate_existing=True)
+        if current is not None and current.status != JOB_QUEUED:
+            return ""
+
+        message = "The task could not be dispatched to the queue."
+        if current is not None:
+            current.status = JOB_FAILED
+            current.error_code = "JOB_ENQUEUE_FAILED"
+            current.error_message = message
+            current.finished_at = datetime.now(UTC)
+            publish_job_event(
+                db,
+                current.id,
+                make_event(
+                    type_="error",
+                    status=JOB_FAILED,
+                    error_code=current.error_code,
+                    message=message,
+                ),
+            )
+            db.commit()
+        raise AppHTTPException(
+            503,
+            "JOB_ENQUEUE_FAILED",
+            "Job was saved but could not be dispatched to Celery.",
+            {"job_id": job.id},
+        ) from exc
+
+
 def _exception_message(exc: Exception) -> str:
     detail = getattr(exc, "detail", None)
     if isinstance(detail, dict):
@@ -168,15 +253,16 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
     """Celery fake task for Stage 1: prove queue/status/result/review plumbing."""
     db = SessionLocal()
     try:
-        job = db.get(Job, job_id)
-        if not job:
+        job = claim_queued_job(
+            db,
+            job_id,
+            pipeline=PIPELINE_STUB,
+            progress=20,
+            message="任务已接收",
+        )
+        if job is None:
             return
-        if job.status != JOB_QUEUED:
-            return
-        started_at = datetime.now(UTC)
-        job.status = JOB_RUNNING
-        job.progress = 20
-        job.started_at = started_at
+        started_at = job.started_at or datetime.now(UTC)
         db.add(
             JobStep(
                 job_id=job.id,
@@ -188,11 +274,6 @@ def run_local_stub_job(job_id: int, worker_name: str = "celery_stub") -> None:
                 started_at=started_at,
                 finished_at=datetime.now(UTC),
             )
-        )
-        publish_job_event(
-            db,
-            job.id,
-            make_event(type_="status", status=JOB_RUNNING, progress=20, message="任务已接收"),
         )
         db.commit()
 

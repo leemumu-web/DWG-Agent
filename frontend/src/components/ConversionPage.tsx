@@ -40,6 +40,7 @@ import {
   downloadFile,
   bulkDeleteFiles,
   uploadFolder,
+  uploadFile,
   uploadZip,
 } from '../api/files.api';
 import { listJobs, getJobResults, retryJob, cancelAllJobs } from '../api/jobs.api';
@@ -561,7 +562,6 @@ export function ConversionPage(props: ConversionPageProps) {
               const result = await uploadFolder(files, folderName, {
                 fileExt: p.acceptExt,
                 onFile: async (file: File, bn: string) => {
-                  const { uploadFile } = await import("../api/files.api");
                   const stored = await uploadFile(file, bn);
                   return p.createJobFn(stored.id);
                 },
@@ -578,7 +578,7 @@ export function ConversionPage(props: ConversionPageProps) {
             }
           }}
         />
-        <FileUpload onUploaded={refresh} batchName={selectedBatch ?? undefined} acceptExt={p.acceptExt} label={`上传 ${p.tagPending} 文件`} uploadFn={async (file: File, bn?: string) => { const { uploadFile } = await import("../api/files.api"); const stored = await uploadFile(file, bn); return p.createJobFn(stored.id); }} />
+        <FileUpload onUploaded={refresh} batchName={selectedBatch ?? undefined} acceptExt={p.acceptExt} label={`上传 ${p.tagPending} 文件`} uploadFn={async (file: File, bn?: string) => { const stored = await uploadFile(file, bn); return p.createJobFn(stored.id); }} />
         <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick} style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
           上传文件夹
         </Button>

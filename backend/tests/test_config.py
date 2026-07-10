@@ -213,3 +213,7 @@ class TestMysqlPortIsInt:
         s = Settings()
         assert s.mysql_port == 13306
         assert isinstance(s.mysql_port, int)
+
+
+def test_excel_final_pipeline_is_disabled_by_default():
+    assert Settings(_env_file=None).excel_final_pipeline_enabled is False

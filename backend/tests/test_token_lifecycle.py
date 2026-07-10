@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.db.init_db import init_db
 from app.main import app
+from app.models.job import Job
 
 
 def _client() -> TestClient:
@@ -101,6 +102,71 @@ def test_logout_clears_refresh_cookie():
     # The cookie value should be cleared (empty string or max_age=0 equivalent)
     remaining = post_logout_cookies.get("dwg_refresh_token")
     assert remaining is None or remaining == "", f"Cookie not cleared: {remaining!r}"
+    sse_remaining = post_logout_cookies.get("dwg_sse_token")
+    assert sse_remaining is None or sse_remaining == ""
+
+
+def test_login_sets_scoped_httponly_sse_cookie():
+    client = _client()
+
+    response = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+
+    cookies = response.headers.get_list("set-cookie")
+    sse_cookie = next(value for value in cookies if value.startswith("dwg_sse_token="))
+    assert "HttpOnly" in sse_cookie
+    assert "Path=/api/v1/jobs" in sse_cookie
+
+
+def test_sse_accepts_scoped_cookie_without_token_query(db):
+    client = _client()
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    user_id = login.json()["data"]["user"]["id"]
+    job = Job(
+        created_by=user_id,
+        task_type="sse-cookie-test",
+        precision_level="normal",
+        pipeline="local_stub",
+        status="succeeded",
+        progress=100,
+    )
+    db.add(job)
+    db.commit()
+
+    response = client.get(f"/api/v1/jobs/{job.id}/events")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+
+
+def test_sse_rejects_query_token_without_header_or_cookie(db):
+    authenticated = _client()
+    login = authenticated.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    token = login.json()["data"]["access_token"]
+    user_id = login.json()["data"]["user"]["id"]
+    job = Job(
+        created_by=user_id,
+        task_type="sse-query-rejected",
+        precision_level="normal",
+        pipeline="local_stub",
+        status="succeeded",
+        progress=100,
+    )
+    db.add(job)
+    db.commit()
+
+    anonymous = TestClient(app)
+    response = anonymous.get(f"/api/v1/jobs/{job.id}/events?token={token}")
+
+    assert response.status_code == 401
 
 
 def test_blacklisted_token_cannot_be_used_for_any_endpoint():

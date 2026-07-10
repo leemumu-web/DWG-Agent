@@ -5,6 +5,9 @@ export interface SystemHealth {
   features: {
     agent: boolean;
     dxf_pipeline: boolean;
+    dxf2dwg_pipeline: boolean;
+    dxf2excel_pipeline: boolean;
+    excel_final_pipeline: boolean;
     cad_worker: boolean;
   };
   storage_backend: string;

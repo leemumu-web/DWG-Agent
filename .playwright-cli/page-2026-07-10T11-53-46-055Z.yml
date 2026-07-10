@@ -1,0 +1,136 @@
+- generic [ref=e13]:
+  - complementary [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - generic [ref=e17]: DW
+        - generic [ref=e18]: DWG-Agent
+      - menu [ref=e19]:
+        - menuitem [ref=e20] [cursor=pointer]:
+          - img "dashboard" [ref=e21]
+          - link "工作台" [ref=e25]:
+            - /url: /dashboard
+        - menuitem [ref=e26] [cursor=pointer]:
+          - img "project" [ref=e27]
+          - link "项目" [ref=e31]:
+            - /url: /projects
+        - menuitem [ref=e32] [cursor=pointer]:
+          - img "file" [ref=e33]
+          - link "文件转换" [ref=e37]:
+            - /url: /files
+        - menuitem [ref=e38] [cursor=pointer]:
+          - img "file-image" [ref=e39]
+          - link "图纸" [ref=e43]:
+            - /url: /drawings
+        - menuitem [ref=e44] [cursor=pointer]:
+          - img "cloud" [ref=e45]
+          - link "任务" [ref=e49]:
+            - /url: /jobs
+        - menuitem [ref=e50] [cursor=pointer]:
+          - img "audit" [ref=e51]
+          - link "复核" [ref=e55]:
+            - /url: /reviews
+        - menuitem [ref=e56] [cursor=pointer]:
+          - img "team" [ref=e57]
+          - link "用户管理" [ref=e61]:
+            - /url: /admin/users
+        - menuitem [ref=e62] [cursor=pointer]:
+          - img "safety-certificate" [ref=e63]
+          - link "角色权限" [ref=e67]:
+            - /url: /admin/roles
+        - menuitem [ref=e68] [cursor=pointer]:
+          - img "profile" [ref=e69]
+          - link "审计日志" [ref=e73]:
+            - /url: /admin/audit-logs
+  - generic [ref=e74]:
+    - banner [ref=e75]:
+      - generic [ref=e76]:
+        - button [ref=e78] [cursor=pointer]:
+          - img "menu-fold" [ref=e80]
+        - navigation [ref=e84]:
+          - list [ref=e85]:
+            - listitem [ref=e86]: DWG-Agent
+            - listitem [ref=e87]: /
+            - listitem [ref=e88]: 文件转换
+      - generic [ref=e89]:
+        - generic [ref=e90]: Stage 1
+        - generic [ref=e93] [cursor=pointer]:
+          - generic [ref=e94]: 系
+          - generic [ref=e98]:
+            - generic [ref=e99]: 系统管理员
+            - generic [ref=e100]: super_admin
+    - main [ref=e102]:
+      - generic [ref=e103]:
+        - tablist [ref=e104]:
+          - generic [ref=e106]:
+            - tab [ref=e108] [cursor=pointer]:
+              - generic [ref=e109]:
+                - img "swap" [ref=e110]
+                - text: DWG → DXF
+            - tab [ref=e114] [cursor=pointer]:
+              - generic [ref=e115]:
+                - img "undo" [ref=e116]
+                - text: DXF → DWG
+            - tab [ref=e120] [cursor=pointer]:
+              - generic [ref=e121]:
+                - img "table" [ref=e122]
+                - text: DXF → Excel
+            - tab [selected] [ref=e126] [cursor=pointer]:
+              - generic [ref=e127]:
+                - img "file-excel" [ref=e128]
+                - text: Excel → 零件清单
+        - generic:
+          - generic:
+            - tabpanel "file-excel Excel → 零件清单"
+      - generic [ref=e131]:
+        - generic [ref=e132]:
+          - heading "Excel 零件清单" [level=3] [ref=e133]
+          - button [ref=e134] [cursor=pointer]:
+            - img "reload" [ref=e136]
+        - generic [ref=e139]:
+          - img "file-excel" [ref=e140]
+          - generic [ref=e143]:
+            - button "upload 选择 Excel" [active] [ref=e146] [cursor=pointer]:
+              - img "upload" [ref=e148]
+              - generic [ref=e151]: 选择 Excel
+            - generic [ref=e231]:
+              - img "paper-clip" [ref=e233]
+              - button "G区域四节钢柱构件零件清单毛净重.xLS" [ref=e236]
+              - button [ref=e238] [cursor=pointer]:
+                - img "delete" [ref=e240]
+          - button "play-circle 提交处理" [ref=e152] [cursor=pointer]:
+            - img "play-circle" [ref=e244]
+            - generic [ref=e248]: 提交处理
+        - heading "近期任务" [level=5] [ref=e153]
+        - table [ref=e160]:
+          - rowgroup [ref=e168]:
+            - row [ref=e169]:
+              - columnheader "任务" [ref=e170]
+              - columnheader "源文件" [ref=e171]
+              - columnheader "状态" [ref=e172]
+              - columnheader "进度" [ref=e173]
+              - columnheader "创建时间" [ref=e174]
+              - columnheader "操作" [ref=e175]
+          - rowgroup [ref=e176]:
+            - row [ref=e177]:
+              - cell "暂无数据 暂无数据" [ref=e178]:
+                - generic [ref=e180]:
+                  - img "暂无数据" [ref=e182]
+                  - generic [ref=e188]: 暂无数据
+        - heading "处理批次" [level=5] [ref=e189]
+        - table [ref=e196]:
+          - rowgroup [ref=e206]:
+            - row [ref=e207]:
+              - columnheader "批次" [ref=e208]
+              - columnheader "源文件" [ref=e209]
+              - columnheader "格式" [ref=e210]
+              - columnheader "零件" [ref=e211]
+              - columnheader "构件" [ref=e212]
+              - columnheader "净重 (kg)" [ref=e213]
+              - columnheader "创建时间" [ref=e214]
+              - columnheader "操作" [ref=e215]
+          - rowgroup [ref=e216]:
+            - row [ref=e217]:
+              - cell "暂无数据 暂无数据" [ref=e218]:
+                - generic [ref=e220]:
+                  - img "暂无数据" [ref=e222]
+                  - generic [ref=e228]: 暂无数据

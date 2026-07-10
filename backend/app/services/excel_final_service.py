@@ -27,7 +27,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.constants import (
     JOB_FAILED,
-    JOB_QUEUED,
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_EXCEL_FINAL,
@@ -43,6 +42,7 @@ from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.services.job_events import make_event, publish_job_event
+from app.services.job_service import claim_queued_job
 from app.services.storage_service import (
     get_storage_backend,
     sanitize_filename,
@@ -66,8 +66,15 @@ _ALGO_VERSION = "excel_final"
 
 # 初始表 format signature headers (for auto-detection)
 _INIT_TABLE_SIGNATURE = [
-    "零件号", "截面型材", "长度(mm)", "材质", "数量",
-    "单重(kg)", "总重(kg)", "总面积(m2)", "备注",
+    "零件号",
+    "截面型材",
+    "长度(mm)",
+    "材质",
+    "数量",
+    "单重(kg)",
+    "总重(kg)",
+    "总面积(m2)",
+    "备注",
 ]
 
 
@@ -82,7 +89,9 @@ def _exception_message(exc: Exception) -> str:
 
 
 def _mark_job_failed(
-    job_id: int, exc: Exception, error_code: str = ERROR_CODE_PIPELINE_FAILED,
+    job_id: int,
+    exc: Exception,
+    error_code: str = ERROR_CODE_PIPELINE_FAILED,
 ) -> None:
     """独立 session 标记任务失败（仿 dxf2excel_service._mark_job_failed）。"""
     db = SessionLocal()
@@ -94,7 +103,8 @@ def _mark_job_failed(
             job.error_message = _exception_message(exc)
             job.finished_at = datetime.now(UTC)
             publish_job_event(
-                db, job_id,
+                db,
+                job_id,
                 make_event(
                     type_="error",
                     status=JOB_FAILED,
@@ -121,17 +131,19 @@ def _add_step(
     error_message: str | None = None,
     started_at: datetime | None = None,
 ) -> None:
-    db.add(JobStep(
-        job_id=job_id,
-        step_name=step_name,
-        worker_name=worker_name,
-        status=status,
-        input_json=input_json,
-        output_json=output_json,
-        error_message=error_message,
-        started_at=started_at,
-        finished_at=datetime.now(UTC),
-    ))
+    db.add(
+        JobStep(
+            job_id=job_id,
+            step_name=step_name,
+            worker_name=worker_name,
+            status=status,
+            input_json=input_json,
+            output_json=output_json,
+            error_message=error_message,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+        )
+    )
 
 
 def _resolve_file_id(job: Job) -> int | None:
@@ -154,11 +166,9 @@ def _detect_format(filepath: Path) -> str:
                 wb.close()
                 return "init"
             ws = wb.worksheets[0]
-            row2_cells = [str(ws.cell(row=2, column=c).value or "")
-                          for c in range(1, 10)]
+            row2_cells = [str(ws.cell(row=2, column=c).value or "") for c in range(1, 10)]
             match_count = sum(
-                1 for kw in _INIT_TABLE_SIGNATURE
-                if any(kw in cell for cell in row2_cells)
+                1 for kw in _INIT_TABLE_SIGNATURE if any(kw in cell for cell in row2_cells)
             )
             wb.close()
             if match_count >= 7:
@@ -228,8 +238,7 @@ def _import_parts_to_db(
 
     # Map header names to column indices
     _col = lambda *keys: next(  # noqa: E731
-        (i + 1 for i, h in enumerate(headers)
-         if any(k in h for k in keys)),
+        (i + 1 for i, h in enumerate(headers) if any(k in h for k in keys)),
         None,
     )
 
@@ -285,36 +294,46 @@ def _import_parts_to_db(
         if all(v is None for v in row_vals):
             continue
 
-        parts.append({
-            "batch_id": batch_id,
-            "seq": int(_f(row_vals[seq_col - 1]) or 0) if seq_col else r - 1,
-            "component_no": _s(row_vals[comp_no_col - 1]) if comp_no_col else None,
-            "component_qty": int(_f(row_vals[comp_qty_col - 1]) or 0) if comp_qty_col and row_vals[comp_qty_col - 1] is not None else None,
-            "part_type": _s(row_vals[type_col - 1]) if type_col else None,
-            "part_no": _s(row_vals[part_no_col - 1]) if part_no_col else None,
-            "profile_spec": _s(row_vals[profile_spec_col - 1]) if profile_spec_col else None,
-            "spec": _s(row_vals[spec_col - 1]) if spec_col else None,
-            "width": _f(row_vals[width_col - 1]) if width_col else None,
-            "length": _f(row_vals[len_col - 1]) if len_col else None,
-            "left_inset": _f(row_vals[left_col - 1]) if left_col else None,
-            "right_inset": _f(row_vals[right_col - 1]) if right_col else None,
-            "cut_length": _f(row_vals[cut_len_col - 1]) if cut_len_col else None,
-            "material": _s(row_vals[mat_col - 1]) if mat_col else None,
-            "qty": _f(row_vals[qty_col - 1]) if qty_col else None,
-            "total_qty": _f(row_vals[total_qty_col - 1]) if total_qty_col else None,
-            "total_length": _f(row_vals[total_len_col - 1]) if total_len_col else None,
-            "density": _f(row_vals[density_col - 1]) if density_col else None,
-            "theo_unit_weight": _f(row_vals[theo_unit_col - 1]) if theo_unit_col else None,
-            "theo_total_weight": _f(row_vals[theo_total_col - 1]) if theo_total_col else None,
-            "net_unit_weight": _f(row_vals[net_unit_col - 1]) if net_unit_col else None,
-            "net_total_weight": _f(row_vals[net_total_col - 1]) if net_total_col else None,
-            "table_net_weight": _f(row_vals[table_net_col - 1]) if table_net_col else None,
-            "gross_unit_weight": _f(row_vals[gross_unit_col - 1]) if gross_unit_col else None,
-            "gross_total_weight": _f(row_vals[gross_total_col - 1]) if gross_total_col else None,
-            "table_gross_weight": _f(row_vals[table_gross_col - 1]) if table_gross_col else None,
-            "surface_area": _f(row_vals[surface_col - 1]) if surface_col else None,
-            "total_surface_area": _f(row_vals[total_surface_col - 1]) if total_surface_col else None,
-        })
+        parts.append(
+            {
+                "batch_id": batch_id,
+                "seq": int(_f(row_vals[seq_col - 1]) or 0) if seq_col else r - 1,
+                "component_no": _s(row_vals[comp_no_col - 1]) if comp_no_col else None,
+                "component_qty": int(_f(row_vals[comp_qty_col - 1]) or 0)
+                if comp_qty_col and row_vals[comp_qty_col - 1] is not None
+                else None,
+                "part_type": _s(row_vals[type_col - 1]) if type_col else None,
+                "part_no": _s(row_vals[part_no_col - 1]) if part_no_col else None,
+                "profile_spec": _s(row_vals[profile_spec_col - 1]) if profile_spec_col else None,
+                "spec": _s(row_vals[spec_col - 1]) if spec_col else None,
+                "width": _f(row_vals[width_col - 1]) if width_col else None,
+                "length": _f(row_vals[len_col - 1]) if len_col else None,
+                "left_inset": _f(row_vals[left_col - 1]) if left_col else None,
+                "right_inset": _f(row_vals[right_col - 1]) if right_col else None,
+                "cut_length": _f(row_vals[cut_len_col - 1]) if cut_len_col else None,
+                "material": _s(row_vals[mat_col - 1]) if mat_col else None,
+                "qty": _f(row_vals[qty_col - 1]) if qty_col else None,
+                "total_qty": _f(row_vals[total_qty_col - 1]) if total_qty_col else None,
+                "total_length": _f(row_vals[total_len_col - 1]) if total_len_col else None,
+                "density": _f(row_vals[density_col - 1]) if density_col else None,
+                "theo_unit_weight": _f(row_vals[theo_unit_col - 1]) if theo_unit_col else None,
+                "theo_total_weight": _f(row_vals[theo_total_col - 1]) if theo_total_col else None,
+                "net_unit_weight": _f(row_vals[net_unit_col - 1]) if net_unit_col else None,
+                "net_total_weight": _f(row_vals[net_total_col - 1]) if net_total_col else None,
+                "table_net_weight": _f(row_vals[table_net_col - 1]) if table_net_col else None,
+                "gross_unit_weight": _f(row_vals[gross_unit_col - 1]) if gross_unit_col else None,
+                "gross_total_weight": _f(row_vals[gross_total_col - 1])
+                if gross_total_col
+                else None,
+                "table_gross_weight": _f(row_vals[table_gross_col - 1])
+                if table_gross_col
+                else None,
+                "surface_area": _f(row_vals[surface_col - 1]) if surface_col else None,
+                "total_surface_area": _f(row_vals[total_surface_col - 1])
+                if total_surface_col
+                else None,
+            }
+        )
 
     wb.close()
 
@@ -357,12 +376,14 @@ def _import_components_to_db(
         qty = _f(ws.cell(row=r, column=comp_qty_col).value)
         weight = _f(ws.cell(row=r, column=weight_col).value)
 
-        components.append({
-            "batch_id": batch_id,
-            "component_no": comp_no,
-            "component_qty": int(qty) if qty else None,
-            "total_weight": weight,
-        })
+        components.append(
+            {
+                "batch_id": batch_id,
+                "component_no": comp_no,
+                "component_qty": int(qty) if qty else None,
+                "total_weight": weight,
+            }
+        )
 
     wb.close()
 
@@ -373,6 +394,31 @@ def _import_components_to_db(
     return {"components_imported": len(components)}
 
 
+def _replace_batch_for_job(
+    db: Session,
+    *,
+    job_id: int,
+    file_id: int,
+    source_type: str,
+    source_name: str,
+) -> ExcelFinalBatch:
+    """Replace a batch left by an earlier failed/cancelled attempt."""
+    existing = db.scalar(select(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id))
+    if existing is not None:
+        db.delete(existing)
+        db.flush()
+
+    batch = ExcelFinalBatch(
+        job_id=job_id,
+        file_id=file_id,
+        source_type=source_type,
+        source_name=source_name,
+    )
+    db.add(batch)
+    db.flush()
+    return batch
+
+
 def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_final") -> None:
     """Celery excel_final 队列任务体: Excel → 零件清单全链路。
 
@@ -380,12 +426,15 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
     """
     db = SessionLocal()
     try:
-        job = db.get(Job, job_id)
-        if not job:
-            logger.warning("ExcelFinal job %s not found", job_id)
-            return
-        if job.status != JOB_QUEUED:
-            logger.info("ExcelFinal job %s skipped (status=%s)", job_id, job.status)
+        job = claim_queued_job(
+            db,
+            job_id,
+            pipeline=PIPELINE_EXCEL_FINAL,
+            progress=5,
+            message="开始处理 Excel",
+        )
+        if job is None:
+            logger.info("ExcelFinal job %s was not claimable", job_id)
             return
 
         file_id = _resolve_file_id(job)
@@ -397,21 +446,6 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             )
             return
 
-        # ---- 1. queued → running ----
-        started_at = datetime.now(UTC)
-        job.status = JOB_RUNNING
-        job.progress = 5
-        job.started_at = started_at
-        job.pipeline = PIPELINE_EXCEL_FINAL
-        publish_job_event(
-            db, job_id,
-            make_event(
-                type_="status", status=JOB_RUNNING, progress=5,
-                message=f"开始处理: file_id={file_id}",
-            ),
-        )
-        db.commit()
-
         with tempfile.TemporaryDirectory(prefix=f"excel_final_job_{job_id}_") as work_dir_str:
             work_dir = Path(work_dir_str)
 
@@ -420,13 +454,19 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             try:
                 source_path, sfile = _stage_excel_source(db, file_id, work_dir)
             except FileNotFoundError:
-                _mark_job_failed(job_id, AppError(f"文件 {file_id} 不存在"), error_code=ERROR_CODE_EMPTY_INPUT)
+                _mark_job_failed(
+                    job_id, AppError(f"文件 {file_id} 不存在"), error_code=ERROR_CODE_EMPTY_INPUT
+                )
                 return
             except ValueError as exc:
                 _mark_job_failed(job_id, AppError(str(exc)), error_code=ERROR_CODE_NOT_EXCEL)
                 return
             except StorageObjectNotFound:
-                _mark_job_failed(job_id, AppError(f"文件 {file_id} 存储对象缺失"), error_code=ERROR_CODE_STORAGE_FAILED)
+                _mark_job_failed(
+                    job_id,
+                    AppError(f"文件 {file_id} 存储对象缺失"),
+                    error_code=ERROR_CODE_STORAGE_FAILED,
+                )
                 return
 
             source_stats = {
@@ -435,17 +475,24 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 "size_bytes": sfile.size_bytes,
             }
             _add_step(
-                db, job_id, STEP_DOWNLOAD_EXCEL_SOURCE, worker_name, "succeeded",
+                db,
+                job_id,
+                STEP_DOWNLOAD_EXCEL_SOURCE,
+                worker_name,
+                "succeeded",
                 input_json={"file_id": file_id},
                 output_json=source_stats,
                 started_at=download_started,
             )
             job.progress = 15
             publish_job_event(
-                db, job_id,
+                db,
+                job_id,
                 make_event(
-                    type_="progress", progress=15,
-                    step_name=STEP_DOWNLOAD_EXCEL_SOURCE, status=JOB_RUNNING,
+                    type_="progress",
+                    progress=15,
+                    step_name=STEP_DOWNLOAD_EXCEL_SOURCE,
+                    status=JOB_RUNNING,
                     message=f"已下载: {sfile.original_name}",
                 ),
             )
@@ -457,17 +504,26 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
 
             # ---- 4. 运行 excel_final pipeline ----
             pipeline_started = datetime.now(UTC)
-            output_path = work_dir / f"{sanitize_filename(sfile.original_name.rsplit('.', 1)[0])}_处理后.xlsx"
+            output_path = (
+                work_dir / f"{sanitize_filename(sfile.original_name.rsplit('.', 1)[0])}_处理后.xlsx"
+            )
 
             try:
-                from excel_final.pipeline import run_init_pipeline, run_pipeline
+                from app.integrations.excel_final import load_excel_final_pipeline
+
+                run_init_pipeline, run_pipeline = load_excel_final_pipeline()
             except ImportError as exc:
                 _mark_job_failed(
-                    job_id, AppError(f"excel_final 包不可用: {exc}"),
+                    job_id,
+                    AppError(f"excel_final 包不可用: {exc}"),
                     error_code=ERROR_CODE_UNAVAILABLE,
                 )
                 _add_step(
-                    db, job_id, STEP_RUN_EXCEL_FINAL, worker_name, "failed",
+                    db,
+                    job_id,
+                    STEP_RUN_EXCEL_FINAL,
+                    worker_name,
+                    "failed",
                     input_json={"file_id": file_id, "format": fmt},
                     error_message=f"excel_final 包不可用: {exc}",
                     started_at=pipeline_started,
@@ -483,11 +539,16 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             except Exception as exc:
                 logger.exception("excel_final pipeline failed for job %s", job_id)
                 _mark_job_failed(
-                    job_id, AppError(f"流水线处理失败: {exc}"),
+                    job_id,
+                    AppError(f"流水线处理失败: {exc}"),
                     error_code=ERROR_CODE_PIPELINE_FAILED,
                 )
                 _add_step(
-                    db, job_id, STEP_RUN_EXCEL_FINAL, worker_name, "failed",
+                    db,
+                    job_id,
+                    STEP_RUN_EXCEL_FINAL,
+                    worker_name,
+                    "failed",
                     input_json={"file_id": file_id, "format": fmt},
                     error_message=_exception_message(exc),
                     started_at=pipeline_started,
@@ -496,17 +557,24 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 return
 
             _add_step(
-                db, job_id, STEP_RUN_EXCEL_FINAL, worker_name, "succeeded",
+                db,
+                job_id,
+                STEP_RUN_EXCEL_FINAL,
+                worker_name,
+                "succeeded",
                 input_json={"file_id": file_id, "format": fmt},
                 output_json={"output": str(output_path)},
                 started_at=pipeline_started,
             )
             job.progress = 60
             publish_job_event(
-                db, job_id,
+                db,
+                job_id,
                 make_event(
-                    type_="progress", progress=60,
-                    step_name=STEP_RUN_EXCEL_FINAL, status=JOB_RUNNING,
+                    type_="progress",
+                    progress=60,
+                    step_name=STEP_RUN_EXCEL_FINAL,
+                    status=JOB_RUNNING,
                     message=f"流水线完成 (format={fmt})",
                 ),
             )
@@ -515,7 +583,8 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             # Check output
             if not output_path.is_file():
                 _mark_job_failed(
-                    job_id, AppError("Excel 输出文件未生成"),
+                    job_id,
+                    AppError("Excel 输出文件未生成"),
                     error_code=ERROR_CODE_NO_OUTPUT,
                 )
                 return
@@ -523,14 +592,13 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             # ---- 5. MySQL 入库 ----
             import_started = datetime.now(UTC)
             try:
-                batch = ExcelFinalBatch(
+                batch = _replace_batch_for_job(
+                    db,
                     job_id=job.id,
                     file_id=file_id,
                     source_type=fmt,
                     source_name=sfile.original_name,
                 )
-                db.add(batch)
-                db.flush()
 
                 parts_stats = _import_parts_to_db(db, batch.id, output_path)
                 comps_stats = _import_components_to_db(db, batch.id, output_path)
@@ -541,9 +609,11 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 # Sum total net weight from parts
                 if batch.part_count > 0:
                     from sqlalchemy import func as sa_func
+
                     total_net = db.scalar(
-                        select(sa_func.sum(ExcelFinalPart.net_total_weight))
-                        .where(ExcelFinalPart.batch_id == batch.id)
+                        select(sa_func.sum(ExcelFinalPart.net_total_weight)).where(
+                            ExcelFinalPart.batch_id == batch.id
+                        )
                     )
                     batch.total_net_weight = float(total_net) if total_net else None
 
@@ -555,23 +625,31 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             except Exception as exc:
                 logger.exception("DB import failed for excel_final job %s", job_id)
                 _mark_job_failed(
-                    job_id, AppError(f"MySQL 入库失败: {exc}"),
+                    job_id,
+                    AppError(f"MySQL 入库失败: {exc}"),
                     error_code=ERROR_CODE_DB_IMPORT_FAILED,
                 )
                 return
 
             _add_step(
-                db, job_id, STEP_IMPORT_PARTS_DB, worker_name, "succeeded",
+                db,
+                job_id,
+                STEP_IMPORT_PARTS_DB,
+                worker_name,
+                "succeeded",
                 input_json={"output_path": str(output_path)},
                 output_json=db_stats,
                 started_at=import_started,
             )
             job.progress = 75
             publish_job_event(
-                db, job_id,
+                db,
+                job_id,
                 make_event(
-                    type_="progress", progress=75,
-                    step_name=STEP_IMPORT_PARTS_DB, status=JOB_RUNNING,
+                    type_="progress",
+                    progress=75,
+                    step_name=STEP_IMPORT_PARTS_DB,
+                    status=JOB_RUNNING,
                     message=f"MySQL 入库完成: {batch.part_count} 个零件, {batch.component_count} 个构件",
                     stats=db_stats,
                 ),
@@ -596,9 +674,7 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             )
 
             # 行锁重读 job
-            job = db.scalars(
-                select(Job).where(Job.id == job_id).with_for_update()
-            ).one_or_none()
+            job = db.scalars(select(Job).where(Job.id == job_id).with_for_update()).one_or_none()
             if not job or job.status != JOB_RUNNING:
                 db.rollback()
                 return
@@ -628,12 +704,15 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             db.flush()
 
             _add_step(
-                db, job_id, STEP_PERSIST_EXCEL_FINAL, worker_name, "succeeded",
+                db,
+                job_id,
+                STEP_PERSIST_EXCEL_FINAL,
+                worker_name,
+                "succeeded",
                 input_json={"excel_size": len(excel_bytes)},
                 output_json={
                     "excel_file_id": excel_file.id,
                     "analysis_result_id": analysis.id,
-                    "batch_id": batch.id,
                     **db_stats,
                 },
                 started_at=persist_started,
@@ -642,13 +721,14 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             job.progress = 100
             job.finished_at = datetime.now(UTC)
             publish_job_event(
-                db, job_id,
+                db,
+                job_id,
                 make_event(
-                    type_="done", status=JOB_SUCCEEDED, progress=100,
+                    type_="done",
+                    status=JOB_SUCCEEDED,
+                    progress=100,
                     step_name=STEP_PERSIST_EXCEL_FINAL,
-                    message=f"处理完成: {batch.part_count} 个零件, "
-                    f"{batch.component_count} 个构件",
-                    batch_id=batch.id,
+                    message=f"处理完成: {batch.part_count} 个零件, {batch.component_count} 个构件",
                     excel_file_id=excel_file.id,
                     excel_name=f"{output_basename}_处理后{_EXCEL_EXT}",
                     part_count=batch.part_count,

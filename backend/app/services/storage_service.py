@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import mimetypes
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from uuid import uuid4
 
 from fastapi import UploadFile
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -46,6 +49,9 @@ _BINARY_FALLBACK_MIME = {
     "application/x-msdownload",
     "binary/octet-stream",
 }
+
+logger = logging.getLogger(__name__)
+_PENDING_STORAGE_OBJECTS = "pending_storage_objects"
 
 SUPPORTED_DWG_HEADERS = {
     b"AC1012",  # AutoCAD R13
@@ -88,10 +94,10 @@ def sanitize_filename(name: str) -> str:
     for ch in name:
         cp = ord(ch)
         if (
-            ch in "._- @()+,"          # common safe punctuation
-            or ch.isalnum()             # A-Z a-z 0-9 + Unicode alnum (covers CJK)
-            or cp > 127                 # non-ASCII (CJK, Cyrillic, etc.)
-        ) and cp >= 32:                 # no control chars
+            ch in "._- @()+,"  # common safe punctuation
+            or ch.isalnum()  # A-Z a-z 0-9 + Unicode alnum (covers CJK)
+            or cp > 127  # non-ASCII (CJK, Cyrillic, etc.)
+        ) and cp >= 32:  # no control chars
             safe.append(ch)
         else:
             safe.append("_")
@@ -164,15 +170,22 @@ def build_storage_path(bucket: str, storage_key: str) -> Path:
     return ensure_within_root(root, path)
 
 
-def get_storage_backend() -> AbstractStorageBackend:
-    if settings.storage_backend == "local":
-        return LocalFileStorage(settings.local_storage_root)
-    if settings.storage_backend == "minio":
+@lru_cache(maxsize=8)
+def _get_storage_backend_cached(
+    backend_name: str,
+    local_root: str,
+    minio_endpoint: str,
+    minio_access_key: str,
+    minio_secret_key: str,
+) -> AbstractStorageBackend:
+    if backend_name == "local":
+        return LocalFileStorage(Path(local_root))
+    if backend_name == "minio":
         try:
             return MinioStorage(
-                endpoint=settings.minio_endpoint,
-                access_key=settings.minio_access_key,
-                secret_key=settings.minio_secret_key,
+                endpoint=minio_endpoint,
+                access_key=minio_access_key,
+                secret_key=minio_secret_key,
             )
         except StorageConfigurationError as exc:
             raise AppHTTPException(
@@ -183,8 +196,74 @@ def get_storage_backend() -> AbstractStorageBackend:
     raise AppHTTPException(
         500,
         "STORAGE_BACKEND_UNSUPPORTED",
-        f"Unsupported storage backend: {settings.storage_backend}",
+        f"Unsupported storage backend: {backend_name}",
     )
+
+
+def get_storage_backend() -> AbstractStorageBackend:
+    return _get_storage_backend_cached(
+        settings.storage_backend,
+        str(settings.local_storage_root),
+        settings.minio_endpoint,
+        settings.minio_access_key,
+        settings.minio_secret_key,
+    )
+
+
+def clear_storage_backend_cache() -> None:
+    _get_storage_backend_cached.cache_clear()
+
+
+def storage_health() -> dict[str, str]:
+    try:
+        get_storage_backend().check_health()
+        return {"status": "ok", "message": "Storage is reachable."}
+    except (AppHTTPException, StorageError) as exc:
+        logger.warning("Storage readiness check failed: %s", exc)
+        return {"status": "error", "message": "Storage is unavailable."}
+
+
+def _register_pending_storage_object(
+    db: Session,
+    storage: AbstractStorageBackend,
+    bucket: str,
+    storage_key: str,
+) -> None:
+    pending = db.info.setdefault(_PENDING_STORAGE_OBJECTS, [])
+    pending.append((storage, bucket, storage_key))
+
+
+def _discard_pending_storage_objects(db: Session) -> None:
+    db.info.pop(_PENDING_STORAGE_OBJECTS, None)
+
+
+def _delete_pending_storage_objects(db: Session) -> None:
+    pending = db.info.pop(_PENDING_STORAGE_OBJECTS, [])
+    for storage, bucket, storage_key in reversed(pending):
+        try:
+            storage.delete_object(bucket, storage_key)
+        except StorageError:
+            logger.exception(
+                "Failed to compensate storage object after DB rollback: %s/%s",
+                bucket,
+                storage_key,
+            )
+
+
+@event.listens_for(Session, "after_commit")
+def _storage_after_commit(db: Session) -> None:
+    _discard_pending_storage_objects(db)
+
+
+@event.listens_for(Session, "after_rollback")
+def _storage_after_rollback(db: Session) -> None:
+    _delete_pending_storage_objects(db)
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _storage_after_transaction_end(db: Session, transaction) -> None:
+    if transaction.parent is None and not db.in_transaction():
+        _delete_pending_storage_objects(db)
 
 
 async def save_upload_file(
@@ -253,6 +332,7 @@ async def save_upload_file(
                 length=size,
                 content_type=content_type,
             )
+            _register_pending_storage_object(db, storage, bucket, storage_key)
         except StorageError as exc:
             raise AppHTTPException(
                 503,
@@ -299,6 +379,7 @@ def save_bytes_as_file(
             length=len(payload),
             content_type=content_type,
         )
+        _register_pending_storage_object(db, storage, bucket, storage_key)
     except StorageError as exc:
         raise AppHTTPException(
             503,

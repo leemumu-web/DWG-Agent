@@ -33,7 +33,6 @@ if settings.oda_home:
 
 from app.core.constants import (
     JOB_FAILED,
-    JOB_QUEUED,
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_DXF2DWG,
@@ -48,6 +47,7 @@ from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.services.dxf_stats import _count_dxf_stats, dxf_entity_summary
 from app.services.job_events import make_event, publish_job_event
+from app.services.job_service import claim_queued_job
 from app.services.storage_service import get_storage_backend, sanitize_filename, save_bytes_as_file
 from app.storage.base import StorageError, StorageObjectNotFound
 
@@ -255,12 +255,15 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
     """
     db = SessionLocal()
     try:
-        job = db.get(Job, job_id)
-        if not job:
-            logger.warning("DXF job %s not found", job_id)
-            return
-        if job.status != JOB_QUEUED:
-            logger.info("DXF job %s skipped (status=%s)", job_id, job.status)
+        job = claim_queued_job(
+            db,
+            job_id,
+            pipeline=PIPELINE_DXF2DWG,
+            progress=10,
+            message="开始转换",
+        )
+        if job is None:
+            logger.info("DXF2DWG job %s was not claimable", job_id)
             return
 
         source_file_id = _resolve_source_file_id(job)
@@ -273,17 +276,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             return
 
         # ---- 1. queued → running，写 download_source_dwg 步 ----
-        started_at = datetime.now(UTC)
-        job.status = JOB_RUNNING
-        job.progress = 10
-        job.started_at = started_at
-        job.pipeline = PIPELINE_DXF2DWG
-        publish_job_event(
-            db,
-            job_id,
-            make_event(type_="status", status=JOB_RUNNING, progress=10, message="开始转换"),
-        )
-        db.commit()
+        started_at = job.started_at or datetime.now(UTC)
 
         with tempfile.TemporaryDirectory(prefix=f"dxf_job_{job_id}_") as work_dir_str:
             work_dir = Path(work_dir_str)
@@ -296,7 +289,11 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     error_code=ERROR_CODE_SOURCE_MISSING,
                 )
                 _add_step(
-                    db, job_id, STEP_DOWNLOAD_SOURCE_DXF, worker_name, "failed",
+                    db,
+                    job_id,
+                    STEP_DOWNLOAD_SOURCE_DXF,
+                    worker_name,
+                    "failed",
                     input_json={"file_id": source_file_id},
                     error_message="源文件对象不存在",
                     started_at=started_at,
@@ -313,7 +310,11 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     error_code=ERROR_CODE_SOURCE_MISSING,
                 )
                 _add_step(
-                    db, job_id, STEP_DOWNLOAD_SOURCE_DXF, worker_name, "failed",
+                    db,
+                    job_id,
+                    STEP_DOWNLOAD_SOURCE_DXF,
+                    worker_name,
+                    "failed",
                     input_json={"file_id": source_file_id},
                     error_message="源文件记录不存在或已删除",
                     started_at=started_at,
@@ -322,7 +323,11 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 return
 
             _add_step(
-                db, job_id, STEP_DOWNLOAD_SOURCE_DXF, worker_name, "succeeded",
+                db,
+                job_id,
+                STEP_DOWNLOAD_SOURCE_DXF,
+                worker_name,
+                "succeeded",
                 input_json={"file_id": source_file_id},
                 output_json={"source_path": str(source_path)},
                 started_at=started_at,
@@ -332,12 +337,19 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             # Count entities in the source DXF for fidelity tracking.
             source_stats = _count_dxf_stats(source_path)
             logger.info(
-                "DXF source stats for job %s: %s", job_id, dxf_entity_summary(source_stats),
+                "DXF source stats for job %s: %s",
+                job_id,
+                dxf_entity_summary(source_stats),
             )
             publish_job_event(
                 db,
                 job_id,
-                make_event(type_="progress", progress=30, step_name=STEP_DOWNLOAD_SOURCE_DXF, message="源文件已就绪"),
+                make_event(
+                    type_="progress",
+                    progress=30,
+                    step_name=STEP_DOWNLOAD_SOURCE_DXF,
+                    message="源文件已就绪",
+                ),
             )
             db.commit()
 
@@ -363,7 +375,8 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     logger.warning(
                         "Ignoring unknown version %r from AnalysisResult for job %s — "
                         "falling back to $ACADVER detection",
-                        resolved, job_id,
+                        resolved,
+                        job_id,
                     )
                     output_version = _detect_dxf_output_version(source_path)
                 else:
@@ -379,7 +392,11 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             except Exception as exc:
                 # OdaConvertError（环境错误）或其他异常 → 失败
                 _add_step(
-                    db, job_id, STEP_RUN_ODA_CONVERT_DXF, worker_name, "failed",
+                    db,
+                    job_id,
+                    STEP_RUN_ODA_CONVERT_DXF,
+                    worker_name,
+                    "failed",
                     input_json={
                         "version": output_version,
                         "audit": settings.dxf2dwg_converter_audit,
@@ -392,7 +409,10 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 raise AppError(f"ODA 转换异常: {exc}") from exc
 
             _add_step(
-                db, job_id, STEP_RUN_ODA_CONVERT_DXF, worker_name,
+                db,
+                job_id,
+                STEP_RUN_ODA_CONVERT_DXF,
+                worker_name,
                 "succeeded" if result.success else "failed",
                 input_json={
                     "version": output_version,
@@ -439,7 +459,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             dwg_bytes = dwg_path.read_bytes()
             # Use the original DXF filename — the work-dir path may be a temp name
             source_file = db.get(StoredFile, source_file_id)
-            source_base = (source_file.original_name if source_file else Path(source_path).name)
+            source_base = source_file.original_name if source_file else Path(source_path).name
             source_base = sanitize_filename(source_base)
             source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
             storage_key = f"jobs/{job.id}/{uuid4().hex}{_DWG_EXT}"
@@ -484,7 +504,11 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             db.add(analysis)
             db.flush()  # 让 analysis.id 可用
             _add_step(
-                db, job_id, STEP_PERSIST_DWG, worker_name, "succeeded",
+                db,
+                job_id,
+                STEP_PERSIST_DWG,
+                worker_name,
+                "succeeded",
                 input_json={"dwg_size": len(dwg_bytes)},
                 output_json={
                     "dwg_file_id": dwg_file.id,

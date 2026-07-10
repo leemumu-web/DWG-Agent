@@ -15,22 +15,17 @@ err()  { echo -e "  ${RED}✗${NC} $1"; }
 info() { echo -e "${BLUE}▶${NC} $1"; }
 step() { echo -e "\n${BLUE}── $1 ──${NC}"; }
 
-# 端口占用检查
 port_free() { ! ss -tlnp "sport = :$1" 2>/dev/null | grep -q ":$1"; }
 
-# 端口状态检查（返回 0=运行中, 1=未运行，供 health-check 聚合）
 check_port() {
     local port="$1" label="$2"
     if port_free "$port"; then
         warn "$label — 未运行 (:${port})"
         return 1
-    else
-        ok "$label — :$port"
-        return 0
     fi
+    ok "$label — :$port"
 }
 
-# 进程按 PID 文件杀
 kill_by_pidfile() {
     local pidfile="$1" label="${2:-process}"
     if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
@@ -48,33 +43,42 @@ pidfile_running() {
     return 1
 }
 
-start_report_worker() {
-    local pidfile="/tmp/dwg-agent-worker-report.pid"
-    local logfile="/tmp/dwg-agent-worker-report.log"
+start_celery_worker() {
+    local queue="$1" concurrency="$2" slug="${3:-${1//_/-}}"
+    local label="worker-${slug}"
+    local pidfile="/tmp/dwg-agent-${label}.pid"
+    local logfile="/tmp/dwg-agent-${label}.log"
+    local node="${slug}-local@$(hostname)"
+
     if pidfile_running "$pidfile"; then
-        ok "Celery worker-report 已运行"
+        ok "Celery ${label} 已运行"
         return 0
     fi
 
-    info "启动 Celery worker-report..."
+    info "启动 Celery ${label}..."
     local oldpwd="$PWD"
     cd "$PROJECT_ROOT/backend"
-    local celery_cmd
+
+    local -a celery_cmd
     if [ -x .venv/bin/celery ]; then
-        celery_cmd=".venv/bin/celery"
+        celery_cmd=(.venv/bin/celery)
     else
-        celery_cmd="uv run celery"
+        celery_cmd=(uv run celery)
     fi
-    nohup setsid $celery_cmd -A app.workers.celery_app:celery_app worker -Q report -n report-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 </dev/null &
+
+    nohup setsid "${celery_cmd[@]}" \
+        -A app.workers.celery_app:celery_app worker \
+        -Q "$queue" -n "${slug}-local@%h" \
+        --concurrency="$concurrency" --loglevel=INFO \
+        >"$logfile" 2>&1 </dev/null &
     local pid=$!
     echo "$pid" > "$pidfile"
 
-    local node="report-local@$(hostname)"
     local ready=false
     for _ in $(seq 1 12); do
         if ! kill -0 "$pid" 2>/dev/null; then
             cd "$oldpwd"
-            err "Celery worker-report 启动失败，请检查: $logfile"
+            err "Celery ${label} 启动失败，请检查: $logfile"
             tail -40 "$logfile" 2>/dev/null || true
             rm -f "$pidfile"
             return 1
@@ -86,185 +90,46 @@ start_report_worker() {
         sleep 1
     done
     cd "$oldpwd"
+
     if $ready; then
-        ok "Celery worker-report 已启动"
+        ok "Celery ${label} 已启动 (concurrency=${concurrency})"
         return 0
     fi
-    err "Celery worker-report 未完成启动，请检查: $logfile"
+
+    err "Celery ${label} 未完成启动，请检查: $logfile"
     tail -40 "$logfile" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
     return 1
 }
 
-start_dxf_worker() {
-    local pidfile="/tmp/dwg-agent-worker-dxf.pid"
-    local logfile="/tmp/dwg-agent-worker-dxf.log"
-    if pidfile_running "$pidfile"; then
-        ok "Celery worker-dxf 已运行"
-        return 0
-    fi
+start_report_worker() { start_celery_worker report 1; }
+start_dxf_worker() { start_celery_worker dxf 2; }
+start_dxf2dwg_worker() { start_celery_worker dxf2dwg 2; }
+start_dxf2excel_worker() { start_celery_worker dxf2excel 1; }
+start_excel_final_worker() { start_celery_worker excel_final 1 excel-final; }
 
-    info "启动 Celery worker-dxf..."
-    local oldpwd="$PWD"
-    cd "$PROJECT_ROOT/backend"
-    local celery_cmd
-    if [ -x .venv/bin/celery ]; then
-        celery_cmd=".venv/bin/celery"
-    else
-        celery_cmd="uv run celery"
-    fi
-    nohup setsid $celery_cmd -A app.workers.celery_app:celery_app worker -Q dxf -n dxf-local@%h --concurrency=2 --loglevel=INFO >"$logfile" 2>&1 </dev/null &
-    local pid=$!
-    echo "$pid" > "$pidfile"
-
-    local node="dxf-local@$(hostname)"
-    local ready=false
-    for _ in $(seq 1 12); do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            cd "$oldpwd"
-            err "Celery worker-dxf 启动失败，请检查: $logfile"
-            tail -40 "$logfile" 2>/dev/null || true
-            rm -f "$pidfile"
-            return 1
-        fi
-        if grep -q "$node" "$logfile" 2>/dev/null; then
-            ready=true
-            break
-        fi
-        sleep 1
-    done
-    cd "$oldpwd"
-    if $ready; then
-        ok "Celery worker-dxf 已启动 (concurrency=2)"
-        return 0
-    fi
-    err "Celery worker-dxf 未完成启动，请检查: $logfile"
-    tail -40 "$logfile" 2>/dev/null || true
-    kill "$pid" 2>/dev/null || true
-    rm -f "$pidfile"
-    return 1
-}
-
-start_dxf2dwg_worker() {
-    local pidfile="/tmp/dwg-agent-worker-dxf2dwg.pid"
-    local logfile="/tmp/dwg-agent-worker-dxf2dwg.log"
-    if pidfile_running "$pidfile"; then
-        ok "Celery worker-dxf2dwg 已运行"
-        return 0
-    fi
-
-    info "启动 Celery worker-dxf2dwg..."
-    local oldpwd="$PWD"
-    cd "$PROJECT_ROOT/backend"
-    local celery_cmd
-    if [ -x .venv/bin/celery ]; then
-        celery_cmd=".venv/bin/celery"
-    else
-        celery_cmd="uv run celery"
-    fi
-    nohup setsid $celery_cmd -A app.workers.celery_app:celery_app worker -Q dxf2dwg -n dxf2dwg-local@%h --concurrency=2 --loglevel=INFO >"$logfile" 2>&1 </dev/null &
-    local pid=$!
-    echo "$pid" > "$pidfile"
-
-    local node="dxf2dwg-local@$(hostname)"
-    local ready=false
-    for _ in $(seq 1 12); do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            cd "$oldpwd"
-            err "Celery worker-dxf2dwg 启动失败，请检查: $logfile"
-            tail -40 "$logfile" 2>/dev/null || true
-            rm -f "$pidfile"
-            return 1
-        fi
-        if grep -q "$node" "$logfile" 2>/dev/null; then
-            ready=true
-            break
-        fi
-        sleep 1
-    done
-    cd "$oldpwd"
-    if $ready; then
-        ok "Celery worker-dxf2dwg 已启动 (concurrency=2)"
-        return 0
-    fi
-    err "Celery worker-dxf2dwg 未完成启动，请检查: $logfile"
-    tail -40 "$logfile" 2>/dev/null || true
-    kill "$pid" 2>/dev/null || true
-    rm -f "$pidfile"
-    return 1
-}
-
-start_dxf2excel_worker() {
-    local pidfile="/tmp/dwg-agent-worker-dxf2excel.pid"
-    local logfile="/tmp/dwg-agent-worker-dxf2excel.log"
-    if pidfile_running "$pidfile"; then
-        ok "Celery worker-dxf2excel 已运行"
-        return 0
-    fi
-
-    info "启动 Celery worker-dxf2excel..."
-    local oldpwd="$PWD"
-    cd "$PROJECT_ROOT/backend"
-    local celery_cmd
-    if [ -x .venv/bin/celery ]; then
-        celery_cmd=".venv/bin/celery"
-    else
-        celery_cmd="uv run celery"
-    fi
-    nohup setsid $celery_cmd -A app.workers.celery_app:celery_app worker -Q dxf2excel -n dxf2excel-local@%h --concurrency=1 --loglevel=INFO >"$logfile" 2>&1 </dev/null &
-    local pid=$!
-    echo "$pid" > "$pidfile"
-
-    local node="dxf2excel-local@$(hostname)"
-    local ready=false
-    for _ in $(seq 1 12); do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            cd "$oldpwd"
-            err "Celery worker-dxf2excel 启动失败，请检查: $logfile"
-            tail -40 "$logfile" 2>/dev/null || true
-            rm -f "$pidfile"
-            return 1
-        fi
-        if grep -q "$node" "$logfile" 2>/dev/null; then
-            ready=true
-            break
-        fi
-        sleep 1
-    done
-    cd "$oldpwd"
-    if $ready; then
-        ok "Celery worker-dxf2excel 已启动 (concurrency=1)"
-        return 0
-    fi
-    err "Celery worker-dxf2excel 未完成启动，请检查: $logfile"
-    tail -40 "$logfile" 2>/dev/null || true
-    kill "$pid" 2>/dev/null || true
-    rm -f "$pidfile"
-    return 1
-}
-
-# 等待端口就绪
 wait_port() {
     local host="$1" port="$2" timeout="${3:-30}" label="${4:-$host:$port}"
     local waited=0
-    while [ $waited -lt "$timeout" ]; do
+    while [ "$waited" -lt "$timeout" ]; do
         if ss -tlnp "sport = :$port" 2>/dev/null | grep -q ":$port"; then
             ok "$label 就绪 (${waited}s)"
             return 0
         fi
-        sleep 1; waited=$((waited + 1))
+        sleep 1
+        waited=$((waited + 1))
     done
     err "$label 超时未就绪"
     return 1
 }
 
-# 确保 systemd 服务运行（兼容 mysql/mariadb 等发行版服务名）
 ensure_service() {
-    local port="$1"; shift
+    local port="$1"
+    shift
     local names=("$@")
     if ! port_free "$port"; then
-        return 0  # already running
+        return 0
     fi
     warn "${names[0]} (:${port}) 未运行，尝试启动..."
     for name in "${names[@]}"; do
@@ -279,5 +144,6 @@ ensure_service() {
             return 0
         fi
     done
-    err "无法启动 ${names[0]}，请手动启动"; return 1
+    err "无法启动 ${names[0]}，请手动启动"
+    return 1
 }

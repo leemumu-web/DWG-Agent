@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '../stores/auth.store';
 import type { Job, JobStep } from '../types/job';
 
 const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -57,9 +56,6 @@ export function useJobEvents(
       return;
     }
 
-    const token = useAuthStore.getState().accessToken;
-    if (!token) return;
-
     // Fresh job → not terminal yet. (terminalRef persists across renders, so
     // reset it per job to avoid the previous job's terminal state leaking in.)
     terminalRef.current = false;
@@ -73,8 +69,8 @@ export function useJobEvents(
       esRef.current = null;
     };
 
-    const url = `${VITE_API_BASE_URL}/api/v1/jobs/${jobId}/events?token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
+    const url = `${VITE_API_BASE_URL}/api/v1/jobs/${jobId}/events`;
+    const es = new EventSource(url, { withCredentials: true });
     esRef.current = es;
 
     const apply = (event: JobEvent) => {

@@ -10,30 +10,32 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, PKType
 
 
 class ExcelFinalBatch(Base):
     __tablename__ = "excel_final_batches"
+    __table_args__ = (UniqueConstraint("job_id", name="uq_excel_final_batches_job_id"),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    file_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
+    job_id: Mapped[int] = mapped_column(
+        PKType, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    file_id: Mapped[int | None] = mapped_column(
+        PKType, ForeignKey("files.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     source_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="init_table",
-        comment="init_table / tekla_tsv"
+        String(32), nullable=False, default="init_table", comment="init_table / tekla_tsv"
     )
     source_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     component_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     part_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_gross_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     parts: Mapped[list[ExcelFinalPart]] = relationship(
         "ExcelFinalPart", back_populates="batch", cascade="all, delete-orphan"
@@ -46,10 +48,12 @@ class ExcelFinalBatch(Base):
 class ExcelFinalPart(Base):
     __tablename__ = "excel_final_parts"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     batch_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("excel_final_batches.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        PKType,
+        ForeignKey("excel_final_batches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     component_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -79,9 +83,7 @@ class ExcelFinalPart(Base):
     surface_area: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_surface_area: Mapped[float | None] = mapped_column(Float, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     batch: Mapped[ExcelFinalBatch] = relationship("ExcelFinalBatch", back_populates="parts")
 
@@ -89,16 +91,16 @@ class ExcelFinalPart(Base):
 class ExcelFinalComponent(Base):
     __tablename__ = "excel_final_components"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     batch_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("excel_final_batches.id", ondelete="CASCADE"),
-        nullable=False, index=True,
+        PKType,
+        ForeignKey("excel_final_batches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     component_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
     component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     batch: Mapped[ExcelFinalBatch] = relationship("ExcelFinalBatch", back_populates="components")

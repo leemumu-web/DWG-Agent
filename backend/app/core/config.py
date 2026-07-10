@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote as url_quote
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,12 +32,16 @@ class Settings(BaseSettings):
     mysql_database: str = "dwg_agent"
     mysql_user: str = "dwg_user"
     mysql_password: str = ""
+    db_pool_size: int = Field(default=2, ge=1, le=20)
+    db_pool_max_overflow: int = Field(default=2, ge=0, le=20)
+    db_pool_timeout_seconds: int = Field(default=30, ge=1, le=300)
+    db_pool_recycle_seconds: int = Field(default=3600, ge=60)
 
     storage_backend: Literal["local", "minio"] = "local"
     local_storage_root: Path = Path("./var/storage")
     max_upload_size_mb: int = 512
-    max_zip_extract_mb: int = 2048     # max total uncompressed size when extracting a ZIP
-    max_zip_entry_count: int = 1000    # max number of files inside a single ZIP
+    max_zip_extract_mb: int = 2048  # max total uncompressed size when extracting a ZIP
+    max_zip_entry_count: int = 1000  # max number of files inside a single ZIP
 
     jwt_secret_key: str = "change-me-in-dev-change-me-in-prod-32chars"
     jwt_algorithm: str = "HS256"
@@ -94,6 +99,9 @@ class Settings(BaseSettings):
     agent_memory_ttl: int = 7200
     agent_max_messages: int = 20
     celery_task_always_eager: bool = False
+    # A running job with no DB update for this long is failed when a worker starts.
+    # Keep this above the longest configured converter timeout.
+    celery_stale_job_timeout_seconds: int = 7200
 
     @property
     def sqlalchemy_database_url(self) -> str:

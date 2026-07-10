@@ -10,10 +10,10 @@ from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db
+from app.api.deps import CurrentUser, get_db, has_global_project_access
 from app.core.config import settings
 from app.core.constants import TASK_EXCEL_FINAL
-from app.core.exceptions import not_found, service_unavailable
+from app.core.exceptions import forbidden, not_found, service_unavailable
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.file import StoredFile
 from app.models.job import Job
@@ -21,7 +21,8 @@ from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
 from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
-from app.services.job_service import create_job, enqueue_job
+from app.services.job_access import job_read_filter, require_job_read_access
+from app.services.job_service import create_job, dispatch_committed_job
 from app.services.storage_service import save_upload_file
 
 router = APIRouter()
@@ -36,6 +37,31 @@ def _ensure_pipeline_enabled() -> None:
             "EXCEL_FINAL_PIPELINE_DISABLED",
             "Excel→Final pipeline is disabled. Set EXCEL_FINAL_PIPELINE_ENABLED=true to enable.",
         )
+
+
+def _require_input_file_access(current_user: CurrentUser, stored: StoredFile) -> None:
+    if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
+        return
+    raise forbidden("Only the file uploader or an administrator can process this file.")
+
+
+def _get_excel_job(db: Session, current_user: CurrentUser, job_id: int) -> Job:
+    job = db.get(Job, job_id)
+    if not job or job.task_type != TASK_EXCEL_FINAL:
+        raise not_found("Excel Final job")
+    require_job_read_access(db, current_user, job)
+    return job
+
+
+def _get_accessible_batch(db: Session, current_user: CurrentUser, batch_id: int) -> ExcelFinalBatch:
+    batch = db.get(ExcelFinalBatch, batch_id)
+    if not batch:
+        raise not_found("Batch")
+    job = db.get(Job, batch.job_id)
+    if not job or job.task_type != TASK_EXCEL_FINAL:
+        raise not_found("Excel Final job")
+    require_job_read_access(db, current_user, job)
+    return batch
 
 
 # ── Upload & Process ─────────────────────────────────────────────────
@@ -86,6 +112,7 @@ def process_file(
     sfile = db.get(StoredFile, file_id)
     if not sfile or sfile.status == "deleted":
         raise not_found("File")
+    _require_input_file_access(current_user, sfile)
 
     from app.schemas.job_schema import JobCreate
 
@@ -104,7 +131,7 @@ def process_file(
         request=request,
     )
     db.commit()
-    enqueue_job(job.id, job.pipeline)
+    dispatch_committed_job(db, job)
     return ok(
         {
             "job_id": job.id,
@@ -146,7 +173,7 @@ async def upload_and_process(
         request=request,
     )
     db.commit()
-    enqueue_job(job.id, job.pipeline)
+    dispatch_committed_job(db, job)
     return ok(
         {
             "job_id": job.id,
@@ -167,16 +194,12 @@ def get_process_status(
     db: Session = Depends(get_db),
 ):
     """查询 excel_final 处理任务状态 + 结果摘要。"""
-    job = db.get(Job, job_id)
-    if not job:
-        raise not_found("Job")
+    job = _get_excel_job(db, current_user, job_id)
 
     # Get batch info if completed
     batch_info = None
     if job.status == "succeeded":
-        batch = db.scalar(
-            select(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id)
-        )
+        batch = db.scalar(select(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id))
         if batch:
             batch_info = {
                 "batch_id": batch.id,
@@ -192,9 +215,10 @@ def get_process_status(
     result_file_id = None
     if job.status == "succeeded":
         result = db.scalar(
-            select(AnalysisResult).where(AnalysisResult.job_id == job_id).order_by(
-                AnalysisResult.id.desc()
-            ).limit(1)
+            select(AnalysisResult)
+            .where(AnalysisResult.job_id == job_id)
+            .order_by(AnalysisResult.id.desc())
+            .limit(1)
         )
         if result:
             result_file_id = result.result_file_id
@@ -225,14 +249,13 @@ def download_result(
     db: Session = Depends(get_db),
 ):
     """下载 excel_final 处理结果 Excel 文件。"""
-    job = db.get(Job, job_id)
-    if not job:
-        raise not_found("Job")
+    _get_excel_job(db, current_user, job_id)
 
     result = db.scalar(
-        select(AnalysisResult).where(AnalysisResult.job_id == job_id).order_by(
-            AnalysisResult.id.desc()
-        ).limit(1)
+        select(AnalysisResult)
+        .where(AnalysisResult.job_id == job_id)
+        .order_by(AnalysisResult.id.desc())
+        .limit(1)
     )
     if not result or not result.result_file_id:
         raise not_found("Result file")
@@ -253,7 +276,10 @@ def list_batches(
     db: Session = Depends(get_db),
 ):
     """列出所有处理批次（最近优先）。"""
-    stmt = select(ExcelFinalBatch).order_by(ExcelFinalBatch.id.desc())
+    stmt = select(ExcelFinalBatch).join(Job, Job.id == ExcelFinalBatch.job_id)
+    if not has_global_project_access(current_user):
+        stmt = stmt.where(job_read_filter(current_user))
+    stmt = stmt.order_by(ExcelFinalBatch.id.desc())
     batches = list(db.scalars(stmt).all())
     data = [
         {
@@ -281,9 +307,7 @@ def get_batch_detail(
     db: Session = Depends(get_db),
 ):
     """批次详情：构件汇总 + 统计。"""
-    batch = db.get(ExcelFinalBatch, batch_id)
-    if not batch:
-        raise not_found("Batch")
+    batch = _get_accessible_batch(db, current_user, batch_id)
 
     # Aggregate stats
     from sqlalchemy import func as sa_func
@@ -329,9 +353,7 @@ def get_batch_detail(
                 {"material": m, "count": c, "total_net_weight": float(w) if w else None}
                 for m, c, w in material_stats
             ],
-            "top_specs": [
-                {"spec": s, "count": c} for s, c in spec_stats
-            ],
+            "top_specs": [{"spec": s, "count": c} for s, c in spec_stats],
         },
         request.state.request_id,
     )
@@ -351,9 +373,7 @@ def list_batch_parts(
     db: Session = Depends(get_db),
 ):
     """批次下零件列表（分页 + 筛选）。"""
-    batch = db.get(ExcelFinalBatch, batch_id)
-    if not batch:
-        raise not_found("Batch")
+    _get_accessible_batch(db, current_user, batch_id)
 
     stmt = select(ExcelFinalPart).where(ExcelFinalPart.batch_id == batch_id)
     if spec.strip():
@@ -411,6 +431,7 @@ def get_part_detail(
     db: Session = Depends(get_db),
 ):
     """单个零件详情。"""
+    _get_accessible_batch(db, current_user, batch_id)
     part = db.scalar(
         select(ExcelFinalPart).where(
             ExcelFinalPart.id == part_id,
@@ -465,9 +486,7 @@ def list_batch_components(
     db: Session = Depends(get_db),
 ):
     """批次下构件汇总列表。"""
-    batch = db.get(ExcelFinalBatch, batch_id)
-    if not batch:
-        raise not_found("Batch")
+    _get_accessible_batch(db, current_user, batch_id)
 
     comps = list(
         db.scalars(
@@ -500,7 +519,13 @@ def search_parts(
     db: Session = Depends(get_db),
 ):
     """跨批次零件搜索。"""
-    stmt = select(ExcelFinalPart)
+    stmt = (
+        select(ExcelFinalPart)
+        .join(ExcelFinalBatch, ExcelFinalBatch.id == ExcelFinalPart.batch_id)
+        .join(Job, Job.id == ExcelFinalBatch.job_id)
+    )
+    if not has_global_project_access(current_user):
+        stmt = stmt.where(job_read_filter(current_user))
     if spec.strip():
         stmt = stmt.where(ExcelFinalPart.spec.contains(spec.strip()))
     if material.strip():
@@ -537,9 +562,9 @@ def search_parts(
 
 @router.get("/weights/lookup")
 def lookup_weight(
+    request: Request,
+    current_user: CurrentUser,
     spec: str = Query(..., min_length=1, description="钢材规格, e.g. L50x5, φ60*3.5, PL10*200"),
-    request: Request = None,
-    current_user: CurrentUser = None,
 ):
     """五金手册比重查询 (kg/m)。依赖 hardware_handbook MariaDB。"""
     try:
@@ -552,7 +577,7 @@ def lookup_weight(
                 "weight_kg_per_m": weight,
                 "source": source,
             },
-            request.state.request_id if request else "direct",
+            request.state.request_id,
         )
     except ImportError as exc:
         raise service_unavailable(
@@ -569,13 +594,17 @@ def health_check(
     """检查 excel_final 流水线是否可用。"""
     is_enabled = settings.excel_final_pipeline_enabled
     try:
-        from excel_final.pipeline import run_init_pipeline, run_pipeline  # noqa: F401
+        from app.integrations.excel_final import load_excel_final_pipeline
+
+        load_excel_final_pipeline()
+
         pkg_available = True
     except ImportError:
         pkg_available = False
 
     try:
         from excel_final.handbook import lookup_steel_weight  # noqa: F401
+
         handbook_available = True
     except ImportError:
         handbook_available = False

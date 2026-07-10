@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { App, Avatar, Button, Card, Col, Descriptions, Form, Input, Row, Space, Tag, Typography } from 'antd';
 import { UserOutlined, MailOutlined, EditOutlined, LockOutlined, SafetyOutlined, IdcardOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { changePassword } from '../../api/auth.api';
 import { updateSelf } from '../../api/users.api';
 import { useAuthStore } from '../../stores/auth.store';
@@ -10,8 +11,10 @@ import { PageHeader, roleColor, StatusChip, statusOf, USER_STATUS } from '../../
 export function ProfilePage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const setSession = useAuthStore((s) => s.setSession);
+  const clearSession = useAuthStore((s) => s.clearSession);
 
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
@@ -37,8 +40,10 @@ export function ProfilePage() {
     mutationFn: (v: { current_password: string; new_password: string }) =>
       changePassword(v.current_password, v.new_password),
     onSuccess: () => {
-      message.success('密码已修改，其他设备会话已失效');
+      message.success('密码已修改，请重新登录');
       passwordForm.resetFields();
+      clearSession();
+      navigate('/login', { replace: true });
     },
     onError: (e: unknown) => message.error(e instanceof Error ? e.message : '修改失败'),
   });
@@ -89,7 +94,7 @@ export function ProfilePage() {
 
             <Card title={<span><LockOutlined /> 修改密码</span>} style={{ borderRadius: 12 }}>
               <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                <SafetyOutlined /> 修改后所有其他设备的会话将立即失效。
+                <SafetyOutlined /> 修改后全部现有会话失效，需要重新登录。
               </Typography.Text>
               <Form layout="vertical" form={passwordForm} onFinish={(v) => passwordMut.mutate(v)} requiredMark={false}>
                 <Form.Item name="current_password" label="当前密码" rules={[{ required: true, message: '请输入当前密码' }]}>

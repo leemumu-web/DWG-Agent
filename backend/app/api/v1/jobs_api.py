@@ -10,15 +10,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import (
     CurrentUser,
-    CurrentUserOrQuery,
+    CurrentUserForSSE,
     get_db,
     has_global_project_access,
-    require_project_member,
     require_project_role,
 )
 from app.core.config import settings
 from app.core.constants import (
-    JOB_FAILED,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
     TASK_DXF_TO_EXCEL,
@@ -28,17 +26,21 @@ from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.core.validators import validate_sort_by
 from app.models.drawing import Drawing
 from app.models.job import Job, JobStep
-from app.models.project import ProjectMember
 from app.models.result import AnalysisResult
 from app.schemas.common import ok, page_from_list
 from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
 from app.schemas.result_schema import AnalysisResultRead
 from app.services.audit_service import write_audit_log
+from app.services.job_access import (
+    PROJECT_JOB_WRITE_ROLES,
+    job_read_filter,
+    require_job_read_access,
+    require_job_write_access,
+)
 from app.services.job_events import job_event_stream, make_event, publish_job_event
-from app.services.job_service import create_job, enqueue_job
+from app.services.job_service import create_job, dispatch_committed_job
 
 router = APIRouter()
-PROJECT_JOB_WRITE_ROLES = {"project_owner", "project_engineer"}
 
 
 @router.get("")
@@ -63,9 +65,7 @@ def list_jobs(
     if task_type.strip():
         stmt = stmt.where(Job.task_type == task_type.strip())
     if not has_global_project_access(current_user):
-        stmt = stmt.join(ProjectMember, ProjectMember.project_id == Job.project_id).where(
-            ProjectMember.user_id == current_user.id
-        )
+        stmt = stmt.where(job_read_filter(current_user))
     jobs = list(db.scalars(stmt).all())
     return page_from_list(
         [JobRead.model_validate(j) for j in jobs], page, page_size, request.state.request_id
@@ -118,29 +118,7 @@ def create_job_api(
         request=request,
     )
     db.commit()
-    try:
-        enqueue_job(job.id, job.pipeline)
-    except Exception as exc:
-        job.status = JOB_FAILED
-        job.error_code = "JOB_ENQUEUE_FAILED"
-        job.error_message = str(exc) or exc.__class__.__name__
-        publish_job_event(
-            db,
-            job.id,
-            make_event(
-                type_="error",
-                status=JOB_FAILED,
-                error_code=job.error_code,
-                message=job.error_message,
-            ),
-        )
-        db.commit()
-        raise AppHTTPException(
-            503,
-            "JOB_ENQUEUE_FAILED",
-            "Job was created but could not be dispatched to Celery.",
-            {"job_id": job.id},
-        ) from exc
+    dispatch_committed_job(db, job)
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 
@@ -151,8 +129,7 @@ def get_job(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
-    if job.project_id is not None:
-        require_project_member(db, current_user, job.project_id)
+    require_job_read_access(db, current_user, job)
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 
@@ -163,14 +140,13 @@ def cancel_job(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
+    require_job_write_access(db, current_user, job)
     if job.status in ("succeeded", "failed", "cancelled"):
         raise AppHTTPException(
             409,
             "JOB_NOT_CANCELLABLE",
             f"Job cannot be cancelled because it is already {job.status}.",
         )
-    if job.project_id is not None:
-        require_project_role(db, current_user, job.project_id, PROJECT_JOB_WRITE_ROLES)
     job.status = "cancelled"
     publish_job_event(
         db,
@@ -199,14 +175,13 @@ def retry_job(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
+    require_job_write_access(db, current_user, job)
     if job.status not in ("failed", "cancelled"):
         raise AppHTTPException(
             409,
             "JOB_NOT_RETRYABLE",
             f"Job cannot be retried because it is {job.status}. Only failed or cancelled jobs can be retried.",
         )
-    if job.project_id is not None:
-        require_project_role(db, current_user, job.project_id, PROJECT_JOB_WRITE_ROLES)
     job.status = "queued"
     job.progress = 0
     job.error_code = None
@@ -227,7 +202,7 @@ def retry_job(
         request=request,
     )
     db.commit()
-    enqueue_job(job.id, job.pipeline or "local_stub")
+    dispatch_committed_job(db, job)
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 
@@ -243,8 +218,7 @@ def get_job_steps(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
-    if job.project_id is not None:
-        require_project_member(db, current_user, job.project_id)
+    require_job_read_access(db, current_user, job)
     steps = list(
         db.scalars(select(JobStep).where(JobStep.job_id == job_id).order_by(JobStep.id)).all()
     )
@@ -260,8 +234,7 @@ def get_job_logs(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
-    if job.project_id is not None:
-        require_project_member(db, current_user, job.project_id)
+    require_job_read_access(db, current_user, job)
     return ok(
         {
             "job_id": job_id,
@@ -278,9 +251,7 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
     if not job:
         return {"type": "snapshot", "job_id": job_id, "status": "unknown"}
     steps = list(
-        db.scalars(
-            select(JobStep).where(JobStep.job_id == job_id).order_by(JobStep.id)
-        ).all()
+        db.scalars(select(JobStep).where(JobStep.job_id == job_id).order_by(JobStep.id)).all()
     )
     return {
         "type": "snapshot",
@@ -301,21 +272,20 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
 
 @router.get("/{job_id}/events")
 def get_job_events(
-    job_id: int, request: Request, current_user: CurrentUserOrQuery, db: Session = Depends(get_db)
+    job_id: int, request: Request, current_user: CurrentUserForSSE, db: Session = Depends(get_db)
 ):
     """Server-Sent Events 端点：从 MySQL 任务行流式推送进度。
 
     先发送数据库快照，再以短事务轮询最新状态；空轮次发送 keepalive。
     终态事件后再发送一帧终态快照兜底。
 
-    鉴权：前端 EventSource 不支持自定义请求头，通过 ?token=<jwt> 查询参数传递。
-    Authorization header 仍然优先。
+    鉴权：Authorization header 优先；浏览器 EventSource 使用仅限 jobs 路径的
+    HttpOnly 短期 Cookie，避免把访问令牌写入 URL 和访问日志。
     """
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
-    if job.project_id is not None:
-        require_project_member(db, current_user, job.project_id)
+    require_job_read_access(db, current_user, job)
 
     terminal = {"succeeded", "failed", "cancelled"}
     initial_snapshot = _job_snapshot(db, job_id)
@@ -350,7 +320,11 @@ def get_job_events(
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 
@@ -366,8 +340,7 @@ def get_job_results(
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
-    if job.project_id is not None:
-        require_project_member(db, current_user, job.project_id)
+    require_job_read_access(db, current_user, job)
     results = list(
         db.scalars(
             select(AnalysisResult)
@@ -404,9 +377,7 @@ def cancel_all_active(
     logger = logging.getLogger(__name__)
 
     if not has_global_project_access(current_user):
-        raise AppHTTPException(
-            403, "FORBIDDEN", "Only administrators can cancel all jobs."
-        )
+        raise AppHTTPException(403, "FORBIDDEN", "Only administrators can cancel all jobs.")
 
     # Bulk UPDATE bypasses ORM optimistic-locking conflicts with Celery worker
     now = datetime.now(UTC)
@@ -428,8 +399,8 @@ def cancel_all_active(
     )
     cancelled_count = result.rowcount
     cancelled_ids = [
-        row.id for row in
-        db.execute(
+        row.id
+        for row in db.execute(
             select(Job.id).where(
                 Job.status == "cancelled",
                 Job.error_code == "CANCELLED_BY_ADMIN",

@@ -7,8 +7,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
-# MySQL connection pool — recycle connections before MySQL wait_timeout (default 28800s)
-pool_args = {"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20}
+# This budget applies per process. Defaults account for the API and all
+# queue-specific Celery parent/child processes in compose.yaml.
+pool_args = {
+    "pool_recycle": settings.db_pool_recycle_seconds,
+    "pool_size": settings.db_pool_size,
+    "max_overflow": settings.db_pool_max_overflow,
+    "pool_timeout": settings.db_pool_timeout_seconds,
+    "pool_use_lifo": True,
+}
 
 engine_kwargs: dict = {"pool_pre_ping": True}
 if settings.sqlalchemy_database_url.startswith("mysql"):
@@ -21,6 +28,9 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

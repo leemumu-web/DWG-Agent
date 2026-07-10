@@ -155,6 +155,7 @@ workers = {
     "worker-dxf": "dxf",
     "worker-dxf2dwg": "dxf2dwg",
     "worker-dxf2excel": "dxf2excel",
+    "worker-excel-final": "excel_final",
     "worker-report": "report",
 }
 expected = {"nginx", "backend-api", "mysql", "minio", *workers}
@@ -246,7 +247,7 @@ PYEOF
 )
 
 if echo "$COMPOSE_CHECKS" | grep -q 'ALL_CHECKS_PASSED'; then
-    pass "compose.yaml 全部结构检查通过 (9 services, MySQL-backed runtime)"
+    pass "compose.yaml 全部结构检查通过 (10 services, MySQL-backed runtime)"
 else
     while IFS= read -r line; do
         [ -n "$line" ] && fail "compose.yaml" "$line"
@@ -285,6 +286,7 @@ assert_grep "$DOCKERFILE" 'COPY backend/migrations'     "Dockerfile: COPY migrat
 assert_grep "$DOCKERFILE" 'COPY Stages/dwg2dxf'         "Dockerfile: COPY Stages/dwg2dxf (editable path 依赖)"
 assert_grep "$DOCKERFILE" 'COPY Stages/dxf2dwg'         "Dockerfile: COPY Stages/dxf2dwg (editable path 依赖)"
 assert_grep "$DOCKERFILE" 'COPY Stages/dxf2excel'       "Dockerfile: COPY Stages/dxf2excel (editable path 依赖)"
+assert_grep "$DOCKERFILE" 'COPY Stages/excel_final'     "Dockerfile: COPY Stages/excel_final (editable path 依赖)"
 # 3.5.2 ODA 运行时 + init_db 种子（首次启动可用 admin 登录）
 assert_grep "$DOCKERFILE" 'tools/oda'                   "Dockerfile: COPY ODA 二进制"
 assert_grep "$DOCKERFILE" 'app.db.init_db'              "Dockerfile: CMD 含 init_db 种子"

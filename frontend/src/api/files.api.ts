@@ -42,7 +42,7 @@ async function throwOnHttpError(res: Response): Promise<void> {
 async function fetchWithTimeout(
   url: string,
   init: RequestInit & { timeout?: number },
-  retries = 1,
+  retries = 0,
 ): Promise<Response> {
   const timeout = init.timeout ?? 120_000;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -72,7 +72,7 @@ export async function uploadFile(file: File, batchName?: string): Promise<Stored
     headers: authHeaders(),
     body: form,
     timeout: 120_000,
-  }, 1);
+  });
   await throwOnHttpError(res);
   const json = await res.json();
   return json.data as StoredFile;
@@ -85,7 +85,7 @@ export async function uploadFileAndConvert(file: File, batchName?: string) {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ task_type: 'convert_dwg_to_dxf', precision_level: 'normal', params: { file_id: stored.id, batch_name: batchName || null } }),
     timeout: 30_000,
-  }, 1);
+  });
   await throwOnHttpError(res);
   const json = await res.json();
   return { file: stored, job: json.data as Job };
@@ -108,7 +108,7 @@ export async function uploadZip(file: File, fileExt: string): Promise<ZipUploadR
     headers: authHeaders(),
     body: form,
     timeout: 300_000,  // 5 min for large archives
-  }, 1);
+  });
   await throwOnHttpError(res);
   const json = await res.json();
   return json.data as ZipUploadResult;

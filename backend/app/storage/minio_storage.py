@@ -6,7 +6,8 @@ from typing import BinaryIO
 from urllib.parse import urlparse
 
 from minio import Minio
-from minio.error import S3Error
+from minio.error import MinioException, S3Error
+from urllib3.exceptions import HTTPError
 
 from app.storage.base import (
     AbstractStorageBackend,
@@ -48,11 +49,25 @@ class MinioStorage(AbstractStorageBackend):
             secure=secure,
         )
 
+    def check_health(self) -> None:
+        try:
+            self._client.list_buckets()
+        except (MinioException, HTTPError, OSError) as exc:
+            raise StorageError("MinIO is unavailable.") from exc
+
     def _ensure_bucket(self, bucket: str) -> None:
         try:
             if not self._client.bucket_exists(bucket):
                 self._client.make_bucket(bucket)
         except S3Error as exc:
+            if exc.code in {"BucketAlreadyExists", "BucketAlreadyOwnedByYou"}:
+                try:
+                    if self._client.bucket_exists(bucket):
+                        return
+                except (MinioException, HTTPError, OSError):
+                    pass
+            raise StorageError(f"Failed to ensure MinIO bucket {bucket}: {exc}") from exc
+        except (MinioException, HTTPError, OSError) as exc:
             raise StorageError(f"Failed to ensure MinIO bucket {bucket}: {exc}") from exc
 
     def put_fileobj(
@@ -74,8 +89,10 @@ class MinioStorage(AbstractStorageBackend):
                 length=length,
                 content_type=content_type,
             )
-        except S3Error as exc:
-            raise StorageError(f"Failed to write MinIO object {bucket}/{storage_key}: {exc}") from exc
+        except (MinioException, HTTPError, OSError) as exc:
+            raise StorageError(
+                f"Failed to write MinIO object {bucket}/{storage_key}: {exc}"
+            ) from exc
 
     def iter_file(
         self,
@@ -89,7 +106,13 @@ class MinioStorage(AbstractStorageBackend):
         except S3Error as exc:
             if exc.code in {"NoSuchBucket", "NoSuchKey", "NoSuchObject"}:
                 raise StorageObjectNotFound(f"{bucket}/{storage_key}") from exc
-            raise StorageError(f"Failed to read MinIO object {bucket}/{storage_key}: {exc}") from exc
+            raise StorageError(
+                f"Failed to read MinIO object {bucket}/{storage_key}: {exc}"
+            ) from exc
+        except (MinioException, HTTPError, OSError) as exc:
+            raise StorageError(
+                f"Failed to read MinIO object {bucket}/{storage_key}: {exc}"
+            ) from exc
 
         def _iter() -> Iterator[bytes]:
             try:
@@ -111,3 +134,7 @@ class MinioStorage(AbstractStorageBackend):
                 raise StorageError(
                     f"Failed to delete MinIO object {bucket}/{storage_key}: {exc}"
                 ) from exc
+        except (MinioException, HTTPError, OSError) as exc:
+            raise StorageError(
+                f"Failed to delete MinIO object {bucket}/{storage_key}: {exc}"
+            ) from exc

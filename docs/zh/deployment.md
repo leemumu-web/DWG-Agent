@@ -28,8 +28,7 @@
 |---|---|---|
 | Python | 3.12（精确版本 -- `<3.13`） | 后端运行时 |
 | uv | 最新版（通过 `ghcr.io/astral-sh/uv`） | Python 包管理器 |
-| MySQL 或 MariaDB | 8.x | 运行时数据库 |
-| Redis 或 Valkey | 7.x / 9.x | 会话缓存、消息代理（Celery） |
+| MySQL 或 MariaDB | 8.x | 应用数据库及 Celery SQL 传输/结果后端 |
 | Node.js | 18+（LTS） | 前端构建 |
 | npm | 9+ | 前端包管理器 |
 
@@ -52,10 +51,6 @@ sudo pacman -S python python-pip
 sudo pacman -S mysql
 sudo systemctl enable --now mysqld
 
-# Redis (Valkey)
-sudo pacman -S redis
-sudo systemctl enable --now redis
-
 # Node.js + npm
 sudo pacman -S nodejs npm
 ```
@@ -74,7 +69,7 @@ cd /path/to/complete_framework
 # 1. 配置环境变量
 cp .env.example .env
 # 编辑 .env：设置 MYSQL_PASSWORD、MYSQL_ROOT_PASSWORD
-# 其他所有默认值（127.0.0.1:3306，无 Redis 密码）均可直接使用
+# 其他数据库默认值使用 127.0.0.1:3306
 
 # 2. 安装后端依赖
 cd backend
@@ -117,12 +112,12 @@ bash scripts/stop-all.sh
 │          │     │  (HMR 代理)  │     │  :8000  │
 └──────────┘     └──────────────┘     └────┬────┘
                                            │
-                          ┌─────────────────┼─────────────────┐
-                          ▼                 ▼                  ▼
-                     ┌─────────┐     ┌──────────┐     ┌──────────┐
-                     │  MySQL  │     │  Redis   │     │ 本地文件系统 │
-                     │  :3306  │     │  :6379   │     │ ./var/   │
-                     └─────────┘     └──────────┘     └──────────┘
+                          ┌─────────────────┴─────────────────┐
+                          ▼                                   ▼
+                     ┌──────────────────┐                ┌──────────┐
+                     │ MySQL :3306      │                │ 本地文件 │
+                     │ 应用 + Celery SQL│                │ ./var/   │
+                     └──────────────────┘                └──────────┘
 ```
 
 可选地，Nginx 可将前端和后端统一到一个地址 `http://localhost:8080` 后面（参见第 3.5 节）。
@@ -209,22 +204,18 @@ bash scripts/db.sh migration-test # 创建临时 schema，完整执行迁移，�
 
 `db.sh` 在 shell 层面强制要求使用 MySQL 的 URL —— `sqlite://` 格式的 URL 在运行时操作中会被拒绝。SQLite 仅保留用于 pytest 隔离。
 
-### 3.7 Redis（Valkey 9.x）
+### 3.7 MySQL 持久化运行状态
 
-```bash
-# 检查状态
-redis-cli ping   # => PONG
+MySQL 是唯一运行数据库。应用有效 DSN 来自可选 `DATABASE_URL`，否则由 `MYSQL_*` 组件字段构造。Celery URL 从该有效 MySQL DSN 派生：
 
-# 服务管理
-sudo systemctl status redis
-sudo systemctl restart redis
-```
+- Broker：`sqla+mysql+pymysql://...`
+- Result backend：`db+mysql+pymysql://...`
+- JWT 撤销：`token_blacklist`
+- 密码变更撤销：`sys_users.password_changed_at`
+- Agent 记忆：`agent_memory`
+- 持久化 SSE 进度：`jobs.progress_data`
 
-关键要点：
-- 本地开发：无密码，监听 `127.0.0.1:6379`。
-- 后端采用惰性连接 —— Redis 宕机**不会**导致 API 服务器崩溃。
-- 记忆服务：键格式为 `agent:memory:{session_id}`，TTL 7200 秒，最多 20 条消息。
-- 缓存服务：键格式为 `cache:{namespace}:{key}`，所有方法在 Redis 不可用时均安全无异常。
+不要另行配置 broker/result URL。Kombu SQLAlchemy 传输不支持 fanout remote control，因此 worker 健康检查使用进程检查，而不是 `celery inspect ping`。
 
 ### 3.8 测试
 
@@ -234,7 +225,7 @@ uv run ruff check app tests    # 代码检查（必须通过）
 uv run pytest -q               # 约 599 条测试（必须通过）
 ```
 
-测试使用 SQLite 内存数据库（`StaticPool`）和 FakeRedis —— 无需外部服务。`test_redis_real.py` 中的真实 Redis 集成测试在 Redis 不可用时会自动跳过。
+单元/API 测试使用 SQLite 内存数据库（`StaticPool`）。迁移与运行验收还会连接本地 MySQL，并启动真实的 MySQL-backed Celery worker。
 
 ---
 
@@ -260,10 +251,10 @@ uv run pytest -q               # 约 599 条测试（必须通过）
             │     │   gunicorn :8000   │                  │
             │     └──┬──────┬──────┬───┘                  │
             │        │      │      │                      │
-            │   ┌────▼──┐ ┌─▼──┐ ┌─▼────┐                 │
-            │   │ mysql │ │redis│ │minio │                 │
-            │   │ 8.4   │ │9.0  │ │latest│                 │
-            │   └───────┘ └─────┘ └──────┘                 │
+            │   ┌──────────────▼─┐ ┌────▼────┐             │
+            │   │ mysql 8.4      │ │ minio   │             │
+            │   │ 应用 + Celery  │ │ latest  │             │
+            │   └────────────────┘ └─────────┘             │
             │                                              │
             │   ┌──────────┐ ┌──────────┐ ┌───────────┐   │
             │   │ worker-  │ │ worker-  │ │ worker-   │   │
@@ -271,10 +262,8 @@ uv run pytest -q               # 约 599 条测试（必须通过）
             │   │ (profile)│ │ (profile)│ │ default   │   │
             │   └──────────┘ └──────────┘ └───────────┘   │
             │                                              │
-            │   ┌──────────┐                               │
-            │   │ flower   │  （monitoring profile）       │
-            │   │ :5555    │                               │
-            │   └──────────┘                               │
+            │   workers profile 还会启动 dxf2dwg、         │
+            │   dxf2excel 与 excel_final 专用 worker。      │
             └──────────────────────────────────────────────┘
 ```
 
@@ -283,14 +272,15 @@ uv run pytest -q               # 约 599 条测试（必须通过）
 | 服务 | 镜像 | 端口 | Profile | 健康检查 |
 |---|---|---|---|---|
 | `nginx` | `ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine` | 80→8080, 443→8443 | -- | depends_on backend-api 健康 |
-| `backend-api` | 自构建 | 8000（内部） | -- | 每 10 秒 `curl /health` |
+| `backend-api` | 自构建 | 8000（内部） | -- | 每 10 秒 `curl /health/ready` |
 | `mysql` | `container-registry.oracle.com/mysql/community-server:8.4` | 3306（内部） | -- | 每 10 秒 `mysqladmin ping` |
-| `redis` | `ghcr.io/valkey-io/valkey:9.0-alpine` | 6379（内部） | -- | 每 10 秒 `redis-cli ping` |
 | `minio` | `quay.io/minio/minio:latest` | 9000, 9001（内部） | -- | `curl /minio/health/live` |
-| `worker-agent` | 自构建 | -- | `workers` | 每 10 秒 `celery inspect ping` |
-| `worker-dxf` | 自构建 | -- | `workers` | 每 10 秒 `celery inspect ping` |
-| `worker-report` | 自构建 | -- | -- | 每 10 秒 `celery inspect ping` |
-| `flower` | 自构建 | 5555（内部） | `monitoring` | 每 10 秒 `curl :5555` |
+| `worker-report` | 自构建 | -- | -- | Celery 进程检查 |
+| `worker-agent` | 自构建 | -- | `workers` | Celery 进程检查 |
+| `worker-dxf` | 自构建 | -- | `workers` | Celery 进程检查 |
+| `worker-dxf2dwg` | 自构建 | -- | `workers` | Celery 进程检查 |
+| `worker-dxf2excel` | 自构建 | -- | `workers` | Celery 进程检查 |
+| `worker-excel-final` | 自构建 | -- | `workers` | Celery 进程检查 |
 
 ### 4.3 分步部署
 
@@ -306,7 +296,6 @@ cp .env.docker.example .env.docker
 |---|---|
 | `CHANGE_ME_MYSQL_PASSWORD` | MySQL 应用用户密码 |
 | `CHANGE_ME_MYSQL_ROOT_PASSWORD` | MySQL root 密码 |
-| `CHANGE_ME_REDIS_PASSWORD` | Redis requirepass 密码 |
 | `CHANGE_ME_MINIO_ROOT_USER` | MinIO 管理员用户名 |
 | `CHANGE_ME_MINIO_ROOT_PASSWORD` | MinIO 管理员密码 |
 | `CHANGE_ME_256_BIT_JWT_SECRET` | JWT 签名密钥（至少 32 个字符） |
@@ -327,7 +316,7 @@ cd ..
 docker compose up -d
 ```
 
-此命令启动：nginx、backend-api、mysql、redis、minio 以及 `worker-report`（用于阶段一 Celery 模拟作业）。
+此命令启动 nginx、backend-api、mysql、minio 以及默认 report 队列的 `worker-report`。
 
 **第 4 步：验证部署**
 
@@ -347,27 +336,22 @@ curl http://localhost/health
 
 登录：`admin` / 你配置的 `SUPER_ADMIN_PASSWORD`
 
-**第 5 步（可选）：启动 Agent/DXF Worker 和监控**
+**第 5 步（可选）：启动功能 Worker**
 
 ```bash
-# Agent/DXF 占位 worker
+# Agent、DXF、DXF→DWG、DXF→Excel 和 excel_final worker
 docker compose --profile workers up -d
-
-# Agent/DXF worker + Flower 监控面板
-docker compose --profile workers --profile monitoring up -d
 ```
-
-Flower 面板：`http://localhost:5555`（内部网络，如需外部访问请配置端口映射）。
 
 ### 4.4 Dockerfile 详情
 
-位于 `backend/Dockerfile`（多阶段构建）。**构建上下文 = 仓库根**（`compose.yaml` 中 `context: .`、`dockerfile: backend/Dockerfile`），而非 `./backend` —— 因为 `backend/pyproject.toml` 将 `dwg-converter / dxf-converter / dxf2excel` 声明为指向 `../Stages/{dwg2dxf,dxf2dwg,dxf2excel}` 的 editable path 依赖，这些路径在 `backend/` 目录之外。以仓库根为上下文才能让 `COPY Stages/...` 触及它们，从而使 `uv sync --frozen` 解析 lock 中锁定的 editable 源。
+位于 `backend/Dockerfile`（多阶段构建）。**构建上下文 = 仓库根**（`compose.yaml` 中 `context: .`、`dockerfile: backend/Dockerfile`），而非 `./backend`，因为四个 `Stages/` 包均为 editable path dependency。根上下文让 Dockerfile 可复制这些源码并执行 `uv sync --frozen`。
 
 **阶段 1（builder）：**
 - 基础镜像：`ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - 使用基础镜像自带的 uv；无需 `uv:latest` 复制阶段
-- `WORKDIR /app`；将 `backend/{pyproject.toml,uv.lock,README.md}` 复制到 `/app/backend/`，将 `Stages/{dwg2dxf,dxf2dwg,dxf2excel}` 复制到 `/app/Stages/`（复刻仓库结构，使 `../Stages/*` 可解析）
-- 运行 `uv sync --frozen --no-dev` 创建 `/app/.venv`；所有依赖均以预编译 wheel 分发（hiredis、argon2、ezdxf、pandas、openpyxl）—— 无需编译器
+- `WORKDIR /app`；复制依赖清单及 `Stages/{dwg2dxf,dxf2dwg,dxf2excel,excel_final}`
+- 运行 `uv sync --frozen --no-dev` 创建 `/app/.venv`；运行依赖由 `uv.lock` 锁定
 
 **阶段 2（runtime）：**
 - 基础镜像：`ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
@@ -388,7 +372,6 @@ Flower 面板：`http://localhost:5555`（内部网络，如需外部访问请�
 | 卷 | 挂载点 | 用途 | 持久性 |
 |---|---|---|---|
 | `mysql_data` | `/var/lib/mysql` | MySQL 数据文件 | `docker compose down` 后仍然保留 |
-| `redis_data` | `/data` | Redis AOF + 数据 | `docker compose down` 后仍然保留 |
 | `minio_data` | `/data` | 对象存储数据 | `docker compose down` 后仍然保留 |
 
 完全重置：`docker compose down -v`
@@ -404,10 +387,10 @@ Flower 面板：`http://localhost:5555`（内部网络，如需外部访问请�
 
 ```bash
 # 停止所有服务（保留卷）
-docker compose --profile workers --profile monitoring down
+docker compose --profile workers down
 
 # 停止并删除卷（完全重置）
-docker compose --profile workers --profile monitoring down -v
+docker compose --profile workers down -v
 ```
 
 ---
@@ -432,7 +415,7 @@ docker compose --profile workers --profile monitoring down -v
 
 | 变量 | 本地默认值 | Docker 默认值 | 说明 |
 |---|---|---|---|
-| `DATABASE_URL` | `mysql+pymysql://dwg_user:...@127.0.0.1:3306/dwg_agent` | `...@mysql:3306/dwg_agent` | 完整连接 URL |
+| `DATABASE_URL` | 未设置 | 未设置 | 可选的权威 MySQL DSN 覆盖 |
 | `MYSQL_HOST` | `127.0.0.1` | `mysql` | 主机名 |
 | `MYSQL_PORT` | `3306` | `3306` | 端口号 |
 | `MYSQL_DATABASE` | `dwg_agent` | `dwg_agent` | 数据库名称 |
@@ -443,29 +426,27 @@ docker compose --profile workers --profile monitoring down -v
 [^1]: `MYSQL_ROOT_PASSWORD` 是**基础设施专用变量**。它被 `compose.yaml` 用于 MySQL 容器的健康检查（`mysqladmin ping -u root -p`）。它**不是** `backend/app/core/config.py` 中的字段（config.py 设了 `extra="ignore"`）—— 后端应用程序永远不会读取它。它只在 `.env.example` 和 `.env.docker.example` 中定义，供 Compose 使用。
 
 **计算属性：`settings.mysql_url`** —— 由各组件字段组装，密码经 URL 编码。
+**有效值：`settings.sqlalchemy_database_url`** —— 设置了 `DATABASE_URL` 时使用该值，否则使用 `settings.mysql_url`。
 
 连接池设置（硬编码在 `app/db/session.py` 中，仅限 MySQL）：
 - `pool_recycle=3600`
 - `pool_size=10`
 - `max_overflow=20`
 
-### 5.3 Redis（兼容 Valkey）
+### 5.3 Celery 与持久化运行状态
 
 | 变量 | 本地默认值 | Docker 默认值 | 说明 |
 |---|---|---|---|
-| `REDIS_HOST` | `localhost` | `redis` | 主机名 |
-| `REDIS_PORT` | `6379` | `6379` | 端口号 |
-| `REDIS_DB` | `0` | `0` | 数据库编号 |
-| `REDIS_PASSWORD` | （空） | （必填） | 认证密码 |
-| `REDIS_MEMORY_TTL` | `7200` | `7200` | Agent 记忆 TTL（秒） |
-| `REDIS_MAX_MESSAGES` | `20` | `20` | 每个会话的最大消息数 |
 | `CELERY_TASK_ALWAYS_EAGER` | `false` | `false` | 同步执行任务（测试中覆盖为 `true`） |
+| `AGENT_MEMORY_TTL` | `7200` | `7200` | MySQL Agent 记忆保留秒数 |
+| `AGENT_MAX_MESSAGES` | `20` | `20` | 每个 Agent 会话最多消息数 |
 
-**计算属性：`settings.redis_url`** —— 由各组件字段组装。
-**计算属性：`settings.celery_broker_url`** —— `redis://.../{host}:{port}/0`
-**计算属性：`settings.celery_result_backend`** —— `redis://.../{host}:{port}/1`
+Celery 端点在 `config.py` 中从有效 MySQL DSN 派生，因此应用、broker 和 result 配置不会漂移：
 
-运行时 Celery URL 在 `config.py` 中由 `REDIS_*` 组件字段派生，因此 Redis 和 Celery 的配置不会出现漂移。`CELERY_BROKER_URL` 和 `CELERY_RESULT_BACKEND` 条目仍保留在环境变量模板中，作为与规范兼容的镜像值；在复制环境变量文件时，请保持它们与 Redis 字段一致。
+- `settings.celery_broker_url`：`sqla+mysql+pymysql://...`
+- `settings.celery_result_backend`：`db+mysql+pymysql://...`
+
+环境中不再存在独立的 `CELERY_BROKER_URL` 或 `CELERY_RESULT_BACKEND` 键。Celery 自有表随 MySQL 一起备份；结果记录保留 24 小时，并在 worker 启动时清理。
 
 ### 5.4 存储
 
@@ -617,7 +598,7 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 - 要求 `DATABASE_URL` 必须为 `mysql+pymysql://` 格式（在 shell 层面拒绝 `sqlite://` 格式）。
 - 验证 `.env` 和 `backend/.env` 的数据库配置一致。
 - 能检测 MariaDB 与 MySQL 的 systemd 服务名称差异。
-- `migration-test` 创建一个临时的 `dwg_agent_migration_test_<pid>` 数据库，从空 schema 运行完整的 Alembic 链，验证所有 17 张预期表和 TimestampMixin 列，然后删除临时数据库。
+- `migration-test` 创建临时 `dwg_agent_migration_test_<pid>` 数据库，从空 schema 运行完整 Alembic 链，验证 22 张业务表、持久化状态列和精确 Alembic head，然后删除临时数据库。
 
 ### `start-dev.sh` —— 开发模式
 
@@ -625,8 +606,8 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 用法: bash scripts/start-dev.sh
 ```
 
-- 启动 MySQL + Redis，初始化数据库，启动全部四个本地 Celery worker（`worker-report`、`worker-dxf`、`worker-dxf2dwg`、`worker-dxf2excel`）、后端（`uvicorn --reload` 监听 `:8000`）和前端（Vite HMR 监听 `:5173`）。
-- 将 PID 文件写入 `/tmp/dwg-agent-worker-report.pid`、`/tmp/dwg-agent-worker-dxf.pid`、`/tmp/dwg-agent-worker-dxf2dwg.pid`、`/tmp/dwg-agent-worker-dxf2excel.pid`、`/tmp/dwg-agent-backend.pid` 和 `/tmp/dwg-agent-frontend.pid`。
+- 启动 MySQL、初始化数据库，启动五个本地 Celery worker（`worker-report`、`worker-dxf`、`worker-dxf2dwg`、`worker-dxf2excel`、`worker-excel-final`）、后端（`uvicorn --reload` 监听 `:8000`）和前端（Vite HMR 监听 `:5173`）。
+- 为每个 worker、后端和前端在 `/tmp/dwg-agent-*.pid` 写入其拥有的 PID 文件。
 - 自动检测 `VITE_API_BASE_URL` 是否为空（Nginx 模式），并临时将其设置为 `http://127.0.0.1:8000` 以直接访问后端。
 - 阻塞等待直到 Ctrl+C（使用 `wait`），然后打印停止说明。
 
@@ -636,7 +617,7 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 用法: bash scripts/start-all.sh [--rebuild]
 ```
 
-- 启动 MySQL、Redis、本地 Celery `worker-report`、后端（`uvicorn --reload` 监听 `:8000`），按需构建前端，启动 Nginx 监听 `:8080`。
+- 启动 MySQL、本地 Celery `worker-report`、后端（`uvicorn --reload` 监听 `:8000`），按需构建前端，并启动 Nginx 监听 `:8080`。
 - `--rebuild` 标志强制重新构建前端，即使 `dist/` 已存在。
 - 统一访问：`http://localhost:8080`（通过 Nginx 提供 SPA + API + 健康检查）。
 - 如果 8080 端口被未知进程占用则停止。
@@ -649,9 +630,9 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 
 - 停止 Nginx（通过 `nginx -s quit`）。
 - 通过 PID 文件 `/tmp/dwg-agent-backend.pid` 终止后端。
-- 通过 PID 文件 `/tmp/dwg-agent-worker-report.pid` 终止本地 Celery `worker-report`。
+- 通过各自 PID 文件停止全部本地管理的 Celery worker。
 - 验证 8000 端口已释放。
-- **不**停止 MySQL/Redis（它们是共享基础设施）。
+- **不**停止 MySQL（它是共享基础设施）。
 
 ### `status.sh` —— 健康检查聚合
 
@@ -661,10 +642,9 @@ Docker Compose 将 `MINIO_ROOT_USER` 同时传递给 `MINIO_ACCESS_KEY` 和 `MIN
 
 检查项目：
 1. MySQL 状态（通过 `db.sh status`）
-2. Redis 端口 6379
-3. Celery worker-report PID
-4. 后端端口 8000 + `GET /health` 端点
-5. Nginx 端口 8080 + API 反向代理 + SPA 静态文件服务
+2. Celery worker-report PID
+3. 后端端口 8000 + `GET /health/ready`
+4. Nginx 端口 8080 + API 反向代理 + SPA 静态文件服务
 
 打印带颜色编码的摘要，显示"全部正常"或"部分失败"及恢复提示。
 
@@ -690,20 +670,16 @@ GET /health
 - 若数据库不可达（通过 `db_health()` 检测），返回 503
 - 意外错误时返回 500
 
-出于安全考虑，该端点**不**暴露内部组件详细信息（数据库 URL、Redis 状态等）。
+出于安全考虑，该端点**不**暴露内部数据库细节或凭据。
 
 ### 7.2 Docker 健康检查
 
 | 服务 | 检查方式 | 间隔 | 超时 | 重试次数 |
 |---|---|---|---|---|
-| `backend-api` | `curl -f http://localhost:8000/health` | 10s | 3s | 5 |
+| `backend-api` | `curl -f http://localhost:8000/health/ready` | 10s | 3s | 5 |
 | `mysql` | `mysqladmin ping -h localhost -u root -p"${MYSQL_ROOT_PASSWORD}"` | 10s | 3s | 5 |
-| `redis` | `redis-cli -a "${REDIS_PASSWORD}" ping` | 10s | 3s | 5 |
 | `minio` | `curl -f http://localhost:9000/minio/health/live` | 10s | 3s | 5 |
-| `worker-agent` | `celery inspect ping -d agent@$HOSTNAME` | 10s | 8s | 5 |
-| `worker-dxf` | `celery inspect ping -d dxf@$HOSTNAME` | 10s | 8s | 5 |
-| `worker-report` | `celery inspect ping -d report@$HOSTNAME` | 10s | 8s | 5 |
-| `flower` | `curl -fsS http://localhost:5555/` | 10s | 5s | 5 |
+| 全部 Celery worker | `grep -aq celery /proc/1/cmdline` | 10s | 3-8s | 5 |
 
 Nginx 通过 `depends_on` `backend-api` 并设置 `condition: service_healthy`，因此在后端健康之前 Nginx 不会启动（也不会接受流量）。
 
@@ -725,19 +701,9 @@ HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
 - **速率限制：** 登录端点限速 2 req/s（突发 3），通用 API 限速 100 req/s（突发 20）—— 超过限制时均返回 HTTP 429。
 - **健康检查端点：** 对 `/health` 设置 `access_log off` 以减少日志噪音。
 
-### 7.5 Flower（Celery 监控）
+### 7.5 Celery SQL 监控
 
-使用 `monitoring` profile 启动：
-
-```bash
-docker compose --profile monitoring up -d flower
-```
-
-Flower 面板位于 `http://localhost:5555`，提供以下信息：
-- Worker 状态（在线/离线）
-- 任务队列长度
-- 任务成功/失败率
-- 任务执行时间分布
+Kombu SQLAlchemy 传输不支持 fanout/remote control，因此部署中不提供基于 inspect 的面板。worker 存活通过容器/进程健康检查监控；任务生命周期通过 `jobs` 表和 API 监控；队列与结果增长通过 `kombu_message`、`celery_taskmeta` 监控。应用指标应由专用指标导出器提供，而不是依赖 Celery remote control。
 
 ### 7.6 基础设施验证
 
@@ -749,9 +715,9 @@ bash infra/verify.sh
 
 检查项（6 个部分）：
 1. **Nginx 配置** —— 语法验证、关键指令（upstream、速率限制、安全头、SPA 回退）
-2. **Docker Compose** —— 服务数量（9）、镜像版本、卷挂载、环境变量空值检查、健康检查、profiles
+2. **Docker Compose** —— 服务数量（10）、镜像版本、卷挂载、环境变量空值检查、健康检查、profiles
 3. **Dockerfile** —— 多阶段构建、非 root 用户、HEALTHCHECK、STOPSIGNAL、gunicorn CMD
-4. **MySQL 集成** —— 数据库可访问性、全部 17 张表、TimestampMixin 列、角色种子数据、管理员用户、dwg_user 权限、应用凭据
+4. **MySQL 集成** —— 数据库可访问性、当前业务/运行表、持久化列、角色种子数据、管理员用户、授权与应用凭据
 5. **文件完整性** —— 所有必需的配置文件存在、环境变量模板键值一致性
 6. **死代码检查** —— 确认已删除的目录（`conf.d/`、`snippets/`）未被引用
 
@@ -768,9 +734,6 @@ bash infra/verify.sh
 # 验证 MySQL 正在运行
 bash scripts/db.sh status
 
-# 验证 Redis 正在运行
-redis-cli ping
-
 # 检查 backend/.env 是否存在且值正确
 cat backend/.env | grep DATABASE_URL
 
@@ -782,7 +745,6 @@ cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 - MySQL 未运行（`sudo systemctl start mariadb` 或 `mysqld`）
 - `.env` / `backend/.env` 中的 `MYSQL_PASSWORD` 不正确
 - 数据库未初始化（`bash scripts/db.sh init`）
-- Redis 未运行（`sudo systemctl start redis`）
 
 ### 8.2 数据库连接被拒绝
 
@@ -893,23 +855,11 @@ bash scripts/db.sh migration-test
 
 这是**阶段一的预期行为**。功能开关 `AGENT_ENABLED=false` 导致所有 `/api/v1/agent-runs/*` 端点返回 503（错误码 `AGENT_DISABLED`），附带消息"Agent subsystem is intentionally disabled in stage 1."（Agent 子系统在阶段一被有意禁用）。DXF 管道和 CAD Worker 端点与其各自的功能开关同理。
 
-### 8.10 Redis 不可用（本地开发）
+### 8.10 Celery SQL 队列不推进
 
-**症状：** `redis-cli ping` 失败或后端日志显示 Redis 连接错误。
+**症状：** 作业长期停留在 `queued`，或 worker 日志报告 MySQL 传输错误。
 
-**修复：**
-```bash
-# 检查服务
-sudo systemctl status redis
-
-# 如需启动
-sudo systemctl start redis
-
-# 验证
-redis-cli ping   # => PONG
-```
-
-注意：后端设计上能够容忍 Redis 不可用 —— 它采用惰性连接，所有使用 Redis 的代码路径都有当 Redis 宕机时的回退方案。
+**修复：** 检查 `/health/ready`、应用 MySQL 凭据、对应队列 worker 进程及日志。不要使用 `celery inspect`；SQLAlchemy 传输不支持 remote control。确认 worker 消费了任务路由对应的队列：`report`、`dxf`、`dxf2dwg`、`dxf2excel` 或 `excel_final`。
 
 ---
 
@@ -961,10 +911,6 @@ bash scripts/db.sh migrate
 docker run --rm -v complete_framework_mysql_data:/data -v $(pwd):/backup \
   alpine tar czf /backup/mysql_data_backup.tar.gz -C /data .
 
-# Redis
-docker run --rm -v complete_framework_redis_data:/data -v $(pwd):/backup \
-  alpine tar czf /backup/redis_data_backup.tar.gz -C /data .
-
 # MinIO
 docker run --rm -v complete_framework_minio_data:/data -v $(pwd):/backup \
   alpine tar czf /backup/minio_data_backup.tar.gz -C /data .
@@ -1010,9 +956,9 @@ tar czf storage_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C backend var/storage
 | **Agent 子系统** | 功能开关关闭 | `/api/v1/agent-runs/*` 返回 503 | 阶段二 |
 | **DXF 管道** | 功能开关关闭 | `POST /api/v1/jobs` 的 DWG↔DXF / DXF→Excel 转换任务返回 503 | 阶段三 |
 | **CAD Worker** | 功能开关关闭 | CAD Worker 端点返回 503 | 阶段四 |
-| **Agent/DXF Celery Worker** | 仅 Compose profile | `worker-agent` 和 `worker-dxf` 可以启动，但具体任务体被推迟 | 阶段二/三 |
+| **Agent Worker** | 仅 Compose profile | 队列已存在；Agent 实现仍受功能开关限制 | 阶段二 |
+| **DXF/excel_final Worker** | 仅 Compose profile | 真实的队列专用任务体；仅在流水线开关和依赖就绪后启用 | 已实现 |
 | **MinIO（对象存储）** | Docker 默认启用 | 当 `STORAGE_BACKEND=minio` 时后端使用 MinIO；本地开发仍默认使用本地文件系统 | 部署已完成 |
-| **Flower 监控** | 仅 Compose profile | 面板可以监控 `worker-report`；默认有意不暴露外部端口映射 | 阶段二加固 |
 | **SSL/TLS（HTTPS）** | 未配置 | Nginx 监听 443 端口但没有 SSL 证书 | 阶段 C |
 | **MCP CAD 集成** | 仅存根代码 | `app/mcp_client/` 包含占位模块 | 阶段二 |
 | **ZWCAD 集成** | 仅存根代码 | `app/integrations/zwcad/` 包含占位模块 | 阶段四 |
@@ -1028,10 +974,10 @@ tar czf storage_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C backend var/storage
 - Celery `worker-report` 模拟任务，演示队列 → 运行中 → 成功的作业流程
 - 项目、图纸、文件和作业的增删改查操作
 - 审计日志（所有变更操作均被记录）
-- 数据库迁移（Alembic，4 个版本，17 张表）
+- 数据库迁移（Alembic，6 个版本，22 张业务表）
 - 引导超级管理员种子数据
-- 约 599 条测试通过（pytest + FakeRedis；当 Redis 可用时运行真实 Redis 测试）
-- Docker Compose 部署，包含 9 个服务
+- 后端单元/集成测试，以及真实 MySQL/Celery 验收探针
+- Docker Compose 部署，包含 10 个服务
 - Nginx 网关，具备速率限制、安全头和 SPA 回退功能
 
 ### 阶段一环境标志参考：
@@ -1039,6 +985,9 @@ tar czf storage_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C backend var/storage
 ```bash
 AGENT_ENABLED=false          # Agent 返回 503
 DXF_PIPELINE_ENABLED=false   # DXF 管道返回 503
+DXF2DWG_PIPELINE_ENABLED=false
+DXF2EXCEL_PIPELINE_ENABLED=false
+EXCEL_FINAL_PIPELINE_ENABLED=false
 CAD_WORKER_ENABLED=false     # CAD Worker 返回 503
 STORAGE_BACKEND=local        # 本地开发文件系统；Docker 的 .env.docker 使用 minio
 CELERY_TASK_ALWAYS_EAGER=false  # 测试中覆盖为 true；运行时使用真实 worker
@@ -1076,7 +1025,7 @@ cd frontend && npm run lint                         # ESLint
 
 # ---- Docker ----
 docker compose up -d                                # 核心服务
-docker compose --profile workers --profile monitoring up -d  # 全栈
+docker compose --profile workers up -d              # 核心服务 + 功能 worker
 docker compose ps                                   # 服务状态
 docker compose logs -f <service>                    # 跟踪日志
 docker compose down                                 # 停止所有（保留卷）
@@ -1088,7 +1037,6 @@ docker compose exec mysql mysql -u dwg_user -p      # 容器内 MySQL shell
 curl http://127.0.0.1:8000/health                   # 后端（本地）
 curl http://localhost:8080/health                   # 通过 Nginx（本地）
 curl http://localhost/health                        # 通过 Nginx（Docker）
-redis-cli ping                                      # Redis
 bash infra/verify.sh                                # 完整基础设施验证
 ```
 
@@ -1100,9 +1048,7 @@ bash infra/verify.sh                                # 完整基础设施验证
 | 443 | Nginx（SSL 占位） | 仅 Docker | HTTPS |
 | 3306 | MySQL | 两种模式 | MySQL wire |
 | 5173 | Vite HMR | 仅本地开发 | HTTP |
-| 6379 | Redis/Valkey | 两种模式 | Redis wire |
 | 8000 | 后端（FastAPI/Gunicorn） | 两种模式 | HTTP |
 | 8080 | Nginx（可选本地） | 仅本地开发 | HTTP |
 | 9000 | MinIO API | 仅 Docker | HTTP |
 | 9001 | MinIO 控制台 | 仅 Docker | HTTP |
-| 5555 | Flower | Docker（profile） | HTTP |

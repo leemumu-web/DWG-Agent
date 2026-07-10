@@ -1,25 +1,30 @@
+import { lazy, Suspense } from 'react';
+import { Spin } from 'antd';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './layout';
-import { LoginPage } from '../features/auth/LoginPage';
-import { DashboardPage } from '../features/dashboard/DashboardPage';
-import { ProjectsPage } from '../features/projects/ProjectsPage';
-import { FilesLayout } from '../features/files/FilesLayout';
-import { Dwg2DxfPage } from '../features/files/Dwg2DxfPage';
-import { Dxf2DwgPage } from '../features/files/Dxf2DwgPage';
-import { Dxf2ExcelPage } from '../features/files/Dxf2ExcelPage';
-import { DrawingsPage } from '../features/drawings/DrawingsPage';
-import { JobsPage } from '../features/jobs/JobsPage';
-import { ReviewsPage } from '../features/reviews/ReviewsPage';
-import { UsersPage } from '../features/users/UsersPage';
-import { AuditLogsPage } from '../features/admin/AuditLogsPage';
-import { RolesPage } from '../features/admin/RolesPage';
-import { ProfilePage } from '../features/profile/ProfilePage';
 import { RequireAuth, RequireRoles } from '../components/PermissionGuard';
+
+const LoginPage = lazy(() => import('../features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
+const DashboardPage = lazy(() => import('../features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
+const ProjectsPage = lazy(() => import('../features/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })));
+const FilesLayout = lazy(() => import('../features/files/FilesLayout').then((module) => ({ default: module.FilesLayout })));
+const Dwg2DxfPage = lazy(() => import('../features/files/Dwg2DxfPage').then((module) => ({ default: module.Dwg2DxfPage })));
+const Dxf2DwgPage = lazy(() => import('../features/files/Dxf2DwgPage').then((module) => ({ default: module.Dxf2DwgPage })));
+const Dxf2ExcelPage = lazy(() => import('../features/files/Dxf2ExcelPage').then((module) => ({ default: module.Dxf2ExcelPage })));
+const ExcelFinalPage = lazy(() => import('../features/files/ExcelFinalPage').then((module) => ({ default: module.ExcelFinalPage })));
+const DrawingsPage = lazy(() => import('../features/drawings/DrawingsPage').then((module) => ({ default: module.DrawingsPage })));
+const JobsPage = lazy(() => import('../features/jobs/JobsPage').then((module) => ({ default: module.JobsPage })));
+const ReviewsPage = lazy(() => import('../features/reviews/ReviewsPage').then((module) => ({ default: module.ReviewsPage })));
+const UsersPage = lazy(() => import('../features/users/UsersPage').then((module) => ({ default: module.UsersPage })));
+const AuditLogsPage = lazy(() => import('../features/admin/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })));
+const RolesPage = lazy(() => import('../features/admin/RolesPage').then((module) => ({ default: module.RolesPage })));
+const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
 
 export function AppRouter() {
   return (
     <BrowserRouter>
-      <Routes>
+      <Suspense fallback={<div style={{ display: 'grid', placeItems: 'center', minHeight: 240 }}><Spin /></div>}>
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route element={<RequireAuth />}>
           <Route element={<AppLayout />}>
@@ -30,6 +35,7 @@ export function AppRouter() {
               <Route path="dwg2dxf" element={<Dwg2DxfPage />} />
               <Route path="dxf2dwg" element={<Dxf2DwgPage />} />
               <Route path="dxf2excel" element={<Dxf2ExcelPage />} />
+              <Route path="excel-final" element={<ExcelFinalPage />} />
             </Route>
             <Route path="/drawings" element={<DrawingsPage />} />
             <Route path="/jobs" element={<JobsPage />} />
@@ -47,7 +53,8 @@ export function AppRouter() {
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

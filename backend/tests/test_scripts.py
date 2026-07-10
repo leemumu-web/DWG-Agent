@@ -77,6 +77,25 @@ def test_start_stop_status_scripts_manage_report_worker():
     assert "worker-report" in status_content
 
 
+def test_local_scripts_manage_every_implemented_pipeline_worker():
+    lib_content = _read("scripts/lib.sh")
+    start_content = _read("scripts/start-dev.sh")
+    stop_content = _read("scripts/stop-all.sh")
+
+    expected = {
+        "dxf": "dxf",
+        "dxf2dwg": "dxf2dwg",
+        "dxf2excel": "dxf2excel",
+        "excel_final": "excel-final",
+    }
+    assert "start_celery_worker" in lib_content
+    for queue, slug in expected.items():
+        function_name = f"start_{queue}_worker"
+        assert function_name in lib_content
+        assert function_name in start_content
+        assert f"dwg-agent-worker-{slug}.pid" in stop_content
+
+
 def test_stop_all_does_not_kill_unowned_backend_port():
     content = _read("scripts/stop-all.sh")
 

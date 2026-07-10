@@ -35,6 +35,7 @@ import {
   uploadZip,
   uploadFolder,
   uploadFile,
+  downloadFile,
   deleteBatch,
   downloadBatchZip,
 } from '../../api/files.api';
@@ -166,7 +167,6 @@ export function Dxf2ExcelPage() {
       const results = await getJobResults(job.id);
       const excel = results.find((r) => r.result_type === 'extract_dxf_to_excel');
       if (!excel?.result_file_id) { message.error('Excel 结果未找到'); return; }
-      const { downloadFile } = await import('../../api/files.api');
       await downloadFile(excel.result_file_id, `${batchName}.xlsx`);
     } catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
   }, [jobsByBatch]);

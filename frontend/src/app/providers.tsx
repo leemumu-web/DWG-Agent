@@ -19,7 +19,7 @@ export function AppProviders({ children }: PropsWithChildren) {
   if (!authReady) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Spin size="large" tip="初始化中…" />
+        <Spin size="large" description="初始化中…" />
       </div>
     );
   }

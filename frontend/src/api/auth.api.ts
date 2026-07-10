@@ -16,14 +16,10 @@ export async function logout() {
 
 /** Refresh the access token using the HttpOnly refresh cookie. The backend
  *  reads the cookie automatically — no body needed. Returns a fresh
- *  access_token + user, or null if the refresh token is gone/stale. */
-export async function refreshSession(): Promise<LoginResponse | null> {
-  try {
-    const res = await apiClient.post<ApiEnvelope<LoginResponse>>('/api/v1/auth/tokens/refresh');
-    return res.data.data;
-  } catch {
-    return null;
-  }
+ *  access_token + user. Missing or stale cookies reject with 401. */
+export async function refreshSession(): Promise<LoginResponse> {
+  const res = await apiClient.post<ApiEnvelope<LoginResponse>>('/api/v1/auth/tokens/refresh');
+  return res.data.data;
 }
 
 export async function getMe() {
@@ -32,7 +28,7 @@ export async function getMe() {
 }
 
 export async function changePassword(current_password: string, new_password: string) {
-  const res = await apiClient.post<ApiEnvelope<{ changed: boolean }>>(
+  const res = await apiClient.patch<ApiEnvelope<{ changed: boolean }>>(
     '/api/v1/auth/password',
     { current_password, new_password },
   );

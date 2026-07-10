@@ -17,11 +17,27 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Kombu and Celery create these tables at runtime. They share the MySQL schema
+# but are not owned by application migrations, so autogenerate must never emit
+# destructive operations for them.
+CELERY_OWNED_TABLES = {
+    "celery_taskmeta",
+    "celery_tasksetmeta",
+    "kombu_message",
+    "kombu_queue",
+}
+
+
+def include_object(object_, name: str | None, type_: str, reflected: bool, compare_to) -> bool:
+    del object_, reflected, compare_to
+    return not (type_ == "table" and name in CELERY_OWNED_TABLES)
+
 
 def run_migrations_offline() -> None:
     context.configure(
         url=settings.sqlalchemy_database_url,
         target_metadata=target_metadata,
+        include_object=include_object,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -38,7 +54,11 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            include_object=include_object,
+        )
         with context.begin_transaction():
             context.run_migrations()
 

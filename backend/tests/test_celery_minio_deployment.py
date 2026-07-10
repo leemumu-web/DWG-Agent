@@ -159,6 +159,24 @@ def test_mysql_result_rows_have_bounded_retention():
     assert celery_app.conf.result_expires == 24 * 60 * 60
 
 
+def test_celery_mysql_engines_use_bounded_pools():
+    from app.workers.celery_app import celery_app
+
+    expected = {
+        "pool_pre_ping": True,
+        "pool_recycle": 3600,
+        "pool_size": 1,
+        "max_overflow": 1,
+        "pool_timeout": 30,
+        "pool_use_lifo": True,
+    }
+    for key, value in expected.items():
+        assert celery_app.conf.broker_transport_options[key] == value
+        assert celery_app.conf.database_engine_options[key] == value
+    assert celery_app.conf.database_short_lived_sessions is True
+    assert "task_default_expires" not in celery_app.conf
+
+
 def test_worker_startup_cleans_expired_mysql_result_rows():
     from app.workers import celery_app as celery_module
 
@@ -177,16 +195,21 @@ def test_worker_startup_cleans_expired_mysql_result_rows():
 
 
 def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
-    content = (REPO_ROOT / "backend/app/api/v1/jobs_api.py").read_text()
+    api_sources = "\n".join(
+        (REPO_ROOT / path).read_text()
+        for path in (
+            "backend/app/api/v1/jobs_api.py",
+            "backend/app/api/v1/excel_final_api.py",
+        )
+    )
 
-    assert "BackgroundTasks" not in content
-    assert "background_tasks.add_task" not in content
-    assert "enqueue_job" in content
+    assert "BackgroundTasks" not in api_sources
+    assert "background_tasks.add_task" not in api_sources
+    assert "dispatch_committed_job" in api_sources
+    assert "enqueue_job" not in api_sources
 
 
 def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
-    from app.api.v1 import jobs_api
-
     init_db()
     client = TestClient(app, raise_server_exceptions=False)
     login = client.post(
@@ -206,7 +229,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     def fail_enqueue(job_id: int, pipeline: str) -> str:
         raise RuntimeError("mysql broker unavailable")
 
-    monkeypatch.setattr(jobs_api, "enqueue_job", fail_enqueue)
+    monkeypatch.setattr(job_service, "enqueue_job", fail_enqueue)
 
     response = client.post(
         "/api/v1/jobs",
@@ -227,7 +250,52 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
         assert job is not None
         assert job.status == JOB_FAILED
         assert job.error_code == "JOB_ENQUEUE_FAILED"
-        assert job.error_message == "mysql broker unavailable"
+        assert job.error_message == "The task could not be dispatched to the queue."
+        assert "mysql broker unavailable" not in job.error_message
+    finally:
+        db.close()
+
+
+def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
+    init_db()
+    client = TestClient(app, raise_server_exceptions=False)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    db = job_service.SessionLocal()
+    try:
+        job = Job(
+            created_by=1,
+            task_type="framework_smoke_test",
+            precision_level="normal",
+            pipeline="local_stub",
+            status=JOB_FAILED,
+            priority=0,
+            progress=20,
+            params_json={},
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    def fail_enqueue(job_id: int, pipeline: str) -> str:
+        raise RuntimeError("mysql://user:secret@broker/internal")
+
+    monkeypatch.setattr(job_service, "enqueue_job", fail_enqueue)
+
+    response = client.post(f"/api/v1/jobs/{job_id}/retry-requests", headers=headers)
+
+    assert response.status_code == 503, response.text
+    db = job_service.SessionLocal()
+    try:
+        retried = db.get(Job, job_id)
+        assert retried.status == JOB_FAILED
+        assert retried.error_code == "JOB_ENQUEUE_FAILED"
+        assert "secret" not in retried.error_message
     finally:
         db.close()
 
@@ -240,6 +308,7 @@ def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default
         "worker-dxf",
         "worker-dxf2dwg",
         "worker-dxf2excel",
+        "worker-excel-final",
         "worker-report",
     ):
         command = data["services"][service_name]["command"]

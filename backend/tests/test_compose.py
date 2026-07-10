@@ -26,6 +26,7 @@ APP_SERVICE_NAMES = (
     "worker-dxf",
     "worker-dxf2dwg",
     "worker-dxf2excel",
+    "worker-excel-final",
     "worker-report",
 )
 
@@ -61,6 +62,12 @@ class TestAppServices:
     def test_unsupported_flower_service_is_absent(self):
         data = _load()
         assert "flower" not in data["services"]
+
+    def test_all_editable_stage_dependencies_are_copied_into_image(self):
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        for stage in ("dwg2dxf", "dxf2dwg", "dxf2excel", "excel_final"):
+            assert f"COPY Stages/{stage} ./Stages/{stage}" in dockerfile
 
 
 class TestComposeYamlValid:

@@ -28,8 +28,7 @@
 |---|---|---|
 | Python | 3.12 (exact -- `<3.13`) | Backend runtime |
 | uv | Latest (via `ghcr.io/astral-sh/uv`) | Python package manager |
-| MySQL or MariaDB | 8.x | Runtime database |
-| Redis or Valkey | 7.x / 9.x | Session cache, message broker (Celery) |
+| MySQL or MariaDB | 8.x | Application database and Celery SQL transport/results |
 | Node.js | 18+ (LTS) | Frontend build |
 | npm | 9+ | Frontend package manager |
 
@@ -52,10 +51,6 @@ sudo pacman -S python python-pip
 sudo pacman -S mysql
 sudo systemctl enable --now mysqld
 
-# Redis (Valkey)
-sudo pacman -S redis
-sudo systemctl enable --now redis
-
 # Node.js + npm
 sudo pacman -S nodejs npm
 ```
@@ -74,7 +69,7 @@ cd /path/to/complete_framework
 # 1. Configure environment
 cp .env.example .env
 # Edit .env: set MYSQL_PASSWORD, MYSQL_ROOT_PASSWORD
-# All other defaults (127.0.0.1:3306, no Redis password) work out of the box
+# All other database defaults use 127.0.0.1:3306
 
 # 2. Install backend dependencies
 cd backend
@@ -117,12 +112,12 @@ bash scripts/stop-all.sh
 │           │     │  (HMR proxy) │     │ :8000   │
 └──────────┘     └──────────────┘     └────┬────┘
                                            │
-                          ┌─────────────────┼─────────────────┐
-                          ▼                 ▼                  ▼
-                     ┌─────────┐     ┌──────────┐     ┌──────────┐
-                     │ MySQL   │     │ Redis    │     │ Local FS │
-                     │ :3306   │     │ :6379    │     │ ./var/   │
-                     └─────────┘     └──────────┘     └──────────┘
+                          ┌─────────────────┴─────────────────┐
+                          ▼                                   ▼
+                     ┌──────────────────┐                ┌──────────┐
+                     │ MySQL :3306      │                │ Local FS │
+                     │ app + Celery SQL │                │ ./var/   │
+                     └──────────────────┘                └──────────┘
 ```
 
 Optionally, Nginx can unify frontend and backend behind `http://localhost:8080` (see section 3.5).
@@ -209,22 +204,18 @@ bash scripts/db.sh migration-test # create temp schema, run full migration, veri
 
 `db.sh` enforces MySQL-only URLs at the shell level -- `sqlite://` URLs are rejected for runtime operations. SQLite is reserved exclusively for pytest isolation.
 
-### 3.7 Redis (Valkey 9.x)
+### 3.7 MySQL-Backed Runtime State
 
-```bash
-# Check status
-redis-cli ping   # => PONG
+MySQL is the only runtime database. The effective application DSN comes from optional `DATABASE_URL` or the `MYSQL_*` component fields. Celery URLs are derived from the effective MySQL DSN:
 
-# Service management
-sudo systemctl status redis
-sudo systemctl restart redis
-```
+- Broker: `sqla+mysql+pymysql://...`
+- Result backend: `db+mysql+pymysql://...`
+- JWT revocation: `token_blacklist`
+- Password revocation: `sys_users.password_changed_at`
+- Agent memory: `agent_memory`
+- Durable SSE progress: `jobs.progress_data`
 
-Key facts:
-- Local dev: no password, listens on `127.0.0.1:6379`.
-- Backend connects lazily -- Redis being down does **not** crash the API server.
-- Memory service: keys at `agent:memory:{session_id}`, TTL 7200s, max 20 messages.
-- Cache service: keys at `cache:{namespace}:{key}`, all methods safe when Redis is down.
+Do not configure separate broker/result URLs. Kombu's SQLAlchemy transport does not support fanout remote control, so worker health uses process checks rather than `celery inspect ping`.
 
 ### 3.8 Testing
 
@@ -234,7 +225,7 @@ uv run ruff check app tests    # lint (must pass)
 uv run pytest -q               # ~599 tests (must pass)
 ```
 
-Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external services required. Real Redis integration tests in `test_redis_real.py` auto-skip when Redis is unavailable.
+Unit/API tests use SQLite in-memory databases (`StaticPool`). Migration and runtime acceptance checks additionally exercise the local MySQL database and a real MySQL-backed Celery worker.
 
 ---
 
@@ -260,10 +251,10 @@ Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external
             │     │   gunicorn :8000   │                          │
             │     └──┬──────┬──────┬───┘                          │
             │        │      │      │                              │
-            │   ┌────▼──┐ ┌─▼──┐ ┌─▼────┐                         │
-            │   │ mysql │ │redis│ │minio │                         │
-            │   │ 8.4   │ │9.0  │ │latest│                         │
-            │   └───────┘ └─────┘ └──────┘                         │
+            │   ┌──────────────▼─┐ ┌────▼────┐                     │
+            │   │ mysql 8.4      │ │ minio   │                     │
+            │   │ app + Celery   │ │ latest  │                     │
+            │   └────────────────┘ └─────────┘                     │
             │                                                      │
             │   ┌──────────┐ ┌──────────┐ ┌───────────┐           │
             │   │ worker-  │ │ worker-  │ │ worker-   │           │
@@ -271,10 +262,8 @@ Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external
             │   │ (profile)│ │ (profile)│ │ default   │           │
             │   └──────────┘ └──────────┘ └───────────┘           │
             │                                                      │
-            │   ┌──────────┐                                       │
-            │   │ flower   │  (monitoring profile)                 │
-            │   │ :5555    │                                       │
-            │   └──────────┘                                       │
+            │   workers profile also starts dxf2dwg, dxf2excel,   │
+            │   and excel_final queue-specific workers.            │
             └──────────────────────────────────────────────────────┘
 ```
 
@@ -283,14 +272,15 @@ Tests use SQLite in-memory databases (`StaticPool`) and FakeRedis -- no external
 | Service | Image | Ports | Profile | Health Check |
 |---|---|---|---|---|
 | `nginx` | `ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine` | 80→8080, 443→8443 | -- | depends_on backend-api healthy |
-| `backend-api` | Self-built | 8000 (internal) | -- | `curl /health` every 10s |
+| `backend-api` | Self-built | 8000 (internal) | -- | `curl /health/ready` every 10s |
 | `mysql` | `container-registry.oracle.com/mysql/community-server:8.4` | 3306 (internal) | -- | `mysqladmin ping` every 10s |
-| `redis` | `ghcr.io/valkey-io/valkey:9.0-alpine` | 6379 (internal) | -- | `redis-cli ping` every 10s |
 | `minio` | `quay.io/minio/minio:latest` | 9000, 9001 (internal) | -- | `curl /minio/health/live` |
-| `worker-agent` | Self-built | -- | `workers` | `celery inspect ping` every 10s |
-| `worker-dxf` | Self-built | -- | `workers` | `celery inspect ping` every 10s |
-| `worker-report` | Self-built | -- | -- | `celery inspect ping` every 10s |
-| `flower` | Self-built | 5555 (internal) | `monitoring` | `curl :5555` every 10s |
+| `worker-report` | Self-built | -- | -- | Celery process check |
+| `worker-agent` | Self-built | -- | `workers` | Celery process check |
+| `worker-dxf` | Self-built | -- | `workers` | Celery process check |
+| `worker-dxf2dwg` | Self-built | -- | `workers` | Celery process check |
+| `worker-dxf2excel` | Self-built | -- | `workers` | Celery process check |
+| `worker-excel-final` | Self-built | -- | `workers` | Celery process check |
 
 ### 4.3 Step-by-Step Deployment
 
@@ -306,7 +296,6 @@ Edit `.env.docker` and replace ALL `CHANGE_ME_*` placeholders:
 |---|---|
 | `CHANGE_ME_MYSQL_PASSWORD` | MySQL application user password |
 | `CHANGE_ME_MYSQL_ROOT_PASSWORD` | MySQL root password |
-| `CHANGE_ME_REDIS_PASSWORD` | Redis requirepass password |
 | `CHANGE_ME_MINIO_ROOT_USER` | MinIO admin username |
 | `CHANGE_ME_MINIO_ROOT_PASSWORD` | MinIO admin password |
 | `CHANGE_ME_256_BIT_JWT_SECRET` | JWT signing secret (at least 32 chars) |
@@ -327,7 +316,7 @@ cd ..
 docker compose up -d
 ```
 
-This starts: nginx, backend-api, mysql, redis, minio, and `worker-report` for the Stage 1 Celery fake job.
+This starts nginx, backend-api, mysql, minio, and `worker-report` for the default report queue.
 
 **Step 4: Verify deployment**
 
@@ -347,17 +336,12 @@ curl http://localhost/health
 
 Login: `admin` / your configured `SUPER_ADMIN_PASSWORD`
 
-**Step 5 (Optional): Start Agent/DXF workers and monitoring**
+**Step 5 (Optional): Start feature workers**
 
 ```bash
-# Agent/DXF placeholder workers
+# Agent, DXF, DXF-to-DWG, DXF-to-Excel and excel_final workers
 docker compose --profile workers up -d
-
-# Agent/DXF workers + Flower monitoring dashboard
-docker compose --profile workers --profile monitoring up -d
 ```
-
-Flower dashboard: `http://localhost:5555` (internal network, configure port mapping if external access needed).
 
 ### 4.4 Dockerfile Details
 
@@ -367,7 +351,7 @@ Located at `backend/Dockerfile` (multi-stage build). **Build context = 仓库根
 - Base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
 - Uses uv from the base image; no `uv:latest` copy stage
 - `WORKDIR /app`; copies `backend/{pyproject.toml,uv.lock,README.md}` to `/app/backend/` and `Stages/{dwg2dxf,dxf2dwg,dxf2excel}` to `/app/Stages/` (mirrors repo layout so `../Stages/*` resolves)
-- Runs `uv sync --frozen --no-dev` to create `/app/.venv`; all deps ship as prebuilt wheels (hiredis, argon2, ezdxf, pandas, openpyxl) — no compiler needed
+- Runs `uv sync --frozen --no-dev` to create `/app/.venv`; runtime Python dependencies are locked in `uv.lock`
 
 **Stage 2 (runtime):**
 - Base: `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`
@@ -388,7 +372,6 @@ A root-level `.dockerignore` (repo root) excludes every package's `.venv/`, `bui
 | Volume | Mount Point | Purpose | Persistence |
 |---|---|---|---|
 | `mysql_data` | `/var/lib/mysql` | MySQL data files | Survives `docker compose down` |
-| `redis_data` | `/data` | Redis AOF + data | Survives `docker compose down` |
 | `minio_data` | `/data` | Object storage data | Survives `docker compose down` |
 
 To fully reset: `docker compose down -v`
@@ -404,10 +387,10 @@ To fully reset: `docker compose down -v`
 
 ```bash
 # Stop all services (preserves volumes)
-docker compose --profile workers --profile monitoring down
+docker compose --profile workers down
 
 # Stop and remove volumes (full reset)
-docker compose --profile workers --profile monitoring down -v
+docker compose --profile workers down -v
 ```
 
 ---
@@ -432,7 +415,7 @@ All configuration is driven by environment variables. The canonical definitions 
 
 | Variable | Local Default | Docker Default | Description |
 |---|---|---|---|
-| `DATABASE_URL` | `mysql+pymysql://dwg_user:...@127.0.0.1:3306/dwg_agent` | `...@mysql:3306/dwg_agent` | Full connection URL |
+| `DATABASE_URL` | unset | unset | Optional authoritative MySQL DSN override |
 | `MYSQL_HOST` | `127.0.0.1` | `mysql` | Hostname |
 | `MYSQL_PORT` | `3306` | `3306` | Port |
 | `MYSQL_DATABASE` | `dwg_agent` | `dwg_agent` | Database name |
@@ -443,29 +426,27 @@ All configuration is driven by environment variables. The canonical definitions 
 [^1]: `MYSQL_ROOT_PASSWORD` is an **infrastructure-only variable**. It is used by `compose.yaml` for the MySQL container health check (`mysqladmin ping -u root -p`). It is NOT a field in `backend/app/core/config.py` (which has `extra="ignore"`) -- the backend application never reads it. It is defined in `.env.example` and `.env.docker.example` solely for Compose consumption.
 
 **Computed: `settings.mysql_url`** -- assembled from component fields with URL-encoded password.
+**Effective: `settings.sqlalchemy_database_url`** -- `DATABASE_URL` when set, otherwise `settings.mysql_url`.
 
 Connection pool settings (hardcoded in `app/db/session.py`, MySQL only):
 - `pool_recycle=3600`
 - `pool_size=10`
 - `max_overflow=20`
 
-### 5.3 Redis (Valkey-compatible)
+### 5.3 Celery and Durable Runtime State
 
 | Variable | Local Default | Docker Default | Description |
 |---|---|---|---|
-| `REDIS_HOST` | `localhost` | `redis` | Hostname |
-| `REDIS_PORT` | `6379` | `6379` | Port |
-| `REDIS_DB` | `0` | `0` | Database number |
-| `REDIS_PASSWORD` | (empty) | (required) | Auth password |
-| `REDIS_MEMORY_TTL` | `7200` | `7200` | Agent memory TTL (seconds) |
-| `REDIS_MAX_MESSAGES` | `20` | `20` | Max messages per session |
 | `CELERY_TASK_ALWAYS_EAGER` | `false` | `false` | Execute tasks synchronously (tests override to `true`) |
+| `AGENT_MEMORY_TTL` | `7200` | `7200` | MySQL Agent-memory retention in seconds |
+| `AGENT_MAX_MESSAGES` | `20` | `20` | Maximum messages stored per Agent session |
 
-**Computed: `settings.redis_url`** -- assembled from component fields.
-**Computed: `settings.celery_broker_url`** -- `redis://.../{host}:{port}/0`
-**Computed: `settings.celery_result_backend`** -- `redis://.../{host}:{port}/1`
+Celery endpoints are derived from the effective MySQL DSN in `config.py`, so application, broker and result configuration cannot drift:
 
-Runtime Celery URLs are derived from `REDIS_*` component fields in `config.py` so Redis and Celery cannot drift. The `CELERY_BROKER_URL` and `CELERY_RESULT_BACKEND` entries remain in env templates as spec-compatible mirror values; keep them aligned with the Redis fields when copying env files.
+- `settings.celery_broker_url`: `sqla+mysql+pymysql://...`
+- `settings.celery_result_backend`: `db+mysql+pymysql://...`
+
+There are no independent `CELERY_BROKER_URL` or `CELERY_RESULT_BACKEND` environment keys. Celery transport/result tables are included in normal MySQL backups. Result rows expire after 24 hours and are cleaned on worker startup.
 
 ### 5.4 Storage
 
@@ -617,7 +598,7 @@ Key behaviours:
 - Requires `DATABASE_URL` to be `mysql+pymysql://` (rejects `sqlite://` at shell level).
 - Validates `.env` and `backend/.env` have consistent database config.
 - Detects MariaDB vs MySQL systemd service naming.
-- `migration-test` creates a temporary `dwg_agent_migration_test_<pid>` database, runs the full Alembic chain from an empty schema, verifies all 17 expected tables and TimestampMixin columns, then drops the temp database.
+- `migration-test` creates a temporary `dwg_agent_migration_test_<pid>` database, runs the full Alembic chain from an empty schema, verifies all 22 business tables, durable-state columns and the exact Alembic head, then drops the temp database.
 
 ### `start-dev.sh` -- Development Mode
 
@@ -625,8 +606,8 @@ Key behaviours:
 Usage: bash scripts/start-dev.sh
 ```
 
-- Starts MySQL + Redis, initializes database, starts all four local Celery workers (`worker-report`, `worker-dxf`, `worker-dxf2dwg`, `worker-dxf2excel`), backend (`uvicorn --reload` on `:8000`) and frontend (Vite HMR on `:5173`).
-- Writes PID files to `/tmp/dwg-agent-worker-report.pid`, `/tmp/dwg-agent-worker-dxf.pid`, `/tmp/dwg-agent-worker-dxf2dwg.pid`, `/tmp/dwg-agent-worker-dxf2excel.pid`, `/tmp/dwg-agent-backend.pid`, and `/tmp/dwg-agent-frontend.pid`.
+- Starts MySQL, initializes the database, starts five local Celery workers (`worker-report`, `worker-dxf`, `worker-dxf2dwg`, `worker-dxf2excel`, `worker-excel-final`), backend (`uvicorn --reload` on `:8000`) and frontend (Vite HMR on `:5173`).
+- Writes owned PID files under `/tmp/dwg-agent-*.pid` for each worker, backend and frontend.
 - Automatically detects if `VITE_API_BASE_URL` is empty (Nginx mode) and temporarily sets it to `http://127.0.0.1:8000` for direct backend access.
 - Blocks until Ctrl+C (uses `wait`), then prints stop instructions.
 
@@ -636,7 +617,7 @@ Usage: bash scripts/start-dev.sh
 Usage: bash scripts/start-all.sh [--rebuild]
 ```
 
-- Starts MySQL, Redis, local Celery `worker-report`, backend (`uvicorn --reload` on `:8000`), builds frontend if needed, starts Nginx on `:8080`.
+- Starts MySQL, local Celery `worker-report`, backend (`uvicorn --reload` on `:8000`), builds frontend if needed, and starts Nginx on `:8080`.
 - `--rebuild` flag forces frontend rebuild even if `dist/` exists.
 - Unified access: `http://localhost:8080` (SPA + API + health check through Nginx).
 - Stops if port 8080 is occupied by an unknown process.
@@ -649,9 +630,9 @@ Usage: bash scripts/stop-all.sh
 
 - Stops Nginx (via `nginx -s quit`).
 - Kills backend via PID file at `/tmp/dwg-agent-backend.pid`.
-- Kills local Celery `worker-report` via PID file at `/tmp/dwg-agent-worker-report.pid`.
+- Stops every locally managed Celery worker through its PID file.
 - Verifies port 8000 is released.
-- Does **not** stop MySQL/Redis (they are shared infrastructure).
+- Does **not** stop MySQL (it is shared infrastructure).
 
 ### `status.sh` -- Health Check Aggregation
 
@@ -661,10 +642,9 @@ Usage: bash scripts/status.sh
 
 Checks:
 1. MySQL status (via `db.sh status`)
-2. Redis port 6379
-3. Celery worker-report PID
-4. Backend port 8000 + `GET /health` endpoint
-5. Nginx port 8080 + API reverse proxy + SPA static serving
+2. Celery worker-report PID
+3. Backend port 8000 + `GET /health/ready`
+4. Nginx port 8080 + API reverse proxy + SPA static serving
 
 Prints a colour-coded summary with "all ok" or "partial failure" and recovery hints.
 
@@ -690,20 +670,16 @@ Failure responses:
 - 503 if database is unreachable (via `db_health()`)
 - 500 on unexpected errors
 
-The endpoint does **not** expose internal component details (database URL, Redis status, etc.) for security.
+The endpoint does **not** expose internal database details or credentials.
 
 ### 7.2 Docker Health Checks
 
 | Service | Check | Interval | Timeout | Retries |
 |---|---|---|---|---|
-| `backend-api` | `curl -f http://localhost:8000/health` | 10s | 3s | 5 |
+| `backend-api` | `curl -f http://localhost:8000/health/ready` | 10s | 3s | 5 |
 | `mysql` | `mysqladmin ping -h localhost -u root -p"${MYSQL_ROOT_PASSWORD}"` | 10s | 3s | 5 |
-| `redis` | `redis-cli -a "${REDIS_PASSWORD}" ping` | 10s | 3s | 5 |
 | `minio` | `curl -f http://localhost:9000/minio/health/live` | 10s | 3s | 5 |
-| `worker-agent` | `celery inspect ping -d agent@$HOSTNAME` | 10s | 8s | 5 |
-| `worker-dxf` | `celery inspect ping -d dxf@$HOSTNAME` | 10s | 8s | 5 |
-| `worker-report` | `celery inspect ping -d report@$HOSTNAME` | 10s | 8s | 5 |
-| `flower` | `curl -fsS http://localhost:5555/` | 10s | 5s | 5 |
+| all Celery workers | `grep -aq celery /proc/1/cmdline` | 10s | 3-8s | 5 |
 
 Nginx `depends_on` `backend-api` with `condition: service_healthy`, so Nginx will not start (and therefore not accept traffic) until the backend is healthy.
 
@@ -725,19 +701,9 @@ This runs inside the container, independent of Docker Compose health checks.
 - **Rate limiting:** Login endpoint rate-limited to 2 req/s (burst 3), general API to 100 req/s (burst 20) -- both return HTTP 429 when exceeded.
 - **Health endpoint:** `access_log off` for `/health` to reduce log noise.
 
-### 7.5 Flower (Celery Monitoring)
+### 7.5 Celery SQL Monitoring
 
-Start with the `monitoring` profile:
-
-```bash
-docker compose --profile monitoring up -d flower
-```
-
-Flower dashboard at `http://localhost:5555` provides:
-- Worker status (online/offline)
-- Task queue lengths
-- Task success/failure rates
-- Task execution time distribution
+Kombu's SQLAlchemy transport has no fanout/remote-control support, so inspect-based dashboards are intentionally not part of this deployment. Monitor worker liveness through container/process health, task lifecycle through the `jobs` table and API, and queue/result growth through `kombu_message` and `celery_taskmeta`. Application-level metrics should be added through a dedicated metrics exporter rather than Celery remote control.
 
 ### 7.6 Infrastructure Verification
 
@@ -749,9 +715,9 @@ bash infra/verify.sh
 
 Checks (6 sections):
 1. **Nginx config** -- syntax validation, key directives (upstream, rate limiting, security headers, SPA fallback)
-2. **Docker Compose** -- service count (9), image versions, volume mounts, environment variable blanking, health checks, profiles
+2. **Docker Compose** -- service count (10), image versions, volume mounts, environment variable blanking, health checks, profiles
 3. **Dockerfile** -- multi-stage build, non-root user, HEALTHCHECK, STOPSIGNAL, gunicorn CMD
-4. **MySQL integration** -- database accessibility, all 17 tables, TimestampMixin columns, role seeds, admin user, dwg_user grants, application credentials
+4. **MySQL integration** -- database accessibility, current business/runtime tables, durable columns, role seeds, admin user, grants and application credentials
 5. **File integrity** -- all required config files present, env template key consistency
 6. **Dead code check** -- confirms removed directories (`conf.d/`, `snippets/`) are not referenced
 
@@ -768,9 +734,6 @@ Checks (6 sections):
 # Verify MySQL is running
 bash scripts/db.sh status
 
-# Verify Redis is running
-redis-cli ping
-
 # Check backend .env exists and has correct values
 cat backend/.env | grep DATABASE_URL
 
@@ -782,7 +745,6 @@ cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 - MySQL not running (`sudo systemctl start mariadb` or `mysqld`)
 - Wrong `MYSQL_PASSWORD` in `.env` / `backend/.env`
 - Database not initialized (`bash scripts/db.sh init`)
-- Redis not running (`sudo systemctl start redis`)
 
 ### 8.2 Database Connection Refused
 
@@ -893,23 +855,11 @@ bash scripts/db.sh migration-test
 
 This is **expected behaviour in Stage 1**. The feature flag `AGENT_ENABLED=false` causes all `/api/v1/agent-runs/*` endpoints to return 503 (error code `AGENT_DISABLED`) with message "Agent subsystem is intentionally disabled in stage 1." The same applies to DXF pipeline and CAD Worker endpoints with their respective flags.
 
-### 8.10 Redis Unavailable (Local Dev)
+### 8.10 Celery SQL Queue Not Progressing
 
-**Symptom:** `redis-cli ping` fails or backend logs show Redis connection errors.
+**Symptom:** A job remains `queued`, or the worker logs report MySQL transport errors.
 
-**Fix:**
-```bash
-# Check service
-sudo systemctl status redis
-
-# Start if needed
-sudo systemctl start redis
-
-# Verify
-redis-cli ping   # => PONG
-```
-
-Note: The backend is designed to survive Redis unavailability -- it connects lazily and all Redis-using code paths have fallbacks for when Redis is down.
+**Fix:** verify `/health/ready`, application MySQL credentials, the queue-specific worker process and its logs. Do not use `celery inspect`; the SQLAlchemy transport does not support remote control. Confirm that the worker consumes the queue selected by the job route (`report`, `dxf`, `dxf2dwg`, `dxf2excel`, or `excel_final`).
 
 ---
 
@@ -961,10 +911,6 @@ bash scripts/db.sh migrate
 docker run --rm -v complete_framework_mysql_data:/data -v $(pwd):/backup \
   alpine tar czf /backup/mysql_data_backup.tar.gz -C /data .
 
-# Redis
-docker run --rm -v complete_framework_redis_data:/data -v $(pwd):/backup \
-  alpine tar czf /backup/redis_data_backup.tar.gz -C /data .
-
 # MinIO
 docker run --rm -v complete_framework_minio_data:/data -v $(pwd):/backup \
   alpine tar czf /backup/minio_data_backup.tar.gz -C /data .
@@ -1010,9 +956,9 @@ The following components are **configured but not operational** in Stage 1:
 | **Agent subsystem** | Feature-flagged off | `/api/v1/agent-runs/*` returns 503 | Stage 2 |
 | **DXF pipeline** | Feature-flagged off | `POST /api/v1/jobs` DWG↔DXF / DXF→Excel conversion tasks return 503 | Stage 3 |
 | **CAD Worker** | Feature-flagged off | CAD worker endpoints return 503 | Stage 4 |
-| **Agent/DXF Celery Workers** | Compose profile only | `worker-agent` and `worker-dxf` start but concrete task bodies are deferred | Stage 2/3 |
+| **Agent worker** | Compose profile only | Queue exists; Agent implementation remains feature-gated | Stage 2 |
+| **DXF/excel_final workers** | Compose profile only | Real queue-specific task bodies; enable only with their pipeline flags and dependencies ready | Implemented |
 | **MinIO (object storage)** | Docker default | Backend uses MinIO when `STORAGE_BACKEND=minio`; local dev still defaults to local FS | Done for deployment |
-| **Flower monitoring** | Compose profile only | Dashboard can monitor `worker-report`; external port mapping is intentionally not exposed by default | Stage 2 hardening |
 | **SSL/TLS (HTTPS)** | Not configured | Nginx listens on port 443 but no SSL cert | Stage C |
 | **MCP CAD integration** | Stub code only | `app/mcp_client/` contains placeholder modules | Stage 2 |
 | **ZWCAD integration** | Stub code only | `app/integrations/zwcad/` contains placeholder modules | Stage 4 |
@@ -1028,10 +974,10 @@ The following components are **configured but not operational** in Stage 1:
 - Celery `worker-report` fake task for queued → running → succeeded job flow
 - Project, drawing, file, and job CRUD operations
 - Audit logging (all mutations recorded)
-- Database migrations (Alembic, 4 versions, 17 tables)
+- Database migrations (Alembic, 6 versions, 22 business tables)
 - Bootstrap super admin seeding
-- ~599 tests passing (pytest + FakeRedis; real Redis tests run when Redis is available)
-- Docker Compose deployment with 9 services
+- Backend unit/integration tests plus real MySQL/Celery acceptance probes
+- Docker Compose deployment with 10 services
 - Nginx gateway with rate limiting, security headers, SPA fallback
 
 ### Environment flag reference for Stage 1:
@@ -1039,6 +985,9 @@ The following components are **configured but not operational** in Stage 1:
 ```bash
 AGENT_ENABLED=false          # Agent returns 503
 DXF_PIPELINE_ENABLED=false   # DXF pipeline returns 503
+DXF2DWG_PIPELINE_ENABLED=false
+DXF2EXCEL_PIPELINE_ENABLED=false
+EXCEL_FINAL_PIPELINE_ENABLED=false
 CAD_WORKER_ENABLED=false     # CAD Worker returns 503
 STORAGE_BACKEND=local        # Local dev filesystem; Docker .env.docker uses minio
 CELERY_TASK_ALWAYS_EAGER=false  # Tests override to true; runtime uses real worker
@@ -1076,7 +1025,7 @@ cd frontend && npm run lint                         # ESLint
 
 # ---- Docker ----
 docker compose up -d                                # Core services
-docker compose --profile workers --profile monitoring up -d  # Full stack
+docker compose --profile workers up -d              # Core + feature workers
 docker compose ps                                   # Service status
 docker compose logs -f <service>                    # Follow logs
 docker compose down                                 # Stop all (preserve volumes)
@@ -1088,7 +1037,6 @@ docker compose exec mysql mysql -u dwg_user -p      # MySQL shell in container
 curl http://127.0.0.1:8000/health                   # Backend (local)
 curl http://localhost:8080/health                   # Via Nginx (local)
 curl http://localhost/health                        # Via Nginx (Docker)
-redis-cli ping                                      # Redis
 bash infra/verify.sh                                # Full infrastructure verification
 ```
 
@@ -1100,9 +1048,7 @@ bash infra/verify.sh                                # Full infrastructure verifi
 | 443 | Nginx (SSL placeholder) | Docker only | HTTPS |
 | 3306 | MySQL | Both | MySQL wire |
 | 5173 | Vite HMR | Local dev only | HTTP |
-| 6379 | Redis/Valkey | Both | Redis wire |
 | 8000 | Backend (FastAPI/Gunicorn) | Both | HTTP |
 | 8080 | Nginx (optional local) | Local dev only | HTTP |
 | 9000 | MinIO API | Docker only | HTTP |
 | 9001 | MinIO Console | Docker only | HTTP |
-| 5555 | Flower | Docker (profile) | HTTP |

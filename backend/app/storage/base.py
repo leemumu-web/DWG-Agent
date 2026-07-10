@@ -20,6 +20,10 @@ class StorageObjectNotFound(StorageError):
 
 class AbstractStorageBackend(ABC):
     @abstractmethod
+    def check_health(self) -> None:
+        """Raise StorageError when the backend cannot serve requests."""
+
+    @abstractmethod
     def put_fileobj(
         self,
         bucket: str,

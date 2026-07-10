@@ -3,9 +3,10 @@ from __future__ import annotations
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import BinaryIO
 
-from app.storage.base import AbstractStorageBackend, StorageObjectNotFound
+from app.storage.base import AbstractStorageBackend, StorageError, StorageObjectNotFound
 from app.utils.path_utils import ensure_within_root
 
 
@@ -15,6 +16,14 @@ class LocalFileStorage(AbstractStorageBackend):
 
     def _path(self, bucket: str, storage_key: str) -> Path:
         return ensure_within_root(self.root, self.root / bucket / storage_key)
+
+    def check_health(self) -> None:
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(prefix=".dwg-health-", dir=self.root):
+                pass
+        except OSError as exc:
+            raise StorageError("Local storage is not writable.") from exc
 
     def put_fileobj(
         self,

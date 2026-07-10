@@ -17,6 +17,9 @@ def get_system_health(request: Request, current_user: CurrentUser):
     features = {
         "agent": settings.agent_enabled,
         "dxf_pipeline": settings.dxf_pipeline_enabled,
+        "dxf2dwg_pipeline": settings.dxf2dwg_pipeline_enabled,
+        "dxf2excel_pipeline": settings.dxf2excel_pipeline_enabled,
+        "excel_final_pipeline": settings.excel_final_pipeline_enabled,
         "cad_worker": settings.cad_worker_enabled,
     }
 
