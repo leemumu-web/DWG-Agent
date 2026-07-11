@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Avatar, Breadcrumb, Button, Dropdown, Layout, Menu, Space, Tag, Tooltip, Typography, App } from 'antd';
+import { App, Avatar, Breadcrumb, Button, Drawer, Dropdown, Grid, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -14,6 +14,7 @@ import {
   UserOutlined,
   LogoutOutlined,
   ProfileOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -69,6 +70,9 @@ export function AppLayout() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const screens = Grid.useBreakpoint();
+  const isMobile = screens.md === false;
 
   const user = useAuthStore((s) => s.user);
   const clearSession = useAuthStore((s) => s.clearSession);
@@ -112,23 +116,16 @@ export function AppLayout() {
 
   const initial = (user?.real_name || user?.username || '?').slice(0, 1).toUpperCase();
 
-  return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        width={232}
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        trigger={null}
-        style={{ boxShadow: '2px 0 8px rgba(0,0,0,0.06)' }}
-      >
+  function navigationContent(navCollapsed: boolean, onSelect?: () => void) {
+    return (
+      <>
         <div
           style={{
             height: 56,
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            padding: collapsed ? '0 16px' : '0 20px',
+            padding: navCollapsed ? '0 16px' : '0 20px',
             overflow: 'hidden',
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}
@@ -150,7 +147,7 @@ export function AppLayout() {
           >
             DW
           </div>
-          {!collapsed && (
+          {!navCollapsed && (
             <span style={{ color: '#fff', fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>
               DWG-Agent
             </span>
@@ -161,36 +158,80 @@ export function AppLayout() {
           mode="inline"
           selectedKeys={selected}
           items={items}
+          onClick={onSelect}
           style={{ borderRight: 0 }}
         />
-      </Sider>
+      </>
+    );
+  }
 
-      <Layout>
+  return (
+    <Layout style={{ minHeight: '100vh' }}>
+      {!isMobile && (
+        <Sider
+          width={232}
+          collapsible
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          trigger={null}
+          style={{ boxShadow: '2px 0 8px rgba(0,0,0,0.06)' }}
+        >
+          {navigationContent(collapsed)}
+        </Sider>
+      )}
+
+      <Drawer
+        open={isMobile && mobileNavOpen}
+        placement="left"
+        size={232}
+        closable={false}
+        onClose={() => setMobileNavOpen(false)}
+        styles={{ body: { padding: 0, background: '#001529' } }}
+      >
+        {navigationContent(false, () => setMobileNavOpen(false))}
+      </Drawer>
+
+      <Layout style={{ minWidth: 0 }}>
         <Header
           style={{
             background: '#fff',
-            padding: '0 20px',
+            padding: isMobile ? '0 12px' : '0 20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
             borderBottom: '1px solid #f0f0f0',
             boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-            gap: 16,
+            gap: isMobile ? 8 : 16,
           }}
         >
-          <Space size="middle" align="center" style={{ flex: 1, minWidth: 0 }}>
+          <Space size={isMobile ? 4 : 'middle'} align="center" style={{ flex: 1, minWidth: 0 }}>
             <Button
               type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
+              aria-label={isMobile ? '打开导航' : collapsed ? '展开导航' : '收起导航'}
+              icon={
+                isMobile
+                  ? <MenuOutlined />
+                  : collapsed
+                    ? <MenuUnfoldOutlined />
+                    : <MenuFoldOutlined />
+              }
+              onClick={() => {
+                if (isMobile) setMobileNavOpen(true);
+                else setCollapsed(!collapsed);
+              }}
             />
-            <Breadcrumb items={breadcrumb} style={{ fontSize: 13 }} />
+            <Breadcrumb
+              items={isMobile ? breadcrumb.slice(-1) : breadcrumb}
+              style={{ fontSize: 13, minWidth: 0 }}
+            />
           </Space>
 
-          <Space size="middle" align="center">
-            <Tooltip title="Stage 1 · 生产就绪骨架 · 本机开发版">
-              <Tag color="blue" style={{ margin: 0 }}>Stage 1</Tag>
-            </Tooltip>
+          <Space size={isMobile ? 4 : 'middle'} align="center">
+            {!isMobile && (
+              <Tooltip title="Stage 1 · 生产就绪骨架 · 本机开发版">
+                <Tag color="blue" style={{ margin: 0 }}>Stage 1</Tag>
+              </Tooltip>
+            )}
 
             <Dropdown
               placement="bottomRight"
@@ -212,26 +253,39 @@ export function AppLayout() {
                 ],
               }}
             >
-              <Space size={8} style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: 8 }}>
+              <Space
+                size={8}
+                aria-label="用户菜单"
+                style={{ cursor: 'pointer', padding: isMobile ? 4 : '4px 8px', borderRadius: 8 }}
+              >
                 <Avatar size={30} style={{ background: '#1677ff', fontSize: 13 }}>{initial}</Avatar>
-                <div style={{ lineHeight: 1.2, display: 'flex', flexDirection: 'column' }}>
-                  <Typography.Text style={{ fontSize: 13 }}>
-                    {user?.real_name || user?.username}
-                  </Typography.Text>
-                  <span style={{ display: 'flex', gap: 4, marginTop: 2 }}>
-                    {(user?.roles ?? []).slice(0, 2).map((r) => (
-                      <Tag key={r.code} color={roleColor(r.code)} style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
-                        {r.code}
-                      </Tag>
-                    ))}
-                  </span>
-                </div>
+                {!isMobile && (
+                  <div style={{ lineHeight: 1.2, display: 'flex', flexDirection: 'column' }}>
+                    <Typography.Text style={{ fontSize: 13 }}>
+                      {user?.real_name || user?.username}
+                    </Typography.Text>
+                    <span style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                      {(user?.roles ?? []).slice(0, 2).map((r) => (
+                        <Tag key={r.code} color={roleColor(r.code)} style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>
+                          {r.code}
+                        </Tag>
+                      ))}
+                    </span>
+                  </div>
+                )}
               </Space>
             </Dropdown>
           </Space>
         </Header>
 
-        <Content style={{ margin: 0, padding: 20, background: '#f5f5f5', overflow: 'auto' }}>
+        <Content
+          style={{
+            margin: 0,
+            padding: isMobile ? 12 : 20,
+            background: '#f5f5f5',
+            overflow: 'auto',
+          }}
+        >
           <Outlet />
         </Content>
       </Layout>

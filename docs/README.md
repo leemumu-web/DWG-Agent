@@ -16,7 +16,7 @@
 | [deployment.md](deployment.md) | Prerequisites, 5-minute quick start, local-dev setup, Docker Compose topology, environment-variable reference, Nginx/MySQL/MinIO/Celery SQL transport/ODA configuration. |
 | [development.md](development.md) | Repository walkthrough, backend & frontend workflows, testing strategy, code conventions, dependency management, common pitfalls. |
 | [security.md](security.md) | Authentication flow, RBAC model, API & file security measures, pentest-findings resolution, production security checklist, audit-log coverage. |
-| [roadmap.md](roadmap.md) | Six-stage delivery plan, Stage 1 completion report, per-stage specifications, interface contracts, risk register, success metrics. |
+| [roadmap.md](roadmap.md) | Current integrated baseline, reliability/Agent/CAD/operations priorities, acceptance gates, and explicit non-goals. |
 | [workflow-verification.md](workflow-verification.md) | End-to-end full-stack verification walkthrough exercising the platform against the live API. |
 
 ## Conventions

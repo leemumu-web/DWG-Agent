@@ -14,9 +14,11 @@ from app.api.deps import (
 from app.core.constants import ACTIVE, DELETED, DISABLED, ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.core.validators import validate_sort_by
+from app.db.pagination import paginate_scalars
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.schemas.user_schema import (
     AssignRoleRequest,
     UserCreate,
@@ -76,13 +78,19 @@ def list_users(
         order_clause = order_clause.asc()
     else:
         order_clause = order_clause.desc()
-    users = list(
-        db.scalars(
-            select(User).where(User.status != DELETED).order_by(order_clause)
-        ).all()
+    tie_breaker = User.id.asc() if sort_dir_value == "asc" else User.id.desc()
+    users, total = paginate_scalars(
+        db,
+        select(User).where(User.status != DELETED).order_by(order_clause, tie_breaker),
+        page_no=page,
+        page_size=page_size,
     )
-    return page_from_list(
-        [UserRead.model_validate(u) for u in users], page, page_size, request.state.request_id
+    return page_response(
+        [UserRead.model_validate(u) for u in users],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -361,4 +369,3 @@ def enable_user(
     db.commit()
     db.refresh(user)
     return ok(UserRead.model_validate(user), request.state.request_id)
-

@@ -9,6 +9,10 @@ def _frontend_source(path: str) -> str:
     return (REPO_ROOT / "frontend/src" / path).read_text(encoding="utf-8")
 
 
+def _e2e_source(path: str) -> str:
+    return (REPO_ROOT / "frontend/tests/e2e" / path).read_text(encoding="utf-8")
+
+
 def test_frontend_password_change_matches_backend_patch_contract():
     source = _frontend_source("api/auth.api.ts")
 
@@ -48,9 +52,34 @@ def test_password_change_immediately_clears_revoked_frontend_session():
 def test_non_idempotent_uploads_are_not_automatically_retried():
     source = _frontend_source("api/files.api.ts")
 
-    assert "retries = 0" in source
-    assert "body: form,\n    timeout: 120_000,\n  }, 1)" not in source
-    assert "body: form,\n    timeout: 300_000,\n  }, 1)" not in source
+    assert "apiClient.post<ApiEnvelope<StoredFile>>('/api/v1/files'" in source
+    assert "apiClient.post<ApiEnvelope<ZipUploadResult>>('/api/v1/files/upload-zip'" in source
+    assert "fetchWithTimeout" not in source
+
+
+def test_download_retries_with_a_fresh_signed_url_through_auth_interceptor():
+    source = _frontend_source("api/files.api.ts")
+
+    assert "isRetryableDownloadError" in source
+    assert "apiClient.get<Blob>(url" in source
+    assert "for (let attempt = 0; attempt < 2; attempt++)" in source
+    loop = source.split("for (let attempt = 0; attempt < 2; attempt++)", 1)[1]
+    assert loop.index("getFileDownloadUrl(fileId)") < loop.index("apiClient.get<Blob>(url")
+
+
+def test_browser_e2e_uses_session_storage_and_cookie_sse_auth():
+    sources = "\n".join(
+        _e2e_source(path)
+        for path in (
+            "files-page-buttons.spec.ts",
+            "jobs-page-buttons.spec.ts",
+            "api-contract.spec.ts",
+        )
+    )
+
+    assert "localStorage" not in sources
+    assert "sessionStorage" in sources
+    assert "?token=" not in sources
 
 
 def test_excel_final_has_frontend_api_types_route_and_tab():
@@ -67,6 +96,24 @@ def test_excel_final_has_frontend_api_types_route_and_tab():
     assert "/files/excel-final" in tabs_source
     assert "uploadAndProcessExcel" in page_source
     assert "ExcelFinalBatch" in type_source
+
+
+def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
+    page_source = _frontend_source("features/files/ExcelFinalPage.tsx")
+
+    assert "queryKey: ['excel-final-status', jobId]" in page_source
+    assert "refetchType: 'all'" in page_source
+    assert "setSelectedBatchId(null)" in page_source
+    assert "some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false" in page_source
+    assert '<Drawer' in page_source
+    assert 'width="min(1100px, 94vw)"' not in page_source
+
+
+def test_job_drawer_loads_steps_for_the_current_attempt_only():
+    source = _frontend_source("features/jobs/JobsPage.tsx")
+
+    assert "getJobSteps(jobId, job.attempt)" in source
+    assert "getJobSteps(retried.id, retried.attempt)" in source
 
 
 def test_frontend_system_health_lists_every_pipeline_flag():

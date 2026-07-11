@@ -12,17 +12,22 @@ ALL_OK=true
 # 1. Infrastructure
 step "基础设施"
 bash "$PROJECT_ROOT/scripts/db.sh" status || ALL_OK=false
-if pidfile_running /tmp/dwg-agent-worker-report.pid; then
-    ok "Celery worker-report — pid $(cat /tmp/dwg-agent-worker-report.pid)"
-else
-    warn "Celery worker-report — 未运行"
-    ALL_OK=false
-fi
+for worker in "report:report" "dxf:dxf" "dxf2dwg:dxf2dwg" "dxf2excel:dxf2excel" "excel_final:excel-final"; do
+    queue="${worker%%:*}"
+    label="${worker#*:}"
+    mapfile -t worker_pids < <(celery_worker_pids "$queue" "$label")
+    if ((${#worker_pids[@]} > 0)); then
+        ok "Celery worker-${label} — pid(s) ${worker_pids[*]}"
+    else
+        warn "Celery worker-${label} — 未运行"
+        ALL_OK=false
+    fi
+done
 
 # 2. Backend
 step "后端"
-if check_port 8000 "FastAPI"; then
-    HEALTH=$(curl -s http://127.0.0.1:8000/health/ready 2>/dev/null || echo "")
+if check_port "$LOCAL_BACKEND_PORT" "FastAPI"; then
+    HEALTH=$(curl -s "http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}/health/ready" 2>/dev/null || echo "")
     if echo "$HEALTH" | grep -q '"status":"ok"'; then
         ok "健康检查: ok"
     else

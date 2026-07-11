@@ -1,561 +1,92 @@
-# DWG-Agent Platform -- Security Architecture
+# Security
 
-> **Audience:** Security auditors, platform operators, on-premise deployment engineers
-> **Last updated:** 2026-07-08
-> **Scope:** Authentication, RBAC, API security, file security, pentest remediation, deployment checklist, audit log coverage
+> Chinese mirror: [zh/security.md](zh/security.md)
 
----
+## Trust Boundaries
 
-## 1. Authentication Flow
-
-### 1.1 Login
-
-```
-POST /api/v1/auth/sessions
-{
-  "username": "10001",
-  "password": "********"
-}
-```
-
-The authentication path is:
-
-1. **Username lookup** -- query `sys_users` by `username` column.
-2. **Constant-time verification** -- `authenticate_user()` in `auth_service.py` always runs one full Argon2id verification:
-   - If the user exists and is `active`, verify against the stored `password_hash`.
-   - If the user does not exist or is `disabled`/`deleted`, verify against a hardcoded dummy Argon2id hash.
-   - This eliminates the timing side-channel (previously 40x faster to reject non-existent users). See pentest finding H1.
-3. **Token issuance on success:**
-   - **Access token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"access"`, expiry = 30 minutes. Returned in the JSON response body.
-   - **Refresh token:** JWT HS256, `sub` = user ID, `jti` = random UUID4, `type` = `"refresh"`, expiry = 14 days. Set as an `HttpOnly; SameSite=Lax` cookie named `dwg_refresh_token`, scoped to the `/api/v1/auth` path, with `max_age` = 14 days. The `Secure` flag is resolved by `refresh_cookie_secure_enabled`: it defaults to on when `APP_ENV=production` and off otherwise, but is **decoupled** from `APP_ENV` when `REFRESH_COOKIE_SECURE` is set explicitly. An HTTP-only intranet/VPN deployment can set `REFRESH_COOKIE_SECURE=false` even in production so the browser does not silently drop the cookie and break token refresh; never set `false` on a public TLS frontend (the 14-day refresh token must not travel in cleartext).
-4. **Login response** includes `access_token`, `token_type` ("Bearer"), `expires_in` (1800 seconds), and a summary user object.
-
-### 1.2 Token structure
-
-Both token types share the same payload shape:
-
-```json
-{
-  "sub": "1",
-  "username": "admin",
-  "jti": "a1b2c3d4-...",
-  "iat": 1751500000,
-  "exp": 1751501800,
-  "type": "access"
-}
-```
-
-- **`sub`:** User ID (stringified int).
-- **`jti`:** Unique token identifier for blacklisting. A token without `jti` is accepted but logged as a warning (pre-rollout compatibility).
-- **`type`:** `"access"` or `"refresh"` -- the `get_current_user` dependency rejects refresh tokens.
-- **Algorithm:** HS256 with `JWT_SECRET_KEY` from environment.
-
-### 1.3 Token refresh
-
-```
-POST /api/v1/auth/tokens/refresh
-```
-
-- The refresh token is read from the `dwg_refresh_token` HttpOnly cookie (there is no `Authorization: Bearer` dependency on this endpoint). A missing/invalid cookie or a non-`refresh` token type returns 401 `INVALID_TOKEN`; a blacklisted `jti` returns 401 `TOKEN_REVOKED`; an inactive/absent user returns 401 `USER_NOT_ACTIVE`; a token issued before the last password change returns 401 `TOKEN_REVOKED (password changed)`.
-- A new access token is issued. The refresh token itself is **not rotated** (see Section 5.3, remaining gaps). Token refresh is **not** written to the audit log.
-
-### 1.4 Logout
-
-```
-DELETE /api/v1/auth/sessions/current
-```
-
-- The access token's `jti` is extracted and stored in Redis with TTL = remaining token lifetime (`exp - now`).
-- The refresh token (read from the `dwg_refresh_token` cookie, when present) has its `jti` similarly blacklisted, and the cookie is cleared.
-- Redis keys follow the pattern `blacklist:jti:{jti}` -- they self-expire after TTL, no cleanup job needed.
-- If Redis is unavailable, blacklisting is silently skipped (degraded mode, logged as warning).
-
-### 1.5 Per-request token validation
-
-Every authenticated request flows through `get_current_user()` in `app/api/deps.py`:
-
-1. Decode and verify the JWT signature.
-2. Reject if `type` != `"access"`.
-3. Check `jti` against the Redis blacklist -- return 401 `TOKEN_REVOKED` if blacklisted.
-4. Look up the user by `sub` in the database.
-5. Reject if the user does not exist or `status` != `"active"`.
-6. Check whether the token was issued before the last password change -- return 401 `TOKEN_REVOKED` (password changed) if stale. This invalidates all tokens across all devices when the user changes their password.
-
-### 1.6 Password management
-
-- **Hashing:** Argon2id via `pwdlib.PasswordHash.recommended()` (m=65536, t=3, p=4).
-- **Algorithm stored:** `password_algo = "argon2id"` in `sys_users`.
-- **Minimum length:** 12 characters (enforced in Pydantic schema).
-- **Complexity:** Must contain at least one uppercase letter, one lowercase letter, and one digit.
-- **Common password blacklist:** Rejects passwords from a built-in list of common/breached passwords.
-- **Password change:** `PATCH /api/v1/auth/password` -- requires old password verification, writes audit log.
-- **Admin reset:** `POST /api/v1/users/{user_id}/password-reset-requests` -- admin-only, generates audit record.
-
----
-
-## 2. RBAC Model
-
-### 2.1 Five permission tables
-
-```
-sys_users  ──< sys_user_roles  >── sys_roles  ──< sys_role_permissions  >── sys_permissions
-
-                                    ┌─────────────────────────────┐
-                                    │ sys_users                   │
-                                    │  id, username, status       │
-                                    │  active / disabled / deleted│
-                                    └──────────┬──────────────────┘
-                                               │
-                                    ┌──────────▼──────────────────┐
-                                    │ sys_user_roles              │
-                                    │  user_id FK, role_id FK      │
-                                    │  PK: (user_id, role_id)      │
-                                    └──────────┬──────────────────┘
-                                               │
-                 ┌─────────────────────────────▼──────┐
-                 │ sys_roles                          │
-                 │  code, is_system                   │
-                 │  super_admin, admin, engineer, ...  │
-                 └──────────┬─────────────────────────┘
-                            │
-                 ┌──────────▼─────────────────────────┐
-                 │ sys_role_permissions               │
-                 │  role_id FK, permission_id FK       │
-                 │  PK: (role_id, permission_id)       │
-                 └──────────┬─────────────────────────┘
-                            │
-                 ┌──────────▼─────────────────────────┐
-                 │ sys_permissions                     │
-                 │  code, resource, action              │
-                 │  e.g. "users:read", "jobs:write"     │
-                 └────────────────────────────────────┘
-```
-
-### 2.2 Seven global roles
-
-| Role code | Display name | Typical capabilities |
-|---|---|---|
-| `super_admin` | Super Admin | Bypasses **all** permission checks. Full system access. |
-| `admin` | System Admin | User management, project management, job management. Has `is_admin()` privilege (equivalent to `has_global_project_access`). |
-| `engineer` | Engineer | Upload files, create tasks, view project results within their projects. |
-| `reviewer` | Reviewer | Review analysis results, submit approval/rejection decisions. |
-| `operator` | Operator | Execute assigned tasks within their projects. |
-| `viewer` | Viewer | Read-only access to assigned projects. |
-| `auditor` | Auditor | Read-only access to audit logs and system configuration. |
-
-### 2.3 Four project-level roles
-
-| Project role | Access level within a project |
-|---|---|
-| `project_owner` | Full control over the project, its members, files, drawings, jobs, and results. |
-| `project_engineer` | Can upload files, create drawings, submit jobs, view results. |
-| `project_reviewer` | Can review analysis results submitted for the project. |
-| `project_viewer` | Read-only access to the project and its resources. |
-
-### 2.4 Permission decision tree
-
-```
-                    ┌─────────────────────────────────────────┐
-                    │        Incoming API request              │
-                    │   (all business endpoints require auth)   │
-                    └────────────────────┬────────────────────┘
-                                         │
-                                         ▼
-                    ┌─────────────────────────────────────────┐
-                    │  1. Is the access token valid?           │
-                    │     - JWT signature verified?            │
-                    │     - type == "access"?                  │
-                    │     - jti not blacklisted?               │
-                    └────────────────────┬────────────────────┘
-                              ┌─────────┴──────────┐
-                              │ YES                  │ NO → 401 (INVALID_TOKEN / TOKEN_REVOKED)
-                              ▼                      │
-                    ┌─────────────────────────────────────────┐
-                    │  2. Is the user active?                  │
-                    │     - user exists in DB?                 │
-                    │     - user.status == "active"?           │
-                    └────────────────────┬────────────────────┘
-                              ┌─────────┴──────────┐
-                              │ YES                  │ NO → 401 (USER_NOT_ACTIVE)
-                              ▼                      │
-                    ┌─────────────────────────────────────────┐
-                    │  3. Does the user have a global role     │
-                    │     that grants access?                  │
-                    │     - super_admin → bypass ALL checks    │
-                    │     - admin → global project access      │
-                    │     - role_codes ∩ required_roles != ∅   │
-                    └────────────────────┬────────────────────┘
-                              ┌─────────┴──────────┐
-                              │ YES                  │ NO → Continue to step 4
-                              ▼                      ▼
-                    ┌──────────────┐   ┌─────────────────────────────────────────┐
-                    │  ACCESS      │   │  4. Is the resource scoped to a project? │
-                    │  GRANTED     │   │     (project_id present in path/body)    │
-                    └──────────────┘   └────────────────────┬────────────────────┘
-                                               ┌───────────┴──────────┐
-                                               │ YES                   │ NO → 403
-                                               ▼                       │
-                                    ┌─────────────────────────────────────────┐
-                                    │  5. Is the user a member of this project?│
-                                    │     - check project_members table        │
-                                    │     - project must be active (not soft-  │
-                                    │       deleted)                            │
-                                    └────────────────────┬────────────────────┘
-                                              ┌──────────┴──────────┐
-                                              │ YES                   │ NO → 403
-                                              ▼                       │
-                                    ┌─────────────────────────────────────────┐
-                                    │  6. Does the project role allow this     │
-                                    │     specific action?                     │
-                                    │     - e.g. project_viewer cannot POST    │
-                                    │     - e.g. project_engineer can upload   │
-                                    └────────────────────┬────────────────────┘
-                                              ┌──────────┴──────────┐
-                                              │ YES                   │ NO → 403
-                                              ▼                       │
-                                    ┌──────────────┐                │
-                                    │  ACCESS      │                │
-                                    │  GRANTED     │                │
-                                    └──────────────┘                │
-```
-
-### 2.5 Key permission implementation details
-
-- **`require_roles(*allowed_roles)`:** FastAPI dependency. If `super_admin` is in the user's roles, access is granted immediately. Otherwise checks intersection with `allowed_roles`.
-- **`is_admin(user)`:** True for `super_admin` or `admin`. Used as the gate for `has_global_project_access`.
-- **`has_global_project_access(user)`:** `super_admin` and `admin` see all projects, bypassing project membership checks.
-- **`require_project_member(db, user, project_id)`:** Checks `project_members` table. Skips if user has global access. Also validates that the project is active (not soft-deleted) -- this closes the BUG-7 soft-delete cascade.
-- **`require_project_role(db, user, project_id, allowed_roles)`:** Checks project membership AND that the member's `project_role` is in the allowed set.
-- **Self-action guards:**
-  - Cannot delete or disable your own account.
-  - Non-`super_admin` users cannot manage `super_admin` accounts.
-- **`transition_user_status()`:** Uses `UPDATE ... WHERE id = :id AND status != 'deleted'` with `rowcount` check. Also supports `FOR UPDATE` via `get_user_or_404(for_update=True)`. Effectively eliminates the SELECT→UPDATE TOCTOU window.
-
-### 2.6 Seeded permissions
-
-| Permission code | Resource | Action | Description |
-|---|---|---|---|
-| `users:read` | users | read | View users |
-| `users:write` | users | write | Manage users |
-| `roles:write` | roles | write | Manage roles |
-| `projects:write` | projects | write | Manage projects |
-| `files:write` | files | write | Upload/delete files |
-| `jobs:write` | jobs | write | Create/manage jobs |
-| `reviews:write` | reviews | write | Submit reviews |
-| `audit_logs:read` | audit_logs | read | View audit logs |
-
-All 8 permissions are granted to `super_admin` at seed time.
-
----
-
-## 3. API Security Measures
-
-### 3.1 Authentication enforcement
-
-- **All business endpoints require `current_user: CurrentUser`** -- no endpoint accepts `= None` as a default.
-- The only unauthenticated ("public") endpoints are `POST /auth/sessions` (login), `POST /auth/tokens/refresh` (validated via the HttpOnly refresh cookie, not a Bearer token), and the root `GET /health`.
-- `OAuth2PasswordBearer` extracts the `Authorization: Bearer <token>` header automatically.
-- **SSE authentication:** the job-events stream `GET /api/v1/jobs/{job_id}/events` still requires a valid access token but accepts it via a `?token=<jwt>` query parameter (`get_current_user_from_query` / `CurrentUserOrQuery`), because `EventSource` cannot set request headers. An `Authorization: Bearer` header still takes priority when present. There are no WebSocket endpoints.
-
-### 3.2 CORS policy
-
-```python
-allow_origins = settings.cors_origins          # from BACKEND_CORS_ORIGINS env
-allow_credentials = True                        # required for HttpOnly cookies
-allow_methods = ["GET", "POST", "PATCH", "PUT", "DELETE"]  # OPTIONS auto-added
-allow_headers = ["Authorization", "Content-Type"]
-```
-
-Notable: `allow_methods` is explicitly enumerated (not `["*"]`). `OPTIONS`, `HEAD`, `TRACE`, `CONNECT` are not exposed. `allow_headers` is also explicitly listed -- arbitrary headers are rejected by the CORS middleware.
-
-### 3.3 Input validation
-
-- **All inputs pass through Pydantic v2 models** with `model_config = ConfigDict(from_attributes=True)`.
-- `RequestValidationError` is caught by a global handler and returns 422 with structured error details (never raw Pydantic tracebacks).
-- Specific field-level constraints:
-  - **Username:** `^[a-zA-Z0-9_.@-]+$` (closes H6: username injection via spaces/unicode).
-  - **Real name:** HTML tag rejection (closes BUG-3: HTML injection).
-  - **Password:** min_length=12, upper+lower+digit required, common password blacklist (closes BUG-2).
-  - **task_type:** `^[a-z][a-z0-9_]+$` pattern (closes BUG-8).
-  - **email:** valid `EmailStr` format.
-
-### 3.4 Exception handling and information leakage
-
-Four exception handlers cover the full error surface:
-
-| Handler | Status | Behavior |
-|---|---|---|
-| `AppHTTPException` | Variable | Formats the business error code/message/details into the standard error envelope. |
-| `StarletteHTTPException` | Variable | Catches framework-level HTTP errors (e.g. 405 Method Not Allowed). |
-| `RequestValidationError` | 422 | Returns structured Pydantic error details. |
-| `Exception` (catch-all) | 500 | Logs full traceback internally. Returns `"Internal server error."` when `debug=False`. Returns `str(exc)` only when `debug=True`. **Never leaks traceback.** |
-
-The health endpoint returns `{"data": {"status": "ok"}, "meta": {"request_id": "...", "timestamp": "..."}}` -- no database status, version, uptime, or dependency info (closes BUG-4).
-
-### 3.5 Resource isolation
-
-- **Admin users** (`super_admin`, `admin`): Can list and access all projects, files, drawings, jobs, results.
-- **Regular users:** Can only see projects they are members of. Files, drawings, jobs, and results are filtered by project membership.
-- **File downloads:** Require either global project access OR project membership on the file's associated project. Cross-project file access is denied at the API layer before the storage layer is touched.
-
-### 3.6 Race condition protection
-
-- **User creation:** `IntegrityError` on duplicate username is caught and converted to a 409 `USERNAME_EXISTS` (closes BUG-6).
-- **Status transitions:** `transition_user_status()` uses `UPDATE ... WHERE` with rowcount check -- no SELECT-then-UPDATE gap.
-- **`FOR UPDATE`:** Available via `get_user_or_404(for_update=True)` for pessimistic locking when needed.
-
-### 3.7 API documentation exposure (BUG-21)
-
-- The interactive docs and schema endpoints (`/docs`, `/redoc`, `/openapi.json`) are mounted **only** when `app_env == "development"` **or** `debug` is true. In a production-like deployment all three are set to `None`, so the FastAPI app returns 404 for them -- this prevents unauthorised API surface discovery (pentest finding BUG-21).
-- **Request-ID middleware:** `add_request_id` reads an inbound `X-Request-ID` header or generates `req_<uuid4 hex>`, stores it on `request.state.request_id`, echoes it back in the `X-Request-ID` response header, and includes it in every response envelope's `meta.request_id`.
-
----
-
-## 4. File Security Measures
-
-### 4.1 Upload validation chain
-
-Every file upload passes through this pipeline (in order):
-
-```
-1. Extension whitelist    → ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip"}; anything else → 415 FILE_TYPE_NOT_ALLOWED (allowed list returned in details)
-2. MIME type check        → advisory hint only — a set of DWG-related MIME types plus binary fallbacks; NEVER blocks (the DWG header is the real boundary)
-3. DWG header validation  → for .dwg uploads only: first 6 bytes must match AC1012-AC1032 (AutoCAD R13 through 2018+) → 415 FILE_NOT_DWG. .dxf/.zip skip this (ZIP is validated per-entry, see 4.6)
-4. Size enforcement       → Max: max_upload_size_mb (512 MiB default) for all uploads → 413 FILE_TOO_LARGE. Min: 1024 bytes (MIN_DWG_SIZE_BYTES) enforced for .dwg only → 415 FILE_NOT_DWG
-5. Filename sanitization  → sanitize_filename() NFKC-normalizes, strips path separators/".."/control chars, strips leading dots/dashes + trailing dots/spaces, truncates to 200 chars, falls back to "unnamed"
-6. Streaming hash         → SHA-256 + MD5 computed during 1 MiB chunked read into a 16 MiB SpooledTemporaryFile
-7. Temp buffer cleanup    → SpooledTemporaryFile automatically cleans the in-memory/os-buffer after use. However, if the storage backend write (`put_fileobj`) fails mid-write, a partial file may remain in the storage backend (e.g. MinIO or local filesystem) — the application does not attempt to unlink partially-written files from the backend.
-```
-
-### 4.2 Supported DWG versions
-
-| Magic bytes | AutoCAD version |
-|---|---|
-| `AC1012` | R13 |
-| `AC1014` | R14 |
-| `AC1015` | 2000 / 2000i / 2002 |
-| `AC1018` | 2004 / 2005 / 2006 |
-| `AC1021` | 2007 / 2008 / 2009 |
-| `AC1024` | 2010 / 2011 / 2012 |
-| `AC1027` | 2013-2017 |
-| `AC1032` | 2018+ |
-
-Files with headers outside this set are rejected with 415 `FILE_NOT_DWG`.
-
-### 4.3 Storage path security
-
-- **Storage paths never use user-provided filenames.** The `storage_key` is `uploads/{uuid4().hex}{ext}`.
-- **`original_name`** is stored as metadata only and never interpolated into file paths.
-- **Path traversal guard:** `ensure_within_root(root, candidate)` resolves both paths and checks that the candidate's resolved path starts with the root's resolved path. Any escape attempt raises 400 `INVALID_STORAGE_PATH`.
-- **Original files are never overwritten.** Each upload creates a new storage key.
-
-### 4.4 Download security
-
-- **HMAC-signed download URLs** (`GET /files/{file_id}/download-url`): URLs include `expires` (TTL=300s) and `signature` parameters. The signature is HMAC-SHA256 over `file_id:expires`.
-- **Permission check before URL generation:** The caller must have access to the file's project (or global access). Cross-project download requests are rejected before any URL is generated.
-- **Note:** The signed URL TTL is enforced by the backend at download time, but the URL itself is not a cryptographically self-contained capability token -- the download endpoint also requires authentication (see Section 5.3, remaining gaps).
-
-### 4.5 File hashing
-
-- **SHA-256:** Primary integrity hash, stored in `files.sha256`, indexed for deduplication queries.
-- **MD5:** Secondary hash for legacy compatibility, stored in `files.md5`.
-- Both are computed during the streaming upload (single pass over the file data).
-
-### 4.6 ZIP upload guards (`POST /api/v1/files/upload-zip`)
-
-Batch DWG/DXF uploads arrive as a `.zip`; extraction is guarded against zip-bomb and path-traversal attacks:
-
-| Guard | Limit / rule | Violation |
-|---|---|---|
-| Archive type | Filename must end `.zip` and pass the extension whitelist; must be a valid ZIP | 415 `FILE_NOT_ZIP` |
-| Corruption | `zf.testzip()` must return `None` | 415 `ZIP_CORRUPTED` |
-| Upload buffer | Streamed bytes ≤ `max_upload_size_mb` (512 MiB) | 413 `FILE_TOO_LARGE` |
-| Entry count | ≤ `max_zip_entry_count` (**1000**) | 413 `ZIP_TOO_MANY_FILES` |
-| Uncompressed size | Accumulated extracted bytes ≤ `max_zip_extract_mb` (**2048 MiB**) — the core zip-bomb defence | 413 `ZIP_TOO_LARGE` |
-| Path traversal | Each entry name reduced to its basename and passed through `sanitize_filename` (directory components stripped) | (sanitized silently) |
-| Per-entry filter | Entry extension must equal the target `file_ext` (`.dwg`/`.dxf`); non-matching entries skipped; `.dwg` entries are header-validated and skipped on failure | (skipped, counted) |
-| Empty result | At least one file must be extracted or skipped | 422 `ZIP_EMPTY` |
-
-The two size ceilings (`MAX_ZIP_EXTRACT_MB`, `MAX_ZIP_ENTRY_COUNT`) exist in `core/config.py` only and are **not** present in either `.env` template, so they run on their defaults unless added manually.
-
----
-
-## 5. Pentest Findings Resolution
-
-### 5.1 Fixed (16 findings)
-
-| ID | Finding | Severity | Fix | File |
-|---|---|---|---|---|
-| H1 | Timing oracle -- 40x time difference for user enumeration via login | **Critical** | Dummy Argon2id hash when user doesn't exist/is inactive. Both code paths perform one full argon2id verification. | `app/services/auth_service.py` |
-| H6 | Username injection via spaces and Unicode characters | **High** | Pattern constraint `^[a-zA-Z0-9_.@-]+$` on `username` field in Pydantic schema. | `app/schemas/user_schema.py` |
-| BUG-1 | Mass assignment of `role_codes` via `UserCreate` | **High** | `role_codes` field removed from `UserCreate` schema. Role assignment is now a separate `POST /users/{id}/roles` endpoint gated by RBAC. | `app/schemas/user_schema.py` |
-| BUG-2 | Weak password policy -- no minimum length or complexity | **High** | `min_length=12`, upper+lower+digit required, common password blacklist. | `app/schemas/user_schema.py` |
-| BUG-3 | HTML injection in `real_name` field | **Medium** | HTML tag pattern rejection in Pydantic validator. | `app/schemas/user_schema.py` |
-| BUG-4 | Health endpoint infoleak -- database status, version | **Low** | Simplified to `{"data": {"status": "ok"}}`. | `app/main.py` |
-| BUG-5 | DWG size validation too small -- accepted < 1024 bytes | **Medium** | `MIN_DWG_SIZE_BYTES = 1024` enforced after upload, combined with header validation. | `app/services/storage_service.py` |
-| BUG-6 | Race condition causing 500 with traceback leak | **Medium** | `IntegrityError` caught and converted to 409. Catch-all `Exception` handler returns `"Internal server error."` in production. | `app/services/user_service.py`, `app/main.py` |
-| BUG-7 | Soft-delete cascade -- deleted projects still visible in file listings | **Medium** | `require_active_project()` check added to `require_project_member()`. A file whose projects are all soft-deleted is treated as not-found. | `app/api/deps.py`, `app/api/v1/files_api.py` |
-| BUG-8 | `task_type` field unvalidated -- accepted arbitrary strings | **Low** | Pattern constraint `^[a-z][a-z0-9_]+$`. | `app/schemas/job_schema.py` |
-| BUG-9 | Retry without state guard -- any job could be retried | **Medium** | Only `failed` or `cancelled` jobs are retryable. | `app/services/job_service.py` |
-| BUG-12 | No self-update endpoint for users | **Low** | `PATCH /users/me` added with `UserSelfUpdate` schema (no status changes allowed). | `app/api/v1/users_api.py` |
-| BUG-13 | `sort_by` query parameter unvalidated -- SQL injection / column enumeration | **High** | `validate_sort_by()` whitelists sortable columns per resource; unknown column → 422 `INVALID_SORT_COLUMN`, unknown resource → 422 `INVALID_SORT_RESOURCE`. | `app/core/validators.py`, `app/api/v1/projects_api.py` |
-| BUG-14 | `status` filter parameter unvalidated | **Medium** | Status-filter value validated against an allowed set (422 `INVALID_STATUS_FILTER`). | `app/api/v1/projects_api.py` |
-| BUG-19 | Admin password reset did not revoke the target's active sessions | **Medium** | Admin-initiated password reset now records a password-change timestamp, revoking the target user's existing access/refresh tokens. | `app/api/v1/users_api.py` |
-| BUG-21 | Interactive API docs/schema exposed in production | **Low** | `/docs`, `/redoc`, `/openapi.json` set to `None` unless `app_env == "development"` or `debug` is on. | `app/main.py` |
-
-### 5.2 Not fixed by design (4 findings)
-
-| ID | Finding | Rationale |
-|---|---|---|
-| BUG-10 | Nanosecond-level TOCTOU window | Risk is negligible in practice -- the window is too small to exploit reliably in a web application context. Not worth the complexity of application-level serializable transactions. |
-| BUG-11 | Unclear root cause, cannot reproduce | Unable to reproduce after multiple attempts. No telemetry to diagnose. Filed for monitoring in production. |
-| C1 | JWT secret key strength | Deployment concern, not a code issue. Production deployment must use a cryptographically random key (see checklist 6.1). |
-| C2 | Port 8000 exposed | Infrastructure concern. Docker Compose places backend-api on the `internal` network only. Nginx is the public-facing service on ports 80/443. If deploying without Docker, follow the checklist (Section 6.5). |
-
-### 5.3 Remaining gaps (acknowledged, not yet resolved)
-
-| Gap | Impact | Mitigation |
-|---|---|---|
-| **Token blacklist middleware** | Access tokens blacklisted at logout are checked on every request (via `is_token_blacklisted(jti)` in `get_current_user`), which is correct. However, there is no periodic cleanup of the blacklist beyond Redis TTL expiry. | Acceptable -- Redis TTL auto-cleans keys. |
-| **No login rate limiting** | Brute-force login attempts are not throttled. The timing oracle fix (H1) prevents user enumeration, but password guessing at scale remains possible. | **Production must add rate limiting** (e.g. slowapi or nginx `limit_req_zone`). Recommended: 5 attempts per IP per minute, escalating lockout. |
-| **No refresh token rotation** | If a refresh token is stolen, the attacker can continue generating new access tokens for up to 14 days. | **Consider implementing rotation** -- issue a new refresh token on each use, invalidate the old one. This is the standard OAuth 2.0 best practice. |
-| **Signed download URLs** | The HMAC-signed URL includes an `expires` parameter with TTL=300s, but the download endpoint also checks authentication. The URL is not a standalone capability token. | This is actually a defense-in-depth choice, but it means the signature does not provide the intended time-limited anonymous access. Evaluate whether truly expiring capability URLs are needed. |
-| **No audit log retention policy** | Audit logs grow unbounded in the database. | Add a retention policy (e.g. archive logs older than N months). |
-
----
-
-## 6. Production Deployment Security Checklist
-
-### 6.1 Secrets management
-
-- [ ] **`JWT_SECRET_KEY`**: Generate with `openssl rand -hex 32`. Must be at least 256 bits of entropy.
-- [ ] **`SUPER_ADMIN_PASSWORD`**: Change from the seed default before any users are created.
-- [ ] **`MYSQL_PASSWORD`**, **`MYSQL_ROOT_PASSWORD`**: Strong, unique passwords.
-- [ ] **`REDIS_PASSWORD`**: Set in production (Redis AUTH).
-- [ ] **`MINIO_ROOT_USER`**, **`MINIO_ROOT_PASSWORD`**: Strong, unique.
-- [ ] **`.env` and `.env.docker`**: Never committed to Git. Verify `.gitignore` covers them.
-- [ ] **`MODEL_API_KEY`**: LLM API key must be set if Agent features are enabled.
-
-### 6.2 Network security
-
-- [ ] **Database port (3306)**: Not exposed to the public network. Docker: on `internal` network only.
-- [ ] **Redis port (6379)**: Not exposed. Docker: on `internal` network only.
-- [ ] **MinIO ports (9000, 9001)**: Not exposed. Docker: on `internal` network only.
-- [ ] **Backend port (8000)**: Not exposed directly. All traffic goes through Nginx.
-- [ ] **Nginx**: Only ports 80 and 443 exposed. Redirect HTTP to HTTPS in production.
-- [ ] **CAD Worker node**: Isolated network, API Key authentication required (Section 19.4 of spec).
-
-### 6.3 TLS/HTTPS
-
-- [ ] Obtain TLS certificate (Let's Encrypt or internal CA).
-- [ ] Configure Nginx with `ssl_certificate` and `ssl_certificate_key`.
-- [ ] Set `secure` flag on cookies (resolved by `refresh_cookie_secure_enabled` for the `dwg_refresh_token` cookie; see Section 1.1).
-- [ ] Set HSTS header in Nginx.
-
-### 6.4 Application hardening
-
-- [ ] **`DEBUG=false`**: Must be set in production (prevents traceback leakage in the catch-all handler).
-- [ ] **CORS origins**: Set `BACKEND_CORS_ORIGINS` to the production frontend domain(s) only -- not `*`.
-- [ ] **Upload size limit**: Set `MAX_UPLOAD_SIZE_MB` appropriately (default 512 MiB).
-- [ ] **Login rate limiting**: Deploy rate limiting middleware (e.g. slowapi) or configure Nginx `limit_req_zone` for `/api/v1/auth/sessions`.
-- [ ] **Refresh token rotation**: Evaluate implementing per Section 5.3.
-
-### 6.5 Database security
-
-- [ ] MySQL user `dwg_user` has only the required privileges (SELECT, INSERT, UPDATE, DELETE on `dwg_agent.*`).
-- [ ] MySQL root password is stored securely and not used by the application.
-- [ ] Regular backups configured (see `docs/database.md`, Section 6).
-- [ ] Connection uses `mysql+pymysql` with TLS if MySQL is on a separate host.
-
-### 6.6 Docker security
-
-- [ ] Backend container runs as non-root user (the production `Dockerfile` includes a non-root `USER` directive).
-- [ ] Images are built with `--no-cache` for production deployments.
-- [ ] Docker socket is not mounted into any container.
-- [ ] Container resource limits are set (CPU, memory) to prevent resource exhaustion.
-
-### 6.7 Logging and monitoring
-
-- [ ] Audit logs are written for: user CRUD, role changes, login/logout, password changes, file uploads, job creation, review decisions, agent runs.
-- [ ] Application logs include `request_id`, `user_id`, and resource IDs for traceability.
-- [ ] Set up log aggregation (e.g. Docker logging driver → ELK/Loki).
-- [ ] Configure alerts for: repeated 401/403 responses, high error rate, unusual file upload patterns.
-
----
-
-## 7. Audit Log Coverage
-
-### 7.1 Audit log schema
-
-```text
-audit_logs
-├── id              BIGINT PK
-├── actor_user_id   BIGINT FK → sys_users.id (nullable -- for system actions)
-├── action          VARCHAR(128)    e.g. "users.create", "files.upload", "auth.logout"
-├── resource_type   VARCHAR(64)     e.g. "user", "project", "project_member", "file", "drawing", "job", "role", "result", "agent_run"
-├── resource_id     BIGINT          ID of the affected resource (a plain indexed pointer, NOT a real FK)
-├── ip_address      VARCHAR(64)     Client IP from request
-├── user_agent      VARCHAR(512)    User-Agent header
-├── before_json     JSON            Resource state before the action (for updates/deletes)
-├── after_json      JSON            Resource state after the action (for creates/updates)
-├── created_at      DATETIME        Timestamp of the action
-```
-
-### 7.2 Actions that produce audit records
-
-| Action code | Resource type | Trigger |
-|---|---|---|
-| `auth.login` | user | Successful user login |
-| `auth.logout` | user | User logs out |
-| `auth.password_change` | user | User changes their own password |
-| `users.create` | user | Admin creates a new user |
-| `users.update` | user | Admin modifies user details |
-| `users.update_self` | user | User updates their own profile via /users/me |
-| `users.delete` | user | Admin soft-deletes a user |
-| `users.disable` | user | Admin disables a user account |
-| `users.enable` | user | Admin re-enables a user account |
-| `users.password_reset` | user | Admin resets a user's password |
-| `users.roles.add` | user | Admin assigns a role to a user |
-| `users.roles.remove` | user | Admin removes a role from a user |
-| `roles.create` | role | Super admin creates a new role |
-| `roles.permissions.replace` | role | Super admin updates a role's permissions |
-| `projects.create` | project | User creates a project |
-| `projects.update` | project | User modifies project details |
-| `projects.delete` | project | User soft-deletes/archives a project |
-| `project_members.create` | project | Owner adds a member to a project |
-| `project_members.update` | project_member | Owner changes a member's project role |
-| `project_members.delete` | project_member | Owner removes a member from a project |
-| `files.upload` | file | User uploads a single DWG/DXF file |
-| `files.upload_zip` | file | User uploads a ZIP; matching entries are batch-extracted |
-| `files.delete` | file | User deletes a file |
-| `files.bulk_delete` | file | User bulk soft-deletes a set of files |
-| `files.batch_delete` | file | User soft-deletes all files in a batch |
-| `files.download_url` | file | User requests a signed download URL |
-| `files.download` | file | User downloads a file via signed URL |
-| `files.download_zip` | file | User downloads selected files as a ZIP |
-| `files.batch_download_zip` | file | User downloads a whole batch as a ZIP |
-| `drawings.create` | drawing | User creates a drawing |
-| `drawings.update` | drawing | User modifies drawing metadata |
-| `drawings.delete` | drawing | User archives a drawing |
-| `drawing_versions.create` | drawing | User uploads a new drawing version |
-| `jobs.create` | job | User submits a processing job |
-| `jobs.cancel` | job | User cancels a job |
-| `jobs.retry` | job | User retries a failed/cancelled job |
-| `jobs.cancel_all` | job | Admin cancels all active jobs (`POST /jobs/cancel-all-active`) |
-| `agent_runs.create` | agent_run | User creates an agent run |
-| `reviews.create` | result | Reviewer approves or rejects an analysis result |
-
-**Not audited:** token refresh (`POST /auth/tokens/refresh`), `GET /me`, and read/list (GET) endpoints generally do not write audit records.
-
-### 7.3 Access control for audit logs
-
-- **`GET /api/v1/audit-logs`**: Requires `super_admin` or `auditor` global role.
-- **`GET /api/v1/audit-logs/{audit_log_id}`**: Same access control.
-- Audit logs are **immutable** -- there is no API endpoint to modify or delete them. Deletion would require direct database access by a DBA.
-- The `actor_user_id` can be `NULL` for system-initiated actions (e.g. seed data creation, automated cleanup).
-
-### 7.4 Audit log query considerations
-
-- The `action` and `resource_id` columns are indexed for efficient filtering.
-- The `before_json` and `after_json` columns record full snapshots -- this is valuable for investigations but can grow large. Consider archiving strategy for production.
-- For GDPR/privacy compliance, the `ip_address` column captures PII. Ensure your privacy policy and retention schedule account for this.
+Nginx and the frontend are not authorization boundaries. Every business endpoint authenticates in FastAPI and enforces global roles plus resource/project access. MySQL and object storage are private network services in Compose.
+
+## Authentication
+
+- Passwords use Argon2id.
+- Access JWTs default to 30 minutes; refresh cookies default to 14 days.
+- Access and refresh token types are checked and cannot be exchanged.
+- Logout writes token JTIs to MySQL `token_blacklist`.
+- Password changes write `password_changed_at`; older tokens are rejected.
+- Disabled/deleted users are checked on each authenticated request.
+- The frontend keeps access state in `sessionStorage`, reducing cross-tab persistence.
+- Refresh cookies are HttpOnly, SameSite, and Secure in production unless explicitly overridden for a private HTTP-only VPN.
+
+There is no fail-open revocation path: token state is in authoritative MySQL, not an optional cache.
+
+## SSE Authentication
+
+Native EventSource cannot set a Bearer header. The API issues the short-lived HttpOnly `dwg_sse_token` cookie and the SSE dependency validates it. Tokens are never accepted in event-stream query strings. Normal job access checks run before streaming.
+
+## Authorization
+
+Global roles: `super_admin`, `admin`, `engineer`, `reviewer`, `operator`, `viewer`, `auditor`.
+
+Project resources require membership and an allowed project role. Administrative global roles have explicit global project access; other roles do not. Super-admin targets cannot be disabled, deleted, reset, or role-managed by ordinary admins.
+
+File reads require one of:
+
+- administrative global access;
+- uploader ownership;
+- membership in an active project linked through a drawing version or analysis result.
+
+File list and batch metadata use the same SQL access filter. Batch endpoints must not reveal metadata for an inaccessible file. Result details, result download URLs, and reviews delegate to the parent job boundary; for jobs without a project, only administrators and the creator have access. Agent runs, when enabled, require creator/admin/linked-project access for both details and steps.
+
+## Job Integrity
+
+Every retry creates a new `attempt`. Claim, progress, terminal state, cancellation, dispatch compensation, and stale recovery use conditional updates that include status and attempt. This prevents stale workers from overwriting a retry.
+
+`job_steps.attempt` preserves history without mixing generations. Cancel-all locks the exact active IDs, changes only those rows, and reports broker purge results per queue.
+
+## File Security
+
+- Filename normalization removes traversal, control characters, separators, and unsafe leading characters.
+- Extensions are allow-listed.
+- DWG uploads require supported AC headers and a minimum size.
+- Uploads are streamed with maximum size and SHA-256/MD5 calculation.
+- ZIP extraction limits entry count and total uncompressed bytes and rejects traversal.
+- Object keys are generated, not user-controlled paths.
+- Database rollback compensates objects written before commit.
+
+## Downloads
+
+A signed URL is not sufficient by itself. The download endpoint also requires Bearer authentication and current file permission. The HMAC binds file ID and expiry. Frontend retries obtain a new signature instead of replaying an expired URL.
+
+## Error Handling
+
+Unexpected exceptions are logged server-side. Production responses use stable error codes and generic messages. Child-process stderr, traceback, DSN, secret, and host paths must not be stored in client-visible `jobs.error_message`.
+
+Excel Final parser failures are mapped to a bounded public message; the full child traceback remains in worker logs.
+
+## Database and Broker
+
+- MySQL credentials are URL-encoded when building DSNs.
+- Application pools are bounded and recycled.
+- Celery uses `READ COMMITTED` and a queue-ordering index to reduce lock scope.
+- SQL transport fanout control is disabled.
+- Compose does not publish MySQL or MinIO host ports.
+- The handbook grant is `SELECT` only.
+
+## Audit
+
+Login/logout, user lifecycle, role changes, project/member changes, file upload/download/delete, job lifecycle, review decisions, and sensitive operations write immutable audit rows. Audit access is restricted to `super_admin` and `auditor`.
+
+## Production Checklist
+
+- Replace every `CHANGE_ME_*`, JWT secret, admin password, MySQL password, and MinIO secret.
+- Use TLS; keep secure refresh cookies enabled on public networks.
+- Restrict Nginx origins and CORS to deployed frontend origins.
+- Keep MySQL/MinIO on private networks and protect volume backups.
+- Run migration tests and security boundary tests before rollout.
+- Verify that `/health/ready` does not expose credentials or internal exceptions.
+- Rotate credentials and invalidate sessions after a suspected compromise.
+- Review audit logs and storage integrity hashes.
+
+## Security Tests
+
+Regression coverage includes token confusion, disabled users, super-admin protection, project isolation, unscoped result isolation, file ownership/membership, signed URL expiry/tampering, batch metadata access, constant-query file filtering, Agent run isolation, attempt races, storage compensation, and safe error messages.

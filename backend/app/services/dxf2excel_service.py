@@ -26,7 +26,6 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.constants import (
-    JOB_FAILED,
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_DXF2EXCEL,
@@ -39,8 +38,13 @@ from app.db.session import SessionLocal
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
-from app.services.job_events import make_event, publish_job_event
-from app.services.job_service import claim_queued_job
+from app.services.job_events import make_event
+from app.services.job_service import (
+    claim_queued_job,
+    commit_job_progress,
+    complete_job_attempt,
+    fail_job_attempt,
+)
 from app.services.storage_service import (
     get_storage_backend,
     sanitize_filename,
@@ -72,37 +76,30 @@ def _exception_message(exc: Exception) -> str:
 
 
 def _mark_job_failed(
-    job_id: int, exc: Exception, error_code: str = ERROR_CODE_DXF2EXCEL_FAILED
+    db: Session,
+    job_id: int,
+    attempt: int,
+    exc: Exception,
+    error_code: str = ERROR_CODE_DXF2EXCEL_FAILED,
 ) -> None:
-    """独立 session 标记任务失败（仿 dxf_service._mark_job_failed）。"""
-    db = SessionLocal()
+    """在 worker 当前事务内提交失败状态与待写步骤。"""
     try:
-        job = db.get(Job, job_id)
-        if job and job.status not in (JOB_SUCCEEDED, "cancelled"):
-            job.status = JOB_FAILED
-            job.error_code = error_code
-            job.error_message = _exception_message(exc)
-            job.finished_at = datetime.now(UTC)
-            publish_job_event(
-                db,
-                job_id,
-                make_event(
-                    type_="error",
-                    status=JOB_FAILED,
-                    error_code=error_code,
-                    message=job.error_message or error_code,
-                ),
-            )
-            db.commit()
+        fail_job_attempt(
+            db,
+            job_id,
+            attempt=attempt,
+            error_code=error_code,
+            error_message=_exception_message(exc),
+        )
     except Exception:
+        db.rollback()
         logger.exception("Failed to mark dxf2excel job %s as failed", job_id)
-    finally:
-        db.close()
 
 
 def _add_step(
     db: Session,
     job_id: int,
+    attempt: int,
     step_name: str,
     worker_name: str,
     status: str,
@@ -115,6 +112,7 @@ def _add_step(
     db.add(
         JobStep(
             job_id=job_id,
+            attempt=attempt,
             step_name=step_name,
             worker_name=worker_name,
             status=status,
@@ -202,7 +200,11 @@ def _stage_dxf_batch(
     return local_paths, stats
 
 
-def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel") -> None:
+def run_dxf2excel_extraction(
+    job_id: int,
+    worker_name: str = "celery_dxf2excel",
+    expected_attempt: int = 1,
+) -> None:
     """Celery dxf2excel 队列任务体：batch DXF → Excel 全链路。
 
     失败不抛（除导入错误外），通过 job.status/error_code 体现。
@@ -212,6 +214,7 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
         job = claim_queued_job(
             db,
             job_id,
+            expected_attempt=expected_attempt,
             pipeline=PIPELINE_DXF2EXCEL,
             progress=10,
             message="开始提取 DXF 批次",
@@ -219,11 +222,14 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
         if job is None:
             logger.info("DXF2Excel job %s was not claimable", job_id)
             return
+        attempt = job.attempt
 
         batch_name = _resolve_batch_name(job)
         if batch_name is None:
             _mark_job_failed(
+                db,
                 job_id,
+                attempt,
                 AppError("DXF2Excel job 缺少 params.batch_name"),
                 error_code=ERROR_CODE_EMPTY_BATCH,
             )
@@ -237,14 +243,10 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
             dxf_paths, download_stats = _stage_dxf_batch(db, batch_name, work_dir)
 
             if not dxf_paths and download_stats["dxf_count"] == 0:
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"批次 '{batch_name}' 中没有 .dxf 文件"),
-                    error_code=ERROR_CODE_EMPTY_BATCH,
-                )
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_DOWNLOAD_DXF_BATCH,
                     worker_name,
                     "failed",
@@ -252,12 +254,19 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     error_message=f"批次 '{batch_name}' 中没有 .dxf 文件",
                     started_at=download_started,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"批次 '{batch_name}' 中没有 .dxf 文件"),
+                    error_code=ERROR_CODE_EMPTY_BATCH,
+                )
                 return
 
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_DOWNLOAD_DXF_BATCH,
                 worker_name,
                 "succeeded" if not download_stats["errors"] else "succeeded_with_warnings",
@@ -270,11 +279,12 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 ),
                 started_at=download_started,
             )
-            job.progress = 30
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=30,
+                event=make_event(
                     type_="progress",
                     progress=30,
                     step_name=STEP_DOWNLOAD_DXF_BATCH,
@@ -283,11 +293,14 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     stats=download_stats,
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             if not dxf_paths:
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError(f"批次 '{batch_name}' 所有 DXF 下载失败"),
                     error_code=ERROR_CODE_EMPTY_BATCH,
                 )
@@ -302,14 +315,10 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 from dxf2excel.models import TableResult
                 from dxf2excel.pipeline import process_file as _pf
             except ImportError as exc:
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"dxf2excel 包不可用: {exc}"),
-                    error_code=ERROR_CODE_DXF2EXCEL_UNAVAILABLE,
-                )
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_RUN_DXF2EXCEL,
                     worker_name,
                     "failed",
@@ -317,7 +326,13 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     error_message=f"dxf2excel 包不可用: {exc}",
                     started_at=pipeline_started,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"dxf2excel 包不可用: {exc}"),
+                    error_code=ERROR_CODE_DXF2EXCEL_UNAVAILABLE,
+                )
                 return
 
             pipeline_stats: dict = {
@@ -350,11 +365,7 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
 
                 # Per-file progress: 30 → 70 mapped across all files
                 file_progress = 30 + int(40 * (i + 1) / total_files)
-                job.progress = file_progress
-                publish_job_event(
-                    db,
-                    job_id,
-                    make_event(
+                progress_event = make_event(
                         type_="progress",
                         progress=file_progress,
                         step_name=STEP_RUN_DXF2EXCEL,
@@ -363,16 +374,18 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                         file_index=i + 1,
                         total_files=total_files,
                         current_file=fp.name,
-                    ),
-                )
+                    )
                 # Commit to MySQL every N files so polling sees intermediate values
-                if (i + 1) % _COMMIT_EVERY_N == 0:
-                    db.commit()
-                else:
-                    db.flush()
-
-            # Release any tail batch before Excel generation, which can be slow.
-            db.commit()
+                if (i + 1) % _COMMIT_EVERY_N == 0 or i + 1 == total_files:
+                    job = commit_job_progress(
+                        db,
+                        job_id,
+                        attempt=attempt,
+                        progress=file_progress,
+                        event=progress_event,
+                    )
+                    if job is None:
+                        return
 
             # Count stats from collected results
             pipeline_stats["tables_found"] = len(all_tables)
@@ -386,14 +399,10 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 write_excel(output_path, all_tables, all_warnings)
             except Exception as exc:
                 logger.exception("dxf2excel write_excel failed for job %s", job_id)
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"Excel 写入失败: {exc}"),
-                    error_code=ERROR_CODE_DXF2EXCEL_FAILED,
-                )
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_RUN_DXF2EXCEL,
                     worker_name,
                     "failed",
@@ -402,12 +411,19 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     error_message=_exception_message(exc),
                     started_at=pipeline_started,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"Excel 写入失败: {exc}"),
+                    error_code=ERROR_CODE_DXF2EXCEL_FAILED,
+                )
                 return
 
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_RUN_DXF2EXCEL,
                 worker_name,
                 "succeeded",
@@ -415,11 +431,12 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 output_json=pipeline_stats,
                 started_at=pipeline_started,
             )
-            job.progress = 70
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=70,
+                event=make_event(
                     type_="progress",
                     progress=70,
                     step_name=STEP_RUN_DXF2EXCEL,
@@ -430,13 +447,16 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     stats=pipeline_stats,
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             # ---- 4. 持久化 Excel ----
             persist_started = datetime.now(UTC)
             if not output_path.is_file():
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError("Excel 输出文件未生成"),
                     error_code=ERROR_CODE_DXF2EXCEL_NO_OUTPUT,
                 )
@@ -456,12 +476,6 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 payload=excel_bytes,
                 uploaded_by=job.created_by,
             )
-
-            # 行锁重读 job，防并发取消
-            job = db.scalars(select(Job).where(Job.id == job_id).with_for_update()).one_or_none()
-            if not job or job.status != JOB_RUNNING:
-                db.rollback()
-                return
 
             result_payload = {
                 "source": "dxf2excel",
@@ -488,6 +502,7 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_PERSIST_EXCEL,
                 worker_name,
                 "succeeded",
@@ -501,13 +516,11 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                 },
                 started_at=persist_started,
             )
-            job.status = JOB_SUCCEEDED
-            job.progress = 100
-            job.finished_at = datetime.now(UTC)
-            publish_job_event(
+            completed_job = complete_job_attempt(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                event=make_event(
                     type_="done",
                     status=JOB_SUCCEEDED,
                     progress=100,
@@ -522,11 +535,19 @@ def run_dxf2excel_extraction(job_id: int, worker_name: str = "celery_dxf2excel")
                     warnings_count=pipeline_stats["warnings_count"],
                 ),
             )
-            db.commit()
+            if completed_job is None:
+                return
 
     except Exception as exc:
         db.rollback()
-        _mark_job_failed(job_id, exc, error_code=ERROR_CODE_DXF2EXCEL_FAILED)
+        if "attempt" in locals():
+            _mark_job_failed(
+                db,
+                job_id,
+                attempt,
+                exc,
+                error_code=ERROR_CODE_DXF2EXCEL_FAILED,
+            )
         logger.exception("DXF2Excel extraction failed for job %s", job_id)
     finally:
         db.close()

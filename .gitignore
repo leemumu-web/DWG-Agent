@@ -26,10 +26,11 @@ build/
 *.egg
 tsconfig.tsbuildinfo
 
-# --- Test artifacts ---
+# --- Test artifacts / browser traces ---
 test-results/
 playwright-report/
 .nyc_output/
+.playwright-cli/
 
 # --- Caches ---
 __pycache__/

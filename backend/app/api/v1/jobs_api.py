@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import (
@@ -24,10 +25,13 @@ from app.core.constants import (
 )
 from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.core.validators import validate_sort_by
+from app.db.pagination import paginate_scalars
 from app.models.drawing import Drawing
+from app.models.excel_final import ExcelFinalBatch
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
 from app.schemas.result_schema import AnalysisResultRead
 from app.services.audit_service import write_audit_log
@@ -37,10 +41,20 @@ from app.services.job_access import (
     require_job_read_access,
     require_job_write_access,
 )
-from app.services.job_events import job_event_stream, make_event, publish_job_event
-from app.services.job_service import create_job, dispatch_committed_job
+from app.services.job_events import job_event_stream
+from app.services.job_service import (
+    cancel_job as transition_job_to_cancelled,
+)
+from app.services.job_service import (
+    create_job,
+    dispatch_committed_job,
+)
+from app.services.job_service import (
+    retry_job as transition_job_to_queued,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -61,14 +75,19 @@ def list_jobs(
         order_clause = order_clause.asc()
     else:
         order_clause = order_clause.desc()
-    stmt = select(Job).order_by(order_clause)
+    tie_breaker = Job.id.asc() if sort_dir_value == "asc" else Job.id.desc()
+    stmt = select(Job).order_by(order_clause, tie_breaker)
     if task_type.strip():
         stmt = stmt.where(Job.task_type == task_type.strip())
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
-    jobs = list(db.scalars(stmt).all())
-    return page_from_list(
-        [JobRead.model_validate(j) for j in jobs], page, page_size, request.state.request_id
+    jobs, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
+    return page_response(
+        [JobRead.model_validate(j) for j in jobs],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -141,18 +160,7 @@ def cancel_job(
     if not job:
         raise not_found("Job")
     require_job_write_access(db, current_user, job)
-    if job.status in ("succeeded", "failed", "cancelled"):
-        raise AppHTTPException(
-            409,
-            "JOB_NOT_CANCELLABLE",
-            f"Job cannot be cancelled because it is already {job.status}.",
-        )
-    job.status = "cancelled"
-    publish_job_event(
-        db,
-        job.id,
-        make_event(type_="done", status="cancelled", progress=job.progress, message="任务已取消"),
-    )
+    job = transition_job_to_cancelled(db, job)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -176,23 +184,7 @@ def retry_job(
     if not job:
         raise not_found("Job")
     require_job_write_access(db, current_user, job)
-    if job.status not in ("failed", "cancelled"):
-        raise AppHTTPException(
-            409,
-            "JOB_NOT_RETRYABLE",
-            f"Job cannot be retried because it is {job.status}. Only failed or cancelled jobs can be retried.",
-        )
-    job.status = "queued"
-    job.progress = 0
-    job.error_code = None
-    job.error_message = None
-    job.started_at = None
-    job.finished_at = None
-    publish_job_event(
-        db,
-        job.id,
-        make_event(type_="status", status="queued", progress=0, message="任务已重新入队"),
-    )
+    job = transition_job_to_queued(db, job)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -213,17 +205,28 @@ def get_job_steps(
     current_user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
+    attempt: int | None = Query(None, ge=1),
     db: Session = Depends(get_db),
 ):
     job = db.get(Job, job_id)
     if not job:
         raise not_found("Job")
     require_job_read_access(db, current_user, job)
-    steps = list(
-        db.scalars(select(JobStep).where(JobStep.job_id == job_id).order_by(JobStep.id)).all()
+    stmt = select(JobStep).where(JobStep.job_id == job_id)
+    if attempt is not None:
+        stmt = stmt.where(JobStep.attempt == attempt)
+    steps, total = paginate_scalars(
+        db,
+        stmt.order_by(JobStep.attempt, JobStep.id),
+        page_no=page,
+        page_size=page_size,
     )
-    return page_from_list(
-        [JobStepRead.model_validate(s) for s in steps], page, page_size, request.state.request_id
+    return page_response(
+        [JobStepRead.model_validate(s) for s in steps],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -251,12 +254,17 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
     if not job:
         return {"type": "snapshot", "job_id": job_id, "status": "unknown"}
     steps = list(
-        db.scalars(select(JobStep).where(JobStep.job_id == job_id).order_by(JobStep.id)).all()
+        db.scalars(
+            select(JobStep)
+            .where(JobStep.job_id == job_id, JobStep.attempt == job.attempt)
+            .order_by(JobStep.id)
+        ).all()
     )
     return {
         "type": "snapshot",
         "job_id": job_id,
         "status": job.status,
+        "attempt": job.attempt,
         "progress": job.progress,
         "pipeline": job.pipeline,
         "task_type": job.task_type,
@@ -264,7 +272,12 @@ def _job_snapshot(db: Session, job_id: int) -> dict:
         "error_message": job.error_message,
         "progress_data": job.progress_data,
         "steps": [
-            {"step_name": s.step_name, "status": s.status, "error_message": s.error_message}
+            {
+                "attempt": s.attempt,
+                "step_name": s.step_name,
+                "status": s.status,
+                "error_message": s.error_message,
+            }
             for s in steps
         ],
     }
@@ -341,17 +354,19 @@ def get_job_results(
     if not job:
         raise not_found("Job")
     require_job_read_access(db, current_user, job)
-    results = list(
-        db.scalars(
-            select(AnalysisResult)
-            .where(AnalysisResult.job_id == job_id)
-            .order_by(AnalysisResult.id)
-        ).all()
+    results, total = paginate_scalars(
+        db,
+        select(AnalysisResult)
+        .where(AnalysisResult.job_id == job_id)
+        .order_by(AnalysisResult.id),
+        page_no=page,
+        page_size=page_size,
     )
-    return page_from_list(
+    return page_response(
         [AnalysisResultRead.model_validate(r) for r in results],
         page,
         page_size,
+        total,
         request.state.request_id,
     )
 
@@ -370,44 +385,47 @@ def cancel_all_active(
 
     Uses a bulk SQL UPDATE to avoid the MySQL 1020 error caused by
     the Celery worker modifying the same rows concurrently."""
-    import logging
-
-    from app.workers.celery_app import celery_app
-
-    logger = logging.getLogger(__name__)
+    from app.workers.celery_app import purge_queued_job_messages
 
     if not has_global_project_access(current_user):
         raise AppHTTPException(403, "FORBIDDEN", "Only administrators can cancel all jobs.")
 
-    # Bulk UPDATE bypasses ORM optimistic-locking conflicts with Celery worker
-    now = datetime.now(UTC)
-    result = db.execute(
-        update(Job)
-        .where(Job.status.in_(["queued", "running", "pending"]))
-        .values(
-            status="cancelled",
-            error_code="CANCELLED_BY_ADMIN",
-            error_message="Cancelled by administrator via bulk cancel.",
-            progress_data={
-                "type": "done",
-                "status": "cancelled",
-                "message": "Cancelled by administrator via bulk cancel.",
-                "error_code": "CANCELLED_BY_ADMIN",
-            },
-            updated_at=now,
-        )
-    )
-    cancelled_count = result.rowcount
-    cancelled_ids = [
-        row.id
-        for row in db.execute(
-            select(Job.id).where(
-                Job.status == "cancelled",
-                Job.error_code == "CANCELLED_BY_ADMIN",
-                Job.updated_at == now,
-            )
+    # Lock the exact candidate set so the audit record cannot pick up rows from
+    # an earlier bulk cancellation that happened to share timestamp precision.
+    active_statuses = ("queued", "running", "pending")
+    cancelled_ids = list(
+        db.scalars(
+            select(Job.id)
+            .where(Job.status.in_(active_statuses))
+            .order_by(Job.id)
+            .with_for_update()
         ).all()
-    ]
+    )
+    now = datetime.now(UTC)
+    if cancelled_ids:
+        db.execute(
+            delete(ExcelFinalBatch).where(ExcelFinalBatch.job_id.in_(cancelled_ids))
+        )
+        result = db.execute(
+            update(Job)
+            .where(Job.id.in_(cancelled_ids), Job.status.in_(active_statuses))
+            .values(
+                status="cancelled",
+                error_code="CANCELLED_BY_ADMIN",
+                error_message="Cancelled by administrator via bulk cancel.",
+                progress_data={
+                    "type": "done",
+                    "status": "cancelled",
+                    "message": "Cancelled by administrator via bulk cancel.",
+                    "error_code": "CANCELLED_BY_ADMIN",
+                },
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        cancelled_count = result.rowcount or 0
+    else:
+        cancelled_count = 0
 
     # Single audit log for the batch operation
     write_audit_log(
@@ -423,20 +441,24 @@ def cancel_all_active(
 
     # SQLAlchemy transport has no fanout/remote-control support, so workers
     # converge on the cancelled DB state and queued messages are purged directly.
-    _celery_revoked = 0
+    purged_by_queue: dict[str, int] = {}
+    purge_errors: dict[str, str] = {}
     try:
-        for q in ("dxf", "dxf2dwg", "dxf2excel", "excel_final", "report", "agent", "cad"):
-            try:
-                celery_app.control.purge(queue=q)
-            except Exception:
-                pass
-    except Exception:
-        logger.exception("Celery revocation failed (best-effort)")
+        purged_by_queue, purge_errors = purge_queued_job_messages()
+        if purge_errors:
+            logger.warning("Failed to purge Celery queues: %s", purge_errors)
+    except Exception as exc:
+        purge_errors = {"__connection__": str(exc) or exc.__class__.__name__}
+        logger.exception("Celery queue purge failed")
+
+    purged_count = sum(purged_by_queue.values())
 
     return ok(
         {
             "cancelled_count": cancelled_count,
-            "celery_revoked": _celery_revoked,
+            "celery_revoked": purged_count,
+            "broker_purged_by_queue": purged_by_queue,
+            "broker_purge_failed_queues": sorted(purge_errors),
         },
         request.state.request_id,
     )

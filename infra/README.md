@@ -1,62 +1,56 @@
-# Infra — 基础设施配置
+# Infrastructure
 
-本目录存放 Docker Compose、Nginx、MySQL、MinIO 的生产部署配置。
+Deployment configuration for Nginx, FastAPI, MySQL, MinIO, and Celery.
 
-## 当前状态
+## Topology
 
-| 组件 | 状态 | 启动方式 |
-|------|------|---------|
-| **Nginx** | ✅ 可用 | `docker compose up -d nginx` 或本地 `nginx.local.conf` |
-| **MySQL** | ✅ 可用 | `docker compose up -d mysql` |
-| **MinIO** | ✅ 可用 | `docker compose up -d minio` |
-| **Backend API** | ✅ 可用 | `docker compose up -d backend-api` |
-| **Celery worker-report** | ✅ 可用 | `docker compose up -d worker-report` |
-| **Agent/DXF workers** | DXF 三条队列已配置，Agent 仍为占位 | `docker compose --profile workers up -d` |
+| Component | Compose behavior |
+|---|---|
+| Nginx | only published application entry (`80`, optional `443`) |
+| FastAPI | internal `backend-api:8000`; readiness checks MySQL and storage |
+| MySQL 8.4 | application state, Celery SQL broker/results, hardware handbook schema |
+| MinIO | digest-pinned image and persistent object volume |
+| worker-report | core report/smoke queue |
+| worker-dxf | DWG to DXF via ODA, `workers` profile |
+| worker-dxf2dwg | DXF to DWG, `workers` profile |
+| worker-dxf2excel | DXF extraction, `workers` profile |
+| worker-excel-final | Excel Final processing, `workers` profile |
+| worker-agent | reserved queue; Agent feature remains disabled, `workers` profile |
 
-## 快速开始
+Redis/Valkey and Flower are intentionally absent. MySQL and MinIO are not published to the host.
 
-### 本地开发（无 Docker）— 阶段 A
-
-```bash
-# 1. 后端
-cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-
-# 2. 前端构建
-cd frontend && npm run build
-
-# 3. Nginx（可选，统一入口到 8080）
-sudo nginx -c $(pwd)/infra/nginx/nginx.local.conf
-# 访问 http://localhost:8080
-```
-
-### Docker Compose — 阶段 B
+## Compose
 
 ```bash
-# 前置 1: cp .env.docker.example .env.docker，并修改所有 CHANGE_ME_* 值
-# 前置 2: 前端已构建（cd frontend && npm run build）
+cp .env.docker.example .env.docker
+# replace every secret placeholder
+cd frontend && npm ci && npm run build && cd ..
 
-# 启动核心服务（含 backend-api、MySQL、MinIO、worker-report）
 docker compose up -d
-
-# 查看日志
-docker compose logs -f nginx backend-api
-
-# 停止
-docker compose down
+docker compose --profile workers up -d
+docker compose ps
+docker compose logs -f nginx backend-api worker-report
 ```
 
-访问: `http://localhost`
+Worker health requires both Celery PID 1 and `/tmp/dwg-celery-ready`, written after broker schema
+preparation and startup maintenance. MinIO data and MySQL data use named volumes.
 
-## 目录
+## Local Mode
 
+Local FastAPI listens on `127.0.0.1:8010`; local Nginx listens on `8080`. Use:
+
+```bash
+bash scripts/start-all.sh
+bash scripts/status.sh
+bash scripts/stop-all.sh
 ```
-infra/
-├── nginx/             # Nginx 网关（详见 nginx/README.md）
-│   ├── nginx.conf         # Docker 版 — 单文件自包含
-│   ├── nginx.local.conf   # 本地开发版
-│   ├── ssl/               # SSL 证书占位（阶段 C）
-│   └── logs/              # 运行时日志（.gitignore）
-├── mysql/
-│   └── init.sql           # MySQL 初始化（compose 自动挂载到 /docker-entrypoint-initdb.d/）
-└── minio/                 # MinIO 配置占位
+
+## Verification
+
+```bash
+bash infra/verify.sh
+docker compose config --quiet
 ```
+
+`infra/verify.sh` validates both Nginx configurations, Compose secrets/health structure, Dockerfile
+requirements, live application MySQL access, schema columns, and environment-template parity.

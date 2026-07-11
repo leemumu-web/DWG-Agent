@@ -71,3 +71,21 @@ def test_claim_rejects_missing_and_non_queued_jobs(db: Session):
     assert (
         claim_queued_job(db, 999_999, pipeline="local_stub", progress=20, message="missing") is None
     )
+
+
+def test_stale_delivery_cannot_claim_a_newer_attempt(db: Session):
+    job = _job(db)
+    job.attempt = 2
+    db.commit()
+
+    claimed = claim_queued_job(
+        db,
+        job.id,
+        expected_attempt=1,
+        pipeline="local_stub",
+        progress=10,
+        message="stale attempt delivery",
+    )
+
+    assert claimed is None
+    assert db.get(Job, job.id, populate_existing=True).status == "queued"

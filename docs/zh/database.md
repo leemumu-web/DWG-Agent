@@ -1,7 +1,7 @@
 # DWG-Agent 平台 -- 数据库设计与运维
 
 > **受众:** 数据库管理员、平台运维人员、后端开发者
-> **最后更新:** 2026-07-08
+> **最后更新:** 2026-07-11
 > **范围:** 引擎配置、表目录、实体关系、迁移管理、种子数据、备份策略
 
 ---
@@ -15,29 +15,36 @@
 **配置** (`backend/app/db/session.py`):
 
 ```python
-engine_kwargs = {"pool_pre_ping": True}                       # 始终应用
-if settings.database_url.startswith("mysql"):
-    engine_kwargs.update({"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20})
-engine = create_engine(settings.database_url, **engine_kwargs)
-# pool_args（recycle/size/overflow）仅在 DATABASE_URL 以 "mysql" 开头时生效
+pool_args = {
+    "pool_recycle": settings.db_pool_recycle_seconds,
+    "pool_size": settings.db_pool_size,
+    "max_overflow": settings.db_pool_max_overflow,
+    "pool_timeout": settings.db_pool_timeout_seconds,
+    "pool_use_lifo": True,
+}
+engine_kwargs = {"pool_pre_ping": True}
+if settings.sqlalchemy_database_url.startswith("mysql"):
+    engine_kwargs.update(pool_args)
+engine = create_engine(settings.sqlalchemy_database_url, **engine_kwargs)
 ```
 
 | 参数 | 值 | 说明 |
 |---|---|---|
-| `pool_size` | 10 | 持久连接的基本数量。适用于 4 个 gunicorn worker 并留有裕量。 |
-| `max_overflow` | 20 | 峰值连接数 = pool_size + max_overflow = 30。提供突发容量，同时不会压垮 MySQL 的 `max_connections`。 |
-| `pool_recycle` | 3600秒 (1小时) | 在 MySQL 默认的 `wait_timeout`（28800秒）之前回收连接。防止长时间空闲后出现陈旧连接导致错误。 |
+| `DB_POOL_SIZE` | 2 | 每个进程的持久池容量；连接按需延迟创建。 |
+| `DB_POOL_MAX_OVERFLOW` | 2 | 每进程突发容量；默认最多同时检出 4 个连接。 |
+| `DB_POOL_TIMEOUT_SECONDS` | 30秒 | 等待应用池连接的最长时间。 |
+| `DB_POOL_RECYCLE_SECONDS` | 3600秒 | 在常见 MySQL 空闲超时前回收连接。 |
 | `pool_pre_ping` | True | 每次使用前检测连接的存活状态。每次检出增加一次额外查询，但可以消除 `MySQL server has gone away` 错误。 |
 
 **各部署模式下的连接数:**
 
-| 模式 | Workers | 最小连接数 | 最大连接数 |
-|---|---|---|---|
-| 本地开发 (uvicorn --reload) | 1 | 10 | 30 |
-| Docker (gunicorn -w 4) | 4 | 40 | 120 |
-| Docker (gunicorn -w 8) | 8 | 80 | 240 |
+| 模式 | 进程数 | 默认应用 engine 上限 |
+|---|---|---|
+| 本地 API | 1 | 4 |
+| Compose API (gunicorn `-w 4`) | 4 | 16 |
+| 每个 Celery 执行进程 | 1 | 4 |
 
-确保 MySQL `max_connections` 至少为 150（以 4-worker 部署计），并计入 Celery worker、Alembic 迁移和管理连接的需求。
+这些是上限，不是预先打开的最小连接数。容量规划还要计入每个 Celery 父/子进程、Kombu/result backend、迁移和运维 session；应通过四个 `DB_POOL_*` 参数调优，而不是硬编码更大的池。
 
 ### 1.2 测试隔离: SQLite 内存数据库
 
@@ -90,7 +97,7 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-应用 schema 共有 **19 张业务表**：初始迁移创建 17 张，迁移 `1d1696c7e854` 新增 `token_blacklist` 和 `agent_memory`。此外，Celery 的 SQL 传输与结果后端管理 `kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta` 四张表，Alembic 管理 `alembic_version`。
+运行 schema 共有 **31 张表**：22 张业务表（17 张初始表、`token_blacklist`、`agent_memory` 和三张 Excel Final 表）、`alembic_version`，以及 8 张 Celery-owned 表。后者包括 `kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta` 和 `message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。Alembic autogenerate 排除全部 8 张运行时自有表。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -294,6 +301,7 @@ DWG 图纸的异步处理作业。
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high`（决定管道路由） |
 | `pipeline` | VARCHAR(64) | NULLABLE | 分配的管道: `local_stub` / `dxf_open_source` / `dxf2dwg_open_source` / `dxf2excel` / `zwcad_worker` |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
+| `attempt` | INT | NOT NULL, DEFAULT 1 | 当前执行代次；重试被接受时原子递增 |
 | `priority` | INT | NOT NULL, DEFAULT 0 | 越高越紧急 |
 | `progress` | INT | NOT NULL, DEFAULT 0 | 0-100 百分比 |
 | `params_json` | JSON | NULLABLE | 任务特定参数 |
@@ -317,6 +325,7 @@ DWG 图纸的异步处理作业。
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
 | `job_id` | BIGINT | NOT NULL, FK → `jobs.id`, INDEXED | 父作业 |
+| `attempt` | INT | NOT NULL, DEFAULT 1 | 生成该步骤的执行代次 |
 | `step_name` | VARCHAR(128) | NOT NULL | 人类可读的步骤标签 |
 | `worker_name` | VARCHAR(128) | NULLABLE | 执行该步骤的 Celery worker 主机名 |
 | `status` | VARCHAR(32) | NOT NULL | `pending` / `running` / `succeeded` / `failed` |
@@ -326,7 +335,7 @@ DWG 图纸的异步处理作业。
 | `started_at` | DATETIME | NULLABLE | |
 | `finished_at` | DATETIME | NULLABLE | |
 
-**索引:** `ix_job_steps_job_id`
+**索引:** `ix_job_steps_job_id`, `ix_job_steps_job_id_attempt`
 
 ### 2.6 Agent 执行 -- 3 张表
 
@@ -447,6 +456,14 @@ Agent 运行中的单个工具调用和推理步骤。
 
 **说明:** `resource_id` 是**多态指针**，并非真正的外键 -- 它存储受影响资源的 ID（不限资源类型），因此不存在 FK 约束。迁移 `c3d2e1f0a9b8` 将其类型从 `Integer` 修正为 `BIGINT`，与其他所有 ID 列保持一致。
 
+### 2.9 Excel Final -- 3 张表
+
+- `excel_final_batches` 保存任务的一对一结构化导入。`job_id` 唯一，删除任务时级联删除；可空 `file_id` 指向源文件，源文件删除时置 NULL。
+- `excel_final_components` 保存构件级数量与重量汇总；删除批次时按 `batch_id` 级联删除。
+- `excel_final_parts` 保存标准化零件行、尺寸、材质、数量、理论/净重/毛重和表面积；按 `batch_id`、`material`、`part_no` 建索引。
+
+三表仅保存解析后的业务数据。源工作簿和生成工作簿的字节仍位于存储层，并通过 `files` 引用。
+
 ---
 
 ## 3. 实体关系总览
@@ -491,7 +508,7 @@ agent_runs ──< agent_run_steps
 
 ### 3.2 外键级联行为
 
-**所有 FK 使用默认的 `NO ACTION`（MySQL 中为 RESTRICT）。** 迁移中未定义任何 `ON DELETE CASCADE` 或 `ON UPDATE CASCADE` 子句。
+初始 schema 的 FK 使用默认 `NO ACTION`（MySQL 中为 `RESTRICT`）。Excel Final 加固迁移有意为 batch 子项/job 归属使用 `ON DELETE CASCADE`，并为可选源文件使用 `ON DELETE SET NULL`。新迁移必须说明每个非默认删除动作。
 
 这意味着：
 - **不能删除上传过文件、创建过作业或拥有项目的用户**，除非先置空或重新分配这些引用。
@@ -544,8 +561,12 @@ agent_runs ──< agent_run_steps
 | `c3d2e1f0a9b8` | 修复 `audit_logs.resource_id` 类型 -- `Integer` 改为 `BigInteger`，与其他所有 ID 列保持一致 | 2026-07-04 |
 | `53cd59adf848` | 添加 `files.batch_name` VARCHAR(128) 可空列 + 索引 `ix_files_batch_name` -- 支持 DXF/Excel 批量上传 | 2026-07-06 |
 | `1d1696c7e854` | 新增 `agent_memory`、`token_blacklist`、`jobs.progress_data` 和 `sys_users.password_changed_at` | 2026-07-10 |
+| `3480bd86ddc3` | 新增 Excel Final 批次/构件/零件表 | 2026-07-10 |
+| `7f2a9c4e6b10` | 加固 Excel Final 外键和唯一约束 | 2026-07-10 |
+| `8c61f4d2a9e7` | 新增 `jobs.attempt`，隔离重试代次 | 2026-07-11 |
+| `a74c2e9f1d30` | 新增 `job_steps.attempt` 和 `(job_id, attempt)` 索引 | 2026-07-11 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854`；**`1d1696c7e854` 是当前 head。**
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30`；**`a74c2e9f1d30` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -595,7 +616,7 @@ uv run alembic history
 `scripts/db.sh migration-test` 命令执行以下操作：
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **17 张预期业务表** 均存在，且四张后期回填时间戳列的表（`project_members`、`drawing_versions`、`review_records`、`agent_run_steps`）现已携带 `created_at` 和 `updated_at`。
+3. 验证生成的 schema：断言全部 **22 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束，以及 `project_members`、`drawing_versions`、`review_records`、`agent_run_steps` 后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）

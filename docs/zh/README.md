@@ -16,7 +16,7 @@
 | [deployment.md](deployment.md) | 前置依赖、5 分钟快速上手、本地开发环境、Docker Compose 拓扑、环境变量参考、Nginx/MySQL/MinIO/Celery SQL transport/ODA 配置。 |
 | [development.md](development.md) | 仓库结构导览、后端与前端工作流、测试策略、代码规范、依赖管理、常见陷阱。 |
 | [security.md](security.md) | 认证流程、RBAC 模型、API 与文件安全措施、渗透测试问题修复、生产安全清单、审计日志覆盖。 |
-| [roadmap.md](roadmap.md) | 六阶段交付计划、Stage 1 完成报告、各阶段规格、接口契约、风险登记、成功指标。 |
+| [roadmap.md](roadmap.md) | 当前集成基线、可靠性/Agent/CAD/运维优先级、验收门槛和明确非目标。 |
 | [workflow-verification.md](workflow-verification.md) | 面向线上 API 的端到端全栈工作流验证演练。 |
 
 ## 约定

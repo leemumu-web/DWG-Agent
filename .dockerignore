@@ -29,6 +29,14 @@ Stages/*/samples/
 Stages/*/logs/
 Stages/*/convert/output/
 Stages/*/convert/tmp/
+Stages/dwg2dxf/convert/
+Stages/dxf2excel/original_dxf/
+Stages/dxf2excel/output/
+# Runtime uses the single ODA binary copied from dwg2dxf via ODA_HOME.
+Stages/dxf2dwg/tools/oda/
+
+# Optional preview/splitting applications are deployed separately.
+third_parts/
 
 # ── Frontend（宿主 build 后挂载 frontend/dist，无需进 backend 镜像）
 frontend/node_modules/

@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs start-all start-dev status stop-all tree
+.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev docs-generate docs-check db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs start-all start-dev status stop-all tree
 
 backend-install:
 	cd backend && uv sync --locked
@@ -7,7 +7,7 @@ backend-init-db:
 	bash scripts/db.sh init
 
 backend-dev:
-	cd backend && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+	cd backend && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 
 backend-check:
 	cd backend && python -m compileall app
@@ -17,6 +17,12 @@ frontend-install:
 
 frontend-dev:
 	cd frontend && npm run dev
+
+docs-generate:
+	cd backend && uv run python ../scripts/generate_api_docs.py
+
+docs-check:
+	cd backend && uv run python ../scripts/check_docs.py
 
 db-start:
 	bash scripts/db.sh start

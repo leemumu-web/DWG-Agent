@@ -188,6 +188,102 @@ class TestBuildResultMap:
         db.rollback()
         db.close()
 
+    def test_multiple_successful_jobs_return_latest_job_result(self):
+        """A retry/new conversion must replace the older downloadable result."""
+        db = job_service.SessionLocal()
+        src = _file(db, original_name="retry.dwg", file_ext=".dwg", bucket="dwg-original")
+        old_result = _file(
+            db,
+            original_name="retry-old.dxf",
+            file_ext=".dxf",
+            bucket="dxf-derived",
+        )
+        new_result = _file(
+            db,
+            original_name="retry-new.dxf",
+            file_ext=".dxf",
+            bucket="dxf-derived",
+        )
+        old_job = _job(
+            db,
+            task_type=TASK_DWG_TO_DXF,
+            status="succeeded",
+            params_json={"file_id": src.id},
+        )
+        _result(
+            db,
+            job_id=old_job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=old_result.id,
+            status="succeeded",
+        )
+        new_job = _job(
+            db,
+            task_type=TASK_DWG_TO_DXF,
+            status="succeeded",
+            params_json={"file_id": src.id},
+        )
+        _result(
+            db,
+            job_id=new_job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=new_result.id,
+            status="succeeded",
+        )
+        db.commit()
+
+        result = build_result_map(db, [src.id])
+
+        assert result[src.id] is not None
+        assert result[src.id].id == new_result.id
+        db.rollback()
+        db.close()
+
+    def test_multiple_results_for_latest_job_return_latest_result(self):
+        """Result selection is deterministic even if a job emitted replacement rows."""
+        db = job_service.SessionLocal()
+        src = _file(db, original_name="replace.dwg", file_ext=".dwg", bucket="dwg-original")
+        first_result = _file(
+            db,
+            original_name="replace-first.dxf",
+            file_ext=".dxf",
+            bucket="dxf-derived",
+        )
+        replacement_result = _file(
+            db,
+            original_name="replace-final.dxf",
+            file_ext=".dxf",
+            bucket="dxf-derived",
+        )
+        job = _job(
+            db,
+            task_type=TASK_DWG_TO_DXF,
+            status="succeeded",
+            params_json={"file_id": src.id},
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=first_result.id,
+            status="succeeded",
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=replacement_result.id,
+            status="succeeded",
+        )
+        db.commit()
+
+        result = build_result_map(db, [src.id])
+
+        assert result[src.id] is not None
+        assert result[src.id].id == replacement_result.id
+        db.rollback()
+        db.close()
+
 
 # ── build_zip ────────────────────────────────────────────────────────────────
 

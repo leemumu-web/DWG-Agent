@@ -5,17 +5,22 @@
  * These run against the real backend. No browser needed — pure HTTP.
  */
 import { test, expect } from '@playwright/test';
+import { API_BASE as BASE } from './test-env';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-const BASE = 'http://127.0.0.1:8000';
-
-async function getToken(request: any): Promise<string> {
+async function getSessionAuth(request: any): Promise<{ token: string; sseCookie: string }> {
   const r = await request.post(`${BASE}/api/v1/auth/sessions`, {
     data: { username: 'admin', password: 'SuperAdminPass1' },
   });
   const body = await r.json();
-  return body.data.access_token;
+  const setCookie = r.headers()['set-cookie'] || '';
+  const cookieMatch = setCookie.match(/dwg_sse_token=([^;]+)/);
+  if (!cookieMatch) throw new Error('Login response did not set the scoped SSE cookie');
+  return {
+    token: body.data.access_token,
+    sseCookie: `dwg_sse_token=${cookieMatch[1]}`,
+  };
 }
 
 function auth(token: string) {
@@ -26,9 +31,24 @@ function auth(token: string) {
 
 test.describe('API Contract — every endpoint used by the frontend', () => {
   let token: string;
+  let sseCookie: string;
+  let jobId: number;
 
   test.beforeAll(async ({ request }) => {
-    token = await getToken(request);
+    ({ token, sseCookie } = await getSessionAuth(request));
+    const jobsR = await request.get(`${BASE}/api/v1/jobs?page_size=1`, {
+      headers: auth(token),
+    });
+    const jobs = (await jobsR.json()).data;
+    if (jobs.length > 0) {
+      jobId = jobs[0].id;
+      return;
+    }
+    const created = await request.post(`${BASE}/api/v1/jobs`, {
+      headers: auth(token),
+      data: { task_type: 'framework_smoke_test', precision_level: 'normal' },
+    });
+    jobId = (await created.json()).data.id;
   });
 
   // ── Auth ─────────────────────────────────────────────────────────────
@@ -153,28 +173,29 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   test('GET /api/v1/jobs/{id} — single job', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs/1`, { headers: auth(token) });
-    if (r.status() === 200) {
-      const body = await r.json();
-      expect(body.data).toHaveProperty('task_type');
-      expect(body.data).toHaveProperty('status');
-      expect(body.data).toHaveProperty('progress');
-      expect(body.data).toHaveProperty('pipeline');
-      expect(body.data).toHaveProperty('params_json');
-    }
+    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}`, { headers: auth(token) });
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.data).toHaveProperty('task_type');
+    expect(body.data).toHaveProperty('status');
+    expect(body.data).toHaveProperty('attempt');
+    expect(body.data).toHaveProperty('progress');
+    expect(body.data).toHaveProperty('pipeline');
+    expect(body.data).toHaveProperty('params_json');
   });
 
   test('GET /api/v1/jobs/{id}/steps — job steps', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs/1/steps`, {
+    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}/steps`, {
       headers: auth(token),
     });
     expect(r.status()).toBe(200);
     const body = await r.json();
     expect(Array.isArray(body.data)).toBe(true);
+    for (const step of body.data) expect(step).toHaveProperty('attempt');
   });
 
   test('GET /api/v1/jobs/{id}/results — job results', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs/1/results`, {
+    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}/results`, {
       headers: auth(token),
     });
     expect(r.status()).toBe(200);
@@ -183,7 +204,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   test('POST /api/v1/jobs/{id}/retry-requests — retry job', async ({ request }) => {
-    const r = await request.post(`${BASE}/api/v1/jobs/1/retry-requests`, {
+    const r = await request.post(`${BASE}/api/v1/jobs/${jobId}/retry-requests`, {
       headers: auth(token),
     });
     // 202 if job can be retried, 409 or other if not
@@ -197,6 +218,8 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(r.status()).toBe(200);
     const body = await r.json();
     expect(body.data).toHaveProperty('cancelled_count');
+    expect(body.data).toHaveProperty('celery_revoked');
+    expect(body.data).toHaveProperty('broker_purge_failed_queues');
   });
 
   test('POST /api/v1/jobs (convert_dwg_to_dxf) — create DXF job', async ({ request }) => {
@@ -258,8 +281,8 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   // ── SSE ────────────────────────────────────────────────────────────────
   test('GET /api/v1/jobs/{id}/events — SSE stream', async ({ request }) => {
     // Hit the SSE endpoint; expect 200 + text/event-stream content type
-    const r = await request.get(`${BASE}/api/v1/jobs/1/events?token=${token}`, {
-      headers: { Accept: 'text/event-stream' },
+    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}/events`, {
+      headers: { Accept: 'text/event-stream', Cookie: sseCookie },
     });
     expect(r.status()).toBe(200);
     const ct = r.headers()['content-type'] || '';

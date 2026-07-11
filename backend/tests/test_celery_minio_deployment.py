@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, inspect, text
 
 import app.services.job_service as job_service
 from app.core.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
@@ -169,12 +170,91 @@ def test_celery_mysql_engines_use_bounded_pools():
         "max_overflow": 1,
         "pool_timeout": 30,
         "pool_use_lifo": True,
+        "isolation_level": "READ COMMITTED",
     }
     for key, value in expected.items():
         assert celery_app.conf.broker_transport_options[key] == value
         assert celery_app.conf.database_engine_options[key] == value
     assert celery_app.conf.database_short_lived_sessions is True
     assert "task_default_expires" not in celery_app.conf
+
+
+def test_sql_broker_maintenance_adds_queue_ordering_index():
+    from app.workers.celery_app import (
+        SQL_BROKER_MESSAGE_INDEX,
+        ensure_sql_broker_message_index,
+    )
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE kombu_message ("
+                "id INTEGER PRIMARY KEY, visible BOOLEAN, timestamp DATETIME, queue_id INTEGER)"
+            )
+        )
+
+    assert ensure_sql_broker_message_index(engine) is True
+    indexes = {item["name"]: item["column_names"] for item in inspect(engine).get_indexes("kombu_message")}
+    assert indexes[SQL_BROKER_MESSAGE_INDEX] == [
+        "queue_id",
+        "timestamp",
+        "id",
+        "visible",
+    ]
+    assert ensure_sql_broker_message_index(engine) is False
+
+
+def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
+    from app.workers.celery_app import (
+        SQL_BROKER_MESSAGE_INDEX,
+        prepare_sql_broker_schema,
+    )
+
+    engine = create_engine("sqlite://")
+
+    class FakeChannel:
+        closed = False
+
+        def queue_declare(self, *, queue, durable):
+            assert queue == "default"
+            assert durable is True
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "CREATE TABLE kombu_message ("
+                        "id INTEGER PRIMARY KEY, visible BOOLEAN, "
+                        "timestamp DATETIME, queue_id INTEGER)"
+                    )
+                )
+
+        def close(self):
+            self.closed = True
+
+    class FakeConnection:
+        def __init__(self):
+            self.channel_instance = FakeChannel()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def channel(self):
+            return self.channel_instance
+
+    connection = FakeConnection()
+
+    class FakeApp:
+        def connection_for_write(self):
+            return connection
+
+    assert prepare_sql_broker_schema(FakeApp(), engine) is True
+    assert connection.channel_instance.closed is True
+    assert SQL_BROKER_MESSAGE_INDEX in {
+        item["name"] for item in inspect(engine).get_indexes("kombu_message")
+    }
 
 
 def test_worker_startup_cleans_expired_mysql_result_rows():
@@ -226,7 +306,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     )
     assert project.status_code == 201, project.text
 
-    def fail_enqueue(job_id: int, pipeline: str) -> str:
+    def fail_enqueue(job_id: int, pipeline: str, attempt: int) -> str:
         raise RuntimeError("mysql broker unavailable")
 
     monkeypatch.setattr(job_service, "enqueue_job", fail_enqueue)
@@ -282,7 +362,7 @@ def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
     finally:
         db.close()
 
-    def fail_enqueue(job_id: int, pipeline: str) -> str:
+    def fail_enqueue(job_id: int, pipeline: str, attempt: int) -> str:
         raise RuntimeError("mysql://user:secret@broker/internal")
 
     monkeypatch.setattr(job_service, "enqueue_job", fail_enqueue)
@@ -342,16 +422,18 @@ def test_deployment_docs_match_mysql_derived_celery_url_behavior():
     assert "db+mysql+pymysql://" in content
 
 
-def test_infra_docs_show_worker_report_as_default_and_profile_workers_as_deferred():
+def test_infra_docs_match_current_core_and_profile_worker_topology():
     infra = (REPO_ROOT / "infra/README.md").read_text()
     nginx = (REPO_ROOT / "infra/nginx/README.md").read_text()
 
-    assert "Celery worker-report" in infra
-    assert "docker compose up -d worker-report" in infra
-    assert "Agent/DXF workers" in infra
+    assert "worker-report" in infra
+    for worker in ("worker-dxf", "worker-dxf2dwg", "worker-dxf2excel", "worker-excel-final"):
+        assert worker in infra
+    assert "Agent feature remains disabled" in infra
+    assert "docker compose up -d" in infra
     assert "docker compose --profile workers up -d" in infra
-    assert "核心服务 + worker-report" in nginx
-    assert "Agent/DXF placeholder workers" in nginx
+    for path in ("/api/v1/*", "/health*", "/docs", "/redoc", "/openapi.json"):
+        assert path in nginx
 
 
 def test_stub_worker_does_not_overwrite_cancelled_job():

@@ -80,9 +80,10 @@ class TestServiceHelpers:
         job.params_json = None
         assert _resolve_batch_name(job) is None
 
-    def test_mark_job_failed_sets_error(self, monkeypatch):
-        """_mark_job_failed 在独立 session 中标记 job 为 failed。"""
+    def test_mark_job_failed_sets_error(self, db: Session):
+        """_mark_job_failed 仅结束已认领且 attempt 匹配的任务。"""
         from app.services.dxf2excel_service import _mark_job_failed
+        from app.services.job_service import claim_queued_job
 
         init_db()
 
@@ -91,10 +92,28 @@ class TestServiceHelpers:
 
         resp = _create_job(client, headers, "mark_fail_test")
         assert resp.status_code == 202
-        job_id = resp.json()["data"]["id"]
+        job_data = resp.json()["data"]
+        job_id = job_data["id"]
+        attempt = job_data["attempt"]
+
+        claimed = claim_queued_job(
+            db,
+            job_id,
+            pipeline="dxf2excel",
+            progress=5,
+            message="test worker claimed job",
+        )
+        assert claimed is not None
+        assert claimed.attempt == attempt
 
         # Mark it failed via the helper
-        _mark_job_failed(job_id, Exception("test error"), error_code="DXF2EXCEL_EMPTY_BATCH")
+        _mark_job_failed(
+            db,
+            job_id,
+            attempt,
+            Exception("test error"),
+            error_code="DXF2EXCEL_EMPTY_BATCH",
+        )
 
         check = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
         data = check.json()["data"]
@@ -103,7 +122,7 @@ class TestServiceHelpers:
         assert data["progress_data"]["type"] == "error"
         assert data["progress_data"]["error_code"] == "DXF2EXCEL_EMPTY_BATCH"
 
-    def test_mark_job_failed_skips_terminal(self, monkeypatch):
+    def test_mark_job_failed_skips_terminal(self, db: Session):
         """_mark_job_failed 不覆盖已处于终态的 job（succeeded/cancelled）。"""
         from app.services.dxf2excel_service import _mark_job_failed
 
@@ -114,13 +133,15 @@ class TestServiceHelpers:
 
         resp = _create_job(client, headers, "skip_test")
         assert resp.status_code == 202
-        job_id = resp.json()["data"]["id"]
+        job_data = resp.json()["data"]
+        job_id = job_data["id"]
+        attempt = job_data["attempt"]
 
         # Cancel the job first (终态)
         client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
 
         # Now try to mark it failed — should skip because it's already cancelled
-        _mark_job_failed(job_id, Exception("should not apply"))
+        _mark_job_failed(db, job_id, attempt, Exception("should not apply"))
 
         check = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
         assert check.json()["data"]["status"] == "cancelled"

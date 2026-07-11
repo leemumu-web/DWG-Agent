@@ -81,6 +81,19 @@ class Settings(BaseSettings):
 
     # Excel→final part-list processing (excel_final pipeline)
     excel_final_pipeline_enabled: bool = False
+    # The Stage is a standalone script project rather than an importable Python
+    # distribution. Run it in a child process so its legacy top-level imports
+    # cannot collide with FastAPI/Celery modules.
+    excel_final_stage_root: Path | None = None
+    excel_final_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
+
+    # Read-only steel handbook database used by the Excel Final pipeline. When
+    # unset, connection fields inherit the platform MySQL endpoint/credentials.
+    handbook_mysql_host: str | None = None
+    handbook_mysql_port: int | None = Field(default=None, ge=1, le=65535)
+    handbook_mysql_database: str = "hardware_handbook"
+    handbook_mysql_user: str | None = None
+    handbook_mysql_password: str | None = None
 
     # LLM — spec §18.1 (Stage 2: Agent subsystem)
     model_name: str = "deepseek-chat"
@@ -157,6 +170,23 @@ class Settings(BaseSettings):
         return (
             f"mysql+pymysql://{user_part}@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
         )
+
+    @property
+    def handbook_database_config(self) -> dict[str, str | int]:
+        """Return the effective read-only hardware-handbook connection settings."""
+        return {
+            "host": self.handbook_mysql_host or self.mysql_host,
+            "port": self.handbook_mysql_port or self.mysql_port,
+            "database": self.handbook_mysql_database,
+            "user": self.handbook_mysql_user or self.mysql_user,
+            "password": (
+                self.handbook_mysql_password
+                if self.handbook_mysql_password is not None
+                else self.mysql_password
+            ),
+            "charset": "utf8mb4",
+            "connect_timeout": 5,
+        }
 
     @property
     def refresh_cookie_secure_enabled(self) -> bool:

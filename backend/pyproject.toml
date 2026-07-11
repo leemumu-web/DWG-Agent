@@ -20,6 +20,11 @@ dependencies = [
     "orjson>=3.10.0",
     "celery[sqlalchemy]>=5.4,<6",
     "minio>=7.2,<8",
+    # Excel Final Stage 是独立脚本工程，通过隔离子进程执行；依赖由平台显式锁定。
+    "numpy>=1.24",
+    "openpyxl>=3.1",
+    "pandas>=2.0",
+    "xlrd>=2.0,<3",
     # DWG→DXF 转换库（本地 path 依赖，指向 Stages/dwg2dxf 独立包）。
     # 该包零 Python 依赖，仅需宿主机的 ODA File Converter 二进制 + xvfb-run。
     # 实际路径解析见 [tool.uv.sources]（相对路径以本 pyproject.toml 为基准）。
@@ -28,8 +33,6 @@ dependencies = [
     "dxf-converter>=0.1.0",
     # DXF→Excel 材料表提取库（本地 path 依赖，指向 Stages/dxf2excel 独立包）。
     "dxf2excel>=0.1.0",
-    # Excel→最终零件清单 处理库（本地 path 依赖，指向 Stages/excel_final 独立包）。
-    "excel-final>=0.1.0",
 ]
 
 [dependency-groups]
@@ -57,7 +60,6 @@ allow-direct-references = true
 dwg-converter = { path = "../Stages/dwg2dxf", editable = true }
 dxf-converter = { path = "../Stages/dxf2dwg", editable = true }
 dxf2excel = { path = "../Stages/dxf2excel", editable = true }
-excel-final = { path = "../Stages/excel_final", editable = true }
 
 [tool.ruff]
 line-length = 100

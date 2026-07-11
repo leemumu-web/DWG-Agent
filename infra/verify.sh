@@ -132,7 +132,7 @@ assert_grep "$NGINX_DOCKER" 'access_log off'             "nginx.conf: health acc
 
 # 1.13 本地配置: 8080 端口
 assert_grep "$NGINX_LOCAL" 'listen 8080'                 "nginx.local.conf: 监听 8080"
-assert_grep "$NGINX_LOCAL" 'server 127.0.0.1:8000'       "nginx.local.conf: upstream 127.0.0.1:8000"
+assert_grep "$NGINX_LOCAL" 'server 127.0.0.1:8010'       "nginx.local.conf: upstream 127.0.0.1:8010"
 
 # ── Section 2: Docker Compose ──────────────────────────────────
 echo ""
@@ -199,8 +199,8 @@ for name, queue in workers.items():
     if "uv run celery" in command:
         errors.append(f"{name} 不应依赖 runtime 中的 uv")
     worker_hc = healthcheck_cmd(worker)
-    if "/proc/1/cmdline" not in worker_hc or "inspect" in worker_hc:
-        errors.append(f"{name} 应使用进程健康检查，不能使用 Celery remote control")
+    if "/proc/1/cmdline" not in worker_hc or "/tmp/dwg-celery-ready" not in worker_hc or "inspect" in worker_hc:
+        errors.append(f"{name} 应使用 ready marker + 进程健康检查，不能使用 Celery remote control")
     if "backend-api" not in worker.get("depends_on", {}):
         errors.append(f"{name} 必须等待迁移完成后的 backend-api")
     require_blank(worker, {"MYSQL_ROOT_PASSWORD", "MINIO_ROOT_PASSWORD"}, name)
@@ -219,7 +219,7 @@ if "$${MYSQL_ROOT_PASSWORD}" not in mysql_hc:
     errors.append("mysql healthcheck 必须在容器内读取 MYSQL_ROOT_PASSWORD")
 
 minio = svcs.get("minio", {})
-if minio.get("image") != "quay.io/minio/minio:latest":
+if minio.get("image") != "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e":
     errors.append("minio 镜像不匹配")
 if "console-address" not in str(minio.get("command", "")):
     errors.append("minio 缺少 console-address")

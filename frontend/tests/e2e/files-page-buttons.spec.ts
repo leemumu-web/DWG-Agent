@@ -2,8 +2,8 @@
  * FilesPage — every button tested against its real backend connection.
  *
  * Prerequisites:
- *   cd frontend && npm run dev        # Vite :5173  (proxies /api → :8000)
- *   cd backend && uv run uvicorn ...  # FastAPI :8000
+ *   cd frontend && npm run dev        # Vite :5173  (proxies /api → :8010)
+ *   cd backend && uv run uvicorn ...  # FastAPI :8010
  *   DB must be seeded (scripts/db.sh reset or init)
  *
  * Run:
@@ -12,20 +12,21 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { API_BASE } from './test-env';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
-/** Log in by injecting a valid token into localStorage. */
+/** Log in by injecting a valid token into this tab's sessionStorage. */
 async function login(page: Page) {
-  const apiResp = await page.request.post('http://127.0.0.1:8000/api/v1/auth/sessions', {
+  const apiResp = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
     data: { username: 'admin', password: 'SuperAdminPass1' },
   });
   const body = await apiResp.json();
   await page.goto('/');
   await page.evaluate(
     ({ t, u }) => {
-      localStorage.setItem('dwg_access_token', t);
-      localStorage.setItem('dwg_user', JSON.stringify(u));
+      sessionStorage.setItem('dwg_access_token', t);
+      sessionStorage.setItem('dwg_user', JSON.stringify(u));
     },
     { t: body.data.access_token, u: body.data.user },
   );
@@ -35,22 +36,55 @@ async function login(page: Page) {
 
 /** Read a sample DWG from disk and upload it via the page's file input. */
 async function uploadSampleDwg(page: Page, samplePath: string) {
-  // Upload.Dragger has a hidden <input type="file"> — target it directly
-  const fileInput = page.locator('.ant-upload input[type="file"]');
-  await fileInput.setInputFiles(path.resolve(samplePath));
+  const chooserPromise = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /上传 DWG 文件/ }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(path.resolve(samplePath));
 }
 
 /** Find sample DWG files for testing. */
 function findSampleDwgs(): string[] {
-  const dir = path.resolve(
-    __dirname,
-    '../../../../Stages/dwg2dxf/samples/input',
-  );
+  const dir = path.resolve(process.cwd(), '../Stages/dwg2dxf/samples/input');
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
     .filter((f) => f.endsWith('.dwg'))
     .map((f) => path.join(dir, f));
+}
+
+async function createFailedDxfFixture(page: Page): Promise<number> {
+  const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
+  expect(token).toBeTruthy();
+  const name = `retry-fixture-${Date.now()}.dwg`;
+  const upload = await page.request.post(`${API_BASE}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      upload: {
+        name,
+        mimeType: 'application/acad',
+        buffer: Buffer.concat([Buffer.from('AC1027'), Buffer.alloc(2048)]),
+      },
+    },
+  });
+  expect(upload.status()).toBe(201);
+  const fileId = (await upload.json()).data.id as number;
+  const submitted = await page.request.post(`${API_BASE}/api/v1/jobs`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      task_type: 'convert_dwg_to_dxf',
+      precision_level: 'normal',
+      params: { file_id: fileId },
+    },
+  });
+  expect(submitted.status()).toBe(202);
+  const jobId = (await submitted.json()).data.id as number;
+  await expect.poll(async () => {
+    const response = await page.request.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return (await response.json()).data.status;
+  }, { timeout: 30_000 }).toBe('failed');
+  return fileId;
 }
 
 // ── tests ───────────────────────────────────────────────────────────────────
@@ -65,17 +99,23 @@ test.describe('FilesPage — button & API integration', () => {
     const samples = findSampleDwgs();
     test.skip(samples.length === 0, 'No sample DWG files found');
 
-    const beforeFiles = await page.locator('.ant-table-row').count();
-
+    const fileName = path.basename(samples[0]);
+    const uploadResponse = page.waitForResponse(
+      (response) => response.url().includes('/api/v1/files')
+        && response.request().method() === 'POST',
+    );
+    const jobResponse = page.waitForResponse(
+      (response) => response.url().endsWith('/api/v1/jobs')
+        && response.request().method() === 'POST',
+    );
     await uploadSampleDwg(page, samples[0]);
+    expect((await uploadResponse).status()).toBe(201);
+    expect((await jobResponse).status()).toBe(202);
 
     // Toast "已提交" should appear
     await expect(page.locator('.upload-toast').first()).toBeVisible({ timeout: 15_000 });
 
-    // Table should have +1 row after refresh
-    await page.waitForTimeout(3000);
-    const afterFiles = await page.locator('.ant-table-row').count();
-    expect(afterFiles).toBeGreaterThanOrEqual(beforeFiles);
+    await expect(page.getByText(fileName, { exact: true }).first()).toBeVisible({ timeout: 15_000 });
   });
 
   // ── 2. Pause all → verify backend cancel-all called ──────────────────
@@ -126,7 +166,7 @@ test.describe('FilesPage — button & API integration', () => {
   test('select rows → bulk action bar with 打包下载 + 删除选中', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
     // Use the selection checkboxes (Ant Design renders them in the first column)
-    const checkboxes = page.locator('.ant-table-selection-column .ant-checkbox-input');
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
     const rowCount = await checkboxes.count();
     test.skip(rowCount === 0, 'No table rows to select');
 
@@ -144,7 +184,7 @@ test.describe('FilesPage — button & API integration', () => {
   // ── 5. Bulk delete → POST /files/bulk-delete → 204 ─────────────────
   test('"删除选中" → POST /files/bulk-delete → 204', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const checkboxes = page.locator('.ant-table-selection-column .ant-checkbox-input');
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
     const count = await checkboxes.count();
     test.skip(count === 0, 'No rows');
 
@@ -165,7 +205,7 @@ test.describe('FilesPage — button & API integration', () => {
   // ── 6. Zip modal: format checkboxes control download button ─────────
   test('zip modal: must select DWG or DXF to enable download', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const checkboxes = page.locator('.ant-table-selection-column .ant-checkbox-input');
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
     const count = await checkboxes.count();
     test.skip(count === 0, 'No rows');
 
@@ -180,23 +220,23 @@ test.describe('FilesPage — button & API integration', () => {
     await expect(dlBtn).toBeEnabled();
 
     // Uncheck both → button disabled — use label click which is more reliable
-    const dwgLabel = dialog.getByText(/下载 DWG 原始文件/);
-    const dxfLabel = dialog.getByText(/下载 DXF 转换结果/);
-    await dwgLabel.click();
-    await dxfLabel.click();
+    const dwgOption = dialog.getByRole('checkbox', { name: '包含 DWG 文件' });
+    const dxfOption = dialog.getByRole('checkbox', { name: '包含 DXF 文件' });
+    await dwgOption.uncheck();
+    await dxfOption.uncheck();
     await expect(dlBtn).toBeDisabled();
 
     // Check DWG again → enabled
-    await dwgLabel.click();
+    await dwgOption.check();
     await expect(dlBtn).toBeEnabled();
 
-    await dialog.getByRole('button', { name: '取消' }).click();
+    await dialog.getByRole('button', { name: /取\s*消/ }).click();
   });
 
   // ── 7. Folder name input → reflected in preview ─────────────────────
   test('zip modal: folder name input updates preview', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const checkboxes = page.locator('.ant-table-selection-column .ant-checkbox-input');
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
     test.skip((await checkboxes.count()) === 0, 'No rows');
 
     await checkboxes.first().check();
@@ -209,13 +249,13 @@ test.describe('FilesPage — button & API integration', () => {
     await input.fill('我的项目导出');
     await expect(input).toHaveValue('我的项目导出');
 
-    await dialog.getByRole('button', { name: '取消' }).click();
+    await dialog.getByRole('button', { name: /取\s*消/ }).click();
   });
 
   // ── 8. Zip download → POST /files/download-zip → 200 + blob ──────
   test('zip download → POST /files/download-zip → 200 streaming zip', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const checkboxes = page.locator('.ant-table-selection-column .ant-checkbox-input');
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
     test.skip((await checkboxes.count()) === 0, 'No rows');
 
     await checkboxes.first().check();
@@ -260,7 +300,7 @@ test.describe('FilesPage — button & API integration', () => {
   // ── 10. "下载 DXF" button → GET /jobs/{id}/results → download ───
   test('single "下载 DXF" → job results → file download', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const dxfBtn = page.locator('.anticon-file-text').first();
+    const dxfBtn = page.getByRole('button', { name: '下载 DXF' }).first();
     const hasBtn = await dxfBtn.isVisible().catch(() => false);
     test.skip(!hasBtn, 'No DXF download button found (no succeeded jobs)');
 
@@ -279,10 +319,12 @@ test.describe('FilesPage — button & API integration', () => {
 
   // ── 11. "重试转换" button → POST /jobs/{id}/retry-requests ──────
   test('"重试转换" → POST /jobs/{id}/retry-requests', async ({ page }) => {
-    await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const retryBtn = page.locator('.anticon-reload').first();
-    const hasBtn = await retryBtn.isVisible().catch(() => false);
-    test.skip(!hasBtn, 'No retry button (no failed/cancelled jobs)');
+    const fileId = await createFailedDxfFixture(page);
+    await page.reload();
+    const row = page.locator(`.ant-table-row[data-row-key="${fileId}"]`);
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    const retryBtn = row.getByRole('button', { name: '重试转换' });
+    await expect(retryBtn).toBeVisible();
 
     const [retryResp] = await Promise.all([
       page.waitForResponse(
@@ -333,7 +375,8 @@ test.describe('FilesPage — button & API integration', () => {
 
     // Navigate back
     await backBtn.click();
-    await expect(page.getByText('文件管理')).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('button', { name: /上传 DWG 文件/ })).toBeVisible();
+    await expect(cards.first()).toBeVisible();
   });
 
   // ── 13. "全部暂停" visible only when active jobs exist ──────────
@@ -366,21 +409,21 @@ test.describe('FilesPage — button & API integration', () => {
 
   // ── 16. Empty state shown when no files ─────────────────────────
   test('empty state renders when table is empty', async ({ page }) => {
-    // Navigate to a batch that doesn't exist (filtered to 0 files)
-    await page.goto('/files?batch_name=NONEXISTENT_BATCH_999');
-    await page.waitForLoadState('networkidle');
+    await page.route('**/api/v1/files?**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          pagination: { page: 1, page_size: 200, total: 0, total_pages: 0 },
+          meta: { request_id: 'playwright-empty', timestamp: new Date().toISOString() },
+        }),
+      });
+    });
+    await page.reload();
 
-    // Empty state should show the inbox icon
-    const emptyIcon = page.locator('.anticon-inbox');
-    const empty = await emptyIcon.isVisible().catch(() => false);
-
-    // If we have files, the table just shows them — that's also valid
-    if (!empty) {
-      const rows = page.locator('.ant-table-row');
-      expect(await rows.count()).toBeGreaterThan(0);
-    } else {
-      await expect(page.getByText('暂无文件')).toBeVisible();
-    }
+    await expect(page.getByText('暂无 DWG 文件', { exact: true })).toBeVisible();
+    await expect(page.locator('.ant-table-tbody .ant-table-row')).toHaveCount(0);
   });
 
   // ── 17. Navigation: sidebar links are present ──────────────────

@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: 'list',
 
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: process.env.PLAYWRIGHT_FRONTEND_BASE_URL ?? 'http://127.0.0.1:8080',
     trace: 'on-first-retry',
   },
 
@@ -21,6 +21,6 @@ export default defineConfig({
     },
   ],
 
-  // Backend must be running at :8000, frontend dev at :5173
+  // Default to the production-shaped local Nginx entry. Override for Vite/direct API debugging.
   webServer: [],
 });

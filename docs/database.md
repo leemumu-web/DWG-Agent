@@ -1,7 +1,7 @@
 # DWG-Agent Platform -- Database Design & Operations
 
 > **Audience:** DBAs, platform operators, backend developers
-> **Last updated:** 2026-07-08
+> **Last updated:** 2026-07-11
 > **Scope:** Engine configuration, table catalog, entity relationships, migration management, seed data, backup strategy
 
 ---
@@ -15,29 +15,36 @@ The production/runtime database engine is MySQL 8.x, accessed via `mysql+pymysql
 **Configuration** (`backend/app/db/session.py`):
 
 ```python
-engine_kwargs = {"pool_pre_ping": True}                       # always applied
-if settings.database_url.startswith("mysql"):
-    engine_kwargs.update({"pool_recycle": 3600, "pool_size": 10, "max_overflow": 20})
-engine = create_engine(settings.database_url, **engine_kwargs)
-# pool_args (recycle/size/overflow) are only applied when DATABASE_URL starts with "mysql"
+pool_args = {
+    "pool_recycle": settings.db_pool_recycle_seconds,
+    "pool_size": settings.db_pool_size,
+    "max_overflow": settings.db_pool_max_overflow,
+    "pool_timeout": settings.db_pool_timeout_seconds,
+    "pool_use_lifo": True,
+}
+engine_kwargs = {"pool_pre_ping": True}
+if settings.sqlalchemy_database_url.startswith("mysql"):
+    engine_kwargs.update(pool_args)
+engine = create_engine(settings.sqlalchemy_database_url, **engine_kwargs)
 ```
 
 | Parameter | Value | Rationale |
 |---|---|---|
-| `pool_size` | 10 | Base number of persistent connections. Suitable for 4 gunicorn workers with headroom. |
-| `max_overflow` | 20 | Peak connections = pool_size + max_overflow = 30. Provides burst capacity without overwhelming MySQL's `max_connections`. |
-| `pool_recycle` | 3600s (1 hour) | Recycles connections before MySQL's default `wait_timeout` (28800s). Prevents stale connections from causing errors after long idle periods. |
+| `DB_POOL_SIZE` | 2 | Per-process persistent pool capacity. Connections are opened lazily. |
+| `DB_POOL_MAX_OVERFLOW` | 2 | Per-process burst capacity; default ceiling is 4 checked-out connections. |
+| `DB_POOL_TIMEOUT_SECONDS` | 30s | Maximum wait for a pooled application connection. |
+| `DB_POOL_RECYCLE_SECONDS` | 3600s | Recycles connections before common MySQL idle timeouts. |
 | `pool_pre_ping` | True | Tests connection liveness before use. Adds one extra query per checkout but eliminates `MySQL server has gone away` errors. |
 
 **Connections per deployment profile:**
 
-| Profile | Workers | Min connections | Max connections |
-|---|---|---|---|
-| Local dev (uvicorn --reload) | 1 | 10 | 30 |
-| Docker (gunicorn -w 4) | 4 | 40 | 120 |
-| Docker (gunicorn -w 8) | 8 | 80 | 240 |
+| Profile | Processes | Default application-engine ceiling |
+|---|---|---|
+| Local API | 1 | 4 |
+| Compose API (gunicorn `-w 4`) | 4 | 16 |
+| Each Celery execution process | 1 | 4 |
 
-Ensure MySQL `max_connections` is at least 150 for 4-worker deployment, accounting for Celery workers, Alembic migrations, and admin connections.
+These are ceilings, not eagerly opened minimums. Capacity planning must also count every Celery parent/child process, Kombu/result-backend connections, migrations, and operator sessions; tune the four `DB_POOL_*` settings instead of hard-coding a larger pool.
 
 ### 1.2 Test isolation: SQLite in-memory
 
@@ -90,7 +97,7 @@ This allows Docker Compose to override individual components (e.g. `MYSQL_HOST=m
 
 ## 2. Complete Table Catalog
 
-The application schema has **19 business tables**: 17 from the initial migration plus `token_blacklist` and `agent_memory`. Celery's SQL transport/result backend manages four additional tables (`kombu_queue`, `kombu_message`, `celery_taskmeta`, `celery_tasksetmeta`), and Alembic owns `alembic_version`.
+The runtime schema has **31 tables**: 22 business tables (17 initial tables, `token_blacklist`, `agent_memory`, and three Excel Final tables), `alembic_version`, and eight Celery-owned tables. The latter are `kombu_queue`, `kombu_message`, `celery_taskmeta`, `celery_tasksetmeta`, plus `message_id_sequence`, `queue_id_sequence`, `task_id_sequence`, and `taskset_id_sequence`. Alembic autogenerate excludes all eight runtime-owned tables.
 
 ### 2.1 Identity & Access Management (IAM) -- 6 tables
 
@@ -294,6 +301,7 @@ Asynchronous processing job for a DWG drawing.
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high` (determines pipeline routing) |
 | `pipeline` | VARCHAR(64) | NULLABLE | Assigned pipeline: `local_stub` / `dxf_open_source` / `dxf2dwg_open_source` / `dxf2excel` / `zwcad_worker` |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
+| `attempt` | INT | NOT NULL, DEFAULT 1 | Current execution generation; incremented atomically on accepted retry |
 | `priority` | INT | NOT NULL, DEFAULT 0 | Higher = more urgent |
 | `progress` | INT | NOT NULL, DEFAULT 0 | 0-100 percentage |
 | `params_json` | JSON | NULLABLE | Task-specific parameters |
@@ -317,6 +325,7 @@ Granular execution steps within a job.
 |---|---|---|---|
 | `id` | BIGINT | PK, AUTO_INCREMENT | |
 | `job_id` | BIGINT | NOT NULL, FK → `jobs.id`, INDEXED | Parent job |
+| `attempt` | INT | NOT NULL, DEFAULT 1 | Execution generation that produced this step |
 | `step_name` | VARCHAR(128) | NOT NULL | Human-readable step label |
 | `worker_name` | VARCHAR(128) | NULLABLE | Celery worker hostname that executed this step |
 | `status` | VARCHAR(32) | NOT NULL | `pending` / `running` / `succeeded` / `failed` |
@@ -326,7 +335,7 @@ Granular execution steps within a job.
 | `started_at` | DATETIME | NULLABLE | |
 | `finished_at` | DATETIME | NULLABLE | |
 
-**Indexes:** `ix_job_steps_job_id`
+**Indexes:** `ix_job_steps_job_id`, `ix_job_steps_job_id_attempt`
 
 ### 2.6 Agent Execution -- 3 tables
 
@@ -447,6 +456,14 @@ Immutable audit trail for all significant actions.
 
 **Note:** `resource_id` is a **polymorphic pointer**, not a real foreign key — it stores the affected resource's ID regardless of its type, so no FK constraint exists. Migration `c3d2e1f0a9b8` corrected its type from `Integer` to `BIGINT` for consistency with every other ID column.
 
+### 2.9 Excel Final -- 3 tables
+
+- `excel_final_batches` is the one-to-one structured import for a job. `job_id` is unique and cascades on job deletion; optional `file_id` points to the source file and becomes NULL if that file is deleted.
+- `excel_final_components` stores component-level quantity and weight summaries. `batch_id` cascades on batch deletion.
+- `excel_final_parts` stores normalized part rows, dimensions, material, quantities, theoretical/net/gross weights, and surface areas. It is indexed by `batch_id`, `material`, and `part_no`.
+
+The tables contain parsed business data only. Source and generated workbook bytes remain in the storage layer and are referenced through `files`.
+
 ---
 
 ## 3. Entity Relationship Overview
@@ -491,7 +508,7 @@ agent_runs ──< agent_run_steps
 
 ### 3.2 Foreign key cascade behavior
 
-**All FKs use the default `NO ACTION` (RESTRICT in MySQL).** There are no `ON DELETE CASCADE` or `ON UPDATE CASCADE` clauses defined in the migration.
+Initial-schema FKs use the default `NO ACTION` (`RESTRICT` in MySQL). The Excel Final hardening migration intentionally uses `ON DELETE CASCADE` from batch children/job ownership and `ON DELETE SET NULL` for the optional source file. New migrations must document every non-default delete action.
 
 This means:
 - **You cannot delete a user who has uploaded files, created jobs, or owns projects** unless you first nullify or reassign those references.
@@ -544,8 +561,12 @@ The following tables use MySQL's native JSON type (SQLite falls back to TEXT):
 | `c3d2e1f0a9b8` | Fix `audit_logs.resource_id` type -- `Integer` to `BigInteger` for consistency with all other ID columns | 2026-07-04 |
 | `53cd59adf848` | Add `files.batch_name` VARCHAR(128) nullable + index `ix_files_batch_name` -- supports DXF/Excel batch uploads | 2026-07-06 |
 | `1d1696c7e854` | Add `agent_memory`, `token_blacklist`, `jobs.progress_data`, and `sys_users.password_changed_at` | 2026-07-10 |
+| `3480bd86ddc3` | Add the Excel Final batch/component/part tables | 2026-07-10 |
+| `7f2a9c4e6b10` | Harden Excel Final foreign keys and uniqueness constraints | 2026-07-10 |
+| `8c61f4d2a9e7` | Add `jobs.attempt` for retry generation isolation | 2026-07-11 |
+| `a74c2e9f1d30` | Add `job_steps.attempt` and `(job_id, attempt)` index | 2026-07-11 |
 
-The linear chain is `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854`; **`1d1696c7e854` is the current head.**
+The linear chain is `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30`; **`a74c2e9f1d30` is the current head.**
 
 ### 4.2 How to create a new migration
 
@@ -595,7 +616,7 @@ uv run alembic history
 The `scripts/db.sh migration-test` command:
 1. Creates a **temporary** MySQL schema (utf8mb4) and grants the app user access to it.
 2. Runs `alembic upgrade head` against that empty schema via a scoped `DATABASE_URL`.
-3. Verifies the resulting schema: asserts all **17 expected business tables** are present, and that the four tables whose timestamp columns were backfilled later (`project_members`, `drawing_versions`, `review_records`, `agent_run_steps`) now carry `created_at` and `updated_at`.
+3. Verifies the resulting schema: asserts all **22 expected business tables** are present, checks the current Alembic head, attempt columns/index-related types, Excel Final foreign keys/uniqueness, and the timestamp columns backfilled on `project_members`, `drawing_versions`, `review_records`, and `agent_run_steps`.
 4. Drops the temporary schema (also on error, via an `EXIT` trap).
 
 This verifies that the full migration chain rebuilds the schema from scratch and that the `TimestampMixin` columns are consistent. (It does not exercise a downgrade path.)

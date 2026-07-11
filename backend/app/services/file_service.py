@@ -66,21 +66,22 @@ def build_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile |
     if not file_ids_set:
         return {}
 
-    file_id_to_job: dict[int, Job] = {}
+    file_id_to_job_id: dict[int, int] = {}
     for j in db.scalars(
         select(Job).where(
             Job.task_type.in_([TASK_DWG_TO_DXF, TASK_DXF_TO_DWG]),
             Job.status == "succeeded",
-        )
+            Job.params_json["file_id"].as_integer().in_(file_ids_set),
+        ).order_by(Job.id.desc())
     ).all():
         fid = (j.params_json or {}).get("file_id") if isinstance(j.params_json, dict) else None
-        if isinstance(fid, int) and fid in file_ids_set and fid not in file_id_to_job:
-            file_id_to_job[fid] = j
+        if isinstance(fid, int) and fid in file_ids_set and fid not in file_id_to_job_id:
+            file_id_to_job_id[fid] = j.id
 
-    if not file_id_to_job:
+    if not file_id_to_job_id:
         return {fid: None for fid in file_ids}
 
-    job_ids = [j.id for j in file_id_to_job.values()]
+    job_ids = list(file_id_to_job_id.values())
     job_id_to_result: dict[int, AnalysisResult] = {}
     result_file_ids: list[int] = []
     for r in db.scalars(
@@ -88,9 +89,13 @@ def build_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile |
             AnalysisResult.job_id.in_(job_ids),
             AnalysisResult.result_file_id.is_not(None),
             AnalysisResult.status == "succeeded",
-        )
+        ).order_by(AnalysisResult.id.desc())
     ).all():
-        if r.job_id is not None and r.result_file_id is not None:
+        if (
+            r.job_id is not None
+            and r.result_file_id is not None
+            and r.job_id not in job_id_to_result
+        ):
             job_id_to_result[r.job_id] = r
             result_file_ids.append(r.result_file_id)
 
@@ -107,8 +112,8 @@ def build_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile |
         result_files[f.id] = f
 
     out: dict[int, StoredFile | None] = {fid: None for fid in file_ids}
-    for fid, job in file_id_to_job.items():
-        result = job_id_to_result.get(job.id)
+    for fid, job_id in file_id_to_job_id.items():
+        result = job_id_to_result.get(job_id)
         if result and result.result_file_id:
             out[fid] = result_files.get(result.result_file_id)
     return out

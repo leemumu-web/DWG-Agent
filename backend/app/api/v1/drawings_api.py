@@ -14,9 +14,11 @@ from app.api.deps import (
 )
 from app.core.exceptions import not_found
 from app.core.validators import validate_sort_by
+from app.db.pagination import paginate_scalars
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.project import Project, ProjectMember
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.schemas.drawing_schema import (
     DrawingCreate,
     DrawingRead,
@@ -47,14 +49,23 @@ def list_drawings(
         order_clause = order_clause.asc()
     else:
         order_clause = order_clause.desc()
-    stmt = select(Drawing).where(Drawing.status != "deleted").order_by(order_clause)
+    tie_breaker = Drawing.id.asc() if sort_dir_value == "asc" else Drawing.id.desc()
+    stmt = (
+        select(Drawing)
+        .where(Drawing.status != "deleted")
+        .order_by(order_clause, tie_breaker)
+    )
     if not has_global_project_access(current_user):
         stmt = stmt.join(ProjectMember, ProjectMember.project_id == Drawing.project_id).where(
             ProjectMember.user_id == current_user.id
         )
-    drawings = list(db.scalars(stmt).all())
-    return page_from_list(
-        [DrawingRead.model_validate(d) for d in drawings], page, page_size, request.state.request_id
+    drawings, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
+    return page_response(
+        [DrawingRead.model_validate(d) for d in drawings],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -176,17 +187,19 @@ def list_versions(
         raise not_found("Drawing")
     require_active_project(db, drawing.project_id)
     require_project_member(db, current_user, drawing.project_id)
-    versions = list(
-        db.scalars(
-            select(DrawingVersion)
-            .where(DrawingVersion.drawing_id == drawing_id)
-            .order_by(DrawingVersion.version_no)
-        ).all()
+    versions, total = paginate_scalars(
+        db,
+        select(DrawingVersion)
+        .where(DrawingVersion.drawing_id == drawing_id)
+        .order_by(DrawingVersion.version_no, DrawingVersion.id),
+        page_no=page,
+        page_size=page_size,
     )
-    return page_from_list(
+    return page_response(
         [DrawingVersionRead.model_validate(v) for v in versions],
         page,
         page_size,
+        total,
         request.state.request_id,
     )
 

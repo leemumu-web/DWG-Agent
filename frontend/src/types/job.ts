@@ -7,6 +7,7 @@ export interface Job {
   precision_level: string;
   pipeline?: string | null;
   status: string;
+  attempt: number;
   priority: number;
   progress: number;
   params_json?: Record<string, unknown> | null;
@@ -22,6 +23,7 @@ export interface Job {
 export interface JobStep {
   id: number;
   job_id: number;
+  attempt: number;
   step_name: string;
   worker_name?: string | null;
   status: string;

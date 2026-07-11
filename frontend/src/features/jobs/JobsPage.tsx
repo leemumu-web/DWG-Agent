@@ -54,7 +54,8 @@ export function JobsPage() {
     setDrawerJobId(jobId);
     setDrawerLoading(true);
     try {
-      const [job, steps] = await Promise.all([getJob(jobId), getJobSteps(jobId)]);
+      const job = await getJob(jobId);
+      const steps = await getJobSteps(jobId, job.attempt);
       setDrawerJob(job);
       setDrawerSteps(steps);
     } catch {
@@ -84,12 +85,12 @@ export function JobsPage() {
   async function handleRetry() {
     if (!drawerJob) return;
     try {
-      await retryJob(drawerJob.id);
+      const retried = await retryJob(drawerJob.id);
       message.success('已重新提交');
       query.refetch();
       // Refresh drawer
-      const [job, steps] = await Promise.all([getJob(drawerJob.id), getJobSteps(drawerJob.id)]);
-      setDrawerJob(job);
+      const steps = await getJobSteps(retried.id, retried.attempt);
+      setDrawerJob(retried);
       setDrawerSteps(steps);
     } catch (err) {
       message.error(err instanceof Error ? err.message : '重试失败');

@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_roles
 from app.core.constants import ROLE_SUPER_ADMIN
 from app.core.exceptions import AppHTTPException, not_found
+from app.db.pagination import paginate_scalars
 from app.models.role import Permission, Role
 from app.models.user import User
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.schemas.user_schema import (
     PermissionRead,
     ReplaceRolePermissionsRequest,
@@ -29,9 +31,15 @@ def list_roles(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(ROLE_SUPER_ADMIN, "admin")),
 ):
-    roles = list(db.scalars(select(Role).order_by(Role.id)).all())
-    return page_from_list(
-        [RoleRead.model_validate(r) for r in roles], page, page_size, request.state.request_id
+    roles, total = paginate_scalars(
+        db, select(Role).order_by(Role.id), page_no=page, page_size=page_size
+    )
+    return page_response(
+        [RoleRead.model_validate(r) for r in roles],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -70,11 +78,17 @@ def list_permissions(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(ROLE_SUPER_ADMIN, "admin")),
 ):
-    permissions = list(db.scalars(select(Permission).order_by(Permission.code)).all())
-    return page_from_list(
+    permissions, total = paginate_scalars(
+        db,
+        select(Permission).order_by(Permission.code, Permission.id),
+        page_no=page,
+        page_size=page_size,
+    )
+    return page_response(
         [PermissionRead.model_validate(p) for p in permissions],
         page,
         page_size,
+        total,
         request.state.request_id,
     )
 

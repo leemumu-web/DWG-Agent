@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import tempfile
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -21,14 +22,12 @@ from pathlib import Path
 from uuid import uuid4
 
 import openpyxl
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.constants import (
-    JOB_FAILED,
     JOB_RUNNING,
-    JOB_SUCCEEDED,
     PIPELINE_EXCEL_FINAL,
     STEP_DOWNLOAD_EXCEL_SOURCE,
     STEP_IMPORT_PARTS_DB,
@@ -37,12 +36,21 @@ from app.core.constants import (
     TASK_EXCEL_FINAL,
 )
 from app.db.session import SessionLocal
+from app.integrations.excel_final import (
+    ExcelFinalUnavailableError,
+    run_excel_final_pipeline,
+)
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
-from app.services.job_events import make_event, publish_job_event
-from app.services.job_service import claim_queued_job
+from app.services.job_events import make_event
+from app.services.job_service import (
+    claim_queued_job,
+    commit_job_progress,
+    complete_job_attempt,
+    fail_job_attempt,
+)
 from app.services.storage_service import (
     get_storage_backend,
     sanitize_filename,
@@ -89,39 +97,35 @@ def _exception_message(exc: Exception) -> str:
 
 
 def _mark_job_failed(
+    db: Session,
     job_id: int,
+    attempt: int,
     exc: Exception,
     error_code: str = ERROR_CODE_PIPELINE_FAILED,
-) -> None:
-    """独立 session 标记任务失败（仿 dxf2excel_service._mark_job_failed）。"""
-    db = SessionLocal()
+) -> bool:
+    """在 worker 当前事务内原子提交失败状态与待写步骤。"""
     try:
-        job = db.get(Job, job_id)
-        if job and job.status not in (JOB_SUCCEEDED, "cancelled"):
-            job.status = JOB_FAILED
-            job.error_code = error_code
-            job.error_message = _exception_message(exc)
-            job.finished_at = datetime.now(UTC)
-            publish_job_event(
+        db.execute(delete(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id))
+        return (
+            fail_job_attempt(
                 db,
                 job_id,
-                make_event(
-                    type_="error",
-                    status=JOB_FAILED,
-                    error_code=error_code,
-                    message=job.error_message or error_code,
-                ),
+                attempt=attempt,
+                error_code=error_code,
+                error_message=_exception_message(exc),
             )
-            db.commit()
+            is not None
+        )
     except Exception:
+        db.rollback()
         logger.exception("Failed to mark excel_final job %s as failed", job_id)
-    finally:
-        db.close()
+        return False
 
 
 def _add_step(
     db: Session,
     job_id: int,
+    attempt: int,
     step_name: str,
     worker_name: str,
     status: str,
@@ -134,6 +138,7 @@ def _add_step(
     db.add(
         JobStep(
             job_id=job_id,
+            attempt=attempt,
             step_name=step_name,
             worker_name=worker_name,
             status=status,
@@ -230,23 +235,24 @@ def _import_parts_to_db(
         return {"parts_imported": 0, "error": "No 整理表 sheet found"}
 
     ws = wb[sheet_name]
-    # Read headers from row 1
-    headers: list[str] = []
-    for c in range(1, ws.max_column + 1):
-        h = ws.cell(row=1, column=c).value
-        headers.append(str(h).strip() if h else "")
+    # Match canonical names exactly after stripping unit suffixes. Substring
+    # matching is unsafe here (for example, 长度 also matches 下料长度).
+    def _header_name(value: object) -> str:
+        text = "" if value is None else str(value).strip().replace(" ", "")
+        return re.split(r"[（(]", text, maxsplit=1)[0]
 
-    # Map header names to column indices
-    _col = lambda *keys: next(  # noqa: E731
-        (i + 1 for i, h in enumerate(headers) if any(k in h for k in keys)),
-        None,
-    )
+    columns: dict[str, int] = {}
+    for column in range(1, ws.max_column + 1):
+        columns.setdefault(_header_name(ws.cell(row=1, column=column).value), column)
+
+    def _col(*names: str) -> int | None:
+        return next((columns[name] for name in names if name in columns), None)
 
     seq_col = _col("序号")
     comp_no_col = _col("构件编号")
     comp_qty_col = _col("构件数")
     type_col = _col("类型")
-    part_no_col = _col("零件号")
+    part_no_col = _col("零件号", "零件编号")
     profile_spec_col = _col("截面型材")
     spec_col = _col("规格")
     width_col = _col("宽度")
@@ -269,6 +275,22 @@ def _import_parts_to_db(
     table_gross_col = _col("表毛重")
     surface_col = _col("单表面积")
     total_surface_col = _col("总表面积")
+
+    required_columns = {
+        "序号": seq_col,
+        "构件编号": comp_no_col,
+        "零件号": part_no_col,
+        "规格": spec_col,
+        "长度": len_col,
+        "材质": mat_col,
+        "数量": qty_col,
+    }
+    missing_columns = [name for name, column in required_columns.items() if column is None]
+    if missing_columns:
+        wb.close()
+        raise ValueError(
+            "Excel Final output is missing required columns: " + ", ".join(missing_columns)
+        )
 
     def _f(val) -> float | None:
         """Safe float conversion."""
@@ -294,6 +316,15 @@ def _import_parts_to_db(
         if all(v is None for v in row_vals):
             continue
 
+        part_no = _s(row_vals[part_no_col - 1]) if part_no_col else None
+        summary_values = [
+            _s(row_vals[column - 1])
+            for column in (comp_no_col, part_no_col, profile_spec_col, spec_col)
+            if column is not None
+        ]
+        if not part_no or any(value and value.startswith("合计") for value in summary_values):
+            continue
+
         parts.append(
             {
                 "batch_id": batch_id,
@@ -303,7 +334,7 @@ def _import_parts_to_db(
                 if comp_qty_col and row_vals[comp_qty_col - 1] is not None
                 else None,
                 "part_type": _s(row_vals[type_col - 1]) if type_col else None,
-                "part_no": _s(row_vals[part_no_col - 1]) if part_no_col else None,
+                "part_no": part_no,
                 "profile_spec": _s(row_vals[profile_spec_col - 1]) if profile_spec_col else None,
                 "spec": _s(row_vals[spec_col - 1]) if spec_col else None,
                 "width": _f(row_vals[width_col - 1]) if width_col else None,
@@ -419,7 +450,11 @@ def _replace_batch_for_job(
     return batch
 
 
-def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_final") -> None:
+def run_excel_final_processing(
+    job_id: int,
+    worker_name: str = "celery_excel_final",
+    expected_attempt: int = 1,
+) -> None:
     """Celery excel_final 队列任务体: Excel → 零件清单全链路。
 
     失败不抛（除导入错误外），通过 job.status/error_code 体现。
@@ -429,6 +464,7 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
         job = claim_queued_job(
             db,
             job_id,
+            expected_attempt=expected_attempt,
             pipeline=PIPELINE_EXCEL_FINAL,
             progress=5,
             message="开始处理 Excel",
@@ -436,11 +472,14 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
         if job is None:
             logger.info("ExcelFinal job %s was not claimable", job_id)
             return
+        attempt = job.attempt
 
         file_id = _resolve_file_id(job)
         if file_id is None:
             _mark_job_failed(
+                db,
                 job_id,
+                attempt,
                 AppError("ExcelFinal job 缺少 params.file_id"),
                 error_code=ERROR_CODE_EMPTY_INPUT,
             )
@@ -455,15 +494,27 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 source_path, sfile = _stage_excel_source(db, file_id, work_dir)
             except FileNotFoundError:
                 _mark_job_failed(
-                    job_id, AppError(f"文件 {file_id} 不存在"), error_code=ERROR_CODE_EMPTY_INPUT
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"文件 {file_id} 不存在"),
+                    error_code=ERROR_CODE_EMPTY_INPUT,
                 )
                 return
             except ValueError as exc:
-                _mark_job_failed(job_id, AppError(str(exc)), error_code=ERROR_CODE_NOT_EXCEL)
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(str(exc)),
+                    error_code=ERROR_CODE_NOT_EXCEL,
+                )
                 return
             except StorageObjectNotFound:
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError(f"文件 {file_id} 存储对象缺失"),
                     error_code=ERROR_CODE_STORAGE_FAILED,
                 )
@@ -477,6 +528,7 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_DOWNLOAD_EXCEL_SOURCE,
                 worker_name,
                 "succeeded",
@@ -484,11 +536,12 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 output_json=source_stats,
                 started_at=download_started,
             )
-            job.progress = 15
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=15,
+                event=make_event(
                     type_="progress",
                     progress=15,
                     step_name=STEP_DOWNLOAD_EXCEL_SOURCE,
@@ -496,7 +549,8 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                     message=f"已下载: {sfile.original_name}",
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             # ---- 3. 自动检测格式 ----
             fmt = _detect_format(source_path)
@@ -509,43 +563,37 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             )
 
             try:
-                from app.integrations.excel_final import load_excel_final_pipeline
-
-                run_init_pipeline, run_pipeline = load_excel_final_pipeline()
-            except ImportError as exc:
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"excel_final 包不可用: {exc}"),
-                    error_code=ERROR_CODE_UNAVAILABLE,
+                run_excel_final_pipeline(
+                    source_path,
+                    output_path,
+                    source_format=fmt,
                 )
+            except ExcelFinalUnavailableError as exc:
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_RUN_EXCEL_FINAL,
                     worker_name,
                     "failed",
                     input_json={"file_id": file_id, "format": fmt},
-                    error_message=f"excel_final 包不可用: {exc}",
+                    error_message=f"Excel Final Stage 不可用: {exc}",
                     started_at=pipeline_started,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"Excel Final Stage 不可用: {exc}"),
+                    error_code=ERROR_CODE_UNAVAILABLE,
+                )
                 return
-
-            try:
-                if fmt == "init":
-                    run_init_pipeline(source_path, output_path)
-                else:
-                    run_pipeline(source_path, output_path)
             except Exception as exc:
                 logger.exception("excel_final pipeline failed for job %s", job_id)
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"流水线处理失败: {exc}"),
-                    error_code=ERROR_CODE_PIPELINE_FAILED,
-                )
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_RUN_EXCEL_FINAL,
                     worker_name,
                     "failed",
@@ -553,12 +601,19 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                     error_message=_exception_message(exc),
                     started_at=pipeline_started,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"流水线处理失败: {exc}"),
+                    error_code=ERROR_CODE_PIPELINE_FAILED,
+                )
                 return
 
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_RUN_EXCEL_FINAL,
                 worker_name,
                 "succeeded",
@@ -566,11 +621,12 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 output_json={"output": str(output_path)},
                 started_at=pipeline_started,
             )
-            job.progress = 60
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=60,
+                event=make_event(
                     type_="progress",
                     progress=60,
                     step_name=STEP_RUN_EXCEL_FINAL,
@@ -578,12 +634,15 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                     message=f"流水线完成 (format={fmt})",
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             # Check output
             if not output_path.is_file():
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError("Excel 输出文件未生成"),
                     error_code=ERROR_CODE_NO_OUTPUT,
                 )
@@ -624,8 +683,11 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 }
             except Exception as exc:
                 logger.exception("DB import failed for excel_final job %s", job_id)
+                db.rollback()
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError(f"MySQL 入库失败: {exc}"),
                     error_code=ERROR_CODE_DB_IMPORT_FAILED,
                 )
@@ -634,6 +696,7 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_IMPORT_PARTS_DB,
                 worker_name,
                 "succeeded",
@@ -641,11 +704,12 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 output_json=db_stats,
                 started_at=import_started,
             )
-            job.progress = 75
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=75,
+                event=make_event(
                     type_="progress",
                     progress=75,
                     step_name=STEP_IMPORT_PARTS_DB,
@@ -654,7 +718,8 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                     stats=db_stats,
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             # ---- 6. 持久化输出 Excel ----
             persist_started = datetime.now(UTC)
@@ -672,12 +737,6 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 payload=excel_bytes,
                 uploaded_by=job.created_by,
             )
-
-            # 行锁重读 job
-            job = db.scalars(select(Job).where(Job.id == job_id).with_for_update()).one_or_none()
-            if not job or job.status != JOB_RUNNING:
-                db.rollback()
-                return
 
             result_payload = {
                 "source": "excel_final",
@@ -706,6 +765,7 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_PERSIST_EXCEL_FINAL,
                 worker_name,
                 "succeeded",
@@ -717,15 +777,13 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                 },
                 started_at=persist_started,
             )
-            job.status = JOB_SUCCEEDED
-            job.progress = 100
-            job.finished_at = datetime.now(UTC)
-            publish_job_event(
+            completed_job = complete_job_attempt(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                event=make_event(
                     type_="done",
-                    status=JOB_SUCCEEDED,
+                    status="succeeded",
                     progress=100,
                     step_name=STEP_PERSIST_EXCEL_FINAL,
                     message=f"处理完成: {batch.part_count} 个零件, {batch.component_count} 个构件",
@@ -736,11 +794,19 @@ def run_excel_final_processing(job_id: int, worker_name: str = "celery_excel_fin
                     **db_stats,
                 ),
             )
-            db.commit()
+            if completed_job is None:
+                return
 
     except Exception as exc:
         db.rollback()
-        _mark_job_failed(job_id, exc, error_code=ERROR_CODE_PIPELINE_FAILED)
+        if "attempt" in locals():
+            _mark_job_failed(
+                db,
+                job_id,
+                attempt,
+                exc,
+                error_code=ERROR_CODE_PIPELINE_FAILED,
+            )
         logger.exception("ExcelFinal processing failed for job %s", job_id)
     finally:
         db.close()

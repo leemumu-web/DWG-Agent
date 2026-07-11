@@ -1,8 +1,8 @@
 import { apiClient, type ApiEnvelope, type PageEnvelope } from './client';
 import type { AuditLog } from '../types/audit';
 
-/** Audit logs are capped at the most recent 200 on the backend (limit(200)),
- *  so a single page_size=200 fetch returns everything available. */
+/** Load the most recent 200 entries for the dashboard view.
+ *  The backend keeps an exact total and supports SQL pagination beyond this view. */
 export async function listAuditLogs() {
   const res = await apiClient.get<PageEnvelope<AuditLog>>('/api/v1/audit-logs', {
     params: { page_size: 200 },

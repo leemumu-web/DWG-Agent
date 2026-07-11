@@ -9,9 +9,15 @@ from io import BytesIO
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.orm import Session
 
 from app.db.init_db import init_db
 from app.main import app
+from app.models.agent_run import AgentRun, AgentRunStep
+from app.models.file import StoredFile
+from app.models.job import Job
+from app.models.result import AnalysisResult
 
 
 def _client() -> TestClient:
@@ -312,6 +318,59 @@ def test_viewer_cannot_see_unowned_files_in_list():
     assert admin_file_id not in visible_ids
 
 
+def test_file_list_access_control_has_constant_query_count(db: Session):
+    """File visibility must be evaluated in SQL instead of one query per file."""
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+
+    viewer_name = _unique("file-query-viewer")
+    viewer_password = "ViewerQueryPass1234"
+    viewer_id = _create_user(
+        client,
+        admin_headers,
+        viewer_name,
+        viewer_password,
+        "File Query Viewer",
+        ["viewer"],
+    )
+    viewer_headers = _login(client, viewer_name, viewer_password)
+
+    for index in range(8):
+        owner_id = viewer_id if index == 7 else 1
+        db.add(
+            StoredFile(
+                bucket="dwg-original",
+                storage_key=f"tests/access-query-{uuid4().hex}.dwg",
+                original_name=f"access-query-{index}.dwg",
+                file_ext=".dwg",
+                content_type="application/acad",
+                size_bytes=6,
+                sha256=uuid4().hex + uuid4().hex,
+                uploaded_by=owner_id,
+                status="available",
+            )
+        )
+    db.commit()
+
+    access_queries: list[str] = []
+
+    def record_access_query(_conn, _cursor, statement, _params, _context, _executemany):
+        if "drawing_versions" in statement or "analysis_results" in statement:
+            access_queries.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", record_access_query)
+    try:
+        response = client.get("/api/v1/files?page_size=1", headers=viewer_headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", record_access_query)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["pagination"]["total"] == 1
+    assert response.json()["data"][0]["uploaded_by"] == viewer_id
+    assert len(access_queries) <= 2
+
+
 def test_signed_download_url_expiry_is_enforced():
     """An expired signed download URL must be rejected."""
     client = _client()
@@ -536,6 +595,120 @@ def test_get_nonexistent_resource_returns_404():
     resp = client.get("/api/v1/agent-runs/99999", headers=headers)
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "AGENT_DISABLED"
+
+
+def test_agent_run_details_and_steps_are_restricted_to_the_owner(
+    db: Session, monkeypatch
+):
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    owner_name = _unique("agent-owner")
+    outsider_name = _unique("agent-outsider")
+    owner_id = _create_user(
+        client, admin_headers, owner_name, "AgentOwnerPass1", "Agent Owner", ["viewer"]
+    )
+    _create_user(
+        client,
+        admin_headers,
+        outsider_name,
+        "AgentOutsiderPass1",
+        "Agent Outsider",
+        ["viewer"],
+    )
+    run = AgentRun(
+        session_id=_unique("agent-session"),
+        user_id=owner_id,
+        task="private agent task",
+        status="running",
+    )
+    db.add(run)
+    db.flush()
+    db.add(
+        AgentRunStep(
+            agent_run_id=run.id,
+            step_type="reasoning",
+            title="private step",
+            content="private content",
+            status="succeeded",
+        )
+    )
+    db.commit()
+    run_id = run.id
+    monkeypatch.setattr("app.api.v1.agent_runs_api.settings.agent_enabled", True)
+
+    owner_headers = _login(client, owner_name, "AgentOwnerPass1")
+    assert client.get(f"/api/v1/agent-runs/{run_id}", headers=owner_headers).status_code == 200
+    assert (
+        client.get(f"/api/v1/agent-runs/{run_id}/steps", headers=owner_headers).status_code
+        == 200
+    )
+
+    outsider_headers = _login(client, outsider_name, "AgentOutsiderPass1")
+    details = client.get(f"/api/v1/agent-runs/{run_id}", headers=outsider_headers)
+    steps = client.get(f"/api/v1/agent-runs/{run_id}/steps", headers=outsider_headers)
+
+    assert details.status_code == 403, details.text
+    assert steps.status_code == 403, steps.text
+
+
+def test_unscoped_result_endpoints_are_restricted_to_job_creator(db: Session):
+    """Result routes must not bypass creator checks for jobs without a project."""
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    owner_name = _unique("result-owner")
+    outsider_name = _unique("result-outsider")
+    owner_id = _create_user(
+        client, admin_headers, owner_name, "ResultOwnerPass1", "Result Owner", ["viewer"]
+    )
+    _create_user(
+        client,
+        admin_headers,
+        outsider_name,
+        "ResultOutsiderPass1",
+        "Result Outsider",
+        ["viewer"],
+    )
+    job = Job(
+        created_by=owner_id,
+        task_type="framework_smoke_test",
+        precision_level="normal",
+        status="succeeded",
+        progress=100,
+    )
+    db.add(job)
+    db.flush()
+    result = AnalysisResult(
+        job_id=job.id,
+        result_type="framework_smoke_test",
+        result_json={"private": True},
+        status="succeeded",
+    )
+    db.add(result)
+    db.commit()
+    result_id = result.id
+
+    owner_headers = _login(client, owner_name, "ResultOwnerPass1")
+    assert client.get(f"/api/v1/results/{result_id}", headers=owner_headers).status_code == 200
+    assert (
+        client.get(f"/api/v1/results/{result_id}/reviews", headers=owner_headers).status_code
+        == 200
+    )
+
+    outsider_headers = _login(client, outsider_name, "ResultOutsiderPass1")
+    for path in (
+        f"/api/v1/results/{result_id}",
+        f"/api/v1/results/{result_id}/download-url",
+        f"/api/v1/results/{result_id}/reviews",
+    ):
+        response = client.get(path, headers=outsider_headers)
+        assert response.status_code == 403, response.text
+
+    review = client.post(
+        f"/api/v1/results/{result_id}/reviews",
+        headers=outsider_headers,
+        json={"decision": "approved", "comment": "must be rejected"},
+    )
+    assert review.status_code == 403, review.text
 
 
 # ---------------------------------------------------------------------------

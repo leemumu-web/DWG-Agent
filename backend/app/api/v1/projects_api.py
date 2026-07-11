@@ -14,8 +14,10 @@ from app.api.deps import (
 )
 from app.core.exceptions import AppHTTPException, not_found
 from app.core.validators import validate_sort_by
+from app.db.pagination import paginate_scalars
 from app.models.project import Project, ProjectMember
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.schemas.project_schema import (
     ProjectCreate,
     ProjectMemberCreate,
@@ -62,16 +64,21 @@ def list_projects(
     else:
         order_clause = order_clause.desc()
 
-    stmt = select(Project).order_by(order_clause)
+    tie_breaker = Project.id.asc() if sort_dir_value == "asc" else Project.id.desc()
+    stmt = select(Project).order_by(order_clause, tie_breaker)
     if status is not None:
         stmt = stmt.where(Project.status == status)
     else:
         stmt = stmt.where(Project.status != "deleted")
     if not has_global_project_access(current_user):
         stmt = stmt.join(ProjectMember).where(ProjectMember.user_id == current_user.id)
-    projects = list(db.scalars(stmt).all())
-    return page_from_list(
-        [ProjectRead.model_validate(p) for p in projects], page, page_size, request.state.request_id
+    projects, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
+    return page_response(
+        [ProjectRead.model_validate(p) for p in projects],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -187,13 +194,19 @@ def list_project_members(
     if not project or project.status == "deleted":
         raise not_found("Project")
     require_project_member(db, current_user, project.id)
-    members = list(
-        db.scalars(select(ProjectMember).where(ProjectMember.project_id == project_id)).all()
+    members, total = paginate_scalars(
+        db,
+        select(ProjectMember)
+        .where(ProjectMember.project_id == project_id)
+        .order_by(ProjectMember.id),
+        page_no=page,
+        page_size=page_size,
     )
-    return page_from_list(
+    return page_response(
         [ProjectMemberRead.model_validate(m) for m in members],
         page,
         page_size,
+        total,
         request.state.request_id,
     )
 

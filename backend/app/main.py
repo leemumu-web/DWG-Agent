@@ -142,7 +142,11 @@ def readiness_health(request: Request, response: Response):
             "status": "ok" if ready else "error",
             "database": {
                 "status": database["status"],
-                "message": ("Database is reachable." if ready else "Database is unavailable."),
+                "message": (
+                    "Database is reachable."
+                    if database["status"] == "ok"
+                    else "Database is unavailable."
+                ),
             },
             "storage": {
                 "status": storage["status"],

@@ -217,3 +217,40 @@ class TestMysqlPortIsInt:
 
 def test_excel_final_pipeline_is_disabled_by_default():
     assert Settings(_env_file=None).excel_final_pipeline_enabled is False
+
+
+def test_handbook_database_defaults_to_platform_mysql_connection():
+    configured = Settings(
+        _env_file=None,
+        mysql_host="mysql.internal",
+        mysql_port=13306,
+        mysql_user="dwg_reader",
+        mysql_password="secret",
+    )
+
+    assert configured.handbook_database_config == {
+        "host": "mysql.internal",
+        "port": 13306,
+        "database": "hardware_handbook",
+        "user": "dwg_reader",
+        "password": "secret",
+        "charset": "utf8mb4",
+        "connect_timeout": 5,
+    }
+
+
+def test_handbook_database_supports_independent_read_only_credentials():
+    configured = Settings(
+        _env_file=None,
+        handbook_mysql_host="handbook.internal",
+        handbook_mysql_port=3307,
+        handbook_mysql_database="steel_reference",
+        handbook_mysql_user="readonly",
+        handbook_mysql_password="read-secret",
+    )
+
+    assert configured.handbook_database_config["host"] == "handbook.internal"
+    assert configured.handbook_database_config["port"] == 3307
+    assert configured.handbook_database_config["database"] == "steel_reference"
+    assert configured.handbook_database_config["user"] == "readonly"
+    assert configured.handbook_database_config["password"] == "read-secret"

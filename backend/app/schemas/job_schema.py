@@ -44,6 +44,7 @@ class JobRead(BaseModel):
     precision_level: str
     pipeline: str | None = None
     status: str
+    attempt: int
     priority: int
     progress: int
     params_json: dict[str, Any] | None = None
@@ -60,6 +61,7 @@ class JobStepRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     job_id: int
+    attempt: int
     step_name: str
     worker_name: str | None = None
     status: str

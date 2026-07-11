@@ -9,8 +9,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.api.deps import (
     CurrentUser,
@@ -21,12 +22,14 @@ from app.api.deps import (
 from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
 from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.core.validators import validate_sort_by
+from app.db.pagination import paginate_scalars
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.project import Project
+from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest, ZipUploadResult
 from app.services.audit_service import write_audit_log
 from app.services.file_service import (
@@ -46,6 +49,69 @@ from app.services.storage_service import (
 from app.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
+
+
+def _file_project_association_exists(
+    *,
+    active_only: bool,
+    member_user_id: int | None = None,
+) -> ColumnElement[bool]:
+    """Build a correlated project-association predicate for the outer file row."""
+    drawing_conditions = [
+        DrawingVersion.file_id == StoredFile.id,
+        Drawing.status != "deleted",
+    ]
+    result_conditions = [
+        AnalysisResult.result_file_id == StoredFile.id,
+        Job.project_id.is_not(None),
+    ]
+    if active_only:
+        drawing_conditions.append(Project.status != "deleted")
+        result_conditions.append(Project.status != "deleted")
+
+    drawing_stmt = (
+        select(1)
+        .select_from(DrawingVersion)
+        .join(Drawing, Drawing.id == DrawingVersion.drawing_id)
+        .join(Project, Project.id == Drawing.project_id)
+    )
+    result_stmt = (
+        select(1)
+        .select_from(AnalysisResult)
+        .join(Job, Job.id == AnalysisResult.job_id)
+        .join(Project, Project.id == Job.project_id)
+    )
+    if member_user_id is not None:
+        drawing_stmt = drawing_stmt.join(
+            ProjectMember, ProjectMember.project_id == Project.id
+        )
+        result_stmt = result_stmt.join(ProjectMember, ProjectMember.project_id == Project.id)
+        drawing_conditions.append(ProjectMember.user_id == member_user_id)
+        result_conditions.append(ProjectMember.user_id == member_user_id)
+
+    return or_(
+        exists(drawing_stmt.where(*drawing_conditions)),
+        exists(result_stmt.where(*result_conditions)),
+    )
+
+
+def _file_list_access_filter(current_user: CurrentUser) -> ColumnElement[bool]:
+    """Mirror single-file access rules as one SQL predicate for list endpoints."""
+    any_project = _file_project_association_exists(active_only=False)
+    active_project = _file_project_association_exists(active_only=True)
+    not_orphaned_by_project_deletion = or_(~any_project, active_project)
+
+    if has_global_project_access(current_user):
+        return not_orphaned_by_project_deletion
+
+    active_membership = _file_project_association_exists(
+        active_only=True,
+        member_user_id=current_user.id,
+    )
+    return and_(
+        not_orphaned_by_project_deletion,
+        or_(StoredFile.uploaded_by == current_user.id, active_membership),
+    )
 
 
 def _file_project_ids(db: Session, file_id: int, *, include_deleted: bool = False) -> set[int]:
@@ -345,11 +411,17 @@ def list_files(
         stmt = stmt.where(StoredFile.batch_name == batch_name.strip())
     if file_ext.strip():
         stmt = stmt.where(StoredFile.file_ext == file_ext.strip())
-    files = list(db.scalars(stmt.order_by(order_clause)).all())
-    if not has_global_project_access(current_user):
-        files = [stored for stored in files if _can_read_file(db, current_user, stored)]
-    return page_from_list(
-        [FileRead.model_validate(f) for f in files], page, page_size, request.state.request_id
+    tie_breaker = StoredFile.id.asc() if sort_dir_value == "asc" else StoredFile.id.desc()
+    stmt = stmt.where(_file_list_access_filter(current_user)).order_by(
+        order_clause, tie_breaker
+    )
+    files, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
+    return page_response(
+        [FileRead.model_validate(f) for f in files],
+        page,
+        page_size,
+        total,
+        request.state.request_id,
     )
 
 
@@ -374,6 +446,7 @@ def list_batches(
     ]
     if file_ext.strip():
         where_clauses.append(StoredFile.file_ext == file_ext.strip())
+    where_clauses.append(_file_list_access_filter(current_user))
 
     rows = list(
         db.execute(

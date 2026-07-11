@@ -14,11 +14,20 @@ from app.api.deps import CurrentUser, get_db, has_global_project_access
 from app.core.config import settings
 from app.core.constants import TASK_EXCEL_FINAL
 from app.core.exceptions import forbidden, not_found, service_unavailable
+from app.db.pagination import paginate_scalars
+from app.integrations.excel_final import (
+    ExcelFinalIntegrationError,
+    excel_final_dependencies_available,
+    get_excel_final_stage_root,
+    handbook_database_available,
+    lookup_excel_final_weight,
+)
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
 from app.services.job_access import job_read_filter, require_job_read_access
@@ -150,7 +159,7 @@ async def upload_and_process(
     upload: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """一步完成: 上传 .xlsx → MinIO → 创建作业 → 返回 job_id。"""
+    """上传受支持的钢构清单 → 存储 → 创建作业 → 返回 job_id。"""
     _ensure_pipeline_enabled()
 
     stored = await save_upload_file(db, upload, uploaded_by=current_user.id)
@@ -280,7 +289,7 @@ def list_batches(
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
     stmt = stmt.order_by(ExcelFinalBatch.id.desc())
-    batches = list(db.scalars(stmt).all())
+    batches, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
     data = [
         {
             "batch_id": b.id,
@@ -296,7 +305,7 @@ def list_batches(
         }
         for b in batches
     ]
-    return page_from_list(data, page, page_size, request.state.request_id)
+    return page_response(data, page, page_size, total, request.state.request_id)
 
 
 @router.get("/batches/{batch_id}")
@@ -386,7 +395,7 @@ def list_batch_parts(
         stmt = stmt.where(ExcelFinalPart.part_type == part_type.strip())
 
     stmt = stmt.order_by(ExcelFinalPart.seq)
-    parts = list(db.scalars(stmt).all())
+    parts, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
 
     data = [
         {
@@ -419,7 +428,7 @@ def list_batch_parts(
         }
         for p in parts
     ]
-    return page_from_list(data, page, page_size, request.state.request_id)
+    return page_response(data, page, page_size, total, request.state.request_id)
 
 
 @router.get("/batches/{batch_id}/parts/{part_id}")
@@ -534,7 +543,7 @@ def search_parts(
         stmt = stmt.where(ExcelFinalPart.part_no.contains(part_no.strip()))
 
     stmt = stmt.order_by(ExcelFinalPart.id.desc())
-    parts = list(db.scalars(stmt).all())
+    parts, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
 
     data = [
         {
@@ -554,7 +563,7 @@ def search_parts(
         }
         for p in parts
     ]
-    return page_from_list(data, page, page_size, request.state.request_id)
+    return page_response(data, page, page_size, total, request.state.request_id)
 
 
 # ── Tools ────────────────────────────────────────────────────────────
@@ -566,11 +575,9 @@ def lookup_weight(
     current_user: CurrentUser,
     spec: str = Query(..., min_length=1, description="钢材规格, e.g. L50x5, φ60*3.5, PL10*200"),
 ):
-    """五金手册比重查询 (kg/m)。依赖 hardware_handbook MariaDB。"""
+    """五金手册比重查询 (kg/m)。依赖 hardware_handbook MySQL。"""
     try:
-        from excel_final.handbook import lookup_steel_weight
-
-        weight, source = lookup_steel_weight(spec)
+        weight, source = lookup_excel_final_weight(spec)
         return ok(
             {
                 "spec": spec,
@@ -579,10 +586,10 @@ def lookup_weight(
             },
             request.state.request_id,
         )
-    except ImportError as exc:
+    except ExcelFinalIntegrationError as exc:
         raise service_unavailable(
             "EXCEL_FINAL_UNAVAILABLE",
-            "excel_final 包不可用，无法查询比重。",
+            "Excel Final 比重查询暂不可用。",
         ) from exc
 
 
@@ -594,27 +601,32 @@ def health_check(
     """检查 excel_final 流水线是否可用。"""
     is_enabled = settings.excel_final_pipeline_enabled
     try:
-        from app.integrations.excel_final import load_excel_final_pipeline
+        stage_root = get_excel_final_stage_root()
+        stage_available = True
+    except ExcelFinalIntegrationError:
+        stage_root = None
+        stage_available = False
 
-        load_excel_final_pipeline()
+    dependencies_available = excel_final_dependencies_available()
+    pkg_available = stage_available and dependencies_available
+    handbook_available = bool(stage_root and (stage_root / "handbook.py").is_file())
+    if handbook_available:
+        handbook_db_available = handbook_database_available()
+    else:
+        handbook_db_available = False
 
-        pkg_available = True
-    except ImportError:
+    if not stage_available:
         pkg_available = False
-
-    try:
-        from excel_final.handbook import lookup_steel_weight  # noqa: F401
-
-        handbook_available = True
-    except ImportError:
-        handbook_available = False
 
     return ok(
         {
             "pipeline_enabled": is_enabled,
+            "stage_available": stage_available,
+            "dependencies_available": dependencies_available,
             "package_available": pkg_available,
             "handbook_available": handbook_available,
-            "ready": is_enabled and pkg_available,
+            "handbook_database_available": handbook_db_available,
+            "ready": is_enabled and pkg_available and handbook_db_available,
         },
         request.state.request_id,
     )

@@ -1,29 +1,33 @@
 # Frontend
 
-React + TypeScript + Vite 前端骨架。
+React + TypeScript + Vite operational UI. It uses relative `/api/v1` requests behind Nginx or
+`VITE_API_BASE_URL` for direct local development.
 
-## 快速启动
+## Development
 
 ```bash
-# 首次安装 — 严格按 package-lock.json（推荐）
 npm ci
-
-# 日常增量安装 — 比 npm ci 快
-npm install --prefer-offline
-
-# 启动开发服务器
-npm run dev
+npm run dev       # http://127.0.0.1:5173
+npm run build
 ```
 
-## .npmrc 加速
+The local FastAPI default is `http://127.0.0.1:8010`. Keep `VITE_API_BASE_URL` empty when the
+built SPA is served by Nginx on `http://127.0.0.1:8080`.
 
-项目 `.npmrc` 已配置：
+## Browser Tests
 
-| 配置 | 作用 |
-|------|------|
-| `maxsockets=20` | 20 路并发下载 |
-| `fetch-timeout=30000` | 30s 快速超时 |
-| `audit=false` | 跳过安全审计 |
-| `registry=npmmirror.com` | 国内镜像源 |
+```bash
+npx playwright test
+```
 
-全新安装 120 packages / 207MB 约 14s。
+The default for both browser and API traffic is the production-shaped local Nginx entry at
+`http://127.0.0.1:8080`. Override `PLAYWRIGHT_FRONTEND_BASE_URL` and
+`PLAYWRIGHT_API_BASE_URL` only when debugging Vite or FastAPI directly.
+
+Set `PLAYWRIGHT_EXCEL_SAMPLE_PATH` to a Tekla delimited export or workbook containing the
+required steel-list columns to include the successful Excel Final upload/download digest test.
+A generic `.xls` or `.xlsx` workbook is an intentional negative input. The suite creates
+deterministic job fixtures for retry and DXF download paths rather than relying on existing rows.
+
+Authentication state is stored in `sessionStorage`; SSE authentication uses the HttpOnly cookie
+set by the login/refresh endpoints. Download retries always obtain a new signed URL.

@@ -1,4 +1,4 @@
-"""Edge-case and regression tests for bugs identified in REINVESTIGATION_REPORT.md.
+"""Edge-case and regression tests for previously identified API bugs.
 
 Covers: DWG header whitelist, cascading deletes, race conditions,
 super-admin protection coverage, PATCH self-status guards.

@@ -241,11 +241,13 @@ dependencies = [
     { name = "dxf-converter" },
     { name = "dxf2excel" },
     { name = "email-validator" },
-    { name = "excel-final" },
     { name = "fastapi" },
     { name = "gunicorn" },
     { name = "minio" },
+    { name = "numpy" },
+    { name = "openpyxl" },
     { name = "orjson" },
+    { name = "pandas" },
     { name = "pwdlib", extra = ["argon2"] },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
@@ -254,6 +256,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "sqlalchemy" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "xlrd" },
 ]
 
 [package.dev-dependencies]
@@ -271,11 +274,13 @@ requires-dist = [
     { name = "dxf-converter", editable = "../Stages/dxf2dwg" },
     { name = "dxf2excel", editable = "../Stages/dxf2excel" },
     { name = "email-validator", specifier = ">=2.2.0" },
-    { name = "excel-final", editable = "../Stages/excel_final" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gunicorn", specifier = ">=22.0.0" },
     { name = "minio", specifier = ">=7.2,<8" },
+    { name = "numpy", specifier = ">=1.24" },
+    { name = "openpyxl", specifier = ">=3.1" },
     { name = "orjson", specifier = ">=3.10.0" },
+    { name = "pandas", specifier = ">=2.0" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.2.1" },
     { name = "pydantic-settings", specifier = ">=2.3.0" },
     { name = "pyjwt", specifier = ">=2.8.0" },
@@ -284,6 +289,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "sqlalchemy", specifier = ">=2.0.30" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+    { name = "xlrd", specifier = ">=2.0,<3" },
 ]
 
 [package.metadata.requires-dev]
@@ -370,28 +376,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d3/38/af70d7ab1ae9d4da4
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/8b/5fe2cc11fee489817272089c4203e679c63b570a5aaeb18d852ae3cbba6a/et_xmlfile-2.0.0-py3-none-any.whl", hash = "sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa", size = 18059, upload-time = "2024-10-25T17:25:39.051Z" },
 ]
-
-[[package]]
-name = "excel-final"
-version = "1.0.0"
-source = { editable = "../Stages/excel_final" }
-dependencies = [
-    { name = "numpy" },
-    { name = "openpyxl" },
-    { name = "pandas" },
-    { name = "pymysql" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=1.24" },
-    { name = "openpyxl", specifier = ">=3.1" },
-    { name = "pandas", specifier = ">=2.0" },
-    { name = "pymysql", specifier = ">=1.1" },
-]
-
-[package.metadata.requires-dev]
-dev = []
 
 [[package]]
 name = "ezdxf"
@@ -1215,4 +1199,13 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b3/8f/705086c9d734d3b663af0e9bb3d4de6578d08f46b1b101c2442fd9aecaa2/win32_setctime-1.2.0.tar.gz", hash = "sha256:ae1fdf948f5640aae05c511ade119313fb6a30d7eabe25fef9764dca5873c4c0", size = 4867, upload-time = "2024-12-07T15:28:28.314Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/07/c6fe3ad3e685340704d314d765b7912993bcb8dc198f0e7a89382d37974b/win32_setctime-1.2.0-py3-none-any.whl", hash = "sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390", size = 4083, upload-time = "2024-12-07T15:28:26.465Z" },
+]
+
+[[package]]
+name = "xlrd"
+version = "2.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/5a/377161c2d3538d1990d7af382c79f3b2372e880b65de21b01b1a2b78691e/xlrd-2.0.2.tar.gz", hash = "sha256:08b5e25de58f21ce71dc7db3b3b8106c1fa776f3024c54e45b45b374e89234c9", size = 100167, upload-time = "2025-06-14T08:46:39.039Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1a/62/c8d562e7766786ba6587d09c5a8ba9f718ed3fa8af7f4553e8f91c36f302/xlrd-2.0.2-py2.py3-none-any.whl", hash = "sha256:ea762c3d29f4cca48d82df517b6d89fbce4db3107f9d78713e48cd321d5c9aa9", size = 96555, upload-time = "2025-06-14T08:46:37.766Z" },
 ]

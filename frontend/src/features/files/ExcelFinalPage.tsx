@@ -76,7 +76,8 @@ export function ExcelFinalPage() {
   const jobsQ = useQuery({
     queryKey: ['jobs', TASK_TYPE],
     queryFn: () => listJobs(TASK_TYPE),
-    refetchInterval: 3000,
+    refetchInterval: (query) =>
+      query.state.data?.some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false,
   });
   const batchesQ = useQuery({
     queryKey: ['excel-final-batches', batchPage, batchPageSize],
@@ -156,8 +157,16 @@ export function ExcelFinalPage() {
     try {
       await retryJob(jobId);
       setActiveJobId(jobId);
+      setSelectedBatchId(null);
       message.success(`任务 #${jobId} 已重新提交`);
-      await queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] }),
+        queryClient.invalidateQueries({
+          queryKey: ['excel-final-status', jobId],
+          exact: true,
+          refetchType: 'all',
+        }),
+      ]);
     } catch (error) {
       message.error(errorMessage(error, '重试失败'));
     }
@@ -407,7 +416,7 @@ export function ExcelFinalPage() {
       <Drawer
         title={`批次 #${selectedBatchId ?? ''}`}
         open={selectedBatchId !== null}
-        width="min(1100px, 94vw)"
+        size="min(1100px, 94vw)"
         onClose={() => setSelectedBatchId(null)}
       >
         {batchDetailQ.data && (

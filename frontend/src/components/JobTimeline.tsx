@@ -1,4 +1,4 @@
-import { Empty, Steps, Typography } from 'antd';
+import { Empty, Steps, Tag, Typography } from 'antd';
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
@@ -32,6 +32,7 @@ export function JobTimeline({ steps }: { steps: JobStep[] }) {
     title: stepLabel(step),
     description: (
       <div>
+        <Tag bordered={false}>第 {step.attempt} 次</Tag>
         {step.error_message && (
           <Typography.Text type="danger">{step.error_message}</Typography.Text>
         )}

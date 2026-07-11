@@ -6,13 +6,30 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db
 from app.core.config import settings
-from app.core.exceptions import not_found, service_unavailable
+from app.core.exceptions import forbidden, not_found, service_unavailable
+from app.core.permissions import has_global_project_access, require_project_member
+from app.db.pagination import paginate_scalars
 from app.models.agent_run import AgentRun, AgentRunStep
 from app.schemas.agent_schema import AgentRunCreate, AgentRunRead, AgentRunStepRead
-from app.schemas.common import ok, page_from_list
+from app.schemas.common import ok
+from app.schemas.common import page as page_response
 from app.services.audit_service import write_audit_log
 
 router = APIRouter()
+
+
+def _get_accessible_agent_run(
+    db: Session, current_user: CurrentUser, agent_run_id: int
+) -> AgentRun:
+    run = db.get(AgentRun, agent_run_id)
+    if not run:
+        raise not_found("AgentRun")
+    if has_global_project_access(current_user) or run.user_id == current_user.id:
+        return run
+    if run.project_id is not None:
+        require_project_member(db, current_user, run.project_id)
+        return run
+    raise forbidden("Agent run access is restricted.")
 
 
 @router.post("/agent-runs", status_code=status.HTTP_202_ACCEPTED)
@@ -57,9 +74,7 @@ def get_agent_run(
         raise service_unavailable(
             "AGENT_DISABLED", "Agent subsystem is intentionally disabled in stage 1."
         )
-    run = db.get(AgentRun, agent_run_id)
-    if not run:
-        raise not_found("AgentRun")
+    run = _get_accessible_agent_run(db, current_user, agent_run_id)
     return ok(AgentRunRead.model_validate(run), request.state.request_id)
 
 
@@ -76,17 +91,20 @@ def get_agent_run_steps(
         raise service_unavailable(
             "AGENT_DISABLED", "Agent subsystem is intentionally disabled in stage 1."
         )
-    steps = list(
-        db.scalars(
-            select(AgentRunStep)
-            .where(AgentRunStep.agent_run_id == agent_run_id)
-            .order_by(AgentRunStep.id)
-        ).all()
+    _get_accessible_agent_run(db, current_user, agent_run_id)
+    steps, total = paginate_scalars(
+        db,
+        select(AgentRunStep)
+        .where(AgentRunStep.agent_run_id == agent_run_id)
+        .order_by(AgentRunStep.id),
+        page_no=page,
+        page_size=page_size,
     )
-    return page_from_list(
+    return page_response(
         [AgentRunStepRead.model_validate(s) for s in steps],
         page,
         page_size,
+        total,
         request.state.request_id,
     )
 

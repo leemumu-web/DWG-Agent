@@ -48,13 +48,13 @@ step "Celery worker-excel-final"
 start_excel_final_worker
 
 # 3. 后端
-step "后端 (127.0.0.1:8000)"
-if port_free 8000; then
+step "后端 (${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT})"
+if port_free "$LOCAL_BACKEND_PORT"; then
     info "启动后端..."
     cd "$PROJECT_ROOT/backend"
-    uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 &
+    uv run uvicorn app.main:app --reload --host "$LOCAL_BACKEND_HOST" --port "$LOCAL_BACKEND_PORT" &
     echo $! > /tmp/dwg-agent-backend.pid
-    wait_port 127.0.0.1 8000 30 "后端"
+    wait_port "$LOCAL_BACKEND_HOST" "$LOCAL_BACKEND_PORT" 30 "后端"
 else
     ok "后端已运行"
 fi
@@ -69,8 +69,8 @@ else
     # 确保 .env 是直连模式（dev server 不走 Nginx）
     if grep -q '^VITE_API_BASE_URL=$' .env 2>/dev/null; then
         warn ".env 是 Nginx 模式，开发模式需要直连后端"
-        info "已临时设置 VITE_API_BASE_URL=http://127.0.0.1:8000"
-        VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev &
+        info "已临时设置 VITE_API_BASE_URL=http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}"
+        VITE_API_BASE_URL="http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}" npm run dev &
     else
         npm run dev &
     fi
@@ -84,8 +84,8 @@ echo -e "${GREEN}  开发模式已启动${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "  前端: ${BLUE}http://127.0.0.1:5173${NC}      (Vite HMR)"
-echo -e "  后端: ${BLUE}http://127.0.0.1:8000${NC}      (FastAPI --reload)"
-echo -e "  Docs: ${DIM}http://127.0.0.1:8000/docs${NC}"
+echo -e "  后端: ${BLUE}http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}${NC}      (FastAPI --reload)"
+echo -e "  Docs: ${DIM}http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}/docs${NC}"
 echo ""
 echo -e "  停止: ${YELLOW}bash scripts/stop-all.sh${NC}"
 

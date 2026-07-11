@@ -92,3 +92,19 @@ def test_failed_job_emits_error_event(db: Session):
     assert event["type"] == "error"
     assert event["error_code"] == "MYSQL_FAILURE"
     assert event["message"] == "failed in worker"
+
+
+def test_sse_event_overlays_authoritative_attempt(db: Session):
+    job = _job()
+    job.status = "running"
+    job.attempt = 4
+    job.progress = 25
+    job.progress_data = {"type": "progress", "message": "legacy payload"}
+    db.add(job)
+    db.commit()
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+
+    event = next(job_event_stream(factory, job.id, poll_interval=0, max_duration=1))
+
+    assert event is not None
+    assert event["attempt"] == 4

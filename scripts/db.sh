@@ -15,7 +15,7 @@ DWG-Agent MySQL helper
 Commands:
   start         启动本机 MySQL/MariaDB，并验证 backend/.env 应用凭据可登录
   setup-user    根据 backend/.env 创建/更新 dwg_agent 库、dwg_user 用户和授权
-  init          执行 app.db.init_db + alembic upgrade head，补齐表、迁移与种子数据
+  init          执行 alembic upgrade head + app.db.init_db，补齐迁移与种子数据
   migrate       执行 alembic upgrade head，修复已存在 MySQL schema 漂移
   migration-test
                 创建临时 MySQL schema，从空库执行 alembic upgrade head 并验证表结构
@@ -350,7 +350,8 @@ timestamp_tables = (
 )
 
 expected_columns = {
-    "jobs": {"progress_data"},
+    "jobs": {"progress_data", "attempt"},
+    "job_steps": {"attempt"},
     "sys_users": {"password_changed_at"},
 }
 expected_bigint_columns = {
@@ -367,7 +368,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "7f2a9c4e6b10":
+    if version != "a74c2e9f1d30":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}

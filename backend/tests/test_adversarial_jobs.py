@@ -378,14 +378,13 @@ class TestStubWorkerIdempotency:
 
 
 # ---------------------------------------------------------------------------
-# Pagination: page_from_list loads everything into memory; out-of-range page is empty
+# SQL pagination: out-of-range pages are empty while totals remain exact
 # ---------------------------------------------------------------------------
 
 
 class TestPaginationEdges:
     def test_page_beyond_total_returns_empty_data_with_correct_pagination(self):
-        """page_from_list slices [start:end] — a page past the end yields empty data
-        but the pagination envelope still reports the real total."""
+        """A page past the end is empty while the envelope reports the exact total."""
         client = _client()
         h = _admin(client)
         # Audit logs: login created at least one. List page 9999.
@@ -485,7 +484,7 @@ class TestCrossProjectIsolation:
 
 
 # ---------------------------------------------------------------------------
-# Audit log hard cap at 200 rows + auditor-only access
+# Audit log SQL pagination (page size max 200) + auditor-only access
 # ---------------------------------------------------------------------------
 
 
@@ -504,10 +503,8 @@ class TestAuditLogAccessAndCap:
         rr = client.get("/api/v1/audit-logs", headers=h)
         assert rr.status_code == 403
 
-    def test_audit_log_list_limited_to_200(self):
-        """The SQL query has .limit(200); page_size is capped at le=200 by the Query
-        validator. Requesting the maximum page_size returns at most 200 rows, and the
-        in-memory total is bounded by the .limit(200)."""
+    def test_audit_log_page_size_is_limited_to_200(self):
+        """The per-page maximum is 200 while pagination.total remains exact."""
         client = _client()
         h = _admin(client)
         # page_size=200 is the validator's upper bound; 1000 would be 422.
@@ -515,7 +512,7 @@ class TestAuditLogAccessAndCap:
         assert r.status_code == 200
         body = r.json()
         assert len(body["data"]) <= 200
-        assert body["pagination"]["total"] <= 200
+        assert body["pagination"]["total"] >= len(body["data"])
 
     def test_audit_log_page_size_over_200_rejected(self):
         """page_size > 200 is rejected at the query-param validator (422, not silently clamped)."""

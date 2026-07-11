@@ -56,6 +56,7 @@ class TestAppServices:
         for service_name in APP_SERVICE_NAMES[1:]:
             command = " ".join(data["services"][service_name]["healthcheck"]["test"])
             assert "/proc/1/cmdline" in command
+            assert "/tmp/dwg-celery-ready" in command
             assert "inspect" not in command
             assert "localhost:8000/health" not in command
 
@@ -63,11 +64,12 @@ class TestAppServices:
         data = _load()
         assert "flower" not in data["services"]
 
-    def test_all_editable_stage_dependencies_are_copied_into_image(self):
+    def test_stage_dependencies_and_standalone_excel_runner_are_copied_into_image(self):
         dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
-        for stage in ("dwg2dxf", "dxf2dwg", "dxf2excel", "excel_final"):
+        for stage in ("dwg2dxf", "dxf2dwg", "dxf2excel"):
             assert f"COPY Stages/{stage} ./Stages/{stage}" in dockerfile
+        assert "COPY Stages/excel_final /app/Stages/excel_final" in dockerfile
 
 
 class TestComposeYamlValid:
@@ -97,7 +99,11 @@ class TestComposeYamlValid:
         assert services["mysql"]["image"] == (
             "container-registry.oracle.com/mysql/community-server:8.4"
         )
-        assert services["minio"]["image"] == "quay.io/minio/minio:latest"
+        assert services["minio"]["image"] == (
+            "quay.io/minio/minio@sha256:"
+            "14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+        )
+        assert ":latest" not in services["minio"]["image"]
         assert "80:8080" in services["nginx"]["ports"]
 
         nginx_conf = (REPO_ROOT / "infra/nginx/nginx.conf").read_text()
@@ -139,6 +145,15 @@ class TestMysqlService:
         volumes = data["services"]["mysql"]["volumes"]
         init_mounts = [v for v in volumes if "init.sql" in str(v)]
         assert len(init_mounts) >= 1, "init.sql should be mounted"
+
+    def test_mysql_initializes_hardware_handbook_after_platform_grants(self):
+        data = _load()
+        volumes = data["services"]["mysql"]["volumes"]
+
+        assert any("01-platform.sql" in str(volume) for volume in volumes)
+        assert any("02-hardware-handbook.sql" in str(volume) for volume in volumes)
+        init_sql = (REPO_ROOT / "infra/mysql/init.sql").read_text(encoding="utf-8")
+        assert "GRANT SELECT ON hardware_handbook.*" in init_sql
 
     def test_mysql_has_healthcheck(self):
         data = _load()
@@ -263,3 +278,13 @@ class TestDockerignore:
         content = DOCKERIGNORE_PATH.read_text()
         assert ".venv/" in content
         assert "__pycache__" in content
+
+    def test_excludes_large_assets_not_used_by_backend_image(self):
+        content = DOCKERIGNORE_PATH.read_text()
+        for path in (
+            "third_parts/",
+            "Stages/dxf2excel/original_dxf/",
+            "Stages/dwg2dxf/convert/",
+            "Stages/dxf2dwg/tools/oda/",
+        ):
+            assert path in content

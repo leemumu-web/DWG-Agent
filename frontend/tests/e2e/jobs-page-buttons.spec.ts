@@ -2,22 +2,96 @@
  * JobsPage — every button tested against its real backend connection.
  */
 import { test, expect, type Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { API_BASE } from './test-env';
 
 async function login(page: Page) {
-  const apiResp = await page.request.post('http://127.0.0.1:8000/api/v1/auth/sessions', {
+  const apiResp = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
     data: { username: 'admin', password: 'SuperAdminPass1' },
   });
   const body = await apiResp.json();
   await page.goto('/');
   await page.evaluate(
     ({ t, u }) => {
-      localStorage.setItem('dwg_access_token', t);
-      localStorage.setItem('dwg_user', JSON.stringify(u));
+      sessionStorage.setItem('dwg_access_token', t);
+      sessionStorage.setItem('dwg_user', JSON.stringify(u));
     },
     { t: body.data.access_token, u: body.data.user },
   );
   await page.goto('/jobs');
   await page.waitForLoadState('networkidle');
+}
+
+async function createSucceededDxfFixture(page: Page): Promise<number> {
+  const sampleDir = path.resolve(process.cwd(), '../Stages/dwg2dxf/samples/input');
+  const sampleName = fs.readdirSync(sampleDir).find((name) => name.endsWith('.dwg'));
+  expect(sampleName).toBeTruthy();
+  const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
+  expect(token).toBeTruthy();
+  const upload = await page.request.post(`${API_BASE}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      upload: {
+        name: `download-fixture-${Date.now()}.dwg`,
+        mimeType: 'application/acad',
+        buffer: fs.readFileSync(path.join(sampleDir, sampleName!)),
+      },
+    },
+  });
+  expect(upload.status()).toBe(201);
+  const fileId = (await upload.json()).data.id as number;
+  const submitted = await page.request.post(`${API_BASE}/api/v1/jobs`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      task_type: 'convert_dwg_to_dxf',
+      precision_level: 'normal',
+      params: { file_id: fileId },
+    },
+  });
+  expect(submitted.status()).toBe(202);
+  const jobId = (await submitted.json()).data.id as number;
+  await expect.poll(async () => {
+    const response = await page.request.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return (await response.json()).data.status;
+  }, { timeout: 45_000 }).toBe('succeeded');
+  return jobId;
+}
+
+async function createFailedDxfFixture(page: Page): Promise<number> {
+  const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
+  expect(token).toBeTruthy();
+  const upload = await page.request.post(`${API_BASE}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      upload: {
+        name: `job-retry-fixture-${Date.now()}.dwg`,
+        mimeType: 'application/acad',
+        buffer: Buffer.concat([Buffer.from('AC1027'), Buffer.alloc(2048)]),
+      },
+    },
+  });
+  expect(upload.status()).toBe(201);
+  const fileId = (await upload.json()).data.id as number;
+  const submitted = await page.request.post(`${API_BASE}/api/v1/jobs`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: {
+      task_type: 'convert_dwg_to_dxf',
+      precision_level: 'normal',
+      params: { file_id: fileId },
+    },
+  });
+  expect(submitted.status()).toBe(202);
+  const jobId = (await submitted.json()).data.id as number;
+  await expect.poll(async () => {
+    const response = await page.request.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return (await response.json()).data.status;
+  }, { timeout: 30_000 }).toBe('failed');
+  return jobId;
 }
 
 test.describe('JobsPage — button & API integration', () => {
@@ -77,74 +151,46 @@ test.describe('JobsPage — button & API integration', () => {
 
   // ── 4. Drawer "下载 DXF" button ──────────────────────────────────
   test('drawer "下载 DXF" → visible for succeeded DXF jobs', async ({ page }) => {
-    await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-
-    // Find a dxf_open_source job
-    const rows = page.locator('.ant-table-row');
-    const rowCount = await rows.count();
-
-    let found = false;
-    for (let i = 0; i < rowCount && !found; i++) {
-      const row = rows.nth(i);
-      const text = await row.textContent();
-      if (text?.includes('dxf_open_source') || text?.includes('DXF 开源管线')) {
-        // Click detail
-        await row.getByRole('button', { name: /查看详情/ }).click();
-        const drawer = page.locator('.ant-drawer');
-        await expect(drawer).toBeVisible({ timeout: 5000 });
-
-        // Check for DXF download button
-        const dxfBtn = drawer.getByRole('button', { name: /下载 DXF/ });
-        if (await dxfBtn.isVisible()) {
-          found = true;
-
-          const [dlResp] = await Promise.all([
-            page.waitForResponse(
-              (r) => r.url().includes('/download-url') && r.request().method() === 'GET',
-              { timeout: 10_000 },
-            ),
-            dxfBtn.click(),
-          ]);
-          expect(dlResp.status()).toBe(200);
-        }
-        // Close
-        await page.locator('.ant-drawer-mask').click();
-      }
-    }
-    test.skip(!found, 'No DXF job with download button');
+    const jobId = await createSucceededDxfFixture(page);
+    await page.reload();
+    const row = page.locator(`.ant-table-row[data-row-key="${jobId}"]`);
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    await row.getByRole('button', { name: /查看详情/ }).click();
+    const drawer = page.locator('.ant-drawer');
+    await expect(drawer).toBeVisible({ timeout: 5000 });
+    const dxfBtn = drawer.getByRole('button', { name: /下载 DXF/ });
+    await expect(dxfBtn).toBeVisible();
+    const [dlResp] = await Promise.all([
+      page.waitForResponse(
+        (response) => response.url().includes('/download-url')
+          && response.request().method() === 'GET',
+        { timeout: 10_000 },
+      ),
+      dxfBtn.click(),
+    ]);
+    expect(dlResp.status()).toBe(200);
   });
 
   // ── 5. Drawer "重新提交" button → POST /jobs/{id}/retry-requests ──
   test('drawer "重新提交" → POST retry-requests → 202', async ({ page }) => {
-    await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const rows = page.locator('.ant-table-row');
-    const rowCount = await rows.count();
-
-    let found = false;
-    for (let i = 0; i < rowCount && !found; i++) {
-      const row = rows.nth(i);
-      const text = await row.textContent();
-      if (text?.includes('failed') || text?.includes('cancelled')) {
-        await row.getByRole('button', { name: /查看详情/ }).click();
-        const drawer = page.locator('.ant-drawer');
-        await expect(drawer).toBeVisible({ timeout: 5000 });
-
-        const retryBtn = drawer.getByRole('button', { name: /重新提交/ });
-        if (await retryBtn.isVisible()) {
-          found = true;
-          const [resp] = await Promise.all([
-            page.waitForResponse(
-              (r) => r.url().includes('/retry-requests') && r.request().method() === 'POST',
-              { timeout: 10_000 },
-            ),
-            retryBtn.click(),
-          ]);
-          expect(resp.status()).toBe(202);
-        }
-        await page.locator('.ant-drawer-mask').click();
-      }
-    }
-    test.skip(!found, 'No failed/cancelled job found');
+    const jobId = await createFailedDxfFixture(page);
+    await page.reload();
+    const row = page.locator(`.ant-table-row[data-row-key="${jobId}"]`);
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    await row.getByRole('button', { name: /查看详情/ }).click();
+    const drawer = page.locator('.ant-drawer');
+    await expect(drawer).toBeVisible({ timeout: 5000 });
+    const retryBtn = drawer.getByRole('button', { name: /重新提交/ });
+    await expect(retryBtn).toBeVisible();
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (item) => item.url().includes('/retry-requests')
+          && item.request().method() === 'POST',
+        { timeout: 10_000 },
+      ),
+      retryBtn.click(),
+    ]);
+    expect(response.status()).toBe(202);
   });
 
   // ── 6. Table pagination ──────────────────────────────────────────

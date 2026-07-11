@@ -149,7 +149,7 @@ body {
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   color: #8c8c8c !important;
   border-bottom: 1px solid #f0f0f0 !important;
 }

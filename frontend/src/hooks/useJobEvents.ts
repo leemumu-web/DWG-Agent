@@ -7,6 +7,7 @@ const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 interface JobEvent {
   type: string;
   job_id: number;
+  attempt?: number;
   status?: string;
   progress?: number;
   step_name?: string;
@@ -16,7 +17,7 @@ interface JobEvent {
   pipeline?: string;
   task_type?: string;
   /** snapshot / terminal frames carry a steps[] array; progress frames do not. */
-  steps?: { step_name: string; status: string; error_message?: string | null }[];
+  steps?: { attempt: number; step_name: string; status: string; error_message?: string | null }[];
 }
 
 interface JobEventUpdate {
@@ -76,6 +77,7 @@ export function useJobEvents(
     const apply = (event: JobEvent) => {
       const jobPatch: Partial<Job> & { id: number } = {
         id: event.job_id,
+        attempt: event.attempt,
         status: event.status,
         progress: event.progress,
         pipeline: event.pipeline,
@@ -95,6 +97,7 @@ export function useJobEvents(
       const steps: JobStep[] | undefined = event.steps?.map((s, i) => ({
         id: i,
         job_id: event.job_id,
+        attempt: s.attempt,
         step_name: s.step_name,
         status: s.status,
         error_message: s.error_message ?? null,

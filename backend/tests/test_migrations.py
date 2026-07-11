@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.models.job import JobStep
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = PROJECT_ROOT / "backend" / "migrations" / "versions"
 ALEMBIC_ENV = PROJECT_ROOT / "backend" / "migrations" / "env.py"
@@ -10,6 +12,8 @@ INITIAL_REVISION = VERSIONS_DIR / "40452ddd24e7_initial.py"
 MYSQL_BACKEND_REVISION = VERSIONS_DIR / "1d1696c7e854_remove_redis_add_mysql_backend.py"
 EXCEL_FINAL_REVISION = VERSIONS_DIR / "3480bd86ddc3_add_excel_final_tables.py"
 EXCEL_FINAL_RELATIONS_REVISION = VERSIONS_DIR / "7f2a9c4e6b10_harden_excel_final_relations.py"
+JOB_ATTEMPT_REVISION = VERSIONS_DIR / "8c61f4d2a9e7_add_job_attempt_generation.py"
+JOB_STEP_ATTEMPT_REVISION = VERSIONS_DIR / "a74c2e9f1d30_add_job_step_attempt.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -82,6 +86,10 @@ def test_business_migration_does_not_manage_celery_owned_tables():
         "kombu_message",
         "celery_taskmeta",
         "celery_tasksetmeta",
+        "message_id_sequence",
+        "queue_id_sequence",
+        "task_id_sequence",
+        "taskset_id_sequence",
     ):
         assert f"op.drop_table('{table}')" not in source
         assert f"op.create_table('{table}'" not in source
@@ -99,6 +107,33 @@ def test_excel_final_followup_migration_aligns_ids_and_relations():
     assert 'ondelete="SET NULL"' in source
 
 
+def test_job_attempt_migration_adds_worker_generation_boundary():
+    source = JOB_ATTEMPT_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "7f2a9c4e6b10"' in source
+    assert '"jobs"' in source
+    assert '"attempt"' in source
+    assert "server_default=sa.text(\"1\")" in source
+
+
+def test_job_step_attempt_migration_preserves_retry_history():
+    source = JOB_STEP_ATTEMPT_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "8c61f4d2a9e7"' in source
+    assert '"job_steps"' in source
+    assert '"attempt"' in source
+    assert '"ix_job_steps_job_id_attempt"' in source
+    assert "server_default=sa.text(\"1\")" in source
+
+
+def test_job_step_model_keeps_attempt_lookup_index_in_metadata():
+    indexed_columns = {
+        tuple(column.name for column in index.columns) for index in JobStep.__table__.indexes
+    }
+
+    assert ("job_id", "attempt") in indexed_columns
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -107,6 +142,10 @@ def test_alembic_autogenerate_excludes_celery_owned_tables():
         "kombu_message",
         "celery_taskmeta",
         "celery_tasksetmeta",
+        "message_id_sequence",
+        "queue_id_sequence",
+        "task_id_sequence",
+        "taskset_id_sequence",
     ):
         assert f'"{table}"' in source
     assert source.count("include_object=include_object") == 2
@@ -124,6 +163,8 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "7f2a9c4e6b10"' in source
+    assert 'version != "a74c2e9f1d30"' in source
+    assert '"jobs": {"progress_data", "attempt"}' in source
+    assert '"job_steps": {"attempt"}' in source
     assert "identifier types are not BIGINT" in source
     assert "excel_final_batches.job_id is not unique" in source

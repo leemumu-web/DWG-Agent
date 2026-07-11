@@ -5,7 +5,9 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PROJECT_ROOT
+LOCAL_BACKEND_HOST="${LOCAL_BACKEND_HOST:-127.0.0.1}"
+LOCAL_BACKEND_PORT="${LOCAL_BACKEND_PORT:-8010}"
+export PROJECT_ROOT LOCAL_BACKEND_HOST LOCAL_BACKEND_PORT
 
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; BLUE='\033[34m'; DIM='\033[2m'; NC='\033[0m'
 
@@ -43,6 +45,43 @@ pidfile_running() {
     return 1
 }
 
+celery_worker_pattern() {
+    local queue="$1" slug="$2"
+    printf '%s' "[c]elery.*-A app\\.workers\\.celery_app(:celery_app)? worker.*-Q ${queue}( |$).*-n ${slug}-local@"
+}
+
+celery_worker_pids() {
+    local queue="$1" slug="$2" pattern
+    pattern="$(celery_worker_pattern "$queue" "$slug")"
+    pgrep -f "$pattern" 2>/dev/null || true
+}
+
+stop_celery_worker() {
+    local queue="$1" slug="${2:-${1//_/-}}"
+    local label="worker-${slug}"
+    local pidfile="/tmp/dwg-agent-${label}.pid"
+    local pattern
+    pattern="$(celery_worker_pattern "$queue" "$slug")"
+
+    if ! celery_worker_pids "$queue" "$slug" | grep -q .; then
+        rm -f "$pidfile"
+        ok "Celery ${label} 未运行"
+        return 0
+    fi
+
+    pkill -TERM -f "$pattern" 2>/dev/null || true
+    for _ in $(seq 1 15); do
+        if ! celery_worker_pids "$queue" "$slug" | grep -q .; then
+            rm -f "$pidfile"
+            ok "Celery ${label} 已停止"
+            return 0
+        fi
+        sleep 1
+    done
+    warn "Celery ${label} 未在 15 秒内退出；未执行强制 kill"
+    return 1
+}
+
 start_celery_worker() {
     local queue="$1" concurrency="$2" slug="${3:-${1//_/-}}"
     local label="worker-${slug}"
@@ -52,6 +91,14 @@ start_celery_worker() {
 
     if pidfile_running "$pidfile"; then
         ok "Celery ${label} 已运行"
+        return 0
+    fi
+
+    local -a discovered_pids
+    mapfile -t discovered_pids < <(celery_worker_pids "$queue" "$slug")
+    if [ "${#discovered_pids[@]}" -gt 0 ]; then
+        echo "${discovered_pids[0]}" > "$pidfile"
+        warn "Celery ${label} 已存在但 pidfile 缺失；已恢复进程跟踪，跳过重复启动"
         return 0
     fi
 

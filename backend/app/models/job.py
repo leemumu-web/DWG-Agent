@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PKType
@@ -21,6 +21,7 @@ class Job(TimestampMixin, Base):
     precision_level: Mapped[str] = mapped_column(String(32), nullable=False)
     pipeline: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
+    attempt: Mapped[int] = mapped_column(default=1, server_default="1", nullable=False)
     priority: Mapped[int] = mapped_column(default=0, nullable=False)
     progress: Mapped[int] = mapped_column(default=0, nullable=False)
     params_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
@@ -37,9 +38,11 @@ class Job(TimestampMixin, Base):
 
 class JobStep(Base):
     __tablename__ = "job_steps"
+    __table_args__ = (Index("ix_job_steps_job_id_attempt", "job_id", "attempt"),)
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
     step_name: Mapped[str] = mapped_column(String(128), nullable=False)
     worker_name: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(32), nullable=False)

@@ -4,10 +4,11 @@
 # Multi-stage: builder installs deps, runtime is minimal.
 #
 # 关键设计：build context = 仓库根（见 compose.yaml），因为 backend/pyproject.toml
-# 把 dwg-converter / dxf-converter / dxf2excel / excel-final 声明为 editable path 依赖，
+# 把 dwg-converter / dxf-converter / dxf2excel 声明为 editable path 依赖，
 # 指向 ../Stages/ 下对应目录（相对 backend/）。这些路径在 ./backend 上下文
 # 之外，故必须以仓库根为上下文，把 Stages/ 一并 COPY 进 builder，uv sync --frozen 才能
 # 解析 lock 里锁定的 editable 源。
+# Excel Final 保持其独立脚本工程布局，由平台通过隔离子进程调用，不作为 Python 包安装。
 #
 # 运行时：DXF 转换链路（ODA File Converter + xvfb-run）内置进镜像，Stage 1 虽
 # DXF_PIPELINE_ENABLED=false 不调用，但 worker-dxf / worker-agent 一旦开启即就绪。
@@ -41,7 +42,6 @@ COPY backend/pyproject.toml backend/uv.lock backend/README.md ./backend/
 COPY Stages/dwg2dxf ./Stages/dwg2dxf
 COPY Stages/dxf2dwg ./Stages/dxf2dwg
 COPY Stages/dxf2excel ./Stages/dxf2excel
-COPY Stages/excel_final ./Stages/excel_final
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend
@@ -80,6 +80,8 @@ COPY --from=builder /app/.venv /app/.venv
 
 # editable 安装的 .pth 指向 /app/Stages/*，runtime 必须带源码，否则 import 失败。
 COPY --from=builder /app/Stages /app/Stages
+# 独立 Excel Final Stage 由 app.integrations.excel_final_runner 在子进程中执行。
+COPY Stages/excel_final /app/Stages/excel_final
 
 # Copy application code
 COPY backend/app ./app

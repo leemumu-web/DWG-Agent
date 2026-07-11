@@ -1,5 +1,5 @@
+import axios from 'axios';
 import { apiClient, fetchAllPages, type ApiEnvelope } from './client';
-import { useAuthStore } from '../stores/auth.store';
 import type { BatchInfo, ExcelPreviewResponse, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
@@ -19,76 +19,26 @@ export async function listBatches(fileExt?: string) {
   return res.data.data;
 }
 
-function apiUrl(path: string): string {
-  const base = import.meta.env.VITE_API_BASE_URL || '';
-  return `${base}${path}`;
-}
-
-function authHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-async function throwOnHttpError(res: Response): Promise<void> {
-  if (res.ok) return;
-  let body: Record<string, unknown> = {};
-  try { body = await res.json(); } catch { /* use defaults */ }
-  const detail = (body as { error?: { code?: string; message?: string } })?.error?.message
-    || `HTTP ${res.status} ${res.statusText}`;
-  throw new Error(detail);
-}
-
-/** fetch() wrapper with timeout and retry for upload/download operations. */
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit & { timeout?: number },
-  retries = 0,
-): Promise<Response> {
-  const timeout = init.timeout ?? 120_000;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
-    try {
-      const res = await fetch(url, { ...init, signal: controller.signal });
-      return res;
-    } catch (err) {
-      if (attempt === retries) throw err;
-      // Wait before retry (exponential backoff)
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  throw new Error('fetch failed after retries');
-}
-
 export async function uploadFile(file: File, batchName?: string): Promise<StoredFile> {
   const form = new FormData();
   form.append('upload', file);
-  let url = apiUrl('/api/v1/files');
-  if (batchName) url += `?batch_name=${encodeURIComponent(batchName)}`;
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: form,
+  const res = await apiClient.post<ApiEnvelope<StoredFile>>('/api/v1/files', form, {
+    params: batchName ? { batch_name: batchName } : undefined,
     timeout: 120_000,
   });
-  await throwOnHttpError(res);
-  const json = await res.json();
-  return json.data as StoredFile;
+  return res.data.data;
 }
 
 export async function uploadFileAndConvert(file: File, batchName?: string) {
   const stored = await uploadFile(file, batchName);
-  const res = await fetchWithTimeout(apiUrl('/api/v1/jobs'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ task_type: 'convert_dwg_to_dxf', precision_level: 'normal', params: { file_id: stored.id, batch_name: batchName || null } }),
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+    task_type: 'convert_dwg_to_dxf',
+    precision_level: 'normal',
+    params: { file_id: stored.id, batch_name: batchName || null },
+  }, {
     timeout: 30_000,
   });
-  await throwOnHttpError(res);
-  const json = await res.json();
-  return { file: stored, job: json.data as Job };
+  return { file: stored, job: res.data.data };
 }
 
 export interface ZipUploadResult {
@@ -102,16 +52,11 @@ export interface ZipUploadResult {
 export async function uploadZip(file: File, fileExt: string): Promise<ZipUploadResult> {
   const form = new FormData();
   form.append('upload', file);
-  const url = apiUrl(`/api/v1/files/upload-zip?file_ext=${encodeURIComponent(fileExt)}`);
-  const res = await fetchWithTimeout(url, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: form,
-    timeout: 300_000,  // 5 min for large archives
+  const res = await apiClient.post<ApiEnvelope<ZipUploadResult>>('/api/v1/files/upload-zip', form, {
+    params: { file_ext: fileExt },
+    timeout: 300_000,
   });
-  await throwOnHttpError(res);
-  const json = await res.json();
-  return json.data as ZipUploadResult;
+  return res.data.data;
 }
 
 export async function getFileDownloadUrl(fileId: number) {
@@ -121,15 +66,47 @@ export async function getFileDownloadUrl(fileId: number) {
   return res.data.data;
 }
 
-/** Download a file via the signed URL, using fetch() with auth headers
- *  because browser <a> clicks don't send Authorization headers. */
+function isRetryableDownloadError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const status = error.response?.status;
+  return status === undefined || status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+async function downloadError(error: unknown): Promise<Error> {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error : new Error('下载失败');
+  }
+  let body = error.response?.data as unknown;
+  if (body instanceof Blob) {
+    try {
+      body = JSON.parse(await body.text()) as unknown;
+    } catch {
+      body = undefined;
+    }
+  }
+  const message = (body as { error?: { message?: string } } | undefined)?.error?.message;
+  return new Error(message || `下载失败: HTTP ${error.response?.status ?? '网络错误'}`);
+}
+
+/** Download through a short-lived signed URL; every retry obtains a new signature. */
 export async function downloadFile(fileId: number, filename: string): Promise<void> {
-  const { url } = await getFileDownloadUrl(fileId);
-  const fullUrl = apiUrl(url);
-  const res = await fetchWithTimeout(fullUrl, { headers: authHeaders(), timeout: 120_000 }, 1);
-  if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
-  const blob = await res.blob();
-  triggerBlobDownload(blob, filename);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { url } = await getFileDownloadUrl(fileId);
+      const res = await apiClient.get<Blob>(url, {
+        responseType: 'blob',
+        timeout: 120_000,
+      });
+      triggerBlobDownload(res.data, filename);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 1 || !isRetryableDownloadError(error)) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw await downloadError(lastError);
 }
 
 function triggerBlobDownload(blob: Blob, filename: string) {
@@ -151,21 +128,15 @@ export async function downloadZip(
   formats: string[],
   folderName: string,
 ): Promise<void> {
-  const res = await fetch(apiUrl('/api/v1/files/download-zip'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ file_ids: fileIds, formats, folder_name: folderName }),
+  const res = await apiClient.post<Blob>('/api/v1/files/download-zip', {
+    file_ids: fileIds,
+    formats,
+    folder_name: folderName,
+  }, {
+    responseType: 'blob',
+    timeout: 300_000,
   });
-  if (!res.ok) {
-    let msg = `下载失败: HTTP ${res.status}`;
-    try {
-      const b = await res.json();
-      msg = (b as { error?: { message?: string } })?.error?.message || msg;
-    } catch { /* use status text */ }
-    throw new Error(msg);
-  }
-  const blob = await res.blob();
-  triggerBlobDownload(blob, `${folderName}.zip`);
+  triggerBlobDownload(res.data, `${folderName}.zip`);
 }
 
 /** Soft-delete multiple files at once. */
@@ -214,20 +185,11 @@ export async function deleteBatch(batchName: string): Promise<void> {
 
 /** Download all files in a batch as a ZIP archive. */
 export async function downloadBatchZip(batchName: string): Promise<void> {
-  const url = apiUrl(
+  const res = await apiClient.get<Blob>(
     `/api/v1/files/batches/${encodeURIComponent(batchName)}/download-zip`,
+    { responseType: 'blob', timeout: 300_000 },
   );
-  const res = await fetchWithTimeout(url, { headers: authHeaders(), timeout: 300_000 }, 1);
-  if (!res.ok) {
-    let msg = `下载失败: HTTP ${res.status}`;
-    try {
-      const b = await res.json();
-      msg = (b as { error?: { message?: string } })?.error?.message || msg;
-    } catch { /* use status text */ }
-    throw new Error(msg);
-  }
-  const blob = await res.blob();
-  triggerBlobDownload(blob, `${batchName}.zip`);
+  triggerBlobDownload(res.data, `${batchName}.zip`);
 }
 
 /** Fetch Excel file preview data (sheets, headers, rows) from backend. */

@@ -121,3 +121,7 @@ def test_readiness_returns_503_when_storage_is_unavailable(monkeypatch):
         "status": "error",
         "message": "Storage is unavailable.",
     }
+    assert data["database"] == {
+        "status": "ok",
+        "message": "Database is reachable.",
+    }

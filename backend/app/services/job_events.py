@@ -69,6 +69,7 @@ def publish_job_event(
     payload["job_id"] = job.id
     payload["status"] = job.status
     payload["progress"] = job.progress or 0
+    payload["attempt"] = job.attempt
     if job.error_code:
         payload["error_code"] = job.error_code
     if job.error_message:
@@ -91,6 +92,7 @@ def job_event_from_row(job: Job) -> dict[str, Any]:
     payload["job_id"] = job.id
     payload["status"] = job.status
     payload["progress"] = job.progress or 0
+    payload["attempt"] = job.attempt
 
     if job.error_code:
         payload["error_code"] = job.error_code
@@ -109,9 +111,10 @@ def job_event_from_row(job: Job) -> dict[str, Any]:
     return payload
 
 
-def _fingerprint(job: Job) -> tuple[str, int, str | None, str | None, str]:
+def _fingerprint(job: Job) -> tuple[str, int, int, str | None, str | None, str]:
     return (
         job.status,
+        job.attempt,
         job.progress or 0,
         job.error_code,
         job.error_message,
@@ -128,7 +131,7 @@ def job_event_stream(
 ) -> Iterator[dict[str, Any] | None]:
     """Poll durable job state with one short-lived session per iteration."""
     deadline = time.monotonic() + max_duration
-    last_fingerprint: tuple[str, int, str | None, str | None, str] | None = None
+    last_fingerprint: tuple[str, int, int, str | None, str | None, str] | None = None
 
     while time.monotonic() < deadline:
         try:

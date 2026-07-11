@@ -1,155 +1,144 @@
-# DWG-Agent 企业级 CAD 智能处理平台
+# DWG-Agent 企业级 CAD 处理平台
 
-基于《DWG-Agent 企业平台技术规范》（`DWG-Agent企业平台技术规范.md`，2,455 行，25 节，v1.0）落地的工程实现。
+DWG-Agent 是一套面向企业 CAD 文件处理、任务编排、结果复核和审计的全栈平台。当前代码已经打通 Nginx、React、FastAPI、MySQL、Celery、MinIO/本地存储以及 Excel Final 五金清单处理链路。
 
-**当前阶段：Stage 1 平台骨架闭环** — 完整 RESTful API、RBAC 认证授权、项目管理、文件上传（DWG 校验）、任务生命周期、审计日志。
+## 当前架构
 
-> 交接文档：`docs/` | 开发规范：`CLAUDE.md` | 部署配置：`infra/`
+```text
+Browser
+  -> Nginx :8080 (local) / :80,:443 (Compose)
+  -> FastAPI :8010 (local) / :8000 (container)
+  -> MySQL
+       - 业务实体、RBAC、token 吊销、Agent memory
+       - Job/JobStep/SSE 权威状态
+       - Celery SQLAlchemy broker + result backend
+  -> Celery workers
+       - report, dxf, dxf2dwg, dxf2excel, excel_final
+  -> Local FS (开发) 或 MinIO (Compose)
+```
 
-## 技术栈
+Redis/Valkey 已从运行时、依赖、Compose、脚本和数据路径中移除。需要一致性的请求直接访问 MySQL；SSE 轮询 MySQL；Celery broker/result URL 从有效 MySQL DSN 派生。
 
-| 层 | 技术 |
-|----|------|
-| 前端 | React 19 + TypeScript + Vite + Ant Design 6 + TanStack Query + Zustand |
-| 后端 | Python 3.12 + FastAPI + SQLAlchemy 2.x（同步）+ Pydantic v2 |
-| 数据库 | MySQL 8.x（运行）+ SQLite 内存（测试隔离） |
-| 运行状态 | MySQL 持久化 token 吊销、Agent 记忆、任务进度与 Celery 队列 |
-| 文件存储 | 本地 FS（开发）/ MinIO（Docker 生产，adapter 已启用） |
-| 异步任务 | Celery（Stage 1 worker-report 假任务，Agent/DXF/CAD 队列后续接入） |
-| Agent | LangGraph + MCP + OpenAI-compatible LLM（Stage 2，API 边界就绪） |
-| 部署 | Docker Compose 9 服务编排 + Nginx 网关 |
-| 包管理 | uv（Python）+ npm（前端），依赖全部锁定 |
+## 已实现能力
 
-## 当前实现
+- React 19 + TypeScript + Vite + Ant Design 管理端。
+- FastAPI + SQLAlchemy 2.x + Pydantic v2，同步 MySQL 会话。
+- JWT access token、HttpOnly refresh cookie、MySQL token blacklist、密码变更失效和 RBAC。
+- 项目、成员、文件、图纸版本、任务、结果、复核、审计和 Excel Final API。
+- DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel -> 零件清单 Celery 管线。
+- `local`/`minio` 存储适配器、事务回滚对象补偿、短期签名下载、ZIP 下载。
+- SQL 分页，精确总数与稳定排序；文件列表权限过滤在 SQL 中完成。
+- 任务 `attempt` 世代：Celery 消息携带 attempt，重试递增 attempt，领取/更新均带条件，旧消息和旧 worker 不可处理新世代。
+- `job_steps.attempt` 保留每次尝试历史；SSE 快照和前端时间线显示当前世代。
+- 同一源文件存在多次成功转换时，文件/ZIP 解析确定性选择最新 Job 的最新可用结果。
+- 结果详情、下载链接和复核沿用 Job 权限：无项目任务仅管理员或创建者可访问。
+- Excel Final 以隔离子进程运行，支持 Tekla 制表符/空白文本导出和具有目标清单 schema 的 Excel 初始表；legacy `.xls` 由 `xlrd` 解析。对外错误不暴露 traceback 或主机路径。
+- Compose 冷启动会导入 `hardware_handbook`，应用用户仅有该库 `SELECT` 权限。
 
-- **64 个 RESTful API 端点**（63 在 `/api/v1`，11 个路由模块 + 1 个 `/health` 探活端点），复数名词
-- **完整 RBAC**：5 表 IAM 模型，7 个全局角色 + 4 个项目级角色，原子状态转换
-- **认证**：JWT HS256 + jti 黑名单，Argon2id 密码哈希，HttpOnly refresh cookie，时序攻击防御
-- **项目管理**：CRUD + 成员管理（project_owner/engineer/reviewer/viewer），级联激活检查
-- **文件上传**：DWG 头校验（AC1012-AC1032），1024 字节最小 + 512MB 最大，流式 SHA-256/MD5，HMAC 签名下载 URL
-- **图纸版本管理**：版本递增 + 当前版本指针，预览占位
-- **任务生命周期**：queued → running → succeeded/failed/cancelled，状态守卫，取消/重试
-- **结果复核**：approved/rejected 决策，待复核列表
-- **审计日志**：32 种操作类型，super_admin/auditor 角色保护，不可变
-- **安全加固**：12/18 渗透测试 bug 已修复，CORS 收紧，异常不泄漏 traceback，路径穿越防护
-- **Alembic 迁移**：5 个版本，最新迁移新增 token 黑名单、Agent 记忆和任务进度持久化，`db.sh migration-test` 验证
-- **MySQL 单一事实源**：认证吊销、密码变更、Agent 记忆和 SSE 任务进度均持久化；批次列表直接查库
-- **Docker Compose**：9 服务编排，worker-report 默认启动，4 个具体 worker 由 `workers` profile 启用，Dockerfile 多阶段构建
-- **前端**：10 个页面 + 12 个 API 客户端文件（11 模块 + client.ts）+ 8 个通用组件，路由级权限守卫
-- **432 测试**（24 个测试文件），ruff 0 错误
+Agent 内部推理和 CAD Windows worker 仍由功能开关禁用；其 API 边界存在，但禁用时返回 503。
 
-暂不实现（Stage 2-4）：Agent 内部逻辑、DWG→DXF 转换、ezdxf 解析、Windows ZWCAD Worker。Celery report 假任务与 MinIO 存储后端已接入；本地开发默认 `STORAGE_BACKEND=local`，Docker 默认 `STORAGE_BACKEND=minio`。
+## 端口约定
 
-## 快速启动
+| 场景 | 前端 | API | 网关 | MySQL | MinIO |
+|---|---:|---:|---:|---:|---:|
+| 本地开发 | 5173（可回退 5174） | **8010** | 8080 | 3306 | 可选 |
+| Docker Compose 内部 | Nginx 静态站点 | 8000 | 80/443 | 3306 | 9000 |
+
+本地固定 API 端口是 `8010`。容器内 `8000` 是私有服务端口，不与本地约定冲突。
+
+## 本地启动
 
 ```bash
-# 1. 环境准备
-sudo pacman -S mariadb        # Arch Linux；其他发行版安装 MySQL 8.x/MariaDB
-sudo systemctl enable --now mariadb
-
-# 2. 配置
 cp .env.example .env
-# 编辑 .env，修改所有 CHANGE_ME_* 值
+cp .env.example backend/.env
+# 修改密码、JWT secret、MySQL 配置和所需 feature flags，并保持两个文件数据库字段一致。
 
-# 3. 数据库
-bash scripts/db.sh start         # 启动 MySQL
-bash scripts/db.sh setup-user    # 创建数据库用户（首次）
-bash scripts/db.sh init          # 创建库 + Alembic 迁移 + 种子数据
-
-# 4. 启动
-bash scripts/start-dev.sh        # 后端 :8000 + 前端 :5173 HMR
+bash scripts/db.sh setup-user
+bash scripts/db.sh init
+bash scripts/start-dev.sh
 ```
 
-访问 `http://127.0.0.1:5173`，默认账号 `admin` / `SuperAdminPass1`。
+访问：
 
-详细说明见 `docs/deployment.md`。
+- 前端：`http://127.0.0.1:5173`
+- FastAPI：`http://127.0.0.1:8010`
+- Swagger：`http://127.0.0.1:8010/docs`
+- Nginx 模式：`http://127.0.0.1:8080`
 
-## 目录结构
+停止和诊断：
 
-```
-complete_framework/
-├── README.md
-├── CLAUDE.md                        # Agent 开发指令（代码约定、仓库地图）
-├── DWG-Agent企业平台技术规范.md       # 核心规范文档（v1.0，25 节）
-├── .env.example                     # 本地开发环境变量模板
-├── .env.docker.example              # Docker Compose 环境变量模板
-├── compose.yaml                     # Docker Compose 9 服务编排
-├── Makefile                         # 常用命令快捷入口
-├── backend/
-│   ├── pyproject.toml               # Python >=3.12,<3.13
-│   ├── uv.lock                      # 锁定依赖
-│   ├── .python-version              # 3.12
-│   ├── Dockerfile                   # 多阶段构建（非 root）
-│   ├── app/
-│   │   ├── main.py                  # FastAPI 入口 + 异常处理器 + CORS
-│   │   ├── api/v1/                  # 11 路由模块，64 端点
-│   │   ├── core/                    # config, security, permissions, exceptions
-│   │   ├── db/                      # session (连接池), init_db (种子)
-│   │   ├── models/                  # SQLAlchemy ORM（含 token_blacklist / agent_memory）
-│   │   ├── schemas/                 # 10 个 Pydantic v2 模块
-│   │   ├── services/                # 业务服务（含 MySQL Agent memory 与 job events）
-│   │   ├── storage/                 # AbstractStorageBackend + local/minio 后端
-│   │   ├── utils/                   # path_utils（路径穿越防护）, file_hash, time_utils
-│   │   ├── agents/                  # Stage 2 占位
-│   │   ├── mcp_client/              # Stage 2 占位
-│   │   ├── workers/                 # Celery app + report stub task；Agent/DXF/CAD task 占位
-│   │   ├── integrations/zwcad/      # Stage 4 占位
-│   │   └── repositories/            # 占位
-│   ├── tests/                       # 432 测试（24 个 test_*.py）
-│   └── migrations/                  # Alembic（2 版本）
-├── frontend/
-│   ├── package.json                 # 版本锁定，无 latest
-│   └── src/
-│       ├── api/                     # 12 个 API 客户端文件（11 模块 + client.ts）
-│       ├── features/                # 10 个页面模块
-│       ├── components/              # 8 个通用组件
-│       ├── stores/                  # Zustand
-│       └── types/                   # TypeScript 类型
-├── docs/                            # 7 个交接文档
-│   ├── architecture.md              # 系统架构 + 实现状态矩阵
-│   ├── api.md                       # 64 端点完整参考
-│   ├── database.md                  # 数据库设计 + 表目录
-│   ├── deployment.md                # 部署运维指南
-│   ├── development.md               # 开发规范 + 教程
-│   ├── security.md                  # 安全架构 + 渗透修复
-│   └── roadmap.md                   # Stage 1-6 路线图
-├── infra/                           # 部署配置
-│   ├── nginx/                       # nginx.conf (Docker) + nginx.local.conf (本机)
-│   ├── mysql/init.sql               # 数据库初始化
-│   ├── minio/                       # MinIO 配置占位
-│   └── verify.sh                    # 基础设施验证
-├── scripts/                         # 6 个 dev/ops 脚本
-│   ├── db.sh                        # MySQL 管理（init/migrate/check/shell/logs）
-│   ├── start-dev.sh                 # 开发模式启动
-│   ├── start-all.sh                 # 全栈启动
-│   ├── stop-all.sh                  # 优雅停止
-│   ├── status.sh                    # 健康检查
-│   └── lib.sh                       # 共享函数
-├── agents/                          # Agent 定义占位（Stage 2）
-└── cad-worker/                      # Windows CAD Worker 占位（Stage 4）
+```bash
+bash scripts/stop-all.sh
+bash scripts/status.sh
+bash scripts/db.sh status
 ```
 
-## 开发原则
+worker 启停会按 app、队列和节点名发现已有进程；即使 `/tmp` pidfile 丢失，也不会重复启动同一受管 worker。
 
-- **规范优先**：所有设计决策以 `DWG-Agent企业平台技术规范.md` 为准。
-- **运行数据库**：MySQL 8.x；pytest 使用内存 SQLite 隔离，不作为部署结论。
-- **同步 API + 异步任务**：SQLAlchemy 2.x 同步 session；Celery 使用 MySQL SQLAlchemy transport 执行耗时任务。
-- **API 约定**：RESTful `/api/v1`，复数名词，语义化 HTTP 状态码，统一响应格式。
-- **安全底线**：所有业务端点强制鉴权，RBAC 后端强校验，文件路径校验，异常不泄漏。
-- **依赖锁定**：`uv.lock` + `package-lock.json` 全部锁定，禁止 `latest`。
-- **代码质量**：ruff（E/F/I/UP/B），line-length=100，`from __future__ import annotations`。
-- **前端不硬编码**：API 地址通过 `VITE_API_BASE_URL` 环境变量注入。
+## Docker Compose
+
+```bash
+cp .env.docker.example .env.docker
+# 替换全部 CHANGE_ME_* 值
+npm --prefix frontend ci
+npm --prefix frontend run build
+
+docker compose up -d
+docker compose --profile workers up -d
+docker compose ps
+```
+
+Compose 默认启动 Nginx、FastAPI、MySQL、MinIO 和 `worker-report`；`workers` profile 启用其余队列。MinIO 镜像使用已验证 digest，不使用浮动 `latest`。worker healthcheck 同时验证 `worker_ready` marker 与 PID 1 命令行。
 
 ## 验证
 
 ```bash
 cd backend
-uv run ruff check app tests     # 代码风格（0 errors）
-uv run pytest -q                # 432 测试（432 passed）
+uv run ruff check app tests ../tests/run_full_verify.py
+uv run pytest -q
+uv run alembic check
+uv run python ../scripts/check_docs.py
 
 cd ../frontend
-npm ci && npm run build         # 类型检查 + 生产构建
-npm run build                   # 生产构建通过即可
+npm run build
+npx playwright test
 
-bash infra/verify.sh            # 基础设施验证（Nginx/Docker/MySQL/配置）
+cd ..
+cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
+bash scripts/db.sh migration-test
+bash infra/verify.sh
+docker compose config --quiet
 ```
+
+真实集成验收应至少覆盖：
+
+1. Nginx -> FastAPI 登录和业务请求。
+2. 空 MySQL schema 执行全部 Alembic 迁移。
+3. Job 入 MySQL broker、Celery 消费、状态与步骤落库。
+4. MinIO 上传、worker 读写、签名下载 SHA-256 一致。
+5. MinIO 停机时 `/health/ready` 返回 503，恢复后持久对象仍可下载。
+6. 浏览器下载首次 403 后重新获取签名并成功下载。
+
+## 仓库结构
+
+```text
+backend/        FastAPI、ORM、服务、存储、Celery、Alembic、pytest
+frontend/       React 管理端和 Playwright E2E
+Stages/         CAD/Excel 独立处理阶段
+infra/          Nginx、MySQL 初始化、部署验证
+scripts/        启停、数据库和文档生成工具
+docs/           英文文档
+docs/zh/        与英文逐文件对应的中文文档
+compose.yaml    生产形态编排
+```
+
+## 文档
+
+- [企业平台技术规范](DWG-Agent企业平台技术规范.md)
+- [英文文档索引](docs/README.md)
+- [中文文档索引](docs/zh/README.md)
+- [自动生成的 API 参考](docs/zh/api.md)
+- [部署指南](docs/zh/deployment.md)
+- [验证记录](docs/zh/workflow-verification.md)
+
+端点变更后运行 `cd backend && uv run python ../scripts/generate_api_docs.py`，同一次生成 `docs/api.md` 和 `docs/zh/api.md`。

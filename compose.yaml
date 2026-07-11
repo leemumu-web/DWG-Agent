@@ -7,16 +7,15 @@
 #   3. 修改 .env.docker 中所有 CHANGE_ME_* 值
 #
 # 启动:
-#   docker compose up -d                              # 核心服务 + worker-report 假任务队列
-#   docker compose --profile workers up -d            # + Agent/CAD 预留及已实现流水线队列
+#   docker compose up -d                              # Nginx/API/MySQL/MinIO + worker-report
+#   docker compose --profile workers up -d            # + 已实现转换队列及禁用的 Agent 预留队列
 #
 # 说明:
 #   - .env.docker: Docker 服务名 (mysql/minio) + MySQL/MinIO 配置
 #   - .env.docker.example: 可提交模板；.env.docker 为本机密钥文件，禁止提交
 #   - .env.example: 本地开发 (localhost + MySQL)
-#   - worker-report: 阶段一 Celery 假任务 worker，默认启动
-#   - profiles: 已实现的 DXF/excel_final 与预留 Agent 队列按需启动
-#   - worker-cad-dispatch: 规范 §17.2 列出但为 Stage 4 预留（Windows CAD Worker 调度）
+#   - worker-report: 框架报告/冒烟任务 worker，默认启动
+#   - workers profile: DXF、DXF2DWG、DXF2Excel、Excel Final 和禁用的 Agent 预留队列
 
 services:
   nginx:
@@ -74,7 +73,7 @@ services:
       backend-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
       interval: 10s
       timeout: 8s
       retries: 5
@@ -101,7 +100,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
       interval: 10s
       timeout: 8s
       retries: 5
@@ -128,7 +127,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -155,7 +154,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -182,7 +181,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -209,7 +208,7 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "grep -aq celery /proc/1/cmdline"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
       interval: 10s
       timeout: 8s
       retries: 5
@@ -231,7 +230,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/01-platform.sql:ro
+      - ./infra/mysql/hardware_handbook.sql:/docker-entrypoint-initdb.d/02-hardware-handbook.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\""]
       interval: 10s
@@ -242,7 +242,8 @@ services:
     restart: unless-stopped
 
   minio:
-    image: quay.io/minio/minio:latest
+    # RELEASE.2025-09-07T16-13-09Z; pin the registry digest for reproducible deploys.
+    image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: server /data --console-address ":9001"
     env_file:
       - .env.docker

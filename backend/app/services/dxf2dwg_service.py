@@ -32,7 +32,6 @@ if settings.oda_home:
     os.environ.setdefault("ODA_HOME", settings.oda_home)
 
 from app.core.constants import (
-    JOB_FAILED,
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_DXF2DWG,
@@ -46,8 +45,13 @@ from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.services.dxf_stats import _count_dxf_stats, dxf_entity_summary
-from app.services.job_events import make_event, publish_job_event
-from app.services.job_service import claim_queued_job
+from app.services.job_events import make_event
+from app.services.job_service import (
+    claim_queued_job,
+    commit_job_progress,
+    complete_job_attempt,
+    fail_job_attempt,
+)
 from app.services.storage_service import get_storage_backend, sanitize_filename, save_bytes_as_file
 from app.storage.base import StorageError, StorageObjectNotFound
 
@@ -152,31 +156,25 @@ def _exception_message(exc: Exception) -> str:
     return message or exc.__class__.__name__
 
 
-def _mark_job_failed(job_id: int, exc: Exception, error_code: str = ERROR_CODE_DWG_FAILED) -> None:
-    """独立 session 标记任务失败（仿 job_service._mark_job_failed）。"""
-    db = SessionLocal()
+def _mark_job_failed(
+    db: Session,
+    job_id: int,
+    attempt: int,
+    exc: Exception,
+    error_code: str = ERROR_CODE_DWG_FAILED,
+) -> None:
+    """在 worker 当前事务内提交失败状态与待写步骤。"""
     try:
-        job = db.get(Job, job_id)
-        if job and job.status not in (JOB_SUCCEEDED, "cancelled"):
-            job.status = JOB_FAILED
-            job.error_code = error_code
-            job.error_message = _exception_message(exc)
-            job.finished_at = datetime.now(UTC)
-            publish_job_event(
-                db,
-                job_id,
-                make_event(
-                    type_="error",
-                    status=JOB_FAILED,
-                    error_code=error_code,
-                    message=job.error_message or error_code,
-                ),
-            )
-            db.commit()
+        fail_job_attempt(
+            db,
+            job_id,
+            attempt=attempt,
+            error_code=error_code,
+            error_message=_exception_message(exc),
+        )
     except Exception:
+        db.rollback()
         logger.exception("Failed to mark job %s as failed", job_id)
-    finally:
-        db.close()
 
 
 def _resolve_source_file_id(job: Job) -> int | None:
@@ -224,6 +222,7 @@ def _stage_source_dwg(db: Session, job: Job, source_file_id: int, work_dir: Path
 def _add_step(
     db: Session,
     job_id: int,
+    attempt: int,
     step_name: str,
     worker_name: str,
     status: str,
@@ -236,6 +235,7 @@ def _add_step(
     db.add(
         JobStep(
             job_id=job_id,
+            attempt=attempt,
             step_name=step_name,
             worker_name=worker_name,
             status=status,
@@ -248,7 +248,11 @@ def _add_step(
     )
 
 
-def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") -> None:
+def run_dxf_to_dwg_conversion(
+    job_id: int,
+    worker_name: str = "celery_dxf2dwg",
+    expected_attempt: int = 1,
+) -> None:
     """Celery dxf2dwg 队列任务体：DXF → DWG 全链路。
 
     失败不抛（除环境错误 OdaConvertError 外），通过 job.status/error_code 体现。
@@ -258,6 +262,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
         job = claim_queued_job(
             db,
             job_id,
+            expected_attempt=expected_attempt,
             pipeline=PIPELINE_DXF2DWG,
             progress=10,
             message="开始转换",
@@ -265,11 +270,14 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
         if job is None:
             logger.info("DXF2DWG job %s was not claimable", job_id)
             return
+        attempt = job.attempt
 
         source_file_id = _resolve_source_file_id(job)
         if source_file_id is None:
             _mark_job_failed(
+                db,
                 job_id,
+                attempt,
                 AppError("DXF job 缺少 params.file_id"),
                 error_code=ERROR_CODE_SOURCE_MISSING,
             )
@@ -283,14 +291,10 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             try:
                 source_path = _stage_source_dwg(db, job, source_file_id, work_dir)
             except StorageObjectNotFound:
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"源文件不存在 file_id={source_file_id}"),
-                    error_code=ERROR_CODE_SOURCE_MISSING,
-                )
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_DOWNLOAD_SOURCE_DXF,
                     worker_name,
                     "failed",
@@ -298,20 +302,22 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     error_message="源文件对象不存在",
                     started_at=started_at,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"源文件不存在 file_id={source_file_id}"),
+                    error_code=ERROR_CODE_SOURCE_MISSING,
+                )
                 return
             except StorageError as exc:
                 raise AppError(f"读取源文件失败: {exc}") from exc
 
             if source_path is None:
-                _mark_job_failed(
-                    job_id,
-                    AppError(f"源文件不存在 file_id={source_file_id}"),
-                    error_code=ERROR_CODE_SOURCE_MISSING,
-                )
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_DOWNLOAD_SOURCE_DXF,
                     worker_name,
                     "failed",
@@ -319,12 +325,19 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     error_message="源文件记录不存在或已删除",
                     started_at=started_at,
                 )
-                db.commit()
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(f"源文件不存在 file_id={source_file_id}"),
+                    error_code=ERROR_CODE_SOURCE_MISSING,
+                )
                 return
 
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_DOWNLOAD_SOURCE_DXF,
                 worker_name,
                 "succeeded",
@@ -332,8 +345,6 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 output_json={"source_path": str(source_path)},
                 started_at=started_at,
             )
-            job.progress = 30
-
             # Count entities in the source DXF for fidelity tracking.
             source_stats = _count_dxf_stats(source_path)
             logger.info(
@@ -341,17 +352,20 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 job_id,
                 dxf_entity_summary(source_stats),
             )
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=30,
+                event=make_event(
                     type_="progress",
                     progress=30,
                     step_name=STEP_DOWNLOAD_SOURCE_DXF,
                     message="源文件已就绪",
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             # ---- 2. 调 ODA 转换 ----
             convert_started = datetime.now(UTC)
@@ -394,6 +408,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 _add_step(
                     db,
                     job_id,
+                    attempt,
                     STEP_RUN_ODA_CONVERT_DXF,
                     worker_name,
                     "failed",
@@ -405,12 +420,27 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     error_message=_exception_message(exc),
                     started_at=convert_started,
                 )
-                db.commit()
+                job = commit_job_progress(
+                    db,
+                    job_id,
+                    attempt=attempt,
+                    progress=job.progress,
+                    event=make_event(
+                        type_="progress",
+                        status=JOB_RUNNING,
+                        progress=job.progress,
+                        step_name=STEP_RUN_ODA_CONVERT_DXF,
+                        message="ODA 转换异常",
+                    ),
+                )
+                if job is None:
+                    return
                 raise AppError(f"ODA 转换异常: {exc}") from exc
 
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_RUN_ODA_CONVERT_DXF,
                 worker_name,
                 "succeeded" if result.success else "failed",
@@ -423,11 +453,12 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 error_message=result.error if not result.success else None,
                 started_at=convert_started,
             )
-            job.progress = 70
-            publish_job_event(
+            job = commit_job_progress(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                progress=70,
+                event=make_event(
                     type_="progress",
                     progress=70,
                     step_name=STEP_RUN_ODA_CONVERT_DXF,
@@ -435,11 +466,14 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     message="ODA 转换完成" if result.success else f"ODA 转换失败: {result.error}",
                 ),
             )
-            db.commit()
+            if job is None:
+                return
 
             if not result.success:
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError(result.error or "ODA 转换失败"),
                     error_code=ERROR_CODE_DWG_FAILED,
                 )
@@ -450,7 +484,9 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             dwg_path = result.target
             if not dwg_path.is_file():
                 _mark_job_failed(
+                    db,
                     job_id,
+                    attempt,
                     AppError(f"DWG 产物未生成: {dwg_path}"),
                     error_code=ERROR_CODE_DWG_FAILED,
                 )
@@ -474,12 +510,6 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 uploaded_by=job.created_by,
                 batch_name=source_file.batch_name if source_file else None,
             )
-
-            # 行锁重读 job，防并发取消
-            job = db.scalars(select(Job).where(Job.id == job_id).with_for_update()).one_or_none()
-            if not job or job.status != JOB_RUNNING:
-                db.rollback()
-                return
 
             result_payload = {
                 "source": "dxf2dwg_open_source",
@@ -506,6 +536,7 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
             _add_step(
                 db,
                 job_id,
+                attempt,
                 STEP_PERSIST_DWG,
                 worker_name,
                 "succeeded",
@@ -518,13 +549,11 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                 },
                 started_at=persist_started,
             )
-            job.status = JOB_SUCCEEDED
-            job.progress = 100
-            job.finished_at = datetime.now(UTC)
-            publish_job_event(
+            completed_job = complete_job_attempt(
                 db,
                 job_id,
-                make_event(
+                attempt=attempt,
+                event=make_event(
                     type_="done",
                     status=JOB_SUCCEEDED,
                     progress=100,
@@ -532,10 +561,18 @@ def run_dxf_to_dwg_conversion(job_id: int, worker_name: str = "celery_dxf2dwg") 
                     message="DXF→DWG 转换完成",
                 ),
             )
-            db.commit()
+            if completed_job is None:
+                return
     except Exception as exc:
         db.rollback()
-        _mark_job_failed(job_id, exc, error_code=ERROR_CODE_DWG_FAILED)
+        if "attempt" in locals():
+            _mark_job_failed(
+                db,
+                job_id,
+                attempt,
+                exc,
+                error_code=ERROR_CODE_DWG_FAILED,
+            )
         logger.exception("DXF conversion failed for job %s", job_id)
     finally:
         db.close()

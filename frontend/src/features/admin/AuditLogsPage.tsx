@@ -139,7 +139,7 @@ export function AuditLogsPage() {
     <>
       <PageHeader
         title="审计日志"
-        subtitle="平台关键操作留痕（最近 200 条）"
+        subtitle="平台关键操作留痕（当前展示最近 200 条）"
         extra={
           <Space>
             <Input allowClear prefix={<SearchOutlined />} placeholder="搜索动作 / 资源 / ID" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 240 }} />
@@ -149,7 +149,7 @@ export function AuditLogsPage() {
       />
 
       <StatGrid>
-        <StatCard label="日志总数" value={logs.length} icon={<HistoryOutlined />} color="#1677ff" bg="#e6f4ff" hint="后端限制最近 200 条" />
+        <StatCard label="当前日志" value={logs.length} icon={<HistoryOutlined />} color="#1677ff" bg="#e6f4ff" hint="当前视图最多 200 条" />
         <StatCard label="独立操作人" value={uniqueActors} icon={<FileSearchOutlined />} color="#722ed1" bg="#f9f0ff" />
         <StatCard label="资源类型" value={new Set(logs.map((l) => l.resource_type)).size} icon={<DesktopOutlined />} color="#13c2c2" bg="#e6fffb" />
       </StatGrid>

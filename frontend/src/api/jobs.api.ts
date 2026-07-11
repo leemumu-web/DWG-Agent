@@ -22,9 +22,10 @@ export async function getJob(jobId: number) {
   return res.data.data;
 }
 
-export async function getJobSteps(jobId: number) {
-  const res = await apiClient.get<PageEnvelope<JobStep>>(`/api/v1/jobs/${jobId}/steps`);
-  return res.data.data;
+export async function getJobSteps(jobId: number, attempt?: number) {
+  return fetchAllPages<JobStep>(`/api/v1/jobs/${jobId}/steps`, {
+    ...(attempt === undefined ? {} : { attempt }),
+  });
 }
 
 export async function getJobResults(jobId: number) {

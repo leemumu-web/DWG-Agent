@@ -25,6 +25,10 @@ CELERY_OWNED_TABLES = {
     "celery_tasksetmeta",
     "kombu_message",
     "kombu_queue",
+    "message_id_sequence",
+    "queue_id_sequence",
+    "task_id_sequence",
+    "taskset_id_sequence",
 }
 
 

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db, require_project_member, require_project_role
+from app.api.deps import CurrentUser, get_db, require_project_role
 from app.core.exceptions import not_found
 from app.models.job import Job
 from app.models.result import AnalysisResult, ReviewRecord
@@ -12,6 +12,7 @@ from app.schemas.common import ok
 from app.schemas.result_schema import AnalysisResultRead, ReviewCreate, ReviewRead
 from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
+from app.services.job_access import require_job_read_access, require_job_write_access
 
 router = APIRouter()
 PROJECT_REVIEW_ROLES = {"project_owner", "project_reviewer"}
@@ -26,8 +27,7 @@ def _get_result_job(db: Session, result: AnalysisResult) -> Job:
 
 def _require_result_member(db: Session, current_user: CurrentUser, result: AnalysisResult) -> None:
     job = _get_result_job(db, result)
-    if job.project_id is not None:
-        require_project_member(db, current_user, job.project_id)
+    require_job_read_access(db, current_user, job)
 
 
 def _require_result_review_role(
@@ -36,6 +36,8 @@ def _require_result_review_role(
     job = _get_result_job(db, result)
     if job.project_id is not None:
         require_project_role(db, current_user, job.project_id, PROJECT_REVIEW_ROLES)
+    else:
+        require_job_write_access(db, current_user, job)
 
 
 @router.get("/{result_id}")

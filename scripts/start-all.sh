@@ -31,25 +31,29 @@ else
     bash "$PROJECT_ROOT/scripts/db.sh" init
 fi
 
-# ── 2. Celery Worker ───────────────────────────────────────────
-step "2/5 Celery worker-report"
+# ── 2. Celery Workers ──────────────────────────────────────────
+step "2/5 Celery workers"
 start_report_worker
+start_dxf_worker
+start_dxf2dwg_worker
+start_dxf2excel_worker
+start_excel_final_worker
 
 # ── 3. Backend ─────────────────────────────────────────────────
 step "3/5 后端 FastAPI"
-if port_free 8000; then
-    info "启动后端 (127.0.0.1:8000)..."
+if port_free "$LOCAL_BACKEND_PORT"; then
+    info "启动后端 (${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT})..."
     cd "$PROJECT_ROOT/backend"
     if [ -x .venv/bin/uvicorn ]; then
-        nohup .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
+        nohup setsid .venv/bin/uvicorn app.main:app --host "$LOCAL_BACKEND_HOST" --port "$LOCAL_BACKEND_PORT" >/tmp/dwg-agent-backend.log 2>&1 </dev/null &
     else
-        nohup uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 >/tmp/dwg-agent-backend.log 2>&1 &
+        nohup setsid uv run uvicorn app.main:app --host "$LOCAL_BACKEND_HOST" --port "$LOCAL_BACKEND_PORT" >/tmp/dwg-agent-backend.log 2>&1 </dev/null &
     fi
     BACKEND_PID=$!
     echo $BACKEND_PID > /tmp/dwg-agent-backend.pid
-    wait_port 127.0.0.1 8000 30 "后端 :8000"
+    wait_port "$LOCAL_BACKEND_HOST" "$LOCAL_BACKEND_PORT" 30 "后端 :${LOCAL_BACKEND_PORT}"
 else
-    ok "后端已运行 (:8000)"
+    ok "后端已运行 (:${LOCAL_BACKEND_PORT})"
 fi
 
 # ── 4. Frontend ────────────────────────────────────────────────
@@ -107,9 +111,9 @@ echo ""
 echo -e "  前端:    ${BLUE}http://localhost:8080${NC}"
 echo -e "  API 文档: ${BLUE}http://localhost:8080/docs${NC}"
 echo -e "  Health:  ${BLUE}http://localhost:8080/health${NC}"
-echo -e "  后端直达: ${DIM}http://127.0.0.1:8000${NC}"
+echo -e "  后端直达: ${DIM}http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}${NC}"
 echo ""
-echo -e "  登录:  ${YELLOW}admin / SuperAdminPass1${NC}"
+echo -e "  登录凭据: ${YELLOW}.env 中的 SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD${NC}"
 echo -e "  停止:  ${YELLOW}bash scripts/stop-all.sh${NC}"
 echo -e "  状态:  ${YELLOW}bash scripts/status.sh${NC}"
 echo ""

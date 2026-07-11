@@ -375,17 +375,17 @@ export function ConversionPage(props: ConversionPageProps) {
         return (
           <Space size={2}>
             <Tooltip title={`下载 ${p.tagPending}`}>
-              <Button type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)} />
+              <Button aria-label={`下载 ${p.tagPending}`} type="text" size="small" icon={<DownloadOutlined />} onClick={() => handleDownload(record)} />
             </Tooltip>
             {isSucceeded && job && (
               <Tooltip title={p.downloadResultLabel}>
-                <Button type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />}
+                <Button aria-label={p.downloadResultLabel} type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />}
                   onClick={() => handleDownloadResult(job, record.original_name)} />
               </Tooltip>
             )}
             {isFailed && job && (
               <Tooltip title="重试转换">
-                <Button type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => handleRetry(job.id)} />
+                <Button aria-label="重试转换" type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => handleRetry(job.id)} />
               </Tooltip>
             )}
           </Space>

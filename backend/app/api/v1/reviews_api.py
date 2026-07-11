@@ -5,10 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db, has_global_project_access
+from app.db.pagination import paginate_scalars
 from app.models.job import Job
 from app.models.project import ProjectMember
 from app.models.result import AnalysisResult
-from app.schemas.common import page_from_list
+from app.schemas.common import page as page_response
 from app.schemas.result_schema import AnalysisResultRead
 
 router = APIRouter()
@@ -32,10 +33,11 @@ def list_pending_reviews(
         stmt = stmt.join(ProjectMember, ProjectMember.project_id == Job.project_id).where(
             ProjectMember.user_id == current_user.id
         )
-    results = list(db.scalars(stmt).all())
-    return page_from_list(
+    results, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
+    return page_response(
         [AnalysisResultRead.model_validate(r) for r in results],
         page,
         page_size,
+        total,
         request.state.request_id,
     )
