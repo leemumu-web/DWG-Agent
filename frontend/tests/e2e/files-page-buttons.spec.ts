@@ -1,6 +1,8 @@
 /**
  * FilesPage — every button tested against its real backend connection.
  *
+ * Parameterised over both conversion directions (DWG→DXF and DXF→DWG).
+ *
  * Prerequisites:
  *   cd frontend && npm run dev        # Vite :5173  (proxies /api → :8010)
  *   cd backend && uv run uvicorn ...  # FastAPI :8010
@@ -14,10 +16,39 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { API_BASE } from './test-env';
 
+// ── direction matrix ─────────────────────────────────────────────────────────
+
+const DIRECTIONS = [
+  {
+    name: 'DWG→DXF',
+    route: '/files/dwg2dxf',
+    fileExt: '.dwg' as const,
+    taskType: 'convert_dwg_to_dxf' as const,
+    samplesDir: '../Stages/dwg2dxf/samples/input',
+    emptyFileText: '暂无 DWG 文件',
+    uploadBtnPattern: /上传 DWG 文件/,
+    downloadSourceBtn: /下载 DWG/,
+    downloadResultBtn: '下载 DXF',
+  },
+  {
+    name: 'DXF→DWG',
+    route: '/files/dxf2dwg',
+    fileExt: '.dxf' as const,
+    taskType: 'convert_dxf_to_dwg' as const,
+    samplesDir: '../Stages/dxf2dwg/samples/input',
+    emptyFileText: '暂无 DXF 文件',
+    uploadBtnPattern: /上传 DXF 文件/,
+    downloadSourceBtn: /下载 DXF/,
+    downloadResultBtn: '下载 DWG',
+  },
+] as const;
+
+type Direction = (typeof DIRECTIONS)[number];
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 /** Log in by injecting a valid token into this tab's sessionStorage. */
-async function login(page: Page) {
+async function login(page: Page, route: string) {
   const apiResp = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
     data: { username: 'admin', password: 'SuperAdminPass1' },
   });
@@ -30,32 +61,33 @@ async function login(page: Page) {
     },
     { t: body.data.access_token, u: body.data.user },
   );
-  await page.goto('/files');
+  await page.goto(route);
   await page.waitForLoadState('networkidle');
 }
 
-/** Read a sample DWG from disk and upload it via the page's file input. */
-async function uploadSampleDwg(page: Page, samplePath: string) {
+/** Read a sample file from disk and upload it via the page's file input. */
+async function uploadSample(page: Page, samplePath: string, dir: Direction) {
   const chooserPromise = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: /上传 DWG 文件/ }).click();
+  await page.getByRole('button', { name: dir.uploadBtnPattern }).click();
   const chooser = await chooserPromise;
   await chooser.setFiles(path.resolve(samplePath));
 }
 
-/** Find sample DWG files for testing. */
-function findSampleDwgs(): string[] {
-  const dir = path.resolve(process.cwd(), '../Stages/dwg2dxf/samples/input');
+/** Find sample files for a given direction. */
+function findSamples(samplesDir: string, fileExt: string): string[] {
+  const dir = path.resolve(process.cwd(), samplesDir);
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith('.dwg'))
+    .filter((f) => f.endsWith(fileExt))
     .map((f) => path.join(dir, f));
 }
 
-async function createFailedDxfFixture(page: Page): Promise<number> {
+/** Create a fixture file with a deterministically retryable cancelled/failed job. */
+async function createRetryableFixture(page: Page, dir: Direction): Promise<number> {
   const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
   expect(token).toBeTruthy();
-  const name = `retry-fixture-${Date.now()}.dwg`;
+  const name = `retry-fixture-${Date.now()}${dir.fileExt}`;
   const upload = await page.request.post(`${API_BASE}/api/v1/files`, {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
@@ -71,33 +103,39 @@ async function createFailedDxfFixture(page: Page): Promise<number> {
   const submitted = await page.request.post(`${API_BASE}/api/v1/jobs`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
-      task_type: 'convert_dwg_to_dxf',
+      task_type: dir.taskType,
       precision_level: 'normal',
       params: { file_id: fileId },
     },
   });
   expect(submitted.status()).toBe(202);
   const jobId = (await submitted.json()).data.id as number;
+  const cancelled = await page.request.post(
+    `${API_BASE}/api/v1/jobs/${jobId}/cancellation-requests`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  expect([202, 409]).toContain(cancelled.status());
   await expect.poll(async () => {
     const response = await page.request.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     return (await response.json()).data.status;
-  }, { timeout: 30_000 }).toBe('failed');
+  }, { timeout: 10_000 }).toMatch(/failed|cancelled/);
   return fileId;
 }
 
 // ── tests ───────────────────────────────────────────────────────────────────
 
-test.describe('FilesPage — button & API integration', () => {
-  test.beforeEach(async ({ page }) => {
-    await login(page);
-  });
+for (const dir of DIRECTIONS) {
+  test.describe(`FilesPage — ${dir.name}`, () => {
+    test.beforeEach(async ({ page }) => {
+      await login(page, dir.route);
+    });
 
-  // ── 1. Upload single DWG ──────────────────────────────────────────────
-  test('upload single DWG → file created + job enqueued', async ({ page }) => {
-    const samples = findSampleDwgs();
-    test.skip(samples.length === 0, 'No sample DWG files found');
+    // ── 1. Upload single file ────────────────────────────────────────
+  test('upload single file → file created + job enqueued', async ({ page }) => {
+    const samples = findSamples(dir.samplesDir, dir.fileExt);
+    test.skip(samples.length === 0, `No sample ${dir.fileExt} files found`);
 
     const fileName = path.basename(samples[0]);
     const uploadResponse = page.waitForResponse(
@@ -108,7 +146,7 @@ test.describe('FilesPage — button & API integration', () => {
       (response) => response.url().endsWith('/api/v1/jobs')
         && response.request().method() === 'POST',
     );
-    await uploadSampleDwg(page, samples[0]);
+    await uploadSample(page, samples[0], dir);
     expect((await uploadResponse).status()).toBe(201);
     expect((await jobResponse).status()).toBe(202);
 
@@ -120,15 +158,12 @@ test.describe('FilesPage — button & API integration', () => {
 
   // ── 2. Pause all → verify backend cancel-all called ──────────────────
   test('"全部暂停" → POST /jobs/cancel-all-active → 200', async ({ page }) => {
-    // We need active jobs — upload a file and create a job without Celery to keep it queued
     const pauseBtn = page.getByRole('button', { name: /全部暂停/ });
     if (!(await pauseBtn.isVisible())) {
-      // No active jobs — skip gracefully
       test.skip(true, 'No active jobs to pause');
       return;
     }
 
-    // Intercept the cancel-all request
     const [cancelResp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes('/api/v1/jobs/cancel-all-active') && r.request().method() === 'POST',
@@ -142,18 +177,17 @@ test.describe('FilesPage — button & API integration', () => {
     expect(body.data).toHaveProperty('cancelled_count');
   });
 
-  // ── 3. "继续任务" → POST /jobs (createDxfJob) for each pending file ──
-  test('"继续任务" → creates DXF jobs for pending files', async ({ page }) => {
+  // ── 3. "继续任务" → POST /jobs for each pending file ────────────────
+  test('"继续任务" → creates jobs for pending files', async ({ page }) => {
     const resumeBtn = page.getByRole('button', { name: /继续任务/ });
     const hasBtn = await resumeBtn.isVisible().catch(() => false);
     test.skip(!hasBtn, '"继续任务" button not visible (no pending files)');
 
-    // Track job creation requests
     let jobCalls = 0;
     page.on('request', (req) => {
       if (req.url().includes('/api/v1/jobs') && req.method() === 'POST') {
         const data = req.postDataJSON();
-        if (data?.task_type === 'convert_dwg_to_dxf') jobCalls++;
+        if (data?.task_type === dir.taskType) jobCalls++;
       }
     });
 
@@ -165,18 +199,15 @@ test.describe('FilesPage — button & API integration', () => {
   // ── 4. Row checkboxes → action bar appears ───────────────────────────
   test('select rows → bulk action bar with 打包下载 + 删除选中', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    // Use the selection checkboxes (Ant Design renders them in the first column)
     const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
     const rowCount = await checkboxes.count();
     test.skip(rowCount === 0, 'No table rows to select');
 
     await checkboxes.first().check();
 
-    // Action bar should appear with selection count
     const actionBar = page.getByText(/已选 \d/);
     await expect(actionBar.first()).toBeVisible({ timeout: 5000 });
 
-    // Buttons should be visible
     await expect(page.getByRole('button', { name: /打包下载/ })).toBeVisible();
     await expect(page.getByRole('button', { name: /删除选中/ })).toBeVisible();
   });
@@ -211,7 +242,6 @@ test.describe('FilesPage — button & API integration', () => {
 
     await checkboxes.first().check();
 
-    // Open zip modal
     await page.getByRole('button', { name: /打包下载/ }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 3000 });
@@ -219,14 +249,12 @@ test.describe('FilesPage — button & API integration', () => {
     const dlBtn = dialog.getByRole('button', { name: /开始下载/ });
     await expect(dlBtn).toBeEnabled();
 
-    // Uncheck both → button disabled — use label click which is more reliable
     const dwgOption = dialog.getByRole('checkbox', { name: '包含 DWG 文件' });
     const dxfOption = dialog.getByRole('checkbox', { name: '包含 DXF 文件' });
     await dwgOption.uncheck();
     await dxfOption.uncheck();
     await expect(dlBtn).toBeDisabled();
 
-    // Check DWG again → enabled
     await dwgOption.check();
     await expect(dlBtn).toBeEnabled();
 
@@ -244,7 +272,6 @@ test.describe('FilesPage — button & API integration', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
-    // Find the text input by placeholder
     const input = dialog.getByPlaceholder(/输入文件夹名称/);
     await input.fill('我的项目导出');
     await expect(input).toHaveValue('我的项目导出');
@@ -275,19 +302,19 @@ test.describe('FilesPage — button & API integration', () => {
     await download.delete();
   });
 
-  // ── 9. "下载 DWG" single file button → GET /files/{id}/download ──
-  test('single "下载 DWG" → signed download URL', async ({ page }) => {
+  // ── 9. Source file download button → signed URL ────────────────────
+  test('source file download → signed download URL', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const dwgBtn = page.getByRole('button', { name: /下载 DWG/ }).first();
-    const hasBtn = await dwgBtn.isVisible().catch(() => false);
-    test.skip(!hasBtn, 'No DWG download button found');
+    const btn = page.getByRole('button', { name: dir.downloadSourceBtn }).first();
+    const hasBtn = await btn.isVisible().catch(() => false);
+    test.skip(!hasBtn, `No source download button (${dir.downloadSourceBtn}) found`);
 
     const [dlResp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes('/api/v1/files/') && r.url().includes('/download-url'),
         { timeout: 10_000 },
       ),
-      dwgBtn.click(),
+      btn.click(),
     ]);
 
     expect(dlResp.status()).toBe(200);
@@ -297,20 +324,19 @@ test.describe('FilesPage — button & API integration', () => {
     expect(body.data.expires_in).toBe(300);
   });
 
-  // ── 10. "下载 DXF" button → GET /jobs/{id}/results → download ───
-  test('single "下载 DXF" → job results → file download', async ({ page }) => {
+  // ── 10. Result download button → job results → download ──────────
+  test('result download → job results → file download', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const dxfBtn = page.getByRole('button', { name: '下载 DXF' }).first();
-    const hasBtn = await dxfBtn.isVisible().catch(() => false);
-    test.skip(!hasBtn, 'No DXF download button found (no succeeded jobs)');
+    const btn = page.getByRole('button', { name: dir.downloadResultBtn }).first();
+    const hasBtn = await btn.isVisible().catch(() => false);
+    test.skip(!hasBtn, `No result download button (${dir.downloadResultBtn}) found`);
 
-    // Track the download-url request for the DXF result file
     const respPromise = page.waitForResponse(
       (r) => r.url().includes('/download-url') && r.request().method() === 'GET',
       { timeout: 15_000 },
     );
 
-    await dxfBtn.click();
+    await btn.click();
     const dlResp = await respPromise.catch(() => null);
     if (dlResp) {
       expect(dlResp.status()).toBe(200);
@@ -319,7 +345,7 @@ test.describe('FilesPage — button & API integration', () => {
 
   // ── 11. "重试转换" button → POST /jobs/{id}/retry-requests ──────
   test('"重试转换" → POST /jobs/{id}/retry-requests', async ({ page }) => {
-    const fileId = await createFailedDxfFixture(page);
+    const fileId = await createRetryableFixture(page, dir);
     await page.reload();
     const row = page.locator(`.ant-table-row[data-row-key="${fileId}"]`);
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -344,21 +370,19 @@ test.describe('FilesPage — button & API integration', () => {
     const sizeSelector = page.locator('.ant-pagination-options-size-changer .ant-select-selector');
     if (await sizeSelector.isVisible()) {
       await sizeSelector.click();
-      // Dropdown should appear
       const dropdown = page.locator('.ant-select-dropdown:visible');
       await expect(dropdown).toBeVisible({ timeout: 3000 });
 
-      // Pick the first available option
       const options = dropdown.locator('.ant-select-item-option-content');
       const firstCount = await options.count();
       if (firstCount > 1) {
-        await options.nth(1).click(); // pick a different size
+        await options.nth(1).click();
         await page.waitForTimeout(500);
       }
     }
   });
 
-  // ── 14. Batch cards → navigate into batch detail ─────────────────
+  // ── 13. Batch cards → navigate into batch detail ─────────────────
   test('batch card click → batch detail with breadcrumb', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
@@ -366,26 +390,22 @@ test.describe('FilesPage — button & API integration', () => {
     const cardCount = await cards.count();
     test.skip(cardCount === 0, 'No batch cards');
 
-    // Click the card title (avoids checkbox, resolves to single element)
     await cards.first().locator('.ant-card-meta-title').click();
 
-    // Should see "返回" button in the content area
     const backBtn = page.getByRole('button', { name: /返回/ });
     await expect(backBtn).toBeVisible({ timeout: 5000 });
 
     // Navigate back
     await backBtn.click();
-    await expect(page.getByRole('button', { name: /上传 DWG 文件/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: dir.uploadBtnPattern })).toBeVisible();
     await expect(cards.first()).toBeVisible();
   });
 
-  // ── 13. "全部暂停" visible only when active jobs exist ──────────
+  // ── 14. "全部暂停" visible only when active jobs exist ──────────
   test('"全部暂停" visibility tied to active jobs', async ({ page }) => {
-    // This test just verifies the button appears/disappears correctly
     const pauseBtn = page.getByRole('button', { name: /全部暂停/ });
     const resumeBtn = page.getByRole('button', { name: /继续任务/ });
 
-    // At least one of them should exist or neither (if all jobs done)
     const pauseVisible = await pauseBtn.isVisible().catch(() => false);
     const resumeVisible = await resumeBtn.isVisible().catch(() => false);
 
@@ -398,13 +418,10 @@ test.describe('FilesPage — button & API integration', () => {
     const folderBtn = page.getByRole('button', { name: /上传文件夹/ });
     await expect(folderBtn).toBeVisible({ timeout: 5000 });
 
-    // Click should trigger the hidden file input
     const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 5000 });
     await folderBtn.click();
     const fileChooser = await fileChooserPromise;
     expect(fileChooser).toBeTruthy();
-    // Don't actually select files — cancel
-    // fileChooser is already resolved, just verify it was triggered
   });
 
   // ── 16. Empty state shown when no files ─────────────────────────
@@ -422,7 +439,7 @@ test.describe('FilesPage — button & API integration', () => {
     });
     await page.reload();
 
-    await expect(page.getByText('暂无 DWG 文件', { exact: true })).toBeVisible();
+    await expect(page.getByText(dir.emptyFileText, { exact: true })).toBeVisible();
     await expect(page.locator('.ant-table-tbody .ant-table-row')).toHaveCount(0);
   });
 
@@ -431,7 +448,6 @@ test.describe('FilesPage — button & API integration', () => {
     const sidebar = page.locator('.ant-layout-sider');
     await expect(sidebar).toBeVisible();
 
-    // Check key links
     for (const label of ['文件', '任务', '工作台']) {
       const link = sidebar.getByText(label);
       if (await link.isVisible()) {
@@ -444,14 +460,13 @@ test.describe('FilesPage — button & API integration', () => {
   test('stats cards render with numeric values', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 }).catch(() => {});
 
-    // Each stat card should have a number
     const statValues = page.locator('[style*="fontSize: 22"][style*="fontWeight: 700"]');
     const count = await statValues.count();
 
     for (let i = 0; i < count; i++) {
       const text = await statValues.nth(i).textContent();
-      // Each stat should be a number or something displayable
       expect(text).toBeTruthy();
     }
   });
-});
+  });
+}

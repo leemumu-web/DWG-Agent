@@ -397,7 +397,7 @@ export function ConversionPage(props: ConversionPageProps) {
   return (
     <>
       {/* ── header ────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div className="conversion-header">
         <div>
           {selectedBatch ? (
             <Space size={4}>
@@ -427,7 +427,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
       {/* ── master progress ────────────────────────────────────────────── */}
       {dwgFiles.length > 0 && (
-        <div style={{ background: 'linear-gradient(135deg, #f0f5ff, #e6f4ff)', borderRadius: 10, padding: '12px 20px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div className="conversion-progress">
           <SyncOutlined spin={processing > 0} style={{ fontSize: 20, color: processing > 0 ? '#1677ff' : '#52c41a' }} />
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -440,19 +440,18 @@ export function ConversionPage(props: ConversionPageProps) {
       )}
 
       {/* ── stats ─────────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="conversion-stats">
         {[
-          { label: p.title, value: tableFiles.length, icon: <FileOutlined />, color: '#1677ff', bg: '#e6f4ff' },
-          { label: `已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#52c41a', bg: '#f6ffed' },
-          { label: '处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#faad14', bg: '#fffbe6' },
-          { label: '存储总量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#722ed1', bg: '#f9f0ff' },
+          { label: p.title, value: tableFiles.length, icon: <FileOutlined />, color: '#2563eb', bg: '#eff6ff' },
+          { label: `已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
+          { label: '处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
+          { label: '存储总量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
         ].map((s) => (
-          <div key={s.label} style={{ background: s.bg, borderRadius: 10, padding: '14px 18px',
-            display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 22, color: s.color, lineHeight: 1 }}>{s.icon}</span>
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: '#1f1f1f', lineHeight: 1.2 }}>{s.value}</div>
-              <div style={{ fontSize: 13, color: '#8c8c8c', marginTop: 2 }}>{s.label}</div>
+          <div key={s.label} className="conversion-stat">
+            <span className="conversion-stat-icon" style={{ color: s.color, background: s.bg }}>{s.icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div className="conversion-stat-value">{s.value}</div>
+              <div className="conversion-stat-label">{s.label}</div>
             </div>
           </div>
         ))}
@@ -460,7 +459,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
       {/* ── batch/folder view (top level only) ──────────────────────── */}
       {selectedBatch === null && (batchesQ.data ?? []).length > 0 && (
-        <div style={{ marginBottom: 20 }}>
+        <div className="folder-section">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <Typography.Text strong style={{ fontSize: 14 }}>
               <FolderOpenOutlined style={{ marginRight: 6 }} />文件夹
@@ -472,7 +471,7 @@ export function ConversionPage(props: ConversionPageProps) {
               <Button size="small" onClick={() => setSelectedBatchNames([])}>取消选择</Button>
             )}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+          <div className="folder-grid">
             {(batchesQ.data ?? []).map((b: BatchInfo) => {
               const isChecked = selectedBatchNames.includes(b.name);
               return (
@@ -480,11 +479,7 @@ export function ConversionPage(props: ConversionPageProps) {
                   key={b.name}
                   hoverable
                   size="small"
-                  style={{
-                    cursor: 'pointer',
-                    border: isChecked ? '2px solid #1677ff' : undefined,
-                    background: isChecked ? '#e6f4ff' : undefined,
-                  }}
+                  className={`folder-card${isChecked ? ' folder-card-selected' : ''}`}
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                     <Checkbox
@@ -519,11 +514,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
       {/* ── batch action bar ─────────────────────────────────────────── */}
       {selectedBatchNames.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '8px 16px', marginBottom: 12,
-          background: '#e6f4ff', borderRadius: 8,
-        }}>
+        <div className="selection-bar">
           <Typography.Text strong style={{ marginRight: 8 }}>
             已选 {selectedBatchNames.length} 个文件夹
           </Typography.Text>
@@ -545,7 +536,7 @@ export function ConversionPage(props: ConversionPageProps) {
       )}
 
       {/* ── upload area ──────────────────────────────────────────────── */}
-      <div style={{ background: '#fafcff', border: '1px solid #e8ecf1', borderRadius: 10, padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="upload-toolbar">
         <input
           ref={folderInputRef}
           type="file"
@@ -619,7 +610,7 @@ export function ConversionPage(props: ConversionPageProps) {
           style={{ borderColor: '#eb2f96', color: '#eb2f96', fontWeight: 500 }}>
           上传压缩包
         </Button>
-        <Typography.Text type="secondary">
+        <Typography.Text type="secondary" className="upload-toolbar-hint">
           支持 {p.acceptExt} / .zip 格式，单文件最大 512 MB，{p.uploadHint}
         </Typography.Text>
         {selectedBatch && (
@@ -629,11 +620,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
       {/* ── bulk action bar ──────────────────────────────────────────── */}
       {selectedRowKeys.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '8px 16px', marginBottom: 12,
-          background: '#e6f4ff', borderRadius: 8,
-        }}>
+        <div className="selection-bar">
           <Typography.Text strong style={{ marginRight: 8 }}>
             已选 {selectedRowKeys.length} 个
           </Typography.Text>
@@ -651,6 +638,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
       {/* ── file table ───────────────────────────────────────────────── */}
       <Table
+        className="conversion-table"
         rowKey="id"
         dataSource={tableFiles}
         columns={columns}
@@ -675,7 +663,7 @@ export function ConversionPage(props: ConversionPageProps) {
             </div>
           ),
         }}
-        style={{ background: '#fff', borderRadius: 10 }}
+        scroll={{ x: 860 }}
       />
 
       <ZipDownloadModal

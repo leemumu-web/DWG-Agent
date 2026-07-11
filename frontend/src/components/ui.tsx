@@ -152,13 +152,13 @@ export function PageHeader({
   extra?: ReactNode;
 }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, gap: 16 }}>
+    <div className="page-header">
       <div style={{ minWidth: 0 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>
+        <Typography.Title level={3} className="page-header-title">
           {title}
         </Typography.Title>
         {subtitle && (
-          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+          <Typography.Text type="secondary" className="page-header-subtitle">
             {subtitle}
           </Typography.Text>
         )}
@@ -181,47 +181,13 @@ export interface StatCardProps {
 export function StatCard({ label, value, icon, color, bg, hint }: StatCardProps) {
   return (
     <Tooltip title={hint}>
-      <div
-        style={{
-          background: '#fff',
-          borderRadius: 12,
-          padding: '16px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 14,
-          border: '1px solid #f0f0f0',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-          transition: 'box-shadow .2s, transform .2s',
-          height: '100%',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.06)';
-          e.currentTarget.style.transform = 'translateY(-1px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.03)';
-          e.currentTarget.style.transform = 'none';
-        }}
-      >
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 44,
-            height: 44,
-            borderRadius: 10,
-            background: bg,
-            color,
-            fontSize: 22,
-            flexShrink: 0,
-          }}
-        >
+      <div className="stat-card">
+        <span className="stat-card-icon" style={{ background: bg, color }}>
           {icon}
         </span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 24, fontWeight: 700, color: '#1f1f1f', lineHeight: 1.2 }}>{value}</div>
-          <div style={{ fontSize: 13, color: '#8c8c8c', marginTop: 2 }}>{label}</div>
+          <div className="stat-card-value">{value}</div>
+          <div className="stat-card-label">{label}</div>
         </div>
       </div>
     </Tooltip>
@@ -229,16 +195,5 @@ export function StatCard({ label, value, icon, color, bg, hint }: StatCardProps)
 }
 
 export function StatGrid({ children }: { children: ReactNode }) {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: 12,
-        marginBottom: 20,
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <div className="stat-grid">{children}</div>;
 }

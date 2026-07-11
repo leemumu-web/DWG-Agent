@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, DbSession, require_roles
 from app.core.config import settings
+from app.core.constants import ROLE_ADMIN
 from app.schemas.common import ok
+from app.services.infrastructure_service import infrastructure_overview
 
 router = APIRouter()
 
@@ -31,6 +33,16 @@ def get_system_health(request: Request, current_user: CurrentUser):
         },
         request.state.request_id,
     )
+
+
+@router.get("/infrastructure")
+def get_infrastructure_overview(
+    request: Request,
+    db: DbSession,
+    current_user=Depends(require_roles(ROLE_ADMIN)),
+):
+    """管理员基础设施视图：统一呈现 MySQL、对象存储和元数据目录状态。"""
+    return ok(infrastructure_overview(db), request.state.request_id)
 
 
 @router.get("/health/oda")

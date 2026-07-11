@@ -186,6 +186,7 @@ export function ReviewsPage() {
       </StatGrid>
 
       <Table
+        className="surface-table"
         rowKey="id"
         dataSource={filtered}
         columns={columns}
@@ -193,7 +194,7 @@ export function ReviewsPage() {
         size="middle"
         pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 条待复核` }}
         locale={{ emptyText: <Empty description="暂无待复核结果 🎉" /> }}
-        style={{ background: '#fff', borderRadius: 10 }}
+        scroll={{ x: 800 }}
       />
 
       <Drawer

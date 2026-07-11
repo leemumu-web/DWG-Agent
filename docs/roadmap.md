@@ -1,122 +1,110 @@
-# Roadmap
+# 路线图
 
-> Chinese mirror: [zh/roadmap.md](zh/roadmap.md)
+## 基线
 
-## Baseline
+截至 2026-07-11 的审计，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、77 个 OpenAPI path、attempt-safe Job execution、Local/MinIO adapter、四条转换 service path、Excel Final 关系化导入、通用生产流程界面和广泛自动测试。
 
-As audited from `main@d178fcf` on 2026-07-11, the repository contains a real React/FastAPI/MySQL/Celery/storage platform, not only a skeleton. It has authentication/RBAC, project/file/Job/result/review/audit models, 71 OpenAPI paths, attempt-safe Job execution, Local/MinIO adapters, four conversion service paths, Excel Final relational import, and broad automated tests.
+这不表示每个目录都 production-ready。feature flag 默认关闭，通用工作流仍需人工确认阶段，尚未自动连接 Excel Final Job/产物；Compose 缺少完整运维自动化，`Stages/dxf2excel` 也无法从 clean clone 重建。Agent 执行和 CAD 图纸业务算法/Windows CAD Worker 不再是路线图交付项。
 
-This does not make every directory production-ready. Feature flags are off by default, Agent/CAD tasks are placeholders, Compose lacks TLS/operations automation, and `Stages/dxf2excel` cannot be reconstructed from a clean clone.
+Redis/Valkey 已从活动运行时架构完整移除。历史 migration 或说明只能把它作为已移除历史提及。
 
-Redis/Valkey removal is complete in active runtime architecture. Historical migration or explanation text may mention it only as removed history.
+## P0：仓库可复现性
 
-## P0: Repository Reproducibility
+首先修复 `Stages/dxf2excel` 归属，因为它影响 backend dependency resolution 和 Docker build。
 
-Repair `Stages/dxf2excel` ownership first because it affects backend dependency resolution and Docker builds.
+完成标准：
 
-Completion criteria:
+- 选择普通跟踪目录，或恢复有效 `.gitmodules` metadata；
+- pin 可获取且已审查的 commit/source；
+- 移除对当前已填充但未被跟踪 nested working tree 的依赖；
+- 通过全新 clone、`uv sync --locked`、Stage 测试、backend 测试和 Docker build；
+- 记录 source license/provenance，并更新 Stage component README。
 
-- choose a normal tracked directory or restore valid `.gitmodules` metadata;
-- pin a reachable reviewed commit/source;
-- remove reliance on the currently populated but untracked nested working tree;
-- pass a brand-new clone, `uv sync --locked`, Stage tests, backend tests, and Docker build;
-- document source license/provenance and update the Stage component README.
+## P0：求实的 HTTP/TLS 部署
 
-## P0: Honest HTTP/TLS Deployment
+当前已选择明确的短期状态：Compose 删除无效 `443:8443` 映射，只发布 `${HTTP_PORT:-80}:8080`，并将 HTTP-only 作为可信内网风险接受，而不是 HTTPS 能力。
 
-Choose one explicit short-term state:
+若未来需要公网入口，完成标准是实现受控 TLS termination、证书/私钥只读管理、HTTP redirect、验证后 HSTS、renewal/expiry 检查和 secure-cookie browser 测试。必须提供真实 TLS handshake 以及经 HTTPS 的 refresh/SSE/download 证据；单个端口映射仍不是证据。
 
-- remove the dead `443:8443` mapping and document HTTP-only private use; or
-- implement container `8443 ssl`, read-only certificate mounts, HTTP redirect, HSTS after validation, renewal/expiry checks, and secure-cookie browser tests.
+## P0：可靠性门禁
 
-Completion requires a real TLS handshake and refresh/SSE/download flow through HTTPS. A Compose port mapping alone is not evidence.
+- 保持 MySQL 为业务事实，阻止 process-memory fallback。
+- 每个 Job 状态写入保持 status + attempt 条件。
+- 派生 result 和 batch metadata 保持权限检查。
+- 保持对象 rollback compensation，并增加周期对象/数据库 reconciliation。
+- 测试 clean migration、受支持 downgrade 和代表性 populated upgrade。
+- task、storage、auth 或 download 变化后运行真实 broker/storage/browser 工作流。
 
-## P0: Reliability Gates
+## P1：运维基线
 
-- Keep MySQL as business truth and prevent process-memory fallback.
-- Preserve status + attempt predicates across every Job state write.
-- Keep permission checks on derived results and batch metadata.
-- Maintain object rollback compensation and add periodic object/database reconciliation.
-- Test clean migration, downgrade where supported, and representative populated upgrades.
-- Run real broker/storage/browser workflows after changes to tasks, storage, auth, or downloads.
+必须实现，而不只是写文档：
 
-## P1: Operations Baseline
+- 协调 MySQL + MinIO backup，并支持 encryption/retention；
+- 调度 restore test，保留 checksum 证据并测量 RPO/RTO；
+- API latency/error、DB pool、queue depth/age、Job duration/failure、storage 和 worker health metric；
+- 集中 structured log 和 request/Job/attempt correlation；
+- 可操作 alert、dashboard、runbook link 和 incident retention；
+- capacity test 和明确 connection/worker/object limit；
+- 保持数据库/对象一致性的 retention/deletion job。
 
-Implement rather than merely document:
+## P1：处理加固
 
-- coordinated MySQL + MinIO backups with encryption and retention;
-- scheduled restore tests with checksum evidence and measured RPO/RTO;
-- metrics for API latency/errors, DB pool, queue depth/age, Job duration/failure, storage, and worker health;
-- centralized structured logs and request/Job/attempt correlation;
-- actionable alerts, dashboards, runbook links, and incident retention;
-- capacity tests and explicit connection/worker/object limits;
-- retention/deletion jobs that preserve database/object consistency.
+- 建立有代表性且许可合规的 DWG/DXF/Excel corpus，带预期输出和失败分类。
+- sandbox 或隔离不可信 ODA/Excel 处理；增加 CPU、memory、disk、process 和 output limit。
+- 在每个 result 中定义 Stage version metadata，并定义算法变化的 migration behavior。
+- 在复杂文件处理前增加 malware scanning/quarantine。
+- 验证 cancellation 在安全时终止 child work，不只更新 Job status。
+- 为部分外部失败增加确定性 object reconciliation 和 retry policy。
 
-## P1: Processing Hardening
+## P1：通用工作流闭环
 
-- Build a representative, licensed DWG/DXF/Excel corpus with expected outputs and failure classes.
-- Sandbox or isolate ODA/Excel processing of untrusted files; add CPU, memory, disk, process, and output limits.
-- Define Stage version metadata in every result and migration behavior for changed algorithms.
-- Add malware scanning/quarantine before complex file processing.
-- Verify cancellation terminates child work where safe, not only Job state updates.
-- Add deterministic object reconciliation and retry policy for partial external failures.
+在不增加 CAD 图纸算法或 Agent 执行的前提下，补齐当前人工边界：
 
-## P1: Agent Subsystem
+- 从 `excel_process` 阶段创建带项目权限和 attempt 绑定的 Excel Final Job；
+- 同步 Job 终态，且不允许 stale attempt 推进阶段；
+- 将源文件/结果文件挂接为版本化工作流产物；
+- 复核批准/退回必须推进或重新打开正确阶段；
+- 持久化交付记录及带 SHA-256 的确定性打包清单；
+- 增加 API、迁移、权限、浏览器、取消、重试及真实 MySQL/Celery/storage 测试。
 
-Keep `AGENT_ENABLED=false` until all criteria pass:
+## 冻结 / 排除子系统
 
-- replace `tasks_agent.py` placeholder with a bounded, cancellable task;
-- implement model/MCP client timeouts, retries, tool allowlist, payload/result validation, and secret isolation;
-- persist only bounded memory and safe step summaries; do not expose hidden reasoning or tool secrets;
-- enforce creator/admin/project access on run, steps, source and output files;
-- audit model/tool selection and resulting artifacts without logging sensitive payloads;
-- cover prompt/tool injection, unauthorized tool calls, stale attempts, cancellation, dependency outage, and real E2E.
+保持 `AGENT_ENABLED=false` 和 `CAD_WORKER_ENABLED=false`。Agent/model/MCP 执行、CAD 构件提取/分类、自动或交互拆板、左右进分析、中望 CAD 二次开发和 Windows CAD Worker 明确不在当前项目范围。现有 route、model、配置符号和占位目录可以为兼容保留，但不得将其描述为计划交付。
 
-## P1: Windows CAD Worker
+## P2：Broker 与扩展决策
 
-Keep `CAD_WORKER_ENABLED=false` until all criteria pass:
+用真实 queue count、Job duration、worker concurrency、API load 和 failure recovery 压测当前 MySQL SQL transport。记录 connection consumption 和 broker table growth。需求超出时通过 ADR 采用 RabbitMQ 或其他合适 broker，同时让 Job/progress/result authorization 留在 MySQL。
 
-- define authenticated, replay-resistant worker registration/dispatch protocol;
-- implement the Celery CAD task and an actual Windows service, not only `CAD_WORKER_API_BASE`;
-- make dispatch idempotent by Job attempt and enforce timeout/cancellation;
-- securely transfer source/result artifacts and verify SHA-256;
-- map worker errors to safe stable codes and retain server-side diagnostics;
-- add Compose/external-service topology, health, upgrade, and real ZWCAD sample tests.
+不要恢复 Redis 作为业务状态源。未来 cache 需要显式 consistency model，并且永远不能授权或决定 Job truth。
 
-## P2: Broker and Scale Decision
+## P2：身份与安全成熟度
 
-Benchmark the current MySQL SQL transport with realistic queue count, Job duration, worker concurrency, API load, and failure recovery. Record connection consumption and broker table growth. If requirements exceed it, adopt RabbitMQ or another fit broker through an ADR while leaving Job/progress/result authorization in MySQL.
+- Refresh-token rotation、session/device inventory、强制 session revocation 和 key rotation。
+- 外部 identity/SSO 与 privileged role MFA。
+- 使用独立 credential 和 retention 的 tamper-evident audit export。
+- Dependency/container/SBOM scanning 和 patch SLA。
+- CSP 收紧、XSS-focused test 和安全 file preview isolation。
+- 在运维合理时，按 API、worker、migration、broker 和 audit 需求拆分 least-privilege database user。
 
-Do not restore Redis as a business state source. A future cache would need an explicit consistency model and may never authorize or determine Job truth.
+## P2：用户体验
 
-## P2: Identity and Security Maturity
+- 针对 keyboard、focus、label、contrast、table、dialog、progress 和 error 的 accessibility audit。
+- 清晰 offline/reconnecting/expired-session/storage-outage state。
+- Large-list 和 large-file performance test。
+- 每条 pipeline 一致的 retry/cancel/download 行为。
+- operator 可见 attempt history，且不把 stale step 与 active attempt 混淆。
 
-- Refresh-token rotation, session/device inventory, forced session revocation, and key rotation.
-- External identity/SSO and MFA for privileged roles.
-- Tamper-evident audit export with independent credentials and retention.
-- Dependency/container/SBOM scanning and patch SLA.
-- CSP tightening, XSS-focused tests, and secure file preview isolation.
-- Least-privilege database users split by API, worker, migration, broker, and audit needs where operationally justified.
+## 文档验收
 
-## P2: User Experience
+每项交付同时修改相关中文文档、生成 API 参考、根状态矩阵和组件 README。声明必须说明代码、默认 flag、依赖、验证环境/日期和剩余限制。
 
-- Accessibility audit for keyboard, focus, labels, contrast, tables, dialogs, progress, and errors.
-- Clear offline/reconnecting/expired-session/storage-outage states.
-- Large-list and large-file performance tests.
-- Consistent retry/cancel/download behavior across every pipeline.
-- Operator-visible attempt history without confusing stale steps with the active attempt.
+`make docs-check` 必须拒绝 stale API output、broken link、重新出现的旧双语镜像、过时本地端口、错误 schema/head/TLS 声明和缺失已知仓库 blocker。
 
-## Documentation Acceptance
+## 明确非目标
 
-Every delivery changes the relevant English/Chinese pair, generated API reference, root status matrix, and component README. Claims must state code, default flag, dependencies, verification environment/date, and residual limits.
-
-`make docs-check` must reject stale API output, broken links, pair-structure drift, obsolete local ports, current-branch references to `codex`, false TLS claims, and missing known repository blockers.
-
-## Explicit Non-Goals
-
-- Redis/Valkey as session, authorization, progress, Pub/Sub, broker, result, or fail-open store.
-- In-process state used to hide MySQL, broker, or storage failure.
-- Enabling placeholder Agent/CAD features for demonstration without their safety gates.
-- Treating mocked/SQLite tests as proof of MySQL/MinIO/Celery production behavior.
-- Treating HTTP Compose, uncoordinated backups, or a populated local gitlink as production readiness.
-- Large rewrites that break the buildable/testable vertical path without staged migration evidence.
+- Redis/Valkey 作为 session、authorization、progress、Pub/Sub、broker、result 或 fail-open store。
+- 进程内状态用于掩盖 MySQL、broker 或 storage failure。
+- 实现或启用 Agent/model/MCP 执行、CAD 图纸业务算法、交互拆板或 Windows CAD Worker。
+- 把 mocked/SQLite 测试当作 MySQL/MinIO/Celery 生产行为证据。
+- 把 HTTP Compose、不协调 backup 或已填充本地 gitlink 当作 production readiness。
+- 没有分阶段 migration 证据、会破坏 buildable/testable vertical path 的大重写。

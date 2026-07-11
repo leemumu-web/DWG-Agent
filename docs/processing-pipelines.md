@@ -1,91 +1,95 @@
-# Processing Pipelines
+# 处理管线
 
-> Chinese mirror: [zh/processing-pipelines.md](zh/processing-pipelines.md)
+## 共享 Job 契约
 
-## Shared Job Contract
-
-Every asynchronous pipeline uses the same control path:
+每条异步管线都使用同一控制路径：
 
 ```text
-authenticated request
-  -> validate feature flag, input, and resource access
-  -> create Job(status=queued, attempt=N) and commit
-  -> publish (job_id, attempt) to the routed MySQL queue
-  -> worker atomically claims queued + expected attempt
-  -> write attempt-scoped JobSteps and progress snapshots
-  -> read source object -> execute Stage -> write result object
-  -> persist file/result/domain metadata
-  -> conditionally finish the same attempt
+已认证请求
+  -> 校验功能开关、输入和资源权限
+  -> 创建 Job(status=queued, attempt=N) 并 commit
+  -> 向路由到的 MySQL 队列发布 (job_id, attempt)
+  -> worker 原子领取 queued + expected attempt
+  -> 写入 attempt-scoped JobSteps 和进度快照
+  -> 读取源对象 -> 执行 Stage -> 写结果对象
+  -> 持久化 file/result/domain metadata
+  -> 条件完成同一 attempt
 ```
 
-The API returns HTTP 202 after durable Job creation and dispatch. Dispatch failure conditionally marks only the still-queued attempt as failed. Workers must not create a separate correctness store or update a Job without matching its attempt.
+API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记仍 queued 的同一 attempt。worker 不得创建第二个正确性存储，也不得在不匹配 attempt 的情况下更新 Job。
 
-## Capability Matrix
+## 能力矩阵
 
-| Pipeline | Task / queue | Input | Output | Current boundary |
+| 管线 | Task / queue | 输入 | 输出 | 当前边界 |
 |---|---|---|---|---|
-| Framework smoke | `local_stub` / `report` | Job parameters | JSON `AnalysisResult` | Implemented framework path, not an LLM report Agent |
-| DWG -> DXF | `convert_dwg_to_dxf` / `dxf` | One stored DWG | Stored DXF + result row | Feature-gated; requires ODA and supported DWG header |
-| DXF -> DWG | `convert_dxf_to_dwg` / `dxf2dwg` | One stored DXF | Stored DWG + result row | Feature-gated; requires ODA and valid DXF |
-| DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | Named batch of stored DXF files | XLSX + result row | Feature-gated; Stage gitlink is not reproducible from a clean clone |
-| Excel Final | `process_excel_final` / `excel_final` | Stored `.xls`/`.xlsx` with supported content | Final XLSX + result + relational batch data | Feature-gated; requires handbook DB and supported schema |
-| Agent | `agent` | Agent-run request | None | API/model boundary only; task module is a placeholder |
-| Windows CAD | `cad` | Reserved | None | Config/task/directory placeholders; no deployed worker |
+| Framework smoke | `local_stub` / `report` | Job 参数 | JSON `AnalysisResult` | 已实现框架路径，不是 LLM report Agent |
+| DWG -> DXF | `convert_dwg_to_dxf` / `dxf` | 一个已存储 DWG | 已存储 DXF + result row | 功能开关保护；需要 ODA 和受支持 DWG header |
+| DXF -> DWG | `convert_dxf_to_dwg` / `dxf2dwg` | 一个已存储 DXF | 已存储 DWG + result row | 功能开关保护；需要 ODA 和有效 DXF |
+| DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | 命名 batch 的已存储 DXF | XLSX + result row | 功能开关保护；Stage gitlink 无法从 clean clone 复现 |
+| Excel Final | `process_excel_final` / `excel_final` | 内容受支持的已存储 `.xls`/`.xlsx` | 最终 XLSX + result + 关系化 batch 数据 | 功能开关保护；需要手册库和受支持 schema |
+| Agent | `agent` | Agent-run 请求 | 无 | 只有 API/model 边界；task module 是占位 |
+| Windows CAD | `cad` | 预留 | 无 | 配置/task/目录占位；没有部署 worker |
 
-## DWG to DXF
+这些管线是 Job 执行层，不会自动推进 `WorkflowRun`。当前工作流公开 API 也不会创建或绑定这些 Job；操作员在两个页面分别操作。两层自动接线仍属于[通用工作流](workflow-framework.md)的未完成项。
 
-`DXF_PIPELINE_ENABLED=true` permits `task_type=convert_dwg_to_dxf`. The service validates the stored file, stages it in a temporary directory, invokes the `dwg_converter` ODA adapter, stores a generated DXF in `dxf-derived`, creates an `AnalysisResult`, and completes the matching attempt.
+## DWG 转 DXF
 
-Steps are `download_source_dwg`, `run_oda_convert`, and `persist_dxf_result`. The ODA timeout/retry settings bound the child process, but compatibility still depends on real source versions and ODA behavior. The tracked AppImage and unit tests do not establish universal DWG support or licensing rights.
+`DXF_PIPELINE_ENABLED=true` 允许 `task_type=convert_dwg_to_dxf`。service 校验已存储文件、放入临时目录、调用 `dwg_converter` ODA adapter、把生成 DXF 存入 `dxf-derived`、创建 `AnalysisResult`，并完成匹配 attempt。
 
-## DXF to DWG
+步骤为 `download_source_dwg`、`run_oda_convert` 和 `persist_dxf_result`。ODA timeout/retry 设置限制子进程，但兼容性仍取决于真实源版本和 ODA 行为。已跟踪 AppImage 和单元测试不能证明支持所有 DWG，也不代表拥有许可权利。
 
-`DXF2DWG_PIPELINE_ENABLED=true` permits `task_type=convert_dxf_to_dwg`. The flow mirrors DWG -> DXF with steps `download_source_dxf`, `run_oda_convert_dxf`, and `persist_dwg_result`. It stores the derived object in the DWG-derived bucket and creates a result row.
+当前 ODA adapter 会把“非零退出码”“退出码为 0 但未生成目标文件”“输出路径被普通文件占用”“源文件复制失败”和“二进制不存在/无权限”映射为明确失败结果，避免未捕获 OS 错误绕过 Job 收敛。该加固已有 Stage regression test，但仍需真实 ODA/图纸样本验证。
 
-This pipeline can consume an uploaded DXF or a prior accessible conversion result. Result selection is deterministic: latest successful Job first, then latest successful result row. It does not silently pick an arbitrary historic output.
+## DXF 转 DWG
 
-## DXF to Excel
+`DXF2DWG_PIPELINE_ENABLED=true` 允许 `task_type=convert_dxf_to_dwg`。流程与 DWG -> DXF 对称，步骤为 `download_source_dxf`、`run_oda_convert_dxf` 和 `persist_dwg_result`。它把派生对象存入 DWG-derived bucket 并创建 result row。
 
-`DXF2EXCEL_PIPELINE_ENABLED=true` permits `task_type=extract_dxf_to_excel`. The service gathers accessible DXF files with the requested `batch_name`, stages readable objects, invokes the `dxf2excel` package, stores one workbook, and records partial download warnings in the Job steps.
+该管线可消费上传的 DXF 或此前可访问的转换结果。结果选择是确定性的：先选最新成功 Job，再选最新成功 result row，不会静默选择任意历史输出。
 
-Steps are `download_dxf_batch`, `run_dxf2excel_pipeline`, and `persist_excel_result`. A batch name is not an authorization scope: list, metadata, delete, and download operations must filter every file through the same SQL access boundary.
+## DXF 转 Excel
 
-The current parent repository records `Stages/dxf2excel` only as gitlink commit `86e99dce5ebce992273c7df78ca13d58036f7472`, without `.gitmodules`, and that object is absent locally. The populated working directory makes this checkout work, but clean clones and image builds cannot rely on it. This must be repaired before the pipeline is considered reproducibly delivered.
+`DXF2EXCEL_PIPELINE_ENABLED=true` 允许 `task_type=extract_dxf_to_excel`。service 收集请求 `batch_name` 下可访问的 DXF，暂存可读对象，调用 `dxf2excel` 包，存储一个工作簿，并在 Job step 中记录部分下载 warning。
+
+步骤为 `download_dxf_batch`、`run_dxf2excel_pipeline` 和 `persist_excel_result`。batch name 不是授权范围：列表、metadata、删除和下载必须通过相同 SQL 访问边界过滤每个文件。
+
+当前父仓库只把 `Stages/dxf2excel` 记录为 gitlink commit `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，本地也缺少该对象。已填充工作目录使当前 checkout 可工作，但 clean clone 和 image build 不能依赖它。在管线被视为可复现交付前必须修复。
 
 ## Excel Final
 
-`EXCEL_FINAL_PIPELINE_ENABLED=true` enables dedicated upload/process endpoints and `task_type=process_excel_final`. Supported inputs are:
+`EXCEL_FINAL_PIPELINE_ENABLED=true` 启用专用 upload/process 端点及 `task_type=process_excel_final`。支持输入为：
 
-- Tekla tab/whitespace-delimited exports, sometimes carrying an `.xls` filename despite being text;
-- real `.xlsx`/`.xlsm` workbooks with the required initial-table signature;
-- legacy binary `.xls` workbooks that `xlrd` can parse and that contain the required business columns.
+- Tekla tab/whitespace-delimited 导出，尽管是文本也可能使用 `.xls` 文件名；
+- 含必要初始表 signature 的真实 `.xlsx`/`.xlsm` 工作簿；
+- `xlrd` 可解析且包含必要业务列的 legacy 二进制 `.xls` 工作簿。
 
-A generic spreadsheet with the right extension is a valid negative case. Detection tries text and workbook paths without treating a failed text decode as final proof of invalid input.
+只有正确扩展名的普通表格是合理的负例。探测会尝试文本与工作簿路径，不把一次文本解码失败当成输入无效的最终证据。
 
-Steps are `download_excel_source`, `run_excel_final_pipeline`, `import_parts_to_db`, and `persist_excel_final_result`. The backend starts the standalone Stage as a child process with a bounded timeout and password passed through environment, not command-line arguments. Success stores the final workbook and imports one `excel_final_batches` row plus component and part rows. Failure removes transient batch rows only when the same attempt is still owned.
+步骤为 `download_excel_source`、`run_excel_final_pipeline`、`import_parts_to_db` 和 `persist_excel_final_result`。backend 以有界 timeout 启动独立 Stage 子进程，密码通过环境而非命令行传递。成功时存储最终工作簿，并导入一个 `excel_final_batches` row 以及 component/part rows。失败只在同一 attempt 仍被当前执行拥有时清理临时 batch row。
 
-## Result and Download Resolution
+关系化导入使用只读 `iter_rows(values_only=True)` 遍历输出表。零件表通过规范化表头定位列并跳过空行/合计行；构件表必须存在 `构件编号` 列，`构件数` 和重量列可选，数值 0 不会再被误写成 NULL。输入字节保持不变；输出工作簿中的“原表”是去除半角/全角空格后的处理基线，并非原始对象的逐字节副本。
 
-Pipeline outputs are represented by a `files` row and an `analysis_results.result_file_id`. Result detail, download URL, and review checks delegate to the parent Job boundary. An unscoped Job is readable only by an administrator or its creator.
+## 结果与下载解析
 
-Single-file browser download obtains a 300-second signed path, then performs an authenticated fetch. On network error, 403, 408, 429, or 5xx it waits 500 ms and makes one second attempt with a new signature. ZIP endpoints stream a POST response and do not use the same re-sign loop.
+管线输出由一个 `files` row 和 `analysis_results.result_file_id` 表示。结果详情、下载 URL 和复核检查委托给父 Job 边界。无项目 Job 仅管理员或创建者可读。
 
-## Cancellation, Retry, and Recovery
+浏览器单文件下载先获得 300 秒签名 path，再执行认证 fetch。遇到网络错误、403、408、429 或 5xx 时等待 500 ms，并用新签名进行第二次且仅一次尝试。ZIP 端点流式返回 POST 响应，不使用相同重签名循环。
 
-- Cancellation changes only an active matching Job; worker writes after cancellation are rejected by conditional updates.
-- Retry is allowed from failed/cancelled state, increments attempt, resets terminal fields, and publishes `(job_id, new_attempt)`.
-- Old one-argument messages map to attempt 1 and cannot claim attempt 2.
-- Worker startup marks sufficiently stale running Jobs failed with `CELERY_WORKER_LOST`; an operator must verify dependencies before retrying.
-- Celery result rows expire after 24 hours, but Job/JobStep business history remains in MySQL until an explicit retention policy is implemented.
+## 取消、重试与恢复
 
-## Enabling Checklist
+- 取消只改变匹配的 active Job；worker 在取消后的写入被条件更新拒绝。
+- failed/cancelled 状态允许重试，递增 attempt、重置终态字段并发布 `(job_id, new_attempt)`。
+- 旧单参数消息映射为 attempt 1，不能领取 attempt 2。
+- worker 启动把足够 stale 的 running Job 标为 `CELERY_WORKER_LOST`；操作员必须检查依赖后再重试。
+- Celery result row 在 24 小时后过期，但 Job/JobStep 业务历史会保留在 MySQL，直到实现显式保留策略。
 
-1. Repair or verify Stage source ownership and locked dependencies.
-2. Run Stage unit tests with representative valid and invalid samples.
-3. Verify MySQL migrations, storage write/read/delete, and required handbook grants.
-4. Start exactly one intended worker node for the queue and verify readiness.
-5. Enable only the corresponding feature flag.
-6. Submit through Nginx, observe Job steps/SSE, download the result, and compare SHA-256.
-7. Exercise cancellation, retry, dependency outage, restart, and unauthorized access.
+## 启用检查表
 
-Do not enable `AGENT_ENABLED` or `CAD_WORKER_ENABLED` merely because their API/configuration symbols exist.
+1. 修复或验证 Stage 源码归属与锁定依赖。
+2. 用有代表性的有效/无效样本运行 Stage 单元测试。
+3. 验证 MySQL 迁移、存储写/读/删和必要手册库授权。
+4. 为队列启动且仅启动预期的一个 worker node，并验证 readiness。
+5. 只启用对应功能开关。
+6. 通过 Nginx 提交，观察 Job step/SSE，下载结果并比较 SHA-256。
+7. 覆盖取消、重试、依赖中断、重启和未授权访问。
+
+不要因为 `AGENT_ENABLED` 或 `CAD_WORKER_ENABLED` 的 API/configuration symbol 存在就启用它们。

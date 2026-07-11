@@ -216,7 +216,7 @@ def steps_7_9_modify(wb, ws):
         if col_header in _SKIP_VERIFY:
             continue
         for r in range(2, ws.max_row + 1):
-            if ws.cell(row=r, column=col).value is not None:
+            if safe_str(ws.cell(row=r, column=col).value):
                 non_empty_errors.append(f"'{col_header}' row {r}")
                 break
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate bilingual documentation structure, generated API docs, and local links."""
+"""Validate the maintained Chinese documentation against repository contracts."""
 
 from __future__ import annotations
 
@@ -11,15 +11,23 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
-ZH_DOCS = DOCS / "zh"
+REQUIRED_DOCS = {
+    "README.md",
+    "api.md",
+    "architecture.md",
+    "configuration.md",
+    "database.md",
+    "deployment.md",
+    "development.md",
+    "operations.md",
+    "processing-pipelines.md",
+    "roadmap.md",
+    "security.md",
+    "workflow-framework.md",
+    "workflow-verification.md",
+}
 
-HEADING_RE = re.compile(r"^(#{1,6})\s+", re.MULTILINE)
 LINK_RE = re.compile(r"(?<!!)\[[^]]*]\(([^)]+)\)")
-ENDPOINT_RE = re.compile(r"/api/v1/[A-Za-z0-9_./{}?=*-]+")
-ENV_RE = re.compile(r"`([A-Z][A-Z0-9_]{2,})`")
-REVISION_RE = re.compile(r"\b[0-9a-f]{12}\b")
-GIT_SHA_RE = re.compile(r"\b[0-9a-f]{40}\b")
-SHELL_FENCE_RE = re.compile(r"```(?:bash|sh|dotenv)\n(.*?)```", re.DOTALL)
 
 COMPONENT_READMES = (
     ROOT / "backend/README.md",
@@ -35,85 +43,28 @@ COMPONENT_READMES = (
 )
 
 
-def _structure(text: str) -> tuple[list[int], int, int]:
-    headings = [len(match.group(1)) for match in HEADING_RE.finditer(text)]
-    fences = sum(line.lstrip().startswith("```") for line in text.splitlines())
-    table_rows = sum(line.strip().startswith("|") for line in text.splitlines())
-    return headings, fences, table_rows
-
-
-def _shell_commands(text: str) -> tuple[str, ...]:
-    commands: list[str] = []
-    for block in SHELL_FENCE_RE.findall(text):
-        commands.extend(
-            line.strip()
-            for line in block.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        )
-    return tuple(commands)
-
-
-def _technical_tokens(
-    text: str,
-) -> tuple[set[str], set[str], set[str], set[str], tuple[str, ...]]:
-    return (
-        set(ENDPOINT_RE.findall(text)),
-        set(ENV_RE.findall(text)),
-        set(REVISION_RE.findall(text)),
-        set(GIT_SHA_RE.findall(text)),
-        _shell_commands(text),
-    )
-
-
-def _doc_pairs(errors: list[str]) -> None:
-    english = {path.name for path in DOCS.glob("*.md")}
-    chinese = {path.name for path in ZH_DOCS.glob("*.md")}
-    if english != chinese:
+def _documentation_set(errors: list[str]) -> None:
+    current = {path.name for path in DOCS.glob("*.md")}
+    if current != REQUIRED_DOCS:
         errors.append(
-            "Bilingual file sets differ: "
-            f"English-only={sorted(english - chinese)}, Chinese-only={sorted(chinese - english)}"
+            "Documentation file set differs: "
+            f"missing={sorted(REQUIRED_DOCS - current)}, extra={sorted(current - REQUIRED_DOCS)}"
         )
-
-    for name in sorted(english & chinese):
-        en_text = (DOCS / name).read_text(encoding="utf-8")
-        zh_text = (ZH_DOCS / name).read_text(encoding="utf-8")
-        en_structure = _structure(en_text)
-        zh_structure = _structure(zh_text)
-        if en_structure != zh_structure:
-            errors.append(
-                f"docs/{name} structure differs from docs/zh/{name}: "
-                f"{en_structure} != {zh_structure}"
-            )
-        en_tokens = _technical_tokens(en_text)
-        zh_tokens = _technical_tokens(zh_text)
-        if en_tokens != zh_tokens:
-            labels = (
-                "endpoints",
-                "environment variables",
-                "migration revisions",
-                "Git commit identifiers",
-                "shell commands",
-            )
-            for label, en_set, zh_set in zip(labels, en_tokens, zh_tokens, strict=True):
-                if en_set != zh_set:
-                    if isinstance(en_set, set) and isinstance(zh_set, set):
-                        detail = (
-                            f"English-only={sorted(en_set - zh_set)}, "
-                            f"Chinese-only={sorted(zh_set - en_set)}"
-                        )
-                    else:
-                        detail = f"English={en_set}, Chinese={zh_set}"
-                    errors.append(f"docs/{name} {label} differ: {detail}")
+    if (DOCS / "zh").exists():
+        errors.append("docs/zh must not be recreated; maintained documentation is Chinese-only")
+    forbidden = ("docs/zh/", "英文对应文档", "English mirror", "双语契约", "中英文参考")
+    for path in sorted(DOCS.glob("*.md")):
+        content = path.read_text(encoding="utf-8")
+        for marker in forbidden:
+            if marker in content:
+                errors.append(f"{path.relative_to(ROOT)} contains obsolete marker: {marker}")
 
 
 def _generated_api_docs(errors: list[str]) -> None:
     sys.path.insert(0, str(ROOT / "scripts"))
     from generate_api_docs import render
 
-    expected = {
-        DOCS / "api.md": render(chinese=False),
-        ZH_DOCS / "api.md": render(chinese=True),
-    }
+    expected = {DOCS / "api.md": render()}
     for path, generated in expected.items():
         if path.read_text(encoding="utf-8") != generated:
             errors.append(
@@ -130,7 +81,6 @@ def _owned_markdown_files() -> list[Path]:
         *COMPONENT_READMES,
     ]
     markdown_files.extend(sorted(DOCS.glob("*.md")))
-    markdown_files.extend(sorted(ZH_DOCS.glob("*.md")))
     markdown_files.extend(
         ROOT / relative
         for relative in (
@@ -143,6 +93,48 @@ def _owned_markdown_files() -> list[Path]:
         )
     )
     return list(dict.fromkeys(markdown_files))
+
+
+def _markdown_hygiene(errors: list[str]) -> None:
+    for path in _owned_markdown_files():
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8")
+        relative = path.relative_to(ROOT)
+        if "�" in content:
+            errors.append(f"{relative} contains a Unicode replacement character")
+        if content and not content.endswith("\n"):
+            errors.append(f"{relative} must end with a newline")
+        trailing = [
+            line_number
+            for line_number, line in enumerate(content.splitlines(), start=1)
+            if line.rstrip() != line
+        ]
+        if trailing:
+            errors.append(f"{relative} has trailing whitespace on lines {trailing}")
+
+        in_fence = False
+        previous_heading = 0
+        fence_count = 0
+        for line_number, line in enumerate(content.splitlines(), start=1):
+            if line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                fence_count += 1
+                continue
+            if in_fence:
+                continue
+            heading = re.match(r"^(#{1,6})\s+", line)
+            if not heading:
+                continue
+            level = len(heading.group(1))
+            if previous_heading and level > previous_heading + 1:
+                errors.append(
+                    f"{relative}:{line_number} skips heading level "
+                    f"H{previous_heading} -> H{level}"
+                )
+            previous_heading = level
+        if fence_count % 2:
+            errors.append(f"{relative} has an unclosed fenced code block")
 
 
 def _local_links(errors: list[str]) -> None:
@@ -202,7 +194,7 @@ def _database_contract(errors: list[str]) -> None:
     else:
         current_head = heads[0]
 
-    for path in (DOCS / "database.md", ZH_DOCS / "database.md"):
+    for path in (DOCS / "database.md",):
         content = path.read_text(encoding="utf-8")
         for env_name, default in expected_defaults.items():
             if f"| `{env_name}` | {default}" not in content:
@@ -212,8 +204,15 @@ def _database_contract(errors: list[str]) -> None:
         for table in sequence_tables:
             if f"`{table}`" not in content:
                 errors.append(f"{path.relative_to(ROOT)} omits Celery runtime table {table}")
-        if "**31" not in content or f"**{model_table_count}" not in content:
-            errors.append(f"{path.relative_to(ROOT)} must document 31 total and 22 business tables")
+        initialized_table_count = model_table_count + 1 + 8
+        if (
+            f"**{model_table_count} 张" not in content
+            or f"**{initialized_table_count} 张" not in content
+        ):
+            errors.append(
+                f"{path.relative_to(ROOT)} must document {model_table_count} model tables "
+                f"and {initialized_table_count} tables after all Celery runtime tables exist"
+            )
         if current_head and current_head not in content:
             errors.append(
                 f"{path.relative_to(ROOT)} omits current Alembic head {current_head}"
@@ -225,10 +224,7 @@ def _database_contract(errors: list[str]) -> None:
 def _repository_boundaries(errors: list[str]) -> None:
     root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
     specification = (ROOT / "DWG-Agent企业平台技术规范.md").read_text(encoding="utf-8")
-    deployment_docs = (
-        (DOCS / "deployment.md").read_text(encoding="utf-8"),
-        (ZH_DOCS / "deployment.md").read_text(encoding="utf-8"),
-    )
+    deployment_doc = (DOCS / "deployment.md").read_text(encoding="utf-8")
 
     if "`codex`" in specification or "codex branch" in specification.lower():
         errors.append("Technical specification contains an obsolete codex-branch status")
@@ -241,13 +237,13 @@ def _repository_boundaries(errors: list[str]) -> None:
     if dead_tls_mapping:
         if "443/TLS 尚不可用" not in root_readme:
             errors.append("README must disclose that the current 443/TLS mapping is unavailable")
-        if not all(
-            marker in content
-            for marker, content in zip(
-                ("no functional HTTPS", "没有可用 HTTPS"), deployment_docs, strict=True
-            )
-        ):
+        if "没有可用 HTTPS" not in deployment_doc:
             errors.append("Deployment docs must disclose the inactive Compose TLS mapping")
+    elif '"443:8443"' not in compose:
+        if "不发布 443" not in deployment_doc:
+            errors.append("Deployment docs must state that current Compose does not publish port 443")
+        if "Compose 仅发布 HTTP" not in root_readme:
+            errors.append("README must state that current Compose publishes HTTP only")
 
     gitlink = subprocess.run(
         ["git", "ls-files", "-s", "Stages/dxf2excel"],
@@ -262,9 +258,7 @@ def _repository_boundaries(errors: list[str]) -> None:
         for path in (
             ROOT / "README.md",
             DOCS / "deployment.md",
-            ZH_DOCS / "deployment.md",
             DOCS / "roadmap.md",
-            ZH_DOCS / "roadmap.md",
         ):
             if required not in path.read_text(encoding="utf-8"):
                 errors.append(
@@ -272,16 +266,14 @@ def _repository_boundaries(errors: list[str]) -> None:
                 )
 
 
-def _component_bilingual_contract(errors: list[str]) -> None:
+def _component_document_contract(errors: list[str]) -> None:
     for path in COMPONENT_READMES:
         if not path.exists():
             errors.append(f"Missing component README: {path.relative_to(ROOT)}")
             continue
         content = path.read_text(encoding="utf-8")
-        if "## English" not in content or "## 中文" not in content:
-            errors.append(
-                f"{path.relative_to(ROOT)} must contain English and Chinese sections"
-            )
+        if "## English" in content or "docs/zh/" in content:
+            errors.append(f"{path.relative_to(ROOT)} contains obsolete mirror content")
 
 
 def _production_docs_contract(errors: list[str]) -> None:
@@ -293,7 +285,7 @@ def _production_docs_contract(errors: list[str]) -> None:
     if not production_disables_docs:
         errors.append("FastAPI runtime documentation gate changed; update documentation contract")
         return
-    for path in (DOCS / "api.md", ZH_DOCS / "api.md"):
+    for path in (DOCS / "api.md",):
         content = path.read_text(encoding="utf-8")
         if "`APP_ENV=production`" not in content or "`DEBUG=false`" not in content:
             errors.append(
@@ -303,13 +295,14 @@ def _production_docs_contract(errors: list[str]) -> None:
 
 def check_docs() -> list[str]:
     errors: list[str] = []
-    _doc_pairs(errors)
+    _documentation_set(errors)
     _generated_api_docs(errors)
+    _markdown_hygiene(errors)
     _local_links(errors)
     _port_convention(errors)
     _database_contract(errors)
     _repository_boundaries(errors)
-    _component_bilingual_contract(errors)
+    _component_document_contract(errors)
     _production_docs_contract(errors)
     return errors
 
@@ -322,8 +315,9 @@ def main() -> int:
             print(f"- {error}")
         return 1
     print(
-        "Documentation check passed: bilingual structure/tokens/commands, generated API, "
-        "owned links, ports, database schema/head, repository boundaries, component mirrors, "
+        "Documentation check passed: Chinese document set, generated API, "
+        "Markdown hygiene, owned links, ports, database schema/head, repository boundaries, "
+        "component documentation, "
         "and production documentation behavior."
     )
     return 0

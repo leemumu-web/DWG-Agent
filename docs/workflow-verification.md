@@ -1,35 +1,33 @@
-# Full-Stack Workflow Verification
+# 全栈工作流验证
 
-> **Scope:** Nginx, FastAPI, MySQL, Celery SQL transport, storage, frontend retry/SSE/download
-> **Latest documentation-audit run:** 2026-07-11
-> **Chinese mirror:** [zh/workflow-verification.md](zh/workflow-verification.md)
+> **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
+> **最近文档审计运行：** 2026-07-11
+## 1. 证据层级
 
-## 1. Evidence Levels
-
-| Level | Proves | Does not prove |
+| 层级 | 能证明 | 不能证明 |
 |---|---|---|
-| Static/docs | source/config/link/schema declarations are internally consistent | a process starts or dependency works |
-| SQLite/backend tests | isolated API/service/security/state logic | MySQL locks, migrations, broker, MinIO, browser behavior |
-| Stage tests | deterministic converter/parser units and parity corpus | every real CAD/workbook or platform integration |
-| MySQL/infra checks | empty-schema migration and active local schema/config facts | complete Job/object/browser workflow |
-| Playwright contract/UI | API reachability and browser interactions; some tests use route fixtures | every scenario uses real Celery/MinIO/valid business files |
-| Live E2E | the exact deployed path and sample exercised in that run | future revisions or untested formats/outages |
+| Static/docs | source/config/link/schema 声明内部一致 | 进程启动或依赖可用 |
+| SQLite/backend tests | 隔离 API/service/security/state 逻辑 | MySQL lock、migration、broker、MinIO、browser 行为 |
+| Stage tests | 确定性 converter/parser unit 和 parity corpus | 每个真实 CAD/workbook 或平台集成 |
+| MySQL/infra checks | 空 schema migration 与活动本地 schema/config 事实 | 完整 Job/object/browser 工作流 |
+| Playwright contract/UI | API 可达和浏览器交互；部分测试使用 route fixture | 每个场景都使用真实 Celery/MinIO/有效业务文件 |
+| Live E2E | 本次运行实际覆盖的部署路径和样本 | 未来 revision 或未测格式/中断 |
 
-An acceptance claim must name its level, environment, date, sample, and skipped cases.
+验收声明必须写明层级、环境、日期、样本和跳过项。
 
-## 2. Required Production-Shaped Path
+## 2. 必要生产形态路径
 
 ```text
-Browser -> Nginx HTTP :8080 local / :80 Compose
-  -> FastAPI :8010 local / :8000 internal
-     -> MySQL business + Celery runtime state
-     -> Local FS or MinIO objects
+Browser -> Nginx HTTP :8080 本地 / :80 Compose
+  -> FastAPI :8010 本地 / :8000 internal
+     -> MySQL 业务 + Celery runtime state
+     -> Local FS 或 MinIO object
 Celery worker <- MySQL queue -> Stage -> MySQL state + storage result
 ```
 
-Redis/Valkey is not present. Current Compose is HTTP only; HTTPS is not part of this verified path. `Stages/dxf2excel` clean-clone reproducibility is also outside acceptance until its gitlink is repaired.
+没有 Redis/Valkey。当前 Compose 只有 HTTP；HTTPS 不属于该已验证路径。修复 gitlink 前，`Stages/dxf2excel` clean-clone 可复现性也在验收范围外。
 
-## 3. Repeatable Gates
+## 3. 可重复门禁
 
 ```bash
 make docs-check
@@ -54,7 +52,7 @@ npm run build
 npx playwright test
 ```
 
-With a local stack already running, use the read-only verifier through Nginx:
+本地 stack 已运行时，通过 Nginx 使用只读 verifier：
 
 ```bash
 DWG_VERIFY_USERNAME=admin \
@@ -62,65 +60,66 @@ DWG_VERIFY_PASSWORD='<configured-password>' \
 python tests/run_full_verify.py
 ```
 
-It checks liveness, readiness, 71-path OpenAPI, login, exact paginated files/Jobs reads, and managed process topology. It does not create a processing Job, upload a file, interrupt storage, or validate a signed result digest.
+新增工作流和基础设施端点后，生成 OpenAPI 当前包含 77 个 path、95 个 operation。只读 verifier 之前记录的 71-path 运行属于历史证据，路由变化后尚未重跑。除此之外，verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
 
-## 4. Required End-to-End Scenarios
+## 4. 必要端到端场景
 
-| Scenario | Required evidence |
+| 场景 | 必要证据 |
 |---|---|
-| Clean checkout/build | fresh clone restores all Stage sources; locked backend/frontend installs and image build pass |
-| Cold Compose | empty MySQL/MinIO volumes reach migration head and healthy core/selected workers |
-| Authentication | Nginx login, access request, cookie refresh, logout/revocation and expired session |
-| Job dispatch | API creates queued attempt; MySQL broker delivers to the intended worker; JobSteps and terminal state persist |
-| Object closure | source/result `files` rows match stored objects and downloaded SHA-256 |
-| Retry isolation | failed/cancelled Job increments attempt; old message/worker cannot update it |
-| SSE | HttpOnly cookie works, current-attempt snapshot arrives, reconnect refreshes, terminal closes |
-| Authorization | cross-project and unscoped result/file/review access is rejected |
-| Download retry | first signed fetch fails with retryable status; second attempt obtains a different valid signature |
-| Storage outage | liveness remains 200; readiness is 503; recovery needs no API restart; old object remains intact |
-| Worker loss | stale running Job becomes `CELERY_WORKER_LOST`, then retry completes a new attempt |
-| TLS | real HTTPS handshake, redirect, Secure refresh/SSE cookies, signed download and certificate lifecycle |
+| Clean checkout/build | fresh clone 恢复全部 Stage source；锁定 backend/frontend install 和 image build 通过 |
+| Cold Compose | 空 MySQL/MinIO volume 到达 migration head，core/selected worker healthy |
+| Authentication | Nginx login、access request、cookie refresh、logout/revocation 和 expired session |
+| Job dispatch | API 创建 queued attempt；MySQL broker 投递给预期 worker；JobStep 和 terminal state 持久化 |
+| Object closure | source/result `files` row 与 stored object、download SHA-256 一致 |
+| Retry isolation | failed/cancelled Job 递增 attempt；旧 message/worker 不能更新 |
+| SSE | HttpOnly cookie 生效、当前 attempt snapshot 到达、reconnect 刷新、terminal 关闭 |
+| Authorization | 拒绝跨项目和无项目 result/file/review 越权 |
+| Download retry | 首次 signed fetch 以可重试状态失败；第二次获得不同且有效签名 |
+| Storage outage | liveness 保持 200；readiness 503；恢复无需 API restart；旧对象保持完整 |
+| Worker loss | stale running Job 变为 `CELERY_WORKER_LOST`，随后 retry 完成新 attempt |
+| TLS | 真实 HTTPS handshake、redirect、Secure refresh/SSE cookie、signed download 和证书生命周期 |
 
-The TLS and clean-checkout rows are currently known failures, not completed acceptance items.
+TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
-## 5. Latest Run Evidence
+## 5. 最近运行证据
 
-The 2026-07-11 documentation-audit run used the existing local MySQL and already-running local Nginx/FastAPI/five implemented workers; it did not restart the stack or recreate Compose volumes.
+2026-07-11 文档审计运行使用已有本地 MySQL 和已经运行的本地 Nginx/FastAPI/五个已实现 worker；没有重启 stack 或重建 Compose volume。
 
-| Gate | Result | Boundary |
+| 门禁 | 结果 | 边界 |
 |---|---|---|
-| Documentation checker | pass | includes bilingual commands/tokens, generated API, links, table/head, TLS/gitlink/production-doc contracts |
-| Backend Ruff | pass | application, tests, verifier, documentation scripts |
-| Backend pytest | **661 passed, 3 skipped** | 10 dependency/deprecation warnings; isolated tests use SQLite where configured |
-| Alembic check | no new operations | known `drawings`/`drawing_versions` cycle warning remains |
-| MySQL migration test | pass | empty temporary schema -> `a74c2e9f1d30`; 22 business tables |
-| Infrastructure verifier | **110/110** | static contracts plus active local MySQL; not TLS/build/restore/E2E |
-| Stage tests | **13 + 28 + 254 passed** | dwg2dxf, dxf2dwg, Excel Final multi_split respectively |
-| Frontend build | pass | TypeScript and Vite production bundle |
-| Playwright | **49 passed** | `PLAYWRIGHT_EXCEL_SAMPLE_PATH` used real `G区域四节钢柱构件零件清单毛净重.xLS`; includes Celery and fresh-signature digest closure |
-| Live read-only verifier | 7 checks passed | liveness, readiness, 71 paths, auth, file/job lists, process topology |
+| Documentation checker | pass | 中文单文档集、生成 API、link、table/head、HTTP/TLS、gitlink 和 production-doc contract |
+| Backend Ruff | pass | application、test、verifier、documentation script |
+| Backend pytest | **743 passed，3 skipped** | 15 个 dependency/deprecation warning；包含 69 条工作流测试；SQLite 隔离 |
+| Alembic check | 无新 operation | 已知 `drawings`/`drawing_versions` cycle warning 仍存在 |
+| MySQL migration test | pass | 空临时 schema -> `e4a1c7f2b930`；验证 25 张模型表并清理临时库 |
+| Infrastructure verifier | **110/110 pass** | 活动 MySQL 为 34 张表；静态 Compose/Nginx/Dockerfile/env 契约；不含 TLS/build/restore E2E |
+| Stage tests | **28 + 28 + 259 passed** | 分别为 dwg2dxf、dxf2dwg、Excel Final multi_split |
+| 工作流框架测试 | **69 passed（包含于后端全量）** | service 状态机、HTTP 认证/访问/校验、生命周期、同步、重新计算 |
+| Frontend build | pass | TypeScript 6 与 Vite 8 production bundle；尚无生产流程/基础设施页面 Playwright 用例 |
+| Playwright | **68 passed** | 通过现有本地 Nginx/API/worker；含有效 Excel 样本、下载重签名、双向文件页和 Jobs UI；不覆盖新增 workflow API/UI |
+| Live read-only verifier | 7 项历史通过 | 运行中旧进程仍为 71 path/88 operation；当前源码生成值为 77/95，新增 route 未经该进程验证 |
 
-The full run supplied the repository's known-valid Tekla list and passed successful upload -> Celery -> result -> failed-first-download -> fresh-signature digest verification. A separate `阚导出材料表.xls` probe was correctly rejected because it lacked required `构件编号` and `数量` columns; a related filename/extension is not sufficient input validity. Many other Files/Jobs UI tests use deterministic route fixtures and prove UI/API contracts rather than real object processing.
+全量运行提供仓库已知有效 Tekla 清单，并通过成功 upload -> Celery -> result -> 首次下载失败 -> 新签名 digest 验证。另一个 `阚导出材料表.xls` 探针因缺少必要 `构件编号` 和 `数量` 列被正确拒绝；相关文件名/扩展名不足以证明输入有效。许多其他 Files/Jobs UI 测试使用确定性 route fixture，只证明 UI/API contract，不证明真实对象处理。
 
-## 6. Historical Integration Record
+## 6. 历史集成记录
 
-The repository previously recorded a 2026-07-11 fresh-volume integration run with these observations:
+仓库此前记录了 2026-07-11 fresh-volume 集成运行，观察为：
 
-- MySQL migrated from empty volume to `a74c2e9f1d30` and created the queue-claim index.
-- A report Job traversed API -> MySQL broker -> Celery -> MySQL state -> MinIO and downloaded with matching SHA-256.
-- MinIO interruption changed readiness to 503 while database remained `ok`; recovery preserved an existing object.
-- A real attempt-2 probe rejected a legacy one-argument message and completed only after `(job_id, 2)` delivery.
+- MySQL 从空 volume 迁移到 `a74c2e9f1d30` 并创建 queue-claim index。
+- report Job 通过 API -> MySQL broker -> Celery -> MySQL state -> MinIO，下载 SHA-256 匹配。
+- MinIO 中断使 readiness 返回 503 且 database 保持 `ok`；恢复后旧对象仍存在。
+- 真实 attempt-2 probe 拒绝 legacy 单参数 message，只在 `(job_id, 2)` 投递后完成。
 
-These are retained as dated historical evidence. They were not independently repeated during the latest documentation-only run and must be rerun after relevant implementation, image, dependency, or environment changes.
+这些作为带日期历史证据保留。本轮已重跑空 MySQL 迁移、静态基础设施、后端全量和现有 Playwright，但没有重启正在运行的本地 FastAPI；实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，不含 workflow 和 infrastructure 新 route。因而新增 route 的证据来自 TestClient/OpenAPI 生成与迁移测试，不是经 Nginx 的实时 E2E。通用工作流仍需要浏览器覆盖；自动 Job/产物接线完成后还需对应集成测试和实时取消/恢复证据。
 
-## 7. Failure Triage
+## 7. 故障定位
 
-1. Record revision, request ID, Job ID/attempt, time, flags, sample digest, and exact entry URL.
-2. Check `bash scripts/status.sh`, `/health`, and `/health/ready` without restarting first.
-3. Inspect the first API/worker/storage/MySQL error, not only the browser's final message.
-4. Confirm `alembic current`, Job/JobStep state, queue worker identity, and Stage source availability.
-5. Compare `files.sha256`, storage bytes, and downloaded bytes.
-6. Distinguish browser fixture coverage from a real backend call and a real worker/object result.
-7. Add a focused regression, then rerun every affected layer and required E2E scenario.
+1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
+2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。
+3. 检查第一处 API/worker/storage/MySQL error，不只看 browser 最终消息。
+4. 确认 `alembic current`、Job/JobStep state、queue worker identity 和 Stage source 可用性。
+5. 比较 `files.sha256`、storage byte 和 downloaded byte。
+6. 区分 browser fixture coverage、真实 backend call 和真实 worker/object result。
+7. 增加聚焦 regression，再重跑全部受影响层和必要 E2E 场景。
 
-Never make a gate pass by enabling an in-memory fallback, disabling authorization, accepting arbitrary spreadsheet content, or describing a skipped scenario as verified.
+禁止通过启用内存 fallback、关闭 authorization、接受任意 spreadsheet 内容，或把 skipped scenario 描述为 verified 来让门禁通过。

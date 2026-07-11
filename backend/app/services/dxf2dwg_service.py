@@ -365,6 +365,7 @@ def run_dxf_to_dwg_conversion(
                 ),
             )
             if job is None:
+                logger.warning("DXF2DWG job %s progress commit lost (concurrent claim?), leaving for reconcile", job_id)
                 return
 
             # ---- 2. 调 ODA 转换 ----

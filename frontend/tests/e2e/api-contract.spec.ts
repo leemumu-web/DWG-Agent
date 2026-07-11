@@ -243,6 +243,26 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(body.data.pipeline).toBe('dxf_open_source');
   });
 
+  test('POST /api/v1/jobs (convert_dxf_to_dwg) — create DXF→DWG job', async ({ request }) => {
+    const filesR = await request.get(`${BASE}/api/v1/files?page_size=1`, {
+      headers: auth(token),
+    });
+    const files = (await filesR.json()).data;
+    if (files.length === 0) return;
+
+    const r = await request.post(`${BASE}/api/v1/jobs`, {
+      headers: { ...auth(token), 'Content-Type': 'application/json' },
+      data: {
+        task_type: 'convert_dxf_to_dwg',
+        precision_level: 'normal',
+        params: { file_id: files[0].id },
+      },
+    });
+    expect(r.status()).toBe(202);
+    const body = await r.json();
+    expect(body.data.pipeline).toBe('dxf2dwg_open_source');
+  });
+
   // ── Results ────────────────────────────────────────────────────────────
   test('GET /api/v1/results/{id}/download-url — result download URL', async ({ request }) => {
     // Find a valid result

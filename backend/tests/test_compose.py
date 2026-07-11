@@ -95,16 +95,12 @@ class TestComposeYamlValid:
         data = _load()
         services = data["services"]
 
-        assert services["nginx"]["image"] == "ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine"
-        assert services["mysql"]["image"] == (
-            "container-registry.oracle.com/mysql/community-server:8.4"
-        )
-        assert services["minio"]["image"] == (
-            "quay.io/minio/minio@sha256:"
-            "14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-        )
+        assert services["nginx"]["build"]["dockerfile"] == "frontend/Dockerfile"
+        assert "dwg-agent-frontend:local" in services["nginx"]["image"]
+        assert "mysql/community-server:8.4" in services["mysql"]["image"]
+        assert "quay.io/minio/minio@sha256:" in services["minio"]["image"]
         assert ":latest" not in services["minio"]["image"]
-        assert "80:8080" in services["nginx"]["ports"]
+        assert "${HTTP_PORT:-80}:8080" in services["nginx"]["ports"]
 
         nginx_conf = (REPO_ROOT / "infra/nginx/nginx.conf").read_text()
         assert "listen 8080;" in nginx_conf

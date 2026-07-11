@@ -278,8 +278,10 @@ class OdaConverter:
         elif not success:
             if returncode == _TIMEOUT_RETCODE:
                 error = error_hint or f"ODA 超时（returncode={returncode}）"
+            elif returncode != 0:
+                error = error_hint or f"ODA 返回非零退出码（returncode={returncode}）"
             else:
-                error = error_hint or "ODA 返回非零或目标文件未生成"
+                error = error_hint or "ODA 退出码为 0 但目标文件未生成（静默失败）"
         else:
             error = None
 
@@ -311,7 +313,13 @@ class OdaConverter:
         """
         source = Path(source).resolve()
         target_dir = Path(target_dir).resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            return ConvertResult(
+                source, target_dir / f"{source.stem}.{_OUTPUT_EXT}",
+                False, error=f"输出路径被非目录文件占用: {target_dir}",
+            )
 
         if not source.is_file():
             return ConvertResult(
@@ -326,7 +334,13 @@ class OdaConverter:
         # 隔离临时源目录：复制单文件进去
         with tempfile.TemporaryDirectory(prefix="oda_src_") as tmp_src:
             tmp_src_path = Path(tmp_src)
-            shutil.copy2(source, tmp_src_path / source.name)
+            try:
+                shutil.copy2(source, tmp_src_path / source.name)
+            except OSError as e:
+                return ConvertResult(
+                    source, target_dir / f"{source.stem}.{_OUTPUT_EXT}",
+                    False, error=f"无法复制源文件: {e}",
+                )
 
             cmd = self._build_cmd(
                 tmp_src_path, target_dir, version,
@@ -335,7 +349,13 @@ class OdaConverter:
             )
 
             start = time.monotonic()
-            result = self._run_with_retries(cmd, timeout, retries)
+            try:
+                result = self._run_with_retries(cmd, timeout, retries)
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                return ConvertResult(
+                    source, target_dir / f"{source.stem}.{_OUTPUT_EXT}",
+                    False, error=f"ODA 执行失败: {e}",
+                )
             duration = time.monotonic() - start
 
             error_hint = (
@@ -368,7 +388,15 @@ class OdaConverter:
         """
         source_dir = Path(source_dir).resolve()
         target_dir = Path(target_dir).resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except FileExistsError:
+            return BatchResult([ConvertResult(
+                source=source_dir,
+                target=target_dir / f"{source_dir.name}.{_OUTPUT_EXT}",
+                success=False,
+                error=f"输出路径被非目录文件占用: {target_dir}",
+            )])
 
         if not source_dir.is_dir():
             # 源目录不存在：返回失败结果（不抛异常），让上层统一走结果处理。
@@ -395,7 +423,18 @@ class OdaConverter:
         )
 
         start = time.monotonic()
-        result = self._run_with_retries(cmd, timeout, retries)
+        try:
+            result = self._run_with_retries(cmd, timeout, retries)
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            duration = time.monotonic() - start
+            return BatchResult([
+                ConvertResult(
+                    source=s, target=target_dir / f"{s.stem}.{_OUTPUT_EXT}",
+                    success=False, duration=duration,
+                    error=f"ODA 执行失败: {e}",
+                )
+                for s in sources
+            ])
         duration = time.monotonic() - start
 
         error_hint = (

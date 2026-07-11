@@ -160,10 +160,13 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "excel_final_batches",
         "excel_final_components",
         "excel_final_parts",
+        "workflow_artifacts",
+        "workflow_runs",
+        "workflow_stage_runs",
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "a74c2e9f1d30"' in source
+    assert 'version != "e4a1c7f2b930"' in source
     assert '"jobs": {"progress_data", "attempt"}' in source
     assert '"job_steps": {"attempt"}' in source
     assert "identifier types are not BIGINT" in source

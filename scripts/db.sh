@@ -289,27 +289,29 @@ PY
 
 migration_test_cmd() {
     start_cmd
-    local tmp_db="dwg_agent_migration_test_$$"
-    if [[ ! "$tmp_db" =~ ^[A-Za-z0-9_]+$ ]]; then
-        err "临时库名不安全: $tmp_db"
+    MIGRATION_TEST_DB="dwg_agent_migration_test_$$"
+    if [[ ! "$MIGRATION_TEST_DB" =~ ^[A-Za-z0-9_]+$ ]]; then
+        err "临时库名不安全: $MIGRATION_TEST_DB"
         return 2
     fi
 
     cleanup_migration_test() {
-        sudo mariadb -e "DROP DATABASE IF EXISTS $tmp_db;" >/dev/null 2>&1 || true
+        if [[ "${MIGRATION_TEST_DB:-}" =~ ^[A-Za-z0-9_]+$ ]]; then
+            sudo mariadb -e "DROP DATABASE IF EXISTS $MIGRATION_TEST_DB;" >/dev/null 2>&1 || true
+        fi
     }
     trap cleanup_migration_test EXIT
 
-    info "创建临时 MySQL schema: $tmp_db"
+    info "创建临时 MySQL schema: $MIGRATION_TEST_DB"
     sudo mariadb <<SQL
-CREATE DATABASE $tmp_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-GRANT ALL PRIVILEGES ON $tmp_db.* TO '$DB_USER'@'127.0.0.1';
-GRANT ALL PRIVILEGES ON $tmp_db.* TO '$DB_USER'@'localhost';
+CREATE DATABASE $MIGRATION_TEST_DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+GRANT ALL PRIVILEGES ON $MIGRATION_TEST_DB.* TO '$DB_USER'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON $MIGRATION_TEST_DB.* TO '$DB_USER'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 
     local test_database_url
-    test_database_url="$(migration_test_db_url "$tmp_db")"
+    test_database_url="$(migration_test_db_url "$MIGRATION_TEST_DB")"
     info "从空 MySQL schema 执行 Alembic 全链路..."
     (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run alembic upgrade head)
     info "验证临时 schema 表结构..."
@@ -341,6 +343,9 @@ expected_tables = {
     "sys_user_roles",
     "sys_users",
     "token_blacklist",
+    "workflow_artifacts",
+    "workflow_runs",
+    "workflow_stage_runs",
 }
 timestamp_tables = (
     "project_members",
@@ -368,7 +373,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "a74c2e9f1d30":
+    if version != "e4a1c7f2b930":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}

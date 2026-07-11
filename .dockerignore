@@ -38,10 +38,13 @@ Stages/dxf2dwg/tools/oda/
 # Optional preview/splitting applications are deployed separately.
 third_parts/
 
-# ── Frontend（宿主 build 后挂载 frontend/dist，无需进 backend 镜像）
+# ── Frontend 构建缓存（源码由 frontend Dockerfile 构建）───────────
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.playwright-cli/
 
 # ── 数据 / 仓库根运行时产物 ────────────────────────────────────
 Data/

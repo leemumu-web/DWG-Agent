@@ -26,11 +26,10 @@ WORKDIR /app
 
 # Builder 系统依赖：仅 ca-certificates。所有 Python 依赖（argon2 / ezdxf /
 # pandas / openpyxl）在 CPython 3.12 + manylinux 下均有预编译 wheel，无需 gcc。
-# UV_LINK_MODE=disable 关闭进度链接，保持构建日志干净（PyPI 慢时改用 index via env）。
-RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
-    ca-certificates \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
+    ca-certificates
 
 # 先 COPY 依赖清单 + 本地 path 依赖源码，再 uv sync —— 命中 uv.lock 缓存层
 # （pyproject.toml / uv.lock / Stages 源码不变则跳过 sync）。
@@ -45,7 +44,7 @@ COPY Stages/dxf2excel ./Stages/dxf2excel
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend
-RUN uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 # ── Stage 2: runtime ─────────────────────────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
@@ -67,13 +66,13 @@ WORKDIR /app
 #   curl, ca-certificates — 健康检查
 #   xvfb                  — xvfb-run 无头 X，ODA AppImage 需要 X server
 #   libfuse2              — AppImage FUSE 挂载解压（bookworm-slim 默认无）
-RUN apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     curl \
     ca-certificates \
     xvfb \
-    libfuse2 \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    libfuse2
 
 # Copy virtualenv from builder (single layer)
 COPY --from=builder /app/.venv /app/.venv

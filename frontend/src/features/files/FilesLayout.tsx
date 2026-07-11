@@ -51,12 +51,13 @@ export function FilesLayout() {
 
   return (
     <>
-      <Tabs
-        activeKey={activeKey}
-        onChange={(key) => navigate(key)}
-        items={tabs}
-        style={{ marginBottom: 12, marginTop: -8 }}
-      />
+      <div className="pipeline-tabs">
+        <Tabs
+          activeKey={activeKey}
+          onChange={(key) => navigate(key)}
+          items={tabs}
+        />
+      </div>
 
       <Outlet />
     </>

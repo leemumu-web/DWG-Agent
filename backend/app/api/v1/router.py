@@ -16,6 +16,7 @@ from app.api.v1 import (
     roles_api,
     system_api,
     users_api,
+    workflows_api,
 )
 
 api_router = APIRouter()
@@ -32,3 +33,4 @@ api_router.include_router(audit_logs_api.router, prefix="/audit-logs", tags=["au
 api_router.include_router(agent_runs_api.router, tags=["agent-runs"])
 api_router.include_router(system_api.router, prefix="/system", tags=["system"])
 api_router.include_router(excel_final_api.router, prefix="/excel-final", tags=["excel-final"])
+api_router.include_router(workflows_api.router, prefix="/workflows", tags=["workflows"])

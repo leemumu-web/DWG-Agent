@@ -13,7 +13,33 @@ export interface SystemHealth {
   storage_backend: string;
 }
 
+export interface InfrastructureOverview {
+  status: 'ok' | 'degraded';
+  checked_at: string;
+  database: {
+    status: 'ok' | 'error';
+    engine: string;
+    database: string;
+    latency_ms: number;
+    table_count: number | null;
+    pool: { size: number; max_overflow: number; recycle_seconds: number };
+  };
+  storage: {
+    status: 'ok' | 'error';
+    backend: string;
+    latency_ms: number;
+    buckets: Array<{ name: string; tracked_files: number; object_count: number | null }>;
+  };
+  catalog: { available_files: number; tracked_bytes: number; extensions: Record<string, number> };
+  recovery: { consistency_rule: string; automated_backup: boolean };
+}
+
 export async function getSystemHealth() {
   const res = await apiClient.get<ApiEnvelope<SystemHealth>>('/api/v1/system/health');
+  return res.data.data;
+}
+
+export async function getInfrastructureOverview() {
+  const res = await apiClient.get<ApiEnvelope<InfrastructureOverview>>('/api/v1/system/infrastructure');
   return res.data.data;
 }

@@ -19,6 +19,8 @@ const UsersPage = lazy(() => import('../features/users/UsersPage').then((module)
 const AuditLogsPage = lazy(() => import('../features/admin/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })));
 const RolesPage = lazy(() => import('../features/admin/RolesPage').then((module) => ({ default: module.RolesPage })));
 const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
+const WorkflowsPage = lazy(() => import('../features/workflows/WorkflowsPage').then((module) => ({ default: module.WorkflowsPage })));
+const InfrastructurePage = lazy(() => import('../features/admin/InfrastructurePage').then((module) => ({ default: module.InfrastructurePage })));
 
 export function AppRouter() {
   return (
@@ -30,6 +32,7 @@ export function AppRouter() {
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/workflows" element={<WorkflowsPage />} />
             <Route path="/files" element={<FilesLayout />}>
               <Route index element={<Navigate to="/files/dwg2dxf" replace />} />
               <Route path="dwg2dxf" element={<Dwg2DxfPage />} />
@@ -46,6 +49,7 @@ export function AppRouter() {
             <Route element={<RequireRoles allowed={['admin']} />}>
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />
+              <Route path="/admin/infrastructure" element={<InfrastructurePage />} />
             </Route>
             <Route element={<RequireRoles allowed={['auditor']} />}>
               <Route path="/admin/audit-logs" element={<AuditLogsPage />} />

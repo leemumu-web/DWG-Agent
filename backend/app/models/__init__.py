@@ -10,6 +10,7 @@ from app.models.result import AnalysisResult, ReviewRecord
 from app.models.role import Permission, Role, role_permissions, user_roles
 from app.models.token_blacklist import TokenBlacklist
 from app.models.user import User
+from app.models.workflow import WorkflowArtifact, WorkflowRun, WorkflowStageRun
 
 __all__ = [
     "AgentMemory",
@@ -34,4 +35,7 @@ __all__ = [
     "user_roles",
     "TokenBlacklist",
     "User",
+    "WorkflowArtifact",
+    "WorkflowRun",
+    "WorkflowStageRun",
 ]

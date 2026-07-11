@@ -1,224 +1,129 @@
-# DWG-Agent Platform — Docker Compose
-# 规范参考: §17.4 Docker Compose 服务结构
+# DWG-Agent Platform — production-oriented Docker Compose deployment
 #
-# 前置条件:
-#   1. cd frontend && npm run build
-#   2. cp .env.docker.example .env.docker
-#   3. 修改 .env.docker 中所有 CHANGE_ME_* 值
-#
-# 启动:
-#   docker compose up -d                              # Nginx/API/MySQL/MinIO + worker-report
-#   docker compose --profile workers up -d            # + 已实现转换队列及禁用的 Agent 预留队列
-#
-# 说明:
-#   - .env.docker: Docker 服务名 (mysql/minio) + MySQL/MinIO 配置
-#   - .env.docker.example: 可提交模板；.env.docker 为本机密钥文件，禁止提交
-#   - .env.example: 本地开发 (localhost + MySQL)
-#   - worker-report: 框架报告/冒烟任务 worker，默认启动
-#   - workers profile: DXF、DXF2DWG、DXF2Excel、Excel Final 和禁用的 Agent 预留队列
+# Prepare: cp .env.docker.example .env.docker && replace every CHANGE_ME_* value
+# Start core: docker compose up -d --build
+# Start conversion workers: docker compose --profile workers up -d --build
+
+x-app-image: &app-image
+  image: ${DWG_AGENT_IMAGE:-dwg-agent-backend:local}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+
+x-app-environment: &app-environment
+  MYSQL_ROOT_PASSWORD: ""
+  MINIO_ROOT_PASSWORD: ""
+
+x-app-service: &app-service
+  <<: *app-image
+  env_file:
+    - .env.docker
+  environment: *app-environment
+  stop_grace_period: 2m
+  networks:
+    - internal
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+x-worker: &worker
+  <<: *app-service
+  depends_on:
+    backend-api:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
+    interval: 15s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
 
 services:
   nginx:
-    image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine
+    image: ${DWG_AGENT_FRONTEND_IMAGE:-dwg-agent-frontend:local}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     ports:
-      - "80:8080"
-      - "443:8443"
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html:ro
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - "${HTTP_PORT:-80}:8080"
     depends_on:
       backend-api:
         condition: service_healthy
+    init: true
+    stop_grace_period: 30s
     networks:
       - public
       - internal
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
 
   backend-api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    # CMD defined in Dockerfile; override here only if needed for debugging
-    # Default: gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --timeout 120
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
+    <<: *app-service
     depends_on:
       mysql:
         condition: service_healthy
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks:
-      - internal
-    restart: unless-stopped
-
-  worker-agent:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-    depends_on:
-      backend-api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
-      interval: 10s
-      timeout: 8s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
-    restart: unless-stopped
-    profiles:
-      - workers
-
-  worker-dxf:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf -n dxf@%h --concurrency=2
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-    depends_on:
-      backend-api:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
-      interval: 10s
-      timeout: 8s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
-    restart: unless-stopped
-    profiles:
-      - workers
-
-  worker-dxf2dwg:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf2dwg -n dxf2dwg@%h --concurrency=2
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-    depends_on:
-      backend-api:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
-    restart: unless-stopped
-    profiles:
-      - workers
-
-  worker-dxf2excel:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf2excel -n dxf2excel@%h --concurrency=1
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-    depends_on:
-      backend-api:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
-    restart: unless-stopped
-    profiles:
-      - workers
-
-  worker-excel-final:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    command: celery -A app.workers.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-    depends_on:
-      backend-api:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
-    restart: unless-stopped
-    profiles:
-      - workers
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    volumes:
+      - app_var:/app/var
 
   worker-report:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    <<: *worker
     command: celery -A app.workers.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
-    env_file:
-      - .env.docker
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-    depends_on:
-      backend-api:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && grep -aq celery /proc/1/cmdline"]
-      interval: 10s
-      timeout: 8s
-      retries: 5
-      start_period: 20s
-    networks:
-      - internal
-    restart: unless-stopped
+    volumes:
+      - app_var:/app/var
+
+  worker-dxf:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q dxf -n dxf@%h --concurrency=2
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+
+  worker-dxf2dwg:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q dxf2dwg -n dxf2dwg@%h --concurrency=2
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+
+  worker-dxf2excel:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q dxf2excel -n dxf2excel@%h --concurrency=1
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+
+  worker-excel-final:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+
+  # Placeholder queue only. AGENT_ENABLED must remain false until an Agent task exists.
+  worker-agent:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
 
   mysql:
-    image: container-registry.oracle.com/mysql/community-server:8.4
+    image: ${MYSQL_IMAGE:-container-registry.oracle.com/mysql/community-server:8.4}
     env_file:
       - .env.docker
     environment:
@@ -228,22 +133,29 @@ services:
       MINIO_ACCESS_KEY: ""
       MINIO_SECRET_KEY: ""
       MINIO_ROOT_PASSWORD: ""
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --transaction-isolation=READ-COMMITTED
     volumes:
       - mysql_data:/var/lib/mysql
       - ./infra/mysql/init.sql:/docker-entrypoint-initdb.d/01-platform.sql:ro
       - ./infra/mysql/hardware_handbook.sql:/docker-entrypoint-initdb.d/02-hardware-handbook.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\""]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
       interval: 10s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    stop_grace_period: 2m
     networks:
       - internal
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   minio:
-    # RELEASE.2025-09-07T16-13-09Z; pin the registry digest for reproducible deploys.
-    image: quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: ${MINIO_IMAGE:-quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e}
     command: server /data --console-address ":9001"
     env_file:
       - .env.docker
@@ -258,15 +170,20 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
       interval: 10s
-      timeout: 3s
-      retries: 5
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 2m
     networks:
       - internal
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
+  app_var:
   mysql_data:
   minio_data:
 

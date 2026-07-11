@@ -1,131 +1,147 @@
-# Architecture
+# 架构
 
-> Chinese mirror: [zh/architecture.md](zh/architecture.md)
+## 系统上下文
 
-## System Context
-
-DWG-Agent is an internal operational platform for CAD/Excel intake, asynchronous processing, result review, and audit. Nginx serves the React SPA and proxies requests; FastAPI owns validation and authorization; MySQL is authoritative; Celery executes long work; Local FS or MinIO stores bytes.
+DWG-Agent 是面向内部 CAD/Excel 接入、异步处理、结果复核和审计的操作平台。Nginx 提供 React SPA 并代理请求；FastAPI 负责校验和授权；MySQL 是权威状态；Celery 执行长任务；Local FS 或 MinIO 保存字节。
 
 ```text
 Browser
-  -> Nginx :8080 local / :80 Compose host
+  -> Nginx :8080 本地 / :80 Compose 宿主
      -> React SPA
-     -> FastAPI :8010 local / backend-api:8000 Compose
-        -> MySQL business + Celery runtime tables
-        -> LocalStorage or MinIO
+     -> FastAPI :8010 本地 / backend-api:8000 Compose
+        -> MySQL 业务 + Celery runtime 表
+        -> LocalStorage 或 MinIO
 Celery workers
   -> MySQL + storage + processing Stages
 ```
 
-Redis/Valkey is absent from the runtime. Token revocation, password-change checks, Agent memory, Job progress, SSE snapshots, broker messages, and task results all use MySQL.
+运行时没有 Redis/Valkey。token 吊销、密码变更检查、Agent memory、Job 进度、SSE 快照、broker message 和 task result 均使用 MySQL。
 
-## Deployment Reality
+## 部署现实
 
-| Property | Local | Compose |
+| 属性 | 本地 | Compose |
 |---|---|---|
-| User entry | Vite `5173` or Nginx `8080` | Nginx host `80` |
-| API | `127.0.0.1:8010` | internal `backend-api:8000` |
-| Storage | local by default, MinIO optional | internal MinIO |
-| TLS | absent | absent; `443:8443` mapping has no listener/certificate |
-| Runtime docs | available with development/debug | disabled by production settings |
+| 用户入口 | Vite `5173` 或 Nginx `8080` | Nginx 宿主 `80` |
+| API | `127.0.0.1:8010` | 内部 `backend-api:8000` |
+| 存储 | 默认 local，MinIO 可选 | 内部 MinIO |
+| TLS | 无 | 无；Compose 只发布 `${HTTP_PORT:-80}:8080`，不发布 443 |
+| 运行时文档 | development/debug 时可用 | production settings 下关闭 |
 
-Compose is production-shaped for network separation, non-root backend, health dependencies, and persistent volumes, but it is not a complete production platform.
+Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷方面接近生产形态，但没有 TLS、secret manager、自动离机备份、可观测栈、滚动多副本部署或已测灾难恢复，不能标记为完整生产平台。
 
-## Ownership Boundaries
+## 归属边界
 
-| Layer | Owns | Must not own |
+| 层 | 负责 | 禁止负责 |
 |---|---|---|
-| Nginx | entry, SPA fallback, proxy limits, SSE transport settings | business authorization or current TLS claims |
-| Frontend | workflow UX, finite retries, query cache, download orchestration | final permission decisions or durable state |
-| API route/dependency | HTTP validation, auth context, envelopes | duplicated domain transactions |
-| Service | transactions, permissions, state transitions, storage compensation | UI state or broker-specific business truth |
-| Worker/task | attempt claim and Stage orchestration | unconditional status writes or in-memory fallback |
-| MySQL | business truth, audit rows, Celery broker/results | object bytes or high-throughput broker promises |
-| Storage | opaque bytes keyed by bucket/key | user/project access rules |
-| Stage | deterministic CAD/Excel transformation | platform auth, Job ownership, or public errors |
+| Nginx | 入口、SPA fallback、代理限制、SSE 传输设置 | 业务授权或当前 TLS 声明 |
+| 前端 | 工作流 UX、有限重试、query cache、下载编排 | 最终权限裁决或持久状态 |
+| API route/dependency | HTTP 校验、auth context、envelope | 重复 domain transaction |
+| Service | transaction、permission、状态转换、storage compensation | UI 状态或 broker-specific 业务事实 |
+| Worker/task | attempt 领取和 Stage 编排 | 无条件状态写入或内存 fallback |
+| MySQL | 业务事实、audit row、Celery broker/result | 对象字节或高吞吐 broker 承诺 |
+| Storage | 由 bucket/key 标识的不透明字节 | 用户/项目访问规则 |
+| Stage | 确定性 CAD/Excel 转换 | 平台 auth、Job ownership 或 public error |
 
-## Synchronous Request Path
+## 同步请求路径
 
 ```text
 Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope response
 ```
 
-List endpoints execute access filtering, `COUNT(*)`, stable ordering, and `LIMIT/OFFSET` in SQL. UI guards and Nginx locations do not replace API checks. Unhandled production errors are logged server-side and returned as a generic envelope.
+列表端点在 SQL 中执行访问过滤、`COUNT(*)`、稳定排序和 `LIMIT/OFFSET`。UI guard 和 Nginx location 不替代 API 检查。生产未处理错误只在服务端记录，并返回通用 envelope。
 
-## Asynchronous Request Path
+## 工作流编排路径
+
+```text
+项目成员
+  -> WorkflowRun
+     -> 有序 WorkflowStageRuns
+        -> 可选绑定 Job(job_id, attempt)
+        -> 版本化 WorkflowArtifacts(file/result)
+```
+
+通用工作流是项目范围内的编排元数据。当前提供 `excel_delivery` 与 `file_delivery` 模板，以及创建、启动、人工确认、取消 API 和 React 生产流程页面。它不是另一套队列：Job/JobStep 仍是执行事实源，同步只接受阶段记录的 Job attempt。
+
+当前实现**不会**自动创建 Excel Final Job，也不会自动挂接其结果产物。`bind_stage_job()`、`sync_workflow_from_jobs()` 和 `attach_artifact()` 是内部 service 能力，但公开 workflow route 没有调用 Job 绑定或产物挂接函数。操作员仍需从现有 Excel Final 页面执行处理，并显式确认流程阶段。详见[通用工作流框架](workflow-framework.md)。
+
+## 异步请求路径
 
 ```text
 POST
   -> feature flag + input + access validation
   -> INSERT Job(queued, attempt=N) + COMMIT
-  -> publish (job_id, attempt) to MySQL SQL transport
+  -> 向 MySQL SQL transport 发布 (job_id, attempt)
   -> worker conditional claim
-  -> attempt-scoped JobSteps and progress
+  -> attempt-scoped JobSteps 和 progress
   -> source bytes -> Stage -> result bytes
   -> files + AnalysisResult + optional domain rows
   -> conditional terminal update
 ```
 
-Dispatch compensation updates only the still-queued attempt. Retry increments attempt; stale messages and workers cannot claim or update a newer attempt. Worker-start recovery handles long-stale running Jobs but is not a continuous heartbeat.
+投递补偿只更新仍 queued 的 attempt。重试递增 attempt；旧 message/worker 不能领取或更新新 attempt。worker 启动恢复处理长期 stale running Job，但不是持续 heartbeat。
 
-## SSE Path
+## SSE 路径
 
-Native EventSource carries a short-lived HttpOnly `dwg_sse_token` cookie. FastAPI authenticates and authorizes the Job before streaming, polls MySQL, and emits current-attempt snapshots/progress/terminal events. Reconnect starts with a fresh authoritative snapshot; no event-ID replay or Pub/Sub guarantee exists.
+原生 EventSource 携带短期 HttpOnly `dwg_sse_token` cookie。FastAPI 在 streaming 前认证并授权 Job，轮询 MySQL，发送当前 attempt 的 snapshot/progress/terminal event。重连以新的权威快照开始；不存在 event-ID replay 或 Pub/Sub 保证。
 
-Nginx disables SSE buffering/cache and extends read/send timeouts. The frontend leaves transient CONNECTING state to browser reconnection and closes on a terminal event or hard close.
+Nginx 关闭 SSE buffering/cache 并延长 read/send timeout。前端在短暂 CONNECTING 时交给浏览器重连，在 terminal event 或 hard close 时关闭。
 
-## Download Path
+## 下载路径
 
 ```text
 Bearer request -> permission check -> 300-second HMAC path
 Bearer download -> permission + expiry + signature check -> storage stream
 ```
 
-The frontend makes at most two single-file attempts and re-signs each time. Only network, 403, 408, 429, and 5xx failures are retried. ZIP downloads use authenticated POST streaming and do not share that re-sign loop. Database SHA-256 is the integrity reference.
+前端单文件最多尝试两次，每次重新签名。只重试网络、403、408、429 和 5xx。ZIP 下载使用认证 POST stream，不共享该重签名循环。数据库 SHA-256 是完整性依据。
 
-## Storage Consistency
+## 存储一致性
 
-Objects written before a database commit are registered on the SQLAlchemy session. Rollback performs best-effort deletion; commit clears the compensation list. A successful output is exposed only after object and metadata persistence. There is no background object/database reconciler yet, so operations must detect missing and orphaned objects.
+数据库 commit 前写入的对象登记在 SQLAlchemy session 上。rollback best-effort 删除；commit 清除补偿列表。只有对象和 metadata 均持久化后才暴露成功输出。当前没有后台对象/数据库 reconciler，因此运维必须发现缺失和孤儿对象。
 
-## MySQL and Celery
+## MySQL 与 Celery
 
-The broker is `sqla+mysql+pymysql://...`; the result backend is `db+mysql+pymysql://...`. Both derive from the effective application MySQL DSN. Celery engines use `READ COMMITTED`, bounded pools, pre-ping, LIFO, and recycle. `kombu_message(queue_id, timestamp, id, visible)` narrows message claims by queue.
+broker 为 `sqla+mysql+pymysql://...`，result backend 为 `db+mysql+pymysql://...`，都从有效应用 MySQL DSN 派生。Celery engine 使用 `READ COMMITTED`、有界 pool、pre-ping、LIFO 和 recycle。`kombu_message(queue_id, timestamp, id, visible)` 按队列缩小 message claim。
 
-SQL transport has no fanout remote control. Worker health is a Celery PID plus `worker_ready` marker, not `inspect`. Result rows expire after 24 hours; business Job history has no automated retention.
+SQL transport 没有 fanout remote control。worker 健康使用 Celery PID 加 `worker_ready` marker，不使用 `inspect`。result row 在 24 小时后过期；业务 Job 历史没有自动保留策略。
 
-## Processing Boundaries
+worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_worker_lost`，在 prefork child 死亡但 worker 父进程存活时重新投递任务。由于 Kombu 在消息被 reserve 的瞬间（child ack 之前）就把 `kombu_message` 行标为 `visible=False`，启动时的 broker 清理只删除 timestamp 早于 `CELERY_STALE_JOB_TIMEOUT_SECONDS` 两倍的 invisible 行，因此绝不会销毁仍在运行或等待重投的任务消息。当整个 worker 或主机死亡时，SQL transport 无法恢复投递；`reconcile_stale_running_jobs` 是权威兜底：把 `updated_at` 早于 stale 超时的 `running` Job 标记为失败，以便重试。
 
-| Pipeline | Queue | Implementation | Delivery constraint |
+
+## 处理边界
+
+| 管线 | 队列 | 实现 | 交付限制 |
 |---|---|---|---|
-| framework smoke | `report` | executable stub result | not a report Agent |
-| DWG -> DXF | `dxf` | ODA service/task | flag off; external ODA/runtime/sample compatibility |
-| DXF -> DWG | `dxf2dwg` | ODA service/task | flag off; external ODA/runtime/sample compatibility |
-| DXF -> Excel | `dxf2excel` | service/task and local files | flag off; broken parent gitlink blocks clean clone |
-| Excel Final | `excel_final` | isolated Stage + relational import | flag off; content schema and handbook DB required |
-| Agent | `agent` | API/models only | task module is empty placeholder |
-| Windows CAD | `cad` | configuration placeholder | no task, worker, service, or Compose node |
+| framework smoke | `report` | 可执行 stub result | 不是 report Agent |
+| DWG -> DXF | `dxf` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
+| DXF -> DWG | `dxf2dwg` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
+| DXF -> Excel | `dxf2excel` | service/task 与本地文件 | flag 关闭；父仓库 gitlink 损坏阻断 clean clone |
+| Excel Final | `excel_final` | 隔离 Stage + 关系化导入 | flag 关闭；需要内容 schema 和手册库 |
+| Agent | `agent` | 只有 API/model | task module 是空占位 |
+| Windows CAD | `cad` | 配置占位 | 无 task、worker、service 或 Compose node |
 
-See [processing pipelines](processing-pipelines.md) for step names, formats, outputs, and enabling checks.
+步骤名、格式、输出和启用检查见[处理管线](processing-pipelines.md)。
 
-## Security Model
+## 安全模型
 
-Global roles are `super_admin/admin/engineer/reviewer/operator/viewer/auditor`; project membership adds owner/engineer/reviewer/viewer scopes. Administrative access is explicit. File reads require administrator, uploader, or associated active-project membership. Results and reviews inherit the Job boundary; an unscoped Job is limited to administrator or creator.
+全局角色为 `super_admin/admin/engineer/reviewer/operator/viewer/auditor`；项目成员增加 owner/engineer/reviewer/viewer 范围。管理员访问是明确规则。文件读取要求管理员、上传者或关联活跃项目成员。结果和复核继承 Job 边界；无项目 Job 仅管理员或创建者可读。
 
-Access tokens live in `sessionStorage`, so same-origin XSS remains a threat. Refresh and SSE tokens are HttpOnly cookies with SameSite=Lax. Public deployment requires real TLS and Secure cookies, which the current Compose file does not yet deliver.
+access token 位于 `sessionStorage`，因此同源 XSS 仍是威胁。refresh/SSE token 是 HttpOnly、SameSite=Lax cookie。公网部署需要真实 TLS 和 Secure cookie，而当前 Compose 尚未交付。
 
-## Health and Observability
+## 健康与可观测性
 
-- `/health` is liveness only.
-- `/health/ready` independently reports MySQL and configured storage and returns 503 if either fails.
-- Generic worker health proves broker connection, not pipeline dependencies.
-- Local logs use `/tmp`; Compose uses container stdout/stderr.
-- Metrics, distributed tracing, central logging, alerting, SLOs, and automated retention are not implemented.
+- `/health` 仅 liveness。
+- `/health/ready` 分别报告 MySQL 和已配置 storage，任一失败返回 503。
+- 通用 worker 健康只证明 broker 连接，不证明 pipeline dependency。
+- 本地日志使用 `/tmp`；Compose 使用 container stdout/stderr。
+- metrics、distributed tracing、central logging、alerting、SLO 和自动保留均未实现。
 
-## Architectural Constraints
+## 架构约束
 
-- Do not add process-local correctness fallbacks when MySQL/storage fails.
-- Do not split broker credentials from the authoritative MySQL DSN without an explicit migration design.
-- Do not enable Agent/CAD flags while their tasks are placeholders.
-- Do not claim clean-clone/Docker reproducibility until `Stages/dxf2excel` ownership is repaired.
-- Do not claim HTTPS until Nginx has a tested TLS listener and certificate lifecycle.
-- If worker scale exceeds bounded SQL transport, evaluate RabbitMQ while keeping MySQL as business truth.
+- MySQL/storage 失败时禁止增加进程内正确性 fallback。
+- 没有显式迁移设计时，禁止让 broker 凭据脱离权威 MySQL DSN。
+- 保持 Agent/CAD flag 关闭。Agent 执行、CAD 图纸业务算法、交互拆板和 Windows CAD Worker 是当前项目明确非目标。
+- Job 创建和产物挂接完成并验证前，禁止把通用工作流描述为自动处理闭环。
+- 修复 `Stages/dxf2excel` 归属前，禁止声称 clean-clone/Docker 可复现。
+- Nginx 有已测试 TLS listener 和证书生命周期前，禁止声称 HTTPS。
+- worker 规模超过有界 SQL transport 时评估 RabbitMQ，同时保持 MySQL 为业务事实。

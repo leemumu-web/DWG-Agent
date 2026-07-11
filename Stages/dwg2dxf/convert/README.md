@@ -9,7 +9,7 @@
 convert/
 ├── input_dwg/     # 放 .dwg 输入文件
 ├── output_dxf/    # 转换出的 .dxf 输出（脚本自动创建）
-├── convert.sh     # 转换脚本（Linux / macOS / WSL）
+├── convert.sh     # 转换脚本（Linux / WSL）
 └── convert.ps1    # 转换脚本（Windows PowerShell）
 ```
 
@@ -19,7 +19,7 @@ convert/
 
 ## 快速开始(3 步)
 
-**Linux / macOS / WSL:**
+**Linux / WSL:**
 
 ```bash
 # 1. 把 dwg 文件丢进 input_dwg/
@@ -61,7 +61,7 @@ Get-ChildItem convert\output_dxf\    # 同名 .dxf 文件
 import subprocess, shutil
 from pathlib import Path
 
-PROJ = Path("/home/Creeken/Paper/CAD_research/表格导出/dwg2dxf")
+PROJ = Path("/path/to/complete_framework/Stages/dwg2dxf")
 inp, outp = PROJ / "convert/input_dwg", PROJ / "convert/output_dxf"
 
 # 写入待转文件
@@ -86,7 +86,7 @@ if dxf.exists():
 
 ## 命令行参数
 
-**Linux / macOS / WSL (convert.sh):**
+**Linux / WSL (convert.sh):**
 
 ```bash
 ./convert/convert.sh                 # 转 input_dwg/ 下全部 .dwg

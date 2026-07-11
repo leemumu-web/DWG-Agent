@@ -51,17 +51,18 @@ export function DashboardPage() {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {/* greeting */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
-        <div>
-          <Typography.Title level={3} style={{ margin: 0 }}>
-            你好，{user?.real_name || user?.username} 👋
-          </Typography.Title>
-          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-            欢迎回到 DWG-Agent 企业级 CAD 智能处理平台 ·{' '}
-            <Tag color="blue" style={{ marginRight: 0 }}>{STAGE_LABEL}</Tag>
-          </Typography.Text>
+      <div className="dashboard-hero">
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <div>
+            <Typography.Title level={2} style={{ margin: 0 }}>
+              你好，{user?.real_name || user?.username}
+            </Typography.Title>
+            <Typography.Text className="dashboard-hero-meta">
+              欢迎回到 CAD 智能处理工作台 · {STAGE_LABEL}
+            </Typography.Text>
+          </div>
+          <Button ghost icon={<ReloadOutlined />} onClick={refresh} loading={jobsQ.isFetching}>刷新数据</Button>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={refresh} loading={jobsQ.isFetching}>刷新</Button>
       </div>
 
       {anyError && (
@@ -116,14 +117,7 @@ export function DashboardPage() {
                     <div
                       key={j.id}
                       onClick={() => navigate('/jobs')}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 12,
-                        padding: '12px 20px', cursor: 'pointer',
-                        borderBottom: '1px solid #f5f5f5',
-                        transition: 'background .15s',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#fafcff'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                      className="dashboard-job-row"
                     >
                       <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{icon}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>

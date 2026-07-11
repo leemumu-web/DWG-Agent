@@ -217,19 +217,40 @@ def cleanup_consumed_broker_messages(
     db_engine: Engine = engine,
     *,
     table_name: str = "kombu_message",
+    now: datetime | None = None,
 ) -> int:
-    """Delete SQL-transport rows already delivered to a worker.
+    """Delete SQL-transport rows that are certainly no longer consumable.
 
-    Kombu marks rows invisible when consuming them but does not delete them on
-    acknowledgement. Invisible rows are no longer consumable; removing them is
-    safe even if the corresponding child task is still finishing.
+    Kombu marks a row ``visible=False`` the instant it is reserved for delivery
+    (before the child task acks). Deleting such rows blindly on every worker
+    start would discard messages whose child task is still running; if that
+    child is later lost, ``task_reject_on_worker_lost`` cannot redeliver what
+    no longer exists and the job hangs until stale reconciliation.
+
+    The SQL transport cannot distinguish "reserved, unacked" from "acked,
+    not yet flushed" through the table alone. Instead, only delete rows whose
+    age exceeds a conservative multiple of the stale-job timeout: by then any
+    live task has long finished or been reconciled to failed, so the row is
+    either an acked leftover (safe to remove) or an orphan from a crashed
+    worker whose job was already recovered (removing it changes nothing).
     """
     metadata = MetaData()
     message_table = Table(table_name, metadata, autoload_with=db_engine)
     if "visible" not in message_table.c:
         raise RuntimeError(f"{table_name} has no visible column")
+    if "timestamp" not in message_table.c:
+        raise RuntimeError(f"{table_name} has no timestamp column")
+
+    cutoff = (now or datetime.now(UTC)) - timedelta(
+        seconds=settings.celery_stale_job_timeout_seconds * 2,
+    )
     with db_engine.begin() as connection:
-        result = connection.execute(delete(message_table).where(message_table.c.visible.is_(False)))
+        result = connection.execute(
+            delete(message_table).where(
+                message_table.c.visible.is_(False),
+                message_table.c.timestamp < cutoff,
+            )
+        )
     return result.rowcount or 0
 
 
@@ -335,9 +356,9 @@ def _maintain_mysql_runtime_on_worker_start(sender=None, **_kwargs) -> None:
     try:
         removed = cleanup_consumed_broker_messages()
         if removed:
-            logger.info("Removed %s consumed SQL broker rows", removed)
+            logger.info("Removed %s stale SQL broker rows", removed)
     except Exception:
-        logger.exception("Failed to clean consumed SQL broker rows")
+        logger.exception("Failed to clean stale SQL broker rows")
     try:
         recovered = reconcile_stale_running_jobs()
         if recovered:

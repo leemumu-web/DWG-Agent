@@ -1,111 +1,109 @@
-# Development
+# 开发
 
-> Chinese mirror: [zh/development.md](zh/development.md)
+## 工具链
 
-## Toolchains
-
-| Area | Toolchain | Lock/install |
+| 领域 | 工具链 | 锁定/安装 |
 |---|---|---|
-| Backend | Python 3.12, uv, FastAPI, SQLAlchemy 2, Pydantic 2 | `cd backend && uv sync --locked` |
-| Frontend | Node/npm, React 19, TypeScript 6, Vite 8 | `cd frontend && npm ci` |
-| Excel Final Stage | Python >=3.11, standalone scripts | `cd Stages/excel_final && uv sync --locked` |
-| ODA Stages | Python >=3.12 plus external AppImage runtime | per-Stage `uv sync --locked` |
+| Backend | Python 3.12、uv、FastAPI、SQLAlchemy 2、Pydantic 2 | `cd backend && uv sync --locked` |
+| Frontend | Node/npm、React 19、TypeScript 6、Vite 8 | `cd frontend && npm ci` |
+| Excel Final Stage | Python >=3.11、独立脚本 | `cd Stages/excel_final && uv sync --locked` |
+| ODA Stages | Python >=3.12 加外部 AppImage runtime | 每个 Stage 执行 `uv sync --locked` |
 
-The backend lock contains editable path dependencies under `Stages/`. A clean environment is currently blocked by the broken `Stages/dxf2excel` gitlink; do not treat success in the populated working tree as clone reproducibility.
+backend lock 包含 `Stages/` 下 editable path dependency。clean environment 当前被损坏 `Stages/dxf2excel` gitlink 阻断；禁止把已填充工作树中的成功当成 clone 可复现性。
 
-## Repository Map
+## 仓库地图
 
-| Path | Ownership |
+| 路径 | 归属 |
 |---|---|
-| `backend/app/api/` | HTTP dependencies and routing |
-| `backend/app/services/` | transactions, permissions, orchestration |
-| `backend/app/workers/` | Celery configuration and task entrypoints |
-| `backend/app/storage/` | local/MinIO byte adapters |
-| `backend/migrations/` | Alembic-owned business schema |
-| `frontend/src/api/` | typed HTTP clients, auth refresh, downloads |
-| `frontend/src/features/` | workflow pages |
-| `Stages/` | independently runnable domain processors |
-| `infra/` | Nginx, MySQL initialization, deployment verification |
-| `scripts/` | local lifecycle, DB and documentation tools |
-| `third_parts/` | upstream/vendored code; not a platform module by default |
+| `backend/app/api/` | HTTP dependency 与 routing |
+| `backend/app/services/` | transaction、permission、orchestration |
+| `backend/app/workers/` | Celery 配置和 task entrypoint |
+| `backend/app/storage/` | local/MinIO byte adapter |
+| `backend/migrations/` | Alembic 所有的业务 schema |
+| `frontend/src/api/` | typed HTTP client、auth refresh、download |
+| `frontend/src/features/` | workflow page |
+| `Stages/` | 可独立运行的 domain processor |
+| `infra/` | Nginx、MySQL 初始化、部署验证 |
+| `scripts/` | 本地生命周期、DB 和文档工具 |
+| `third_parts/` | 上游/vendored code；默认不是平台 module |
 
-## Run Locally
+## 本地运行
 
 ```bash
-# Vite :5173, FastAPI :8010, five implemented queue workers
+# Vite :5173、FastAPI :8010、五个已实现队列 worker
 bash scripts/start-dev.sh
 
-# Built SPA via Nginx :8080 -> FastAPI :8010
+# Built SPA 经 Nginx :8080 -> FastAPI :8010
 bash scripts/start-all.sh
 ```
 
-Port `8000` is container-internal. If Vite selects another port, use its printed URL and set Playwright overrides when testing directly. Prefer the Nginx `8080` path for production-shaped browser work.
+端口 `8000` 是容器内部端口。Vite 选择其他端口时使用其输出 URL，直连测试时设置 Playwright override。接近生产的浏览器工作优先走 Nginx `8080`。
 
-## Backend Change Rules
+## Backend 变更规则
 
-- Routes handle HTTP schema/dependencies; services own business transactions; tasks call services.
-- Use sync SQLAlchemy patterns already established by the repository.
-- Any worker claim/progress/terminal write must match status and attempt.
-- Keep file bytes behind storage adapters and metadata in MySQL.
-- A storage object written before commit must join session compensation.
-- Reuse resource permission helpers; SQL list filtering must not degrade into row-by-row N+1 checks.
-- Do not put traceback, DSN, child stderr, secret, or host path into client-visible errors.
-- Do not add Redis/Valkey or in-memory correctness fallback to mask dependency failure.
+- Route 处理 HTTP schema/dependency；service 负责业务 transaction；task 调用 service。
+- 沿用仓库现有 sync SQLAlchemy 模式。
+- 每个 worker claim/progress/terminal 写入必须匹配 status 和 attempt。
+- 文件字节只经过 storage adapter，metadata 存 MySQL。
+- commit 前写入的存储对象必须加入 session compensation。
+- 复用资源 permission helper；SQL 列表过滤不能退化成逐行 N+1 检查。
+- 禁止把 traceback、DSN、child stderr、secret 或 host path 放进客户端可见错误。
+- 禁止增加 Redis/Valkey 或内存正确性 fallback 掩盖依赖失败。
 
-FastAPI lifespan seed initialization is best-effort in local runtime. Docker performs migrations/seeding before Gunicorn. Tests must account for the actual mode rather than assuming process startup proves readiness.
+FastAPI lifespan seed initialization 在本地运行时是 best-effort。Docker 在 Gunicorn 前执行 migration/seed。测试必须按实际模式判断，不能假设进程启动就代表 ready。
 
-## API Changes
+## API 变更
 
-Use the standard success/error envelopes and exact SQL pagination. Add a stable ID tie-breaker to ordered lists. A route change requires:
+使用标准成功/错误 envelope 和精确 SQL pagination。排序列表追加稳定 ID tie-breaker。路由变更要求：
 
-1. schema/service/route tests;
-2. permission and negative cases;
-3. `make docs-generate`;
-4. English/Chinese narrative updates when behavior or boundary changes;
-5. `make docs-check`.
+1. schema/service/route 测试；
+2. permission 与负例；
+3. `make docs-generate`；
+4. 行为或边界变化时更新对应中文文档；
+5. `make docs-check`。
 
-Runtime `/docs` and `/openapi.json` are development/debug surfaces only. The generated Markdown API reference is the production-readable inventory.
+运行时 `/docs` 和 `/openapi.json` 只用于 development/debug。生成 Markdown API 参考才是生产可读清单。
 
-## Frontend Changes
+## Frontend 变更
 
-- Keep API requests relative behind Nginx; use `VITE_API_BASE_URL` only for direct Vite development.
-- Access state belongs in `sessionStorage`; refresh and SSE rely on HttpOnly cookies.
-- The Axios 401 interceptor performs one shared refresh and must not retry login/refresh recursively.
-- React Query retry applies to queries; single-file download has its own one-retry/new-signature loop.
-- UI guards improve navigation but never replace API authorization.
-- Polling and SSE must stop or settle on terminal Job state.
-- Add Playwright coverage for visible workflow changes and failure/retry behavior.
+- Nginx 后使用相对 API request；只在 Vite 直连开发时使用 `VITE_API_BASE_URL`。
+- Access 状态属于 `sessionStorage`；refresh/SSE 依赖 HttpOnly cookie。
+- Axios 401 interceptor 执行一次共享 refresh，禁止递归重试 login/refresh。
+- React Query retry 适用于 query；单文件 download 有独立的一次重试/新签名循环。
+- UI guard 改善导航，但永远不替代 API authorization。
+- Polling/SSE 必须在 terminal Job state 停止或稳定。
+- 可见工作流变化与失败/重试行为增加 Playwright 覆盖。
 
-## Worker Changes
+## Worker 变更
 
-Queues are `report`, `dxf`, `dxf2dwg`, `dxf2excel`, `excel_final`, `agent`, and `cad`, but only the first five have task implementations. Do not route work to placeholder modules.
+队列为 `report`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`agent` 和 `cad`，但只有前五个有 task 实现。禁止把工作路由到占位 module。
 
-MySQL SQL transport lacks fanout remote control. Health uses process identity and worker-ready marker. When adding a task, test routing, eager execution, real broker dispatch, attempt claims, failure mapping, stale execution, cancellation, and object cleanup separately.
+MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 
-Never open a second failure-handler session while the active session has uncommitted JobSteps. Failure step and terminal Job state should commit together unless the service explicitly defines a compensating boundary.
+活动 session 有未提交 JobStep 时，禁止在 failure handler 打开第二个 session。除非 service 明确定义 compensating boundary，failure step 和 terminal Job state 应一起 commit。
 
-## Database Changes
+## 数据库变更
 
 ```bash
 cd backend
 uv run alembic revision --autogenerate -m "description"
-# Review generated operations and circular FK behavior.
+# 检查生成 operation 和循环 FK 行为。
 cd ..
 bash scripts/db.sh migration-test
 cd backend && uv run alembic check
 ```
 
-Alembic owns 22 business tables, not the eight Celery runtime tables. Test upgrade from empty MySQL and, for destructive changes, a representative populated copy. `migration-test` does not validate downgrade.
+Alembic 当前拥有 25 张 SQLAlchemy 模型表，其中包含三张工作流表；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
 
-## Test Layers
+## 测试层级
 
 ```bash
-# Backend static and isolated API/service tests
+# Backend 静态与隔离 API/service 测试
 cd backend
 uv run ruff check app tests ../tests/run_full_verify.py
 uv run pytest -q
 
-# Focused Stage tests
+# 聚焦 Stage 测试
 cd ../Stages/dwg2dxf && uv run pytest -q
 cd ../dxf2dwg && uv run pytest -q
 cd ../excel_final && uv run pytest -q multi_split/tests
@@ -122,19 +120,19 @@ npm run build
 npx playwright test
 ```
 
-SQLite tests are fast logic checks, not MySQL concurrency or migration proof. Mocked Playwright routes verify UI contracts, not MinIO/Celery. A release-sensitive pipeline change also requires a real Nginx/MySQL/worker/storage/sample workflow.
+SQLite 测试是快速逻辑检查，不证明 MySQL concurrency 或 migration。mocked Playwright route 验证 UI contract，不证明 MinIO/Celery。影响发布的 pipeline 变更还需要真实 Nginx/MySQL/worker/storage/sample 工作流。
 
-## Debugging Order
+## 调试顺序
 
-1. Reproduce the smallest failing path and record request ID, Job ID, attempt, endpoint, and time.
-2. Check `/health/ready`, managed processes, flags, and Stage source/dependency availability.
-3. Find the first backend/worker error, not the final frontend symptom.
-4. Inspect authoritative Job/JobStep rows and storage object/digest.
-5. Test the hypothesis with a focused regression before changing behavior.
-6. Run the narrow test, then the full affected layer and end-to-end gate.
+1. 复现最小失败路径，并记录 request ID、Job ID、attempt、endpoint 和时间。
+2. 检查 `/health/ready`、受管进程、flag 和 Stage 源码/依赖可用性。
+3. 找第一处 backend/worker error，不只看最终 frontend symptom。
+4. 检查权威 Job/JobStep row 和 storage object/digest。
+5. 用聚焦回归验证假设，再修改行为。
+6. 运行窄测试，再运行完整受影响层和端到端门禁。
 
-## Documentation and Generated Files
+## 文档与生成文件
 
-`docs/api.md` and `docs/zh/api.md` are generated; edit their generator, not the files. Other language pairs are edited together. Generated frontend `dist`, Playwright traces, local storage, `.env*` secrets, virtualenvs, caches, logs, and test artifacts must not be committed.
+`docs/api.md` 是生成文件；修改 generator，不手改文件。项目详细文档只维护 `docs/` 下的中文版本，不再创建旧双语目录或英文镜像。生成 frontend `dist`、Playwright trace、本地 storage、`.env*` secret、virtualenv、cache、log 和 test artifact 禁止提交。
 
-Component-specific algorithms belong in their Stage docs. Platform docs should link to them and state the integration boundary rather than duplicating hundreds of algorithm steps.
+组件特定算法属于其 Stage 文档。平台文档应链接并说明集成边界，而不是复制数百行算法步骤。

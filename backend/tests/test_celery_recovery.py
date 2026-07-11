@@ -32,31 +32,89 @@ def _job(db: Session, *, status: str) -> Job:
     return job
 
 
-def test_cleanup_removes_only_consumed_sql_broker_rows(db: Session):
+def test_cleanup_removes_only_stale_consumed_sql_broker_rows(db: Session):
     db.execute(
         text(
             """
             CREATE TABLE test_kombu_message (
                 id INTEGER PRIMARY KEY,
                 visible BOOLEAN NOT NULL,
+                timestamp DATETIME NOT NULL,
                 payload TEXT NOT NULL
             )
             """
         )
     )
+    fresh_reserved = datetime.now(UTC) - timedelta(minutes=5)
+    stale_acked = datetime.now(UTC) - timedelta(hours=24)
     db.execute(
         text(
-            "INSERT INTO test_kombu_message (id, visible, payload) "
-            "VALUES (1, 0, 'done'), (2, 0, 'done'), (3, 1, 'queued')"
-        )
+            "INSERT INTO test_kombu_message (id, visible, timestamp, payload) "
+            "VALUES (1, 0, :fresh, 'reserved-not-yet-acked'), "
+            "(2, 0, :stale, 'acked-leftover'), "
+            "(3, 1, :fresh, 'queued')"
+        ),
+        {"fresh": fresh_reserved, "stale": stale_acked},
     )
     db.commit()
 
-    deleted = cleanup_consumed_broker_messages(db.get_bind(), table_name="test_kombu_message")
+    deleted = cleanup_consumed_broker_messages(
+        db.get_bind(),
+        table_name="test_kombu_message",
+        now=datetime.now(UTC),
+    )
 
-    remaining = db.execute(text("SELECT id, visible FROM test_kombu_message ORDER BY id")).all()
-    assert deleted == 2
-    assert remaining == [(3, 1)]
+    remaining = db.execute(
+        text("SELECT id, visible FROM test_kombu_message ORDER BY id")
+    ).all()
+    assert deleted == 1
+    # The reserved-but-unacked row (id=1) MUST survive: deleting it would make
+    # task_reject_on_worker_lost unable to redeliver after a child loss.
+    assert remaining == [(1, 0), (3, 1)]
+
+
+def test_cleanup_preserves_reserved_message_within_stale_window(db: Session):
+    """Regression: a freshly reserved message is never deleted by startup cleanup.
+
+    Before this fix, cleanup deleted every invisible row, which silently
+    destroyed messages whose child task was still running. Reproduce the
+    reserved-but-unacked state (visible=False, recent timestamp) and assert it
+    survives cleanup regardless of how many rows match.
+    """
+    db.execute(
+        text(
+            """
+            CREATE TABLE test_kombu_message (
+                id INTEGER PRIMARY KEY,
+                visible BOOLEAN NOT NULL,
+                timestamp DATETIME NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+    )
+    just_now = datetime.now(UTC) - timedelta(seconds=10)
+    db.execute(
+        text(
+            "INSERT INTO test_kombu_message (id, visible, timestamp, payload) "
+            "VALUES (1, 0, :ts, 'reserved-running'), (2, 0, :ts, 'reserved-running-2')"
+        ),
+        {"ts": just_now},
+    )
+    db.commit()
+
+    deleted = cleanup_consumed_broker_messages(
+        db.get_bind(),
+        table_name="test_kombu_message",
+        now=datetime.now(UTC),
+    )
+
+    remaining = db.execute(
+        text("SELECT id, visible FROM test_kombu_message ORDER BY id")
+    ).all()
+    assert deleted == 0
+    assert remaining == [(1, 0), (2, 0)]
+
 
 
 def test_reconcile_marks_only_stale_running_jobs_failed(db: Session):

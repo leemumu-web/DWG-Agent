@@ -311,6 +311,7 @@ def run_dxf_conversion(
                 ),
             )
             if job is None:
+                logger.warning("DWG2DXF job %s progress commit lost (concurrent claim?), leaving for reconcile", job_id)
                 return
 
             # ---- 2. 调 ODA 转换 ----
@@ -364,6 +365,7 @@ def run_dxf_conversion(
                     ),
                 )
                 if job is None:
+                    logger.warning("DWG2DXF job %s progress commit lost (concurrent claim?), leaving for reconcile", job_id)
                     return
                 raise AppError(f"ODA 转换异常: {exc}") from exc
 
@@ -397,6 +399,7 @@ def run_dxf_conversion(
                 ),
             )
             if job is None:
+                logger.warning("DWG2DXF job %s progress commit lost (concurrent claim?), leaving for reconcile", job_id)
                 return
 
             if not result.success:

@@ -241,9 +241,11 @@ def _import_parts_to_db(
         text = "" if value is None else str(value).strip().replace(" ", "")
         return re.split(r"[（(]", text, maxsplit=1)[0]
 
+    rows = ws.iter_rows(values_only=True)
+    header_row = next(rows, ())
     columns: dict[str, int] = {}
-    for column in range(1, ws.max_column + 1):
-        columns.setdefault(_header_name(ws.cell(row=1, column=column).value), column)
+    for column, value in enumerate(header_row, start=1):
+        columns.setdefault(_header_name(value), column)
 
     def _col(*names: str) -> int | None:
         return next((columns[name] for name in names if name in columns), None)
@@ -309,8 +311,8 @@ def _import_parts_to_db(
         return s if s else None
 
     parts = []
-    for r in range(2, ws.max_row + 1):
-        row_vals = [ws.cell(row=r, column=c).value for c in range(1, ws.max_column + 1)]
+    for r, row_vals_tuple in enumerate(rows, start=2):
+        row_vals = list(row_vals_tuple)
 
         # Skip completely empty rows
         if all(v is None for v in row_vals):
@@ -387,31 +389,38 @@ def _import_components_to_db(
         return {"components_imported": 0}
 
     ws = wb["构件表"]
-    headers = [str(ws.cell(row=1, column=c).value or "") for c in range(1, 4)]
-    comp_no_col = next((i + 1 for i, h in enumerate(headers) if "构件编号" in h), 1)
-    comp_qty_col = next((i + 1 for i, h in enumerate(headers) if "构件数" in h), 2)
-    weight_col = next((i + 1 for i, h in enumerate(headers) if "总重" in h), 3)
+    rows = ws.iter_rows(values_only=True)
+    headers = [str(value or "") for value in next(rows, ())]
+    comp_no_col = next((i for i, h in enumerate(headers) if "构件编号" in h), None)
+    comp_qty_col = next((i for i, h in enumerate(headers) if "构件数" in h), None)
+    weight_col = next(
+        (i for i, h in enumerate(headers) if "总净重" in h or "总重" in h),
+        None,
+    )
+    if comp_no_col is None:
+        wb.close()
+        raise ValueError("Excel Final component sheet is missing required column: 构件编号")
+
+    def _f(val) -> float | None:
+        try:
+            return float(val) if val is not None else None
+        except (ValueError, TypeError):
+            return None
 
     components = []
-    for r in range(2, ws.max_row + 1):
-        comp_no = str(ws.cell(row=r, column=comp_no_col).value or "").strip()
+    for row_vals in rows:
+        comp_no = str(row_vals[comp_no_col] or "").strip()
         if not comp_no or "合计" in comp_no:
             continue
 
-        def _f(val) -> float | None:
-            try:
-                return float(val) if val is not None else None
-            except (ValueError, TypeError):
-                return None
-
-        qty = _f(ws.cell(row=r, column=comp_qty_col).value)
-        weight = _f(ws.cell(row=r, column=weight_col).value)
+        qty = _f(row_vals[comp_qty_col]) if comp_qty_col is not None else None
+        weight = _f(row_vals[weight_col]) if weight_col is not None else None
 
         components.append(
             {
                 "batch_id": batch_id,
                 "component_no": comp_no,
-                "component_qty": int(qty) if qty else None,
+                "component_qty": int(qty) if qty is not None else None,
                 "total_weight": weight,
             }
         )

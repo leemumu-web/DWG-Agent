@@ -2,19 +2,20 @@
 
 DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处理、结果复核与审计的全栈平台。本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。
 
-**文档审计基线：** `main@d178fcf`（2026-07-11，开始本轮文档修改前）。运行事实以代码、迁移、配置和测试为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[中文文档索引](docs/zh/README.md)和[英文文档索引](docs/README.md)给出详细说明。
+**文档审计基线：** 2026-07-11 的 `main` 工作树（HEAD 为 `d178fcf`，并包含当前尚未提交的实现变更）。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。仓库从本轮起只维护中文项目文档。
 
 ## 当前结论
 
 | 领域 | 当前状态 | 关键边界 |
 |---|---|---|
-| Web 与 API | React 管理端、Nginx 网关和 71 个 OpenAPI path 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | MySQL 8.x 是唯一运行时业务事实源，共 22 张业务表 | SQLite 只用于 pytest；不能作为运行时降级数据库 |
+| Web 与 API | React 管理端、Nginx 网关、77 个 OpenAPI path 和 95 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 25 张模型表，Celery 还会按需创建 8 张 broker/result 表 | 空迁移库为 26 张表；Celery runtime 全部初始化后最多 34 张。SQLite 只用于 pytest |
+| 通用工作流 | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和“生产流程”页面已实现 | 当前仅持久化和展示编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
 | 异步任务 | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 存储 | 本地文件系统与 MinIO 适配器已实现 | MySQL 保存元数据，存储层保存字节；两者必须配套备份和恢复 |
 | 转换管线 | report、DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final 的服务路径存在 | 四条业务管线默认关闭，且分别受 ODA、Stage 完整性和手册库约束 |
-| Agent | API、模型和权限边界存在 | `tasks_agent.py` 仍是占位，`AGENT_ENABLED=false` 是正确默认值 |
-| Windows CAD worker | 仅有配置和占位目录 | 没有可运行 worker、Celery task、Compose service 或端到端验证 |
+| Agent | API、模型和权限边界存在 | 本项目明确不继续实现 Agent；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
+| 图纸业务处理 / Windows CAD worker | 图纸元数据与格式转换边界仍保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 明确不在当前交付范围；`CAD_WORKER_ENABLED=false` |
 | Redis/Valkey | 已从当前运行时移除 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
 
 ## 实际拓扑
@@ -39,7 +40,7 @@ Celery workers
 | 本地开发 | Vite `127.0.0.1:5173` 或 Nginx `127.0.0.1:8080` | `127.0.0.1:8010` | MySQL `127.0.0.1:3306`；MinIO 可选 |
 | Compose | Nginx 宿主 HTTP `:80` -> 容器 `:8080` | 仅内部 `backend-api:8000` | 仅 `internal` 网络，不发布宿主端口 |
 
-当前 Compose 虽声明 `443:8443` 映射，但 Nginx 没有 `8443` listener、证书或 TLS 配置，因此 **443/TLS 尚不可用**。在补齐证书挂载、TLS server、跳转、HSTS 和验证之前，不得把该拓扑称为生产 TLS 部署。
+当前 Compose 仅发布 HTTP，默认映射为宿主 `${HTTP_PORT:-80}` 到 Nginx 容器 `8080`，**不发布 443，也不提供 TLS**。公网部署前必须在受控入口补齐证书、HTTPS 跳转、HSTS、续期和真实浏览器/握手验证；不能把网络隔离或安全响应头等同于传输加密。
 
 ## 处理能力与启用条件
 
@@ -55,10 +56,22 @@ Celery workers
 
 任务以 `(job_id, attempt)` 作为执行世代。重试递增 `attempt`；worker 的领取、进度和终态更新都必须匹配当前状态与 attempt，从而阻止旧消息或旧 worker 覆盖新一轮任务。SSE 轮询 MySQL 并发送当前 attempt 的权威快照，不提供按 event ID 的历史回放。
 
+通用工作流另以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 表达项目内的业务阶段和产物版本。当前公开能力是创建、列表、详情、启动、人工阶段确认、取消和前端展示；service 内部具备 Job attempt 绑定、Job 状态同步和产物挂接函数，但尚无公开接线调用它们，也不会自动创建 Excel Final Job。因此它是可审计的人工编排骨架，不是自动生产闭环。详见[通用工作流框架](docs/workflow-framework.md)。
+
+## 当前明确范围
+
+当前继续完善项目、文件、格式转换、Excel Final、通用流程、任务、复核、权限、审计、部署与运维框架。以下内容不再作为本项目待交付能力：
+
+- CAD 图纸构件提取、自动分类、自动/交互拆板和左右进业务算法；
+- 中望 CAD 二次开发及 Windows CAD Worker；
+- Agent、模型调用、MCP 工具编排和 Agent memory 产品化。
+
+仓库中相关 route/model/config 或占位目录只作为历史/兼容边界保留，不表示将继续实现。
+
 ## 已知仓库限制
 
 1. `Stages/dxf2excel` 在父仓库中仍是指向 `86e99dce5ebce992273c7df78ca13d58036f7472` 的 gitlink，但仓库没有 `.gitmodules`，本地对象库也没有该 commit。当前工作目录恰好保留源码，所以本机 `uv` 依赖可解析；全新 clone、CI checkout 和 Docker build **不能据此保证成功**。应先把该 Stage 转为普通跟踪目录，或恢复带有效 URL/commit 的子模块元数据。
-2. Compose 当前仅提供 HTTP。`443` 映射不是 TLS 能力。
+2. Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
 3. 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
 4. MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
 5. ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
@@ -128,7 +141,7 @@ npm run build
 npx playwright test
 ```
 
-测试层级不能互相替代：SQLite pytest 验证业务逻辑，`migration-test` 验证空 MySQL schema，`infra/verify.sh` 验证静态与活动基础设施契约，Playwright 验证浏览器交互。完整发布验收还必须用真实 MySQL、Celery、MinIO 和有效样本完成上传、处理、重试、SSE、签名下载、存储中断与恢复闭环。详见[工作流验证](docs/zh/workflow-verification.md)。
+测试层级不能互相替代：SQLite pytest 验证业务逻辑，`migration-test` 验证空 MySQL schema，`infra/verify.sh` 验证静态与活动基础设施契约，Playwright 验证浏览器交互。完整发布验收还必须用真实 MySQL、Celery、MinIO 和有效样本完成上传、处理、重试、SSE、签名下载、存储中断与恢复闭环。详见[工作流验证](docs/workflow-verification.md)。
 
 ## 仓库结构
 
@@ -140,21 +153,21 @@ agents/         未交付的 Agent 目录占位
 cad-worker/     未交付的 Windows CAD worker 协议占位
 infra/          Nginx、MySQL 初始化、Compose 验证
 scripts/        本地启停、数据库与文档工具
-docs/           英文详细文档
-docs/zh/        与 docs/ 一一对应的中文详细文档
+docs/           唯一维护的中文详细文档
 third_parts/    外部/上游项目；不代表平台直接交付的能力
 ```
 
 ## 文档入口
 
-- [中文文档索引](docs/zh/README.md) / [English documentation](docs/README.md)
+- [文档索引](docs/README.md)
 - [企业平台技术规范](DWG-Agent企业平台技术规范.md)
-- [架构](docs/zh/architecture.md) / [Architecture](docs/architecture.md)
-- [配置参考](docs/zh/configuration.md) / [Configuration](docs/configuration.md)
-- [处理管线](docs/zh/processing-pipelines.md) / [Processing pipelines](docs/processing-pipelines.md)
-- [部署](docs/zh/deployment.md) / [Deployment](docs/deployment.md)
-- [运维](docs/zh/operations.md) / [Operations](docs/operations.md)
-- [安全](docs/zh/security.md) / [Security](docs/security.md)
-- [验证记录](docs/zh/workflow-verification.md) / [Verification evidence](docs/workflow-verification.md)
+- [架构](docs/architecture.md)
+- [配置参考](docs/configuration.md)
+- [处理管线](docs/processing-pipelines.md)
+- [通用工作流框架](docs/workflow-framework.md)
+- [部署](docs/deployment.md)
+- [运维](docs/operations.md)
+- [安全](docs/security.md)
+- [验证记录](docs/workflow-verification.md)
 
-路由变更后运行 `make docs-generate`，一次生成 `docs/api.md` 和 `docs/zh/api.md`；提交前运行 `make docs-check`。
+路由变更后运行 `make docs-generate` 生成 `docs/api.md`；提交前运行 `make docs-check`。

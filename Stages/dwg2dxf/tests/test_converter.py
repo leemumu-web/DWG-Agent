@@ -272,3 +272,237 @@ def test_get_converter_singleton(tmp_path: Path):
         assert a is b is fake
         assert mock_ctor.call_count == 1  # 只构造一次
     reset_converter()
+
+
+# ====================================================================== #
+# 对抗性边界测试：覆盖文件系统错误、ODA 运行时崩溃、异常路径
+# ====================================================================== #
+
+# ---------------------------------------------------------------------- #
+# 文件系统错误 —— 不能抛异常，必须返回 success=False
+# ---------------------------------------------------------------------- #
+def test_convert_file_mkdir_on_existing_file_returns_failure(tmp_path: Path):
+    """target_dir 是已有文件（非目录）时 mkdir 抛 FileExistsError → 返回失败，不抛。"""
+    src = tmp_path / "a.dwg"
+    src.write_bytes(b"fake")
+    not_a_dir = tmp_path / "not_a_dir"
+    not_a_dir.write_text("i am a file not a directory")
+
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    result = conv.convert_file(src, not_a_dir)
+
+    assert not result.success
+    assert "非目录文件占用" in (result.error or "")
+
+
+def test_convert_file_copy_failure_returns_failure(tmp_path: Path):
+    """复制源文件失败（如权限不足）→ 返回 success=False，不抛。"""
+    src = tmp_path / "a.dwg"
+    src.write_bytes(b"fake")
+    out_dir = tmp_path / "out"
+    conv = OdaConverter(executable=Path("/fake/oda"))
+
+    with mock.patch("shutil.copy2", side_effect=OSError("Permission denied")):
+        result = conv.convert_file(src, out_dir)
+
+    assert not result.success
+    assert "无法复制源文件" in (result.error or "")
+    assert "Permission denied" in (result.error or "")
+
+
+def test_convert_directory_mkdir_on_existing_file_returns_failure(tmp_path: Path):
+    """目录模式下 target_dir 是文件 → 返回含失败条目的 BatchResult，不抛。"""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "a.dwg").write_bytes(b"fake")
+    not_a_dir = tmp_path / "not_a_dir"
+    not_a_dir.write_text("i am a file")
+
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    batch = conv.convert_directory(src_dir, not_a_dir)
+
+    assert isinstance(batch, BatchResult)
+    assert batch.total == 1
+    assert batch.failed == 1
+    assert "非目录文件占用" in (batch.results[0].error or "")
+
+
+# ---------------------------------------------------------------------- #
+# ODA 运行时崩溃（二进制被删/损坏）—— 必须返回失败，不抛
+# ---------------------------------------------------------------------- #
+def test_convert_file_oda_execution_error_returns_failure(tmp_path: Path):
+    """ODA 执行时二进制不存在（FileNotFoundError）→ 返回 success=False，不抛。"""
+    src = tmp_path / "a.dwg"
+    src.write_bytes(b"fake")
+    out_dir = tmp_path / "out"
+    conv = OdaConverter(executable=Path("/fake/oda"))
+
+    with mock.patch.object(conv, "_run_once", side_effect=FileNotFoundError("No such file")):
+        result = conv.convert_file(src, out_dir)
+
+    assert not result.success
+    assert "ODA 执行失败" in (result.error or "")
+
+
+def test_convert_directory_oda_execution_error_returns_failure(tmp_path: Path):
+    """目录模式下 ODA 执行崩溃 → BatchResult 中所有文件标记失败，不抛。"""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "a.dwg").write_bytes(b"x")
+    (src_dir / "b.dwg").write_bytes(b"x")
+    out_dir = tmp_path / "out"
+
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    with mock.patch.object(conv, "_run_once", side_effect=PermissionError("Access denied")):
+        batch = conv.convert_directory(src_dir, out_dir)
+
+    assert batch.total == 2
+    assert batch.failed == 2
+    assert all("ODA 执行失败" in (r.error or "") for r in batch.results)
+
+
+# ---------------------------------------------------------------------- #
+# _collect_result 边界：returncode=0 但产物未生成（静默失败）
+# ---------------------------------------------------------------------- #
+def test_collect_result_silent_failure_no_target_no_err(tmp_path: Path):
+    """ODA returncode=0 但既无 .dxf 也无 .dxf.err —— _collect_result 判失败。"""
+    src = tmp_path / "test.dwg"
+    target_dir = tmp_path / "out"
+    target_dir.mkdir()
+
+    result = OdaConverter._collect_result(
+        source=src, target_dir=target_dir,
+        returncode=0, duration=1.0,
+    )
+
+    assert not result.success
+    assert "静默失败" in (result.error or "")
+    assert result.returncode == 0
+
+
+def test_collect_result_returncode_nonzero_no_err_file(tmp_path: Path):
+    """ODA returncode=3 且无 .err 文件 → 判失败，错误信息包含退出码。"""
+    src = tmp_path / "test.dwg"
+    target_dir = tmp_path / "out"
+    target_dir.mkdir()
+
+    result = OdaConverter._collect_result(
+        source=src, target_dir=target_dir,
+        returncode=3, duration=1.0,
+    )
+
+    assert not result.success
+    assert "returncode=3" in (result.error or "")
+
+
+# ---------------------------------------------------------------------- #
+# Unicode 文件名 / 特殊字符
+# ---------------------------------------------------------------------- #
+def test_convert_file_unicode_filename(tmp_path: Path):
+    """包含中文/特殊字符的文件名应正常转换。"""
+    src = tmp_path / "图纸-测试_01.dwg"
+    src.write_bytes(b"fake dwg")
+    out_dir = tmp_path / "out"
+    conv = OdaConverter(executable=Path("/fake/oda"))
+
+    def make_target(cmd, timeout):
+        target_dir = Path(cmd[2])
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stem = Path(cmd[-1]).stem
+        (target_dir / f"{stem}.dxf").write_text("dxf")
+        return _fake_ok()
+
+    with mock.patch.object(conv, "_run_once", side_effect=make_target):
+        result = conv.convert_file(src, out_dir)
+
+    assert result.success
+    assert result.target.name == "图纸-测试_01.dxf"
+
+
+def test_convert_file_at_sign_filename(tmp_path: Path):
+    """包含 @ 的文件名（CAD 常用命名）应正常转换。"""
+    src = tmp_path / "BYSJ-001@B7-B1-A1-GGZ-1.dwg"
+    src.write_bytes(b"fake")
+    out_dir = tmp_path / "out"
+    conv = OdaConverter(executable=Path("/fake/oda"))
+
+    def make_target(cmd, timeout):
+        target_dir = Path(cmd[2])
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stem = Path(cmd[-1]).stem
+        (target_dir / f"{stem}.dxf").write_text("dxf")
+        return _fake_ok()
+
+    with mock.patch.object(conv, "_run_once", side_effect=make_target):
+        result = conv.convert_file(src, out_dir)
+
+    assert result.success
+    assert "@" in result.target.name
+    assert result.target.suffix == ".dxf"
+
+
+# ---------------------------------------------------------------------- #
+# 空目录 / 零匹配
+# ---------------------------------------------------------------------- #
+def test_convert_empty_directory(tmp_path: Path):
+    """空源目录返回空 BatchResult（total=0）。"""
+    src_dir = tmp_path / "empty_src"
+    src_dir.mkdir()
+    out_dir = tmp_path / "out"
+
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    batch = conv.convert_directory(src_dir, out_dir)
+
+    assert isinstance(batch, BatchResult)
+    assert batch.total == 0
+    assert batch.all_success is False  # 空不算成功
+
+
+def test_convert_directory_wrong_extension_filter(tmp_path: Path):
+    """文件扩展名不匹配 filter → 返回空 BatchResult。"""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    (src_dir / "a.txt").write_bytes(b"not dwg")
+    (src_dir / "b.bin").write_bytes(b"not dwg")
+    out_dir = tmp_path / "out"
+
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    batch = conv.convert_directory(src_dir, out_dir, file_filter="*.dwg")
+
+    assert batch.total == 0
+
+
+# ---------------------------------------------------------------------- #
+# 错误码映射 (_failure_code)
+# ---------------------------------------------------------------------- #
+def test_failure_code_timeout():
+    """超时错误应映射为 DXF_TIMEOUT。"""
+    from dwg_converter.framework import _failure_code, ERROR_CODES
+    r = ConvertResult(Path("/a.dwg"), Path("/a.dxf"), False, error="ODA 超时（120s）")
+    assert _failure_code(r) == ERROR_CODES["DXF_TIMEOUT"]
+
+
+def test_failure_code_source_missing():
+    """源文件缺失应映射为 DXF_SOURCE_MISSING。"""
+    from dwg_converter.framework import _failure_code, ERROR_CODES
+    r = ConvertResult(Path("/a.dwg"), Path("/a.dxf"), False, error="源文件不存在")
+    assert _failure_code(r) == ERROR_CODES["DXF_SOURCE_MISSING"]
+
+
+def test_failure_code_generic():
+    """其他错误应映射为 DXF_CONVERSION_FAILED。"""
+    from dwg_converter.framework import _failure_code, ERROR_CODES
+    r = ConvertResult(Path("/a.dwg"), Path("/a.dxf"), False, error="未知错误")
+    assert _failure_code(r) == ERROR_CODES["DXF_CONVERSION_FAILED"]
+
+
+# ---------------------------------------------------------------------- #
+# health_check 返回结构
+# ---------------------------------------------------------------------- #
+def test_health_check_returns_health_status():
+    """health_check() 返回 HealthStatus 且不抛异常。"""
+    from dwg_converter.framework import health_check, HealthStatus
+    status = health_check()
+    assert isinstance(status, HealthStatus)
+    assert isinstance(status.healthy, bool)
+    assert isinstance(status.to_dict(), dict)

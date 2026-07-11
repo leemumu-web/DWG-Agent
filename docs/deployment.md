@@ -1,163 +1,146 @@
-# Deployment
+# 部署
 
-> Chinese mirror: [zh/deployment.md](zh/deployment.md)
+## 支持的拓扑
 
-## Supported Modes
-
-| Mode | Entry | API | Storage | Readiness |
-|---|---|---|---|---|
-| Local development | Vite `5173` or Nginx `8080` | `127.0.0.1:8010` | local by default; MinIO optional | MySQL + selected storage |
-| Docker Compose | HTTP host `80` -> Nginx `8080` | internal `backend-api:8000` | internal MinIO | MySQL + MinIO |
-
-MySQL is mandatory in both modes. SQLite is a pytest-only test double. Current Compose has no functional HTTPS: host `443` is mapped to container `8443`, but Nginx does not listen there and no certificates are mounted.
-
-## Repository Prerequisite
-
-Before a clean-clone deployment, repair `Stages/dxf2excel`. The parent repository stores only gitlink `86e99dce5ebce992273c7df78ca13d58036f7472`, has no `.gitmodules`, and does not contain that object. Backend `uv sync` and Docker `COPY Stages/dxf2excel` work only because the present working tree is populated outside the parent index.
-
-The acceptable repair is either a normal tracked directory or a valid submodule URL plus reachable pinned commit. Validate with a new clone, not the current checkout.
-
-## Local Setup
-
-```bash
-cp .env.example .env
-cp .env.example backend/.env
-# Replace secrets and keep MYSQL_* identical in both files.
-
-bash scripts/db.sh setup-user
-bash scripts/db.sh init
-bash scripts/start-dev.sh
+```text
+浏览器 -> 宿主 HTTP_PORT -> frontend/Nginx :8080 -> backend-api :8000
+                                                          |-> MySQL 8.4
+Celery workers <------------------------------------------|-> MinIO
 ```
 
-`start-dev.sh` starts report, dxf, dxf2dwg, dxf2excel, and excel_final workers, FastAPI `8010`, and Vite `5173`. `start-all.sh` builds the frontend and uses local Nginx `8080` instead of Vite. Agent and CAD workers are not started locally.
+Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 私有网络。公开容器已经包含编译后的 SPA 和 Nginx 配置，部署不再依赖宿主机 `frontend/dist` bind mount。
 
-A worker may be alive while its feature flag is false. Keep all conversion flags false until dependencies and real samples pass their pipeline checklist.
+当前仍是纯 HTTP，Compose **不发布 443**。完成经审查的 TLS listener 与证书生命周期前，不要自行宣称 HTTPS。仅在可信内网纯 HTTP 场景显式设置 `REFRESH_COOKIE_SECURE=false`；公网部署必须先增加 TLS，并保持 Secure cookie。
 
-```bash
-bash scripts/status.sh
-bash scripts/stop-all.sh
-bash scripts/db.sh status
-```
+## 干净克隆阻断项
 
-Scripts discover managed workers by Celery app, queue, and node name, repair missing pidfile tracking, and avoid killing unrelated port owners.
+`Stages/dxf2excel` 目前是 gitlink `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，目标对象也不可达。当前已填充工作树可以构建，但干净克隆不可复现。发布前必须改为普通 tracked source，或添加有效 submodule URL 与可达的固定 commit。问题未解决时，`scripts/docker.sh check` 会发出警告。
 
-## Database Initialization
+## 准备
 
-```bash
-bash scripts/db.sh check
-bash scripts/db.sh migrate
-bash scripts/db.sh migration-test
-```
-
-`migration-test` creates a temporary empty MySQL schema, upgrades it to `a74c2e9f1d30`, validates 22 business tables and critical constraints, then removes it. It does not execute downgrade.
-
-In local Uvicorn, FastAPI lifespan calls idempotent `init_db`; startup logs and continues if it fails, so check `/health/ready`. In the image, Docker CMD runs `alembic upgrade head` and `app.db.init_db` before Gunicorn; failure prevents the API process from starting.
-
-## Local MinIO
-
-```dotenv
-STORAGE_BACKEND=minio
-MINIO_ENDPOINT=http://127.0.0.1:9000
-MINIO_ACCESS_KEY=...
-MINIO_SECRET_KEY=...
-```
-
-When selected MinIO is unavailable, `/health/ready` returns 503 and must recover without an API restart. Persistence and bucket creation/credentials remain operator responsibilities in local mode.
-
-## Compose Preparation
+要求：Docker Engine、Compose v2，以及到所配置镜像仓库/包索引的网络连接。
 
 ```bash
 cp .env.docker.example .env.docker
-# Replace every CHANGE_ME_* value; do not commit the file.
+# 替换全部 CHANGE_ME_*。
+# 当前可信内网纯 HTTP 场景还应加入：
+# REFRESH_COOKIE_SECURE=false
 
-npm --prefix frontend ci
-npm --prefix frontend run build
-docker compose config --quiet
+bash scripts/docker.sh check
 ```
 
-`frontend/dist` is mounted read-only into Nginx; it is not built inside Compose. Build it again after frontend changes.
+检查会拒绝缺失/空的必要凭据与占位密钥，验证两个 Compose profile，并确认必要 Stage 源码存在；不会打印密钥值。
 
-## Compose Services
+重要配置：
 
-| Service | Default / profile | Purpose | Boundary |
+- `HTTP_PORT`：宿主 HTTP 端口，默认 `80`。
+- `DWG_AGENT_IMAGE`、`DWG_AGENT_FRONTEND_IMAGE`：默认本地 tag；CI/CD 可改为不可变 registry tag/digest。
+- `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
+- `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false。
+- `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
+
+## 构建与启动
+
+```bash
+# 构建两个镜像。Dockerfile 使用 cache mount，因此需要 BuildKit/buildx。
+bash scripts/docker.sh build
+
+# 核心服务：Nginx、API、MySQL、MinIO、report worker
+bash scripts/docker.sh up
+
+# 核心服务 + 转换 workers + 禁用的 Agent 占位队列
+bash scripts/docker.sh up-workers
+
+bash scripts/docker.sh status
+bash scripts/docker.sh smoke
+```
+
+对应 Make target：`docker-check`、`docker-build`、`docker-up`、`docker-up-workers`、`docker-status`、`docker-smoke`、`docker-down`。
+
+Compose 只构建一个共享后端镜像和一个前端镜像。所有 worker 复用 `DWG_AGENT_IMAGE`。前端镜像用 Node 22 执行锁定的 `npm ci` 构建，再由非特权 Nginx 提供静态文件。
+
+## 服务行为
+
+| 服务 | 默认/profile | 持久化 | 健康含义 |
 |---|---|---|---|
-| `mysql` | default | business DB, broker/result, handbook schemas | private network; 8.4 tag, not digest-pinned |
-| `minio` | default | object bytes | private network; digest-pinned image and named volume |
-| `backend-api` | default | four Gunicorn workers on internal `8000` | production mode disables runtime API docs |
-| `worker-report` | default | framework report/stub queue | not an Agent |
-| `nginx` | default | HTTP SPA/API gateway on host `80` | no TLS listener despite `443` mapping |
-| conversion workers | `workers` | four processing queues | pipeline flags/dependencies remain separate |
-| `worker-agent` | `workers` | placeholder queue process | task module is empty; do not enable Agent |
+| `nginx` | 默认 | 镜像内 SPA | Nginx 响应 `/nginx-health` |
+| `backend-api` | 默认 | `app_var` 运行目录 | `/health/ready` 可连接 MySQL 与 MinIO |
+| `worker-report` | 默认 | `app_var` | 启动 marker + Celery PID 1 |
+| 转换 workers | `workers` | `app_var` | worker 已连接；不等于功能已验收 |
+| `worker-agent` | `workers` | `app_var` | 仅队列进程，没有 Agent task |
+| `mysql` | 默认 | `mysql_data` | root ping 可用 |
+| `minio` | 默认 | `minio_data` | MinIO 进程存活 |
 
-There is no `worker-cad` Compose service.
+容器设置 `no-new-privileges`；应用与 Nginx 镜像以非 root 运行。Nginx 根文件系统只读，`/tmp` 使用 tmpfs。MySQL 与 MinIO 有两分钟停止宽限。后端启动时先执行 Alembic migration 和幂等 seed，再启动 Gunicorn；worker 和 Nginx 等待其 ready。
+
+MySQL 初始化 SQL 只在新 `mysql_data` volume 上执行。修改初始化文件不会更新已有数据库，应用 schema 变更必须使用 migration。Celery broker/result URL 从有效 MySQL DSN 派生，分别为 `sqla+mysql+pymysql://...` 和 `db+mysql+pymysql://...`，因此操作员不维护第二套凭据。
+
+`app_var` 挂载到 API 和所有 worker 的 `/app/var`，用于共享运行目录。Compose 的正常配置是 `STORAGE_BACKEND=minio`，业务对象应进入 MinIO；备份脚本不包含 `app_var`。若部署者改为 local storage，必须重新设计 volume 和备份集合，不能继续套用默认恢复说明。
+
+## 日志与停止
 
 ```bash
-docker compose up -d
-docker compose --profile workers up -d
-docker compose ps
+bash scripts/docker.sh logs
+bash scripts/docker.sh down       # preserves named volumes
 ```
 
-## Initialization Order
+不要把 `docker compose down -v` 当作日常清理命令：它会删除数据库、对象和应用 volume。
 
-1. MySQL creates `dwg_agent` and imports `hardware_handbook` from init scripts on a fresh volume.
-2. The platform SQL grants application schema access and handbook `SELECT`.
-3. MinIO reports its process live.
-4. Backend runs migrations and idempotent seeds, then Gunicorn.
-5. Workers wait for backend readiness, create Celery runtime tables/index, run startup maintenance, and emit ready marker.
-6. Nginx waits for healthy backend.
+## 备份
 
-MySQL init scripts run only when the data directory is first initialized. Changing them does not mutate an existing named volume.
-
-## Images and Build Context
-
-- Backend uses Python 3.12/uv multi-stage images and UID/GID 1000 `appuser`.
-- Backend and every worker share one image, so ODA/Stage code exists even when a process does not use it.
-- `Stages/dwg2dxf`, `Stages/dxf2dwg`, and `Stages/dxf2excel` are editable path dependencies during build.
-- Excel Final is copied as a standalone script tree and launched in a child process.
-- `.dockerignore` removes local virtualenvs, samples, browser traces, storage, and unrelated third-party preview applications.
-- Do not document a fixed context size; it changes with tracked Stage binaries and source ownership.
-
-## Health Checks
-
-| Service | Implementation | Interpretation |
-|---|---|---|
-| Backend | `curl /health/ready` on internal `8000` | MySQL and MinIO are reachable |
-| MySQL | root `mysqladmin ping` | server accepts connections, not schema correctness |
-| MinIO | `/minio/health/live` | server process is live, not object integrity |
-| Worker | ready marker + Celery PID 1 | connected startup, not specific pipeline readiness |
-| Nginx | dependency only | no independent Compose healthcheck |
-
-## Nginx and TLS
-
-Local and Compose configurations proxy API, health, and development-document paths and disable buffering for Job SSE. In `APP_ENV=production` with `DEBUG=false`, FastAPI returns 404 for `/docs`, `/redoc`, and `/openapi.json` even though Nginx can route those paths.
-
-To add TLS, create a separate reviewed server listening on container `8443 ssl`, mount certificates read-only, redirect HTTP, add HSTS only after HTTPS is verified, and test expiry/renewal. Until then remove or clearly ignore the dead host 443 mapping at deployment time.
-
-## Celery SQL Transport
-
-The broker and result backend are derived from the effective MySQL DSN as `sqla+mysql+pymysql://...` and `db+mysql+pymysql://...`; operators do not configure a second credential set.
-
-The SQLAlchemy broker is intended for the repository's bounded queue layout. It uses `READ COMMITTED`, one-message prefetch, late acknowledgement, lost-worker rejection, bounded engine pools, and the composite queue claim index. It does not support fanout remote control and does not guarantee high-throughput multi-replica scheduling.
-
-Evaluate RabbitMQ when measured throughput or routing requires it. That is a broker change only; MySQL remains the Job/progress/authorization truth source.
-
-## Production Gaps
-
-- Functional TLS, certificate lifecycle, and public-network hardening.
-- Clean-clone `dxf2excel` source ownership.
-- Secret manager and rotation workflow.
-- Coordinated MySQL/MinIO backup, retention, restore automation, and RPO/RTO evidence.
-- Central logs, metrics, tracing, alerting, SLOs, and capacity tests.
-- Rolling deployment/schema compatibility and multi-replica coordination.
-- Completed Agent and Windows CAD worker.
-
-## Verification
+部署脚本会创建单事务 MySQL 逻辑 dump、归档 MinIO volume，并写入 SHA-256：
 
 ```bash
+bash scripts/docker.sh backup /secure/backups/dwg-agent-2026-07-11
+```
+
+MySQL dump 自身使用 `--single-transaction`，但随后执行的 MinIO tar 与数据库不是同一原子快照，因此这是有边界的在线单机备份，不是严格跨系统一致备份或 PITR。若要求一致恢复点，先暂停 API/worker 写入并确认队列静止。备份目录必须离机复制并设置保留/加密策略。
+
+## 恢复
+
+恢复会替换目标 MinIO volume 内容，属于破坏性操作。先停止 stack，并确认使用正确备份目录：
+
+```bash
+bash scripts/docker.sh down
+bash scripts/docker.sh restore /secure/backups/dwg-agent-2026-07-11
+bash scripts/docker.sh up
+bash scripts/docker.sh smoke
+```
+
+恢复会校验已有 checksum、替换 MinIO 内容、启动 MySQL，并导入应用库与五金手册库。之后验证登录、Job 状态、对象下载和 SHA-256。正式生产验收必须在独立恢复主机演练。
+
+## 升级与回滚
+
+1. 升级前备份并测试备份。
+2. 构建/拉取不可变版本的后端与前端镜像。
+3. 审查 Alembic migration 的前后兼容性。
+4. 执行 `bash scripts/docker.sh up-workers`（有意不启转换 worker 时使用 `up`）。
+5. 执行 smoke 和一个已认证端到端 Job。
+6. 只有数据库 migration 向后兼容时才可仅回滚镜像；否则恢复协调备份。
+
+Compose 是单机编排，不提供 rolling deployment 或多副本 migration 协调。
+
+## 验证门禁
+
+```bash
+bash -n scripts/docker.sh
 bash infra/verify.sh
-docker compose config --quiet
-docker compose ps
-docker compose logs --tail=200 backend-api worker-report mysql minio nginx
+docker compose --env-file .env.docker config --quiet
+docker compose --env-file .env.docker --profile workers config --quiet
+bash scripts/docker.sh build
+bash scripts/docker.sh up-workers
+bash scripts/docker.sh smoke
 ```
 
-Static/config checks do not prove a deployed workflow. Acceptance must submit an authenticated Job through Nginx, observe Celery, verify MySQL state and MinIO bytes, download through a fresh signed path, compare SHA-256, and exercise storage interruption/recovery.
+静态检查和镜像构建成功不能证明转换管线。最终验收必须经 Nginx 登录、提交真实 Job、观察 Celery/SSE、验证 MySQL 状态和 MinIO bytes、下载并比较 SHA-256、验证重启持久化、测试存储中断恢复，并执行备份恢复。
+
+## 剩余生产边界
+
+- 可用 TLS、证书续期、DNS/防火墙加固和可信代理策略。
+- `Stages/dxf2excel` 干净克隆可复现所有权。
+- Secret manager 与轮换流程；Compose `env_file` 不是 secret manager。
+- 离机加密备份、保留策略、自动恢复演练、实测 RPO/RTO 与 PITR。
+- 集中日志、指标、trace、告警、SLO 与容量测试。
+- 镜像漏洞/SBOM/签名策略，以及全部基础/运行镜像 digest 固定。
+- 多副本 rolling deployment 与 schema 兼容。
+- Agent 执行与 Windows CAD worker 不属于当前交付目标；保持其 flag 关闭并避免部署占位队列。

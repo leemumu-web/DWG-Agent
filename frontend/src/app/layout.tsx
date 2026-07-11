@@ -15,6 +15,8 @@ import {
   LogoutOutlined,
   ProfileOutlined,
   MenuOutlined,
+  ApartmentOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -33,6 +35,7 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
+  { key: '/workflows', label: '生产流程', icon: <ApartmentOutlined /> },
   { key: '/projects', label: '项目', icon: <ProjectOutlined /> },
   { key: '/files', label: '文件转换', icon: <FileOutlined /> },
   { key: '/drawings', label: '图纸', icon: <FileImageOutlined /> },
@@ -40,6 +43,7 @@ const NAV: NavItem[] = [
   { key: '/reviews', label: '复核', icon: <AuditOutlined /> },
   { key: '/admin/users', label: '用户管理', icon: <TeamOutlined />, roles: ['admin'] },
   { key: '/admin/roles', label: '角色权限', icon: <SafetyCertificateOutlined />, roles: ['admin'] },
+  { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin'] },
   { key: '/admin/audit-logs', label: '审计日志', icon: <ProfileOutlined />, roles: ['auditor'] },
 ];
 
@@ -119,41 +123,17 @@ export function AppLayout() {
   function navigationContent(navCollapsed: boolean, onSelect?: () => void) {
     return (
       <>
-        <div
-          style={{
-            height: 56,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: navCollapsed ? '0 16px' : '0 20px',
-            overflow: 'hidden',
-            borderBottom: '1px solid rgba(255,255,255,0.08)',
-          }}
-        >
-          <div
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: 8,
-              background: 'linear-gradient(135deg,#1677ff,#13c2c2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontWeight: 700,
-              fontSize: 13,
-              flexShrink: 0,
-            }}
-          >
-            DW
-          </div>
+        <div className="app-brand" style={{ paddingInline: navCollapsed ? 23 : 20 }}>
+          <div className="app-brand-mark">DW</div>
           {!navCollapsed && (
-            <span style={{ color: '#fff', fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap' }}>
-              DWG-Agent
-            </span>
+            <div>
+              <div className="app-brand-name">DWG-Agent</div>
+              <div className="app-brand-subtitle">CAD 智能处理平台</div>
+            </div>
           )}
         </div>
         <Menu
+          className="app-nav"
           theme="dark"
           mode="inline"
           selectedKeys={selected}
@@ -166,7 +146,7 @@ export function AppLayout() {
   }
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className="app-shell">
       {!isMobile && (
         <Sider
           width={232}
@@ -174,7 +154,7 @@ export function AppLayout() {
           collapsed={collapsed}
           onCollapse={setCollapsed}
           trigger={null}
-          style={{ boxShadow: '2px 0 8px rgba(0,0,0,0.06)' }}
+          className="app-sider"
         >
           {navigationContent(collapsed)}
         </Sider>
@@ -192,18 +172,7 @@ export function AppLayout() {
       </Drawer>
 
       <Layout style={{ minWidth: 0 }}>
-        <Header
-          style={{
-            background: '#fff',
-            padding: isMobile ? '0 12px' : '0 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid #f0f0f0',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-            gap: isMobile ? 8 : 16,
-          }}
-        >
+        <Header className="app-topbar">
           <Space size={isMobile ? 4 : 'middle'} align="center" style={{ flex: 1, minWidth: 0 }}>
             <Button
               type="text"
@@ -256,7 +225,8 @@ export function AppLayout() {
               <Space
                 size={8}
                 aria-label="用户菜单"
-                style={{ cursor: 'pointer', padding: isMobile ? 4 : '4px 8px', borderRadius: 8 }}
+                className="user-trigger"
+                style={{ padding: isMobile ? 4 : undefined }}
               >
                 <Avatar size={30} style={{ background: '#1677ff', fontSize: 13 }}>{initial}</Avatar>
                 {!isMobile && (
@@ -278,15 +248,10 @@ export function AppLayout() {
           </Space>
         </Header>
 
-        <Content
-          style={{
-            margin: 0,
-            padding: isMobile ? 12 : 20,
-            background: '#f5f5f5',
-            overflow: 'auto',
-          }}
-        >
-          <Outlet />
+        <Content className="app-content">
+          <main className="app-content-inner" aria-live="polite">
+            <Outlet />
+          </main>
         </Content>
       </Layout>
     </Layout>

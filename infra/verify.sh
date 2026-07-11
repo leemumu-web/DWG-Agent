@@ -46,7 +46,7 @@ assert_env_keys_compatible() {
 
     missing=$(comm -23 <(env_keys "$reference") <(env_keys "$candidate") | paste -sd ',' -)
     extra=$(comm -13 <(env_keys "$reference") <(env_keys "$candidate") | paste -sd ',' -)
-    invalid_extra=$(printf '%s\n' "$extra" | tr ',' '\n' | grep -vxE 'DATABASE_URL|^$' | paste -sd ',' - || true)
+    invalid_extra=$(printf '%s\n' "$extra" | tr ',' '\n' | grep -vxE 'DATABASE_URL|DWG_AGENT_IMAGE|DWG_AGENT_FRONTEND_IMAGE|NODE_IMAGE|HTTP_PORT|^$' | paste -sd ',' - || true)
 
     if [ -z "$missing" ] && [ -z "$invalid_extra" ]; then
         pass "$label"
@@ -173,8 +173,8 @@ def require_blank(service, keys, label):
             errors.append(f"{label} 应清空敏感环境变量: {key}")
 
 nginx = svcs.get("nginx", {})
-if nginx.get("image") != "ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine":
-    errors.append("nginx 镜像不匹配")
+if nginx.get("build", {}).get("dockerfile") != "frontend/Dockerfile":
+    errors.append("nginx 应由 frontend/Dockerfile 构建 SPA 镜像")
 if set(nginx.get("depends_on", {})) != {"backend-api"}:
     errors.append("nginx 应等待 backend-api ready")
 
@@ -212,21 +212,21 @@ for name in workers.keys() - {"worker-report"}:
         errors.append(f"{name} 缺少 workers profile")
 
 mysql = svcs.get("mysql", {})
-if mysql.get("image") != "container-registry.oracle.com/mysql/community-server:8.4":
+if "mysql/community-server:8.4" not in mysql.get("image", ""):
     errors.append("mysql 镜像不匹配")
 mysql_hc = healthcheck_cmd(mysql)
 if "$${MYSQL_ROOT_PASSWORD}" not in mysql_hc:
     errors.append("mysql healthcheck 必须在容器内读取 MYSQL_ROOT_PASSWORD")
 
 minio = svcs.get("minio", {})
-if minio.get("image") != "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e":
-    errors.append("minio 镜像不匹配")
+if "quay.io/minio/minio@sha256:" not in minio.get("image", ""):
+    errors.append("minio 默认镜像必须使用 Quay digest")
 if "console-address" not in str(minio.get("command", "")):
     errors.append("minio 缺少 console-address")
 
 volumes = set(data.get("volumes", {}))
-if volumes != {"mysql_data", "minio_data"}:
-    errors.append(f"持久卷应仅为 mysql_data + minio_data，实际: {sorted(volumes)}")
+if volumes != {"app_var", "mysql_data", "minio_data"}:
+    errors.append(f"持久卷应为 app_var + mysql_data + minio_data，实际: {sorted(volumes)}")
 
 networks = data.get("networks", {})
 if set(networks) != {"public", "internal"}:

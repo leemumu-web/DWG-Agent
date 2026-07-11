@@ -110,9 +110,9 @@ test.describe('JobsPage — button & API integration', () => {
     expect(Array.isArray(body.data)).toBe(true);
   });
 
-  // ── 2. "创建框架冒烟任务" → POST /jobs → 202 ──────────────────
-  test('"创建框架冒烟任务" → POST /jobs → 202', async ({ page }) => {
-    const btn = page.getByRole('button', { name: /创建框架冒烟任务/ });
+  // ── 2. "创建冒烟任务" → POST /jobs → 202 ──────────────────────
+  test('"创建冒烟任务" → POST /jobs → 202', async ({ page }) => {
+    const btn = page.getByRole('button', { name: /创建冒烟任务/ });
     await expect(btn).toBeVisible({ timeout: 5000 });
 
     const [resp] = await Promise.all([
@@ -129,10 +129,10 @@ test.describe('JobsPage — button & API integration', () => {
     expect(body.data.status).toMatch(/queued|pending/);
   });
 
-  // ── 3. "查看详情" → opens drawer with job info ──────────────────
-  test('"查看详情" → drawer opens with job timeline', async ({ page }) => {
+  // ── 3. "详情" → opens drawer with job info ──────────────────────
+  test('"详情" → drawer opens with job timeline', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const detailBtns = page.getByRole('button', { name: /查看详情/ });
+    const detailBtns = page.getByRole('button', { name: /详情/ });
     const count = await detailBtns.count();
     test.skip(count === 0, 'No jobs to view');
 
@@ -155,7 +155,7 @@ test.describe('JobsPage — button & API integration', () => {
     await page.reload();
     const row = page.locator(`.ant-table-row[data-row-key="${jobId}"]`);
     await expect(row).toBeVisible({ timeout: 10_000 });
-    await row.getByRole('button', { name: /查看详情/ }).click();
+    await row.getByRole('button', { name: /详情/ }).click();
     const drawer = page.locator('.ant-drawer');
     await expect(drawer).toBeVisible({ timeout: 5000 });
     const dxfBtn = drawer.getByRole('button', { name: /下载 DXF/ });
@@ -177,7 +177,7 @@ test.describe('JobsPage — button & API integration', () => {
     await page.reload();
     const row = page.locator(`.ant-table-row[data-row-key="${jobId}"]`);
     await expect(row).toBeVisible({ timeout: 10_000 });
-    await row.getByRole('button', { name: /查看详情/ }).click();
+    await row.getByRole('button', { name: /详情/ }).click();
     const drawer = page.locator('.ant-drawer');
     await expect(drawer).toBeVisible({ timeout: 5000 });
     const retryBtn = drawer.getByRole('button', { name: /重新提交/ });
@@ -203,18 +203,14 @@ test.describe('JobsPage — button & API integration', () => {
     }
   });
 
-  // ── 7. Status tags have correct colors ───────────────────────────
-  test('job status tags render with colors', async ({ page }) => {
+  // ── 7. Status chips render a localized state ─────────────────────
+  test('job status chips render with colors', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
-    const tags = page.locator('.ant-table-row .ant-tag');
-    const tagCount = await tags.count();
-    test.skip(tagCount === 0, 'No status tags visible');
-
-    // Each tag should have a text status
-    const firstTagText = await tags.first().textContent();
-    expect(['succeeded', 'failed', 'running', 'queued', 'cancelled', 'pending']).toContain(
-      firstTagText?.trim(),
-    );
+    const statusCell = page.locator('.ant-table-tbody .ant-table-row > td:nth-child(2)').first();
+    await expect(statusCell).toBeVisible();
+    await expect(statusCell).toContainText(/成功|失败|运行中|排队中|已取消|待处理|待校验|待复核/);
+    const chip = statusCell.locator('span').first();
+    await expect(chip).toHaveCSS('border-style', 'solid');
   });
 
   // ── 8. Progress bars render for jobs ────────────────────────────

@@ -10,6 +10,9 @@ const stepLabels: Record<string, string> = {
   download_source_dwg: '下载源 DWG',
   run_oda_convert: 'ODA 转换 DWG→DXF',
   persist_dxf_result: '持久化 DXF 结果',
+  download_source_dxf: '下载源 DXF',
+  run_oda_convert_dxf: 'ODA 转换 DXF→DWG',
+  persist_dwg_result: '持久化 DWG 结果',
 };
 
 function stepStatusIcon(step: JobStep) {

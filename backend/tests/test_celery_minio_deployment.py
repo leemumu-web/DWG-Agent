@@ -417,7 +417,7 @@ def test_deployment_docs_match_mysql_derived_celery_url_behavior():
     content = (REPO_ROOT / "docs/deployment.md").read_text()
 
     assert "direct " + chr(96) + "os.environ" not in content
-    assert "derived from the effective MySQL DSN" in content
+    assert "从有效 MySQL DSN 派生" in content
     assert "sqla+mysql+pymysql://" in content
     assert "db+mysql+pymysql://" in content
 
@@ -429,7 +429,7 @@ def test_infra_docs_match_current_core_and_profile_worker_topology():
     assert "worker-report" in infra
     for worker in ("worker-dxf", "worker-dxf2dwg", "worker-dxf2excel", "worker-excel-final"):
         assert worker in infra
-    assert "Agent feature remains disabled" in infra
+    assert "Agent 功能保持禁用" in infra
     assert "docker compose up -d" in infra
     assert "docker compose --profile workers up -d" in infra
     for path in ("/api/v1/*", "/health*", "/docs", "/redoc", "/openapi.json"):

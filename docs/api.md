@@ -1,27 +1,27 @@
-# API Reference
+# API 参考
 
-This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run python ../scripts/generate_api_docs.py`. Change code and tests first, then regenerate both languages. A listed route proves interface presence only; feature flags, permissions, and external dependencies may still prevent execution.
+本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
-## Conventions
+## 统一约定
 
-- Local API: `http://127.0.0.1:8010`; Nginx: `http://127.0.0.1:8080`; container API port: `8000`.
-- Business routes require a Bearer access token except `/health`, `/health/ready`, `POST /api/v1/auth/sessions`, and refresh.
-- Success uses `{data, meta}`. Paginated responses add `pagination`; `total` is an exact SQL `COUNT(*)`.
-- Errors use `{error: {code, message, details}, meta}` and never expose tracebacks, DSNs, or host paths.
-- `GET /api/v1/jobs/{job_id}/events` uses an SSE cookie and polls authoritative MySQL state; no token is placed in the URL.
-- Downloads first obtain a short-lived signed URL, then download with Bearer auth. A retry after network, 403, 408, 429, or 5xx obtains a fresh signature.
-- Job retries increment `attempt`; steps accept `?attempt=N`, and stale workers cannot overwrite a newer attempt.
-- SSE snapshots contain only the current attempt's steps. Results of an unscoped job are restricted to administrators or its creator.
-- With `AGENT_ENABLED=false`, Agent routes return 503. When enabled, run details and steps are scoped to the creator, administrators, or project members.
+- 本地直连基地址：`http://127.0.0.1:8010`；Nginx 入口：`http://127.0.0.1:8080`；容器内部 API 端口：`8000`。
+- 除 `/health`、`/health/ready`、`POST /api/v1/auth/sessions` 和刷新端点外，业务端点均要求 Bearer access token。
+- 成功响应使用 `{data, meta}`；分页响应额外包含 `pagination`，`total` 来自 SQL `COUNT(*)`。
+- 错误响应使用 `{error: {code, message, details}, meta}`，不会向客户端暴露 traceback、DSN 或本机路径。
+- `GET /api/v1/jobs/{job_id}/events` 使用 SSE cookie 认证并轮询 MySQL 权威状态；URL 中不传 token。
+- 下载流程为：鉴权获取短期签名 URL，再携带 Bearer token 下载。403、408、429、5xx 或网络错误重试时必须重新获取签名。
+- 任务重试递增 `attempt`；步骤查询可用 `?attempt=N`，旧 worker 不能覆盖新 attempt。
+- SSE snapshot 只包含当前 attempt 的 steps；无项目 Job 的结果仅管理员或创建者可访问。
+- `AGENT_ENABLED=false` 时 Agent 端点返回 503；仓库没有可执行 Agent task，本项目也不把 Agent 执行列为当前交付目标。
 
-## Health
+## 健康检查
 
 | Method | Path |
 |---|---|
 | `GET` | `/health` |
 | `GET` | `/health/ready` |
 
-## Authentication
+## 认证
 
 | Method | Path |
 |---|---|
@@ -31,7 +31,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `GET` | `/api/v1/auth/me` |
 | `PATCH` | `/api/v1/auth/password` |
 
-## Users
+## 用户
 
 | Method | Path |
 |---|---|
@@ -44,7 +44,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `POST` | `/api/v1/users/{user_id}/disable-requests` |
 | `POST` | `/api/v1/users/{user_id}/enable-requests` |
 
-## Roles and permissions
+## 角色与权限
 
 | Method | Path |
 |---|---|
@@ -52,7 +52,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `PUT` | `/api/v1/roles/{role_id}/permissions` |
 | `GET` | `/api/v1/permissions` |
 
-## Projects
+## 项目
 
 | Method | Path |
 |---|---|
@@ -61,7 +61,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `GET, POST` | `/api/v1/projects/{project_id}/members` |
 | `PATCH, DELETE` | `/api/v1/projects/{project_id}/members/{member_id}` |
 
-## Files and downloads
+## 文件与下载
 
 | Method | Path |
 |---|---|
@@ -77,7 +77,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `POST` | `/api/v1/files/bulk-delete` |
 | `POST` | `/api/v1/files/download-zip` |
 
-## Drawings
+## 图纸
 
 | Method | Path |
 |---|---|
@@ -86,7 +86,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `GET, POST` | `/api/v1/drawings/{drawing_id}/versions` |
 | `GET` | `/api/v1/drawings/{drawing_id}/preview` |
 
-## Jobs
+## 任务
 
 | Method | Path |
 |---|---|
@@ -100,7 +100,7 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `GET` | `/api/v1/jobs/{job_id}/results` |
 | `POST` | `/api/v1/jobs/cancel-all-active` |
 
-## Results and reviews
+## 结果与复核
 
 | Method | Path |
 |---|---|
@@ -109,14 +109,14 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `POST, GET` | `/api/v1/results/{result_id}/reviews` |
 | `GET` | `/api/v1/reviews/pending` |
 
-## Audit
+## 审计
 
 | Method | Path |
 |---|---|
 | `GET` | `/api/v1/audit-logs` |
 | `GET` | `/api/v1/audit-logs/{audit_log_id}` |
 
-## Agent
+## Agent（禁用边界）
 
 | Method | Path |
 |---|---|
@@ -125,11 +125,12 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `GET` | `/api/v1/agent-runs/{agent_run_id}/steps` |
 | `GET` | `/api/v1/agent-tools` |
 
-## System
+## 系统
 
 | Method | Path |
 |---|---|
 | `GET` | `/api/v1/system/health` |
+| `GET` | `/api/v1/system/infrastructure` |
 | `GET` | `/api/v1/system/health/oda` |
 
 ## Excel Final
@@ -150,7 +151,17 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 | `GET` | `/api/v1/excel-final/weights/lookup` |
 | `GET` | `/api/v1/excel-final/health` |
 
-## Runtime documentation
+## 生产流程
 
-Use `/docs`, `/redoc`, or `/openapi.json` for request and response schemas while the API is running in development/debug mode.
-With `APP_ENV=production` and `DEBUG=false`, all three runtime documentation endpoints are intentionally disabled; production should use this generated file and a versioned OpenAPI artifact.
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/workflows` |
+| `GET` | `/api/v1/workflows/{workflow_id}` |
+| `POST` | `/api/v1/workflows/{workflow_id}/start` |
+| `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion` |
+| `POST` | `/api/v1/workflows/{workflow_id}/cancellation-requests` |
+
+## 运行时文档
+
+development/debug 模式启动后，访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。
+当 `APP_ENV=production` 且 `DEBUG=false` 时，这三个运行时文档入口有意关闭；生产应使用本生成文件和版本化 OpenAPI artifact。

@@ -178,6 +178,7 @@ export function DrawingsPage() {
       )}
 
       <Table
+        className="surface-table"
         rowKey="id"
         dataSource={filtered}
         columns={columns}
@@ -185,7 +186,7 @@ export function DrawingsPage() {
         size="middle"
         pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 张图纸` }}
         locale={{ emptyText: '暂无图纸' }}
-        style={{ background: '#fff', borderRadius: 10 }}
+        scroll={{ x: 900 }}
       />
 
       <Drawer

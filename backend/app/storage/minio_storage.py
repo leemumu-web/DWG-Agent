@@ -123,6 +123,19 @@ class MinioStorage(AbstractStorageBackend):
 
         return _iter()
 
+    def bucket_object_counts(self, buckets: list[str]) -> dict[str, int]:
+        """Return object counts for configured buckets without exposing object keys."""
+        counts: dict[str, int] = {}
+        for bucket in buckets:
+            try:
+                if not self._client.bucket_exists(bucket):
+                    counts[bucket] = 0
+                    continue
+                counts[bucket] = sum(1 for _ in self._client.list_objects(bucket, recursive=True))
+            except (MinioException, HTTPError, OSError) as exc:
+                raise StorageError(f"Failed to inspect MinIO bucket {bucket}.") from exc
+        return counts
+
     def local_path(self, bucket: str, storage_key: str) -> Path | None:
         return None
 

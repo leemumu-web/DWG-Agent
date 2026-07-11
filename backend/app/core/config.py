@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     celery_task_always_eager: bool = False
     # A running job with no DB update for this long is failed when a worker starts.
     # Keep this above the longest configured converter timeout.
-    celery_stale_job_timeout_seconds: int = 7200
+    celery_stale_job_timeout_seconds: int = 600
 
     @property
     def sqlalchemy_database_url(self) -> str:
@@ -154,6 +154,22 @@ class Settings(BaseSettings):
     # Direction-specific buckets for DXF uploads and DXF derived results
     minio_bucket_dxf_original: str = "dxf-original"
     minio_bucket_dxf_derived: str = "dxf-derived"
+
+    @property
+    def minio_bucket_names(self) -> list[str]:
+        """Return configured buckets once, preserving their operational order."""
+        return list(
+            dict.fromkeys(
+                (
+                    self.minio_bucket_original,
+                    self.minio_bucket_derived,
+                    self.minio_bucket_reports,
+                    self.minio_bucket_temp,
+                    self.minio_bucket_dxf_original,
+                    self.minio_bucket_dxf_derived,
+                )
+            )
+        )
 
     @property
     def cors_origins(self) -> list[str]:

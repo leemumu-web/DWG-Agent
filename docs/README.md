@@ -1,62 +1,72 @@
-# DWG-Agent Platform Documentation
+# DWG-Agent 平台文档
 
-> Chinese index: [zh/README.md](zh/README.md)
+本目录是仓库唯一维护的项目详细文档，全部使用中文。2026-07-11 的审查对象是 `main` 工作树：HEAD 为 `d178fcf`，同时包含当前尚未提交的工作流、部署、转换器和前端变更。文档不会把 HEAD 与工作树混为一谈，也不会把目录、路由、配置项或健康进程直接视为已交付能力。
 
-These documents describe the implementation audited from `main@d178fcf` on 2026-07-11 before the current documentation edits. They distinguish implemented code, default enablement, external prerequisites, verified evidence, and future work.
+## 项目定位
 
-## Reading Order
+DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx 使用 React 管理端和 FastAPI API；MySQL 保存身份、权限、项目、文件元数据、任务、结果、复核、审计、工作流以及 Celery broker/result 状态；Local FS 或 MinIO 保存文件字节；Celery worker 调用各 Stage 完成长任务。
 
-1. [Root README](../README.md) for status, startup, and known blockers.
-2. [Enterprise technical specification](../DWG-Agent企业平台技术规范.md) for normative boundaries.
-3. [Architecture](architecture.md) and [processing pipelines](processing-pipelines.md) for request and worker paths.
-4. [Configuration](configuration.md), [deployment](deployment.md), and [operations](operations.md) for environment work.
-5. [Security](security.md), [database](database.md), and [workflow verification](workflow-verification.md) before release.
+当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、五条可执行队列路径、Excel Final 关系化导入、人工生产流程和基础设施概览。四条转换管线默认关闭并受外部依赖约束；Agent 执行、CAD 图纸业务算法和 Windows CAD Worker 是明确非目标。Redis/Valkey 已从活动架构移除。
 
-## Document Map
+## 阅读路径
 
-| Document | Purpose | Source of truth / update trigger |
+1. [根 README](../README.md)：快速状态、启动方式、目录地图和已知阻断项。
+2. [企业技术规范](../DWG-Agent企业平台技术规范.md)：必须长期保持的架构、安全和交付约束。
+3. [架构](architecture.md)：组件职责以及同步、异步、SSE、下载、存储一致性路径。
+4. [API 参考](api.md)：从当前 FastAPI OpenAPI 自动生成的 77 个 path 路由清单。
+5. [数据库](database.md)：25 张模型表、8 张 Celery runtime 表、迁移和恢复集合。
+6. [处理管线](processing-pipelines.md)与[通用工作流](workflow-framework.md)：转换执行与业务编排的区别。
+7. [配置](configuration.md)、[部署](deployment.md)和[运维](operations.md)：本地/Compose 实施和事故处理。
+8. [安全](security.md)、[验证](workflow-verification.md)与[路线图](roadmap.md)：发布前边界、证据和后续工作。
+
+## 文档职责
+
+| 文档 | 回答的问题 | 主要事实来源 |
 |---|---|---|
-| [API reference](api.md) | Route inventory and common API conventions | Generated from FastAPI OpenAPI with `make docs-generate` |
-| [Architecture](architecture.md) | Component ownership, request paths, state and storage boundaries | Application/services, Nginx, Celery configuration |
-| [Configuration](configuration.md) | Settings, defaults, precedence, secrets and flags | `config.py`, environment templates, scripts |
-| [Database](database.md) | 22 business tables, runtime tables, migrations, seed and data protection | SQLAlchemy models, Alembic, `db.sh` |
-| [Deployment](deployment.md) | Local/Compose topology and build constraints | Compose, Dockerfile, Nginx, start scripts |
-| [Development](development.md) | Repository workflow, tests and change rules | Package manifests, tests, Makefile |
-| [Operations](operations.md) | Health, logs, incidents, backup/restore and release runbook | Runtime scripts and current operational gaps |
-| [Processing pipelines](processing-pipelines.md) | Inputs, steps, queues, outputs and enabling conditions | Pipeline services/tasks and Stage projects |
-| [Security](security.md) | Authentication, authorization, file, job and audit boundaries | Security/dependency code and adversarial tests |
-| [Workflow verification](workflow-verification.md) | Repeatable gates, E2E scenarios and dated evidence | Actual test runs; rerun after relevant changes |
-| [Roadmap](roadmap.md) | Explicit incomplete work and completion criteria | Known implementation/deployment gaps |
+| [架构](architecture.md) | 请求如何流动，各组件拥有何种状态 | `app/main.py`、route/service、Celery、Nginx、storage adapter |
+| [API 参考](api.md) | 当前有哪些 HTTP 路由 | FastAPI `app.openapi()`；由 `make docs-generate` 生成 |
+| [配置](configuration.md) | 每个环境变量怎样生效，默认值和风险是什么 | `core/config.py`、`.env*.example`、Compose、前端构建参数 |
+| [数据库](database.md) | 表、关系、迁移、seed、Celery runtime 和备份边界是什么 | SQLAlchemy model、Alembic、Kombu/Celery backend、`scripts/db.sh` |
+| [部署](deployment.md) | 怎样构建并启动本地/Compose 拓扑 | Dockerfile、`compose.yaml`、Nginx、`scripts/docker.sh` |
+| [开发](development.md) | 怎样修改代码并保持契约稳定 | 包清单、测试、Makefile、模块边界 |
+| [运维](operations.md) | 怎样判定健康、备份、恢复和定位事故 | 健康端点、状态脚本、日志、备份脚本 |
+| [处理管线](processing-pipelines.md) | 每条 Job 的输入、队列、Stage、输出和启用条件是什么 | pipeline API/service/task 和 Stage 文档 |
+| [通用工作流](workflow-framework.md) | 人工编排层已经做了什么，还没有接通什么 | workflow model/service/API/UI/迁移/测试 |
+| [安全](security.md) | 身份、权限、文件、下载、错误和审计如何约束 | auth/dependency/service、安全测试、Nginx |
+| [验证](workflow-verification.md) | 什么测试能证明什么，当前实际跑到了哪一层 | 本轮命令输出与历史 E2E 记录 |
+| [路线图](roadmap.md) | 哪些问题仍会阻断可复现或生产交付 | 当前实现缺口和明确非目标 |
 
-## Ownership Boundary
+## 事实层级
 
-The bilingual contract covers every `docs/*.md` file and its same-name `docs/zh/*.md` mirror. The root Chinese README is paired with this English documentation entry and the English detailed set, rather than duplicated line-for-line.
+文档对每项能力分别记录以下层级：
 
-Component READMEs under `backend/`, `frontend/`, `infra/`, `agents/`, `cad-worker/`, and tracked `Stages/` describe local ownership. Algorithm handbooks such as `Stages/excel_final/PROCESS.md` may remain domain-language documents. `third_parts/` documentation belongs to upstream/vendored projects and is not rewritten as platform capability.
+1. **代码存在**：有 route/service/task/model，不代表默认可用。
+2. **配置可启用**：flag 和依赖已满足，不代表真实样本通过。
+3. **自动测试通过**：说明测试环境和替身；SQLite 不能证明 MySQL 锁行为。
+4. **本地集成通过**：说明服务、样本、日期和未覆盖故障。
+5. **生产可用**：还需要 TLS、备份恢复、监控告警、容量、安全和运维责任证据。
 
-`Stages/dxf2excel` is currently a broken gitlink rather than parent-repository content. Its populated local README is not a tracked platform document and cannot be part of the documentation gate until repository ownership is repaired.
+当前 Compose 只发布 HTTP，不发布 443；生产模式关闭运行时 `/docs`、`/redoc` 和 `/openapi.json`。`Stages/dxf2excel` 仍是缺少 `.gitmodules` 的损坏 gitlink，本机目录存在不等于全新 clone 可重建。基础设施页面显示 `automated_backup=false`，不能替代备份调度或恢复演练。
 
-## Truthfulness Rules
+## 仓库归属
 
-- A directory, route, queue, environment variable, or healthy process does not by itself prove a feature is delivered.
-- State whether code exists, the flag default, required external dependencies, and the level/date of verification.
-- Current Compose is HTTP only; do not present the inactive `443:8443` mapping as TLS.
-- Production disables runtime OpenAPI/Swagger/ReDoc; generated API files are the stable reference.
-- Redis/Valkey is not a current component. Historical migration references must be labeled historical.
-- Backup, monitoring, retention, Agent, CAD worker, and clean-clone `dxf2excel` support remain incomplete.
+- `docs/`、根 README、技术规范和一方组件 README 由本仓库维护，采用中文。
+- `Stages/` 中已跟踪的算法说明由对应 Stage 维护；平台文档只描述调用契约和验证边界。
+- `third_parts/` 属于上游/外部项目，不因本项目改为中文文档而重写其原始说明。
+- `Stages/dxf2excel` 在父仓库中是 gitlink，当前填充目录不能纳入父仓库文档门禁。
 
-## Update Workflow
+## 更新规则
+
+路由、模型、配置、端口、队列、状态机或部署脚本变化后，先更新代码和测试，再更新对应章节。禁止复制旧测试数字作为当前结论；带日期证据在后续变更后只能作为历史记录。
 
 ```bash
-# Route changes
+# 路由变化后重新生成中文 API 清单
 make docs-generate
 
-# Every documentation change
+# 每次文档变化都执行
 make docs-check
 
-# Relevant implementation gates
+# 根据影响范围执行实现门禁
 cd backend && uv run pytest -q && uv run alembic check
 cd ../frontend && npm run build
 ```
-
-Update each English/Chinese pair in the same change. Preserve paths, endpoints, environment variable names, status names, migration revisions, commands, table shape, and heading structure across languages. A dated verification statement must describe its environment and remains historical evidence after later changes.

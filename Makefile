@@ -1,4 +1,4 @@
-.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev docs-generate docs-check db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs start-all start-dev status stop-all tree
+.PHONY: backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev docs-generate docs-check db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs docker-check docker-build docker-up docker-up-workers docker-status docker-smoke docker-down start-all start-dev status stop-all tree
 
 backend-install:
 	cd backend && uv sync --locked
@@ -50,6 +50,27 @@ db-shell:
 
 db-logs:
 	bash scripts/db.sh logs
+
+docker-check:
+	bash scripts/docker.sh check
+
+docker-build:
+	bash scripts/docker.sh build
+
+docker-up:
+	bash scripts/docker.sh up
+
+docker-up-workers:
+	bash scripts/docker.sh up-workers
+
+docker-status:
+	bash scripts/docker.sh status
+
+docker-smoke:
+	bash scripts/docker.sh smoke
+
+docker-down:
+	bash scripts/docker.sh down
 
 start-all:
 	bash scripts/start-all.sh
