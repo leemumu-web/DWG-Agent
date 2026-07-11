@@ -75,3 +75,7 @@ Data/
 
 # --- Package-manager artifacts in wrong directories ---
 /backend/package-lock.json
+
+# --- Vendored kkFileView: track source, exclude the ~832M portable
+#     LibreOffice bundle (fetched at deploy time, not source) ---
+third_parts/kkFileView/server/LibreOfficePortable/
