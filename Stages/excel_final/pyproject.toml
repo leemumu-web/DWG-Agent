@@ -1,0 +1,22 @@
+[project]
+name = "excel-processor"
+version = "1.0.0"
+description = "钢结构零件清单处理 — 从 Tekla TSV 到完整零件表的 25 步流水线"
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl>=3.1",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "pymysql>=1.1",
+    "xlrd>=2.0,<3",
+]
+
+[project.scripts]
+process-parts = "main:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[dependency-groups]
+dev = []
