@@ -51,10 +51,11 @@ def render(*, chinese: bool) -> str:
     title = "API 参考" if chinese else "API Reference"
     intro = (
         "本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。"
-        "端点变更必须先修改代码和测试，再重新生成中英文参考。"
+        "端点变更必须先修改代码和测试，再重新生成中英文参考。路由表只证明接口存在；功能开关、权限和外部依赖仍可能阻止业务执行。"
         if chinese
         else "This file is generated from the FastAPI OpenAPI schema by "
-        "`cd backend && uv run python ../scripts/generate_api_docs.py`. Change code and tests first, then regenerate both languages."
+        "`cd backend && uv run python ../scripts/generate_api_docs.py`. Change code and tests first, then regenerate both languages. "
+        "A listed route proves interface presence only; feature flags, permissions, and external dependencies may still prevent execution."
     )
     common = (
         """
@@ -104,9 +105,12 @@ def render(*, chinese: bool) -> str:
         [
             "## 运行时文档" if chinese else "## Runtime documentation",
             "",
-            "启动后访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。"
+            "development/debug 模式启动后，访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。"
             if chinese
-            else "Use `/docs`, `/redoc`, or `/openapi.json` for request and response schemas while the API is running.",
+            else "Use `/docs`, `/redoc`, or `/openapi.json` for request and response schemas while the API is running in development/debug mode.",
+            "当 `APP_ENV=production` 且 `DEBUG=false` 时，这三个运行时文档入口有意关闭；生产应使用本生成文件和版本化 OpenAPI artifact。"
+            if chinese
+            else "With `APP_ENV=production` and `DEBUG=false`, all three runtime documentation endpoints are intentionally disabled; production should use this generated file and a versioned OpenAPI artifact.",
             "",
         ]
     )

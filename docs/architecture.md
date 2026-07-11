@@ -4,107 +4,128 @@
 
 ## System Context
 
-DWG-Agent is a work-focused CAD processing platform. Nginx is the only public deployment entry, React implements operator workflows, FastAPI owns validation and authorization, MySQL is the authoritative state store, Celery executes long-running work, and Local FS or MinIO stores bytes.
+DWG-Agent is an internal operational platform for CAD/Excel intake, asynchronous processing, result review, and audit. Nginx serves the React SPA and proxies requests; FastAPI owns validation and authorization; MySQL is authoritative; Celery executes long work; Local FS or MinIO stores bytes.
 
 ```text
 Browser
-  -> Nginx :8080 local / :80,:443 Compose
+  -> Nginx :8080 local / :80 Compose host
      -> React SPA
-     -> FastAPI :8010 local / :8000 container
-        -> MySQL business schema
-        -> MySQL Celery broker/result tables
+     -> FastAPI :8010 local / backend-api:8000 Compose
+        -> MySQL business + Celery runtime tables
         -> LocalStorage or MinIO
 Celery workers
   -> MySQL + storage + processing Stages
 ```
 
-There is no Redis/Valkey runtime dependency. Token revocation, password-change checks, Agent memory, job progress, SSE snapshots, broker messages, and task results all use MySQL.
+Redis/Valkey is absent from the runtime. Token revocation, password-change checks, Agent memory, Job progress, SSE snapshots, broker messages, and task results all use MySQL.
 
-## Boundaries
+## Deployment Reality
+
+| Property | Local | Compose |
+|---|---|---|
+| User entry | Vite `5173` or Nginx `8080` | Nginx host `80` |
+| API | `127.0.0.1:8010` | internal `backend-api:8000` |
+| Storage | local by default, MinIO optional | internal MinIO |
+| TLS | absent | absent; `443:8443` mapping has no listener/certificate |
+| Runtime docs | available with development/debug | disabled by production settings |
+
+Compose is production-shaped for network separation, non-root backend, health dependencies, and persistent volumes, but it is not a complete production platform.
+
+## Ownership Boundaries
 
 | Layer | Owns | Must not own |
 |---|---|---|
-| Nginx | Entry routing, TLS, SPA fallback, SSE proxy | Business authorization |
-| Frontend | User interaction, retry and download orchestration | Final permission decisions |
-| API | Validation, RBAC, transactions, dispatch, queries | Long CAD/Excel execution |
-| Services | State transitions and business invariants | HTTP presentation |
-| Workers | Task claim and pipeline execution | Unconditional status writes |
-| MySQL | Business truth, broker/result, audit | Large file payloads |
-| Storage | Immutable object bytes | User/project authorization |
+| Nginx | entry, SPA fallback, proxy limits, SSE transport settings | business authorization or current TLS claims |
+| Frontend | workflow UX, finite retries, query cache, download orchestration | final permission decisions or durable state |
+| API route/dependency | HTTP validation, auth context, envelopes | duplicated domain transactions |
+| Service | transactions, permissions, state transitions, storage compensation | UI state or broker-specific business truth |
+| Worker/task | attempt claim and Stage orchestration | unconditional status writes or in-memory fallback |
+| MySQL | business truth, audit rows, Celery broker/results | object bytes or high-throughput broker promises |
+| Storage | opaque bytes keyed by bucket/key | user/project access rules |
+| Stage | deterministic CAD/Excel transformation | platform auth, Job ownership, or public errors |
 
-## Request Paths
-
-### Normal API
+## Synchronous Request Path
 
 ```text
 Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope response
 ```
 
-List endpoints perform `COUNT(*)` and `LIMIT/OFFSET` in SQL. Stable sorts append an ID tie-breaker. Access filters are part of the SQL query; file lists do not perform one authorization query per row.
+List endpoints execute access filtering, `COUNT(*)`, stable ordering, and `LIMIT/OFFSET` in SQL. UI guards and Nginx locations do not replace API checks. Unhandled production errors are logged server-side and returned as a generic envelope.
 
-### Asynchronous job
+## Asynchronous Request Path
 
 ```text
-POST request
-  -> validate project/file permission
-  -> INSERT jobs(status=queued, attempt=1)
-  -> COMMIT
-  -> publish (job_id, attempt) to MySQL SQLAlchemy transport
-  -> worker atomically claims queued+expected attempt
-  -> write attempt-scoped JobSteps
-  -> write object + DB metadata/result
-  -> conditionally complete same attempt
+POST
+  -> feature flag + input + access validation
+  -> INSERT Job(queued, attempt=N) + COMMIT
+  -> publish (job_id, attempt) to MySQL SQL transport
+  -> worker conditional claim
+  -> attempt-scoped JobSteps and progress
+  -> source bytes -> Stage -> result bytes
+  -> files + AnalysisResult + optional domain rows
+  -> conditional terminal update
 ```
 
-Dispatch compensation updates only the still-queued attempt. If a worker already claimed it, the API cannot overwrite it. Retry increments `jobs.attempt`; stale messages and workers cannot claim or update the new generation. Legacy one-argument Celery messages default to attempt 1.
+Dispatch compensation updates only the still-queued attempt. Retry increments attempt; stale messages and workers cannot claim or update a newer attempt. Worker-start recovery handles long-stale running Jobs but is not a continuous heartbeat.
 
-### SSE
+## SSE Path
 
-EventSource authenticates with the short-lived `dwg_sse_token` cookie. FastAPI checks job access, polls MySQL, and emits snapshots and terminal events containing only the current attempt's steps. A reconnect starts with a fresh authoritative snapshot; the stream does not promise replay by event ID. No access token appears in a URL and no Pub/Sub component is required.
+Native EventSource carries a short-lived HttpOnly `dwg_sse_token` cookie. FastAPI authenticates and authorizes the Job before streaming, polls MySQL, and emits current-attempt snapshots/progress/terminal events. Reconnect starts with a fresh authoritative snapshot; no event-ID replay or Pub/Sub guarantee exists.
 
-### Download
+Nginx disables SSE buffering/cache and extends read/send timeouts. The frontend leaves transient CONNECTING state to browser reconnection and closes on a terminal event or hard close.
 
-The client requests a signed download URL after normal authorization, then downloads with Bearer auth. A retry obtains a new signature. When one source has multiple successful conversions, file and ZIP resolution deterministically selects the newest job and newest result row. Local storage returns a file response; MinIO returns a streamed object. The database SHA-256 is the integrity reference.
+## Download Path
+
+```text
+Bearer request -> permission check -> 300-second HMAC path
+Bearer download -> permission + expiry + signature check -> storage stream
+```
+
+The frontend makes at most two single-file attempts and re-signs each time. Only network, 403, 408, 429, and 5xx failures are retried. ZIP downloads use authenticated POST streaming and do not share that re-sign loop. Database SHA-256 is the integrity reference.
 
 ## Storage Consistency
 
-An object written before database commit is registered on the SQLAlchemy session. Rollback deletes pending objects; commit discards the compensation list. Worker output is not exposed as a result until both object and database records succeed.
+Objects written before a database commit are registered on the SQLAlchemy session. Rollback performs best-effort deletion; commit clears the compensation list. A successful output is exposed only after object and metadata persistence. There is no background object/database reconciler yet, so operations must detect missing and orphaned objects.
 
-## Celery on MySQL
+## MySQL and Celery
 
-Broker URL is derived as `sqla+mysql+pymysql://...`; result backend is `db+mysql+pymysql://...`. Connections use bounded pools and `READ COMMITTED`. The message table has `(queue_id, timestamp, id, visible)` so consumers do not scan or lock unrelated queues.
+The broker is `sqla+mysql+pymysql://...`; the result backend is `db+mysql+pymysql://...`. Both derive from the effective application MySQL DSN. Celery engines use `READ COMMITTED`, bounded pools, pre-ping, LIFO, and recycle. `kombu_message(queue_id, timestamp, id, visible)` narrows message claims by queue.
 
-The SQL transport has no fanout remote control. Health uses a `worker_ready` marker plus PID 1 verification. The local launcher also discovers managed worker command lines so a missing pidfile cannot create duplicate consumers.
+SQL transport has no fanout remote control. Worker health is a Celery PID plus `worker_ready` marker, not `inspect`. Result rows expire after 24 hours; business Job history has no automated retention.
 
-## Processing Pipelines
+## Processing Boundaries
 
-| Pipeline | Queue | Output |
-|---|---|---|
-| framework smoke | `report` | JSON result |
-| DWG -> DXF | `dxf` | DXF |
-| DXF -> DWG | `dxf2dwg` | DWG |
-| DXF -> Excel | `dxf2excel` | XLSX |
-| Excel Final | `excel_final` | final XLSX + relational parts/components |
+| Pipeline | Queue | Implementation | Delivery constraint |
+|---|---|---|---|
+| framework smoke | `report` | executable stub result | not a report Agent |
+| DWG -> DXF | `dxf` | ODA service/task | flag off; external ODA/runtime/sample compatibility |
+| DXF -> DWG | `dxf2dwg` | ODA service/task | flag off; external ODA/runtime/sample compatibility |
+| DXF -> Excel | `dxf2excel` | service/task and local files | flag off; broken parent gitlink blocks clean clone |
+| Excel Final | `excel_final` | isolated Stage + relational import | flag off; content schema and handbook DB required |
+| Agent | `agent` | API/models only | task module is empty placeholder |
+| Windows CAD | `cad` | configuration placeholder | no task, worker, service, or Compose node |
 
-Excel Final runs its legacy Stage in a child process. Accepted content is a Tekla tab/whitespace export (often named `.xls`) or an Excel initial table with the required steel-list schema; the extension alone does not make an arbitrary workbook processable. Legacy binary `.xls` parsing uses `xlrd`. This isolates imports and keeps child stderr out of API errors.
+See [processing pipelines](processing-pipelines.md) for step names, formats, outputs, and enabling checks.
 
 ## Security Model
 
-Global roles are `super_admin`, `admin`, `engineer`, `reviewer`, `operator`, `viewer`, and `auditor`. Project membership adds owner/engineer/reviewer/viewer scopes. A global role never replaces resource validation unless explicitly designated as administrative access.
+Global roles are `super_admin/admin/engineer/reviewer/operator/viewer/auditor`; project membership adds owner/engineer/reviewer/viewer scopes. Administrative access is explicit. File reads require administrator, uploader, or associated active-project membership. Results and reviews inherit the Job boundary; an unscoped Job is limited to administrator or creator.
 
-File reads are allowed to administrators, uploaders, or members of an associated active project. Result details, download URLs, and reviews inherit their job boundary; an unscoped job is visible only to administrators or its creator. Agent runs, when enabled, are visible to administrators, creators, or linked project members.
+Access tokens live in `sessionStorage`, so same-origin XSS remains a threat. Refresh and SSE tokens are HttpOnly cookies with SameSite=Lax. Public deployment requires real TLS and Secure cookies, which the current Compose file does not yet deliver.
 
-## Health
+## Health and Observability
 
-- `/health`: process liveness only.
-- `/health/ready`: independent MySQL and storage probes; returns 503 if either fails.
-- Worker container: ready marker and Celery PID.
-- MinIO recovery does not require API restart; named-volume objects remain readable.
+- `/health` is liveness only.
+- `/health/ready` independently reports MySQL and configured storage and returns 503 if either fails.
+- Generic worker health proves broker connection, not pipeline dependencies.
+- Local logs use `/tmp`; Compose uses container stdout/stderr.
+- Metrics, distributed tracing, central logging, alerting, SLOs, and automated retention are not implemented.
 
-## Feature Flags
+## Architectural Constraints
 
-`AGENT_ENABLED` and `CAD_WORKER_ENABLED` remain off by default. Conversion flags are `DXF_PIPELINE_ENABLED`, `DXF2DWG_PIPELINE_ENABLED`, `DXF2EXCEL_PIPELINE_ENABLED`, and `EXCEL_FINAL_PIPELINE_ENABLED`.
-
-## Ports
-
-Local API is fixed at `8010`. Container `8000` is an internal deployment detail. Local Nginx proxies `8080 -> 8010`; Compose Nginx proxies to `backend-api:8000`.
+- Do not add process-local correctness fallbacks when MySQL/storage fails.
+- Do not split broker credentials from the authoritative MySQL DSN without an explicit migration design.
+- Do not enable Agent/CAD flags while their tasks are placeholders.
+- Do not claim clean-clone/Docker reproducibility until `Stages/dxf2excel` ownership is repaired.
+- Do not claim HTTPS until Nginx has a tested TLS listener and certificate lifecycle.
+- If worker scale exceeds bounded SQL transport, evaluate RabbitMQ while keeping MySQL as business truth.

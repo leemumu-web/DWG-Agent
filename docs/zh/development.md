@@ -2,134 +2,139 @@
 
 > 英文对应文档：[../development.md](../development.md)
 
-## 前置依赖与初始化
+## 工具链
 
-- Python 3.12 和 `uv`
-- 与 `frontend/package-lock.json` 匹配的 Node.js/npm
-- MySQL 8.x 或兼容 MariaDB
-- 网关验证使用 Nginx，Compose/MinIO 验收使用 Docker
+| 领域 | 工具链 | 锁定/安装 |
+|---|---|---|
+| Backend | Python 3.12、uv、FastAPI、SQLAlchemy 2、Pydantic 2 | `cd backend && uv sync --locked` |
+| Frontend | Node/npm、React 19、TypeScript 6、Vite 8 | `cd frontend && npm ci` |
+| Excel Final Stage | Python >=3.11、独立脚本 | `cd Stages/excel_final && uv sync --locked` |
+| ODA Stages | Python >=3.12 加外部 AppImage runtime | 每个 Stage 执行 `uv sync --locked` |
 
-```bash
-cp .env.example .env
-cp .env.example backend/.env
-bash scripts/db.sh setup-user
-bash scripts/db.sh init
-cd backend && uv sync --frozen
-cd ../frontend && npm ci
-```
-
-运行时 `.env` 必须使用 MySQL。测试显式设置 `DATABASE_URL=sqlite://`，每个测试使用内存 `StaticPool` 隔离。
+backend lock 包含 `Stages/` 下 editable path dependency。clean environment 当前被损坏 `Stages/dxf2excel` gitlink 阻断；禁止把已填充工作树中的成功当成 clone 可复现性。
 
 ## 仓库地图
 
-```text
-backend/app/api/v1/       FastAPI 路由和 dependency 边界
-backend/app/services/     业务状态转换
-backend/app/models/       SQLAlchemy model
-backend/app/schemas/      Pydantic 请求/响应
-backend/app/storage/      Local/MinIO adapter
-backend/app/workers/      Celery app 和 task wrapper
-backend/migrations/       Alembic 历史
-frontend/src/api/         Axios client 和分页 helper
-frontend/src/features/    页面工作流
-frontend/tests/e2e/       Playwright 浏览器/API 测试
-Stages/                    CAD/Excel 处理工程
-infra/                     Nginx/MySQL/部署验证
-scripts/                   本地运维和文档生成
-```
+| 路径 | 归属 |
+|---|---|
+| `backend/app/api/` | HTTP dependency 与 routing |
+| `backend/app/services/` | transaction、permission、orchestration |
+| `backend/app/workers/` | Celery 配置和 task entrypoint |
+| `backend/app/storage/` | local/MinIO byte adapter |
+| `backend/migrations/` | Alembic 所有的业务 schema |
+| `frontend/src/api/` | typed HTTP client、auth refresh、download |
+| `frontend/src/features/` | workflow page |
+| `Stages/` | 可独立运行的 domain processor |
+| `infra/` | Nginx、MySQL 初始化、部署验证 |
+| `scripts/` | 本地生命周期、DB 和文档工具 |
+| `third_parts/` | 上游/vendored code；默认不是平台 module |
 
-## 运行
+## 本地运行
 
 ```bash
+# Vite :5173、FastAPI :8010、五个已实现队列 worker
 bash scripts/start-dev.sh
-# 前端 :5173，API :8010
 
-bash scripts/start-all.sh --rebuild
-# Nginx :8080 -> API :8010
+# Built SPA 经 Nginx :8080 -> FastAPI :8010
+bash scripts/start-all.sh
 ```
 
-本地脚本不要使用 8000；它是容器内部 API 端口。若 Vite 使用 5174，为 Playwright 设置相应 `PLAYWRIGHT_FRONTEND_BASE_URL`。
+端口 `8000` 是容器内部端口。Vite 选择其他端口时使用其输出 URL，直连测试时设置 Playwright override。接近生产的浏览器工作优先走 Nginx `8080`。
 
-## 后端工作流
+## Backend 变更规则
 
-1. Route 校验输入并调用权限 helper。
-2. Service 负责状态转换和事务语义。
-3. commit 后再投递 Celery。
-4. Worker 原子领取 `queued + attempt`。
-5. 每次 worker 更新携带捕获的 attempt。
-6. 对象写入登记 rollback compensation。
-7. 公共错误稳定且脱敏。
+- Route 处理 HTTP schema/dependency；service 负责业务 transaction；task 调用 service。
+- 沿用仓库现有 sync SQLAlchemy 模式。
+- 每个 worker claim/progress/terminal 写入必须匹配 status 和 attempt。
+- 文件字节只经过 storage adapter，metadata 存 MySQL。
+- commit 前写入的存储对象必须加入 session compensation。
+- 复用资源 permission helper；SQL 列表过滤不能退化成逐行 N+1 检查。
+- 禁止把 traceback、DSN、child stderr、secret 或 host path 放进客户端可见错误。
+- 禁止增加 Redis/Valkey 或内存正确性 fallback 掩盖依赖失败。
 
-worker 失败处理不得在当前 session 有未提交 step 时再开第二 session。失败 step 和 job 终态属于同一事务。
+FastAPI lifespan seed initialization 在本地运行时是 best-effort。Docker 在 Gunicorn 前执行 migration/seed。测试必须按实际模式判断，不能假设进程启动就代表 ready。
 
-## API 与分页
+## API 变更
 
-SQL 列表使用 `paginate_scalars()`，稳定排序追加 ID。不得加载全部行再在 Python 切片。权限过滤属于 SQL，尤其是 files 和 jobs。
+使用标准成功/错误 envelope 和精确 SQL pagination。排序列表追加稳定 ID tie-breaker。路由变更要求：
 
-路由变更后：
+1. schema/service/route 测试；
+2. permission 与负例；
+3. `make docs-generate`；
+4. 行为或边界变化时更新中英文叙述；
+5. `make docs-check`。
 
-```bash
-cd backend && uv run python ../scripts/generate_api_docs.py
-cd .. && make docs-check
-git diff -- docs/api.md docs/zh/api.md
-```
+运行时 `/docs` 和 `/openapi.json` 只用于 development/debug。生成 Markdown API 参考才是生产可读清单。
 
-## 前端工作流
+## Frontend 变更
 
-- 使用 `apiClient`，不要重复认证/refresh fetch 逻辑。
-- 非幂等上传不做网络层自动重试。
-- 文件下载每次重试重新获取签名 URL。
-- 仅在确需全部数据时使用 `fetchAllPages()`。
-- access 状态放在 `sessionStorage`。
-- 纯图标按钮提供 `aria-label` 和 tooltip。
-- 浏览器测试从 `.ant-table-tbody` 选择行 checkbox，不能误选表头全选。
+- Nginx 后使用相对 API request；只在 Vite 直连开发时使用 `VITE_API_BASE_URL`。
+- Access 状态属于 `sessionStorage`；refresh/SSE 依赖 HttpOnly cookie。
+- Axios 401 interceptor 执行一次共享 refresh，禁止递归重试 login/refresh。
+- React Query retry 适用于 query；单文件 download 有独立的一次重试/新签名循环。
+- UI guard 改善导航，但永远不替代 API authorization。
+- Polling/SSE 必须在 terminal Job state 停止或稳定。
+- 可见工作流变化与失败/重试行为增加 Playwright 覆盖。
 
-## Celery 开发
+## Worker 变更
 
-队列为 `report/dxf/dxf2dwg/dxf2excel/excel_final/agent/cad`。MySQL SQL transport 不支持 remote-control fanout，健康检查不要使用 `celery inspect`。
+队列为 `report`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`agent` 和 `cad`，但只有前五个有 task 实现。禁止把工作路由到占位 module。
 
-worker 启动先创建 Kombu 表、关闭 bootstrap channel、添加队列顺序索引，再启动 consumer。ready marker 只能由 `worker_ready` 创建。
+MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 
-## 测试
-
-```bash
-cd backend
-uv run ruff check app tests
-uv run pytest -q
-
-cd ../frontend
-npm run build
-PLAYWRIGHT_FRONTEND_BASE_URL=http://127.0.0.1:5173 \
-PLAYWRIGHT_API_BASE_URL=http://127.0.0.1:8010 \
-npx playwright test  # 默认通过 Nginx http://127.0.0.1:8080
-```
-
-真实 Excel Final 流程：
-
-样本必须是 Tekla 制表符/空白文本导出，或包含钢构清单必需列的 Excel 工作簿；普通 `.xls`/`.xlsx` 文件属于预期失败用例。
-
-```bash
-PLAYWRIGHT_EXCEL_SAMPLE_PATH=/absolute/path/to/sample.xls \
-PLAYWRIGHT_FRONTEND_BASE_URL=http://127.0.0.1:5173 \
-PLAYWRIGHT_API_BASE_URL=http://127.0.0.1:8010 \
-npx playwright test tests/e2e/excel-final-flow.spec.ts
-```
-
-## TDD 与调试
-
-复现、捕获失败边界、先加回归并确认正确失败、实现最小修复、再运行相关和全量套件。多组件故障必须在 Nginx、API、DB、broker、worker、storage 和 browser 边界收集证据。
+活动 session 有未提交 JobStep 时，禁止在 failure handler 打开第二个 session。除非 service 明确定义 compensating boundary，failure step 和 terminal Job state 应一起 commit。
 
 ## 数据库变更
 
 ```bash
-bash scripts/db.sh revision "message"
-bash scripts/db.sh migrate
+cd backend
+uv run alembic revision --autogenerate -m "description"
+# 检查生成 operation 和循环 FK 行为。
+cd ..
 bash scripts/db.sh migration-test
 cd backend && uv run alembic check
 ```
 
-Alembic autogenerate 不管理 Celery-owned 表及其 sequence 表。Kombu 必要索引由运行时维护。`alembic check` 必须报告没有新 upgrade operation；迁移新增的 ORM 索引也必须存在于模型 metadata。
+Alembic 拥有 22 张业务表，不拥有 8 张 Celery runtime table。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
 
-## 生成与临时文件
+## 测试层级
 
-不要提交 `.playwright-cli`、`frontend/test-results`、`frontend/dist`、backend storage、本地 `.env` 或临时 output。持久测试和文档放在跟踪目录。
+```bash
+# Backend 静态与隔离 API/service 测试
+cd backend
+uv run ruff check app tests ../tests/run_full_verify.py
+uv run pytest -q
+
+# 聚焦 Stage 测试
+cd ../Stages/dwg2dxf && uv run pytest -q
+cd ../dxf2dwg && uv run pytest -q
+cd ../excel_final && uv run pytest -q multi_split/tests
+
+# MySQL/infrastructure
+cd ../..
+bash scripts/db.sh migration-test
+bash infra/verify.sh
+docker compose config --quiet
+
+# Frontend
+cd frontend
+npm run build
+npx playwright test
+```
+
+SQLite 测试是快速逻辑检查，不证明 MySQL concurrency 或 migration。mocked Playwright route 验证 UI contract，不证明 MinIO/Celery。影响发布的 pipeline 变更还需要真实 Nginx/MySQL/worker/storage/sample 工作流。
+
+## 调试顺序
+
+1. 复现最小失败路径，并记录 request ID、Job ID、attempt、endpoint 和时间。
+2. 检查 `/health/ready`、受管进程、flag 和 Stage 源码/依赖可用性。
+3. 找第一处 backend/worker error，不只看最终 frontend symptom。
+4. 检查权威 Job/JobStep row 和 storage object/digest。
+5. 用聚焦回归验证假设，再修改行为。
+6. 运行窄测试，再运行完整受影响层和端到端门禁。
+
+## 文档与生成文件
+
+`docs/api.md` 和 `docs/zh/api.md` 是生成文件；修改 generator，不手改文件。其他语言 pair 同时编辑。生成 frontend `dist`、Playwright trace、本地 storage、`.env*` secret、virtualenv、cache、log 和 test artifact 禁止提交。
+
+组件特定算法属于其 Stage 文档。平台文档应链接并说明集成边界，而不是复制数百行算法步骤。

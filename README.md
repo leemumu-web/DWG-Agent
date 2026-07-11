@@ -1,144 +1,160 @@
-# DWG-Agent 企业级 CAD 处理平台
+# DWG-Agent 企业 CAD 处理平台
 
-DWG-Agent 是一套面向企业 CAD 文件处理、任务编排、结果复核和审计的全栈平台。当前代码已经打通 Nginx、React、FastAPI、MySQL、Celery、MinIO/本地存储以及 Excel Final 五金清单处理链路。
+DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处理、结果复核与审计的全栈平台。本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。
 
-## 当前架构
+**文档审计基线：** `main@d178fcf`（2026-07-11，开始本轮文档修改前）。运行事实以代码、迁移、配置和测试为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[中文文档索引](docs/zh/README.md)和[英文文档索引](docs/README.md)给出详细说明。
+
+## 当前结论
+
+| 领域 | 当前状态 | 关键边界 |
+|---|---|---|
+| Web 与 API | React 管理端、Nginx 网关和 71 个 OpenAPI path 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | MySQL 8.x 是唯一运行时业务事实源，共 22 张业务表 | SQLite 只用于 pytest；不能作为运行时降级数据库 |
+| 异步任务 | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
+| 存储 | 本地文件系统与 MinIO 适配器已实现 | MySQL 保存元数据，存储层保存字节；两者必须配套备份和恢复 |
+| 转换管线 | report、DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final 的服务路径存在 | 四条业务管线默认关闭，且分别受 ODA、Stage 完整性和手册库约束 |
+| Agent | API、模型和权限边界存在 | `tasks_agent.py` 仍是占位，`AGENT_ENABLED=false` 是正确默认值 |
+| Windows CAD worker | 仅有配置和占位目录 | 没有可运行 worker、Celery task、Compose service 或端到端验证 |
+| Redis/Valkey | 已从当前运行时移除 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
+
+## 实际拓扑
 
 ```text
 Browser
-  -> Nginx :8080 (local) / :80,:443 (Compose)
-  -> FastAPI :8010 (local) / :8000 (container)
-  -> MySQL
-       - 业务实体、RBAC、token 吊销、Agent memory
-       - Job/JobStep/SSE 权威状态
-       - Celery SQLAlchemy broker + result backend
-  -> Celery workers
-       - report, dxf, dxf2dwg, dxf2excel, excel_final
-  -> Local FS (开发) 或 MinIO (Compose)
+  -> Nginx
+     -> React SPA
+     -> FastAPI
+        -> MySQL (业务数据 + Celery broker/result 表)
+        -> Local FS 或 MinIO
+Celery workers
+  -> MySQL 领取消息并条件更新 Job/JobStep
+  -> Local FS 或 MinIO 读取源文件、写入结果
+  -> 独立 Stage / ODA 子进程
 ```
 
-Redis/Valkey 已从运行时、依赖、Compose、脚本和数据路径中移除。需要一致性的请求直接访问 MySQL；SSE 轮询 MySQL；Celery broker/result URL 从有效 MySQL DSN 派生。
+### 端口
 
-## 已实现能力
+| 模式 | 用户入口 | FastAPI | MySQL / MinIO |
+|---|---|---|---|
+| 本地开发 | Vite `127.0.0.1:5173` 或 Nginx `127.0.0.1:8080` | `127.0.0.1:8010` | MySQL `127.0.0.1:3306`；MinIO 可选 |
+| Compose | Nginx 宿主 HTTP `:80` -> 容器 `:8080` | 仅内部 `backend-api:8000` | 仅 `internal` 网络，不发布宿主端口 |
 
-- React 19 + TypeScript + Vite + Ant Design 管理端。
-- FastAPI + SQLAlchemy 2.x + Pydantic v2，同步 MySQL 会话。
-- JWT access token、HttpOnly refresh cookie、MySQL token blacklist、密码变更失效和 RBAC。
-- 项目、成员、文件、图纸版本、任务、结果、复核、审计和 Excel Final API。
-- DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel -> 零件清单 Celery 管线。
-- `local`/`minio` 存储适配器、事务回滚对象补偿、短期签名下载、ZIP 下载。
-- SQL 分页，精确总数与稳定排序；文件列表权限过滤在 SQL 中完成。
-- 任务 `attempt` 世代：Celery 消息携带 attempt，重试递增 attempt，领取/更新均带条件，旧消息和旧 worker 不可处理新世代。
-- `job_steps.attempt` 保留每次尝试历史；SSE 快照和前端时间线显示当前世代。
-- 同一源文件存在多次成功转换时，文件/ZIP 解析确定性选择最新 Job 的最新可用结果。
-- 结果详情、下载链接和复核沿用 Job 权限：无项目任务仅管理员或创建者可访问。
-- Excel Final 以隔离子进程运行，支持 Tekla 制表符/空白文本导出和具有目标清单 schema 的 Excel 初始表；legacy `.xls` 由 `xlrd` 解析。对外错误不暴露 traceback 或主机路径。
-- Compose 冷启动会导入 `hardware_handbook`，应用用户仅有该库 `SELECT` 权限。
+当前 Compose 虽声明 `443:8443` 映射，但 Nginx 没有 `8443` listener、证书或 TLS 配置，因此 **443/TLS 尚不可用**。在补齐证书挂载、TLS server、跳转、HSTS 和验证之前，不得把该拓扑称为生产 TLS 部署。
 
-Agent 内部推理和 CAD Windows worker 仍由功能开关禁用；其 API 边界存在，但禁用时返回 503。
+## 处理能力与启用条件
 
-## 端口约定
+| 管线 / 队列 | 代码状态 | 默认开关 | 运行前提 |
+|---|---|---|---|
+| framework smoke / `report` | 可运行的框架任务 | 核心 worker 默认启动 | MySQL broker/result 与存储可用；不代表报告 Agent 已实现 |
+| DWG -> DXF / `dxf` | 服务、task、测试和 ODA 适配存在 | `DXF_PIPELINE_ENABLED=false` | ODA File Converter、无头 X 环境、源 DWG 校验通过 |
+| DXF -> DWG / `dxf2dwg` | 服务、task、测试和 ODA 适配存在 | `DXF2DWG_PIPELINE_ENABLED=false` | 同上，并要求有效 DXF |
+| DXF -> Excel / `dxf2excel` | 当前工作目录有代码和测试 | `DXF2EXCEL_PIPELINE_ENABLED=false` | **仓库 gitlink 不可从干净 clone 还原，见下方限制** |
+| Excel Final / `excel_final` | backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
+| Agent / `agent` | API 和持久化边界存在，task 为空占位 | `AGENT_ENABLED=false` | 尚未满足交付条件 |
+| CAD / `cad` | task 和 `cad-worker/` 均为空占位 | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件，Compose 也没有 `worker-cad` |
 
-| 场景 | 前端 | API | 网关 | MySQL | MinIO |
-|---|---:|---:|---:|---:|---:|
-| 本地开发 | 5173（可回退 5174） | **8010** | 8080 | 3306 | 可选 |
-| Docker Compose 内部 | Nginx 静态站点 | 8000 | 80/443 | 3306 | 9000 |
+任务以 `(job_id, attempt)` 作为执行世代。重试递增 `attempt`；worker 的领取、进度和终态更新都必须匹配当前状态与 attempt，从而阻止旧消息或旧 worker 覆盖新一轮任务。SSE 轮询 MySQL 并发送当前 attempt 的权威快照，不提供按 event ID 的历史回放。
 
-本地固定 API 端口是 `8010`。容器内 `8000` 是私有服务端口，不与本地约定冲突。
+## 已知仓库限制
+
+1. `Stages/dxf2excel` 在父仓库中仍是指向 `86e99dce5ebce992273c7df78ca13d58036f7472` 的 gitlink，但仓库没有 `.gitmodules`，本地对象库也没有该 commit。当前工作目录恰好保留源码，所以本机 `uv` 依赖可解析；全新 clone、CI checkout 和 Docker build **不能据此保证成功**。应先把该 Stage 转为普通跟踪目录，或恢复带有效 URL/commit 的子模块元数据。
+2. Compose 当前仅提供 HTTP。`443` 映射不是 TLS 能力。
+3. 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
+4. MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
+5. ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
 
 ## 本地启动
+
+前提：Python 3.12、`uv`、Node/npm、MySQL 8.x，以及与启用管线相匹配的 Stage 依赖。
 
 ```bash
 cp .env.example .env
 cp .env.example backend/.env
-# 修改密码、JWT secret、MySQL 配置和所需 feature flags，并保持两个文件数据库字段一致。
+# 替换密码和 JWT secret；两份文件的 MYSQL_* 必须一致。
 
 bash scripts/db.sh setup-user
 bash scripts/db.sh init
 bash scripts/start-dev.sh
 ```
 
-访问：
-
-- 前端：`http://127.0.0.1:5173`
-- FastAPI：`http://127.0.0.1:8010`
-- Swagger：`http://127.0.0.1:8010/docs`
-- Nginx 模式：`http://127.0.0.1:8080`
-
-停止和诊断：
+`start-dev.sh` 启动五个已实现队列 worker（不含 agent/cad）、FastAPI `8010` 和 Vite。`start-all.sh` 还会构建前端并启动本地 Nginx `8080`。功能开关关闭时 worker 可以存活，但对应 API 会拒绝创建任务。
 
 ```bash
-bash scripts/stop-all.sh
 bash scripts/status.sh
+bash scripts/stop-all.sh
 bash scripts/db.sh status
 ```
 
-worker 启停会按 app、队列和节点名发现已有进程；即使 `/tmp` pidfile 丢失，也不会重复启动同一受管 worker。
+## Compose 启动
 
-## Docker Compose
+在修复 `Stages/dxf2excel` gitlink 且接受当前仅 HTTP 的边界后：
 
 ```bash
 cp .env.docker.example .env.docker
-# 替换全部 CHANGE_ME_* 值
+# 替换全部 CHANGE_ME_*，不要提交 .env.docker。
 npm --prefix frontend ci
 npm --prefix frontend run build
 
+docker compose config --quiet
 docker compose up -d
 docker compose --profile workers up -d
 docker compose ps
 ```
 
-Compose 默认启动 Nginx、FastAPI、MySQL、MinIO 和 `worker-report`；`workers` profile 启用其余队列。MinIO 镜像使用已验证 digest，不使用浮动 `latest`。worker healthcheck 同时验证 `worker_ready` marker 与 PID 1 命令行。
+核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加转换 worker 和占位的 `worker-agent`。`worker-agent` 健康只表示 Celery 进程已连接 broker，不表示 Agent task 已实现。
 
-## 验证
+## 验证层级
 
 ```bash
+# 文档、静态检查、后端测试
+make docs-check
 cd backend
 uv run ruff check app tests ../tests/run_full_verify.py
 uv run pytest -q
 uv run alembic check
-uv run python ../scripts/check_docs.py
-
-cd ../frontend
-npm run build
-npx playwright test
-
 cd ..
+
+# Stage、真实 MySQL 迁移和基础设施契约
+cd Stages/dwg2dxf && uv run pytest -q && cd ../..
+cd Stages/dxf2dwg && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
 bash infra/verify.sh
 docker compose config --quiet
+
+# 前端构建与浏览器测试（需要相应本地服务/凭据）
+cd frontend
+npm run build
+npx playwright test
 ```
 
-真实集成验收应至少覆盖：
-
-1. Nginx -> FastAPI 登录和业务请求。
-2. 空 MySQL schema 执行全部 Alembic 迁移。
-3. Job 入 MySQL broker、Celery 消费、状态与步骤落库。
-4. MinIO 上传、worker 读写、签名下载 SHA-256 一致。
-5. MinIO 停机时 `/health/ready` 返回 503，恢复后持久对象仍可下载。
-6. 浏览器下载首次 403 后重新获取签名并成功下载。
+测试层级不能互相替代：SQLite pytest 验证业务逻辑，`migration-test` 验证空 MySQL schema，`infra/verify.sh` 验证静态与活动基础设施契约，Playwright 验证浏览器交互。完整发布验收还必须用真实 MySQL、Celery、MinIO 和有效样本完成上传、处理、重试、SSE、签名下载、存储中断与恢复闭环。详见[工作流验证](docs/zh/workflow-verification.md)。
 
 ## 仓库结构
 
 ```text
-backend/        FastAPI、ORM、服务、存储、Celery、Alembic、pytest
-frontend/       React 管理端和 Playwright E2E
-Stages/         CAD/Excel 独立处理阶段
-infra/          Nginx、MySQL 初始化、部署验证
-scripts/        启停、数据库和文档生成工具
-docs/           英文文档
-docs/zh/        与英文逐文件对应的中文文档
-compose.yaml    生产形态编排
+backend/        FastAPI、SQLAlchemy、Alembic、Celery、存储适配与 pytest
+frontend/       React 管理端、API client 与 Playwright
+Stages/         独立 CAD/Excel 处理阶段；各 Stage 的归属和可复现性不同
+agents/         未交付的 Agent 目录占位
+cad-worker/     未交付的 Windows CAD worker 协议占位
+infra/          Nginx、MySQL 初始化、Compose 验证
+scripts/        本地启停、数据库与文档工具
+docs/           英文详细文档
+docs/zh/        与 docs/ 一一对应的中文详细文档
+third_parts/    外部/上游项目；不代表平台直接交付的能力
 ```
 
-## 文档
+## 文档入口
 
+- [中文文档索引](docs/zh/README.md) / [English documentation](docs/README.md)
 - [企业平台技术规范](DWG-Agent企业平台技术规范.md)
-- [英文文档索引](docs/README.md)
-- [中文文档索引](docs/zh/README.md)
-- [自动生成的 API 参考](docs/zh/api.md)
-- [部署指南](docs/zh/deployment.md)
-- [验证记录](docs/zh/workflow-verification.md)
+- [架构](docs/zh/architecture.md) / [Architecture](docs/architecture.md)
+- [配置参考](docs/zh/configuration.md) / [Configuration](docs/configuration.md)
+- [处理管线](docs/zh/processing-pipelines.md) / [Processing pipelines](docs/processing-pipelines.md)
+- [部署](docs/zh/deployment.md) / [Deployment](docs/deployment.md)
+- [运维](docs/zh/operations.md) / [Operations](docs/operations.md)
+- [安全](docs/zh/security.md) / [Security](docs/security.md)
+- [验证记录](docs/zh/workflow-verification.md) / [Verification evidence](docs/workflow-verification.md)
 
-端点变更后运行 `cd backend && uv run python ../scripts/generate_api_docs.py`，同一次生成 `docs/api.md` 和 `docs/zh/api.md`。
+路由变更后运行 `make docs-generate`，一次生成 `docs/api.md` 和 `docs/zh/api.md`；提交前运行 `make docs-check`。

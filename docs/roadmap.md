@@ -2,84 +2,121 @@
 
 > Chinese mirror: [zh/roadmap.md](zh/roadmap.md)
 
-## Current Baseline
+## Baseline
 
-The current baseline is an integrated platform, not a skeleton:
+As audited from `main@d178fcf` on 2026-07-11, the repository contains a real React/FastAPI/MySQL/Celery/storage platform, not only a skeleton. It has authentication/RBAC, project/file/Job/result/review/audit models, 71 OpenAPI paths, attempt-safe Job execution, Local/MinIO adapters, four conversion service paths, Excel Final relational import, and broad automated tests.
 
-- MySQL-only runtime state and Celery SQL transport.
-- Nginx, FastAPI, React, Local/MinIO storage.
-- Project/file/drawing/job/result/review/audit workflows.
-- DWG -> DXF, DXF -> DWG, DXF -> Excel, and Excel Final pipelines.
-- Attempt-safe retries, SQL pagination, SSE polling, signed downloads.
-- Real MySQL/MinIO/Compose and browser closure tests.
+This does not make every directory production-ready. Feature flags are off by default, Agent/CAD tasks are placeholders, Compose lacks TLS/operations automation, and `Stages/dxf2excel` cannot be reconstructed from a clean clone.
 
-Redis removal is complete at runtime. Migration names may retain historical wording; active docs and configuration must not describe Redis as deployed.
+Redis/Valkey removal is complete in active runtime architecture. Historical migration or explanation text may mention it only as removed history.
 
-## Delivery Priorities
+## P0: Repository Reproducibility
 
-### P0: Maintain Reliability
+Repair `Stages/dxf2excel` ownership first because it affects backend dependency resolution and Docker builds.
 
-- Keep migrations valid from an empty MySQL schema.
-- Keep the Kombu queue-order index and `READ COMMITTED` transport settings.
-- Preserve attempt-conditional worker updates and storage compensation.
-- Run full backend, frontend, and browser regression on state-machine changes.
-- Keep English/Chinese API docs generated from OpenAPI.
+Completion criteria:
 
-### P1: Complete Agent Subsystem
+- choose a normal tracked directory or restore valid `.gitmodules` metadata;
+- pin a reachable reviewed commit/source;
+- remove reliance on the currently populated but untracked nested working tree;
+- pass a brand-new clone, `uv sync --locked`, Stage tests, backend tests, and Docker build;
+- document source license/provenance and update the Stage component README.
 
-`AGENT_ENABLED=false` remains required until all are implemented:
+## P0: Honest HTTP/TLS Deployment
 
-- bounded LLM/MCP execution;
-- MySQL-backed conversation retention and cleanup;
-- task body and cancellation;
-- run/step permissions and project/file validation;
-- prompt/tool audit and redaction;
-- integration and adversarial tests.
+Choose one explicit short-term state:
 
-Do not enable the flag merely because routes and worker infrastructure exist.
+- remove the dead `443:8443` mapping and document HTTP-only private use; or
+- implement container `8443 ssl`, read-only certificate mounts, HTTP redirect, HSTS after validation, renewal/expiry checks, and secure-cookie browser tests.
 
-### P1: Production CAD Worker
+Completion requires a real TLS handshake and refresh/SSE/download flow through HTTPS. A Compose port mapping alone is not evidence.
 
-- Authenticate the Windows CAD worker channel.
-- Define idempotency keys and attempt semantics across the remote boundary.
-- Upload/download through storage rather than shared host paths.
-- Add timeout, cancellation, heartbeat, and stale-worker recovery.
-- Validate real DWG samples and license/runtime prerequisites.
+## P0: Reliability Gates
 
-### P1: Operations
+- Keep MySQL as business truth and prevent process-memory fallback.
+- Preserve status + attempt predicates across every Job state write.
+- Keep permission checks on derived results and batch metadata.
+- Maintain object rollback compensation and add periodic object/database reconciliation.
+- Test clean migration, downgrade where supported, and representative populated upgrades.
+- Run real broker/storage/browser workflows after changes to tasks, storage, auth, or downloads.
 
-- Add structured metrics for queue depth, claim latency, task duration, retry count, storage errors, and DB pool pressure.
-- Add backup/restore drills for MySQL and MinIO volumes.
-- Add log correlation by request ID, job ID, and attempt.
-- Define retention for audit rows, broker/result rows, and derived files.
+## P1: Operations Baseline
 
-### P2: Broker Scale Decision
+Implement rather than merely document:
 
-The SQLAlchemy broker is intentionally bounded. If deployment needs many worker replicas or higher message throughput, benchmark and evaluate RabbitMQ. Such a change must preserve MySQL as business truth and must not reintroduce cached job state as authoritative.
+- coordinated MySQL + MinIO backups with encryption and retention;
+- scheduled restore tests with checksum evidence and measured RPO/RTO;
+- metrics for API latency/errors, DB pool, queue depth/age, Job duration/failure, storage, and worker health;
+- centralized structured logs and request/Job/attempt correlation;
+- actionable alerts, dashboards, runbook links, and incident retention;
+- capacity tests and explicit connection/worker/object limits;
+- retention/deletion jobs that preserve database/object consistency.
 
-### P2: UX and Accessibility
+## P1: Processing Hardening
 
-- Continue replacing implementation-specific icon locators with accessible names.
-- Add deterministic E2E fixtures instead of relying on pre-existing database rows.
-- Add mobile and narrow-layout screenshots for core workflows.
-- Improve large audit/file views with server-driven filters.
+- Build a representative, licensed DWG/DXF/Excel corpus with expected outputs and failure classes.
+- Sandbox or isolate ODA/Excel processing of untrusted files; add CPU, memory, disk, process, and output limits.
+- Define Stage version metadata in every result and migration behavior for changed algorithms.
+- Add malware scanning/quarantine before complex file processing.
+- Verify cancellation terminates child work where safe, not only Job state updates.
+- Add deterministic object reconciliation and retry policy for partial external failures.
 
-## Acceptance Gates
+## P1: Agent Subsystem
 
-A milestone is complete only with evidence for:
+Keep `AGENT_ENABLED=false` until all criteria pass:
 
-1. Nginx -> FastAPI routing and auth.
-2. Empty-schema migrations and application credentials.
-3. MySQL broker -> Celery -> attempt-scoped state.
-4. Storage object write/read, signed download, and SHA-256.
-5. Storage outage 503 and recovery without API restart.
-6. Frontend refresh/retry/download behavior in a real browser.
-7. Permission isolation across users and projects.
-8. English/Chinese documentation synchronization.
+- replace `tasks_agent.py` placeholder with a bounded, cancellable task;
+- implement model/MCP client timeouts, retries, tool allowlist, payload/result validation, and secret isolation;
+- persist only bounded memory and safe step summaries; do not expose hidden reasoning or tool secrets;
+- enforce creator/admin/project access on run, steps, source and output files;
+- audit model/tool selection and resulting artifacts without logging sensitive payloads;
+- cover prompt/tool injection, unauthorized tool calls, stale attempts, cancellation, dependency outage, and real E2E.
+
+## P1: Windows CAD Worker
+
+Keep `CAD_WORKER_ENABLED=false` until all criteria pass:
+
+- define authenticated, replay-resistant worker registration/dispatch protocol;
+- implement the Celery CAD task and an actual Windows service, not only `CAD_WORKER_API_BASE`;
+- make dispatch idempotent by Job attempt and enforce timeout/cancellation;
+- securely transfer source/result artifacts and verify SHA-256;
+- map worker errors to safe stable codes and retain server-side diagnostics;
+- add Compose/external-service topology, health, upgrade, and real ZWCAD sample tests.
+
+## P2: Broker and Scale Decision
+
+Benchmark the current MySQL SQL transport with realistic queue count, Job duration, worker concurrency, API load, and failure recovery. Record connection consumption and broker table growth. If requirements exceed it, adopt RabbitMQ or another fit broker through an ADR while leaving Job/progress/result authorization in MySQL.
+
+Do not restore Redis as a business state source. A future cache would need an explicit consistency model and may never authorize or determine Job truth.
+
+## P2: Identity and Security Maturity
+
+- Refresh-token rotation, session/device inventory, forced session revocation, and key rotation.
+- External identity/SSO and MFA for privileged roles.
+- Tamper-evident audit export with independent credentials and retention.
+- Dependency/container/SBOM scanning and patch SLA.
+- CSP tightening, XSS-focused tests, and secure file preview isolation.
+- Least-privilege database users split by API, worker, migration, broker, and audit needs where operationally justified.
+
+## P2: User Experience
+
+- Accessibility audit for keyboard, focus, labels, contrast, tables, dialogs, progress, and errors.
+- Clear offline/reconnecting/expired-session/storage-outage states.
+- Large-list and large-file performance tests.
+- Consistent retry/cancel/download behavior across every pipeline.
+- Operator-visible attempt history without confusing stale steps with the active attempt.
+
+## Documentation Acceptance
+
+Every delivery changes the relevant English/Chinese pair, generated API reference, root status matrix, and component README. Claims must state code, default flag, dependencies, verification environment/date, and residual limits.
+
+`make docs-check` must reject stale API output, broken links, pair-structure drift, obsolete local ports, current-branch references to `codex`, false TLS claims, and missing known repository blockers.
 
 ## Explicit Non-Goals
 
-- Redis/Valkey as cache, session store, progress store, Pub/Sub, or broker.
-- SQLite runtime deployment.
-- Publicly exposing backend, MySQL, or MinIO in Compose.
-- Marking placeholder Agent/CAD infrastructure as a delivered feature.
+- Redis/Valkey as session, authorization, progress, Pub/Sub, broker, result, or fail-open store.
+- In-process state used to hide MySQL, broker, or storage failure.
+- Enabling placeholder Agent/CAD features for demonstration without their safety gates.
+- Treating mocked/SQLite tests as proof of MySQL/MinIO/Celery production behavior.
+- Treating HTTP Compose, uncoordinated backups, or a populated local gitlink as production readiness.
+- Large rewrites that break the buildable/testable vertical path without staged migration evidence.

@@ -272,7 +272,7 @@ Logical drawing record with version tracking.
 
 #### `drawing_versions`
 
-Immutable version records. Each upload of a new DWG revision for a drawing creates a new version row.
+Application-append-only version records. Each upload of a new DWG revision creates a new row; the API has no mutation route for an existing version. The database does not use a trigger or cryptographic seal to make rows physically immutable.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -436,7 +436,7 @@ Human review decisions on analysis results.
 
 #### `audit_logs`
 
-Immutable audit trail for all significant actions.
+Application audit record for security-relevant actions. The service appends rows and exposes no update/delete API, but the database does not enforce physical or cryptographic immutability.
 
 | Column | Type | Constraints | Description |
 |---|---|---|---|
@@ -575,7 +575,7 @@ The linear chain is `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59ad
 
 # 2. Generate the migration script
 cd backend
-uv run alembic revision --autogenerate -m "description_of_change"
+uv run alembic revision --autogenerate -m "change_description"
 
 # 3. Review the generated script in migrations/versions/
 #    - Verify all table/column changes are intentional
@@ -685,17 +685,9 @@ All 8 permissions are assigned to the `super_admin` role at seed time.
 
 ### 5.2 Changing the seed super admin
 
-The seed user is created only if no user with that username exists. To re-seed after changing the password:
+The seed user is created only if no user with that username exists. Changing `SUPER_ADMIN_PASSWORD` later does not rotate an existing account. While authenticated, use `PATCH /api/v1/auth/password`; an authorized administrator may use the password-reset request endpoint for permitted target roles.
 
-```bash
-# 1. Delete the existing super admin (MySQL)
-mysql -u dwg_user -p dwg_agent -e "DELETE FROM sys_user_roles WHERE user_id IN (SELECT id FROM sys_users WHERE username='admin');"
-mysql -u dwg_user -p dwg_agent -e "DELETE FROM sys_users WHERE username='admin';"
-
-# 2. Update .env with new SUPER_ADMIN_PASSWORD
-
-# 3. Restart the application (init_db runs on startup)
-```
+Do not delete the seeded row to force re-creation: users can be referenced by projects, files, Jobs, versions, reviews, and audit records. Lost-super-admin recovery needs a controlled, logged database procedure with a backup and independent approval; the repository does not automate it.
 
 ### 5.3 Manual seed via script
 
@@ -707,81 +699,39 @@ This runs the complete initialization: create database if needed, run all migrat
 
 ---
 
-## 6. Backup Strategy Recommendations
+## 6. Data Protection Boundary
 
-### 6.1 What to back up
+### 6.1 Required recovery set
 
-| Component | Priority | Method |
+| Component | Required content | Consistency risk |
 |---|---|---|
-| MySQL database (`dwg_agent`) | **Critical** | `mysqldump` --single-transaction |
-| File storage (MinIO / local `var/storage/`) | **Critical** | `mc mirror` (MinIO) or `rsync` (local) |
-| Celery SQL tables and durable runtime state | Included in MySQL backup | Same `mysqldump`; no separate state-store backup |
-| Configuration (`.env.docker`, `compose.yaml`) | High | Git + encrypted backup |
-| Nginx config (`infra/nginx/`) | Medium | Git |
+| MySQL `dwg_agent` | business tables, `alembic_version`, Celery runtime tables | DB-only restore can reference missing objects or replay broker rows |
+| Object storage | every configured original/derived/report/temp/DXF bucket or local root | storage-only restore creates orphan bytes |
+| `hardware_handbook` | schema/data or independently managed source | Excel Final weight lookup can change or fail |
+| Configuration/secrets | Git-tracked config plus encrypted live values | `.env.docker` must not be stored in Git |
+| Evidence | revision, migration head, timestamps, checksums, restore result | an untested dump is not a backup guarantee |
 
-### 6.2 MySQL backup command (recommended)
-
-```bash
-# Full logical backup (consistent snapshot via --single-transaction)
-mysqldump -h 127.0.0.1 -u dwg_user -p \
-  --single-transaction \
-  --routines \
-  --triggers \
-  --events \
-  --set-gtid-purged=OFF \
-  dwg_agent | gzip > dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz
-```
-
-### 6.3 Recommended backup schedule
-
-| Frequency | Type | Retention |
-|---|---|---|
-| Daily | Full `mysqldump` | 7 days (rolling) |
-| Weekly | Full `mysqldump` | 4 weeks (rolling) |
-| Monthly | Full `mysqldump` | 12 months |
-| Before migrations | Manual full backup | Until migration verified |
-
-### 6.4 MinIO / file storage backup
+### 6.2 Local MySQL helper
 
 ```bash
-# MinIO mirror to a backup location
-mc mirror minio/dwg-original backup/dwg-original --watch
-mc mirror minio/dwg-derived backup/dwg-derived --watch
-mc mirror minio/dxf-original backup/dxf-original --watch
-mc mirror minio/dxf-derived backup/dxf-derived --watch
-mc mirror minio/dwg-reports backup/dwg-reports --watch
-
-# Local storage rsync
-rsync -avz --delete var/storage/ backup@backup-server:/backups/dwg-agent/storage/
+bash scripts/db.sh backup /secure/path/dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz
 ```
 
-### 6.5 Restore procedure
+This helper targets the local MySQL endpoint configured in root `.env`. It does not capture MinIO, `hardware_handbook`, live secrets, or a coordinated consistency point.
 
-```bash
-# 1. Stop the application (to prevent writes during restore)
-docker compose stop backend-api worker-*
+### 6.3 Compose backup boundary
 
-# 2. Restore MySQL
-gunzip < dwg_agent_20260703_120000.sql.gz | mysql -h 127.0.0.1 -u dwg_user -p dwg_agent
+Compose does not publish MySQL/MinIO host ports and provides no scheduled backup service. Stop all explicit API/worker writers for a simple quiesced backup, dump MySQL through `docker compose exec -T mysql`, and capture every MinIO bucket through a tested client on the internal network. Service-name wildcards such as `worker-*` do not work with Compose.
 
-# 3. Restore files (MinIO example)
-mc mirror backup/dwg-original/ minio/dwg-original/ --overwrite
+Exact Compose commands and stop/start ordering are maintained in [Operations](operations.md). Database and objects must be treated as one recovery set.
 
-# 4. Verify data integrity
-mysql -u dwg_user -p dwg_agent -e "SELECT COUNT(*) FROM audit_logs; SELECT COUNT(*) FROM files;"
+### 6.4 Restore requirements
 
-# 5. Restart the application
-docker compose up -d
-```
+1. Restore into an isolated or maintenance environment with writers stopped.
+2. Restore MySQL and all object buckets from the same declared recovery point.
+3. Verify `alembic current`, all required tables, and handbook queries.
+4. Compare representative restored bytes with `files.sha256`.
+5. Inspect queued/running Jobs and Celery broker rows before starting workers; restored messages may redeliver work.
+6. Start the stack and run an authenticated upload/process/SSE/download workflow.
 
-### 6.6 Point-in-time recovery (advanced)
-
-For production deployments requiring PITR:
-- Enable MySQL binary logging (`log_bin = ON` in `my.cnf`).
-- Back up binlogs alongside daily dumps.
-- Recovery: restore the latest full dump, then replay binlogs to the desired point.
-
-### 6.7 Backup verification
-
-- **Automated:** Run a weekly restore test to a staging database, verify table row counts, and check FK integrity.
-- **Manual:** Spot-check file downloads after storage restore -- verify SHA-256 matches between the restored file and the `files.sha256` database record.
+The repository currently has no automated retention, point-in-time recovery configuration, backup encryption, scheduled restore test, or RPO/RTO measurement. These are production gaps, not implicit platform features.

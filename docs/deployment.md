@@ -4,51 +4,56 @@
 
 ## Supported Modes
 
-| Mode | API | Storage | Entry |
-|---|---|---|---|
-| Local development | `127.0.0.1:8010` | `local` by default | Vite `:5173` or Nginx `:8080` |
-| Docker Compose | `backend-api:8000` internal | MinIO | Nginx `:80/:443` |
+| Mode | Entry | API | Storage | Readiness |
+|---|---|---|---|---|
+| Local development | Vite `5173` or Nginx `8080` | `127.0.0.1:8010` | local by default; MinIO optional | MySQL + selected storage |
+| Docker Compose | HTTP host `80` -> Nginx `8080` | internal `backend-api:8000` | internal MinIO | MySQL + MinIO |
 
-MySQL is mandatory in both modes. SQLite is a pytest-only test double.
+MySQL is mandatory in both modes. SQLite is a pytest-only test double. Current Compose has no functional HTTPS: host `443` is mapped to container `8443`, but Nginx does not listen there and no certificates are mounted.
+
+## Repository Prerequisite
+
+Before a clean-clone deployment, repair `Stages/dxf2excel`. The parent repository stores only gitlink `86e99dce5ebce992273c7df78ca13d58036f7472`, has no `.gitmodules`, and does not contain that object. Backend `uv sync` and Docker `COPY Stages/dxf2excel` work only because the present working tree is populated outside the parent index.
+
+The acceptable repair is either a normal tracked directory or a valid submodule URL plus reachable pinned commit. Validate with a new clone, not the current checkout.
 
 ## Local Setup
 
 ```bash
 cp .env.example .env
 cp .env.example backend/.env
-# Replace secrets and keep database fields identical in both files.
+# Replace secrets and keep MYSQL_* identical in both files.
 
 bash scripts/db.sh setup-user
 bash scripts/db.sh init
 bash scripts/start-dev.sh
 ```
 
-`start-dev.sh` starts all five implemented workers, FastAPI on `8010`, and Vite on `5173`. If Vite selects another port, use the printed URL. `start-all.sh` also starts all five implemented workers, builds the frontend when needed, starts FastAPI `8010`, and exposes it through local Nginx `8080`.
+`start-dev.sh` starts report, dxf, dxf2dwg, dxf2excel, and excel_final workers, FastAPI `8010`, and Vite `5173`. `start-all.sh` builds the frontend and uses local Nginx `8080` instead of Vite. Agent and CAD workers are not started locally.
+
+A worker may be alive while its feature flag is false. Keep all conversion flags false until dependencies and real samples pass their pipeline checklist.
 
 ```bash
 bash scripts/status.sh
 bash scripts/stop-all.sh
+bash scripts/db.sh status
 ```
 
-Worker scripts discover processes by Celery app, queue, and managed node name. A missing pidfile is repaired instead of starting a duplicate. Shutdown waits for warm exit and does not kill an unrelated process merely because it owns a port.
+Scripts discover managed workers by Celery app, queue, and node name, repair missing pidfile tracking, and avoid killing unrelated port owners.
 
-## Database
+## Database Initialization
 
 ```bash
-bash scripts/db.sh start
 bash scripts/db.sh check
 bash scripts/db.sh migrate
 bash scripts/db.sh migration-test
-bash scripts/db.sh backup
 ```
 
-`migration-test` creates a temporary empty MySQL schema, upgrades to head, validates tables/columns/types, and drops the schema. Current head is `a74c2e9f1d30`.
+`migration-test` creates a temporary empty MySQL schema, upgrades it to `a74c2e9f1d30`, validates 22 business tables and critical constraints, then removes it. It does not execute downgrade.
 
-The Celery broker URL is derived from the effective MySQL DSN as `sqla+mysql+pymysql://...`. The result backend is derived as `db+mysql+pymysql://...`. Do not configure independent broker credentials that can drift from the application database.
+In local Uvicorn, FastAPI lifespan calls idempotent `init_db`; startup logs and continues if it fails, so check `/health/ready`. In the image, Docker CMD runs `alembic upgrade head` and `app.db.init_db` before Gunicorn; failure prevents the API process from starting.
 
 ## Local MinIO
-
-Set:
 
 ```dotenv
 STORAGE_BACKEND=minio
@@ -57,75 +62,94 @@ MINIO_ACCESS_KEY=...
 MINIO_SECRET_KEY=...
 ```
 
-`/health/ready` returns 503 when configured MinIO is unavailable and recovers without an API restart. Object bytes must live on a persistent volume.
+When selected MinIO is unavailable, `/health/ready` returns 503 and must recover without an API restart. Persistence and bucket creation/credentials remain operator responsibilities in local mode.
 
-## Docker Compose
+## Compose Preparation
 
 ```bash
 cp .env.docker.example .env.docker
-# Replace every CHANGE_ME_* value.
+# Replace every CHANGE_ME_* value; do not commit the file.
 
 npm --prefix frontend ci
 npm --prefix frontend run build
-
 docker compose config --quiet
+```
+
+`frontend/dist` is mounted read-only into Nginx; it is not built inside Compose. Build it again after frontend changes.
+
+## Compose Services
+
+| Service | Default / profile | Purpose | Boundary |
+|---|---|---|---|
+| `mysql` | default | business DB, broker/result, handbook schemas | private network; 8.4 tag, not digest-pinned |
+| `minio` | default | object bytes | private network; digest-pinned image and named volume |
+| `backend-api` | default | four Gunicorn workers on internal `8000` | production mode disables runtime API docs |
+| `worker-report` | default | framework report/stub queue | not an Agent |
+| `nginx` | default | HTTP SPA/API gateway on host `80` | no TLS listener despite `443` mapping |
+| conversion workers | `workers` | four processing queues | pipeline flags/dependencies remain separate |
+| `worker-agent` | `workers` | placeholder queue process | task module is empty; do not enable Agent |
+
+There is no `worker-cad` Compose service.
+
+```bash
 docker compose up -d
 docker compose --profile workers up -d
 docker compose ps
 ```
 
-Core services are `nginx`, `backend-api`, `mysql`, `minio`, and `worker-report`. The `workers` profile adds `worker-agent`, `worker-dxf`, `worker-dxf2dwg`, `worker-dxf2excel`, and `worker-excel-final`.
+## Initialization Order
 
-`worker-agent` is operational infrastructure for a feature-gated subsystem, not proof that Agent task logic is enabled.
+1. MySQL creates `dwg_agent` and imports `hardware_handbook` from init scripts on a fresh volume.
+2. The platform SQL grants application schema access and handbook `SELECT`.
+3. MinIO reports its process live.
+4. Backend runs migrations and idempotent seeds, then Gunicorn.
+5. Workers wait for backend readiness, create Celery runtime tables/index, run startup maintenance, and emit ready marker.
+6. Nginx waits for healthy backend.
 
-## Compose Initialization Order
-
-1. MySQL creates `dwg_agent` and `hardware_handbook`.
-2. `01-platform.sql` grants application access and read-only handbook access.
-3. `02-hardware-handbook.sql` imports the handbook data.
-4. MinIO reports live.
-5. Backend runs `alembic upgrade head`, seeds roles/admin, and starts Gunicorn.
-6. Workers wait for backend readiness, prepare Kombu SQL tables/indexes, then write the ready marker.
-7. Nginx waits for backend readiness.
+MySQL init scripts run only when the data directory is first initialized. Changing them does not mutate an existing named volume.
 
 ## Images and Build Context
 
-- Backend uses a multi-stage uv image and runs as UID/GID 1000 `appuser`.
-- MinIO is pinned by digest to the verified release, not `latest`.
-- `.dockerignore` excludes virtual environments, Stage samples, local storage, test output, and separately deployed third-party applications.
-- The validated backend build context is about 89 MB and includes one ODA binary.
+- Backend uses Python 3.12/uv multi-stage images and UID/GID 1000 `appuser`.
+- Backend and every worker share one image, so ODA/Stage code exists even when a process does not use it.
+- `Stages/dwg2dxf`, `Stages/dxf2dwg`, and `Stages/dxf2excel` are editable path dependencies during build.
+- Excel Final is copied as a standalone script tree and launched in a child process.
+- `.dockerignore` removes local virtualenvs, samples, browser traces, storage, and unrelated third-party preview applications.
+- Do not document a fixed context size; it changes with tracked Stage binaries and source ownership.
 
 ## Health Checks
 
-| Service | Check |
-|---|---|
-| Backend | local: `GET http://127.0.0.1:8010/health/ready`; container: `GET http://localhost:8000/health/ready` inside the container |
-| MySQL | `mysqladmin ping` using container root credentials |
-| MinIO | `GET /minio/health/live` |
-| Worker | `/tmp/dwg-celery-ready` exists and PID 1 is Celery |
-| Nginx | depends on healthy backend |
+| Service | Implementation | Interpretation |
+|---|---|---|
+| Backend | `curl /health/ready` on internal `8000` | MySQL and MinIO are reachable |
+| MySQL | root `mysqladmin ping` | server accepts connections, not schema correctness |
+| MinIO | `/minio/health/live` | server process is live, not object integrity |
+| Worker | ready marker + Celery PID 1 | connected startup, not specific pipeline readiness |
+| Nginx | dependency only | no independent Compose healthcheck |
 
-`/health` is liveness only. `/health/ready` reports database and storage independently; a storage outage must not label the database unavailable.
+## Nginx and TLS
 
-## Nginx
+Local and Compose configurations proxy API, health, and development-document paths and disable buffering for Job SSE. In `APP_ENV=production` with `DEBUG=false`, FastAPI returns 404 for `/docs`, `/redoc`, and `/openapi.json` even though Nginx can route those paths.
 
-Local configuration proxies `/api/v1`, `/health`, `/docs`, `/redoc`, and `/openapi.json` to `127.0.0.1:8010`. Compose proxies to `backend-api:8000`. SSE locations disable proxy buffering and use a long read timeout.
+To add TLS, create a separate reviewed server listening on container `8443 ssl`, mount certificates read-only, redirect HTTP, add HSTS only after HTTPS is verified, and test expiry/renewal. Until then remove or clearly ignore the dead host 443 mapping at deployment time.
 
 ## Celery SQL Transport
 
-The SQLAlchemy transport is suitable for the bounded worker topology in this repository, not arbitrary horizontal scale. It uses:
+The broker and result backend are derived from the effective MySQL DSN as `sqla+mysql+pymysql://...` and `db+mysql+pymysql://...`; operators do not configure a second credential set.
 
-- `READ COMMITTED` isolation.
-- Bounded pool size and pre-ping.
-- `(queue_id, timestamp, id, visible)` on `kombu_message`.
-- No remote-control fanout or `inspect` health check.
-- `worker_prefetch_multiplier=1`, late acknowledgement, and lost-worker rejection.
+The SQLAlchemy broker is intended for the repository's bounded queue layout. It uses `READ COMMITTED`, one-message prefetch, late acknowledgement, lost-worker rejection, bounded engine pools, and the composite queue claim index. It does not support fanout remote control and does not guarantee high-throughput multi-replica scheduling.
 
-If throughput requires many worker replicas, evaluate RabbitMQ as a broker while retaining MySQL as the business truth source.
+Evaluate RabbitMQ when measured throughput or routing requires it. That is a broker change only; MySQL remains the Job/progress/authorization truth source.
 
-## Production Secrets
+## Production Gaps
 
-Never commit `.env`, `backend/.env`, or `.env.docker`. Replace JWT, admin, MySQL, and MinIO credentials. Public deployments require TLS and secure refresh cookies. An HTTP-only private VPN deployment may explicitly set `REFRESH_COOKIE_SECURE=false`; do not use that on a public network.
+- Functional TLS, certificate lifecycle, and public-network hardening.
+- Clean-clone `dxf2excel` source ownership.
+- Secret manager and rotation workflow.
+- Coordinated MySQL/MinIO backup, retention, restore automation, and RPO/RTO evidence.
+- Central logs, metrics, tracing, alerting, SLOs, and capacity tests.
+- Rolling deployment/schema compatibility and multi-replica coordination.
+- Completed Agent and Windows CAD worker.
 
 ## Verification
 
@@ -133,7 +157,7 @@ Never commit `.env`, `backend/.env`, or `.env.docker`. Replace JWT, admin, MySQL
 bash infra/verify.sh
 docker compose config --quiet
 docker compose ps
-docker compose logs --tail=200 backend-api worker-report mysql minio
+docker compose logs --tail=200 backend-api worker-report mysql minio nginx
 ```
 
-Production acceptance must submit a job through the API, observe Celery consumption, verify a MinIO object, download through a signed URL, and compare SHA-256. Stop and restart MinIO to verify 503 degradation and persistent-object recovery.
+Static/config checks do not prove a deployed workflow. Acceptance must submit an authenticated Job through Nginx, observe Celery, verify MySQL state and MinIO bytes, download through a fresh signed path, compare SHA-256, and exercise storage interruption/recovery.

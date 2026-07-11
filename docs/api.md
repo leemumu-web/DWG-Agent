@@ -1,6 +1,6 @@
 # API Reference
 
-This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run python ../scripts/generate_api_docs.py`. Change code and tests first, then regenerate both languages.
+This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run python ../scripts/generate_api_docs.py`. Change code and tests first, then regenerate both languages. A listed route proves interface presence only; feature flags, permissions, and external dependencies may still prevent execution.
 
 ## Conventions
 
@@ -152,4 +152,5 @@ This file is generated from the FastAPI OpenAPI schema by `cd backend && uv run 
 
 ## Runtime documentation
 
-Use `/docs`, `/redoc`, or `/openapi.json` for request and response schemas while the API is running.
+Use `/docs`, `/redoc`, or `/openapi.json` for request and response schemas while the API is running in development/debug mode.
+With `APP_ENV=production` and `DEBUG=false`, all three runtime documentation endpoints are intentionally disabled; production should use this generated file and a versioned OpenAPI artifact.

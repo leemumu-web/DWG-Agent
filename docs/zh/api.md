@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成中英文参考。
+本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成中英文参考。路由表只证明接口存在；功能开关、权限和外部依赖仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -152,4 +152,5 @@
 
 ## 运行时文档
 
-启动后访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。
+development/debug 模式启动后，访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。
+当 `APP_ENV=production` 且 `DEBUG=false` 时，这三个运行时文档入口有意关闭；生产应使用本生成文件和版本化 OpenAPI artifact。

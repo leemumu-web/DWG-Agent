@@ -2,134 +2,139 @@
 
 > Chinese mirror: [zh/development.md](zh/development.md)
 
-## Prerequisites and Setup
+## Toolchains
 
-- Python 3.12 and `uv`
-- Node.js/npm matching `frontend/package-lock.json`
-- MySQL 8.x or compatible MariaDB
-- Nginx for gateway checks and Docker for Compose/MinIO acceptance
+| Area | Toolchain | Lock/install |
+|---|---|---|
+| Backend | Python 3.12, uv, FastAPI, SQLAlchemy 2, Pydantic 2 | `cd backend && uv sync --locked` |
+| Frontend | Node/npm, React 19, TypeScript 6, Vite 8 | `cd frontend && npm ci` |
+| Excel Final Stage | Python >=3.11, standalone scripts | `cd Stages/excel_final && uv sync --locked` |
+| ODA Stages | Python >=3.12 plus external AppImage runtime | per-Stage `uv sync --locked` |
 
-```bash
-cp .env.example .env
-cp .env.example backend/.env
-bash scripts/db.sh setup-user
-bash scripts/db.sh init
-cd backend && uv sync --frozen
-cd ../frontend && npm ci
-```
-
-Runtime `.env` files must use MySQL. Tests set `DATABASE_URL=sqlite://` explicitly and isolate each test with an in-memory `StaticPool`.
+The backend lock contains editable path dependencies under `Stages/`. A clean environment is currently blocked by the broken `Stages/dxf2excel` gitlink; do not treat success in the populated working tree as clone reproducibility.
 
 ## Repository Map
 
-```text
-backend/app/api/v1/       FastAPI routes and dependency boundaries
-backend/app/services/     Business state transitions
-backend/app/models/       SQLAlchemy models
-backend/app/schemas/      Pydantic request/response models
-backend/app/storage/      Local and MinIO adapters
-backend/app/workers/      Celery app and task wrappers
-backend/migrations/       Alembic history
-frontend/src/api/         Axios clients and pagination helpers
-frontend/src/features/    Page workflows
-frontend/tests/e2e/       Playwright browser/API tests
-Stages/                    CAD and Excel processing projects
-infra/                     Nginx/MySQL/deployment verification
-scripts/                   Local operations and doc generation
-```
+| Path | Ownership |
+|---|---|
+| `backend/app/api/` | HTTP dependencies and routing |
+| `backend/app/services/` | transactions, permissions, orchestration |
+| `backend/app/workers/` | Celery configuration and task entrypoints |
+| `backend/app/storage/` | local/MinIO byte adapters |
+| `backend/migrations/` | Alembic-owned business schema |
+| `frontend/src/api/` | typed HTTP clients, auth refresh, downloads |
+| `frontend/src/features/` | workflow pages |
+| `Stages/` | independently runnable domain processors |
+| `infra/` | Nginx, MySQL initialization, deployment verification |
+| `scripts/` | local lifecycle, DB and documentation tools |
+| `third_parts/` | upstream/vendored code; not a platform module by default |
 
-## Run
+## Run Locally
 
 ```bash
+# Vite :5173, FastAPI :8010, five implemented queue workers
 bash scripts/start-dev.sh
-# Frontend :5173, API :8010
 
-bash scripts/start-all.sh --rebuild
-# Nginx :8080 -> API :8010
+# Built SPA via Nginx :8080 -> FastAPI :8010
+bash scripts/start-all.sh
 ```
 
-Do not use port 8000 for local scripts. It is the container-internal API port. If Vite uses 5174, set `PLAYWRIGHT_FRONTEND_BASE_URL` accordingly.
+Port `8000` is container-internal. If Vite selects another port, use its printed URL and set Playwright overrides when testing directly. Prefer the Nginx `8080` path for production-shaped browser work.
 
-## Backend Workflow
+## Backend Change Rules
 
-1. Route validates input and calls permission helpers.
-2. Service owns state transitions and transaction semantics.
-3. Commit before dispatching a Celery task.
-4. Worker atomically claims `queued + attempt`.
-5. Every worker update includes the captured attempt.
-6. Object writes register rollback compensation.
-7. Public errors are stable and sanitized.
+- Routes handle HTTP schema/dependencies; services own business transactions; tasks call services.
+- Use sync SQLAlchemy patterns already established by the repository.
+- Any worker claim/progress/terminal write must match status and attempt.
+- Keep file bytes behind storage adapters and metadata in MySQL.
+- A storage object written before commit must join session compensation.
+- Reuse resource permission helpers; SQL list filtering must not degrade into row-by-row N+1 checks.
+- Do not put traceback, DSN, child stderr, secret, or host path into client-visible errors.
+- Do not add Redis/Valkey or in-memory correctness fallback to mask dependency failure.
 
-Never add a second session inside a worker failure handler when the current session has uncommitted steps. Failure step and terminal job state belong to one transaction.
+FastAPI lifespan seed initialization is best-effort in local runtime. Docker performs migrations/seeding before Gunicorn. Tests must account for the actual mode rather than assuming process startup proves readiness.
 
-## API and Pagination
+## API Changes
 
-Use `paginate_scalars()` for SQL lists. Add deterministic order with ID tie-breakers. Do not load all rows and slice in Python. Access filters belong in SQL, especially for files and jobs.
+Use the standard success/error envelopes and exact SQL pagination. Add a stable ID tie-breaker to ordered lists. A route change requires:
 
-After route changes:
+1. schema/service/route tests;
+2. permission and negative cases;
+3. `make docs-generate`;
+4. English/Chinese narrative updates when behavior or boundary changes;
+5. `make docs-check`.
 
-```bash
-cd backend && uv run python ../scripts/generate_api_docs.py
-cd .. && make docs-check
-git diff -- docs/api.md docs/zh/api.md
-```
+Runtime `/docs` and `/openapi.json` are development/debug surfaces only. The generated Markdown API reference is the production-readable inventory.
 
-## Frontend Workflow
+## Frontend Changes
 
-- Use `apiClient`; do not duplicate auth/refresh fetch logic.
-- Do not automatically retry non-idempotent uploads at network level.
-- File download retries request a fresh signed URL on each attempt.
-- Use `fetchAllPages()` only when a workflow truly needs all rows.
-- Store access state in `sessionStorage`.
-- Give icon-only buttons `aria-label` and a tooltip.
-- Browser tests select row checkboxes from `.ant-table-tbody`, never the header select-all checkbox.
+- Keep API requests relative behind Nginx; use `VITE_API_BASE_URL` only for direct Vite development.
+- Access state belongs in `sessionStorage`; refresh and SSE rely on HttpOnly cookies.
+- The Axios 401 interceptor performs one shared refresh and must not retry login/refresh recursively.
+- React Query retry applies to queries; single-file download has its own one-retry/new-signature loop.
+- UI guards improve navigation but never replace API authorization.
+- Polling and SSE must stop or settle on terminal Job state.
+- Add Playwright coverage for visible workflow changes and failure/retry behavior.
 
-## Celery Development
+## Worker Changes
 
-Queues are `report`, `dxf`, `dxf2dwg`, `dxf2excel`, `excel_final`, `agent`, and `cad`. The MySQL SQL transport does not support remote-control fanout; do not use `celery inspect` as a health check.
+Queues are `report`, `dxf`, `dxf2dwg`, `dxf2excel`, `excel_final`, `agent`, and `cad`, but only the first five have task implementations. Do not route work to placeholder modules.
 
-Worker boot creates Kombu tables, closes the bootstrap channel, adds the queue-order index, then starts the consumer. The ready marker is created only by `worker_ready`.
+MySQL SQL transport lacks fanout remote control. Health uses process identity and worker-ready marker. When adding a task, test routing, eager execution, real broker dispatch, attempt claims, failure mapping, stale execution, cancellation, and object cleanup separately.
 
-## Tests
-
-```bash
-cd backend
-uv run ruff check app tests
-uv run pytest -q
-
-cd ../frontend
-npm run build
-PLAYWRIGHT_FRONTEND_BASE_URL=http://127.0.0.1:5173 \
-PLAYWRIGHT_API_BASE_URL=http://127.0.0.1:8010 \
-npx playwright test  # defaults to Nginx http://127.0.0.1:8080
-```
-
-Focused real Excel Final flow:
-
-The sample must be a Tekla tab/whitespace export or an Excel workbook containing the required steel-list columns; a generic `.xls`/`.xlsx` file is an intentional negative case.
-
-```bash
-PLAYWRIGHT_EXCEL_SAMPLE_PATH=/absolute/path/to/sample.xls \
-PLAYWRIGHT_FRONTEND_BASE_URL=http://127.0.0.1:5173 \
-PLAYWRIGHT_API_BASE_URL=http://127.0.0.1:8010 \
-npx playwright test tests/e2e/excel-final-flow.spec.ts
-```
-
-## TDD and Debugging
-
-Reproduce, capture the failing boundary, add a regression test, verify it fails for the right reason, implement the smallest fix, then run related and full suites. Multi-component failures require evidence at Nginx, API, DB, broker, worker, storage, and browser boundaries.
+Never open a second failure-handler session while the active session has uncommitted JobSteps. Failure step and terminal Job state should commit together unless the service explicitly defines a compensating boundary.
 
 ## Database Changes
 
 ```bash
-bash scripts/db.sh revision "message"
-bash scripts/db.sh migrate
+cd backend
+uv run alembic revision --autogenerate -m "description"
+# Review generated operations and circular FK behavior.
+cd ..
 bash scripts/db.sh migration-test
 cd backend && uv run alembic check
 ```
 
-Do not let Alembic autogenerate Celery-owned tables or their sequence tables. Runtime maintenance owns the required Kombu index. `alembic check` must report no new upgrade operations; ORM indexes added by migrations must also exist in model metadata.
+Alembic owns 22 business tables, not the eight Celery runtime tables. Test upgrade from empty MySQL and, for destructive changes, a representative populated copy. `migration-test` does not validate downgrade.
 
-## Generated and Temporary Files
+## Test Layers
 
-Do not commit `.playwright-cli`, `frontend/test-results`, `frontend/dist`, backend storage, local `.env` files, or ad-hoc output. Durable tests and docs belong in tracked directories.
+```bash
+# Backend static and isolated API/service tests
+cd backend
+uv run ruff check app tests ../tests/run_full_verify.py
+uv run pytest -q
+
+# Focused Stage tests
+cd ../Stages/dwg2dxf && uv run pytest -q
+cd ../dxf2dwg && uv run pytest -q
+cd ../excel_final && uv run pytest -q multi_split/tests
+
+# MySQL/infrastructure
+cd ../..
+bash scripts/db.sh migration-test
+bash infra/verify.sh
+docker compose config --quiet
+
+# Frontend
+cd frontend
+npm run build
+npx playwright test
+```
+
+SQLite tests are fast logic checks, not MySQL concurrency or migration proof. Mocked Playwright routes verify UI contracts, not MinIO/Celery. A release-sensitive pipeline change also requires a real Nginx/MySQL/worker/storage/sample workflow.
+
+## Debugging Order
+
+1. Reproduce the smallest failing path and record request ID, Job ID, attempt, endpoint, and time.
+2. Check `/health/ready`, managed processes, flags, and Stage source/dependency availability.
+3. Find the first backend/worker error, not the final frontend symptom.
+4. Inspect authoritative Job/JobStep rows and storage object/digest.
+5. Test the hypothesis with a focused regression before changing behavior.
+6. Run the narrow test, then the full affected layer and end-to-end gate.
+
+## Documentation and Generated Files
+
+`docs/api.md` and `docs/zh/api.md` are generated; edit their generator, not the files. Other language pairs are edited together. Generated frontend `dist`, Playwright traces, local storage, `.env*` secrets, virtualenvs, caches, logs, and test artifacts must not be committed.
+
+Component-specific algorithms belong in their Stage docs. Platform docs should link to them and state the integration boundary rather than duplicating hundreds of algorithm steps.

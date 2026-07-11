@@ -4,89 +4,109 @@
 
 ## Trust Boundaries
 
-Nginx and the frontend are not authorization boundaries. Every business endpoint authenticates in FastAPI and enforces global roles plus resource/project access. MySQL and object storage are private network services in Compose.
+Nginx and React are not authorization boundaries. Every business route authenticates in FastAPI and applies global-role plus resource/project checks. Compose keeps FastAPI, MySQL, and MinIO on an internal network, but current Compose traffic from the browser to Nginx is HTTP, not TLS.
+
+The threat model includes untrusted filenames, file contents, ZIP structure, query/body fields, expired or confused tokens, unauthorized project access, stale Celery messages, compromised browser JavaScript, child-process errors, and dependency outages. It does not claim resistance to a fully compromised application host, database administrator, MinIO administrator, or signing secret.
 
 ## Authentication
 
-- Passwords use Argon2id.
-- Access JWTs default to 30 minutes; refresh cookies default to 14 days.
-- Access and refresh token types are checked and cannot be exchanged.
-- Logout writes token JTIs to MySQL `token_blacklist`.
-- Password changes write `password_changed_at`; older tokens are rejected.
-- Disabled/deleted users are checked on each authenticated request.
-- The frontend keeps access state in `sessionStorage`, reducing cross-tab persistence.
-- Refresh cookies are HttpOnly, SameSite, and Secure in production unless explicitly overridden for a private HTTP-only VPN.
+- Passwords use the recommended Argon2id implementation; failed and missing-user login paths both perform a hash verification to reduce timing enumeration.
+- Access JWT defaults to 30 minutes; refresh cookie defaults to 14 days.
+- Access/refresh token `type` is enforced and cannot be exchanged.
+- Logout stores available token JTI values in MySQL `token_blacklist`.
+- Password change stores `password_changed_at`; older access and refresh tokens are rejected.
+- Every authenticated request reloads the user and rejects disabled/deleted users.
+- Refresh is HttpOnly, SameSite=Lax, path `/api/v1/auth`; SSE cookie is HttpOnly, SameSite=Lax, path `/api/v1/jobs`.
 
-There is no fail-open revocation path: token state is in authoritative MySQL, not an optional cache.
+Secure cookie defaults follow `APP_ENV=production`. Public deployment requires actual TLS plus Secure cookies. Setting `REFRESH_COOKIE_SECURE=false` is only an explicit risk acceptance for a private HTTP network; current Compose does not terminate TLS despite mapping host 443.
+
+## Browser Token Boundary
+
+The frontend stores the access token and user snapshot in `sessionStorage`, limiting persistence to one tab/session. This is not XSS protection: same-origin script execution can read the access token and call APIs. CSP, dependency review, output encoding, no unsafe HTML, and short access lifetime remain necessary.
+
+The Axios interceptor coalesces concurrent 401 refreshes into one request and retries each original request once. It never retries login or refresh recursively. Refresh-token rotation is not implemented: refresh returns a new access token but keeps the existing refresh cookie until expiry/logout/password change.
 
 ## SSE Authentication
 
-Native EventSource cannot set a Bearer header. The API issues the short-lived HttpOnly `dwg_sse_token` cookie and the SSE dependency validates it. Tokens are never accepted in event-stream query strings. Normal job access checks run before streaming.
+Native EventSource cannot send a Bearer header. Login/refresh sets a short-lived `dwg_sse_token` HttpOnly cookie. The SSE dependency accepts only that cookie, validates access-token type/revocation/user state, and checks Job access before streaming. Tokens are not accepted in the query string. Reconnection provides a current MySQL snapshot, not historical event replay.
 
 ## Authorization
 
-Global roles: `super_admin`, `admin`, `engineer`, `reviewer`, `operator`, `viewer`, `auditor`.
+Global roles are `super_admin/admin/engineer/reviewer/operator/viewer/auditor`. Project membership roles are owner/engineer/reviewer/viewer. Administrative global access is explicit; other global roles do not bypass project/resource validation.
 
-Project resources require membership and an allowed project role. Administrative global roles have explicit global project access; other roles do not. Super-admin targets cannot be disabled, deleted, reset, or role-managed by ordinary admins.
+File read requires one of:
 
-File reads require one of:
-
-- administrative global access;
+- administrator-level global project access;
 - uploader ownership;
-- membership in an active project linked through a drawing version or analysis result.
+- membership in an active project associated through a drawing version or analysis result.
 
-File list and batch metadata use the same SQL access filter. Batch endpoints must not reveal metadata for an inaccessible file. Result details, result download URLs, and reviews delegate to the parent job boundary; for jobs without a project, only administrators and the creator have access. Agent runs, when enabled, require creator/admin/linked-project access for both details and steps.
+File deletion is limited to uploader or administrator. File list and batch metadata apply access filtering in SQL. Results, result download paths, and reviews inherit the parent Job boundary; an unscoped Job is limited to administrator or creator. Agent run details/steps use creator/admin/linked-project checks even though Agent execution remains disabled.
 
 ## Job Integrity
 
-Every retry creates a new `attempt`. Claim, progress, terminal state, cancellation, dispatch compensation, and stale recovery use conditional updates that include status and attempt. This prevents stale workers from overwriting a retry.
+Retry creates a new attempt. Claim, progress, completion, failure, cancellation, dispatch compensation, and stale recovery include status and attempt predicates. `job_steps.attempt` preserves history without allowing a stale worker to overwrite a newer generation.
 
-`job_steps.attempt` preserves history without mixing generations. Cancel-all locks the exact active IDs, changes only those rows, and reports broker purge results per queue.
+Celery JSON serialization is allow-listed; late ack and lost-worker rejection are enabled. MySQL SQL transport does not provide a separate security boundary from the application database: an account that can alter broker and Job tables can violate queue integrity. Database credentials and grants are therefore critical.
 
-## File Security
+## File and ZIP Security
 
-- Filename normalization removes traversal, control characters, separators, and unsafe leading characters.
-- Extensions are allow-listed.
-- DWG uploads require supported AC headers and a minimum size.
-- Uploads are streamed with maximum size and SHA-256/MD5 calculation.
+- File names are normalized to remove traversal, control characters, separators, and unsafe leading characters.
+- Extensions are allow-listed, but content-specific validation remains required.
+- DWG requires a supported AC header and minimum size.
+- Uploads stream with maximum byte count and SHA-256/MD5 calculation.
 - ZIP extraction limits entry count and total uncompressed bytes and rejects traversal.
-- Object keys are generated, not user-controlled paths.
-- Database rollback compensates objects written before commit.
+- Storage keys are generated by the server, not derived as trusted user paths.
+- Database rollback best-effort deletes objects written before commit.
+
+`MAX_ZIP_EXTRACT_MB` and `MAX_ZIP_ENTRY_COUNT` have code defaults even though both environment templates do not expose active lines. Operators should set them explicitly for audited deployments.
 
 ## Downloads
 
-A signed URL is not sufficient by itself. The download endpoint also requires Bearer authentication and current file permission. The HMAC binds file ID and expiry. Frontend retries obtain a new signature instead of replaying an expired URL.
+A signed path is not a bearer capability by itself. The download endpoint still requires a current Bearer access token and file permission, and verifies HMAC over file ID/expiry. A signature expires after 300 seconds.
 
-## Error Handling
+Single-file frontend retry obtains a fresh signature for a second attempt only after network, 403, 408, 429, or 5xx failure. Other 4xx errors do not retry. ZIP downloads use authenticated POST bodies and need their own timeout/error handling.
 
-Unexpected exceptions are logged server-side. Production responses use stable error codes and generic messages. Child-process stderr, traceback, DSN, secret, and host paths must not be stored in client-visible `jobs.error_message`.
+## Error and Secret Handling
 
-Excel Final parser failures are mapped to a bounded public message; the full child traceback remains in worker logs.
+Unhandled exceptions are logged server-side. With `DEBUG=false`, clients receive a generic 500 envelope. Child-process stderr, traceback, DSN, secret, and host paths must never enter `jobs.error_message` or responses. Development `DEBUG=true` may expose an exception string and must not be reachable from an untrusted network.
 
-## Database and Broker
+Excel Final child passwords are passed via environment rather than command-line arguments. Environment variables still require host/process isolation and must not be dumped into diagnostics.
 
-- MySQL credentials are URL-encoded when building DSNs.
-- Application pools are bounded and recycled.
-- Celery uses `READ COMMITTED` and a queue-ordering index to reduce lock scope.
-- SQL transport fanout control is disabled.
+## Database and Infrastructure
+
+- MySQL passwords are URL-encoded when constructing DSNs.
+- Application/Celery pools are bounded, pre-pinged, and recycled.
+- Celery uses `READ COMMITTED` and a queue-scoped index to reduce lock scope.
 - Compose does not publish MySQL or MinIO host ports.
-- The handbook grant is `SELECT` only.
+- Handbook access is `SELECT` only in Compose initialization.
+- Nginx limits login/API rates, per-IP connections, and request size and adds browser security headers.
 
-## Audit
+Nginx currently has no TLS server, certificate handling, or HSTS. Rate limits and headers reduce exposure but do not make cleartext login safe on an untrusted network.
 
-Login/logout, user lifecycle, role changes, project/member changes, file upload/download/delete, job lifecycle, review decisions, and sensitive operations write immutable audit rows. Audit access is restricted to `super_admin` and `auditor`.
+## Audit Boundary
+
+The application records authentication, user/role, project/member, file, Job, review, Agent-run, and Excel Final actions through `write_audit_log`. Audit reads are limited to `super_admin` and `auditor` by API policy.
+
+The table is application-append-only by convention: no API update/delete route uses it. It is **not cryptographically immutable or database-enforced append-only**. Rows include `updated_at`, and there is no trigger, signature chain, WORM sink, separate audit credential, or external SIEM. A privileged database or application compromise can alter records. High-assurance deployments need external append-only export and independent access controls.
 
 ## Production Checklist
 
-- Replace every `CHANGE_ME_*`, JWT secret, admin password, MySQL password, and MinIO secret.
-- Use TLS; keep secure refresh cookies enabled on public networks.
-- Restrict Nginx origins and CORS to deployed frontend origins.
-- Keep MySQL/MinIO on private networks and protect volume backups.
-- Run migration tests and security boundary tests before rollout.
-- Verify that `/health/ready` does not expose credentials or internal exceptions.
-- Rotate credentials and invalidate sessions after a suspected compromise.
-- Review audit logs and storage integrity hashes.
+- Replace every template/default credential and use a secret manager with rotation.
+- Implement and verify TLS before public exposure; keep Secure cookies enabled.
+- Restrict CORS/origins, network ingress, database grants, and object-store policies.
+- Repair `Stages/dxf2excel` provenance before building unreviewed local content.
+- Validate ODA licensing and sandbox untrusted CAD/Excel processing.
+- Coordinate encrypted MySQL/object backups and test restoration.
+- Add centralized logs, metrics/alerts, dependency/component scanning, and incident retention.
+- Run permission, attempt-race, upload/ZIP, signed-download, debug-error, storage-outage, and real browser tests.
 
-## Security Tests
+## Residual Risks
 
-Regression coverage includes token confusion, disabled users, super-admin protection, project isolation, unscoped result isolation, file ownership/membership, signed URL expiry/tampering, batch metadata access, constant-query file filtering, Agent run isolation, attempt races, storage compensation, and safe error messages.
+- Access token exposure under same-origin XSS.
+- No refresh-token rotation or device/session inventory.
+- No malware scanning, file quarantine, sandbox boundary, or content disarm.
+- ODA/Excel child processes handle untrusted complex files on the worker host.
+- SQL broker shares the database security and failure domain.
+- Audit is not tamper-evident.
+- Current HTTP deployment exposes credentials/tokens on an untrusted network.
+- No automated secret rotation, backups, monitoring, retention, or security update SLA.

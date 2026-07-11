@@ -4,107 +4,128 @@
 
 ## 系统上下文
 
-DWG-Agent 是面向企业操作人员的 CAD 处理平台。Nginx 是部署时唯一公网入口，React 承载交互，FastAPI 负责校验和授权，MySQL 是权威状态源，Celery 执行长任务，Local FS 或 MinIO 保存文件字节。
+DWG-Agent 是面向内部 CAD/Excel 接入、异步处理、结果复核和审计的操作平台。Nginx 提供 React SPA 并代理请求；FastAPI 负责校验和授权；MySQL 是权威状态；Celery 执行长任务；Local FS 或 MinIO 保存字节。
 
 ```text
 Browser
-  -> Nginx :8080 本地 / :80,:443 Compose
+  -> Nginx :8080 本地 / :80 Compose 宿主
      -> React SPA
-     -> FastAPI :8010 本地 / :8000 容器
-        -> MySQL 业务 schema
-        -> MySQL Celery broker/result 表
+     -> FastAPI :8010 本地 / backend-api:8000 Compose
+        -> MySQL 业务 + Celery runtime 表
         -> LocalStorage 或 MinIO
 Celery workers
-  -> MySQL + 存储 + processing Stages
+  -> MySQL + storage + processing Stages
 ```
 
-运行时不依赖 Redis/Valkey。token 吊销、密码变更检查、Agent memory、任务进度、SSE 快照、broker message 和 task result 均使用 MySQL。
+运行时没有 Redis/Valkey。token 吊销、密码变更检查、Agent memory、Job 进度、SSE 快照、broker message 和 task result 均使用 MySQL。
 
-## 边界
+## 部署现实
 
-| 层 | 负责 | 不负责 |
+| 属性 | 本地 | Compose |
 |---|---|---|
-| Nginx | 入口、TLS、SPA fallback、SSE 代理 | 业务授权 |
-| 前端 | 交互、重试和下载编排 | 最终权限裁决 |
-| API | 校验、RBAC、事务、投递、查询 | 长耗时 CAD/Excel 执行 |
-| Service | 状态转换和业务不变量 | HTTP 展示 |
-| Worker | 任务领取和管线执行 | 无条件状态写入 |
-| MySQL | 业务事实、broker/result、审计 | 大文件字节 |
-| Storage | 不透明对象字节 | 用户/项目授权 |
+| 用户入口 | Vite `5173` 或 Nginx `8080` | Nginx 宿主 `80` |
+| API | `127.0.0.1:8010` | 内部 `backend-api:8000` |
+| 存储 | 默认 local，MinIO 可选 | 内部 MinIO |
+| TLS | 无 | 无；`443:8443` 映射没有 listener/certificate |
+| 运行时文档 | development/debug 时可用 | production settings 下关闭 |
 
-## 调用路径
+Compose 在网络隔离、非 root backend、健康依赖和持久卷方面接近生产形态，但不是完整生产平台。
 
-### 普通 API
+## 归属边界
+
+| 层 | 负责 | 禁止负责 |
+|---|---|---|
+| Nginx | 入口、SPA fallback、代理限制、SSE 传输设置 | 业务授权或当前 TLS 声明 |
+| 前端 | 工作流 UX、有限重试、query cache、下载编排 | 最终权限裁决或持久状态 |
+| API route/dependency | HTTP 校验、auth context、envelope | 重复 domain transaction |
+| Service | transaction、permission、状态转换、storage compensation | UI 状态或 broker-specific 业务事实 |
+| Worker/task | attempt 领取和 Stage 编排 | 无条件状态写入或内存 fallback |
+| MySQL | 业务事实、audit row、Celery broker/result | 对象字节或高吞吐 broker 承诺 |
+| Storage | 由 bucket/key 标识的不透明字节 | 用户/项目访问规则 |
+| Stage | 确定性 CAD/Excel 转换 | 平台 auth、Job ownership 或 public error |
+
+## 同步请求路径
 
 ```text
 Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope response
 ```
 
-列表端点在 SQL 内执行 `COUNT(*)` 和 `LIMIT/OFFSET`，稳定排序追加 ID。权限过滤属于 SQL 查询，文件列表不会逐行额外查询授权。
+列表端点在 SQL 中执行访问过滤、`COUNT(*)`、稳定排序和 `LIMIT/OFFSET`。UI guard 和 Nginx location 不替代 API 检查。生产未处理错误只在服务端记录，并返回通用 envelope。
 
-### 异步任务
+## 异步请求路径
 
 ```text
-POST request
-  -> 校验项目/文件权限
-  -> INSERT jobs(status=queued, attempt=1)
-  -> COMMIT
-  -> 向 MySQL SQLAlchemy transport 发布 (job_id, attempt)
-  -> worker 原子领取 queued+expected attempt
-  -> 写入 attempt-scoped JobSteps
-  -> 写对象 + DB 元数据/结果
-  -> 条件完成同一 attempt
+POST
+  -> feature flag + input + access validation
+  -> INSERT Job(queued, attempt=N) + COMMIT
+  -> 向 MySQL SQL transport 发布 (job_id, attempt)
+  -> worker conditional claim
+  -> attempt-scoped JobSteps 和 progress
+  -> source bytes -> Stage -> result bytes
+  -> files + AnalysisResult + optional domain rows
+  -> conditional terminal update
 ```
 
-投递补偿只更新仍为 queued 的同一 attempt。worker 已领取后 API 不得覆盖。重试递增 `jobs.attempt`，旧消息和旧 worker 都无法领取或更新新世代。升级前单参数 Celery 消息默认 attempt 1。
+投递补偿只更新仍 queued 的 attempt。重试递增 attempt；旧 message/worker 不能领取或更新新 attempt。worker 启动恢复处理长期 stale running Job，但不是持续 heartbeat。
 
-### SSE
+## SSE 路径
 
-EventSource 使用短期 `dwg_sse_token` cookie。FastAPI 检查 Job 权限、轮询 MySQL，并发送仅含当前 attempt steps 的 snapshot 和 terminal event。重连首先发送新的权威快照；事件流不承诺按 event ID 回放。URL 不含 access token，也不需要 Pub/Sub。
+原生 EventSource 携带短期 HttpOnly `dwg_sse_token` cookie。FastAPI 在 streaming 前认证并授权 Job，轮询 MySQL，发送当前 attempt 的 snapshot/progress/terminal event。重连以新的权威快照开始；不存在 event-ID replay 或 Pub/Sub 保证。
 
-### 下载
+Nginx 关闭 SSE buffering/cache 并延长 read/send timeout。前端在短暂 CONNECTING 时交给浏览器重连，在 terminal event 或 hard close 时关闭。
 
-客户端先在正常鉴权后获取签名下载 URL，再携带 Bearer token 下载。重试必须获得新签名。同一源文件存在多次成功转换时，文件和 ZIP 解析确定性选择最新 Job 与最新 result 行。本地存储返回文件，MinIO 流式返回对象，数据库 SHA-256 是完整性依据。
+## 下载路径
+
+```text
+Bearer request -> permission check -> 300-second HMAC path
+Bearer download -> permission + expiry + signature check -> storage stream
+```
+
+前端单文件最多尝试两次，每次重新签名。只重试网络、403、408、429 和 5xx。ZIP 下载使用认证 POST stream，不共享该重签名循环。数据库 SHA-256 是完整性依据。
 
 ## 存储一致性
 
-数据库 commit 前写入的对象登记在 SQLAlchemy session 上。rollback 删除待提交对象；commit 清除补偿表。worker 只有在对象和数据库结果都成功后才暴露结果。
+数据库 commit 前写入的对象登记在 SQLAlchemy session 上。rollback best-effort 删除；commit 清除补偿列表。只有对象和 metadata 均持久化后才暴露成功输出。当前没有后台对象/数据库 reconciler，因此运维必须发现缺失和孤儿对象。
 
-## MySQL Celery
+## MySQL 与 Celery
 
-broker 为 `sqla+mysql+pymysql://...`，result backend 为 `db+mysql+pymysql://...`。连接池受限并使用 `READ COMMITTED`。消息表包含 `(queue_id, timestamp, id, visible)`，避免消费者扫描或锁住其他队列。
+broker 为 `sqla+mysql+pymysql://...`，result backend 为 `db+mysql+pymysql://...`，都从有效应用 MySQL DSN 派生。Celery engine 使用 `READ COMMITTED`、有界 pool、pre-ping、LIFO 和 recycle。`kombu_message(queue_id, timestamp, id, visible)` 按队列缩小 message claim。
 
-SQL transport 不支持 fanout remote control。健康检查使用 `worker_ready` marker 加 PID 1 检查。本地启动器还按命令行发现受管 worker，pidfile 丢失不会重复启动。
+SQL transport 没有 fanout remote control。worker 健康使用 Celery PID 加 `worker_ready` marker，不使用 `inspect`。result row 在 24 小时后过期；业务 Job 历史没有自动保留策略。
 
-## 处理管线
+## 处理边界
 
-| 管线 | 队列 | 输出 |
-|---|---|---|
-| framework smoke | `report` | JSON 结果 |
-| DWG -> DXF | `dxf` | DXF |
-| DXF -> DWG | `dxf2dwg` | DWG |
-| DXF -> Excel | `dxf2excel` | XLSX |
-| Excel Final | `excel_final` | final XLSX + 关系型零件/构件 |
+| 管线 | 队列 | 实现 | 交付限制 |
+|---|---|---|---|
+| framework smoke | `report` | 可执行 stub result | 不是 report Agent |
+| DWG -> DXF | `dxf` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
+| DXF -> DWG | `dxf2dwg` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
+| DXF -> Excel | `dxf2excel` | service/task 与本地文件 | flag 关闭；父仓库 gitlink 损坏阻断 clean clone |
+| Excel Final | `excel_final` | 隔离 Stage + 关系化导入 | flag 关闭；需要内容 schema 和手册库 |
+| Agent | `agent` | 只有 API/model | task module 是空占位 |
+| Windows CAD | `cad` | 配置占位 | 无 task、worker、service 或 Compose node |
 
-Excel Final 在子进程中运行 legacy Stage。有效内容为 Tekla 制表符/空白文本导出（通常命名为 `.xls`），或具备钢构清单必需 schema 的 Excel 初始表；只有扩展名匹配的任意工作簿并不保证可处理。legacy 二进制 `.xls` 由 `xlrd` 解析。该边界隔离 import，并阻止 child stderr 进入 API 错误。
+步骤名、格式、输出和启用检查见[处理管线](processing-pipelines.md)。
 
 ## 安全模型
 
-全局角色为 `super_admin/admin/engineer/reviewer/operator/viewer/auditor`。项目成员还有 owner/engineer/reviewer/viewer 范围。除明确的管理员访问外，全局角色不能代替资源校验。
+全局角色为 `super_admin/admin/engineer/reviewer/operator/viewer/auditor`；项目成员增加 owner/engineer/reviewer/viewer 范围。管理员访问是明确规则。文件读取要求管理员、上传者或关联活跃项目成员。结果和复核继承 Job 边界；无项目 Job 仅管理员或创建者可读。
 
-文件可由管理员、上传者或关联活跃项目成员读取。结果详情、下载 URL 与复核继承 Job 权限；无项目 Job 仅管理员或创建者可访问。Agent run 启用后，仅管理员、创建者或关联项目成员可读。
+access token 位于 `sessionStorage`，因此同源 XSS 仍是威胁。refresh/SSE token 是 HttpOnly、SameSite=Lax cookie。公网部署需要真实 TLS 和 Secure cookie，而当前 Compose 尚未交付。
 
-## 健康检查
+## 健康与可观测性
 
-- `/health`：仅进程 liveness。
-- `/health/ready`：独立探测 MySQL 和存储，任一失败返回 503。
-- Worker 容器：ready marker 加 Celery PID。
-- MinIO 恢复不要求重启 API，命名卷中的对象仍可读。
+- `/health` 仅 liveness。
+- `/health/ready` 分别报告 MySQL 和已配置 storage，任一失败返回 503。
+- 通用 worker 健康只证明 broker 连接，不证明 pipeline dependency。
+- 本地日志使用 `/tmp`；Compose 使用 container stdout/stderr。
+- metrics、distributed tracing、central logging、alerting、SLO 和自动保留均未实现。
 
-## 功能开关
+## 架构约束
 
-`AGENT_ENABLED` 和 `CAD_WORKER_ENABLED` 默认关闭。转换开关为 `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`。
-
-## 端口
-
-本地 API 固定为 `8010`。容器 `8000` 仅为内部部署细节。本地 Nginx 为 `8080 -> 8010`，Compose Nginx 代理到 `backend-api:8000`。
+- MySQL/storage 失败时禁止增加进程内正确性 fallback。
+- 没有显式迁移设计时，禁止让 broker 凭据脱离权威 MySQL DSN。
+- Agent/CAD task 仍占位时禁止启用对应 flag。
+- 修复 `Stages/dxf2excel` 归属前，禁止声称 clean-clone/Docker 可复现。
+- Nginx 有已测试 TLS listener 和证书生命周期前，禁止声称 HTTPS。
+- worker 规模超过有界 SQL transport 时评估 RabbitMQ，同时保持 MySQL 为业务事实。

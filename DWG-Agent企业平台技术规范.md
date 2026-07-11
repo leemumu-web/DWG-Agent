@@ -1,90 +1,100 @@
 # DWG-Agent 企业平台技术规范
 
-**版本：2.0**
-**状态：与 `codex` 分支当前实现同步**
-**适用范围：Nginx、React、FastAPI、MySQL、Celery、MinIO、本地存储和 CAD/Excel 处理阶段**
+**版本：2.1**
 
-## 1. 目标与边界
+**状态：实现同步规范；审计基线为 `main@d178fcf`（2026-07-11，本轮文档修改前）**
 
-平台接收 DWG、DXF、XLS/XLSX 文件，异步执行转换或清单计算，持久化任务步骤与结果，并提供项目权限、复核、审计和可靠下载闭环。
+**适用范围：React、Nginx、FastAPI、MySQL、Celery、Local/MinIO 存储及仓库内 CAD/Excel Stage**
 
-当前交付包含：
+本文是平台设计与实现边界的规范性说明。实际端点由 FastAPI OpenAPI 生成，数据库结构由 SQLAlchemy 模型和 Alembic 迁移定义，部署行为由 `compose.yaml`、Dockerfile、Nginx 配置和脚本定义。文档与这些事实冲突时，应先修复实现或明确记录偏差，不能用文档掩盖差异。
 
-- 用户、角色、权限、项目成员和审计。
-- 文件、批次、图纸版本、任务、结果和复核。
-- DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final。
-- 本地 FS 与 MinIO。
-- MySQL-backed Celery 和 MySQL-backed SSE。
+## 1. 目标、角色与非目标
 
-当前不包含：
+平台面向企业内部操作员、工程师、复核员和审计员，提供 CAD/Excel 文件接入、异步处理、任务追踪、结果下载、复核和审计。
 
-- 可用的 Agent 推理任务体（`AGENT_ENABLED=false`）。
-- 可用的 Windows CAD worker（`CAD_WORKER_ENABLED=false`）。
-- 多节点高吞吐消息中间件；如规模超过少量 worker，应单独评估 RabbitMQ，而不是恢复 Redis 作为业务状态源。
+当前交付边界：
 
-## 2. 架构原则
+- 用户、角色、权限、项目成员、文件、图纸版本、任务、结果、复核与审计。
+- MySQL 权威状态、Celery SQL broker/result、本地或 MinIO 对象存储。
+- report 框架任务及四条受功能开关保护的确定性转换管线。
+- 前端登录刷新、分页、轮询/SSE、重试和签名下载交互。
 
-1. **MySQL 是唯一业务事实源。** 认证吊销、密码变更、Agent memory、Job、JobStep 和进度事件均落 MySQL。
-2. **Redis 不在运行时架构中。** 不存在 Redis 客户端、缓存 fallback、Pub/Sub 或 Redis broker。
-3. **对象与元数据分离。** MySQL 保存对象元数据和 SHA-256；Local/MinIO 保存字节。
-4. **事务边界可补偿。** 对象写入成功但数据库回滚时删除待提交对象；任务提交失败时条件更新作业失败状态。
-5. **长任务跨 Celery 边界。** FastAPI 只校验、持久化和投递；worker 负责处理。
-6. **接口和文档同源。** API 路由参考由 OpenAPI 自动生成，中英文同步。
+当前明确不交付：
 
-## 3. 物理拓扑
+- Agent 推理任务体、LangGraph/MCP 工具执行闭环。
+- Windows ZWCAD worker、远程 CAD 节点认证及其 Compose 服务。
+- 已完成的公网 TLS、证书轮换、WAF、集中监控告警、日志汇聚、自动备份或灾难恢复。
+- 任意规模的 Celery 横向扩容保证或高吞吐 broker SLA。
+
+## 2. 设计原则
+
+1. **MySQL 是唯一业务事实源。** 用户状态、token 吊销、密码变更、Agent memory、Job、JobStep、进度快照和审计均在 MySQL。
+2. **Redis/Valkey 不在当前运行时。** 不存在 Redis 缓存、session、fallback、Pub/Sub、broker 或 result backend。
+3. **对象字节与元数据分离。** Local/MinIO 保存字节；MySQL 保存 bucket、key、大小、摘要、所有者和关联关系。
+4. **长任务越过 Celery 边界。** API 负责校验、持久化和投递；worker 负责领取、执行和条件落库。
+5. **状态写入必须抗陈旧执行。** 所有 worker 关键更新都匹配当前 status 和 attempt。
+6. **权限在服务端裁决。** Nginx、React 菜单、签名 URL 和对象 key 都不是授权边界。
+7. **降级不能破坏正确性。** MySQL、broker 或存储不可用时显式失败，不允许退回进程内内存状态。
+8. **能力声明区分四个维度。** 代码存在、默认启用、依赖可得和端到端验证必须分别说明。
+
+## 3. 物理拓扑与网络
 
 ```text
 Browser
   -> Nginx
      -> React static assets
-     -> /api/v1, /health -> FastAPI
+     -> /api/v1, /health, development docs -> FastAPI
 FastAPI
-  -> MySQL (business + broker + results)
+  -> MySQL: 22 business tables + Alembic + Celery runtime tables
   -> LocalStorage or MinIO
-Celery workers
-  -> MySQL broker/result
-  -> MySQL business state
+Celery worker
+  -> MySQL broker/result + business state
   -> LocalStorage or MinIO
-  -> Stage child process / ODA
+  -> Stage code / ODA child process
 ```
 
-端口：
+| 场景 | 入口 | API | 依赖暴露 |
+|---|---|---|---|
+| 本地 | Vite `5173` 或 Nginx `8080` | `127.0.0.1:8010` | MySQL `3306`；MinIO 可选 |
+| Compose | 宿主 `80` -> Nginx 容器 `8080` | 内部 `backend-api:8000` | MySQL/MinIO 仅 internal network |
 
-- 本地 API：`127.0.0.1:8010`。
-- 本地 Nginx：`:8080`。
-- 本地 Vite：`:5173`，占用时可使用 `:5174`。
-- Compose 内部 FastAPI：`:8000`。
-- Compose 内部 MySQL：`:3306`；MinIO：`:9000`。
+Compose 的 `443:8443` 当前没有对应 Nginx listener 或证书配置，不能视为可用 TLS。公网部署前必须补齐 TLS server、证书/私钥挂载、HTTP 到 HTTPS 跳转、HSTS、证书轮换和真实握手测试。
 
-## 4. 服务职责
+## 4. 组件职责
 
-| 组件 | 职责 | 不负责 |
+| 组件 | 负责 | 不负责 |
 |---|---|---|
-| Nginx | TLS/入口、SPA、API 代理、SSE 代理、错误映射 | 业务鉴权 |
-| React | 工作流 UI、重试、签名下载、sessionStorage token | 权限最终裁决 |
-| FastAPI | 校验、RBAC、事务、任务投递、查询、SSE | 长耗时转换 |
-| MySQL | 业务事实、token blacklist、memory、broker/result | 大文件字节 |
-| Celery | 队列消费、任务状态机、恢复 | 业务数据最终展示缓存 |
-| MinIO/Local | 文件字节、派生结果 | 访问控制元数据 |
+| Nginx | 单一入口、SPA、代理、限流、SSE buffering 控制、网关错误 | 用户/项目授权、当前 TLS 终止 |
+| React | 操作流程、查询缓存、有限重试、下载触发 | 权限最终裁决、持久业务状态 |
+| FastAPI route | HTTP schema、dependency auth、envelope | 长耗时转换、跨层业务规则复制 |
+| Service | 事务编排、权限复用、状态机和存储补偿 | HTTP 展示和 UI 状态 |
+| Celery task | 调用 service、返回执行摘要 | 自建业务状态或绕过 attempt 条件 |
+| MySQL | 业务事实、broker/result、迁移版本 | 大对象字节、高吞吐消息语义 |
+| Local/MinIO | 不透明对象字节 | 用户身份、项目关系和授权 |
+| Stage | 确定性 CAD/Excel 领域处理 | 平台认证、任务生命周期、对象授权 |
 
-## 5. 数据库与连接
+## 5. 配置与环境
 
-- 运行时仅接受 MySQL DSN；SQLite 仅用于进程内 pytest double。
-- FastAPI 连接池参数由 `DB_POOL_SIZE`、`DB_POOL_MAX_OVERFLOW`、`DB_POOL_TIMEOUT_SECONDS` 和 `DB_POOL_RECYCLE_SECONDS` 控制。
-- Celery broker：`sqla+mysql+pymysql://...`。
-- Celery result backend：`db+mysql+pymysql://...`。
-- 两者从有效 MySQL DSN 派生，不允许重复配置出不同数据库。
-- Celery engine 使用小连接池、`pool_pre_ping`、`pool_recycle` 和 `READ COMMITTED`。
-- `kombu_message` 必须有 `(queue_id, timestamp, id, visible)` 索引，避免按全局 timestamp 跨队列锁行。
-- worker 在 consumer 建立前声明 bootstrap queue 并确保索引存在。
+- Pydantic Settings 从当前进程工作目录的 `.env` 读取；本地根脚本同时维护根 `.env` 和 `backend/.env`，数据库字段必须一致。
+- `DATABASE_URL` 是可选兼容覆盖；未设置时由 `MYSQL_*` 生成 DSN。运行时应使用 MySQL；SQLite 只允许测试 fixture 显式覆盖。
+- Celery broker/result 始终从有效 MySQL DSN 派生，不提供独立 `CELERY_BROKER_URL` 配置口径。
+- 功能开关默认全部关闭：`AGENT_ENABLED`、`DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`、`CAD_WORKER_ENABLED`。
+- `APP_ENV=production` 且 `DEBUG=false` 时禁用 OpenAPI、Swagger 和 ReDoc，并使用通用 500 消息。
+- `REFRESH_COOKIE_SECURE` 默认随 `APP_ENV`；公网只能使用 TLS + Secure cookie。HTTP 私网覆盖为 `false` 是风险接受，不是推荐生产配置。
 
-权威迁移 head：`a74c2e9f1d30`。主要新增：
+完整字段、默认值和敏感性见 `docs/configuration.md` 与 `docs/zh/configuration.md`。
 
-- `token_blacklist`、`agent_memory`、`jobs.progress_data`。
-- Excel Final batches、parts、components。
-- `jobs.attempt` 与 `job_steps.attempt`。
+## 6. 数据库与连接
 
-## 6. 任务状态机与 attempt
+- 当前 Alembic head 为 `a74c2e9f1d30`，业务模型共 22 张表。
+- 完整运行 schema 还包含 `alembic_version` 和 8 张 Celery/Kombu runtime 表，共 31 张表；Celery 表不由 Alembic 所有。
+- API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
+- Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
+- `kombu_message` 需要 `(queue_id, timestamp, id, visible)` 索引，降低跨队列扫描和锁范围。
+- `drawings` 与 `drawing_versions` 存在循环 FK；`alembic check` 当前会产生 SQLAlchemy 排序 warning，但无待生成操作。迁移必须显式处理 FK 创建/删除顺序。
+- FastAPI lifespan 中的 `init_db()` 异常会被记录后继续启动；Compose Docker CMD 在 Gunicorn 前显式执行迁移和 seed。因此 readiness 而非“进程存在”才表示数据库可用。
+
+## 7. 任务状态机与 attempt
 
 ```text
 queued -> running -> succeeded
@@ -93,148 +103,174 @@ queued/running    -> cancelled
 failed/cancelled  -> retry -> queued (attempt + 1)
 ```
 
-规则：
+强制规则：
 
-- Celery 消息必须携带 `(job_id, attempt)`；升级前单参数消息默认 attempt 1。
-- worker 只能用 `WHERE id=:id AND status='queued' AND attempt=:attempt` 原子领取，旧消息不得领取重试世代。
-- 进度、完成、失败、取消均带 status 和 attempt 条件。
-- dispatch compensation 同样带 queued+attempt 条件，worker 已领取时不得反向覆盖。
-- `job_steps` 每行保存 attempt；查询可筛选 attempt。
-- SSE 当前态只包含当前 attempt 的 steps；完整历史通过 steps 查询获取。
-- worker 启动扫描长期无更新的 running job，条件失败为 `CELERY_WORKER_LOST`。
-- Excel Final 的临时 batch 仅在条件状态更新成功后清理。
+- Celery 消息携带 `(job_id, attempt)`；兼容的单参数旧消息只代表 attempt 1。
+- worker 通过 `id + queued + expected attempt` 原子领取。
+- progress、完成、失败、取消、投递补偿和 stale recovery 均匹配 status + attempt。
+- `job_steps.attempt` 保存完整世代历史；默认 SSE 只展示当前世代。
+- API commit Job 后再投递 Celery。投递失败只能补偿仍为 queued 的同一 attempt，不能覆盖已被 worker 领取的任务。
+- `CELERY_STALE_JOB_TIMEOUT_SECONDS` 超时的 running Job 在 worker 启动时被条件标记 `CELERY_WORKER_LOST`；这是恢复机制，不是精确的 worker 心跳。
+- SQL transport 的整个 worker/主机丢失不能依赖消息重新投递完全恢复，必须结合 stale recovery 和人工重试。
 
-## 7. Celery 队列
+## 8. Celery 队列边界
 
-| 队列 | 任务 |
-|---|---|
-| `report` | 框架 smoke/stub 结果 |
-| `dxf` | DWG -> DXF |
-| `dxf2dwg` | DXF -> DWG |
-| `dxf2excel` | DXF batch -> Excel |
-| `excel_final` | Excel -> 企业零件清单 |
-| `agent` | 预留 |
-| `cad` | 预留 |
+| 队列 | task 状态 | 默认部署 |
+|---|---|---|
+| `report` | `run_stub_job` 已实现，用于框架任务 | Compose core、本地脚本 |
+| `dxf` | DWG -> DXF 已实现 | `workers` profile、本地脚本 |
+| `dxf2dwg` | DXF -> DWG 已实现 | `workers` profile、本地脚本 |
+| `dxf2excel` | DXF -> Excel task 已实现，但 Stage gitlink 损坏 | `workers` profile、本地脚本 |
+| `excel_final` | Excel Final task 已实现 | `workers` profile、本地脚本 |
+| `agent` | module 仅占位，无 Celery task | Compose 有占位 worker；本地脚本不启动 |
+| `cad` | module 仅占位，无 Celery task | 无 Compose/local worker |
 
-SQLAlchemy transport 不支持 fanout remote control；事件和 `inspect` 不作为健康检查。worker 健康条件是：PID 1 为 Celery 且 `/tmp/dwg-celery-ready` 已由 `worker_ready` 信号写入。
+SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect` 作为健康检查。Compose worker ready 条件是 PID 1 命令行含 Celery 且 `worker_ready` 信号已写 `/tmp/dwg-celery-ready`。这只证明进程已连接 broker，不证明特定业务 task 存在或依赖可用。
 
-## 8. 存储
+## 9. 存储与一致性
 
-`STORAGE_BACKEND` 只能为 `local` 或 `minio`。
-
-主要 bucket：
+`STORAGE_BACKEND` 只能是 `local` 或 `minio`。默认 bucket/key 口径包括：
 
 - `dwg-original`、`dwg-derived`
 - `dxf-original`、`dxf-derived`
 - `dwg-reports`、`dwg-temp`
 
-上传要求：
+上传边界：
 
-- 扩展名白名单 `.dwg/.dxf/.zip/.xls/.xlsx`。
-- DWG header 为 AC1012-AC1032，最小 1024 字节。
-- 流式计算 SHA-256/MD5，限制单文件、ZIP entry 数和解压总量。
-- MinIO 不可达时写入返回 503 `STORAGE_WRITE_FAILED`。
+- 允许 `.dwg/.dxf/.zip/.xls/.xlsx`，但扩展名只决定入口，不能证明业务内容有效。
+- DWG 必须有支持的 AC header 且至少 1024 bytes。
+- 流式限制文件大小并计算 SHA-256/MD5；ZIP 必须限制 entry 数、总解压大小和路径穿越。
+- 对象先写、数据库后 commit 时，SQLAlchemy session 记录待补偿对象；rollback 删除对象，commit 清除记录。
+- 存储写失败必须返回稳定错误，不允许改写到未配置的本地 fallback。
 
-下载要求：
+下载闭环：
 
-1. 调用 `/files/{id}/download-url` 进行权限检查并获得 300 秒签名。
-2. 调用 `/files/{id}/download` 时同时校验 Bearer token、资源权限、expires 和 HMAC。
-3. 前端遇到网络、403、408、429 或 5xx，最多再试一次，并重新获取签名。
-4. 下载字节 SHA-256 必须等于 `files.sha256`。
+1. Bearer 鉴权请求短期签名 URL。
+2. 下载端点再次校验 Bearer、当前资源权限、expires 和 HMAC；签名本身不是授权。
+3. 前端仅对网络错误、403、408、429 和 5xx 再试一次，并在每次尝试前重新签名。
+4. `files.sha256` 是下载完整性依据；对象恢复后必须再次比对。
+5. 普通单文件下载有重签名逻辑；ZIP 下载走 POST blob 流程，不复用该重签名循环。
 
-## 9. 认证与权限
+## 10. 身份、认证与授权
 
-- 密码使用 Argon2id。
-- access token 默认 30 分钟；refresh cookie 默认 14 天。
-- access/refresh token 类型不可互换。
-- token `jti` 写入 MySQL `token_blacklist`；密码变更时间也由 MySQL 检查。
-- 前端 access token 和用户信息使用 `sessionStorage`，不跨浏览器 tab 持久化。
-- SSE 使用短期 HttpOnly `dwg_sse_token` cookie，禁止 URL token。
+- 密码由 `pwdlib` 推荐 Argon2id 参数哈希；不存在用户和密码错误都执行一次验证以降低用户枚举时序差异。
+- access token 默认 30 分钟；refresh cookie 默认 14 天，HttpOnly、SameSite=Lax、path 为 `/api/v1/auth`。
+- SSE cookie 使用 access token，HttpOnly、SameSite=Lax、path 为 `/api/v1/jobs`。
+- access/refresh token 类型严格区分；JTI 吊销与 `password_changed_at` 检查直接查询 MySQL。
+- 前端 access token 和用户快照存于 `sessionStorage`；这降低跨 tab 持久化，但不能防止同源 XSS 读取 access token。
+- 全局角色为 `super_admin/admin/engineer/reviewer/operator/viewer/auditor`；项目成员角色为 owner/engineer/reviewer/viewer。
+- 文件读取允许全局项目管理员、上传者或关联活跃项目成员。删除仅允许上传者或管理员。
+- Result 详情、下载 URL 和复核继承父 Job；无项目 Job 仅管理员和创建者可访问。
+- Agent run 启用后仍按创建者、管理员或关联项目成员隔离。
 
-全局角色：`super_admin/admin/engineer/reviewer/operator/viewer/auditor`。项目资源还必须通过项目成员角色检查。文件读取允许管理员、上传者或关联项目成员；列表权限必须在 SQL 中过滤，禁止 N+1 逐文件鉴权。
+## 11. API 与错误契约
 
-Result 详情、下载 URL 和复核继承父 Job 权限；无项目 Job 仅管理员和创建者可访问。Agent run 启用后：管理员、创建者或关联项目成员可读；无项目 run 仅管理员和创建者可读。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 71 个 path、88 个 operation。
+- 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
+- 错误 envelope 为 `{error: {code, message, details}, meta}`。
+- request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
+- `DEBUG=true` 的未处理 500 响应可能包含异常字符串，只能用于受控开发；生产必须 `DEBUG=false`。
+- 运行时交互文档仅在 development 或 debug 模式存在。生产 API 参考应使用仓库生成的 `docs/api.md`/`docs/zh/api.md`。
 
-## 10. API 约定
+## 12. SSE
 
-- 版本前缀：`/api/v1`。
-- 成功：`{data, meta}`。
-- 分页：`{data, pagination, meta}`，最大页大小 200。
-- 错误：`{error: {code, message, details}, meta}`。
-- 列表必须使用 SQL `COUNT + LIMIT/OFFSET` 和稳定 ID tie-breaker。
-- 详细端点表由 `cd backend && uv run python ../scripts/generate_api_docs.py` 生成，见 `docs/api.md` 和 `docs/zh/api.md`。
+`GET /api/v1/jobs/{job_id}/events` 在开始 streaming 前执行普通 Job 权限检查。EventSource 使用 HttpOnly cookie，不在 URL 传 access token。服务循环查询 MySQL Job 和当前 attempt steps，发送权威 snapshot、progress 和 terminal event；断线重连重新发送当前快照，不承诺 `Last-Event-ID` 回放。Nginx 对该 location 关闭 buffering/cache 并设置一小时 read/send timeout。
 
-## 11. SSE
+## 13. 处理 Stage
 
-`GET /jobs/{id}/events`：
+| Stage | 主仓库归属 | 外部依赖 | 可复现性 |
+|---|---|---|---|
+| `dwg2dxf` | 普通跟踪目录 | ODA、Xvfb/FUSE | 源码和 ODA AppImage 已跟踪；仍需许可与真实样本验证 |
+| `dxf2dwg` | 普通跟踪目录 | ODA、Xvfb/FUSE | 同上 |
+| `dxf2excel` | gitlink | ezdxf/pandas/openpyxl | 当前 gitlink 无 `.gitmodules` 且目标对象缺失，干净 clone 不可复现 |
+| `excel_final` | 普通跟踪目录 | pandas/openpyxl/xlrd、手册 MySQL | backend 通过隔离子进程调用，不作为包导入 |
 
-- 首先执行与普通 Job GET 相同的权限检查。
-- 从 MySQL 读取 job 和当前 attempt 的 steps，生成 snapshot/progress/terminal 事件。
-- 断线重连后重新发送 MySQL 当前权威快照；当前不提供基于 event ID 的历史回放。
-- Nginx 对 SSE 禁用 buffering 并延长读取超时。
+Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清单 schema 的真实工作簿。legacy 二进制 `.xls` 通过锁定的 `xlrd` 读取；文本探测失败必须进入 Excel fallback。子进程 stdout 用结构化 JSON 与 backend 通信，完整 stderr 只进入 worker log。成功后同时写结果对象、`files`/`analysis_results` 和 Excel Final batch/part/component；客户端错误不得包含 traceback、DSN 或主机路径。
 
-## 12. Excel Final
+## 14. 前端运行语义
 
-- 输入内容必须是 Tekla 制表符/空白文本导出，或包含钢构清单必需列的初始表；不能仅凭 `.xls/.xlsx` 扩展名判定业务可处理性。
-- legacy 二进制 `.xls` 使用显式锁定的 `xlrd` 读取；文本探测失败必须继续进入真实 Excel fallback。
-- Stage 工程不作为 backend 包直接导入，而由 `app.integrations.excel_final_runner` 隔离子进程执行。
-- 子进程 stdout 只返回结构化 JSON；完整 stderr 仅写 server log。
-- 客户端只收到稳定错误码与安全消息。
-- worker 使用同一 SQLAlchemy session 写失败 step 与 job 失败状态，避免二次 session 锁冲突。
-- 成功时导入 batch/part/component，写结果对象并登记 `AnalysisResult`。
-- `hardware_handbook` 使用只读凭据；Compose 初始化为应用用户授予 `SELECT`。
+- Axios 对 401 只执行一次共享 refresh 请求，避免并发刷新风暴；登录和 refresh 请求自身不循环重试。
+- React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
+- Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
+- EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。
+- UI 权限守卫只控制显示，不替代 API 授权。
 
-## 13. 健康与恢复
+## 15. 健康、恢复与可观测性
 
-- `/health`：进程 liveness，不探测外部组件。
-- `/health/ready`：同时探测 MySQL 和配置的存储，任一失败返回 503，并分别报告组件状态。
-- MinIO 恢复后不得要求重启 API；持久卷中的旧对象必须仍可读。
-- Celery 启动清理过期 result rows、已消费 broker rows，并恢复 stale running jobs。
-- 本地脚本按命令行身份发现 worker，pidfile 丢失不能导致重复消费。
+- `/health` 只表示 API 进程存活，不探测外部组件。
+- `/health/ready` 分别探测 MySQL 和当前 storage，任一失败返回 503；响应只给稳定状态消息。
+- MinIO 恢复不要求重启 API；命名卷或外部持久存储中的旧对象应仍可读。
+- worker 启动时清理过期 result rows、已消费 broker rows并协调 stale Job。
+- 本地脚本按 Celery app、queue 和 node name 发现进程，pidfile 丢失时避免重复 worker。
+- 当前日志主要写 stdout/container logs 或本地 `/tmp/dwg-agent-*.log`；没有集中日志、指标、告警、追踪或 SLA 实现。
 
-## 14. Compose
+## 16. Compose 与发布边界
 
-核心服务：`nginx/backend-api/mysql/minio/worker-report`。`workers` profile 增加其余管线 worker。
+核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-excel-final`。
 
-- backend 仅在 `internal` 网络；Nginx 跨 public/internal。
-- MySQL/MinIO 使用命名卷。
-- MinIO 固定到验证过的 registry digest。
-- backend 镜像以非 root `appuser` 运行。
-- `.dockerignore` 排除 Stage 样本、虚拟环境、本地存储和 third-party 预览应用；实测 context 约 89MB。
+- backend 与 worker 共用非 root `appuser` 镜像。
+- MySQL 和 MinIO 使用命名卷且不发布宿主端口。
+- MinIO 固定 registry digest；MySQL 使用 8.4 tag，未固定 digest。
+- backend 在 Gunicorn 前执行 Alembic upgrade 和 seed。
+- Docker build 依赖 `Stages/dxf2excel` 实体源码；gitlink 未修复前新 clone 构建不可靠。
+- Compose 没有 TLS、证书、监控、备份、滚动升级或多副本协调，不应直接标记为完整生产方案。
 
-## 15. 测试与验收
+## 17. 数据保护与审计边界
 
-最小合并门槛：
+- `audit_logs` 通过应用 service 追加写入，API 没有更新/删除端点；但数据库没有 append-only trigger、WORM 存储、签名链或独立审计账号。因此它是**应用层追加约定**，不是防 DBA 篡改的不可变审计系统。
+- MySQL 和对象存储必须形成一致恢复点；只恢复数据库会留下缺失对象，只恢复对象会留下孤儿。
+- 当前仓库没有自动备份 job、保留执行器、加密密钥托管或恢复编排。运维文档提供手工基线，执行环境必须补齐调度、加密和演练证据。
+- `hardware_handbook` 应使用只读账号；Compose 初始化给应用用户授予该库 `SELECT`。
+
+## 18. 测试与验收
+
+最低静态/隔离门槛：
 
 ```bash
+make docs-check
 cd backend
 uv run ruff check app tests ../tests/run_full_verify.py
 uv run pytest -q
 uv run alembic check
-
-cd ../frontend
-npm run build
-npx playwright test
-
 cd ..
+cd Stages/dwg2dxf && uv run pytest -q && cd ../..
+cd Stages/dxf2dwg && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
 bash infra/verify.sh
 docker compose config --quiet
+cd frontend && npm run build && npx playwright test
 ```
 
-高风险变更必须增加：
+发布验收必须另外覆盖：
 
-- 状态竞态/attempt 回归。
-- 权限横向越权回归。
-- 存储失败补偿和恢复回归。
-- 浏览器下载重签名与哈希回归。
-- 空 MySQL schema + Compose 冷启动验证。
+- 空 MySQL/MinIO volume 冷启动到 migration head。
+- Nginx -> FastAPI 登录、refresh 和受权业务请求。
+- API -> MySQL broker -> Celery -> Stage -> MySQL terminal state。
+- 源对象、结果对象、数据库摘要和下载字节一致。
+- failed/cancelled Job 的 attempt 递增重试，以及旧消息/旧 worker 拒绝。
+- SSE cookie、当前 attempt 快照、断线重连和终态关闭。
+- 首次签名下载 403 后重新签名并成功；非重试型 4xx 不重放。
+- MinIO 中断时 readiness 503，恢复后对象摘要不变。
 
-## 16. 文档同步
+任何“已验证”记录都必须带日期、环境和范围，且不能代替代码变化后的重新执行。
 
-- `docs/` 与 `docs/zh/` 文件结构一一对应。
-- 命令、端点、环境变量和状态名在两种语言中完全一致。
-- 修改路由后必须运行 `cd backend && uv run python ../scripts/generate_api_docs.py`。
-- 提交前必须运行 `make docs-check`，验证双语结构、技术 token、生成 API、本地链接和端口约定。
-- 历史方案不得继续描述为当前运行架构；Redis 只能出现在迁移历史或“已移除”说明中。
+## 19. 完成交付标准
+
+| 未完成领域 | 完成所需证据 |
+|---|---|
+| TLS | 证书管理、8443 listener、80 跳转、HSTS、浏览器/openssl 握手和续期演练 |
+| `dxf2excel` 仓库完整性 | 普通跟踪目录或有效 `.gitmodules` + 可获取 commit；clean clone、`uv sync --locked`、Docker build 通过 |
+| Agent | 非占位 Celery task、模型/MCP 超时与取消、tool allowlist、权限/审计、真实 E2E |
+| CAD worker | 认证协议、幂等 dispatch、超时/取消、Windows 服务、artifact 回传、真实 CAD 样本 E2E |
+| 运维 | 指标、告警、集中日志、备份调度、恢复演练、容量和保留策略 |
+| Broker 扩容 | 压测数据、连接预算、故障恢复与 RabbitMQ/其他 broker ADR |
+
+## 20. 文档治理
+
+- `docs/*.md` 与 `docs/zh/*.md` 文件名、标题层级、表格结构、代码块和技术 token 必须同步。
+- 路由变更后运行 `make docs-generate`；提交前运行 `make docs-check`。
+- 组件 README 描述本目录的运行方式和边界；根 README 不复制完整内部算法。
+- `third_parts/` 是上游/外部文档，不纳入平台双语承诺；平台只能记录集成边界，不能改写上游历史。
+- 历史 Redis 内容只能作为迁移说明出现，不能重新成为当前依赖或 fallback 建议。
+- 分支名、端口、迁移 head、路径依赖、功能开关和验证日期属于高漂移事实，修改后必须从仓库重新核对。

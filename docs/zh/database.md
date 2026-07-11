@@ -272,7 +272,7 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 #### `drawing_versions`
 
-不可变版本记录。每次为图纸上传新的 DWG 修订版本都会创建一条新的版本行。
+应用层追加的版本记录。每次上传新的 DWG 修订版都会创建新行；API 没有修改已有版本的路由。数据库没有使用 trigger 或密码学 seal 让行物理不可变。
 
 | 列 | 类型 | 约束 | 描述 |
 |---|---|---|---|
@@ -436,7 +436,7 @@ Agent 运行中的单个工具调用和推理步骤。
 
 #### `audit_logs`
 
-所有重要操作的不可变审计追踪。
+安全相关操作的应用审计记录。service 追加写入且不暴露 update/delete API，但数据库不强制物理或密码学不可变。
 
 | 列 | 类型 | 约束 | 描述 |
 |---|---|---|---|
@@ -575,7 +575,7 @@ agent_runs ──< agent_run_steps
 
 # 2. 生成迁移脚本
 cd backend
-uv run alembic revision --autogenerate -m "变更描述"
+uv run alembic revision --autogenerate -m "change_description"
 
 # 3. 检查生成的脚本（位于 migrations/versions/）
 #    - 确认所有表/列变更是有意的
@@ -685,17 +685,9 @@ uv run alembic history
 
 ### 5.2 更改种子超级管理员
 
-种子用户仅在不存在该用户名的用户时创建。如需在更改密码后重新种子化：
+种子用户仅在不存在该用户名的用户时创建。以后修改 `SUPER_ADMIN_PASSWORD` 不会轮换已有账号。已认证时使用 `PATCH /api/v1/auth/password`；有权限的管理员可对允许的目标角色使用 password-reset request 端点。
 
-```bash
-# 1. 删除现有的超级管理员 (MySQL)
-mysql -u dwg_user -p dwg_agent -e "DELETE FROM sys_user_roles WHERE user_id IN (SELECT id FROM sys_users WHERE username='admin');"
-mysql -u dwg_user -p dwg_agent -e "DELETE FROM sys_users WHERE username='admin';"
-
-# 2. 用新的 SUPER_ADMIN_PASSWORD 更新 .env
-
-# 3. 重启应用 (init_db 在启动时运行)
-```
+不要删除种子 row 强制重建：用户可能被项目、文件、Job、版本、复核和审计记录引用。丢失 super-admin 的恢复需要有备份、独立审批且留下记录的受控数据库流程；仓库没有自动化该过程。
 
 ### 5.3 通过脚本手动种子化
 
@@ -707,81 +699,39 @@ bash scripts/db.sh init
 
 ---
 
-## 6. 备份策略建议
+## 6. 数据保护边界
 
-### 6.1 需要备份的内容
+### 6.1 必要恢复集合
 
-| 组件 | 优先级 | 方法 |
+| 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL 数据库 (`dwg_agent`) | **关键** | `mysqldump` --single-transaction |
-| 文件存储 (MinIO / 本地 `var/storage/`) | **关键** | `mc mirror` (MinIO) 或 `rsync` (本地) |
-| Celery SQL 表及持久化运行状态 | 已包含在 MySQL 备份中 | 使用同一次 `mysqldump`，无需独立状态存储备份 |
-| 配置文件 (`.env.docker`, `compose.yaml`) | 高 | Git + 加密备份 |
-| Nginx 配置 (`infra/nginx/`) | 中 | Git |
+| MySQL `dwg_agent` | 业务表、`alembic_version`、Celery runtime table | 只恢复 DB 会引用缺失对象或重放 broker row |
+| 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
+| `hardware_handbook` | schema/data 或独立管理的权威源 | Excel Final 重量查找可能变化或失败 |
+| 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |
+| 证据 | revision、migration head、timestamp、checksum、恢复结果 | 未测试 dump 不是备份保证 |
 
-### 6.2 MySQL 备份命令（推荐）
-
-```bash
-# 完整逻辑备份（通过 --single-transaction 实现一致性快照）
-mysqldump -h 127.0.0.1 -u dwg_user -p \
-  --single-transaction \
-  --routines \
-  --triggers \
-  --events \
-  --set-gtid-purged=OFF \
-  dwg_agent | gzip > dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz
-```
-
-### 6.3 推荐的备份计划
-
-| 频率 | 类型 | 保留策略 |
-|---|---|---|
-| 每日 | 完整 `mysqldump` | 7 天（滚动） |
-| 每周 | 完整 `mysqldump` | 4 周（滚动） |
-| 每月 | 完整 `mysqldump` | 12 个月 |
-| 迁移前 | 手动完整备份 | 直到迁移验证完毕 |
-
-### 6.4 MinIO / 文件存储备份
+### 6.2 本地 MySQL helper
 
 ```bash
-# MinIO 镜像到备份位置
-mc mirror minio/dwg-original backup/dwg-original --watch
-mc mirror minio/dwg-derived backup/dwg-derived --watch
-mc mirror minio/dxf-original backup/dxf-original --watch
-mc mirror minio/dxf-derived backup/dxf-derived --watch
-mc mirror minio/dwg-reports backup/dwg-reports --watch
-
-# 本地存储 rsync
-rsync -avz --delete var/storage/ backup@backup-server:/backups/dwg-agent/storage/
+bash scripts/db.sh backup /secure/path/dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz
 ```
 
-### 6.5 恢复步骤
+该 helper 面向根 `.env` 配置的本地 MySQL endpoint。它不采集 MinIO、`hardware_handbook`、live secret 或协调一致性点。
 
-```bash
-# 1. 停止应用（防止恢复期间写入）
-docker compose stop backend-api worker-*
+### 6.3 Compose 备份边界
 
-# 2. 恢复 MySQL
-gunzip < dwg_agent_20260703_120000.sql.gz | mysql -h 127.0.0.1 -u dwg_user -p dwg_agent
+Compose 不发布 MySQL/MinIO 宿主端口，也没有调度 backup service。简单静止备份应显式停止全部 API/worker writer，通过 `docker compose exec -T mysql` dump MySQL，并用 internal network 上已测试 client 采集每个 MinIO bucket。Compose 不支持 `worker-*` 这样的 service-name wildcard。
 
-# 3. 恢复文件（MinIO 示例）
-mc mirror backup/dwg-original/ minio/dwg-original/ --overwrite
+准确 Compose 命令和停止/启动顺序维护在[运维](operations.md)。数据库与对象必须作为一个恢复集合。
 
-# 4. 验证数据完整性
-mysql -u dwg_user -p dwg_agent -e "SELECT COUNT(*) FROM audit_logs; SELECT COUNT(*) FROM files;"
+### 6.4 恢复要求
 
-# 5. 重启应用
-docker compose up -d
-```
+1. writer 停止时恢复到隔离或维护环境。
+2. 从同一个声明恢复点恢复 MySQL 和全部对象 bucket。
+3. 验证 `alembic current`、全部必要 table 和手册查询。
+4. 把代表性恢复字节与 `files.sha256` 比较。
+5. 启动 worker 前检查 queued/running Job 和 Celery broker row；恢复 message 可能重新投递工作。
+6. 启动 stack，并执行认证 upload/process/SSE/download 工作流。
 
-### 6.6 时间点恢复（高级）
-
-对于需要 PITR 的生产部署：
-- 启用 MySQL 二进制日志（`log_bin = ON` 在 `my.cnf` 中）。
-- 将 binlog 与每日转储一起备份。
-- 恢复步骤：先恢复最新的完整转储，然后重放 binlog 到所需时间点。
-
-### 6.7 备份验证
-
-- **自动化:** 每周对临时数据库执行一次恢复测试，验证表行数，检查 FK 完整性。
-- **手动:** 存储恢复后抽查文件下载 -- 验证恢复后的文件与 `files.sha256` 数据库记录之间的 SHA-256 是否匹配。
+仓库当前没有自动 retention、point-in-time recovery 配置、backup encryption、调度 restore test 或 RPO/RTO 测量。这些是生产缺口，不是隐含平台能力。

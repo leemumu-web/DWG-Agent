@@ -1,36 +1,48 @@
 # Full-Stack Workflow Verification
 
-> **Scope:** Nginx, FastAPI, MySQL, Celery SQL transport, MinIO, frontend retries, and signed downloads
-> **Last verified:** 2026-07-11
-> **Chinese mirror:** [`zh/workflow-verification.md`](zh/workflow-verification.md)
+> **Scope:** Nginx, FastAPI, MySQL, Celery SQL transport, storage, frontend retry/SSE/download
+> **Latest documentation-audit run:** 2026-07-11
+> **Chinese mirror:** [zh/workflow-verification.md](zh/workflow-verification.md)
 
-## 1. Acceptance Boundary
+## 1. Evidence Levels
 
-Verification must exercise the actual production-shaped path, not only mocked API tests:
+| Level | Proves | Does not prove |
+|---|---|---|
+| Static/docs | source/config/link/schema declarations are internally consistent | a process starts or dependency works |
+| SQLite/backend tests | isolated API/service/security/state logic | MySQL locks, migrations, broker, MinIO, browser behavior |
+| Stage tests | deterministic converter/parser units and parity corpus | every real CAD/workbook or platform integration |
+| MySQL/infra checks | empty-schema migration and active local schema/config facts | complete Job/object/browser workflow |
+| Playwright contract/UI | API reachability and browser interactions; some tests use route fixtures | every scenario uses real Celery/MinIO/valid business files |
+| Live E2E | the exact deployed path and sample exercised in that run | future revisions or untested formats/outages |
+
+An acceptance claim must name its level, environment, date, sample, and skipped cases.
+
+## 2. Required Production-Shaped Path
 
 ```text
-Browser -> Nginx :8080 -> FastAPI :8010 local / :8000 container
-                         |-> MySQL authoritative state
-                         |-> MySQL Celery broker and result backend
-                         |-> MinIO objects
-Celery worker <- MySQL queue -> stage process -> MySQL state + MinIO result
+Browser -> Nginx HTTP :8080 local / :80 Compose
+  -> FastAPI :8010 local / :8000 internal
+     -> MySQL business + Celery runtime state
+     -> Local FS or MinIO objects
+Celery worker <- MySQL queue -> Stage -> MySQL state + storage result
 ```
 
-Redis/Valkey is not a component of this topology. Job progress, token revocation, SSE snapshots, broker messages, and task results are durable MySQL data.
+Redis/Valkey is not present. Current Compose is HTTP only; HTTPS is not part of this verified path. `Stages/dxf2excel` clean-clone reproducibility is also outside acceptance until its gitlink is repaired.
 
-## 2. Repeatable Commands
-
-Run static and isolated tests first:
+## 3. Repeatable Gates
 
 ```bash
+make docs-check
+
 cd backend
-uv run ruff check app tests
+uv run ruff check app tests ../tests/run_full_verify.py ../scripts/check_docs.py ../scripts/generate_api_docs.py
 uv run pytest -q
-uv run python ../scripts/check_docs.py
+uv run alembic check
 cd ..
 
-cd Stages/excel_final
-uv run pytest -q multi_split/tests
+cd Stages/dwg2dxf && uv run pytest -q
+cd ../dxf2dwg && uv run pytest -q
+cd ../excel_final && uv run pytest -q multi_split/tests
 cd ../..
 
 bash scripts/db.sh migration-test
@@ -42,7 +54,7 @@ npm run build
 npx playwright test
 ```
 
-With the local stack already running, execute the non-destructive smoke verifier through Nginx:
+With a local stack already running, use the read-only verifier through Nginx:
 
 ```bash
 DWG_VERIFY_USERNAME=admin \
@@ -50,47 +62,65 @@ DWG_VERIFY_PASSWORD='<configured-password>' \
 python tests/run_full_verify.py
 ```
 
-The verifier checks liveness, readiness, OpenAPI generation, authentication, exact paginated file/job reads, and managed process topology. It never resets the database or creates business records.
+It checks liveness, readiness, 71-path OpenAPI, login, exact paginated files/Jobs reads, and managed process topology. It does not create a processing Job, upload a file, interrupt storage, or validate a signed result digest.
 
-## 3. Required End-to-End Scenarios
+## 4. Required End-to-End Scenarios
 
-| Scenario | Expected evidence |
+| Scenario | Required evidence |
 |---|---|
-| Cold Compose start | Empty volumes migrate to Alembic head; backend and worker become healthy |
-| FastAPI -> MySQL | Authenticated requests persist and read authoritative rows |
-| FastAPI -> broker -> Celery | A submitted job leaves `queued`, records its attempt and steps, and reaches a terminal state |
-| Celery -> MinIO | Successful output has a `files` row and a matching object digest |
-| Signed download | Frontend requests a fresh URL, downloads bytes, and can re-sign after URL expiry/failure |
-| Retry | A failed/cancelled job creates the next attempt without overwriting earlier steps |
-| SSE | Browser receives the current attempt snapshot from MySQL; credentials are carried by the HttpOnly SSE cookie |
-| Result isolation | Unscoped result details, download URLs, and reviews reject users other than the creator/admin |
-| Storage outage | `/health` remains 200; `/health/ready` is 503 with database `ok` and storage `error` |
-| Storage recovery | Existing object remains downloadable with the original SHA-256 |
-| Worker restart | Managed scripts do not create duplicate named workers when pidfiles are missing |
-| Stale delivery | A one-argument legacy message cannot claim attempt 2; `(job_id, 2)` can execute it |
+| Clean checkout/build | fresh clone restores all Stage sources; locked backend/frontend installs and image build pass |
+| Cold Compose | empty MySQL/MinIO volumes reach migration head and healthy core/selected workers |
+| Authentication | Nginx login, access request, cookie refresh, logout/revocation and expired session |
+| Job dispatch | API creates queued attempt; MySQL broker delivers to the intended worker; JobSteps and terminal state persist |
+| Object closure | source/result `files` rows match stored objects and downloaded SHA-256 |
+| Retry isolation | failed/cancelled Job increments attempt; old message/worker cannot update it |
+| SSE | HttpOnly cookie works, current-attempt snapshot arrives, reconnect refreshes, terminal closes |
+| Authorization | cross-project and unscoped result/file/review access is rejected |
+| Download retry | first signed fetch fails with retryable status; second attempt obtains a different valid signature |
+| Storage outage | liveness remains 200; readiness is 503; recovery needs no API restart; old object remains intact |
+| Worker loss | stale running Job becomes `CELERY_WORKER_LOST`, then retry completes a new attempt |
+| TLS | real HTTPS handshake, redirect, Secure refresh/SSE cookies, signed download and certificate lifecycle |
 
-## 4. Verified Evidence
+The TLS and clean-checkout rows are currently known failures, not completed acceptance items.
 
-The 2026-07-11 acceptance run used fresh Compose volumes and a digest-pinned MinIO image:
+## 5. Latest Run Evidence
 
-- Alembic reached `a74c2e9f1d30` from an empty MySQL schema.
-- The broker created `kombu_message(queue_id, timestamp, id, visible)` and query planning selected that composite index.
-- A report job completed through API -> MySQL broker -> Celery -> MySQL state -> MinIO; the downloaded SHA-256 matched the stored object.
-- Stopping MinIO made readiness return 503 while database status remained `ok`; restarting MinIO preserved the object and digest.
-- A standalone MinIO persistence test independently completed an Excel Final job and recovered the same result bytes after restart.
-- Excel Final's own profile/VBA-parity suite passed 254 tests; legacy binary `.xls` parsing includes `xlrd` and falls through from failed text detection.
-- Browser tests exercised real upload, job polling, failed-job retry with incremented attempt, signed URL refresh, and result download.
-- A real MySQL/report-worker probe left an attempt 2 job queued after a legacy one-argument delivery, then completed it only after a `(job_id, 2)` delivery.
+The 2026-07-11 documentation-audit run used the existing local MySQL and already-running local Nginx/FastAPI/five implemented workers; it did not restart the stack or recreate Compose volumes.
 
-These observations are evidence for that run, not a substitute for rerunning the commands after future changes.
+| Gate | Result | Boundary |
+|---|---|---|
+| Documentation checker | pass | includes bilingual commands/tokens, generated API, links, table/head, TLS/gitlink/production-doc contracts |
+| Backend Ruff | pass | application, tests, verifier, documentation scripts |
+| Backend pytest | **661 passed, 3 skipped** | 10 dependency/deprecation warnings; isolated tests use SQLite where configured |
+| Alembic check | no new operations | known `drawings`/`drawing_versions` cycle warning remains |
+| MySQL migration test | pass | empty temporary schema -> `a74c2e9f1d30`; 22 business tables |
+| Infrastructure verifier | **110/110** | static contracts plus active local MySQL; not TLS/build/restore/E2E |
+| Stage tests | **13 + 28 + 254 passed** | dwg2dxf, dxf2dwg, Excel Final multi_split respectively |
+| Frontend build | pass | TypeScript and Vite production bundle |
+| Playwright | **49 passed** | `PLAYWRIGHT_EXCEL_SAMPLE_PATH` used real `G区域四节钢柱构件零件清单毛净重.xLS`; includes Celery and fresh-signature digest closure |
+| Live read-only verifier | 7 checks passed | liveness, readiness, 71 paths, auth, file/job lists, process topology |
 
-## 5. Failure Triage
+The full run supplied the repository's known-valid Tekla list and passed successful upload -> Celery -> result -> failed-first-download -> fresh-signature digest verification. A separate `阚导出材料表.xls` probe was correctly rejected because it lacked required `构件编号` and `数量` columns; a related filename/extension is not sufficient input validity. Many other Files/Jobs UI tests use deterministic route fixtures and prove UI/API contracts rather than real object processing.
 
-1. Check `bash scripts/status.sh` and `/health/ready` before examining business logic.
-2. Inspect `/tmp/dwg-agent-backend.log` and `/tmp/dwg-agent-worker-*.log` for the first error.
-3. Confirm `alembic current` is the documented head and the application MySQL user can connect.
-4. Confirm exactly one managed worker node per queue and that `/tmp/dwg-celery-ready` exists in Compose workers.
-5. Compare the `files.sha256` value with downloaded bytes and the MinIO object before blaming the frontend.
-6. Use the browser network trace to distinguish an expired signed URL from a failed object fetch.
+## 6. Historical Integration Record
 
-Never repair a failed verification by enabling an in-memory fallback: that would hide loss of the authoritative path.
+The repository previously recorded a 2026-07-11 fresh-volume integration run with these observations:
+
+- MySQL migrated from empty volume to `a74c2e9f1d30` and created the queue-claim index.
+- A report Job traversed API -> MySQL broker -> Celery -> MySQL state -> MinIO and downloaded with matching SHA-256.
+- MinIO interruption changed readiness to 503 while database remained `ok`; recovery preserved an existing object.
+- A real attempt-2 probe rejected a legacy one-argument message and completed only after `(job_id, 2)` delivery.
+
+These are retained as dated historical evidence. They were not independently repeated during the latest documentation-only run and must be rerun after relevant implementation, image, dependency, or environment changes.
+
+## 7. Failure Triage
+
+1. Record revision, request ID, Job ID/attempt, time, flags, sample digest, and exact entry URL.
+2. Check `bash scripts/status.sh`, `/health`, and `/health/ready` without restarting first.
+3. Inspect the first API/worker/storage/MySQL error, not only the browser's final message.
+4. Confirm `alembic current`, Job/JobStep state, queue worker identity, and Stage source availability.
+5. Compare `files.sha256`, storage bytes, and downloaded bytes.
+6. Distinguish browser fixture coverage from a real backend call and a real worker/object result.
+7. Add a focused regression, then rerun every affected layer and required E2E scenario.
+
+Never make a gate pass by enabling an in-memory fallback, disabling authorization, accepting arbitrary spreadsheet content, or describing a skipped scenario as verified.

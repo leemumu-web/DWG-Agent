@@ -9,6 +9,14 @@ DWG 文件/目录 → ODA File Converter (subprocess) → DXF
 本模块只做**转换**这一件事：定位 ODA、按目录调用 CLI、超时/重试/隔离、批量转换、
 扫描产物判断成败。不做表格/文字/线段解析（那是拿到 DXF 之后的下一步）。
 
+## Platform integration boundary / 平台集成边界
+
+**English:** This is a standalone converter package and an editable dependency of `backend/`. The platform invokes it from the `dxf` Celery queue only when `DXF_PIPELINE_ENABLED=true`. The package does not authenticate users, own Jobs, authorize storage, or expose a production FastAPI service. The tracked Linux AppImage still requires a compatible host, Xvfb/FUSE, ODA license review, and validation with representative real DWG files.
+
+**中文：** 本目录是独立 converter package，也是 `backend/` 的 editable dependency。平台只在 `DXF_PIPELINE_ENABLED=true` 时从 `dxf` Celery 队列调用。该包不负责用户认证、Job、存储授权或生产 FastAPI 服务。已跟踪 Linux AppImage 仍要求兼容主机、Xvfb/FUSE、ODA 许可审查和真实代表性 DWG 验证。
+
+单元测试主要验证命令构造、隔离、错误解析和边界，不等同于所有 DWG 版本的转换认证。平台级状态、重试和结果持久化见 [`docs/processing-pipelines.md`](../../docs/processing-pipelines.md)。
+
 ---
 
 ## 功能

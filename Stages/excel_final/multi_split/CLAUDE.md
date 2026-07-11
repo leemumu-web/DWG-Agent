@@ -1,5 +1,7 @@
 # multi_split — 钢结构型材/板材智能拆分引擎
 
+> **Integration boundary / 集成边界：** `multi_split` is a deterministic internal engine used by the standalone Excel Final Stage. It does not own FastAPI, Celery, MySQL Job state, storage permissions, or public error handling. 它不是独立平台服务；平台集成说明见 [`../README.md`](../README.md)。
+
 从 SunFire VBA 插件 (`FRMSPLIT` + `frmQD` + `SortCriteria` + `FrmCombination` + `frmDZB` + `模块宏`) 完整转译，纯 Python，无需 Excel。
 
 ---
@@ -24,7 +26,7 @@ sheet_name = split_profile_excel(
 # → str: 新建子表名
 ```
 
-**行为**: 读 `sheet_name` → 自动检测表头行 (上半部分 ≥87.5% 非空) → 拆分 → 在同文件追加 `{sheet}_拆板后`。**原表不动**。目标子表已存在则覆翼。
+**行为**: 读 `sheet_name` → 自动检测表头行 (上半部分 ≥87.5% 非空) → 拆分 → 在同文件追加 `{sheet}_拆板后`。**源子表不动**。目标子表已存在则覆盖。
 
 ### 2. DataFrame 级拆分 (链式/内存)
 

@@ -1,5 +1,7 @@
 # convert —— DXF 批量转 DWG 工作区
 
+> **Boundary / 边界：** This folder is a manual standalone batch workspace, not the platform Celery queue or storage transaction path. 本目录是手工独立批处理工作区，不是平台 Celery 队列或存储事务路径。生产平台调用见上级 [`README.md`](../README.md)。输入/输出目录内容被 `.gitignore` 忽略，不应作为测试证据提交。
+
 放 DXF、出 DWG、跑脚本,一条命令完成批量转换。所有调用都在项目内
 (项目自带 `uv` 虚拟环境 + `tools/oda/` 的 ODA 二进制),外部接口无需自备 Python 环境。
 
