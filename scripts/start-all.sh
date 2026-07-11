@@ -12,32 +12,15 @@ echo -e "${GREEN}  DWG-Agent 一键启动${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 
 # ── 0. Pre-flight ──────────────────────────────────────────────
-if [ ! -f "$PROJECT_ROOT/.env" ]; then
-    err ".env 不存在，请从 .env.example 复制并配置"
-    exit 1
-fi
-if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
-    err "backend/.env 不存在，请从 .env.example 复制并配置"
-    exit 1
-fi
+require_env_files
 
 # ── 1. MySQL ───────────────────────────────────────────────────
 step "1/5 MySQL"
-bash "$PROJECT_ROOT/scripts/db.sh" start
-if bash "$PROJECT_ROOT/scripts/db.sh" check >/dev/null 2>&1; then
-    ok "MySQL 已就绪，跳过初始化"
-else
-    info "MySQL 需要初始化..."
-    bash "$PROJECT_ROOT/scripts/db.sh" init
-fi
+ensure_db_ready
 
 # ── 2. Celery Workers ──────────────────────────────────────────
 step "2/5 Celery workers"
-start_report_worker
-start_dxf_worker
-start_dxf2dwg_worker
-start_dxf2excel_worker
-start_excel_final_worker
+start_all_workers
 
 # ── 3. Backend ─────────────────────────────────────────────────
 step "3/5 后端 FastAPI"
@@ -113,7 +96,8 @@ echo -e "  API 文档: ${BLUE}http://localhost:8080/docs${NC}"
 echo -e "  Health:  ${BLUE}http://localhost:8080/health${NC}"
 echo -e "  后端直达: ${DIM}http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}${NC}"
 echo ""
-echo -e "  登录凭据: ${YELLOW}.env 中的 SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD${NC}"
+print_admin_credentials
+echo ""
 echo -e "  停止:  ${YELLOW}bash scripts/stop-all.sh${NC}"
 echo -e "  状态:  ${YELLOW}bash scripts/status.sh${NC}"
 echo ""

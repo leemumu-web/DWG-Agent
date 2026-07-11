@@ -33,11 +33,7 @@ fi
 
 # 4. Celery Workers
 step "4/4 Celery workers"
-stop_celery_worker report report || true
-stop_celery_worker dxf dxf || true
-stop_celery_worker dxf2dwg dxf2dwg || true
-stop_celery_worker dxf2excel dxf2excel || true
-stop_celery_worker excel_final excel-final || true
+stop_all_workers
 echo -e "  MySQL:  $(port_free 3306 && echo -e "${DIM}未运行${NC}" || echo -e "${GREEN}运行中${NC}")"
 echo ""
 echo -e "  ${YELLOW}MySQL 通常保持运行，不予停止。${NC}"

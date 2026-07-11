@@ -39,15 +39,6 @@ SQLite policy:
 EOF
 }
 
-env_value() {
-    local file="$1" key="$2"
-    [ -f "$file" ] || return 0
-    awk -v key="$key" '
-        BEGIN { FS="=" }
-        $1 == key { sub(/^[^=]*=/, ""); print; exit }
-    ' "$file"
-}
-
 pick_mysql_client() {
     if [ -n "$MYSQL_CLIENT" ]; then
         command -v "$MYSQL_CLIENT" >/dev/null || { err "找不到 MySQL 客户端: $MYSQL_CLIENT"; return 1; }

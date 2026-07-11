@@ -11,6 +11,16 @@ export PROJECT_ROOT LOCAL_BACKEND_HOST LOCAL_BACKEND_PORT
 
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; BLUE='\033[34m'; DIM='\033[2m'; NC='\033[0m'
 
+# Celery worker 单一事实来源：queue:concurrency:slug
+# start-all / start-dev / stop-all / status 全部从这里派生，避免各脚本各写一份列表。
+WORKER_SPECS=(
+    "report:1:report"
+    "dxf:2:dxf"
+    "dxf2dwg:2:dxf2dwg"
+    "dxf2excel:1:dxf2excel"
+    "excel_final:1:excel-final"
+)
+
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
 warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 err()  { echo -e "  ${RED}✗${NC} $1"; }
@@ -18,6 +28,49 @@ info() { echo -e "${BLUE}▶${NC} $1"; }
 step() { echo -e "\n${BLUE}── $1 ──${NC}"; }
 
 port_free() { ! ss -tlnp "sport = :$1" 2>/dev/null | grep -q ":$1"; }
+
+# 从 .env 风格文件读取单个键值（保留原始值，不去引号）。
+env_value() {
+    local file="$1" key="$2"
+    [ -f "$file" ] || return 0
+    awk -v key="$key" '
+        BEGIN { FS="=" }
+        $1 == key { sub(/^[^=]*=/, ""); print; exit }
+    ' "$file"
+}
+
+# 启动前置：确认 .env 与 backend/.env 存在，否则直接退出。
+require_env_files() {
+    if [ ! -f "$PROJECT_ROOT/.env" ]; then
+        err ".env 不存在，请从 .env.example 复制并配置"
+        exit 1
+    fi
+    if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
+        err "backend/.env 不存在，请从 .env.example 复制并配置"
+        exit 1
+    fi
+}
+
+# 启动 MySQL 并在 schema 缺失时初始化 + 种子。
+ensure_db_ready() {
+    bash "$PROJECT_ROOT/scripts/db.sh" start
+    if bash "$PROJECT_ROOT/scripts/db.sh" check >/dev/null 2>&1; then
+        ok "MySQL 已就绪，跳过初始化"
+    else
+        info "MySQL 需要初始化..."
+        bash "$PROJECT_ROOT/scripts/db.sh" init
+    fi
+}
+
+# 打印管理员登录凭据。这些值来自 .env，首次 db init 时写入数据库 sys_users。
+print_admin_credentials() {
+    local user pass
+    user="$(env_value "$PROJECT_ROOT/.env" SUPER_ADMIN_USERNAME)"
+    pass="$(env_value "$PROJECT_ROOT/.env" SUPER_ADMIN_PASSWORD)"
+    echo -e "  管理员账号: ${YELLOW}${user:-未配置}${NC}"
+    echo -e "  管理员密码: ${YELLOW}${pass:-未配置}${NC}"
+    echo -e "  ${DIM}（取自 .env 的 SUPER_ADMIN_USERNAME/PASSWORD；首次 db init 写入数据库，之后改 .env 不影响已建账号）${NC}"
+}
 
 check_port() {
     local port="$1" label="$2"
@@ -150,11 +203,22 @@ start_celery_worker() {
     return 1
 }
 
-start_report_worker() { start_celery_worker report 1; }
-start_dxf_worker() { start_celery_worker dxf 2; }
-start_dxf2dwg_worker() { start_celery_worker dxf2dwg 2; }
-start_dxf2excel_worker() { start_celery_worker dxf2excel 1; }
-start_excel_final_worker() { start_celery_worker excel_final 1 excel-final; }
+# 遍历 WORKER_SPECS 启动/停止全部 Celery worker。
+start_all_workers() {
+    local spec queue concurrency slug
+    for spec in "${WORKER_SPECS[@]}"; do
+        IFS=: read -r queue concurrency slug <<<"$spec"
+        start_celery_worker "$queue" "$concurrency" "$slug"
+    done
+}
+
+stop_all_workers() {
+    local spec queue concurrency slug
+    for spec in "${WORKER_SPECS[@]}"; do
+        IFS=: read -r queue concurrency slug <<<"$spec"
+        stop_celery_worker "$queue" "$slug" || true
+    done
+}
 
 wait_port() {
     local host="$1" port="$2" timeout="${3:-30}" label="${4:-$host:$port}"

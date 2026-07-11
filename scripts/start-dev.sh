@@ -10,14 +10,7 @@ echo -e "${BLUE}═════════════════════�
 
 # 0. 前置检查
 step "前置检查"
-if [ ! -f "$PROJECT_ROOT/.env" ]; then
-    err ".env 不存在，请从 .env.example 复制并配置"
-    exit 1
-fi
-if [ ! -f "$PROJECT_ROOT/backend/.env" ]; then
-    err "backend/.env 不存在，请从 .env.example 复制并配置"
-    exit 1
-fi
+require_env_files
 if [ ! -d "$PROJECT_ROOT/frontend/node_modules" ]; then
     info "安装前端依赖..."
     (cd "$PROJECT_ROOT/frontend" && npm ci)
@@ -26,26 +19,11 @@ ok "前置检查通过"
 
 # 1. 基础设施
 step "基础设施"
-bash "$PROJECT_ROOT/scripts/db.sh" start
-# Only init if DB needs it (check first to skip expensive migration check)
-if bash "$PROJECT_ROOT/scripts/db.sh" check >/dev/null 2>&1; then
-    ok "MySQL 已就绪，跳过初始化"
-else
-    info "MySQL 需要初始化..."
-    bash "$PROJECT_ROOT/scripts/db.sh" init
-fi
+ensure_db_ready
 
 # 2. Celery workers
-step "Celery worker-report"
-start_report_worker
-step "Celery worker-dxf"
-start_dxf_worker
-step "Celery worker-dxf2dwg"
-start_dxf2dwg_worker
-step "Celery worker-dxf2excel"
-start_dxf2excel_worker
-step "Celery worker-excel-final"
-start_excel_final_worker
+step "Celery workers"
+start_all_workers
 
 # 3. 后端
 step "后端 (${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT})"
@@ -86,6 +64,8 @@ echo ""
 echo -e "  前端: ${BLUE}http://127.0.0.1:5173${NC}      (Vite HMR)"
 echo -e "  后端: ${BLUE}http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}${NC}      (FastAPI --reload)"
 echo -e "  Docs: ${DIM}http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}/docs${NC}"
+echo ""
+print_admin_credentials
 echo ""
 echo -e "  停止: ${YELLOW}bash scripts/stop-all.sh${NC}"
 

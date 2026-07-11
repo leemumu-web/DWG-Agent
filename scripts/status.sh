@@ -12,9 +12,8 @@ ALL_OK=true
 # 1. Infrastructure
 step "基础设施"
 bash "$PROJECT_ROOT/scripts/db.sh" status || ALL_OK=false
-for worker in "report:report" "dxf:dxf" "dxf2dwg:dxf2dwg" "dxf2excel:dxf2excel" "excel_final:excel-final"; do
-    queue="${worker%%:*}"
-    label="${worker#*:}"
+for spec in "${WORKER_SPECS[@]}"; do
+    IFS=: read -r queue _concurrency label <<<"$spec"
     mapfile -t worker_pids < <(celery_worker_pids "$queue" "$label")
     if ((${#worker_pids[@]} > 0)); then
         ok "Celery worker-${label} — pid(s) ${worker_pids[*]}"
