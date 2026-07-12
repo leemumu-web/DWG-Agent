@@ -55,7 +55,7 @@ export function ExcelFinalOverview({ health, overview, loading, error }: ExcelFi
       <div className="excel-final-metric-grid">
         {cards.map((card) => (
           <article className={`excel-final-metric is-${card.tone}`} key={card.label}>
-            <span className="excel-final-metric-icon">{card.icon}</span>
+            <span className="excel-final-metric-icon" aria-hidden="true">{card.icon}</span>
             <div>
               <strong>{card.value}</strong>
               <span>{card.label}</span>

@@ -69,7 +69,7 @@ export function ZipDownloadModal({ open, fileIds, fileCount, onClose, onDone }: 
       ]}
       destroyOnHidden
     >
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      <Space orientation="vertical" style={{ width: '100%' }} size="middle">
         <div>
           <Typography.Text strong>已选 {fileCount} 个文件</Typography.Text>
         </div>
@@ -89,7 +89,7 @@ export function ZipDownloadModal({ open, fileIds, fileCount, onClose, onDone }: 
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
             下载内容（至少选一项）
           </Typography.Text>
-          <Space direction="vertical">
+          <Space orientation="vertical">
             <Checkbox checked={dwg} onChange={(e) => setDwg(e.target.checked)}>
               包含 DWG 文件
             </Checkbox>

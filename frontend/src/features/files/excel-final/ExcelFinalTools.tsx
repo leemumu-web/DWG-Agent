@@ -63,13 +63,13 @@ export function ExcelFinalTools() {
     <section className="excel-final-tools" aria-label="数据检索工具">
       <Card className="excel-final-tool-card" title={<><SearchOutlined /> 跨批次零件检索</>}>
         <Space wrap size={8} className="excel-final-search-controls">
-          <Input aria-label="跨批次零件号" placeholder="零件号" allowClear value={draft.part_no ?? ''}
+          <Input aria-label="跨批次零件号" name="excel_final_part_no" autoComplete="off" placeholder="零件号…" allowClear value={draft.part_no ?? ''}
             onChange={(event) => setDraft((current) => ({ ...current, part_no: event.target.value }))}
             onPressEnter={applySearch} />
-          <Input aria-label="跨批次规格" placeholder="规格" allowClear value={draft.spec ?? ''}
+          <Input aria-label="跨批次规格" name="excel_final_spec" autoComplete="off" placeholder="规格…" allowClear value={draft.spec ?? ''}
             onChange={(event) => setDraft((current) => ({ ...current, spec: event.target.value }))}
             onPressEnter={applySearch} />
-          <Input aria-label="跨批次材质" placeholder="材质" allowClear value={draft.material ?? ''}
+          <Input aria-label="跨批次材质" name="excel_final_material" autoComplete="off" placeholder="材质…" allowClear value={draft.material ?? ''}
             onChange={(event) => setDraft((current) => ({ ...current, material: event.target.value }))}
             onPressEnter={applySearch} />
           <Button type="primary" aria-label="搜索零件" icon={<SearchOutlined />} onClick={applySearch}>搜索</Button>
@@ -105,7 +105,7 @@ export function ExcelFinalTools() {
           查询型钢或板材的理论米重，结果来自独立五金手册数据库。
         </Typography.Paragraph>
         <Space.Compact block>
-          <Input aria-label="钢材规格" placeholder="例如 L50x5、PL10*200" value={weightSpec}
+          <Input aria-label="钢材规格" name="excel_final_weight_spec" autoComplete="off" placeholder="例如 L50x5、PL10*200…" value={weightSpec}
             onChange={(event) => setWeightSpec(event.target.value)}
             onPressEnter={() => weightSpec.trim() && weightQ.mutate(weightSpec.trim())} />
           <Button type="primary" aria-label="查询理论重量" loading={weightQ.isPending}

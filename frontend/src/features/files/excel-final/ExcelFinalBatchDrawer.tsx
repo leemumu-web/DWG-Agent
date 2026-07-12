@@ -170,13 +170,13 @@ export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatc
               children: (
                 <>
                   <Space wrap size={8} className="excel-final-drawer-filters">
-                    <Input placeholder="零件号" aria-label="批次零件号" allowClear value={filterDraft.part_no ?? ''}
+                    <Input placeholder="零件号…" aria-label="批次零件号" name="batch_part_no" autoComplete="off" allowClear value={filterDraft.part_no ?? ''}
                       onChange={(event) => setFilterDraft((current) => ({ ...current, part_no: event.target.value }))}
                       onPressEnter={applyFilters} />
-                    <Input placeholder="规格" aria-label="批次规格" allowClear value={filterDraft.spec ?? ''}
+                    <Input placeholder="规格…" aria-label="批次规格" name="batch_spec" autoComplete="off" allowClear value={filterDraft.spec ?? ''}
                       onChange={(event) => setFilterDraft((current) => ({ ...current, spec: event.target.value }))}
                       onPressEnter={applyFilters} />
-                    <Input placeholder="材质" aria-label="批次材质" allowClear value={filterDraft.material ?? ''}
+                    <Input placeholder="材质…" aria-label="批次材质" name="batch_material" autoComplete="off" allowClear value={filterDraft.material ?? ''}
                       onChange={(event) => setFilterDraft((current) => ({ ...current, material: event.target.value }))}
                       onPressEnter={applyFilters} />
                     <Button icon={<FilterOutlined />} type="primary" onClick={applyFilters}>筛选</Button>

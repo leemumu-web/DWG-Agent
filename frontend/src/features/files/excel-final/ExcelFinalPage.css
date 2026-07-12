@@ -36,7 +36,7 @@
   box-shadow: 0 0 0 38px rgba(110, 224, 240, .035), 0 0 0 82px rgba(110, 224, 240, .025);
 }
 .excel-final-header > * { position: relative; z-index: 1; }
-.excel-final-header h2.ant-typography { margin: 3px 0 4px; color: #f7fbfd; font-size: clamp(24px, 3vw, 34px); }
+.excel-final-header h2.ant-typography { margin: 3px 0 4px; color: #f7fbfd; font-size: clamp(24px, 3vw, 34px); text-wrap: balance; }
 .excel-final-header p.ant-typography { margin: 0; color: #9cb8c7; }
 .excel-final-header .ant-btn { color: #d7edf3; background: rgba(13, 44, 59, .72); border-color: #397187; }
 .excel-final-kicker { color: #66d3e4; font: 650 10px/1.2 "JetBrains Mono", monospace; letter-spacing: .18em; }
@@ -96,10 +96,14 @@
 .excel-final-section-head h4.ant-typography { margin: 1px 0 0; color: #243d51; }
 .excel-final-section-head small { color: var(--ef-muted); }
 .excel-final-data-section .ant-table-thead > tr > th { color: #4c6274; background: #f7f9fb; font-size: 12px; }
+.excel-final-page .ant-table-cell { font-variant-numeric: tabular-nums; }
 .excel-final-job-link { padding: 0; color: #167d93; background: none; border: 0; cursor: pointer; font: inherit; }
+.excel-final-job-link:hover { color: #0b596c; text-decoration: underline; }
+.excel-final-job-link:focus-visible { outline: 2px solid #2a91a7; outline-offset: 3px; border-radius: 2px; }
 
 .excel-final-batch-drawer .ant-drawer-header { background: #102838; border-bottom-color: #274b5c; }
 .excel-final-batch-drawer .ant-drawer-title { color: #e7f4f7; }
+.excel-final-batch-drawer .ant-drawer-body { overscroll-behavior: contain; }
 .excel-final-batch-summary { display: grid; grid-template-columns: minmax(250px, 2fr) repeat(3, minmax(100px, 1fr)); gap: 1px; margin-bottom: 14px; background: #d5e1e7; border: 1px solid #d5e1e7; border-radius: 3px 12px 3px 3px; overflow: hidden; }
 .excel-final-batch-summary > div { min-width: 0; padding: 14px; background: #f7fafb; }
 .excel-final-batch-summary > div:first-child { background: #112c3b; color: #e8f5f7; }

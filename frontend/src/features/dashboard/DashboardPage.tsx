@@ -49,7 +49,7 @@ export function DashboardPage() {
   const anyError = projectsQ.isError || filesQ.isError || jobsQ.isError;
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       {/* greeting */}
       <div className="dashboard-hero">
         <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
@@ -142,9 +142,9 @@ export function DashboardPage() {
 
         {/* quick actions + stage info */}
         <Col xs={24} lg={8}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
             <Card title="快捷入口" size="small">
-              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={8} style={{ width: '100%' }}>
                 <Link to="/files"><Button block icon={<CloudUploadOutlined />}>上传 DWG 文件</Button></Link>
                 <Link to="/projects"><Button block icon={<ProjectOutlined />}>我的项目</Button></Link>
                 <Link to="/jobs"><Button block icon={<ThunderboltOutlined />}>任务列表</Button></Link>

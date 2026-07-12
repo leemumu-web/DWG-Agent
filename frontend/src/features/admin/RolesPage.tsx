@@ -96,7 +96,7 @@ export function RolesPage() {
       {byResource.length === 0 ? (
         <Empty description="暂无权限" />
       ) : (
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space orientation="vertical" size={12} style={{ width: '100%' }}>
           {byResource.map(([resource, items]) => (
             <Card
               key={resource}

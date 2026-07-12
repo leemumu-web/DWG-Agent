@@ -71,11 +71,15 @@ export function DxfPreviewModal({
   const [reloadKey, setReloadKey] = useState(0);
   const objectUrlRef = useRef<string | null>(null);
 
-  const releaseObjectUrl = useCallback(() => {
+  const revokeObjectUrl = useCallback(() => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = null;
-    setObjectUrl(null);
   }, []);
+
+  const releaseObjectUrl = useCallback(() => {
+    revokeObjectUrl();
+    setObjectUrl(null);
+  }, [revokeObjectUrl]);
 
   useEffect(() => {
     if (!open || fileId === null) {
@@ -117,7 +121,7 @@ export function DxfPreviewModal({
     };
   }, [fileId, open, reloadKey, releaseObjectUrl]);
 
-  useEffect(() => releaseObjectUrl, [releaseObjectUrl]);
+  useEffect(() => revokeObjectUrl, [revokeObjectUrl]);
 
   const handleDownload = useCallback(async () => {
     if (fileId === null) return;
@@ -209,7 +213,7 @@ export function DxfPreviewModal({
                     wrapperClass="dxf-preview-canvas"
                     contentStyle={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}
                   >
-                    <img src={objectUrl} alt={`DXF 预览 ${fileName}`} draggable={false} />
+                    <img src={objectUrl} alt={`DXF 预览 ${fileName}`} width={1200} height={900} draggable={false} />
                   </TransformComponent>
                 </>
               )}

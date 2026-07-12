@@ -104,7 +104,7 @@ export function AuditLogsPage() {
     {
       title: '资源', width: 160,
       render: (_: unknown, r: AuditLog) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Typography.Text>{r.resource_type}</Typography.Text>
           {r.resource_id != null && <Typography.Text type="secondary" style={{ fontSize: 12 }}>#{r.resource_id}</Typography.Text>}
         </Space>

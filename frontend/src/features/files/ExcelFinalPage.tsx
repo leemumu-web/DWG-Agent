@@ -231,7 +231,7 @@ export function ExcelFinalPage() {
 
   const activeStatus = statusQ.data;
   return (
-    <main className="excel-final-page">
+    <div className="excel-final-page">
       <header className="excel-final-header">
         <div>
           <span className="excel-final-kicker">PART LIST / DATA OBSERVATORY</span>
@@ -298,6 +298,6 @@ export function ExcelFinalPage() {
 
       <ExcelFinalBatchDrawer batchId={selectedBatchId} open={selectedBatchId !== null} onClose={() => setSelectedBatchId(null)} />
       <ExcelPreview fileId={previewFileId} fileName={previewName} open={previewFileId !== null} onClose={() => setPreviewFileId(null)} />
-    </main>
+    </div>
   );
 }

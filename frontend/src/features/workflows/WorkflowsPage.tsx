@@ -176,7 +176,7 @@ export function WorkflowsPage() {
             <Steps direction="vertical" current={Math.max(0, detail.stages.findIndex((stage) => !['succeeded', 'skipped'].includes(stage.status)))} items={detail.stages.map((stage) => ({
               title: stage.name,
               status: STAGE_STATUS[stage.status] ?? 'wait',
-              description: <Space direction="vertical" size={2}><Typography.Text type="secondary">{stage.stage_code} · {WORKFLOW_STATUS[stage.status]?.label ?? stage.status}</Typography.Text>{stage.job_id && <Typography.Link href={`/jobs`}>任务 #{stage.job_id} · 尝试 #{stage.job_attempt}</Typography.Link>}{stage.error_message && <Typography.Text type="danger">{stage.error_message}</Typography.Text>}</Space>,
+              description: <Space orientation="vertical" size={2}><Typography.Text type="secondary">{stage.stage_code} · {WORKFLOW_STATUS[stage.status]?.label ?? stage.status}</Typography.Text>{stage.job_id && <Typography.Link href={`/jobs`}>任务 #{stage.job_id} · 尝试 #{stage.job_attempt}</Typography.Link>}{stage.error_message && <Typography.Text type="danger">{stage.error_message}</Typography.Text>}</Space>,
             }))} />
             <Typography.Title level={5}>流程产物</Typography.Title>
             {detail.artifacts.length ? detail.artifacts.map((artifact) => <Tag key={artifact.id}>{artifact.artifact_type} · v{artifact.version}</Tag>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无产物" />}

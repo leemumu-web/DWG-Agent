@@ -77,7 +77,7 @@ export function ProfilePage() {
         </Col>
 
         <Col xs={24} lg={14}>
-          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
             <Card title={<span><EditOutlined /> 编辑资料</span>} style={{ borderRadius: 12 }}>
               <Form layout="vertical" form={profileForm} onFinish={(v) => profileMut.mutate(v)} requiredMark={false}>
                 <Form.Item name="real_name" label="姓名" rules={[{ required: true, message: '请输入姓名' }, { max: 64 }]}>
