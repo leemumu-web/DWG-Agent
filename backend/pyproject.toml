@@ -25,6 +25,9 @@ dependencies = [
     "openpyxl>=3.1",
     "pandas>=2.0",
     "xlrd>=2.0,<3",
+    # 平台直接解析并生成 DXF 在线预览；显式声明，不能依赖 Stage 的传递依赖。
+    "ezdxf>=1.4,<2",
+    "Pillow>=11,<13",
     # DWG→DXF 转换库（本地 path 依赖，指向 Stages/dwg2dxf 独立包）。
     # 该包零 Python 依赖，仅需宿主机的 ODA File Converter 二进制 + xvfb-run。
     # 实际路径解析见 [tool.uv.sources]（相对路径以本 pyproject.toml 为基准）。
