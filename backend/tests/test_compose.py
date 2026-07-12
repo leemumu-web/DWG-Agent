@@ -11,6 +11,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 COMPOSE_PATH = REPO_ROOT / "compose.yaml"
+DEV_COMPOSE_PATH = REPO_ROOT / "compose.dev.yaml"
 DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"
 DOCKERIGNORE_PATH = REPO_ROOT / ".dockerignore"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
@@ -33,6 +34,11 @@ APP_SERVICE_NAMES = (
 
 def _load():
     with open(COMPOSE_PATH) as f:
+        return yaml.safe_load(f)
+
+
+def _load_dev():
+    with open(DEV_COMPOSE_PATH) as f:
         return yaml.safe_load(f)
 
 
@@ -123,6 +129,41 @@ class TestComposeYamlValid:
             "scgi_temp_path /tmp/scgi_temp;",
         ):
             assert temp_path in nginx_conf
+
+
+class TestDevelopmentCompose:
+    def test_dev_override_is_parseable_and_uses_current_backend_port(self):
+        data = _load_dev()
+        backend = data["services"]["backend-api"]
+
+        assert "uvicorn app.main:app" in backend["command"]
+        assert "--reload" in backend["command"]
+        assert "--port 8010" in backend["command"]
+        assert backend["ports"] == ["127.0.0.1:8010:8010"]
+
+    def test_dev_override_mounts_backend_source_into_every_implemented_worker(self):
+        data = _load_dev()
+        workers = (
+            "worker-report",
+            "worker-dxf",
+            "worker-dxf2dwg",
+            "worker-dxf2excel",
+            "worker-excel-final",
+        )
+        for worker in workers:
+            volumes = data["services"][worker]["volumes"]
+            assert "./backend/app:/app/app" in volumes
+
+        assert "./Stages/dwg2dxf:/app/Stages/dwg2dxf" in data["services"]["worker-dxf"]["volumes"]
+        assert "./Stages/dxf2dwg:/app/Stages/dxf2dwg" in data["services"]["worker-dxf2dwg"]["volumes"]
+        assert "./Stages/dxf2excel:/app/Stages/dxf2excel" in data["services"]["worker-dxf2excel"]["volumes"]
+        assert "./Stages/excel_final:/app/Stages/excel_final" in data["services"]["worker-excel-final"]["volumes"]
+
+    def test_dev_override_does_not_publish_mysql_or_minio(self):
+        services = _load_dev()["services"]
+
+        assert "mysql" not in services or "ports" not in services["mysql"]
+        assert "minio" not in services or "ports" not in services["minio"]
 
 
 class TestMysqlService:

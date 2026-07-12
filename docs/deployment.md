@@ -10,6 +10,8 @@ Celery workers（无入站监听端口）──出站──> MySQL:3306（broker
 
 Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 的 `internal` 私有网，端口不发布宿主。公开容器已经包含编译后的 SPA 和 Nginx 配置，部署不再依赖宿主机 `frontend/dist` bind mount。
 
+`compose.dev.yaml` 只用于本地源码热更新：它会将 API 绑定到宿主 `127.0.0.1:8010` 并挂载工作树。生产、共享测试环境和备份恢复演练不得叠加这个覆盖文件。
+
 网络语义须区分两件事：**不发布端口**只是没有宿主 ingress 映射；而 `internal: true` 是 externally-isolated 网络，意味着 backend-api / worker 都**没有外部 egress**。启用 `CAD_WORKER_ENABLED`（须访问外部 `cad-worker.internal:8080`）或 `AGENT_ENABLED`（须访问外部 LLM）前，必须为相应容器补上可 egress 的网络，并解决 `cad-worker.internal` 的解析（企业 DNS / `extra_hosts` / IP 环境变量）——两者缺一，即使名称可解析，`internal: true` 仍会阻断链路。
 
 当前仍是纯 HTTP，Compose **不发布 443**。完成经审查的 TLS listener 与证书生命周期前，不要自行宣称 HTTPS。仅在可信内网纯 HTTP 场景显式设置 `REFRESH_COOKIE_SECURE=false`；公网部署必须先增加 TLS，并保持 Secure cookie。

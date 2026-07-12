@@ -39,6 +39,23 @@ bash scripts/start-all.sh
 
 端口 `8010` 是容器内部端口（与本地一致）。Vite 选择其他端口时使用其输出 URL，直连测试时设置 Playwright override。接近生产的浏览器工作优先走 Nginx `8080`。
 
+### Docker 热更新覆盖
+
+需要复用 Compose 内的 MySQL、MinIO 和五个已实现 worker，同时热更新 FastAPI 时：
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml --profile workers up --build
+```
+
+`compose.dev.yaml` 将 API 以 `uvicorn --reload` 运行，并仅把 `127.0.0.1:8010` 发布到宿主；MySQL 和 MinIO 仍不发布端口、继续使用生产拓扑的 `internal` 网络。API、worker 和各自 Stage 使用源码 bind mount（容器仍按原有非 root 用户运行）；修改 Python 依赖或镜像系统包后必须重新构建，修改 worker 源码后应重启对应 worker。该覆盖不启动 Vite，前端热更新仍使用 `bash scripts/start-dev.sh`。
+
+合并配置门禁：
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml config --quiet
+docker compose -f compose.yaml -f compose.dev.yaml --profile workers config --quiet
+```
+
 ## Backend 变更规则
 
 - Route 处理 HTTP schema/dependency；service 负责业务 transaction；task 调用 service。
