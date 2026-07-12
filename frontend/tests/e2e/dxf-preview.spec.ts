@@ -102,4 +102,3 @@ test('DXF source opens an authenticated SVG preview with working controls', asyn
   await expect(dialog).toBeHidden();
   expect(errors).toEqual([]);
 });
-
