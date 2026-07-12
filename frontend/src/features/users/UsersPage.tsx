@@ -263,7 +263,7 @@ export function UsersPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         width={420}
-        destroyOnClose
+        destroyOnHidden
         extra={<Button type="primary" loading={createMut.isPending} onClick={() => createForm.submit()}>创建</Button>}
       >
         <Form layout="vertical" form={createForm} onFinish={(v) => createMut.mutate(v)} requiredMark={false}>

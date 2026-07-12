@@ -1,6 +1,11 @@
 import axios from 'axios';
 import { apiClient, fetchAllPages, type ApiEnvelope, type PageEnvelope } from './client';
-import type { BatchInfo, ExcelPreviewResponse, StoredFile } from '../types/file';
+import type {
+  BatchInfo,
+  DxfPreviewResponse,
+  ExcelPreviewResponse,
+  StoredFile,
+} from '../types/file';
 import type { Job } from '../types/job';
 
 /** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
@@ -218,4 +223,26 @@ export async function fetchExcelPreview(
     { params },
   );
   return res.data.data;
+}
+
+/** Generate or reuse a registered DXF SVG preview and return its metadata. */
+export async function fetchDxfPreview(fileId: number): Promise<DxfPreviewResponse> {
+  const res = await apiClient.get<ApiEnvelope<DxfPreviewResponse>>(
+    `/api/v1/files/${fileId}/dxf-preview`,
+    { timeout: 120_000 },
+  );
+  return res.data.data;
+}
+
+/** Fetch preview bytes with the normal Bearer interceptor; `<img>` cannot add it. */
+export async function fetchDxfPreviewBlob(
+  contentUrl: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const res = await apiClient.get<Blob>(contentUrl, {
+    responseType: 'blob',
+    signal,
+    timeout: 120_000,
+  });
+  return res.data;
 }

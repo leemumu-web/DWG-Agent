@@ -21,6 +21,28 @@ export interface BatchInfo {
   latest_created_at: string;
 }
 
+export interface DxfPreviewBounds {
+  min_x: number;
+  min_y: number;
+  max_x: number;
+  max_y: number;
+}
+
+export interface DxfPreviewResponse {
+  file_id: number;
+  file_name: string;
+  preview_file_id: number;
+  content_url: string;
+  content_type: 'image/svg+xml';
+  document_entities: number;
+  modelspace_entities: number;
+  entity_counts: Record<string, number>;
+  layers: string[];
+  layer_colors: Record<string, number>;
+  bounds: DxfPreviewBounds;
+  cached: boolean;
+}
+
 export interface ExcelPreviewResponse {
   file: string;
   file_id: number;

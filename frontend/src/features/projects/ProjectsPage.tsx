@@ -238,7 +238,7 @@ export function ProjectsPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         width={420}
-        destroyOnClose
+        destroyOnHidden
         extra={
           <Button type="primary" loading={createMut.isPending} onClick={() => createForm.submit()}>
             创建

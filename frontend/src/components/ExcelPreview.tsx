@@ -422,7 +422,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
           <Button onClick={onClose} size="middle">关闭</Button>
         </Space>
       }
-      destroyOnClose
+      destroyOnHidden
     >
       {/* ── Mode selector + info bar ─────────────────────────────────────── */}
       <div style={{
