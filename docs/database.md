@@ -256,7 +256,7 @@ Alembic/SQLAlchemy 管理 **28 张模型表**。空库执行 `alembic upgrade he
 
 #### `file_transfers`
 
-跨 MySQL 与对象存储的持久化流转账本。上传、ZIP 条目、生成文件、下载、ZIP 出库、软删除、恢复、补登记与永久清理均写入该表；`audit_logs` 仍记录谁执行了业务动作，但不替代字节级状态机。
+跨 MySQL 与对象存储的持久化流转账本。上传、ZIP 条目、生成文件、DXF 预览生成/失效、下载、预览出库、ZIP 出库、软删除、恢复、补登记与永久清理均写入该表；`audit_logs` 仍记录谁执行了业务动作，但不替代字节级状态机。
 
 | 列组 | 关键列 | 说明 |
 |---|---|---|
@@ -493,6 +493,8 @@ Agent 运行中的单个工具调用和推理步骤。
 
 三表仅保存解析后的业务数据。源工作簿和生成工作簿的字节仍位于存储层，并通过 `files` 引用。
 
+迁移 `9c4e7b1a2d60` 扩容真实业务标识：零件/构件 `component_no` 为 VARCHAR(512)，`part_no` 与 `profile_spec` 为 VARCHAR(255)，`part_type` 与 `spec` 为 VARCHAR(128)。迁移只扩大列宽，不重写历史 Excel Final 建表迁移，也不管理 Celery/Kombu 表。
+
 ### 2.10 通用工作流 -- 3 张表
 
 - `workflow_runs` 保存项目级流程、类型、状态、当前阶段、整体进度、配置、错误和生命周期时间；按项目/创建者/状态建立索引。
@@ -615,8 +617,9 @@ analysis_results ──< workflow_artifacts
 | `a74c2e9f1d30` | 新增 `job_steps.attempt` 和 `(job_id, attempt)` 索引 | 2026-07-11 |
 | `e4a1c7f2b930` | 新增工作流、顺序阶段和版本化流程产物表 | 2026-07-11 |
 | `6d2f8a9c1b40` | 新增文件流转账本、一致性扫描表、文件软删除时间与对象位置唯一约束 | 2026-07-12 |
+| `9c4e7b1a2d60` | 扩容 Excel Final 构件号、零件号、类型与规格字段 | 2026-07-13 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40`；**`6d2f8a9c1b40` 是当前 head。**
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40 → 9c4e7b1a2d60`；**`9c4e7b1a2d60` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 

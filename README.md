@@ -2,19 +2,20 @@
 
 DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处理、结果复核与审计的全栈平台。本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。
 
-**文档审计基线：** 2026-07-12 的当前工作树。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。仓库只维护中文项目文档。
+**文档审计基线：** 2026-07-13 的当前工作树。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。仓库只维护中文项目文档。
 
 ## 当前结论
 
 | 领域 | 当前状态 | 关键边界 |
 |---|---|---|
-| Web 与 API | React 管理端、Nginx 网关、88 个 OpenAPI path 和 107 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | React 管理端、Nginx 网关、91 个 OpenAPI path 和 110 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 还会按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张。SQLite 只用于 pytest |
 | 通用工作流 | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和“生产流程”页面已实现 | 当前仅持久化和展示编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
 | 异步任务 | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 存储 | Local/MinIO 清单、流转账本、异步一致性扫描和四类安全处置已实现 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
 | 数据控制台 | 总览、文件登记、存储对象、入出库流水、一致性五页签已实现 | 管理员可扫描/处置，审计员只读/预检；永久清理必须确认且不可恢复 |
-| 转换管线 | report、DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final 的服务路径存在 | 四条业务管线默认关闭，且分别受 ODA、Stage 完整性和手册库约束 |
+| Excel Final 控制台 | 权限过滤精确总览、任务监视、跨批次检索、比重查询、批次/零件/构件分页和结果预览已实现 | 数据来自 MySQL；结果字节来自鉴权后的 MinIO/Local 文件接口；管线开关关闭时历史数据仍可浏览 |
+| 转换管线 | report、DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final 的服务路径存在；DXF 支持鉴权 SVG 预览 | 四条业务管线默认关闭，且分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | API、模型和权限边界存在 | 本项目明确不继续实现 Agent；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
 | 图纸业务处理 / Windows CAD worker | 图纸元数据与格式转换边界仍保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 明确不在当前交付范围；`CAD_WORKER_ENABLED=false` |
 | Redis/Valkey | 已从当前运行时移除 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
@@ -57,7 +58,7 @@ Celery workers（无入站监听端口）
 
 任务以 `(job_id, attempt)` 作为执行世代。重试递增 `attempt`；worker 的领取、进度和终态更新都必须匹配当前状态与 attempt，从而阻止旧消息或旧 worker 覆盖新一轮任务。SSE 轮询 MySQL 并发送当前 attempt 的权威快照，不提供按 event ID 的历史回放。
 
-通用工作流另以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 表达项目内的业务阶段和产物版本。当前公开能力是创建、列表、详情、启动、人工阶段确认、取消和前端展示；service 内部具备 Job attempt 绑定、Job 状态同步和产物挂接函数，但尚无公开接线调用它们，也不会自动创建 Excel Final Job。因此它是可审计的人工编排骨架，不是自动生产闭环。详见[通用工作流框架](docs/workflow-framework.md)。
+通用工作流另以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 表达项目内的业务阶段和产物版本。当前公开能力是创建、列表、详情、启动、人工阶段确认、取消和前端展示；service 内部具备 Job attempt 绑定、Job 状态同步和产物挂接函数，但通用 workflow route 尚无公开接线调用它们。因此它仍是可审计的人工编排骨架，不是自动生产闭环。独立的 DXF→Excel 页面已提供显式确认按钮，可把成功结果登记为 Excel Final Job；这不等同于通用工作流自动编排。详见[通用工作流框架](docs/workflow-framework.md)。
 
 ## 当前明确范围
 
@@ -92,6 +93,8 @@ bash scripts/start-dev.sh
 ```
 
 `start-dev.sh` 启动五个已实现队列 worker（不含 agent/cad）、FastAPI `8010` 和 Vite。`start-all.sh` 还会构建前端并启动本地 Nginx `8080`。功能开关关闭时 worker 可以存活，但对应 API 会拒绝创建任务。
+
+需要复用容器内 MySQL/MinIO 并热更新 API 时，可运行 `docker compose -f compose.yaml -f compose.dev.yaml --profile workers up --build`；开发覆盖只把 `127.0.0.1:8010` 发布到宿主，不发布 MySQL/MinIO。
 
 ```bash
 bash scripts/status.sh

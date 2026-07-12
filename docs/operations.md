@@ -76,7 +76,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；本轮已证明从空库升级到 `6d2f8a9c1b40` 并得到 28 张模型表，且种子数据与最新 schema 兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 另以空 MySQL/MinIO Compose 卷验证了 Kombu 首次建表、索引和 report worker ready。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `9c4e7b1a2d60` 和 28 张模型表，验证种子数据与最新 schema 兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 另以空 MySQL/MinIO Compose 卷验证了 Kombu 首次建表、索引和 report worker ready。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 
@@ -142,6 +142,8 @@ bash scripts/docker.sh smoke
 5. 启动一致性扫描后轮询 run，不刷新总览触发全量扫描。按 finding 类型和 `待处置/已处置` 筛选；每次最多选择 100 项且总量不超过 1 GiB。
 6. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
 7. 永久清理要求输入 `PURGE`，字节不可恢复。若对象已删而 MySQL 提交失败，流水为 `compensation_required`；保留 request ID/transfer UID，重新扫描并按事故流程处理，不能把旧 finding 手工改成 resolved。
+
+DXF 在线预览对象会以 `operation=preview_generate` 登记内部生成流水，源文件变化或缓存对象丢失时写 `preview_invalidate`，浏览器读取写 `direction=outbound, operation=preview`。排查预览时应同时核对源 DXF、SVG `files` 行、对象 `stat` 和三类流水；不要把弹窗能打开当作登记一致性的充分证据。
 
 每次事故记录 scan ID、finding ID、transfer UID、request ID、操作人、时间、预检范围和最终对象 stat。不要把浏览器提示当作唯一证据，应同时查询流水详情、finding 状态和对象存储。
 

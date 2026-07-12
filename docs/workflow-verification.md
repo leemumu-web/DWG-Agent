@@ -107,7 +107,31 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
 前端最终截图位于 `output/playwright/data-console-final.png`。截图来自最后一次通过的浏览器回归，状态、动作和风险提示均已中文化，处置动作在未选中同类 finding 时保持禁用并明确提示。隔离 Compose 前端镜像构建曾因 Docker Hub `node:22-alpine` IPv6 metadata 请求超时失败；后端新镜像正常构建，真实 API/MySQL/MinIO/Celery 验证不依赖该失败步骤，源码前端由本地 `npm run build` 和 Vite + Playwright 验证。
 
-## 6. 2026-07-11 基线证据
+## 6. 2026-07-13 PR #1 选择性吸收与数据监视证据
+
+本轮没有直接合并冲突 PR，也没有修改其远程分支。实现从当前 `main` 延伸，吸收字段扩容、流程桥接和前端工具思路，重写了 DXF 预览、权限聚合、事务登记和前端状态管理。真实运行探针使用独立上传文件，没有处置既有扫描异常。
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| PR 审查 | pass | PR #1 共 6 个提交、22 个文件，基于旧主干且冲突；拒绝双 Alembic head、回改历史迁移、Celery/Kombu DDL、旧 8000 端口、失配 npm/uv lock、PNG 慢渲染和前端 N+1 |
+| Backend Ruff | pass | `app`、`tests` 与全量 verifier；DXF SVG、缓存/流水、Excel Final 聚合/分页/迁移和 Compose 契约 |
+| Backend 全量 | **866 passed，5 skipped** | SQLite 隔离 API/service/security/state；15 条既有 dependency/deprecation warning，无失败 |
+| Documentation checker | pass | 91 个 OpenAPI path / 110 个 operation、中文文档、端口、28 张模型表和当前 Alembic head |
+| Alembic | pass | 单一 head `9c4e7b1a2d60`；`alembic check` 无待生成 operation；空 MySQL schema 完整升级并验证 28 张业务表/种子数据 |
+| Infrastructure / Compose | **110/110 pass** | 活动 MySQL 37 张运行时表；生产 Compose、workers profile、开发覆盖及 workers profile 均可合并 |
+| Stage tests | **28 + 28 + 259 passed** | dwg2dxf、dxf2dwg、Excel Final multi_split |
+| Frontend install/build | pass | `npm ci`、TypeScript 6、Vite 8；DXF 预览与 Excel Final 控制台 production bundle |
+| Playwright 全量 | **72 passed，1 skipped** | 真实本地 API；新增鉴权 DXF Blob、Excel Final 精确总览/工具/详情、失败重试和 DXF→Excel 桥接；未提供外部真实 XLS 样本路径的条件用例按设计跳过 |
+| DXF 性能对照 | pass | 同一约 5 MiB / 21,117 文档实体样本：PR Matplotlib PNG 约 27.28 秒；当前 ezdxf SVG recording 约 1.724 秒，输出约 2.62 MiB |
+| Local + MySQL 探针 | pass | 文件 #891 首次生成、二次缓存命中；SVG 1,573,087 bytes；`preview_generate` 与 outbound `preview` 均 succeeded 且实际字节一致 |
+| MinIO + MySQL 探针 | pass | 当前源码临时 API 连接健康 Compose MinIO 与真实 MySQL；真实 3.26 MiB DXF #894 生成 SVG #895，二次缓存命中；MinIO object listing 显示 registered=true，生成/出库均 succeeded 且 1,888,900 bytes |
+| UI 规范与截图 | pass | 最新 Web Interface Guidelines 自审；输入标签/名称、图标按钮、focus-visible、reduced-motion、服务端分页、控制台弃用警告清理；截图 `output/playwright/excel-final-data-console-final.png` |
+
+真实 MySQL 曾在第一次浏览器预览中暴露 `REPEATABLE READ` 快照问题：来源行锁事务先开始，独立 storage session 后创建流水，旧快照再 `SELECT ... FOR UPDATE` 新流水时触发 MySQL 1020。当前实现先在调用者事务持久化 `preview_generate` 意图并提交，再渲染/推进独立状态，最后在来源锁定事务中写对象登记和完成流水；失败由独立结算保留 `failed`，对象写后业务回滚仍触发补偿删除。
+
+MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动当前源码的临时 8011 API，连接现有健康 MinIO 容器和真实 MySQL，完成探针后立即停止；因此证明的是当前代码对真实 MinIO/MySQL 的登记和读取闭环，不是旧 Compose 镜像已经部署本次提交。
+
+## 7. 2026-07-11 基线证据
 
 2026-07-11 文档审计运行使用已有本地 MySQL 和已经运行的本地 Nginx/FastAPI/五个已实现 worker；没有重启 stack 或重建 Compose volume。
 
@@ -127,7 +151,7 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
 全量运行提供仓库已知有效 Tekla 清单，并通过成功 upload -> Celery -> result -> 首次下载失败 -> 新签名 digest 验证。另一个 `阚导出材料表.xls` 探针因缺少必要 `构件编号` 和 `数量` 列被正确拒绝；相关文件名/扩展名不足以证明输入有效。许多其他 Files/Jobs UI 测试使用确定性 route fixture，只证明 UI/API contract，不证明真实对象处理。
 
-## 7. 历史集成记录
+## 8. 历史集成记录
 
 仓库此前记录了 2026-07-11 fresh-volume 集成运行，观察为：
 
@@ -136,9 +160,9 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 - MinIO 中断使 readiness 返回 503 且 database 保持 `ok`；恢复后旧对象仍存在。
 - 真实 attempt-2 probe 拒绝 legacy 单参数 message，只在 `(job_id, 2)` 投递后完成。
 
-以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-12 的当前证据已经由本节第 5 节取代：当前源码为 88 path/107 operation，并已用重启后的本地 API、真实浏览器以及独立 MySQL/MinIO/Celery 环境验证数据控制台链路。通用工作流的自动 Job/产物接线仍是独立范围，完成后仍需对应集成测试和实时取消/恢复证据。
+以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-13 的当前证据见第 6 节：当前源码为 91 path/110 operation，并已用当前源码 API、真实浏览器和真实 MySQL/MinIO 验证预览与登记链路。通用工作流的自动 Job/产物接线仍是独立范围；DXF→Excel 页面的显式 Excel Final 桥接不改变该边界。
 
-## 8. 故障定位
+## 9. 故障定位
 
 1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
 2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。

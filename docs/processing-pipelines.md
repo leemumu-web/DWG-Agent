@@ -40,6 +40,10 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 
 当前 ODA adapter 会把“非零退出码”“退出码为 0 但未生成目标文件”“输出路径被普通文件占用”“源文件复制失败”和“二进制不存在/无权限”映射为明确失败结果，避免未捕获 OS 错误绕过 Job 收敛。该加固已有 Stage regression test，但仍需真实 ODA/图纸样本验证。
 
+### DXF 在线预览
+
+DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。API 在读取对象前检查声明大小，读取时再次执行有界校验和 SHA-256 核对；渲染器使用 ezdxf SVG recording backend，不启用外部图像，并限制源文件为 20 MiB、文档实体 100,000、SVG 输出 16 MiB。生成结果写入报告 bucket 并登记到 `files`/`file_transfers`，后续命中必须通过对象 `stat`，浏览器通过带 Bearer 的 Blob 请求读取专用内容端点。
+
 ## DXF 转 DWG
 
 `DXF2DWG_PIPELINE_ENABLED=true` 允许 `task_type=convert_dxf_to_dwg`。流程与 DWG -> DXF 对称，步骤为 `download_source_dxf`、`run_oda_convert_dxf` 和 `persist_dwg_result`。它把派生对象存入 DWG-derived bucket 并创建 result row。
@@ -54,6 +58,8 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 
 当前父仓库只把 `Stages/dxf2excel` 记录为 gitlink commit `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，本地也缺少该对象。已填充工作目录使当前 checkout 可工作，但 clean clone 和 image build 不能依赖它。在管线被视为可复现交付前必须修复。
 
+成功批次的前端操作可显式确认“生成零件清单”。实现先从 extraction Job 的结果登记中取得 Excel `result_file_id`，再调用 Excel Final process 端点；提交中的 batch 由同步 ref 和 UI Set 双重防重，成功后导航到 `/files/excel-final?job_id=...`。该桥接复用已登记对象，不重新上传字节，也不表示通用 workflow route 已自动编排。
+
 ## Excel Final
 
 `EXCEL_FINAL_PIPELINE_ENABLED=true` 启用专用 upload/process 端点及 `task_type=process_excel_final`。支持输入为：
@@ -67,6 +73,8 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 步骤为 `download_excel_source`、`run_excel_final_pipeline`、`import_parts_to_db` 和 `persist_excel_final_result`。backend 以有界 timeout 启动独立 Stage 子进程，密码通过环境而非命令行传递。成功时存储最终工作簿，并导入一个 `excel_final_batches` row 以及 component/part rows。失败只在同一 attempt 仍被当前执行拥有时清理临时 batch row。
 
 关系化导入使用只读 `iter_rows(values_only=True)` 遍历输出表。零件表通过规范化表头定位列并跳过空行/合计行；构件表必须存在 `构件编号` 列，`构件数` 和重量列可选，数值 0 不会再被误写成 NULL。输入字节保持不变；输出工作簿中的“原表”是去除半角/全角空格后的处理基线，并非原始对象的逐字节副本。
+
+Excel Final 前端总览由 `/overview` 在 SQL 中按当前用户可读 Job 聚合，不使用当前批次页冒充全局统计。批次、零件、构件和跨批次搜索均使用服务端分页；结果工作簿经现有鉴权预览/下载接口读取，批次页不会逐行轮询 Job 状态。
 
 ## 结果与下载解析
 

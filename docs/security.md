@@ -56,6 +56,7 @@ Celery JSON serialization 受 allowlist；启用 late ack 和 lost-worker reject
 - 上传流式限制字节并计算 SHA-256/MD5。
 - ZIP 限制 entry 数和总解压字节，并拒绝路径穿越。
 - Storage key 由服务端生成，不把用户 path 当作可信输入。
+- DXF 预览拒绝超限源文件/实体/输出，禁用外部图像，并在返回前拒绝 script、foreignObject、href、DOCTYPE 和 ENTITY；SVG 只通过鉴权内容端点返回，带私有缓存、`nosniff` 和限制性 CSP。
 - 数据库 rollback best-effort 删除 commit 前写入的对象。
 - 永久清理只接受同一扫描中的 `untracked_object` finding，要求显式确认词；对象删除后元数据提交失败会留下 `compensation_required` 流水，不能伪装成可回滚的单库事务。
 

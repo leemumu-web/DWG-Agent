@@ -89,6 +89,8 @@
 | `DELETE` | `/api/v1/files/batches/{batch_name}` |
 | `GET` | `/api/v1/files/batches/{batch_name}/download-zip` |
 | `GET` | `/api/v1/files/{file_id}/excel-preview` |
+| `GET` | `/api/v1/files/{file_id}/dxf-preview` |
+| `GET` | `/api/v1/files/{file_id}/dxf-preview/content` |
 | `GET, DELETE` | `/api/v1/files/{file_id}` |
 | `GET` | `/api/v1/files/{file_id}/download-url` |
 | `GET` | `/api/v1/files/{file_id}/download` |
@@ -160,6 +162,7 @@
 | `POST` | `/api/v1/excel-final/upload-and-process` |
 | `GET` | `/api/v1/excel-final/process/{job_id}` |
 | `GET` | `/api/v1/excel-final/process/{job_id}/download` |
+| `GET` | `/api/v1/excel-final/overview` |
 | `GET` | `/api/v1/excel-final/batches` |
 | `GET` | `/api/v1/excel-final/batches/{batch_id}` |
 | `GET` | `/api/v1/excel-final/batches/{batch_id}/parts` |
