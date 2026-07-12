@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db, has_global_project_access
@@ -352,6 +352,40 @@ def download_result(
 # ── MySQL Data Queries ───────────────────────────────────────────────
 
 
+@router.get("/overview")
+def get_overview(
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Return exact aggregate totals for every Excel Final batch the user can read."""
+    stmt = select(
+        func.count(ExcelFinalBatch.id),
+        func.sum(ExcelFinalBatch.part_count),
+        func.sum(ExcelFinalBatch.component_count),
+        func.sum(ExcelFinalBatch.total_net_weight),
+        func.sum(ExcelFinalBatch.total_gross_weight),
+        func.max(ExcelFinalBatch.created_at),
+    ).join(Job, Job.id == ExcelFinalBatch.job_id)
+    if not has_global_project_access(current_user):
+        stmt = stmt.where(job_read_filter(current_user))
+    row = db.execute(stmt).one()
+    latest_created_at = row[5]
+    return ok(
+        {
+            "batch_count": int(row[0] or 0),
+            "part_count": int(row[1] or 0),
+            "component_count": int(row[2] or 0),
+            "total_net_weight": float(row[3] or 0.0),
+            "total_gross_weight": float(row[4] or 0.0),
+            "latest_created_at": (
+                latest_created_at.isoformat() if latest_created_at is not None else None
+            ),
+        },
+        request.state.request_id,
+    )
+
+
 @router.get("/batches")
 def list_batches(
     request: Request,
@@ -568,18 +602,19 @@ def list_batch_components(
     batch_id: int,
     request: Request,
     current_user: CurrentUser,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """批次下构件汇总列表。"""
+    """批次下构件汇总列表（服务端分页）。"""
     _get_accessible_batch(db, current_user, batch_id)
 
-    comps = list(
-        db.scalars(
-            select(ExcelFinalComponent)
-            .where(ExcelFinalComponent.batch_id == batch_id)
-            .order_by(ExcelFinalComponent.id)
-        ).all()
+    stmt = (
+        select(ExcelFinalComponent)
+        .where(ExcelFinalComponent.batch_id == batch_id)
+        .order_by(ExcelFinalComponent.id)
     )
+    comps, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
     data = [
         {
             "id": c.id,
@@ -589,7 +624,7 @@ def list_batch_components(
         }
         for c in comps
     ]
-    return ok(data, request.state.request_id)
+    return page_response(data, page, page_size, total, request.state.request_id)
 
 
 @router.get("/parts/search")

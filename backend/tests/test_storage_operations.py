@@ -50,7 +50,7 @@ VERSIONS_DIR = BACKEND_ROOT / "migrations" / "versions"
 DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
 
-EXPECTED_HEAD = "6d2f8a9c1b40"
+EXPECTED_HEAD = "9c4e7b1a2d60"
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -151,8 +151,8 @@ class TestMigrationChain:
             chain[rev_match.group(1)] = down_match.group(1)  # None when 'None' matched
         return chain
 
-    def test_eleven_migration_files_present(self):
-        assert len(list(VERSIONS_DIR.glob("*.py"))) == 11
+    def test_twelve_migration_files_present(self):
+        assert len(list(VERSIONS_DIR.glob("*.py"))) == 12
 
     def test_exactly_one_base_revision(self):
         chain = self._parse_chain()
@@ -180,7 +180,7 @@ class TestMigrationChain:
             seen.append(cursor)
             cursor = chain[cursor]
         # Walking head -> base must visit every migration exactly once.
-        assert len(seen) == len(chain) == 11
+        assert len(seen) == len(chain) == 12
         assert seen[-1] == "40452ddd24e7"
 
 

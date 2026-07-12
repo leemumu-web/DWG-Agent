@@ -56,12 +56,12 @@ class ExcelFinalPart(Base):
         index=True,
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    component_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    component_no: Mapped[str | None] = mapped_column(String(512), nullable=True)
     component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    part_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    part_no: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    profile_spec: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    spec: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    part_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    part_no: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    profile_spec: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    spec: Mapped[str | None] = mapped_column(String(128), nullable=True)
     width: Mapped[float | None] = mapped_column(Float, nullable=True)
     length: Mapped[float | None] = mapped_column(Float, nullable=True)
     left_inset: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -98,7 +98,7 @@ class ExcelFinalComponent(Base):
         nullable=False,
         index=True,
     )
-    component_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    component_no: Mapped[str | None] = mapped_column(String(512), nullable=True)
     component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

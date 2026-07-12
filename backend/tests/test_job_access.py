@@ -72,11 +72,15 @@ def test_unscoped_jobs_are_visible_only_to_owner_and_admin(db: Session):
     _, stranger_headers = _create_user(client, admin_headers, "job-stranger")
     job = _seed_unscoped_job(db, owner_id=owner_id)
 
-    owner_ids = {item["id"] for item in client.get("/api/v1/jobs", headers=owner_headers).json()["data"]}
+    owner_ids = {
+        item["id"] for item in client.get("/api/v1/jobs", headers=owner_headers).json()["data"]
+    }
     stranger_ids = {
         item["id"] for item in client.get("/api/v1/jobs", headers=stranger_headers).json()["data"]
     }
-    admin_ids = {item["id"] for item in client.get("/api/v1/jobs", headers=admin_headers).json()["data"]}
+    admin_ids = {
+        item["id"] for item in client.get("/api/v1/jobs", headers=admin_headers).json()["data"]
+    }
 
     assert job.id in owner_ids
     assert job.id not in stranger_ids
@@ -152,6 +156,8 @@ def _seed_excel_batch(db: Session, *, owner_id: int) -> tuple[StoredFile, Job, E
         source_name=stored.original_name,
         component_count=1,
         part_count=1,
+        total_net_weight=12.5,
+        total_gross_weight=15.0,
     )
     db.add(batch)
     db.flush()
@@ -187,6 +193,66 @@ def test_excel_final_queries_are_scoped_by_job_owner(db: Session):
     for url in protected_urls:
         response = client.get(url, headers=stranger_headers)
         assert response.status_code == 403, f"{url}: {response.text}"
+
+
+def test_excel_final_overview_is_scoped_and_empty_safe(db: Session):
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    owner_id, owner_headers = _create_user(client, admin_headers, "overview-owner")
+    _, stranger_headers = _create_user(client, admin_headers, "overview-stranger")
+    _seed_excel_batch(db, owner_id=owner_id)
+
+    owner = client.get("/api/v1/excel-final/overview", headers=owner_headers)
+    stranger = client.get("/api/v1/excel-final/overview", headers=stranger_headers)
+
+    assert owner.status_code == 200, owner.text
+    assert owner.json()["data"] == {
+        "batch_count": 1,
+        "part_count": 1,
+        "component_count": 1,
+        "total_net_weight": 12.5,
+        "total_gross_weight": 15.0,
+        "latest_created_at": owner.json()["data"]["latest_created_at"],
+    }
+    assert owner.json()["data"]["latest_created_at"] is not None
+    assert stranger.status_code == 200, stranger.text
+    assert stranger.json()["data"] == {
+        "batch_count": 0,
+        "part_count": 0,
+        "component_count": 0,
+        "total_net_weight": 0.0,
+        "total_gross_weight": 0.0,
+        "latest_created_at": None,
+    }
+
+
+def test_excel_final_components_are_server_paginated(db: Session):
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    owner_id, owner_headers = _create_user(client, admin_headers, "component-owner")
+    _, _, batch = _seed_excel_batch(db, owner_id=owner_id)
+    second = ExcelFinalComponent(
+        batch_id=batch.id,
+        component_no="C-2",
+        component_qty=2,
+        total_weight=24.5,
+    )
+    db.add(second)
+    db.commit()
+
+    response = client.get(
+        f"/api/v1/excel-final/batches/{batch.id}/components?page=2&page_size=1",
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert [item["component_no"] for item in response.json()["data"]] == ["C-2"]
+    assert response.json()["pagination"] == {
+        "page": 2,
+        "page_size": 1,
+        "total": 2,
+        "total_pages": 2,
+    }
 
 
 def test_excel_final_cannot_process_another_users_upload(db: Session, monkeypatch):

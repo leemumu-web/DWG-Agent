@@ -15,6 +15,7 @@ EXCEL_FINAL_RELATIONS_REVISION = VERSIONS_DIR / "7f2a9c4e6b10_harden_excel_final
 JOB_ATTEMPT_REVISION = VERSIONS_DIR / "8c61f4d2a9e7_add_job_attempt_generation.py"
 JOB_STEP_ATTEMPT_REVISION = VERSIONS_DIR / "a74c2e9f1d30_add_job_step_attempt.py"
 DATA_CONSOLE_REVISION = VERSIONS_DIR / "6d2f8a9c1b40_add_data_console_ledger.py"
+EXCEL_FINAL_WIDTH_REVISION = VERSIONS_DIR / "9c4e7b1a2d60_widen_excel_final_identifiers.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -151,6 +152,17 @@ def test_data_console_migration_adds_ledger_and_file_retention_fields():
     assert 'op.drop_column("files", "deleted_at")' in source
 
 
+def test_excel_final_width_migration_extends_current_head_without_rewriting_history():
+    source = EXCEL_FINAL_WIDTH_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "6d2f8a9c1b40"' in source
+    assert source.count("op.alter_column(") == 12
+    assert '"component_no"' in source
+    assert "sa.String(512)" in source
+    assert "sa.String(255)" in source
+    assert "sa.String(128)" in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -186,7 +198,7 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "6d2f8a9c1b40"' in source
+    assert 'version != "9c4e7b1a2d60"' in source
     assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt"}' in source
     assert '"job_steps": {"attempt"}' in source
