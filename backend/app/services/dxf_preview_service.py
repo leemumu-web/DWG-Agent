@@ -37,7 +37,10 @@ from app.models.file import StoredFile
 from app.services.file_transfer_service import (
     TransferSpec,
     complete_transfer_in_transaction,
+    mark_transfer_in_progress,
     prepare_transfer_in_transaction,
+    session_factory_for,
+    settle_transfer,
 )
 from app.services.storage_service import sanitize_filename, save_bytes_as_file
 from app.storage.base import (
@@ -398,60 +401,122 @@ def get_or_create_dxf_preview(
     if cached is not None:
         return _asset_from_inspection(cached, inspected, cached=True)
 
-    # End authentication/cache-read transactions before CPU rendering.  Any
-    # invalidated cache row represented an already-missing or size-mismatched
-    # object, so committing that truthful state is safe even if rendering fails.
-    db.commit()
-    rendered = render_inspected_dxf_to_svg(inspected)
-    locked_source = db.scalar(
-        select(StoredFile).where(StoredFile.id == source.id).with_for_update()
+    stem = source.original_name.rsplit(".", 1)[0]
+    preview_name = sanitize_filename(f"{stem}_预览.svg")
+    batch_name = preview_batch_name(source)
+    bucket = settings.minio_bucket_reports
+    storage_key = (
+        f"previews/dxf/{PREVIEW_RENDERER_VERSION}/{source.id}/"
+        f"{source.sha256[:16]}/{uuid4().hex}.svg"
     )
-    if (
-        locked_source is None
-        or locked_source.status == "deleted"
-        or locked_source.sha256 != source.sha256
-    ):
-        raise _error(
-            409,
-            "DXF_SOURCE_CHANGED",
-            "DXF 文件在生成预览期间已变更或删除，请刷新后重试。",
-        )
 
-    cached = _find_cached_preview(
+    # Persist the transfer intent before rendering or starting the source-row
+    # locking transaction.  This ordering is required by MySQL REPEATABLE READ:
+    # the caller's transaction must be able to see the transfer row later when
+    # it completes the metadata write.
+    transfer = prepare_transfer_in_transaction(
         db,
-        locked_source,
-        storage,
-        request_id=request_id,
+        TransferSpec(
+            direction="internal",
+            operation="preview_generate",
+            actor_user_id=None,
+            request_id=request_id,
+            batch_ref=batch_name,
+            bucket=bucket,
+            storage_key=storage_key,
+            original_name=preview_name,
+        ),
     )
-    if cached is not None:
+    factory = session_factory_for(db)
+    db.commit()
+    try:
+        rendered = render_inspected_dxf_to_svg(inspected)
+        mark_transfer_in_progress(
+            factory,
+            transfer.transfer_uid,
+            bucket=bucket,
+            storage_key=storage_key,
+            expected_bytes=len(rendered.payload),
+        )
+        locked_source = db.scalar(
+            select(StoredFile).where(StoredFile.id == source.id).with_for_update()
+        )
+        if (
+            locked_source is None
+            or locked_source.status == "deleted"
+            or locked_source.sha256 != source.sha256
+        ):
+            raise _error(
+                409,
+                "DXF_SOURCE_CHANGED",
+                "DXF 文件在生成预览期间已变更或删除，请刷新后重试。",
+            )
+
+        cached = _find_cached_preview(
+            db,
+            locked_source,
+            storage,
+            request_id=request_id,
+        )
+        if cached is not None:
+            complete_transfer_in_transaction(
+                db,
+                transfer.transfer_uid,
+                file_id=cached.id,
+                bucket=cached.bucket,
+                storage_key=cached.storage_key,
+                original_name=cached.original_name,
+                transferred_bytes=0,
+            )
+            return _asset_from_inspection(
+                cached,
+                inspected,
+                cached=True,
+                bounds=rendered.bounds,
+            )
+
+        preview_file = save_bytes_as_file(
+            db,
+            bucket=bucket,
+            storage_key=storage_key,
+            original_name=preview_name,
+            file_ext=".svg",
+            content_type=rendered.content_type,
+            payload=rendered.payload,
+            uploaded_by=None,
+            batch_name=batch_name,
+            transfer_uid=transfer.transfer_uid,
+        )
+        complete_transfer_in_transaction(
+            db,
+            transfer.transfer_uid,
+            file_id=preview_file.id,
+            bucket=preview_file.bucket,
+            storage_key=preview_file.storage_key,
+            original_name=preview_file.original_name,
+            transferred_bytes=preview_file.size_bytes,
+        )
         return _asset_from_inspection(
-            cached,
+            preview_file,
             inspected,
-            cached=True,
+            cached=False,
             bounds=rendered.bounds,
         )
-
-    stem = source.original_name.rsplit(".", 1)[0]
-    preview_file = save_bytes_as_file(
-        db,
-        bucket=settings.minio_bucket_reports,
-        storage_key=(
-            f"previews/dxf/{PREVIEW_RENDERER_VERSION}/{source.id}/"
-            f"{source.sha256[:16]}/{uuid4().hex}.svg"
-        ),
-        original_name=sanitize_filename(f"{stem}_预览.svg"),
-        file_ext=".svg",
-        content_type=rendered.content_type,
-        payload=rendered.payload,
-        uploaded_by=None,
-        batch_name=preview_batch_name(source),
-        transfer_direction="internal",
-        transfer_operation="preview_generate",
-        request_id=request_id,
-    )
-    return _asset_from_inspection(
-        preview_file,
-        inspected,
-        cached=False,
-        bounds=rendered.bounds,
-    )
+    except Exception as exc:
+        db.rollback()
+        detail = exc.detail if isinstance(exc, AppHTTPException) else None
+        settle_transfer(
+            factory,
+            transfer.transfer_uid,
+            status="failed",
+            transferred_bytes=0,
+            error_code=(
+                detail["code"] if isinstance(detail, dict) else "PREVIEW_TRANSACTION_FAILED"
+            ),
+            error_message=(
+                detail["message"]
+                if isinstance(detail, dict)
+                else "DXF preview transaction failed before completion."
+            ),
+        )
+        raise

@@ -11,6 +11,7 @@ from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
 from app.services import dxf_preview_service as service
+from app.storage.base import StorageError
 from app.storage.local_storage import LocalFileStorage
 
 
@@ -220,3 +221,94 @@ def test_missing_cached_object_is_replaced_and_recorded(
     )
     assert invalidation is not None
     assert invalidation.status == "succeeded"
+
+
+def test_preview_prepares_durable_transfer_before_render_and_source_lock(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = _dxf_bytes()
+    storage = LocalFileStorage(tmp_path / "storage")
+    source = _source_file(db, storage, payload)
+    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    events: list[str] = []
+    real_prepare = service.prepare_transfer_in_transaction
+    real_render = service.render_inspected_dxf_to_svg
+    real_save = service.save_bytes_as_file
+
+    def prepare_spy(*args, **kwargs):
+        events.append("prepare")
+        return real_prepare(*args, **kwargs)
+
+    def render_spy(*args, **kwargs):
+        events.append("render")
+        return real_render(*args, **kwargs)
+
+    def save_spy(*args, **kwargs):
+        events.append(f"save:{bool(kwargs.get('transfer_uid'))}")
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(service, "prepare_transfer_in_transaction", prepare_spy)
+    monkeypatch.setattr(service, "render_inspected_dxf_to_svg", render_spy)
+    monkeypatch.setattr(service, "save_bytes_as_file", save_spy)
+
+    result = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-order-1",
+    )
+    db.commit()
+
+    assert events == ["prepare", "render", "save:True"]
+    transfer = db.scalar(select(FileTransfer).where(FileTransfer.file_id == result.preview_file.id))
+    assert transfer is not None
+    assert transfer.status == "succeeded"
+
+
+def test_preview_write_failure_keeps_durable_failed_transfer(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class PreviewWriteFailureStorage(LocalFileStorage):
+        def put_fileobj(
+            self,
+            bucket,
+            storage_key,
+            fileobj,
+            *,
+            length,
+            content_type=None,
+        ):
+            if storage_key.startswith("previews/dxf/"):
+                raise StorageError("preview write failed")
+            return super().put_fileobj(
+                bucket,
+                storage_key,
+                fileobj,
+                length=length,
+                content_type=content_type,
+            )
+
+    payload = _dxf_bytes()
+    storage = PreviewWriteFailureStorage(tmp_path / "storage")
+    source = _source_file(db, storage, payload)
+    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+
+    with pytest.raises(AppHTTPException) as exc:
+        service.get_or_create_dxf_preview(
+            db,
+            source,
+            payload,
+            storage=storage,
+            request_id="preview-failure-1",
+        )
+    db.rollback()
+
+    assert exc.value.detail["code"] == "STORAGE_WRITE_FAILED"
+    transfer = db.scalar(select(FileTransfer).where(FileTransfer.operation == "preview_generate"))
+    assert transfer is not None
+    assert transfer.status == "failed"
