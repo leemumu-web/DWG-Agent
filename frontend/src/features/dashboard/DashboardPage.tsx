@@ -16,8 +16,8 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { listProjects } from '../../api/projects.api';
-import { listFiles } from '../../api/files.api';
-import { listJobs } from '../../api/jobs.api';
+import { listFilesPage } from '../../api/files.api';
+import { listJobsPage } from '../../api/jobs.api';
 import { listPendingReviews } from '../../api/reviews.api';
 import { useAuthStore } from '../../stores/auth.store';
 import { fmtRelative, StatCard, StatGrid, StatusChip, JOB_STATUS } from '../../components/ui';
@@ -29,8 +29,8 @@ export function DashboardPage() {
   const navigate = useNavigate();
 
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: listProjects, staleTime: 10_000 });
-  const filesQ = useQuery({ queryKey: ['files'], queryFn: () => listFiles(), staleTime: 5000 });
-  const jobsQ = useQuery({ queryKey: ['jobs'], queryFn: () => listJobs(), staleTime: 3000, refetchInterval: 5000 });
+  const filesQ = useQuery({ queryKey: ['files', 'dashboard'], queryFn: () => listFilesPage({ page: 1, page_size: 1 }), staleTime: 5000 });
+  const jobsQ = useQuery({ queryKey: ['jobs', 'dashboard'], queryFn: () => listJobsPage({ page: 1, page_size: 20 }), staleTime: 3000, refetchInterval: 5000 });
   const reviewsQ = useQuery({ queryKey: ['reviews', 'pending'], queryFn: listPendingReviews, staleTime: 10_000 });
 
   const refresh = useCallback(() => {
@@ -40,7 +40,7 @@ export function DashboardPage() {
     reviewsQ.refetch();
   }, [projectsQ, filesQ, jobsQ, reviewsQ]);
 
-  const jobs = jobsQ.data ?? [];
+  const jobs = jobsQ.data?.data ?? [];
   const succeeded = jobs.filter((j) => j.status === 'succeeded').length;
   const running = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
   const failed = jobs.filter((j) => j.status === 'failed').length;
@@ -78,8 +78,8 @@ export function DashboardPage() {
       {/* stats */}
       <StatGrid>
         <StatCard label="项目" value={projectsQ.data?.length ?? '—'} icon={<ProjectOutlined />} color="#1677ff" bg="#e6f4ff" hint="已加入的项目总数" />
-        <StatCard label="文件" value={filesQ.data?.length ?? '—'} icon={<FileOutlined />} color="#722ed1" bg="#f9f0ff" hint="可访问的文件总数" />
-        <StatCard label="任务" value={jobs.length} icon={<ThunderboltOutlined />} color="#faad14" bg="#fffbe6" hint={`成功 ${succeeded} · 运行中 ${running} · 失败 ${failed}`} />
+        <StatCard label="文件" value={filesQ.data?.pagination.total ?? '—'} icon={<FileOutlined />} color="#722ed1" bg="#f9f0ff" hint="可访问的文件总数" />
+        <StatCard label="任务" value={jobsQ.data?.pagination.total ?? '—'} icon={<ThunderboltOutlined />} color="#faad14" bg="#fffbe6" hint={`最近任务：成功 ${succeeded} · 运行中 ${running} · 失败 ${failed}`} />
         <StatCard label="待复核" value={reviewsQ.data?.length ?? '—'} icon={<AuditOutlined />} color="#13c2c2" bg="#e6fffb" hint="等待人工复核的结果" />
       </StatGrid>
 

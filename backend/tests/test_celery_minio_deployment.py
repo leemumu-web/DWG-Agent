@@ -212,9 +212,18 @@ def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
     )
 
     engine = create_engine("sqlite://")
+    lifecycle: list[str] = []
+
+    class FakeSession:
+        def commit(self):
+            lifecycle.append("commit")
+
+        def close(self):
+            lifecycle.append("session_close")
 
     class FakeChannel:
         closed = False
+        session = FakeSession()
 
         def queue_declare(self, *, queue, durable):
             assert queue == "default"
@@ -229,6 +238,7 @@ def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
                 )
 
         def close(self):
+            lifecycle.append("channel_close")
             self.closed = True
 
     class FakeConnection:
@@ -252,6 +262,7 @@ def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
 
     assert prepare_sql_broker_schema(FakeApp(), engine) is True
     assert connection.channel_instance.closed is True
+    assert lifecycle == ["commit", "session_close", "channel_close"]
     assert SQL_BROKER_MESSAGE_INDEX in {
         item["name"] for item in inspect(engine).get_indexes("kombu_message")
     }

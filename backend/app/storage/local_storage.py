@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import os
 import shutil
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import BinaryIO
 
-from app.storage.base import AbstractStorageBackend, StorageError, StorageObjectNotFound
+from app.storage.base import (
+    AbstractStorageBackend,
+    ObjectInfo,
+    ObjectPage,
+    StorageError,
+    StorageObjectNotFound,
+)
 from app.utils.path_utils import ensure_within_root
 
 
@@ -37,8 +45,31 @@ class LocalFileStorage(AbstractStorageBackend):
         path = self._path(bucket, storage_key)
         path.parent.mkdir(parents=True, exist_ok=True)
         fileobj.seek(0)
-        with path.open("wb") as out:
-            shutil.copyfileobj(fileobj, out, length=1024 * 1024)
+
+        # Write to a sibling temp file, then atomically rename into place.
+        # This prevents readers from seeing a truncated object after a crash,
+        # and matches MinIO's server-side atomic PUT semantics.
+        tmp = NamedTemporaryFile(
+            dir=path.parent,
+            prefix=".dwg-tmp-",
+            delete=False,
+        )
+        try:
+            shutil.copyfileobj(fileobj, tmp, length=1024 * 1024)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp.close()
+            os.replace(tmp.name, path)
+            # Make the directory entry durable after rename.
+            parent_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
+        except BaseException:
+            tmp.close()
+            Path(tmp.name).unlink(missing_ok=True)
+            raise
 
     def iter_file(
         self,
@@ -61,5 +92,88 @@ class LocalFileStorage(AbstractStorageBackend):
     def local_path(self, bucket: str, storage_key: str) -> Path | None:
         return self._path(bucket, storage_key)
 
+    def bucket_object_counts(self, buckets: list[str]) -> dict[str, int]:
+        """Count files per bucket (local adapter).
+
+        Mirrors ``MinioStorage.bucket_object_counts`` so the infrastructure
+        overview reports real numbers for both backends.
+        """
+        counts: dict[str, int] = {}
+        for bucket in buckets:
+            bucket_dir = self.root / bucket
+            if not bucket_dir.is_dir():
+                counts[bucket] = 0
+                continue
+            counts[bucket] = sum(1 for _ in bucket_dir.rglob("*") if _.is_file())
+        return counts
+
     def delete_object(self, bucket: str, storage_key: str) -> None:
         self._path(bucket, storage_key).unlink(missing_ok=True)
+
+    def stat_object(self, bucket: str, storage_key: str) -> ObjectInfo:
+        path = self._path(bucket, storage_key)
+        if not path.is_file():
+            raise StorageObjectNotFound(f"{bucket}/{storage_key}")
+        try:
+            stat = path.stat()
+        except FileNotFoundError as exc:
+            raise StorageObjectNotFound(f"{bucket}/{storage_key}") from exc
+        except OSError as exc:
+            raise StorageError(f"Failed to inspect local object {bucket}/{storage_key}.") from exc
+        return ObjectInfo(
+            bucket=bucket,
+            storage_key=storage_key,
+            size_bytes=stat.st_size,
+            last_modified=datetime.fromtimestamp(stat.st_mtime, UTC),
+        )
+
+    def list_objects(
+        self,
+        bucket: str,
+        *,
+        prefix: str,
+        cursor: str | None,
+        page_size: int,
+    ) -> ObjectPage:
+        if not 1 <= page_size <= 200:
+            raise ValueError("page_size must be between 1 and 200")
+        bucket_dir = self._path(bucket, "")
+        self._path(bucket, prefix)
+        if cursor is not None:
+            self._path(bucket, cursor)
+        if not bucket_dir.is_dir():
+            return ObjectPage(items=[], next_cursor=None)
+
+        candidates: list[tuple[str, Path]] = []
+        try:
+            for path in bucket_dir.rglob("*"):
+                if not path.is_file():
+                    continue
+                key = path.relative_to(bucket_dir).as_posix()
+                if key.startswith(prefix) and (cursor is None or key > cursor):
+                    candidates.append((key, path))
+        except OSError as exc:
+            raise StorageError(f"Failed to list local bucket {bucket}.") from exc
+
+        candidates.sort(key=lambda item: item[0])
+        selected = candidates[: page_size + 1]
+        has_more = len(selected) > page_size
+        selected = selected[:page_size]
+        items: list[ObjectInfo] = []
+        for key, path in selected:
+            try:
+                stat = path.stat()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise StorageError(f"Failed to inspect local object {bucket}/{key}.") from exc
+            items.append(
+                ObjectInfo(
+                    bucket=bucket,
+                    storage_key=key,
+                    size_bytes=stat.st_size,
+                    last_modified=datetime.fromtimestamp(stat.st_mtime, UTC),
+                )
+            )
+        next_cursor = items[-1].storage_key if has_more and items else None
+        return ObjectPage(items=items, next_cursor=next_cursor)

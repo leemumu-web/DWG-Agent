@@ -43,7 +43,7 @@ const NAV: NavItem[] = [
   { key: '/reviews', label: '复核', icon: <AuditOutlined /> },
   { key: '/admin/users', label: '用户管理', icon: <TeamOutlined />, roles: ['admin'] },
   { key: '/admin/roles', label: '角色权限', icon: <SafetyCertificateOutlined />, roles: ['admin'] },
-  { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin'] },
+  { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin', 'auditor'] },
   { key: '/admin/audit-logs', label: '审计日志', icon: <ProfileOutlined />, roles: ['auditor'] },
 ];
 

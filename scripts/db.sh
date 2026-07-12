@@ -18,7 +18,7 @@ Commands:
   init          执行 alembic upgrade head + app.db.init_db，补齐迁移与种子数据
   migrate       执行 alembic upgrade head，修复已存在 MySQL schema 漂移
   migration-test
-                创建临时 MySQL schema，从空库执行 alembic upgrade head 并验证表结构
+                创建临时 MySQL schema，从空库执行 alembic upgrade head + 种子兼容性并验证表结构
   check         非破坏性检查：配置一致性、MySQL URL、应用凭据、schema、SQLite 退出状态
   status        打印数据库状态与诊断摘要
   shell         使用 backend/.env 中的应用凭据进入 mariadb/mysql shell
@@ -28,6 +28,8 @@ Commands:
   restore <file>
                 从备份文件恢复数据库（需确认）
   reset         删除并重建数据库 + 迁移 + 种子（开发专用，需确认）
+  clean         清理残留迁移测试库 + 退役 var/app.db 遗留文件
+  reap-storage  回收软删除文件的存储对象（--dry-run 仅预览）
   history       显示 Alembic 迁移历史
   downgrade <rev>
                 回滚到指定 Alembic 版本（如 -1 回退一个迁移）
@@ -226,6 +228,7 @@ setup_user_cmd() {
     require_mysql_url
     pick_mysql_client
     ensure_service 3306 mysql mariadb
+    ensure_sudo || return 2
     if [[ -z "$DB_PASSWORD" || "$DB_PASSWORD" == CHANGE_ME* || "$DB_PASSWORD" == change-me-* ]]; then
         err "MYSQL_PASSWORD 仍是空值或占位值，请先在 .env/backend/.env 写入本机真实密码"
         return 2
@@ -255,9 +258,10 @@ PY
 
 init_cmd() {
     start_cmd
-    info "执行数据库初始化 / 种子数据..."
-    (cd "$PROJECT_ROOT/backend" && uv run python -m app.db.init_db)
+    info "执行数据库迁移..."
     run_alembic_upgrade
+    info "写入种子数据..."
+    (cd "$PROJECT_ROOT/backend" && uv run python -m app.db.init_db)
     ok "数据库初始化完成"
 }
 
@@ -280,11 +284,20 @@ PY
 
 migration_test_cmd() {
     start_cmd
+    ensure_sudo || return 2
     MIGRATION_TEST_DB="dwg_agent_migration_test_$$"
     if [[ ! "$MIGRATION_TEST_DB" =~ ^[A-Za-z0-9_]+$ ]]; then
         err "临时库名不安全: $MIGRATION_TEST_DB"
         return 2
     fi
+
+    # Drop any orphaned migration-test databases from previous crashed runs
+    # before creating a new one (SIGKILL, power loss, etc. can skip the EXIT trap).
+    sudo mariadb -N -e "SHOW DATABASES LIKE 'dwg_agent_migration_test_%';" 2>/dev/null | while read -r orphan; do
+        [[ "$orphan" =~ ^dwg_agent_migration_test_[0-9]+$ ]] || continue
+        warn "清理残留迁移测试库: $orphan"
+        sudo mariadb -e "DROP DATABASE IF EXISTS \`$orphan\`;" >/dev/null 2>&1 || true
+    done
 
     cleanup_migration_test() {
         if [[ "${MIGRATION_TEST_DB:-}" =~ ^[A-Za-z0-9_]+$ ]]; then
@@ -322,6 +335,7 @@ expected_tables = {
     "excel_final_batches",
     "excel_final_components",
     "excel_final_parts",
+    "file_transfers",
     "files",
     "job_steps",
     "jobs",
@@ -333,6 +347,8 @@ expected_tables = {
     "sys_roles",
     "sys_user_roles",
     "sys_users",
+    "storage_scan_findings",
+    "storage_scan_runs",
     "token_blacklist",
     "workflow_artifacts",
     "workflow_runs",
@@ -346,6 +362,7 @@ timestamp_tables = (
 )
 
 expected_columns = {
+    "files": {"deleted_at"},
     "jobs": {"progress_data", "attempt"},
     "job_steps": {"attempt"},
     "sys_users": {"password_changed_at"},
@@ -364,7 +381,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "e4a1c7f2b930":
+    if version != "6d2f8a9c1b40":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}
@@ -405,12 +422,25 @@ with engine.connect() as conn:
     }
     if ("job_id",) not in unique_columns:
         raise SystemExit("excel_final_batches.job_id is not unique")
+    file_unique_columns = {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("files")
+    }
+    if ("bucket", "storage_key") not in file_unique_columns:
+        raise SystemExit("files storage location is not unique")
 print(f"Alembic head: {version}; business tables: {len(expected_tables)}")
 PY
     )
+    info "验证种子数据兼容性..."
+    (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run python -m app.db.init_db) || {
+        err "种子数据不兼容 — 迁移可能新增 NOT NULL 列或重命名列但未同步更新 init_db"
+        cleanup_migration_test
+        trap - EXIT
+        return 2
+    }
     cleanup_migration_test
     trap - EXIT
-    ok "临时 MySQL schema 迁移验证通过并已清理"
+    ok "临时 MySQL schema 迁移 + 种子数据验证通过并已清理"
 }
 
 run_alembic_upgrade() {
@@ -470,7 +500,8 @@ reset_cmd() {
     info "删除数据库 $DB_NAME..."
     MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" \
         -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null \
-        || sudo mariadb -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        || { ensure_sudo && sudo mariadb -e "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"; } \
+        || { err "重建数据库失败（应用凭据无 DROP 权限且 sudo 不可用）"; return 1; }
 
     ok "数据库已重建"
     info "执行迁移 + 种子..."
@@ -558,6 +589,38 @@ logs_cmd() {
     fi
 }
 
+clean_cmd() {
+    pick_mysql_client
+    info "清理残留迁移测试数据库..."
+    if ensure_sudo; then
+        sudo mariadb -N -e "SHOW DATABASES LIKE 'dwg_agent_migration_test_%';" 2>/dev/null | while read -r orphan; do
+            [[ "$orphan" =~ ^dwg_agent_migration_test_[0-9]+$ ]] || continue
+            warn "清理: $orphan"
+            sudo mariadb -e "DROP DATABASE IF EXISTS \`$orphan\`;" >/dev/null 2>&1 || true
+        done
+    else
+        warn "跳过迁移测试库清理（sudo 不可用）"
+    fi
+
+    local appdb="$PROJECT_ROOT/var/app.db"
+    if [ -f "$appdb" ]; then
+        local pid
+        pid="$(pgrep -f 'uvicorn app.main:app' 2>/dev/null | head -1)" || true
+        if [ -n "$pid" ]; then
+            warn "后端仍运行 (pid=$pid)，跳过 $appdb 清理（可能仍被使用）"
+        else
+            local backup="$PROJECT_ROOT/var/app.db.retired-$(date +%Y%m%d-%H%M%S)"
+            info "退役 SQLite 遗留文件: $appdb → $backup"
+            mv "$appdb" "$backup"
+            ok "已退役 var/app.db"
+        fi
+    else
+        ok "无 var/app.db 遗留文件"
+    fi
+
+    info "提示: 软删除对象回收请用 scripts/db.sh reap-storage"
+}
+
 case "${1:-status}" in
     "start")           start_cmd ;;
     "setup-user")      setup_user_cmd ;;
@@ -575,6 +638,10 @@ case "${1:-status}" in
     "history")         history_cmd ;;
     "downgrade")       downgrade_cmd "${2:--1}" ;;
     "revision")        revision_cmd "${2:-auto}" ;;
+    "clean")           clean_cmd ;;
+    "reap-storage")
+        shift
+        (cd "$PROJECT_ROOT/backend" && uv run python ../scripts/reap_storage.py "$@") ;;
     "help"|"--help"|"-h") usage ;;
     *) usage; exit 2 ;;
 esac

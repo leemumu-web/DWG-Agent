@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from app.core.config import settings
+from app.db.session import SessionLocal
+from app.services import storage_service
 from app.services.job_service import run_local_stub_job
+from app.services.storage_reconciliation_service import execute_scan_run
 from app.workers.celery_app import celery_app, summarize_job_execution
 
 
@@ -9,3 +13,14 @@ def run_stub_job_task(self, job_id: int, attempt: int = 1) -> dict[str, int | st
     worker_name = self.request.hostname or "celery_report"
     run_local_stub_job(job_id, worker_name=worker_name, expected_attempt=attempt)
     return summarize_job_execution(job_id, "local_stub")
+
+
+@celery_app.task(name="app.workers.tasks_report.scan_storage_consistency")
+def scan_storage_consistency_task(scan_run_id: int) -> dict[str, int | str]:
+    execute_scan_run(
+        scan_run_id,
+        factory=SessionLocal,
+        storage=storage_service.get_storage_backend(),
+        buckets=settings.minio_bucket_names,
+    )
+    return {"scan_run_id": scan_run_id, "status": "completed"}

@@ -37,7 +37,7 @@ bash scripts/start-dev.sh
 bash scripts/start-all.sh
 ```
 
-端口 `8000` 是容器内部端口。Vite 选择其他端口时使用其输出 URL，直连测试时设置 Playwright override。接近生产的浏览器工作优先走 Nginx `8080`。
+端口 `8010` 是容器内部端口（与本地一致）。Vite 选择其他端口时使用其输出 URL，直连测试时设置 Playwright override。接近生产的浏览器工作优先走 Nginx `8080`。
 
 ## Backend 变更规则
 
@@ -93,7 +93,7 @@ bash scripts/db.sh migration-test
 cd backend && uv run alembic check
 ```
 
-Alembic 当前拥有 25 张 SQLAlchemy 模型表，其中包含三张工作流表；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
+Alembic 当前拥有 28 张 SQLAlchemy 模型表，其中包含三张工作流表和三张流转/扫描表；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
 
 ## 测试层级
 

@@ -6,6 +6,7 @@ from app.api.v1 import (
     agent_runs_api,
     audit_logs_api,
     auth_api,
+    data_admin_api,
     drawings_api,
     excel_final_api,
     files_api,
@@ -21,6 +22,11 @@ from app.api.v1 import (
 
 api_router = APIRouter()
 api_router.include_router(auth_api.router, prefix="/auth", tags=["auth"])
+api_router.include_router(
+    data_admin_api.router,
+    prefix="/data-admin",
+    tags=["data-admin"],
+)
 api_router.include_router(users_api.router, prefix="/users", tags=["users"])
 api_router.include_router(roles_api.router, tags=["roles"])
 api_router.include_router(projects_api.router, prefix="/projects", tags=["projects"])

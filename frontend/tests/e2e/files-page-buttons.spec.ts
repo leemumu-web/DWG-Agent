@@ -292,6 +292,10 @@ for (const dir of DIRECTIONS) {
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     await dialog.getByPlaceholder(/输入文件夹名称/).fill('e2e_test');
+    // The newest source row may still be converting, so only request the
+    // format guaranteed to exist instead of depending on historical DB order.
+    const unavailableFormat = dir.fileExt === '.dwg' ? '包含 DXF 文件' : '包含 DWG 文件';
+    await dialog.getByRole('checkbox', { name: unavailableFormat }).uncheck();
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30_000 }),

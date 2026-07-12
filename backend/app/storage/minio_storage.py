@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from itertools import islice
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import urlparse
@@ -11,6 +12,8 @@ from urllib3.exceptions import HTTPError
 
 from app.storage.base import (
     AbstractStorageBackend,
+    ObjectInfo,
+    ObjectPage,
     StorageConfigurationError,
     StorageError,
     StorageObjectNotFound,
@@ -151,3 +154,58 @@ class MinioStorage(AbstractStorageBackend):
             raise StorageError(
                 f"Failed to delete MinIO object {bucket}/{storage_key}: {exc}"
             ) from exc
+
+    def stat_object(self, bucket: str, storage_key: str) -> ObjectInfo:
+        try:
+            item = self._client.stat_object(bucket, storage_key)
+        except S3Error as exc:
+            if exc.code in {"NoSuchBucket", "NoSuchKey", "NoSuchObject", "NotFound"}:
+                raise StorageObjectNotFound(f"{bucket}/{storage_key}") from exc
+            raise StorageError(f"Failed to inspect MinIO object {bucket}/{storage_key}.") from exc
+        except (MinioException, HTTPError, OSError) as exc:
+            raise StorageError(f"Failed to inspect MinIO object {bucket}/{storage_key}.") from exc
+        return ObjectInfo(
+            bucket=bucket,
+            storage_key=storage_key,
+            size_bytes=int(item.size),
+            last_modified=item.last_modified,
+        )
+
+    def list_objects(
+        self,
+        bucket: str,
+        *,
+        prefix: str,
+        cursor: str | None,
+        page_size: int,
+    ) -> ObjectPage:
+        if not 1 <= page_size <= 200:
+            raise ValueError("page_size must be between 1 and 200")
+        try:
+            listed = self._client.list_objects(
+                bucket,
+                prefix=prefix or None,
+                recursive=True,
+                start_after=cursor,
+            )
+            selected = list(islice(listed, page_size + 1))
+        except S3Error as exc:
+            if exc.code == "NoSuchBucket":
+                return ObjectPage(items=[], next_cursor=None)
+            raise StorageError(f"Failed to list MinIO bucket {bucket}.") from exc
+        except (MinioException, HTTPError, OSError) as exc:
+            raise StorageError(f"Failed to list MinIO bucket {bucket}.") from exc
+
+        has_more = len(selected) > page_size
+        selected = selected[:page_size]
+        items = [
+            ObjectInfo(
+                bucket=bucket,
+                storage_key=item.object_name,
+                size_bytes=int(item.size),
+                last_modified=item.last_modified,
+            )
+            for item in selected
+        ]
+        next_cursor = items[-1].storage_key if has_more and items else None
+        return ObjectPage(items=items, next_cursor=next_cursor)

@@ -3,6 +3,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import quote
 
 from sqlalchemy import select
@@ -20,6 +24,14 @@ from app.models.user import User
 from app.schemas.file_schema import DownloadUrlRead
 
 DOWNLOAD_URL_TTL_SECONDS = 300
+
+
+@dataclass(frozen=True)
+class PreparedExport:
+    path: Path
+    filename: str
+    size_bytes: int
+    included_file_ids: tuple[int, ...]
 
 
 def download_signature(file_id: int, expires: int) -> str:
@@ -129,91 +141,124 @@ def build_zip(
     formats: list[str],
     folder_name: str,
 ) -> tuple[bytes, str]:
-    """Build a zip archive containing requested format versions for the given
-    source file ids.  Returns (zip_bytes, filename).
+    """Compatibility wrapper returning bytes for callers not yet migrated to streaming."""
+    prepared = build_zip_to_path(db, file_ids, formats, folder_name)
+    try:
+        return prepared.path.read_bytes(), prepared.filename
+    finally:
+        prepared.path.unlink(missing_ok=True)
 
-    Direction-agnostic:
-    - "dwg" format → include DWG version (source if source is .dwg, or result if .dwg)
-    - "dxf" format → include DXF version (source if source is .dxf, or result if .dxf)
-    - Works for both /files/dwg2dxf and /files/dxf2dwg pages.
+
+def build_zip_to_path(
+    db: Session,
+    file_ids: list[int],
+    formats: list[str],
+    folder_name: str,
+) -> PreparedExport:
+    """Build a strict ZIP incrementally on disk.
+
+    Every requested source and format must be available. Storage read failures
+    abort the whole export instead of returning a plausible but incomplete ZIP.
     """
-    import io
-    import zipfile
-
     from app.services.storage_service import get_storage_backend
 
-    storage = get_storage_backend()
-    want_dwg = "dwg" in formats
-    want_dxf = "dxf" in formats
+    requested_ids = tuple(dict.fromkeys(file_ids))
+    if not requested_ids:
+        raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
+    requested_formats = tuple(dict.fromkeys(formats))
+    if not requested_formats or any(item not in {"dwg", "dxf"} for item in requested_formats):
+        raise AppHTTPException(
+            422,
+            "INVALID_PARAMS",
+            "formats must contain only dwg or dxf.",
+        )
 
-    # Load source files
     source_files: dict[int, StoredFile] = {}
     for f in db.scalars(
         select(StoredFile).where(
-            StoredFile.id.in_(file_ids), StoredFile.status != "deleted"
+            StoredFile.id.in_(requested_ids), StoredFile.status != "deleted"
         )
     ).all():
         source_files[f.id] = f
+    missing_ids = [file_id for file_id in requested_ids if file_id not in source_files]
+    if missing_ids:
+        raise AppHTTPException(
+            404,
+            "FILE_EXPORT_SOURCE_MISSING",
+            "One or more requested export files are unavailable.",
+            {"file_ids": missing_ids},
+        )
 
-    # Load conversion results (either DWG→DXF or DXF→DWG)
-    result_map = build_result_map(db, file_ids)
+    result_map = build_result_map(db, list(requested_ids))
 
     def _stem(f: StoredFile) -> str:
         return f.original_name.rsplit(".", 1)[0] if "." in f.original_name else f.original_name
 
     # Two-pass dedup: count occurrences first, then assign suffixes
-    stems: list[str] = [_stem(source_files[fid]) for fid in file_ids if fid in source_files]
+    stems: list[str] = [_stem(source_files[file_id]) for file_id in requested_ids]
     stem_count: dict[str, int] = {}
     for s in stems:
         stem_count[s] = stem_count.get(s, 0) + 1
     stem_seq: dict[str, int] = {}
 
-    def _read(bucket: str, key: str) -> bytes | None:
-        try:
-            return b"".join(storage.iter_file(bucket, key))
-        except Exception:
-            return None
+    export_items: list[tuple[int, StoredFile, str]] = []
+    for file_id in requested_ids:
+        src = source_files[file_id]
+        stem = _stem(src)
+        seq = stem_seq.get(stem, 0) + 1
+        stem_seq[stem] = seq
+        disamb = f"({seq})" if stem_count.get(stem, 0) > 1 else ""
+        result = result_map.get(file_id)
+        for requested_format in requested_formats:
+            selected: StoredFile | None = None
+            if src.file_ext == f".{requested_format}":
+                selected = src
+            elif result and result.file_ext == f".{requested_format}":
+                selected = result
+            if selected is None:
+                raise AppHTTPException(
+                    409,
+                    "FILE_EXPORT_FORMAT_UNAVAILABLE",
+                    f"Requested {requested_format.upper()} format is not available.",
+                    {"file_id": file_id, "format": requested_format},
+                )
+            export_items.append(
+                (
+                    file_id,
+                    selected,
+                    f"{folder_name}/{stem}{disamb}.{requested_format}",
+                )
+            )
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fid in file_ids:
-            src = source_files.get(fid)
-            if not src:
-                continue
-            stem = _stem(src)
-            seq = stem_seq.get(stem, 0) + 1
-            stem_seq[stem] = seq
-            # Only disambiguate when the stem appears more than once
-            disamb = f"({seq})" if stem_count.get(stem, 0) > 1 else ""
+    storage = get_storage_backend()
+    tmp = NamedTemporaryFile(suffix=".zip", delete=False)
+    path = Path(tmp.name)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            for file_id, stored, archive_name in export_items:
+                try:
+                    with archive.open(archive_name, "w", force_zip64=True) as target:
+                        for chunk in storage.iter_file(stored.bucket, stored.storage_key):
+                            target.write(chunk)
+                except Exception as exc:
+                    raise AppHTTPException(
+                        409,
+                        "STORAGE_INCONSISTENT",
+                        "A required stored object could not be read for export.",
+                        {"file_id": file_id},
+                    ) from exc
+        size_bytes = path.stat().st_size
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
-            result = result_map.get(fid)
-
-            # DWG format: source if source is .dwg, or result if result is .dwg
-            if want_dwg:
-                dwg_file = None
-                if src.file_ext == ".dwg":
-                    dwg_file = src
-                elif result and result.file_ext == ".dwg":
-                    dwg_file = result
-                if dwg_file:
-                    dwg_bytes = _read(dwg_file.bucket, dwg_file.storage_key)
-                    if dwg_bytes:
-                        zf.writestr(f"{folder_name}/{stem}{disamb}.dwg", dwg_bytes)
-
-            # DXF format: source if source is .dxf, or result if result is .dxf
-            if want_dxf:
-                dxf_file = None
-                if src.file_ext == ".dxf":
-                    dxf_file = src
-                elif result and result.file_ext == ".dxf":
-                    dxf_file = result
-                if dxf_file:
-                    dxf_bytes = _read(dxf_file.bucket, dxf_file.storage_key)
-                    if dxf_bytes:
-                        zf.writestr(f"{folder_name}/{stem}{disamb}.dxf", dxf_bytes)
-
-    buf.seek(0)
-    return buf.getvalue(), f"{folder_name}.zip"
+    return PreparedExport(
+        path=path,
+        filename=f"{folder_name}.zip",
+        size_bytes=size_bytes,
+        included_file_ids=requested_ids,
+    )
 
 
 def file_project_ids(db: Session, file_id: int) -> set[int]:

@@ -68,38 +68,97 @@ backup() {
     require_env
     mkdir -p "$destination"
     destination=$(cd "$destination" && pwd)
+
+    local storage_backend
+    storage_backend=$(grep -E '^STORAGE_BACKEND=' "$ENV_FILE" | tail -n1 | cut -d= -f2- || echo "minio")
+
+    # Record backup window for post-restore reconciliation.
+    local backup_start backup_end
+    backup_start=$(date -u +%s)
+
     info "creating consistent MySQL dump"
     "${COMPOSE[@]}" exec -T mysql sh -c \
         'exec mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events --triggers --databases "$MYSQL_DATABASE" hardware_handbook' \
         | gzip -9 > "$destination/mysql.sql.gz"
-    info "archiving MinIO object data"
-    "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint sh minio -c \
-        'cd /data && tar -czf - .' > "$destination/minio-data.tar.gz"
-    (cd "$destination" && sha256sum mysql.sql.gz minio-data.tar.gz > SHA256SUMS)
+
+    if [[ "$storage_backend" == "minio" ]]; then
+        info "archiving MinIO object data"
+        "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint sh minio -c \
+            'cd /data && tar -czf - .' > "$destination/minio-data.tar.gz"
+    else
+        warn "STORAGE_BACKEND=$storage_backend — MinIO archive skipped; objects in app_var volume"
+        info "archiving app_var/storage (local backend)"
+        "${COMPOSE[@]}" run --rm --no-deps -T -v app_var:/appvar --entrypoint sh minio -c \
+            'cd /appvar && tar -czf - storage' > "$destination/app-var-storage.tar.gz" 2>/dev/null || \
+            warn "app_var archive failed — volume may be empty or unmounted"
+    fi
+
+    backup_end=$(date -u +%s)
+
+    # Write backup manifest
+    local artifacts=(mysql.sql.gz)
+    [[ -f "$destination/minio-data.tar.gz" ]] && artifacts+=(minio-data.tar.gz)
+    [[ -f "$destination/app-var-storage.tar.gz" ]] && artifacts+=(app-var-storage.tar.gz)
+
+    (cd "$destination" && sha256sum "${artifacts[@]}" > SHA256SUMS)
+    printf 'backup_start_utc=%s\n' "$backup_start" > "$destination/BACKUP_WINDOW"
+    printf 'backup_end_utc=%s\n' "$backup_end" >> "$destination/BACKUP_WINDOW"
+    printf 'storage_backend=%s\n' "$storage_backend" >> "$destination/BACKUP_WINDOW"
+
+    printf '\nNB: This is a crash-consistent (not application-consistent) backup.\n'
+    printf '   MySQL dump and object archive were taken at different instants.\n'
+    printf '   For strict cross-system consistency, stop API + workers first:\n'
+    printf '     docker compose --profile workers stop\n'
+    printf '     docker compose stop backend-api\n'
     info "backup completed: $destination"
 }
 
 restore() {
     local source=${1:-}
-    [[ -n "$source" && -f "$source/mysql.sql.gz" && -f "$source/minio-data.tar.gz" ]] || \
-        die "restore requires a backup directory containing mysql.sql.gz and minio-data.tar.gz"
+    [[ -n "$source" ]] || die "restore requires a backup directory"
     require_env
     source=$(cd "$source" && pwd)
-    [[ -f "$source/SHA256SUMS" ]] && (cd "$source" && sha256sum -c SHA256SUMS)
-    if "${COMPOSE[@]}" ps --services --status running | grep -q .; then
+    [[ -f "$source/mysql.sql.gz" ]] || die "backup directory missing mysql.sql.gz"
+    [[ -f "$source/SHA256SUMS" ]] && (cd "$source" && sha256sum -c SHA256SUMS) || true
+
+    if "${COMPOSE[@]}" ps --services --status running 2>/dev/null | grep -q .; then
         die "stop the stack with 'bash scripts/docker.sh down' before restore"
     fi
-    info "restoring MinIO volume"
-    "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint sh minio -c \
-        'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; tar -xzf - -C /data' \
-        < "$source/minio-data.tar.gz"
+
+    local has_minio=false has_appvar=false
+    [[ -f "$source/minio-data.tar.gz" ]] && has_minio=true
+    [[ -f "$source/app-var-storage.tar.gz" ]] && has_appvar=true
+
+    if $has_minio; then
+        info "restoring MinIO volume"
+        "${COMPOSE[@]}" run --rm --no-deps -T --entrypoint sh minio -c \
+            'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; tar -xzf - -C /data' \
+            < "$source/minio-data.tar.gz"
+    fi
+
+    if $has_appvar; then
+        info "restoring app_var storage"
+        "${COMPOSE[@]}" run --rm --no-deps -T -v app_var:/appvar --entrypoint sh minio -c \
+            'rm -rf /appvar/storage; tar -xzf - -C /appvar' \
+            < "$source/app-var-storage.tar.gz"
+    fi
+
     info "starting MySQL for database restore"
     "${COMPOSE[@]}" up -d mysql
     "${COMPOSE[@]}" exec -T mysql sh -c \
         'until mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent; do sleep 2; done'
     gzip -dc "$source/mysql.sql.gz" | "${COMPOSE[@]}" exec -T mysql sh -c \
         'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD"'
+
+    # Post-restore: check for files whose storage_key may not exist in the
+    # restored volume (objects uploaded during the backup window, see BACKUP_WINDOW).
+    if [[ -f "$source/BACKUP_WINDOW" ]]; then
+        info "backup window markers — objects created within this window may be inconsistent"
+        cat "$source/BACKUP_WINDOW"
+    fi
+
     info "restore completed; start the stack with 'bash scripts/docker.sh up'"
+    info "after startup, run: bash scripts/db.sh reap-storage --include-orphans (dry-run first)"
 }
 
 command=${1:-}

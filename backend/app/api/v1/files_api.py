@@ -7,8 +7,8 @@ from tempfile import SpooledTemporaryFile
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Header, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -34,9 +34,18 @@ from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequ
 from app.services.audit_service import write_audit_log
 from app.services.file_service import (
     build_signed_download_url,
-    build_zip,
+    build_zip_to_path,
     download_headers,
     validate_download_signature,
+)
+from app.services.file_transfer_service import (
+    ACTIVE_TRANSFER_STATUSES,
+    TransferSpec,
+    complete_transfer_in_transaction,
+    prepare_transfer_in_transaction,
+    session_factory_for,
+    settle_stream,
+    settle_transfer,
 )
 from app.services.storage_service import (
     get_storage_backend,
@@ -190,28 +199,128 @@ def _require_file_delete_access(
     raise forbidden("Only the uploader or an administrator can delete this file.")
 
 
+def _soft_delete_file_in_transaction(
+    db: Session,
+    stored: StoredFile,
+    *,
+    actor_user_id: int,
+    request_id: str,
+    batch_ref: str | None = None,
+) -> None:
+    stored.status = "deleted"
+    stored.deleted_at = datetime.now(UTC)
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="internal",
+            operation="soft_delete",
+            actor_user_id=actor_user_id,
+            request_id=request_id,
+            file_id=stored.id,
+            batch_ref=batch_ref,
+            bucket=stored.bucket,
+            storage_key=stored.storage_key,
+            original_name=stored.original_name,
+            expected_bytes=stored.size_bytes,
+        ),
+    )
+    complete_transfer_in_transaction(
+        db,
+        transfer.transfer_uid,
+        file_id=stored.id,
+        bucket=stored.bucket,
+        storage_key=stored.storage_key,
+        original_name=stored.original_name,
+        transferred_bytes=stored.size_bytes,
+    )
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_file(
     request: Request,
     current_user: CurrentUser,
     upload: UploadFile = File(...),
     batch_name: str = Query(""),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        max_length=128,
+    ),
     db: Session = Depends(get_db),
 ):
-    stored = await save_upload_file(
-        db, upload, uploaded_by=current_user.id,
-        batch_name=sanitize_filename(batch_name.strip()) if batch_name.strip() else None,
-    )
-    write_audit_log(
+    transfer = prepare_transfer_in_transaction(
         db,
-        actor_user_id=current_user.id,
-        action="files.upload",
-        resource_type="file",
-        resource_id=stored.id,
-        after_json={"original_name": stored.original_name, "sha256": stored.sha256},
-        request=request,
+        TransferSpec(
+            direction="inbound",
+            operation="upload",
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+            idempotency_key=idempotency_key,
+            original_name=sanitize_filename(upload.filename or "unnamed.dwg"),
+        ),
     )
     db.commit()
+
+    if transfer.status == "succeeded" and transfer.file_id is not None:
+        stored = db.get(StoredFile, transfer.file_id)
+        if stored is None:
+            raise AppHTTPException(
+                409,
+                "IDEMPOTENT_RESULT_MISSING",
+                "The previous upload result is no longer available.",
+            )
+        return ok(FileRead.model_validate(stored), request.state.request_id)
+    if transfer.status not in ACTIVE_TRANSFER_STATUSES:
+        raise AppHTTPException(
+            409,
+            "IDEMPOTENT_OPERATION_FAILED",
+            "The previous operation with this idempotency key did not succeed.",
+            {"transfer_uid": transfer.transfer_uid},
+        )
+
+    try:
+        stored = await save_upload_file(
+            db,
+            upload,
+            uploaded_by=current_user.id,
+            batch_name=sanitize_filename(batch_name.strip()) if batch_name.strip() else None,
+            transfer_uid=transfer.transfer_uid,
+        )
+        complete_transfer_in_transaction(
+            db,
+            transfer.transfer_uid,
+            file_id=stored.id,
+            bucket=stored.bucket,
+            storage_key=stored.storage_key,
+            original_name=stored.original_name,
+            transferred_bytes=stored.size_bytes,
+        )
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="files.upload",
+            resource_type="file",
+            resource_id=stored.id,
+            after_json={"original_name": stored.original_name, "sha256": stored.sha256},
+            request=request,
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        detail = exc.detail if isinstance(exc, AppHTTPException) else None
+        settle_transfer(
+            session_factory_for(db),
+            transfer.transfer_uid,
+            status="failed",
+            transferred_bytes=0,
+            error_code=detail["code"] if isinstance(detail, dict) else "UPLOAD_TRANSACTION_FAILED",
+            error_message=(
+                detail["message"]
+                if isinstance(detail, dict)
+                else "Upload transaction failed before completion."
+            ),
+        )
+        raise
     return ok(FileRead.model_validate(stored), request.state.request_id)
 
 
@@ -348,6 +457,9 @@ async def upload_zip(
                 payload=entry_bytes,
                 uploaded_by=current_user.id,
                 batch_name=batch_name,
+                transfer_direction="inbound",
+                transfer_operation="upload_zip",
+                request_id=request.state.request_id,
             )
             extracted.append(stored)
 
@@ -502,7 +614,13 @@ def delete_batch(
     # Bulk soft-delete
     deleted_count = 0
     for s in stored_list:
-        s.status = "deleted"
+        _soft_delete_file_in_transaction(
+            db,
+            s,
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+            batch_ref=batch_name,
+        )
         deleted_count += 1
         write_audit_log(
             db,
@@ -529,9 +647,6 @@ def download_batch_zip(
     Streams the zip directly — no intermediate storage. Only the original
     file format is included (not conversion results).
     """
-    import os
-    import tempfile
-
     stored_list = list(
         db.scalars(
             select(StoredFile).where(
@@ -552,49 +667,55 @@ def download_batch_zip(
     formats = [first_ext] if first_ext in ("dwg", "dxf") else ["dxf"]
 
     clean_name = sanitize_filename(batch_name)
-    zip_bytes, _ = build_zip(db, file_ids, formats, clean_name)
-
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    tmp_path = tmp.name
+    prepared = build_zip_to_path(db, file_ids, formats, clean_name)
     try:
-        tmp.write(zip_bytes)
-        tmp.close()
+        transfer = prepare_transfer_in_transaction(
+            db,
+            TransferSpec(
+                direction="outbound",
+                operation="download_zip",
+                actor_user_id=current_user.id,
+                request_id=request.state.request_id,
+                idempotency_key=request.state.request_id,
+                batch_ref=batch_name,
+                original_name=prepared.filename,
+                expected_bytes=prepared.size_bytes,
+            ),
+        )
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="files.batch_download_zip",
+            resource_type="file",
+            resource_id=0,
+            after_json={"batch_name": batch_name, "file_count": len(file_ids)},
+            request=request,
+        )
+        db.commit()
     except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        db.rollback()
+        prepared.path.unlink(missing_ok=True)
         raise
 
     def _stream_and_cleanup():
         try:
-            with open(tmp_path, "rb") as f:
+            with prepared.path.open("rb") as f:
                 while chunk := f.read(1024 * 1024):
                     yield chunk
         finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    write_audit_log(
-        db,
-        actor_user_id=current_user.id,
-        action="files.batch_download_zip",
-        resource_type="file",
-        resource_id=0,
-        after_json={"batch_name": batch_name, "file_count": len(file_ids)},
-        request=request,
-    )
-    db.commit()
+            prepared.path.unlink(missing_ok=True)
 
     encoded_filename = quote(f"{clean_name}.zip")
     return StreamingResponse(
-        _stream_and_cleanup(),
+        settle_stream(
+            session_factory_for(db),
+            transfer.transfer_uid,
+            _stream_and_cleanup(),
+        ),
         media_type="application/zip",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
-            "Content-Length": str(len(zip_bytes)),
+            "Content-Length": str(prepared.size_bytes),
         },
     )
 
@@ -770,7 +891,12 @@ def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: S
     if not stored or stored.status == "deleted":
         raise not_found("File")
     _require_file_delete_access(db, current_user, stored)
-    stored.status = "deleted"
+    _soft_delete_file_in_transaction(
+        db,
+        stored,
+        actor_user_id=current_user.id,
+        request_id=request.state.request_id,
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -823,21 +949,7 @@ def download_file(
     validate_download_signature(file_id, expires, signature)
     storage = get_storage_backend()
     try:
-        path = storage.local_path(stored.bucket, stored.storage_key)
-        if path is not None:
-            if not path.exists() or not path.is_file():
-                raise StorageObjectNotFound(f"{stored.bucket}/{stored.storage_key}")
-            response = FileResponse(
-                path,
-                media_type=stored.content_type or "application/octet-stream",
-                filename=stored.original_name,
-            )
-        else:
-            response = StreamingResponse(
-                storage.iter_file(stored.bucket, stored.storage_key),
-                media_type=stored.content_type or "application/octet-stream",
-                headers=download_headers(stored.original_name),
-            )
+        object_info = storage.stat_object(stored.bucket, stored.storage_key)
     except StorageObjectNotFound:
         raise not_found("StoredFileObject") from None
     except StorageError as exc:
@@ -846,6 +958,22 @@ def download_file(
             "STORAGE_READ_FAILED",
             "Failed to read stored file object.",
         ) from exc
+
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="outbound",
+            operation="download",
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+            idempotency_key=request.state.request_id,
+            file_id=stored.id,
+            bucket=stored.bucket,
+            storage_key=stored.storage_key,
+            original_name=stored.original_name,
+            expected_bytes=object_info.size_bytes,
+        ),
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -855,7 +983,19 @@ def download_file(
         request=request,
     )
     db.commit()
-    return response
+    factory = session_factory_for(db)
+    return StreamingResponse(
+        settle_stream(
+            factory,
+            transfer.transfer_uid,
+            storage.iter_file(stored.bucket, stored.storage_key),
+        ),
+        media_type=stored.content_type or "application/octet-stream",
+        headers={
+            **download_headers(stored.original_name),
+            "Content-Length": str(object_info.size_bytes),
+        },
+    )
 
 
 # ── bulk operations ──────────────────────────────────────────────────────────
@@ -879,7 +1019,12 @@ def bulk_delete_files(
     )
     for s in stored_list:
         _require_file_delete_access(db, current_user, s)
-        s.status = "deleted"
+        _soft_delete_file_in_transaction(
+            db,
+            s,
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+        )
         write_audit_log(
             db,
             actor_user_id=current_user.id,
@@ -901,9 +1046,6 @@ def download_zip_endpoint(
 ):
     """Build a zip archive with selected files' DWG and/or DXF versions,
     stream it directly, and clean up the temp file on completion."""
-    import os
-    import tempfile
-
     if not payload.file_ids:
         raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
     if not payload.formats:
@@ -925,54 +1067,58 @@ def download_zip_endpoint(
         _require_file_read_access(db, current_user, s)
 
     clean_name = sanitize_filename(payload.folder_name) or "图纸导出"
-    zip_bytes, _ = build_zip(db, payload.file_ids, payload.formats, clean_name)
-
-    # Write to a temp file so we can stream it and delete after download.
-    # MinIO / local both work — the zip is ephemeral (temp file, not stored bucket).
-    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
-    tmp_path = tmp.name
+    prepared = build_zip_to_path(db, payload.file_ids, payload.formats, clean_name)
     try:
-        tmp.write(zip_bytes)
-        tmp.close()
+        transfer = prepare_transfer_in_transaction(
+            db,
+            TransferSpec(
+                direction="outbound",
+                operation="download_zip",
+                actor_user_id=current_user.id,
+                request_id=request.state.request_id,
+                idempotency_key=request.state.request_id,
+                batch_ref=request.state.request_id,
+                original_name=prepared.filename,
+                expected_bytes=prepared.size_bytes,
+            ),
+        )
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="files.download_zip",
+            resource_type="file",
+            resource_id=0,
+            after_json={
+                "file_ids": payload.file_ids,
+                "formats": payload.formats,
+                "folder": clean_name,
+            },
+            request=request,
+        )
+        db.commit()
     except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        db.rollback()
+        prepared.path.unlink(missing_ok=True)
         raise
 
     def _stream_and_cleanup():
         try:
-            with open(tmp_path, "rb") as f:
+            with prepared.path.open("rb") as f:
                 while chunk := f.read(1024 * 1024):  # 1 MiB chunks
                     yield chunk
         finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    write_audit_log(
-        db,
-        actor_user_id=current_user.id,
-        action="files.download_zip",
-        resource_type="file",
-        resource_id=0,
-        after_json={
-            "file_ids": payload.file_ids,
-            "formats": payload.formats,
-            "folder": clean_name,
-        },
-        request=request,
-    )
-    db.commit()
+            prepared.path.unlink(missing_ok=True)
 
     encoded_filename = quote(f"{clean_name}.zip")
     return StreamingResponse(
-        _stream_and_cleanup(),
+        settle_stream(
+            session_factory_for(db),
+            transfer.transfer_uid,
+            _stream_and_cleanup(),
+        ),
         media_type="application/zip",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
-            "Content-Length": str(len(zip_bytes)),
+            "Content-Length": str(prepared.size_bytes),
         },
     )

@@ -118,6 +118,67 @@ button, input, textarea, select { font: inherit; }
 .ant-card .ant-card-head { min-height: 52px; border-bottom-color: #edf0f4; }
 .ant-drawer .ant-drawer-header { padding-block: 18px; border-bottom-color: #e7ebf1; }
 .ant-drawer .ant-drawer-body { background: #fbfcfe; }
+
+/* Data control plane: dense industrial instrumentation, scoped to the admin console. */
+.data-console {
+  --console-ink: #10233f;
+  --console-steel: #64788b;
+  --console-line: #d7e0e8;
+  --console-paper: #f8fafb;
+  --console-warning: #c76918;
+  color: var(--console-ink);
+  font-family: Bahnschrift, "DIN Alternate", "Noto Sans SC", sans-serif;
+}
+.data-console-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 156px;
+  padding: 28px 30px;
+  color: #eaf1f7;
+  background:
+    linear-gradient(115deg,rgba(10,28,51,.98),rgba(19,54,78,.94)),
+    repeating-linear-gradient(90deg,transparent 0 39px,rgba(255,255,255,.04) 40px);
+  border: 1px solid #203e59;
+  border-radius: 4px 18px 4px 4px;
+  box-shadow: 0 20px 48px rgba(16,35,63,.16);
+}
+.data-console-hero::after {
+  content: "";
+  position: absolute;
+  right: -70px;
+  bottom: -110px;
+  width: 290px;
+  height: 190px;
+  border: 1px solid rgba(117,196,217,.24);
+  transform: rotate(-14deg);
+}
+.data-console-hero .ant-typography { color: inherit; margin: 5px 0 3px !important; }
+.console-kicker { color: #75c4d9; font-size: 11px; letter-spacing: .22em; }
+.data-console-tabs { margin-top: 18px; }
+.data-console-tabs > .ant-tabs-nav { margin-bottom: 18px; padding-inline: 8px; background: #fff; border: 1px solid var(--console-line); }
+.data-console-tabs .ant-tabs-tab { padding: 14px 10px; }
+.data-console-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
+.data-console-metrics .ant-card { border-radius: 4px 12px 4px 4px; border-left: 3px solid #3d718c; }
+.data-console-metrics .metric-risk { border-left-color: var(--console-warning); background: #fffaf5; }
+.console-table-card { border-radius: 4px 14px 4px 4px; }
+.console-table-card .ant-card-head { background: linear-gradient(90deg,#f4f7f9,#fff); }
+.cursor-pager { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; }
+.scan-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; color: var(--console-steel); }
+.scan-strip span:not(:first-child) { padding-left: 12px; border-left: 1px solid var(--console-line); }
+
+@media (max-width: 980px) {
+  .data-console-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .data-console-hero { align-items: flex-start; flex-direction: column; }
+}
+@media (max-width: 560px) {
+  .data-console-hero { padding: 22px 18px; }
+  .data-console-metrics { grid-template-columns: 1fr; }
+  .data-console-tabs > .ant-tabs-nav { overflow-x: auto; }
+}
 .ant-drawer .ant-descriptions, .ant-drawer .ant-table-wrapper, .ant-drawer .ant-form { background: #fff; }
 .ant-btn, .ant-input-affix-wrapper, .ant-input, .ant-select-selector { transition-duration: .16s !important; }
 .ant-btn:not(:disabled):active { transform: translateY(1px); }

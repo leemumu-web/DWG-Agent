@@ -162,6 +162,12 @@ def _port_convention(errors: list[str]) -> None:
     if "http://127.0.0.1:8000" in frontend_env:
         errors.append("frontend/.env.example still documents obsolete local FastAPI port 8000")
 
+    # Backend port is unified to 8010 (local and container). No maintained file may
+    # reintroduce the obsolete 8000 for the FastAPI backend.
+    prod_env = (ROOT / "frontend/.env.production").read_text(encoding="utf-8")
+    if "127.0.0.1:8000" in prod_env or "backend-api:8000" in prod_env:
+        errors.append("frontend/.env.production still references obsolete FastAPI port 8000")
+
 
 def _database_contract(errors: list[str]) -> None:
     from alembic.config import Config

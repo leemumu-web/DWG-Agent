@@ -36,6 +36,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import {
   listFiles,
+  listFilesPage,
   listBatches,
   downloadFile,
   bulkDeleteFiles,
@@ -43,7 +44,7 @@ import {
   uploadFile,
   uploadZip,
 } from '../api/files.api';
-import { listJobs, getJobResults, retryJob, cancelAllJobs } from '../api/jobs.api';
+import { listJobsPage, getJobResults, retryJob, cancelAllJobs } from '../api/jobs.api';
 import { ZipDownloadModal } from '../components/ZipDownloadModal';
 import type { BatchInfo, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
@@ -89,6 +90,8 @@ export function ConversionPage(props: ConversionPageProps) {
   const [zipModalOpen, setZipModalOpen] = useState(false);
   const [batchZipModalOpen, setBatchZipModalOpen] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,11 +99,13 @@ export function ConversionPage(props: ConversionPageProps) {
   // Each pipeline requests only its own data: files filtered by fileExt,
   // jobs filtered by taskType, batches filtered by fileExt.
   const filesQ = useQuery({
-    queryKey: ['files', p.fileExt, selectedBatch],
-    queryFn: ({ queryKey }) => listFiles(
-      queryKey[2] as string | undefined,
-      queryKey[1] as string,
-    ),
+    queryKey: ['files', p.fileExt, selectedBatch, page, pageSize],
+    queryFn: () => listFilesPage({
+      page,
+      page_size: pageSize,
+      batch_name: selectedBatch || undefined,
+      file_ext: p.fileExt,
+    }),
     staleTime: 2000,
   });
   const batchesQ = useQuery({
@@ -109,13 +114,20 @@ export function ConversionPage(props: ConversionPageProps) {
     staleTime: 5000,
     enabled: selectedBatch === null,
   });
+  const currentFileIds = (filesQ.data?.data ?? []).map((file) => file.id).join(',');
   const jobsQ = useQuery({
-    queryKey: ['jobs', p.taskType],
-    queryFn: ({ queryKey }) => listJobs(queryKey[1] as string),
+    queryKey: ['jobs', p.taskType, currentFileIds],
+    queryFn: () => listJobsPage({
+      page: 1,
+      page_size: 200,
+      task_type: p.taskType,
+      file_ids: currentFileIds,
+    }),
     staleTime: 2000,
+    enabled: Boolean(currentFileIds),
   });
 
-  const allFiles = filesQ.data ?? [];
+  const allFiles = filesQ.data?.data ?? [];
 
   const dwgFiles = useMemo(
     () => allFiles.filter((f) => f.file_ext === p.fileExt),
@@ -128,7 +140,7 @@ export function ConversionPage(props: ConversionPageProps) {
   const tableFiles = dwgFiles;
 
   const hasActive = useMemo(
-    () => (jobsQ.data ?? []).some((j) => j.status === 'queued' || j.status === 'running'),
+    () => (jobsQ.data?.data ?? []).some((j) => j.status === 'queued' || j.status === 'running'),
     [jobsQ.data],
   );
 
@@ -142,9 +154,9 @@ export function ConversionPage(props: ConversionPageProps) {
   // file_id → latest Job
   const jobsByFileId = useMemo(() => {
     const map = new Map<number, Job>();
-    for (const j of jobsQ.data ?? []) {
+    for (const j of jobsQ.data?.data ?? []) {
       const fid = (j.params_json as Record<string, unknown> | null)?.file_id as number | undefined;
-      if (fid) map.set(fid, j);
+      if (fid && !map.has(fid)) map.set(fid, j);
     }
     return map;
   }, [jobsQ.data]);
@@ -290,7 +302,7 @@ export function ConversionPage(props: ConversionPageProps) {
     const s = jobsByFileId.get(f.id)?.status; return s === 'running' || s === 'queued';
   }).length;
   const totalSize = dwgFiles.reduce((s, f) => s + f.size_bytes, 0);
-  const isFirstLoad = filesQ.isLoading && (filesQ.data ?? []).length === 0;
+  const isFirstLoad = filesQ.isLoading;
 
   // ── table row selection (clears batch selection when files are selected) ──
   const rowSelection = useMemo(() => ({
@@ -401,11 +413,11 @@ export function ConversionPage(props: ConversionPageProps) {
         <div>
           {selectedBatch ? (
             <Space size={4}>
-              <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => { setSelectedBatch(null); setSelectedRowKeys([]); }}>
+              <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => { setSelectedBatch(null); setPage(1); setSelectedRowKeys([]); }}>
                 返回
               </Button>
               <Breadcrumb items={[
-                { title: <a onClick={() => { setSelectedBatch(null); setSelectedRowKeys([]); }}>全部文件</a> },
+                { title: <a onClick={() => { setSelectedBatch(null); setPage(1); setSelectedRowKeys([]); }}>全部文件</a> },
                 { title: <Space><FolderOutlined />{selectedBatch}</Space> },
               ]} />
             </Space>
@@ -431,7 +443,7 @@ export function ConversionPage(props: ConversionPageProps) {
           <SyncOutlined spin={processing > 0} style={{ fontSize: 20, color: processing > 0 ? '#1677ff' : '#52c41a' }} />
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Typography.Text strong>总转换进度</Typography.Text>
+              <Typography.Text strong>当前页转换进度</Typography.Text>
               <Typography.Text type="secondary" style={{ fontSize: 13 }}>{succeeded} / {dwgFiles.length} · {dwgFiles.length > 0 ? Math.round((succeeded / dwgFiles.length) * 100) : 0}%</Typography.Text>
             </div>
             <Progress percent={dwgFiles.length > 0 ? Math.round((succeeded / dwgFiles.length) * 100) : 0} strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }} strokeWidth={8} showInfo={false} />
@@ -442,10 +454,10 @@ export function ConversionPage(props: ConversionPageProps) {
       {/* ── stats ─────────────────────────────────────────────────────── */}
       <div className="conversion-stats">
         {[
-          { label: p.title, value: tableFiles.length, icon: <FileOutlined />, color: '#2563eb', bg: '#eff6ff' },
-          { label: `已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
-          { label: '处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
-          { label: '存储总量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
+          { label: `${p.title}总数`, value: filesQ.data?.pagination.total ?? 0, icon: <FileOutlined />, color: '#2563eb', bg: '#eff6ff' },
+          { label: `本页已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
+          { label: '本页处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
+          { label: '本页存储量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
         ].map((s) => (
           <div key={s.label} className="conversion-stat">
             <span className="conversion-stat-icon" style={{ color: s.color, background: s.bg }}>{s.icon}</span>
@@ -489,7 +501,7 @@ export function ConversionPage(props: ConversionPageProps) {
                     />
                     <div
                       style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
-                      onClick={() => setSelectedBatch(b.name)}
+                      onClick={() => { setSelectedBatch(b.name); setPage(1); setSelectedRowKeys([]); }}
                     >
                       <Card.Meta
                         avatar={<FolderOutlined style={{ fontSize: 24, color: '#faad14' }} />}
@@ -646,11 +658,18 @@ export function ConversionPage(props: ConversionPageProps) {
         loading={isFirstLoad}
         size="middle"
         pagination={{
-          defaultPageSize: 15,
+          current: page,
+          pageSize,
+          total: filesQ.data?.pagination.total ?? 0,
           pageSizeOptions: [10, 15, 20, 30, 50, 100],
           showSizeChanger: true,
           showQuickJumper: true,
           showTotal: (t, range) => `${range[0]}-${range[1]} / 共 ${t} 个`,
+          onChange: (nextPage, nextPageSize) => {
+            setPage(nextPageSize === pageSize ? nextPage : 1);
+            setPageSize(nextPageSize);
+            setSelectedRowKeys([]);
+          },
         }}
         locale={{
           emptyText: (

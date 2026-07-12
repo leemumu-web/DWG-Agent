@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { apiClient, fetchAllPages, type ApiEnvelope } from './client';
+import { apiClient, fetchAllPages, type ApiEnvelope, type PageEnvelope } from './client';
 import type { BatchInfo, ExcelPreviewResponse, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
 
@@ -9,6 +9,20 @@ export async function listFiles(batchName?: string, fileExt?: string) {
   if (batchName) params.batch_name = batchName;
   if (fileExt) params.file_ext = fileExt;
   return fetchAllPages<StoredFile>('/api/v1/files', params);
+}
+
+export interface FileListParams {
+  page: number;
+  page_size: number;
+  batch_name?: string;
+  file_ext?: string;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
+export async function listFilesPage(params: FileListParams) {
+  const res = await apiClient.get<PageEnvelope<StoredFile>>('/api/v1/files', { params });
+  return res.data;
 }
 
 /** List distinct batches (folder names), optionally filtered by file_ext. */

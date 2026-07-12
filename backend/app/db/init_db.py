@@ -13,8 +13,7 @@ from app.core.constants import (
     ROLE_VIEWER,
 )
 from app.core.security import hash_password
-from app.db.base import Base
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal
 from app.models import Permission, Role, User
 
 ROLE_SEEDS = [
@@ -40,7 +39,14 @@ PERMISSION_SEEDS = [
 
 
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    """Seed roles, permissions, and super-admin user.
+
+    Table creation is owned by Alembic migrations (run ``alembic upgrade head``
+    first).  This function only writes seed rows — it no longer calls
+    ``Base.metadata.create_all()`` to avoid a dual-schema-authority risk
+    where SQLAlchemy-created tables lack an ``alembic_version`` entry and
+    block subsequent migrations.
+    """
     db = SessionLocal()
     try:
         for code, name in ROLE_SEEDS:

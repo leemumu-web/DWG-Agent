@@ -39,7 +39,7 @@ import {
   deleteBatch,
   downloadBatchZip,
 } from '../../api/files.api';
-import { listJobs, getJobResults, createDxf2ExcelJob, retryJob, cancelJob } from '../../api/jobs.api';
+import { listJobsPage, getJobResults, createDxf2ExcelJob, retryJob, cancelJob } from '../../api/jobs.api';
 import ExcelPreview from '../../components/ExcelPreview';
 import type { BatchInfo } from '../../types/file';
 import type { Job } from '../../types/job';
@@ -74,12 +74,12 @@ export function Dxf2ExcelPage() {
   });
   const jobsQ = useQuery({
     queryKey: ['jobs', 'extract_dxf_to_excel'],
-    queryFn: ({ queryKey }) => listJobs(queryKey[1] as string),
+    queryFn: ({ queryKey }) => listJobsPage({ page: 1, page_size: 200, task_type: queryKey[1] as string }),
     staleTime: 2000,
   });
 
   const batches = batchesQ.data ?? [];
-  const allJobs = jobsQ.data ?? [];
+  const allJobs = jobsQ.data?.data ?? [];
 
   const hasActive = useMemo(
     () => allJobs.some((j) => j.status === 'queued' || j.status === 'running'),

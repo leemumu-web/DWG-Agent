@@ -40,6 +40,8 @@ Axios interceptor 把并发 401 refresh 合并为一个请求，并对每个原�
 
 文件删除仅限上传者或管理员。文件列表和 batch metadata 在 SQL 中应用访问过滤。结果、result download path 和复核继承父 Job 边界；无项目 Job 仅管理员或创建者可读。即使 Agent 执行仍关闭，Agent run 详情/步骤也使用 creator/admin/linked-project 检查。
 
+数据控制台使用独立的管理边界：`super_admin/admin/auditor` 可以读取总览、文件登记、对象清单、流转流水、扫描和异常；只有 `super_admin/admin` 可以启动扫描和执行处置。处置必须先生成绑定当前操作人、动作、finding 集合、实时摘要、数量、字节上限和五分钟有效期的签名预检 token，再使用幂等键执行。服务端会锁定相关行并重新检查对象状态；前端隐藏按钮不构成授权。
+
 ## 任务完整性
 
 重试创建新 attempt。claim、progress、completion、failure、cancellation、dispatch compensation 和 stale recovery 都包含 status/attempt 条件。`job_steps.attempt` 保留历史，且不允许 stale worker 覆盖更新世代。
@@ -55,6 +57,7 @@ Celery JSON serialization 受 allowlist；启用 late ack 和 lost-worker reject
 - ZIP 限制 entry 数和总解压字节，并拒绝路径穿越。
 - Storage key 由服务端生成，不把用户 path 当作可信输入。
 - 数据库 rollback best-effort 删除 commit 前写入的对象。
+- 永久清理只接受同一扫描中的 `untracked_object` finding，要求显式确认词；对象删除后元数据提交失败会留下 `compensation_required` 流水，不能伪装成可回滚的单库事务。
 
 `MAX_ZIP_EXTRACT_MB` 和 `MAX_ZIP_ENTRY_COUNT` 有代码默认值，尽管两份环境模板没有同时暴露活动行。受审计部署应显式设置。
 

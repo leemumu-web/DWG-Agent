@@ -31,6 +31,12 @@ export interface InfrastructureOverview {
     buckets: Array<{ name: string; tracked_files: number; object_count: number | null }>;
   };
   catalog: { available_files: number; tracked_bytes: number; extensions: Record<string, number> };
+  capacity: {
+    status: 'ok' | 'error' | 'unknown';
+    disk_total_bytes: number | null;
+    disk_used_bytes: number | null;
+    disk_free_bytes: number | null;
+  };
   recovery: { consistency_rule: string; automated_backup: boolean };
 }
 

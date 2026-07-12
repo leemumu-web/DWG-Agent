@@ -17,7 +17,7 @@
 | `BACKEND_CORS_ORIGINS` | 本地 Vite origins | 逗号分隔的精确 origin；允许 credentials |
 | `VITE_API_BASE_URL` | 空 | 空表示同源 Nginx；Vite 直连使用 `http://127.0.0.1:8010` |
 
-FastAPI 本地端口 `8010`、容器端口 `8000`、Vite `5173` 和本地 Nginx `8080` 是脚本/配置常量，不是 Pydantic 字段。
+FastAPI 端口 `8010`（本地与容器一致）、Vite `5173` 和本地 Nginx `8080` 是脚本/配置常量，不是 Pydantic 字段。
 
 ## 数据库与连接池
 
@@ -94,7 +94,7 @@ ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`O
 
 Excel Final 手册库默认复用平台 MySQL host/user/password，数据库为 `hardware_handbook`。独立只读账号使用 `HANDBOOK_MYSQL_HOST`、`HANDBOOK_MYSQL_PORT`、`HANDBOOK_MYSQL_DATABASE`、`HANDBOOK_MYSQL_USER` 和 `HANDBOOK_MYSQL_PASSWORD`。
 
-Agent 占位字段为 `MODEL_NAME=deepseek-chat`、`MODEL_API_KEY`、`MODEL_BASE_URL=https://api.deepseek.com`、`MCP_CAD_COMMAND=uvx`、`MCP_CAD_ARGS=cad-mcp-server,stdio`、`AGENT_MEMORY_TTL=7200` 和 `AGENT_MAX_MESSAGES=20`。Windows 占位字段为 `CAD_WORKER_API_BASE=http://cad-worker.internal:8080` 和 `CAD_WORKER_API_KEY`。设置这些值不会实现或启用缺失 task。
+Agent 占位字段为 `MODEL_NAME=deepseek-chat`、`MODEL_API_KEY`、`MODEL_BASE_URL=https://api.deepseek.com`、`MCP_CAD_COMMAND=uvx`、`MCP_CAD_ARGS=cad-mcp-server,stdio`、`AGENT_MEMORY_TTL=7200` 和 `AGENT_MAX_MESSAGES=20`。Windows 占位字段为 `CAD_WORKER_API_BASE=http://cad-worker.internal:8080` 和 `CAD_WORKER_API_KEY`。设置这些值不会实现或启用缺失 task。注意 `cad-worker.internal` 不会自动解析（需企业 DNS / `extra_hosts` / 直接用 IP），且 backend/worker 处于 `internal: true` 网无外部 egress——启用外部 CAD Worker 或 LLM 前须一并解决解析与出网，否则即使名称可解析链路仍被阻断。
 
 ## 密钥分类
 

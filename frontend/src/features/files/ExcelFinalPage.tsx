@@ -32,7 +32,7 @@ import {
   type ExcelFinalPartFilters,
 } from '../../api/excel-final.api';
 import { downloadFile } from '../../api/files.api';
-import { listJobs, retryJob } from '../../api/jobs.api';
+import { listJobsPage, retryJob } from '../../api/jobs.api';
 import type { ExcelFinalBatchSummary, ExcelFinalPart } from '../../types/excel-final';
 import type { Job } from '../../types/job';
 
@@ -75,9 +75,9 @@ export function ExcelFinalPage() {
 
   const jobsQ = useQuery({
     queryKey: ['jobs', TASK_TYPE],
-    queryFn: () => listJobs(TASK_TYPE),
+    queryFn: () => listJobsPage({ page: 1, page_size: 8, task_type: TASK_TYPE }),
     refetchInterval: (query) =>
-      query.state.data?.some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false,
+      query.state.data?.data.some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false,
   });
   const batchesQ = useQuery({
     queryKey: ['excel-final-batches', batchPage, batchPageSize],
@@ -117,7 +117,7 @@ export function ExcelFinalPage() {
     }
   }, [queryClient, statusQ.data?.status]);
 
-  const recentJobs = useMemo(() => (jobsQ.data ?? []).slice(0, 8), [jobsQ.data]);
+  const recentJobs = useMemo(() => jobsQ.data?.data ?? [], [jobsQ.data]);
 
   async function submit() {
     if (!selectedFile) return;

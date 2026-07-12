@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, ForeignKey, String
+from datetime import datetime
+
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, PKType
@@ -9,6 +11,10 @@ from app.models.mixins import TimestampMixin
 
 class StoredFile(TimestampMixin, Base):
     __tablename__ = "files"
+    __table_args__ = (
+        UniqueConstraint("bucket", "storage_key", name="uq_files_bucket_storage_key"),
+        Index("ix_files_status_deleted_at", "status", "deleted_at"),
+    )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     bucket: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -22,3 +28,4 @@ class StoredFile(TimestampMixin, Base):
     batch_name: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     status: Mapped[str] = mapped_column(String(32), default="available", nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

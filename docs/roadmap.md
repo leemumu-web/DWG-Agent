@@ -2,7 +2,7 @@
 
 ## 基线
 
-截至 2026-07-11 的审计，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、77 个 OpenAPI path、attempt-safe Job execution、Local/MinIO adapter、四条转换 service path、Excel Final 关系化导入、通用生产流程界面和广泛自动测试。
+截至 2026-07-12 的审计，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、88 个 OpenAPI path、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、五页签数据控制台、四条转换 service path、Excel Final 关系化导入、通用生产流程界面和广泛自动测试。
 
 这不表示每个目录都 production-ready。feature flag 默认关闭，通用工作流仍需人工确认阶段，尚未自动连接 Excel Final Job/产物；Compose 缺少完整运维自动化，`Stages/dxf2excel` 也无法从 clean clone 重建。Agent 执行和 CAD 图纸业务算法/Windows CAD Worker 不再是路线图交付项。
 

@@ -17,6 +17,22 @@ export async function listJobs(taskType?: string) {
   return fetchAllPages<Job>('/api/v1/jobs', params);
 }
 
+export interface JobListParams {
+  page: number;
+  page_size: number;
+  task_type?: string;
+  status?: string;
+  search?: string;
+  file_ids?: string;
+  sort_by?: string;
+  sort_dir?: 'asc' | 'desc';
+}
+
+export async function listJobsPage(params: JobListParams) {
+  const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/jobs', { params });
+  return res.data;
+}
+
 export async function getJob(jobId: number) {
   const res = await apiClient.get<ApiEnvelope<Job>>(`/api/v1/jobs/${jobId}`);
   return res.data.data;

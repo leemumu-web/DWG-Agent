@@ -8,10 +8,10 @@ DWG-Agent 是面向内部 CAD/Excel 接入、异步处理、结果复核和审�
 Browser
   -> Nginx :8080 本地 / :80 Compose 宿主
      -> React SPA
-     -> FastAPI :8010 本地 / backend-api:8000 Compose
+     -> FastAPI :8010 本地 / backend-api:8010 Compose
         -> MySQL 业务 + Celery runtime 表
         -> LocalStorage 或 MinIO
-Celery workers
+Celery workers（无入站监听端口）
   -> MySQL + storage + processing Stages
 ```
 
@@ -22,7 +22,7 @@ Celery workers
 | 属性 | 本地 | Compose |
 |---|---|---|
 | 用户入口 | Vite `5173` 或 Nginx `8080` | Nginx 宿主 `80` |
-| API | `127.0.0.1:8010` | 内部 `backend-api:8000` |
+| API | `127.0.0.1:8010` | 内部 `backend-api:8010` |
 | 存储 | 默认 local，MinIO 可选 | 内部 MinIO |
 | TLS | 无 | 无；Compose 只发布 `${HTTP_PORT:-80}:8080`，不发布 443 |
 | 运行时文档 | development/debug 时可用 | production settings 下关闭 |
@@ -97,7 +97,20 @@ Bearer download -> permission + expiry + signature check -> storage stream
 
 ## 存储一致性
 
-数据库 commit 前写入的对象登记在 SQLAlchemy session 上。rollback best-effort 删除；commit 清除补偿列表。只有对象和 metadata 均持久化后才暴露成功输出。当前没有后台对象/数据库 reconciler，因此运维必须发现缺失和孤儿对象。
+MySQL 的 `files` 是业务登记事实源，Local FS/MinIO 是字节事实源；两者不能共享单一 ACID 事务，因此由 `file_transfers` saga 协调：
+
+```text
+独立短事务写 prepared/in_progress 意图
+  -> 写对象
+  -> 同一业务事务写 files/结果/audit，并结算 succeeded
+  -> 业务回滚时删除新对象
+       -> 删除成功: failed
+       -> 删除失败: compensation_required
+```
+
+上传、ZIP 每个有效条目和 worker 生成文件均走该路径。下载/ZIP 出库在响应流开始前登记 outbound 意图，iterator 正常耗尽、客户端中断或存储读取失败后按实际字节独立结算。软删除只更新登记并保留对象；恢复会清空 `deleted_at`。永久清理先锁定 finding/关联登记并重检对象，再删除对象；只有元数据提交成功后才把独立流水结算为成功，提交失败留下 `compensation_required`，不声称原子回滚了不可恢复字节。
+
+local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落盘。MinIO/local 都实现 stat、exists 和游标分页清单。report worker 异步生成 `storage_scan_runs` 与异常 `storage_scan_findings`，分类为对象缺失、未登记对象、大小不符和软删除对象保留。管理员可在五页签数据控制台执行带签名预检 token、5 分钟有效期、实时摘要重检、批量数量/字节上限和幂等键的四种处置；审计员只有读取与预检权限。`reap-storage` 仍用于保留期回收和脚本化维护，不替代扫描/处置账本。
 
 ## MySQL 与 Celery
 
@@ -106,6 +119,8 @@ broker 为 `sqla+mysql+pymysql://...`，result backend 为 `db+mysql+pymysql://.
 SQL transport 没有 fanout remote control。worker 健康使用 Celery PID 加 `worker_ready` marker，不使用 `inspect`。result row 在 24 小时后过期；业务 Job 历史没有自动保留策略。
 
 worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_worker_lost`，在 prefork child 死亡但 worker 父进程存活时重新投递任务。由于 Kombu 在消息被 reserve 的瞬间（child ack 之前）就把 `kombu_message` 行标为 `visible=False`，启动时的 broker 清理只删除 timestamp 早于 `CELERY_STALE_JOB_TIMEOUT_SECONDS` 两倍的 invisible 行，因此绝不会销毁仍在运行或等待重投的任务消息。当整个 worker 或主机死亡时，SQL transport 无法恢复投递；`reconcile_stale_running_jobs` 是权威兜底：把 `updated_at` 早于 stale 超时的 `running` Job 标记为失败，以便重试。
+
+空库首次启动时，Kombu channel 建表事务必须显式 commit/close 后才能创建 `kombu_message(queue_id, timestamp, id, visible)` 索引；否则第一个连接持有 metadata lock、第二个连接等待 DDL，会让 worker 永久停在 ready 之前。2026-07-12 的空卷 Compose 回归覆盖了这一顺序。
 
 
 ## 处理边界

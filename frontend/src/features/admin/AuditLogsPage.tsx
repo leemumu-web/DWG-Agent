@@ -20,7 +20,7 @@ import {
   DesktopOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { listAuditLogs } from '../../api/audit-logs.api';
+import { listAuditLogsPage } from '../../api/audit-logs.api';
 import type { AuditLog } from '../../types/audit';
 import { fmtDateTime, fmtRelative, PageHeader, StatCard, StatGrid } from '../../components/ui';
 
@@ -66,33 +66,32 @@ function prettyJson(v: unknown): string {
 }
 
 export function AuditLogsPage() {
-  const logsQ = useQuery({ queryKey: ['audit-logs'], queryFn: listAuditLogs });
-
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [draftSearch, setDraftSearch] = useState('');
   const [search, setSearch] = useState('');
   const [domainFilter, setDomainFilter] = useState<string>('all');
   const [detail, setDetail] = useState<AuditLog | null>(null);
+  const logsQ = useQuery({
+    queryKey: ['audit-logs', page, pageSize, domainFilter, search],
+    queryFn: () => listAuditLogsPage({
+      page,
+      page_size: pageSize,
+      action_domain: domainFilter === 'all' ? undefined : domainFilter,
+      search: search || undefined,
+    }),
+  });
 
-  const logs = logsQ.data ?? [];
+  const logs = logsQ.data?.data ?? [];
 
   const domains = useMemo(
-    () => Array.from(new Set(logs.map((l) => l.action.split('.')[0]))).sort(),
+    () => Array.from(new Set([
+      'auth', 'users', 'projects', 'project_members', 'files', 'jobs',
+      'drawings', 'drawing_versions', 'reviews', 'roles', 'storage',
+      ...logs.map((log) => log.action.split('.')[0]),
+    ])).sort(),
     [logs],
   );
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return logs.filter((l) => {
-      if (domainFilter !== 'all' && l.action.split('.')[0] !== domainFilter) return false;
-      if (!q) return true;
-      return (
-        l.action.toLowerCase().includes(q) ||
-        l.resource_type.toLowerCase().includes(q) ||
-        String(l.id).includes(q) ||
-        String(l.actor_user_id ?? '').includes(q) ||
-        String(l.resource_id ?? '').includes(q)
-      );
-    });
-  }, [logs, search, domainFilter]);
 
   const uniqueActors = useMemo(() => new Set(logs.map((l) => l.actor_user_id).filter(Boolean)).size, [logs]);
 
@@ -139,26 +138,26 @@ export function AuditLogsPage() {
     <>
       <PageHeader
         title="审计日志"
-        subtitle="平台关键操作留痕（当前展示最近 200 条）"
+        subtitle="平台关键操作留痕，支持服务端筛选与逐页追溯"
         extra={
           <Space>
-            <Input allowClear prefix={<SearchOutlined />} placeholder="搜索动作 / 资源 / ID" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 240 }} />
+            <Input.Search allowClear prefix={<SearchOutlined />} placeholder="搜索动作 / 资源 / ID" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} onSearch={(value) => { setSearch(value.trim()); setPage(1); }} style={{ width: 240 }} />
             <Button icon={<ReloadOutlined />} onClick={() => logsQ.refetch()} loading={logsQ.isFetching} />
           </Space>
         }
       />
 
       <StatGrid>
-        <StatCard label="当前日志" value={logs.length} icon={<HistoryOutlined />} color="#1677ff" bg="#e6f4ff" hint="当前视图最多 200 条" />
-        <StatCard label="独立操作人" value={uniqueActors} icon={<FileSearchOutlined />} color="#722ed1" bg="#f9f0ff" />
-        <StatCard label="资源类型" value={new Set(logs.map((l) => l.resource_type)).size} icon={<DesktopOutlined />} color="#13c2c2" bg="#e6fffb" />
+        <StatCard label="日志总数" value={logsQ.data?.pagination.total ?? 0} icon={<HistoryOutlined />} color="#1677ff" bg="#e6f4ff" hint="按当前筛选条件统计" />
+        <StatCard label="本页操作人" value={uniqueActors} icon={<FileSearchOutlined />} color="#722ed1" bg="#f9f0ff" />
+        <StatCard label="本页资源类型" value={new Set(logs.map((l) => l.resource_type)).size} icon={<DesktopOutlined />} color="#13c2c2" bg="#e6fffb" />
       </StatGrid>
 
       {domains.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <Segmented
             value={domainFilter}
-            onChange={(v) => setDomainFilter(v as string)}
+            onChange={(value) => { setDomainFilter(value as string); setPage(1); }}
             options={[{ label: '全部', value: 'all' }, ...domains.map((d) => ({ label: d, value: d }))]}
           />
         </div>
@@ -166,11 +165,11 @@ export function AuditLogsPage() {
 
       <Table
         rowKey="id"
-        dataSource={filtered}
+        dataSource={logs}
         columns={columns}
         loading={logsQ.isLoading}
         size="middle"
-        pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }}
+        pagination={{ current: page, pageSize, total: logsQ.data?.pagination.total ?? 0, showSizeChanger: true, showTotal: (total) => `共 ${total} 条`, onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize); } }}
         locale={{ emptyText: '暂无审计日志' }}
         style={{ background: '#fff', borderRadius: 10 }}
       />

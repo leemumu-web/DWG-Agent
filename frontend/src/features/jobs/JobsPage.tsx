@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   App,
   Button,
@@ -30,7 +30,7 @@ import {
   getJob,
   getJobResults,
   getJobSteps,
-  listJobs,
+  listJobsPage,
   retryJob,
 } from '../../api/jobs.api';
 import { downloadFile } from '../../api/files.api';
@@ -69,13 +69,25 @@ const ACTIVE_STATUSES = new Set(['pending', 'queued', 'running', 'validating', '
 export function JobsPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ['jobs'], queryFn: () => listJobs(), refetchInterval: 5000 });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [draftSearch, setDraftSearch] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const query = useQuery({
+    queryKey: ['jobs', page, pageSize, statusFilter, search],
+    queryFn: () => listJobsPage({
+      page,
+      page_size: pageSize,
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      search: search || undefined,
+    }),
+    refetchInterval: 5000,
+  });
   const [drawerJobId, setDrawerJobId] = useState<number | null>(null);
   const [drawerJob, setDrawerJob] = useState<Job | null>(null);
   const [drawerSteps, setDrawerSteps] = useState<JobStep[]>([]);
   const [drawerLoading, setDrawerLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
 
   useJobEvents(drawerJobId, (update) => {
     setDrawerJob((prev) => (prev ? { ...prev, ...update.jobPatch } : prev));
@@ -83,20 +95,7 @@ export function JobsPage() {
     queryClient.invalidateQueries({ queryKey: ['jobs'] });
   });
 
-  const jobs = query.data ?? [];
-  const filtered = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    return jobs.filter((job) => {
-      const statusMatches = statusFilter === 'all'
-        || (statusFilter === 'active' && ACTIVE_STATUSES.has(job.status))
-        || job.status === statusFilter;
-      const textMatches = !keyword || [
-        String(job.id), taskLabel[job.task_type] ?? job.task_type,
-        pipelineLabel[job.pipeline ?? ''] ?? job.pipeline ?? '', job.status,
-      ].some((value) => value.toLowerCase().includes(keyword));
-      return statusMatches && textMatches;
-    });
-  }, [jobs, search, statusFilter]);
+  const jobs = query.data?.data ?? [];
 
   const activeCount = jobs.filter((job) => ACTIVE_STATUSES.has(job.status)).length;
   const succeededCount = jobs.filter((job) => job.status === 'succeeded').length;
@@ -212,29 +211,29 @@ export function JobsPage() {
       />
 
       <StatGrid>
-        <StatCard label="任务总数" value={jobs.length} icon={<ThunderboltOutlined />} color="#2563eb" bg="#eff6ff" />
-        <StatCard label="处理中" value={activeCount} icon={<ReloadOutlined spin={activeCount > 0} />} color="#d97706" bg="#fffbeb" />
-        <StatCard label="已完成" value={succeededCount} icon={<FileTextOutlined />} color="#059669" bg="#ecfdf5" />
-        <StatCard label="失败" value={failedCount} icon={<CloseCircleOutlined />} color="#dc2626" bg="#fef2f2" />
+        <StatCard label="任务总数" value={query.data?.pagination.total ?? 0} icon={<ThunderboltOutlined />} color="#2563eb" bg="#eff6ff" />
+        <StatCard label="本页处理中" value={activeCount} icon={<ReloadOutlined spin={activeCount > 0} />} color="#d97706" bg="#fffbeb" />
+        <StatCard label="本页已完成" value={succeededCount} icon={<FileTextOutlined />} color="#059669" bg="#ecfdf5" />
+        <StatCard label="本页失败" value={failedCount} icon={<CloseCircleOutlined />} color="#dc2626" bg="#fef2f2" />
       </StatGrid>
 
       <div className="table-toolbar">
         <Segmented
           value={statusFilter}
-          onChange={(value) => setStatusFilter(String(value))}
+          onChange={(value) => { setStatusFilter(String(value)); setPage(1); }}
           options={[{ label: '全部', value: 'all' }, { label: '处理中', value: 'active' }, { label: '已完成', value: 'succeeded' }, { label: '失败', value: 'failed' }, { label: '已取消', value: 'cancelled' }]}
         />
-        <Input allowClear prefix={<SearchOutlined />} placeholder="搜索任务 ID、类型或管线" value={search} onChange={(event) => setSearch(event.target.value)} style={{ width: 280 }} />
+        <Input.Search allowClear prefix={<SearchOutlined />} placeholder="搜索任务 ID、类型或管线" value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} onSearch={(value) => { setSearch(value.trim()); setPage(1); }} style={{ width: 280 }} />
       </div>
 
       <Table
         className="surface-table"
         rowKey="id"
-        dataSource={filtered}
+        dataSource={jobs}
         columns={columns}
         loading={query.isLoading}
         scroll={{ x: 920 }}
-        pagination={{ defaultPageSize: 20, pageSizeOptions: [10, 20, 50, 100], showSizeChanger: true, showTotal: (total, range) => `${range[0]}–${range[1]} / 共 ${total} 个任务` }}
+        pagination={{ current: page, pageSize, total: query.data?.pagination.total ?? 0, pageSizeOptions: [10, 20, 50, 100], showSizeChanger: true, showTotal: (total, range) => `${range[0]}–${range[1]} / 共 ${total} 个任务`, onChange: (nextPage, nextPageSize) => { setPage(nextPageSize === pageSize ? nextPage : 1); setPageSize(nextPageSize); } }}
         locale={{ emptyText: <Empty description={search || statusFilter !== 'all' ? '没有符合条件的任务' : '暂无任务'} /> }}
       />
 

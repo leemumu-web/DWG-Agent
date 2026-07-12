@@ -15,7 +15,7 @@
 
 ## 2. 数据模型
 
-迁移 `e4a1c7f2b930` 在 Alembic head `a74c2e9f1d30` 之后新增三张表。
+迁移 `e4a1c7f2b930` 在 `a74c2e9f1d30` 之后新增三张表；随后数据控制台迁移 `6d2f8a9c1b40` 成为当前 Alembic head，不改变这三张工作流表的职责。
 
 ### 2.1 `workflow_runs`
 

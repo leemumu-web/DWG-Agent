@@ -92,7 +92,7 @@ assert_grep_v "$NGINX_DOCKER" 'include.*snippets'  "nginx.conf 不包含 snippet
 
 # 1.4 关键指令 — upstream
 assert_grep "$NGINX_DOCKER" 'upstream backend'         "nginx.conf: upstream backend"
-assert_grep "$NGINX_DOCKER" 'server backend-api:8000'  "nginx.conf: upstream → backend-api:8000"
+assert_grep "$NGINX_DOCKER" 'server backend-api:8010'  "nginx.conf: upstream → backend-api:8010"
 assert_grep "$NGINX_DOCKER" 'keepalive 32'             "nginx.conf: upstream keepalive"
 
 # 1.5 关键指令 — 限流
@@ -247,7 +247,7 @@ PYEOF
 )
 
 if echo "$COMPOSE_CHECKS" | grep -q 'ALL_CHECKS_PASSED'; then
-    pass "compose.yaml 全部结构检查通过 (10 services, MySQL-backed runtime)"
+    pass "compose.yaml 全部结构检查通过 (11 services, MySQL-backed runtime)"
 else
     while IFS= read -r line; do
         [ -n "$line" ] && fail "compose.yaml" "$line"
@@ -295,7 +295,7 @@ assert_grep "$DOCKERFILE" 'app.db.init_db'              "Dockerfile: CMD 含 ini
 assert_file ".dockerignore" ".dockerignore 存在 (context=仓库根)"
 
 # 3.6 EXPOSE + CMD
-assert_grep "$DOCKERFILE" 'EXPOSE 8000'             "Dockerfile: EXPOSE 8000"
+assert_grep "$DOCKERFILE" 'EXPOSE 8010'             "Dockerfile: EXPOSE 8010"
 assert_grep "$DOCKERFILE" 'gunicorn'                "Dockerfile: CMD gunicorn"
 assert_grep "$DOCKERFILE" 'UvicornWorker'           "Dockerfile: UvicornWorker"
 

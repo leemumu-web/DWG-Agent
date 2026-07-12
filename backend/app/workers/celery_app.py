@@ -145,11 +145,16 @@ def prepare_sql_broker_schema(
     """Create Kombu tables, close the bootstrap channel, then add claim index."""
     with app.connection_for_write() as connection:
         channel = connection.channel()
+        channel_session = None
         try:
             # Channel construction is lazy; declaring a harmless default queue
             # forces Kombu to create and commit its SQL tables on an empty DB.
             channel.queue_declare(queue="default", durable=True)
+            channel_session = channel.session
+            channel_session.commit()
         finally:
+            if channel_session is not None:
+                channel_session.close()
             channel.close()
     return ensure_sql_broker_message_index(db_engine)
 

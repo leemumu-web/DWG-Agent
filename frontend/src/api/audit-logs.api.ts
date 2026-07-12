@@ -10,6 +10,18 @@ export async function listAuditLogs() {
   return res.data.data;
 }
 
+export interface AuditLogListParams {
+  page: number;
+  page_size: number;
+  action_domain?: string;
+  search?: string;
+}
+
+export async function listAuditLogsPage(params: AuditLogListParams) {
+  const res = await apiClient.get<PageEnvelope<AuditLog>>('/api/v1/audit-logs', { params });
+  return res.data;
+}
+
 export async function getAuditLog(auditLogId: number) {
   const res = await apiClient.get<ApiEnvelope<AuditLog>>(`/api/v1/audit-logs/${auditLogId}`);
   return res.data.data;

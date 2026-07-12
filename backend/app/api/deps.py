@@ -79,7 +79,7 @@ def _authenticate_access_token(token: str | None, db: Session) -> User:
     return user
 
 
-async def get_current_user(
+def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme)], db: DbSession
 ) -> User:
     return _authenticate_access_token(token, db)
@@ -88,7 +88,7 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-async def get_current_user_for_sse(
+def get_current_user_for_sse(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme)] = None,
     db: Session = Depends(get_db),

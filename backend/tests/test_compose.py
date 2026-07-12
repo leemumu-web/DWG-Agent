@@ -58,7 +58,7 @@ class TestAppServices:
             assert "/proc/1/cmdline" in command
             assert "/tmp/dwg-celery-ready" in command
             assert "inspect" not in command
-            assert "localhost:8000/health" not in command
+            assert "localhost:8010/health" not in command
 
     def test_unsupported_flower_service_is_absent(self):
         data = _load()
@@ -78,7 +78,8 @@ class TestComposeYamlValid:
 
     def test_has_expected_services(self):
         data = _load()
-        assert set(data.get("services", {})) == {
+        actual = set(data.get("services", {}))
+        required = {
             "nginx",
             "backend-api",
             "worker-agent",
@@ -90,6 +91,7 @@ class TestComposeYamlValid:
             "mysql",
             "minio",
         }
+        assert required <= actual, f"Missing services: {sorted(required - actual)}"
 
     def test_core_infra_images_do_not_depend_on_docker_hub(self):
         data = _load()

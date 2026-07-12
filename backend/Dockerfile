@@ -96,16 +96,16 @@ RUN mkdir -p /app/var /home/appuser && chown -R appuser:appuser /app/var /home/a
 
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8010
 
 STOPSIGNAL SIGTERM
 
 # start-period 容忍 alembic upgrade + init_db seed + gunicorn worker 启动，避免首轮被判 unhealthy。
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8010/health || exit 1
 
 # CMD: 迁移 → 幂等超管/角色种子（init_db 按 code 查重，已存在则跳过）→ gunicorn。
 # 规范 §17.4 CMD 字面量保留：alembic upgrade head && ... gunicorn app.main:app
-# --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120
+# --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120
 CMD ["sh", "-c", \
-     "alembic upgrade head && python -m app.db.init_db && exec gunicorn app.main:app --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
+     "alembic upgrade head && python -m app.db.init_db && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]

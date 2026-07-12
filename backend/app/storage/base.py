@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
@@ -16,6 +18,20 @@ class StorageConfigurationError(StorageError):
 
 class StorageObjectNotFound(StorageError):
     """Raised when a requested storage object does not exist."""
+
+
+@dataclass(frozen=True)
+class ObjectInfo:
+    bucket: str
+    storage_key: str
+    size_bytes: int
+    last_modified: datetime | None
+
+
+@dataclass(frozen=True)
+class ObjectPage:
+    items: list[ObjectInfo]
+    next_cursor: str | None
 
 
 class AbstractStorageBackend(ABC):
@@ -52,3 +68,39 @@ class AbstractStorageBackend(ABC):
     @abstractmethod
     def delete_object(self, bucket: str, storage_key: str) -> None:
         """Delete an object if it exists."""
+
+    @abstractmethod
+    def stat_object(self, bucket: str, storage_key: str) -> ObjectInfo:
+        """Return object metadata or raise StorageObjectNotFound."""
+
+    def object_exists(self, bucket: str, storage_key: str) -> bool:
+        """Return False only for a confirmed missing object.
+
+        Connectivity and permission failures remain StorageError so callers never
+        misclassify an unavailable backend as missing data.
+        """
+        try:
+            self.stat_object(bucket, storage_key)
+            return True
+        except StorageObjectNotFound:
+            return False
+
+    @abstractmethod
+    def list_objects(
+        self,
+        bucket: str,
+        *,
+        prefix: str,
+        cursor: str | None,
+        page_size: int,
+    ) -> ObjectPage:
+        """Return one stable cursor page of objects ordered by storage key."""
+
+    def bucket_object_counts(self, buckets: list[str]) -> dict[str, int]:
+        """Return per-bucket object counts.
+
+        Default implementation returns zero for every bucket.
+        Backends that can enumerate objects (MinioStorage, LocalFileStorage)
+        override this to provide real numbers.
+        """
+        return {b: 0 for b in buckets}

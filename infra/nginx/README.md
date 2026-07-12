@@ -7,7 +7,7 @@ Browser -> Nginx -> /api/v1/*、/health*、/docs、/redoc、/openapi.json -> Fas
                  -> 其他 route -> React SPA
 ```
 
-`nginx.local.conf` 监听本机 `8080` 并代理到 `127.0.0.1:8010`；容器 `nginx.conf` 监听非特权端口 `8080` 并代理到 `backend-api:8000`，Compose 默认发布宿主 `80`。当前 Compose 不发布 443，Nginx 也没有证书、TLS listener、HTTPS 跳转或 HSTS。
+`nginx.local.conf` 监听本机 `8080` 并代理到 `127.0.0.1:8010`；容器 `nginx.conf` 监听非特权端口 `8080` 并代理到 `backend-api:8010`，Compose 默认发布宿主 `80`。当前 Compose 不发布 443，Nginx 也没有证书、TLS listener、HTTPS 跳转或 HSTS。
 
 | 控制 | 当前配置 |
 |---|---|

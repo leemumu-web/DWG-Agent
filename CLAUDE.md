@@ -5,10 +5,10 @@
 ## 基线事实
 
 ```text
-Browser -> Nginx :8080 local / :80 Compose -> FastAPI :8010 local / :8000 internal
+Browser -> Nginx :8080 local / :80 Compose -> FastAPI :8010 (local & internal)
                                                     |-> MySQL
                                                     |-> MinIO or local storage
-Celery workers <-> MySQL SQL transport/result backend -> tracked/external Stages
+Celery workers (无入站监听) <-> MySQL SQL transport/result backend -> tracked/external Stages
 ```
 
 - MySQL 是业务数据、token 吊销、Agent memory、Job/steps/progress、broker 和 result 的权威来源。
@@ -17,6 +17,7 @@ Celery workers <-> MySQL SQL transport/result backend -> tracked/external Stages
 - `tasks_agent.py` 与 `tasks_cad.py` 是占位；保持 `AGENT_ENABLED=false`、`CAD_WORKER_ENABLED=false`。
 - 四条转换 flag 默认 false；worker healthy 不代表管线可用。
 - Compose 只发布 HTTP `${HTTP_PORT:-80}:8080`，不发布 443，也没有 TLS。
+- `internal: true` 是 externally-isolated 网络：backend-api/worker 无外部 egress；启用 CAD worker/LLM 前须补可 egress 网络 + `cad-worker.internal` 解析。
 - `Stages/dxf2excel` 是缺少 `.gitmodules` 和可达对象的损坏 gitlink；已填充本机目录不是 clean-clone 证据。
 - 生产配置关闭 OpenAPI/Swagger/ReDoc。
 - 当前 Alembic head 为 `e4a1c7f2b930`；25 张模型表，Celery runtime 全部创建后最多 34 张表。
@@ -38,7 +39,7 @@ Celery workers <-> MySQL SQL transport/result backend -> tracked/external Stages
 
 - 先修改 route/test，再执行 `make docs-generate`。
 - 只维护 `docs/*.md` 中文文档；禁止恢复旧双语目录或英文镜像。
-- 本地 API 示例使用 `8010`；容器 `8000` 仅内部；本地 Nginx 为 `8080`；Compose 公共 HTTP 默认 `80`。
+- 本地 API 示例使用 `8010`；容器同为 `8010`（仅内部）；本地 Nginx 为 `8080`；Compose 公共 HTTP 默认 `80`。
 - 分别说明代码存在、默认 flag、外部依赖、验证层级/日期和剩余边界。
 - 算法细节放在已跟踪 Stage 文档；平台集成写入 `docs/processing-pipelines.md`。
 - 不修改 `third_parts/` 上游文档来制造平台能力声明。

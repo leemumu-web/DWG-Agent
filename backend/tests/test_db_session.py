@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+
 from sqlalchemy import text
 
+from app.api.deps import get_current_user, get_current_user_for_sse
 from app.core.config import Settings, settings
+from app.db import session as session_module
 from app.db.session import SessionLocal, db_health, engine, get_db, pool_args
 
 
@@ -49,21 +54,30 @@ class TestDbHealth:
 
 
 class TestGetDb:
-    def test_yields_session_and_closes(self):
-        """get_db() is a generator that yields a Session and closes on teardown."""
-        gen = get_db()
-        db = next(gen)
-        try:
-            result = db.execute(text("SELECT 1")).scalar()
-            assert result == 1
-        finally:
-            db.close()
-        # After close, using the session should raise
-        try:
-            db.execute(text("SELECT 1"))
-            raise AssertionError("Session should be closed")
-        except Exception:
-            pass  # expected — closed sessions cannot execute
+    def test_dependency_is_async_generator_to_avoid_threadpool_cleanup_starvation(self):
+        assert inspect.isasyncgenfunction(get_db)
+
+    def test_dependency_closes_session_on_async_teardown(self, monkeypatch):
+        class FakeSession:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        fake = FakeSession()
+        monkeypatch.setattr(session_module, "SessionLocal", lambda: fake)
+
+        async def consume_dependency():
+            dependency = get_db()
+            assert await anext(dependency) is fake
+            await dependency.aclose()
+
+        asyncio.run(consume_dependency())
+        assert fake.closed is True
+
+    def test_sync_auth_dependencies_never_block_event_loop_on_pool_checkout(self):
+        assert not inspect.iscoroutinefunction(get_current_user)
+        assert not inspect.iscoroutinefunction(get_current_user_for_sse)
 
     def test_session_can_execute_raw_sql(self):
         """SessionLocal works for ad-hoc SQL execution."""

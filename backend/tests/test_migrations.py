@@ -14,6 +14,7 @@ EXCEL_FINAL_REVISION = VERSIONS_DIR / "3480bd86ddc3_add_excel_final_tables.py"
 EXCEL_FINAL_RELATIONS_REVISION = VERSIONS_DIR / "7f2a9c4e6b10_harden_excel_final_relations.py"
 JOB_ATTEMPT_REVISION = VERSIONS_DIR / "8c61f4d2a9e7_add_job_attempt_generation.py"
 JOB_STEP_ATTEMPT_REVISION = VERSIONS_DIR / "a74c2e9f1d30_add_job_step_attempt.py"
+DATA_CONSOLE_REVISION = VERSIONS_DIR / "6d2f8a9c1b40_add_data_console_ledger.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -134,6 +135,22 @@ def test_job_step_model_keeps_attempt_lookup_index_in_metadata():
     assert ("job_id", "attempt") in indexed_columns
 
 
+def test_data_console_migration_adds_ledger_and_file_retention_fields():
+    source = DATA_CONSOLE_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "e4a1c7f2b930"' in source
+    for table in ("file_transfers", "storage_scan_runs", "storage_scan_findings"):
+        assert f'"{table}"' in source
+        assert f'op.drop_table("{table}")' in source
+    assert 'op.add_column("files", sa.Column("deleted_at"' in source
+    assert "op.create_unique_constraint(" in source
+    assert '"uq_files_bucket_storage_key"' in source
+    assert "op.create_index(" in source
+    assert '"ix_files_status_deleted_at"' in source
+    assert 'op.drop_constraint("uq_files_bucket_storage_key"' in source
+    assert 'op.drop_column("files", "deleted_at")' in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -160,14 +177,19 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "excel_final_batches",
         "excel_final_components",
         "excel_final_parts",
+        "file_transfers",
+        "storage_scan_findings",
+        "storage_scan_runs",
         "workflow_artifacts",
         "workflow_runs",
         "workflow_stage_runs",
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "e4a1c7f2b930"' in source
+    assert 'version != "6d2f8a9c1b40"' in source
+    assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt"}' in source
     assert '"job_steps": {"attempt"}' in source
     assert "identifier types are not BIGINT" in source
     assert "excel_final_batches.job_id is not unique" in source
+    assert "files storage location is not unique" in source

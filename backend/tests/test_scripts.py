@@ -59,24 +59,37 @@ def test_database_script_exposes_isolated_mysql_migration_test():
 
 
 def test_start_scripts_delegate_database_startup_to_db_script():
+    # start-all/start-dev use the shared ensure_db_ready() helper which
+    # internally calls ``bash scripts/db.sh start`` (and init on first run).
     for path in ("scripts/start-all.sh", "scripts/start-dev.sh"):
         content = _read(path)
-        assert 'scripts/db.sh" start' in content
-        assert 'scripts/db.sh" init' in content
+        assert "ensure_db_ready" in content
         assert "ensure_service 3306" not in content
+    # lib.sh ensure_db_ready must delegate to db.sh:
+    lib_content = _read("scripts/lib.sh")
+    assert 'scripts/db.sh" start' in lib_content
+    assert 'scripts/db.sh" init' in lib_content
 
 
 def test_start_stop_status_scripts_manage_report_worker():
+    # Consolidated helpers: start_all_workers / stop_all_workers / WORKER_SPECS
     for path in ("scripts/start-all.sh", "scripts/start-dev.sh"):
-        assert "start_report_worker" in _read(path)
+        assert "start_all_workers" in _read(path)
 
-    assert "stop_celery_worker report report" in _read("scripts/stop-all.sh")
+    assert "stop_all_workers" in _read("scripts/stop-all.sh")
+    assert "stop_celery_worker" in _read("scripts/lib.sh")
     assert "dwg-agent-${label}.pid" in _read("scripts/lib.sh")
+
+    lib_content = _read("scripts/lib.sh")
+    assert "WORKER_SPECS" in lib_content
+    # Every queue/slug must appear in WORKER_SPECS (defined in lib.sh, iterated
+    # by start_all_workers / stop_all_workers / status.sh).
+    for label in ("report", "dxf", "dxf2dwg", "dxf2excel", "excel-final"):
+        assert label in lib_content
 
     status_content = _read("scripts/status.sh")
     assert "celery_worker_pids" in status_content
-    for label in ("report", "dxf", "dxf2dwg", "dxf2excel", "excel-final"):
-        assert label in status_content
+    assert "WORKER_SPECS" in status_content
 
 
 def test_local_scripts_manage_every_implemented_pipeline_worker():
@@ -91,11 +104,13 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
         "excel_final": "excel-final",
     }
     assert "start_celery_worker" in lib_content
+    assert "WORKER_SPECS" in lib_content
     for queue, slug in expected.items():
-        function_name = f"start_{queue}_worker"
-        assert function_name in lib_content
-        assert all(function_name in content for content in start_contents)
-        assert f"stop_celery_worker {queue} {slug}" in stop_content
+        assert f"{queue}:2:" in lib_content or f"{queue}:1:" in lib_content
+        assert all("start_all_workers" in content for content in start_contents)
+        assert f"{queue}" in lib_content
+        assert slug in lib_content
+    assert "stop_all_workers" in stop_content
 
 
 def test_stop_all_does_not_kill_unowned_backend_port():
@@ -114,7 +129,7 @@ def test_worker_lifecycle_detects_orphaned_pidfiles_and_duplicate_consumers():
     assert "stop_celery_worker" in lib_content
     assert 'pgrep -f "$pattern"' in lib_content
     assert "已存在但 pidfile 缺失" in lib_content
-    assert "stop_celery_worker report report" in stop_content
+    assert "stop_all_workers" in stop_content
     assert "inspect" not in lib_content
 
 
@@ -127,10 +142,16 @@ def test_status_script_uses_side_effect_free_health_probe():
 
 
 def test_start_script_does_not_print_bootstrap_password():
-    content = _read("scripts/start-all.sh")
+    # start-all.sh delegates credential display to print_admin_credentials (lib.sh)
+    # which reads SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD from .env at runtime.
+    start_all = _read("scripts/start-all.sh")
+    lib_content = _read("scripts/lib.sh")
 
-    assert "SuperAdminPass1" not in content
-    assert "SUPER_ADMIN_PASSWORD" in content
+    assert "SuperAdminPass1" not in start_all
+    assert "print_admin_credentials" in start_all
+    # lib.sh must reference the env var names (not the actual password)
+    assert "SUPER_ADMIN_PASSWORD" in lib_content
+    assert "SUPER_ADMIN_USERNAME" in lib_content
 
 
 def test_background_start_is_stable_and_dev_start_keeps_hot_reload():

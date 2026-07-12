@@ -29,6 +29,21 @@ step() { echo -e "\n${BLUE}── $1 ──${NC}"; }
 
 port_free() { ! ss -tlnp "sport = :$1" 2>/dev/null | grep -q ":$1"; }
 
+# 确保 sudo 可用后再执行需要 root 的 mariadb 操作。
+# 无 TTY 且凭据未缓存时快速失败，而不是永久挂在密码提示上（CI/cron/测试场景）。
+ensure_sudo() {
+    if sudo -n true 2>/dev/null; then
+        return 0
+    fi
+    if [ -t 0 ]; then
+        sudo -v || { err "sudo 鉴权失败"; return 1; }
+        return 0
+    fi
+    err "需要 sudo 权限但当前无终端可输入密码（非交互环境）"
+    echo "  修复: 先运行 'sudo -v' 缓存凭据，或为 mariadb 配置 NOPASSWD"
+    return 1
+}
+
 # 从 .env 风格文件读取单个键值（保留原始值，不去引号）。
 env_value() {
     local file="$1" key="$2"

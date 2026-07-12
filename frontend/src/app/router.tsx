@@ -49,6 +49,8 @@ export function AppRouter() {
             <Route element={<RequireRoles allowed={['admin']} />}>
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />
+            </Route>
+            <Route element={<RequireRoles allowed={['admin', 'auditor']} />}>
               <Route path="/admin/infrastructure" element={<InfrastructurePage />} />
             </Route>
             <Route element={<RequireRoles allowed={['auditor']} />}>

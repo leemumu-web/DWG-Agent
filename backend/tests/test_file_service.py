@@ -10,12 +10,15 @@ from __future__ import annotations
 import zipfile
 from io import BytesIO
 
+import pytest
+
 import app.services.job_service as job_service
 from app.core.constants import JOB_SUCCEEDED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
+from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
-from app.services.file_service import build_result_map, build_zip
+from app.services.file_service import build_result_map, build_zip, build_zip_to_path
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -389,13 +392,13 @@ class TestBuildZip:
         db.rollback()
         db.close()
 
-    def test_missing_source_skipped_produces_empty_zip(self, monkeypatch):
+    def test_missing_source_fails_export(self, monkeypatch):
         db = job_service.SessionLocal()
         storage = FakeStorage({})
         monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
-        zip_bytes, _ = build_zip(db, [999], ["dwg"], "export")
-        # Empty zip: only End of Central Directory record
-        assert zip_bytes[:4] == b"PK\x05\x06"
+        with pytest.raises(AppHTTPException) as exc:
+            build_zip(db, [999], ["dwg"], "export")
+        assert exc.value.detail["code"] == "FILE_EXPORT_SOURCE_MISSING"
         db.close()
 
     def test_stem_deduplication_adds_suffix(self, monkeypatch):
@@ -422,24 +425,20 @@ class TestBuildZip:
         db.rollback()
         db.close()
 
-    def test_want_format_but_no_result_and_wrong_source_type_skips(self, monkeypatch):
-        """When requesting 'dwg' format for a DXF source that has no
-        DWG result yet, the entry is skipped (no fallback to wrong type)."""
+    def test_want_format_but_no_result_fails_export(self, monkeypatch):
         db = job_service.SessionLocal()
         src = _file(db, original_name="only.dxf", file_ext=".dxf",
                     bucket="dxf-original", storage_key="sk")
         db.commit()
         storage = FakeStorage({("dxf-original", "sk"): b"DXF_ONLY"})
         monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
-        zip_bytes, _ = build_zip(db, [src.id], ["dwg"], "export")
-        # No DWG version available → entry skipped → zip has no files
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-            assert len(zf.namelist()) == 0
+        with pytest.raises(AppHTTPException) as exc:
+            build_zip(db, [src.id], ["dwg"], "export")
+        assert exc.value.detail["code"] == "FILE_EXPORT_FORMAT_UNAVAILABLE"
         db.rollback()
         db.close()
 
-    def test_storage_read_failure_skips_entry(self, monkeypatch):
-        """If storage.iter_file raises, the entry is silently skipped."""
+    def test_storage_read_failure_fails_export(self, monkeypatch):
         db = job_service.SessionLocal()
         src = _file(db, original_name="bad.dwg", file_ext=".dwg",
                     bucket="dwg-original", storage_key="badkey")
@@ -451,9 +450,31 @@ class TestBuildZip:
 
         monkeypatch.setattr("app.services.storage_service.get_storage_backend",
                            lambda: BadStorage())
-        zip_bytes, _ = build_zip(db, [src.id], ["dwg"], "export")
-        # Entry skipped, zip still valid (empty)
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-            assert len(zf.namelist()) == 0
+        with pytest.raises(AppHTTPException) as exc:
+            build_zip(db, [src.id], ["dwg"], "export")
+        assert exc.value.detail["code"] == "STORAGE_INCONSISTENT"
         db.rollback()
         db.close()
+
+    def test_build_zip_to_path_returns_spooled_export(self, monkeypatch):
+        db = job_service.SessionLocal()
+        src = _file(
+            db,
+            original_name="large.dwg",
+            file_ext=".dwg",
+            bucket="dwg-original",
+            storage_key="large-key",
+        )
+        db.commit()
+        storage = FakeStorage({("dwg-original", "large-key"): b"A" * 4096})
+        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+
+        prepared = build_zip_to_path(db, [src.id], ["dwg"], "export")
+        try:
+            assert prepared.path.is_file()
+            assert prepared.filename == "export.zip"
+            assert prepared.size_bytes == prepared.path.stat().st_size
+            assert prepared.included_file_ids == (src.id,)
+        finally:
+            prepared.path.unlink(missing_ok=True)
+            db.close()

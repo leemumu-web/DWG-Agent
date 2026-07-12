@@ -72,9 +72,11 @@ bash scripts/db.sh check
 bash scripts/db.sh tables
 bash scripts/db.sh backup /secure/path/dwg_agent.sql.gz
 bash scripts/db.sh migration-test
+bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退役 var/app.db
+bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema。本轮已证明从空库升级到 `e4a1c7f2b930` 并得到 25 张模型表；它不测试 downgrade、Celery runtime 按需建表或生产数据迁移时长。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；本轮已证明从空库升级到 `6d2f8a9c1b40` 并得到 28 张模型表，且种子数据与最新 schema 兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 另以空 MySQL/MinIO Compose 卷验证了 Kombu 首次建表、索引和 report worker ready。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 
@@ -127,7 +129,21 @@ bash scripts/docker.sh smoke
 4. 恢复存储，验证无需重启 FastAPI 即恢复 readiness，再下载事故前对象并比较 SHA-256。
 5. 复查中断期间失败的 Job，只从受支持终态重试。
 
-数据库事务 rollback 前写入的对象会 best-effort 补偿。操作员仍应定期发现无引用对象和缺失对象；当前没有自动 reconciler。
+数据库事务 rollback 前写入的对象会自动尝试补偿删除；失败写入 `file_transfers.status=compensation_required`。软删除对象和崩溃孤儿由数据控制台的一致性扫描发现，不能仅凭 bucket 总数差额推断具体对象。`bash scripts/db.sh reap-storage --include-orphans` 仍是保留期维护工具，必须先 dry-run；永久清理应优先在控制台选择 finding、预检并确认，禁止对真实 bucket 直接批量猜测删除。
+
+## 数据控制台运行手册
+
+入口为 `/admin/infrastructure`，包含总览、文件登记、存储对象、流转流水和一致性五个页签。管理员可扫描和执行处置；审计员可读取并生成预检，但不能启动扫描或执行处置。
+
+1. 先看总览的数据库/存储健康、今日入库/出库、失败或待补偿流水、最近扫描计数。
+2. 在“文件登记”按名称/ID/SHA-256、状态、bucket、格式定位 MySQL 行，并从详情复制 bucket/key 与摘要。
+3. 在“存储对象”按 bucket 和前缀游标分页，核对对象大小、修改时间及关联 file ID；对象枚举期间 API 不长期占用 MySQL 连接。
+4. 在“流转流水”按方向、状态和操作筛选；`failed` 表示操作已终止，`compensation_required` 表示自动补偿没有恢复一致性，必须人工核查对象和登记。
+5. 启动一致性扫描后轮询 run，不刷新总览触发全量扫描。按 finding 类型和 `待处置/已处置` 筛选；每次最多选择 100 项且总量不超过 1 GiB。
+6. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
+7. 永久清理要求输入 `PURGE`，字节不可恢复。若对象已删而 MySQL 提交失败，流水为 `compensation_required`；保留 request ID/transfer UID，重新扫描并按事故流程处理，不能把旧 finding 手工改成 resolved。
+
+每次事故记录 scan ID、finding ID、transfer UID、request ID、操作人、时间、预检范围和最终对象 stat。不要把浏览器提示当作唯一证据，应同时查询流水详情、finding 状态和对象存储。
 
 ## Worker 与队列事故
 
@@ -137,6 +153,8 @@ ps -ef | rg 'celery.*app.workers.celery_app'
 ```
 
 检查每个本地队列恰好有一个预期受管 node。SQL transport 没有可靠 fanout inspect 健康路径。worker 死亡可使 Job 保持 running，直到 `CELERY_STALE_JOB_TIMEOUT_SECONDS`；随后 worker 启动将其标记 `CELERY_WORKER_LOST`。使用创建新 attempt 的 retry API 前，先验证 Stage 和存储。
+
+若空库 worker 一直 `health: starting/unhealthy` 且 `/tmp/dwg-celery-ready` 不存在，检查 MySQL `SHOW FULL PROCESSLIST`。`CREATE INDEX ix_kombu_message_queue_timestamp_id_visible` 若等待 metadata lock，说明 Kombu 建表连接未释放；当前版本已有显式 commit/close 回归，出现该现象通常意味着运行了旧镜像。记录 image digest，停止旧 worker，升级镜像后在隔离空卷重验，禁止手工杀连接后继续声称冷启动正常。
 
 不要手工把 Job status 改成 succeeded。如必须清除 broker message，使用应用的 queue-aware cancellation 操作并保留逐队列 purge 结果；直接 SQL 删除需要事故记录和 Job reconciliation。
 
@@ -153,7 +171,7 @@ ps -ef | rg 'celery.*app.workers.celery_app'
 
 仓库没有经过测量的生产容量声明。MySQL 连接规划需计入 API worker、每个 Celery parent/child、Kombu/result backend、migration 和操作员 session。SQL broker 吞吐、ODA CPU/内存、Excel 工作簿大小、MinIO 带宽和 Nginx 上传并发都需要负载测试。
 
-Celery result 在 24 小时后过期，业务 Job/JobStep、audit、file 和对象字节没有自动保留策略。高容量使用前，先定义法律/运维保留期，并实现数据库/对象一致删除。
+Celery result 在 24 小时后过期，业务 Job/JobStep、audit、file 和对象字节没有自动保留策略。高容量使用前，先定义法律/运维保留期，并实现数据库/对象一致删除。对象侧回收已有手动工具 `bash scripts/db.sh reap-storage`（软删除对象 + 孤儿，见 database.md §6.5）；磁盘水位可经 `GET /api/v1/system/infrastructure` 的 `capacity`（local 后端上报 total/used/free 字节）观察。二者仍是手动/可调度手段，非自动保留。
 
 ## 发布与回滚检查表
 

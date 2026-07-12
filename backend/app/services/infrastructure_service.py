@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import shutil
 from datetime import UTC, datetime
+from pathlib import Path
 from time import monotonic
 
 from sqlalchemy import func, inspect, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.services.storage_service import get_storage_backend
-from app.storage.base import StorageError
-from app.storage.minio_storage import MinioStorage
+from app.storage.base import StorageConfigurationError, StorageError
 
 
 def _check_database(db: Session) -> dict:
@@ -56,13 +58,20 @@ def _check_database(db: Session) -> dict:
 
 def _check_storage(db: Session) -> dict:
     started = monotonic()
-    backend = get_storage_backend()
     bucket_names = settings.minio_bucket_names
     bucket_objects: dict[str, int | None] = {name: None for name in bucket_names}
     try:
+        backend = get_storage_backend()
+    except (AppHTTPException, StorageConfigurationError):
+        return {
+            "status": "error",
+            "backend": settings.storage_backend,
+            "latency_ms": round((monotonic() - started) * 1000, 1),
+            "buckets": [],
+        }
+    try:
         backend.check_health()
-        if isinstance(backend, MinioStorage):
-            bucket_objects = backend.bucket_object_counts(bucket_names)
+        bucket_objects = backend.bucket_object_counts(bucket_names)
         tracked = dict(
             db.execute(
                 select(StoredFile.bucket, func.count(StoredFile.id))
@@ -109,6 +118,22 @@ def infrastructure_overview(db: Session) -> dict:
             .limit(8)
         ).all()
     )
+    # Disk capacity: available for local storage backend; unknown for remote.
+    capacity: dict = {"status": "unknown", "disk_total_bytes": None, "disk_free_bytes": None}
+    if settings.storage_backend == "local":
+        try:
+            root = Path(settings.local_storage_root)
+            root.mkdir(parents=True, exist_ok=True)
+            usage = shutil.disk_usage(root)
+            capacity = {
+                "status": "ok",
+                "disk_total_bytes": usage.total,
+                "disk_used_bytes": usage.used,
+                "disk_free_bytes": usage.free,
+            }
+        except OSError:
+            capacity["status"] = "error"
+
     return {
         "status": "ok" if database["status"] == storage["status"] == "ok" else "degraded",
         "checked_at": datetime.now(UTC).isoformat(),
@@ -119,6 +144,7 @@ def infrastructure_overview(db: Session) -> dict:
             "tracked_bytes": int(tracked_bytes),
             "extensions": extension_counts,
         },
+        "capacity": capacity,
         "recovery": {
             "consistency_rule": "MySQL metadata and object storage must be backed up and restored as one recovery set.",
             "automated_backup": False,

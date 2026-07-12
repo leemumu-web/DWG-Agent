@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, select, update
+from sqlalchemy import String, cast, delete, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import (
@@ -66,6 +66,9 @@ def list_jobs(
     sort_by: str = Query("created_at"),
     sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     task_type: str = Query("", description="Filter by task type, e.g. 'convert_dwg_to_dxf'"),
+    status_filter: str = Query("", alias="status", max_length=32),
+    search: str = Query("", max_length=100),
+    file_ids: str = Query("", max_length=2200),
     db: Session = Depends(get_db),
 ):
     sort_column = validate_sort_by("jobs", sort_by)
@@ -79,6 +82,34 @@ def list_jobs(
     stmt = select(Job).order_by(order_clause, tie_breaker)
     if task_type.strip():
         stmt = stmt.where(Job.task_type == task_type.strip())
+    if status_filter.strip() == "active":
+        stmt = stmt.where(
+            Job.status.in_(
+                {"pending", "queued", "running", "validating", "waiting_cad_worker"}
+            )
+        )
+    elif status_filter.strip():
+        stmt = stmt.where(Job.status == status_filter.strip())
+    if search.strip():
+        pattern = f"%{search.strip()}%"
+        search_clauses = [
+            Job.task_type.ilike(pattern),
+            Job.pipeline.ilike(pattern),
+            cast(Job.id, String).like(pattern),
+        ]
+        stmt = stmt.where(or_(*search_clauses))
+    if file_ids.strip():
+        try:
+            parsed_file_ids = {int(value) for value in file_ids.split(",") if value}
+        except ValueError as exc:
+            raise AppHTTPException(
+                422, "INVALID_PARAMS", "file_ids must be comma-separated integers."
+            ) from exc
+        if not parsed_file_ids or len(parsed_file_ids) > 200:
+            raise AppHTTPException(
+                422, "INVALID_PARAMS", "file_ids must contain between 1 and 200 ids."
+            )
+        stmt = stmt.where(Job.params_json["file_id"].as_integer().in_(parsed_file_ids))
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
     jobs, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)

@@ -1,20 +1,20 @@
 # DWG-Agent 平台文档
 
-本目录是仓库唯一维护的项目详细文档，全部使用中文。2026-07-11 的审查对象是 `main` 工作树：HEAD 为 `d178fcf`，同时包含当前尚未提交的工作流、部署、转换器和前端变更。文档不会把 HEAD 与工作树混为一谈，也不会把目录、路由、配置项或健康进程直接视为已交付能力。
+本目录是仓库唯一维护的项目详细文档，全部使用中文。2026-07-12 的审查对象是当前工作树；文档不会把 HEAD 与工作树混为一谈，也不会把目录、路由、配置项或健康进程直接视为已交付能力。
 
 ## 项目定位
 
 DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx 使用 React 管理端和 FastAPI API；MySQL 保存身份、权限、项目、文件元数据、任务、结果、复核、审计、工作流以及 Celery broker/result 状态；Local FS 或 MinIO 保存文件字节；Celery worker 调用各 Stage 完成长任务。
 
-当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、五条可执行队列路径、Excel Final 关系化导入、人工生产流程和基础设施概览。四条转换管线默认关闭并受外部依赖约束；Agent 执行、CAD 图纸业务算法和 Windows CAD Worker 是明确非目标。Redis/Valkey 已从活动架构移除。
+当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、五条可执行队列路径、Excel Final 关系化导入、人工生产流程，以及统一监视 MySQL 登记、Local/MinIO 对象、入出库流水和一致性处置的数据控制台。四条转换管线默认关闭并受外部依赖约束；Agent 执行、CAD 图纸业务算法和 Windows CAD Worker 是明确非目标。Redis/Valkey 已从活动架构移除。
 
 ## 阅读路径
 
 1. [根 README](../README.md)：快速状态、启动方式、目录地图和已知阻断项。
 2. [企业技术规范](../DWG-Agent企业平台技术规范.md)：必须长期保持的架构、安全和交付约束。
 3. [架构](architecture.md)：组件职责以及同步、异步、SSE、下载、存储一致性路径。
-4. [API 参考](api.md)：从当前 FastAPI OpenAPI 自动生成的 77 个 path 路由清单。
-5. [数据库](database.md)：25 张模型表、8 张 Celery runtime 表、迁移和恢复集合。
+4. [API 参考](api.md)：从当前 FastAPI OpenAPI 自动生成的 88 个 path 路由清单。
+5. [数据库](database.md)：28 张模型表、8 张 Celery runtime 表、迁移、流转账本和恢复集合。
 6. [处理管线](processing-pipelines.md)与[通用工作流](workflow-framework.md)：转换执行与业务编排的区别。
 7. [配置](configuration.md)、[部署](deployment.md)和[运维](operations.md)：本地/Compose 实施和事故处理。
 8. [安全](security.md)、[验证](workflow-verification.md)与[路线图](roadmap.md)：发布前边界、证据和后续工作。

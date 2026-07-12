@@ -2,17 +2,18 @@
 
 DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处理、结果复核与审计的全栈平台。本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。
 
-**文档审计基线：** 2026-07-11 的 `main` 工作树（HEAD 为 `d178fcf`，并包含当前尚未提交的实现变更）。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。仓库从本轮起只维护中文项目文档。
+**文档审计基线：** 2026-07-12 的当前工作树。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。仓库只维护中文项目文档。
 
 ## 当前结论
 
 | 领域 | 当前状态 | 关键边界 |
 |---|---|---|
-| Web 与 API | React 管理端、Nginx 网关、77 个 OpenAPI path 和 95 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 25 张模型表，Celery 还会按需创建 8 张 broker/result 表 | 空迁移库为 26 张表；Celery runtime 全部初始化后最多 34 张。SQLite 只用于 pytest |
+| Web 与 API | React 管理端、Nginx 网关、88 个 OpenAPI path 和 107 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 还会按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张。SQLite 只用于 pytest |
 | 通用工作流 | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和“生产流程”页面已实现 | 当前仅持久化和展示编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
 | 异步任务 | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
-| 存储 | 本地文件系统与 MinIO 适配器已实现 | MySQL 保存元数据，存储层保存字节；两者必须配套备份和恢复 |
+| 存储 | Local/MinIO 清单、流转账本、异步一致性扫描和四类安全处置已实现 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
+| 数据控制台 | 总览、文件登记、存储对象、入出库流水、一致性五页签已实现 | 管理员可扫描/处置，审计员只读/预检；永久清理必须确认且不可恢复 |
 | 转换管线 | report、DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final 的服务路径存在 | 四条业务管线默认关闭，且分别受 ODA、Stage 完整性和手册库约束 |
 | Agent | API、模型和权限边界存在 | 本项目明确不继续实现 Agent；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
 | 图纸业务处理 / Windows CAD worker | 图纸元数据与格式转换边界仍保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 明确不在当前交付范围；`CAD_WORKER_ENABLED=false` |
@@ -27,8 +28,8 @@ Browser
      -> FastAPI
         -> MySQL (业务数据 + Celery broker/result 表)
         -> Local FS 或 MinIO
-Celery workers
-  -> MySQL 领取消息并条件更新 Job/JobStep
+Celery workers（无入站监听端口）
+  -> MySQL:3306 领取消息并条件更新 Job/JobStep
   -> Local FS 或 MinIO 读取源文件、写入结果
   -> 独立 Stage / ODA 子进程
 ```
@@ -38,7 +39,7 @@ Celery workers
 | 模式 | 用户入口 | FastAPI | MySQL / MinIO |
 |---|---|---|---|
 | 本地开发 | Vite `127.0.0.1:5173` 或 Nginx `127.0.0.1:8080` | `127.0.0.1:8010` | MySQL `127.0.0.1:3306`；MinIO 可选 |
-| Compose | Nginx 宿主 HTTP `:80` -> 容器 `:8080` | 仅内部 `backend-api:8000` | 仅 `internal` 网络，不发布宿主端口 |
+| Compose | Nginx 宿主 HTTP `:80` -> 容器 `:8080` | 仅内部 `backend-api:8010` | 仅 `internal` 网络，不发布宿主端口 |
 
 当前 Compose 仅发布 HTTP，默认映射为宿主 `${HTTP_PORT:-80}` 到 Nginx 容器 `8080`，**不发布 443，也不提供 TLS**。公网部署前必须在受控入口补齐证书、HTTPS 跳转、HSTS、续期和真实浏览器/握手验证；不能把网络隔离或安全响应头等同于传输加密。
 

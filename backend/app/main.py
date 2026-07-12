@@ -24,7 +24,9 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: initialise DB schema/seed data
+    # Startup: apply seed data (roles, permissions, super-admin).
+    # Table creation is owned by Alembic — run ``alembic upgrade head`` before
+    # starting the app, or use ``scripts/db.sh init``.
     try:
         from app.db.init_db import init_db
 
@@ -32,8 +34,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         import logging
 
-        logging.getLogger(__name__).warning(
-            "Database initialisation failed — may already be initialised or MySQL is unreachable."
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Seed data initialisation failed — tables may not exist yet. "
+            "Run: cd backend && uv run alembic upgrade head && uv run python -m app.db.init_db"
         )
     yield
 

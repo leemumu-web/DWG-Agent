@@ -126,3 +126,68 @@ def test_frontend_system_health_lists_every_pipeline_flag():
         "excel_final_pipeline",
     ):
         assert feature in source
+
+
+def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
+    page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
+    api_source = _frontend_source("api/data-admin.api.ts")
+    type_source = _frontend_source("types/data-admin.ts")
+
+    assert "useSearchParams" in page_source
+    for key in ("overview", "files", "objects", "transfers", "consistency"):
+        assert f"key: '{key}'" in page_source
+    for path in (
+        "/api/v1/data-admin/overview",
+        "/api/v1/data-admin/files",
+        "/api/v1/data-admin/objects",
+        "/api/v1/data-admin/transfers",
+        "/api/v1/data-admin/scans",
+        "/api/v1/data-admin/remediations/preview",
+        "/api/v1/data-admin/remediations/execute",
+    ):
+        assert path in api_source
+    for contract in (
+        "DataAdminOverview",
+        "DataAdminFile",
+        "StorageObject",
+        "FileTransfer",
+        "StorageScanRun",
+        "StorageScanFinding",
+    ):
+        assert f"interface {contract}" in type_source
+    assert "listStorageScans" in page_source
+    assert "getDataAdminFile" in page_source
+    assert "getFileTransfer" in page_source
+    assert "处置预检" in page_source
+    assert "RemediationDrawer" in page_source
+    assert "登记详情" in page_source
+    assert "流水详情" in page_source
+    assert "destroyOnHidden" in page_source
+
+
+def test_auditor_can_open_read_only_data_console():
+    router_source = _frontend_source("app/router.tsx")
+    layout_source = _frontend_source("app/layout.tsx")
+
+    assert "<RequireRoles allowed={['admin', 'auditor']} />" in router_source
+    assert "roles: ['admin', 'auditor']" in layout_source
+
+
+def test_operational_tables_use_bounded_server_pagination():
+    files_api = _frontend_source("api/files.api.ts")
+    jobs_api = _frontend_source("api/jobs.api.ts")
+    audit_api = _frontend_source("api/audit-logs.api.ts")
+    conversion_page = _frontend_source("components/ConversionPage.tsx")
+    jobs_page = _frontend_source("features/jobs/JobsPage.tsx")
+    audit_page = _frontend_source("features/admin/AuditLogsPage.tsx")
+
+    assert "listFilesPage" in files_api
+    assert "listJobsPage" in jobs_api
+    assert "listAuditLogsPage" in audit_api
+    assert "listFilesPage" in conversion_page
+    assert "listJobsPage" in conversion_page
+    assert "current: page" in conversion_page
+    assert "listJobsPage" in jobs_page
+    assert "total: query.data?.pagination.total" in jobs_page
+    assert "listAuditLogsPage" in audit_page
+    assert "total: logsQ.data?.pagination.total" in audit_page

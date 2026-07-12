@@ -57,7 +57,7 @@ Celery worker
 | 场景 | 入口 | API | 依赖暴露 |
 |---|---|---|---|
 | 本地 | Vite `5173` 或 Nginx `8080` | `127.0.0.1:8010` | MySQL `3306`；MinIO 可选 |
-| Compose | 宿主 `80` -> Nginx 容器 `8080` | 内部 `backend-api:8000` | MySQL/MinIO 仅 internal network |
+| Compose | 宿主 `80` -> Nginx 容器 `8080` | 内部 `backend-api:8010` | MySQL/MinIO 仅 internal network |
 
 Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Nginx TLS listener 或证书配置。公网部署前必须补齐 TLS termination、证书/私钥管理、HTTP 到 HTTPS 跳转、HSTS、证书轮换和真实握手测试。
 

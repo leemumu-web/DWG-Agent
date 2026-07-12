@@ -8,6 +8,10 @@
 
 **Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2, Alembic, Celery SQL transport, MinIO SDK, pytest, React 19, TypeScript 6, TanStack Query, Ant Design 6, Playwright.
 
+## 2026-07-12 execution outcome
+
+Tasks 1-14 的功能、测试、迁移、浏览器和文档门禁均已完成，最终证据记录在 [`../../workflow-verification.md`](../../workflow-verification.md) 第 5 节。实现过程中有三项有意偏差：前端五个面板集中在 `InfrastructurePage.tsx`，仅将高风险处置抽为 `RemediationDrawer.tsx`，避免过早拆分小组件；可变更 MinIO/MySQL 验证使用独立 Compose project、独立镜像和独立卷，避免污染本地真实异常；下方逐步提交命令没有执行，因为工作树进入本轮前已经包含用户的暂存删除和其他修改，最终交付保留这些边界而不代替用户组织提交。未勾选的逐步 checkbox 是原始执行清单，不应解释为当前功能缺失。
+
 ---
 
 ## File map

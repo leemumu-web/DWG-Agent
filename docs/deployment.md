@@ -3,12 +3,14 @@
 ## 支持的拓扑
 
 ```text
-浏览器 -> 宿主 HTTP_PORT -> frontend/Nginx :8080 -> backend-api :8000
-                                                          |-> MySQL 8.4
-Celery workers <------------------------------------------|-> MinIO
+浏览器 -> 宿主 HTTP_PORT -> frontend/Nginx :8080
+    ├─ /api、/health、/docs   -> backend-api :8010 -> MySQL 8.4 / MinIO
+Celery workers（无入站监听端口）──出站──> MySQL:3306（broker+result）/ MinIO
 ```
 
-Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 私有网络。公开容器已经包含编译后的 SPA 和 Nginx 配置，部署不再依赖宿主机 `frontend/dist` bind mount。
+Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 的 `internal` 私有网，端口不发布宿主。公开容器已经包含编译后的 SPA 和 Nginx 配置，部署不再依赖宿主机 `frontend/dist` bind mount。
+
+网络语义须区分两件事：**不发布端口**只是没有宿主 ingress 映射；而 `internal: true` 是 externally-isolated 网络，意味着 backend-api / worker 都**没有外部 egress**。启用 `CAD_WORKER_ENABLED`（须访问外部 `cad-worker.internal:8080`）或 `AGENT_ENABLED`（须访问外部 LLM）前，必须为相应容器补上可 egress 的网络，并解决 `cad-worker.internal` 的解析（企业 DNS / `extra_hosts` / IP 环境变量）——两者缺一，即使名称可解析，`internal: true` 仍会阻断链路。
 
 当前仍是纯 HTTP，Compose **不发布 443**。完成经审查的 TLS listener 与证书生命周期前，不要自行宣称 HTTPS。仅在可信内网纯 HTTP 场景显式设置 `REFRESH_COOKIE_SECURE=false`；公网部署必须先增加 TLS，并保持 Secure cookie。
 
@@ -72,6 +74,8 @@ Compose 只构建一个共享后端镜像和一个前端镜像。所有 worker �
 | `minio` | 默认 | `minio_data` | MinIO 进程存活 |
 
 容器设置 `no-new-privileges`；应用与 Nginx 镜像以非 root 运行。Nginx 根文件系统只读，`/tmp` 使用 tmpfs。MySQL 与 MinIO 有两分钟停止宽限。后端启动时先执行 Alembic migration 和幂等 seed，再启动 Gunicorn；worker 和 Nginx 等待其 ready。
+
+数据控制台的一致性扫描由默认启用的 `worker-report` 异步执行，API 总览和清单请求不会在请求线程中全量枚举 MinIO。空库首次启动时，worker 会先提交并关闭 Kombu `queue_declare` 使用的 session，再维护 SQL transport 索引；这避免同一进程的后续 DDL 被自身 metadata lock 阻塞。部署健康检查必须确认 worker ready marker，而不能只看容器进程存活。
 
 MySQL 初始化 SQL 只在新 `mysql_data` volume 上执行。修改初始化文件不会更新已有数据库，应用 schema 变更必须使用 migration。Celery broker/result URL 从有效 MySQL DSN 派生，分别为 `sqla+mysql+pymysql://...` 和 `db+mysql+pymysql://...`，因此操作员不维护第二套凭据。
 

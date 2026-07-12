@@ -4,7 +4,7 @@
 
 ## 统一约定
 
-- 本地直连基地址：`http://127.0.0.1:8010`；Nginx 入口：`http://127.0.0.1:8080`；容器内部 API 端口：`8000`。
+- 本地直连基地址：`http://127.0.0.1:8010`；Nginx 入口：`http://127.0.0.1:8080`；容器内部 API 端口同为 `8010`。
 - 除 `/health`、`/health/ready`、`POST /api/v1/auth/sessions` 和刷新端点外，业务端点均要求 Bearer access token。
 - 成功响应使用 `{data, meta}`；分页响应额外包含 `pagination`，`total` 来自 SQL `COUNT(*)`。
 - 错误响应使用 `{error: {code, message, details}, meta}`，不会向客户端暴露 traceback、DSN 或本机路径。
@@ -12,6 +12,8 @@
 - 下载流程为：鉴权获取短期签名 URL，再携带 Bearer token 下载。403、408、429、5xx 或网络错误重试时必须重新获取签名。
 - 任务重试递增 `attempt`；步骤查询可用 `?attempt=N`，旧 worker 不能覆盖新 attempt。
 - SSE snapshot 只包含当前 attempt 的 steps；无项目 Job 的结果仅管理员或创建者可访问。
+- 数据控制台读取允许 `admin/auditor`，扫描与处置执行只允许 `admin`；处置必须先预检，再携带绑定操作人和目标摘要的短期 token 与幂等键执行。
+- 文件/流水/finding 使用服务端页码分页；对象清单使用不透明 cursor。永久清理未登记对象还必须提交确认词 `PURGE`。
 - `AGENT_ENABLED=false` 时 Agent 端点返回 503；仓库没有可执行 Agent task，本项目也不把 Agent 执行列为当前交付目标。
 
 ## 健康检查
@@ -30,6 +32,22 @@
 | `POST` | `/api/v1/auth/tokens/refresh` |
 | `GET` | `/api/v1/auth/me` |
 | `PATCH` | `/api/v1/auth/password` |
+
+## 数据控制台
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/data-admin/overview` |
+| `GET` | `/api/v1/data-admin/files` |
+| `GET` | `/api/v1/data-admin/files/{file_id}` |
+| `GET` | `/api/v1/data-admin/objects` |
+| `GET` | `/api/v1/data-admin/transfers` |
+| `GET` | `/api/v1/data-admin/transfers/{transfer_uid}` |
+| `POST, GET` | `/api/v1/data-admin/scans` |
+| `POST` | `/api/v1/data-admin/remediations/preview` |
+| `POST` | `/api/v1/data-admin/remediations/execute` |
+| `GET` | `/api/v1/data-admin/scans/{scan_id}` |
+| `GET` | `/api/v1/data-admin/scans/{scan_id}/findings` |
 
 ## 用户
 

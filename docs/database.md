@@ -98,9 +98,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-Alembic/SQLAlchemy 管理 **25 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 26 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **34 张表**。
+Alembic/SQLAlchemy 管理 **28 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 29 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **37 张表**。
 
-不能把 34 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 可能只有 26 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
+不能把 37 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 可能只有 29 张；Kombu broker 与 result backend 又可能分阶段建表。2026-07-12 的空卷 Compose 验证在 report worker ready、尚未产生 Celery result 时观察到 33 张表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -224,7 +224,7 @@ Alembic/SQLAlchemy 管理 **25 张模型表**。空库执行 `alembic upgrade he
 
 **唯一约束:** `uq_project_member` 建立在 `(project_id, user_id)` 上 -- 每个用户在每个项目中只能有一个角色。
 
-### 2.3 文件管理 -- 1 张表
+### 2.3 文件管理与存储账本 -- 4 张表
 
 #### `files`
 
@@ -244,12 +244,38 @@ Alembic/SQLAlchemy 管理 **25 张模型表**。空库执行 `alembic upgrade he
 | `batch_name` | VARCHAR(128) | NULLABLE, INDEXED | 多文件 DXF/Excel 上传的批次分组标签（如 ZIP 主名）。由迁移 `53cd59adf848` 添加 |
 | `uploaded_by` | BIGINT | FK → `sys_users.id` | 上传者用户 ID |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` |
+| `deleted_at` | DATETIME | NULLABLE, INDEXED | 软删除时间；恢复时清空 |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
-**索引:** `ix_files_sha256`, `ix_files_storage_key`, `ix_files_batch_name`
+**唯一约束:** `uq_files_bucket_storage_key` 建立在 `(bucket, storage_key)` 上，禁止一个对象位置对应两条登记。
+
+**索引:** `ix_files_sha256`, `ix_files_storage_key`, `ix_files_batch_name`, `ix_files_status_deleted_at`
 
 **批量上传:** `batch_name` 将一起上传的文件分组（带 `batch_name` 查询参数的单文件上传，或以主名解压的 `.zip`），使 DXF→Excel 管道以及批量下载/删除端点能够一次性操作整组文件。未分组上传时其值为 `NULL`。
+
+#### `file_transfers`
+
+跨 MySQL 与对象存储的持久化流转账本。上传、ZIP 条目、生成文件、下载、ZIP 出库、软删除、恢复、补登记与永久清理均写入该表；`audit_logs` 仍记录谁执行了业务动作，但不替代字节级状态机。
+
+| 列组 | 关键列 | 说明 |
+|---|---|---|
+| 身份 | `transfer_uid`, `request_id`, `idempotency_key` | UUID 流水标识、请求关联和幂等键 |
+| 类型 | `direction`, `operation`, `status` | `inbound/outbound/internal`；状态为 `prepared/in_progress/succeeded/failed/cancelled/compensation_required` |
+| 关联 | `file_id`, `batch_ref`, `actor_user_id` | 文件、批次和操作人；批量流水可不绑定单个文件 |
+| 位置 | `bucket`, `storage_key`, `original_name` | 对象位置与显示名 |
+| 结算 | `expected_bytes`, `transferred_bytes`, `started_at`, `finished_at` | 预期/实际字节与生命周期 |
+| 失败 | `error_code`, `error_message` | 对象写入、流中断、元数据回滚和补偿失败原因 |
+
+`(actor_user_id, operation, idempotency_key)` 唯一约束阻止同一操作重复执行。MySQL 运行时先以独立短事务持久化意图；对象写成功而业务事务回滚时补偿删除对象，删除失败或永久清理后元数据提交失败时写 `compensation_required`。
+
+#### `storage_scan_runs`
+
+一致性扫描运行记录。保存 backend、可选 bucket 范围、排队/运行/终态、操作人、开始/结束时间，以及登记、对象、正常、软删除保留、对象缺失、未登记、大小不符和错误计数。扫描任务由 report worker 异步执行，不在总览请求中全量枚举对象。
+
+#### `storage_scan_findings`
+
+只保存异常和软删除保留项，不复制全部正常对象。每行包含 `run_id`、`finding_type`、bucket/key、可选 file ID、DB/对象大小、对象修改时间、处置状态/动作/操作人/时间。`(run_id, finding_type, bucket, storage_key)` 唯一；`(run_id, resolution_status)` 支持前端快速筛选待处置与已处置项。
 
 ### 2.4 图纸与版本 -- 2 张表
 
@@ -588,8 +614,9 @@ analysis_results ──< workflow_artifacts
 | `8c61f4d2a9e7` | 新增 `jobs.attempt`，隔离重试代次 | 2026-07-11 |
 | `a74c2e9f1d30` | 新增 `job_steps.attempt` 和 `(job_id, attempt)` 索引 | 2026-07-11 |
 | `e4a1c7f2b930` | 新增工作流、顺序阶段和版本化流程产物表 | 2026-07-11 |
+| `6d2f8a9c1b40` | 新增文件流转账本、一致性扫描表、文件软删除时间与对象位置唯一约束 | 2026-07-12 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930`；**`e4a1c7f2b930` 是当前 head。**
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40`；**`6d2f8a9c1b40` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -640,7 +667,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **25 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束，以及 `project_members`、`drawing_versions`、`review_records`、`agent_run_steps` 后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **28 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
@@ -729,7 +756,7 @@ bash scripts/db.sh init
 
 | 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL `dwg_agent` | 25 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
+| MySQL `dwg_agent` | 28 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
 | `hardware_handbook` | schema/data 或独立管理的权威源 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |
@@ -743,12 +770,20 @@ bash scripts/db.sh backup /secure/path/dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz
 
 该 helper 面向根 `.env` 配置的本地 MySQL endpoint。它不采集 MinIO、`hardware_handbook`、live secret 或协调一致性点。
 
+维护辅助子命令：
+
+- `bash scripts/db.sh clean`——清理 `migration-test` 崩溃残留的 `dwg_agent_migration_test_*` 临时库，并把退役的 SQLite 遗留文件 `var/app.db` 重命名归档（后端仍在运行则跳过）。
+- `bash scripts/db.sh reap-storage [--dry-run] [--retention-days N] [--include-orphans]`——回收软删除文件的存储对象（见 §6.5）。
+
+需要 `sudo mariadb` 的子命令（`setup-user`/`migration-test`/`reset`/`clean`）先经 `ensure_sudo` 预检：无 TTY 且 sudo 凭据未缓存时快速失败，而非永久挂在密码提示上（保护 CI/cron/测试）。
+
 ### 6.2.1 统一基础设施概览
 
-`GET /api/v1/system/infrastructure`（仅管理员）在一个响应里同时呈现 MySQL、对象存储和文件目录，便于共同查看：
+`GET /api/v1/system/infrastructure`（仅管理员）在一个响应里同时呈现 MySQL、对象存储、磁盘容量和文件目录，便于共同查看：
 
 - 数据库：引擎、业务库名、表数量、探测延迟、每进程连接池预算。
-- 存储：后端、探测延迟，每个已配置桶一行，显示「MySQL 登记文件数 vs MinIO 对象数」。对象数低于登记数的桶会被标记需核查。
+- 存储：后端、探测延迟，每个已配置桶一行，显示「MySQL 登记文件数 vs 实际对象数」。local 与 minio 后端**均**上报对象数（local 后端递归统计磁盘文件），对象数与登记数不一致的桶会被标记差额（疑似孤儿或断链）。
+- 容量：local 后端上报存储卷的磁盘 total/used/free 字节；远程后端标记 `status = "unknown"`（容量不可直接测量）。
 - 目录：可用文件总数、已登记字节数、Top 文件扩展名。
 - 恢复：一致性规则（MySQL 元数据与对象字节是同一恢复集）和显式的 `automated_backup = false` 标志——平台无调度备份，此视图是可观测性手段，不构成备份保证。
 
@@ -756,9 +791,9 @@ bash scripts/db.sh backup /secure/path/dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz
 
 ### 6.3 Compose 备份边界
 
-Compose 不发布 MySQL/MinIO 宿主端口，也没有调度 backup service。`bash scripts/docker.sh backup DIR` 使用 `mysqldump --single-transaction` 导出 `dwg_agent` 与 `hardware_handbook`，并归档 MinIO volume，最后生成 `SHA256SUMS`。它没有停止 API/worker writer，因此 MySQL 事务快照和 MinIO tar 并非严格同一时点；业务关键备份应进入维护窗口或通过外部协调机制实现一致恢复点。
+Compose 不发布 MySQL/MinIO 宿主端口，也没有调度 backup service。`bash scripts/docker.sh backup DIR` 使用 `mysqldump --single-transaction` 导出 `dwg_agent` 与 `hardware_handbook`，并归档对象数据，最后生成 `SHA256SUMS` 和记录备份时间窗的 `BACKUP_WINDOW`。它没有停止 API/worker writer，因此 MySQL 事务快照和对象 tar 并非严格同一时点；业务关键备份应进入维护窗口或通过外部协调机制实现一致恢复点。
 
-该脚本不备份 `app_var`、`.env.docker`、镜像或证书；当前 MinIO 部署下 `app_var` 主要承载容器共享运行目录，不应存放唯一业务对象。若切换到 local storage，则必须另行把 local root 纳入恢复集合。Compose 不支持 `worker-*` 这样的 service-name wildcard。
+对象归档随 `.env.docker` 的 `STORAGE_BACKEND` 分支：`minio` 时归档 MinIO volume；`local` 时改为归档 `app_var/storage` 并发出警告（否则 local 后端对象将无备份）。`restore` 镜像该分支，并在结束时打印 `BACKUP_WINDOW`，提示对备份窗内创建的文件运行 `bash scripts/db.sh reap-storage --include-orphans` 核查一致性。该脚本仍不备份 `.env.docker`、镜像或证书。Compose 不支持 `worker-*` 这样的 service-name wildcard。
 
 准确 Compose 命令和停止/启动顺序维护在[运维](operations.md)。数据库与对象必须作为一个恢复集合。
 
@@ -772,3 +807,24 @@ Compose 不发布 MySQL/MinIO 宿主端口，也没有调度 backup service。`b
 6. 启动 stack，并执行认证 upload/process/SSE/download 工作流。
 
 仓库当前没有自动 retention、point-in-time recovery 配置、backup encryption、调度 restore test 或 RPO/RTO 测量。这些是生产缺口，不是隐含平台能力。
+
+### 6.5 存储对象回收（reaper）
+
+软删除只把 `files.status` 置为 `deleted`，不删除底层存储对象；崩溃时"已写对象但事务回滚"也会留下无 DB 行的孤儿对象。二者都会让磁盘/桶单调增长，并使 §6.2.1 的登记字节数与真实占用逐渐偏离。
+
+`scripts/reap_storage.py`（经 `bash scripts/db.sh reap-storage` 调用）负责回收：
+
+```bash
+# 预览（默认 dry-run，不删任何东西）
+bash scripts/db.sh reap-storage --retention-days 30
+# 实际回收超过保留期的软删除对象
+bash scripts/db.sh reap-storage --retention-days 30 --no-dry-run
+# 额外扫描无 DB 行的孤儿对象（local 后端；仅报告，不删）
+bash scripts/db.sh reap-storage --include-orphans
+```
+
+- Phase 1：删除 `status='deleted'` 且 `updated_at` 早于保留期的行的存储对象，成功后再硬删 DB 行；存储删除失败会计入 errors 且**不**孤儿删除 DB 行。
+- Phase 2（可选）：枚举磁盘/桶对象，报告无匹配 `storage_key` 的孤儿——出于安全默认不自动删除。
+- `--retention-days 0` 需 `REAP_CONFIRM=yes` 才实际执行，避免误删刚软删除的文件。
+
+reaper 是手动/可调度的运维工具，不是自动 GC；平台不保证后台对账。

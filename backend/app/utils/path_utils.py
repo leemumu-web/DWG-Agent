@@ -12,7 +12,10 @@ def ensure_within_root(root: Path, candidate: Path) -> Path:
     """
     root_resolved = root.resolve()
     candidate_resolved = candidate.resolve()
-    if not str(candidate_resolved).startswith(str(root_resolved)):
+    # is_relative_to rejects sibling directories sharing a common
+    # prefix (e.g. /app/var/storage-evil), which str.startswith
+    # would accept.  Requires Python ≥ 3.9.
+    if not candidate_resolved.is_relative_to(root_resolved):
         raise AppHTTPException(
             400,
             "INVALID_STORAGE_PATH",

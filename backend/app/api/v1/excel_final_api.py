@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import CurrentUser, get_db, has_global_project_access
 from app.core.config import settings
 from app.core.constants import TASK_EXCEL_FINAL
-from app.core.exceptions import forbidden, not_found, service_unavailable
+from app.core.exceptions import AppHTTPException, forbidden, not_found, service_unavailable
 from app.db.pagination import paginate_scalars
 from app.integrations.excel_final import (
     ExcelFinalIntegrationError,
@@ -30,9 +30,16 @@ from app.schemas.common import ok
 from app.schemas.common import page as page_response
 from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
+from app.services.file_transfer_service import (
+    TransferSpec,
+    complete_transfer_in_transaction,
+    prepare_transfer_in_transaction,
+    session_factory_for,
+    settle_transfer,
+)
 from app.services.job_access import job_read_filter, require_job_read_access
 from app.services.job_service import create_job, dispatch_committed_job
-from app.services.storage_service import save_upload_file
+from app.services.storage_service import sanitize_filename, save_upload_file
 
 router = APIRouter()
 
@@ -73,6 +80,65 @@ def _get_accessible_batch(db: Session, current_user: CurrentUser, batch_id: int)
     return batch
 
 
+async def _store_excel_upload(
+    db: Session,
+    upload: UploadFile,
+    *,
+    current_user: CurrentUser,
+    request: Request,
+) -> StoredFile:
+    """Persist an Excel upload with the same durable saga used by /files."""
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="inbound",
+            operation="upload",
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+            original_name=sanitize_filename(upload.filename or "unnamed.xlsx"),
+        ),
+    )
+    # End the authentication/read snapshot before the independent transfer
+    # session advances this durable intent to in_progress.
+    db.commit()
+    try:
+        stored = await save_upload_file(
+            db,
+            upload,
+            uploaded_by=current_user.id,
+            transfer_uid=transfer.transfer_uid,
+            request_id=request.state.request_id,
+        )
+        complete_transfer_in_transaction(
+            db,
+            transfer.transfer_uid,
+            file_id=stored.id,
+            bucket=stored.bucket,
+            storage_key=stored.storage_key,
+            original_name=stored.original_name,
+            transferred_bytes=stored.size_bytes,
+        )
+        return stored
+    except Exception as exc:
+        db.rollback()
+        detail = exc.detail if isinstance(exc, AppHTTPException) else None
+        settle_transfer(
+            session_factory_for(db),
+            transfer.transfer_uid,
+            status="failed",
+            transferred_bytes=0,
+            error_code=(
+                detail["code"] if isinstance(detail, dict) else "UPLOAD_TRANSACTION_FAILED"
+            ),
+            error_message=(
+                detail["message"]
+                if isinstance(detail, dict)
+                else "Upload transaction failed before completion."
+            ),
+        )
+        raise
+
+
 # ── Upload & Process ─────────────────────────────────────────────────
 
 
@@ -85,7 +151,12 @@ async def upload_excel(
 ):
     """上传 .xlsx/.xls 文件到 MinIO (dwg-reports bucket)。"""
     _ensure_pipeline_enabled()
-    stored = await save_upload_file(db, upload, uploaded_by=current_user.id)
+    stored = await _store_excel_upload(
+        db,
+        upload,
+        current_user=current_user,
+        request=request,
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -162,7 +233,12 @@ async def upload_and_process(
     """上传受支持的钢构清单 → 存储 → 创建作业 → 返回 job_id。"""
     _ensure_pipeline_enabled()
 
-    stored = await save_upload_file(db, upload, uploaded_by=current_user.id)
+    stored = await _store_excel_upload(
+        db,
+        upload,
+        current_user=current_user,
+        request=request,
+    )
     db.flush()
 
     from app.schemas.job_schema import JobCreate

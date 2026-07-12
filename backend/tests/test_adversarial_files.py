@@ -26,15 +26,19 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.exceptions import AppHTTPException
 from app.db.init_db import init_db
 from app.main import app
+from app.models.file import StoredFile
+from app.models.file_transfer import FileTransfer
 from app.services.file_service import (
     DOWNLOAD_URL_TTL_SECONDS,
     download_signature,
     validate_download_signature,
 )
+from app.storage.local_storage import LocalFileStorage
 
 
 def _client() -> TestClient:
@@ -355,7 +359,7 @@ class TestFileAccessControl:
         d = client.get(url, headers=eng_h)
         assert d.status_code == 200
 
-    def test_soft_deleted_file_returns_404_on_download_url(self):
+    def test_soft_deleted_file_returns_404_on_download_url(self, db):
         client = _client()
         admin_h = _admin(client)
         r = _upload(client, admin_h, _valid_dwg(), filename="a.dwg")
@@ -363,6 +367,18 @@ class TestFileAccessControl:
         # Soft-delete the file.
         d = client.delete(f"/api/v1/files/{fid}", headers=admin_h)
         assert d.status_code == 204
+        db.expire_all()
+        stored = db.get(StoredFile, fid)
+        assert stored.status == "deleted"
+        assert stored.deleted_at is not None
+        transfer = db.scalar(
+            select(FileTransfer).where(
+                FileTransfer.file_id == fid,
+                FileTransfer.operation == "soft_delete",
+            )
+        )
+        assert transfer is not None
+        assert transfer.status == "succeeded"
         # download-url must now 404.
         r2 = client.get(f"/api/v1/files/{fid}/download-url", headers=admin_h)
         assert r2.status_code == 404
@@ -471,7 +487,7 @@ class TestZipUpload:
                 zf.writestr(name, payload)
         return buf.getvalue()
 
-    def test_extracts_dwg_files_and_sets_batch_name(self):
+    def test_extracts_dwg_files_and_sets_batch_name(self, db):
         client = _client()
         h = _admin(client)
         zip_data = self._zip_bytes({
@@ -492,6 +508,67 @@ class TestZipUpload:
         for f in data["files"]:
             assert f["file_ext"] == ".dwg"
             assert f["batch_name"] == "project"
+        db.expire_all()
+        transfers = db.scalars(
+            select(FileTransfer).where(FileTransfer.operation == "upload_zip")
+        ).all()
+        assert len(transfers) == 2
+        assert all(item.direction == "inbound" for item in transfers)
+        assert all(item.status == "succeeded" for item in transfers)
+
+    def test_later_entry_failure_rolls_back_metadata_and_compensates_objects(
+        self,
+        db,
+        tmp_path,
+        monkeypatch,
+    ):
+        from app.api.v1 import files_api
+
+        storage = LocalFileStorage(tmp_path / "zip-rollback-storage")
+        monkeypatch.setattr(
+            "app.services.storage_service.get_storage_backend",
+            lambda: storage,
+        )
+        original_save = files_api.save_bytes_as_file
+        call_count = 0
+
+        def fail_second_entry(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise AppHTTPException(
+                    503,
+                    "INJECTED_ZIP_ENTRY_FAILURE",
+                    "Injected failure after the first object write.",
+                )
+            return original_save(*args, **kwargs)
+
+        monkeypatch.setattr(files_api, "save_bytes_as_file", fail_second_entry)
+        init_db()
+        client = TestClient(app, raise_server_exceptions=False)
+        h = _admin(client)
+        zip_data = self._zip_bytes(
+            {"first.dwg": _valid_dwg(), "second.dwg": _valid_dwg()}
+        )
+
+        response = client.post(
+            "/api/v1/files/upload-zip?file_ext=.dwg",
+            headers=h,
+            files={"upload": ("rollback.zip", io.BytesIO(zip_data), "application/zip")},
+        )
+
+        assert response.status_code == 503, response.text
+        db.expire_all()
+        assert db.scalars(
+            select(StoredFile).where(StoredFile.batch_name == "rollback")
+        ).all() == []
+        object_page = storage.list_objects(
+            "dwg-original",
+            prefix="uploads/",
+            cursor=None,
+            page_size=20,
+        )
+        assert object_page.items == []
 
     def test_filters_by_extension(self):
         client = _client()

@@ -18,6 +18,7 @@ class FileRead(BaseModel):
     md5: str | None = None
     uploaded_by: int | None = None
     status: str
+    deleted_at: datetime | None = None
     batch_name: str | None = None
     created_at: datetime
     updated_at: datetime
