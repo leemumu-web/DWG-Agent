@@ -28,8 +28,10 @@ import {
   PlayCircleOutlined,
   PauseCircleOutlined,
   CloseOutlined,
+  FileExcelOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   listBatches,
   uploadZip,
@@ -39,6 +41,7 @@ import {
   deleteBatch,
   downloadBatchZip,
 } from '../../api/files.api';
+import { processExcelFinalFile } from '../../api/excel-final.api';
 import { listJobsPage, getJobResults, createDxf2ExcelJob, retryJob, cancelJob } from '../../api/jobs.api';
 import ExcelPreview from '../../components/ExcelPreview';
 import type { BatchInfo } from '../../types/file';
@@ -55,8 +58,10 @@ const STATUS: Record<string, { color: string; bg: string; label: string; icon: R
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export function Dxf2ExcelPage() {
+  const navigate = useNavigate();
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
+  const finalSubmissionRef = useRef<Set<string>>(new Set());
 
   // Multi-select state
   const [selectedBatches, setSelectedBatches] = useState<Set<string>>(new Set());
@@ -65,6 +70,7 @@ export function Dxf2ExcelPage() {
   // Excel preview modal state
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewFileName, setPreviewFileName] = useState<string>('');
+  const [finalSubmittingBatches, setFinalSubmittingBatches] = useState<Set<string>>(new Set());
 
   // ── data ──────────────────────────────────────────────────────────────────
   const batchesQ = useQuery({
@@ -170,6 +176,33 @@ export function Dxf2ExcelPage() {
       await downloadFile(excel.result_file_id, `${batchName}.xlsx`);
     } catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
   }, [jobsByBatch]);
+
+  const handleProcessExcelFinal = useCallback(async (batchName: string) => {
+    if (finalSubmissionRef.current.has(batchName)) return;
+    finalSubmissionRef.current.add(batchName);
+    setFinalSubmittingBatches((current) => new Set(current).add(batchName));
+    try {
+      const extractionJob = jobsByBatch.get(batchName);
+      if (!extractionJob || extractionJob.status !== 'succeeded') {
+        throw new Error('DXF 提取任务尚未完成');
+      }
+      const results = await getJobResults(extractionJob.id);
+      const excel = results.find((result) => result.result_type === 'extract_dxf_to_excel');
+      if (!excel?.result_file_id) throw new Error('Excel 结果文件未找到');
+      const finalJob = await processExcelFinalFile(excel.result_file_id);
+      message.success(`零件清单任务 #${finalJob.job_id} 已登记`);
+      navigate(`/files/excel-final?job_id=${finalJob.job_id}`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '零件清单任务登记失败');
+    } finally {
+      finalSubmissionRef.current.delete(batchName);
+      setFinalSubmittingBatches((current) => {
+        const next = new Set(current);
+        next.delete(batchName);
+        return next;
+      });
+    }
+  }, [jobsByBatch, navigate]);
 
   const handleRetry = useCallback(async (batchName: string) => {
     try {
@@ -546,6 +579,21 @@ export function Dxf2ExcelPage() {
                               <Button size="small" icon={<ReloadOutlined />}
                                 onClick={() => handleRetry(b.name)} />
                             </Tooltip>
+                            <Popconfirm
+                              title="生成最终零件清单？"
+                              description="将当前 Excel 结果登记到 Excel Final 管道并开始处理。"
+                              okText="确认生成"
+                              cancelText="取消"
+                              onConfirm={() => handleProcessExcelFinal(b.name)}
+                            >
+                              <Button
+                                size="small"
+                                icon={<FileExcelOutlined />}
+                                loading={finalSubmittingBatches.has(b.name)}
+                              >
+                                生成零件清单
+                              </Button>
+                            </Popconfirm>
                             <Popconfirm
                               title={`删除批次 "${b.name}"？`}
                               description="批次内所有 .dxf 文件将被删除，此操作不可撤销"

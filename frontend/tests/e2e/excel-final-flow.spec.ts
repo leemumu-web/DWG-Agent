@@ -329,3 +329,44 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   await expect(page.getByText('Q355').last()).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
+
+test('DXF to Excel result can be registered once as an Excel Final job', async ({ page }) => {
+  const envelope = (data: unknown) => ({ data, meta: { request_id: 'bridge-e2e' } });
+  const paged = (data: unknown[]) => ({
+    ...envelope(data),
+    pagination: { page: 1, page_size: 200, total: data.length, total_pages: 1 },
+  });
+  let processCalls = 0;
+  await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({ json: envelope([{
+    name: 'bridge-batch', file_count: 3, total_size: 4096,
+    latest_created_at: '2026-07-13T02:00:00Z',
+  }]) }));
+  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([{
+    id: 700, task_type: 'extract_dxf_to_excel', status: 'succeeded', progress: 100,
+    pipeline: 'dxf2excel', params_json: { batch_name: 'bridge-batch' },
+    created_at: '2026-07-13T02:00:00Z', updated_at: '2026-07-13T02:00:02Z',
+  }]) }));
+  await page.route('**/api/v1/jobs/700/results**', (route) => route.fulfill({ json: paged([{
+    id: 701, job_id: 700, result_type: 'extract_dxf_to_excel', result_file_id: 880,
+    summary_json: null, metrics_json: null, created_at: '2026-07-13T02:00:02Z',
+  }]) }));
+  await page.route('**/api/v1/excel-final/process?**', async (route) => {
+    processCalls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.fulfill({ status: 202, json: envelope({
+      job_id: 990, file_id: 880, status: 'queued', message: '处理任务已入队',
+    }) });
+  });
+
+  await login(page);
+  await page.goto('/files/dxf2excel');
+  const bridgeButton = page.getByRole('button', { name: '生成零件清单' });
+  await expect(bridgeButton).toBeVisible();
+  await bridgeButton.click();
+  const confirm = page.getByRole('button', { name: '确认生成' });
+  await confirm.dblclick();
+
+  await expect(page).toHaveURL(/\/files\/excel-final\?job_id=990$/);
+  expect(processCalls).toBe(1);
+  await expect(page.getByRole('heading', { name: 'Excel Final 数据控制台' })).toBeVisible();
+});

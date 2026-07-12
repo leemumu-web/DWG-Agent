@@ -113,6 +113,19 @@ def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
     assert 'size="min(1180px, 96vw)"' in drawer_source
 
 
+def test_dxf_to_excel_result_bridges_to_excel_final_without_dynamic_imports():
+    page_source = _frontend_source("features/files/Dxf2ExcelPage.tsx")
+    api_source = _frontend_source("api/excel-final.api.ts")
+
+    assert "import { processExcelFinalFile }" in page_source
+    assert "finalSubmissionRef.current.has(batchName)" in page_source
+    assert "getJobResults(extractionJob.id)" in page_source
+    assert "processExcelFinalFile(excel.result_file_id)" in page_source
+    assert "`/files/excel-final?job_id=${finalJob.job_id}`" in page_source
+    assert "import(" not in page_source
+    assert "'/api/v1/excel-final/process'" in api_source
+
+
 def test_job_drawer_loads_steps_for_the_current_attempt_only():
     source = _frontend_source("features/jobs/JobsPage.tsx")
 
