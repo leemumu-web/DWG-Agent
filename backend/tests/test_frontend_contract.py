@@ -100,13 +100,17 @@ def test_excel_final_has_frontend_api_types_route_and_tab():
 
 def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
     page_source = _frontend_source("features/files/ExcelFinalPage.tsx")
+    drawer_source = _frontend_source(
+        "features/files/excel-final/ExcelFinalBatchDrawer.tsx"
+    )
 
     assert "queryKey: ['excel-final-status', jobId]" in page_source
     assert "refetchType: 'all'" in page_source
     assert "setSelectedBatchId(null)" in page_source
     assert "some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false" in page_source
-    assert '<Drawer' in page_source
-    assert 'width="min(1100px, 94vw)"' not in page_source
+    assert "<ExcelFinalBatchDrawer" in page_source
+    assert "<Drawer" in drawer_source
+    assert 'size="min(1180px, 96vw)"' in drawer_source
 
 
 def test_job_drawer_loads_steps_for_the_current_attempt_only():

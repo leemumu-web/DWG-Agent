@@ -138,7 +138,7 @@ test.describe('Excel Final retry and download closure', () => {
 
     const row = page.locator(`.ant-table-row[data-row-key="${jobId}"]`);
     await expect(row).toBeVisible({ timeout: 10_000 });
-    await expect(row).toContainText('failed', { timeout: 10_000 });
+    await expect(row).toContainText('失败', { timeout: 10_000 });
     const [retryResponse] = await Promise.all([
       page.waitForResponse(
         (response) => response.url().includes(`/api/v1/jobs/${jobId}/retry-requests`)
@@ -162,4 +162,170 @@ test.describe('Excel Final retry and download closure', () => {
       [2, 'run_excel_final_pipeline', 'failed'],
     ]);
   });
+});
+
+test('Excel Final data console exposes exact overview, tools, details and URL job tracking', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (entry) => {
+    if (entry.type() === 'error') consoleErrors.push(entry.text());
+  });
+  const envelope = (data: unknown) => ({ data, meta: { request_id: 'excel-console-e2e' } });
+  const paged = (data: unknown[], pageNo = 1, pageSize = 20, total = data.length) => ({
+    ...envelope(data),
+    pagination: { page: pageNo, page_size: pageSize, total, total_pages: Math.ceil(total / pageSize) },
+  });
+  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+  await page.route('**/api/v1/files/901/excel-preview**', (route) => route.fulfill({
+    json: envelope({
+      file_id: 901,
+      file_name: 'final-777.xlsx',
+      sheet: '整理表',
+      sheets: ['整理表'],
+      headers: ['零件号', '材质'],
+      rows: [{ 零件号: 'P-900', 材质: 'Q355' }],
+      total_rows: 1,
+      preview_rows: 1,
+    }),
+  }));
+  await page.route('**/api/v1/excel-final/**', async (route) => {
+    const url = new URL(route.request().url());
+    const pathname = url.pathname;
+    if (pathname.endsWith('/health')) {
+      await route.fulfill({ json: envelope({
+        pipeline_enabled: true,
+        stage_available: true,
+        dependencies_available: true,
+        package_available: true,
+        handbook_available: true,
+        handbook_database_available: true,
+        ready: true,
+      }) });
+    } else if (pathname.endsWith('/overview')) {
+      await route.fulfill({ json: envelope({
+        batch_count: 42,
+        part_count: 12840,
+        component_count: 936,
+        total_net_weight: 204850.75,
+        total_gross_weight: 218100.5,
+        latest_created_at: '2026-07-13T01:20:00Z',
+      }) });
+    } else if (pathname.endsWith('/process/777')) {
+      await route.fulfill({ json: envelope({
+        job_id: 777,
+        status: 'succeeded',
+        progress: 100,
+        pipeline: 'excel_final',
+        error_code: null,
+        error_message: null,
+        created_at: '2026-07-13T01:00:00Z',
+        started_at: '2026-07-13T01:00:01Z',
+        finished_at: '2026-07-13T01:00:03Z',
+        batch: null,
+        result_file_id: 901,
+      }) });
+    } else if (pathname.endsWith('/parts/search')) {
+      await route.fulfill({ json: paged([{
+        id: 900,
+        batch_id: 41,
+        seq: 1,
+        component_no: 'GZ-01',
+        part_type: '零件',
+        part_no: 'P-900',
+        spec: 'PL12*280',
+        width: 280,
+        length: 1200,
+        material: 'Q355',
+        qty: 4,
+        net_total_weight: 126.4,
+        theo_total_weight: 130.1,
+      }], Number(url.searchParams.get('page') || 1), 20, 1) });
+    } else if (pathname.endsWith('/weights/lookup')) {
+      await route.fulfill({ json: envelope({
+        spec: url.searchParams.get('spec'),
+        weight_kg_per_m: 3.77,
+        source: 'hardware_handbook',
+      }) });
+    } else if (pathname.endsWith('/batches/41/parts/900')) {
+      await route.fulfill({ json: envelope({
+        id: 900, batch_id: 41, seq: 1, component_no: 'GZ-01', component_qty: 2,
+        part_type: '零件', part_no: 'P-900', profile_spec: 'PL12', spec: 'PL12*280',
+        width: 280, length: 1200, left_inset: 0, right_inset: 0, cut_length: 1200,
+        material: 'Q355', qty: 4, total_qty: 8, total_length: 9600, density: 7850,
+        theo_unit_weight: 32.5, theo_total_weight: 130, net_unit_weight: 31.6,
+        net_total_weight: 126.4, table_net_weight: 126.4, gross_unit_weight: 34,
+        gross_total_weight: 136, table_gross_weight: 136, surface_area: 0.8,
+        total_surface_area: 6.4, created_at: '2026-07-13T01:20:00Z',
+      }) });
+    } else if (pathname.endsWith('/batches/41/parts')) {
+      await route.fulfill({ json: paged([{
+        id: 900, seq: 1, component_no: 'GZ-01', component_qty: 2, part_type: '零件',
+        part_no: 'P-900', profile_spec: 'PL12', spec: 'PL12*280', width: 280,
+        length: 1200, cut_length: 1200, material: 'Q355', qty: 4, total_qty: 8,
+        total_length: 9600, density: 7850, theo_unit_weight: 32.5,
+        theo_total_weight: 130, net_unit_weight: 31.6, net_total_weight: 126.4,
+        table_net_weight: 126.4, gross_unit_weight: 34, gross_total_weight: 136,
+        table_gross_weight: 136, surface_area: 0.8, total_surface_area: 6.4,
+      }], 1, 50, 1) });
+    } else if (pathname.endsWith('/batches/41/components')) {
+      await route.fulfill({ json: paged([
+        { id: 501, component_no: 'GZ-01', component_qty: 2, total_weight: 252.8 },
+      ], Number(url.searchParams.get('page') || 1), Number(url.searchParams.get('page_size') || 20), 61) });
+    } else if (pathname.endsWith('/batches/41')) {
+      await route.fulfill({ json: envelope({
+        batch_id: 41, job_id: 777, file_id: 901, source_type: 'init_table',
+        source_name: 'tower-zone-a.xlsx', part_count: 320, component_count: 61,
+        total_net_weight: 4850.5, total_gross_weight: 5110.2,
+        created_at: '2026-07-13T01:20:00Z',
+        material_breakdown: [{ material: 'Q355', count: 300, total_net_weight: 4700 }],
+        top_specs: [{ spec: 'PL12*280', count: 75 }],
+      }) });
+    } else if (pathname.endsWith('/batches')) {
+      await route.fulfill({ json: paged([{
+        batch_id: 41, job_id: 777, file_id: 901, source_type: 'init_table',
+        source_name: 'tower-zone-a.xlsx', part_count: 320, component_count: 61,
+        total_net_weight: 4850.5, total_gross_weight: 5110.2,
+        created_at: '2026-07-13T01:20:00Z',
+      }], 1, 20, 1) });
+    } else {
+      await route.fallback();
+    }
+  });
+
+  await login(page);
+  await page.goto('/files/excel-final?job_id=777');
+
+  await expect(page.getByRole('heading', { name: 'Excel Final 数据控制台' })).toBeVisible();
+  await expect(page.getByText('12,840')).toBeVisible();
+  await expect(page.getByText('204,850.75')).toBeVisible();
+  await expect(page.getByText('数据管道就绪')).toBeVisible();
+  await expect(page.getByText('任务 #777')).toBeVisible();
+
+  await page.getByLabel('跨批次零件号').fill('P-900');
+  await page.getByRole('button', { name: '搜索零件' }).click();
+  await expect(page.getByText('PL12*280').first()).toBeVisible();
+  await page.getByRole('button', { name: '清空搜索' }).click();
+  await expect(page.getByText('P-900')).toBeHidden();
+
+  await page.getByLabel('钢材规格').fill('L50x5');
+  await page.getByRole('button', { name: '查询理论重量' }).click();
+  await expect(page.getByText('3.77 kg/m')).toBeVisible();
+
+  await page.getByRole('button', { name: '查看批次 41' }).click();
+  const drawer = page.getByRole('dialog', { name: /批次 #41/ });
+  await expect(drawer.getByText('tower-zone-a.xlsx')).toBeVisible();
+  await drawer.getByRole('tab', { name: /构件/ }).click();
+  await expect(drawer.getByRole('tabpanel', { name: /构件/ }).getByText('GZ-01')).toBeVisible();
+  await drawer.getByRole('tab', { name: /零件/ }).click();
+  await drawer.getByRole('button', { name: '查看零件 P-900' }).click();
+  const partDialog = page.getByRole('dialog', { name: /零件 P-900/ });
+  await expect(partDialog).toBeVisible();
+  await partDialog.getByRole('button', { name: 'Close' }).click();
+  await expect(partDialog).toBeHidden();
+  await drawer.getByRole('button', { name: '关闭' }).click();
+  await expect(drawer).toBeHidden();
+
+  await page.getByRole('button', { name: '预览任务 777 结果' }).click();
+  await expect(page.getByRole('dialog', { name: /excel-final-777\.xlsx/ })).toBeVisible();
+  await expect(page.getByText('Q355').last()).toBeVisible();
+  expect(consoleErrors).toEqual([]);
 });

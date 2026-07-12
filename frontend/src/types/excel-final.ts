@@ -6,6 +6,25 @@ export interface ExcelFinalSubmission {
   message: string;
 }
 
+export interface ExcelFinalHealth {
+  pipeline_enabled: boolean;
+  stage_available: boolean;
+  dependencies_available: boolean;
+  package_available: boolean;
+  handbook_available: boolean;
+  handbook_database_available: boolean;
+  ready: boolean;
+}
+
+export interface ExcelFinalOverview {
+  batch_count: number;
+  part_count: number;
+  component_count: number;
+  total_net_weight: number;
+  total_gross_weight: number;
+  latest_created_at: string | null;
+}
+
 export interface ExcelFinalBatchSummary {
   batch_id: number;
   job_id: number;
@@ -57,6 +76,19 @@ export interface ExcelFinalPart {
   surface_area?: number | null;
   total_surface_area?: number | null;
   created_at?: string | null;
+}
+
+export interface ExcelFinalComponent {
+  id: number;
+  component_no: string | null;
+  component_qty: number | null;
+  total_weight: number | null;
+}
+
+export interface ExcelFinalWeightLookup {
+  spec: string;
+  weight_kg_per_m: number;
+  source: string;
 }
 
 export interface ExcelFinalProcessStatus {

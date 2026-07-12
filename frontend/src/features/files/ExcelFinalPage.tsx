@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import {
+  Alert,
   App,
   Button,
-  Descriptions,
-  Drawer,
-  Flex,
-  Input,
   Progress,
   Space,
   Table,
@@ -15,26 +12,32 @@ import {
   Upload,
 } from 'antd';
 import {
+  CloudUploadOutlined,
   DownloadOutlined,
   EyeOutlined,
   FileExcelOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
-  UploadOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
+
 import {
-  getExcelFinalBatch,
+  getExcelFinalHealth,
+  getExcelFinalOverview,
   getExcelFinalProcessStatus,
   listExcelFinalBatches,
-  listExcelFinalParts,
   uploadAndProcessExcel,
-  type ExcelFinalPartFilters,
 } from '../../api/excel-final.api';
 import { downloadFile } from '../../api/files.api';
 import { listJobsPage, retryJob } from '../../api/jobs.api';
-import type { ExcelFinalBatchSummary, ExcelFinalPart } from '../../types/excel-final';
+import ExcelPreview from '../../components/ExcelPreview';
+import type { ExcelFinalBatchSummary } from '../../types/excel-final';
 import type { Job } from '../../types/job';
+import { ExcelFinalBatchDrawer } from './excel-final/ExcelFinalBatchDrawer';
+import { ExcelFinalOverview } from './excel-final/ExcelFinalOverview';
+import { ExcelFinalTools } from './excel-final/ExcelFinalTools';
+import './excel-final/ExcelFinalPage.css';
 
 const TASK_TYPE = 'process_excel_final';
 const ACTIVE_STATUSES = new Set(['queued', 'running']);
@@ -45,12 +48,18 @@ const STATUS_COLOR: Record<string, string> = {
   failed: 'error',
   cancelled: 'default',
 };
+const STATUS_TEXT: Record<string, string> = {
+  queued: '等待中',
+  running: '处理中',
+  succeeded: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+};
 
 function errorMessage(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {
-    const message = (error.response?.data as { error?: { message?: string } } | undefined)
-      ?.error?.message;
-    if (message) return message;
+    const body = error.response?.data as { error?: { message?: string } } | undefined;
+    if (body?.error?.message) return body.error.message;
   }
   return error instanceof Error ? error.message : fallback;
 }
@@ -59,78 +68,77 @@ function numberText(value: number | null | undefined, digits = 2): string {
   return value == null ? '-' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
 }
 
+function jobIdFromQuery(value: string | null): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function ExcelFinalPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<number | null>(null);
+  const [activeJobId, setActiveJobId] = useState<number | null>(() => jobIdFromQuery(searchParams.get('job_id')));
   const [batchPage, setBatchPage] = useState(1);
   const [batchPageSize, setBatchPageSize] = useState(20);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
-  const [partPage, setPartPage] = useState(1);
-  const [partPageSize, setPartPageSize] = useState(50);
-  const [filterDraft, setFilterDraft] = useState<ExcelFinalPartFilters>({});
-  const [partFilters, setPartFilters] = useState<ExcelFinalPartFilters>({});
+  const [previewFileId, setPreviewFileId] = useState<number | null>(null);
+  const [previewName, setPreviewName] = useState('');
 
+  useEffect(() => {
+    setActiveJobId(jobIdFromQuery(searchParams.get('job_id')));
+  }, [searchParams]);
+
+  const healthQ = useQuery({ queryKey: ['excel-final-health'], queryFn: getExcelFinalHealth, staleTime: 30_000 });
+  const overviewQ = useQuery({ queryKey: ['excel-final-overview'], queryFn: getExcelFinalOverview, staleTime: 5_000 });
   const jobsQ = useQuery({
     queryKey: ['jobs', TASK_TYPE],
     queryFn: () => listJobsPage({ page: 1, page_size: 8, task_type: TASK_TYPE }),
-    refetchInterval: (query) =>
-      query.state.data?.data.some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false,
+    refetchInterval: (query) => query.state.data?.data.some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false,
   });
   const batchesQ = useQuery({
     queryKey: ['excel-final-batches', batchPage, batchPageSize],
     queryFn: () => listExcelFinalBatches(batchPage, batchPageSize),
-    staleTime: 2000,
+    staleTime: 2_000,
   });
   const statusQ = useQuery({
     queryKey: ['excel-final-status', activeJobId],
     queryFn: () => getExcelFinalProcessStatus(activeJobId!),
     enabled: activeJobId !== null,
-    refetchInterval: (query) =>
-      ACTIVE_STATUSES.has(query.state.data?.status ?? '') ? 2000 : false,
-  });
-  const batchDetailQ = useQuery({
-    queryKey: ['excel-final-batch', selectedBatchId],
-    queryFn: () => getExcelFinalBatch(selectedBatchId!),
-    enabled: selectedBatchId !== null,
-  });
-  const partsQ = useQuery({
-    queryKey: [
-      'excel-final-parts',
-      selectedBatchId,
-      partPage,
-      partPageSize,
-      partFilters,
-    ],
-    queryFn: () =>
-      listExcelFinalParts(selectedBatchId!, partPage, partPageSize, partFilters),
-    enabled: selectedBatchId !== null,
+    refetchInterval: (query) => ACTIVE_STATUSES.has(query.state.data?.status ?? '') ? 2000 : false,
   });
 
   useEffect(() => {
     const status = statusQ.data?.status;
-    if (status && !ACTIVE_STATUSES.has(status)) {
-      queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] });
-      queryClient.invalidateQueries({ queryKey: ['excel-final-batches'] });
-    }
+    if (!status || ACTIVE_STATUSES.has(status)) return;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] }),
+      queryClient.invalidateQueries({ queryKey: ['excel-final-batches'] }),
+      queryClient.invalidateQueries({ queryKey: ['excel-final-overview'] }),
+    ]);
   }, [queryClient, statusQ.data?.status]);
 
   const recentJobs = useMemo(() => jobsQ.data?.data ?? [], [jobsQ.data]);
 
+  function trackJob(jobId: number) {
+    setActiveJobId(jobId);
+    const next = new URLSearchParams(searchParams);
+    next.set('job_id', String(jobId));
+    setSearchParams(next);
+  }
+
   async function submit() {
     if (!selectedFile) return;
-    const lower = selectedFile.name.toLowerCase();
-    if (!lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
+    if (!/\.xlsx?$/i.test(selectedFile.name)) {
       message.error('请选择 .xlsx 或 .xls 文件');
       return;
     }
     setSubmitting(true);
     try {
       const result = await uploadAndProcessExcel(selectedFile);
-      setActiveJobId(result.job_id);
       setSelectedFile(null);
+      trackJob(result.job_id);
       message.success(`任务 #${result.job_id} 已提交`);
       await queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] });
     } catch (error) {
@@ -140,359 +148,156 @@ export function ExcelFinalPage() {
     }
   }
 
+  async function loadJobResult(jobId: number) {
+    const status = await getExcelFinalProcessStatus(jobId);
+    if (!status.result_file_id) throw new Error('结果文件尚未生成');
+    return status.result_file_id;
+  }
+
   async function downloadJobResult(jobId: number) {
     try {
-      const status = await getExcelFinalProcessStatus(jobId);
-      if (!status.result_file_id) {
-        message.warning('结果文件尚未生成');
-        return;
-      }
-      await downloadFile(status.result_file_id, `excel-final-${jobId}.xlsx`);
+      const fileId = await loadJobResult(jobId);
+      await downloadFile(fileId, `excel-final-${jobId}.xlsx`);
     } catch (error) {
       message.error(errorMessage(error, '下载失败'));
+    }
+  }
+
+  async function previewJobResult(jobId: number) {
+    try {
+      const fileId = statusQ.data?.job_id === jobId && statusQ.data.result_file_id
+        ? statusQ.data.result_file_id
+        : await loadJobResult(jobId);
+      setPreviewFileId(fileId);
+      setPreviewName(`excel-final-${jobId}.xlsx`);
+    } catch (error) {
+      message.error(errorMessage(error, '预览失败'));
     }
   }
 
   async function retry(jobId: number) {
     try {
       await retryJob(jobId);
-      setActiveJobId(jobId);
       setSelectedBatchId(null);
+      trackJob(jobId);
       message.success(`任务 #${jobId} 已重新提交`);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] }),
-        queryClient.invalidateQueries({
-          queryKey: ['excel-final-status', jobId],
-          exact: true,
-          refetchType: 'all',
-        }),
+        queryClient.invalidateQueries({ queryKey: ['excel-final-status', jobId], exact: true, refetchType: 'all' }),
       ]);
     } catch (error) {
       message.error(errorMessage(error, '重试失败'));
     }
   }
 
-  function openBatch(batchId: number) {
-    setSelectedBatchId(batchId);
-    setPartPage(1);
-    setFilterDraft({});
-    setPartFilters({});
-  }
-
-  function applyPartFilters() {
-    setPartPage(1);
-    setPartFilters(
-      Object.fromEntries(
-        Object.entries(filterDraft).filter(([, value]) => value?.trim()),
-      ) as ExcelFinalPartFilters,
-    );
+  async function refreshAll() {
+    await Promise.all([healthQ.refetch(), overviewQ.refetch(), jobsQ.refetch(), batchesQ.refetch()]);
   }
 
   const jobColumns = [
-    { title: '任务', dataIndex: 'id', width: 80, render: (id: number) => `#${id}` },
+    { title: '任务', dataIndex: 'id', width: 90, render: (id: number) => <button className="excel-final-job-link" onClick={() => trackJob(id)}>#{id}</button> },
+    { title: '源文件', dataIndex: 'params_json', ellipsis: true, render: (params: Record<string, unknown> | null) => `文件 #${params?.file_id ?? '-'}` },
+    { title: '状态', dataIndex: 'status', width: 100, render: (status: string) => <Tag color={STATUS_COLOR[status]}>{STATUS_TEXT[status] ?? status}</Tag> },
     {
-      title: '源文件',
-      dataIndex: 'params_json',
-      ellipsis: true,
-      render: (params: Record<string, unknown> | null) => `文件 #${params?.file_id ?? '-'}`,
+      title: '进度', dataIndex: 'progress', width: 170,
+      render: (progress: number, job: Job) => <Progress percent={progress} size="small" status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : undefined} />,
     },
+    { title: '创建时间', dataIndex: 'created_at', width: 180, render: (value: string) => new Date(value).toLocaleString('zh-CN') },
     {
-      title: '状态',
-      dataIndex: 'status',
-      width: 100,
-      render: (status: string) => <Tag color={STATUS_COLOR[status]}>{status}</Tag>,
-    },
-    {
-      title: '进度',
-      dataIndex: 'progress',
-      width: 180,
-      render: (progress: number, job: Job) => (
-        <Progress
-          percent={progress}
-          size="small"
-          status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : undefined}
-        />
-      ),
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      width: 180,
-      render: (value: string) => new Date(value).toLocaleString('zh-CN'),
-    },
-    {
-      title: '操作',
-      width: 100,
+      title: '操作', key: 'actions', width: 130, fixed: 'right' as const,
       render: (_: unknown, job: Job) => (
-        <Space size={4}>
-          <Button
-            type="text"
-            icon={<DownloadOutlined />}
-            title="下载结果"
-            disabled={job.status !== 'succeeded'}
-            onClick={() => downloadJobResult(job.id)}
-          />
-          {(job.status === 'failed' || job.status === 'cancelled') && (
-            <Button
-              type="text"
-              icon={<PlayCircleOutlined />}
-              title="重新提交"
-              onClick={() => retry(job.id)}
-            />
-          )}
+        <Space size={2}>
+          <Button type="text" icon={<EyeOutlined />} aria-label={`预览任务 ${job.id} 结果`} disabled={job.status !== 'succeeded'} onClick={() => void previewJobResult(job.id)} />
+          <Button type="text" icon={<DownloadOutlined />} title="下载结果" aria-label={`下载任务 ${job.id} 结果`} disabled={job.status !== 'succeeded'} onClick={() => void downloadJobResult(job.id)} />
+          {(job.status === 'failed' || job.status === 'cancelled') && <Button type="text" icon={<PlayCircleOutlined />} title="重新提交" aria-label={`重新提交任务 ${job.id}`} onClick={() => void retry(job.id)} />}
         </Space>
       ),
     },
   ];
-
   const batchColumns = [
-    { title: '批次', dataIndex: 'batch_id', width: 80, render: (id: number) => `#${id}` },
-    { title: '源文件', dataIndex: 'source_name', ellipsis: true },
-    { title: '格式', dataIndex: 'source_type', width: 110 },
+    { title: '批次', dataIndex: 'batch_id', width: 90, render: (id: number) => `#${id}` },
+    { title: '来源文件', dataIndex: 'source_name', ellipsis: true },
+    { title: '格式', dataIndex: 'source_type', width: 110, render: (value: string) => <Tag>{value}</Tag> },
     { title: '零件', dataIndex: 'part_count', width: 90 },
     { title: '构件', dataIndex: 'component_count', width: 90 },
+    { title: '净重 / kg', dataIndex: 'total_net_weight', width: 130, render: (value: number | null) => numberText(value) },
+    { title: '毛重 / kg', dataIndex: 'total_gross_weight', width: 130, render: (value: number | null) => numberText(value) },
+    { title: '入库时间', dataIndex: 'created_at', width: 180, render: (value: string | null) => value ? new Date(value).toLocaleString('zh-CN') : '-' },
     {
-      title: '净重 (kg)',
-      dataIndex: 'total_net_weight',
-      width: 130,
-      render: (value: number | null) => numberText(value),
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'created_at',
-      width: 180,
-      render: (value: string | null) => value ? new Date(value).toLocaleString('zh-CN') : '-',
-    },
-    {
-      title: '操作',
-      width: 110,
-      render: (_: unknown, batch: ExcelFinalBatchSummary) => (
-        <Space size={4}>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            title="查看批次"
-            onClick={() => openBatch(batch.batch_id)}
-          />
-          <Button
-            type="text"
-            icon={<DownloadOutlined />}
-            title="下载结果"
-            onClick={() => downloadJobResult(batch.job_id)}
-          />
-        </Space>
-      ),
-    },
-  ];
-
-  const partColumns = [
-    { title: '序号', dataIndex: 'seq', width: 70 },
-    { title: '构件号', dataIndex: 'component_no', width: 120 },
-    { title: '零件号', dataIndex: 'part_no', width: 130 },
-    { title: '类型', dataIndex: 'part_type', width: 100 },
-    { title: '规格', dataIndex: 'spec', width: 130 },
-    { title: '材质', dataIndex: 'material', width: 100 },
-    { title: '宽度', dataIndex: 'width', width: 90, render: (value: number | null) => numberText(value) },
-    { title: '长度', dataIndex: 'length', width: 100, render: (value: number | null) => numberText(value) },
-    { title: '数量', dataIndex: 'qty', width: 80, render: (value: number | null) => numberText(value) },
-    {
-      title: '理论总重',
-      dataIndex: 'theo_total_weight',
-      width: 110,
-      render: (value: number | null) => numberText(value),
-    },
-    {
-      title: '净总重',
-      dataIndex: 'net_total_weight',
-      width: 110,
-      render: (value: number | null) => numberText(value),
+      title: '', key: 'actions', width: 56, fixed: 'right' as const,
+      render: (_: unknown, batch: ExcelFinalBatchSummary) => <Button type="text" icon={<EyeOutlined />} aria-label={`查看批次 ${batch.batch_id}`} onClick={() => setSelectedBatchId(batch.batch_id)} />,
     },
   ];
 
   const activeStatus = statusQ.data;
-
   return (
-    <div>
-      <Flex justify="space-between" align="center" gap={16} wrap="wrap" style={{ marginBottom: 16 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>Excel 零件清单</Typography.Title>
-        <Button
-          icon={<ReloadOutlined />}
-          title="刷新"
-          onClick={() => {
-            jobsQ.refetch();
-            batchesQ.refetch();
-          }}
-        />
-      </Flex>
-
-      <Flex
-        align="center"
-        gap={12}
-        wrap="wrap"
-        style={{ background: '#fff', border: '1px solid #f0f0f0', padding: 16, marginBottom: 16 }}
-      >
-        <FileExcelOutlined style={{ fontSize: 24, color: '#389e0d' }} />
-        <Upload
-          accept=".xlsx,.xls"
-          maxCount={1}
-          beforeUpload={(file) => {
-            setSelectedFile(file);
-            return false;
-          }}
-          onRemove={() => setSelectedFile(null)}
-        >
-          <Button icon={<UploadOutlined />}>选择 Excel</Button>
-        </Upload>
-        <Button
-          type="primary"
-          icon={<PlayCircleOutlined />}
-          disabled={!selectedFile}
-          loading={submitting}
-          onClick={submit}
-        >
-          提交处理
-        </Button>
-      </Flex>
-
-      {activeStatus && (
-        <div style={{ background: '#fff', border: '1px solid #f0f0f0', padding: 16, marginBottom: 16 }}>
-          <Flex align="center" justify="space-between" gap={16} wrap="wrap">
-            <Space>
-              <Typography.Text strong>任务 #{activeStatus.job_id}</Typography.Text>
-              <Tag color={STATUS_COLOR[activeStatus.status]}>{activeStatus.status}</Tag>
-            </Space>
-            {activeStatus.result_file_id && (
-              <Button
-                icon={<DownloadOutlined />}
-                onClick={() => downloadJobResult(activeStatus.job_id)}
-              >
-                下载结果
-              </Button>
-            )}
-          </Flex>
-          <Progress
-            percent={activeStatus.progress}
-            status={activeStatus.status === 'failed' ? 'exception' : activeStatus.status === 'succeeded' ? 'success' : 'active'}
-            style={{ marginTop: 12 }}
-          />
-          {activeStatus.error_message && (
-            <Typography.Text type="danger">{activeStatus.error_message}</Typography.Text>
-          )}
+    <main className="excel-final-page">
+      <header className="excel-final-header">
+        <div>
+          <span className="excel-final-kicker">PART LIST / DATA OBSERVATORY</span>
+          <Typography.Title level={2}>Excel Final 数据控制台</Typography.Title>
+          <Typography.Paragraph>监视处理任务、核对 MySQL 入库记录，并预览存储在 MinIO 的最终清单。</Typography.Paragraph>
         </div>
+        <Button icon={<ReloadOutlined />} loading={healthQ.isFetching || overviewQ.isFetching || batchesQ.isFetching} onClick={() => void refreshAll()}>刷新数据</Button>
+      </header>
+
+      <ExcelFinalOverview
+        health={healthQ.data}
+        overview={overviewQ.data}
+        loading={healthQ.isLoading || overviewQ.isLoading}
+        error={healthQ.isError || overviewQ.isError ? errorMessage(healthQ.error ?? overviewQ.error, '无法读取数据概览') : undefined}
+      />
+
+      <section className="excel-final-ingest" aria-label="Excel 文件入库">
+        <div className="excel-final-ingest-copy">
+          <span className="excel-final-ingest-icon"><CloudUploadOutlined /></span>
+          <div><strong>登记并处理 Excel 清单</strong><span>上传对象写入 MinIO，文件与传输流水同步登记到 MySQL</span></div>
+        </div>
+        <div className="excel-final-ingest-actions">
+          <Upload accept=".xlsx,.xls" maxCount={1} fileList={selectedFile ? [{ uid: 'selected', name: selectedFile.name, status: 'done' }] : []}
+            beforeUpload={(file) => { setSelectedFile(file); return false; }} onRemove={() => { setSelectedFile(null); return true; }}>
+            <Button icon={<FileExcelOutlined />}>选择 Excel</Button>
+          </Upload>
+          <Button type="primary" icon={<PlayCircleOutlined />} disabled={!selectedFile} loading={submitting} onClick={() => void submit()}>提交处理</Button>
+        </div>
+      </section>
+
+      {statusQ.isError && <Alert type="error" showIcon message={`任务 #${activeJobId} 状态读取失败`} description={errorMessage(statusQ.error, '任务可能不存在或无权访问')} />}
+      {activeStatus && (
+        <section className={`excel-final-active-job is-${activeStatus.status}`} aria-label={`任务 ${activeStatus.job_id} 状态`}>
+          <div className="excel-final-active-head">
+            <Space><span className="excel-final-pulse" /><strong>任务 #{activeStatus.job_id}</strong><Tag color={STATUS_COLOR[activeStatus.status]}>{STATUS_TEXT[activeStatus.status] ?? activeStatus.status}</Tag></Space>
+            <Space>
+              {activeStatus.result_file_id && <Button icon={<EyeOutlined />} aria-label={`预览任务 ${activeStatus.job_id} 结果`} onClick={() => void previewJobResult(activeStatus.job_id)}>预览结果</Button>}
+              {activeStatus.result_file_id && <Button icon={<DownloadOutlined />} onClick={() => void downloadJobResult(activeStatus.job_id)}>下载结果</Button>}
+            </Space>
+          </div>
+          <Progress percent={activeStatus.progress} status={activeStatus.status === 'failed' ? 'exception' : activeStatus.status === 'succeeded' ? 'success' : 'active'} />
+          {activeStatus.error_message && <Alert type="error" showIcon message={activeStatus.error_message} />}
+        </section>
       )}
 
-      <Typography.Title level={5}>近期任务</Typography.Title>
-      <Table<Job>
-        rowKey="id"
-        size="small"
-        loading={jobsQ.isLoading}
-        dataSource={recentJobs}
-        columns={jobColumns}
-        pagination={false}
-        scroll={{ x: 760 }}
-        style={{ marginBottom: 20 }}
-      />
+      <ExcelFinalTools />
 
-      <Typography.Title level={5}>处理批次</Typography.Title>
-      <Table<ExcelFinalBatchSummary>
-        rowKey="batch_id"
-        size="small"
-        loading={batchesQ.isLoading}
-        dataSource={batchesQ.data?.data ?? []}
-        columns={batchColumns}
-        scroll={{ x: 900 }}
-        pagination={{
-          current: batchPage,
-          pageSize: batchPageSize,
-          total: batchesQ.data?.pagination.total ?? 0,
-          showSizeChanger: true,
-        }}
-        onChange={(pagination) => {
-          setBatchPage(pagination.current ?? 1);
-          setBatchPageSize(pagination.pageSize ?? 20);
-        }}
-      />
+      <section className="excel-final-data-section">
+        <div className="excel-final-section-head"><div><span>DATABASE RECORDS</span><Typography.Title level={4}>处理批次</Typography.Title></div><small>精确总数 · 服务端分页 · 权限过滤</small></div>
+        {batchesQ.isError && <Alert type="error" showIcon message="批次列表加载失败" description={errorMessage(batchesQ.error, '请检查数据库连接')} />}
+        <Table<ExcelFinalBatchSummary>
+          rowKey="batch_id" size="middle" loading={batchesQ.isLoading} dataSource={batchesQ.data?.data ?? []}
+          columns={batchColumns} scroll={{ x: 1120 }}
+          pagination={{ current: batchPage, pageSize: batchPageSize, total: batchesQ.data?.pagination.total ?? 0, showSizeChanger: true, showTotal: (total) => `共 ${total} 个批次` }}
+          onChange={(pagination) => { setBatchPage(pagination.current ?? 1); setBatchPageSize(pagination.pageSize ?? 20); }}
+        />
+      </section>
 
-      <Drawer
-        title={`批次 #${selectedBatchId ?? ''}`}
-        open={selectedBatchId !== null}
-        size="min(1100px, 94vw)"
-        onClose={() => setSelectedBatchId(null)}
-      >
-        {batchDetailQ.data && (
-          <>
-            <Descriptions
-              size="small"
-              column={{ xs: 1, sm: 2, md: 3 }}
-              items={[
-                { key: 'source', label: '源文件', children: batchDetailQ.data.source_name ?? '-' },
-                { key: 'parts', label: '零件数', children: batchDetailQ.data.part_count },
-                { key: 'components', label: '构件数', children: batchDetailQ.data.component_count },
-                { key: 'net', label: '净重 (kg)', children: numberText(batchDetailQ.data.total_net_weight) },
-                { key: 'gross', label: '毛重 (kg)', children: numberText(batchDetailQ.data.total_gross_weight) },
-                {
-                  key: 'materials',
-                  label: '材质',
-                  children: (
-                    <Space size={[4, 4]} wrap>
-                      {batchDetailQ.data.material_breakdown.map((item) => (
-                        <Tag key={item.material}>{item.material} · {item.count}</Tag>
-                      ))}
-                    </Space>
-                  ),
-                },
-              ]}
-            />
+      <section className="excel-final-data-section">
+        <div className="excel-final-section-head"><div><span>EXECUTION LEDGER</span><Typography.Title level={4}>近期任务</Typography.Title></div><small>仅轮询活动任务，避免批次 N+1 请求</small></div>
+        {jobsQ.isError && <Alert type="error" showIcon message="任务列表加载失败" description={errorMessage(jobsQ.error, '请稍后重试')} />}
+        <Table<Job> rowKey="id" size="small" loading={jobsQ.isLoading} dataSource={recentJobs} columns={jobColumns} pagination={false} scroll={{ x: 850 }} />
+      </section>
 
-            <Flex gap={8} wrap="wrap" style={{ margin: '20px 0 12px' }}>
-              <Input
-                value={filterDraft.part_no}
-                placeholder="零件号"
-                allowClear
-                style={{ width: 160 }}
-                onChange={(event) => setFilterDraft((value) => ({ ...value, part_no: event.target.value }))}
-                onPressEnter={applyPartFilters}
-              />
-              <Input
-                value={filterDraft.spec}
-                placeholder="规格"
-                allowClear
-                style={{ width: 160 }}
-                onChange={(event) => setFilterDraft((value) => ({ ...value, spec: event.target.value }))}
-                onPressEnter={applyPartFilters}
-              />
-              <Input
-                value={filterDraft.material}
-                placeholder="材质"
-                allowClear
-                style={{ width: 140 }}
-                onChange={(event) => setFilterDraft((value) => ({ ...value, material: event.target.value }))}
-                onPressEnter={applyPartFilters}
-              />
-              <Button type="primary" onClick={applyPartFilters}>筛选</Button>
-            </Flex>
-
-            <Table<ExcelFinalPart>
-              rowKey="id"
-              size="small"
-              loading={partsQ.isLoading}
-              dataSource={partsQ.data?.data ?? []}
-              columns={partColumns}
-              scroll={{ x: 1200 }}
-              pagination={{
-                current: partPage,
-                pageSize: partPageSize,
-                total: partsQ.data?.pagination.total ?? 0,
-                showSizeChanger: true,
-              }}
-              onChange={(pagination) => {
-                setPartPage(pagination.current ?? 1);
-                setPartPageSize(pagination.pageSize ?? 50);
-              }}
-            />
-          </>
-        )}
-      </Drawer>
-    </div>
+      <ExcelFinalBatchDrawer batchId={selectedBatchId} open={selectedBatchId !== null} onClose={() => setSelectedBatchId(null)} />
+      <ExcelPreview fileId={previewFileId} fileName={previewName} open={previewFileId !== null} onClose={() => setPreviewFileId(null)} />
+    </main>
   );
 }
