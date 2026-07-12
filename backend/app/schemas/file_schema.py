@@ -29,6 +29,28 @@ class DownloadUrlRead(BaseModel):
     expires_in: int
 
 
+class DxfPreviewBoundsRead(BaseModel):
+    min_x: float
+    min_y: float
+    max_x: float
+    max_y: float
+
+
+class DxfPreviewRead(BaseModel):
+    file_id: int
+    file_name: str
+    preview_file_id: int
+    content_url: str
+    content_type: str
+    document_entities: int
+    modelspace_entities: int
+    entity_counts: dict[str, int]
+    layers: list[str]
+    layer_colors: dict[str, int]
+    bounds: DxfPreviewBoundsRead
+    cached: bool
+
+
 class BulkDeleteRequest(BaseModel):
     file_ids: list[int]
 

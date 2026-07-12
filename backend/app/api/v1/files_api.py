@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,8 +31,21 @@ from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
-from app.schemas.file_schema import BulkDeleteRequest, FileRead, ZipDownloadRequest, ZipUploadResult
+from app.schemas.file_schema import (
+    BulkDeleteRequest,
+    DxfPreviewBoundsRead,
+    DxfPreviewRead,
+    FileRead,
+    ZipDownloadRequest,
+    ZipUploadResult,
+)
 from app.services.audit_service import write_audit_log
+from app.services.dxf_preview_service import (
+    MAX_DXF_SIZE_BYTES,
+    get_or_create_dxf_preview,
+    preview_batch_name,
+    validate_dxf_source_size,
+)
 from app.services.file_service import (
     build_signed_download_url,
     build_zip_to_path,
@@ -55,7 +69,7 @@ from app.services.storage_service import (
     validate_dwg_header,
     validate_upload_name,
 )
-from app.storage.base import StorageError, StorageObjectNotFound
+from app.storage.base import AbstractStorageBackend, StorageError, StorageObjectNotFound
 
 router = APIRouter()
 
@@ -91,9 +105,7 @@ def _file_project_association_exists(
         .join(Project, Project.id == Job.project_id)
     )
     if member_user_id is not None:
-        drawing_stmt = drawing_stmt.join(
-            ProjectMember, ProjectMember.project_id == Project.id
-        )
+        drawing_stmt = drawing_stmt.join(ProjectMember, ProjectMember.project_id == Project.id)
         result_stmt = result_stmt.join(ProjectMember, ProjectMember.project_id == Project.id)
         drawing_conditions.append(ProjectMember.user_id == member_user_id)
         result_conditions.append(ProjectMember.user_id == member_user_id)
@@ -168,14 +180,11 @@ def _can_read_file(db: Session, current_user: CurrentUser, stored: StoredFile) -
     if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
         return True
     return any(
-        get_project_membership(db, current_user, project_id)
-        for project_id in active_project_ids
+        get_project_membership(db, current_user, project_id) for project_id in active_project_ids
     )
 
 
-def _require_file_read_access(
-    db: Session, current_user: CurrentUser, stored: StoredFile
-) -> None:
+def _require_file_read_access(db: Session, current_user: CurrentUser, stored: StoredFile) -> None:
     # If the file is attached only to soft-deleted projects, treat as not found
     # so that soft-deleting a project cascades to its file metadata (BUG-7).
     active_ids = _file_project_ids(db, stored.id, include_deleted=False)
@@ -186,9 +195,7 @@ def _require_file_read_access(
         raise forbidden("File access is restricted.")
 
 
-def _require_file_delete_access(
-    db: Session, current_user: CurrentUser, stored: StoredFile
-) -> None:
+def _require_file_delete_access(db: Session, current_user: CurrentUser, stored: StoredFile) -> None:
     # If all associated projects are soft-deleted, treat the file as not found (BUG-7).
     active_ids = _file_project_ids(db, stored.id, include_deleted=False)
     all_ids = _file_project_ids(db, stored.id, include_deleted=True)
@@ -346,7 +353,8 @@ async def upload_zip(
     zip_original = sanitize_filename(upload.filename or "unnamed.zip")
     if not zip_original.lower().endswith(".zip"):
         raise AppHTTPException(
-            415, "FILE_TYPE_NOT_ALLOWED",
+            415,
+            "FILE_TYPE_NOT_ALLOWED",
             "Only .zip archives are accepted by this endpoint.",
         )
     validate_upload_name(zip_original)  # 校验 .zip 在 ALLOWED_UPLOAD_EXTENSIONS 白名单内
@@ -355,17 +363,23 @@ async def upload_zip(
     target_ext = file_ext.strip().lower()
     if target_ext not in (".dwg", ".dxf"):
         raise AppHTTPException(
-            422, "INVALID_PARAMS",
+            422,
+            "INVALID_PARAMS",
             "file_ext must be .dwg or .dxf.",
         )
     if target_ext not in ALLOWED_UPLOAD_EXTENSIONS:
         raise AppHTTPException(
-            422, "INVALID_PARAMS",
+            422,
+            "INVALID_PARAMS",
             f"Target extension {target_ext} is not allowed.",
         )
 
     # Derive batch_name from the ZIP filename
-    batch_name = sanitize_filename(zip_original[: -len(".zip")] if zip_original.lower().endswith(".zip") else zip_original.rsplit(".", 1)[0])
+    batch_name = sanitize_filename(
+        zip_original[: -len(".zip")]
+        if zip_original.lower().endswith(".zip")
+        else zip_original.rsplit(".", 1)[0]
+    )
     if not batch_name or batch_name == "unnamed":
         batch_name = f"导入_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
 
@@ -377,7 +391,8 @@ async def upload_zip(
             zip_bytes_total += len(chunk)
             if zip_bytes_total > max_upload:
                 raise AppHTTPException(
-                    413, "FILE_TOO_LARGE",
+                    413,
+                    "FILE_TOO_LARGE",
                     f"ZIP archive exceeds max upload size ({settings.max_upload_size_mb} MB).",
                 )
             tmp.write(chunk)
@@ -388,14 +403,16 @@ async def upload_zip(
             zf = zipfile.ZipFile(tmp, "r")
         except (zipfile.BadZipFile, io.UnsupportedOperation) as e:
             raise AppHTTPException(
-                415, "FILE_NOT_ZIP",
+                415,
+                "FILE_NOT_ZIP",
                 "The uploaded file is not a valid ZIP archive.",
             ) from e
 
         bad_names = zf.testzip()
         if bad_names is not None:
             raise AppHTTPException(
-                415, "ZIP_CORRUPTED",
+                415,
+                "ZIP_CORRUPTED",
                 f"ZIP archive contains corrupted entry: {bad_names}",
             )
 
@@ -411,12 +428,15 @@ async def upload_zip(
             entry_count += 1
             if entry_count > settings.max_zip_entry_count:
                 raise AppHTTPException(
-                    413, "ZIP_TOO_MANY_FILES",
+                    413,
+                    "ZIP_TOO_MANY_FILES",
                     f"ZIP archive contains more than {settings.max_zip_entry_count} files.",
                 )
 
             # Path traversal defence: sanitize + strip any directory components
-            entry_name = sanitize_filename(info.filename.rsplit("/", 1)[-1] if "/" in info.filename else info.filename)
+            entry_name = sanitize_filename(
+                info.filename.rsplit("/", 1)[-1] if "/" in info.filename else info.filename
+            )
             entry_ext = Path(entry_name).suffix.lower()
             if entry_ext != target_ext:
                 skipped += 1
@@ -427,7 +447,8 @@ async def upload_zip(
             total_extracted_bytes += len(entry_bytes)
             if total_extracted_bytes > max_extract:
                 raise AppHTTPException(
-                    413, "ZIP_TOO_LARGE",
+                    413,
+                    "ZIP_TOO_LARGE",
                     f"Extracted content exceeds {settings.max_zip_extract_mb} MB limit.",
                 )
 
@@ -465,7 +486,8 @@ async def upload_zip(
 
     if not extracted and skipped == 0:
         raise AppHTTPException(
-            422, "ZIP_EMPTY",
+            422,
+            "ZIP_EMPTY",
             "The ZIP archive contains no files.",
         )
 
@@ -524,9 +546,7 @@ def list_files(
     if file_ext.strip():
         stmt = stmt.where(StoredFile.file_ext == file_ext.strip())
     tie_breaker = StoredFile.id.asc() if sort_dir_value == "asc" else StoredFile.id.desc()
-    stmt = stmt.where(_file_list_access_filter(current_user)).order_by(
-        order_clause, tie_breaker
-    )
+    stmt = stmt.where(_file_list_access_filter(current_user)).order_by(order_clause, tie_breaker)
     files, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
     return page_response(
         [FileRead.model_validate(f) for f in files],
@@ -545,7 +565,9 @@ def list_files(
 def list_batches(
     request: Request,
     current_user: CurrentUser,
-    file_ext: str = Query("", description="Filter batches by file extension, e.g. '.dwg' or '.dxf'"),
+    file_ext: str = Query(
+        "", description="Filter batches by file extension, e.g. '.dwg' or '.dxf'"
+    ),
     db: Session = Depends(get_db),
 ):
     """Query MySQL for distinct batch names, file counts and latest creation times."""
@@ -874,6 +896,195 @@ def get_excel_preview(
     return ok(result, request.state.request_id)
 
 
+def _read_dxf_preview_source(
+    stored: StoredFile,
+) -> tuple[bytes, AbstractStorageBackend]:
+    """Read one DXF through the shared adapter with size and digest guards."""
+    validate_dxf_source_size(stored.size_bytes)
+    storage = get_storage_backend()
+    payload = bytearray()
+    digest = hashlib.sha256()
+    try:
+        for chunk in storage.iter_file(stored.bucket, stored.storage_key):
+            payload.extend(chunk)
+            if len(payload) > MAX_DXF_SIZE_BYTES:
+                raise AppHTTPException(
+                    413,
+                    "DXF_TOO_LARGE",
+                    f"DXF 文件超过在线预览上限 {MAX_DXF_SIZE_BYTES // (1024 * 1024)} MB。",
+                )
+            digest.update(chunk)
+    except AppHTTPException:
+        raise
+    except StorageObjectNotFound:
+        raise not_found("StoredFileObject") from None
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "STORAGE_READ_FAILED",
+            "Failed to read stored file object.",
+        ) from exc
+
+    if len(payload) != stored.size_bytes:
+        raise AppHTTPException(
+            409,
+            "STORAGE_SIZE_MISMATCH",
+            "DXF 对象大小与 MySQL 登记不一致，请先执行存储一致性扫描。",
+        )
+    if digest.hexdigest() != stored.sha256:
+        raise AppHTTPException(
+            409,
+            "STORAGE_CHECKSUM_MISMATCH",
+            "DXF 对象校验值与 MySQL 登记不一致，请先执行存储一致性扫描。",
+        )
+    return bytes(payload), storage
+
+
+@router.get("/{file_id}/dxf-preview")
+def get_dxf_preview(
+    file_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Generate or reuse a registered SVG preview for an accessible DXF."""
+    stored = db.get(StoredFile, file_id)
+    if not stored or stored.status == "deleted":
+        raise not_found("File")
+    _require_file_read_access(db, current_user, stored)
+    if stored.file_ext.lower() != ".dxf":
+        raise AppHTTPException(
+            415,
+            "NOT_DXF",
+            "Only .dxf files can be previewed with this endpoint.",
+        )
+
+    payload, storage = _read_dxf_preview_source(stored)
+    preview = get_or_create_dxf_preview(
+        db,
+        stored,
+        payload,
+        storage=storage,
+        request_id=request.state.request_id,
+    )
+    preview_id = preview.preview_file.id
+    assert preview_id is not None
+    action = "files.dxf_preview_cache_hit" if preview.cached else "files.dxf_preview_generate"
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action=action,
+        resource_type="file",
+        resource_id=stored.id,
+        after_json={"preview_file_id": preview_id},
+        request=request,
+    )
+    db.commit()
+    response = DxfPreviewRead(
+        file_id=stored.id,
+        file_name=stored.original_name,
+        preview_file_id=preview_id,
+        content_url=(f"/api/v1/files/{stored.id}/dxf-preview/content?preview_file_id={preview_id}"),
+        content_type=preview.preview_file.content_type or "image/svg+xml",
+        document_entities=preview.document_entities,
+        modelspace_entities=preview.modelspace_entities,
+        entity_counts=preview.entity_counts,
+        layers=list(preview.layers),
+        layer_colors=preview.layer_colors,
+        bounds=DxfPreviewBoundsRead(
+            min_x=preview.bounds.min_x,
+            min_y=preview.bounds.min_y,
+            max_x=preview.bounds.max_x,
+            max_y=preview.bounds.max_y,
+        ),
+        cached=preview.cached,
+    )
+    return ok(response.model_dump(), request.state.request_id)
+
+
+@router.get("/{file_id}/dxf-preview/content")
+def get_dxf_preview_content(
+    file_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    preview_file_id: int = Query(..., ge=1),
+    db: Session = Depends(get_db),
+):
+    """Stream registered preview content after rechecking source-file access."""
+    source = db.get(StoredFile, file_id)
+    if not source or source.status == "deleted":
+        raise not_found("File")
+    _require_file_read_access(db, current_user, source)
+    preview = db.get(StoredFile, preview_file_id)
+    if (
+        preview is None
+        or preview.status == "deleted"
+        or preview.file_ext != ".svg"
+        or preview.batch_name != preview_batch_name(source)
+    ):
+        raise not_found("DxfPreview")
+
+    storage = get_storage_backend()
+    try:
+        object_info = storage.stat_object(preview.bucket, preview.storage_key)
+    except StorageObjectNotFound:
+        raise not_found("DxfPreviewObject") from None
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "STORAGE_READ_FAILED",
+            "Failed to read preview object.",
+        ) from exc
+    if object_info.size_bytes != preview.size_bytes:
+        raise AppHTTPException(
+            409,
+            "STORAGE_SIZE_MISMATCH",
+            "DXF 预览对象大小与 MySQL 登记不一致。",
+        )
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="outbound",
+            operation="preview",
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+            idempotency_key=request.state.request_id,
+            file_id=preview.id,
+            batch_ref=preview.batch_name,
+            bucket=preview.bucket,
+            storage_key=preview.storage_key,
+            original_name=preview.original_name,
+            expected_bytes=object_info.size_bytes,
+        ),
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="files.dxf_preview_view",
+        resource_type="file",
+        resource_id=source.id,
+        after_json={"preview_file_id": preview.id},
+        request=request,
+    )
+    db.commit()
+    factory = session_factory_for(db)
+    return StreamingResponse(
+        settle_stream(
+            factory,
+            transfer.transfer_uid,
+            storage.iter_file(preview.bucket, preview.storage_key),
+        ),
+        media_type="image/svg+xml",
+        headers={
+            "Content-Length": str(object_info.size_bytes),
+            "Content-Disposition": (f"inline; filename*=UTF-8''{quote(preview.original_name)}"),
+            "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": ("sandbox; default-src 'none'; style-src 'unsafe-inline'"),
+        },
+    )
+
+
 @router.get("/{file_id}")
 def get_file(
     file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
@@ -886,7 +1097,9 @@ def get_file(
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_file(file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)):
+def delete_file(
+    file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
+):
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
@@ -1032,7 +1245,7 @@ def bulk_delete_files(
             resource_type="file",
             resource_id=s.id,
             request=request,
-    )
+        )
     db.commit()
     return None
 

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from io import StringIO
+from io import BytesIO, StringIO
 
 import ezdxf
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppHTTPException
+from app.models.file import StoredFile
+from app.models.file_transfer import FileTransfer
 from app.services import dxf_preview_service as service
+from app.storage.local_storage import LocalFileStorage
 
 
 def _dxf_bytes(*, block_lines: int = 0) -> bytes:
@@ -80,3 +85,138 @@ def test_declared_source_size_limit_is_checked() -> None:
 
     assert exc.value.status_code == 413
     assert exc.value.detail["code"] == "DXF_TOO_LARGE"
+
+
+def _source_file(db: Session, storage: LocalFileStorage, payload: bytes) -> StoredFile:
+    storage.put_fileobj(
+        "dxf-original",
+        "uploads/preview-source.dxf",
+        BytesIO(payload),
+        length=len(payload),
+        content_type="application/dxf",
+    )
+    source = StoredFile(
+        bucket="dxf-original",
+        storage_key="uploads/preview-source.dxf",
+        original_name="结构详图.dxf",
+        file_ext=".dxf",
+        content_type="application/dxf",
+        size_bytes=len(payload),
+        sha256="a" * 64,
+        uploaded_by=None,
+        status="available",
+    )
+    db.add(source)
+    db.commit()
+    return source
+
+
+def test_preview_generation_registers_file_and_generated_transfer(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = _dxf_bytes(block_lines=3)
+    storage = LocalFileStorage(tmp_path / "storage")
+    source = _source_file(db, storage, payload)
+    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+
+    result = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-generate-1",
+    )
+    db.commit()
+
+    assert result.cached is False
+    assert result.preview_file.file_ext == ".svg"
+    assert result.preview_file.batch_name == service.preview_batch_name(source)
+    transfer = db.scalar(select(FileTransfer).where(FileTransfer.file_id == result.preview_file.id))
+    assert transfer is not None
+    assert (transfer.direction, transfer.operation, transfer.status) == (
+        "internal",
+        "preview_generate",
+        "succeeded",
+    )
+    assert transfer.transferred_bytes == result.preview_file.size_bytes
+
+
+def test_minio_style_cache_hit_uses_stat_not_local_path(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class NoLocalPathStorage(LocalFileStorage):
+        def local_path(self, bucket: str, storage_key: str):
+            return None
+
+    payload = _dxf_bytes()
+    storage = NoLocalPathStorage(tmp_path / "storage")
+    source = _source_file(db, storage, payload)
+    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    first = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-cache-1",
+    )
+    db.commit()
+
+    def _must_not_render(_inspected):
+        raise AssertionError("cache hit must not render the SVG again")
+
+    monkeypatch.setattr(service, "render_inspected_dxf_to_svg", _must_not_render)
+    second = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-cache-2",
+    )
+
+    assert second.cached is True
+    assert second.preview_file.id == first.preview_file.id
+
+
+def test_missing_cached_object_is_replaced_and_recorded(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = _dxf_bytes()
+    storage = LocalFileStorage(tmp_path / "storage")
+    source = _source_file(db, storage, payload)
+    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    first = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-replace-1",
+    )
+    db.commit()
+    storage.delete_object(first.preview_file.bucket, first.preview_file.storage_key)
+
+    second = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-replace-2",
+    )
+    db.commit()
+    db.refresh(first.preview_file)
+
+    assert first.preview_file.status == "deleted"
+    assert second.preview_file.id != first.preview_file.id
+    invalidation = db.scalar(
+        select(FileTransfer).where(
+            FileTransfer.file_id == first.preview_file.id,
+            FileTransfer.operation == "preview_invalidate",
+        )
+    )
+    assert invalidation is not None
+    assert invalidation.status == "succeeded"

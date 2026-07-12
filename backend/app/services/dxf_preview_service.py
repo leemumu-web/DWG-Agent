@@ -13,9 +13,11 @@ import logging
 import math
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+from uuid import uuid4
 
 import ezdxf
 from ezdxf.addons.drawing import Frontend, RenderContext, layout
@@ -26,8 +28,23 @@ from ezdxf.addons.drawing.config import (
     ImagePolicy,
 )
 from ezdxf.addons.drawing.svg import SVGBackend
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import AppHTTPException
+from app.models.file import StoredFile
+from app.services.file_transfer_service import (
+    TransferSpec,
+    complete_transfer_in_transaction,
+    prepare_transfer_in_transaction,
+)
+from app.services.storage_service import sanitize_filename, save_bytes_as_file
+from app.storage.base import (
+    AbstractStorageBackend,
+    StorageError,
+    StorageObjectNotFound,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +54,7 @@ MAX_PREVIEW_BYTES = 16 * 1024 * 1024
 PREVIEW_BACKGROUND = "#111827"
 PREVIEW_MAX_WIDTH_MM = 400.0
 PREVIEW_MAX_HEIGHT_MM = 300.0
+PREVIEW_RENDERER_VERSION = "svg-v1"
 
 # SVG is produced by ezdxf, never accepted from the user.  This final invariant
 # still prevents a future backend/config change from turning a preview into an
@@ -73,6 +91,18 @@ class InspectedDxf:
 class RenderedDxfPreview:
     payload: bytes
     content_type: str
+    document_entities: int
+    modelspace_entities: int
+    entity_counts: dict[str, int]
+    layers: tuple[str, ...]
+    layer_colors: dict[str, int]
+    bounds: DxfBounds
+
+
+@dataclass(frozen=True)
+class DxfPreviewAsset:
+    preview_file: StoredFile
+    cached: bool
     document_entities: int
     modelspace_entities: int
     entity_counts: dict[str, int]
@@ -161,8 +191,7 @@ def _bounds_from_box(box: Any) -> DxfBounds:
     )
 
 
-def render_dxf_to_svg(payload: bytes) -> RenderedDxfPreview:
-    inspected = inspect_dxf(payload)
+def render_inspected_dxf_to_svg(inspected: InspectedDxf) -> RenderedDxfPreview:
     backend = SVGBackend()
     configuration = Configuration(
         background_policy=BackgroundPolicy.CUSTOM,
@@ -225,4 +254,204 @@ def render_dxf_to_svg(payload: bytes) -> RenderedDxfPreview:
         layers=inspected.layers,
         layer_colors=inspected.layer_colors,
         bounds=bounds,
+    )
+
+
+def render_dxf_to_svg(payload: bytes) -> RenderedDxfPreview:
+    return render_inspected_dxf_to_svg(inspect_dxf(payload))
+
+
+def preview_batch_name(source: StoredFile) -> str:
+    if source.id is None:
+        raise ValueError("Source file must be persisted before preview generation.")
+    return f"dxf-preview:{PREVIEW_RENDERER_VERSION}:{source.id}:{source.sha256[:16]}"
+
+
+def _header_bounds(document: Any) -> DxfBounds:
+    try:
+        extmin = document.header.get("$EXTMIN")
+        extmax = document.header.get("$EXTMAX")
+        values = tuple(float(value) for value in (*extmin[:2], *extmax[:2]))
+        if (
+            all(math.isfinite(value) and abs(value) < 1e19 for value in values)
+            and values[2] >= values[0]
+            and values[3] >= values[1]
+        ):
+            return DxfBounds(values[0], values[1], values[2], values[3])
+    except (AttributeError, IndexError, TypeError, ValueError):
+        pass
+    return DxfBounds(0.0, 0.0, 0.0, 0.0)
+
+
+def _asset_from_inspection(
+    preview_file: StoredFile,
+    inspected: InspectedDxf,
+    *,
+    cached: bool,
+    bounds: DxfBounds | None = None,
+) -> DxfPreviewAsset:
+    return DxfPreviewAsset(
+        preview_file=preview_file,
+        cached=cached,
+        document_entities=inspected.document_entities,
+        modelspace_entities=inspected.modelspace_entities,
+        entity_counts=inspected.entity_counts,
+        layers=inspected.layers,
+        layer_colors=inspected.layer_colors,
+        bounds=bounds or _header_bounds(inspected.document),
+    )
+
+
+def _invalidate_preview_file(
+    db: Session,
+    preview: StoredFile,
+    *,
+    request_id: str,
+) -> None:
+    if preview.status == "deleted":
+        return
+    preview.status = "deleted"
+    preview.deleted_at = datetime.now(UTC)
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="internal",
+            operation="preview_invalidate",
+            actor_user_id=None,
+            request_id=request_id,
+            file_id=preview.id,
+            batch_ref=preview.batch_name,
+            bucket=preview.bucket,
+            storage_key=preview.storage_key,
+            original_name=preview.original_name,
+            expected_bytes=preview.size_bytes,
+        ),
+    )
+    complete_transfer_in_transaction(
+        db,
+        transfer.transfer_uid,
+        file_id=preview.id,
+        bucket=preview.bucket,
+        storage_key=preview.storage_key,
+        original_name=preview.original_name,
+        transferred_bytes=0,
+    )
+
+
+def _find_cached_preview(
+    db: Session,
+    source: StoredFile,
+    storage: AbstractStorageBackend,
+    *,
+    request_id: str,
+) -> StoredFile | None:
+    candidates = db.scalars(
+        select(StoredFile)
+        .where(
+            StoredFile.batch_name == preview_batch_name(source),
+            StoredFile.file_ext == ".svg",
+            StoredFile.status != "deleted",
+        )
+        .order_by(StoredFile.id.desc())
+    ).all()
+    for candidate in candidates:
+        try:
+            object_info = storage.stat_object(candidate.bucket, candidate.storage_key)
+        except StorageObjectNotFound:
+            _invalidate_preview_file(db, candidate, request_id=request_id)
+            continue
+        except StorageError as exc:
+            raise _error(
+                503,
+                "DXF_PREVIEW_STORAGE_UNAVAILABLE",
+                "预览存储暂时不可用。",
+            ) from exc
+        if object_info.size_bytes != candidate.size_bytes:
+            _invalidate_preview_file(db, candidate, request_id=request_id)
+            continue
+        return candidate
+    return None
+
+
+def get_or_create_dxf_preview(
+    db: Session,
+    source: StoredFile,
+    payload: bytes,
+    *,
+    storage: AbstractStorageBackend,
+    request_id: str,
+) -> DxfPreviewAsset:
+    """Return a registered preview, rendering and storing it only on cache miss.
+
+    Rendering happens before the source-row lock.  A second cache check under
+    the lock prevents concurrent requests from writing duplicate objects while
+    keeping the database connection out of the CPU-heavy render phase.
+    """
+    validate_dxf_source_size(source.size_bytes)
+    inspected = inspect_dxf(payload)
+    cached = _find_cached_preview(
+        db,
+        source,
+        storage,
+        request_id=request_id,
+    )
+    if cached is not None:
+        return _asset_from_inspection(cached, inspected, cached=True)
+
+    # End authentication/cache-read transactions before CPU rendering.  Any
+    # invalidated cache row represented an already-missing or size-mismatched
+    # object, so committing that truthful state is safe even if rendering fails.
+    db.commit()
+    rendered = render_inspected_dxf_to_svg(inspected)
+    locked_source = db.scalar(
+        select(StoredFile).where(StoredFile.id == source.id).with_for_update()
+    )
+    if (
+        locked_source is None
+        or locked_source.status == "deleted"
+        or locked_source.sha256 != source.sha256
+    ):
+        raise _error(
+            409,
+            "DXF_SOURCE_CHANGED",
+            "DXF 文件在生成预览期间已变更或删除，请刷新后重试。",
+        )
+
+    cached = _find_cached_preview(
+        db,
+        locked_source,
+        storage,
+        request_id=request_id,
+    )
+    if cached is not None:
+        return _asset_from_inspection(
+            cached,
+            inspected,
+            cached=True,
+            bounds=rendered.bounds,
+        )
+
+    stem = source.original_name.rsplit(".", 1)[0]
+    preview_file = save_bytes_as_file(
+        db,
+        bucket=settings.minio_bucket_reports,
+        storage_key=(
+            f"previews/dxf/{PREVIEW_RENDERER_VERSION}/{source.id}/"
+            f"{source.sha256[:16]}/{uuid4().hex}.svg"
+        ),
+        original_name=sanitize_filename(f"{stem}_预览.svg"),
+        file_ext=".svg",
+        content_type=rendered.content_type,
+        payload=rendered.payload,
+        uploaded_by=None,
+        batch_name=preview_batch_name(source),
+        transfer_direction="internal",
+        transfer_operation="preview_generate",
+        request_id=request_id,
+    )
+    return _asset_from_inspection(
+        preview_file,
+        inspected,
+        cached=False,
+        bounds=rendered.bounds,
     )
