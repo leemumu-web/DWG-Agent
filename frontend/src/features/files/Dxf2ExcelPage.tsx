@@ -189,8 +189,13 @@ export function Dxf2ExcelPage() {
       const results = await getJobResults(extractionJob.id);
       const excel = results.find((result) => result.result_type === 'extract_dxf_to_excel');
       if (!excel?.result_file_id) throw new Error('Excel 结果文件未找到');
-      const finalJob = await processExcelFinalFile(excel.result_file_id);
-      message.success(`零件清单任务 #${finalJob.job_id} 已登记`);
+      const requestKey = `dxf2excel-${extractionJob.id}-${excel.result_file_id}`;
+      const finalJob = await processExcelFinalFile(excel.result_file_id, requestKey);
+      message.success(
+        finalJob.reused
+          ? `零件清单任务 #${finalJob.job_id} 已存在，已继续跟踪`
+          : `零件清单任务 #${finalJob.job_id} 已登记`,
+      );
       navigate(`/files/excel-final?job_id=${finalJob.job_id}`);
     } catch (err) {
       message.error(err instanceof Error ? err.message : '零件清单任务登记失败');

@@ -78,6 +78,7 @@ export function ExcelFinalPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedRequestKey, setSelectedRequestKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [activeJobId, setActiveJobId] = useState<number | null>(() => jobIdFromQuery(searchParams.get('job_id')));
   const [batchPage, setBatchPage] = useState(1);
@@ -129,17 +130,22 @@ export function ExcelFinalPage() {
   }
 
   async function submit() {
-    if (!selectedFile) return;
+    if (!selectedFile || !selectedRequestKey) return;
     if (!/\.xlsx?$/i.test(selectedFile.name)) {
       message.error('请选择 .xlsx 或 .xls 文件');
       return;
     }
     setSubmitting(true);
     try {
-      const result = await uploadAndProcessExcel(selectedFile);
+      const result = await uploadAndProcessExcel(selectedFile, selectedRequestKey);
       setSelectedFile(null);
+      setSelectedRequestKey(null);
       trackJob(result.job_id);
-      message.success(`任务 #${result.job_id} 已提交`);
+      message.success(
+        result.reused
+          ? `任务 #${result.job_id} 已存在，已继续跟踪`
+          : `任务 #${result.job_id} 已提交`,
+      );
       await queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] });
     } catch (error) {
       message.error(errorMessage(error, '提交失败'));
@@ -255,7 +261,16 @@ export function ExcelFinalPage() {
         </div>
         <div className="excel-final-ingest-actions">
           <Upload accept=".xlsx,.xls" maxCount={1} fileList={selectedFile ? [{ uid: 'selected', name: selectedFile.name, status: 'done' }] : []}
-            beforeUpload={(file) => { setSelectedFile(file); return false; }} onRemove={() => { setSelectedFile(null); return true; }}>
+            beforeUpload={(file) => {
+              setSelectedFile(file);
+              setSelectedRequestKey(crypto.randomUUID());
+              return false;
+            }}
+            onRemove={() => {
+              setSelectedFile(null);
+              setSelectedRequestKey(null);
+              return true;
+            }}>
             <Button icon={<FileExcelOutlined />}>选择 Excel</Button>
           </Upload>
           <Button type="primary" icon={<PlayCircleOutlined />} disabled={!selectedFile} loading={submitting} onClick={() => void submit()}>提交处理</Button>

@@ -25,13 +25,16 @@ export async function getExcelFinalOverview() {
   return response.data.data;
 }
 
-export async function uploadAndProcessExcel(file: File) {
+export async function uploadAndProcessExcel(file: File, requestKey: string) {
   const form = new FormData();
   form.append('upload', file);
   const response = await apiClient.post<ApiEnvelope<ExcelFinalSubmission>>(
     '/api/v1/excel-final/upload-and-process',
     form,
-    { timeout: 300_000 },
+    {
+      timeout: 300_000,
+      headers: { 'Idempotency-Key': requestKey },
+    },
   );
   return response.data.data;
 }
@@ -117,11 +120,14 @@ export async function lookupExcelFinalWeight(spec: string) {
   return response.data.data;
 }
 
-export async function processExcelFinalFile(fileId: number) {
+export async function processExcelFinalFile(fileId: number, requestKey: string) {
   const response = await apiClient.post<ApiEnvelope<ExcelFinalSubmission>>(
     '/api/v1/excel-final/process',
     undefined,
-    { params: { file_id: fileId } },
+    {
+      params: { file_id: fileId },
+      headers: { 'Idempotency-Key': requestKey },
+    },
   );
   return response.data.data;
 }

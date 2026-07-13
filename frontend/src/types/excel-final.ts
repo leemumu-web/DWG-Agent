@@ -3,6 +3,7 @@ export interface ExcelFinalSubmission {
   file_id: number;
   original_name?: string;
   status: string;
+  reused: boolean;
   message: string;
 }
 

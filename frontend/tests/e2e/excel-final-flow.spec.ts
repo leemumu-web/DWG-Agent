@@ -128,6 +128,9 @@ test.describe('Excel Final retry and download closure', () => {
       ),
       page.getByRole('button', { name: '提交处理' }).click(),
     ]);
+    expect(submitResponse.request().headers()['idempotency-key']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     const jobId = (await submitResponse.json()).data.job_id as number;
 
     const first = await waitForJob(page, token, jobId, 1);
@@ -337,6 +340,7 @@ test('DXF to Excel result can be registered once as an Excel Final job', async (
     pagination: { page: 1, page_size: 200, total: data.length, total_pages: 1 },
   });
   let processCalls = 0;
+  let processRequestKey: string | undefined;
   await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({ json: envelope([{
     name: 'bridge-batch', file_count: 3, total_size: 4096,
     latest_created_at: '2026-07-13T02:00:00Z',
@@ -352,9 +356,11 @@ test('DXF to Excel result can be registered once as an Excel Final job', async (
   }]) }));
   await page.route('**/api/v1/excel-final/process?**', async (route) => {
     processCalls += 1;
+    processRequestKey = route.request().headers()['idempotency-key'];
     await new Promise((resolve) => setTimeout(resolve, 250));
     await route.fulfill({ status: 202, json: envelope({
-      job_id: 990, file_id: 880, status: 'queued', message: '处理任务已入队',
+      job_id: 990, file_id: 880, status: 'queued', reused: false,
+      message: '处理任务已入队',
     }) });
   });
 
@@ -368,5 +374,6 @@ test('DXF to Excel result can be registered once as an Excel Final job', async (
 
   await expect(page).toHaveURL(/\/files\/excel-final\?job_id=990$/);
   expect(processCalls).toBe(1);
+  expect(processRequestKey).toBe('dxf2excel-700-880');
   await expect(page.getByRole('heading', { name: 'Excel Final 数据控制台' })).toBeVisible();
 });
