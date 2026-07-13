@@ -37,6 +37,12 @@ import type { Job } from '../../types/job';
 import { ExcelFinalBatchDrawer } from './excel-final/ExcelFinalBatchDrawer';
 import { ExcelFinalOverview } from './excel-final/ExcelFinalOverview';
 import { ExcelFinalTools } from './excel-final/ExcelFinalTools';
+import {
+  DEFAULT_BATCH_PAGE_SIZE,
+  mergeExcelFinalParams,
+  omitDefault,
+  parseExcelFinalUrlState,
+} from './excel-final/excelFinalUrlState';
 import './excel-final/ExcelFinalPage.css';
 
 const TASK_TYPE = 'process_excel_final';
@@ -68,11 +74,6 @@ function numberText(value: number | null | undefined, digits = 2): string {
   return value == null ? '-' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
 }
 
-function jobIdFromQuery(value: string | null): number | null {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
 export function ExcelFinalPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
@@ -80,16 +81,13 @@ export function ExcelFinalPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedRequestKey, setSelectedRequestKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<number | null>(() => jobIdFromQuery(searchParams.get('job_id')));
-  const [batchPage, setBatchPage] = useState(1);
-  const [batchPageSize, setBatchPageSize] = useState(20);
-  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewName, setPreviewName] = useState('');
-
-  useEffect(() => {
-    setActiveJobId(jobIdFromQuery(searchParams.get('job_id')));
-  }, [searchParams]);
+  const urlState = useMemo(() => parseExcelFinalUrlState(searchParams), [searchParams]);
+  const activeJobId = urlState.jobId;
+  const batchPage = urlState.batchPage;
+  const batchPageSize = urlState.batchPageSize;
+  const selectedBatchId = urlState.batchId;
 
   const healthQ = useQuery({ queryKey: ['excel-final-health'], queryFn: getExcelFinalHealth, staleTime: 30_000 });
   const overviewQ = useQuery({ queryKey: ['excel-final-overview'], queryFn: getExcelFinalOverview, staleTime: 5_000 });
@@ -122,11 +120,12 @@ export function ExcelFinalPage() {
 
   const recentJobs = useMemo(() => jobsQ.data?.data ?? [], [jobsQ.data]);
 
+  function updateUrl(changes: Record<string, string | number | null | undefined>) {
+    setSearchParams(mergeExcelFinalParams(searchParams, changes));
+  }
+
   function trackJob(jobId: number) {
-    setActiveJobId(jobId);
-    const next = new URLSearchParams(searchParams);
-    next.set('job_id', String(jobId));
-    setSearchParams(next);
+    updateUrl({ job_id: jobId });
   }
 
   async function submit() {
@@ -184,7 +183,7 @@ export function ExcelFinalPage() {
   async function retry(jobId: number) {
     try {
       await retryJob(jobId);
-      setSelectedBatchId(null);
+      updateUrl({ batch_id: null });
       trackJob(jobId);
       message.success(`任务 #${jobId} 已重新提交`);
       await Promise.all([
@@ -231,7 +230,7 @@ export function ExcelFinalPage() {
     { title: '入库时间', dataIndex: 'created_at', width: 180, render: (value: string | null) => value ? new Date(value).toLocaleString('zh-CN') : '-' },
     {
       title: '', key: 'actions', width: 56, fixed: 'right' as const,
-      render: (_: unknown, batch: ExcelFinalBatchSummary) => <Button type="text" icon={<EyeOutlined />} aria-label={`查看批次 ${batch.batch_id}`} onClick={() => setSelectedBatchId(batch.batch_id)} />,
+      render: (_: unknown, batch: ExcelFinalBatchSummary) => <Button type="text" icon={<EyeOutlined />} aria-label={`查看批次 ${batch.batch_id}`} onClick={() => updateUrl({ batch_id: batch.batch_id })} />,
     },
   ];
 
@@ -301,7 +300,15 @@ export function ExcelFinalPage() {
           rowKey="batch_id" size="middle" loading={batchesQ.isLoading} dataSource={batchesQ.data?.data ?? []}
           columns={batchColumns} scroll={{ x: 1120 }}
           pagination={{ current: batchPage, pageSize: batchPageSize, total: batchesQ.data?.pagination.total ?? 0, showSizeChanger: true, showTotal: (total) => `共 ${total} 个批次` }}
-          onChange={(pagination) => { setBatchPage(pagination.current ?? 1); setBatchPageSize(pagination.pageSize ?? 20); }}
+          onChange={(pagination) => {
+            const nextSize = pagination.pageSize ?? DEFAULT_BATCH_PAGE_SIZE;
+            const sizeChanged = nextSize !== batchPageSize;
+            const nextPage = sizeChanged ? 1 : (pagination.current ?? 1);
+            updateUrl({
+              batch_page: omitDefault(nextPage, 1),
+              batch_size: omitDefault(nextSize, DEFAULT_BATCH_PAGE_SIZE),
+            });
+          }}
         />
       </section>
 
@@ -311,7 +318,7 @@ export function ExcelFinalPage() {
         <Table<Job> rowKey="id" size="small" loading={jobsQ.isLoading} dataSource={recentJobs} columns={jobColumns} pagination={false} scroll={{ x: 850 }} />
       </section>
 
-      <ExcelFinalBatchDrawer batchId={selectedBatchId} open={selectedBatchId !== null} onClose={() => setSelectedBatchId(null)} />
+      <ExcelFinalBatchDrawer batchId={selectedBatchId} open={selectedBatchId !== null} onClose={() => updateUrl({ batch_id: null })} />
       <ExcelPreview fileId={previewFileId} fileName={previewName} open={previewFileId !== null} onClose={() => setPreviewFileId(null)} />
     </div>
   );

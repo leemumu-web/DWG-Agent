@@ -169,6 +169,8 @@ test.describe('Excel Final retry and download closure', () => {
 
 test('Excel Final data console exposes exact overview, tools, details and URL job tracking', async ({ page }) => {
   const consoleErrors: string[] = [];
+  const batchQueries: string[] = [];
+  const searchQueries: string[] = [];
   page.on('console', (entry) => {
     if (entry.type() === 'error') consoleErrors.push(entry.text());
   });
@@ -227,6 +229,7 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
         result_file_id: 901,
       }) });
     } else if (pathname.endsWith('/parts/search')) {
+      searchQueries.push(url.search);
       await route.fulfill({ json: paged([{
         id: 900,
         batch_id: 41,
@@ -241,7 +244,7 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
         qty: 4,
         net_total_weight: 126.4,
         theo_total_weight: 130.1,
-      }], Number(url.searchParams.get('page') || 1), 20, 1) });
+      }], Number(url.searchParams.get('page') || 1), Number(url.searchParams.get('page_size') || 20), 41) });
     } else if (pathname.endsWith('/weights/lookup')) {
       await route.fulfill({ json: envelope({
         spec: url.searchParams.get('spec'),
@@ -283,37 +286,34 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
         top_specs: [{ spec: 'PL12*280', count: 75 }],
       }) });
     } else if (pathname.endsWith('/batches')) {
+      batchQueries.push(url.search);
       await route.fulfill({ json: paged([{
         batch_id: 41, job_id: 777, file_id: 901, source_type: 'init_table',
         source_name: 'tower-zone-a.xlsx', part_count: 320, component_count: 61,
         total_net_weight: 4850.5, total_gross_weight: 5110.2,
         created_at: '2026-07-13T01:20:00Z',
-      }], 1, 20, 1) });
+      }], Number(url.searchParams.get('page') || 1), Number(url.searchParams.get('page_size') || 20), 141) });
     } else {
       await route.fallback();
     }
   });
 
   await login(page);
-  await page.goto('/files/excel-final?job_id=777');
+  await page.goto(
+    '/files/excel-final?job_id=777&batch_page=3&batch_size=50&batch_id=41'
+      + '&part_no=P-900&search_page=2&search_size=20',
+  );
 
   await expect(page.getByRole('heading', { name: 'Excel Final 数据控制台' })).toBeVisible();
   await expect(page.getByText('12,840')).toBeVisible();
   await expect(page.getByText('204,850.75')).toBeVisible();
   await expect(page.getByText('数据管道就绪')).toBeVisible();
   await expect(page.getByText('任务 #777')).toBeVisible();
-
-  await page.getByLabel('跨批次零件号').fill('P-900');
-  await page.getByRole('button', { name: '搜索零件' }).click();
+  await expect(page.getByLabel('跨批次零件号')).toHaveValue('P-900');
   await expect(page.getByText('PL12*280').first()).toBeVisible();
-  await page.getByRole('button', { name: '清空搜索' }).click();
-  await expect(page.getByText('P-900')).toBeHidden();
+  await expect.poll(() => batchQueries.some((query) => query.includes('page=3') && query.includes('page_size=50'))).toBe(true);
+  await expect.poll(() => searchQueries.some((query) => query.includes('page=2') && query.includes('part_no=P-900'))).toBe(true);
 
-  await page.getByLabel('钢材规格').fill('L50x5');
-  await page.getByRole('button', { name: '查询理论重量' }).click();
-  await expect(page.getByText('3.77 kg/m')).toBeVisible();
-
-  await page.getByRole('button', { name: '查看批次 41' }).click();
   const drawer = page.getByRole('dialog', { name: /批次 #41/ });
   await expect(drawer.getByText('tower-zone-a.xlsx')).toBeVisible();
   await drawer.getByRole('tab', { name: /构件/ }).click();
@@ -326,6 +326,22 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   await expect(partDialog).toBeHidden();
   await drawer.getByRole('button', { name: '关闭' }).click();
   await expect(drawer).toBeHidden();
+  expect(new URL(page.url()).searchParams.has('batch_id')).toBe(false);
+  expect(new URL(page.url()).searchParams.get('job_id')).toBe('777');
+  await page.goBack();
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole('button', { name: '关闭' }).click();
+
+  await page.getByRole('button', { name: '清空搜索' }).click();
+  await expect(page.getByText('P-900')).toBeHidden();
+  const clearedUrl = new URL(page.url());
+  expect(clearedUrl.searchParams.has('part_no')).toBe(false);
+  expect(clearedUrl.searchParams.has('search_page')).toBe(false);
+  expect(clearedUrl.searchParams.get('job_id')).toBe('777');
+
+  await page.getByLabel('钢材规格').fill('L50x5');
+  await page.getByRole('button', { name: '查询理论重量' }).click();
+  await expect(page.getByText('3.77 kg/m')).toBeVisible();
 
   await page.getByRole('button', { name: '预览任务 777 结果' }).click();
   await expect(page.getByRole('dialog', { name: /excel-final-777\.xlsx/ })).toBeVisible();

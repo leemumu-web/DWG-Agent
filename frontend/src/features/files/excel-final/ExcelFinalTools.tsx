@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Alert, Button, Card, Empty, Input, Space, Table, Tag, Typography } from 'antd';
 import { ClearOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 
 import {
   lookupExcelFinalWeight,
@@ -10,6 +11,12 @@ import {
   type ExcelFinalPartFilters,
 } from '../../../api/excel-final.api';
 import type { ExcelFinalPart } from '../../../types/excel-final';
+import {
+  DEFAULT_SEARCH_PAGE_SIZE,
+  mergeExcelFinalParams,
+  omitDefault,
+  parseExcelFinalUrlState,
+} from './excelFinalUrlState';
 
 type SearchFilters = Pick<ExcelFinalPartFilters, 'part_no' | 'spec' | 'material'>;
 
@@ -22,11 +29,27 @@ function apiError(error: unknown, fallback: string): string {
 }
 
 export function ExcelFinalTools() {
-  const [draft, setDraft] = useState<SearchFilters>({});
-  const [applied, setApplied] = useState<SearchFilters | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlState = useMemo(() => parseExcelFinalUrlState(searchParams), [searchParams]);
+  const [draft, setDraft] = useState<SearchFilters>({
+    part_no: urlState.partNo,
+    spec: urlState.spec,
+    material: urlState.material,
+  });
   const [weightSpec, setWeightSpec] = useState('');
+  const applied: SearchFilters | null = urlState.searchApplied
+    ? { part_no: urlState.partNo, spec: urlState.spec, material: urlState.material }
+    : null;
+  const page = urlState.searchPage;
+  const pageSize = urlState.searchPageSize;
+
+  useEffect(() => {
+    setDraft({
+      part_no: urlState.partNo,
+      spec: urlState.spec,
+      material: urlState.material,
+    });
+  }, [urlState.partNo, urlState.spec, urlState.material]);
 
   const searchQ = useQuery({
     queryKey: ['excel-final-search', applied, page, pageSize],
@@ -49,14 +72,25 @@ export function ExcelFinalTools() {
     const cleaned = Object.fromEntries(
       Object.entries(draft).map(([key, value]) => [key, value?.trim()]).filter(([, value]) => value),
     ) as SearchFilters;
-    setPage(1);
-    setApplied(cleaned);
+    setSearchParams(mergeExcelFinalParams(searchParams, {
+      search: '1',
+      part_no: cleaned.part_no,
+      spec: cleaned.spec,
+      material: cleaned.material,
+      search_page: null,
+    }));
   }
 
   function clearSearch() {
     setDraft({});
-    setApplied(null);
-    setPage(1);
+    setSearchParams(mergeExcelFinalParams(searchParams, {
+      search: null,
+      part_no: null,
+      spec: null,
+      material: null,
+      search_page: null,
+      search_size: null,
+    }));
   }
 
   return (
@@ -93,8 +127,13 @@ export function ExcelFinalTools() {
               showSizeChanger: true,
             }}
             onChange={(pagination) => {
-              setPage(pagination.current ?? 1);
-              setPageSize(pagination.pageSize ?? 20);
+              const nextSize = pagination.pageSize ?? DEFAULT_SEARCH_PAGE_SIZE;
+              const sizeChanged = nextSize !== pageSize;
+              setSearchParams(mergeExcelFinalParams(searchParams, {
+                search: '1',
+                search_page: omitDefault(sizeChanged ? 1 : (pagination.current ?? 1), 1),
+                search_size: omitDefault(nextSize, DEFAULT_SEARCH_PAGE_SIZE),
+              }));
             }}
           />
         )}
