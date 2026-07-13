@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import delete, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -81,7 +81,13 @@ def _pipeline_for(task_type: str) -> str:
     return PIPELINE_STUB
 
 
-def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
+def create_job(
+    db: Session,
+    payload: JobCreate,
+    created_by: int | None,
+    *,
+    request_key: str | None = None,
+) -> Job:
     project_id = payload.project_id
     if project_id is None and payload.drawing_id is not None:
         drawing = db.get(Drawing, payload.drawing_id)
@@ -92,6 +98,7 @@ def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
         drawing_id=payload.drawing_id,
         created_by=created_by,
         task_type=payload.task_type,
+        request_key=request_key,
         precision_level=payload.precision_level,
         pipeline=_pipeline_for(payload.task_type),
         status=JOB_QUEUED,
@@ -107,6 +114,63 @@ def create_job(db: Session, payload: JobCreate, created_by: int | None) -> Job:
         make_event(type_="status", status=JOB_QUEUED, progress=0, message="任务已入队"),
     )
     return job
+
+
+def _require_matching_idempotent_job(job: Job, payload: JobCreate) -> None:
+    if (
+        job.drawing_id != payload.drawing_id
+        or job.project_id != payload.project_id
+        or job.precision_level != payload.precision_level
+        or job.params_json != payload.params
+    ):
+        raise AppHTTPException(
+            409,
+            "IDEMPOTENCY_KEY_REUSED",
+            "The idempotency key was already used with different parameters.",
+        )
+
+
+def create_or_reuse_job(
+    db: Session,
+    payload: JobCreate,
+    *,
+    created_by: int,
+    request_key: str | None,
+) -> tuple[Job, bool]:
+    """Create one logical request or return its already committed Job.
+
+    The pre-read handles ordinary HTTP replays. The unique constraint plus
+    savepoint handles two processes that race between the pre-read and insert
+    without rolling back unrelated work in the caller's outer transaction.
+    """
+    if request_key is None:
+        return create_job(db, payload, created_by), False
+
+    conditions = (
+        Job.created_by == created_by,
+        Job.task_type == payload.task_type,
+        Job.request_key == request_key,
+    )
+    existing = db.scalar(select(Job).where(*conditions))
+    if existing is not None:
+        _require_matching_idempotent_job(existing, payload)
+        return existing, True
+
+    try:
+        with db.begin_nested():
+            job = create_job(
+                db,
+                payload,
+                created_by,
+                request_key=request_key,
+            )
+    except IntegrityError:
+        existing = db.scalar(select(Job).where(*conditions))
+        if existing is None:
+            raise
+        _require_matching_idempotent_job(existing, payload)
+        return existing, True
+    return job, False
 
 
 def claim_queued_job(

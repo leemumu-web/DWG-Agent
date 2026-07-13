@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
+import re
+
+from fastapi import APIRouter, Depends, File, Header, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -38,7 +40,7 @@ from app.services.file_transfer_service import (
     settle_transfer,
 )
 from app.services.job_access import job_read_filter, require_job_read_access
-from app.services.job_service import create_job, dispatch_committed_job
+from app.services.job_service import create_job, create_or_reuse_job, dispatch_committed_job
 from app.services.storage_service import sanitize_filename, save_upload_file
 
 router = APIRouter()
@@ -53,6 +55,23 @@ def _ensure_pipeline_enabled() -> None:
             "EXCEL_FINAL_PIPELINE_DISABLED",
             "Excel→Final pipeline is disabled. Set EXCEL_FINAL_PIPELINE_ENABLED=true to enable.",
         )
+
+
+def _scoped_request_key(endpoint: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if (
+        not normalized
+        or len(normalized) > 96
+        or re.fullmatch(r"[A-Za-z0-9._:-]+", normalized) is None
+    ):
+        raise AppHTTPException(
+            422,
+            "INVALID_IDEMPOTENCY_KEY",
+            "Idempotency-Key has an invalid format.",
+        )
+    return f"{endpoint}:{normalized}"
 
 
 def _require_input_file_access(current_user: CurrentUser, stored: StoredFile) -> None:
@@ -184,6 +203,7 @@ def process_file(
     request: Request,
     current_user: CurrentUser,
     file_id: int = Query(..., ge=1, description="已上传的 Excel 文件 ID"),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ):
     """提交 excel_final 处理请求，返回 job_id 供轮询。"""
@@ -200,23 +220,31 @@ def process_file(
         task_type=TASK_EXCEL_FINAL,
         params={"file_id": file_id},
     )
-    job = create_job(db, payload, created_by=current_user.id)
-    write_audit_log(
+    job, reused = create_or_reuse_job(
         db,
-        actor_user_id=current_user.id,
-        action="excel_final.process",
-        resource_type="job",
-        resource_id=job.id,
-        after_json={"file_id": file_id},
-        request=request,
+        payload,
+        created_by=current_user.id,
+        request_key=_scoped_request_key("process", idempotency_key),
     )
+    if not reused:
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="excel_final.process",
+            resource_type="job",
+            resource_id=job.id,
+            after_json={"file_id": file_id},
+            request=request,
+        )
     db.commit()
-    dispatch_committed_job(db, job)
+    if not reused:
+        dispatch_committed_job(db, job)
     return ok(
         {
             "job_id": job.id,
             "file_id": file_id,
             "status": job.status,
+            "reused": reused,
             "message": "处理任务已入队，请轮询 GET /excel-final/process/{job_id} 获取进度",
         },
         request.state.request_id,
