@@ -169,7 +169,15 @@ def test_run_dxf_conversion_success():
     file_id = _upload_dwg(client, headers)
 
     fake = _make_fake_convert_result(success=True)
-    with patch("dwg_converter.convert_file", return_value=fake):
+    from app.services import dxf_service
+
+    with (
+        patch("dwg_converter.convert_file", return_value=fake),
+        patch(
+            "app.services.dxf_service.save_bytes_as_file",
+            wraps=dxf_service.save_bytes_as_file,
+        ) as save_result,
+    ):
         resp = client.post(
             "/api/v1/jobs",
             headers=headers,
@@ -183,6 +191,8 @@ def test_run_dxf_conversion_success():
         assert resp.status_code == 202, resp.text
         job_id = resp.json()["data"]["id"]
         assert resp.json()["data"]["pipeline"] == PIPELINE_DXF
+
+    assert save_result.call_args.kwargs["transfer_uid"]
 
     # 通过 API 验证 DB 状态（避免 SessionLocal 引擎隔离问题）
     jobv = client.get(f"/api/v1/jobs/{job_id}", headers=headers)

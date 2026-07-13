@@ -173,12 +173,22 @@ def test_run_dxf2dwg_conversion_success():
     fid = _upload_dxf(client, headers)
 
     fake = _make_fake_convert_result(success=True)
-    with patch("dxf_converter.convert_file", return_value=fake) as mock_conv:
+    from app.services import dxf2dwg_service
+
+    with (
+        patch("dxf_converter.convert_file", return_value=fake) as mock_conv,
+        patch(
+            "app.services.dxf2dwg_service.save_bytes_as_file",
+            wraps=dxf2dwg_service.save_bytes_as_file,
+        ) as save_result,
+    ):
         job_id, _ = _create_dxf2dwg_job(client, headers, pid, fid)
 
         # 源 DXF 的 $ACADVER=AC1015 → 期望 ODA 收到 version=ACAD2000
         call_kwargs = mock_conv.call_args.kwargs
         assert call_kwargs["version"] == "ACAD2000", call_kwargs
+
+    assert save_result.call_args.kwargs["transfer_uid"]
 
     jobv = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
     jd = jobv.json()["data"]

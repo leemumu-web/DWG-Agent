@@ -52,7 +52,12 @@ from app.services.job_service import (
     complete_job_attempt,
     fail_job_attempt,
 )
-from app.services.storage_service import get_storage_backend, sanitize_filename, save_bytes_as_file
+from app.services.storage_service import (
+    get_storage_backend,
+    prepare_generated_file_transfer,
+    sanitize_filename,
+    save_bytes_as_file,
+)
 from app.storage.base import StorageError, StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
@@ -305,16 +310,53 @@ def persist_dwg_conversion_result(
     source_base = sanitize_filename(source_base)
     source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
     storage_key = f"jobs/{job.id}/{uuid4().hex}{_DWG_EXT}"
+    original_name = f"{source_stem}{_DWG_EXT}"
+    transfer_uid = prepare_generated_file_transfer(
+        db,
+        actor_user_id=job.created_by,
+        request_id=f"job:{job.id}:attempt:{attempt}:dwg",
+        batch_ref=source_file.batch_name if source_file else None,
+        bucket=settings.minio_bucket_derived,
+        storage_key=storage_key,
+        original_name=original_name,
+        expected_bytes=len(dwg_bytes),
+    )
+    job = db.get(Job, job_id, populate_existing=True)
+    if job is None or job.status != JOB_RUNNING or job.attempt != attempt:
+        from app.services.file_transfer_service import session_factory_for, settle_transfer
+
+        db.rollback()
+        settle_transfer(
+            session_factory_for(db),
+            transfer_uid,
+            status="failed",
+            transferred_bytes=0,
+            error_code="JOB_ATTEMPT_INACTIVE",
+            error_message="Job attempt changed before generated file persistence.",
+        )
+        return False
     dwg_file = save_bytes_as_file(
         db,
         bucket=settings.minio_bucket_derived,
         storage_key=storage_key,
-        original_name=f"{source_stem}{_DWG_EXT}",
+        original_name=original_name,
         file_ext=_DWG_EXT,
         content_type=_DWG_CONTENT_TYPE,
         payload=dwg_bytes,
         uploaded_by=job.created_by,
         batch_name=source_file.batch_name if source_file else None,
+        transfer_uid=transfer_uid,
+    )
+    from app.services.file_transfer_service import complete_transfer_in_transaction
+
+    complete_transfer_in_transaction(
+        db,
+        transfer_uid,
+        file_id=dwg_file.id,
+        bucket=dwg_file.bucket,
+        storage_key=dwg_file.storage_key,
+        original_name=dwg_file.original_name,
+        transferred_bytes=dwg_file.size_bytes,
     )
     result_payload = {
         "source": "dxf2dwg_open_source",

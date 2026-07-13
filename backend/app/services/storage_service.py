@@ -129,6 +129,68 @@ def _prepare_storage_transfer(
     return snapshot.transfer_uid, True
 
 
+def prepare_generated_file_transfer(
+    db: Session,
+    *,
+    actor_user_id: int | None,
+    request_id: str,
+    batch_ref: str | None,
+    bucket: str,
+    storage_key: str,
+    original_name: str,
+    expected_bytes: int,
+) -> str:
+    """Commit a generated-file transfer intent before its metadata transaction.
+
+    This explicit boundary prevents a MySQL REPEATABLE READ transaction from
+    observing a transfer row before an independent writer advances it, which
+    otherwise raises error 1020 when the caller later locks that row.
+    """
+    from app.services.file_transfer_service import (
+        TransferSpec,
+        mark_transfer_in_progress,
+        prepare_transfer_in_transaction,
+        session_factory_for,
+        settle_transfer,
+    )
+
+    snapshot = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="internal",
+            operation="generated",
+            actor_user_id=actor_user_id,
+            request_id=request_id,
+            batch_ref=batch_ref,
+            bucket=bucket,
+            storage_key=storage_key,
+            original_name=original_name,
+            expected_bytes=expected_bytes,
+        ),
+    )
+    factory = session_factory_for(db)
+    db.commit()
+    try:
+        mark_transfer_in_progress(
+            factory,
+            snapshot.transfer_uid,
+            bucket=bucket,
+            storage_key=storage_key,
+            expected_bytes=expected_bytes,
+        )
+    except Exception:
+        settle_transfer(
+            factory,
+            snapshot.transfer_uid,
+            status="failed",
+            transferred_bytes=0,
+            error_code="TRANSFER_START_FAILED",
+            error_message="Generated file transfer could not start.",
+        )
+        raise
+    return snapshot.transfer_uid
+
+
 def _settle_storage_write_failure(
     db: Session,
     transfer_uid: str,
