@@ -312,3 +312,47 @@ def test_preview_write_failure_keeps_durable_failed_transfer(
     transfer = db.scalar(select(FileTransfer).where(FileTransfer.operation == "preview_generate"))
     assert transfer is not None
     assert transfer.status == "failed"
+
+
+def test_locked_cache_race_records_reuse_instead_of_zero_byte_generation(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payload = _dxf_bytes()
+    storage = LocalFileStorage(tmp_path / "storage")
+    source = _source_file(db, storage, payload)
+    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    first = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-race-first",
+    )
+    db.commit()
+    cache_checks = iter((None, first.preview_file))
+    monkeypatch.setattr(
+        service,
+        "_find_cached_preview",
+        lambda *_args, **_kwargs: next(cache_checks),
+    )
+
+    raced = service.get_or_create_dxf_preview(
+        db,
+        source,
+        payload,
+        storage=storage,
+        request_id="preview-race-second",
+    )
+    db.commit()
+
+    assert raced.cached is True
+    assert raced.preview_file.id == first.preview_file.id
+    transfer = db.scalar(
+        select(FileTransfer).where(FileTransfer.request_id == "preview-race-second")
+    )
+    assert transfer is not None
+    assert transfer.operation == "preview_cache_reuse"
+    assert transfer.status == "succeeded"
+    assert transfer.transferred_bytes == 0

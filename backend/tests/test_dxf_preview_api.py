@@ -317,3 +317,44 @@ def test_dxf_preview_content_rejects_registered_size_mismatch(
 
     assert response.status_code == 409, response.text
     assert response.json()["error"]["code"] == "STORAGE_SIZE_MISMATCH"
+
+
+def test_source_soft_delete_invalidates_registered_preview(
+    db: Session,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    storage = LocalFileStorage(tmp_path / "storage")
+    _use_storage(monkeypatch, storage)
+    client = TestClient(app)
+    headers = _admin(client)
+    source_id = _upload_dxf(client, headers, _dxf_bytes())
+    generated = client.get(f"/api/v1/files/{source_id}/dxf-preview", headers=headers)
+    assert generated.status_code == 200, generated.text
+    preview_id = generated.json()["data"]["preview_file_id"]
+    preview = db.get(StoredFile, preview_id)
+    assert preview is not None
+    assert storage.object_exists(preview.bucket, preview.storage_key)
+
+    deleted = client.delete(f"/api/v1/files/{source_id}", headers=headers)
+
+    assert deleted.status_code == 204, deleted.text
+    db.expire_all()
+    preview = db.get(StoredFile, preview_id)
+    assert preview is not None
+    assert preview.status == "deleted"
+    invalidation = db.scalar(
+        select(FileTransfer).where(
+            FileTransfer.file_id == preview_id,
+            FileTransfer.operation == "preview_invalidate",
+        )
+    )
+    assert invalidation is not None
+    assert invalidation.status == "succeeded"
+    assert invalidation.actor_user_id is not None
+    assert storage.object_exists(preview.bucket, preview.storage_key)
+    content = client.get(
+        f"/api/v1/files/{source_id}/dxf-preview/content?preview_file_id={preview_id}",
+        headers=headers,
+    )
+    assert content.status_code == 404

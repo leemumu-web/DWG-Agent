@@ -206,6 +206,38 @@ def complete_transfer_in_transaction(
     return TransferSnapshot.from_model(row)
 
 
+def complete_reused_transfer_in_transaction(
+    db: Session,
+    transfer_uid: str,
+    *,
+    operation: str,
+    file_id: int,
+    bucket: str,
+    storage_key: str,
+    original_name: str,
+) -> TransferSnapshot:
+    """Settle an active intent that reused an already registered object."""
+    row = _transfer_for_update(db, transfer_uid)
+    if row.status == "succeeded":
+        return TransferSnapshot.from_model(row)
+    if row.status not in ACTIVE_TRANSFER_STATUSES:
+        raise AppHTTPException(
+            409,
+            "TRANSFER_NOT_COMPLETABLE",
+            f"Transfer cannot be completed from status {row.status}.",
+        )
+    row.operation = operation
+    return complete_transfer_in_transaction(
+        db,
+        transfer_uid,
+        file_id=file_id,
+        bucket=bucket,
+        storage_key=storage_key,
+        original_name=original_name,
+        transferred_bytes=0,
+    )
+
+
 def settle_transfer(
     factory: sessionmaker[Session],
     transfer_uid: str,

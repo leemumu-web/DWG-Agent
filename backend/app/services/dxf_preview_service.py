@@ -36,6 +36,7 @@ from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.services.file_transfer_service import (
     TransferSpec,
+    complete_reused_transfer_in_transaction,
     complete_transfer_in_transaction,
     mark_transfer_in_progress,
     prepare_transfer_in_transaction,
@@ -310,6 +311,7 @@ def _invalidate_preview_file(
     preview: StoredFile,
     *,
     request_id: str,
+    actor_user_id: int | None = None,
 ) -> None:
     if preview.status == "deleted":
         return
@@ -320,7 +322,7 @@ def _invalidate_preview_file(
         TransferSpec(
             direction="internal",
             operation="preview_invalidate",
-            actor_user_id=None,
+            actor_user_id=actor_user_id,
             request_id=request_id,
             file_id=preview.id,
             batch_ref=preview.batch_name,
@@ -339,6 +341,33 @@ def _invalidate_preview_file(
         original_name=preview.original_name,
         transferred_bytes=0,
     )
+
+
+def invalidate_dxf_previews_for_source(
+    db: Session,
+    source: StoredFile,
+    *,
+    actor_user_id: int,
+    request_id: str,
+) -> int:
+    """Soft-delete active preview registrations for one persisted DXF source."""
+    if source.file_ext.lower() != ".dxf":
+        return 0
+    previews = db.scalars(
+        select(StoredFile).where(
+            StoredFile.batch_name == preview_batch_name(source),
+            StoredFile.file_ext == ".svg",
+            StoredFile.status != "deleted",
+        )
+    ).all()
+    for preview in previews:
+        _invalidate_preview_file(
+            db,
+            preview,
+            request_id=request_id,
+            actor_user_id=actor_user_id,
+        )
+    return len(previews)
 
 
 def _find_cached_preview(
@@ -459,14 +488,14 @@ def get_or_create_dxf_preview(
             request_id=request_id,
         )
         if cached is not None:
-            complete_transfer_in_transaction(
+            complete_reused_transfer_in_transaction(
                 db,
                 transfer.transfer_uid,
+                operation="preview_cache_reuse",
                 file_id=cached.id,
                 bucket=cached.bucket,
                 storage_key=cached.storage_key,
                 original_name=cached.original_name,
-                transferred_bytes=0,
             )
             return _asset_from_inspection(
                 cached,

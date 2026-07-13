@@ -43,6 +43,7 @@ from app.services.audit_service import write_audit_log
 from app.services.dxf_preview_service import (
     MAX_DXF_SIZE_BYTES,
     get_or_create_dxf_preview,
+    invalidate_dxf_previews_for_source,
     preview_batch_name,
     validate_dxf_source_size,
 )
@@ -214,6 +215,12 @@ def _soft_delete_file_in_transaction(
     request_id: str,
     batch_ref: str | None = None,
 ) -> None:
+    invalidate_dxf_previews_for_source(
+        db,
+        stored,
+        actor_user_id=actor_user_id,
+        request_id=request_id,
+    )
     stored.status = "deleted"
     stored.deleted_at = datetime.now(UTC)
     transfer = prepare_transfer_in_transaction(
