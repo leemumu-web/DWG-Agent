@@ -45,6 +45,28 @@ def test_build_cmd_order():
     assert cmd[7] == "a.dxf"
 
 
+def test_existing_display_disables_per_call_xvfb(monkeypatch):
+    """Worker 已提供持久 DISPLAY 时，不再为每个 ODA 调用启动临时 Xvfb。"""
+    monkeypatch.setenv("DISPLAY", ":92")
+    with mock.patch(
+        "dxf_converter.engines.oda_converter.shutil.which",
+        return_value="/usr/bin/xvfb-run",
+    ):
+        conv = OdaConverter(executable=Path("/fake/oda"))
+    assert conv.xvfb_run is False
+
+
+def test_explicit_xvfb_setting_wins_over_display(monkeypatch):
+    """调用方显式要求 xvfb-run 时，DISPLAY 不覆盖显式配置。"""
+    monkeypatch.setenv("DISPLAY", ":92")
+    with mock.patch(
+        "dxf_converter.engines.oda_converter.shutil.which",
+        return_value="/usr/bin/xvfb-run",
+    ):
+        conv = OdaConverter(executable=Path("/fake/oda"), xvfb_run=True)
+    assert conv.xvfb_run is True
+
+
 # ---------------------------------------------------------------------- #
 # 单文件转换
 # ---------------------------------------------------------------------- #

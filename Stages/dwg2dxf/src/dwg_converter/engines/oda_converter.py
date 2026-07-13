@@ -21,6 +21,7 @@ ODA 失败时的静默行为：returncode 仍是 0，只在目标目录写 <name
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -140,7 +141,7 @@ class OdaConverter:
 
     def _resolve_xvfb(self) -> None:
         if self.xvfb_run is None:
-            self.xvfb_run = shutil.which("xvfb-run") is not None
+            self.xvfb_run = not bool(os.environ.get("DISPLAY"))
         if self.xvfb_run and shutil.which("xvfb-run") is None:
             raise OdaConvertError(
                 "xvfb_run=True 但未找到 xvfb-run。请安装 xorg-server-xvfb，"
