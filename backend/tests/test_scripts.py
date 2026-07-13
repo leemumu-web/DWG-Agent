@@ -106,11 +106,42 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
     assert "start_celery_worker" in lib_content
     assert "WORKER_SPECS" in lib_content
     for queue, slug in expected.items():
-        assert f"{queue}:2:" in lib_content or f"{queue}:1:" in lib_content
+        assert f'"{queue}|' in lib_content
         assert all("start_all_workers" in content for content in start_contents)
         assert f"{queue}" in lib_content
         assert slug in lib_content
     assert "stop_all_workers" in stop_content
+
+
+def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():
+    wrapper = PROJECT_ROOT / "scripts/run-cad-worker.sh"
+
+    assert wrapper.is_file()
+    content = wrapper.read_text(encoding="utf-8")
+    assert "Xvfb" in content
+    assert "trap cleanup" in content
+    assert 'export DISPLAY="$display"' in content
+    assert "celery_pid" in content
+    assert "wait_for_x_socket" in content
+
+
+def test_local_cad_worker_concurrency_and_display_are_configurable():
+    content = _read("scripts/lib.sh")
+
+    assert 'DXF_WORKER_CONCURRENCY="${DXF_WORKER_CONCURRENCY:-8}"' in content
+    assert 'DXF2DWG_WORKER_CONCURRENCY="${DXF2DWG_WORKER_CONCURRENCY:-8}"' in content
+    assert 'DXF_WORKER_DISPLAY="${DXF_WORKER_DISPLAY:-:91}"' in content
+    assert 'DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"' in content
+    assert '"dxf|${DXF_WORKER_CONCURRENCY}|dxf|${DXF_WORKER_DISPLAY}"' in content
+    assert '"dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"' in content
+
+
+def test_status_warns_when_local_and_compose_consume_the_same_cad_queue():
+    content = _read("scripts/status.sh")
+
+    assert "docker compose ps --status running --services" in content
+    assert "本地与 Compose 同时消费" in content
+    assert 'worker-${label}' in content
 
 
 def test_stop_all_does_not_kill_unowned_backend_port():

@@ -61,10 +61,14 @@ class TestAppServices:
         data = _load()
         for service_name in APP_SERVICE_NAMES[1:]:
             command = " ".join(data["services"][service_name]["healthcheck"]["test"])
-            assert "/proc/1/cmdline" in command
             assert "/tmp/dwg-celery-ready" in command
             assert "inspect" not in command
             assert "localhost:8010/health" not in command
+            if service_name in {"worker-dxf", "worker-dxf2dwg"}:
+                assert "/tmp/dwg-celery.pid" in command
+                assert "kill -0" in command
+            else:
+                assert "/proc/1/cmdline" in command
 
     def test_unsupported_flower_service_is_absent(self):
         data = _load()
@@ -76,6 +80,28 @@ class TestAppServices:
         for stage in ("dwg2dxf", "dxf2dwg", "dxf2excel"):
             assert f"COPY Stages/{stage} ./Stages/{stage}" in dockerfile
         assert "COPY Stages/excel_final /app/Stages/excel_final" in dockerfile
+        assert "COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh" in dockerfile
+
+    def test_conversion_workers_use_persistent_xvfb_and_configurable_concurrency(self):
+        data = _load()
+        expected = {
+            "worker-dxf": ("dxf", "${DXF_WORKER_CONCURRENCY:-8}", "${DXF_WORKER_DISPLAY:-:91}"),
+            "worker-dxf2dwg": (
+                "dxf2dwg",
+                "${DXF2DWG_WORKER_CONCURRENCY:-8}",
+                "${DXF2DWG_WORKER_DISPLAY:-:92}",
+            ),
+        }
+
+        for service_name, (queue, concurrency, display) in expected.items():
+            service = data["services"][service_name]
+            command = service["command"]
+            assert command[0] == "/app/scripts/run-cad-worker.sh"
+            assert command[1] == queue
+            assert command[2] == concurrency
+            assert command[4] == display
+            health = " ".join(service["healthcheck"]["test"])
+            assert "/tmp/dwg-celery.pid" in health
 
 
 class TestComposeYamlValid:

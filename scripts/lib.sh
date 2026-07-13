@@ -11,14 +11,20 @@ export PROJECT_ROOT LOCAL_BACKEND_HOST LOCAL_BACKEND_PORT
 
 RED='\033[31m'; GREEN='\033[32m'; YELLOW='\033[33m'; BLUE='\033[34m'; DIM='\033[2m'; NC='\033[0m'
 
-# Celery worker 单一事实来源：queue:concurrency:slug
+# CAD 转换 worker 默认值可由启动进程环境覆盖；配置文件示例记录同名键。
+DXF_WORKER_CONCURRENCY="${DXF_WORKER_CONCURRENCY:-8}"
+DXF2DWG_WORKER_CONCURRENCY="${DXF2DWG_WORKER_CONCURRENCY:-8}"
+DXF_WORKER_DISPLAY="${DXF_WORKER_DISPLAY:-:91}"
+DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"
+
+# Celery worker 单一事实来源：queue|concurrency|slug|optional-display
 # start-all / start-dev / stop-all / status 全部从这里派生，避免各脚本各写一份列表。
 WORKER_SPECS=(
-    "report:1:report"
-    "dxf:2:dxf"
-    "dxf2dwg:2:dxf2dwg"
-    "dxf2excel:1:dxf2excel"
-    "excel_final:1:excel-final"
+    "report|1|report|"
+    "dxf|${DXF_WORKER_CONCURRENCY}|dxf|${DXF_WORKER_DISPLAY}"
+    "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
+    "dxf2excel|1|dxf2excel|"
+    "excel_final|1|excel-final|"
 )
 
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
@@ -151,7 +157,7 @@ stop_celery_worker() {
 }
 
 start_celery_worker() {
-    local queue="$1" concurrency="$2" slug="${3:-${1//_/-}}"
+    local queue="$1" concurrency="$2" slug="${3:-${1//_/-}}" display="${4:-}"
     local label="worker-${slug}"
     local pidfile="/tmp/dwg-agent-${label}.pid"
     local logfile="/tmp/dwg-agent-${label}.log"
@@ -181,11 +187,17 @@ start_celery_worker() {
         celery_cmd=(uv run celery)
     fi
 
-    nohup setsid "${celery_cmd[@]}" \
-        -A app.workers.celery_app:celery_app worker \
-        -Q "$queue" -n "${slug}-local@%h" \
-        --concurrency="$concurrency" --loglevel=INFO \
-        >"$logfile" 2>&1 </dev/null &
+    if [ -n "$display" ]; then
+        nohup setsid "$PROJECT_ROOT/scripts/run-cad-worker.sh" \
+            "$queue" "$concurrency" "${slug}-local@%h" "$display" \
+            >"$logfile" 2>&1 </dev/null &
+    else
+        nohup setsid "${celery_cmd[@]}" \
+            -A app.workers.celery_app:celery_app worker \
+            -Q "$queue" -n "${slug}-local@%h" \
+            --concurrency="$concurrency" --loglevel=INFO \
+            >"$logfile" 2>&1 </dev/null &
+    fi
     local pid=$!
     echo "$pid" > "$pidfile"
 
@@ -220,17 +232,17 @@ start_celery_worker() {
 
 # 遍历 WORKER_SPECS 启动/停止全部 Celery worker。
 start_all_workers() {
-    local spec queue concurrency slug
+    local spec queue concurrency slug display
     for spec in "${WORKER_SPECS[@]}"; do
-        IFS=: read -r queue concurrency slug <<<"$spec"
-        start_celery_worker "$queue" "$concurrency" "$slug"
+        IFS='|' read -r queue concurrency slug display <<<"$spec"
+        start_celery_worker "$queue" "$concurrency" "$slug" "$display"
     done
 }
 
 stop_all_workers() {
-    local spec queue concurrency slug
+    local spec queue concurrency slug display
     for spec in "${WORKER_SPECS[@]}"; do
-        IFS=: read -r queue concurrency slug <<<"$spec"
+        IFS='|' read -r queue concurrency slug display <<<"$spec"
         stop_celery_worker "$queue" "$slug" || true
     done
 }

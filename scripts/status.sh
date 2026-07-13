@@ -8,15 +8,27 @@ echo -e "${BLUE}  DWG-Agent 状态检查${NC}"
 echo -e "${BLUE}══════════════════════════════════════════════════════${NC}"
 
 ALL_OK=true
+COMPOSE_RUNNING_SERVICES=""
+if command -v docker >/dev/null 2>&1; then
+    COMPOSE_RUNNING_SERVICES="$(
+        cd "$PROJECT_ROOT" && docker compose ps --status running --services 2>/dev/null || true
+    )"
+fi
 
 # 1. Infrastructure
 step "基础设施"
 bash "$PROJECT_ROOT/scripts/db.sh" status || ALL_OK=false
 for spec in "${WORKER_SPECS[@]}"; do
-    IFS=: read -r queue _concurrency label <<<"$spec"
+    IFS='|' read -r queue _concurrency label _display <<<"$spec"
     mapfile -t worker_pids < <(celery_worker_pids "$queue" "$label")
     if ((${#worker_pids[@]} > 0)); then
         ok "Celery worker-${label} — pid(s) ${worker_pids[*]}"
+        if [ "$queue" = "dxf" ] || [ "$queue" = "dxf2dwg" ]; then
+            if grep -qx "worker-${label}" <<<"$COMPOSE_RUNNING_SERVICES"; then
+                warn "本地与 Compose 同时消费 ${queue} 队列（worker-${label}）；性能与调度结果不确定"
+                ALL_OK=false
+            fi
+        fi
     else
         warn "Celery worker-${label} — 未运行"
         ALL_OK=false

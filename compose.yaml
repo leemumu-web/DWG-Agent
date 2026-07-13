@@ -88,14 +88,26 @@ services:
 
   worker-dxf:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf -n dxf@%h --concurrency=2
+    command: ["/app/scripts/run-cad-worker.sh", "dxf", "${DXF_WORKER_CONCURRENCY:-8}", "dxf@%h", "${DXF_WORKER_DISPLAY:-:91}"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery.pid && kill -0 $$(cat /tmp/dwg-celery.pid)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - app_var:/app/var
     profiles: [workers]
 
   worker-dxf2dwg:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf2dwg -n dxf2dwg@%h --concurrency=2
+    command: ["/app/scripts/run-cad-worker.sh", "dxf2dwg", "${DXF2DWG_WORKER_CONCURRENCY:-8}", "dxf2dwg@%h", "${DXF2DWG_WORKER_DISPLAY:-:92}"]
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery.pid && kill -0 $$(cat /tmp/dwg-celery.pid)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - app_var:/app/var
     profiles: [workers]

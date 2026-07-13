@@ -86,13 +86,16 @@ COPY Stages/excel_final /app/Stages/excel_final
 COPY backend/app ./app
 COPY backend/alembic.ini ./
 COPY backend/migrations ./migrations
+COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh
 
 # ODA File Converter 二进制（85 MB AppImage）—— worker-dxf / worker-agent 转换链路用。
 # backend-api / worker-report 不调用，但共享镜像，统一内置以简化部署。
 COPY --chown=appuser:appuser Stages/dwg2dxf/tools/oda /app/oda
 
 # Create writable directories for runtime artifacts and user-level control/cache files.
-RUN mkdir -p /app/var /home/appuser && chown -R appuser:appuser /app/var /home/appuser /app/oda
+RUN mkdir -p /app/var /home/appuser && \
+    chmod 0755 /app/scripts/run-cad-worker.sh && \
+    chown -R appuser:appuser /app/var /home/appuser /app/oda
 
 USER appuser
 
