@@ -64,6 +64,8 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
 
 通用 workflow route **不会**自动创建 Excel Final Job，也不会自动挂接其结果产物。`bind_stage_job()`、`sync_workflow_from_jobs()` 和 `attach_artifact()` 是内部 service 能力，但公开 workflow route 没有调用 Job 绑定或产物挂接函数。DXF→Excel 页面另有一个显式确认桥接：定位成功 extraction result 的已登记文件 ID，调用 Excel Final process 端点并跳转到带 `job_id` 的监视页；它不改变通用工作流的人工编排边界。详见[通用工作流框架](workflow-framework.md)。
 
+Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用上传流水/StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。
+
 ## 异步请求路径
 
 ```text
@@ -108,7 +110,7 @@ MySQL 的 `files` 是业务登记事实源，Local FS/MinIO 是字节事实源�
        -> 删除失败: compensation_required
 ```
 
-上传、ZIP 每个有效条目、worker 生成文件和 DXF SVG 预览缓存均走该路径。预览缓存以源文件 ID、SHA-256 前缀和 renderer 版本分组，MySQL 登记 SVG 文件，MinIO/Local 保存字节；缓存命中仍由对象 `stat` 验证。下载/ZIP/预览出库在响应流开始前登记 outbound 意图，iterator 正常耗尽、客户端中断或存储读取失败后按实际字节独立结算。软删除只更新登记并保留对象；恢复会清空 `deleted_at`。永久清理先锁定 finding/关联登记并重检对象，再删除对象；只有元数据提交成功后才把独立流水结算为成功，提交失败留下 `compensation_required`，不声称原子回滚了不可恢复字节。
+上传、ZIP 每个有效条目、worker 生成文件和 DXF SVG 预览缓存均走该路径。预览缓存以源文件 ID、SHA-256 前缀和 renderer 版本分组，MySQL 登记 SVG 文件，MinIO/Local 保存字节；缓存命中仍由对象 `stat` 验证。锁内二次命中写 `preview_cache_reuse`，明确表示零字节复用而非生成。源 DXF 软删除在同一数据库事务中把对应预览登记标为 deleted 并写 `preview_invalidate`；物理 SVG 仍遵循保留期/对账/purge。下载/ZIP/预览出库在响应流开始前登记 outbound 意图，iterator 正常耗尽、客户端中断或存储读取失败后按实际字节独立结算。软删除只更新登记并保留对象；恢复会清空 `deleted_at`。永久清理先锁定 finding/关联登记并重检对象，再删除对象；只有元数据提交成功后才把独立流水结算为成功，提交失败留下 `compensation_required`，不声称原子回滚了不可恢复字节。
 
 local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落盘。MinIO/local 都实现 stat、exists 和游标分页清单。report worker 异步生成 `storage_scan_runs` 与异常 `storage_scan_findings`，分类为对象缺失、未登记对象、大小不符和软删除对象保留。管理员可在五页签数据控制台执行带签名预检 token、5 分钟有效期、实时摘要重检、批量数量/字节上限和幂等键的四种处置；审计员只有读取与预检权限。`reap-storage` 仍用于保留期回收和脚本化维护，不替代扫描/处置账本。
 

@@ -58,7 +58,7 @@ DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。
 
 当前父仓库只把 `Stages/dxf2excel` 记录为 gitlink commit `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，本地也缺少该对象。已填充工作目录使当前 checkout 可工作，但 clean clone 和 image build 不能依赖它。在管线被视为可复现交付前必须修复。
 
-成功批次的前端操作可显式确认“生成零件清单”。实现先从 extraction Job 的结果登记中取得 Excel `result_file_id`，再调用 Excel Final process 端点；提交中的 batch 由同步 ref 和 UI Set 双重防重，成功后导航到 `/files/excel-final?job_id=...`。该桥接复用已登记对象，不重新上传字节，也不表示通用 workflow route 已自动编排。
+成功批次的前端操作可显式确认“生成零件清单”。实现先从 extraction Job 的结果登记中取得 Excel `result_file_id`，再以 `dxf2excel-{extraction_job_id}-{result_file_id}` 幂等键调用 Excel Final process 端点；同步 ref/UI Set 防止同一页面双击，服务端唯一约束负责刷新、多标签和多进程竞态。成功或重放后都导航到 `/files/excel-final?job_id=...`。该桥接复用已登记对象，不重新上传字节，也不表示通用 workflow route 已自动编排。
 
 ## Excel Final
 
@@ -74,7 +74,7 @@ DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。
 
 关系化导入使用只读 `iter_rows(values_only=True)` 遍历输出表。零件表通过规范化表头定位列并跳过空行/合计行；构件表必须存在 `构件编号` 列，`构件数` 和重量列可选，数值 0 不会再被误写成 NULL。输入字节保持不变；输出工作簿中的“原表”是去除半角/全角空格后的处理基线，并非原始对象的逐字节副本。
 
-Excel Final 前端总览由 `/overview` 在 SQL 中按当前用户可读 Job 聚合，不使用当前批次页冒充全局统计。批次、零件、构件和跨批次搜索均使用服务端分页；结果工作簿经现有鉴权预览/下载接口读取，批次页不会逐行轮询 Job 状态。
+Excel Final 前端总览由 `/overview` 在 SQL 中同时按 `task_type=process_excel_final` 和当前用户可读 Job 聚合，不使用当前批次页冒充全局统计。批次、零件、构件和跨批次搜索均使用相同业务域/权限域及服务端分页；结果工作簿经现有鉴权预览/下载接口读取，批次页不会逐行轮询 Job 状态。页面把任务、批次分页、批次抽屉和已应用搜索写入 URL，刷新/分享/浏览器历史可恢复监视上下文；健康条按实际数据库与 Local/MinIO 后端显示，不能把开发 SQLite/local 固定写成 MySQL/MinIO。
 
 ## 结果与下载解析
 

@@ -8,6 +8,8 @@
 
 **Tech Stack:** FastAPI, SQLAlchemy 2, Alembic, MySQL 8/SQLite, MinIO/local storage adapters, React 19, TypeScript 6, React Router 7, TanStack Query 5, Ant Design 6, Pytest, Playwright.
 
+**Execution status:** Completed on 2026-07-13. The implementation steps below are backed by the evidence section at the end of this plan; no acceptance item remains outstanding. Checkboxes are retained as the original execution recipe rather than rewritten as result claims.
+
 ---
 
 ## File map
@@ -70,7 +72,6 @@ class Job(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    request_key: Mapped[str | None] = mapped_column(String(128))
     request_key: Mapped[str | None] = mapped_column(String(128))
 ```
 
@@ -955,3 +956,18 @@ git status --short
 ```
 
 Expected: no uncommitted files and no known acceptance criterion left unverified.
+
+## Verification evidence
+
+Observed on 2026-07-13 in `/home/Creeken/Paper/CAD_research/complete_framework`:
+
+- Backend static gate: `cd backend && .venv/bin/ruff check app tests ../tests/run_full_verify.py ../scripts/check_docs.py ../scripts/generate_api_docs.py` passed.
+- Backend full suite: `879 passed, 5 skipped`, including the live MySQL concurrency test; existing dependency/deprecation warnings only.
+- MySQL concurrency: the focused two-session request-key race passed five consecutive runs. The unique-conflict loser uses a locking current read after savepoint rollback so MySQL `REPEATABLE READ` cannot hide the committed winner behind an older snapshot.
+- Migration: single head `d5e8a1c4b720`; `alembic check` reported no new operations. `bash scripts/db.sh migration-test` upgraded an empty MySQL schema through all 13 revisions and verified 28 application tables, the request-key column/constraint, and seeds.
+- Storage transactions: local/MySQL probe created Excel file #903 / Job #1080 and DXF #904 / SVG #905; Compose MinIO/MySQL probe created Excel file #906 / Job #1081 and DXF #907 / SVG #908. Both returned 677-byte SVG content and succeeded for inbound upload, preview generation, authenticated outbound preview, preview invalidation, and source soft delete. Probe-owned objects were removed afterward.
+- Infrastructure and pipeline gates: `110 / 110`; Stage suites `28 + 28 + 259 passed`.
+- Frontend: production build passed; full Playwright suite `72 passed, 1 skipped`. The skipped case requires an externally configured real XLS sample path.
+- Browser review: authenticated 1440×1000 session, no console errors, truthful `MySQL` plus local-storage health, recent refresh time, server pagination, search tools and task ledger. The hero description uses a project-owned class rather than Ant Design's rendered tag; its final computed color is `rgb(185, 206, 216)`.
+- Documentation: `make docs-generate && make docs-check` passed after recording the current head, API contract, probes, configuration boundary and evidence.
+- Final screenshot: `output/playwright/excel-final-production-observability.png`.

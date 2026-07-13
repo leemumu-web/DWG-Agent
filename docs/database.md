@@ -327,6 +327,7 @@ DWG 图纸的异步处理作业。
 | `drawing_id` | BIGINT | NULLABLE, FK → `drawings.id`, INDEXED | 目标图纸 |
 | `created_by` | BIGINT | NULLABLE, FK → `sys_users.id` | 作业提交者 |
 | `task_type` | VARCHAR(64) | NOT NULL | 任务代码: `convert_dwg_to_dxf` / `convert_dxf_to_dwg` / `extract_dxf_to_excel` |
+| `request_key` | VARCHAR(128) | NULLABLE | API 作用域后的逻辑请求幂等键；旧任务和不要求幂等的通用任务为 NULL |
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high`（决定管道路由） |
 | `pipeline` | VARCHAR(64) | NULLABLE | 分配的管道: `local_stub` / `dxf_open_source` / `dxf2dwg_open_source` / `dxf2excel` / `zwcad_worker` |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
@@ -343,6 +344,8 @@ DWG 图纸的异步处理作业。
 | `updated_at` | DATETIME | NOT NULL | |
 
 **索引:** `ix_jobs_project_id`, `ix_jobs_drawing_id`, `ix_jobs_status`
+
+**唯一约束:** `uq_jobs_actor_task_request_key` 建立在 `(created_by, task_type, request_key)` 上。认证 Excel Final 请求的 `created_by` 与 `request_key` 非空，唯一约束是多进程竞态的最终边界；多个 NULL 仍允许旧任务和非幂等任务共存。相同键若参数不同由 service 返回 409，不能静默指向另一输入文件。
 
 **作业生命周期状态:** `pending`（已创建，尚未入队）→ `queued`（已进入 MySQL 支撑的 Celery 队列）→ `running`（Worker 正在执行）→ `succeeded` / `failed` / `cancelled`。中间状态: `waiting_cad_worker`, `validating`, `need_review`。
 
@@ -618,8 +621,9 @@ analysis_results ──< workflow_artifacts
 | `e4a1c7f2b930` | 新增工作流、顺序阶段和版本化流程产物表 | 2026-07-11 |
 | `6d2f8a9c1b40` | 新增文件流转账本、一致性扫描表、文件软删除时间与对象位置唯一约束 | 2026-07-12 |
 | `9c4e7b1a2d60` | 扩容 Excel Final 构件号、零件号、类型与规格字段 | 2026-07-13 |
+| `d5e8a1c4b720` | 新增 `jobs.request_key` 与用户/任务/请求键唯一约束 | 2026-07-13 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40 → 9c4e7b1a2d60`；**`9c4e7b1a2d60` 是当前 head。**
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40 → 9c4e7b1a2d60 → d5e8a1c4b720`；**`d5e8a1c4b720` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 

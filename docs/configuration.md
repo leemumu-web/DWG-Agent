@@ -19,6 +19,8 @@
 
 FastAPI 端口 `8010`（本地与容器一致）、Vite `5173` 和本地 Nginx `8080` 是脚本/配置常量，不是 Pydantic 字段。
 
+跨源 Vite 开发会对带 `Idempotency-Key` 的 Excel Final POST 发起 CORS 预检。后端只允许 `Authorization`、`Content-Type` 和 `Idempotency-Key` 三类请求头；不要用 `*` 代替精确 origin/headers，也不要删除幂等头后用前端双击锁冒充服务端一致性。
+
 ## 数据库与连接池
 
 | 变量 | 默认值 | 含义 |
@@ -53,6 +55,8 @@ Celery broker/result URL 分别计算为 `sqla+<effective-mysql-dsn>` 和 `db+<e
 | `MINIO_ROOT_PASSWORD` | 仅模板 | Compose server 设置，不是 backend `Settings` 字段 |
 
 bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED=dwg-derived`、`MINIO_BUCKET_REPORTS=dwg-reports`、`MINIO_BUCKET_TEMP=dwg-temp`、`MINIO_BUCKET_DXF_ORIGINAL=dxf-original` 和 `MINIO_BUCKET_DXF_DERIVED=dxf-derived`。
+
+生产 Compose 的 MinIO 只连接 `internal` 网络，默认不发布 9000/9001 到宿主；容器使用 `.env.docker` 的 `http://minio:9000` 与对应 backend 凭据。宿主进程若切换 `STORAGE_BACKEND=minio`，必须提供宿主可达 endpoint 和与正在运行服务一致的 access/secret，不能假定 `.env` 的 `localhost:9000` 可达或与 `.env.docker` 密钥相同。验证脚本可临时使用容器 IP，禁止为一次探针长期开放管理 console。
 
 两个 ZIP 限制和 DXF bucket 覆盖已存在于代码，但当前没有同时作为活动行列在两份环境模板中。因此除非操作员显式加入，否则使用默认值。
 

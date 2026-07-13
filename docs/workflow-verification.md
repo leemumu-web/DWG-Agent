@@ -131,7 +131,32 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
 MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动当前源码的临时 8011 API，连接现有健康 MinIO 容器和真实 MySQL，完成探针后立即停止；因此证明的是当前代码对真实 MinIO/MySQL 的登记和读取闭环，不是旧 Compose 镜像已经部署本次提交。
 
-## 7. 2026-07-11 基线证据
+## 7. 2026-07-13 生产一致性二轮硬化证据
+
+本轮在第 6 节的 PR 选择性吸收基础上，继续收紧 Excel Final 请求幂等、查询域、DXF 预览生命周期和前端可恢复监视状态。验证使用现有真实 MySQL、local storage 和运行中的 Compose MinIO；探针只删除自身创建的对象和合成 Job，没有处置既有业务文件或一致性 finding。
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| Backend Ruff | pass | `app`、`tests`、全量 verifier、迁移/文档生成脚本 |
+| Backend 全量 | **879 passed，5 skipped** | SQLite 单元/集成回归加真实 MySQL 并发幂等用例；15 条既有 dependency/deprecation warning，无失败 |
+| MySQL 并发重放 | **连续 5 次 pass** | 两个独立 Session 同键竞争只产生一个 Job；失败者在 savepoint rollback 后以 locking current read 越过旧 consistent snapshot 读取胜者 |
+| Alembic | pass | 单一 head `d5e8a1c4b720`；活动库增量升级、`alembic check` 无待生成 operation；空 MySQL 完成 13 个 revision，验证 28 张业务表、唯一约束与种子数据 |
+| Local + MySQL 事务探针 | pass | Excel file #903 / Job #1080 重放未复制对象；DXF #904 / SVG #905，677 bytes；上传、预览生成、鉴权出库、源删除失效和软删除流水均 succeeded |
+| MinIO + MySQL 事务探针 | pass | 使用 Compose 内部 MinIO endpoint 与 `.env.docker` 对应凭据；Excel file #906 / Job #1081、DXF #907 / SVG #908，677 bytes；同一组入库/出库/失效操作全部 succeeded，探针对象已清理 |
+| Infrastructure / Compose | **110/110 pass** | MySQL、MinIO、Nginx、生产/开发 Compose 和 worker 契约；没有为了探针发布 MinIO 9000/9001 |
+| Stage tests | **28 + 28 + 259 passed** | dwg2dxf、dxf2dwg、Excel Final multi_split |
+| Frontend build | pass | TypeScript 6、Vite 8；幂等提交、URL 状态、真实后端健康标签和标题区对比度修复进入 production bundle |
+| Playwright 全量 | **72 passed，1 skipped** | 73 条浏览器场景；Excel Final 数据控制台、历史/刷新恢复、Local/SQLite 健康文案、CORS 幂等头、转换桥接和视觉回归；外部真实 XLS 样本未配置的成功链路按设计跳过 |
+| 浏览器实景复核 | pass | 1440×1000 管理员会话无 console error；后端实际报告 `MySQL 权威数据 · 本地对象存储`，最近刷新、分页、搜索和任务区可见；说明文字计算颜色为 `rgb(185, 206, 216)` |
+| Documentation checker | pass | 生成 API 合同、91 个 path / 110 个 operation、数据库 head/表数、配置边界、操作探针与交叉链接一致 |
+
+本轮全量回归首次暴露了一个只在真实 MySQL 并发下出现的竞态：两个请求都在唯一键提交前做普通查询，竞争失败者虽然回滚了 nested transaction，但外层 `REPEATABLE READ` 的 consistent snapshot 仍看不到刚提交的胜者，偶发再次抛出 1062。修复不是吞掉异常或重试 INSERT，而是在唯一冲突后执行 `SELECT ... FOR UPDATE` current read，再核对原请求参数；连续聚焦运行和包含该用例的后端全量均通过。
+
+浏览器还证明自定义 `Idempotency-Key` 会触发 Vite 跨源预检；后端现精确允许该请求头，并由回归测试防止后续删除。健康接口和前端不再把 SQLite/local 环境写成 MySQL/MinIO。Compose MinIO 默认只在内部网络可达，宿主 `.env` 的 `localhost:9000` 和密钥不能代替 `.env.docker`；本次使用临时容器 IP 验证真实 MinIO，没有改写密钥或扩大端口暴露。
+
+最终全页截图位于 `output/playwright/excel-final-production-observability.png`。它显示真实数据库/存储标签、刷新时间、全局指标、上传登记、跨批次检索、批次分页和近期任务；标题说明文字使用项目自有类名控制对比度，不依赖 Ant Design 6 当前渲染出的 HTML 标签。
+
+## 8. 2026-07-11 基线证据
 
 2026-07-11 文档审计运行使用已有本地 MySQL 和已经运行的本地 Nginx/FastAPI/五个已实现 worker；没有重启 stack 或重建 Compose volume。
 
@@ -151,7 +176,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 全量运行提供仓库已知有效 Tekla 清单，并通过成功 upload -> Celery -> result -> 首次下载失败 -> 新签名 digest 验证。另一个 `阚导出材料表.xls` 探针因缺少必要 `构件编号` 和 `数量` 列被正确拒绝；相关文件名/扩展名不足以证明输入有效。许多其他 Files/Jobs UI 测试使用确定性 route fixture，只证明 UI/API contract，不证明真实对象处理。
 
-## 8. 历史集成记录
+## 9. 历史集成记录
 
 仓库此前记录了 2026-07-11 fresh-volume 集成运行，观察为：
 
@@ -162,7 +187,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-13 的当前证据见第 6 节：当前源码为 91 path/110 operation，并已用当前源码 API、真实浏览器和真实 MySQL/MinIO 验证预览与登记链路。通用工作流的自动 Job/产物接线仍是独立范围；DXF→Excel 页面的显式 Excel Final 桥接不改变该边界。
 
-## 9. 故障定位
+## 10. 故障定位
 
 1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
 2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。

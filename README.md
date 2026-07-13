@@ -12,9 +12,9 @@ DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处�
 | 数据 | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 还会按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张。SQLite 只用于 pytest |
 | 通用工作流 | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和“生产流程”页面已实现 | 当前仅持久化和展示编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
 | 异步任务 | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
-| 存储 | Local/MinIO 清单、流转账本、异步一致性扫描和四类安全处置已实现 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
+| 存储 | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置已实现 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID；源 DXF 软删除会同事务失效预览登记 |
 | 数据控制台 | 总览、文件登记、存储对象、入出库流水、一致性五页签已实现 | 管理员可扫描/处置，审计员只读/预检；永久清理必须确认且不可恢复 |
-| Excel Final 控制台 | 权限过滤精确总览、任务监视、跨批次检索、比重查询、批次/零件/构件分页和结果预览已实现 | 数据来自 MySQL；结果字节来自鉴权后的 MinIO/Local 文件接口；管线开关关闭时历史数据仍可浏览 |
+| Excel Final 控制台 | 权限过滤精确总览、任务监视、跨批次检索、比重查询、批次/零件/构件分页、结果预览和 URL 状态恢复已实现 | 上传/建任务使用数据库级幂等键；健康栏显示实际数据库/存储后端；管线开关关闭时历史数据仍可浏览 |
 | 转换管线 | report、DWG -> DXF、DXF -> DWG、DXF -> Excel、Excel Final 的服务路径存在；DXF 支持鉴权 SVG 预览 | 四条业务管线默认关闭，且分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | API、模型和权限边界存在 | 本项目明确不继续实现 Agent；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
 | 图纸业务处理 / Windows CAD worker | 图纸元数据与格式转换边界仍保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 明确不在当前交付范围；`CAD_WORKER_ENABLED=false` |

@@ -40,6 +40,7 @@ bash scripts/docker.sh logs
 | MinIO live | server 进程响应 | bucket、凭据、对象持久化或下载授权可用 |
 | Nginx `HTTP_PORT` 可达 | HTTP 网关和静态根响应 | TLS 已配置；Compose 不发布 443 |
 | `GET /api/v1/system/infrastructure` | 管理员可见 DB/storage/目录即时概览 | 自动备份、对象与 metadata 完全一致或恢复可用 |
+| `GET /api/v1/excel-final/health` | 当前业务数据库/存储类型与 Excel Final 依赖分项状态 | worker 一定消费任务或任意输入 schema 一定受支持 |
 
 应同时使用 readiness 和一笔代表性业务交易。不要把 `/health` 改成深度依赖检查；依赖中断时 liveness 仍需有用。
 
@@ -76,7 +77,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `9c4e7b1a2d60` 和 28 张模型表，验证种子数据与最新 schema 兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 另以空 MySQL/MinIO Compose 卷验证了 Kombu 首次建表、索引和 report worker ready。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `d5e8a1c4b720` 和 28 张模型表，额外验证 `jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 另以空 MySQL/MinIO Compose 卷验证了 Kombu 首次建表、索引和 report worker ready。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 
@@ -143,7 +144,24 @@ bash scripts/docker.sh smoke
 6. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
 7. 永久清理要求输入 `PURGE`，字节不可恢复。若对象已删而 MySQL 提交失败，流水为 `compensation_required`；保留 request ID/transfer UID，重新扫描并按事故流程处理，不能把旧 finding 手工改成 resolved。
 
-DXF 在线预览对象会以 `operation=preview_generate` 登记内部生成流水，源文件变化或缓存对象丢失时写 `preview_invalidate`，浏览器读取写 `direction=outbound, operation=preview`。排查预览时应同时核对源 DXF、SVG `files` 行、对象 `stat` 和三类流水；不要把弹窗能打开当作登记一致性的充分证据。
+DXF 在线预览对象会以 `operation=preview_generate` 登记内部生成流水，并发生成的锁内缓存复用写 `preview_cache_reuse`；源文件变化、缓存对象丢失或源 DXF 软删除时写 `preview_invalidate`，浏览器读取写 `direction=outbound, operation=preview`。源删除后 SVG 物理对象仍处于保留期，但登记和内容端点必须不可用。排查预览时应同时核对源 DXF、SVG `files` 行、对象 `stat` 和流水；不要把弹窗能打开当作登记一致性的充分证据。
+
+代表性上传/幂等/预览/删除事务探针：
+
+```bash
+cd backend
+STORAGE_BACKEND=local .venv/bin/python ../scripts/verify_storage_transactions.py
+
+# Compose MinIO 不发布宿主端口；只为探针读取内部地址和容器凭据，不打印 secret。
+MINIO_IP=$(docker inspect complete_framework-minio-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+MINIO_ACCESS_KEY=$(sed -n 's/^MINIO_ACCESS_KEY=//p' ../.env.docker | head -n 1)
+MINIO_SECRET_KEY=$(sed -n 's/^MINIO_SECRET_KEY=//p' ../.env.docker | head -n 1)
+STORAGE_BACKEND=minio MINIO_ENDPOINT="http://$MINIO_IP:9000" \
+  MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \
+  .venv/bin/python ../scripts/verify_storage_transactions.py
+```
+
+脚本创建独立探针对象，验证 Excel 重放只登记一个文件/Job、DXF SVG 入库与鉴权出库、源删除联动和传输终态；结束时软删除登记、删除合成 Job 并物理移除仅由本次创建的对象。它不会处置既有 finding。宿主 `.env` 与 `.env.docker` 的 MinIO endpoint/凭据必须分别核对；`SignatureDoesNotMatch` 是凭据不一致，不是网络故障。
 
 每次事故记录 scan ID、finding ID、transfer UID、request ID、操作人、时间、预检范围和最终对象 stat。不要把浏览器提示当作唯一证据，应同时查询流水详情、finding 状态和对象存储。
 
