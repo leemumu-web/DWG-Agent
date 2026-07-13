@@ -90,7 +90,7 @@ services:
     <<: *worker
     command: ["/app/scripts/run-cad-worker.sh", "dxf", "${DXF_WORKER_CONCURRENCY:-8}", "dxf@%h", "${DXF_WORKER_DISPLAY:-:91}"]
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery.pid && kill -0 $$(cat /tmp/dwg-celery.pid)"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery-dxf.pid && kill -0 $$(cat /tmp/dwg-celery-dxf.pid)"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -103,7 +103,7 @@ services:
     <<: *worker
     command: ["/app/scripts/run-cad-worker.sh", "dxf2dwg", "${DXF2DWG_WORKER_CONCURRENCY:-8}", "dxf2dwg@%h", "${DXF2DWG_WORKER_DISPLAY:-:92}"]
     healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery.pid && kill -0 $$(cat /tmp/dwg-celery.pid)"]
+      test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery-dxf2dwg.pid && kill -0 $$(cat /tmp/dwg-celery-dxf2dwg.pid)"]
       interval: 15s
       timeout: 5s
       retries: 5

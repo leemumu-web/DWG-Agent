@@ -28,6 +28,7 @@ esac
 
 display_number="${display#:}"
 x_socket="/tmp/.X11-unix/X${display_number}"
+pid_file="/tmp/dwg-celery-${queue}.pid"
 xvfb_pid=""
 celery_pid=""
 
@@ -37,7 +38,7 @@ cleanup() {
         kill -TERM "$celery_pid" 2>/dev/null || true
         wait "$celery_pid" 2>/dev/null || true
     fi
-    rm -f /tmp/dwg-celery.pid
+    rm -f "$pid_file"
     if [ -n "$xvfb_pid" ] && kill -0 "$xvfb_pid" 2>/dev/null; then
         kill -TERM "$xvfb_pid" 2>/dev/null || true
         wait "$xvfb_pid" 2>/dev/null || true
@@ -85,5 +86,5 @@ fi
     -Q "$queue" -n "$node_name" \
     --concurrency="$concurrency" --prefetch-multiplier=1 --loglevel=INFO &
 celery_pid=$!
-echo "$celery_pid" >/tmp/dwg-celery.pid
+echo "$celery_pid" >"$pid_file"
 wait "$celery_pid"

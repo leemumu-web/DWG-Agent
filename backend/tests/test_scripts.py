@@ -123,6 +123,9 @@ def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():
     assert 'export DISPLAY="$display"' in content
     assert "celery_pid" in content
     assert "wait_for_x_socket" in content
+    assert 'pid_file="/tmp/dwg-celery-${queue}.pid"' in content
+    assert 'rm -f "$pid_file"' in content
+    assert 'echo "$celery_pid" >"$pid_file"' in content
 
 
 def test_local_cad_worker_concurrency_and_display_are_configurable():

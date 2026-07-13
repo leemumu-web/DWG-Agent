@@ -65,7 +65,8 @@ class TestAppServices:
             assert "inspect" not in command
             assert "localhost:8010/health" not in command
             if service_name in {"worker-dxf", "worker-dxf2dwg"}:
-                assert "/tmp/dwg-celery.pid" in command
+                expected_queue = "dxf2dwg" if service_name.endswith("dxf2dwg") else "dxf"
+                assert f"/tmp/dwg-celery-{expected_queue}.pid" in command
                 assert "kill -0" in command
             else:
                 assert "/proc/1/cmdline" in command
@@ -101,7 +102,7 @@ class TestAppServices:
             assert command[2] == concurrency
             assert command[4] == display
             health = " ".join(service["healthcheck"]["test"])
-            assert "/tmp/dwg-celery.pid" in health
+            assert f"/tmp/dwg-celery-{queue}.pid" in health
 
 
 class TestComposeYamlValid:
