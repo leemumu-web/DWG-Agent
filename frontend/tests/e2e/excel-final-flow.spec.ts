@@ -203,6 +203,12 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
         package_available: true,
         handbook_available: true,
         handbook_database_available: true,
+        database_backend: 'sqlite',
+        database_available: true,
+        storage_backend: 'local',
+        storage_available: true,
+        storage_bucket: 'dwg-reports',
+        degraded_components: [],
         ready: true,
       }) });
     } else if (pathname.endsWith('/overview')) {
@@ -308,6 +314,10 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   await expect(page.getByText('12,840')).toBeVisible();
   await expect(page.getByText('204,850.75')).toBeVisible();
   await expect(page.getByText('数据管道就绪')).toBeVisible();
+  await expect(page.getByText('SQLite 权威数据')).toBeVisible();
+  await expect(page.getByText('本地对象存储')).toBeVisible();
+  await expect(page.getByText('MinIO 文件对象')).toHaveCount(0);
+  await expect(page.getByText(/最近刷新/)).toBeVisible();
   await expect(page.getByText('任务 #777')).toBeVisible();
   await expect(page.getByLabel('跨批次零件号')).toHaveValue('P-900');
   await expect(page.getByText('PL12*280').first()).toBeVisible();

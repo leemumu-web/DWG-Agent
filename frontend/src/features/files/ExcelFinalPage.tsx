@@ -119,6 +119,12 @@ export function ExcelFinalPage() {
   }, [queryClient, statusQ.data?.status]);
 
   const recentJobs = useMemo(() => jobsQ.data?.data ?? [], [jobsQ.data]);
+  const refreshedAt = Math.max(
+    healthQ.dataUpdatedAt,
+    overviewQ.dataUpdatedAt,
+    jobsQ.dataUpdatedAt,
+    batchesQ.dataUpdatedAt,
+  );
 
   function updateUrl(changes: Record<string, string | number | null | undefined>) {
     setSearchParams(mergeExcelFinalParams(searchParams, changes));
@@ -243,7 +249,12 @@ export function ExcelFinalPage() {
           <Typography.Title level={2}>Excel Final 数据控制台</Typography.Title>
           <Typography.Paragraph>监视处理任务、核对 MySQL 入库记录，并预览存储在 MinIO 的最终清单。</Typography.Paragraph>
         </div>
-        <Button icon={<ReloadOutlined />} loading={healthQ.isFetching || overviewQ.isFetching || batchesQ.isFetching} onClick={() => void refreshAll()}>刷新数据</Button>
+        <div className="excel-final-header-actions">
+          <span className="excel-final-refreshed" aria-live="polite">
+            最近刷新 {refreshedAt ? new Date(refreshedAt).toLocaleTimeString('zh-CN') : '等待数据'}
+          </span>
+          <Button icon={<ReloadOutlined />} loading={healthQ.isFetching || overviewQ.isFetching || batchesQ.isFetching} onClick={() => void refreshAll()}>刷新数据</Button>
+        </div>
       </header>
 
       <ExcelFinalOverview

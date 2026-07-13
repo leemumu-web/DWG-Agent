@@ -14,6 +14,12 @@ export interface ExcelFinalHealth {
   package_available: boolean;
   handbook_available: boolean;
   handbook_database_available: boolean;
+  database_backend: string;
+  database_available: boolean;
+  storage_backend: 'local' | 'minio';
+  storage_available: boolean;
+  storage_bucket: string;
+  degraded_components: string[];
   ready: boolean;
 }
 

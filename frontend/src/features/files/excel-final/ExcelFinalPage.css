@@ -40,6 +40,8 @@
 .excel-final-header p.ant-typography { margin: 0; color: #9cb8c7; }
 .excel-final-header .ant-btn { color: #d7edf3; background: rgba(13, 44, 59, .72); border-color: #397187; }
 .excel-final-kicker { color: #66d3e4; font: 650 10px/1.2 "JetBrains Mono", monospace; letter-spacing: .18em; }
+.excel-final-header-actions { display: flex; align-items: center; gap: 10px; }
+.excel-final-refreshed { color: #8eb0bf; font: 11px/1.4 "JetBrains Mono", monospace; white-space: nowrap; }
 
 .excel-final-overview,
 .excel-final-ingest,
@@ -120,6 +122,7 @@
 }
 @media (max-width: 720px) {
   .excel-final-header, .excel-final-ingest, .excel-final-active-head { align-items: stretch; flex-direction: column; }
+  .excel-final-header-actions { align-items: stretch; flex-direction: column; }
   .excel-final-metric-grid { grid-template-columns: 1fr; }
   .excel-final-ingest-actions { flex-wrap: wrap; }
   .excel-final-health-row div > span:last-child, .excel-final-overview-foot { display: none; }
