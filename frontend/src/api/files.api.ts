@@ -163,38 +163,47 @@ export async function bulkDeleteFiles(fileIds: number[]): Promise<void> {
   await apiClient.post('/api/v1/files/bulk-delete', { file_ids: fileIds });
 }
 
-/** Upload a folder — process all matching files with max 3 concurrent uploads.
+/** Upload a folder — process matching files with a bounded concurrent pool.
  *  The folder name becomes the batch_name for all files in it.
  *  @param fileExt  only upload files matching this extension (e.g. '.dwg', '.dxf')
  *  @param onFile   upload+convert callback: receives (file, batchName) → result */
 export async function uploadFolder(
   files: File[],
   batchName: string,
-  opts?: { fileExt?: string; onFile?: (file: File, batchName: string) => Promise<unknown> },
-): Promise<{ total: number; success: number }> {
+  opts?: {
+    fileExt?: string;
+    concurrency?: number;
+    onFile?: (file: File, batchName: string) => Promise<unknown>;
+    onProgress?: (processed: number, total: number, success: number) => void;
+  },
+): Promise<{ total: number; success: number; results: unknown[] }> {
   const ext = opts?.fileExt || '.dwg';
   const onFile = opts?.onFile || ((f: File, bn: string) => uploadFileAndConvert(f, bn));
   const matched = files.filter((f) => f.name.toLowerCase().endsWith(ext));
-  if (matched.length === 0) return { total: 0, success: 0 };
+  if (matched.length === 0) return { total: 0, success: 0, results: [] };
 
   const queue = [...matched];
   let success = 0;
+  let processed = 0;
+  const results: unknown[] = [];
 
   const worker = async () => {
     while (queue.length > 0) {
       const f = queue.shift()!;
       try {
-        await onFile(f, batchName);
+        results.push(await onFile(f, batchName));
         success++;
       } catch { /* per-file failure, continue with others */ }
+      processed++;
+      opts?.onProgress?.(processed, matched.length, success);
     }
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(3, matched.length) }, () => worker()),
+    Array.from({ length: Math.min(opts?.concurrency ?? 8, matched.length) }, () => worker()),
   );
 
-  return { total: matched.length, success };
+  return { total: matched.length, success, results };
 }
 
 /** Soft-delete all files in a batch (folder). */

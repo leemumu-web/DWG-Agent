@@ -143,7 +143,7 @@ for (const dir of DIRECTIONS) {
         && response.request().method() === 'POST',
     );
     const jobResponse = page.waitForResponse(
-      (response) => response.url().endsWith('/api/v1/jobs')
+      (response) => response.url().endsWith('/api/v1/jobs/batches')
         && response.request().method() === 'POST',
     );
     await uploadSample(page, samples[0], dir);
@@ -156,8 +156,8 @@ for (const dir of DIRECTIONS) {
     await expect(page.getByText(fileName, { exact: true }).first()).toBeVisible({ timeout: 15_000 });
   });
 
-  // ── 2. Pause all → verify backend cancel-all called ──────────────────
-  test('"全部暂停" → POST /jobs/cancel-all-active → 200', async ({ page }) => {
+  // ── 2. Pause this conversion scope only ──────────────────────────────
+  test('"全部暂停" → POST /jobs/cancellation-requests → 202', async ({ page }) => {
     const pauseBtn = page.getByRole('button', { name: /全部暂停/ });
     if (!(await pauseBtn.isVisible())) {
       test.skip(true, 'No active jobs to pause');
@@ -166,26 +166,26 @@ for (const dir of DIRECTIONS) {
 
     const [cancelResp] = await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes('/api/v1/jobs/cancel-all-active') && r.request().method() === 'POST',
+        (r) => r.url().includes('/api/v1/jobs/cancellation-requests') && r.request().method() === 'POST',
         { timeout: 10_000 },
       ),
       pauseBtn.click(),
     ]);
 
-    expect(cancelResp.status()).toBe(200);
+    expect(cancelResp.status()).toBe(202);
     const body = await cancelResp.json();
     expect(body.data).toHaveProperty('cancelled_count');
   });
 
-  // ── 3. "继续任务" → POST /jobs for each pending file ────────────────
-  test('"继续任务" → creates jobs for pending files', async ({ page }) => {
+  // ── 3. "继续任务" → one bounded batch request ───────────────────────
+  test('"继续任务" → creates a batch for pending files', async ({ page }) => {
     const resumeBtn = page.getByRole('button', { name: /继续任务/ });
     const hasBtn = await resumeBtn.isVisible().catch(() => false);
     test.skip(!hasBtn, '"继续任务" button not visible (no pending files)');
 
     let jobCalls = 0;
     page.on('request', (req) => {
-      if (req.url().includes('/api/v1/jobs') && req.method() === 'POST') {
+      if (req.url().endsWith('/api/v1/jobs/batches') && req.method() === 'POST') {
         const data = req.postDataJSON();
         if (data?.task_type === dir.taskType) jobCalls++;
       }

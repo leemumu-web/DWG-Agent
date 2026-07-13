@@ -17,6 +17,28 @@ export async function listJobs(taskType?: string) {
   return fetchAllPages<Job>('/api/v1/jobs', params);
 }
 
+const MAX_BULK_IDS = 200;
+
+function chunksOf<T>(values: T[], size = MAX_BULK_IDS): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+/** Fetch all matching jobs while respecting the backend's 200-file filter limit. */
+export async function listJobsForFiles(taskType: string, fileIds: number[]): Promise<Job[]> {
+  if (fileIds.length === 0) return [];
+  const pages = await Promise.all(
+    chunksOf(fileIds).map((chunk) => fetchAllPages<Job>('/api/v1/jobs', {
+      task_type: taskType,
+      file_ids: chunk.join(','),
+    })),
+  );
+  return pages.flat();
+}
+
 export interface JobListParams {
   page: number;
   page_size: number;
@@ -74,6 +96,23 @@ export async function createDxf2DwgJob(fileId: number) {
   return res.data.data;
 }
 
+/** Submit one ODA directory-batch task per group instead of one task per file. */
+export async function createConversionBatches(
+  taskType: string,
+  fileIds: number[],
+): Promise<Job[]> {
+  if (fileIds.length === 0) return [];
+  const responses = await Promise.all(
+    chunksOf(Array.from(new Set(fileIds))).map((chunk) =>
+      apiClient.post<ApiEnvelope<{ jobs: Job[] }>>('/api/v1/jobs/batches', {
+        task_type: taskType,
+        file_ids: chunk,
+        precision_level: 'normal',
+      })),
+  );
+  return responses.flatMap((response) => response.data.data.jobs);
+}
+
 export async function createDxf2ExcelJob(batchName: string) {
   const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
     task_type: 'extract_dxf_to_excel',
@@ -102,4 +141,22 @@ export async function cancelAllJobs(): Promise<{ cancelled_count: number }> {
     '/api/v1/jobs/cancel-all-active',
   );
   return res.data.data;
+}
+
+/** Cancel only the jobs visible in the caller's conversion scope. */
+export async function cancelJobs(jobIds: number[]): Promise<{ cancelled_count: number }> {
+  if (jobIds.length === 0) return { cancelled_count: 0 };
+  const responses = await Promise.all(
+    chunksOf(Array.from(new Set(jobIds))).map((chunk) =>
+      apiClient.post<ApiEnvelope<{ cancelled_count: number }>>(
+        '/api/v1/jobs/cancellation-requests',
+        { job_ids: chunk },
+      )),
+  );
+  return {
+    cancelled_count: responses.reduce(
+      (total, response) => total + response.data.data.cancelled_count,
+      0,
+    ),
+  };
 }

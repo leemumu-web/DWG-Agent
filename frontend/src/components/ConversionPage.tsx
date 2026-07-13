@@ -34,7 +34,7 @@ import {
   CloudOutlined,
   FileZipOutlined,
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   listFiles,
   listFilesPage,
@@ -45,7 +45,14 @@ import {
   uploadFile,
   uploadZip,
 } from '../api/files.api';
-import { listJobsPage, getJobResults, retryJob, cancelAllJobs } from '../api/jobs.api';
+import {
+  cancelJobs,
+  createConversionBatches,
+  getJobResults,
+  listJobsForFiles,
+  retryJob,
+} from '../api/jobs.api';
+import { useConversionEvents } from '../hooks/useConversionEvents';
 import { ZipDownloadModal } from '../components/ZipDownloadModal';
 import { DxfPreviewModal } from '../components/DxfPreviewModal';
 import type { BatchInfo, StoredFile } from '../types/file';
@@ -61,8 +68,11 @@ function fmtSize(bytes: number): string {
 
 const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
   succeeded: { color: '#52c41a', bg: '#f6ffed', label: '已完成', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> },
+  pending:   { color: '#faad14', bg: '#fffbe6', label: '待排队', icon: <SyncOutlined style={{ color: '#faad14' }} /> },
   running:   { color: '#1677ff', bg: '#e6f4ff', label: '转换中', icon: <SyncOutlined style={{ color: '#1677ff' }} spin /> },
   queued:    { color: '#faad14', bg: '#fffbe6', label: '排队中', icon: <SyncOutlined style={{ color: '#faad14' }} /> },
+  validating:{ color: '#1677ff', bg: '#e6f4ff', label: '校验中', icon: <SyncOutlined style={{ color: '#1677ff' }} spin /> },
+  waiting_cad_worker: { color: '#1677ff', bg: '#e6f4ff', label: '等待 CAD', icon: <SyncOutlined style={{ color: '#1677ff' }} spin /> },
   failed:    { color: '#ff4d4f', bg: '#fff2f0', label: '失败',   icon: <CloseCircleFilled style={{ color: '#ff4d4f' }} /> },
   cancelled: { color: '#8c8c8c', bg: '#fafafa', label: '已取消', icon: <CloseCircleFilled style={{ color: '#8c8c8c' }} /> },
 };
@@ -74,7 +84,6 @@ export interface ConversionPageProps {
   resultExt: string;
   taskType: string;
   resultType: string;
-  createJobFn: (fileId: number) => Promise<Job>;
   title: string;
   tagPending: string;
   tagDone: string;
@@ -92,12 +101,14 @@ export function ConversionPage(props: ConversionPageProps) {
   const [zipModalOpen, setZipModalOpen] = useState(false);
   const [batchZipModalOpen, setBatchZipModalOpen] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewFileName, setPreviewFileName] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
 
   // ── data ──────────────────────────────────────────────────────────────────
   // Each pipeline requests only its own data: files filtered by fileExt,
@@ -118,17 +129,23 @@ export function ConversionPage(props: ConversionPageProps) {
     staleTime: 5000,
     enabled: selectedBatch === null,
   });
-  const currentFileIds = (filesQ.data?.data ?? []).map((file) => file.id).join(',');
-  const jobsQ = useQuery({
-    queryKey: ['jobs', p.taskType, currentFileIds],
-    queryFn: () => listJobsPage({
-      page: 1,
-      page_size: 200,
-      task_type: p.taskType,
-      file_ids: currentFileIds,
-    }),
+  const scopeFilesQ = useQuery({
+    queryKey: ['conversion-scope-files', p.fileExt, selectedBatch],
+    queryFn: () => listFiles(selectedBatch || undefined, p.fileExt),
     staleTime: 2000,
-    enabled: Boolean(currentFileIds),
+  });
+  const scopeFiles = scopeFilesQ.data ?? [];
+  const scopeFileIds = useMemo(() => scopeFiles.map((file) => file.id), [scopeFiles]);
+  const scopeFileIdsKey = scopeFileIds.join(',');
+  const scopeJobsKey = useMemo(
+    () => ['conversion-jobs', p.taskType, scopeFileIdsKey] as const,
+    [p.taskType, scopeFileIdsKey],
+  );
+  const jobsQ = useQuery({
+    queryKey: scopeJobsKey,
+    queryFn: () => listJobsForFiles(p.taskType, scopeFileIds),
+    staleTime: 2000,
+    enabled: scopeFileIds.length > 0,
   });
 
   const allFiles = filesQ.data?.data ?? [];
@@ -144,21 +161,40 @@ export function ConversionPage(props: ConversionPageProps) {
   const tableFiles = dwgFiles;
 
   const hasActive = useMemo(
-    () => (jobsQ.data?.data ?? []).some((j) => j.status === 'queued' || j.status === 'running'),
+    () => (jobsQ.data ?? []).some((j) => ['pending', 'queued', 'running', 'validating', 'waiting_cad_worker'].includes(j.status)),
     [jobsQ.data],
   );
 
-  // Smart polling
+  // SSE is primary; a slow fallback poll repairs state after network/auth interruptions.
   useEffect(() => {
     if (!hasActive) return;
-    const id = setInterval(() => { filesQ.refetch(); jobsQ.refetch(); }, 2000);
+    const id = setInterval(() => { filesQ.refetch(); scopeFilesQ.refetch(); jobsQ.refetch(); }, 10_000);
     return () => clearInterval(id);
-  }, [hasActive, filesQ, jobsQ]);
+  }, [hasActive, filesQ, scopeFilesQ, jobsQ]);
+
+  const streamFileIds = useMemo(
+    () => (jobsQ.data ?? []).flatMap((job) => {
+      const fileId = (job.params_json as Record<string, unknown> | null)?.file_id;
+      return typeof fileId === 'number' ? [fileId] : [];
+    }),
+    [jobsQ.data],
+  );
+  const mergeStreamJobs = useCallback((patches: Array<Partial<Job> & { id: number }>) => {
+    queryClient.setQueryData<Job[]>(scopeJobsKey, (current) => {
+      if (!current) return current;
+      const patchesById = new Map(patches.map((patch) => [patch.id, patch]));
+      return current.map((job) => {
+        const patch = patchesById.get(job.id);
+        return patch ? { ...job, ...patch } : job;
+      });
+    });
+  }, [queryClient, scopeJobsKey]);
+  useConversionEvents(p.taskType, streamFileIds, mergeStreamJobs);
 
   // file_id → latest Job
   const jobsByFileId = useMemo(() => {
     const map = new Map<number, Job>();
-    for (const j of jobsQ.data?.data ?? []) {
+    for (const j of jobsQ.data ?? []) {
       const fid = (j.params_json as Record<string, unknown> | null)?.file_id as number | undefined;
       if (fid && !map.has(fid)) map.set(fid, j);
     }
@@ -177,7 +213,7 @@ export function ConversionPage(props: ConversionPageProps) {
   const pendingFiles = useMemo(
     () => {
       const now = Date.now();
-      return dwgFiles.filter((f) => {
+      return scopeFiles.filter((f) => {
         const j = jobsByFileId.get(f.id);
         if (!j) return true;
         if (j.status === 'failed' || j.status === 'cancelled') return true;
@@ -189,10 +225,15 @@ export function ConversionPage(props: ConversionPageProps) {
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dwgFiles, jobsByFileId, tick],
+    [scopeFiles, jobsByFileId, tick],
   );
 
-  const refresh = useCallback(() => { filesQ.refetch(); jobsQ.refetch(); batchesQ.refetch(); }, [filesQ, jobsQ, batchesQ]);
+  const refresh = useCallback(() => {
+    filesQ.refetch();
+    scopeFilesQ.refetch();
+    jobsQ.refetch();
+    batchesQ.refetch();
+  }, [filesQ, scopeFilesQ, jobsQ, batchesQ]);
 
   // ── single file actions ───────────────────────────────────────────────────
   const handleDownload = useCallback(async (file: StoredFile) => {
@@ -238,21 +279,19 @@ export function ConversionPage(props: ConversionPageProps) {
   const handlePauseAll = useCallback(async () => {
     setPauseLoading(true);
     try {
-      const res = await cancelAllJobs();
+      const activeJobIds = (jobsQ.data ?? [])
+        .filter((job) => ['pending', 'queued', 'running', 'validating', 'waiting_cad_worker'].includes(job.status))
+        .map((job) => job.id);
+      const res = await cancelJobs(activeJobIds);
       message.success(`已暂停 ${res.cancelled_count} 个任务`);
       refresh();
     } catch (err) { message.error(err instanceof Error ? err.message : '暂停失败'); }
     setPauseLoading(false);
-  }, [refresh]);
+  }, [jobsQ.data, refresh]);
 
   const handleResumeAll = useCallback(async () => {
     setPauseLoading(true);
     try {
-      // 1. Cancel all stuck queued/running jobs
-      await cancelAllJobs();
-      // 2. Wait for DB to settle, then refresh to get latest state
-      await new Promise((r) => setTimeout(r, 1000));
-      // 3. Re-submit jobs for pending files (3 concurrent pool)
       const targets = [...pendingFiles];
       if (targets.length === 0) {
         message.info('没有需要转换的文件');
@@ -260,22 +299,12 @@ export function ConversionPage(props: ConversionPageProps) {
         setPauseLoading(false);
         return;
       }
-      let count = 0;
-      const queue = [...targets];
-      const worker = async () => {
-        while (queue.length > 0) {
-          const f = queue.shift()!;
-          try { await p.createJobFn(f.id); count++; } catch { /* skip */ }
-        }
-      };
-      await Promise.all(
-        Array.from({ length: Math.min(3, targets.length) }, () => worker()),
-      );
-      message.success(`已提交 ${count} 个转换任务`);
+      const jobs = await createConversionBatches(p.taskType, targets.map((file) => file.id));
+      message.success(`已批量提交 ${jobs.length} 个转换任务`);
       refresh();
     } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
     setPauseLoading(false);
-  }, [pendingFiles, refresh]);
+  }, [p.taskType, pendingFiles, refresh]);
 
   // ── batch-level actions ──────────────────────────────────────────────────
   const toggleBatchSelection = (name: string) => {
@@ -318,11 +347,16 @@ export function ConversionPage(props: ConversionPageProps) {
   const handleFolderClick = () => folderInputRef.current?.click();
 
   // ── stats ─────────────────────────────────────────────────────────────────
-  const succeeded = dwgFiles.filter((f) => jobsByFileId.get(f.id)?.status === 'succeeded').length;
-  const processing = dwgFiles.filter((f) => {
-    const s = jobsByFileId.get(f.id)?.status; return s === 'running' || s === 'queued';
+  const succeeded = scopeFiles.filter((f) => jobsByFileId.get(f.id)?.status === 'succeeded').length;
+  const failed = scopeFiles.filter((f) => jobsByFileId.get(f.id)?.status === 'failed').length;
+  const processing = scopeFiles.filter((f) => {
+    const s = jobsByFileId.get(f.id)?.status;
+    return s !== undefined && ['pending', 'queued', 'running', 'validating', 'waiting_cad_worker'].includes(s);
   }).length;
-  const totalSize = dwgFiles.reduce((s, f) => s + f.size_bytes, 0);
+  const totalSize = scopeFiles.reduce((s, f) => s + f.size_bytes, 0);
+  const aggregateProgress = scopeFiles.length > 0
+    ? Math.round(scopeFiles.reduce((total, file) => total + (jobsByFileId.get(file.id)?.progress ?? 0), 0) / scopeFiles.length)
+    : 0;
   const isFirstLoad = filesQ.isLoading;
 
   // ── table row selection (clears batch selection when files are selected) ──
@@ -486,15 +520,17 @@ export function ConversionPage(props: ConversionPageProps) {
       </div>
 
       {/* ── master progress ────────────────────────────────────────────── */}
-      {dwgFiles.length > 0 && (
+      {scopeFiles.length > 0 && (
         <div className="conversion-progress">
           <SyncOutlined spin={processing > 0} style={{ fontSize: 20, color: processing > 0 ? '#1677ff' : '#52c41a' }} />
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Typography.Text strong>当前页转换进度</Typography.Text>
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>{succeeded} / {dwgFiles.length} · {dwgFiles.length > 0 ? Math.round((succeeded / dwgFiles.length) * 100) : 0}%</Typography.Text>
+              <Typography.Text strong>{selectedBatch ? `文件夹“${selectedBatch}”` : '全部文件'}转换进度</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                成功 {succeeded} / {scopeFiles.length} · 失败 {failed} · 处理中 {processing} · {aggregateProgress}%
+              </Typography.Text>
             </div>
-            <Progress percent={dwgFiles.length > 0 ? Math.round((succeeded / dwgFiles.length) * 100) : 0} strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }} size={8} showInfo={false} />
+            <Progress percent={aggregateProgress} strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }} size={8} showInfo={false} />
           </div>
         </div>
       )}
@@ -503,9 +539,9 @@ export function ConversionPage(props: ConversionPageProps) {
       <div className="conversion-stats">
         {[
           { label: `${p.title}总数`, value: filesQ.data?.pagination.total ?? 0, icon: <FileOutlined />, color: '#2563eb', bg: '#eff6ff' },
-          { label: `本页已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
-          { label: '本页处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
-          { label: '本页存储量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
+          { label: `范围内已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
+          { label: '范围内处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
+          { label: '范围内存储量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
         ].map((s) => (
           <div key={s.label} className="conversion-stat">
             <span className="conversion-stat-icon" style={{ color: s.color, background: s.bg }}>{s.icon}</span>
@@ -610,26 +646,44 @@ export function ConversionPage(props: ConversionPageProps) {
               const files = Array.from(raw);
               const firstPath = (files[0] as { webkitRelativePath?: string }).webkitRelativePath || '';
               const folderName = selectedBatch || firstPath.split('/')[0] || `导入_${Date.now()}`;
-              const result = await uploadFolder(files, folderName, {
-                fileExt: p.acceptExt,
-                onFile: async (file: File, bn: string) => {
-                  const stored = await uploadFile(file, bn);
-                  return p.createJobFn(stored.id);
-                },
-              });
-              if (result.success > 0) {
-                message.success(`已导入 ${result.success}/${result.total} 个文件到 "${folderName}"`);
-                refresh();
-              } else if (result.total > 0) {
-                message.error(`全部 ${result.total} 个文件上传失败`);
-              } else {
-                message.warning(`文件夹中没有 ${p.fileExt} 文件`);
+              const matchedCount = files.filter((file) => file.name.toLowerCase().endsWith(p.acceptExt)).length;
+              setUploadProgress({ processed: 0, total: matchedCount });
+              try {
+                const result = await uploadFolder(files, folderName, {
+                  fileExt: p.acceptExt,
+                  concurrency: 8,
+                  onFile: (file: File, bn: string) => uploadFile(file, bn),
+                  onProgress: (processed, total) => setUploadProgress({ processed, total }),
+                });
+                const uploaded = result.results as StoredFile[];
+                if (uploaded.length > 0) {
+                  const jobs = await createConversionBatches(p.taskType, uploaded.map((file) => file.id));
+                  message.success(`已导入 ${result.success}/${result.total} 个文件，批量提交 ${jobs.length} 个转换任务`);
+                  refresh();
+                } else if (result.total > 0) {
+                  message.error(`全部 ${result.total} 个文件上传失败`);
+                } else {
+                  message.warning(`文件夹中没有 ${p.fileExt} 文件`);
+                }
+              } catch (err) {
+                message.error(err instanceof Error ? err.message : '文件夹导入失败');
+              } finally {
+                setUploadProgress(null);
               }
               e.target.value = '';
             }
           }}
         />
-        <FileUpload onUploaded={refresh} batchName={selectedBatch ?? undefined} acceptExt={p.acceptExt} label={`上传 ${p.tagPending} 文件`} uploadFn={async (file: File, bn?: string) => { const stored = await uploadFile(file, bn); return p.createJobFn(stored.id); }} />
+        <FileUpload
+          onUploaded={refresh}
+          batchName={selectedBatch ?? undefined}
+          acceptExt={p.acceptExt}
+          label={`上传 ${p.tagPending} 文件`}
+          uploadFn={async (file: File, bn?: string) => {
+            const stored = await uploadFile(file, bn);
+            return createConversionBatches(p.taskType, [stored.id]);
+          }}
+        />
         <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick} style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
           上传文件夹
         </Button>
@@ -645,17 +699,11 @@ export function ConversionPage(props: ConversionPageProps) {
               const result = await uploadZip(file, p.acceptExt);
               if (result.success_count > 0) {
                 message.success(`已解压 ${result.success_count}/${result.success_count + result.skipped_count} 个文件到 "${result.batch_name}"`);
-                // Auto-create conversion jobs
-                const queue = [...result.files];
-                let count = 0;
-                const worker = async () => {
-                  while (queue.length > 0) {
-                    const f = queue.shift()!;
-                    try { await p.createJobFn(f.id); count++; } catch { /* skip */ }
-                  }
-                };
-                await Promise.all(Array.from({ length: Math.min(3, result.files.length) }, () => worker()));
-                message.success(`${count} 个文件已提交转换`);
+                const jobs = await createConversionBatches(
+                  p.taskType,
+                  result.files.map((stored) => stored.id),
+                );
+                message.success(`${jobs.length} 个文件已批量提交转换`);
                 refresh();
               } else {
                 message.warning(`压缩包中没有 ${p.acceptExt} 文件`);
@@ -673,6 +721,15 @@ export function ConversionPage(props: ConversionPageProps) {
         <Typography.Text type="secondary" className="upload-toolbar-hint">
           支持 {p.acceptExt} / .zip 格式，单文件最大 512 MB，{p.uploadHint}
         </Typography.Text>
+        {uploadProgress && uploadProgress.total > 0 && (
+          <div style={{ minWidth: 180 }}>
+            <Progress
+              percent={Math.round((uploadProgress.processed / uploadProgress.total) * 100)}
+              size="small"
+              format={() => `${uploadProgress.processed}/${uploadProgress.total}`}
+            />
+          </div>
+        )}
         {selectedBatch && (
           <Tag color="purple" style={{ marginLeft: 'auto' }}>当前：{selectedBatch}</Tag>
         )}
