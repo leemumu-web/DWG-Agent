@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     dxf2dwg_converter_audit: bool = True
     dxf2dwg_converter_timeout: int = 300
     dxf2dwg_converter_retries: int = 1
+    # Large same-version batches are split across a small number of ODA processes.
+    # The defaults were selected from the 135-file bidirectional benchmark.
+    cad_batch_max_shards: int = Field(default=4, ge=1, le=8)
+    cad_batch_min_files_per_shard: int = Field(default=8, ge=2, le=100)
     oda_home: str = ""
 
     # DXF→Excel material-table extraction

@@ -210,6 +210,47 @@ def test_conversion_events_stream_rejects_more_than_200_files():
     assert response.json()["error"]["code"] == "INVALID_PARAMS"
 
 
+def test_oda_batch_group_uses_bounded_parallel_shards(tmp_path, monkeypatch):
+    from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
+
+    from app.services import cad_batch_service
+
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    files = []
+    for index in range(10):
+        source = input_dir / f"job-{index}.dwg"
+        source.write_bytes(b"AC1027")
+        files.append(source)
+    calls: list[list[str]] = []
+
+    def fake_convert_directory(source_dir, target_dir, **_kwargs):
+        target_dir.mkdir(parents=True, exist_ok=True)
+        names = sorted(path.name for path in source_dir.glob("*.dwg"))
+        calls.append(names)
+        results = []
+        for name in names:
+            source = source_dir / name
+            target = target_dir / f"{source.stem}.dxf"
+            target.write_text("SECTION")
+            results.append(ConvertResult(source, target, True))
+        return BatchResult(results)
+
+    monkeypatch.setattr(settings, "cad_batch_max_shards", 4, raising=False)
+    monkeypatch.setattr(settings, "cad_batch_min_files_per_shard", 2, raising=False)
+
+    results = cad_batch_service._convert_oda_group(
+        staged_paths=files,
+        output_root=tmp_path / "outputs",
+        convert_directory=fake_convert_directory,
+        converter_kwargs={"version": "ACAD2018"},
+    )
+
+    assert len(calls) == 4
+    assert sorted(name for call in calls for name in call) == [path.name for path in files]
+    assert len(results) == len(files)
+
+
 def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
     db, monkeypatch
 ):

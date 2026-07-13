@@ -6,6 +6,7 @@ import logging
 import shutil
 import tempfile
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +61,55 @@ from app.services.job_events import make_event
 from app.services.job_service import claim_queued_job, commit_job_progress
 
 logger = logging.getLogger(__name__)
+
+
+def _convert_oda_group(
+    *,
+    staged_paths: list[Path],
+    output_root: Path,
+    convert_directory,
+    converter_kwargs: dict,
+) -> list:
+    """Convert one version group using a measured, bounded number of ODA shards."""
+    if not staged_paths:
+        return []
+    shard_count = min(
+        settings.cad_batch_max_shards,
+        max(
+            1,
+            (len(staged_paths) + settings.cad_batch_min_files_per_shard - 1)
+            // settings.cad_batch_min_files_per_shard,
+        ),
+    )
+    if shard_count == 1:
+        batch = convert_directory(
+            source_dir=staged_paths[0].parent,
+            target_dir=output_root,
+            **converter_kwargs,
+        )
+        return list(batch.results)
+
+    shards: list[tuple[Path, Path]] = []
+    for index in range(shard_count):
+        source_dir = output_root / f"shard-{index}" / "input"
+        target_dir = output_root / f"shard-{index}" / "output"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shards.append((source_dir, target_dir))
+    for index, staged_path in enumerate(staged_paths):
+        shutil.copy2(staged_path, shards[index % shard_count][0] / staged_path.name)
+
+    def run_shard(paths: tuple[Path, Path]):
+        source_dir, target_dir = paths
+        return convert_directory(
+            source_dir=source_dir,
+            target_dir=target_dir,
+            **converter_kwargs,
+        )
+
+    with ThreadPoolExecutor(max_workers=shard_count) as pool:
+        batches = list(pool.map(run_shard, shards))
+    return [result for batch in batches for result in batch.results]
 
 
 @dataclass(frozen=True)
@@ -268,15 +318,18 @@ def run_dwg_to_dxf_batch(
                 output_dir = input_dir.parent / "output"
                 convert_started = datetime.now(UTC)
                 try:
-                    batch_result = convert_directory(
-                        source_dir=input_dir,
-                        target_dir=output_dir,
-                        version=output_version,
-                        audit=settings.oda_converter_audit,
-                        timeout=settings.oda_converter_timeout,
-                        retries=settings.oda_converter_retries,
+                    results = _convert_oda_group(
+                        staged_paths=[item.staged_path for item in items],
+                        output_root=output_dir,
+                        convert_directory=convert_directory,
+                        converter_kwargs={
+                            "version": output_version,
+                            "audit": settings.oda_converter_audit,
+                            "timeout": settings.oda_converter_timeout,
+                            "retries": settings.oda_converter_retries,
+                        },
                     )
-                    result_by_name = {result.source.name: result for result in batch_result.results}
+                    result_by_name = {result.source.name: result for result in results}
                 except Exception as exc:
                     logger.exception("DWG batch ODA call failed for version=%s", output_version)
                     result_by_name = {}
@@ -513,15 +566,18 @@ def run_dxf_to_dwg_batch(
                 output_dir = input_dir.parent / "output"
                 convert_started = datetime.now(UTC)
                 try:
-                    batch_result = convert_directory(
-                        source_dir=input_dir,
-                        target_dir=output_dir,
-                        version=output_version,
-                        audit=settings.dxf2dwg_converter_audit,
-                        timeout=settings.dxf2dwg_converter_timeout,
-                        retries=settings.dxf2dwg_converter_retries,
+                    results = _convert_oda_group(
+                        staged_paths=[item.staged_path for item in items],
+                        output_root=output_dir,
+                        convert_directory=convert_directory,
+                        converter_kwargs={
+                            "version": output_version,
+                            "audit": settings.dxf2dwg_converter_audit,
+                            "timeout": settings.dxf2dwg_converter_timeout,
+                            "retries": settings.dxf2dwg_converter_retries,
+                        },
                     )
-                    result_by_name = {result.source.name: result for result in batch_result.results}
+                    result_by_name = {result.source.name: result for result in results}
                 except Exception as exc:
                     logger.exception("DXF batch ODA call failed for version=%s", output_version)
                     result_by_name = {}
