@@ -106,7 +106,8 @@ def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
 
     assert "queryKey: ['excel-final-status', jobId]" in page_source
     assert "refetchType: 'all'" in page_source
-    assert "setSelectedBatchId(null)" in page_source
+    assert "updateUrl({ batch_id: null })" in page_source
+    assert "parseExcelFinalUrlState(searchParams)" in page_source
     assert "some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false" in page_source
     assert "<ExcelFinalBatchDrawer" in page_source
     assert "<Drawer" in drawer_source
@@ -120,10 +121,12 @@ def test_dxf_to_excel_result_bridges_to_excel_final_without_dynamic_imports():
     assert "import { processExcelFinalFile }" in page_source
     assert "finalSubmissionRef.current.has(batchName)" in page_source
     assert "getJobResults(extractionJob.id)" in page_source
-    assert "processExcelFinalFile(excel.result_file_id)" in page_source
+    assert "`dxf2excel-${extractionJob.id}-${excel.result_file_id}`" in page_source
+    assert "processExcelFinalFile(excel.result_file_id, requestKey)" in page_source
     assert "`/files/excel-final?job_id=${finalJob.job_id}`" in page_source
     assert "import(" not in page_source
     assert "'/api/v1/excel-final/process'" in api_source
+    assert "'Idempotency-Key': requestKey" in api_source
 
 
 def test_job_drawer_loads_steps_for_the_current_attempt_only():

@@ -316,7 +316,9 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   await expect(page.getByText('数据管道就绪')).toBeVisible();
   await expect(page.getByText('SQLite 权威数据')).toBeVisible();
   await expect(page.getByText('本地对象存储')).toBeVisible();
-  await expect(page.getByText('MinIO 文件对象')).toHaveCount(0);
+  await expect(page.getByText(/MinIO/)).toHaveCount(0);
+  const heroDescription = page.getByText('监视处理任务、核对业务数据库入库记录，并预览对象存储中的最终清单。');
+  await expect(heroDescription).toHaveCSS('color', 'rgb(185, 206, 216)');
   await expect(page.getByText(/最近刷新/)).toBeVisible();
   await expect(page.getByText('任务 #777')).toBeVisible();
   await expect(page.getByLabel('跨批次零件号')).toHaveValue('P-900');

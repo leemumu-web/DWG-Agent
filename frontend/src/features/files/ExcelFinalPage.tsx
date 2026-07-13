@@ -247,7 +247,7 @@ export function ExcelFinalPage() {
         <div>
           <span className="excel-final-kicker">PART LIST / DATA OBSERVATORY</span>
           <Typography.Title level={2}>Excel Final 数据控制台</Typography.Title>
-          <Typography.Paragraph>监视处理任务、核对 MySQL 入库记录，并预览存储在 MinIO 的最终清单。</Typography.Paragraph>
+          <Typography.Paragraph className="excel-final-description">监视处理任务、核对业务数据库入库记录，并预览对象存储中的最终清单。</Typography.Paragraph>
         </div>
         <div className="excel-final-header-actions">
           <span className="excel-final-refreshed" aria-live="polite">
@@ -267,7 +267,7 @@ export function ExcelFinalPage() {
       <section className="excel-final-ingest" aria-label="Excel 文件入库">
         <div className="excel-final-ingest-copy">
           <span className="excel-final-ingest-icon"><CloudUploadOutlined /></span>
-          <div><strong>登记并处理 Excel 清单</strong><span>上传对象写入 MinIO，文件与传输流水同步登记到 MySQL</span></div>
+          <div><strong>登记并处理 Excel 清单</strong><span>上传对象写入已配置存储，文件与传输流水同步登记到业务数据库</span></div>
         </div>
         <div className="excel-final-ingest-actions">
           <Upload accept=".xlsx,.xls" maxCount={1} fileList={selectedFile ? [{ uid: 'selected', name: selectedFile.name, status: 'done' }] : []}

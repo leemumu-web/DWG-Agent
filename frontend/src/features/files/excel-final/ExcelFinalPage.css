@@ -37,7 +37,7 @@
 }
 .excel-final-header > * { position: relative; z-index: 1; }
 .excel-final-header h2.ant-typography { margin: 3px 0 4px; color: #f7fbfd; font-size: clamp(24px, 3vw, 34px); text-wrap: balance; }
-.excel-final-header p.ant-typography { margin: 0; color: #9cb8c7; }
+.excel-final-header .excel-final-description { margin: 0; color: #b9ced8; }
 .excel-final-header .ant-btn { color: #d7edf3; background: rgba(13, 44, 59, .72); border-color: #397187; }
 .excel-final-kicker { color: #66d3e4; font: 650 10px/1.2 "JetBrains Mono", monospace; letter-spacing: .18em; }
 .excel-final-header-actions { display: flex; align-items: center; gap: 10px; }

@@ -165,7 +165,11 @@ def create_or_reuse_job(
                 request_key=request_key,
             )
     except IntegrityError:
-        existing = db.scalar(select(Job).where(*conditions))
+        # Under MySQL REPEATABLE READ the ordinary pre-read fixes an older
+        # consistent snapshot. After the unique-key loser rolls back its
+        # savepoint, a locking current read is required to see the winner that
+        # committed while the INSERT was waiting on the unique index.
+        existing = db.scalar(select(Job).where(*conditions).with_for_update())
         if existing is None:
             raise
         _require_matching_idempotent_job(existing, payload)
