@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.constants import TASK_EXCEL_FINAL
@@ -12,6 +13,7 @@ from app.main import app
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.file import StoredFile
 from app.models.job import Job
+from app.models.user import User
 
 
 def _client() -> TestClient:
@@ -123,7 +125,13 @@ def test_unscoped_job_write_endpoints_reject_other_users(
     assert job.status == initial_status
 
 
-def _seed_excel_batch(db: Session, *, owner_id: int) -> tuple[StoredFile, Job, ExcelFinalBatch]:
+def _seed_excel_batch(
+    db: Session,
+    *,
+    owner_id: int,
+    task_type: str = TASK_EXCEL_FINAL,
+    part_no: str = "P-1",
+) -> tuple[StoredFile, Job, ExcelFinalBatch]:
     stored = StoredFile(
         bucket="dwg-reports",
         storage_key=f"tests/{uuid4().hex}.xlsx",
@@ -139,7 +147,7 @@ def _seed_excel_batch(db: Session, *, owner_id: int) -> tuple[StoredFile, Job, E
     db.flush()
     job = Job(
         created_by=owner_id,
-        task_type=TASK_EXCEL_FINAL,
+        task_type=task_type,
         precision_level="normal",
         pipeline="excel_final",
         status="succeeded",
@@ -161,7 +169,7 @@ def _seed_excel_batch(db: Session, *, owner_id: int) -> tuple[StoredFile, Job, E
     )
     db.add(batch)
     db.flush()
-    db.add(ExcelFinalPart(batch_id=batch.id, seq=1, part_no="P-1", material="Q355"))
+    db.add(ExcelFinalPart(batch_id=batch.id, seq=1, part_no=part_no, material="Q355"))
     db.add(ExcelFinalComponent(batch_id=batch.id, component_no="C-1", component_qty=1))
     db.commit()
     return stored, job, batch
@@ -224,6 +232,31 @@ def test_excel_final_overview_is_scoped_and_empty_safe(db: Session):
         "total_gross_weight": 0.0,
         "latest_created_at": None,
     }
+
+
+def test_excel_final_global_queries_ignore_batches_from_other_task_types(db: Session):
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    admin = db.scalar(select(User).where(User.username == "admin"))
+    assert admin is not None
+    _seed_excel_batch(
+        db,
+        owner_id=admin.id,
+        task_type="framework_smoke_test",
+        part_no="ANOMALY-1",
+    )
+
+    overview = client.get("/api/v1/excel-final/overview", headers=admin_headers)
+    batches = client.get("/api/v1/excel-final/batches", headers=admin_headers)
+    search = client.get(
+        "/api/v1/excel-final/parts/search?part_no=ANOMALY",
+        headers=admin_headers,
+    )
+
+    assert overview.status_code == batches.status_code == search.status_code == 200
+    assert overview.json()["data"]["batch_count"] == 0
+    assert batches.json()["data"] == []
+    assert search.json()["data"] == []
 
 
 def test_excel_final_components_are_server_paginated(db: Session):

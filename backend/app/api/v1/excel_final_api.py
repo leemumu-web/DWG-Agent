@@ -232,6 +232,12 @@ def process_file(
     if not sfile or sfile.status == "deleted":
         raise not_found("File")
     _require_input_file_access(current_user, sfile)
+    if (sfile.file_ext or "").lower() not in {".xls", ".xlsx"}:
+        raise AppHTTPException(
+            415,
+            "NOT_EXCEL",
+            "Only .xls or .xlsx files can be processed.",
+        )
 
     from app.schemas.job_schema import JobCreate
 
@@ -458,6 +464,7 @@ def get_overview(
         func.sum(ExcelFinalBatch.total_gross_weight),
         func.max(ExcelFinalBatch.created_at),
     ).join(Job, Job.id == ExcelFinalBatch.job_id)
+    stmt = stmt.where(Job.task_type == TASK_EXCEL_FINAL)
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
     row = db.execute(stmt).one()
@@ -486,7 +493,11 @@ def list_batches(
     db: Session = Depends(get_db),
 ):
     """列出所有处理批次（最近优先）。"""
-    stmt = select(ExcelFinalBatch).join(Job, Job.id == ExcelFinalBatch.job_id)
+    stmt = (
+        select(ExcelFinalBatch)
+        .join(Job, Job.id == ExcelFinalBatch.job_id)
+        .where(Job.task_type == TASK_EXCEL_FINAL)
+    )
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
     stmt = stmt.order_by(ExcelFinalBatch.id.desc())
@@ -734,6 +745,7 @@ def search_parts(
         select(ExcelFinalPart)
         .join(ExcelFinalBatch, ExcelFinalBatch.id == ExcelFinalPart.batch_id)
         .join(Job, Job.id == ExcelFinalBatch.job_id)
+        .where(Job.task_type == TASK_EXCEL_FINAL)
     )
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))

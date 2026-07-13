@@ -206,3 +206,36 @@ def test_upload_and_process_replay_reuses_file_and_job(
     assert db.scalar(select(func.count()).select_from(FileTransfer)) == 1
     assert db.scalar(select(func.count()).select_from(Job)) == 1
     assert storage.bucket_object_counts(["dwg-reports"])["dwg-reports"] == 1
+
+
+def test_process_rejects_non_excel_stored_file(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client, headers, admin = _admin_client(db)
+    stored = StoredFile(
+        bucket="dwg-original",
+        storage_key="tests/not-an-excel.dxf",
+        original_name="not-an-excel.dxf",
+        file_ext=".dxf",
+        content_type="application/dxf",
+        size_bytes=16,
+        sha256="1" * 64,
+        uploaded_by=admin.id,
+        status="available",
+    )
+    db.add(stored)
+    db.commit()
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.dispatch_committed_job",
+        lambda _db, _job: None,
+    )
+
+    response = client.post(
+        f"/api/v1/excel-final/process?file_id={stored.id}",
+        headers={**headers, "Idempotency-Key": "reject-dxf"},
+    )
+
+    assert response.status_code == 415, response.text
+    assert response.json()["error"]["code"] == "NOT_EXCEL"
+    assert db.scalar(select(func.count()).select_from(Job)) == 0
