@@ -40,6 +40,21 @@ def _unique(prefix: str) -> str:
     return f"{prefix}-{uuid4().hex[:10]}"
 
 
+def test_cors_preflight_allows_excel_final_idempotency_header():
+    response = TestClient(app).options(
+        "/api/v1/excel-final/upload-and-process",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type,idempotency-key",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    allowed_headers = response.headers["access-control-allow-headers"].lower()
+    assert "idempotency-key" in allowed_headers
+
+
 def test_admin_cannot_delete_self():
     client = _client()
     root_headers = _admin_headers(client)
