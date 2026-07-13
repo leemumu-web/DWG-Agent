@@ -11,9 +11,10 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.job import Job
@@ -93,6 +94,9 @@ def job_event_from_row(job: Job) -> dict[str, Any]:
     payload["status"] = job.status
     payload["progress"] = job.progress or 0
     payload["attempt"] = job.attempt
+    payload["task_type"] = job.task_type
+    payload["pipeline"] = job.pipeline
+    payload["params_json"] = job.params_json
 
     if job.error_code:
         payload["error_code"] = job.error_code
@@ -150,6 +154,48 @@ def job_event_stream(
             last_fingerprint = current_fingerprint
             yield event
             if current_status in _TERMINAL_STATUSES:
+                return
+
+        if poll_interval > 0:
+            time.sleep(poll_interval)
+        yield None
+
+
+def jobs_event_stream(
+    session_factory: Callable[[], Session],
+    job_ids: Sequence[int],
+    *,
+    poll_interval: float = 0.5,
+    max_duration: float = _MAX_DURATION,
+) -> Iterator[list[dict[str, Any]] | None]:
+    """Poll an ordered Job set with one short-lived session per iteration."""
+    requested_ids = tuple(dict.fromkeys(job_ids))
+    if not requested_ids:
+        return
+    deadline = time.monotonic() + max_duration
+    last_fingerprint: (
+        tuple[tuple[int, tuple[str, int, int, str | None, str | None, str]], ...] | None
+    ) = None
+
+    while time.monotonic() < deadline:
+        try:
+            with session_factory() as db:
+                rows = list(db.scalars(select(Job).where(Job.id.in_(requested_ids))).all())
+                by_id = {job.id: job for job in rows}
+                ordered = [by_id[job_id] for job_id in requested_ids if job_id in by_id]
+                current_fingerprint = tuple((job.id, _fingerprint(job)) for job in ordered)
+                snapshot = [job_event_from_row(job) for job in ordered]
+                all_terminal = len(ordered) == len(requested_ids) and all(
+                    job.status in _TERMINAL_STATUSES for job in ordered
+                )
+        except Exception:
+            logger.exception("MySQL job-set poll failed for job_ids=%s", requested_ids)
+            return
+
+        if current_fingerprint != last_fingerprint:
+            last_fingerprint = current_fingerprint
+            yield snapshot
+            if all_terminal:
                 return
 
         if poll_interval > 0:

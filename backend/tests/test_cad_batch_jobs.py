@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -152,6 +153,61 @@ def test_scoped_cancellation_only_changes_requested_jobs():
         for job in jobs
     ]
     assert states == ["cancelled", "queued", "cancelled"]
+
+
+def test_conversion_events_stream_returns_ordered_terminal_snapshot():
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    file_ids = [_upload_dwg(client, headers, f"stream-{index}.dwg") for index in range(2)]
+    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+        created = _create_batch(
+            client,
+            headers,
+            task_type="convert_dwg_to_dxf",
+            file_ids=file_ids,
+        )
+    jobs = created.json()["data"]["jobs"]
+    cancelled = client.post(
+        "/api/v1/jobs/cancellation-requests",
+        headers=headers,
+        json={"job_ids": [job["id"] for job in jobs]},
+    )
+    assert cancelled.status_code == 202, cancelled.text
+
+    response = client.get(
+        "/api/v1/jobs/events/stream",
+        headers=headers,
+        params={
+            "task_type": "convert_dwg_to_dxf",
+            "file_ids": ",".join(str(file_id) for file_id in reversed(file_ids)),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data_line = next(line for line in response.text.splitlines() if line.startswith("data: "))
+    payload = json.loads(data_line.removeprefix("data: "))
+    assert payload["type"] == "snapshot"
+    assert [job["params_json"]["file_id"] for job in payload["jobs"]] == list(
+        reversed(file_ids)
+    )
+    assert [job["status"] for job in payload["jobs"]] == ["cancelled", "cancelled"]
+
+
+def test_conversion_events_stream_rejects_more_than_200_files():
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    response = client.get(
+        "/api/v1/jobs/events/stream",
+        headers=headers,
+        params={
+            "task_type": "convert_dwg_to_dxf",
+            "file_ids": ",".join(str(index) for index in range(1, 202)),
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "INVALID_PARAMS"
 
 
 def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(

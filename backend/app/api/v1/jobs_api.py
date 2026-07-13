@@ -49,7 +49,7 @@ from app.services.job_access import (
     require_job_read_access,
     require_job_write_access,
 )
-from app.services.job_events import job_event_stream
+from app.services.job_events import job_event_stream, jobs_event_stream
 from app.services.job_service import (
     cancel_job as transition_job_to_cancelled,
 )
@@ -273,6 +273,88 @@ def cancel_jobs(
             "cancelled_job_ids": [job.id for job in cancelled],
         },
         request.state.request_id,
+    )
+
+
+@router.get("/events/stream")
+def get_conversion_events(
+    task_type: str,
+    file_ids: str,
+    current_user: CurrentUserForSSE,
+    db: Session = Depends(get_db),
+):
+    """Stream the latest jobs for an ordered set of conversion source files."""
+    if task_type not in {TASK_DWG_TO_DXF, TASK_DXF_TO_DWG}:
+        raise AppHTTPException(
+            422,
+            "INVALID_PARAMS",
+            "task_type must be a supported bidirectional CAD conversion.",
+        )
+    try:
+        requested_file_ids = tuple(
+            dict.fromkeys(int(value) for value in file_ids.split(",") if value.strip())
+        )
+    except ValueError as exc:
+        raise AppHTTPException(
+            422, "INVALID_PARAMS", "file_ids must be comma-separated integers."
+        ) from exc
+    if not requested_file_ids or len(requested_file_ids) > 200:
+        raise AppHTTPException(
+            422, "INVALID_PARAMS", "file_ids must contain between 1 and 200 ids."
+        )
+
+    candidates = list(
+        db.scalars(
+            select(Job)
+            .where(
+                Job.task_type == task_type,
+                Job.params_json["file_id"].as_integer().in_(requested_file_ids),
+            )
+            .order_by(Job.id.desc())
+        ).all()
+    )
+    latest_by_file: dict[int, Job] = {}
+    for job in candidates:
+        raw_file_id = (job.params_json or {}).get("file_id")
+        if isinstance(raw_file_id, int):
+            latest_by_file.setdefault(raw_file_id, job)
+    jobs = [latest_by_file[file_id] for file_id in requested_file_ids if file_id in latest_by_file]
+    if not jobs:
+        raise not_found("Job")
+    for job in jobs:
+        require_job_read_access(db, current_user, job)
+
+    bind = db.get_bind()
+    stream_sessions = sessionmaker(
+        bind=bind,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    job_ids = [job.id for job in jobs]
+    db.rollback()
+
+    def event_stream():
+        first = True
+        for snapshot in jobs_event_stream(stream_sessions, job_ids):
+            if snapshot is None:
+                yield ": keepalive\n\n"
+                continue
+            payload = {
+                "type": "snapshot" if first else "update",
+                "jobs": snapshot,
+            }
+            first = False
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 
