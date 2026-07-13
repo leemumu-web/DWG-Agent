@@ -89,8 +89,18 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `CELERY_STALE_JOB_TIMEOUT_SECONDS` | 代码默认 600；仓库环境模板 7200 | worker 启动时判定无更新 `running` Job 的阈值；受支持部署应使用高于最长处理超时的模板值 |
 | `EXCEL_FINAL_STAGE_ROOT` | 自动探测 | 可选 Stage 路径覆盖；代码字段存在但模板未列出 |
 | `EXCEL_FINAL_TIMEOUT_SECONDS` | 1800 | 子进程超时，限制为 30-7200 秒 |
+| `DXF_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DWG -> DXF Celery prefork 数 |
+| `DXF2DWG_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DXF -> DWG Celery prefork 数 |
+| `DXF_WORKER_DISPLAY` | `:91` | DWG -> DXF worker 独占的持久 Xvfb display |
+| `DXF2DWG_WORKER_DISPLAY` | `:92` | DXF -> DWG worker 独占的持久 Xvfb display |
+| `CAD_BATCH_MAX_SHARDS` | 4 | 同版本大批次最多并行 ODA 目录分片数，限制 1-8 |
+| `CAD_BATCH_MIN_FILES_PER_SHARD` | 8 | 每增加一个 ODA 分片所需的最少文件数，限制 2-100 |
 
 ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`ODA_CONVERTER_TIMEOUT=300`、`ODA_CONVERTER_RETRIES=1`、`ODA_XVFB_RUN=true`、`DXF2DWG_CONVERTER_VERSION=ACAD2018`、`DXF2DWG_CONVERTER_AUDIT=true`、`DXF2DWG_CONVERTER_TIMEOUT=300`、`DXF2DWG_CONVERTER_RETRIES=1`，`ODA_HOME` 默认空。
+
+两个 CAD worker 由 `scripts/run-cad-worker.sh` 各自启动一个持久 Xvfb；已有 `DISPLAY` 时 Stage 不再为每次 ODA 调用执行 `xvfb-run -a`。`DXF_WORKER_CONCURRENCY=8` 与 `DXF2DWG_WORKER_CONCURRENCY=8` 是跨批次吞吐默认值，不表示单批次盲目启动 8 个 ODA。单批次按文件数和版本分组后自适应为最多 4 个目录分片；135 文件实测中 4 分片处于吞吐拐点。调整前必须用 `scripts/benchmark_cad_conversion.py` 在部署机器和代表性图纸上复测。
+
+同一队列只能有一套 worker topology。`scripts/status.sh` 报告“本地与 Compose 同时消费”时，基准、调度归属和取消结果均不可信，应停止其中一套后再验收。worker/Celery healthy 只证明进程与 broker 可达，不能证明 ODA 对具体 DWG/DXF 有效；必须检查终态、输出头、文件数和下载结果。
 
 `Settings` 的 stale 默认值仍为 600 秒，而 `.env.example` 与 `.env.docker.example` 都显式设置 7200 秒。该差异是当前实现边界：按模板部署时有效值为 7200；直接实例化默认 Settings 时为 600。由于 Excel Final 子进程允许最长 1800 秒，真实部署不应删除模板覆盖，也应根据有效处理时长重新评估阈值。
 

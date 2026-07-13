@@ -23,8 +23,8 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 | 管线 | Task / queue | 输入 | 输出 | 当前边界 |
 |---|---|---|---|---|
 | Framework smoke | `local_stub` / `report` | Job 参数 | JSON `AnalysisResult` | 已实现框架路径，不是 LLM report Agent |
-| DWG -> DXF | `convert_dwg_to_dxf` / `dxf` | 一个已存储 DWG | 已存储 DXF + result row | 功能开关保护；需要 ODA 和受支持 DWG header |
-| DXF -> DWG | `convert_dxf_to_dwg` / `dxf2dwg` | 一个已存储 DXF | 已存储 DWG + result row | 功能开关保护；需要 ODA 和有效 DXF |
+| DWG -> DXF | `convert_dwg_to_dxf` / `dxf` | 一个或最多 200 个已存储 DWG | 每文件一个已存储 DXF + result row | 功能开关保护；需要 ODA 和受支持 DWG header |
+| DXF -> DWG | `convert_dxf_to_dwg` / `dxf2dwg` | 一个或最多 200 个已存储 DXF | 每文件一个已存储 DWG + result row | 功能开关保护；需要 ODA 和有效 DXF |
 | DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | 命名 batch 的已存储 DXF | XLSX + result row | 功能开关保护；Stage gitlink 无法从 clean clone 复现 |
 | Excel Final | `process_excel_final` / `excel_final` | 内容受支持的已存储 `.xls`/`.xlsx` | 最终 XLSX + result + 关系化 batch 数据 | 功能开关保护；需要手册库和受支持 schema |
 | Agent | `agent` | Agent-run 请求 | 无 | 只有 API/model 边界；task module 是占位 |
@@ -39,6 +39,14 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 步骤为 `download_source_dwg`、`run_oda_convert` 和 `persist_dxf_result`。ODA timeout/retry 设置限制子进程，但兼容性仍取决于真实源版本和 ODA 行为。已跟踪 AppImage 和单元测试不能证明支持所有 DWG，也不代表拥有许可权利。
 
 当前 ODA adapter 会把“非零退出码”“退出码为 0 但未生成目标文件”“输出路径被普通文件占用”“源文件复制失败”和“二进制不存在/无权限”映射为明确失败结果，避免未捕获 OS 错误绕过 Job 收敛。该加固已有 Stage regression test，但仍需真实 ODA/图纸样本验证。
+
+### 双向批处理与实时进度
+
+`POST /api/v1/jobs/batches` 一次接收 1-200 个同方向 `file_id`。服务端先验证全部文件、扩展名和权限，再一次提交每文件 Job，并只向对应队列投递一条批任务；验证失败不会留下部分 Job。单文件 `/jobs` 入口仍兼容保留。
+
+worker 领取每个 Job 后按目标 AutoCAD 版本分组。小组一次调用 ODA；大组按 `CAD_BATCH_MIN_FILES_PER_SHARD` 自适应拆分，最多并行 `CAD_BATCH_MAX_SHARDS` 个目录调用。每个文件仍有独立 attempt、步骤、进度、结果和错误；某个输出缺失只失败对应 Job。DWG -> DXF 与 DXF -> DWG 使用相同的分组、分片和持久 Xvfb 契约。
+
+前端文件夹、ZIP 和“继续任务”走批量入口；单个上传也使用同一批量合同。`GET /api/v1/jobs/events/stream?task_type=...&file_ids=...` 每个连接最多观察 200 个文件，500 ms 读取 MySQL 短事务快照，任一 Job 变化即推送，全部终态后关闭。页面按 200 个文件分片连接，显示当前文件夹或全部范围的平均进度、成功、失败和处理中数量；10 秒轮询只作为断线修复。`POST /api/v1/jobs/cancellation-requests` 先验证全部 Job 权限，再只取消当前转换范围的 active Job，不再调用全局取消影响其他流水线。
 
 ### DXF 在线预览
 
@@ -84,7 +92,7 @@ Excel Final 前端总览由 `/overview` 在 SQL 中同时按 `task_type=process_
 
 ## 取消、重试与恢复
 
-- 取消只改变匹配的 active Job；worker 在取消后的写入被条件更新拒绝。
+- 批量取消先完成全部权限检查，再只改变请求中匹配的 active Job；worker 在取消后的写入被条件更新拒绝。
 - failed/cancelled 状态允许重试，递增 attempt、重置终态字段并发布 `(job_id, new_attempt)`。
 - 旧单参数消息映射为 attempt 1，不能领取 attempt 2。
 - worker 启动把足够 stale 的 running Job 标为 `CELERY_WORKER_LOST`；操作员必须检查依赖后再重试。

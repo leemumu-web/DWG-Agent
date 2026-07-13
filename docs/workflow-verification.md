@@ -1,7 +1,7 @@
 # 全栈工作流验证
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
-> **最近文档审计运行：** 2026-07-12
+> **最近文档审计运行：** 2026-07-14
 ## 1. 证据层级
 
 | 层级 | 能证明 | 不能证明 |
@@ -156,7 +156,38 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 最终全页截图位于 `output/playwright/excel-final-production-observability.png`。它显示真实数据库/存储标签、刷新时间、全局指标、上传登记、跨批次检索、批次分页和近期任务；标题说明文字使用项目自有类名控制对比度，不依赖 Ant Design 6 当前渲染出的 HTML 标签。
 
-## 8. 2026-07-11 基线证据
+## 8. 2026-07-14 双向 CAD 转换吞吐证据
+
+本轮使用 24 逻辑 CPU 的本地工作站、ODA File Converter AppImage、独占持久 Xvfb 和用户指定目录 `/home/Creeken/Paper/CAD_research/Data/十份排版/排版1/C区域四节钢柱（宝冶）/2.零件图/1：1零件图`。目录实际包含 135 个 `.dwg`（包括合并图）；所有测量均校验输出数量，并检查 DXF `SECTION/$ACADVER` 头或 DWG `AC10` magic。
+
+旧实现的 16 文件逐文件基线为串行 60.313 秒、16/16 成功；直接把旧 `xvfb-run -a` 调到并发 2/4/8 时分别只有 13/16、11/16、8/16 成功，失败来自 display 选择和清理竞态。改为一个持久 Xvfb 后，同一逐文件 workload 在并发 1/2/4/8 下为 12.334/6.388/3.280/1.937 秒，均 16/16 成功；反向为 12.424/6.344/3.395/1.865 秒，均 16/16 成功。
+
+生产批量路径不为每文件启动一次 ODA，而是按版本目录批处理并自适应分片。可重复命令为：
+
+```bash
+cd backend
+uv run python ../scripts/benchmark_cad_conversion.py \
+  --input-dir '/home/Creeken/Paper/CAD_research/Data/十份排版/排版1/C区域四节钢柱（宝冶）/2.零件图/1：1零件图' \
+  --concurrency 1,2,4,8 --direction roundtrip --mode batch \
+  --json-output ../output/cad-benchmark-full-tuning.json
+```
+
+| 目录分片 | DWG -> DXF | DXF -> DWG | 结果 |
+|---:|---:|---:|---|
+| 1 | 1.836 s / 73.537 files/s | 1.719 s / 78.551 files/s | 双向 135/135 |
+| 2 | 1.358 s / 99.382 files/s | 1.377 s / 98.012 files/s | 双向 135/135 |
+| 4 | **1.196 s / 112.840 files/s** | 1.260 s / 107.158 files/s | 双向 135/135 |
+| 8 | 1.284 s / 105.117 files/s | **1.209 s / 111.628 files/s** | 双向 135/135 |
+
+综合两向吞吐、CPU 余量和 8 路开始出现的启动竞争，生产默认选择最多 4 个分片、每片至少 8 文件；Celery queue concurrency 8 用于多个批次之间的吞吐。两者含义不同，不能把 8×4 当作单批次固定并发。实时进度使用一个聚合 SSE 连接观察最多 200 个文件，500 ms 推送变化；页面只取消当前方向/文件夹范围的 active Job。
+
+当前源码重启后只保留本地 `dxf`/`dxf2dwg` topology，Compose 的同名 worker 已停止，`scripts/status.sh` 无重复消费者警告。通过 Nginx `:8080` 的真实 32 文件闭环结果如下：DWG -> DXF 批量提交 0.088 秒，SSE 从 32 queued 经 32 running 和分段完成到 32 succeeded 共 6 帧、4.040 秒；派生 DXF 上传 2.730 秒，DXF -> DWG 提交 0.063 秒，SSE 共 7 帧、4.030 秒。32 个 DXF 和 32 个 DWG 均经 result、签名 URL 和 Nginx 实际下载，分别通过 DXF 文本头和 DWG `AC10` magic 校验。另一个 2 文件批次被作用域取消 2/2，再提交后 SSE 1.513 秒收敛为 2/2 succeeded，未调用管理员全局取消。
+
+第一次真实批处理还暴露了 SQLite 测试未覆盖的 MySQL 1020：ODA 已成功，但结果持久化事务先读取 Job/源文件，再由独立事务创建并推进 `file_transfers`，旧 `REPEATABLE READ` 事务锁定该 transfer 时报告“Record has changed since last read”，导致 32/32 结果登记失败。修复按既有 DXF preview 成功模式，在结果 metadata 事务开始前由调用者事务登记 transfer intent 并提交，再推进 transfer、写对象、登记 StoredFile/AnalysisResult 和完成 Job；前后向成功测试要求 `save_bytes_as_file` 显式收到 `transfer_uid`。修复后的上述 32+32 下载闭环证明该错误未复现。
+
+最终自动门禁为 backend **896 passed、6 skipped**（15 条既有 dependency/deprecation warning）、Ruff 无错误、Alembic 无待生成 operation；两个 ODA Stage 各 **30 passed**；TypeScript 6 + Vite 8 production build、Compose config 和文档一致性均通过。双向转换页的实时浏览器聚焦回归为 **8 passed、2 skipped**：单文件上传确实调用批量 Job API，“继续任务”调用批量入口，active 可见性和范围统计均通过；两个“点击全部暂停”用例因各自页面加载时没有 active Job 按设计跳过，作用域取消由前述真实 2 文件 API 闭环和后端授权/状态测试覆盖。
+
+## 9. 2026-07-11 基线证据
 
 2026-07-11 文档审计运行使用已有本地 MySQL 和已经运行的本地 Nginx/FastAPI/五个已实现 worker；没有重启 stack 或重建 Compose volume。
 
@@ -176,7 +207,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 全量运行提供仓库已知有效 Tekla 清单，并通过成功 upload -> Celery -> result -> 首次下载失败 -> 新签名 digest 验证。另一个 `阚导出材料表.xls` 探针因缺少必要 `构件编号` 和 `数量` 列被正确拒绝；相关文件名/扩展名不足以证明输入有效。许多其他 Files/Jobs UI 测试使用确定性 route fixture，只证明 UI/API contract，不证明真实对象处理。
 
-## 9. 历史集成记录
+## 10. 历史集成记录
 
 仓库此前记录了 2026-07-11 fresh-volume 集成运行，观察为：
 
@@ -187,7 +218,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-13 的当前证据见第 6 节：当前源码为 91 path/110 operation，并已用当前源码 API、真实浏览器和真实 MySQL/MinIO 验证预览与登记链路。通用工作流的自动 Job/产物接线仍是独立范围；DXF→Excel 页面的显式 Excel Final 桥接不改变该边界。
 
-## 10. 故障定位
+## 11. 故障定位
 
 1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
 2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。
