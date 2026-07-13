@@ -201,6 +201,111 @@ def _add_step(
     )
 
 
+def persist_dxf_conversion_result(
+    db: Session,
+    *,
+    job_id: int,
+    attempt: int,
+    source_file_id: int,
+    source_path: Path,
+    output_version: str,
+    result,
+    worker_name: str,
+) -> bool:
+    """Persist one successful DXF result only for its still-active attempt."""
+    job = db.get(Job, job_id, populate_existing=True)
+    if job is None or job.status != JOB_RUNNING or job.attempt != attempt:
+        db.rollback()
+        return False
+
+    persist_started = datetime.now(UTC)
+    dxf_path = result.target
+    if not dxf_path.is_file():
+        _mark_job_failed(
+            db,
+            job_id,
+            attempt,
+            AppError(f"DXF 产物未生成: {dxf_path}"),
+            error_code=ERROR_CODE_DXF_FAILED,
+        )
+        return False
+
+    dxf_bytes = dxf_path.read_bytes()
+    dxf_stats = _count_dxf_stats(dxf_path)
+    logger.info(
+        "DXF conversion stats for job %s: %s",
+        job_id,
+        dxf_entity_summary(dxf_stats),
+    )
+    source_file = db.get(StoredFile, source_file_id)
+    source_base = source_file.original_name if source_file else Path(source_path).name
+    source_base = sanitize_filename(source_base)
+    source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
+    storage_key = f"jobs/{job.id}/{uuid4().hex}{_DXF_EXT}"
+    dxf_file = save_bytes_as_file(
+        db,
+        bucket=settings.minio_bucket_dxf_derived,
+        storage_key=storage_key,
+        original_name=f"{source_stem}{_DXF_EXT}",
+        file_ext=_DXF_EXT,
+        content_type=_DXF_CONTENT_TYPE,
+        payload=dxf_bytes,
+        uploaded_by=job.created_by,
+        batch_name=source_file.batch_name if source_file else None,
+    )
+    result_payload = {
+        "source": "dxf_open_source",
+        "job_id": job.id,
+        "task_type": TASK_DWG_TO_DXF,
+        "source_file_id": source_file_id,
+        "dxf_file_id": dxf_file.id,
+        "convert_result": result.to_dict(),
+        "dxf_stats": dxf_stats,
+    }
+    analysis = AnalysisResult(
+        job_id=job.id,
+        drawing_id=job.drawing_id,
+        result_type=TASK_DWG_TO_DXF,
+        result_json=result_payload,
+        confidence=Decimal("1.0000"),
+        result_file_id=dxf_file.id,
+        algorithm_version=_ALGO_VERSION,
+        tool_version=output_version,
+        status="succeeded",
+    )
+    db.add(analysis)
+    db.flush()
+    _add_step(
+        db,
+        job_id,
+        attempt,
+        STEP_PERSIST_DXF,
+        worker_name,
+        "succeeded",
+        input_json={"dxf_size": len(dxf_bytes)},
+        output_json={
+            "dxf_file_id": dxf_file.id,
+            "analysis_result_id": analysis.id,
+            "entity_counts": dxf_stats.get("entity_counts", {}),
+            "total_entities": dxf_stats.get("total_entities", 0),
+        },
+        started_at=persist_started,
+    )
+    completed_job = complete_job_attempt(
+        db,
+        job_id,
+        attempt=attempt,
+        event=make_event(
+            type_="done",
+            status=JOB_SUCCEEDED,
+            progress=100,
+            step_name=STEP_PERSIST_DXF,
+            message="DXF 转换完成",
+        ),
+    )
+    return completed_job is not None
+
+
 def run_dxf_conversion(
     job_id: int,
     worker_name: str = "celery_dxf",
@@ -413,95 +518,16 @@ def run_dxf_conversion(
                 return
 
             # ---- 3. 持久化 DXF 产物 ----
-            persist_started = datetime.now(UTC)
-            dxf_path = result.target
-            if not dxf_path.is_file():
-                _mark_job_failed(
-                    db,
-                    job_id,
-                    attempt,
-                    AppError(f"DXF 产物未生成: {dxf_path}"),
-                    error_code=ERROR_CODE_DXF_FAILED,
-                )
-                return
-
-            dxf_bytes = dxf_path.read_bytes()
-            dxf_stats = _count_dxf_stats(dxf_path)
-            logger.info(
-                "DXF conversion stats for job %s: %s",
-                job_id,
-                dxf_entity_summary(dxf_stats),
-            )
-
-            # Use the original DWG filename — the work-dir path may be a temp name
-            source_file = db.get(StoredFile, source_file_id)
-            source_base = source_file.original_name if source_file else Path(source_path).name
-            source_base = sanitize_filename(source_base)
-            source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
-            storage_key = f"jobs/{job.id}/{uuid4().hex}{_DXF_EXT}"
-            dxf_file = save_bytes_as_file(
+            if not persist_dxf_conversion_result(
                 db,
-                bucket=settings.minio_bucket_dxf_derived,
-                storage_key=storage_key,
-                original_name=f"{source_stem}{_DXF_EXT}",
-                file_ext=_DXF_EXT,
-                content_type=_DXF_CONTENT_TYPE,
-                payload=dxf_bytes,
-                uploaded_by=job.created_by,
-                batch_name=source_file.batch_name if source_file else None,
-            )
-
-            result_payload = {
-                "source": "dxf_open_source",
-                "job_id": job.id,
-                "task_type": TASK_DWG_TO_DXF,
-                "source_file_id": source_file_id,
-                "dxf_file_id": dxf_file.id,
-                "convert_result": result.to_dict(),
-                "dxf_stats": dxf_stats,
-            }
-            analysis = AnalysisResult(
-                job_id=job.id,
-                drawing_id=job.drawing_id,
-                result_type=TASK_DWG_TO_DXF,
-                result_json=result_payload,
-                confidence=Decimal("1.0000"),
-                result_file_id=dxf_file.id,
-                algorithm_version=_ALGO_VERSION,
-                tool_version=output_version,
-                status="succeeded",
-            )
-            db.add(analysis)
-            db.flush()  # 让 analysis.id 可用
-            _add_step(
-                db,
-                job_id,
-                attempt,
-                STEP_PERSIST_DXF,
-                worker_name,
-                "succeeded",
-                input_json={"dxf_size": len(dxf_bytes)},
-                output_json={
-                    "dxf_file_id": dxf_file.id,
-                    "analysis_result_id": analysis.id,
-                    "entity_counts": dxf_stats.get("entity_counts", {}),
-                    "total_entities": dxf_stats.get("total_entities", 0),
-                },
-                started_at=persist_started,
-            )
-            completed_job = complete_job_attempt(
-                db,
-                job_id,
+                job_id=job_id,
                 attempt=attempt,
-                event=make_event(
-                    type_="done",
-                    status=JOB_SUCCEEDED,
-                    progress=100,
-                    step_name=STEP_PERSIST_DXF,
-                    message="DXF 转换完成",
-                ),
-            )
-            if completed_job is None:
+                source_file_id=source_file_id,
+                source_path=source_path,
+                output_version=output_version,
+                result=result,
+                worker_name=worker_name,
+            ):
                 return
     except Exception as exc:
         db.rollback()

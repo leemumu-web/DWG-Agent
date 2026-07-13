@@ -28,13 +28,21 @@ from app.core.validators import validate_sort_by
 from app.db.pagination import paginate_scalars
 from app.models.drawing import Drawing
 from app.models.excel_final import ExcelFinalBatch
+from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
-from app.schemas.job_schema import JobCreate, JobRead, JobStepRead
+from app.schemas.job_schema import (
+    ConversionBatchCreate,
+    JobBulkCancellation,
+    JobCreate,
+    JobRead,
+    JobStepRead,
+)
 from app.schemas.result_schema import AnalysisResultRead
 from app.services.audit_service import write_audit_log
+from app.services.file_service import require_file_read_access
 from app.services.job_access import (
     PROJECT_JOB_WRITE_ROLES,
     job_read_filter,
@@ -46,7 +54,9 @@ from app.services.job_service import (
     cancel_job as transition_job_to_cancelled,
 )
 from app.services.job_service import (
+    create_conversion_jobs,
     create_job,
+    dispatch_committed_conversion_batch,
     dispatch_committed_job,
 )
 from app.services.job_service import (
@@ -170,6 +180,100 @@ def create_job_api(
     db.commit()
     dispatch_committed_job(db, job)
     return ok(JobRead.model_validate(job), request.state.request_id)
+
+
+@router.post("/batches", status_code=status.HTTP_202_ACCEPTED)
+def create_conversion_batch(
+    payload: ConversionBatchCreate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    if payload.task_type == TASK_DWG_TO_DXF and not settings.dxf_pipeline_enabled:
+        raise service_unavailable(
+            "DXF_PIPELINE_DISABLED",
+            "DWG→DXF pipeline is disabled. Set DXF_PIPELINE_ENABLED=true to enable.",
+        )
+    if payload.task_type == TASK_DXF_TO_DWG and not settings.dxf2dwg_pipeline_enabled:
+        raise service_unavailable(
+            "DXF2DWG_PIPELINE_DISABLED",
+            "DXF→DWG pipeline is disabled. Set DXF2DWG_PIPELINE_ENABLED=true to enable.",
+        )
+
+    unique_ids = list(dict.fromkeys(payload.file_ids))
+    for file_id in unique_ids:
+        stored = db.get(StoredFile, file_id)
+        if stored is None or stored.status == "deleted":
+            raise not_found("File")
+        require_file_read_access(db, current_user, stored)
+
+    jobs = create_conversion_jobs(
+        db,
+        task_type=payload.task_type,
+        file_ids=unique_ids,
+        precision_level=payload.precision_level,
+        created_by=current_user.id,
+    )
+    for job in jobs:
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="jobs.create",
+            resource_type="job",
+            resource_id=job.id,
+            after_json={
+                "task_type": payload.task_type,
+                "precision_level": payload.precision_level,
+                "params": job.params_json,
+                "batch": True,
+            },
+            request=request,
+        )
+    db.commit()
+    dispatch_committed_conversion_batch(
+        task_type=payload.task_type,
+        jobs=[(job.id, job.attempt) for job in jobs],
+    )
+    return ok(
+        {"jobs": [JobRead.model_validate(job) for job in jobs]},
+        request.state.request_id,
+    )
+
+
+@router.post("/cancellation-requests", status_code=status.HTTP_202_ACCEPTED)
+def cancel_jobs(
+    payload: JobBulkCancellation,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    job_ids = list(dict.fromkeys(payload.job_ids))
+    jobs: list[Job] = []
+    for job_id in job_ids:
+        job = db.get(Job, job_id)
+        if job is None:
+            raise not_found("Job")
+        require_job_write_access(db, current_user, job)
+        jobs.append(job)
+
+    cancelled = [transition_job_to_cancelled(db, job) for job in jobs]
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="jobs.cancel_batch",
+        resource_type="job",
+        resource_id=0,
+        after_json={"cancelled_job_ids": [job.id for job in cancelled]},
+        request=request,
+    )
+    db.commit()
+    return ok(
+        {
+            "cancelled_count": len(cancelled),
+            "cancelled_job_ids": [job.id for job in cancelled],
+        },
+        request.state.request_id,
+    )
 
 
 @router.get("/{job_id}")

@@ -146,6 +146,27 @@ def _detect_dxf_output_version(source_path: Path) -> str:
         return settings.dxf2dwg_converter_version
 
 
+def _resolve_dwg_output_version(
+    db: Session,
+    source_file_id: int,
+    source_path: Path,
+    *,
+    job_id: int | None = None,
+) -> str:
+    """Use recorded source version when valid, otherwise inspect `$ACADVER`."""
+    resolved = _resolve_source_dwg_version(db, source_file_id)
+    if resolved and resolved in _KNOWN_ODA_VERSIONS:
+        return resolved
+    if resolved:
+        logger.warning(
+            "Ignoring unknown version %r from AnalysisResult for job %s — "
+            "falling back to $ACADVER detection",
+            resolved,
+            job_id,
+        )
+    return _detect_dxf_output_version(source_path)
+
+
 def _exception_message(exc: Exception) -> str:
     detail = getattr(exc, "detail", None)
     if isinstance(detail, dict):
@@ -246,6 +267,106 @@ def _add_step(
             finished_at=datetime.now(UTC),
         )
     )
+
+
+def persist_dwg_conversion_result(
+    db: Session,
+    *,
+    job_id: int,
+    attempt: int,
+    source_file_id: int,
+    source_path: Path,
+    source_stats: dict,
+    output_version: str,
+    result,
+    worker_name: str,
+) -> bool:
+    """Persist one successful DWG result only for its still-active attempt."""
+    job = db.get(Job, job_id, populate_existing=True)
+    if job is None or job.status != JOB_RUNNING or job.attempt != attempt:
+        db.rollback()
+        return False
+
+    persist_started = datetime.now(UTC)
+    dwg_path = result.target
+    if not dwg_path.is_file():
+        _mark_job_failed(
+            db,
+            job_id,
+            attempt,
+            AppError(f"DWG 产物未生成: {dwg_path}"),
+            error_code=ERROR_CODE_DWG_FAILED,
+        )
+        return False
+
+    dwg_bytes = dwg_path.read_bytes()
+    source_file = db.get(StoredFile, source_file_id)
+    source_base = source_file.original_name if source_file else Path(source_path).name
+    source_base = sanitize_filename(source_base)
+    source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
+    storage_key = f"jobs/{job.id}/{uuid4().hex}{_DWG_EXT}"
+    dwg_file = save_bytes_as_file(
+        db,
+        bucket=settings.minio_bucket_derived,
+        storage_key=storage_key,
+        original_name=f"{source_stem}{_DWG_EXT}",
+        file_ext=_DWG_EXT,
+        content_type=_DWG_CONTENT_TYPE,
+        payload=dwg_bytes,
+        uploaded_by=job.created_by,
+        batch_name=source_file.batch_name if source_file else None,
+    )
+    result_payload = {
+        "source": "dxf2dwg_open_source",
+        "job_id": job.id,
+        "task_type": TASK_DXF_TO_DWG,
+        "source_file_id": source_file_id,
+        "dwg_file_id": dwg_file.id,
+        "convert_result": result.to_dict(),
+        "source_dxf_stats": source_stats,
+    }
+    analysis = AnalysisResult(
+        job_id=job.id,
+        drawing_id=job.drawing_id,
+        result_type=TASK_DXF_TO_DWG,
+        result_json=result_payload,
+        confidence=Decimal("1.0000"),
+        result_file_id=dwg_file.id,
+        algorithm_version=_ALGO_VERSION,
+        tool_version=output_version,
+        status="succeeded",
+    )
+    db.add(analysis)
+    db.flush()
+    _add_step(
+        db,
+        job_id,
+        attempt,
+        STEP_PERSIST_DWG,
+        worker_name,
+        "succeeded",
+        input_json={"dwg_size": len(dwg_bytes)},
+        output_json={
+            "dwg_file_id": dwg_file.id,
+            "analysis_result_id": analysis.id,
+            "source_entity_counts": source_stats.get("entity_counts", {}),
+            "source_total_entities": source_stats.get("total_entities", 0),
+        },
+        started_at=persist_started,
+    )
+    completed_job = complete_job_attempt(
+        db,
+        job_id,
+        attempt=attempt,
+        event=make_event(
+            type_="done",
+            status=JOB_SUCCEEDED,
+            progress=100,
+            step_name=STEP_PERSIST_DWG,
+            message="DXF→DWG 转换完成",
+        ),
+    )
+    return completed_job is not None
 
 
 def run_dxf_to_dwg_conversion(
@@ -383,19 +504,12 @@ def run_dxf_to_dwg_conversion(
                 # fidelity.  Fall back to $ACADVER scanning for external DXFs.
                 # Guard against corrupted metadata: if the resolved version is
                 # not a known ODA version string, discard it and fall through.
-                resolved = _resolve_source_dwg_version(db, source_file_id)
-                if resolved and resolved in _KNOWN_ODA_VERSIONS:
-                    output_version = resolved
-                elif resolved:
-                    logger.warning(
-                        "Ignoring unknown version %r from AnalysisResult for job %s — "
-                        "falling back to $ACADVER detection",
-                        resolved,
-                        job_id,
-                    )
-                    output_version = _detect_dxf_output_version(source_path)
-                else:
-                    output_version = _detect_dxf_output_version(source_path)
+                output_version = _resolve_dwg_output_version(
+                    db,
+                    source_file_id,
+                    source_path,
+                    job_id=job_id,
+                )
                 result = convert_file(
                     source=source_path,
                     target_dir=out_dir,
@@ -481,88 +595,17 @@ def run_dxf_to_dwg_conversion(
                 return
 
             # ---- 3. 持久化 DWG 产物 ----
-            persist_started = datetime.now(UTC)
-            dwg_path = result.target
-            if not dwg_path.is_file():
-                _mark_job_failed(
-                    db,
-                    job_id,
-                    attempt,
-                    AppError(f"DWG 产物未生成: {dwg_path}"),
-                    error_code=ERROR_CODE_DWG_FAILED,
-                )
-                return
-
-            dwg_bytes = dwg_path.read_bytes()
-            # Use the original DXF filename — the work-dir path may be a temp name
-            source_file = db.get(StoredFile, source_file_id)
-            source_base = source_file.original_name if source_file else Path(source_path).name
-            source_base = sanitize_filename(source_base)
-            source_stem = source_base.rsplit(".", 1)[0] if "." in source_base else source_base
-            storage_key = f"jobs/{job.id}/{uuid4().hex}{_DWG_EXT}"
-            dwg_file = save_bytes_as_file(
+            if not persist_dwg_conversion_result(
                 db,
-                bucket=settings.minio_bucket_derived,
-                storage_key=storage_key,
-                original_name=f"{source_stem}{_DWG_EXT}",
-                file_ext=_DWG_EXT,
-                content_type=_DWG_CONTENT_TYPE,
-                payload=dwg_bytes,
-                uploaded_by=job.created_by,
-                batch_name=source_file.batch_name if source_file else None,
-            )
-
-            result_payload = {
-                "source": "dxf2dwg_open_source",
-                "job_id": job.id,
-                "task_type": TASK_DXF_TO_DWG,
-                "source_file_id": source_file_id,
-                "dwg_file_id": dwg_file.id,
-                "convert_result": result.to_dict(),
-                "source_dxf_stats": source_stats,
-            }
-            analysis = AnalysisResult(
-                job_id=job.id,
-                drawing_id=job.drawing_id,
-                result_type=TASK_DXF_TO_DWG,
-                result_json=result_payload,
-                confidence=Decimal("1.0000"),
-                result_file_id=dwg_file.id,
-                algorithm_version=_ALGO_VERSION,
-                tool_version=output_version,
-                status="succeeded",
-            )
-            db.add(analysis)
-            db.flush()  # 让 analysis.id 可用
-            _add_step(
-                db,
-                job_id,
-                attempt,
-                STEP_PERSIST_DWG,
-                worker_name,
-                "succeeded",
-                input_json={"dwg_size": len(dwg_bytes)},
-                output_json={
-                    "dwg_file_id": dwg_file.id,
-                    "analysis_result_id": analysis.id,
-                    "source_entity_counts": source_stats.get("entity_counts", {}),
-                    "source_total_entities": source_stats.get("total_entities", 0),
-                },
-                started_at=persist_started,
-            )
-            completed_job = complete_job_attempt(
-                db,
-                job_id,
+                job_id=job_id,
                 attempt=attempt,
-                event=make_event(
-                    type_="done",
-                    status=JOB_SUCCEEDED,
-                    progress=100,
-                    step_name=STEP_PERSIST_DWG,
-                    message="DXF→DWG 转换完成",
-                ),
-            )
-            if completed_job is None:
+                source_file_id=source_file_id,
+                source_path=source_path,
+                source_stats=source_stats,
+                output_version=output_version,
+                result=result,
+                worker_name=worker_name,
+            ):
                 return
     except Exception as exc:
         db.rollback()

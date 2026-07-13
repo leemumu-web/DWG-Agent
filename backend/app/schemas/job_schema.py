@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -32,6 +32,16 @@ class JobCreate(BaseModel):
             if _FORBIDDEN_PARAM_KEY_RE.search(key):
                 raise ValueError(f"Param key {key!r} is not allowed.")
         return v
+
+
+class ConversionBatchCreate(BaseModel):
+    task_type: Literal["convert_dwg_to_dxf", "convert_dxf_to_dwg"]
+    file_ids: list[int] = Field(min_length=1, max_length=200)
+    precision_level: str = Field(default="normal", min_length=1, max_length=32)
+
+
+class JobBulkCancellation(BaseModel):
+    job_ids: list[int] = Field(min_length=1, max_length=200)
 
 
 class JobRead(BaseModel):

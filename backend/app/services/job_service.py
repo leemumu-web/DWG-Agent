@@ -31,6 +31,7 @@ from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
 from app.models.drawing import Drawing
 from app.models.excel_final import ExcelFinalBatch
+from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.schemas.job_schema import JobCreate
@@ -114,6 +115,47 @@ def create_job(
         make_event(type_="status", status=JOB_QUEUED, progress=0, message="任务已入队"),
     )
     return job
+
+
+def create_conversion_jobs(
+    db: Session,
+    *,
+    task_type: str,
+    file_ids: list[int],
+    precision_level: str,
+    created_by: int,
+) -> list[Job]:
+    """Validate all sources, then create one ordered Job per unique file ID."""
+    expected_ext = ".dwg" if task_type == TASK_DWG_TO_DXF else ".dxf"
+    unique_ids = list(dict.fromkeys(file_ids))
+    sources: list[StoredFile] = []
+    for file_id in unique_ids:
+        stored = db.get(StoredFile, file_id)
+        if stored is None or stored.status == "deleted":
+            raise AppHTTPException(404, "FILE_NOT_FOUND", "File not found.")
+        if stored.file_ext.lower() != expected_ext:
+            raise AppHTTPException(
+                422,
+                "INVALID_CONVERSION_SOURCE",
+                f"{task_type} requires {expected_ext} source files.",
+                {"file_id": file_id, "file_ext": stored.file_ext},
+            )
+        sources.append(stored)
+
+    jobs: list[Job] = []
+    for stored in sources:
+        jobs.append(
+            create_job(
+                db,
+                JobCreate(
+                    task_type=task_type,
+                    precision_level=precision_level,
+                    params={"file_id": stored.id, "batch_name": stored.batch_name},
+                ),
+                created_by=created_by,
+            )
+        )
+    return jobs
 
 
 def _require_matching_idempotent_job(job: Job, payload: JobCreate) -> None:
@@ -404,6 +446,24 @@ def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
     if pipeline == PIPELINE_EXCEL_FINAL:
         return enqueue_excel_final_job(job_id, attempt)
     return enqueue_stub_job(job_id, attempt)
+
+
+def dispatch_committed_conversion_batch(
+    *,
+    task_type: str,
+    jobs: list[tuple[int, int]],
+) -> str:
+    """Send one batch message while retaining one database Job per source file."""
+    serialized = [[job_id, attempt] for job_id, attempt in jobs]
+    if task_type == TASK_DWG_TO_DXF:
+        from app.workers.tasks_dxf import convert_dwg_to_dxf_batch_task
+
+        return str(convert_dwg_to_dxf_batch_task.delay(serialized).id)
+    if task_type == TASK_DXF_TO_DWG:
+        from app.workers.tasks_dxf2dwg import convert_dxf_to_dwg_batch_task
+
+        return str(convert_dxf_to_dwg_batch_task.delay(serialized).id)
+    raise ValueError(f"Unsupported conversion batch task type: {task_type}")
 
 
 def dispatch_committed_job(db: Session, job: Job) -> str:
