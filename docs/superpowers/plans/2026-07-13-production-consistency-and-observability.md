@@ -793,7 +793,7 @@ git commit -m "feat: show truthful data console health"
 **Files:**
 - Modify: `backend/app/services/job_service.py`
 - Modify: `backend/app/api/v1/excel_final_api.py`
-- Test: `backend/tests/test_mysql_transaction_boundaries.py`
+- Test: `backend/tests/test_excel_final_idempotency_mysql.py`
 - Test: `scripts/verify_storage_transactions.py`
 
 - [ ] **Step 1: Add MySQL idempotency assertions to the integration suite**
@@ -833,7 +833,7 @@ def test_excel_final_request_key_is_unique_under_mysql(mysql_sessions, user):
 
 - [ ] **Step 2: Run the focused MySQL transaction tests**
 
-Run: `cd backend && .venv/bin/pytest tests/test_mysql_transaction_boundaries.py -q`
+Run: `MYSQL_INTEGRATION_DATABASE_URL="$DATABASE_URL" backend/.venv/bin/pytest backend/tests/test_excel_final_idempotency_mysql.py -q`
 
 Expected: PASS against the configured test MySQL; if it is unavailable, start the repository Compose database before retrying.
 
@@ -847,7 +847,16 @@ Expected: one head, upgrade to `d5e8a1c4b720`, downgrade/upgrade cycle succeeds,
 
 Run: `cd backend && STORAGE_BACKEND=local .venv/bin/python ../scripts/verify_storage_transactions.py`
 
-Run: `cd backend && STORAGE_BACKEND=minio .venv/bin/python ../scripts/verify_storage_transactions.py`
+Run from `backend/` against the Compose-only MinIO network endpoint without publishing a host port:
+
+```bash
+MINIO_IP=$(docker inspect complete_framework-minio-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+MINIO_ACCESS_KEY=$(sed -n 's/^MINIO_ACCESS_KEY=//p' ../.env.docker | head -n 1)
+MINIO_SECRET_KEY=$(sed -n 's/^MINIO_SECRET_KEY=//p' ../.env.docker | head -n 1)
+STORAGE_BACKEND=minio MINIO_ENDPOINT="http://$MINIO_IP:9000" \
+  MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \
+  .venv/bin/python ../scripts/verify_storage_transactions.py
+```
 
 Expected: each reports registered source/result objects, succeeded inbound/internal/outbound transfers, and no orphan created by a replay.
 
