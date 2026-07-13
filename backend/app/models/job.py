@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PKType
@@ -12,12 +12,21 @@ from app.models.mixins import TimestampMixin
 
 class Job(TimestampMixin, Base):
     __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "created_by",
+            "task_type",
+            "request_key",
+            name="uq_jobs_actor_task_request_key",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), index=True)
     drawing_id: Mapped[int | None] = mapped_column(ForeignKey("drawings.id"), index=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_key: Mapped[str | None] = mapped_column(String(128))
     precision_level: Mapped[str] = mapped_column(String(32), nullable=False)
     pipeline: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
