@@ -210,6 +210,40 @@ def test_conversion_events_stream_rejects_more_than_200_files():
     assert response.json()["error"]["code"] == "INVALID_PARAMS"
 
 
+def test_list_jobs_latest_per_file_omits_superseded_attempt_rows():
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    file_id = _upload_dwg(client, headers, "latest-only.dwg")
+    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+        first = _create_batch(
+            client,
+            headers,
+            task_type="convert_dwg_to_dxf",
+            file_ids=[file_id],
+        ).json()["data"]["jobs"][0]
+        second = _create_batch(
+            client,
+            headers,
+            task_type="convert_dwg_to_dxf",
+            file_ids=[file_id],
+        ).json()["data"]["jobs"][0]
+
+    response = client.get(
+        "/api/v1/jobs",
+        headers=headers,
+        params={
+            "task_type": "convert_dwg_to_dxf",
+            "file_ids": str(file_id),
+            "latest_per_file": "true",
+            "page_size": 200,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert [job["id"] for job in response.json()["data"]] == [second["id"]]
+    assert first["id"] != second["id"]
+
+
 def test_oda_batch_group_uses_bounded_parallel_shards(tmp_path, monkeypatch):
     from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
 

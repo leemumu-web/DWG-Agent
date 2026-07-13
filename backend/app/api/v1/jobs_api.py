@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import String, cast, delete, or_, select, update
+from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.deps import (
@@ -79,6 +79,7 @@ def list_jobs(
     status_filter: str = Query("", alias="status", max_length=32),
     search: str = Query("", max_length=100),
     file_ids: str = Query("", max_length=2200),
+    latest_per_file: bool = Query(False),
     db: Session = Depends(get_db),
 ):
     sort_column = validate_sort_by("jobs", sort_by)
@@ -108,6 +109,7 @@ def list_jobs(
             cast(Job.id, String).like(pattern),
         ]
         stmt = stmt.where(or_(*search_clauses))
+    parsed_file_ids: set[int] | None = None
     if file_ids.strip():
         try:
             parsed_file_ids = {int(value) for value in file_ids.split(",") if value}
@@ -120,6 +122,19 @@ def list_jobs(
                 422, "INVALID_PARAMS", "file_ids must contain between 1 and 200 ids."
             )
         stmt = stmt.where(Job.params_json["file_id"].as_integer().in_(parsed_file_ids))
+    if latest_per_file:
+        if not parsed_file_ids:
+            raise AppHTTPException(
+                422, "INVALID_PARAMS", "latest_per_file requires file_ids."
+            )
+        file_id_expression = Job.params_json["file_id"].as_integer()
+        latest_ids = select(func.max(Job.id)).where(file_id_expression.in_(parsed_file_ids))
+        if task_type.strip():
+            latest_ids = latest_ids.where(Job.task_type == task_type.strip())
+        if not has_global_project_access(current_user):
+            latest_ids = latest_ids.where(job_read_filter(current_user))
+        latest_ids = latest_ids.group_by(file_id_expression)
+        stmt = stmt.where(Job.id.in_(latest_ids))
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
     jobs, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)

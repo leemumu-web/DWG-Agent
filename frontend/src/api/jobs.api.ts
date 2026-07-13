@@ -31,12 +31,15 @@ function chunksOf<T>(values: T[], size = MAX_BULK_IDS): T[][] {
 export async function listJobsForFiles(taskType: string, fileIds: number[]): Promise<Job[]> {
   if (fileIds.length === 0) return [];
   const pages = await Promise.all(
-    chunksOf(fileIds).map((chunk) => fetchAllPages<Job>('/api/v1/jobs', {
+    chunksOf(fileIds).map((chunk) => listJobsPage({
+      page: 1,
+      page_size: MAX_BULK_IDS,
       task_type: taskType,
       file_ids: chunk.join(','),
+      latest_per_file: true,
     })),
   );
-  return pages.flat();
+  return pages.flatMap((page) => page.data);
 }
 
 export interface JobListParams {
@@ -46,6 +49,7 @@ export interface JobListParams {
   status?: string;
   search?: string;
   file_ids?: string;
+  latest_per_file?: boolean;
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
 }

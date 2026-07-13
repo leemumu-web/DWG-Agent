@@ -205,7 +205,8 @@ def test_operational_tables_use_bounded_server_pagination():
     assert "listJobsPage" in jobs_api
     assert "listAuditLogsPage" in audit_api
     assert "listFilesPage" in conversion_page
-    assert "listJobsPage" in conversion_page
+    assert "listJobsForFiles" in conversion_page
+    assert "latest_per_file: true" in jobs_api
     assert "current: page" in conversion_page
     assert "listJobsPage" in jobs_page
     assert "total: query.data?.pagination.total" in jobs_page

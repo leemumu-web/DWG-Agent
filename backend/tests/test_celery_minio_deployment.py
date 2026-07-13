@@ -404,7 +404,10 @@ def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default
     ):
         command = data["services"][service_name]["command"]
         assert "uv run celery" not in command
-        assert "app.workers.celery_app:celery_app" in command
+        if service_name in {"worker-dxf", "worker-dxf2dwg"}:
+            assert command[0] == "/app/scripts/run-cad-worker.sh"
+        else:
+            assert "app.workers.celery_app:celery_app" in command
 
     assert "profiles" not in data["services"]["worker-report"]
 
