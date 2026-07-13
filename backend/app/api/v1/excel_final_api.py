@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 
 from fastapi import APIRouter, Depends, File, Header, Query, Request, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db, has_global_project_access
@@ -42,7 +43,8 @@ from app.services.file_transfer_service import (
 )
 from app.services.job_access import job_read_filter, require_job_read_access
 from app.services.job_service import create_or_reuse_job, dispatch_committed_job
-from app.services.storage_service import sanitize_filename, save_upload_file
+from app.services.storage_service import get_storage_backend, sanitize_filename, save_upload_file
+from app.storage.base import StorageError
 
 router = APIRouter()
 
@@ -811,6 +813,7 @@ def lookup_weight(
 def health_check(
     request: Request,
     current_user: CurrentUser,
+    db: Session = Depends(get_db),
 ):
     """检查 excel_final 流水线是否可用。"""
     is_enabled = settings.excel_final_pipeline_enabled
@@ -832,6 +835,47 @@ def health_check(
     if not stage_available:
         pkg_available = False
 
+    database_backend = db.get_bind().dialect.name
+    try:
+        db.execute(text("SELECT 1"))
+        database_available = True
+    except SQLAlchemyError:
+        db.rollback()
+        database_available = False
+
+    try:
+        get_storage_backend().check_health()
+        storage_available = True
+    except (AppHTTPException, StorageError):
+        storage_available = False
+
+    degraded_components: list[str] = []
+    if not is_enabled:
+        degraded_components.append("pipeline_disabled")
+    if not stage_available:
+        degraded_components.append("stage")
+    if not dependencies_available:
+        degraded_components.append("dependencies")
+    if not handbook_available:
+        degraded_components.append("handbook_module")
+    if not handbook_db_available:
+        degraded_components.append("handbook_database")
+    if not database_available:
+        degraded_components.append("database")
+    if not storage_available:
+        degraded_components.append("object_storage")
+
+    ready = all(
+        (
+            is_enabled,
+            pkg_available,
+            handbook_available,
+            handbook_db_available,
+            database_available,
+            storage_available,
+        )
+    )
+
     return ok(
         {
             "pipeline_enabled": is_enabled,
@@ -840,7 +884,13 @@ def health_check(
             "package_available": pkg_available,
             "handbook_available": handbook_available,
             "handbook_database_available": handbook_db_available,
-            "ready": is_enabled and pkg_available and handbook_db_available,
+            "database_backend": database_backend,
+            "database_available": database_available,
+            "storage_backend": settings.storage_backend,
+            "storage_available": storage_available,
+            "storage_bucket": settings.minio_bucket_reports,
+            "degraded_components": degraded_components,
+            "ready": ready,
         },
         request.state.request_id,
     )

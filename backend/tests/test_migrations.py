@@ -16,6 +16,7 @@ JOB_ATTEMPT_REVISION = VERSIONS_DIR / "8c61f4d2a9e7_add_job_attempt_generation.p
 JOB_STEP_ATTEMPT_REVISION = VERSIONS_DIR / "a74c2e9f1d30_add_job_step_attempt.py"
 DATA_CONSOLE_REVISION = VERSIONS_DIR / "6d2f8a9c1b40_add_data_console_ledger.py"
 EXCEL_FINAL_WIDTH_REVISION = VERSIONS_DIR / "9c4e7b1a2d60_widen_excel_final_identifiers.py"
+JOB_REQUEST_KEY_REVISION = VERSIONS_DIR / "d5e8a1c4b720_add_job_request_key.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -163,6 +164,16 @@ def test_excel_final_width_migration_extends_current_head_without_rewriting_hist
     assert "sa.String(128)" in source
 
 
+def test_job_request_key_migration_extends_head_with_unique_idempotency_boundary():
+    source = JOB_REQUEST_KEY_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "9c4e7b1a2d60"' in source
+    assert 'op.add_column("jobs"' in source
+    assert '"request_key"' in source
+    assert '"uq_jobs_actor_task_request_key"' in source
+    assert '["created_by", "task_type", "request_key"]' in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -198,9 +209,10 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "9c4e7b1a2d60"' in source
+    assert 'version != "d5e8a1c4b720"' in source
     assert '"files": {"deleted_at"}' in source
-    assert '"jobs": {"progress_data", "attempt"}' in source
+    assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
+    assert '"uq_jobs_actor_task_request_key"' in source
     assert '"job_steps": {"attempt"}' in source
     assert "identifier types are not BIGINT" in source
     assert "excel_final_batches.job_id is not unique" in source

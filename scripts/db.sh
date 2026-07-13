@@ -363,7 +363,7 @@ timestamp_tables = (
 
 expected_columns = {
     "files": {"deleted_at"},
-    "jobs": {"progress_data", "attempt"},
+    "jobs": {"progress_data", "attempt", "request_key"},
     "job_steps": {"attempt"},
     "sys_users": {"password_changed_at"},
 }
@@ -381,7 +381,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "9c4e7b1a2d60":
+    if version != "d5e8a1c4b720":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}
@@ -428,6 +428,11 @@ with engine.connect() as conn:
     }
     if ("bucket", "storage_key") not in file_unique_columns:
         raise SystemExit("files storage location is not unique")
+    job_unique_names = {
+        item["name"] for item in inspector.get_unique_constraints("jobs")
+    }
+    if "uq_jobs_actor_task_request_key" not in job_unique_names:
+        raise SystemExit("jobs idempotency request key is not unique")
 print(f"Alembic head: {version}; business tables: {len(expected_tables)}")
 PY
     )

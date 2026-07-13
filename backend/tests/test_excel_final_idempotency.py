@@ -17,6 +17,7 @@ from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
 from app.models.job import Job
 from app.models.user import User
+from app.storage.base import StorageError
 from app.storage.local_storage import LocalFileStorage
 
 
@@ -239,3 +240,81 @@ def test_process_rejects_non_excel_stored_file(
     assert response.status_code == 415, response.text
     assert response.json()["error"]["code"] == "NOT_EXCEL"
     assert db.scalar(select(func.count()).select_from(Job)) == 0
+
+
+def _ready_excel_final_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    stage_root = tmp_path / "excel-final-stage"
+    stage_root.mkdir()
+    (stage_root / "handbook.py").write_text("# health fixture\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.get_excel_final_stage_root",
+        lambda: stage_root,
+    )
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.excel_final_dependencies_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.handbook_database_available",
+        lambda: True,
+    )
+
+
+def test_excel_final_health_reports_actual_database_and_storage_backends(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client, headers, _admin = _admin_client(db)
+    _ready_excel_final_dependencies(monkeypatch, tmp_path)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.get_storage_backend",
+        lambda: storage,
+        raising=False,
+    )
+
+    response = client.get("/api/v1/excel-final/health", headers=headers)
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["database_backend"] == "sqlite"
+    assert data["database_available"] is True
+    assert data["storage_backend"] == "local"
+    assert data["storage_available"] is True
+    assert data["storage_bucket"] == "dwg-reports"
+    assert data["degraded_components"] == []
+    assert data["ready"] is True
+
+
+def test_excel_final_health_degrades_safely_when_storage_fails(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class FailingHealthStorage(LocalFileStorage):
+        def check_health(self) -> None:
+            raise StorageError("minio-secret-host.internal")
+
+    client, headers, _admin = _admin_client(db)
+    _ready_excel_final_dependencies(monkeypatch, tmp_path)
+    storage = FailingHealthStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.get_storage_backend",
+        lambda: storage,
+        raising=False,
+    )
+    monkeypatch.setattr("app.api.v1.excel_final_api.settings.storage_backend", "minio")
+
+    response = client.get("/api/v1/excel-final/health", headers=headers)
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["storage_backend"] == "minio"
+    assert data["storage_available"] is False
+    assert data["degraded_components"] == ["object_storage"]
+    assert data["ready"] is False
+    assert "minio-secret-host.internal" not in response.text

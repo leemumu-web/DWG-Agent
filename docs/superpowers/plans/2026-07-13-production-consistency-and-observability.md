@@ -518,7 +518,7 @@ Return backend names, availability booleans, `storage_bucket`, and a stable `deg
 
 - [ ] **Step 4: Run focused and system health tests**
 
-Run: `cd backend && .venv/bin/pytest tests/test_excel_final_import.py tests/test_health_contract.py tests/test_storage_operations.py -q`
+Run: `cd backend && .venv/bin/pytest tests/test_excel_final_import.py tests/test_health.py tests/test_storage_operations.py -q`
 
 Expected: PASS without changing root readiness contracts.
 
