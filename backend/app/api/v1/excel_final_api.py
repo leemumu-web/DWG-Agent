@@ -33,6 +33,7 @@ from app.schemas.common import page as page_response
 from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
 from app.services.file_transfer_service import (
+    ACTIVE_TRANSFER_STATUSES,
     TransferSpec,
     complete_transfer_in_transaction,
     prepare_transfer_in_transaction,
@@ -40,7 +41,7 @@ from app.services.file_transfer_service import (
     settle_transfer,
 )
 from app.services.job_access import job_read_filter, require_job_read_access
-from app.services.job_service import create_job, create_or_reuse_job, dispatch_committed_job
+from app.services.job_service import create_or_reuse_job, dispatch_committed_job
 from app.services.storage_service import sanitize_filename, save_upload_file
 
 router = APIRouter()
@@ -105,7 +106,8 @@ async def _store_excel_upload(
     *,
     current_user: CurrentUser,
     request: Request,
-) -> StoredFile:
+    idempotency_key: str | None = None,
+) -> tuple[StoredFile, bool]:
     """Persist an Excel upload with the same durable saga used by /files."""
     transfer = prepare_transfer_in_transaction(
         db,
@@ -114,12 +116,29 @@ async def _store_excel_upload(
             operation="upload",
             actor_user_id=current_user.id,
             request_id=request.state.request_id,
+            idempotency_key=idempotency_key,
             original_name=sanitize_filename(upload.filename or "unnamed.xlsx"),
         ),
     )
     # End the authentication/read snapshot before the independent transfer
     # session advances this durable intent to in_progress.
     db.commit()
+    if transfer.status == "succeeded" and transfer.file_id is not None:
+        stored = db.get(StoredFile, transfer.file_id)
+        if stored is None or stored.status == "deleted":
+            raise AppHTTPException(
+                409,
+                "IDEMPOTENT_RESULT_MISSING",
+                "The previous upload result is no longer available.",
+            )
+        return stored, True
+    if transfer.status not in ACTIVE_TRANSFER_STATUSES:
+        raise AppHTTPException(
+            409,
+            "IDEMPOTENT_OPERATION_FAILED",
+            "The previous upload with this idempotency key did not succeed.",
+            {"transfer_uid": transfer.transfer_uid},
+        )
     try:
         stored = await save_upload_file(
             db,
@@ -137,7 +156,7 @@ async def _store_excel_upload(
             original_name=stored.original_name,
             transferred_bytes=stored.size_bytes,
         )
-        return stored
+        return stored, False
     except Exception as exc:
         db.rollback()
         detail = exc.detail if isinstance(exc, AppHTTPException) else None
@@ -170,7 +189,7 @@ async def upload_excel(
 ):
     """上传 .xlsx/.xls 文件到 MinIO (dwg-reports bucket)。"""
     _ensure_pipeline_enabled()
-    stored = await _store_excel_upload(
+    stored, _upload_reused = await _store_excel_upload(
         db,
         upload,
         current_user=current_user,
@@ -256,16 +275,52 @@ async def upload_and_process(
     request: Request,
     current_user: CurrentUser,
     upload: UploadFile = File(...),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
 ):
     """上传受支持的钢构清单 → 存储 → 创建作业 → 返回 job_id。"""
     _ensure_pipeline_enabled()
 
-    stored = await _store_excel_upload(
+    scoped_key = _scoped_request_key("upload-and-process", idempotency_key)
+    if scoped_key is not None:
+        existing_job = db.scalar(
+            select(Job).where(
+                Job.created_by == current_user.id,
+                Job.task_type == TASK_EXCEL_FINAL,
+                Job.request_key == scoped_key,
+            )
+        )
+        if existing_job is not None:
+            existing_file_id = (existing_job.params_json or {}).get("file_id")
+            existing_file = (
+                db.get(StoredFile, existing_file_id)
+                if isinstance(existing_file_id, int)
+                else None
+            )
+            if existing_file is None or existing_file.status == "deleted":
+                raise AppHTTPException(
+                    409,
+                    "IDEMPOTENT_RESULT_MISSING",
+                    "The previous upload result is no longer available.",
+                )
+            return ok(
+                {
+                    "job_id": existing_job.id,
+                    "file_id": existing_file.id,
+                    "original_name": existing_file.original_name,
+                    "status": existing_job.status,
+                    "reused": True,
+                    "message": "已复用先前登记的处理任务",
+                },
+                request.state.request_id,
+            )
+
+    stored, _upload_reused = await _store_excel_upload(
         db,
         upload,
         current_user=current_user,
         request=request,
+        idempotency_key=scoped_key,
     )
     db.flush()
 
@@ -275,24 +330,32 @@ async def upload_and_process(
         task_type=TASK_EXCEL_FINAL,
         params={"file_id": stored.id},
     )
-    job = create_job(db, payload, created_by=current_user.id)
-    write_audit_log(
+    job, reused = create_or_reuse_job(
         db,
-        actor_user_id=current_user.id,
-        action="excel_final.upload_and_process",
-        resource_type="job",
-        resource_id=job.id,
-        after_json={"file_id": stored.id, "original_name": stored.original_name},
-        request=request,
+        payload,
+        created_by=current_user.id,
+        request_key=scoped_key,
     )
+    if not reused:
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="excel_final.upload_and_process",
+            resource_type="job",
+            resource_id=job.id,
+            after_json={"file_id": stored.id, "original_name": stored.original_name},
+            request=request,
+        )
     db.commit()
-    dispatch_committed_job(db, job)
+    if not reused:
+        dispatch_committed_job(db, job)
     return ok(
         {
             "job_id": job.id,
             "file_id": stored.id,
             "original_name": stored.original_name,
             "status": job.status,
+            "reused": reused,
             "message": "文件已上传，处理任务已入队",
         },
         request.state.request_id,

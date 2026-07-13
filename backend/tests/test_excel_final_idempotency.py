@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from io import BytesIO
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,8 +14,10 @@ from app.core.constants import TASK_EXCEL_FINAL
 from app.db.init_db import init_db
 from app.main import app
 from app.models.file import StoredFile
+from app.models.file_transfer import FileTransfer
 from app.models.job import Job
 from app.models.user import User
+from app.storage.local_storage import LocalFileStorage
 
 
 def _create_user(db: Session, username: str) -> User:
@@ -138,3 +144,65 @@ def test_process_rejects_same_key_for_different_file(
     assert first.status_code == 202, first.text
     assert second.status_code == 409, second.text
     assert second.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
+def _workbook_bytes() -> bytes:
+    stream = BytesIO()
+    book = Workbook()
+    sheet = book.active
+    sheet.append(["零件号", "规格", "材质"])
+    sheet.append(["P-1", "L50x5", "Q235"])
+    book.save(stream)
+    return stream.getvalue()
+
+
+def _post_workbook(
+    client: TestClient,
+    headers: dict[str, str],
+    payload: bytes,
+):
+    return client.post(
+        "/api/v1/excel-final/upload-and-process",
+        headers=headers,
+        files={
+            "upload": (
+                "parts.xlsx",
+                payload,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+
+def test_upload_and_process_replay_reuses_file_and_job(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.services.storage_service.get_storage_backend",
+        lambda: storage,
+    )
+    client, headers, _admin = _admin_client(db)
+    dispatched: list[int] = []
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.dispatch_committed_job",
+        lambda _db, job: dispatched.append(job.id),
+    )
+    request_headers = {**headers, "Idempotency-Key": "upload-1"}
+    workbook = _workbook_bytes()
+
+    first = _post_workbook(client, request_headers, workbook)
+    second = _post_workbook(client, request_headers, workbook)
+
+    assert first.status_code == second.status_code == 202
+    assert first.json()["data"]["file_id"] == second.json()["data"]["file_id"]
+    assert first.json()["data"]["job_id"] == second.json()["data"]["job_id"]
+    assert first.json()["data"]["reused"] is False
+    assert second.json()["data"]["reused"] is True
+    assert dispatched == [first.json()["data"]["job_id"]]
+    assert db.scalar(select(func.count()).select_from(StoredFile)) == 1
+    assert db.scalar(select(func.count()).select_from(FileTransfer)) == 1
+    assert db.scalar(select(func.count()).select_from(Job)) == 1
+    assert storage.bucket_object_counts(["dwg-reports"])["dwg-reports"] == 1
