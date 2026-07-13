@@ -1,14 +1,54 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _read(path: str) -> str:
     return (PROJECT_ROOT / path).read_text(encoding="utf-8")
+
+
+def test_cad_benchmark_cli_contract_and_concurrency_parser(tmp_path):
+    script = PROJECT_ROOT / "scripts/benchmark_cad_conversion.py"
+    assert script.is_file()
+
+    spec = importlib.util.spec_from_file_location("cad_benchmark", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.parse_concurrency("1,4,4,8") == [1, 4, 8]
+    with pytest.raises(ValueError):
+        module.parse_concurrency("0,2")
+
+    help_result = subprocess.run(
+        ["python", str(script), "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert help_result.returncode == 0
+    assert "--direction" in help_result.stdout
+    missing_result = subprocess.run(
+        [
+            "python",
+            str(script),
+            "--input-dir",
+            str(tmp_path / "missing"),
+            "--direction",
+            "dwg2dxf",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert missing_result.returncode == 2
+    assert "不存在" in missing_result.stderr
 
 
 def test_database_script_provides_mysql_runtime_entrypoints():
