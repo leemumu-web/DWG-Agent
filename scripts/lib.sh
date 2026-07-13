@@ -130,12 +130,22 @@ celery_worker_pids() {
     pgrep -f "$pattern" 2>/dev/null || true
 }
 
+celery_worker_parent_pids() {
+    local queue="$1" slug="$2" pid parent
+    local -a worker_pids
+    mapfile -t worker_pids < <(celery_worker_pids "$queue" "$slug")
+    for pid in "${worker_pids[@]}"; do
+        parent="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+        if ! printf '%s\n' "${worker_pids[@]}" | grep -qx "$parent"; then
+            echo "$pid"
+        fi
+    done
+}
+
 stop_celery_worker() {
     local queue="$1" slug="${2:-${1//_/-}}"
     local label="worker-${slug}"
     local pidfile="/tmp/dwg-agent-${label}.pid"
-    local pattern
-    pattern="$(celery_worker_pattern "$queue" "$slug")"
 
     if ! celery_worker_pids "$queue" "$slug" | grep -q .; then
         rm -f "$pidfile"
@@ -143,7 +153,13 @@ stop_celery_worker() {
         return 0
     fi
 
-    pkill -TERM -f "$pattern" 2>/dev/null || true
+    local -a parent_pids
+    mapfile -t parent_pids < <(celery_worker_parent_pids "$queue" "$slug")
+    if [ "${#parent_pids[@]}" -eq 0 ]; then
+        warn "Celery ${label} 未找到主进程；保持现状"
+        return 1
+    fi
+    kill -TERM "${parent_pids[@]}" 2>/dev/null || true
     for _ in $(seq 1 15); do
         if ! celery_worker_pids "$queue" "$slug" | grep -q .; then
             rm -f "$pidfile"

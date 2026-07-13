@@ -166,6 +166,9 @@ def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():
     assert 'pid_file="/tmp/dwg-celery-${queue}.pid"' in content
     assert 'rm -f "$pid_file"' in content
     assert 'echo "$celery_pid" >"$pid_file"' in content
+    assert 'display_lock="/tmp/.X${display_number}-lock"' in content
+    assert 'kill -0 "$display_owner"' in content
+    assert 'rm -f "$x_socket" "$display_lock"' in content
 
 
 def test_local_cad_worker_concurrency_and_display_are_configurable():
@@ -177,6 +180,14 @@ def test_local_cad_worker_concurrency_and_display_are_configurable():
     assert 'DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"' in content
     assert '"dxf|${DXF_WORKER_CONCURRENCY}|dxf|${DXF_WORKER_DISPLAY}"' in content
     assert '"dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"' in content
+
+
+def test_worker_stop_signals_only_celery_parent_processes():
+    content = _read("scripts/lib.sh")
+
+    assert "celery_worker_parent_pids" in content
+    assert 'kill -TERM "${parent_pids[@]}"' in content
+    assert 'pkill -TERM -f "$pattern"' not in content
 
 
 def test_status_warns_when_local_and_compose_consume_the_same_cad_queue():
