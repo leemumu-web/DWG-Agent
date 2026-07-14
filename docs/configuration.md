@@ -21,6 +21,21 @@ FastAPI 端口 `8010`（本地与容器一致）、Vite `5173` 和本地 Nginx `
 
 跨源 Vite 开发会对带 `Idempotency-Key` 的 Excel Final POST 发起 CORS 预检。后端只允许 `Authorization`、`Content-Type` 和 `Idempotency-Key` 三类请求头；不要用 `*` 代替精确 origin/headers，也不要删除幂等头后用前端双击锁冒充服务端一致性。
 
+### Win11 本地访问转发
+
+本机服务正常监听 `127.0.0.1:8080` 后，可通过 SSH config 中的 `win11` host 在 Windows 回环地址建立反向转发：
+
+```bash
+bash scripts/forward-to-win11.sh start
+bash scripts/forward-to-win11.sh status
+bash scripts/forward-to-win11.sh restart --remote-port 18080
+bash scripts/forward-to-win11.sh stop
+```
+
+默认映射为 Win11 `127.0.0.1:8080` -> 本机 `127.0.0.1:8080`。脚本使用配置专属的 SSH ControlMaster socket 管理生命周期，不通过 PID 或模糊进程匹配停止其他 SSH 会话；重复 `start` 是幂等操作。远端 bind address 有意保持 `127.0.0.1`，脚本不会修改 SSH server 的 `GatewayPorts`，因而不会默认把管理界面暴露给 Win11 所在网络。
+
+配置优先级为命令行参数 > 环境变量 > 默认值。可用环境变量为 `FORWARD_REMOTE_HOST`、`FORWARD_REMOTE_BIND_ADDRESS`、`FORWARD_REMOTE_PORT`、`FORWARD_LOCAL_ADDRESS`、`FORWARD_LOCAL_PORT` 和 `FORWARD_RUNTIME_DIR`；完整参数以 `bash scripts/forward-to-win11.sh --help` 为准。`status` 在隧道运行时返回 0，未运行时返回 3，适合监控脚本直接判定。
+
 ## 数据库与连接池
 
 | 变量 | 默认值 | 含义 |

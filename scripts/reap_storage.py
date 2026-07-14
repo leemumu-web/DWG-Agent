@@ -32,13 +32,15 @@ _backend = Path(__file__).resolve().parents[1] / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select  # noqa: E402 - backend path is injected above
 
-from app.core.config import settings
-from app.db.session import SessionLocal
-from app.models.file import StoredFile
-from app.services.storage_service import get_storage_backend
-from app.storage.base import StorageError
+from app.core.config import settings  # noqa: E402 - backend path is injected above
+from app.db.session import SessionLocal  # noqa: E402 - backend path is injected above
+from app.models.file import StoredFile  # noqa: E402 - backend path is injected above
+from app.services.storage_service import (  # noqa: E402 - backend path is injected above
+    get_storage_backend,
+)
+from app.storage.base import StorageError  # noqa: E402 - backend path is injected above
 
 logger = logging.getLogger("reap_storage")
 logging.basicConfig(
