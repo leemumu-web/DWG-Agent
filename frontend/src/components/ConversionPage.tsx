@@ -132,6 +132,7 @@ export interface ConversionPageProps {
 
 export function ConversionPage(props: ConversionPageProps) {
   const p = props;
+  const sourceFormat = p.fileExt.slice(1) as 'dwg' | 'dxf';
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [selectedBatchNames, setSelectedBatchNames] = useState<string[]>([]);
@@ -920,6 +921,7 @@ export function ConversionPage(props: ConversionPageProps) {
         open={zipModalOpen}
         fileIds={selectedRowKeys}
         fileCount={selectedRowKeys.length}
+        sourceFormat={sourceFormat}
         onClose={() => setZipModalOpen(false)}
         onDone={() => { setSelectedRowKeys([]); refresh(); }}
       />
@@ -927,6 +929,7 @@ export function ConversionPage(props: ConversionPageProps) {
         open={batchZipModalOpen}
         fileIds={batchZipFileIds}
         fileCount={batchZipFileIds.length}
+        sourceFormat={sourceFormat}
         onClose={() => { setBatchZipModalOpen(false); setSelectedBatchNames([]); }}
         onDone={() => { setBatchZipModalOpen(false); setSelectedBatchNames([]); refresh(); }}
       />

@@ -354,15 +354,15 @@ for (const dir of DIRECTIONS) {
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     const dlBtn = dialog.getByRole('button', { name: /开始下载/ });
+    const sourceLabel = dir.fileExt === '.dwg' ? '包含 DWG 文件' : '包含 DXF 文件';
+    const sourceOption = dialog.getByRole('checkbox', { name: sourceLabel });
+    await expect(sourceOption).toBeEnabled();
     await expect(dlBtn).toBeEnabled();
 
-    const dwgOption = dialog.getByRole('checkbox', { name: '包含 DWG 文件' });
-    const dxfOption = dialog.getByRole('checkbox', { name: '包含 DXF 文件' });
-    await dwgOption.uncheck();
-    await dxfOption.uncheck();
+    await sourceOption.uncheck();
     await expect(dlBtn).toBeDisabled();
 
-    await dwgOption.check();
+    await sourceOption.check();
     await expect(dlBtn).toBeEnabled();
 
     await dialog.getByRole('button', { name: /取\s*消/ }).click();
@@ -386,6 +386,96 @@ for (const dir of DIRECTIONS) {
     await dialog.getByRole('button', { name: /取\s*消/ }).click();
   });
 
+  test('zip modal disables a format that is not available for every file', async ({ page }) => {
+    await mockConversionState(page, dir);
+    const sourceFormat = dir.fileExt.slice(1);
+    const targetFormat = sourceFormat === 'dwg' ? 'dxf' : 'dwg';
+    await page.route('**/api/v1/files/download-zip/preview', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          file_count: 2,
+          formats: [
+            {
+              format: sourceFormat,
+              available_count: 2,
+              missing_count: 0,
+              missing_file_ids: [],
+              complete: true,
+            },
+            {
+              format: targetFormat,
+              available_count: 1,
+              missing_count: 1,
+              missing_file_ids: [91_002],
+              complete: false,
+            },
+          ],
+          can_download: false,
+        },
+        meta: { request_id: 'playwright-zip-preview', timestamp: new Date().toISOString() },
+      }),
+    }));
+    await page.reload();
+
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
+    await checkboxes.nth(0).check();
+    await checkboxes.nth(1).check();
+    await page.getByRole('button', { name: /打包下载/ }).click();
+    const dialog = page.getByRole('dialog', { name: '打包下载' });
+    const targetLabel = targetFormat === 'dxf' ? '包含 DXF 文件' : '包含 DWG 文件';
+
+    await expect(dialog.getByRole('checkbox', { name: targetLabel })).toBeDisabled();
+    await expect(dialog.getByText(new RegExp(`${targetFormat.toUpperCase()}.*可用 1 / 共 2`))).toBeVisible();
+  });
+
+  test('zip modal preserves input after a formal download 409', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.route('**/api/v1/files/download-zip/preview', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          file_count: 1,
+          formats: ['dwg', 'dxf'].map((format) => ({
+            format,
+            available_count: 1,
+            missing_count: 0,
+            missing_file_ids: [],
+            complete: true,
+          })),
+          can_download: true,
+        },
+        meta: { request_id: 'playwright-zip-preview', timestamp: new Date().toISOString() },
+      }),
+    }));
+    await page.route('**/api/v1/files/download-zip', (route) => route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'FILE_EXPORT_FORMAT_UNAVAILABLE',
+          message: '所选格式当前不完整，请重新检查。',
+          details: { file_id: 91_001, format: 'dxf' },
+        },
+        meta: { request_id: 'playwright-zip-conflict', timestamp: new Date().toISOString() },
+      }),
+    }));
+    await page.reload();
+
+    const checkbox = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input').first();
+    await checkbox.check();
+    await page.getByRole('button', { name: /打包下载/ }).click();
+    const dialog = page.getByRole('dialog', { name: '打包下载' });
+    const nameInput = dialog.getByPlaceholder(/输入文件夹名称/);
+    await nameInput.fill('保留名称');
+    await dialog.getByRole('button', { name: /开始下载/ }).click();
+
+    await expect(dialog).toBeVisible();
+    await expect(nameInput).toHaveValue('保留名称');
+  });
+
   // ── 8. Zip download → POST /files/download-zip → 200 + blob ──────
   test('zip download → POST /files/download-zip → 200 streaming zip', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
@@ -399,10 +489,9 @@ for (const dir of DIRECTIONS) {
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     await dialog.getByPlaceholder(/输入文件夹名称/).fill('e2e_test');
-    // The newest source row may still be converting, so only request the
-    // format guaranteed to exist instead of depending on historical DB order.
-    const unavailableFormat = dir.fileExt === '.dwg' ? '包含 DXF 文件' : '包含 DWG 文件';
-    await dialog.getByRole('checkbox', { name: unavailableFormat }).uncheck();
+    // Source format is selected by default. The target format is enabled only
+    // when every selected source has a registered conversion result.
+    await expect(dialog.getByRole('button', { name: /开始下载/ })).toBeEnabled();
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30_000 }),

@@ -1,25 +1,94 @@
-import { useState } from 'react';
-import { Button, Checkbox, Input, Modal, Space, Tooltip, Typography, message } from 'antd';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Button, Checkbox, Input, Modal, Space, Tooltip, Typography, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
-import { downloadZip } from '../api/files.api';
+import {
+  downloadZip,
+  previewZip,
+  type ZipAvailabilityPreview,
+  type ZipFormatAvailability,
+} from '../api/files.api';
 
 interface Props {
   open: boolean;
   fileIds: number[];
   fileCount: number;
+  sourceFormat: 'dwg' | 'dxf';
   onClose: () => void;
   onDone: () => void;
 }
 
-export function ZipDownloadModal({ open, fileIds, fileCount, onClose, onDone }: Props) {
+export function ZipDownloadModal({
+  open,
+  fileIds,
+  fileCount,
+  sourceFormat,
+  onClose,
+  onDone,
+}: Props) {
   const [folderName, setFolderName] = useState('图纸导出');
   const [dwg, setDwg] = useState(true);
-  const [dxf, setDxf] = useState(true);
+  const [dxf, setDxf] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [preview, setPreview] = useState<ZipAvailabilityPreview | null>(null);
+
+  const refreshPreview = useCallback(async (resetSelection: boolean) => {
+    if (fileIds.length === 0) {
+      setPreview(null);
+      setPreviewError('没有可打包的文件');
+      return;
+    }
+    if (resetSelection) {
+      setDwg(sourceFormat === 'dwg');
+      setDxf(sourceFormat === 'dxf');
+    }
+    setPreviewLoading(true);
+    setPreviewError('');
+    try {
+      const nextPreview = await previewZip(
+        fileIds,
+        ['dwg', 'dxf'],
+        folderName.trim() || '图纸导出',
+      );
+      setPreview(nextPreview);
+      const complete = new Map(nextPreview.formats.map((item) => [item.format, item.complete]));
+      if (!complete.get('dwg')) setDwg(false);
+      if (!complete.get('dxf')) setDxf(false);
+    } catch (error) {
+      setPreview(null);
+      setPreviewError(error instanceof Error ? error.message : '无法检查打包内容');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [fileIds, folderName, sourceFormat]);
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshPreview(true);
+    // Folder name is not part of availability. Re-check only when the modal,
+    // selected files, or conversion direction changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, fileIds, sourceFormat]);
+
+  const availability = (format: 'dwg' | 'dxf'): ZipFormatAvailability | undefined => (
+    preview?.formats.find((item) => item.format === format)
+  );
+  const dwgAvailability = availability('dwg');
+  const dxfAvailability = availability('dxf');
+  const dwgUnavailable = previewLoading || !dwgAvailability?.complete;
+  const dxfUnavailable = previewLoading || !dxfAvailability?.complete;
 
   const validFormat = dwg || dxf;
   const validName = folderName.trim().length > 0;
-  const canDownload = validFormat && validName && fileIds.length > 0;
+  const selectedFormatsComplete = (!dwg || dwgAvailability?.complete === true)
+    && (!dxf || dxfAvailability?.complete === true);
+  const canDownload = validFormat
+    && validName
+    && fileIds.length > 0
+    && !previewLoading
+    && !previewError
+    && selectedFormatsComplete;
 
   const disabledReason = !validFormat
     ? '请至少选择一个下载格式（DWG 或 DXF）'
@@ -40,7 +109,7 @@ export function ZipDownloadModal({ open, fileIds, fileCount, onClose, onDone }: 
       onClose();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '打包下载失败');
-      onClose();
+      await refreshPreview(false);
     } finally {
       setLoading(false);
     }
@@ -90,14 +159,41 @@ export function ZipDownloadModal({ open, fileIds, fileCount, onClose, onDone }: 
             下载内容（至少选一项）
           </Typography.Text>
           <Space orientation="vertical">
-            <Checkbox checked={dwg} onChange={(e) => setDwg(e.target.checked)}>
+            <Checkbox
+              checked={dwg}
+              disabled={dwgUnavailable}
+              onChange={(e) => setDwg(e.target.checked)}
+            >
               包含 DWG 文件
+              <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+                {previewLoading
+                  ? '检查中'
+                  : `DWG：可用 ${dwgAvailability?.available_count ?? 0} / 共 ${preview?.file_count ?? fileCount}`}
+              </Typography.Text>
             </Checkbox>
-            <Checkbox checked={dxf} onChange={(e) => setDxf(e.target.checked)}>
+            <Checkbox
+              checked={dxf}
+              disabled={dxfUnavailable}
+              onChange={(e) => setDxf(e.target.checked)}
+            >
               包含 DXF 文件
+              <Typography.Text type="secondary" style={{ marginLeft: 8 }}>
+                {previewLoading
+                  ? '检查中'
+                  : `DXF：可用 ${dxfAvailability?.available_count ?? 0} / 共 ${preview?.file_count ?? fileCount}`}
+              </Typography.Text>
             </Checkbox>
           </Space>
         </div>
+        {previewError && (
+          <Alert
+            type="error"
+            showIcon
+            message="打包内容检查失败"
+            description={previewError}
+            action={<Button size="small" onClick={() => void refreshPreview(false)}>重新检查</Button>}
+          />
+        )}
         <div style={{ background: '#fafafa', borderRadius: 6, padding: '8px 12px' }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             文件将打包为 <Typography.Text code style={{ fontSize: 12 }}>{folderName || '...'}.zip</Typography.Text>，

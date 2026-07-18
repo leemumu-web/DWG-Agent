@@ -147,15 +147,46 @@ export async function downloadZip(
   formats: string[],
   folderName: string,
 ): Promise<void> {
-  const res = await apiClient.post<Blob>('/api/v1/files/download-zip', {
-    file_ids: fileIds,
-    formats,
-    folder_name: folderName,
-  }, {
-    responseType: 'blob',
-    timeout: 300_000,
-  });
-  triggerBlobDownload(res.data, `${folderName}.zip`);
+  try {
+    const res = await apiClient.post<Blob>('/api/v1/files/download-zip', {
+      file_ids: fileIds,
+      formats,
+      folder_name: folderName,
+    }, {
+      responseType: 'blob',
+      timeout: 300_000,
+    });
+    triggerBlobDownload(res.data, `${folderName}.zip`);
+  } catch (error) {
+    throw await downloadError(error);
+  }
+}
+
+export interface ZipFormatAvailability {
+  format: 'dwg' | 'dxf';
+  available_count: number;
+  missing_count: number;
+  missing_file_ids: number[];
+  complete: boolean;
+}
+
+export interface ZipAvailabilityPreview {
+  file_count: number;
+  formats: ZipFormatAvailability[];
+  can_download: boolean;
+}
+
+/** Check that every selected file has every requested ZIP format. */
+export async function previewZip(
+  fileIds: number[],
+  formats: Array<'dwg' | 'dxf'>,
+  folderName: string,
+): Promise<ZipAvailabilityPreview> {
+  const res = await apiClient.post<ApiEnvelope<ZipAvailabilityPreview>>(
+    '/api/v1/files/download-zip/preview',
+    { file_ids: fileIds, formats, folder_name: folderName },
+  );
+  return res.data.data;
 }
 
 /** Soft-delete multiple files at once. */
