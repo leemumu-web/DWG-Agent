@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class FileRead(BaseModel):
@@ -53,6 +53,26 @@ class DxfPreviewRead(BaseModel):
 
 class BulkDeleteRequest(BaseModel):
     file_ids: list[int]
+
+
+class BatchBulkDeleteRequest(BaseModel):
+    batch_names: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("batch_names")
+    @classmethod
+    def validate_batch_names(cls, names: list[str]) -> list[str]:
+        cleaned = [name.strip() for name in names]
+        if any(not name for name in cleaned):
+            raise ValueError("batch_names must not contain blank names")
+        if any(len(name) > 128 for name in cleaned):
+            raise ValueError("batch_names must not exceed 128 characters")
+        return cleaned
+
+
+class BatchBulkDeleteResult(BaseModel):
+    deleted_batch_count: int = Field(ge=0)
+    deleted_file_count: int = Field(ge=0)
+    cancelled_job_count: int = Field(ge=0)
 
 
 class ZipDownloadRequest(BaseModel):

@@ -20,7 +20,16 @@ from app.api.deps import (
     get_project_membership,
     has_global_project_access,
 )
-from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
+from app.core.constants import (
+    ALLOWED_UPLOAD_EXTENSIONS,
+    JOB_PENDING,
+    JOB_QUEUED,
+    JOB_RUNNING,
+    JOB_VALIDATING,
+    JOB_WAITING_CAD_WORKER,
+    TASK_DWG_TO_DXF,
+    TASK_DXF_TO_DWG,
+)
 from app.core.exceptions import AppHTTPException, forbidden, not_found
 from app.core.validators import validate_sort_by
 from app.db.pagination import paginate_scalars
@@ -32,6 +41,8 @@ from app.models.result import AnalysisResult
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
 from app.schemas.file_schema import (
+    BatchBulkDeleteRequest,
+    BatchBulkDeleteResult,
     BulkDeleteRequest,
     DxfPreviewBoundsRead,
     DxfPreviewRead,
@@ -62,6 +73,7 @@ from app.services.file_transfer_service import (
     settle_stream,
     settle_transfer,
 )
+from app.services.job_service import cancel_job as transition_job_to_cancelled
 from app.services.storage_service import (
     get_storage_backend,
     sanitize_filename,
@@ -610,6 +622,81 @@ def list_batches(
         for r in rows
     ]
     return ok(batches, request.state.request_id)
+
+
+@router.post("/batches/bulk-delete")
+def bulk_delete_batches(
+    payload: BatchBulkDeleteRequest,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Atomically soft-delete one or more complete file batches."""
+    batch_names = list(dict.fromkeys(payload.batch_names))
+    stored_list = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.batch_name.in_(batch_names),
+                StoredFile.status != "deleted",
+            )
+        ).all()
+    )
+    found_names = {stored.batch_name for stored in stored_list}
+    if found_names != set(batch_names):
+        raise not_found("Batch")
+
+    for stored in stored_list:
+        _require_file_delete_access(db, current_user, stored)
+
+    source_ids = [stored.id for stored in stored_list]
+    active_jobs = list(
+        db.scalars(
+            select(Job).where(
+                Job.task_type.in_((TASK_DWG_TO_DXF, TASK_DXF_TO_DWG)),
+                Job.status.in_(
+                    (
+                        JOB_PENDING,
+                        JOB_QUEUED,
+                        JOB_RUNNING,
+                        JOB_VALIDATING,
+                        JOB_WAITING_CAD_WORKER,
+                    )
+                ),
+                Job.params_json["file_id"].as_integer().in_(source_ids),
+            )
+        ).all()
+    )
+
+    try:
+        for job in active_jobs:
+            transition_job_to_cancelled(db, job)
+        for stored in stored_list:
+            _soft_delete_file_in_transaction(
+                db,
+                stored,
+                actor_user_id=current_user.id,
+                request_id=request.state.request_id,
+                batch_ref=stored.batch_name,
+            )
+            write_audit_log(
+                db,
+                actor_user_id=current_user.id,
+                action="files.batch_delete",
+                resource_type="file",
+                resource_id=stored.id,
+                after_json={"batch_name": stored.batch_name, "bulk": True},
+                request=request,
+            )
+        result = BatchBulkDeleteResult(
+            deleted_batch_count=len(batch_names),
+            deleted_file_count=len(stored_list),
+            cancelled_job_count=len(active_jobs),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return ok(result, request.state.request_id)
 
 
 @router.delete("/batches/{batch_name}", status_code=status.HTTP_204_NO_CONTENT)

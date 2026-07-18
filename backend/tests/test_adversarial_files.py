@@ -29,10 +29,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.exceptions import AppHTTPException
+from app.core.security import hash_password
 from app.db.init_db import init_db
 from app.main import app
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
+from app.models.job import Job
+from app.models.user import User
 from app.services.file_service import (
     DOWNLOAD_URL_TTL_SECONDS,
     download_signature,
@@ -73,6 +76,239 @@ def _upload(client: TestClient, headers: dict[str, str], content: bytes, filenam
     files = {"upload": (filename, io.BytesIO(content), content_type)}
     r = client.post("/api/v1/files", headers=headers, files=files)
     return r
+
+
+def _stored_file(db, *, batch_name: str, uploaded_by: int, suffix: str) -> StoredFile:
+    stored = StoredFile(
+        bucket="dwg-result",
+        storage_key=f"test/bulk-folder/{uuid4().hex}.{suffix}",
+        original_name=f"result-{uuid4().hex[:8]}.{suffix}",
+        file_ext=f".{suffix}",
+        content_type="application/octet-stream",
+        size_bytes=128,
+        sha256=uuid4().hex * 2,
+        uploaded_by=uploaded_by,
+        status="available",
+        batch_name=batch_name,
+    )
+    db.add(stored)
+    db.flush()
+    return stored
+
+
+class TestBulkDeleteBatches:
+    def _create_batch(self, client, headers, db, *, name: str, job_status: str):
+        uploaded = client.post(
+            f"/api/v1/files?batch_name={name}",
+            headers=headers,
+            files={
+                "upload": (
+                    f"{name}.dwg",
+                    io.BytesIO(_valid_dwg()),
+                    "application/acad",
+                )
+            },
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        source_id = uploaded.json()["data"]["id"]
+        admin = db.scalar(select(User).where(User.username == "admin"))
+        assert admin is not None
+        result = _stored_file(
+            db,
+            batch_name=name,
+            uploaded_by=admin.id,
+            suffix="dxf",
+        )
+        job = Job(
+            created_by=admin.id,
+            task_type="convert_dwg_to_dxf",
+            precision_level="normal",
+            status=job_status,
+            attempt=1,
+            progress=30,
+            params_json={"file_id": source_id, "batch_name": name},
+        )
+        db.add(job)
+        db.commit()
+        return source_id, result.id, job.id
+
+    def test_bulk_delete_batches_deletes_sources_results_and_cancels_jobs(self, db):
+        client = _client()
+        headers = _admin(client)
+        first = self._create_batch(
+            client, headers, db, name=_unique("bulk-a"), job_status="queued"
+        )
+        second = self._create_batch(
+            client, headers, db, name=_unique("bulk-b"), job_status="running"
+        )
+        names = [
+            db.get(StoredFile, first[0]).batch_name,
+            db.get(StoredFile, second[0]).batch_name,
+        ]
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=headers,
+            json={"batch_names": names},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["data"] == {
+            "deleted_batch_count": 2,
+            "deleted_file_count": 4,
+            "cancelled_job_count": 2,
+        }
+        db.expire_all()
+        assert {db.get(StoredFile, file_id).status for file_id in (*first[:2], *second[:2])} == {
+            "deleted"
+        }
+        assert {db.get(Job, first[2]).status, db.get(Job, second[2]).status} == {
+            "cancelled"
+        }
+
+    def test_missing_batch_rolls_back_all_requested_batches(self, db):
+        client = _client()
+        headers = _admin(client)
+        existing_name = _unique("bulk-existing")
+        source_id, result_id, job_id = self._create_batch(
+            client, headers, db, name=existing_name, job_status="queued"
+        )
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=headers,
+            json={"batch_names": [existing_name, _unique("missing")]},
+        )
+
+        assert response.status_code == 404, response.text
+        db.expire_all()
+        assert db.get(StoredFile, source_id).status == "available"
+        assert db.get(StoredFile, result_id).status == "available"
+        assert db.get(Job, job_id).status == "queued"
+
+    def test_duplicate_batch_names_are_processed_once(self, db):
+        client = _client()
+        headers = _admin(client)
+        name = _unique("bulk-duplicate")
+        self._create_batch(client, headers, db, name=name, job_status="queued")
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=headers,
+            json={"batch_names": [name, name]},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["deleted_batch_count"] == 1
+        assert response.json()["data"]["deleted_file_count"] == 2
+
+    def test_mid_delete_failure_rolls_back_every_batch(self, db, monkeypatch):
+        from app.api.v1 import files_api
+
+        init_db()
+        client = TestClient(app, raise_server_exceptions=False)
+        headers = _admin(client)
+        first_name = _unique("bulk-rollback-a")
+        second_name = _unique("bulk-rollback-b")
+        first = self._create_batch(
+            client, headers, db, name=first_name, job_status="queued"
+        )
+        second = self._create_batch(
+            client, headers, db, name=second_name, job_status="queued"
+        )
+        original = files_api._soft_delete_file_in_transaction
+        calls = 0
+
+        def fail_after_first(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("injected atomic folder deletion failure")
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(files_api, "_soft_delete_file_in_transaction", fail_after_first)
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=headers,
+            json={"batch_names": [first_name, second_name]},
+        )
+
+        assert response.status_code == 500
+        db.expire_all()
+        assert all(
+            db.get(StoredFile, file_id).status == "available"
+            for file_id in (*first[:2], *second[:2])
+        )
+        assert db.get(Job, first[2]).status == "queued"
+        assert db.get(Job, second[2]).status == "queued"
+
+    @pytest.mark.parametrize("job_status", ["validating", "waiting_cad_worker"])
+    def test_bulk_delete_cancels_every_active_conversion_status(self, db, job_status):
+        client = _client()
+        headers = _admin(client)
+        name = _unique(f"bulk-{job_status}")
+        source_id, result_id, job_id = self._create_batch(
+            client, headers, db, name=name, job_status=job_status
+        )
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=headers,
+            json={"batch_names": [name]},
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["cancelled_job_count"] == 1
+        db.expire_all()
+        assert db.get(Job, job_id).status == "cancelled"
+        assert db.get(StoredFile, source_id).status == "deleted"
+        assert db.get(StoredFile, result_id).status == "deleted"
+
+    def test_inaccessible_batch_rejects_the_entire_request(self, db):
+        client = _client()
+        admin_headers = _admin(client)
+        owned_name = _unique("bulk-owned")
+        source_id, result_id, _job_id = self._create_batch(
+            client, admin_headers, db, name=owned_name, job_status="queued"
+        )
+        outsider = User(
+            username=_unique("bulk-outsider"),
+            real_name="Bulk delete outsider",
+            password_hash=hash_password("OutsiderPass123"),
+            password_algo="argon2id",
+            status="active",
+        )
+        db.add(outsider)
+        db.commit()
+        outsider_headers = _login(client, outsider.username, "OutsiderPass123")
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=outsider_headers,
+            json={"batch_names": [owned_name]},
+        )
+
+        assert response.status_code == 403, response.text
+        db.expire_all()
+        assert db.get(StoredFile, source_id).status == "available"
+        assert db.get(StoredFile, result_id).status == "available"
+
+    @pytest.mark.parametrize(
+        "batch_names",
+        [[], ["   "], ["x" * 129], [f"batch-{index}" for index in range(101)]],
+    )
+    def test_bulk_delete_rejects_invalid_batch_name_lists(self, batch_names):
+        client = _client()
+        headers = _admin(client)
+
+        response = client.post(
+            "/api/v1/files/batches/bulk-delete",
+            headers=headers,
+            json={"batch_names": batch_names},
+        )
+
+        assert response.status_code == 422, response.text
 
 
 # ---------------------------------------------------------------------------

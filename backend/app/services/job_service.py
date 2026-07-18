@@ -14,9 +14,12 @@ from app.core.config import settings
 from app.core.constants import (
     JOB_CANCELLED,
     JOB_FAILED,
+    JOB_PENDING,
     JOB_QUEUED,
     JOB_RUNNING,
     JOB_SUCCEEDED,
+    JOB_VALIDATING,
+    JOB_WAITING_CAD_WORKER,
     PIPELINE_DXF,
     PIPELINE_DXF2DWG,
     PIPELINE_DXF2EXCEL,
@@ -657,7 +660,14 @@ def run_local_stub_job(
 
 def cancel_job(db: Session, job: Job) -> Job:
     """Atomically cancel one active job without overwriting a worker terminal state."""
-    if job.status not in (JOB_QUEUED, JOB_RUNNING, "pending"):
+    cancellable_statuses = (
+        JOB_PENDING,
+        JOB_QUEUED,
+        JOB_RUNNING,
+        JOB_VALIDATING,
+        JOB_WAITING_CAD_WORKER,
+    )
+    if job.status not in cancellable_statuses:
         raise AppHTTPException(
             409,
             "JOB_NOT_CANCELLABLE",
@@ -677,7 +687,7 @@ def cancel_job(db: Session, job: Job) -> Job:
         update(Job)
         .where(
             Job.id == job.id,
-            Job.status.in_((JOB_QUEUED, JOB_RUNNING, "pending")),
+            Job.status.in_(cancellable_statuses),
             Job.attempt == job.attempt,
         )
         .values(
