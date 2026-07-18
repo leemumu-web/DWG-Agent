@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **95 个 path、114 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **96 个 path、115 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -97,6 +97,7 @@
 | `GET` | `/api/v1/files/{file_id}/download-url` |
 | `GET` | `/api/v1/files/{file_id}/download` |
 | `POST` | `/api/v1/files/bulk-delete` |
+| `POST` | `/api/v1/files/download-zip/preview` |
 | `POST` | `/api/v1/files/download-zip` |
 
 ## 图纸
@@ -271,6 +272,59 @@ HTTP 200 响应：
 | 500 | `INTERNAL_ERROR` | 事务回滚；保留当前选择并刷新权威状态后再决定是否重试。 |
 
 该端点没有 `Idempotency-Key` 契约。如果首次请求已提交但响应丢失，直接重放可因批次已删除而返回 404；客户端应先刷新文件夹列表，不能把 404 当作“从未执行”的证据。
+
+### ZIP 打包可用性预检与严格下载
+
+`POST /api/v1/files/download-zip/preview` 与正式 `POST /api/v1/files/download-zip` 接受相同请求体。预检按 `file_id` 去重，检查源文件和已登记转换结果是否能覆盖每个请求格式，但不读取全部对象字节。
+
+```json
+{
+  "file_ids": [101, 102],
+  "formats": ["dwg", "dxf"],
+  "folder_name": "图纸导出"
+}
+```
+
+HTTP 200 预检响应：
+
+```json
+{
+  "data": {
+    "file_count": 2,
+    "formats": [
+      {
+        "format": "dwg",
+        "available_count": 2,
+        "missing_count": 0,
+        "missing_file_ids": [],
+        "complete": true
+      },
+      {
+        "format": "dxf",
+        "available_count": 1,
+        "missing_count": 1,
+        "missing_file_ids": [102],
+        "complete": false
+      }
+    ],
+    "can_download": false
+  },
+  "meta": {"request_id": "req_...", "timestamp": "..."}
+}
+```
+
+`missing_file_ids` 最多返回 20 个样本，`missing_count` 始终是准确总数。前端只允许选择 `complete=true` 的格式，并默认选择当前转换页的源格式。预检不是锁：预检和正式下载之间若结果被删除或对象丢失，正式下载仍以严格校验为准。
+
+| HTTP | `error.code` | 含义与客户端处理 |
+|---|---|---|
+| 401 | `INVALID_TOKEN` / `TOKEN_REVOKED` / `USER_NOT_ACTIVE` | 会话无效；刷新登录状态后重新预检。 |
+| 403 | `FORBIDDEN` | 至少一个源文件不可读。 |
+| 404 | `NOT_FOUND` / `FILE_EXPORT_SOURCE_MISSING` | 至少一个源文件不存在或已删除。 |
+| 409 | `FILE_EXPORT_FORMAT_UNAVAILABLE` | 正式下载时至少一个格式不完整；保留弹窗并重新预检。 |
+| 409 | `STORAGE_INCONSISTENT` | 元数据存在但所需对象字节不可读；停止重放并排查存储一致性。 |
+| 422 | `INVALID_PARAMS` / `VALIDATION_ERROR` | ID 或格式为空，或格式不是 `dwg`/`dxf`。 |
+
+正式 ZIP 不静默跳过缺失文件或格式。只有全部请求项可读取时才返回下载流，因此成功 ZIP 可以作为“请求集合完整”的证据，但不能证明未请求格式存在。
 
 ### 进度和可补交口径
 

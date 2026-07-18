@@ -11,10 +11,13 @@
 ```bash
 bash scripts/start-all.sh
 bash scripts/status.sh
+bash scripts/doctor.sh --since-minutes 60
 bash scripts/stop-all.sh
 ```
 
 `start-all.sh` 按需构建前端，启动五个已实现队列 worker、FastAPI `8010` 和本地 Nginx `8080`。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。
+
+后端代码晚于当前 Uvicorn 进程时，`status.sh` 报告“运行代码已过期”并返回非零。此时使用 `bash scripts/start-all.sh --restart-backend`；它只优雅停止 cwd 为本仓库 `backend/` 的 Uvicorn，未知进程占用 8010 时拒绝操作。前端源码、依赖清单或构建配置晚于 `dist/index.html` 时，普通 `start-all.sh` 会重新构建，也可用 `--rebuild` 强制执行。
 
 Compose 拓扑优先使用带环境预检的包装脚本：
 
@@ -62,6 +65,38 @@ docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg work
 ```
 
 重启前保留首个异常、request ID、Job ID/attempt、worker node、依赖状态和时间戳。当前日志没有集中保留或关联后端；`/tmp` 日志会在重启时丢失，容器日志保留取决于 Docker logging driver。
+
+## HTTP 4xx、499 与上传拥塞
+
+```bash
+bash scripts/doctor.sh --since-minutes 60
+NGINX_ACCESS_LOG=/path/to/access.log bash scripts/doctor.sh --log-only
+```
+
+`doctor.sh` 去除查询串后按状态、方法和路径聚合，显示最近时间与有限 request ID。它不会输出签名、批次名、Cookie 或 Authorization。判断规则：
+
+| 状态 | 运维含义 | 首要动作 |
+|---|---|---|
+| 401 | access/refresh 会话无效，可能是正常过期 | 对照登录/刷新时序；不要把鉴权失败改成 200。 |
+| 404 | 对象不存在、SSE 固定测试 ID 或运行路由缺失 | 先区分固定测试探针；真实 ID 再查权限与软删除。 |
+| 405 | 客户端已调用新路径，但运行 FastAPI 未加载该 method | 运行 `status.sh` 检查代码/进程漂移，再受控重启。 |
+| 409 | 状态冲突；ZIP 常见于请求格式不完整或对象不一致 | 根据 `error.code` 区分 `FILE_EXPORT_FORMAT_UNAVAILABLE` 与 `STORAGE_INCONSISTENT`。 |
+| 422 | 请求 schema 或业务参数不合法 | 修正客户端请求；保留后端校验。 |
+| 499 | Nginx 发现客户端在响应前断开，不是应用返回 | 检查页面切换、AbortController、SSE 关闭和慢上传；单独统计。 |
+| 5xx | 服务端或依赖故障 | 用 request ID 查 FastAPI 首个堆栈，修根因后再重试。 |
+
+2026-07-18 的文件夹上传 500 由浏览器同时提交 8 个文件、超过 API 默认 `DB_POOL_SIZE=2 + DB_POOL_MAX_OVERFLOW=2` 引发 QueuePool 超时。当前通用文件夹上传和双向 CAD 页面并发限制为 4。若修改连接池或前端并发，必须一起做负载测试；不要只延长 pool timeout 掩盖容量不匹配。
+
+ZIP 弹窗调用 `POST /api/v1/files/download-zip/preview` 显示每种格式的可用数量，只允许提交覆盖全部所选文件的格式。预检与下载之间仍可能变化，因此正式下载保持严格 409；失败后弹窗不关闭，操作员应重新预检，不得要求后端静默漏文件。
+
+## 质量门禁入口
+
+```bash
+bash scripts/verify.sh quick
+bash scripts/verify.sh full --allow-blocked
+```
+
+`quick` 覆盖 Shell、ruff、聚焦后端/脚本、生成文档和前端构建。`full` 追加完整后端、Alembic、基础设施、Compose、Stage、隔离迁移和浏览器测试。`--allow-blocked` 只作用于 sudo、Windows/ODA 或外部 Stage 等明确可选依赖，不会把代码或测试失败改写为通过。完整命令和退出码见 [`scripts/README.md`](../scripts/README.md)。
 
 ## 数据库操作
 

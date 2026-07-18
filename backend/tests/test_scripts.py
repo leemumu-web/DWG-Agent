@@ -369,6 +369,27 @@ def test_verify_script_exposes_quick_full_and_blocked_modes():
     assert "npm run build" in content
 
 
+def test_scripts_readme_documents_every_operational_entrypoint():
+    content = _read("scripts/README.md")
+
+    for command in (
+        "start-all.sh",
+        "start-dev.sh",
+        "stop-all.sh",
+        "status.sh",
+        "doctor.sh",
+        "verify.sh",
+        "db.sh",
+        "docker.sh",
+        "forward-to-win11.sh",
+        "run-cad-worker.sh",
+        "reap_storage.py",
+    ):
+        assert command in content
+    assert "--restart-backend" in content
+    assert "--allow-blocked" in content
+
+
 def test_nginx_proxies_fastapi_documentation_routes():
     for relative_path in ("infra/nginx/nginx.local.conf", "infra/nginx/nginx.conf"):
         content = _read(relative_path)

@@ -68,6 +68,15 @@ def test_folder_upload_concurrency_fits_default_api_database_pool():
     assert "concurrency: 8" not in page_source
 
 
+def test_generated_api_source_documents_zip_preview_and_conflicts():
+    source = (REPO_ROOT / "scripts/generate_api_docs.py").read_text(encoding="utf-8")
+
+    assert "/api/v1/files/download-zip/preview" in source
+    assert "missing_count" in source
+    assert "FILE_EXPORT_FORMAT_UNAVAILABLE" in source
+    assert "STORAGE_INCONSISTENT" in source
+
+
 def test_conversion_submission_preserves_partial_chunk_results():
     source = _frontend_source("api/jobs.api.ts")
 
