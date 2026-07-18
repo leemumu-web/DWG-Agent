@@ -124,6 +124,70 @@ async function createRetryableFixture(page: Page, dir: Direction): Promise<numbe
   return fileId;
 }
 
+async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) {
+  const now = new Date().toISOString();
+  const files = [1, 2, 3, 4].map((id) => ({
+    id: 91_000 + id,
+    bucket: 'playwright',
+    storage_key: `playwright/${dir.name}/${id}${dir.fileExt}`,
+    original_name: `state-${id}${dir.fileExt}`,
+    file_ext: dir.fileExt,
+    content_type: 'application/octet-stream',
+    size_bytes: 1024 * id,
+    sha256: String(id).repeat(64),
+    batch_name: 'state-fixture',
+    status: 'available',
+    created_at: now,
+    updated_at: now,
+  }));
+  const jobs = [
+    { id: 92_001, status: 'succeeded', progress: 100, fileId: files[0].id },
+    { id: 92_002, status: 'running', progress: 50, fileId: files[1].id },
+    { id: 92_003, status: 'failed', progress: 70, fileId: files[2].id },
+  ].map((job) => ({
+    id: job.id,
+    task_type: dir.taskType,
+    precision_level: 'normal',
+    pipeline: null,
+    status: job.status,
+    attempt: 1,
+    priority: 0,
+    progress: job.progress,
+    params_json: { file_id: job.fileId, batch_name: 'state-fixture' },
+    error_code: job.status === 'failed' ? 'CONVERSION_FAILED' : null,
+    error_message: job.status === 'failed' ? '测试转换失败，请重新提交' : null,
+    progress_data: null,
+    created_at: now,
+    updated_at: now,
+    started_at: null,
+    finished_at: null,
+  }));
+  const envelope = (data: unknown[], pageSize = 200) => ({
+    data,
+    pagination: { page: 1, page_size: pageSize, total: data.length, total_pages: 1 },
+    meta: { request_id: 'playwright-state', timestamp: now },
+  });
+
+  await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ data: [], meta: { request_id: 'playwright-batches', timestamp: now } }),
+  }));
+  await page.route('**/api/v1/files?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(envelope(files, 200)),
+  }));
+  await page.route('**/api/v1/jobs?**', async (route) => {
+    if (jobsDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, jobsDelayMs));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(envelope(jobs, 200)),
+    });
+  });
+}
+
 // ── tests ───────────────────────────────────────────────────────────────────
 
 for (const dir of DIRECTIONS) {
@@ -177,11 +241,11 @@ for (const dir of DIRECTIONS) {
     expect(body.data).toHaveProperty('cancelled_count');
   });
 
-  // ── 3. "继续任务" → one bounded batch request ───────────────────────
-  test('"继续任务" → creates a batch for pending files', async ({ page }) => {
-    const resumeBtn = page.getByRole('button', { name: /继续任务/ });
+  // ── 3. "提交/重试" → one bounded batch request ──────────────────────
+  test('"提交/重试" → creates a batch for actionable files', async ({ page }) => {
+    const resumeBtn = page.getByRole('button', { name: /提交\/重试/ });
     const hasBtn = await resumeBtn.isVisible().catch(() => false);
-    test.skip(!hasBtn, '"继续任务" button not visible (no pending files)');
+    test.skip(!hasBtn, '"提交/重试" button not visible (no actionable files)');
 
     let jobCalls = 0;
     page.on('request', (req) => {
@@ -347,13 +411,13 @@ for (const dir of DIRECTIONS) {
     }
   });
 
-  // ── 11. "重试转换" button → POST /jobs/{id}/retry-requests ──────
-  test('"重试转换" → POST /jobs/{id}/retry-requests', async ({ page }) => {
+  // ── 11. "重新提交" button → POST /jobs/{id}/retry-requests ──────
+  test('"重新提交" → POST /jobs/{id}/retry-requests', async ({ page }) => {
     const fileId = await createRetryableFixture(page, dir);
     await page.reload();
     const row = page.locator(`.ant-table-row[data-row-key="${fileId}"]`);
     await expect(row).toBeVisible({ timeout: 10_000 });
-    const retryBtn = row.getByRole('button', { name: '重试转换' });
+    const retryBtn = row.getByRole('button', { name: '重新提交' });
     await expect(retryBtn).toBeVisible();
 
     const [retryResp] = await Promise.all([
@@ -405,16 +469,16 @@ for (const dir of DIRECTIONS) {
     await expect(cards.first()).toBeVisible();
   });
 
-  // ── 14. "全部暂停" visible only when active jobs exist ──────────
-  test('"全部暂停" visibility tied to active jobs', async ({ page }) => {
+  // ── 14. Scope actions reflect active and actionable jobs independently ──
+  test('active and actionable scope actions can coexist', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.reload();
+
     const pauseBtn = page.getByRole('button', { name: /全部暂停/ });
-    const resumeBtn = page.getByRole('button', { name: /继续任务/ });
+    const resumeBtn = page.getByRole('button', { name: /提交\/重试/ });
 
-    const pauseVisible = await pauseBtn.isVisible().catch(() => false);
-    const resumeVisible = await resumeBtn.isVisible().catch(() => false);
-
-    // They should never be visible simultaneously
-    expect(pauseVisible && resumeVisible).toBe(false);
+    await expect(pauseBtn).toBeVisible();
+    await expect(resumeBtn).toBeVisible();
   });
 
   // ── 15. 上传文件夹 button → file input dialog ──────────────────
@@ -471,6 +535,25 @@ for (const dir of DIRECTIONS) {
       const text = await statValues.nth(i).textContent();
       expect(text).toBeTruthy();
     }
+  });
+
+  test('trustworthy progress excludes failed residual progress', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.reload();
+
+    await expect(page.getByText(/成功 1.*失败 1.*处理中 1.*待提交\/重试 2/)).toBeVisible();
+    const aggregate = page.locator('.conversion-progress').getByRole('progressbar');
+    await expect(aggregate).toHaveAttribute('aria-valuenow', '38');
+    await expect(page.getByRole('button', { name: /提交\/重试 2 个/ })).toBeVisible();
+  });
+
+  test('loading latest jobs never labels files as unconverted', async ({ page }) => {
+    await mockConversionState(page, dir, 1500);
+    await page.reload();
+
+    await expect(page.getByText('正在加载状态').first()).toBeVisible();
+    await expect(page.getByText('未转换')).toHaveCount(0);
+    await expect(page.getByText('已完成').first()).toBeVisible({ timeout: 5000 });
   });
   });
 }
