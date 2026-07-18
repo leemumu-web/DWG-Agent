@@ -15,9 +15,11 @@ REQUIRED_DOCS = {
     "README.md",
     "api.md",
     "architecture.md",
+    "audit-report-2026-07-18.md",
     "configuration.md",
     "database.md",
     "deployment.md",
+    "developer-preview.md",
     "development.md",
     "operations.md",
     "processing-pipelines.md",
@@ -76,6 +78,8 @@ def _generated_api_docs(errors: list[str]) -> None:
 def _owned_markdown_files() -> list[Path]:
     markdown_files = [
         ROOT / "README.md",
+        ROOT / "CHANGELOG.md",
+        ROOT / "CONTRIBUTING.md",
         ROOT / "DWG-Agent企业平台技术规范.md",
         ROOT / "CLAUDE.md",
         *COMPONENT_READMES,
@@ -88,6 +92,7 @@ def _owned_markdown_files() -> list[Path]:
             "Stages/dwg2dxf/convert/README.md",
             "Stages/dxf2dwg/README.md",
             "Stages/dxf2dwg/convert/README.md",
+            "Stages/dxf2excel/README.md",
             "Stages/excel_final/PROCESS.md",
             "Stages/excel_final/multi_split/CLAUDE.md",
         )
@@ -229,6 +234,7 @@ def _database_contract(errors: list[str]) -> None:
 
 def _repository_boundaries(errors: list[str]) -> None:
     root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    claude_md = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     specification = (ROOT / "DWG-Agent企业平台技术规范.md").read_text(encoding="utf-8")
     deployment_doc = (DOCS / "deployment.md").read_text(encoding="utf-8")
 
@@ -251,25 +257,77 @@ def _repository_boundaries(errors: list[str]) -> None:
         if "Compose 仅发布 HTTP" not in root_readme:
             errors.append("README must state that current Compose publishes HTTP only")
 
-    gitlink = subprocess.run(
-        ["git", "ls-files", "-s", "Stages/dxf2excel"],
+    git_entries = subprocess.run(
+        ["git", "ls-files", "-s", "Stages/dxf2excel", "Stages/dxf2excel/**"],
         cwd=ROOT,
         check=False,
         capture_output=True,
         text=True,
-    ).stdout.strip()
-    broken_gitlink = gitlink.startswith("160000 ") and not (ROOT / ".gitmodules").exists()
-    if broken_gitlink:
-        required = "Stages/dxf2excel"
-        for path in (
-            ROOT / "README.md",
-            DOCS / "deployment.md",
-            DOCS / "roadmap.md",
+    ).stdout.splitlines()
+    if any(entry.startswith("160000 ") for entry in git_entries):
+        errors.append("Stages/dxf2excel must be a tracked source directory, not a gitlink")
+    required_stage_files = {
+        "Stages/dxf2excel/pyproject.toml",
+        "Stages/dxf2excel/uv.lock",
+        "Stages/dxf2excel/src/dxf2excel/pipeline.py",
+        "Stages/dxf2excel/tests/test_decoder.py",
+    }
+    tracked_stage_files = {
+        entry.split("\t", 1)[1] for entry in git_entries if "\t" in entry
+    }
+    missing_stage_files = required_stage_files - tracked_stage_files
+    if missing_stage_files:
+        errors.append(
+            "Stages/dxf2excel tracked source is incomplete: "
+            f"missing={sorted(missing_stage_files)}"
+        )
+
+    from generate_api_docs import app
+
+    schema = app.openapi()
+    path_count = len(schema["paths"])
+    operation_count = sum(
+        1
+        for path_item in schema["paths"].values()
+        for method in path_item
+        if method.lower() in {"get", "post", "put", "patch", "delete", "options", "head"}
+    )
+    for label, content in (("README.md", root_readme), ("CLAUDE.md", claude_md)):
+        if label == "README.md" and (
+            f"{path_count} 个 OpenAPI path" not in content
+            or f"{operation_count} 个 operation" not in content
         ):
-            if required not in path.read_text(encoding="utf-8"):
-                errors.append(
-                    f"{path.relative_to(ROOT)} omits the broken dxf2excel gitlink boundary"
-                )
+            errors.append(
+                f"{label} must document the current {path_count} OpenAPI paths and "
+                f"{operation_count} operations"
+            )
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from app import models as _models  # noqa: F401
+    from app.db.base import Base
+
+    alembic_config = Config(str(ROOT / "backend/alembic.ini"))
+    alembic_config.set_main_option("script_location", str(ROOT / "backend/migrations"))
+    current_head = ScriptDirectory.from_config(alembic_config).get_current_head()
+    model_table_count = len(Base.metadata.tables)
+    initialized_table_count = model_table_count + 1 + 8
+    if current_head and current_head not in claude_md:
+        errors.append(f"CLAUDE.md omits current Alembic head {current_head}")
+    if (
+        f"{model_table_count} 张模型表" not in claude_md
+        or f"最多 {initialized_table_count} 张表" not in claude_md
+    ):
+        errors.append(
+            "CLAUDE.md must document the current model/runtime table counts "
+            f"({model_table_count}/{initialized_table_count})"
+        )
+
+    required_root_docs = ("CHANGELOG.md", "CONTRIBUTING.md")
+    for relative in required_root_docs:
+        if not (ROOT / relative).is_file():
+            errors.append(f"Missing developer-facing root document: {relative}")
 
 
 def _component_document_contract(errors: list[str]) -> None:

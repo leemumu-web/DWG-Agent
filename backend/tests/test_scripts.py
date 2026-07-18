@@ -381,6 +381,8 @@ def test_verify_script_exposes_quick_full_and_blocked_modes():
     assert "run_gate" in content
     assert "make docs-check" in content
     assert "npm run build" in content
+    assert "DXF→Excel Stage" in content
+    assert "cd Stages/dxf2excel && uv run pytest -q" in content
 
 
 def test_scripts_readme_documents_every_operational_entrypoint():
@@ -415,6 +417,8 @@ def test_nginx_proxies_fastapi_documentation_routes():
 def test_makefile_exposes_database_script_targets():
     content = _read("Makefile")
 
+    assert "verify-quick:" in content
+    assert "verify-full:" in content
     for target in (
         "db-start:",
         "db-setup:",

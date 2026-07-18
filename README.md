@@ -2,13 +2,13 @@
 
 DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处理、结果复核与审计的全栈平台。本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。
 
-**文档审计基线：** 2026-07-13 的当前工作树。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。仓库只维护中文项目文档。
+**交付级别：v0.1 技术预览版。文档审计基线：2026-07-18 的当前工作树。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和本轮验证为准；[技术预览指南](docs/developer-preview.md)给出首次安装和验收路径，[审计报告](docs/audit-report-2026-07-18.md)记录证据与剩余风险，[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界。仓库只维护中文项目文档。
 
 ## 当前结论
 
 | 领域 | 当前状态 | 关键边界 |
 |---|---|---|
-| Web 与 API | React 管理端、Nginx 网关、91 个 OpenAPI path 和 110 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | React 管理端、Nginx 网关、96 个 OpenAPI path 和 115 个 operation 已实现 | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 还会按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张。SQLite 只用于 pytest |
 | 通用工作流 | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和“生产流程”页面已实现 | 当前仅持久化和展示编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
 | 异步任务 | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
@@ -51,7 +51,7 @@ Celery workers（无入站监听端口）
 | framework smoke / `report` | 可运行的框架任务 | 核心 worker 默认启动 | MySQL broker/result 与存储可用；不代表报告 Agent 已实现 |
 | DWG -> DXF / `dxf` | 服务、task、测试和 ODA 适配存在 | `DXF_PIPELINE_ENABLED=false` | ODA File Converter、无头 X 环境、源 DWG 校验通过 |
 | DXF -> DWG / `dxf2dwg` | 服务、task、测试和 ODA 适配存在 | `DXF2DWG_PIPELINE_ENABLED=false` | 同上，并要求有效 DXF |
-| DXF -> Excel / `dxf2excel` | 当前工作目录有代码和测试 | `DXF2EXCEL_PIPELINE_ENABLED=false` | **仓库 gitlink 不可从干净 clone 还原，见下方限制** |
+| DXF -> Excel / `dxf2excel` | Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
 | Excel Final / `excel_final` | backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
 | Agent / `agent` | API 和持久化边界存在，task 为空占位 | `AGENT_ENABLED=false` | 尚未满足交付条件 |
 | CAD / `cad` | task 和 `cad-worker/` 均为空占位 | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件，Compose 也没有 `worker-cad` |
@@ -72,11 +72,11 @@ Celery workers（无入站监听端口）
 
 ## 已知仓库限制
 
-1. `Stages/dxf2excel` 在父仓库中仍是指向 `86e99dce5ebce992273c7df78ca13d58036f7472` 的 gitlink，但仓库没有 `.gitmodules`，本地对象库也没有该 commit。当前工作目录恰好保留源码，所以本机 `uv` 依赖可解析；全新 clone、CI checkout 和 Docker build **不能据此保证成功**。应先把该 Stage 转为普通跟踪目录，或恢复带有效 URL/commit 的子模块元数据。
-2. Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
-3. 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
-4. MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
-5. ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
+1. Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
+2. 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
+3. MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
+4. ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
+5. 仓库尚未声明 LICENSE；在项目负责人确认授权、第三方许可和样本数据分发范围前，只能作为内部技术预览使用，不得推定为开源或可对外再分发。
 
 ## 本地启动
 
@@ -104,7 +104,7 @@ bash scripts/db.sh status
 
 ## Compose 启动
 
-在修复 `Stages/dxf2excel` gitlink 且接受当前仅 HTTP 的边界后：
+在接受当前仅 HTTP、内部技术预览和外部 Stage 依赖边界后：
 
 ```bash
 cp .env.docker.example .env.docker
@@ -134,6 +134,7 @@ cd ..
 # Stage、真实 MySQL 迁移和基础设施契约
 cd Stages/dwg2dxf && uv run pytest -q && cd ../..
 cd Stages/dxf2dwg && uv run pytest -q && cd ../..
+cd Stages/dxf2excel && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
 bash infra/verify.sh
@@ -152,7 +153,7 @@ npx playwright test
 ```text
 backend/        FastAPI、SQLAlchemy、Alembic、Celery、存储适配与 pytest
 frontend/       React 管理端、API client 与 Playwright
-Stages/         独立 CAD/Excel 处理阶段；各 Stage 的归属和可复现性不同
+Stages/         独立 CAD/Excel 处理阶段；Python Stage 源码已跟踪，外部二进制/corpus 另行管理
 agents/         未交付的 Agent 目录占位
 cad-worker/     未交付的 Windows CAD worker 协议占位
 infra/          Nginx、MySQL 初始化、Compose 验证
@@ -163,7 +164,11 @@ third_parts/    外部/上游项目；不代表平台直接交付的能力
 
 ## 文档入口
 
+- [技术预览指南](docs/developer-preview.md)
+- [2026-07-18 全量审计报告](docs/audit-report-2026-07-18.md)
 - [文档索引](docs/README.md)
+- [贡献指南](CONTRIBUTING.md)
+- [变更记录](CHANGELOG.md)
 - [企业平台技术规范](DWG-Agent企业平台技术规范.md)
 - [架构](docs/architecture.md)
 - [配置参考](docs/configuration.md)

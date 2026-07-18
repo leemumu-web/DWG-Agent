@@ -9,7 +9,7 @@
 | Excel Final Stage | Python >=3.11、独立脚本 | `cd Stages/excel_final && uv sync --locked` |
 | ODA Stages | Python >=3.12 加外部 AppImage runtime | 每个 Stage 执行 `uv sync --locked` |
 
-backend lock 包含 `Stages/` 下 editable path dependency。clean environment 当前被损坏 `Stages/dxf2excel` gitlink 阻断；禁止把已填充工作树中的成功当成 clone 可复现性。
+backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完整仓库安装，不能只复制 `backend/`。三个 Python Stage 均由父仓库跟踪；DXF→Excel 的大规模验证 corpus 不随源码分发，内置单测通过不等于 419 文件历史 corpus 已在当前 checkout 重放。
 
 ## 仓库地图
 
@@ -22,10 +22,24 @@ backend lock 包含 `Stages/` 下 editable path dependency。clean environment �
 | `backend/migrations/` | Alembic 所有的业务 schema |
 | `frontend/src/api/` | typed HTTP client、auth refresh、download |
 | `frontend/src/features/` | workflow page |
-| `Stages/` | 可独立运行的 domain processor |
+| `Stages/` | 可独立运行的 domain processor；源码/锁文件跟踪，外部 corpus 与生成物排除 |
 | `infra/` | Nginx、MySQL 初始化、部署验证 |
 | `scripts/` | 本地生命周期、DB 和文档工具 |
 | `third_parts/` | 上游/vendored code；默认不是平台 module |
+
+## 首次检出
+
+```bash
+cp .env.example .env
+cp .env.example backend/.env
+# 替换密码和 JWT secret；不要提交这两个文件。
+
+cd backend && uv sync --locked && cd ..
+cd frontend && npm ci && cd ..
+make verify-quick
+```
+
+`make verify-quick` 是提交前最短门禁；`make verify-full` 会访问 MySQL、Stage 和浏览器环境，缺少 sudo 或外部依赖时应如实记录 blocked，不能忽略失败。完整首次开发路径见[技术预览指南](developer-preview.md)。
 
 ## 本地运行
 
@@ -123,6 +137,7 @@ uv run pytest -q
 # 聚焦 Stage 测试
 cd ../Stages/dwg2dxf && uv run pytest -q
 cd ../dxf2dwg && uv run pytest -q
+cd ../dxf2excel && uv run pytest -q
 cd ../excel_final && uv run pytest -q multi_split/tests
 
 # MySQL/infrastructure

@@ -11,7 +11,7 @@ uv run python -m app.db.init_db
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
-`uv sync` 依赖 `../Stages/dwg2dxf`、`../Stages/dxf2dwg` 和 `../Stages/dxf2excel`。第三个路径在父仓库仍是损坏 gitlink；本机已填充目录可解析不代表全新 clone 可安装。
+`uv sync` 依赖父仓库正常跟踪的 `../Stages/dwg2dxf`、`../Stages/dxf2dwg` 和 `../Stages/dxf2excel`。三者都是 editable path dependency；不得只复制 `backend/` 单独安装，也不得把 Stage 改回不可还原的 gitlink。
 
 运行规则：route 负责 HTTP/dependency，service 负责事务和不变量，task 调用 service；worker 的领取、进度、终态和恢复写入必须匹配 status + attempt；storage 保存字节，MySQL 保存权限元数据和 SHA-256。Agent/CAD task 是占位，相关 flag 保持 false。
 

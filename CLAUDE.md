@@ -18,9 +18,9 @@ Celery workers (无入站监听) <-> MySQL SQL transport/result backend -> track
 - 四条转换 flag 默认 false；worker healthy 不代表管线可用。
 - Compose 只发布 HTTP `${HTTP_PORT:-80}:8080`，不发布 443，也没有 TLS。
 - `internal: true` 是 externally-isolated 网络：backend-api/worker 无外部 egress；启用 CAD worker/LLM 前须补可 egress 网络 + `cad-worker.internal` 解析。
-- `Stages/dxf2excel` 是缺少 `.gitmodules` 和可达对象的损坏 gitlink；已填充本机目录不是 clean-clone 证据。
+- `Stages/dxf2excel` 是父仓库正常跟踪的一方 Stage；不得恢复为 gitlink，验证 corpus 与生成工作簿不得提交。
 - 生产配置关闭 OpenAPI/Swagger/ReDoc。
-- 当前 Alembic head 为 `e4a1c7f2b930`；25 张模型表，Celery runtime 全部创建后最多 34 张表。
+- 当前 Alembic head 为 `d5e8a1c4b720`；28 张模型表，加 Alembic version 表与 8 张 Celery runtime 表后最多 37 张表。
 - 通用工作流是人工编排骨架，公开路径尚未自动创建 Job 或挂接产物。
 
 ## 工程规则

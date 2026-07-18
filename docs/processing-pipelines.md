@@ -25,7 +25,7 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 | Framework smoke | `local_stub` / `report` | Job 参数 | JSON `AnalysisResult` | 已实现框架路径，不是 LLM report Agent |
 | DWG -> DXF | `convert_dwg_to_dxf` / `dxf` | 一个或最多 200 个已存储 DWG | 每文件一个已存储 DXF + result row | 功能开关保护；需要 ODA 和受支持 DWG header |
 | DXF -> DWG | `convert_dxf_to_dwg` / `dxf2dwg` | 一个或最多 200 个已存储 DXF | 每文件一个已存储 DWG + result row | 功能开关保护；需要 ODA 和有效 DXF |
-| DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | 命名 batch 的已存储 DXF | XLSX + result row | 功能开关保护；Stage gitlink 无法从 clean clone 复现 |
+| DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | 命名 batch 的已存储 DXF | XLSX + result row | 功能开关保护；Stage 源码已跟踪，外部 corpus 不随仓库分发 |
 | Excel Final | `process_excel_final` / `excel_final` | 内容受支持的已存储 `.xls`/`.xlsx` | 最终 XLSX + result + 关系化 batch 数据 | 功能开关保护；需要手册库和受支持 schema |
 | Agent | `agent` | Agent-run 请求 | 无 | 只有 API/model 边界；task module 是占位 |
 | Windows CAD | `cad` | 预留 | 无 | 配置/task/目录占位；没有部署 worker |
@@ -68,7 +68,7 @@ DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。
 
 步骤为 `download_dxf_batch`、`run_dxf2excel_pipeline` 和 `persist_excel_result`。batch name 不是授权范围：列表、metadata、删除和下载必须通过相同 SQL 访问边界过滤每个文件。
 
-当前父仓库只把 `Stages/dxf2excel` 记录为 gitlink commit `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，本地也缺少该对象。已填充工作目录使当前 checkout 可工作，但 clean clone 和 image build 不能依赖它。在管线被视为可复现交付前必须修复。
+`Stages/dxf2excel` 的源码、锁文件和内置单测已由父仓库直接跟踪，backend editable dependency 与 image build context 可以从源码检出恢复。Stage README 记录的 419 文件逐格历史验证依赖外部 corpus；当前仓库只包含最小解码单测，因此发布验收必须单独提供许可合规且摘要固定的 corpus。
 
 成功批次的前端操作可显式确认“生成零件清单”。实现先从 extraction Job 的结果登记中取得 Excel `result_file_id`，再以 `dxf2excel-{extraction_job_id}-{result_file_id}` 幂等键调用 Excel Final process 端点；同步 ref/UI Set 防止同一页面双击，服务端唯一约束负责刷新、多标签和多进程竞态。成功或重放后都导航到 `/files/excel-final?job_id=...`。该桥接复用已登记对象，不重新上传字节，也不表示通用 workflow route 已自动编排。
 

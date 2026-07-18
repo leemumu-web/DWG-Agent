@@ -36,7 +36,7 @@ bash scripts/verify.sh full --allow-blocked
 
 `doctor.sh` 默认读取 `infra/nginx/logs/access.log` 最近 60 分钟。它按状态、方法和去查询串路径聚合，只输出有限 request ID，不输出签名、批次名、Cookie 或 Authorization。可用 `NGINX_ACCESS_LOG=/path/access.log` 指定日志；`--log-only` 只分析日志，不探测服务。
 
-`verify.sh quick` 执行 Shell 语法、ruff、聚焦后端/脚本回归、文档一致性和前端生产构建。`verify.sh full` 追加完整后端、Alembic、基础设施、Compose、Stage、隔离 MySQL 迁移和 Playwright。`--allow-blocked` 仅把明确依赖 sudo、Windows/ODA 或外部 Stage 环境的可选门禁记为 blocked；代码、测试、文档和构建失败仍返回非零。
+`verify.sh quick` 执行 Shell 语法、ruff、聚焦后端/脚本回归、文档一致性和前端生产构建。`verify.sh full` 追加完整后端、Alembic、基础设施、Compose、四个 Stage、隔离 MySQL 迁移和 Playwright；DXF→Excel 源码随仓库分发，因此其内置测试是必过门禁。`--allow-blocked` 仅把明确依赖 sudo、Windows/ODA 或外部 Stage 环境的可选门禁记为 blocked；代码、测试、文档和构建失败仍返回非零。也可使用 `make verify-quick` 和 `make verify-full`。
 
 ## 数据库与容器
 

@@ -25,7 +25,7 @@ Browser -> Nginx HTTP :8080 本地 / :80 Compose
 Celery worker <- MySQL queue -> Stage -> MySQL state + storage result
 ```
 
-没有 Redis/Valkey。当前 Compose 只有 HTTP；HTTPS 不属于该已验证路径。修复 gitlink 前，`Stages/dxf2excel` clean-clone 可复现性也在验收范围外。
+没有 Redis/Valkey。当前 Compose 只有 HTTP；HTTPS 不属于该已验证路径。`Stages/dxf2excel` 源码已纳入父仓库，但其 419 文件历史 corpus 不随仓库分发；本轮只重放内置 Stage 单测。
 
 ## 3. 可重复门禁
 
@@ -40,6 +40,7 @@ cd ..
 
 cd Stages/dwg2dxf && uv run pytest -q
 cd ../dxf2dwg && uv run pytest -q
+cd ../dxf2excel && uv run pytest -q
 cd ../excel_final && uv run pytest -q multi_split/tests
 cd ../..
 
@@ -60,7 +61,7 @@ DWG_VERIFY_PASSWORD='<configured-password>' \
 python tests/run_full_verify.py
 ```
 
-生成 OpenAPI 当前包含 95 个 path、114 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
+生成 OpenAPI 当前包含 96 个 path、115 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
 
 ## 4. 2026-07-18 CAD 转换控制台验证证据
 
