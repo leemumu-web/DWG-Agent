@@ -46,7 +46,11 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 
 worker 领取每个 Job 后按目标 AutoCAD 版本分组。小组一次调用 ODA；大组按 `CAD_BATCH_MIN_FILES_PER_SHARD` 自适应拆分，最多并行 `CAD_BATCH_MAX_SHARDS` 个目录调用。每个文件仍有独立 attempt、步骤、进度、结果和错误；某个输出缺失只失败对应 Job。DWG -> DXF 与 DXF -> DWG 使用相同的分组、分片和持久 Xvfb 契约。
 
-前端文件夹、ZIP 和“继续任务”走批量入口；单个上传也使用同一批量合同。`GET /api/v1/jobs/events/stream?task_type=...&file_ids=...` 每个连接最多观察 200 个文件，500 ms 读取 MySQL 短事务快照，任一 Job 变化即推送，全部终态后关闭。页面按 200 个文件分片连接，显示当前文件夹或全部范围的平均进度、成功、失败和处理中数量；10 秒轮询只作为断线修复。`POST /api/v1/jobs/cancellation-requests` 先验证全部 Job 权限，再只取消当前转换范围的 active Job，不再调用全局取消影响其他流水线。
+前端文件夹、ZIP 和“提交/重试”走批量入口；单个上传也使用同一批量合同。超过 200 个文件时前端分块，每轮最多并发 3 个请求，分别保留已提交和待补交 ID，不因一个块失败隐藏其他已创建 Job。`GET /api/v1/jobs/events/stream?task_type=...&file_ids=...` 每个连接最多观察 200 个文件，500 ms 读取 MySQL 短事务快照，任一 Job 变化即推送，全部终态后关闭。页面按 200 个文件分片连接，显示当前文件夹或全部范围的成功进度、成功、失败、处理中和待补交数量；失败和取消任务的历史进度按 0 计入汇总。10 秒轮询只作为断线修复。`POST /api/v1/jobs/cancellation-requests` 先验证全部 Job 权限，再只取消当前转换范围的 active Job，不再调用全局取消影响其他流水线。
+
+### 文件夹删除契约
+
+`POST /api/v1/files/batches/bulk-delete` 对 1-100 个文件夹执行单事务软删除。它按 `batch_name` 同时纳入源文件和已登记生成结果，取消关联双向 CAD 活动 Job，并复用文件软删除、预览失效、流转账本和审计路径。任一名称不存在、任一文件无权或任一写入失败时整批回滚。详细请求、响应、错误码和响应丢失边界见 [API 参考](api.md#多文件夹原子软删除)。
 
 ### DXF 在线预览
 

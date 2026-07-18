@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **95 个 path、114 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -186,6 +186,97 @@
 | `POST` | `/api/v1/workflows/{workflow_id}/start` |
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion` |
 | `POST` | `/api/v1/workflows/{workflow_id}/cancellation-requests` |
+
+
+## CAD 转换生产契约
+
+### 批量创建转换任务
+
+`POST /api/v1/jobs/batches` 仅接受 `convert_dwg_to_dxf` 或 `convert_dxf_to_dwg`，每次请求包含 1-200 个 `file_id`。服务端对重复 ID 去重，先验证全部文件存在性、读权限以及源扩展名（DWG→DXF 只接受 `.dwg`，DXF→DWG 只接受 `.dxf`），再为每个文件创建独立 Job。任一文件不存在、不可读或类型错误时，该 HTTP 请求不留下部分 Job。
+
+```json
+{
+  "task_type": "convert_dwg_to_dxf",
+  "file_ids": [101, 102, 103],
+  "precision_level": "normal"
+}
+```
+
+HTTP 202 返回标准 envelope：
+
+```json
+{
+  "data": {
+    "jobs": [
+      {
+        "id": 9001,
+        "task_type": "convert_dwg_to_dxf",
+        "status": "queued",
+        "attempt": 1,
+        "progress": 0,
+        "params_json": {"file_id": 101}
+      }
+    ]
+  },
+  "meta": {"request_id": "req_...", "timestamp": "..."}
+}
+```
+
+仓库前端会对超过 200 个的提交去重、分块，每轮最多并发 3 个请求，并分别保留 `submittedFileIds`、`unsubmittedFileIds` 和 `errors`。这是客户端的“部分块成功”处理，不表示单个 `/jobs/batches` 请求会部分提交。失败块不自动重试，操作员通过“提交/重试”补交，避免响应丢失时无边界重复创建。
+
+| HTTP | `error.code` | 含义 |
+|---|---|---|
+| 401 | `INVALID_TOKEN` / `TOKEN_REVOKED` / `USER_NOT_ACTIVE` | access 会话无效。 |
+| 403 | `FORBIDDEN` | 至少一个文件不可读；该请求未创建 Job。 |
+| 404 | `NOT_FOUND` | 至少一个文件不存在或已删除。 |
+| 422 | `VALIDATION_ERROR` | task type、ID 数量或 `precision_level` 不符合 schema。 |
+| 422 | `INVALID_CONVERSION_SOURCE` | 至少一个文件扩展名与转换方向不匹配。 |
+| 503 | `DXF_PIPELINE_DISABLED` / `DXF2DWG_PIPELINE_DISABLED` | 对应管线开关未启用。 |
+
+该端点同样没有 `Idempotency-Key`；只保证一个请求体内重复 `file_id` 去重。完整重放已成功的 HTTP 请求会为同一文件创建新 Job；响应丢失后应先查询最新 Job，不应无条件重放。
+
+### 多文件夹原子软删除
+
+`POST /api/v1/files/batches/bulk-delete` 完整删除 1-100 个批次。`batch_names` 中每个名称会去除首尾空白，不能为空，最长 128 个字符；重复名称只处理一次。
+
+```json
+{
+  "batch_names": ["BH_拆板前_dwg", "BH_拆板后_dwg"]
+}
+```
+
+HTTP 200 响应：
+
+```json
+{
+  "data": {
+    "deleted_batch_count": 2,
+    "deleted_file_count": 84,
+    "cancelled_job_count": 3
+  },
+  "meta": {"request_id": "req_...", "timestamp": "..."}
+}
+```
+
+`deleted_file_count` 统计被软删除的 `files` 记录，包含具有相同 `batch_name` 的源文件和已登记生成结果，因此可大于界面上的源文件数。软删除会写入文件状态、删除时间、流转账本和审计记录；它不在请求内立即物理回收对象字节。
+
+服务端在任何写入前确认所有文件夹存在，并对其中每个文件执行“上传者或管理员”删除授权。同一事务内会取消关联的 `pending`、`queued`、`running`、`validating` 和 `waiting_cad_worker` 双向 CAD Job。任一文件夹缺失、任一文件无权或写入失败时，所有文件夹和 Job 一起回滚。
+
+| HTTP | `error.code` | 含义与客户端处理 |
+|---|---|---|
+| 401 | `INVALID_TOKEN` / `TOKEN_REVOKED` / `USER_NOT_ACTIVE` | 未登录或 access 会话无效；刷新会话后重新确认操作。 |
+| 403 | `FORBIDDEN` | 至少一个文件无删除权限；整批未变更。 |
+| 404 | `NOT_FOUND` | 至少一个文件夹不存在或已全部删除；整批未变更。 |
+| 422 | `VALIDATION_ERROR` | 数组为空、超过 100 项、包含空名或超长名称。 |
+| 500 | `INTERNAL_ERROR` | 事务回滚；保留当前选择并刷新权威状态后再决定是否重试。 |
+
+该端点没有 `Idempotency-Key` 契约。如果首次请求已提交但响应丢失，直接重放可因批次已删除而返回 404；客户端应先刷新文件夹列表，不能把 404 当作“从未执行”的证据。
+
+### 进度和可补交口径
+
+Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前范围文件数作分母：`succeeded` 计 100，非停滞 active Job 计经 0-100 截断的当前进度，`failed`、`cancelled`、无 Job 和超过 60 秒仍为 0% 的停滞 `queued` 计 0。因此失败 Job 保留的历史进度不会抬高汇总。
+
+只有最新 Job 状态加载完成后才显示“未提交”。无 Job、`failed`、`cancelled` 或停滞 `queued` 文件进入“提交/重试”集合；活动任务与可补交文件可同时存在，暂停和补交入口因而可同时显示。
 
 
 ## Excel Final 幂等与监视契约
