@@ -262,6 +262,17 @@ def test_start_all_supports_explicit_owned_backend_restart():
     assert "kill -KILL" not in lib_content
 
 
+def test_nginx_liveness_check_does_not_require_sudo_credentials():
+    start_all = _read("scripts/start-all.sh")
+    stop_all = _read("scripts/stop-all.sh")
+    lib_content = _read("scripts/lib.sh")
+
+    assert "process_exists" in lib_content
+    assert "process_exists \"$NGINX_PID\"" in start_all
+    assert "process_exists \"$NGINX_PID\"" in stop_all
+    assert "sudo kill -0" not in start_all
+
+
 def test_runtime_and_frontend_staleness_are_reported():
     lib_content = _read("scripts/lib.sh")
     status_content = _read("scripts/status.sh")

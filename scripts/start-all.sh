@@ -77,8 +77,10 @@ step "5/5 Nginx 网关"
 NGINX_CONF="$PROJECT_ROOT/infra/nginx/nginx.local.conf"
 NGINX_PIDFILE="$PROJECT_ROOT/infra/nginx/logs/nginx.pid"
 
-# 检查是否已有本项目的 nginx 在运行
-if [ -f "$NGINX_PIDFILE" ] && sudo kill -0 "$(cat "$NGINX_PIDFILE")" 2>/dev/null; then
+# 检查是否已有本项目的 nginx 在运行。master 通常属于 root，读取
+# /proc 不需要 root 凭据，更适合无交互运维脚本。
+NGINX_PID="$(cat "$NGINX_PIDFILE" 2>/dev/null || true)"
+if [ -f "$NGINX_PIDFILE" ] && process_exists "$NGINX_PID"; then
     ok "Nginx 已运行 (:8080)"
 else
     # 端口被占但不是我们的 → 报错退出，让用户自行处理

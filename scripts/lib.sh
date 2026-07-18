@@ -35,6 +35,11 @@ step() { echo -e "\n${BLUE}── $1 ──${NC}"; }
 
 port_free() { ! ss -tlnp "sport = :$1" 2>/dev/null | grep -q ":$1"; }
 
+process_exists() {
+    local pid="$1"
+    [[ "$pid" =~ ^[0-9]+$ ]] && [ -d "/proc/${pid}" ]
+}
+
 # 确保 sudo 可用后再执行需要 root 的 mariadb 操作。
 # 无 TTY 且凭据未缓存时快速失败，而不是永久挂在密码提示上（CI/cron/测试场景）。
 ensure_sudo() {
