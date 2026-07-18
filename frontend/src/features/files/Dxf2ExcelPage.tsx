@@ -362,9 +362,18 @@ export function Dxf2ExcelPage() {
               });
               if (result.success > 0) {
                 message.success(`已导入 ${result.success}/${result.total} 个文件到 "${folderName}"`);
+                if (result.failures.length > 0) {
+                  const examples = result.failures.slice(0, 3)
+                    .map((failure) => `${failure.file_name}: ${failure.reason}`)
+                    .join('；');
+                  message.warning(`部分文件上传失败：${examples}`, 10);
+                }
                 refresh();
               } else if (result.total > 0) {
-                message.error(`全部 ${result.total} 个文件上传失败`);
+                const examples = result.failures.slice(0, 3)
+                  .map((failure) => `${failure.file_name}: ${failure.reason}`)
+                  .join('；');
+                message.error(`全部 ${result.total} 个文件上传失败${examples ? `：${examples}` : ''}`, 10);
               } else {
                 message.warning('文件夹中没有 .dxf 文件');
               }

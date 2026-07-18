@@ -2,12 +2,10 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处理、结果复核与审计的全栈平台。
+**交付级别：v0.1 技术预览版。文档审计基线：2026-07-18 的当前工作树。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和本轮验证为准；[技术预览指南](docs/developer-preview.md)给出首次安装和验收路径，[审计报告](docs/audit-report-2026-07-18.md)记录证据与剩余风险，[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界。仓库只维护中文项目文档。
 
 > [!IMPORTANT]
 > 本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。详细项目文档仅维护[中文版本](docs/README.md)，英文 README 用于提供项目概览。
-
-**文档审计基线：** 2026-07-13 的当前工作树。运行事实以当前代码、迁移、配置和本轮验证为准；[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界，[文档索引](docs/README.md)给出完整说明。
 
 ## 🧭 分层阅读
 
@@ -29,19 +27,19 @@ DWG-Agent 是一个面向 CAD 文件接入、异步转换、钢结构清单处�
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、91 个 OpenAPI path 和 110 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、96 个 OpenAPI path 和 115 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
 | 数据控制台 | ✅ | 总览、文件登记、存储对象、入出库流水、一致性五页签 | 管理员可扫描/处置，审计员只读/预检；永久清理不可恢复且必须确认 |
-| Excel Final 控制台 | ✅ | 权限过滤总览、任务监视、跨批次检索、批次/零件/构件分页、结果预览和 URL 状态恢复 | 上传/建任务使用数据库级幂等键；管线关闭时历史数据仍可浏览 |
+| Excel Final 控制台 | ✅ | 权限过滤精确总览、任务监视、跨批次检索、比重查询、批次/零件/构件分页、结果预览和 URL 状态恢复 | 上传/建任务使用数据库级幂等键；健康栏显示实际数据库/存储后端；管线关闭时历史数据仍可浏览 |
 
 ### 编排与扩展能力
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| 通用工作流 | ⚠️ | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和“生产流程”页面 | 仅持久化和展示人工编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
-| 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束 |
+| 通用工作流 | ⚠️ | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和"生产流程"页面 | 仅持久化和展示人工编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
+| 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | API、模型和权限边界保留 | 不继续实现；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | 图纸元数据与格式转换边界保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 不在当前交付范围 |
 | Redis/Valkey | ❌ | 当前运行时不使用 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
@@ -82,7 +80,7 @@ Celery workers（无入站监听端口）
 | framework smoke / `report` | ✅ 可运行的框架任务 | 核心 worker 默认启动 | MySQL broker/result 与存储可用；不代表报告 Agent 已实现 |
 | DWG → DXF / `dxf` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF_PIPELINE_ENABLED=false` | ODA File Converter、无头 X 环境、源 DWG 校验通过 |
 | DXF → DWG / `dxf2dwg` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF2DWG_PIPELINE_ENABLED=false` | 同上，并要求有效 DXF |
-| DXF → Excel / `dxf2excel` | ⚠️ 当前工作目录有代码和测试 | `DXF2EXCEL_PIPELINE_ENABLED=false` | **仓库 gitlink 无法从干净 clone 还原，见[已知限制](#️-已知限制)** |
+| DXF → Excel / `dxf2excel` | ⚠️ Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
 | Excel Final / `excel_final` | ⚠️ backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
 | Agent / `agent` | ⏸️ API 和持久化边界存在，task 为空占位 | `AGENT_ENABLED=false` | 尚未满足交付条件 |
 | CAD / `cad` | ⏸️ task 和 `cad-worker/` 均为空占位 | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
@@ -116,11 +114,11 @@ service 内部具备 Job attempt 绑定、Job 状态同步和产物挂接函数�
 
 ## ⚠️ 已知限制
 
-1. **损坏的 Stage gitlink：** `Stages/dxf2excel` 在父仓库中仍指向 `86e99dce5ebce992273c7df78ca13d58036f7472`，但仓库没有 `.gitmodules`，本地对象库也没有该 commit。当前工作目录中的源码不能证明全新 clone、CI checkout 或 Docker build 可成功。应先将该 Stage 转为普通跟踪目录，或恢复带有效 URL/commit 的子模块元数据。
-2. **没有 Compose TLS：** Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
-3. **运维自动化不完整：** 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的步骤是操作基线，不是已部署服务。
-4. **Broker 能力有界：** MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
-5. **ODA 兼容性依赖外部环境：** ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
+1. Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
+2. 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
+3. MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
+4. ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
+5. 仓库尚未声明 LICENSE；在项目负责人确认授权、第三方许可和样本数据分发范围前，只能作为内部技术预览使用，不得推定为开源或可对外再分发。
 
 ## 🚀 本地启动
 
@@ -163,7 +161,7 @@ bash scripts/db.sh status
 
 ### Compose 部署
 
-在修复 `Stages/dxf2excel` gitlink 且接受当前仅 HTTP 的边界后：
+在接受当前仅 HTTP、内部技术预览和外部 Stage 依赖边界后：
 
 ```bash
 cp .env.docker.example .env.docker
@@ -197,6 +195,7 @@ cd ..
 ```bash
 cd Stages/dwg2dxf && uv run pytest -q && cd ../..
 cd Stages/dxf2dwg && uv run pytest -q && cd ../..
+cd Stages/dxf2excel && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
 bash infra/verify.sh
@@ -220,7 +219,7 @@ npx playwright test
 ```text
 backend/        FastAPI、SQLAlchemy、Alembic、Celery、存储适配与 pytest
 frontend/       React 管理端、API client 与 Playwright
-Stages/         独立 CAD/Excel 处理阶段；各 Stage 的归属和可复现性不同
+Stages/         独立 CAD/Excel 处理阶段；Python Stage 源码已跟踪，外部二进制/corpus 另行管理
 agents/         未交付的 Agent 目录占位
 cad-worker/     未交付的 Windows CAD worker 协议占位
 infra/          Nginx、MySQL 初始化、Compose 验证
@@ -233,7 +232,8 @@ third_parts/    外部/上游项目；不代表平台直接交付的能力
 
 | 分类 | 文档 |
 |---|---|
-| 总览 | [文档索引](docs/README.md) · [企业平台技术规范](DWG-Agent企业平台技术规范.md) |
+| 总览 | [技术预览指南](docs/developer-preview.md) · [审计报告](docs/audit-report-2026-07-18.md) · [文档索引](docs/README.md) · [贡献指南](CONTRIBUTING.md) · [变更记录](CHANGELOG.md) |
+| 规范 | [企业平台技术规范](DWG-Agent企业平台技术规范.md) |
 | 设计 | [架构](docs/architecture.md) · [数据库](docs/database.md) · [通用工作流框架](docs/workflow-framework.md) |
 | 开发 | [开发指南](docs/development.md) · [API](docs/api.md) · [配置参考](docs/configuration.md) |
 | 管线 | [处理管线](docs/processing-pipelines.md) · [工作流验证](docs/workflow-verification.md) |

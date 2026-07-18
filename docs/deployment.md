@@ -16,9 +16,9 @@ Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 的 `in
 
 当前仍是纯 HTTP，Compose **不发布 443**。完成经审查的 TLS listener 与证书生命周期前，不要自行宣称 HTTPS。仅在可信内网纯 HTTP 场景显式设置 `REFRESH_COOKIE_SECURE=false`；公网部署必须先增加 TLS，并保持 Secure cookie。
 
-## 干净克隆阻断项
+## 干净克隆边界
 
-`Stages/dxf2excel` 目前是 gitlink `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，目标对象也不可达。当前已填充工作树可以构建，但干净克隆不可复现。发布前必须改为普通 tracked source，或添加有效 submodule URL 与可达的固定 commit。问题未解决时，`scripts/docker.sh check` 会发出警告。
+`Stages/dxf2excel` 已作为普通 tracked source 纳入父仓库，backend editable dependency 和 Docker build context 不再依赖不可还原 gitlink。其 419 文件历史验证 corpus、生成工作簿和虚拟环境仍按设计排除；干净克隆能重放内置单测，但不能在没有外部 corpus 的情况下重现该历史规模结论。发布验收仍需在临时 clean checkout 实际执行锁定安装和镜像构建。
 
 ## 准备
 

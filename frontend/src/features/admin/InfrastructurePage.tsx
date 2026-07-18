@@ -41,6 +41,7 @@ import {
   previewStorageRemediation,
   startStorageScan,
 } from '../../api/data-admin.api';
+import { describeApiError } from '../../api/error';
 import type {
   FileTransfer,
   RemediationAction,
@@ -329,7 +330,7 @@ function ConsistencyPanel({ latestScanId }: { latestScanId?: number }) {
     }),
     enabled: Boolean(scanId) && scan.data?.status === 'succeeded',
   });
-  const start = useMutation({ mutationFn: () => startStorageScan(), onSuccess: (data) => { setScanId(data.id); setFindingPage(1); setSelectedKeys([]); void queryClient.invalidateQueries({ queryKey: ['data-admin', 'overview'] }); void queryClient.invalidateQueries({ queryKey: ['data-admin', 'scans'] }); message.success('一致性扫描已启动'); }, onError: () => message.error('扫描启动失败，可能已有扫描正在运行') });
+  const start = useMutation({ mutationFn: () => startStorageScan(), onSuccess: (data) => { setScanId(data.id); setFindingPage(1); setSelectedKeys([]); void queryClient.invalidateQueries({ queryKey: ['data-admin', 'overview'] }); void queryClient.invalidateQueries({ queryKey: ['data-admin', 'scans'] }); message.success('一致性扫描已启动'); }, onError: (error) => message.error(describeApiError(error, '扫描启动失败')) });
   const previewMutation = useMutation({
     mutationFn: () => previewStorageRemediation({
       finding_ids: selectedKeys.map(Number),
@@ -337,7 +338,7 @@ function ConsistencyPanel({ latestScanId }: { latestScanId?: number }) {
       metadata: action === 'register_existing' ? { original_name: originalName.trim() } : undefined,
     }),
     onSuccess: setPreview,
-    onError: () => message.error('处置预检失败，请确认所选异常与动作匹配'),
+    onError: (error) => message.error(describeApiError(error, '处置预检失败')),
   });
   const columns = [
     { title: '异常类型', dataIndex: 'finding_type', width: 170, render: (value: string) => <Tag color={value === 'retained_deleted' ? 'default' : 'warning'}>{FINDING_LABELS[value] ?? value}</Tag> },

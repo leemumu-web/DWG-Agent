@@ -57,6 +57,55 @@ def test_non_idempotent_uploads_are_not_automatically_retried():
     assert "fetchWithTimeout" not in source
 
 
+def test_folder_upload_concurrency_fits_default_api_database_pool():
+    api_source = _frontend_source("api/files.api.ts")
+    page_source = _frontend_source("components/ConversionPage.tsx")
+
+    # Default API pool budget is DB_POOL_SIZE=2 + MAX_OVERFLOW=2. The browser
+    # must not open eight simultaneous upload transactions against four slots.
+    assert "opts?.concurrency ?? 4" in api_source
+    assert "concurrency: 4" in page_source
+    assert "concurrency: 8" not in page_source
+
+
+def test_generated_api_source_documents_zip_preview_and_conflicts():
+    source = (REPO_ROOT / "scripts/generate_api_docs.py").read_text(encoding="utf-8")
+
+    assert "/api/v1/files/download-zip/preview" in source
+    assert "missing_count" in source
+    assert "FILE_EXPORT_FORMAT_UNAVAILABLE" in source
+    assert "STORAGE_INCONSISTENT" in source
+
+
+def test_conversion_submission_preserves_partial_chunk_results():
+    source = _frontend_source("api/jobs.api.ts")
+
+    assert "interface ConversionBatchSubmission" in source
+    assert "submittedJobs" in source
+    assert "submittedFileIds" in source
+    assert "unsubmittedFileIds" in source
+    assert "errors" in source
+    assert "Promise.allSettled" in source
+    assert "createConversionBatches" in source
+    assert "retry" not in source.split("export async function createConversionBatches", 1)[1].split(
+        "export async function createDxf2ExcelJob", 1
+    )[0]
+
+
+def test_folder_bulk_delete_uses_atomic_batch_endpoint():
+    api_source = _frontend_source("api/files.api.ts")
+    page_source = _frontend_source("components/ConversionPage.tsx")
+
+    assert "interface BatchBulkDeleteResult" in api_source
+    assert "'/api/v1/files/batches/bulk-delete'" in api_source
+    assert "bulkDeleteBatches(selectedBatchNames)" in page_source
+    handler = page_source.split("const handleBatchDelete", 1)[1].split(
+        "// ── batch zip file IDs", 1
+    )[0]
+    assert "bulkDeleteFiles" not in handler
+    assert "listFiles" not in handler
+
+
 def test_download_retries_with_a_fresh_signed_url_through_auth_interceptor():
     source = _frontend_source("api/files.api.ts")
 

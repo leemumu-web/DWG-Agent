@@ -132,7 +132,7 @@ worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_
 | framework smoke | `report` | 可执行 stub result | 不是 report Agent |
 | DWG -> DXF | `dxf` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
 | DXF -> DWG | `dxf2dwg` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
-| DXF -> Excel | `dxf2excel` | service/task 与本地文件 | flag 关闭；父仓库 gitlink 损坏阻断 clean clone |
+| DXF -> Excel | `dxf2excel` | service/task 与父仓库跟踪 Stage | flag 关闭；大规模验证 corpus 不随源码分发 |
 | Excel Final | `excel_final` | 隔离 Stage + 关系化导入 | flag 关闭；需要内容 schema 和手册库 |
 | Agent | `agent` | 只有 API/model | task module 是空占位 |
 | Windows CAD | `cad` | 配置占位 | 无 task、worker、service 或 Compose node |

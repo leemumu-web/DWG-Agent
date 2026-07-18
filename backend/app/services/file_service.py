@@ -21,7 +21,11 @@ from app.models.job import Job
 from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.models.user import User
-from app.schemas.file_schema import DownloadUrlRead
+from app.schemas.file_schema import (
+    DownloadUrlRead,
+    ZipAvailabilityPreview,
+    ZipFormatAvailability,
+)
 
 DOWNLOAD_URL_TTL_SECONDS = 300
 
@@ -32,6 +36,15 @@ class PreparedExport:
     filename: str
     size_bytes: int
     included_file_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class ZipAvailabilityResolution:
+    requested_ids: tuple[int, ...]
+    requested_formats: tuple[str, ...]
+    source_files: dict[int, StoredFile]
+    selected_files: dict[tuple[int, str], StoredFile]
+    missing_by_format: dict[str, tuple[int, ...]]
 
 
 def download_signature(file_id: int, expires: int) -> str:
@@ -135,6 +148,92 @@ def build_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile |
 build_dxf_result_map = build_result_map
 
 
+def _resolve_zip_availability(
+    db: Session,
+    file_ids: list[int],
+    formats: list[str],
+) -> ZipAvailabilityResolution:
+    requested_ids = tuple(dict.fromkeys(file_ids))
+    if not requested_ids:
+        raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
+    requested_formats = tuple(dict.fromkeys(formats))
+    if not requested_formats or any(item not in {"dwg", "dxf"} for item in requested_formats):
+        raise AppHTTPException(
+            422,
+            "INVALID_PARAMS",
+            "formats must contain only dwg or dxf.",
+        )
+
+    source_files = {
+        stored.id: stored
+        for stored in db.scalars(
+            select(StoredFile).where(
+                StoredFile.id.in_(requested_ids), StoredFile.status != "deleted"
+            )
+        ).all()
+    }
+    missing_ids = [file_id for file_id in requested_ids if file_id not in source_files]
+    if missing_ids:
+        raise AppHTTPException(
+            404,
+            "FILE_EXPORT_SOURCE_MISSING",
+            "One or more requested export files are unavailable.",
+            {"file_ids": missing_ids[:20], "missing_count": len(missing_ids)},
+        )
+
+    result_map = build_result_map(db, list(requested_ids))
+    selected_files: dict[tuple[int, str], StoredFile] = {}
+    missing_by_format: dict[str, tuple[int, ...]] = {}
+    for requested_format in requested_formats:
+        missing_for_format: list[int] = []
+        for file_id in requested_ids:
+            source = source_files[file_id]
+            result = result_map.get(file_id)
+            selected: StoredFile | None = None
+            if source.file_ext == f".{requested_format}":
+                selected = source
+            elif result and result.file_ext == f".{requested_format}":
+                selected = result
+            if selected is None:
+                missing_for_format.append(file_id)
+            else:
+                selected_files[(file_id, requested_format)] = selected
+        missing_by_format[requested_format] = tuple(missing_for_format)
+
+    return ZipAvailabilityResolution(
+        requested_ids=requested_ids,
+        requested_formats=requested_formats,
+        source_files=source_files,
+        selected_files=selected_files,
+        missing_by_format=missing_by_format,
+    )
+
+
+def preview_zip_availability(
+    db: Session,
+    file_ids: list[int],
+    formats: list[str],
+) -> ZipAvailabilityPreview:
+    resolution = _resolve_zip_availability(db, file_ids, formats)
+    format_previews: list[ZipFormatAvailability] = []
+    for requested_format in resolution.requested_formats:
+        missing = resolution.missing_by_format[requested_format]
+        format_previews.append(
+            ZipFormatAvailability(
+                format=requested_format,
+                available_count=len(resolution.requested_ids) - len(missing),
+                missing_count=len(missing),
+                missing_file_ids=list(missing[:20]),
+                complete=not missing,
+            )
+        )
+    return ZipAvailabilityPreview(
+        file_count=len(resolution.requested_ids),
+        formats=format_previews,
+        can_download=all(item.complete for item in format_previews),
+    )
+
+
 def build_zip(
     db: Session,
     file_ids: list[int],
@@ -162,34 +261,10 @@ def build_zip_to_path(
     """
     from app.services.storage_service import get_storage_backend
 
-    requested_ids = tuple(dict.fromkeys(file_ids))
-    if not requested_ids:
-        raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
-    requested_formats = tuple(dict.fromkeys(formats))
-    if not requested_formats or any(item not in {"dwg", "dxf"} for item in requested_formats):
-        raise AppHTTPException(
-            422,
-            "INVALID_PARAMS",
-            "formats must contain only dwg or dxf.",
-        )
-
-    source_files: dict[int, StoredFile] = {}
-    for f in db.scalars(
-        select(StoredFile).where(
-            StoredFile.id.in_(requested_ids), StoredFile.status != "deleted"
-        )
-    ).all():
-        source_files[f.id] = f
-    missing_ids = [file_id for file_id in requested_ids if file_id not in source_files]
-    if missing_ids:
-        raise AppHTTPException(
-            404,
-            "FILE_EXPORT_SOURCE_MISSING",
-            "One or more requested export files are unavailable.",
-            {"file_ids": missing_ids},
-        )
-
-    result_map = build_result_map(db, list(requested_ids))
+    resolution = _resolve_zip_availability(db, file_ids, formats)
+    requested_ids = resolution.requested_ids
+    requested_formats = resolution.requested_formats
+    source_files = resolution.source_files
 
     def _stem(f: StoredFile) -> str:
         return f.original_name.rsplit(".", 1)[0] if "." in f.original_name else f.original_name
@@ -208,13 +283,8 @@ def build_zip_to_path(
         seq = stem_seq.get(stem, 0) + 1
         stem_seq[stem] = seq
         disamb = f"({seq})" if stem_count.get(stem, 0) > 1 else ""
-        result = result_map.get(file_id)
         for requested_format in requested_formats:
-            selected: StoredFile | None = None
-            if src.file_ext == f".{requested_format}":
-                selected = src
-            elif result and result.file_ext == f".{requested_format}":
-                selected = result
+            selected = resolution.selected_files.get((file_id, requested_format))
             if selected is None:
                 raise AppHTTPException(
                     409,

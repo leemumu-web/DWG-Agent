@@ -1,7 +1,7 @@
 # 全栈工作流验证
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
-> **最近文档审计运行：** 2026-07-14
+> **最近文档审计运行：** 2026-07-18
 ## 1. 证据层级
 
 | 层级 | 能证明 | 不能证明 |
@@ -25,7 +25,7 @@ Browser -> Nginx HTTP :8080 本地 / :80 Compose
 Celery worker <- MySQL queue -> Stage -> MySQL state + storage result
 ```
 
-没有 Redis/Valkey。当前 Compose 只有 HTTP；HTTPS 不属于该已验证路径。修复 gitlink 前，`Stages/dxf2excel` clean-clone 可复现性也在验收范围外。
+没有 Redis/Valkey。当前 Compose 只有 HTTP；HTTPS 不属于该已验证路径。`Stages/dxf2excel` 源码已纳入父仓库，但其 419 文件历史 corpus 不随仓库分发；本轮只重放内置 Stage 单测。
 
 ## 3. 可重复门禁
 
@@ -40,6 +40,7 @@ cd ..
 
 cd Stages/dwg2dxf && uv run pytest -q
 cd ../dxf2dwg && uv run pytest -q
+cd ../dxf2excel && uv run pytest -q
 cd ../excel_final && uv run pytest -q multi_split/tests
 cd ../..
 
@@ -60,9 +61,23 @@ DWG_VERIFY_PASSWORD='<configured-password>' \
 python tests/run_full_verify.py
 ```
 
-生成 OpenAPI 当前包含 88 个 path、107 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
+生成 OpenAPI 当前包含 96 个 path、115 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
 
-## 4. 必要端到端场景
+## 4. 2026-07-18 CAD 转换控制台验证证据
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| Backend 全量回归 | **924 passed，6 skipped** | 多文件夹原子删除、回滚、权限、活动 Job 取消、批量提交契约与既有 API/service/security/state。 |
+| Stage 测试 | **30 + 30 + 259 passed** | DWG→DXF、DXF→DWG 与 Excel Final `multi_split`。 |
+| Frontend build | pass | TypeScript 6 + Vite 8 生产构建。 |
+| Playwright 全量 | **82 passed，3 skipped** | 双向转换提交/重试、可信进度、加载态、多文件夹打包/原子删除/失败保留选择，以及既有真实 API 交互。 |
+| Infrastructure / Compose | **82/82 pass** | Nginx 语法、CAD worker 包装脚本队列/App/PID 就绪契约、环境键与 Compose 结构。 |
+| 活动 MySQL 只读检查 | pass | 应用凭据、37 张表、super_admin 种子、TimestampMixin 列与无 SQLite 文件句柄。 |
+| 临时空库迁移演练 | blocked | 非交互会话无 `sudo` 凭据，未能创建临时 MySQL schema；`alembic check` 已通过，但不冒充空库演练。 |
+
+真实 Nginx `:8080` 页面检查了桌面和 390 px 窄屏。DWG→DXF 显示成功 826/1335、失败 37、待提交/重试 509、成功进度 62%；DXF→DWG 显示成功 954/968、失败 13、待提交/重试 14、成功进度 99%。两页最终控制台无错误。在真实数据上只打开了两文件夹的删除确认，验证其显示 197 个已知源文件、生成结果、活动任务和事务提示后取消，没有删除生产数据。
+
+## 5. 必要端到端场景
 
 | 场景 | 必要证据 |
 |---|---|
@@ -81,7 +96,7 @@ python tests/run_full_verify.py
 
 TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
-## 5. 2026-07-12 数据控制台与存储事务证据
+## 6. 2026-07-12 数据控制台与存储事务证据
 
 本轮首先在本地 MySQL/local storage 上执行只读全量扫描，再用独立 Compose project、独立空 MySQL/MinIO 卷和新后端镜像执行可变更 E2E；没有对本地真实异常执行清理。
 
@@ -107,7 +122,7 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
 前端最终截图位于 `output/playwright/data-console-final.png`。截图来自最后一次通过的浏览器回归，状态、动作和风险提示均已中文化，处置动作在未选中同类 finding 时保持禁用并明确提示。隔离 Compose 前端镜像构建曾因 Docker Hub `node:22-alpine` IPv6 metadata 请求超时失败；后端新镜像正常构建，真实 API/MySQL/MinIO/Celery 验证不依赖该失败步骤，源码前端由本地 `npm run build` 和 Vite + Playwright 验证。
 
-## 6. 2026-07-13 PR #1 选择性吸收与数据监视证据
+## 7. 2026-07-13 PR #1 选择性吸收与数据监视证据
 
 本轮没有直接合并冲突 PR，也没有修改其远程分支。实现从当前 `main` 延伸，吸收字段扩容、流程桥接和前端工具思路，重写了 DXF 预览、权限聚合、事务登记和前端状态管理。真实运行探针使用独立上传文件，没有处置既有扫描异常。
 
@@ -131,7 +146,7 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 
 MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动当前源码的临时 8011 API，连接现有健康 MinIO 容器和真实 MySQL，完成探针后立即停止；因此证明的是当前代码对真实 MinIO/MySQL 的登记和读取闭环，不是旧 Compose 镜像已经部署本次提交。
 
-## 7. 2026-07-13 生产一致性二轮硬化证据
+## 8. 2026-07-13 生产一致性二轮硬化证据
 
 本轮在第 6 节的 PR 选择性吸收基础上，继续收紧 Excel Final 请求幂等、查询域、DXF 预览生命周期和前端可恢复监视状态。验证使用现有真实 MySQL、local storage 和运行中的 Compose MinIO；探针只删除自身创建的对象和合成 Job，没有处置既有业务文件或一致性 finding。
 
@@ -156,7 +171,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 最终全页截图位于 `output/playwright/excel-final-production-observability.png`。它显示真实数据库/存储标签、刷新时间、全局指标、上传登记、跨批次检索、批次分页和近期任务；标题说明文字使用项目自有类名控制对比度，不依赖 Ant Design 6 当前渲染出的 HTML 标签。
 
-## 8. 2026-07-14 双向 CAD 转换吞吐证据
+## 9. 2026-07-14 双向 CAD 转换吞吐证据
 
 本轮使用 24 逻辑 CPU 的本地工作站、ODA File Converter AppImage、独占持久 Xvfb 和用户指定目录 `/home/Creeken/Paper/CAD_research/Data/十份排版/排版1/C区域四节钢柱（宝冶）/2.零件图/1：1零件图`。目录实际包含 135 个 `.dwg`（包括合并图）；所有测量均校验输出数量，并检查 DXF `SECTION/$ACADVER` 头或 DWG `AC10` magic。
 
@@ -187,7 +202,7 @@ uv run python ../scripts/benchmark_cad_conversion.py \
 
 最终自动门禁为 backend **896 passed、6 skipped**（15 条既有 dependency/deprecation warning）、Ruff 无错误、Alembic 无待生成 operation；两个 ODA Stage 各 **30 passed**；TypeScript 6 + Vite 8 production build、Compose config 和文档一致性均通过。双向转换页的实时浏览器聚焦回归为 **8 passed、2 skipped**：单文件上传确实调用批量 Job API，“继续任务”调用批量入口，active 可见性和范围统计均通过；两个“点击全部暂停”用例因各自页面加载时没有 active Job 按设计跳过，作用域取消由前述真实 2 文件 API 闭环和后端授权/状态测试覆盖。
 
-## 9. 2026-07-11 基线证据
+## 10. 2026-07-11 基线证据
 
 2026-07-11 文档审计运行使用已有本地 MySQL 和已经运行的本地 Nginx/FastAPI/五个已实现 worker；没有重启 stack 或重建 Compose volume。
 
@@ -207,7 +222,7 @@ uv run python ../scripts/benchmark_cad_conversion.py \
 
 全量运行提供仓库已知有效 Tekla 清单，并通过成功 upload -> Celery -> result -> 首次下载失败 -> 新签名 digest 验证。另一个 `阚导出材料表.xls` 探针因缺少必要 `构件编号` 和 `数量` 列被正确拒绝；相关文件名/扩展名不足以证明输入有效。许多其他 Files/Jobs UI 测试使用确定性 route fixture，只证明 UI/API contract，不证明真实对象处理。
 
-## 10. 历史集成记录
+## 11. 历史集成记录
 
 仓库此前记录了 2026-07-11 fresh-volume 集成运行，观察为：
 
@@ -218,7 +233,7 @@ uv run python ../scripts/benchmark_cad_conversion.py \
 
 以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-13 的当前证据见第 6 节：当前源码为 91 path/110 operation，并已用当前源码 API、真实浏览器和真实 MySQL/MinIO 验证预览与登记链路。通用工作流的自动 Job/产物接线仍是独立范围；DXF→Excel 页面的显式 Excel Final 桥接不改变该边界。
 
-## 11. 故障定位
+## 12. 故障定位
 
 1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
 2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。

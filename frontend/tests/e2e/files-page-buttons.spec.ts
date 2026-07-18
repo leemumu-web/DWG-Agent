@@ -61,8 +61,11 @@ async function login(page: Page, route: string) {
     },
     { t: body.data.access_token, u: body.data.user },
   );
-  await page.goto(route);
-  await page.waitForLoadState('networkidle');
+  await page.goto(route, { waitUntil: 'domcontentloaded' });
+  // The page intentionally polls conversion state, so networkidle can remain
+  // false forever. A visible page-specific control is the stable readiness gate.
+  const direction = DIRECTIONS.find((item) => item.route === route)!;
+  await expect(page.getByRole('button', { name: direction.uploadBtnPattern })).toBeVisible();
 }
 
 /** Read a sample file from disk and upload it via the page's file input. */
@@ -124,6 +127,113 @@ async function createRetryableFixture(page: Page, dir: Direction): Promise<numbe
   return fileId;
 }
 
+async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) {
+  const now = new Date().toISOString();
+  const files = [1, 2, 3, 4].map((id) => ({
+    id: 91_000 + id,
+    bucket: 'playwright',
+    storage_key: `playwright/${dir.name}/${id}${dir.fileExt}`,
+    original_name: `state-${id}${dir.fileExt}`,
+    file_ext: dir.fileExt,
+    content_type: 'application/octet-stream',
+    size_bytes: 1024 * id,
+    sha256: String(id).repeat(64),
+    batch_name: 'state-fixture',
+    status: 'available',
+    created_at: now,
+    updated_at: now,
+  }));
+  const jobs = [
+    { id: 92_001, status: 'succeeded', progress: 100, fileId: files[0].id },
+    { id: 92_002, status: 'running', progress: 50, fileId: files[1].id },
+    { id: 92_003, status: 'failed', progress: 70, fileId: files[2].id },
+  ].map((job) => ({
+    id: job.id,
+    task_type: dir.taskType,
+    precision_level: 'normal',
+    pipeline: null,
+    status: job.status,
+    attempt: 1,
+    priority: 0,
+    progress: job.progress,
+    params_json: { file_id: job.fileId, batch_name: 'state-fixture' },
+    error_code: job.status === 'failed' ? 'CONVERSION_FAILED' : null,
+    error_message: job.status === 'failed' ? '测试转换失败，请重新提交' : null,
+    progress_data: null,
+    created_at: now,
+    updated_at: now,
+    started_at: null,
+    finished_at: null,
+  }));
+  const envelope = (data: unknown[], pageSize = 200) => ({
+    data,
+    pagination: { page: 1, page_size: pageSize, total: data.length, total_pages: 1 },
+    meta: { request_id: 'playwright-state', timestamp: now },
+  });
+
+  await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ data: [], meta: { request_id: 'playwright-batches', timestamp: now } }),
+  }));
+  await page.route('**/api/v1/files?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(envelope(files, 200)),
+  }));
+  await page.route('**/api/v1/jobs?**', async (route) => {
+    if (jobsDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, jobsDelayMs));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(envelope(jobs, 200)),
+    });
+  });
+}
+
+async function mockFolderState(page: Page, dir: Direction) {
+  const now = new Date().toISOString();
+  const batches = [
+    { name: 'batch-alpha', file_count: 2, latest_created_at: now },
+    { name: 'batch-beta', file_count: 3, latest_created_at: now },
+  ];
+  const files = batches.map((batch, index) => ({
+    id: 93_001 + index,
+    bucket: 'playwright',
+    storage_key: `playwright/${batch.name}/source${dir.fileExt}`,
+    original_name: `source-${index + 1}${dir.fileExt}`,
+    file_ext: dir.fileExt,
+    content_type: 'application/octet-stream',
+    size_bytes: 2048,
+    sha256: String(index + 1).repeat(64),
+    batch_name: batch.name,
+    status: 'available',
+    created_at: now,
+    updated_at: now,
+  }));
+  const envelope = (data: unknown[]) => ({
+    data,
+    pagination: { page: 1, page_size: 200, total: data.length, total_pages: 1 },
+    meta: { request_id: 'playwright-folder', timestamp: now },
+  });
+
+  await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ data: batches, meta: { request_id: 'playwright-batches', timestamp: now } }),
+  }));
+  await page.route('**/api/v1/files?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(envelope(files)),
+  }));
+  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(envelope([])),
+  }));
+}
+
 // ── tests ───────────────────────────────────────────────────────────────────
 
 for (const dir of DIRECTIONS) {
@@ -177,11 +287,11 @@ for (const dir of DIRECTIONS) {
     expect(body.data).toHaveProperty('cancelled_count');
   });
 
-  // ── 3. "继续任务" → one bounded batch request ───────────────────────
-  test('"继续任务" → creates a batch for pending files', async ({ page }) => {
-    const resumeBtn = page.getByRole('button', { name: /继续任务/ });
+  // ── 3. "提交/重试" → one bounded batch request ──────────────────────
+  test('"提交/重试" → creates a batch for actionable files', async ({ page }) => {
+    const resumeBtn = page.getByRole('button', { name: /提交\/重试/ });
     const hasBtn = await resumeBtn.isVisible().catch(() => false);
-    test.skip(!hasBtn, '"继续任务" button not visible (no pending files)');
+    test.skip(!hasBtn, '"提交/重试" button not visible (no actionable files)');
 
     let jobCalls = 0;
     page.on('request', (req) => {
@@ -247,15 +357,15 @@ for (const dir of DIRECTIONS) {
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     const dlBtn = dialog.getByRole('button', { name: /开始下载/ });
+    const sourceLabel = dir.fileExt === '.dwg' ? '包含 DWG 文件' : '包含 DXF 文件';
+    const sourceOption = dialog.getByRole('checkbox', { name: sourceLabel });
+    await expect(sourceOption).toBeEnabled();
     await expect(dlBtn).toBeEnabled();
 
-    const dwgOption = dialog.getByRole('checkbox', { name: '包含 DWG 文件' });
-    const dxfOption = dialog.getByRole('checkbox', { name: '包含 DXF 文件' });
-    await dwgOption.uncheck();
-    await dxfOption.uncheck();
+    await sourceOption.uncheck();
     await expect(dlBtn).toBeDisabled();
 
-    await dwgOption.check();
+    await sourceOption.check();
     await expect(dlBtn).toBeEnabled();
 
     await dialog.getByRole('button', { name: /取\s*消/ }).click();
@@ -279,6 +389,99 @@ for (const dir of DIRECTIONS) {
     await dialog.getByRole('button', { name: /取\s*消/ }).click();
   });
 
+  test('zip modal disables a format that is not available for every file', async ({ page }) => {
+    await mockConversionState(page, dir);
+    const sourceFormat = dir.fileExt.slice(1);
+    const targetFormat = sourceFormat === 'dwg' ? 'dxf' : 'dwg';
+    await page.route('**/api/v1/files/download-zip/preview', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          file_count: 2,
+          formats: [
+            {
+              format: sourceFormat,
+              available_count: 2,
+              missing_count: 0,
+              missing_file_ids: [],
+              complete: true,
+            },
+            {
+              format: targetFormat,
+              available_count: 1,
+              missing_count: 1,
+              missing_file_ids: [91_002],
+              complete: false,
+            },
+          ],
+          can_download: false,
+        },
+        meta: { request_id: 'playwright-zip-preview', timestamp: new Date().toISOString() },
+      }),
+    }));
+    await page.reload();
+
+    const checkboxes = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input');
+    await checkboxes.nth(0).check();
+    await checkboxes.nth(1).check();
+    await page.getByRole('button', { name: /打包下载/ }).click();
+    const dialog = page.getByRole('dialog', { name: '打包下载' });
+    const targetLabel = targetFormat === 'dxf' ? '包含 DXF 文件' : '包含 DWG 文件';
+
+    await expect(dialog.getByRole('checkbox', { name: targetLabel })).toBeDisabled();
+    await expect(dialog.getByText(new RegExp(`${targetFormat.toUpperCase()}.*可用 1 / 共 2`))).toBeVisible();
+  });
+
+  test('zip modal preserves input after a formal download 409', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.route('**/api/v1/files/download-zip/preview', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          file_count: 1,
+          formats: ['dwg', 'dxf'].map((format) => ({
+            format,
+            available_count: 1,
+            missing_count: 0,
+            missing_file_ids: [],
+            complete: true,
+          })),
+          can_download: true,
+        },
+        meta: { request_id: 'playwright-zip-preview', timestamp: new Date().toISOString() },
+      }),
+    }));
+    await page.route('**/api/v1/files/download-zip', (route) => route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'FILE_EXPORT_FORMAT_UNAVAILABLE',
+          message: '所选格式当前不完整，请重新检查。',
+          details: { file_id: 91_001, format: 'dxf' },
+        },
+        meta: { request_id: 'playwright-zip-conflict', timestamp: new Date().toISOString() },
+      }),
+    }));
+    await page.reload();
+
+    const checkbox = page.locator('.ant-table-tbody .ant-table-selection-column .ant-checkbox-input').first();
+    await checkbox.check();
+    await page.getByRole('button', { name: /打包下载/ }).click();
+    const dialog = page.getByRole('dialog', { name: '打包下载' });
+    const nameInput = dialog.getByPlaceholder(/输入文件夹名称/);
+    await nameInput.fill('保留名称');
+    await dialog.getByRole('button', { name: /开始下载/ }).click();
+
+    await expect(dialog).toBeVisible();
+    await expect(nameInput).toHaveValue('保留名称');
+    await expect(page.getByText(
+      '所选格式当前不完整，请重新检查。 [FILE_EXPORT_FORMAT_UNAVAILABLE]（请求 playwright-zip-conflict）',
+    )).toBeVisible();
+  });
+
   // ── 8. Zip download → POST /files/download-zip → 200 + blob ──────
   test('zip download → POST /files/download-zip → 200 streaming zip', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
@@ -292,10 +495,9 @@ for (const dir of DIRECTIONS) {
     await expect(dialog).toBeVisible({ timeout: 3000 });
 
     await dialog.getByPlaceholder(/输入文件夹名称/).fill('e2e_test');
-    // The newest source row may still be converting, so only request the
-    // format guaranteed to exist instead of depending on historical DB order.
-    const unavailableFormat = dir.fileExt === '.dwg' ? '包含 DXF 文件' : '包含 DWG 文件';
-    await dialog.getByRole('checkbox', { name: unavailableFormat }).uncheck();
+    // Source format is selected by default. The target format is enabled only
+    // when every selected source has a registered conversion result.
+    await expect(dialog.getByRole('button', { name: /开始下载/ })).toBeEnabled();
 
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 30_000 }),
@@ -347,13 +549,13 @@ for (const dir of DIRECTIONS) {
     }
   });
 
-  // ── 11. "重试转换" button → POST /jobs/{id}/retry-requests ──────
-  test('"重试转换" → POST /jobs/{id}/retry-requests', async ({ page }) => {
+  // ── 11. "重新提交" button → POST /jobs/{id}/retry-requests ──────
+  test('"重新提交" → POST /jobs/{id}/retry-requests', async ({ page }) => {
     const fileId = await createRetryableFixture(page, dir);
     await page.reload();
     const row = page.locator(`.ant-table-row[data-row-key="${fileId}"]`);
     await expect(row).toBeVisible({ timeout: 10_000 });
-    const retryBtn = row.getByRole('button', { name: '重试转换' });
+    const retryBtn = row.getByRole('button', { name: '重新提交' });
     await expect(retryBtn).toBeVisible();
 
     const [retryResp] = await Promise.all([
@@ -405,16 +607,16 @@ for (const dir of DIRECTIONS) {
     await expect(cards.first()).toBeVisible();
   });
 
-  // ── 14. "全部暂停" visible only when active jobs exist ──────────
-  test('"全部暂停" visibility tied to active jobs', async ({ page }) => {
+  // ── 14. Scope actions reflect active and actionable jobs independently ──
+  test('active and actionable scope actions can coexist', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.reload();
+
     const pauseBtn = page.getByRole('button', { name: /全部暂停/ });
-    const resumeBtn = page.getByRole('button', { name: /继续任务/ });
+    const resumeBtn = page.getByRole('button', { name: /提交\/重试/ });
 
-    const pauseVisible = await pauseBtn.isVisible().catch(() => false);
-    const resumeVisible = await resumeBtn.isVisible().catch(() => false);
-
-    // They should never be visible simultaneously
-    expect(pauseVisible && resumeVisible).toBe(false);
+    await expect(pauseBtn).toBeVisible();
+    await expect(resumeBtn).toBeVisible();
   });
 
   // ── 15. 上传文件夹 button → file input dialog ──────────────────
@@ -471,6 +673,127 @@ for (const dir of DIRECTIONS) {
       const text = await statValues.nth(i).textContent();
       expect(text).toBeTruthy();
     }
+  });
+
+  test('trustworthy progress excludes failed residual progress', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.reload();
+
+    await expect(page.getByText(/成功 1.*失败 1.*处理中 1.*待提交\/重试 2/)).toBeVisible();
+    const aggregate = page.locator('.conversion-progress').getByRole('progressbar');
+    await expect(aggregate).toHaveAttribute('aria-valuenow', '38');
+    await expect(page.getByRole('button', { name: /提交\/重试 2 个/ })).toBeVisible();
+  });
+
+  test('loading latest jobs never labels files as unconverted', async ({ page }) => {
+    await mockConversionState(page, dir, 1500);
+    await page.reload();
+
+    await expect(page.getByText('正在加载状态').first()).toBeVisible();
+    await expect(page.getByText('未转换')).toHaveCount(0);
+    await expect(page.getByText('已完成').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('folder actions precede the grid and folders are keyboard buttons', async ({ page }) => {
+    await mockFolderState(page, dir);
+    await page.reload();
+
+    const actions = page.locator('.folder-actions');
+    const grid = page.locator('.folder-grid');
+    await expect(actions).toBeVisible();
+    expect(await actions.evaluate((node, other) => Boolean(
+      node.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ), await grid.elementHandle())).toBe(true);
+    await expect(page.getByRole('button', { name: '打开文件夹 batch-alpha' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '全选 2 个文件夹' })).toBeVisible();
+  });
+
+  test('multi-folder delete sends one atomic request', async ({ page }) => {
+    await mockFolderState(page, dir);
+    let deleteCalls = 0;
+    let deleteBody: unknown;
+    await page.route('**/api/v1/files/batches/bulk-delete', async (route) => {
+      deleteCalls += 1;
+      deleteBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: { deleted_batch_count: 2, deleted_file_count: 7, cancelled_job_count: 1 },
+          meta: { request_id: 'playwright-delete', timestamp: new Date().toISOString() },
+        }),
+      });
+    });
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '确认删除' }).click();
+    await expect.poll(() => deleteCalls).toBe(1);
+    expect(deleteBody).toEqual({ batch_names: ['batch-alpha', 'batch-beta'] });
+    await expect(page.getByText(/2 个文件夹.*7 个文件.*1 个任务/)).toBeVisible();
+  });
+
+  test('multi-folder package gathers every selected folder', async ({ page }) => {
+    await mockFolderState(page, dir);
+    const queriedBatches: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      const batchName = url.searchParams.get('batch_name');
+      if (url.pathname === '/api/v1/files' && batchName) queriedBatches.push(batchName);
+    });
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '打包下载 2 个文件夹' }).click();
+    const dialog = page.getByRole('dialog', { name: '打包下载' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('已选 2 个文件')).toBeVisible();
+    expect(new Set(queriedBatches)).toEqual(new Set(['batch-alpha', 'batch-beta']));
+  });
+
+  test('failed multi-folder delete preserves selection', async ({ page }) => {
+    await mockFolderState(page, dir);
+    await page.route('**/api/v1/files/batches/bulk-delete', (route) => route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'DELETE_FAILED', message: '删除失败，请重试', details: {} },
+        meta: { request_id: 'playwright-delete-failed' },
+      }),
+    }));
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '确认删除' }).click();
+    await expect(page.getByText('删除失败，请重试 [DELETE_FAILED]（请求 playwright-delete-failed）')).toBeVisible();
+    await expect(page.getByText('已选 2 个文件夹')).toBeVisible();
+    await expect(page.locator('.folder-card input[type="checkbox"]:checked')).toHaveCount(2);
+  });
+
+  test('validation failure shows the exact field reason instead of only HTTP 422', async ({ page }) => {
+    await mockFolderState(page, dir);
+    await page.route('**/api/v1/files/batches/bulk-delete', (route) => route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Request validation failed.',
+          details: { errors: [{ loc: ['body', 'batch_names', 1], msg: '文件夹名称不能为空' }] },
+        },
+        meta: { request_id: 'playwright-validation' },
+      }),
+    }));
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '确认删除' }).click();
+    await expect(page.getByText(
+      '请求参数错误：batch_names[1]：文件夹名称不能为空 [VALIDATION_ERROR]（请求 playwright-validation）',
+    )).toBeVisible();
   });
   });
 }

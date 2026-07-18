@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import { Alert, Button, Card, Empty, Input, Space, Table, Tag, Typography } from 'antd';
 import { ClearOutlined, SearchOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -10,6 +9,7 @@ import {
   searchExcelFinalParts,
   type ExcelFinalPartFilters,
 } from '../../../api/excel-final.api';
+import { describeApiError } from '../../../api/error';
 import type { ExcelFinalPart } from '../../../types/excel-final';
 import {
   DEFAULT_SEARCH_PAGE_SIZE,
@@ -19,14 +19,6 @@ import {
 } from './excelFinalUrlState';
 
 type SearchFilters = Pick<ExcelFinalPartFilters, 'part_no' | 'spec' | 'material'>;
-
-function apiError(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error)) {
-    const body = error.response?.data as { error?: { message?: string } } | undefined;
-    if (body?.error?.message) return body.error.message;
-  }
-  return error instanceof Error ? error.message : fallback;
-}
 
 export function ExcelFinalTools() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -109,7 +101,7 @@ export function ExcelFinalTools() {
           <Button type="primary" aria-label="搜索零件" icon={<SearchOutlined />} onClick={applySearch}>搜索</Button>
           <Button aria-label="清空搜索" icon={<ClearOutlined />} onClick={clearSearch}>清空</Button>
         </Space>
-        {searchQ.isError && <Alert type="error" showIcon message={apiError(searchQ.error, '零件检索失败')} />}
+        {searchQ.isError && <Alert type="error" showIcon message={describeApiError(searchQ.error, '零件检索失败')} />}
         {applied === null ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入条件后检索 MySQL 中的跨批次零件记录" />
         ) : (
@@ -150,7 +142,7 @@ export function ExcelFinalTools() {
           <Button type="primary" aria-label="查询理论重量" loading={weightQ.isPending}
             onClick={() => weightSpec.trim() && weightQ.mutate(weightSpec.trim())}>查询</Button>
         </Space.Compact>
-        {weightQ.isError && <Alert type="error" showIcon message="比重查询失败" description={apiError(weightQ.error, '五金手册暂不可用')} />}
+        {weightQ.isError && <Alert type="error" showIcon message="比重查询失败" description={describeApiError(weightQ.error, '五金手册暂不可用')} />}
         {weightQ.data && (
           <div className="excel-final-weight-result">
             <span>{weightQ.data.spec}</span>

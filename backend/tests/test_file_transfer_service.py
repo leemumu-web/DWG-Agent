@@ -509,6 +509,45 @@ def test_zip_download_settles_outbound_transfer(db, tmp_path, monkeypatch):
     assert transfer.transferred_bytes == len(response.content)
 
 
+def test_zip_preview_reports_unavailable_converted_format(db, tmp_path, monkeypatch):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.services.storage_service.get_storage_backend", lambda: storage
+    )
+    monkeypatch.setattr("app.api.v1.files_api.get_storage_backend", lambda: storage)
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    uploaded = _upload(client, headers, "zip-preview-source")
+    file_id = uploaded.json()["data"]["id"]
+
+    response = client.post(
+        "/api/v1/files/download-zip/preview",
+        headers=headers,
+        json={
+            "file_ids": [file_id, file_id],
+            "formats": ["dwg", "dxf"],
+            "folder_name": "export",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["file_count"] == 1
+    assert data["can_download"] is False
+    by_format = {item["format"]: item for item in data["formats"]}
+    assert by_format["dwg"] == {
+        "format": "dwg",
+        "available_count": 1,
+        "missing_count": 0,
+        "missing_file_ids": [],
+        "complete": True,
+    }
+    assert by_format["dxf"]["available_count"] == 0
+    assert by_format["dxf"]["missing_count"] == 1
+    assert by_format["dxf"]["missing_file_ids"] == [file_id]
+    assert by_format["dxf"]["complete"] is False
+
+
 def test_batch_zip_download_uses_strict_export_and_transfer_ledger(
     db, tmp_path, monkeypatch
 ):

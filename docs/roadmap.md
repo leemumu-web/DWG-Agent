@@ -2,23 +2,20 @@
 
 ## 基线
 
-截至 2026-07-12 的审计，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、88 个 OpenAPI path、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、五页签数据控制台、四条转换 service path、Excel Final 关系化导入、通用生产流程界面和广泛自动测试。
+截至 2026-07-18 的审计，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、96 个 OpenAPI path / 115 个 operation、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、五页签数据控制台、四条转换 service path、Excel Final 关系化导入、通用生产流程界面和广泛自动测试。
 
-这不表示每个目录都 production-ready。feature flag 默认关闭，通用工作流仍需人工确认阶段，尚未自动连接 Excel Final Job/产物；Compose 缺少完整运维自动化，`Stages/dxf2excel` 也无法从 clean clone 重建。Agent 执行和 CAD 图纸业务算法/Windows CAD Worker 不再是路线图交付项。
+这不表示每个目录都 production-ready。feature flag 默认关闭，通用工作流仍需人工确认阶段，尚未自动连接 Excel Final Job/产物；Compose 缺少完整运维自动化。`Stages/dxf2excel` 源码现可由 clean clone 重建，但大规模验证 corpus 不随仓库分发。Agent 执行和 CAD 图纸业务算法/Windows CAD Worker 不再是路线图交付项。
 
 Redis/Valkey 已从活动运行时架构完整移除。历史 migration 或说明只能把它作为已移除历史提及。
 
 ## P0：仓库可复现性
 
-首先修复 `Stages/dxf2excel` 归属，因为它影响 backend dependency resolution 和 Docker build。
+`Stages/dxf2excel` 已在 2026-07-18 从不可还原 gitlink 转为父仓库普通跟踪目录，源码、锁文件和内置单测进入统一门禁。剩余完成标准：
 
-完成标准：
-
-- 选择普通跟踪目录，或恢复有效 `.gitmodules` metadata；
-- pin 可获取且已审查的 commit/source；
-- 移除对当前已填充但未被跟踪 nested working tree 的依赖；
-- 通过全新 clone、`uv sync --locked`、Stage 测试、backend 测试和 Docker build；
-- 记录 source license/provenance，并更新 Stage component README。
+- 在外部临时目录完成全新 clone、`uv sync --locked`、全部 Stage/backend/frontend 测试和 backend/frontend image build；
+- 为 419 文件历史验证 corpus 建立许可合规、摘要固定且不进入 Git 的获取流程；
+- 确认 ODA、dxf2excel 源码、第三方依赖和样本数据的 license/provenance；
+- 项目负责人选择并发布仓库 LICENSE，明确内部源码与不可再分发资产的边界。
 
 ## P0：求实的 HTTP/TLS 部署
 
@@ -106,5 +103,5 @@ Redis/Valkey 已从活动运行时架构完整移除。历史 migration 或说�
 - 进程内状态用于掩盖 MySQL、broker 或 storage failure。
 - 实现或启用 Agent/model/MCP 执行、CAD 图纸业务算法、交互拆板或 Windows CAD Worker。
 - 把 mocked/SQLite 测试当作 MySQL/MinIO/Celery 生产行为证据。
-- 把 HTTP Compose、不协调 backup 或已填充本地 gitlink 当作 production readiness。
+- 把 HTTP Compose、不协调 backup、未复验外部 corpus 或仅有 clean source checkout 当作 production readiness。
 - 没有分阶段 migration 证据、会破坏 buildable/testable vertical path 的大重写。

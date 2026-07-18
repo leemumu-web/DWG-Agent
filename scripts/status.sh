@@ -38,6 +38,22 @@ done
 # 2. Backend
 step "后端"
 if check_port "$LOCAL_BACKEND_PORT" "FastAPI"; then
+    BACKEND_PID="$(owned_backend_pid 2>/dev/null || true)"
+    if [ -n "$BACKEND_PID" ]; then
+        BACKEND_STARTED="$(process_start_epoch "$BACKEND_PID" 2>/dev/null || true)"
+        if [ -n "$BACKEND_STARTED" ]; then
+            info "本项目后端 pid=${BACKEND_PID}，启动于 $(date -d "@${BACKEND_STARTED}" '+%F %T')"
+        fi
+        if backend_runtime_stale "$BACKEND_PID"; then
+            warn "运行代码已过期；执行 bash scripts/start-all.sh --restart-backend"
+            ALL_OK=false
+        else
+            ok "运行代码与后端源码时间一致"
+        fi
+    else
+        warn "8010 不是本项目可识别的后端进程"
+        ALL_OK=false
+    fi
     HEALTH=$(curl -s "http://${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT}/health/ready" 2>/dev/null || echo "")
     if echo "$HEALTH" | grep -q '"status":"ok"'; then
         ok "健康检查: ok"
@@ -47,6 +63,13 @@ if check_port "$LOCAL_BACKEND_PORT" "FastAPI"; then
     fi
 else
     ALL_OK=false
+fi
+
+if frontend_dist_stale; then
+    warn "前端构建产物已过期；执行 bash scripts/start-all.sh --rebuild"
+    ALL_OK=false
+else
+    ok "前端构建产物为最新"
 fi
 
 # 3. Nginx
@@ -77,8 +100,10 @@ if $ALL_OK; then
     echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}  全部正常${NC}"
     echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
+    exit 0
 else
     echo -e "${YELLOW}══════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}  部分服务未运行，执行: bash scripts/start-all.sh${NC}"
+    echo -e "${YELLOW}  状态异常或运行版本过期，请按上方建议处理${NC}"
     echo -e "${YELLOW}══════════════════════════════════════════════════════${NC}"
+    exit 1
 fi

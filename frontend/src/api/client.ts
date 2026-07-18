@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth.store';
+import { enrichApiError } from './error';
 
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
@@ -23,13 +24,13 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     const req = error.config as (typeof error.config & { _retry?: boolean }) | undefined;
-    if (!req) return Promise.reject(error);
+    if (!req) return Promise.reject(await enrichApiError(error));
 
     // Only handle 401; never retry the refresh endpoint itself or login
     const isRefresh = req.url === '/api/v1/auth/tokens/refresh';
     const isLogin = req.url === '/api/v1/auth/sessions';
     if (error.response?.status !== 401 || isRefresh || isLogin || req._retry) {
-      return Promise.reject(error);
+      return Promise.reject(await enrichApiError(error));
     }
 
     // De-duplicate concurrent refresh attempts
@@ -59,7 +60,7 @@ apiClient.interceptors.response.use(
     }
 
     const newToken = await _refreshPromise;
-    if (!newToken) return Promise.reject(error);
+    if (!newToken) return Promise.reject(await enrichApiError(error));
 
     // Retry original request with fresh token
     req._retry = true;

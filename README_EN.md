@@ -2,12 +2,10 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-DWG-Agent is a full-stack platform for CAD file intake, asynchronous conversion, structural-steel spreadsheet processing, result review, and auditing.
+**Delivery tier: v0.1 technical preview. Documentation audit baseline: working tree as of July 18, 2026.** This tier is intended for technical evaluation and continued development; it does not represent production readiness. Runtime facts are governed by the current code, migrations, configuration, and recorded verification. The [technical preview guide](docs/developer-preview.md) provides the first-install and acceptance path, the [audit report](docs/audit-report-2026-07-18.md) records evidence and residual risks, and the [Enterprise Platform Technical Specification](DWG-Agent企业平台技术规范.md) defines normative boundaries. The repository maintains Chinese documentation only.
 
 > [!IMPORTANT]
 > This README describes only what is present in the repository today. Placeholder directories, disabled feature flags, and unconfigured infrastructure are not presented as delivered capabilities. Detailed project documentation is maintained **in Chinese only** under [docs/](docs/README.md); this English README provides a project-level overview.
-
-**Documentation audit baseline:** working tree as of July 13, 2026. Runtime facts are governed by the current code, migrations, configuration, and recorded verification. The [Enterprise Platform Technical Specification](DWG-Agent企业平台技术规范.md) defines the normative boundaries, while the [documentation index](docs/README.md) links to the complete documentation set.
 
 ## 🧭 Layered Guide
 
@@ -29,19 +27,19 @@ Status markers: **✅ Implemented** · **⚠️ Conditionally available** · **�
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Web and API | ✅ | React administration UI, Nginx gateway, 91 OpenAPI paths, and 110 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
+| Web and API | ✅ | React administration UI, Nginx gateway, 96 OpenAPI paths, and 115 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
 | Data | ✅ | MySQL 8.x is the only runtime source of business truth; Alembic manages 28 model tables, and Celery creates 8 broker/result tables on demand | A migrated empty database has 29 tables; up to 37 after all Celery runtime tables exist; SQLite is used only by pytest |
 | Asynchronous jobs | ✅ | Celery uses the MySQL SQLAlchemy transport and MySQL result backend | Suitable for the current bounded worker topology; not equivalent to a high-throughput message broker |
 | Storage | ✅ | Local/MinIO inventory, transfer ledger, asynchronous consistency scans, DXF preview lifecycle, and four safe remediation actions | MySQL stores registrations and the storage layer stores bytes; cross-system changes use saga/compensation rather than a claimed single ACID transaction |
 | Data console | ✅ | Overview, file registrations, storage objects, transfer history, and consistency views | Administrators can scan/remediate; auditors are read-only and may run previews; permanent deletion is irreversible and requires confirmation |
-| Excel Final console | ✅ | Permission-filtered overview, job monitoring, cross-batch search, batch/part/component pagination, result preview, and URL state restoration | Upload/job creation uses database idempotency keys; historical data remains available while the pipeline is disabled |
+| Excel Final console | ✅ | Permission-filtered overview, job monitoring, cross-batch search, weight-ratio queries, batch/part/component pagination, result preview, and URL state restoration | Upload/job creation uses database idempotency keys; health bars show actual database/storage backends; historical data remains available while the pipeline is disabled |
 
 ### Orchestration and Extension Capabilities
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
 | Generic workflows | ⚠️ | `workflow_runs/stage_runs/artifacts`, project permissions, state transitions, audit APIs, and a Production Workflow UI | Provides persisted, visible manual orchestration only; it does not automatically create Excel Final jobs or attach artifacts |
-| Conversion pipelines | ⚠️ | Service paths for report, DWG → DXF, DXF → DWG, DXF → Excel, and Excel Final; authenticated SVG preview for DXF | All four business pipelines are disabled by default and depend on ODA, Stage integrity, or the handbook database |
+| Conversion pipelines | ⚠️ | Service paths for report, DWG → DXF, DXF → DWG, DXF → Excel, and Excel Final; authenticated SVG preview for DXF | All four business pipelines are disabled by default and depend on ODA, Stage integrity, or the handbook database; online preview has independent size/complexity limits |
 | Agent | ⏸️ | API, model, and permission boundaries remain | No further implementation is planned; `tasks_agent.py` remains a placeholder and `AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Drawing metadata and format-conversion boundaries remain | Component extraction, classification, plate splitting, left/right feed handling, interactive CAD, and the CAD Worker are outside the current delivery scope |
 | Redis/Valkey | ❌ | Not part of the current runtime | Business state, SSE, token revocation, Agent memory, and Celery broker/results use MySQL directly |
@@ -82,7 +80,7 @@ Celery workers (no inbound listening ports)
 | framework smoke / `report` | ✅ Runnable framework task | Core worker starts by default | MySQL broker/results and storage must be available; this does not mean the report Agent exists |
 | DWG → DXF / `dxf` | ⚠️ Service, task, tests, and ODA adapter exist | `DXF_PIPELINE_ENABLED=false` | ODA File Converter, a headless X environment, and a validated source DWG |
 | DXF → DWG / `dxf2dwg` | ⚠️ Service, task, tests, and ODA adapter exist | `DXF2DWG_PIPELINE_ENABLED=false` | Same as above, plus a valid DXF input |
-| DXF → Excel / `dxf2excel` | ⚠️ Code and tests exist in the current working directory | `DXF2EXCEL_PIPELINE_ENABLED=false` | **The repository gitlink cannot be restored from a clean clone; see [Known Limitations](#️-known-limitations)** |
+| DXF → Excel / `dxf2excel` | ⚠️ Stage source, platform service/task, and tests are tracked in the parent repository | `DXF2EXCEL_PIPELINE_ENABLED=false` | Valid DXF, Stage locked dependencies; built-in tests cover decoding only; real batches still require external corpus acceptance |
 | Excel Final / `excel_final` | ⚠️ Backend adapter, isolated subprocess, relational import, and Stage tests exist | `EXCEL_FINAL_PIPELINE_ENABLED=false` | Valid Tekla/initial-sheet schema, read-only `hardware_handbook` database, and sufficient timeout |
 | Agent / `agent` | ⏸️ API and persistence boundaries exist; task is an empty placeholder | `AGENT_ENABLED=false` | Delivery conditions are not met |
 | CAD / `cad` | ⏸️ Task and `cad-worker/` are empty placeholders | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |
@@ -116,11 +114,11 @@ Related routes, models, configuration, or placeholder directories remain only as
 
 ## ⚠️ Known Limitations
 
-1. **Broken Stage gitlink:** `Stages/dxf2excel` is recorded in the parent repository as a gitlink to `86e99dce5ebce992273c7df78ca13d58036f7472`, but the repository has no `.gitmodules` and the local object database does not contain that commit. Source files present in one working directory do not prove that a clean clone, CI checkout, or Docker build will work. Convert the Stage to a normally tracked directory or restore valid submodule URL/commit metadata first.
-2. **No Compose TLS:** Compose currently provides HTTP only and does not publish `443`; TLS ingress, certificate lifecycle, and HTTPS verification are not implemented.
-3. **Incomplete operations automation:** Backups, retention, monitoring and alerting, centralized logs, and disaster-recovery drills are not automated. Documented procedures are operational baselines, not deployed services.
-4. **Bounded broker capabilities:** The MySQL SQL transport lacks the throughput, routing, and remote-control capabilities of brokers such as RabbitMQ. MySQL must remain the source of business truth if the broker is replaced or scaled out.
-5. **External ODA compatibility:** Conversion depends on proprietary ODA binaries, licensing, and runtime setup. Passing unit tests does not prove compatibility with every real DWG/DXF version.
+1. Compose currently provides HTTP only and does not publish `443`; TLS ingress, certificate lifecycle, and HTTPS verification are not implemented.
+2. Backups, retention, monitoring and alerting, centralized logs, and disaster-recovery drills are not automated. Documented procedures are operational baselines, not deployed services.
+3. The MySQL SQL transport lacks the throughput, routing, and remote-control capabilities of brokers such as RabbitMQ. MySQL must remain the source of business truth if the broker is replaced or scaled out.
+4. Conversion depends on proprietary ODA binaries, licensing, and runtime setup. Passing unit tests does not prove compatibility with every real DWG/DXF version.
+5. The repository has not declared a LICENSE. Until the project lead confirms authorization, third-party licensing, and sample-data distribution scope, the code may only be used as an internal technical preview and must not be assumed to be open-source or redistributable.
 
 ## 🚀 Local Setup
 
@@ -163,7 +161,7 @@ bash scripts/db.sh status
 
 ### Compose Deployment
 
-After repairing the `Stages/dxf2excel` gitlink and accepting the current HTTP-only boundary:
+After accepting the current HTTP-only, internal technical preview, and external Stage dependency boundaries:
 
 ```bash
 cp .env.docker.example .env.docker
@@ -197,6 +195,7 @@ cd ..
 ```bash
 cd Stages/dwg2dxf && uv run pytest -q && cd ../..
 cd Stages/dxf2dwg && uv run pytest -q && cd ../..
+cd Stages/dxf2excel && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
 bash infra/verify.sh
@@ -220,7 +219,7 @@ A complete release acceptance still requires real MySQL, Celery, MinIO, and vali
 ```text
 backend/        FastAPI, SQLAlchemy, Alembic, Celery, storage adapters, and pytest
 frontend/       React administration UI, API client, and Playwright
-Stages/         Independent CAD/Excel processing stages with different ownership/reproducibility
+Stages/         Independent CAD/Excel processing stages; Python Stage source is tracked, external binaries/corpus managed separately
 agents/         Placeholder directories for undelivered Agents
 cad-worker/     Placeholder protocol for the undelivered Windows CAD worker
 infra/          Nginx, MySQL initialization, and Compose verification
@@ -233,7 +232,8 @@ third_parts/    External/upstream projects; not automatically delivered platform
 
 | Category | Documents |
 |---|---|
-| Overview | [Documentation index](docs/README.md) · [Enterprise Platform Technical Specification](DWG-Agent企业平台技术规范.md) |
+| Overview | [Technical preview guide](docs/developer-preview.md) · [Audit report](docs/audit-report-2026-07-18.md) · [Documentation index](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) |
+| Specification | [Enterprise Platform Technical Specification](DWG-Agent企业平台技术规范.md) |
 | Design | [Architecture](docs/architecture.md) · [Database](docs/database.md) · [Generic workflow framework](docs/workflow-framework.md) |
 | Development | [Development guide](docs/development.md) · [API](docs/api.md) · [Configuration](docs/configuration.md) |
 | Pipelines | [Processing pipelines](docs/processing-pipelines.md) · [Workflow verification](docs/workflow-verification.md) |

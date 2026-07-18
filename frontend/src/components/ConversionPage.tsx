@@ -41,6 +41,7 @@ import {
   listBatches,
   downloadFile,
   bulkDeleteFiles,
+  bulkDeleteBatches,
   uploadFolder,
   uploadFile,
   uploadZip,
@@ -57,6 +58,7 @@ import { ZipDownloadModal } from '../components/ZipDownloadModal';
 import { DxfPreviewModal } from '../components/DxfPreviewModal';
 import type { BatchInfo, StoredFile } from '../types/file';
 import type { Job } from '../types/job';
+import type { ConversionBatchSubmission } from '../api/jobs.api';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +79,41 @@ const STATUS: Record<string, { color: string; bg: string; label: string; icon: R
   cancelled: { color: '#8c8c8c', bg: '#fafafa', label: '已取消', icon: <CloseCircleFilled style={{ color: '#8c8c8c' }} /> },
 };
 
+const ACTIVE_JOB_STATUSES = new Set([
+  'pending',
+  'queued',
+  'running',
+  'validating',
+  'waiting_cad_worker',
+]);
+
+function isStuckJob(job: Job, now = Date.now()): boolean {
+  return job.status === 'queued'
+    && job.progress === 0
+    && now - new Date(job.created_at).getTime() > 60_000;
+}
+
+function actionableFiles(files: StoredFile[], jobsByFileId: Map<number, Job>): StoredFile[] {
+  const now = Date.now();
+  return files.filter((file) => {
+    const job = jobsByFileId.get(file.id);
+    return !job
+      || job.status === 'failed'
+      || job.status === 'cancelled'
+      || isStuckJob(job, now);
+  });
+}
+
+function reportSubmission(prefix: string, submission: ConversionBatchSubmission): void {
+  if (submission.unsubmittedFileIds.length > 0) {
+    message.warning(
+      `${prefix}；已提交 ${submission.submittedFileIds.length} 个，待补交 ${submission.unsubmittedFileIds.length} 个`,
+    );
+    return;
+  }
+  message.success(`${prefix}；已提交 ${submission.submittedJobs.length} 个转换任务`);
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export interface ConversionPageProps {
@@ -95,6 +132,7 @@ export interface ConversionPageProps {
 
 export function ConversionPage(props: ConversionPageProps) {
   const p = props;
+  const sourceFormat = p.fileExt.slice(1) as 'dwg' | 'dxf';
   const [selectedBatch, setSelectedBatch] = useState<string | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
   const [selectedBatchNames, setSelectedBatchNames] = useState<string[]>([]);
@@ -102,6 +140,8 @@ export function ConversionPage(props: ConversionPageProps) {
   const [batchZipModalOpen, setBatchZipModalOpen] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [operation, setOperation] = useState<'file-upload' | 'folder-upload' | 'zip-upload' | 'batch-package' | 'batch-delete' | null>(null);
+  const [tick, setTick] = useState(0);
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewFileName, setPreviewFileName] = useState('');
   const [page, setPage] = useState(1);
@@ -161,8 +201,12 @@ export function ConversionPage(props: ConversionPageProps) {
   const tableFiles = dwgFiles;
 
   const hasActive = useMemo(
-    () => (jobsQ.data ?? []).some((j) => ['pending', 'queued', 'running', 'validating', 'waiting_cad_worker'].includes(j.status)),
-    [jobsQ.data],
+    () => (jobsQ.data ?? []).some(
+      (job) => ACTIVE_JOB_STATUSES.has(job.status) && !isStuckJob(job),
+    ),
+    // tick keeps stuck-queue classification current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [jobsQ.data, tick],
   );
 
   // SSE is primary; a slow fallback poll repairs state after network/auth interruptions.
@@ -202,28 +246,14 @@ export function ConversionPage(props: ConversionPageProps) {
   }, [jobsQ.data]);
 
   // Periodic clock tick so stuck-queued detection stays fresh.
-  const [tick, setTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 15_000);
     return () => clearInterval(id);
   }, []);
 
-  // Files that need (re-)conversion:
-  //   no job, failed, cancelled, OR stuck-queued (>60s old, no progress)
   const pendingFiles = useMemo(
-    () => {
-      const now = Date.now();
-      return scopeFiles.filter((f) => {
-        const j = jobsByFileId.get(f.id);
-        if (!j) return true;
-        if (j.status === 'failed' || j.status === 'cancelled') return true;
-        if (j.status === 'queued' && j.progress === 0) {
-          const age = now - new Date(j.created_at).getTime();
-          if (age > 60_000) return true;
-        }
-        return false;
-      });
-    },
+    () => actionableFiles(scopeFiles, jobsByFileId),
+    // tick keeps stuck-queue classification current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scopeFiles, jobsByFileId, tick],
   );
@@ -299,8 +329,8 @@ export function ConversionPage(props: ConversionPageProps) {
         setPauseLoading(false);
         return;
       }
-      const jobs = await createConversionBatches(p.taskType, targets.map((file) => file.id));
-      message.success(`已批量提交 ${jobs.length} 个转换任务`);
+      const submission = await createConversionBatches(p.taskType, targets.map((file) => file.id));
+      reportSubmission('提交完成', submission);
       refresh();
     } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
     setPauseLoading(false);
@@ -308,6 +338,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
   // ── batch-level actions ──────────────────────────────────────────────────
   const toggleBatchSelection = (name: string) => {
+    if (operation) return;
     setSelectedBatchNames((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
@@ -315,49 +346,93 @@ export function ConversionPage(props: ConversionPageProps) {
   };
 
   const handleBatchDownload = useCallback(async () => {
-    const allIds: number[] = [];
-    for (const bn of selectedBatchNames) {
-      const files = await listFiles(bn, p.fileExt);
-      for (const f of files) allIds.push(f.id);
+    if (selectedBatchNames.length === 0 || operation) return;
+    setOperation('batch-package');
+    try {
+      const groups = await Promise.all(
+        selectedBatchNames.map((batchName) => listFiles(batchName, p.fileExt)),
+      );
+      const allIds = [...new Set(groups.flat().map((file) => file.id))];
+      if (allIds.length === 0) {
+        message.warning('所选文件夹中没有可打包的源文件');
+        return;
+      }
+      setBatchZipFileIds(allIds);
+      setBatchZipModalOpen(true);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '收集打包文件失败，请重试');
+    } finally {
+      setOperation(null);
     }
-    if (allIds.length === 0) { message.warning('所选文件夹中没有文件'); return; }
-    setBatchZipFileIds(allIds);
-    setBatchZipModalOpen(true);
-  }, [selectedBatchNames]);
+  }, [operation, p.fileExt, selectedBatchNames]);
 
   const handleBatchDelete = useCallback(async () => {
-    const allIds: number[] = [];
-    for (const bn of selectedBatchNames) {
-      const files = await listFiles(bn, p.fileExt);
-      for (const f of files) allIds.push(f.id);
-    }
-    if (allIds.length === 0) { message.warning('所选文件夹中没有文件'); return; }
+    if (selectedBatchNames.length === 0 || operation) return;
+    setOperation('batch-delete');
     try {
-      await bulkDeleteFiles(allIds);
-      message.success(`已删除 ${selectedBatchNames.length} 个文件夹（${allIds.length} 个文件）`);
+      const result = await bulkDeleteBatches(selectedBatchNames);
+      message.success(
+        `已删除 ${result.deleted_batch_count} 个文件夹、${result.deleted_file_count} 个文件，并取消 ${result.cancelled_job_count} 个任务`,
+      );
       setSelectedBatchNames([]);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '批量删除失败'); }
-  }, [selectedBatchNames, refresh]);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败，已保留选择，请重试');
+      refresh();
+    } finally {
+      setOperation(null);
+    }
+  }, [operation, selectedBatchNames, refresh]);
 
   // ── batch zip file IDs ───────────────────────────────────────────────────
   const [batchZipFileIds, setBatchZipFileIds] = useState<number[]>([]);
 
   // ── folder upload ────────────────────────────────────────────────────────
-  const handleFolderClick = () => folderInputRef.current?.click();
+  const handleFolderClick = () => { if (!operation) folderInputRef.current?.click(); };
 
   // ── stats ─────────────────────────────────────────────────────────────────
-  const succeeded = scopeFiles.filter((f) => jobsByFileId.get(f.id)?.status === 'succeeded').length;
-  const failed = scopeFiles.filter((f) => jobsByFileId.get(f.id)?.status === 'failed').length;
-  const processing = scopeFiles.filter((f) => {
-    const s = jobsByFileId.get(f.id)?.status;
-    return s !== undefined && ['pending', 'queued', 'running', 'validating', 'waiting_cad_worker'].includes(s);
-  }).length;
+  const statusLoading = scopeFilesQ.isLoading
+    || (scopeFileIds.length > 0 && jobsQ.isLoading);
+  const statusLoadFailed = scopeFilesQ.isError || jobsQ.isError;
+  const summary = useMemo(() => {
+    let succeeded = 0;
+    let failed = 0;
+    let processing = 0;
+    let progressPoints = 0;
+    for (const file of scopeFiles) {
+      const job = jobsByFileId.get(file.id);
+      if (!job || isStuckJob(job)) continue;
+      if (job.status === 'succeeded') {
+        succeeded += 1;
+        progressPoints += 100;
+      } else if (ACTIVE_JOB_STATUSES.has(job.status)) {
+        processing += 1;
+        progressPoints += Math.max(0, Math.min(100, job.progress));
+      } else if (job.status === 'failed' || job.status === 'cancelled') {
+        failed += 1;
+      }
+    }
+    return {
+      succeeded,
+      failed,
+      processing,
+      progress: scopeFiles.length > 0
+        ? Math.round(progressPoints / scopeFiles.length)
+        : 0,
+    };
+    // tick keeps stuck-queue classification current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeFiles, jobsByFileId, tick]);
+  const { succeeded, failed, processing } = summary;
   const totalSize = scopeFiles.reduce((s, f) => s + f.size_bytes, 0);
-  const aggregateProgress = scopeFiles.length > 0
-    ? Math.round(scopeFiles.reduce((total, file) => total + (jobsByFileId.get(file.id)?.progress ?? 0), 0) / scopeFiles.length)
-    : 0;
+  const aggregateProgress = summary.progress;
   const isFirstLoad = filesQ.isLoading;
+  const batches = batchesQ.data ?? [];
+  const selectedBatchSourceCount = batches
+    .filter((batch) => selectedBatchNames.includes(batch.name))
+    .reduce((total, batch) => total + batch.file_count, 0);
+  const selectedBatchPreview = selectedBatchNames.slice(0, 3).join('、');
+  const selectedBatchRemainder = Math.max(0, selectedBatchNames.length - 3);
 
   // ── table row selection (clears batch selection when files are selected) ──
   const rowSelection = useMemo(() => ({
@@ -384,15 +459,13 @@ export function ConversionPage(props: ConversionPageProps) {
     {
       title: '文件名', dataIndex: 'original_name',
       render: (name: string, record: StoredFile) => {
-        const job = jobsByFileId.get(record.id);
-        const done = job?.status === 'succeeded';
         return (
           <Space>
             <Tag
               style={{ margin: 0, borderRadius: 4, fontSize: 11, lineHeight: '18px', padding: '0 6px' }}
-              color={done ? 'success' : 'processing'}
+              color="processing"
             >
-              {done ? p.tagDone : p.tagPending}
+              {p.tagPending}
             </Tag>
             <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               width: 32, height: 32, borderRadius: 8, background: '#f5f5f5' }}>
@@ -410,14 +483,26 @@ export function ConversionPage(props: ConversionPageProps) {
     {
       title: '转换状态', width: 280,
       render: (_: unknown, record: StoredFile) => {
+        if (statusLoading) {
+          return <Typography.Text type="secondary">正在加载状态</Typography.Text>;
+        }
+        if (statusLoadFailed) {
+          return <Typography.Text type="danger">状态加载失败，请刷新重试</Typography.Text>;
+        }
         const job = jobsByFileId.get(record.id);
-        if (!job) return <Typography.Text type="secondary">未转换</Typography.Text>;
+        if (!job) return <Typography.Text type="secondary">未提交</Typography.Text>;
         const s = STATUS[job.status] ?? STATUS.cancelled;
         return (
           <Space size={8}>
-            <Tag style={{ color: s.color, background: s.bg, border: 'none', borderRadius: 6 }}>
-              {s.icon} <span style={{ marginLeft: 4 }}>{s.label}</span>
-            </Tag>
+            <Tooltip
+              title={job.status === 'failed'
+                ? `${job.error_code || '转换失败'}；可使用“重新提交”再次处理`
+                : undefined}
+            >
+              <Tag style={{ color: s.color, background: s.bg, border: 'none', borderRadius: 6 }}>
+                {s.icon} <span style={{ marginLeft: 4 }}>{s.label}</span>
+              </Tag>
+            </Tooltip>
             <Progress percent={job.progress} size="small" style={{ width: 120, margin: 0 }}
               strokeColor={s.color}
               status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : undefined} />
@@ -478,8 +563,8 @@ export function ConversionPage(props: ConversionPageProps) {
               </>
             )}
             {isFailed && job && (
-              <Tooltip title="重试转换">
-                <Button aria-label="重试转换" type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => handleRetry(job.id)} />
+              <Tooltip title="重新提交转换任务">
+                <Button aria-label="重新提交" type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => handleRetry(job.id)} />
               </Tooltip>
             )}
           </Space>
@@ -511,27 +596,36 @@ export function ConversionPage(props: ConversionPageProps) {
               全部暂停
             </Button>
           )}
-          {!hasActive && pendingFiles.length > 0 && (
+          {!statusLoading && !statusLoadFailed && pendingFiles.length > 0 && (
             <Button type="primary" icon={<SyncOutlined />} loading={pauseLoading} onClick={handleResumeAll}>
-              继续任务 ({pendingFiles.length})
+              提交/重试 {pendingFiles.length} 个
             </Button>
           )}
         </Space>
       </div>
 
       {/* ── master progress ────────────────────────────────────────────── */}
-      {scopeFiles.length > 0 && (
+      {(statusLoading || statusLoadFailed || scopeFiles.length > 0) && (
         <div className="conversion-progress">
-          <SyncOutlined spin={processing > 0} style={{ fontSize: 20, color: processing > 0 ? '#1677ff' : '#52c41a' }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Typography.Text strong>{selectedBatch ? `文件夹“${selectedBatch}”` : '全部文件'}转换进度</Typography.Text>
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                成功 {succeeded} / {scopeFiles.length} · 失败 {failed} · 处理中 {processing} · {aggregateProgress}%
-              </Typography.Text>
+          <SyncOutlined spin={statusLoading || processing > 0} style={{ fontSize: 20, color: statusLoadFailed ? '#ff4d4f' : processing > 0 ? '#1677ff' : '#52c41a' }} />
+          {statusLoading ? (
+            <Typography.Text type="secondary">正在加载转换状态…</Typography.Text>
+          ) : statusLoadFailed ? (
+            <Space style={{ flex: 1, justifyContent: 'space-between' }}>
+              <Typography.Text type="danger">转换状态加载失败，当前统计可能不完整</Typography.Text>
+              <Button size="small" onClick={refresh}>重新加载</Button>
+            </Space>
+          ) : (
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, gap: 12, flexWrap: 'wrap' }}>
+                <Typography.Text strong>{selectedBatch ? `文件夹“${selectedBatch}”` : '全部文件'}成功进度</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                  成功 {succeeded} / {scopeFiles.length} · 失败 {failed} · 处理中 {processing} · 待提交/重试 {pendingFiles.length} · {aggregateProgress}%
+                </Typography.Text>
+              </div>
+              <Progress percent={aggregateProgress} strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }} size={8} showInfo={false} />
             </div>
-            <Progress percent={aggregateProgress} strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }} size={8} showInfo={false} />
-          </div>
+          )}
         </div>
       )}
 
@@ -539,9 +633,9 @@ export function ConversionPage(props: ConversionPageProps) {
       <div className="conversion-stats">
         {[
           { label: `${p.title}总数`, value: filesQ.data?.pagination.total ?? 0, icon: <FileOutlined />, color: '#2563eb', bg: '#eff6ff' },
-          { label: `范围内已转换 ${p.tagDone}`, value: succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
-          { label: '范围内处理中', value: processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
-          { label: '范围内存储量', value: fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
+          { label: `范围内已转换 ${p.tagDone}`, value: statusLoading ? '—' : succeeded, icon: <CheckCircleFilled />, color: '#059669', bg: '#ecfdf5' },
+          { label: '范围内处理中', value: statusLoading ? '—' : processing, icon: <SyncOutlined spin={processing > 0} />, color: '#d97706', bg: '#fffbeb' },
+          { label: '范围内存储量', value: statusLoading ? '—' : fmtSize(totalSize), icon: <CloudOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
         ].map((s) => (
           <div key={s.label} className="conversion-stat">
             <span className="conversion-stat-icon" style={{ color: s.color, background: s.bg }}>{s.icon}</span>
@@ -554,21 +648,55 @@ export function ConversionPage(props: ConversionPageProps) {
       </div>
 
       {/* ── batch/folder view (top level only) ──────────────────────── */}
-      {selectedBatch === null && (batchesQ.data ?? []).length > 0 && (
+      {selectedBatch === null && batches.length > 0 && (
         <div className="folder-section">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div className="folder-heading">
             <Typography.Text strong style={{ fontSize: 14 }}>
               <FolderOpenOutlined style={{ marginRight: 6 }} />文件夹
               <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
                 （上传文件夹时自动创建，勾选后可打包下载或删除）
               </Typography.Text>
             </Typography.Text>
+          </div>
+          <div className="folder-actions" aria-label="文件夹批量操作">
+            <Typography.Text strong>
+              {selectedBatchNames.length > 0 ? `已选 ${selectedBatchNames.length} 个文件夹` : `共 ${batches.length} 个文件夹`}
+            </Typography.Text>
+            {selectedBatchNames.length < batches.length && (
+              <Button size="small" disabled={operation !== null}
+                onClick={() => { setSelectedBatchNames(batches.map((batch) => batch.name)); setSelectedRowKeys([]); }}>
+                全选 {batches.length} 个文件夹
+              </Button>
+            )}
             {selectedBatchNames.length > 0 && (
-              <Button size="small" onClick={() => setSelectedBatchNames([])}>取消选择</Button>
+              <>
+                <Button size="small" disabled={operation !== null} onClick={() => setSelectedBatchNames([])}>清除选择</Button>
+                <Button type="primary" size="small" icon={<DownloadOutlined />}
+                  loading={operation === 'batch-package'} disabled={operation !== null && operation !== 'batch-package'}
+                  onClick={handleBatchDownload}>
+                  打包下载 {selectedBatchNames.length} 个文件夹
+                </Button>
+                <Popconfirm
+                  title={`确认完整删除 ${selectedBatchNames.length} 个文件夹？`}
+                  description={(
+                    <div className="folder-delete-summary">
+                      <div>将删除已知 {selectedBatchSourceCount} 个源文件、它们的生成结果，并取消相关活动任务。</div>
+                      <div>文件夹：{selectedBatchPreview}{selectedBatchRemainder > 0 ? ` 等 ${selectedBatchNames.length} 个` : ''}</div>
+                      <div>删除为整体事务：全部成功或全部保留。</div>
+                    </div>
+                  )}
+                  onConfirm={handleBatchDelete} okText="确认删除" cancelText="取消"
+                  okButtonProps={{ danger: true, loading: operation === 'batch-delete' }} disabled={operation !== null}
+                >
+                  <Button size="small" danger icon={<DeleteOutlined />} loading={operation === 'batch-delete'} disabled={operation !== null}>
+                    删除 {selectedBatchNames.length} 个文件夹
+                  </Button>
+                </Popconfirm>
+              </>
             )}
           </div>
           <div className="folder-grid">
-            {(batchesQ.data ?? []).map((b: BatchInfo) => {
+            {batches.map((b: BatchInfo) => {
               const isChecked = selectedBatchNames.includes(b.name);
               return (
                 <Card
@@ -579,12 +707,14 @@ export function ConversionPage(props: ConversionPageProps) {
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                     <Checkbox
+                      aria-label={`选择文件夹 ${b.name}`}
                       checked={isChecked}
+                      disabled={operation !== null}
                       onChange={() => toggleBatchSelection(b.name)}
                       onClick={(e) => e.stopPropagation()}
                     />
-                    <div
-                      style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                    <button type="button" className="folder-open-button"
+                      aria-label={`打开文件夹 ${b.name}`} disabled={operation !== null}
                       onClick={() => { setSelectedBatch(b.name); setPage(1); setSelectedRowKeys([]); }}
                     >
                       <Card.Meta
@@ -599,7 +729,7 @@ export function ConversionPage(props: ConversionPageProps) {
                           </div>
                         }
                       />
-                    </div>
+                    </button>
                   </div>
                 </Card>
               );
@@ -609,27 +739,6 @@ export function ConversionPage(props: ConversionPageProps) {
       )}
 
       {/* ── batch action bar ─────────────────────────────────────────── */}
-      {selectedBatchNames.length > 0 && (
-        <div className="selection-bar">
-          <Typography.Text strong style={{ marginRight: 8 }}>
-            已选 {selectedBatchNames.length} 个文件夹
-          </Typography.Text>
-          <Button type="primary" size="small" icon={<DownloadOutlined />}
-            onClick={handleBatchDownload}>
-            打包下载 (.zip)
-          </Button>
-          <Popconfirm
-            title={`确认删除 ${selectedBatchNames.length} 个文件夹及其所有文件？`}
-            description="此操作不可撤销，文件夹内所有文件将被删除"
-            onConfirm={handleBatchDelete}
-            okText="确认删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />}>删除文件夹</Button>
-          </Popconfirm>
-        </div>
-      )}
 
       {/* ── upload area ──────────────────────────────────────────────── */}
       <div className="upload-toolbar">
@@ -639,10 +748,12 @@ export function ConversionPage(props: ConversionPageProps) {
           /* @ts-expect-error webkitdirectory */
           webkitdirectory=""
           multiple
+          disabled={operation !== null}
           style={{ display: 'none' }}
           onChange={async (e) => {
             const raw = e.target.files;
             if (raw && raw.length > 0) {
+              setOperation('folder-upload');
               const files = Array.from(raw);
               const firstPath = (files[0] as { webkitRelativePath?: string }).webkitRelativePath || '';
               const folderName = selectedBatch || firstPath.split('/')[0] || `导入_${Date.now()}`;
@@ -651,17 +762,27 @@ export function ConversionPage(props: ConversionPageProps) {
               try {
                 const result = await uploadFolder(files, folderName, {
                   fileExt: p.acceptExt,
-                  concurrency: 8,
+                  concurrency: 4,
                   onFile: (file: File, bn: string) => uploadFile(file, bn),
                   onProgress: (processed, total) => setUploadProgress({ processed, total }),
                 });
                 const uploaded = result.results as StoredFile[];
                 if (uploaded.length > 0) {
-                  const jobs = await createConversionBatches(p.taskType, uploaded.map((file) => file.id));
-                  message.success(`已导入 ${result.success}/${result.total} 个文件，批量提交 ${jobs.length} 个转换任务`);
+                  const submission = await createConversionBatches(p.taskType, uploaded.map((file) => file.id));
+                  reportSubmission(`已上传 ${result.success}/${result.total} 个文件`, submission);
+                  if (result.failures.length > 0) {
+                    const examples = result.failures.slice(0, 3)
+                      .map((failure) => `${failure.file_name}: ${failure.reason}`)
+                      .join('；');
+                    const remaining = result.failures.length > 3 ? `；另有 ${result.failures.length - 3} 个失败` : '';
+                    message.warning(`部分文件上传失败：${examples}${remaining}`, 10);
+                  }
                   refresh();
                 } else if (result.total > 0) {
-                  message.error(`全部 ${result.total} 个文件上传失败`);
+                  const examples = result.failures.slice(0, 3)
+                    .map((failure) => `${failure.file_name}: ${failure.reason}`)
+                    .join('；');
+                  message.error(`全部 ${result.total} 个文件上传失败${examples ? `：${examples}` : ''}`, 10);
                 } else {
                   message.warning(`文件夹中没有 ${p.fileExt} 文件`);
                 }
@@ -669,6 +790,7 @@ export function ConversionPage(props: ConversionPageProps) {
                 message.error(err instanceof Error ? err.message : '文件夹导入失败');
               } finally {
                 setUploadProgress(null);
+                setOperation(null);
               }
               e.target.value = '';
             }
@@ -679,42 +801,57 @@ export function ConversionPage(props: ConversionPageProps) {
           batchName={selectedBatch ?? undefined}
           acceptExt={p.acceptExt}
           label={`上传 ${p.tagPending} 文件`}
+          disabled={operation !== null}
+          onBusyChange={(busy) => setOperation(busy ? 'file-upload' : null)}
           uploadFn={async (file: File, bn?: string) => {
             const stored = await uploadFile(file, bn);
-            return createConversionBatches(p.taskType, [stored.id]);
+            const submission = await createConversionBatches(p.taskType, [stored.id]);
+            if (submission.unsubmittedFileIds.length > 0) {
+              throw new Error('文件已上传，但转换任务未提交；请使用“提交/重试”补交');
+            }
+            return submission;
           }}
         />
-        <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick} style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
+        <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick}
+          loading={operation === 'folder-upload'} disabled={operation !== null}
+          style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
           上传文件夹
         </Button>
         <input
           ref={zipInputRef}
           type="file"
           accept=".zip"
+          disabled={operation !== null}
           style={{ display: 'none' }}
           onChange={async (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
+            setOperation('zip-upload');
             try {
               const result = await uploadZip(file, p.acceptExt);
               if (result.success_count > 0) {
-                message.success(`已解压 ${result.success_count}/${result.success_count + result.skipped_count} 个文件到 "${result.batch_name}"`);
-                const jobs = await createConversionBatches(
+                const submission = await createConversionBatches(
                   p.taskType,
                   result.files.map((stored) => stored.id),
                 );
-                message.success(`${jobs.length} 个文件已批量提交转换`);
+                reportSubmission(
+                  `已从压缩包上传 ${result.success_count}/${result.success_count + result.skipped_count} 个文件`,
+                  submission,
+                );
                 refresh();
               } else {
                 message.warning(`压缩包中没有 ${p.acceptExt} 文件`);
               }
             } catch (err) {
               message.error(err instanceof Error ? err.message : '解压失败');
+            } finally {
+              setOperation(null);
             }
             e.target.value = '';
           }}
         />
-        <Button icon={<FileZipOutlined />} onClick={() => zipInputRef.current?.click()}
+        <Button icon={<FileZipOutlined />} onClick={() => { if (!operation) zipInputRef.current?.click(); }}
+          loading={operation === 'zip-upload'} disabled={operation !== null}
           style={{ borderColor: '#eb2f96', color: '#eb2f96', fontWeight: 500 }}>
           上传压缩包
         </Button>
@@ -794,6 +931,7 @@ export function ConversionPage(props: ConversionPageProps) {
         open={zipModalOpen}
         fileIds={selectedRowKeys}
         fileCount={selectedRowKeys.length}
+        sourceFormat={sourceFormat}
         onClose={() => setZipModalOpen(false)}
         onDone={() => { setSelectedRowKeys([]); refresh(); }}
       />
@@ -801,6 +939,7 @@ export function ConversionPage(props: ConversionPageProps) {
         open={batchZipModalOpen}
         fileIds={batchZipFileIds}
         fileCount={batchZipFileIds.length}
+        sourceFormat={sourceFormat}
         onClose={() => { setBatchZipModalOpen(false); setSelectedBatchNames([]); }}
         onDone={() => { setBatchZipModalOpen(false); setSelectedBatchNames([]); refresh(); }}
       />

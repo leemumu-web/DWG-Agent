@@ -2,10 +2,19 @@
 # DWG-Agent — 一键启动全栈
 # 用法: bash scripts/start-all.sh              # 生产模式（Nginx 统一入口 :8080）
 #       bash scripts/start-all.sh --rebuild     # 强制重建前端
+#       bash scripts/start-all.sh --restart-backend  # 安全重载本项目后端
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-REBUILD=false; [ "${1:-}" = "--rebuild" ] && REBUILD=true
+REBUILD=false
+RESTART_BACKEND=false
+for arg in "$@"; do
+    case "$arg" in
+        --rebuild) REBUILD=true ;;
+        --restart-backend) RESTART_BACKEND=true ;;
+        *) err "未知参数: $arg"; exit 2 ;;
+    esac
+done
 
 echo -e "${GREEN}══════════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}  DWG-Agent 一键启动${NC}"
@@ -24,19 +33,20 @@ start_all_workers
 
 # ── 3. Backend ─────────────────────────────────────────────────
 step "3/5 后端 FastAPI"
+if $RESTART_BACKEND; then
+    restart_owned_backend
+fi
 if port_free "$LOCAL_BACKEND_PORT"; then
     info "启动后端 (${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT})..."
-    cd "$PROJECT_ROOT/backend"
-    if [ -x .venv/bin/uvicorn ]; then
-        nohup setsid .venv/bin/uvicorn app.main:app --host "$LOCAL_BACKEND_HOST" --port "$LOCAL_BACKEND_PORT" >/tmp/dwg-agent-backend.log 2>&1 </dev/null &
-    else
-        nohup setsid uv run uvicorn app.main:app --host "$LOCAL_BACKEND_HOST" --port "$LOCAL_BACKEND_PORT" >/tmp/dwg-agent-backend.log 2>&1 </dev/null &
-    fi
-    BACKEND_PID=$!
-    echo $BACKEND_PID > /tmp/dwg-agent-backend.pid
-    wait_port "$LOCAL_BACKEND_HOST" "$LOCAL_BACKEND_PORT" 30 "后端 :${LOCAL_BACKEND_PORT}"
+    start_local_backend
 else
-    ok "后端已运行 (:${LOCAL_BACKEND_PORT})"
+    BACKEND_PID="$(owned_backend_pid 2>/dev/null || true)"
+    if [ -n "$BACKEND_PID" ] && backend_runtime_stale "$BACKEND_PID"; then
+        warn "后端已运行，但运行代码已过期 (pid=${BACKEND_PID})"
+        echo "  修复: bash scripts/start-all.sh --restart-backend"
+    else
+        ok "后端已运行 (:${LOCAL_BACKEND_PORT})"
+    fi
 fi
 
 # ── 4. Frontend ────────────────────────────────────────────────
@@ -48,14 +58,16 @@ if [ ! -f "$FRONTEND_DIST/index.html" ]; then
     info "前端尚未构建"; NEED_BUILD=true
 elif $REBUILD; then
     info "--rebuild 指定，强制重建"; NEED_BUILD=true
+elif frontend_dist_stale; then
+    info "前端构建产物已过期"; NEED_BUILD=true
 else
-    ok "前端已有构建产物"
+    ok "前端构建产物为最新"
 fi
 
 if $NEED_BUILD; then
     info "构建前端..."
     cd "$PROJECT_ROOT/frontend"
-    npm ci --silent 2>/dev/null || true
+    npm ci --silent
     npm run build 2>&1 | tail -3
     ok "前端构建完成"
 fi
@@ -65,8 +77,10 @@ step "5/5 Nginx 网关"
 NGINX_CONF="$PROJECT_ROOT/infra/nginx/nginx.local.conf"
 NGINX_PIDFILE="$PROJECT_ROOT/infra/nginx/logs/nginx.pid"
 
-# 检查是否已有本项目的 nginx 在运行
-if [ -f "$NGINX_PIDFILE" ] && sudo kill -0 "$(cat "$NGINX_PIDFILE")" 2>/dev/null; then
+# 检查是否已有本项目的 nginx 在运行。master 通常属于 root，读取
+# /proc 不需要 root 凭据，更适合无交互运维脚本。
+NGINX_PID="$(cat "$NGINX_PIDFILE" 2>/dev/null || true)"
+if [ -f "$NGINX_PIDFILE" ] && process_exists "$NGINX_PID"; then
     ok "Nginx 已运行 (:8080)"
 else
     # 端口被占但不是我们的 → 报错退出，让用户自行处理

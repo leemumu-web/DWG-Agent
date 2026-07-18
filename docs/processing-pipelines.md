@@ -25,7 +25,7 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 | Framework smoke | `local_stub` / `report` | Job 参数 | JSON `AnalysisResult` | 已实现框架路径，不是 LLM report Agent |
 | DWG -> DXF | `convert_dwg_to_dxf` / `dxf` | 一个或最多 200 个已存储 DWG | 每文件一个已存储 DXF + result row | 功能开关保护；需要 ODA 和受支持 DWG header |
 | DXF -> DWG | `convert_dxf_to_dwg` / `dxf2dwg` | 一个或最多 200 个已存储 DXF | 每文件一个已存储 DWG + result row | 功能开关保护；需要 ODA 和有效 DXF |
-| DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | 命名 batch 的已存储 DXF | XLSX + result row | 功能开关保护；Stage gitlink 无法从 clean clone 复现 |
+| DXF -> Excel | `extract_dxf_to_excel` / `dxf2excel` | 命名 batch 的已存储 DXF | XLSX + result row | 功能开关保护；Stage 源码已跟踪，外部 corpus 不随仓库分发 |
 | Excel Final | `process_excel_final` / `excel_final` | 内容受支持的已存储 `.xls`/`.xlsx` | 最终 XLSX + result + 关系化 batch 数据 | 功能开关保护；需要手册库和受支持 schema |
 | Agent | `agent` | Agent-run 请求 | 无 | 只有 API/model 边界；task module 是占位 |
 | Windows CAD | `cad` | 预留 | 无 | 配置/task/目录占位；没有部署 worker |
@@ -46,7 +46,11 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 
 worker 领取每个 Job 后按目标 AutoCAD 版本分组。小组一次调用 ODA；大组按 `CAD_BATCH_MIN_FILES_PER_SHARD` 自适应拆分，最多并行 `CAD_BATCH_MAX_SHARDS` 个目录调用。每个文件仍有独立 attempt、步骤、进度、结果和错误；某个输出缺失只失败对应 Job。DWG -> DXF 与 DXF -> DWG 使用相同的分组、分片和持久 Xvfb 契约。
 
-前端文件夹、ZIP 和“继续任务”走批量入口；单个上传也使用同一批量合同。`GET /api/v1/jobs/events/stream?task_type=...&file_ids=...` 每个连接最多观察 200 个文件，500 ms 读取 MySQL 短事务快照，任一 Job 变化即推送，全部终态后关闭。页面按 200 个文件分片连接，显示当前文件夹或全部范围的平均进度、成功、失败和处理中数量；10 秒轮询只作为断线修复。`POST /api/v1/jobs/cancellation-requests` 先验证全部 Job 权限，再只取消当前转换范围的 active Job，不再调用全局取消影响其他流水线。
+前端文件夹、ZIP 和“提交/重试”走批量入口；单个上传也使用同一批量合同。超过 200 个文件时前端分块，每轮最多并发 3 个请求，分别保留已提交和待补交 ID，不因一个块失败隐藏其他已创建 Job。`GET /api/v1/jobs/events/stream?task_type=...&file_ids=...` 每个连接最多观察 200 个文件，500 ms 读取 MySQL 短事务快照，任一 Job 变化即推送，全部终态后关闭。页面按 200 个文件分片连接，显示当前文件夹或全部范围的成功进度、成功、失败、处理中和待补交数量；失败和取消任务的历史进度按 0 计入汇总。10 秒轮询只作为断线修复。`POST /api/v1/jobs/cancellation-requests` 先验证全部 Job 权限，再只取消当前转换范围的 active Job，不再调用全局取消影响其他流水线。
+
+### 文件夹删除契约
+
+`POST /api/v1/files/batches/bulk-delete` 对 1-100 个文件夹执行单事务软删除。它按 `batch_name` 同时纳入源文件和已登记生成结果，取消关联双向 CAD 活动 Job，并复用文件软删除、预览失效、流转账本和审计路径。任一名称不存在、任一文件无权或任一写入失败时整批回滚。详细请求、响应、错误码和响应丢失边界见 [API 参考](api.md#多文件夹原子软删除)。
 
 ### DXF 在线预览
 
@@ -64,7 +68,7 @@ DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。
 
 步骤为 `download_dxf_batch`、`run_dxf2excel_pipeline` 和 `persist_excel_result`。batch name 不是授权范围：列表、metadata、删除和下载必须通过相同 SQL 访问边界过滤每个文件。
 
-当前父仓库只把 `Stages/dxf2excel` 记录为 gitlink commit `86e99dce5ebce992273c7df78ca13d58036f7472`，没有 `.gitmodules`，本地也缺少该对象。已填充工作目录使当前 checkout 可工作，但 clean clone 和 image build 不能依赖它。在管线被视为可复现交付前必须修复。
+`Stages/dxf2excel` 的源码、锁文件和内置单测已由父仓库直接跟踪，backend editable dependency 与 image build context 可以从源码检出恢复。Stage README 记录的 419 文件逐格历史验证依赖外部 corpus；当前仓库只包含最小解码单测，因此发布验收必须单独提供许可合规且摘要固定的 corpus。
 
 成功批次的前端操作可显式确认“生成零件清单”。实现先从 extraction Job 的结果登记中取得 Excel `result_file_id`，再以 `dxf2excel-{extraction_job_id}-{result_file_id}` 幂等键调用 Excel Final process 端点；同步 ref/UI Set 防止同一页面双击，服务端唯一约束负责刷新、多标签和多进程竞态。成功或重放后都导航到 `/files/excel-final?job_id=...`。该桥接复用已登记对象，不重新上传字节，也不表示通用 workflow route 已自动编排。
 

@@ -227,8 +227,8 @@ def test_status_script_uses_side_effect_free_health_probe():
 
 
 def test_start_script_does_not_print_bootstrap_password():
-    # start-all.sh delegates credential display to print_admin_credentials (lib.sh)
-    # which reads SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD from .env at runtime.
+    # start-all.sh may identify the configured account but must never print or
+    # even read the secret into a shell variable just to render its summary.
     start_all = _read("scripts/start-all.sh")
     lib_content = _read("scripts/lib.sh")
 
@@ -237,16 +237,173 @@ def test_start_script_does_not_print_bootstrap_password():
     # lib.sh must reference the env var names (not the actual password)
     assert "SUPER_ADMIN_PASSWORD" in lib_content
     assert "SUPER_ADMIN_USERNAME" in lib_content
+    assert 'pass="$(env_value' not in lib_content
+    assert "管理员密码:" not in lib_content
+    assert "不会在终端显示" in lib_content
 
 
 def test_background_start_is_stable_and_dev_start_keeps_hot_reload():
     start_all = _read("scripts/start-all.sh")
     start_dev = _read("scripts/start-dev.sh")
+    lib_content = _read("scripts/lib.sh")
 
     assert "--reload" not in start_all
-    assert "nohup setsid" in start_all
-    assert "</dev/null" in start_all
+    assert "start_local_backend" in start_all
+    assert "nohup setsid" in lib_content
+    assert "</dev/null" in lib_content
     assert "--reload" in start_dev
+
+
+def test_start_all_supports_explicit_owned_backend_restart():
+    start_all = _read("scripts/start-all.sh")
+    lib_content = _read("scripts/lib.sh")
+
+    assert "--restart-backend" in start_all
+    assert "restart_owned_backend" in start_all
+    assert "owned_backend_pid" in lib_content
+    assert "kill -TERM" in lib_content
+    assert "kill -KILL" not in lib_content
+
+
+def test_nginx_liveness_check_does_not_require_sudo_credentials():
+    start_all = _read("scripts/start-all.sh")
+    stop_all = _read("scripts/stop-all.sh")
+    lib_content = _read("scripts/lib.sh")
+
+    assert "process_exists" in lib_content
+    assert "process_exists \"$NGINX_PID\"" in start_all
+    assert "process_exists \"$NGINX_PID\"" in stop_all
+    assert "sudo kill -0" not in start_all
+
+
+def test_runtime_and_frontend_staleness_are_reported():
+    lib_content = _read("scripts/lib.sh")
+    status_content = _read("scripts/status.sh")
+    start_content = _read("scripts/start-all.sh")
+
+    assert "backend_runtime_stale" in lib_content
+    assert "frontend_dist_stale" in lib_content
+    assert "运行代码已过期" in status_content
+    assert "前端构建产物已过期" in start_content
+    assert "exit 1" in status_content
+
+
+def test_files_newer_than_epoch_uses_real_mtimes(tmp_path):
+    older = tmp_path / "older.py"
+    newer = tmp_path / "newer.py"
+    older.write_text("old", encoding="utf-8")
+    newer.write_text("new", encoding="utf-8")
+    os.utime(older, (100, 100))
+    os.utime(newer, (300, 300))
+    command = (
+        f'source "{PROJECT_ROOT / "scripts/lib.sh"}"; '
+        'files_newer_than_epoch 200 "$1" "$2"'
+    )
+
+    stale = subprocess.run(
+        ["bash", "-c", command, "bash", str(older), str(newer)],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    fresh = subprocess.run(
+        ["bash", "-c", command, "bash", str(older)],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert stale.returncode == 0
+    assert fresh.returncode == 1
+
+
+def test_doctor_groups_4xx_separates_499_and_redacts_queries(tmp_path):
+    access_log = tmp_path / "access.log"
+    access_log.write_text(
+        "\n".join(
+            [
+                '127.0.0.1 - - [18/Jul/2026:11:16:14 +0800] "POST /api/v1/files/batches/bulk-delete HTTP/1.1" 405 179 "-" "Chrome" rt=0.002 rid=route-405',
+                '127.0.0.1 - - [18/Jul/2026:11:16:16 +0800] "POST /api/v1/files/download-zip?signature=secret-signature HTTP/1.1" 409 248 "-" "Chrome" rt=0.192 rid=zip-409',
+                '127.0.0.1 - - [18/Jul/2026:11:16:18 +0800] "POST /api/v1/files?batch_name=private-name HTTP/1.1" 499 0 "-" "Chrome" rt=1.200 rid=upload-499',
+                '127.0.0.1 - - [18/Jul/2026:11:16:20 +0800] "GET /api/v1/health HTTP/1.1" 200 10 "-" "Chrome" rt=0.001 rid=ok-200',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts/doctor.sh"), "--log-only"],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "NGINX_ACCESS_LOG": str(access_log),
+            "DOCTOR_SINCE_MINUTES": "0",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "HTTP 405" in result.stdout
+    assert "HTTP 409" in result.stdout
+    assert "客户端断开 (499)" in result.stdout
+    assert "/api/v1/files/download-zip" in result.stdout
+    assert "route-405" in result.stdout
+    assert "zip-409" in result.stdout
+    assert "secret-signature" not in result.stdout
+    assert "private-name" not in result.stdout
+
+
+def test_doctor_missing_log_is_unchecked_not_healthy(tmp_path):
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts/doctor.sh"), "--log-only"],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "NGINX_ACCESS_LOG": str(tmp_path / "missing.log")},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "未检查" in result.stdout
+
+
+def test_verify_script_exposes_quick_full_and_blocked_modes():
+    content = _read("scripts/verify.sh")
+
+    assert "quick" in content
+    assert "full" in content
+    assert "--allow-blocked" in content
+    assert "run_gate" in content
+    assert "make docs-check" in content
+    assert "npm run build" in content
+    assert "DXF→Excel Stage" in content
+    assert "cd Stages/dxf2excel && uv run pytest -q" in content
+
+
+def test_scripts_readme_documents_every_operational_entrypoint():
+    content = _read("scripts/README.md")
+
+    for command in (
+        "start-all.sh",
+        "start-dev.sh",
+        "stop-all.sh",
+        "status.sh",
+        "doctor.sh",
+        "verify.sh",
+        "db.sh",
+        "docker.sh",
+        "forward-to-win11.sh",
+        "run-cad-worker.sh",
+        "reap_storage.py",
+    ):
+        assert command in content
+    assert "--restart-backend" in content
+    assert "--allow-blocked" in content
 
 
 def test_nginx_proxies_fastapi_documentation_routes():
@@ -260,6 +417,8 @@ def test_nginx_proxies_fastapi_documentation_routes():
 def test_makefile_exposes_database_script_targets():
     content = _read("Makefile")
 
+    assert "verify-quick:" in content
+    assert "verify-full:" in content
     for target in (
         "db-start:",
         "db-setup:",

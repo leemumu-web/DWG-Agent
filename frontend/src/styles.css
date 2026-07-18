@@ -205,10 +205,16 @@ button, input, textarea, select { font: inherit; }
 .conversion-stat-value { overflow: hidden; color: #172033; font-size: 22px; line-height: 1.2; font-weight: 750; text-overflow: ellipsis; }
 .conversion-stat-label { margin-top: 3px; overflow: hidden; color: #667085; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
 .folder-section { margin-bottom: 20px; padding: 18px; background: #fff; border: 1px solid #e7ebf1; border-radius: 14px; }
+.folder-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.folder-actions { position: sticky; z-index: 8; top: 72px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 10px 12px; background: rgba(248,250,252,.96); border: 1px solid #dbe4ef; border-radius: 10px; backdrop-filter: blur(10px); }
+.folder-delete-summary { display: grid; max-width: 420px; gap: 5px; color: #475467; }
 .folder-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(210px,1fr)); gap: 12px; }
-.folder-card { cursor: pointer; transition: transform .18s,box-shadow .18s,border-color .18s; }
+.folder-card { transition: transform .18s,box-shadow .18s,border-color .18s; }
 .folder-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15,23,42,.07); }
 .folder-card-selected { border-color: #60a5fa !important; background: #eff6ff; box-shadow: 0 0 0 1px #60a5fa; }
+.folder-open-button { min-width: 0; flex: 1; padding: 0; color: inherit; font: inherit; text-align: left; background: transparent; border: 0; border-radius: 6px; cursor: pointer; }
+.folder-open-button:focus-visible { outline: 3px solid rgba(37,99,235,.28); outline-offset: 4px; }
+.folder-open-button:disabled { cursor: not-allowed; opacity: .55; }
 .selection-bar { position: sticky; z-index: 9; top: 72px; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; padding: 10px 14px; color: #1e3a8a; background: rgba(239,246,255,.94); border: 1px solid #bfdbfe; border-radius: 11px; box-shadow: 0 6px 18px rgba(37,99,235,.08); backdrop-filter: blur(12px); }
 .upload-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; padding: 13px 15px; background: #fff; border: 1px solid #e7ebf1; border-radius: 13px; }
 .upload-toolbar-hint { flex: 1 1 260px; min-width: 180px; }
@@ -235,7 +241,7 @@ button, input, textarea, select { font: inherit; }
 
 .file-upload-zone:hover, .ant-upload-drag:hover { border-color: #2563eb !important; background: #f7faff !important; }
 .upload-toast-stack { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
-.upload-toast { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; transition: all .28s cubic-bezier(.4,0,.2,1); box-shadow: 0 1px 3px rgba(0,0,0,.06); max-height: 42px; }
+.upload-toast { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; transition: opacity .28s cubic-bezier(.4,0,.2,1),transform .28s cubic-bezier(.4,0,.2,1),max-height .28s cubic-bezier(.4,0,.2,1),padding .28s cubic-bezier(.4,0,.2,1); box-shadow: 0 1px 3px rgba(0,0,0,.06); max-height: 42px; }
 .toast-enter { animation: toast-slide-in .32s cubic-bezier(.34,1.56,.64,1) forwards; }
 .toast-visible { opacity: 1; transform: translateX(0); }
 .toast-exit { animation: toast-slide-out .28s cubic-bezier(.4,0,.2,1) forwards; }
@@ -261,6 +267,7 @@ button, input, textarea, select { font: inherit; }
   .table-toolbar { align-items: stretch; flex-direction: column; }
   .table-toolbar .ant-input-affix-wrapper { width: 100% !important; }
   .selection-bar { top: 70px; }
+  .folder-actions { position: static; }
   .conversion-header { align-items: flex-start; flex-direction: column; }
   .login-brand-panel { display: none; }
   .login-form-panel { flex: 1 1 auto; padding: 28px; }
@@ -273,6 +280,9 @@ button, input, textarea, select { font: inherit; }
   .stat-card-value { font-size: 22px; }
   .conversion-stats { grid-template-columns: 1fr; }
   .conversion-progress { align-items: flex-start; }
+  .folder-section { padding: 14px; }
+  .folder-grid { grid-template-columns: 1fr; }
+  .folder-actions > .ant-btn { flex: 1 1 auto; }
   .dashboard-hero { padding: 22px 20px; }
 }
 

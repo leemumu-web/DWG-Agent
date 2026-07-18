@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.egg-info/
+dist/
+output/
+.DS_Store
+
+# Validation corpus is maintained outside the source repository.
+original_dxf/*
+!original_dxf/.gitkeep
+convert/dxf_input/
+convert/excel_output/
+
+# Generated/binary documentation and CAD files.
+*.pdf
+*.dxf

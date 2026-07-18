@@ -11,7 +11,8 @@ echo -e "${RED}═════════════════════�
 step "1/4 Nginx"
 NGINX_CONF="$PROJECT_ROOT/infra/nginx/nginx.local.conf"
 NGINX_PIDFILE="$PROJECT_ROOT/infra/nginx/logs/nginx.pid"
-if [ -f "$NGINX_PIDFILE" ] && kill -0 "$(cat "$NGINX_PIDFILE")" 2>/dev/null; then
+NGINX_PID="$(cat "$NGINX_PIDFILE" 2>/dev/null || true)"
+if [ -f "$NGINX_PIDFILE" ] && process_exists "$NGINX_PID"; then
     sudo nginx -c "$NGINX_CONF" -s quit 2>/dev/null && ok "Nginx 已停止" || warn "Nginx 停止失败"
 else
     sudo nginx -c "$NGINX_CONF" -s quit 2>/dev/null && ok "Nginx 已停止" || ok "Nginx 未运行"
