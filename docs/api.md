@@ -87,6 +87,7 @@
 | `POST, GET` | `/api/v1/files` |
 | `POST` | `/api/v1/files/upload-zip` |
 | `GET` | `/api/v1/files/batches` |
+| `POST` | `/api/v1/files/batches/bulk-delete` |
 | `DELETE` | `/api/v1/files/batches/{batch_name}` |
 | `GET` | `/api/v1/files/batches/{batch_name}/download-zip` |
 | `GET` | `/api/v1/files/{file_id}/excel-preview` |
