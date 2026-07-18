@@ -155,6 +155,15 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(r.status()).toBe(422);
   });
 
+  test('POST /api/v1/files/batches/bulk-delete — bulk folder delete', async ({ request }) => {
+    const r = await request.post(`${BASE}/api/v1/files/batches/bulk-delete`, {
+      headers: { ...auth(token), 'Content-Type': 'application/json' },
+      data: { batch_names: [] },
+    });
+    // Empty batch_names → 422. A 405 here means the deployed backend is stale.
+    expect(r.status()).toBe(422);
+  });
+
   test('POST /api/v1/files/download-zip — zip download', async ({ request }) => {
     const r = await request.post(`${BASE}/api/v1/files/download-zip`, {
       headers: { ...auth(token), 'Content-Type': 'application/json' },
