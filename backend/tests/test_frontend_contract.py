@@ -57,6 +57,21 @@ def test_non_idempotent_uploads_are_not_automatically_retried():
     assert "fetchWithTimeout" not in source
 
 
+def test_conversion_submission_preserves_partial_chunk_results():
+    source = _frontend_source("api/jobs.api.ts")
+
+    assert "interface ConversionBatchSubmission" in source
+    assert "submittedJobs" in source
+    assert "submittedFileIds" in source
+    assert "unsubmittedFileIds" in source
+    assert "errors" in source
+    assert "Promise.allSettled" in source
+    assert "createConversionBatches" in source
+    assert "retry" not in source.split("export async function createConversionBatches", 1)[1].split(
+        "export async function createDxf2ExcelJob", 1
+    )[0]
+
+
 def test_download_retries_with_a_fresh_signed_url_through_auth_interceptor():
     source = _frontend_source("api/files.api.ts")
 

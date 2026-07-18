@@ -299,8 +299,8 @@ export function ConversionPage(props: ConversionPageProps) {
         setPauseLoading(false);
         return;
       }
-      const jobs = await createConversionBatches(p.taskType, targets.map((file) => file.id));
-      message.success(`已批量提交 ${jobs.length} 个转换任务`);
+      const submission = await createConversionBatches(p.taskType, targets.map((file) => file.id));
+      message.success(`已批量提交 ${submission.submittedJobs.length} 个转换任务`);
       refresh();
     } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
     setPauseLoading(false);
@@ -657,8 +657,8 @@ export function ConversionPage(props: ConversionPageProps) {
                 });
                 const uploaded = result.results as StoredFile[];
                 if (uploaded.length > 0) {
-                  const jobs = await createConversionBatches(p.taskType, uploaded.map((file) => file.id));
-                  message.success(`已导入 ${result.success}/${result.total} 个文件，批量提交 ${jobs.length} 个转换任务`);
+                  const submission = await createConversionBatches(p.taskType, uploaded.map((file) => file.id));
+                  message.success(`已导入 ${result.success}/${result.total} 个文件，批量提交 ${submission.submittedJobs.length} 个转换任务`);
                   refresh();
                 } else if (result.total > 0) {
                   message.error(`全部 ${result.total} 个文件上传失败`);
@@ -699,11 +699,11 @@ export function ConversionPage(props: ConversionPageProps) {
               const result = await uploadZip(file, p.acceptExt);
               if (result.success_count > 0) {
                 message.success(`已解压 ${result.success_count}/${result.success_count + result.skipped_count} 个文件到 "${result.batch_name}"`);
-                const jobs = await createConversionBatches(
+                const submission = await createConversionBatches(
                   p.taskType,
                   result.files.map((stored) => stored.id),
                 );
-                message.success(`${jobs.length} 个文件已批量提交转换`);
+                message.success(`${submission.submittedJobs.length} 个文件已批量提交转换`);
                 refresh();
               } else {
                 message.warning(`压缩包中没有 ${p.acceptExt} 文件`);

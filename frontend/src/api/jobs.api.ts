@@ -101,20 +101,60 @@ export async function createDxf2DwgJob(fileId: number) {
 }
 
 /** Submit one ODA directory-batch task per group instead of one task per file. */
+export interface ConversionBatchSubmission {
+  submittedJobs: Job[];
+  submittedFileIds: number[];
+  unsubmittedFileIds: number[];
+  errors: string[];
+}
+
 export async function createConversionBatches(
   taskType: string,
   fileIds: number[],
-): Promise<Job[]> {
-  if (fileIds.length === 0) return [];
-  const responses = await Promise.all(
-    chunksOf(Array.from(new Set(fileIds))).map((chunk) =>
-      apiClient.post<ApiEnvelope<{ jobs: Job[] }>>('/api/v1/jobs/batches', {
-        task_type: taskType,
-        file_ids: chunk,
-        precision_level: 'normal',
-      })),
-  );
-  return responses.flatMap((response) => response.data.data.jobs);
+): Promise<ConversionBatchSubmission> {
+  const uniqueFileIds = Array.from(new Set(fileIds));
+  if (uniqueFileIds.length === 0) {
+    return {
+      submittedJobs: [],
+      submittedFileIds: [],
+      unsubmittedFileIds: [],
+      errors: [],
+    };
+  }
+
+  const pendingChunks = chunksOf(uniqueFileIds);
+  const submittedJobs: Job[] = [];
+  const submittedFileIds: number[] = [];
+  const unsubmittedFileIds: number[] = [];
+  const errors: string[] = [];
+
+  for (let index = 0; index < pendingChunks.length; index += 3) {
+    const wave = pendingChunks.slice(index, index + 3);
+    const settled = await Promise.allSettled(
+      wave.map((chunk) =>
+        apiClient.post<ApiEnvelope<{ jobs: Job[] }>>('/api/v1/jobs/batches', {
+          task_type: taskType,
+          file_ids: chunk,
+          precision_level: 'normal',
+        })),
+    );
+    settled.forEach((result, resultIndex) => {
+      const chunk = wave[resultIndex];
+      if (result.status === 'fulfilled') {
+        submittedJobs.push(...result.value.data.data.jobs);
+        submittedFileIds.push(...chunk);
+        return;
+      }
+      unsubmittedFileIds.push(...chunk);
+      errors.push(
+        result.reason instanceof Error && result.reason.message
+          ? result.reason.message
+          : '批量提交失败',
+      );
+    });
+  }
+
+  return { submittedJobs, submittedFileIds, unsubmittedFileIds, errors };
 }
 
 export async function createDxf2ExcelJob(batchName: string) {
