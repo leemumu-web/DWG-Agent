@@ -72,6 +72,20 @@ def test_conversion_submission_preserves_partial_chunk_results():
     )[0]
 
 
+def test_folder_bulk_delete_uses_atomic_batch_endpoint():
+    api_source = _frontend_source("api/files.api.ts")
+    page_source = _frontend_source("components/ConversionPage.tsx")
+
+    assert "interface BatchBulkDeleteResult" in api_source
+    assert "'/api/v1/files/batches/bulk-delete'" in api_source
+    assert "bulkDeleteBatches(selectedBatchNames)" in page_source
+    handler = page_source.split("const handleBatchDelete", 1)[1].split(
+        "// ── batch zip file IDs", 1
+    )[0]
+    assert "bulkDeleteFiles" not in handler
+    assert "listFiles" not in handler
+
+
 def test_download_retries_with_a_fresh_signed_url_through_auth_interceptor():
     source = _frontend_source("api/files.api.ts")
 

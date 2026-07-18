@@ -41,6 +41,7 @@ import {
   listBatches,
   downloadFile,
   bulkDeleteFiles,
+  bulkDeleteBatches,
   uploadFolder,
   uploadFile,
   uploadZip,
@@ -138,6 +139,7 @@ export function ConversionPage(props: ConversionPageProps) {
   const [batchZipModalOpen, setBatchZipModalOpen] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [operation, setOperation] = useState<'file-upload' | 'folder-upload' | 'zip-upload' | 'batch-package' | 'batch-delete' | null>(null);
   const [tick, setTick] = useState(0);
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewFileName, setPreviewFileName] = useState('');
@@ -335,6 +337,7 @@ export function ConversionPage(props: ConversionPageProps) {
 
   // ── batch-level actions ──────────────────────────────────────────────────
   const toggleBatchSelection = (name: string) => {
+    if (operation) return;
     setSelectedBatchNames((prev) =>
       prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
     );
@@ -342,36 +345,49 @@ export function ConversionPage(props: ConversionPageProps) {
   };
 
   const handleBatchDownload = useCallback(async () => {
-    const allIds: number[] = [];
-    for (const bn of selectedBatchNames) {
-      const files = await listFiles(bn, p.fileExt);
-      for (const f of files) allIds.push(f.id);
+    if (selectedBatchNames.length === 0 || operation) return;
+    setOperation('batch-package');
+    try {
+      const groups = await Promise.all(
+        selectedBatchNames.map((batchName) => listFiles(batchName, p.fileExt)),
+      );
+      const allIds = [...new Set(groups.flat().map((file) => file.id))];
+      if (allIds.length === 0) {
+        message.warning('所选文件夹中没有可打包的源文件');
+        return;
+      }
+      setBatchZipFileIds(allIds);
+      setBatchZipModalOpen(true);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '收集打包文件失败，请重试');
+    } finally {
+      setOperation(null);
     }
-    if (allIds.length === 0) { message.warning('所选文件夹中没有文件'); return; }
-    setBatchZipFileIds(allIds);
-    setBatchZipModalOpen(true);
-  }, [selectedBatchNames]);
+  }, [operation, p.fileExt, selectedBatchNames]);
 
   const handleBatchDelete = useCallback(async () => {
-    const allIds: number[] = [];
-    for (const bn of selectedBatchNames) {
-      const files = await listFiles(bn, p.fileExt);
-      for (const f of files) allIds.push(f.id);
-    }
-    if (allIds.length === 0) { message.warning('所选文件夹中没有文件'); return; }
+    if (selectedBatchNames.length === 0 || operation) return;
+    setOperation('batch-delete');
     try {
-      await bulkDeleteFiles(allIds);
-      message.success(`已删除 ${selectedBatchNames.length} 个文件夹（${allIds.length} 个文件）`);
+      const result = await bulkDeleteBatches(selectedBatchNames);
+      message.success(
+        `已删除 ${result.deleted_batch_count} 个文件夹、${result.deleted_file_count} 个文件，并取消 ${result.cancelled_job_count} 个任务`,
+      );
       setSelectedBatchNames([]);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '批量删除失败'); }
-  }, [selectedBatchNames, refresh]);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '删除失败，已保留选择，请重试');
+      refresh();
+    } finally {
+      setOperation(null);
+    }
+  }, [operation, selectedBatchNames, refresh]);
 
   // ── batch zip file IDs ───────────────────────────────────────────────────
   const [batchZipFileIds, setBatchZipFileIds] = useState<number[]>([]);
 
   // ── folder upload ────────────────────────────────────────────────────────
-  const handleFolderClick = () => folderInputRef.current?.click();
+  const handleFolderClick = () => { if (!operation) folderInputRef.current?.click(); };
 
   // ── stats ─────────────────────────────────────────────────────────────────
   const statusLoading = scopeFilesQ.isLoading
@@ -410,6 +426,12 @@ export function ConversionPage(props: ConversionPageProps) {
   const totalSize = scopeFiles.reduce((s, f) => s + f.size_bytes, 0);
   const aggregateProgress = summary.progress;
   const isFirstLoad = filesQ.isLoading;
+  const batches = batchesQ.data ?? [];
+  const selectedBatchSourceCount = batches
+    .filter((batch) => selectedBatchNames.includes(batch.name))
+    .reduce((total, batch) => total + batch.file_count, 0);
+  const selectedBatchPreview = selectedBatchNames.slice(0, 3).join('、');
+  const selectedBatchRemainder = Math.max(0, selectedBatchNames.length - 3);
 
   // ── table row selection (clears batch selection when files are selected) ──
   const rowSelection = useMemo(() => ({
@@ -625,21 +647,55 @@ export function ConversionPage(props: ConversionPageProps) {
       </div>
 
       {/* ── batch/folder view (top level only) ──────────────────────── */}
-      {selectedBatch === null && (batchesQ.data ?? []).length > 0 && (
+      {selectedBatch === null && batches.length > 0 && (
         <div className="folder-section">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div className="folder-heading">
             <Typography.Text strong style={{ fontSize: 14 }}>
               <FolderOpenOutlined style={{ marginRight: 6 }} />文件夹
               <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
                 （上传文件夹时自动创建，勾选后可打包下载或删除）
               </Typography.Text>
             </Typography.Text>
+          </div>
+          <div className="folder-actions" aria-label="文件夹批量操作">
+            <Typography.Text strong>
+              {selectedBatchNames.length > 0 ? `已选 ${selectedBatchNames.length} 个文件夹` : `共 ${batches.length} 个文件夹`}
+            </Typography.Text>
+            {selectedBatchNames.length < batches.length && (
+              <Button size="small" disabled={operation !== null}
+                onClick={() => { setSelectedBatchNames(batches.map((batch) => batch.name)); setSelectedRowKeys([]); }}>
+                全选 {batches.length} 个文件夹
+              </Button>
+            )}
             {selectedBatchNames.length > 0 && (
-              <Button size="small" onClick={() => setSelectedBatchNames([])}>取消选择</Button>
+              <>
+                <Button size="small" disabled={operation !== null} onClick={() => setSelectedBatchNames([])}>清除选择</Button>
+                <Button type="primary" size="small" icon={<DownloadOutlined />}
+                  loading={operation === 'batch-package'} disabled={operation !== null && operation !== 'batch-package'}
+                  onClick={handleBatchDownload}>
+                  打包下载 {selectedBatchNames.length} 个文件夹
+                </Button>
+                <Popconfirm
+                  title={`确认完整删除 ${selectedBatchNames.length} 个文件夹？`}
+                  description={(
+                    <div className="folder-delete-summary">
+                      <div>将删除已知 {selectedBatchSourceCount} 个源文件、它们的生成结果，并取消相关活动任务。</div>
+                      <div>文件夹：{selectedBatchPreview}{selectedBatchRemainder > 0 ? ` 等 ${selectedBatchNames.length} 个` : ''}</div>
+                      <div>删除为整体事务：全部成功或全部保留。</div>
+                    </div>
+                  )}
+                  onConfirm={handleBatchDelete} okText="确认删除" cancelText="取消"
+                  okButtonProps={{ danger: true, loading: operation === 'batch-delete' }} disabled={operation !== null}
+                >
+                  <Button size="small" danger icon={<DeleteOutlined />} loading={operation === 'batch-delete'} disabled={operation !== null}>
+                    删除 {selectedBatchNames.length} 个文件夹
+                  </Button>
+                </Popconfirm>
+              </>
             )}
           </div>
           <div className="folder-grid">
-            {(batchesQ.data ?? []).map((b: BatchInfo) => {
+            {batches.map((b: BatchInfo) => {
               const isChecked = selectedBatchNames.includes(b.name);
               return (
                 <Card
@@ -650,12 +706,14 @@ export function ConversionPage(props: ConversionPageProps) {
                 >
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                     <Checkbox
+                      aria-label={`选择文件夹 ${b.name}`}
                       checked={isChecked}
+                      disabled={operation !== null}
                       onChange={() => toggleBatchSelection(b.name)}
                       onClick={(e) => e.stopPropagation()}
                     />
-                    <div
-                      style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                    <button type="button" className="folder-open-button"
+                      aria-label={`打开文件夹 ${b.name}`} disabled={operation !== null}
                       onClick={() => { setSelectedBatch(b.name); setPage(1); setSelectedRowKeys([]); }}
                     >
                       <Card.Meta
@@ -670,7 +728,7 @@ export function ConversionPage(props: ConversionPageProps) {
                           </div>
                         }
                       />
-                    </div>
+                    </button>
                   </div>
                 </Card>
               );
@@ -680,27 +738,6 @@ export function ConversionPage(props: ConversionPageProps) {
       )}
 
       {/* ── batch action bar ─────────────────────────────────────────── */}
-      {selectedBatchNames.length > 0 && (
-        <div className="selection-bar">
-          <Typography.Text strong style={{ marginRight: 8 }}>
-            已选 {selectedBatchNames.length} 个文件夹
-          </Typography.Text>
-          <Button type="primary" size="small" icon={<DownloadOutlined />}
-            onClick={handleBatchDownload}>
-            打包下载 (.zip)
-          </Button>
-          <Popconfirm
-            title={`确认删除 ${selectedBatchNames.length} 个文件夹及其所有文件？`}
-            description="此操作不可撤销，文件夹内所有文件将被删除"
-            onConfirm={handleBatchDelete}
-            okText="确认删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />}>删除文件夹</Button>
-          </Popconfirm>
-        </div>
-      )}
 
       {/* ── upload area ──────────────────────────────────────────────── */}
       <div className="upload-toolbar">
@@ -710,10 +747,12 @@ export function ConversionPage(props: ConversionPageProps) {
           /* @ts-expect-error webkitdirectory */
           webkitdirectory=""
           multiple
+          disabled={operation !== null}
           style={{ display: 'none' }}
           onChange={async (e) => {
             const raw = e.target.files;
             if (raw && raw.length > 0) {
+              setOperation('folder-upload');
               const files = Array.from(raw);
               const firstPath = (files[0] as { webkitRelativePath?: string }).webkitRelativePath || '';
               const folderName = selectedBatch || firstPath.split('/')[0] || `导入_${Date.now()}`;
@@ -740,6 +779,7 @@ export function ConversionPage(props: ConversionPageProps) {
                 message.error(err instanceof Error ? err.message : '文件夹导入失败');
               } finally {
                 setUploadProgress(null);
+                setOperation(null);
               }
               e.target.value = '';
             }
@@ -750,6 +790,8 @@ export function ConversionPage(props: ConversionPageProps) {
           batchName={selectedBatch ?? undefined}
           acceptExt={p.acceptExt}
           label={`上传 ${p.tagPending} 文件`}
+          disabled={operation !== null}
+          onBusyChange={(busy) => setOperation(busy ? 'file-upload' : null)}
           uploadFn={async (file: File, bn?: string) => {
             const stored = await uploadFile(file, bn);
             const submission = await createConversionBatches(p.taskType, [stored.id]);
@@ -759,17 +801,21 @@ export function ConversionPage(props: ConversionPageProps) {
             return submission;
           }}
         />
-        <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick} style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
+        <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick}
+          loading={operation === 'folder-upload'} disabled={operation !== null}
+          style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
           上传文件夹
         </Button>
         <input
           ref={zipInputRef}
           type="file"
           accept=".zip"
+          disabled={operation !== null}
           style={{ display: 'none' }}
           onChange={async (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
+            setOperation('zip-upload');
             try {
               const result = await uploadZip(file, p.acceptExt);
               if (result.success_count > 0) {
@@ -787,11 +833,14 @@ export function ConversionPage(props: ConversionPageProps) {
               }
             } catch (err) {
               message.error(err instanceof Error ? err.message : '解压失败');
+            } finally {
+              setOperation(null);
             }
             e.target.value = '';
           }}
         />
-        <Button icon={<FileZipOutlined />} onClick={() => zipInputRef.current?.click()}
+        <Button icon={<FileZipOutlined />} onClick={() => { if (!operation) zipInputRef.current?.click(); }}
+          loading={operation === 'zip-upload'} disabled={operation !== null}
           style={{ borderColor: '#eb2f96', color: '#eb2f96', fontWeight: 500 }}>
           上传压缩包
         </Button>

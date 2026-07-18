@@ -26,12 +26,14 @@ function fmtName(name: string, max = 30): string {
 
 let _nextId = 1;
 
-export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn, label }: {
+export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn, label, disabled = false, onBusyChange }: {
   onUploaded?: () => void;
   batchName?: string;
   acceptExt?: string;
   uploadFn: (file: File, batchName?: string) => Promise<unknown>;
   label?: string;
+  disabled?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [active, setActive] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -73,6 +75,7 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
 
   const handleFiles = async (files: File[]) => {
     setActive(true);
+    onBusyChange?.(true);
     const total = files.length;
     setProgress({ done: 0, total });
 
@@ -103,10 +106,11 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
     );
 
     setActive(false);
+    onBusyChange?.(false);
     onUploaded?.();
   };
 
-  const handleClick = () => inputRef.current?.click();
+  const handleClick = () => { if (!disabled && !active) inputRef.current?.click(); };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -131,12 +135,14 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
         accept={acceptExt}
         multiple
         style={{ display: 'none' }}
+        disabled={disabled || active}
         onChange={handleInputChange}
       />
 
       <Button
         icon={active ? <LoadingOutlined /> : <InboxOutlined />}
         loading={active}
+        disabled={disabled}
         onClick={handleClick}
         style={{
           borderColor: '#1677ff',
@@ -163,6 +169,7 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
         {toasts.map((t) => (
           <div
             key={t.id}
+            title={t.error}
             className={`upload-toast ${t.phase === 'exit' ? 'toast-exit' : t.phase === 'visible' ? 'toast-visible' : 'toast-enter'}`}
             style={{
               background: t.error ? '#fff2f0' : '#f6ffed',
@@ -183,7 +190,7 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
               className="toast-status"
               style={{ fontSize: 12, color: t.error ? '#ff4d4f' : '#52c41a', marginLeft: 8, whiteSpace: 'nowrap' }}
             >
-              {t.error ? '失败' : '已提交'}
+              {t.error?.includes('已上传') ? '待补交' : t.error ? '失败' : '已提交'}
             </Text>
           </div>
         ))}

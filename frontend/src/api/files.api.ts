@@ -163,6 +163,21 @@ export async function bulkDeleteFiles(fileIds: number[]): Promise<void> {
   await apiClient.post('/api/v1/files/bulk-delete', { file_ids: fileIds });
 }
 
+export interface BatchBulkDeleteResult {
+  deleted_batch_count: number;
+  deleted_file_count: number;
+  cancelled_job_count: number;
+}
+
+/** Atomically soft-delete complete batches, including generated results. */
+export async function bulkDeleteBatches(batchNames: string[]): Promise<BatchBulkDeleteResult> {
+  const res = await apiClient.post<ApiEnvelope<BatchBulkDeleteResult>>(
+    '/api/v1/files/batches/bulk-delete',
+    { batch_names: batchNames },
+  );
+  return res.data.data;
+}
+
 /** Upload a folder — process matching files with a bounded concurrent pool.
  *  The folder name becomes the batch_name for all files in it.
  *  @param fileExt  only upload files matching this extension (e.g. '.dwg', '.dxf')

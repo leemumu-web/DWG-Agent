@@ -188,6 +188,49 @@ async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) 
   });
 }
 
+async function mockFolderState(page: Page, dir: Direction) {
+  const now = new Date().toISOString();
+  const batches = [
+    { name: 'batch-alpha', file_count: 2, latest_created_at: now },
+    { name: 'batch-beta', file_count: 3, latest_created_at: now },
+  ];
+  const files = batches.map((batch, index) => ({
+    id: 93_001 + index,
+    bucket: 'playwright',
+    storage_key: `playwright/${batch.name}/source${dir.fileExt}`,
+    original_name: `source-${index + 1}${dir.fileExt}`,
+    file_ext: dir.fileExt,
+    content_type: 'application/octet-stream',
+    size_bytes: 2048,
+    sha256: String(index + 1).repeat(64),
+    batch_name: batch.name,
+    status: 'available',
+    created_at: now,
+    updated_at: now,
+  }));
+  const envelope = (data: unknown[]) => ({
+    data,
+    pagination: { page: 1, page_size: 200, total: data.length, total_pages: 1 },
+    meta: { request_id: 'playwright-folder', timestamp: now },
+  });
+
+  await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ data: batches, meta: { request_id: 'playwright-batches', timestamp: now } }),
+  }));
+  await page.route('**/api/v1/files?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(envelope(files)),
+  }));
+  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(envelope([])),
+  }));
+}
+
 // ── tests ───────────────────────────────────────────────────────────────────
 
 for (const dir of DIRECTIONS) {
@@ -554,6 +597,80 @@ for (const dir of DIRECTIONS) {
     await expect(page.getByText('正在加载状态').first()).toBeVisible();
     await expect(page.getByText('未转换')).toHaveCount(0);
     await expect(page.getByText('已完成').first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('folder actions precede the grid and folders are keyboard buttons', async ({ page }) => {
+    await mockFolderState(page, dir);
+    await page.reload();
+
+    const actions = page.locator('.folder-actions');
+    const grid = page.locator('.folder-grid');
+    await expect(actions).toBeVisible();
+    expect(await actions.evaluate((node, other) => Boolean(
+      node.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ), await grid.elementHandle())).toBe(true);
+    await expect(page.getByRole('button', { name: '打开文件夹 batch-alpha' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '全选 2 个文件夹' })).toBeVisible();
+  });
+
+  test('multi-folder delete sends one atomic request', async ({ page }) => {
+    await mockFolderState(page, dir);
+    let deleteCalls = 0;
+    let deleteBody: unknown;
+    await page.route('**/api/v1/files/batches/bulk-delete', async (route) => {
+      deleteCalls += 1;
+      deleteBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: { deleted_batch_count: 2, deleted_file_count: 7, cancelled_job_count: 1 },
+          meta: { request_id: 'playwright-delete', timestamp: new Date().toISOString() },
+        }),
+      });
+    });
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '确认删除' }).click();
+    await expect.poll(() => deleteCalls).toBe(1);
+    expect(deleteBody).toEqual({ batch_names: ['batch-alpha', 'batch-beta'] });
+    await expect(page.getByText(/2 个文件夹.*7 个文件.*1 个任务/)).toBeVisible();
+  });
+
+  test('multi-folder package gathers every selected folder', async ({ page }) => {
+    await mockFolderState(page, dir);
+    const queriedBatches: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      const batchName = url.searchParams.get('batch_name');
+      if (url.pathname === '/api/v1/files' && batchName) queriedBatches.push(batchName);
+    });
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '打包下载 2 个文件夹' }).click();
+    const dialog = page.getByRole('dialog', { name: '打包下载' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('已选 2 个文件')).toBeVisible();
+    expect(new Set(queriedBatches)).toEqual(new Set(['batch-alpha', 'batch-beta']));
+  });
+
+  test('failed multi-folder delete preserves selection', async ({ page }) => {
+    await mockFolderState(page, dir);
+    await page.route('**/api/v1/files/batches/bulk-delete', (route) => route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'DELETE_FAILED', message: '删除失败，请重试' } }),
+    }));
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '确认删除' }).click();
+    await expect(page.getByText('已选 2 个文件夹')).toBeVisible();
+    await expect(page.locator('.folder-card input[type="checkbox"]:checked')).toHaveCount(2);
   });
   });
 }
