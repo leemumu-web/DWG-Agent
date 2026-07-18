@@ -78,6 +78,7 @@ def _generated_api_docs(errors: list[str]) -> None:
 def _owned_markdown_files() -> list[Path]:
     markdown_files = [
         ROOT / "README.md",
+        ROOT / "README_EN.md",
         ROOT / "CHANGELOG.md",
         ROOT / "CONTRIBUTING.md",
         ROOT / "DWG-Agent企业平台技术规范.md",
