@@ -81,6 +81,20 @@ class ZipDownloadRequest(BaseModel):
     folder_name: str = "图纸导出"
 
 
+class ZipFormatAvailability(BaseModel):
+    format: str
+    available_count: int = Field(ge=0)
+    missing_count: int = Field(ge=0)
+    missing_file_ids: list[int]
+    complete: bool
+
+
+class ZipAvailabilityPreview(BaseModel):
+    file_count: int = Field(ge=0)
+    formats: list[ZipFormatAvailability]
+    can_download: bool
+
+
 class ZipUploadResult(BaseModel):
     batch_name: str
     files: list[FileRead]

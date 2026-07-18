@@ -62,6 +62,7 @@ from app.services.file_service import (
     build_signed_download_url,
     build_zip_to_path,
     download_headers,
+    preview_zip_availability,
     validate_download_signature,
 )
 from app.services.file_transfer_service import (
@@ -1342,6 +1343,34 @@ def bulk_delete_files(
         )
     db.commit()
     return None
+
+
+@router.post("/download-zip/preview")
+def preview_zip_endpoint(
+    request: Request,
+    payload: ZipDownloadRequest,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Report whether every requested export format exists before ZIP creation."""
+    requested_ids = list(dict.fromkeys(payload.file_ids))
+    if not requested_ids:
+        raise AppHTTPException(422, "INVALID_PARAMS", "file_ids must not be empty.")
+
+    stored_list = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.id.in_(requested_ids), StoredFile.status != "deleted"
+            )
+        ).all()
+    )
+    if len(stored_list) != len(requested_ids):
+        raise not_found("File")
+    for stored in stored_list:
+        _require_file_read_access(db, current_user, stored)
+
+    preview = preview_zip_availability(db, requested_ids, payload.formats)
+    return ok(preview, request.state.request_id)
 
 
 @router.post("/download-zip")

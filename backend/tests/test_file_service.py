@@ -18,7 +18,12 @@ from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
-from app.services.file_service import build_result_map, build_zip, build_zip_to_path
+from app.services.file_service import (
+    build_result_map,
+    build_zip,
+    build_zip_to_path,
+    preview_zip_availability,
+)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -292,6 +297,73 @@ class TestBuildResultMap:
 
 
 class TestBuildZip:
+    def test_preview_reports_partial_format_coverage(self):
+        db = job_service.SessionLocal()
+        source_with_result = _file(
+            db,
+            original_name="converted.dwg",
+            file_ext=".dwg",
+            bucket="dwg-original",
+        )
+        source_without_result = _file(
+            db,
+            original_name="waiting.dwg",
+            file_ext=".dwg",
+            bucket="dwg-original",
+        )
+        result = _file(
+            db,
+            original_name="converted.dxf",
+            file_ext=".dxf",
+            bucket="dxf-derived",
+        )
+        job = _job(
+            db,
+            task_type=TASK_DWG_TO_DXF,
+            status="succeeded",
+            params_json={"file_id": source_with_result.id},
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=result.id,
+            status="succeeded",
+        )
+        db.commit()
+
+        preview = preview_zip_availability(
+            db,
+            [source_with_result.id, source_without_result.id],
+            ["dwg", "dxf"],
+        )
+
+        assert preview.file_count == 2
+        assert preview.can_download is False
+        by_format = {item.format: item for item in preview.formats}
+        assert by_format["dwg"].available_count == 2
+        assert by_format["dwg"].missing_count == 0
+        assert by_format["dwg"].complete is True
+        assert by_format["dxf"].available_count == 1
+        assert by_format["dxf"].missing_count == 1
+        assert by_format["dxf"].missing_file_ids == [source_without_result.id]
+        assert by_format["dxf"].complete is False
+        db.rollback()
+        db.close()
+
+    def test_preview_deduplicates_file_ids(self):
+        db = job_service.SessionLocal()
+        source = _file(db, original_name="only.dwg", file_ext=".dwg")
+        db.commit()
+
+        preview = preview_zip_availability(db, [source.id, source.id], ["dwg"])
+
+        assert preview.file_count == 1
+        assert preview.can_download is True
+        assert preview.formats[0].available_count == 1
+        db.rollback()
+        db.close()
+
     def test_dwg_source_want_dwg_includes_source(self, monkeypatch):
         db = job_service.SessionLocal()
         src = _file(db, original_name="plan.dwg", file_ext=".dwg",
