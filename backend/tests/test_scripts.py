@@ -242,11 +242,67 @@ def test_start_script_does_not_print_bootstrap_password():
 def test_background_start_is_stable_and_dev_start_keeps_hot_reload():
     start_all = _read("scripts/start-all.sh")
     start_dev = _read("scripts/start-dev.sh")
+    lib_content = _read("scripts/lib.sh")
 
     assert "--reload" not in start_all
-    assert "nohup setsid" in start_all
-    assert "</dev/null" in start_all
+    assert "start_local_backend" in start_all
+    assert "nohup setsid" in lib_content
+    assert "</dev/null" in lib_content
     assert "--reload" in start_dev
+
+
+def test_start_all_supports_explicit_owned_backend_restart():
+    start_all = _read("scripts/start-all.sh")
+    lib_content = _read("scripts/lib.sh")
+
+    assert "--restart-backend" in start_all
+    assert "restart_owned_backend" in start_all
+    assert "owned_backend_pid" in lib_content
+    assert "kill -TERM" in lib_content
+    assert "kill -KILL" not in lib_content
+
+
+def test_runtime_and_frontend_staleness_are_reported():
+    lib_content = _read("scripts/lib.sh")
+    status_content = _read("scripts/status.sh")
+    start_content = _read("scripts/start-all.sh")
+
+    assert "backend_runtime_stale" in lib_content
+    assert "frontend_dist_stale" in lib_content
+    assert "运行代码已过期" in status_content
+    assert "前端构建产物已过期" in start_content
+    assert "exit 1" in status_content
+
+
+def test_files_newer_than_epoch_uses_real_mtimes(tmp_path):
+    older = tmp_path / "older.py"
+    newer = tmp_path / "newer.py"
+    older.write_text("old", encoding="utf-8")
+    newer.write_text("new", encoding="utf-8")
+    os.utime(older, (100, 100))
+    os.utime(newer, (300, 300))
+    command = (
+        f'source "{PROJECT_ROOT / "scripts/lib.sh"}"; '
+        'files_newer_than_epoch 200 "$1" "$2"'
+    )
+
+    stale = subprocess.run(
+        ["bash", "-c", command, "bash", str(older), str(newer)],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    fresh = subprocess.run(
+        ["bash", "-c", command, "bash", str(older)],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert stale.returncode == 0
+    assert fresh.returncode == 1
 
 
 def test_nginx_proxies_fastapi_documentation_routes():
