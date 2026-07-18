@@ -246,7 +246,7 @@ export async function uploadFolder(
   };
 
   await Promise.all(
-    Array.from({ length: Math.min(opts?.concurrency ?? 8, matched.length) }, () => worker()),
+    Array.from({ length: Math.min(opts?.concurrency ?? 4, matched.length) }, () => worker()),
   );
 
   return { total: matched.length, success, results };

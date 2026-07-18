@@ -57,6 +57,17 @@ def test_non_idempotent_uploads_are_not_automatically_retried():
     assert "fetchWithTimeout" not in source
 
 
+def test_folder_upload_concurrency_fits_default_api_database_pool():
+    api_source = _frontend_source("api/files.api.ts")
+    page_source = _frontend_source("components/ConversionPage.tsx")
+
+    # Default API pool budget is DB_POOL_SIZE=2 + MAX_OVERFLOW=2. The browser
+    # must not open eight simultaneous upload transactions against four slots.
+    assert "opts?.concurrency ?? 4" in api_source
+    assert "concurrency: 4" in page_source
+    assert "concurrency: 8" not in page_source
+
+
 def test_conversion_submission_preserves_partial_chunk_results():
     source = _frontend_source("api/jobs.api.ts")
 

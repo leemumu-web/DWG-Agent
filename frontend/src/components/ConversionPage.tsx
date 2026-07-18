@@ -762,7 +762,7 @@ export function ConversionPage(props: ConversionPageProps) {
               try {
                 const result = await uploadFolder(files, folderName, {
                   fileExt: p.acceptExt,
-                  concurrency: 8,
+                  concurrency: 4,
                   onFile: (file: File, bn: string) => uploadFile(file, bn),
                   onProgress: (processed, total) => setUploadProgress({ processed, total }),
                 });
