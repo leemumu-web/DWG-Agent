@@ -68,6 +68,10 @@ docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg work
 
 ## HTTP 4xx、499 与上传拥塞
 
+仓库前端统一解析 API 错误信封：弹窗显示 `error.message`、`error.code` 和 `meta.request_id`；422 还会展开最多三项 `details.errors` 字段原因。文件夹上传保留每个失败文件的名称和原因，不再只报告失败数量。Blob 下载若返回 JSON 错误，也按相同规则解析。
+
+若生产页面仍只显示状态码，通常表示网关返回了非 JSON 页面或运行中的前端构建已过期。先运行 `bash scripts/status.sh`，再按提示执行 `bash scripts/start-all.sh --rebuild`。用弹窗中的 request ID 对照 `doctor.sh` 输出；不得向用户展示 traceback、DSN、本机路径或未过滤的响应原文。
+
 ```bash
 bash scripts/doctor.sh --since-minutes 60
 NGINX_ACCESS_LOG=/path/to/access.log bash scripts/doctor.sh --log-only

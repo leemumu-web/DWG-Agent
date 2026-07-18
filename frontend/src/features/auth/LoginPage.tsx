@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../../api/auth.api';
+import { describeApiError } from '../../api/error';
 import { useAuthStore } from '../../stores/auth.store';
 
 interface ApiError {
@@ -31,13 +32,9 @@ function describeError(e: ApiError): string {
     const msg = e.response.data?.error?.message;
     const status = e.response.status;
     if (status === 401) return msg || '账号或密码不正确';
-    if (status === 422) return '输入格式不正确,请检查字段';
-    if (status === 429) return '尝试过于频繁,请稍后再试';
-    if (status != null && status >= 500) return `后端服务异常 (${status})`;
-    return msg || (status != null ? `登录失败 (${status})` : '登录失败');
+    return describeApiError(e, msg || '登录失败');
   }
-  if (e.request) return '无法连接后端服务,请确认开发服务器已启动';
-  return e.message || '登录失败,请重试';
+  return describeApiError(e, '登录失败，请重试');
 }
 
 const HIGHLIGHTS = [

@@ -227,8 +227,8 @@ def test_status_script_uses_side_effect_free_health_probe():
 
 
 def test_start_script_does_not_print_bootstrap_password():
-    # start-all.sh delegates credential display to print_admin_credentials (lib.sh)
-    # which reads SUPER_ADMIN_USERNAME / SUPER_ADMIN_PASSWORD from .env at runtime.
+    # start-all.sh may identify the configured account but must never print or
+    # even read the secret into a shell variable just to render its summary.
     start_all = _read("scripts/start-all.sh")
     lib_content = _read("scripts/lib.sh")
 
@@ -237,6 +237,9 @@ def test_start_script_does_not_print_bootstrap_password():
     # lib.sh must reference the env var names (not the actual password)
     assert "SUPER_ADMIN_PASSWORD" in lib_content
     assert "SUPER_ADMIN_USERNAME" in lib_content
+    assert 'pass="$(env_value' not in lib_content
+    assert "管理员密码:" not in lib_content
+    assert "不会在终端显示" in lib_content
 
 
 def test_background_start_is_stable_and_dev_start_keeps_hot_reload():

@@ -61,8 +61,11 @@ async function login(page: Page, route: string) {
     },
     { t: body.data.access_token, u: body.data.user },
   );
-  await page.goto(route);
-  await page.waitForLoadState('networkidle');
+  await page.goto(route, { waitUntil: 'domcontentloaded' });
+  // The page intentionally polls conversion state, so networkidle can remain
+  // false forever. A visible page-specific control is the stable readiness gate.
+  const direction = DIRECTIONS.find((item) => item.route === route)!;
+  await expect(page.getByRole('button', { name: direction.uploadBtnPattern })).toBeVisible();
 }
 
 /** Read a sample file from disk and upload it via the page's file input. */
@@ -474,6 +477,9 @@ for (const dir of DIRECTIONS) {
 
     await expect(dialog).toBeVisible();
     await expect(nameInput).toHaveValue('保留名称');
+    await expect(page.getByText(
+      '所选格式当前不完整，请重新检查。 [FILE_EXPORT_FORMAT_UNAVAILABLE]（请求 playwright-zip-conflict）',
+    )).toBeVisible();
   });
 
   // ── 8. Zip download → POST /files/download-zip → 200 + blob ──────
@@ -751,15 +757,43 @@ for (const dir of DIRECTIONS) {
     await page.route('**/api/v1/files/batches/bulk-delete', (route) => route.fulfill({
       status: 500,
       contentType: 'application/json',
-      body: JSON.stringify({ error: { code: 'DELETE_FAILED', message: '删除失败，请重试' } }),
+      body: JSON.stringify({
+        error: { code: 'DELETE_FAILED', message: '删除失败，请重试', details: {} },
+        meta: { request_id: 'playwright-delete-failed' },
+      }),
     }));
     await page.reload();
 
     await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
     await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
     await page.getByRole('button', { name: '确认删除' }).click();
+    await expect(page.getByText('删除失败，请重试 [DELETE_FAILED]（请求 playwright-delete-failed）')).toBeVisible();
     await expect(page.getByText('已选 2 个文件夹')).toBeVisible();
     await expect(page.locator('.folder-card input[type="checkbox"]:checked')).toHaveCount(2);
+  });
+
+  test('validation failure shows the exact field reason instead of only HTTP 422', async ({ page }) => {
+    await mockFolderState(page, dir);
+    await page.route('**/api/v1/files/batches/bulk-delete', (route) => route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Request validation failed.',
+          details: { errors: [{ loc: ['body', 'batch_names', 1], msg: '文件夹名称不能为空' }] },
+        },
+        meta: { request_id: 'playwright-validation' },
+      }),
+    }));
+    await page.reload();
+
+    await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
+    await page.getByRole('button', { name: '确认删除' }).click();
+    await expect(page.getByText(
+      '请求参数错误：batch_names[1]：文件夹名称不能为空 [VALIDATION_ERROR]（请求 playwright-validation）',
+    )).toBeVisible();
   });
   });
 }

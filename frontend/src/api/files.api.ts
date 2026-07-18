@@ -7,6 +7,7 @@ import type {
   StoredFile,
 } from '../types/file';
 import type { Job } from '../types/job';
+import { describeApiError, describeApiErrorAsync } from './error';
 
 /** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
 export async function listFiles(batchName?: string, fileExt?: string) {
@@ -92,19 +93,7 @@ function isRetryableDownloadError(error: unknown): boolean {
 }
 
 async function downloadError(error: unknown): Promise<Error> {
-  if (!axios.isAxiosError(error)) {
-    return error instanceof Error ? error : new Error('下载失败');
-  }
-  let body = error.response?.data as unknown;
-  if (body instanceof Blob) {
-    try {
-      body = JSON.parse(await body.text()) as unknown;
-    } catch {
-      body = undefined;
-    }
-  }
-  const message = (body as { error?: { message?: string } } | undefined)?.error?.message;
-  return new Error(message || `下载失败: HTTP ${error.response?.status ?? '网络错误'}`);
+  return new Error(await describeApiErrorAsync(error, '下载失败'));
 }
 
 /** Download through a short-lived signed URL; every retry obtains a new signature. */
@@ -222,16 +211,22 @@ export async function uploadFolder(
     onFile?: (file: File, batchName: string) => Promise<unknown>;
     onProgress?: (processed: number, total: number, success: number) => void;
   },
-): Promise<{ total: number; success: number; results: unknown[] }> {
+): Promise<{
+  total: number;
+  success: number;
+  results: unknown[];
+  failures: Array<{ file_name: string; reason: string }>;
+}> {
   const ext = opts?.fileExt || '.dwg';
   const onFile = opts?.onFile || ((f: File, bn: string) => uploadFileAndConvert(f, bn));
   const matched = files.filter((f) => f.name.toLowerCase().endsWith(ext));
-  if (matched.length === 0) return { total: 0, success: 0, results: [] };
+  if (matched.length === 0) return { total: 0, success: 0, results: [], failures: [] };
 
   const queue = [...matched];
   let success = 0;
   let processed = 0;
   const results: unknown[] = [];
+  const failures: Array<{ file_name: string; reason: string }> = [];
 
   const worker = async () => {
     while (queue.length > 0) {
@@ -239,7 +234,9 @@ export async function uploadFolder(
       try {
         results.push(await onFile(f, batchName));
         success++;
-      } catch { /* per-file failure, continue with others */ }
+      } catch (error) {
+        failures.push({ file_name: f.name, reason: describeApiError(error, '上传失败') });
+      }
       processed++;
       opts?.onProgress?.(processed, matched.length, success);
     }
@@ -249,7 +246,7 @@ export async function uploadFolder(
     Array.from({ length: Math.min(opts?.concurrency ?? 4, matched.length) }, () => worker()),
   );
 
-  return { total: matched.length, success, results };
+  return { total: matched.length, success, results, failures };
 }
 
 /** Soft-delete all files in a batch (folder). */

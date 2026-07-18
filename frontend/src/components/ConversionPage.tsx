@@ -770,9 +770,19 @@ export function ConversionPage(props: ConversionPageProps) {
                 if (uploaded.length > 0) {
                   const submission = await createConversionBatches(p.taskType, uploaded.map((file) => file.id));
                   reportSubmission(`已上传 ${result.success}/${result.total} 个文件`, submission);
+                  if (result.failures.length > 0) {
+                    const examples = result.failures.slice(0, 3)
+                      .map((failure) => `${failure.file_name}: ${failure.reason}`)
+                      .join('；');
+                    const remaining = result.failures.length > 3 ? `；另有 ${result.failures.length - 3} 个失败` : '';
+                    message.warning(`部分文件上传失败：${examples}${remaining}`, 10);
+                  }
                   refresh();
                 } else if (result.total > 0) {
-                  message.error(`全部 ${result.total} 个文件上传失败`);
+                  const examples = result.failures.slice(0, 3)
+                    .map((failure) => `${failure.file_name}: ${failure.reason}`)
+                    .join('；');
+                  message.error(`全部 ${result.total} 个文件上传失败${examples ? `：${examples}` : ''}`, 10);
                 } else {
                   message.warning(`文件夹中没有 ${p.fileExt} 文件`);
                 }

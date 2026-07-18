@@ -56,3 +56,5 @@ bash scripts/verify.sh full --allow-blocked
 | `benchmark_cad_conversion.py` | 对真实样本测量双向转换吞吐，不作为日常启动脚本。 |
 
 出现客户端 405 时先运行 `status.sh`；若提示运行代码过期，使用 `start-all.sh --restart-backend`。ZIP 409 先看 `doctor.sh` 的 request ID，再在弹窗重新预检格式。文件夹上传曾因浏览器并发 8 超过默认 API 连接池总容量 4 而产生 QueuePool 500；当前前端把同一时刻的文件上传限制为 4。
+
+前端弹窗会展示后端错误原因、错误码和 request ID，422 还会标明具体字段；文件夹导入会列出失败文件样本。若生产页面仍只显示 HTTP 4xx，先用 `status.sh` 检查前端 dist 是否过期，再用 `start-all.sh --rebuild` 更新构建产物。

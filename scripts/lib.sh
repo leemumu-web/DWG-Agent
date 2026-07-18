@@ -88,14 +88,12 @@ ensure_db_ready() {
     fi
 }
 
-# 打印管理员登录凭据。这些值来自 .env，首次 db init 时写入数据库 sys_users。
+# 打印管理员登录提示。密码只保存在环境配置中，不回显到终端或日志。
 print_admin_credentials() {
-    local user pass
+    local user
     user="$(env_value "$PROJECT_ROOT/.env" SUPER_ADMIN_USERNAME)"
-    pass="$(env_value "$PROJECT_ROOT/.env" SUPER_ADMIN_PASSWORD)"
     echo -e "  管理员账号: ${YELLOW}${user:-未配置}${NC}"
-    echo -e "  管理员密码: ${YELLOW}${pass:-未配置}${NC}"
-    echo -e "  ${DIM}（取自 .env 的 SUPER_ADMIN_USERNAME/PASSWORD；首次 db init 写入数据库，之后改 .env 不影响已建账号）${NC}"
+    echo -e "  ${DIM}管理员密码不会在终端显示；SUPER_ADMIN_PASSWORD 仅在首次 db init 时写入数据库，之后改 .env 不影响已建账号。${NC}"
 }
 
 check_port() {

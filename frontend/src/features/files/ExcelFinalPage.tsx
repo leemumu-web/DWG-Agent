@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import {
   Alert,
   App,
@@ -30,6 +29,7 @@ import {
   uploadAndProcessExcel,
 } from '../../api/excel-final.api';
 import { downloadFile } from '../../api/files.api';
+import { describeApiError } from '../../api/error';
 import { listJobsPage, retryJob } from '../../api/jobs.api';
 import ExcelPreview from '../../components/ExcelPreview';
 import type { ExcelFinalBatchSummary } from '../../types/excel-final';
@@ -61,14 +61,6 @@ const STATUS_TEXT: Record<string, string> = {
   failed: '失败',
   cancelled: '已取消',
 };
-
-function errorMessage(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error)) {
-    const body = error.response?.data as { error?: { message?: string } } | undefined;
-    if (body?.error?.message) return body.error.message;
-  }
-  return error instanceof Error ? error.message : fallback;
-}
 
 function numberText(value: number | null | undefined, digits = 2): string {
   return value == null ? '-' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
@@ -153,7 +145,7 @@ export function ExcelFinalPage() {
       );
       await queryClient.invalidateQueries({ queryKey: ['jobs', TASK_TYPE] });
     } catch (error) {
-      message.error(errorMessage(error, '提交失败'));
+      message.error(describeApiError(error, '提交失败'));
     } finally {
       setSubmitting(false);
     }
@@ -170,7 +162,7 @@ export function ExcelFinalPage() {
       const fileId = await loadJobResult(jobId);
       await downloadFile(fileId, `excel-final-${jobId}.xlsx`);
     } catch (error) {
-      message.error(errorMessage(error, '下载失败'));
+      message.error(describeApiError(error, '下载失败'));
     }
   }
 
@@ -182,7 +174,7 @@ export function ExcelFinalPage() {
       setPreviewFileId(fileId);
       setPreviewName(`excel-final-${jobId}.xlsx`);
     } catch (error) {
-      message.error(errorMessage(error, '预览失败'));
+      message.error(describeApiError(error, '预览失败'));
     }
   }
 
@@ -197,7 +189,7 @@ export function ExcelFinalPage() {
         queryClient.invalidateQueries({ queryKey: ['excel-final-status', jobId], exact: true, refetchType: 'all' }),
       ]);
     } catch (error) {
-      message.error(errorMessage(error, '重试失败'));
+      message.error(describeApiError(error, '重试失败'));
     }
   }
 
@@ -261,7 +253,7 @@ export function ExcelFinalPage() {
         health={healthQ.data}
         overview={overviewQ.data}
         loading={healthQ.isLoading || overviewQ.isLoading}
-        error={healthQ.isError || overviewQ.isError ? errorMessage(healthQ.error ?? overviewQ.error, '无法读取数据概览') : undefined}
+        error={healthQ.isError || overviewQ.isError ? describeApiError(healthQ.error ?? overviewQ.error, '无法读取数据概览') : undefined}
       />
 
       <section className="excel-final-ingest" aria-label="Excel 文件入库">
@@ -287,7 +279,7 @@ export function ExcelFinalPage() {
         </div>
       </section>
 
-      {statusQ.isError && <Alert type="error" showIcon message={`任务 #${activeJobId} 状态读取失败`} description={errorMessage(statusQ.error, '任务可能不存在或无权访问')} />}
+      {statusQ.isError && <Alert type="error" showIcon message={`任务 #${activeJobId} 状态读取失败`} description={describeApiError(statusQ.error, '任务可能不存在或无权访问')} />}
       {activeStatus && (
         <section className={`excel-final-active-job is-${activeStatus.status}`} aria-label={`任务 ${activeStatus.job_id} 状态`}>
           <div className="excel-final-active-head">
@@ -306,7 +298,7 @@ export function ExcelFinalPage() {
 
       <section className="excel-final-data-section">
         <div className="excel-final-section-head"><div><span>DATABASE RECORDS</span><Typography.Title level={4}>处理批次</Typography.Title></div><small>精确总数 · 服务端分页 · 权限过滤</small></div>
-        {batchesQ.isError && <Alert type="error" showIcon message="批次列表加载失败" description={errorMessage(batchesQ.error, '请检查数据库连接')} />}
+        {batchesQ.isError && <Alert type="error" showIcon message="批次列表加载失败" description={describeApiError(batchesQ.error, '请检查数据库连接')} />}
         <Table<ExcelFinalBatchSummary>
           rowKey="batch_id" size="middle" loading={batchesQ.isLoading} dataSource={batchesQ.data?.data ?? []}
           columns={batchColumns} scroll={{ x: 1120 }}
@@ -325,7 +317,7 @@ export function ExcelFinalPage() {
 
       <section className="excel-final-data-section">
         <div className="excel-final-section-head"><div><span>EXECUTION LEDGER</span><Typography.Title level={4}>近期任务</Typography.Title></div><small>仅轮询活动任务，避免批次 N+1 请求</small></div>
-        {jobsQ.isError && <Alert type="error" showIcon message="任务列表加载失败" description={errorMessage(jobsQ.error, '请稍后重试')} />}
+        {jobsQ.isError && <Alert type="error" showIcon message="任务列表加载失败" description={describeApiError(jobsQ.error, '请稍后重试')} />}
         <Table<Job> rowKey="id" size="small" loading={jobsQ.isLoading} dataSource={recentJobs} columns={jobColumns} pagination={false} scroll={{ x: 850 }} />
       </section>
 

@@ -17,7 +17,6 @@ import {
   ReloadOutlined,
   ScanOutlined,
 } from '@ant-design/icons';
-import axios from 'axios';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
 
 import {
@@ -25,6 +24,7 @@ import {
   fetchDxfPreview,
   fetchDxfPreviewBlob,
 } from '../api/files.api';
+import { describeApiError } from '../api/error';
 import type { DxfPreviewResponse } from '../types/file';
 import './DxfPreviewModal.css';
 
@@ -47,14 +47,6 @@ function aciColor(index: number): string {
     8: '#94a3b8',
     9: '#cbd5e1',
   } as Record<number, string>)[Math.abs(index)] ?? '#a7bacb';
-}
-
-function previewError(error: unknown): string {
-  if (axios.isAxiosError(error)) {
-    const body = error.response?.data as { error?: { message?: string } } | undefined;
-    if (body?.error?.message) return body.error.message;
-  }
-  return error instanceof Error ? error.message : 'DXF 预览加载失败';
 }
 
 export function DxfPreviewModal({
@@ -109,7 +101,7 @@ export function DxfPreviewModal({
         setObjectUrl(url);
         setData(metadata);
       } catch (loadError) {
-        if (!controller.signal.aborted && active) setError(previewError(loadError));
+        if (!controller.signal.aborted && active) setError(describeApiError(loadError, 'DXF 预览加载失败'));
       } finally {
         if (active) setLoading(false);
       }
@@ -128,7 +120,7 @@ export function DxfPreviewModal({
     try {
       await downloadFile(fileId, fileName);
     } catch (downloadError) {
-      message.error(previewError(downloadError));
+      message.error(describeApiError(downloadError, 'DXF 预览加载失败'));
     }
   }, [fileId, fileName, message]);
 

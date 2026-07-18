@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
 import {
   Alert,
   Button,
@@ -23,6 +22,7 @@ import {
   listExcelFinalParts,
   type ExcelFinalPartFilters,
 } from '../../../api/excel-final.api';
+import { describeApiError } from '../../../api/error';
 import type { ExcelFinalComponent, ExcelFinalPart } from '../../../types/excel-final';
 
 interface ExcelFinalBatchDrawerProps {
@@ -33,14 +33,6 @@ interface ExcelFinalBatchDrawerProps {
 
 function number(value: number | null | undefined, digits = 2): string {
   return value == null ? '-' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
-}
-
-function apiError(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error)) {
-    const body = error.response?.data as { error?: { message?: string } } | undefined;
-    if (body?.error?.message) return body.error.message;
-  }
-  return error instanceof Error ? error.message : fallback;
 }
 
 export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatchDrawerProps) {
@@ -132,7 +124,7 @@ export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatc
         onClose={onClose}
         extra={<Button icon={<ReloadOutlined />} onClick={() => void detailQ.refetch()}>刷新</Button>}
       >
-        {detailQ.isError && <Alert type="error" showIcon message={apiError(detailQ.error, '批次详情加载失败')} />}
+        {detailQ.isError && <Alert type="error" showIcon message={describeApiError(detailQ.error, '批次详情加载失败')} />}
         {detail && (
           <>
             <div className="excel-final-batch-summary">
@@ -182,7 +174,7 @@ export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatc
                     <Button icon={<FilterOutlined />} type="primary" onClick={applyFilters}>筛选</Button>
                     <Button onClick={() => { setFilterDraft({}); setFilters({}); setPartPage(1); }}>重置</Button>
                   </Space>
-                  {partsQ.isError && <Alert type="error" showIcon message={apiError(partsQ.error, '零件列表加载失败')} />}
+                  {partsQ.isError && <Alert type="error" showIcon message={describeApiError(partsQ.error, '零件列表加载失败')} />}
                   <Table<ExcelFinalPart>
                     rowKey="id"
                     size="small"
@@ -200,7 +192,7 @@ export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatc
               key: 'components',
               label: `构件 ${detail?.component_count ?? ''}`,
               children: componentsQ.isError ? (
-                <Alert type="error" showIcon message={apiError(componentsQ.error, '构件列表加载失败')} />
+                <Alert type="error" showIcon message={describeApiError(componentsQ.error, '构件列表加载失败')} />
               ) : (
                 <Table<ExcelFinalComponent>
                   rowKey="id"
@@ -226,7 +218,7 @@ export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatc
         width={760}
         destroyOnHidden
       >
-        {partQ.isError && <Alert type="error" showIcon message={apiError(partQ.error, '零件详情加载失败')} />}
+        {partQ.isError && <Alert type="error" showIcon message={describeApiError(partQ.error, '零件详情加载失败')} />}
         {partQ.data && (
           <Descriptions
             bordered
