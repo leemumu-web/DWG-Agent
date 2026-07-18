@@ -305,6 +305,70 @@ def test_files_newer_than_epoch_uses_real_mtimes(tmp_path):
     assert fresh.returncode == 1
 
 
+def test_doctor_groups_4xx_separates_499_and_redacts_queries(tmp_path):
+    access_log = tmp_path / "access.log"
+    access_log.write_text(
+        "\n".join(
+            [
+                '127.0.0.1 - - [18/Jul/2026:11:16:14 +0800] "POST /api/v1/files/batches/bulk-delete HTTP/1.1" 405 179 "-" "Chrome" rt=0.002 rid=route-405',
+                '127.0.0.1 - - [18/Jul/2026:11:16:16 +0800] "POST /api/v1/files/download-zip?signature=secret-signature HTTP/1.1" 409 248 "-" "Chrome" rt=0.192 rid=zip-409',
+                '127.0.0.1 - - [18/Jul/2026:11:16:18 +0800] "POST /api/v1/files?batch_name=private-name HTTP/1.1" 499 0 "-" "Chrome" rt=1.200 rid=upload-499',
+                '127.0.0.1 - - [18/Jul/2026:11:16:20 +0800] "GET /api/v1/health HTTP/1.1" 200 10 "-" "Chrome" rt=0.001 rid=ok-200',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts/doctor.sh"), "--log-only"],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "NGINX_ACCESS_LOG": str(access_log),
+            "DOCTOR_SINCE_MINUTES": "0",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "HTTP 405" in result.stdout
+    assert "HTTP 409" in result.stdout
+    assert "客户端断开 (499)" in result.stdout
+    assert "/api/v1/files/download-zip" in result.stdout
+    assert "route-405" in result.stdout
+    assert "zip-409" in result.stdout
+    assert "secret-signature" not in result.stdout
+    assert "private-name" not in result.stdout
+
+
+def test_doctor_missing_log_is_unchecked_not_healthy(tmp_path):
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts/doctor.sh"), "--log-only"],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "NGINX_ACCESS_LOG": str(tmp_path / "missing.log")},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "未检查" in result.stdout
+
+
+def test_verify_script_exposes_quick_full_and_blocked_modes():
+    content = _read("scripts/verify.sh")
+
+    assert "quick" in content
+    assert "full" in content
+    assert "--allow-blocked" in content
+    assert "run_gate" in content
+    assert "make docs-check" in content
+    assert "npm run build" in content
+
+
 def test_nginx_proxies_fastapi_documentation_routes():
     for relative_path in ("infra/nginx/nginx.local.conf", "infra/nginx/nginx.conf"):
         content = _read(relative_path)
