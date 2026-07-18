@@ -74,16 +74,15 @@ assert_file "$NGINX_LOCAL"   "nginx.local.conf (本地) 存在"
 # 1.2 语法检查
 echo ""
 dim "  nginx 语法检查..."
-if sudo nginx -t -c "$(pwd)/$NGINX_LOCAL" 2>&1 | grep -q 'successful'; then
+NGINX_TEST_CMD=(nginx -t -c "$(pwd)/$NGINX_LOCAL")
+if sudo -n true 2>/dev/null; then
+    NGINX_TEST_CMD=(sudo nginx -t -c "$(pwd)/$NGINX_LOCAL")
+fi
+OUT=$("${NGINX_TEST_CMD[@]}" 2>&1) || true
+if echo "$OUT" | grep -q 'syntax is ok'; then
     pass "nginx.local.conf 语法通过"
 else
-    # Retry with stderr capture
-    OUT=$(sudo nginx -t -c "$(pwd)/$NGINX_LOCAL" 2>&1) || true
-    if echo "$OUT" | grep -q 'syntax is ok'; then
-        pass "nginx.local.conf 语法通过"
-    else
-        fail "nginx.local.conf 语法" "$(echo "$OUT" | tail -1)"
-    fi
+    fail "nginx.local.conf 语法" "$(echo "$OUT" | tail -1)"
 fi
 
 # 1.3 Docker nginx.conf: 自包含（无 include conf.d 或 snippets）
@@ -189,17 +188,29 @@ if "/health/ready" not in backend_hc:
 if set(backend.get("depends_on", {})) != {"mysql", "minio"}:
     errors.append("backend-api depends_on 应为 mysql + minio")
 
+cad_worker_script = open("scripts/run-cad-worker.sh").read()
 for name, queue in workers.items():
     worker = svcs.get(name, {})
-    command = str(worker.get("command", ""))
-    if f"-Q {queue}" not in command:
-        errors.append(f"{name} 队列名错误")
-    if "app.workers.celery_app:celery_app" not in command:
-        errors.append(f"{name} Celery app 路径错误")
+    command_value = worker.get("command", "")
+    command = str(command_value)
+    is_cad_worker = name in {"worker-dxf", "worker-dxf2dwg"}
+    if is_cad_worker:
+        if not isinstance(command_value, list) or command_value[:2] != ["/app/scripts/run-cad-worker.sh", queue]:
+            errors.append(f"{name} 包装脚本或队列名错误")
+        if '-A app.workers.celery_app:celery_app worker' not in cad_worker_script:
+            errors.append(f"{name} Celery app 路径错误")
+        if '-Q "$queue"' not in cad_worker_script:
+            errors.append(f"{name} 包装脚本未传递队列")
+    else:
+        if f"-Q {queue}" not in command:
+            errors.append(f"{name} 队列名错误")
+        if "app.workers.celery_app:celery_app" not in command:
+            errors.append(f"{name} Celery app 路径错误")
     if "uv run celery" in command:
         errors.append(f"{name} 不应依赖 runtime 中的 uv")
     worker_hc = healthcheck_cmd(worker)
-    if "/proc/1/cmdline" not in worker_hc or "/tmp/dwg-celery-ready" not in worker_hc or "inspect" in worker_hc:
+    process_probe = (f"/tmp/dwg-celery-{queue}.pid" in worker_hc and "kill -0" in worker_hc) if is_cad_worker else "/proc/1/cmdline" in worker_hc
+    if not process_probe or "/tmp/dwg-celery-ready" not in worker_hc or "inspect" in worker_hc:
         errors.append(f"{name} 应使用 ready marker + 进程健康检查，不能使用 Celery remote control")
     if "backend-api" not in worker.get("depends_on", {}):
         errors.append(f"{name} 必须等待迁移完成后的 backend-api")
