@@ -17,4 +17,4 @@ npm run build
 npx playwright test
 ```
 
-Playwright 默认通过 Nginx `8080`。真实 Excel Final 摘要闭环需要 `PLAYWRIGHT_EXCEL_SAMPLE_PATH` 指向业务有效样本；route fixture 只能证明 UI/API contract，不能证明 MySQL/Celery/MinIO 实际链路。生产流程 `source_intake` 复用 `/files` 上传多个 DWG 和单个 Excel，服务器创建 DWG→DXF Job、显示逐文件配对并在冻结时创建图纸；后续核心留白阶段仍只暴露接口和交接产物契约。详见[验证文档](../docs/workflow-verification.md)。
+Playwright 默认通过 Nginx `8080`。真实 Excel Final 摘要闭环需要 `PLAYWRIGHT_EXCEL_SAMPLE_PATH` 指向业务有效样本；route fixture 只能证明 UI/API contract，不能证明 MySQL/Celery/MinIO 实际链路。生产流程页以“提交生产批次”为主入口，连续创建并启动 workflow 后立即进入资料上传；无项目时先引导创建项目，draft 保留恢复按钮。`source_intake` 复用 `/files` 上传多个 DWG 和单个 Excel，服务器创建 DWG→DXF Job、显示逐文件配对并在冻结时创建图纸；后续核心留白阶段仍只暴露接口和交接产物契约。详见[验证文档](../docs/workflow-verification.md)。

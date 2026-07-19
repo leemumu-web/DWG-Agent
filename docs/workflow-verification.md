@@ -71,7 +71,7 @@ python tests/run_full_verify.py
 |---|---|---|
 | 输入 service/API/CAD batch 聚焦回归 | **29 passed** | 登记、真实对象校验、转换幂等/attempt 重试、broker 失败补偿、配对、冻结、项目权限、OpenAPI schema、冻结文件删除保护。 |
 | Backend 全量 | **980 passed，6 skipped** | 当前全部 API/service/security/state/migration 回归；15 条既有 dependency/deprecation warning。 |
-| Frontend contract | **22 passed** | 专用面板、DWG/Excel accept、人工 DXF 错误、UUID 上传幂等键、冻结确认与 API 路径。 |
+| Frontend contract | **23 passed** | 页面级生产批次提交、创建后自动启动、draft 恢复入口、专用面板、DWG/Excel accept、人工 DXF 错误、UUID 上传幂等键、冻结确认与 API 路径。 |
 | Frontend production build | **pass** | React 19 + TypeScript 6 + Vite 8；服务器返回的 `source_dwg`/`source_excel` 角色与 UI 一致。 |
 | Playwright 生产输入场景 | **1 passed** | 在 Nginx 当前构建上验证拒绝人工 DXF、上传 DWG/Excel、服务器配对反馈、冻结确认和只读清单；route fixture 不写真实生产数据。 |
 | API/文档一致性 | **pass** | 104 paths / 124 operations；生产输入成功响应使用具名 Pydantic envelope，不是空 OpenAPI schema。 |
