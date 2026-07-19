@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import hashlib
+from io import BytesIO
 from uuid import uuid4
 
+import openpyxl
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.schemas.workflow_schema import WorkflowCreate
-from app.services import workflow_service
+from app.services import workflow_input_service, workflow_service
+from app.storage.local_storage import LocalFileStorage
 
 
 def _workflow(db):
@@ -58,6 +63,33 @@ def _file(db, name: str) -> StoredFile:
     db.add(stored)
     db.flush()
     return stored
+
+
+def _stored_object(db, storage: LocalFileStorage, name: str, payload: bytes) -> StoredFile:
+    bucket = "test-inputs"
+    storage_key = f"inputs/{uuid4().hex}/{name}"
+    storage.put_fileobj(bucket, storage_key, BytesIO(payload), length=len(payload))
+    stored = StoredFile(
+        bucket=bucket,
+        storage_key=storage_key,
+        original_name=name,
+        file_ext=f".{name.rsplit('.', 1)[-1].lower()}",
+        content_type="application/octet-stream",
+        size_bytes=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        status="available",
+    )
+    db.add(stored)
+    db.flush()
+    return stored
+
+
+def _xlsx_bytes() -> bytes:
+    workbook = openpyxl.Workbook()
+    workbook.active["A1"] = "构件编号"
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
 
 
 def test_input_batch_model_has_one_batch_per_workflow_and_ordered_items(db):
@@ -118,3 +150,81 @@ def test_input_batch_model_has_one_batch_per_workflow_and_ordered_items(db):
     )
     with pytest.raises(IntegrityError):
         db.flush()
+
+
+def test_registers_multiple_real_dwgs_and_one_readable_excel(db, tmp_path, monkeypatch):
+    user, _, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
+    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    first = _stored_object(db, storage, " B  01.dwg", b"AC1027" + bytes(2048))
+    second = _stored_object(db, storage, "A.dwg", b"AC1018" + bytes(2048))
+    excel = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
+
+    first_item = workflow_input_service.register_input_file(db, batch, first)
+    second_item = workflow_input_service.register_input_file(db, batch, second)
+    excel_item = workflow_input_service.register_input_file(db, batch, excel)
+    replay = workflow_input_service.register_input_file(db, batch, first)
+
+    assert first_item.normalized_stem == "b 01"
+    assert second_item.role == "source_dwg"
+    assert excel_item.role == "source_excel"
+    assert replay.id == first_item.id
+    assert len(batch.items) == 3
+
+
+def test_rejects_human_dxf_with_stable_error(db, tmp_path, monkeypatch):
+    user, _, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
+    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    dxf = _stored_object(db, storage, "manual.dxf", b"0\nSECTION\n0\nEOF\n")
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_service.register_input_file(db, batch, dxf)
+
+    assert error.value.detail["code"] == "INPUT_DXF_NOT_ALLOWED"
+    assert batch.items == []
+
+
+def test_rejects_second_excel_without_changing_batch(db, tmp_path, monkeypatch):
+    user, _, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
+    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    first = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
+    second = _stored_object(db, storage, "other.xlsx", _xlsx_bytes())
+    workflow_input_service.register_input_file(db, batch, first)
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_service.register_input_file(db, batch, second)
+
+    assert error.value.detail["code"] == "INPUT_EXCEL_ALREADY_EXISTS"
+    assert [item.file_id for item in batch.items] == [first.id]
+
+
+def test_rejects_object_digest_mismatch(db, tmp_path, monkeypatch):
+    user, _, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
+    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    stored = _stored_object(db, storage, "source.dwg", b"AC1027" + bytes(2048))
+    stored.sha256 = "0" * 64
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_service.register_input_file(db, batch, stored)
+
+    assert error.value.detail["code"] == "INPUT_OBJECT_CHECKSUM_MISMATCH"
+
+
+def test_rejects_fake_xlsx_container(db, tmp_path, monkeypatch):
+    user, _, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
+    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    fake = _stored_object(db, storage, "fake.xlsx", b"not an excel container")
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_service.register_input_file(db, batch, fake)
+
+    assert error.value.detail["code"] == "INPUT_EXCEL_UNREADABLE"
