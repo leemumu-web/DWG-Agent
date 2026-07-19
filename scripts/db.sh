@@ -350,6 +350,7 @@ expected_tables = {
     "drawings",
     "dxf_classification_items",
     "dxf_classification_runs",
+    "control_plane_events",
     "excel_final_batches",
     "excel_final_components",
     "excel_final_parts",
@@ -358,6 +359,7 @@ expected_tables = {
     "job_steps",
     "jobs",
     "project_members",
+    "platform_messages",
     "projects",
     "review_records",
     "sys_permissions",
@@ -373,6 +375,7 @@ expected_tables = {
     "workflow_input_items",
     "workflow_runs",
     "workflow_stage_runs",
+    "worker_runtimes",
 }
 timestamp_tables = (
     "project_members",
@@ -401,7 +404,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "a9e4c7d2f610":
+    if version != "c1e9a4b7d220":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}

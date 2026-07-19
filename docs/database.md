@@ -98,9 +98,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-Alembic/SQLAlchemy 管理 **32 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 33 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **41 张表**。
+Alembic/SQLAlchemy 管理 **35 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 36 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **44 张表**。
 
-不能把 41 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 33 张；Kombu broker 与 result backend 又可能分阶段建表。2026-07-12 的 33 表观察值是新增输入账本前的历史证据。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
+不能把 44 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 36 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -628,8 +628,9 @@ analysis_results ──< workflow_artifacts
 | `d5e8a1c4b720` | 新增 `jobs.request_key` 与用户/任务/请求键唯一约束 | 2026-07-13 |
 | `f7a9c2d4e610` | 新增生产输入批次与条目账本 | 2026-07-19 |
 | `a9e4c7d2f610` | 新增 DXF 分类 run/item 账本，并为 Linux 流程插入独立分类阶段 | 2026-07-19 |
+| `c1e9a4b7d220` | 新增 Worker 活动、控制平面事件与管理员运维消息账本 | 2026-07-19 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40 → 9c4e7b1a2d60 → d5e8a1c4b720 → f7a9c2d4e610 → a9e4c7d2f610`；**`a9e4c7d2f610` 是当前 head。**
+线性迁移链以 `a9e4c7d2f610 → c1e9a4b7d220` 延伸；**`c1e9a4b7d220` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -680,7 +681,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **32 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入与 DXF 分类账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **35 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、DXF 分类和控制平面账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
@@ -769,7 +770,7 @@ bash scripts/db.sh init
 
 | 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL `dwg_agent` | 32 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
+| MySQL `dwg_agent` | 35 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
 | `hardware_handbook` | schema/data 或独立管理的权威源 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |

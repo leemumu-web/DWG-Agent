@@ -6,6 +6,7 @@ from app.api.v1 import (
     agent_runs_api,
     audit_logs_api,
     auth_api,
+    control_plane_api,
     data_admin_api,
     drawings_api,
     excel_final_api,
@@ -39,6 +40,7 @@ api_router.include_router(reviews_api.router, prefix="/reviews", tags=["reviews"
 api_router.include_router(audit_logs_api.router, prefix="/audit-logs", tags=["audit-logs"])
 api_router.include_router(agent_runs_api.router, tags=["agent-runs"])
 api_router.include_router(system_api.router, prefix="/system", tags=["system"])
+api_router.include_router(control_plane_api.router, prefix="/control-plane", tags=["control-plane"])
 api_router.include_router(excel_final_api.router, prefix="/excel-final", tags=["excel-final"])
 api_router.include_router(workflows_api.router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(

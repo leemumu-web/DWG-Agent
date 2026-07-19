@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     # A running job with no DB update for this long is failed when a worker starts.
     # Keep this above the longest configured converter timeout.
     celery_stale_job_timeout_seconds: int = 600
+    # A signal/activity observation older than this is rendered stale in the
+    # control-plane UI. It is not a worker lease or a replacement for a broker.
+    control_plane_worker_stale_seconds: int = Field(default=180, ge=30, le=3600)
 
     @property
     def sqlalchemy_database_url(self) -> str:

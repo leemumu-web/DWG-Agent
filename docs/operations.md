@@ -15,7 +15,7 @@ bash scripts/doctor.sh --since-minutes 60
 bash scripts/stop-all.sh
 ```
 
-`start-all.sh` 按需构建前端，启动五个已实现队列 worker、FastAPI `8010` 和本地 Nginx `8080`。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。
+`start-all.sh` 按需构建前端，启动已实现队列 worker 及 `dispatch`、`maintenance` 两个框架预留 worker、FastAPI `8010` 和本地 Nginx `8080`。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。每个启动脚本还传入队列/并发环境元数据，供控制平面写入 MySQL 活动记录；它不构成分布式 lease。
 
 后端代码晚于当前 Uvicorn 进程时，`status.sh` 报告“运行代码已过期”并返回非零。此时使用 `bash scripts/start-all.sh --restart-backend`；它只优雅停止 cwd 为本仓库 `backend/` 的 Uvicorn，未知进程占用 8010 时拒绝操作。前端源码、依赖清单或构建配置晚于 `dist/index.html` 时，普通 `start-all.sh` 会重新构建，也可用 `--rebuild` 强制执行。
 
@@ -116,7 +116,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `a9e4c7d2f610` 和 32 张模型表，额外验证生产输入、DXF 分类账本、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 的空 MySQL/MinIO Compose 验证是新增输入账本前的历史证据。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `c1e9a4b7d220` 和 35 张模型表，额外验证生产输入、DXF 分类和控制平面账本、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 

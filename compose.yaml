@@ -85,6 +85,9 @@ services:
     command: celery -A app.workers.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
     volumes:
       - app_var:/app/var
+    environment:
+      DWG_WORKER_QUEUE: report
+      DWG_WORKER_CONCURRENCY: "2"
 
   worker-dxf:
     <<: *worker
@@ -118,6 +121,9 @@ services:
     volumes:
       - app_var:/app/var
     profiles: [workers]
+    environment:
+      DWG_WORKER_QUEUE: dxf2excel
+      DWG_WORKER_CONCURRENCY: "1"
 
   worker-dxf-classification:
     <<: *worker
@@ -125,6 +131,9 @@ services:
     volumes:
       - app_var:/app/var
     profiles: [workers]
+    environment:
+      DWG_WORKER_QUEUE: dxf_classification
+      DWG_WORKER_CONCURRENCY: "1"
 
   worker-excel-final:
     <<: *worker
@@ -132,6 +141,30 @@ services:
     volumes:
       - app_var:/app/var
     profiles: [workers]
+    environment:
+      DWG_WORKER_QUEUE: excel_final
+      DWG_WORKER_CONCURRENCY: "1"
+
+  # Framework-only workers: their queues are observable but no core task is routed yet.
+  worker-dispatch:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q dispatch -n dispatch@%h --concurrency=1
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      DWG_WORKER_QUEUE: dispatch
+      DWG_WORKER_CONCURRENCY: "1"
+
+  worker-maintenance:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q maintenance -n maintenance@%h --concurrency=1
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      DWG_WORKER_QUEUE: maintenance
+      DWG_WORKER_CONCURRENCY: "1"
 
   # Placeholder queue only. AGENT_ENABLED must remain false until an Agent task exists.
   worker-agent:
