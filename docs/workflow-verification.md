@@ -63,7 +63,24 @@ python tests/run_full_verify.py
 
 生成 OpenAPI 当前包含 104 个 path、124 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
 
-## 3.1 2026-07-19 Linux 生产工作流证据
+## 3.1 2026-07-19 生产输入冻结发布证据
+
+本轮把 `source_intake` 收敛为“人工上传多个 DWG + 恰好一个 Excel，服务器生成 DXF 并冻结”的专用闭环。文件字节仍由 `/files` 管理，DWG→DXF 复用既有 Job/Celery/ODA 路径，冻结创建 Drawing/Version 和规范清单哈希；人工 DXF、第二个 Excel、摘要/格式异常、同名冲突、通用 completion 绕过和冻结文件旁路删除均被拒绝。
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| 输入 service/API/CAD batch 聚焦回归 | **29 passed** | 登记、真实对象校验、转换幂等/attempt 重试、broker 失败补偿、配对、冻结、项目权限、OpenAPI schema、冻结文件删除保护。 |
+| Backend 全量 | **980 passed，6 skipped** | 当前全部 API/service/security/state/migration 回归；15 条既有 dependency/deprecation warning。 |
+| Frontend contract | **22 passed** | 专用面板、DWG/Excel accept、人工 DXF 错误、UUID 上传幂等键、冻结确认与 API 路径。 |
+| Frontend production build | **pass** | React 19 + TypeScript 6 + Vite 8；服务器返回的 `source_dwg`/`source_excel` 角色与 UI 一致。 |
+| Playwright 生产输入场景 | **1 passed** | 在 Nginx 当前构建上验证拒绝人工 DXF、上传 DWG/Excel、服务器配对反馈、冻结确认和只读清单；route fixture 不写真实生产数据。 |
+| API/文档一致性 | **pass** | 104 paths / 124 operations；生产输入成功响应使用具名 Pydantic envelope，不是空 OpenAPI schema。 |
+| 活动 MySQL 与全栈 | **pass** | 活动库从 `d5e8a1c4b720` 增量升级到 `f7a9c2d4e610`，当前 39 张运行表；FastAPI 重启后源码时间一致，五类 worker、Nginx、API proxy 和 SPA 全部正常。 |
+| 独立代码复核 | **pass** | 并发创建、单 Excel 行锁、broker 补偿和冻结文件保护四项 Important 修复后复核，无剩余 Critical/Important。 |
+
+本轮没有向真实项目提交业务 DWG，因此 Playwright 证明 UI/API 状态契约，980 项隔离测试证明服务器不变量，运行状态证明当前 MySQL/worker/API/Nginx 拓扑可用；真实 ODA 输出质量仍须在发布批次中用获准 DWG 样本验收，不能用 fixture 冒充。
+
+## 3.2 2026-07-19 Linux 生产工作流证据
 
 本轮以当前源码搭建 `linux_production` 九阶段服务器框架。DXF→Excel 与 Excel Final 调用既有 Job/Celery 接口；图纸拆板、CAM 工作包、Windows CAM 和结果接纳只暴露稳定输入、产物和 501 留白契约，不把核心算法伪装为已实现。
 
