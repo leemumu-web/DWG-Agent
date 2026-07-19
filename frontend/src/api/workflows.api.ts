@@ -7,6 +7,7 @@ import type {
   WorkflowRun,
   WorkflowStageExecutionPayload,
   WorkflowTemplate,
+  DxfClassificationRun,
 } from '../types/workflow';
 
 export interface WorkflowListParams {
@@ -82,5 +83,12 @@ export async function executeWorkflowStage(
   const response = await apiClient.post<
     ApiEnvelope<{ workflow: WorkflowDetail; job: Job; reused: boolean; retried: boolean }>
   >(`/api/v1/workflows/${workflowId}/stages/${stageCode}/executions`, payload);
+  return response.data.data;
+}
+
+export async function getDxfClassification(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<DxfClassificationRun | null>>(
+    `/api/v1/workflows/${workflowId}/dxf-classification`,
+  );
   return response.data.data;
 }

@@ -34,6 +34,11 @@ async function mockWorkflow(page: Page) {
     status: 'waiting_input', job_id: null, job_attempt: null, progress: 0,
     input_json: null, output_json: null, error_code: null, error_message: null,
     started_at: now, finished_at: null, created_at: now, updated_at: now,
+  }, {
+    id: 92, stage_code: 'dxf_classification', name: 'DXF 分类与分流', sequence: 2,
+    status: 'pending', job_id: null, job_attempt: null, progress: 0,
+    input_json: null, output_json: null, error_code: null, error_message: null,
+    started_at: null, finished_at: null, created_at: now, updated_at: now,
   }];
   const template = {
     code: 'linux_production', name: 'Linux 生产流程', description: '生产输入',
@@ -42,10 +47,16 @@ async function mockWorkflow(page: Page) {
       description: '上传多个 DWG 和一个 Excel，由服务器生成 DXF',
       execution_mode: 'manual', implementation_status: 'implemented', execution_kind: null,
       required_inputs: ['dwg_files', 'excel_file'], artifact_types: ['source_file', 'source_excel', 'derived_dxf'],
+    }, {
+      code: 'dxf_classification', name: 'DXF 分类与分流',
+      description: '调用 Steel DXF Classifier 1.1.0 预处理并按零件类型分流冻结 DXF',
+      execution_mode: 'automated', implementation_status: 'implemented', execution_kind: 'steel_dxf_classification',
+      required_inputs: ['frozen_derived_dxf'], artifact_types: ['classified_dxf', 'classification_report', 'classification_manifest'],
     }],
   };
   let items: Array<Record<string, unknown>> = [];
   let frozen = false;
+  let classificationStarted = false;
   let nextFileId = 700;
   const batch = () => ({
     id: 501, workflow_run_id: 41, project_id: 7, status: frozen ? 'frozen' : items.some((item) => item.derived_dxf) ? 'ready_to_freeze' : 'uploading',
@@ -72,8 +83,37 @@ async function mockWorkflow(page: Page) {
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
   await page.route('**/api/v1/workflows?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...envelope([workflow]), pagination: { page: 1, page_size: 20, total: 1, total_pages: 1 } }) }));
   await page.route('**/api/v1/workflows', (route) => json(route, { ...workflow, status: 'draft', started_at: null, stages, artifacts: [] }, 201));
-  await page.route('**/api/v1/workflows/41/start', (route) => json(route, { ...workflow, stages, artifacts: [] }));
-  await page.route('**/api/v1/workflows/41', (route) => json(route, { ...workflow, stages, artifacts: [] }));
+  const workflowDetail = () => ({
+    ...workflow,
+    current_stage: frozen ? 'dxf_classification' : 'source_intake',
+    status: classificationStarted ? 'running' : 'waiting_input',
+    stages: stages.map((stage) => stage.stage_code === 'source_intake'
+      ? { ...stage, status: frozen ? 'succeeded' : 'waiting_input', progress: frozen ? 100 : 0 }
+      : { ...stage, status: classificationStarted ? 'running' : frozen ? 'waiting_input' : 'pending', job_id: classificationStarted ? 990 : null, job_attempt: classificationStarted ? 1 : null, progress: classificationStarted ? 35 : 0 }),
+    artifacts: [],
+  });
+  await page.route('**/api/v1/workflows/41/start', (route) => json(route, workflowDetail()));
+  await page.route('**/api/v1/workflows/41/stages/dxf_classification/executions', async (route) => {
+    classificationStarted = true;
+    await json(route, {
+      workflow: workflowDetail(),
+      job: { id: 990, project_id: 7, drawing_id: null, created_by: 1, task_type: 'classify_steel_dxf', precision_level: 'normal', pipeline: 'steel_dxf_classifier', status: 'queued', attempt: 1, priority: 0, progress: 0, params_json: { workflow_id: 41 }, error_code: null, error_message: null, progress_data: null, created_at: now, updated_at: now, started_at: null, finished_at: null },
+      reused: false,
+      retried: false,
+    }, 202);
+  });
+  await page.route('**/api/v1/workflows/41/dxf-classification', (route) => json(route, classificationStarted ? {
+    id: 77, workflow_run_id: 41, status: 'completed', classifier_version: '1.1.0',
+    report_schema: 'STEEL-DXF-CLASSIFICATION-1.1', cli_schema: 'STEEL-DXF-CLI-1.1',
+    project_name: 'P7-workflow-41', input_manifest_sha256: 'a'.repeat(64), input_count: 1,
+    classified_count: 1, review_required_count: 0, unreadable_count: 0, type_counts: { BH: 1 },
+    report_file: storedFile(910, 'P7-workflow-41_分类报告.json'),
+    manifest_file: storedFile(911, 'P7-workflow-41_分类清单.csv'),
+    job: { id: 990, project_id: 7, drawing_id: null, created_by: 1, task_type: 'classify_steel_dxf', precision_level: 'normal', pipeline: 'steel_dxf_classifier', status: 'succeeded', attempt: 1, priority: 0, progress: 100, params_json: { workflow_id: 41 }, error_code: null, error_message: null, progress_data: null, created_at: now, updated_at: now, started_at: now, finished_at: now },
+    items: [{ id: 88, drawing_id: 1000, source_file: storedFile(900, 'panel-A.dxf'), output_file: storedFile(912, 'panel-A_拆板前.dxf'), source_name: 'panel-A.dxf', output_name: 'panel-A_拆板前.dxf', output_directory: 'P7-workflow-41_BH_dxf', disposition: 'classified', part_type: 'BH', diagnostics: [] }],
+    error_code: null, error_message: null, started_at: now, finished_at: now, created_at: now, updated_at: now,
+  } : null));
+  await page.route('**/api/v1/workflows/41', (route) => json(route, workflowDetail()));
   await page.route('**/api/v1/files/batches**', (route) => json(route, []));
   await page.route('**/api/v1/files?**', async (route) => {
     if (route.request().method() === 'GET') {
@@ -157,4 +197,8 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await page.getByRole('button', { name: '确认冻结' }).click();
   await expect(page.getByText('输入版本已冻结')).toBeVisible();
   await expect(page.getByText(`版本 v1 · 清单 ${'a'.repeat(64)}`)).toBeVisible();
+  await expect(page.getByRole('button', { name: '开始 DXF 分类分流' })).toBeVisible();
+  await page.getByRole('button', { name: '开始 DXF 分类分流' }).click();
+  await expect(page.getByText('全部 DXF 已完成分类分流')).toBeVisible();
+  await expect(page.getByText('P7-workflow-41_BH_dxf')).toBeVisible();
 });

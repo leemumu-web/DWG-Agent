@@ -56,6 +56,7 @@ import type {
   WorkflowStageCapability,
 } from '../../types/workflow';
 import { ProductionInputPanel } from './ProductionInputPanel';
+import { DxfClassificationPanel } from './DxfClassificationPanel';
 
 const WORKFLOW_STATUS: Record<string, StatusStyle> = {
   draft: { color: '#667085', bg: '#f8fafc', border: '#e2e8f0', label: '草稿' },
@@ -153,6 +154,7 @@ export function WorkflowsPage() {
   const detail = detailQ.data as WorkflowDetail | undefined;
   const template = detail ? templateMap.get(detail.workflow_type as 'linux_production' | 'excel_delivery' | 'file_delivery') : undefined;
   const actionableStage = detail?.stages.find((stage) => ACTIONABLE.has(stage.status));
+  const classificationStage = detail?.stages.find((stage) => stage.stage_code === 'dxf_classification');
   const currentCapability = actionableStage
     ? template?.stages.find((stage) => stage.code === actionableStage.stage_code)
     : undefined;
@@ -165,6 +167,15 @@ export function WorkflowsPage() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['workflows'] });
     if (detailId) queryClient.invalidateQueries({ queryKey: ['workflow', detailId] });
+  };
+  const refreshSubmission = async () => {
+    invalidate();
+    if (!submissionWorkflow) return;
+    try {
+      setSubmissionWorkflow(await getWorkflow(submissionWorkflow.id));
+    } catch (error) {
+      message.error(describeApiError(error, '批次状态刷新失败'));
+    }
   };
 
   const createMutation = useMutation({
@@ -277,7 +288,7 @@ export function WorkflowsPage() {
     <>
       <PageHeader
         title="生产流程"
-        subtitle="从多份 DWG 与一份 Excel 开始生产批次；服务器生成 DXF、校验配对并冻结输入，后续阶段沿生产轨道推进"
+        subtitle="从多份 DWG 与一份 Excel 开始生产批次；服务器生成并冻结 DXF，随后按标题栏信息预处理和分类分流"
         extra={<Space><Button icon={<ReloadOutlined />} loading={workflowsQ.isFetching} onClick={() => workflowsQ.refetch()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={openSubmission}>提交生产批次</Button></Space>}
       />
       <StatGrid>
@@ -324,14 +335,22 @@ export function WorkflowsPage() {
             )}
 
             {detail.workflow_type === 'linux_production' && detail.status !== 'draft' && (
-              <ProductionInputPanel
-                workflowId={detail.id}
-                sourceIntakeActive={Boolean(actionableStage && actionableStage.stage_code === 'source_intake')}
-                onFrozen={invalidate}
-              />
+              <>
+                <ProductionInputPanel
+                  workflowId={detail.id}
+                  sourceIntakeActive={Boolean(actionableStage && actionableStage.stage_code === 'source_intake')}
+                  onFrozen={invalidate}
+                />
+                <DxfClassificationPanel
+                  workflowId={detail.id}
+                  stage={classificationStage}
+                  isCurrent={detail.current_stage === 'dxf_classification'}
+                  onChanged={invalidate}
+                />
+              </>
             )}
 
-            {actionableStage && currentCapability && actionableStage.stage_code !== 'source_intake' && !TERMINAL.has(detail.status) && (
+            {actionableStage && currentCapability && !['source_intake', 'dxf_classification'].includes(actionableStage.stage_code) && !TERMINAL.has(detail.status) && (
               <Card title={<Space><CloudServerOutlined />当前阶段控制台{capabilityTag(currentCapability)}</Space>} style={{ marginTop: 12 }}>
                 <Alert type={currentCapability.implementation_status === 'implemented' ? 'info' : 'warning'} showIcon message={currentCapability.description} description={currentCapability.implementation_status === 'implemented' ? `执行方式：${currentCapability.execution_mode}` : `接口已预留：${currentCapability.execution_kind}；需输入 ${currentCapability.required_inputs.join('、') || '无'}；产物 ${currentCapability.artifact_types.join('、') || '待定义'}`} />
                 {currentCapability.execution_mode === 'automated' && (
@@ -380,11 +399,19 @@ export function WorkflowsPage() {
               action={<Button type="primary" loading={startMutation.isPending} onClick={() => startMutation.mutate(submissionWorkflow.id)}>重试启动并进入上传</Button>}
             />
           ) : (
-            <ProductionInputPanel
-              workflowId={submissionWorkflow.id}
-              sourceIntakeActive={submissionWorkflow.current_stage === 'source_intake'}
-              onFrozen={invalidate}
-            />
+            <>
+              <ProductionInputPanel
+                workflowId={submissionWorkflow.id}
+                sourceIntakeActive={submissionWorkflow.current_stage === 'source_intake'}
+                onFrozen={refreshSubmission}
+              />
+              <DxfClassificationPanel
+                workflowId={submissionWorkflow.id}
+                stage={submissionWorkflow.stages.find((stage) => stage.stage_code === 'dxf_classification')}
+                isCurrent={submissionWorkflow.current_stage === 'dxf_classification'}
+                onChanged={refreshSubmission}
+              />
+            </>
           )
         ) : (
           <Form form={form} layout="vertical" requiredMark={false} onFinish={(values) => createMutation.mutate(values)}>
