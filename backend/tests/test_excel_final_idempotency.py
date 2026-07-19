@@ -21,6 +21,14 @@ from app.storage.base import StorageError
 from app.storage.local_storage import LocalFileStorage
 
 
+@pytest.fixture(autouse=True)
+def _enable_pipeline_under_test(monkeypatch: pytest.MonkeyPatch):
+    """Keep this module independent from the developer/CI feature-flag default."""
+    monkeypatch.setattr(
+        "app.api.v1.excel_final_api.settings.excel_final_pipeline_enabled", True
+    )
+
+
 def _create_user(db: Session, username: str) -> User:
     user = User(
         username=username,
