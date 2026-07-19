@@ -10,6 +10,8 @@ from app.models.job import Job
 from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
 from app.models.user import User
+from app.models.workflow import WorkflowRun
+from app.models.workflow_input import WorkflowInputBatch
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import workflow_service
 
@@ -136,11 +138,37 @@ def _production_workflow(db):
     return user, project, workflow
 
 
-def test_source_intake_requires_a_bound_file_before_freeze(db):
+def _mark_input_batch_frozen(db, workflow: WorkflowRun) -> WorkflowInputBatch:
+    batch = WorkflowInputBatch(
+        workflow=workflow,
+        project_id=workflow.project_id,
+        created_by=workflow.created_by,
+        status="frozen",
+        version=1,
+        manifest_sha256="f" * 64,
+    )
+    db.add(batch)
+    db.flush()
+    return batch
+
+
+def _mark_api_input_batch_frozen(workflow_id: int) -> None:
+    from tests import conftest
+
+    assert conftest._test_session_factory is not None
+    with conftest._test_session_factory() as db:
+        workflow = db.get(WorkflowRun, workflow_id)
+        assert workflow is not None
+        _mark_input_batch_frozen(db, workflow)
+        db.commit()
+
+
+def test_source_intake_requires_the_dedicated_batch_freeze(db):
     _, _, workflow = _production_workflow(db)
 
-    with pytest.raises(AppHTTPException, match="source file"):
+    with pytest.raises(AppHTTPException) as error:
         workflow_service.complete_manual_stage(workflow, "source_intake")
+    assert error.value.detail["code"] == "WORKFLOW_INPUT_BATCH_NOT_FROZEN"
 
     stored = _stored_file(db)
     workflow_service.attach_artifact(
@@ -150,6 +178,7 @@ def test_source_intake_requires_a_bound_file_before_freeze(db):
         artifact_type="source_file",
         file_id=stored.id,
     )
+    _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
 
     assert workflow.current_stage == "drawing_processing"
@@ -285,6 +314,7 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
     assert client.post(
         f"/api/v1/workflows/{workflow_id}/start", headers=owner_headers
     ).status_code == 200
+    _mark_api_input_batch_frozen(workflow_id)
     assert client.post(
         f"/api/v1/workflows/{workflow_id}/stages/source_intake/completion",
         headers=owner_headers,
@@ -442,6 +472,7 @@ def test_successful_job_sync_attaches_result_once_and_advances(db):
         artifact_type="source_file",
         file_id=source.id,
     )
+    _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
     workflow_service.attach_artifact(
         db,
@@ -499,6 +530,7 @@ def test_cancelled_bound_job_stays_on_its_recoverable_workflow_stage(db):
         artifact_type="source_file",
         file_id=source.id,
     )
+    _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
     workflow_service.attach_artifact(
         db,
@@ -682,6 +714,7 @@ def test_placeholder_execution_exposes_complete_contract():
         },
     )
     client.post(f"/api/v1/workflows/{workflow_id}/start", headers=owner_headers)
+    _mark_api_input_batch_frozen(workflow_id)
     client.post(
         f"/api/v1/workflows/{workflow_id}/stages/source_intake/completion",
         headers=owner_headers,
@@ -714,6 +747,7 @@ def test_automated_stage_cannot_be_manually_completed(db):
         artifact_type="source_file",
         file_id=source.id,
     )
+    _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
     workflow_service.attach_artifact(
         db,
@@ -738,6 +772,7 @@ def test_placeholder_handoff_requires_an_artifact(db):
         artifact_type="source_file",
         file_id=source.id,
     )
+    _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
 
     with pytest.raises(AppHTTPException, match="handoff artifact"):
@@ -837,6 +872,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         workflow_service.sync_workflow_from_jobs(db, workflow)
         return output
 
+    _mark_input_batch_frozen(db, workflow)
     bind_and_complete("source_intake", "source_file", source)
     bind_and_complete("drawing_processing", "processed_drawing", source)
     stage1 = finish_job("excel_stage1", "extract_dxf_to_excel", "stage1.xlsx")

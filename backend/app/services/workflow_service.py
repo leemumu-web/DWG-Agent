@@ -72,9 +72,9 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "source_intake",
                 "文件接收与输入冻结",
-                "复用文件中心登记输入并冻结本次流程引用。",
-                required_inputs=("file_id",),
-                artifact_types=("source_file",),
+                "登记多个 DWG 与一个 Excel，由服务器生成配对 DXF 后冻结输入。",
+                required_inputs=("dwg_files", "excel_file"),
+                artifact_types=("source_file", "source_excel", "derived_dxf"),
             ),
             _stage(
                 "drawing_processing",
@@ -388,12 +388,15 @@ def complete_manual_stage(workflow: WorkflowRun, stage_code: str) -> WorkflowRun
     if (
         workflow.workflow_type == "linux_production"
         and stage_code == "source_intake"
-        and not any(artifact.file_id is not None for artifact in stage.artifacts)
+        and (
+            workflow.input_batch is None
+            or workflow.input_batch.status != "frozen"
+        )
     ):
         raise AppHTTPException(
             409,
-            "WORKFLOW_SOURCE_FILE_REQUIRED",
-            "At least one source file must be bound before freezing workflow input.",
+            "WORKFLOW_INPUT_BATCH_NOT_FROZEN",
+            "The production input batch must be validated and frozen through its dedicated endpoint.",
         )
     if (
         capability.execution_mode in {"placeholder", "external"}

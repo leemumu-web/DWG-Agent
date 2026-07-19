@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.constants import TASK_DWG_TO_DXF
 from app.core.exceptions import AppHTTPException
+from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
@@ -400,5 +403,199 @@ def sync_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBat
         batch.status = "converting"
     else:
         batch.status = "uploading"
+    db.flush()
+    return batch
+
+
+def _display_input_stem(name: str) -> str:
+    basename = Path(name.replace("\\", "/")).name
+    stem = basename.rsplit(".", 1)[0] if "." in basename else basename
+    return _WHITESPACE.sub(" ", unicodedata.normalize("NFKC", stem).strip())
+
+
+def _manifest_entry(stored: StoredFile) -> dict[str, object]:
+    return {
+        "file_id": stored.id,
+        "original_name": stored.original_name,
+        "size_bytes": stored.size_bytes,
+        "sha256": stored.sha256,
+    }
+
+
+def freeze_input_batch(
+    db: Session,
+    batch: WorkflowInputBatch,
+) -> WorkflowInputBatch:
+    from app.services import workflow_service
+
+    locked = db.scalar(
+        select(WorkflowInputBatch)
+        .where(WorkflowInputBatch.id == batch.id)
+        .with_for_update()
+    )
+    if locked is None:
+        raise AppHTTPException(404, "INPUT_BATCH_NOT_FOUND", "Input batch not found.")
+    batch = locked
+    if batch.status == "frozen":
+        return batch
+    workflow = batch.workflow
+    if workflow.status in {"succeeded", "failed", "cancelled"}:
+        raise AppHTTPException(
+            409,
+            "INPUT_BATCH_WORKFLOW_TERMINAL",
+            "A terminal workflow cannot freeze new input.",
+        )
+    if workflow.current_stage != "source_intake":
+        raise AppHTTPException(
+            409,
+            "INPUT_BATCH_STAGE_INVALID",
+            "Start the workflow and keep it at source_intake before freezing.",
+        )
+
+    dwg_items = [item for item in batch.items if item.role == "source_dwg"]
+    excel_items = [item for item in batch.items if item.role == "source_excel"]
+    if not dwg_items:
+        raise AppHTTPException(
+            409, "INPUT_DWG_REQUIRED", "At least one DWG input is required."
+        )
+    if len(excel_items) != 1:
+        raise AppHTTPException(
+            409,
+            "INPUT_EXCEL_COUNT_INVALID",
+            "Exactly one readable Excel input is required.",
+            {"excel_count": len(excel_items)},
+        )
+    stems: dict[str, list[WorkflowInputItem]] = {}
+    for item in dwg_items:
+        stems.setdefault(item.normalized_stem, []).append(item)
+    conflicts = [items for items in stems.values() if len(items) > 1]
+    if conflicts:
+        raise AppHTTPException(
+            409,
+            "INPUT_DWG_NAME_CONFLICT",
+            "Multiple DWG files normalize to the same drawing name.",
+            {
+                "conflicts": [
+                    [item.original_name for item in conflict] for conflict in conflicts
+                ]
+            },
+        )
+
+    for item in batch.items:
+        stored = db.get(StoredFile, item.file_id)
+        if stored is None:
+            raise AppHTTPException(
+                409,
+                "INPUT_FILE_NOT_FOUND",
+                "A registered input file no longer exists.",
+                {"item_id": item.id, "file_id": item.file_id},
+            )
+        payload = _read_verified_object(stored)
+        if item.role == "source_dwg":
+            _validate_dwg(payload)
+        else:
+            _validate_excel(stored.file_ext.lower(), payload)
+
+    sync_input_batch(db, batch)
+    if batch.status != "ready_to_freeze":
+        issues = [
+            {
+                "item_id": item.id,
+                "file_name": item.original_name,
+                "code": item.error_code,
+                "message": item.error_message,
+            }
+            for item in dwg_items
+            if item.status != "paired"
+        ]
+        raise AppHTTPException(
+            409,
+            "INPUT_BATCH_NOT_READY",
+            "Every DWG must have one verified server-derived DXF before freezing.",
+            {"issues": issues},
+        )
+
+    manifest_drawings: list[dict[str, object]] = []
+    for item in sorted(dwg_items, key=lambda value: (value.normalized_stem, value.file_id)):
+        source = db.get(StoredFile, item.file_id)
+        derived = db.get(StoredFile, item.derived_dxf_file_id)
+        assert source is not None and derived is not None
+        drawing = Drawing(
+            project_id=batch.project_id,
+            drawing_no=_display_input_stem(item.original_name),
+            title=_display_input_stem(item.original_name),
+            discipline=None,
+            status="active",
+        )
+        db.add(drawing)
+        db.flush()
+        version = DrawingVersion(
+            drawing_id=drawing.id,
+            file_id=source.id,
+            version_no=1,
+            source="workflow_input_dwg",
+            created_by=batch.created_by,
+        )
+        db.add(version)
+        db.flush()
+        drawing.current_version_id = version.id
+        item.drawing_id = drawing.id
+        manifest_drawings.append(
+            {
+                "drawing_id": drawing.id,
+                "normalized_stem": item.normalized_stem,
+                "dwg": _manifest_entry(source),
+                "dxf": _manifest_entry(derived),
+            }
+        )
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code="source_intake",
+            artifact_type="source_file",
+            file_id=source.id,
+            metadata={"batch_id": batch.id, "drawing_id": drawing.id},
+        )
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code="source_intake",
+            artifact_type="derived_dxf",
+            file_id=derived.id,
+            metadata={"batch_id": batch.id, "drawing_id": drawing.id},
+        )
+
+    excel_item = excel_items[0]
+    excel = db.get(StoredFile, excel_item.file_id)
+    assert excel is not None
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_excel",
+        file_id=excel.id,
+        metadata={"batch_id": batch.id},
+    )
+    manifest = {
+        "version": batch.version,
+        "batch_id": batch.id,
+        "workflow_id": workflow.id,
+        "project_id": batch.project_id,
+        "excel": _manifest_entry(excel),
+        "drawings": manifest_drawings,
+    }
+    canonical = json.dumps(
+        manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode()
+    batch.manifest_sha256 = hashlib.sha256(canonical).hexdigest()
+    batch.status = "frozen"
+    batch.frozen_at = datetime.now(UTC)
+    batch.error_code = None
+    batch.error_message = None
+    for item in batch.items:
+        item.status = "frozen"
+        item.error_code = None
+        item.error_message = None
+    workflow_service.complete_manual_stage(workflow, "source_intake")
     db.flush()
     return batch

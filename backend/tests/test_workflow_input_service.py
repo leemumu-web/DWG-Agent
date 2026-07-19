@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import AppHTTPException
+from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.project import Project, ProjectMember
@@ -352,3 +353,101 @@ def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
     assert item.status == "conversion_failed"
     assert item.error_code == "INPUT_DXF_NAME_MISMATCH"
     assert batch.status == "needs_attention"
+
+
+def _ready_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
+    user, project, workflow, batch, storage = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=dwg_names
+    )
+    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
+    plan = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    for item, job in zip(
+        [item for item in batch.items if item.role == "source_dwg"],
+        plan.jobs,
+        strict=True,
+    ):
+        derived_name = f"{item.original_name.rsplit('.', 1)[0]}.dxf"
+        derived = _stored_object(
+            db,
+            storage,
+            derived_name,
+            b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+        )
+        db.add(
+            AnalysisResult(
+                job_id=job.id,
+                result_type="convert_dwg_to_dxf",
+                result_file_id=derived.id,
+                status="succeeded",
+            )
+        )
+        job.status = "succeeded"
+        job.progress = 100
+    db.flush()
+    workflow_input_service.sync_input_batch(db, batch)
+    workflow_service.start_workflow(db, workflow)
+    return user, project, workflow, batch
+
+
+def test_freeze_creates_drawings_manifest_artifacts_and_completes_source_intake(
+    db, tmp_path, monkeypatch
+):
+    _, project, workflow, batch = _ready_batch(db, tmp_path, monkeypatch)
+
+    frozen = workflow_input_service.freeze_input_batch(db, batch)
+    first_manifest = frozen.manifest_sha256
+    replay = workflow_input_service.freeze_input_batch(db, batch)
+
+    drawings = list(db.query(Drawing).filter(Drawing.project_id == project.id).all())
+    versions = list(db.query(DrawingVersion).all())
+    assert frozen.status == "frozen"
+    assert frozen.frozen_at is not None
+    assert first_manifest is not None and len(first_manifest) == 64
+    assert replay.manifest_sha256 == first_manifest
+    assert len(drawings) == 2
+    assert len(versions) == 2
+    assert all(item.status == "frozen" for item in batch.items)
+    assert all(item.drawing_id is not None for item in batch.items if item.role == "source_dwg")
+    assert workflow.current_stage == "drawing_processing"
+    assert {artifact.artifact_type for artifact in workflow.artifacts} == {
+        "source_file",
+        "source_excel",
+        "derived_dxf",
+    }
+
+
+def test_freeze_rejects_duplicate_normalized_dwg_names(db, tmp_path, monkeypatch):
+    user, _, workflow, batch, _ = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=("A.dwg", "Ａ.DWG")
+    )
+    workflow_service.start_workflow(db, workflow)
+    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
+    workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_service.freeze_input_batch(db, batch)
+
+    assert error.value.detail["code"] == "INPUT_DWG_NAME_CONFLICT"
+    assert db.query(Drawing).count() == 0
+
+
+def test_source_intake_cannot_be_manually_completed_before_batch_freeze(
+    db, tmp_path, monkeypatch
+):
+    _, _, workflow, batch, _ = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=("A.dwg",)
+    )
+    workflow_service.start_workflow(db, workflow)
+    source = next(item for item in batch.items if item.role == "source_dwg")
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_file",
+        file_id=source.file_id,
+    )
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_service.complete_manual_stage(workflow, "source_intake")
+
+    assert error.value.detail["code"] == "WORKFLOW_INPUT_BATCH_NOT_FROZEN"
