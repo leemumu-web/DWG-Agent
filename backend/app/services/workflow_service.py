@@ -8,25 +8,155 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import AppHTTPException, not_found
 from app.models.job import Job
 from app.models.workflow import WorkflowArtifact, WorkflowRun, WorkflowStageRun
-from app.schemas.workflow_schema import WorkflowCreate
+from app.schemas.workflow_schema import (
+    WorkflowCreate,
+    WorkflowStageCapability,
+    WorkflowTemplateRead,
+)
 
 WORKFLOW_TERMINAL = {"succeeded", "failed", "cancelled"}
 STAGE_TERMINAL = {"succeeded", "failed", "cancelled", "skipped"}
 STAGE_ACTIVE = {"queued", "running"}
 
-WORKFLOW_DEFINITIONS: dict[str, tuple[tuple[str, str], ...]] = {
-    "excel_delivery": (
-        ("source_upload", "上传源 Excel"),
-        ("excel_process", "Excel 零件清单处理"),
-        ("quality_review", "结果确认"),
-        ("delivery", "交付归档"),
+def _stage(
+    code: str,
+    name: str,
+    description: str,
+    *,
+    execution_mode: str = "manual",
+    implementation_status: str = "implemented",
+    execution_kind: str | None = None,
+    required_inputs: tuple[str, ...] = (),
+    artifact_types: tuple[str, ...] = (),
+) -> WorkflowStageCapability:
+    return WorkflowStageCapability(
+        code=code,
+        name=name,
+        description=description,
+        execution_mode=execution_mode,
+        implementation_status=implementation_status,
+        execution_kind=execution_kind,
+        required_inputs=list(required_inputs),
+        artifact_types=list(artifact_types),
+    )
+
+
+WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
+    "excel_delivery": WorkflowTemplateRead(
+        code="excel_delivery",
+        name="Excel 零件清单交付",
+        description="兼容的 Excel 人工交付流程。",
+        stages=[
+            _stage("source_upload", "上传源 Excel", "登记并确认源 Excel。"),
+            _stage("excel_process", "Excel 零件清单处理", "确认 Excel 处理结果。"),
+            _stage("quality_review", "结果确认", "人工复核结果。"),
+            _stage("delivery", "交付归档", "确认交付并归档。"),
+        ],
     ),
-    "file_delivery": (
-        ("source_upload", "上传源文件"),
-        ("quality_review", "文件确认"),
-        ("delivery", "交付归档"),
+    "file_delivery": WorkflowTemplateRead(
+        code="file_delivery",
+        name="通用文件交付",
+        description="兼容的文件人工交付流程。",
+        stages=[
+            _stage("source_upload", "上传源文件", "登记并确认源文件。"),
+            _stage("quality_review", "文件确认", "人工复核文件。"),
+            _stage("delivery", "交付归档", "确认交付并归档。"),
+        ],
+    ),
+    "linux_production": WorkflowTemplateRead(
+        code="linux_production",
+        name="Linux 生产流程",
+        description="从输入冻结到交付归档的服务器端生产编排框架。",
+        stages=[
+            _stage(
+                "source_intake",
+                "文件接收与输入冻结",
+                "复用文件中心登记输入并冻结本次流程引用。",
+                required_inputs=("file_id",),
+                artifact_types=("source_file",),
+            ),
+            _stage(
+                "drawing_processing",
+                "图纸分类与拆板",
+                "预留自动拆板、人工拆板回流与独立校验契约。",
+                execution_mode="placeholder",
+                implementation_status="placeholder",
+                execution_kind="drawing_processing",
+                required_inputs=("drawing_files",),
+                artifact_types=("processed_drawing", "validation_report"),
+            ),
+            _stage(
+                "excel_stage1",
+                "Excel 第一阶段处理",
+                "调用现有 DXF 批次提取管线生成基础工作簿。",
+                execution_mode="automated",
+                execution_kind="dxf_to_excel",
+                required_inputs=("batch_name",),
+                artifact_types=("stage1_excel",),
+            ),
+            _stage(
+                "design_barrier",
+                "深化设计完整性屏障",
+                "人工确认图纸与基础 Excel 已具备最终合并条件。",
+                artifact_types=("review_record",),
+            ),
+            _stage(
+                "excel_final",
+                "Excel 最终合并",
+                "调用现有 Excel Final 管线并导入结构化零件数据。",
+                execution_mode="automated",
+                execution_kind="excel_final",
+                required_inputs=("file_id",),
+                artifact_types=("final_excel",),
+            ),
+            _stage(
+                "cam_packaging",
+                "CAM 工作包生成",
+                "预留生产规则分组、清单冻结和工作包生成契约。",
+                execution_mode="placeholder",
+                implementation_status="placeholder",
+                execution_kind="cam_packaging",
+                required_inputs=("final_excel", "processed_drawings"),
+                artifact_types=("cam_package",),
+            ),
+            _stage(
+                "windows_cam",
+                "Windows CAM 排版",
+                "预留 Node Agent、租约、fencing token 与 SinoCAM 执行契约。",
+                execution_mode="external",
+                implementation_status="external",
+                execution_kind="windows_cam",
+                required_inputs=("cam_package",),
+                artifact_types=("cam_result", "runner_diagnostics"),
+            ),
+            _stage(
+                "result_acceptance",
+                "CAM 结果接纳",
+                "预留结果清单、摘要校验和正式接纳契约。",
+                execution_mode="placeholder",
+                implementation_status="placeholder",
+                execution_kind="result_acceptance",
+                required_inputs=("cam_result",),
+                artifact_types=("acceptance_report",),
+            ),
+            _stage(
+                "delivery_archive",
+                "交付与归档",
+                "确认正式产物可下载并完成生产流程。",
+                artifact_types=("delivery_file",),
+            ),
+        ],
     ),
 }
+
+WORKFLOW_DEFINITIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    code: tuple((stage.code, stage.name) for stage in template.stages)
+    for code, template in WORKFLOW_TEMPLATES.items()
+}
+
+
+def list_workflow_templates() -> list[WorkflowTemplateRead]:
+    return list(WORKFLOW_TEMPLATES.values())
 
 
 def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) -> WorkflowRun:

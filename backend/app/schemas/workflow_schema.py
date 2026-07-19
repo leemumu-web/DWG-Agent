@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-WORKFLOW_TYPES = {"excel_delivery", "file_delivery"}
+WORKFLOW_TYPES = {"excel_delivery", "file_delivery", "linux_production"}
+
+
+class WorkflowStageCapability(BaseModel):
+    code: str
+    name: str
+    description: str
+    execution_mode: Literal["manual", "automated", "placeholder", "external"]
+    implementation_status: Literal["implemented", "placeholder", "external"]
+    execution_kind: str | None = None
+    required_inputs: list[str] = Field(default_factory=list)
+    artifact_types: list[str] = Field(default_factory=list)
+
+
+class WorkflowTemplateRead(BaseModel):
+    code: str
+    name: str
+    description: str
+    stages: list[WorkflowStageCapability]
 
 
 class WorkflowCreate(BaseModel):
