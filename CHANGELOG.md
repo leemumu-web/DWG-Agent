@@ -17,6 +17,8 @@
 - `Stages/dxf2excel` 从不可还原 gitlink 转为父仓库普通跟踪源码；外部验证 corpus、生成工作簿、PDF、cache 和虚拟环境继续排除。
 - 当前文档事实更新为 OpenAPI 99 paths / 118 operations、Alembic `d5e8a1c4b720`、28 张模型表和完整 runtime 最多 37 张表。
 - 工作流直接复用现有 Job/Celery 与 `/files`：自动阶段按工作流/阶段幂等绑定 attempt，成功结果自动挂接，取消流程同步取消 active Job。
+- 自动阶段失败或被单独取消后可从同一 executions 端点重试：复用 Job、递增 attempt、重开原阶段并保持旧 worker fencing；显式取消流程仍不可重开。
+- Linux 生产阶段按模板强制校验 artifact type，任意文件类型不能绕过占位/外部交接条件。
 
 ### Known limitations
 

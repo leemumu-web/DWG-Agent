@@ -44,7 +44,7 @@
 
 ### 3.3 `workflow_artifacts`
 
-保存 `artifact_type`、阶段、`file_id`、`result_id`、版本和 `metadata_json`。API 要求 file/result 至少一个非空，并验证文件或结果可读权限。相同 workflow、stage、type、file、result 的重复绑定返回原 artifact，不复制记录。
+保存 `artifact_type`、阶段、`file_id`、`result_id`、版本和 `metadata_json`。API 要求 file/result 至少一个非空，并验证文件或结果可读权限。Linux 生产模板按阶段强制校验声明的 artifact type 白名单，类型不匹配返回 `WORKFLOW_ARTIFACT_TYPE_INVALID`，不能用任意文件绕过留白交接；未声明白名单的旧模板保持兼容。相同 workflow、stage、type、file、result 的重复绑定返回原 artifact，不复制记录。
 
 数据库仍没有 artifact 非空 CHECK、版本唯一约束或跨项目 CHECK；这些不变量由 service/API 维护，不能绕过应用直写数据库。
 
@@ -91,6 +91,10 @@ completion API 只接受当前可操作阶段：
 ### 4.4 取消
 
 取消流程时，如果当前阶段绑定 `pending`、`queued`、`running`、`validating` 或 `waiting_cad_worker` Job，先调用现有 guarded Job cancellation，再取消未终态阶段。已完成 Job 和历史 artifact 保留。
+
+### 4.5 失败恢复
+
+自动阶段 Job 失败或被单独取消后，流程停留在原阶段并进入可恢复的 `failed` 状态。重新调用同一 executions 端点会复用原 Job、递增 `attempt`、刷新阶段绑定并重新投递，响应返回 `retried=true`。旧 attempt 的 worker/result 仍由现有 fencing 规则拒绝；显式取消整个流程后不会自动重开。
 
 ## 5. API
 
@@ -140,7 +144,7 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-2026-07-19 新增聚焦测试覆盖九阶段模板、旧模板兼容、文件绑定幂等、项目隔离、DXF→Excel/Excel Final 创建与重放、feature gate、attempt 同步、自动产物、防人工绕过、留白契约和 active Job 取消。前端合同测试与 TypeScript/Vite production build 已通过；完整门禁和确切计数见[工作流验证](workflow-verification.md)。
+2026-07-19 新增聚焦测试覆盖九阶段模板、完整九阶段服务端贯通、旧模板兼容、文件绑定幂等、项目隔离、DXF→Excel/Excel Final 创建与重放、失败 attempt 重开、feature gate、attempt 同步、自动产物、防人工绕过、留白契约和 active Job 取消。前端合同测试与 TypeScript/Vite production build 已通过；完整门禁和确切计数见[工作流验证](workflow-verification.md)。
 
 仍未完成：
 

@@ -375,6 +375,63 @@ def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
     assert response.json()["error"]["code"] == "DXF2EXCEL_PIPELINE_DISABLED"
 
 
+def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch):
+    from app.api.v1 import workflows_api
+    from app.core.config import settings
+    from app.models.job import Job
+    from tests import conftest
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-retry")
+    project_id = _project(client, owner_headers)
+    workflow_id, batch_name = _api_workflow_at_excel_stage(
+        client, owner_headers, project_id
+    )
+    dispatched: list[tuple[int, int]] = []
+    monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
+    monkeypatch.setattr(
+        workflows_api,
+        "dispatch_committed_job",
+        lambda _db, job: dispatched.append((job.id, job.attempt)),
+    )
+    payload = {"execution_kind": "dxf_to_excel", "batch_name": batch_name}
+    first = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
+        headers=owner_headers,
+        json=payload,
+    )
+    assert first.status_code == 202, first.text
+    job_id = first.json()["data"]["job"]["id"]
+    assert conftest._test_session_factory is not None
+    with conftest._test_session_factory() as db:
+        job = db.get(Job, job_id)
+        assert job is not None
+        job.status = "failed"
+        job.error_code = "FIXTURE_FAILURE"
+        job.error_message = "retry me"
+        db.commit()
+    failed = client.get(f"/api/v1/workflows/{workflow_id}", headers=owner_headers)
+    assert failed.json()["data"]["status"] == "failed"
+
+    retried = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
+        headers=owner_headers,
+        json=payload,
+    )
+
+    assert retried.status_code == 202, retried.text
+    data = retried.json()["data"]
+    assert data["job"]["id"] == job_id
+    assert data["job"]["attempt"] == 2
+    assert data["job"]["status"] == "queued"
+    assert data["workflow"]["status"] == "running"
+    assert data["workflow"]["stages"][2]["job_attempt"] == 2
+    assert data["retried"] is True
+    assert dispatched == [(job_id, 1), (job_id, 2)]
+
+
 def test_successful_job_sync_attaches_result_once_and_advances(db):
     _, project, workflow = _production_workflow(db)
     source = _stored_file(db)
@@ -430,6 +487,45 @@ def test_successful_job_sync_attaches_result_once_and_advances(db):
     assert artifacts[0].artifact_type == "stage1_excel"
     assert artifacts[0].file_id == output.id
     assert artifacts[0].result_id == result.id
+
+
+def test_cancelled_bound_job_stays_on_its_recoverable_workflow_stage(db):
+    _, project, workflow = _production_workflow(db)
+    source = _stored_file(db)
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_file",
+        file_id=source.id,
+    )
+    workflow_service.complete_manual_stage(workflow, "source_intake")
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        artifact_type="processed_drawing",
+        file_id=source.id,
+    )
+    workflow_service.complete_manual_stage(workflow, "drawing_processing")
+    job = Job(
+        project_id=project.id,
+        task_type="extract_dxf_to_excel",
+        status="cancelled",
+        attempt=1,
+        progress=0,
+        precision_level="normal",
+        params_json={"batch_name": "cancelled-stage"},
+    )
+    db.add(job)
+    db.flush()
+    workflow_service.bind_stage_job(db, workflow, stage_code="excel_stage1", job=job)
+
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+
+    assert workflow.status == "failed"
+    assert workflow.current_stage == "excel_stage1"
+    assert workflow.error_code == "WORKFLOW_STAGE_CANCELLED"
 
 
 def _api_workflow_at_excel_final(
@@ -648,6 +744,22 @@ def test_placeholder_handoff_requires_an_artifact(db):
         workflow_service.complete_manual_stage(workflow, "drawing_processing")
 
 
+def test_linux_stage_rejects_artifact_type_outside_declared_contract(db):
+    _, _, workflow = _production_workflow(db)
+    source = _stored_file(db)
+
+    with pytest.raises(AppHTTPException, match="not declared") as error:
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code="drawing_processing",
+            artifact_type="unrelated_file",
+            file_id=source.id,
+        )
+
+    assert error.value.detail["code"] == "WORKFLOW_ARTIFACT_TYPE_INVALID"
+
+
 def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
     from app.api.v1 import workflows_api
     from app.core.config import settings
@@ -679,3 +791,74 @@ def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
     assert cancelled.status_code == 200, cancelled.text
     assert job.status_code == 200, job.text
     assert job.json()["data"]["status"] == "cancelled"
+
+
+def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
+    """Exercise the complete server-side state machine, including both real pipelines."""
+    _, project, workflow = _production_workflow(db)
+    source = _stored_file(db)
+
+    def bind_and_complete(stage_code: str, artifact_type: str, stored: StoredFile):
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code=stage_code,
+            artifact_type=artifact_type,
+            file_id=stored.id,
+        )
+        workflow_service.complete_manual_stage(workflow, stage_code)
+
+    def finish_job(stage_code: str, task_type: str, artifact_name: str) -> StoredFile:
+        job = Job(
+            project_id=project.id,
+            task_type=task_type,
+            pipeline=task_type,
+            status="queued",
+            attempt=1,
+            progress=0,
+            precision_level="normal",
+            params_json={},
+        )
+        db.add(job)
+        db.flush()
+        workflow_service.bind_stage_job(db, workflow, stage_code=stage_code, job=job)
+        output = _stored_file(db, name=artifact_name)
+        db.add(
+            AnalysisResult(
+                job_id=job.id,
+                result_type=task_type,
+                result_file_id=output.id,
+                status="succeeded",
+            )
+        )
+        job.status = "succeeded"
+        job.progress = 100
+        db.flush()
+        workflow_service.sync_workflow_from_jobs(db, workflow)
+        return output
+
+    bind_and_complete("source_intake", "source_file", source)
+    bind_and_complete("drawing_processing", "processed_drawing", source)
+    stage1 = finish_job("excel_stage1", "extract_dxf_to_excel", "stage1.xlsx")
+    bind_and_complete("design_barrier", "review_record", stage1)
+    final = finish_job("excel_final", "process_excel_final", "final.xlsx")
+    bind_and_complete("cam_packaging", "cam_package", final)
+    bind_and_complete("windows_cam", "cam_result", final)
+    bind_and_complete("result_acceptance", "acceptance_report", final)
+    bind_and_complete("delivery_archive", "delivery_file", final)
+
+    assert workflow.status == "succeeded"
+    assert workflow.progress == 100
+    assert workflow.current_stage == "delivery_archive"
+    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 9
+    assert {artifact.artifact_type for artifact in workflow.artifacts} == {
+        "source_file",
+        "processed_drawing",
+        "stage1_excel",
+        "review_record",
+        "final_excel",
+        "cam_package",
+        "cam_result",
+        "acceptance_report",
+        "delivery_file",
+    }

@@ -258,6 +258,18 @@ def attach_artifact(
     stage = next((item for item in workflow.stages if item.stage_code == stage_code), None)
     if stage is None:
         raise AppHTTPException(422, "WORKFLOW_STAGE_UNKNOWN", "Unknown workflow stage.")
+    capability = get_stage_capability(workflow, stage_code)
+    if capability.artifact_types and artifact_type not in capability.artifact_types:
+        raise AppHTTPException(
+            422,
+            "WORKFLOW_ARTIFACT_TYPE_INVALID",
+            "The artifact type is not declared for this workflow stage.",
+            {
+                "stage_code": stage_code,
+                "artifact_type": artifact_type,
+                "allowed_artifact_types": capability.artifact_types,
+            },
+        )
     existing = db.scalar(
         select(WorkflowArtifact).where(
             WorkflowArtifact.workflow_run_id == workflow.id,
@@ -287,14 +299,23 @@ def bind_stage_job(db: Session, workflow: WorkflowRun, *, stage_code: str, job: 
     if stage is None:
         raise AppHTTPException(422, "WORKFLOW_STAGE_UNKNOWN", "Unknown workflow stage.")
     if workflow.status in WORKFLOW_TERMINAL:
-        raise AppHTTPException(409, "WORKFLOW_TERMINAL", "Terminal workflow cannot accept a job.")
+        if workflow.status != "failed" or workflow.current_stage != stage_code:
+            raise AppHTTPException(
+                409, "WORKFLOW_TERMINAL", "Terminal workflow cannot accept a job."
+            )
     stage.job_id = job.id
     stage.job_attempt = job.attempt
     stage.status = job.status
     stage.progress = job.progress
+    stage.error_code = None
+    stage.error_message = None
+    stage.finished_at = None
     stage.started_at = job.started_at or datetime.now(UTC)
     workflow.current_stage = stage.stage_code
     workflow.status = "running"
+    workflow.error_code = None
+    workflow.error_message = None
+    workflow.finished_at = None
     recompute_workflow(workflow)
     db.flush()
 
@@ -414,6 +435,8 @@ def recompute_workflow(workflow: WorkflowRun) -> None:
         workflow.progress = 0
         return
     workflow.progress = round(sum(stage.progress for stage in stages) / len(stages))
+    if workflow.status == "cancelled":
+        return
     failed = next((stage for stage in stages if stage.status == "failed"), None)
     if failed is not None:
         workflow.status = "failed"
@@ -421,6 +444,14 @@ def recompute_workflow(workflow: WorkflowRun) -> None:
         workflow.error_code = failed.error_code
         workflow.error_message = failed.error_message
         workflow.finished_at = failed.finished_at or datetime.now(UTC)
+        return
+    cancelled = next((stage for stage in stages if stage.status == "cancelled"), None)
+    if cancelled is not None:
+        workflow.status = "failed"
+        workflow.current_stage = cancelled.stage_code
+        workflow.error_code = "WORKFLOW_STAGE_CANCELLED"
+        workflow.error_message = "The current stage job was cancelled and can be retried."
+        workflow.finished_at = cancelled.finished_at or datetime.now(UTC)
         return
     if all(stage.status in {"succeeded", "skipped"} for stage in stages):
         workflow.status = "succeeded"

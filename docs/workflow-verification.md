@@ -61,7 +61,24 @@ DWG_VERIFY_PASSWORD='<configured-password>' \
 python tests/run_full_verify.py
 ```
 
-生成 OpenAPI 当前包含 96 个 path、115 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
+生成 OpenAPI 当前包含 99 个 path、118 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
+
+## 3.1 2026-07-19 Linux 生产工作流证据
+
+本轮以当前源码搭建 `linux_production` 九阶段服务器框架。DXF→Excel 与 Excel Final 调用既有 Job/Celery 接口；图纸拆板、CAM 工作包、Windows CAM 和结果接纳只暴露稳定输入、产物和 501 留白契约，不把核心算法伪装为已实现。
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| 九阶段贯通测试 | **pass** | 输入冻结、留白交接、DXF→Excel Job/Result、设计屏障、Excel Final Job/Result、CAM 三段交接与交付归档；最终 9/9 `succeeded`、流程 100%。 |
+| 失败恢复 | **pass** | 自动阶段失败/单独取消后停留原阶段；同一 executions 请求复用 Job、attempt +1、清除错误并重新投递；显式取消流程仍保持终态。 |
+| Backend 全量 | **959 passed，6 skipped** | API/service/security/state、旧工作流兼容与新增生产工作流回归；15 条既有 dependency/deprecation warning。 |
+| Stage 测试 | **30 + 30 + 17 + 259 passed** | DWG→DXF、DXF→DWG、DXF→Excel 与 Excel Final。 |
+| Frontend build | **pass** | TypeScript 6 + Vite 8 生产构建；工作流模板、文件绑定、真实执行、留白探测、任务/产物显示。 |
+| Playwright 全量 | **91 passed，2 skipped** | 真实本地 API 的 93 个浏览器场景；文件页用例按需建立独立源文件夹具，消除批量删除后的状态泄漏。 |
+| Infrastructure / Compose | **82/82 pass** | Nginx、worker wrapper、环境键和 Compose 结构；`docker compose config --quiet` 通过。 |
+| 空 schema migration | **pass** | 独立 `dwg_agent_migration_test_976010` 从空 schema 升级到 `d5e8a1c4b720`，29 张表、管理员种子 1 条，随后删除测试 schema。 |
+
+上述九阶段贯通是隔离数据库中的服务器状态机与真实 Job/Result 模型集成证据；它不代表留白算法或 Windows/SinoCAM 已经实现，也不替代带有效 CAD/Excel 样本的 Celery/对象存储发布验收。
 
 ## 4. 2026-07-18 CAD 转换控制台验证证据
 

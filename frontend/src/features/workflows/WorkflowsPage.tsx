@@ -199,7 +199,7 @@ export function WorkflowsPage() {
         ...(currentCapability.execution_kind === 'excel_final' ? { file_id: selectedFileId } : {}),
       });
     },
-    onSuccess: (data) => { message.success(data.reused ? `继续跟踪任务 #${data.job.id}` : `任务 #${data.job.id} 已提交`); invalidate(); },
+    onSuccess: (data) => { message.success(data.retried ? `任务 #${data.job.id} 已重新入队（尝试 #${data.job.attempt}）` : data.reused ? `继续跟踪任务 #${data.job.id}` : `任务 #${data.job.id} 已提交`); invalidate(); },
     onError: (error: unknown) => message.error(error instanceof Error ? error.message : '阶段执行失败'),
   });
 

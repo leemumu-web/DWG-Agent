@@ -36,6 +36,7 @@ from app.services.file_service import require_file_read_access
 from app.services.job_access import require_job_read_access
 from app.services.job_service import cancel_job as transition_job_to_cancelled
 from app.services.job_service import create_or_reuse_job, dispatch_committed_job
+from app.services.job_service import retry_job as transition_job_to_queued
 from app.services.workflow_service import (
     attach_artifact,
     bind_stage_job,
@@ -306,11 +307,20 @@ def execute_workflow_stage(
         created_by=current_user.id,
         request_key=f"workflow-{workflow.id}-{stage_code}",
     )
+    retried = reused and job.status in {"failed", "cancelled"}
+    if retried:
+        job = transition_job_to_queued(db, job)
     bind_stage_job(db, workflow, stage_code=stage_code, job=job)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action="workflow_stages.execution_reused" if reused else "workflow_stages.execute",
+        action=(
+            "workflow_stages.retry"
+            if retried
+            else "workflow_stages.execution_reused"
+            if reused
+            else "workflow_stages.execute"
+        ),
         resource_type="workflow",
         resource_id=workflow.id,
         after_json={
@@ -321,13 +331,14 @@ def execute_workflow_stage(
         request=request,
     )
     db.commit()
-    if not reused:
+    if not reused or retried:
         dispatch_committed_job(db, job)
     return ok(
         {
             "workflow": WorkflowDetail.model_validate(_load_detail(db, workflow.id)),
             "job": JobRead.model_validate(job),
             "reused": reused,
+            "retried": retried,
         },
         request.state.request_id,
     )

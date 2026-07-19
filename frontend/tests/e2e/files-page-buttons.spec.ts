@@ -127,6 +127,32 @@ async function createRetryableFixture(page: Page, dir: Direction): Promise<numbe
   return fileId;
 }
 
+/** Keep stateful real-backend tests independent after a preceding bulk delete. */
+async function ensureSourceFixture(page: Page, dir: Direction): Promise<boolean> {
+  const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
+  expect(token).toBeTruthy();
+  const listed = await page.request.get(`${API_BASE}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { file_ext: dir.fileExt, page: 1, page_size: 1 },
+  });
+  expect(listed.status()).toBe(200);
+  const body = await listed.json();
+  if ((body.pagination?.total ?? body.data?.length ?? 0) > 0) return false;
+
+  const uploaded = await page.request.post(`${API_BASE}/api/v1/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+    multipart: {
+      upload: {
+        name: `e2e-source-${Date.now()}${dir.fileExt}`,
+        mimeType: 'application/acad',
+        buffer: Buffer.concat([Buffer.from('AC1027'), Buffer.alloc(2048)]),
+      },
+    },
+  });
+  expect(uploaded.status()).toBe(201);
+  return true;
+}
+
 async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) {
   const now = new Date().toISOString();
   const files = [1, 2, 3, 4].map((id) => ({
@@ -240,6 +266,10 @@ for (const dir of DIRECTIONS) {
   test.describe(`FilesPage — ${dir.name}`, () => {
     test.beforeEach(async ({ page }) => {
       await login(page, dir.route);
+      if (await ensureSourceFixture(page, dir)) {
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await expect(page.getByRole('button', { name: dir.uploadBtnPattern })).toBeVisible();
+      }
     });
 
     // ── 1. Upload single file ────────────────────────────────────────
