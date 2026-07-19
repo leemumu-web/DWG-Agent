@@ -10,8 +10,11 @@ from app.models.file import StoredFile
 from app.schemas.common import ok
 from app.schemas.job_schema import JobRead
 from app.schemas.workflow_input_schema import (
+    WorkflowInputBatchEnvelope,
+    WorkflowInputConversionEnvelope,
     WorkflowInputConversionRead,
     WorkflowInputFileCreate,
+    WorkflowInputRegistrationEnvelope,
 )
 from app.services.audit_service import write_audit_log
 from app.services.file_service import require_file_read_access
@@ -34,6 +37,7 @@ WRITE_ROLES = {"project_owner", "project_engineer"}
 @router.post(
     "/{workflow_id}/input-batch",
     status_code=status.HTTP_201_CREATED,
+    response_model=WorkflowInputBatchEnvelope,
     summary="创建生产输入批次",
     description="为 Linux 生产工作流幂等创建一个多 DWG 加单 Excel 的输入批次。",
 )
@@ -64,6 +68,7 @@ def create_batch_api(
 
 @router.get(
     "/{workflow_id}/input-batch",
+    response_model=WorkflowInputBatchEnvelope,
     summary="读取生产输入批次",
     description="同步当前 DWG 转换 Job 与派生 DXF，并返回逐文件问题和冻结条件。",
 )
@@ -84,6 +89,7 @@ def get_batch_api(
 @router.post(
     "/{workflow_id}/input-batch/files",
     status_code=status.HTTP_201_CREATED,
+    response_model=WorkflowInputRegistrationEnvelope,
     summary="登记生产输入文件",
     description="登记由 /files 上传的真实 DWG 或唯一 Excel；人工 DXF 被拒绝。",
 )
@@ -154,6 +160,7 @@ def remove_file_api(
 @router.post(
     "/{workflow_id}/input-batch/conversion-requests",
     status_code=status.HTTP_202_ACCEPTED,
+    response_model=WorkflowInputConversionEnvelope,
     summary="提交 DWG 到 DXF 转换",
     description="复用现有 ODA 批量 Job；只投递新增或递增 attempt 的任务。",
 )
@@ -189,6 +196,7 @@ def convert_batch_api(
 
 @router.post(
     "/{workflow_id}/input-batch/freeze",
+    response_model=WorkflowInputBatchEnvelope,
     summary="冻结生产输入批次",
     description="重新校验全部对象和配对，创建 Drawing 与不可变清单并完成 source_intake。",
 )

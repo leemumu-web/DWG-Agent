@@ -183,3 +183,10 @@ def test_input_batch_openapi_exposes_complete_guarded_surface():
         assert methods <= set(paths[path])
         for method in methods:
             assert paths[path][method]["summary"]
+            success = next(
+                response
+                for code, response in paths[path][method]["responses"].items()
+                if code.startswith("2")
+            )
+            if code := success.get("content"):
+                assert code["application/json"]["schema"]

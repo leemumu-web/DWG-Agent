@@ -62,3 +62,29 @@ class WorkflowInputConversionRead(BaseModel):
     batch: WorkflowInputBatchRead
     jobs: list[JobRead]
     dispatched_count: int = Field(ge=0)
+
+
+class WorkflowInputResponseMeta(BaseModel):
+    request_id: str
+    timestamp: datetime
+
+
+class WorkflowInputBatchEnvelope(BaseModel):
+    data: WorkflowInputBatchRead
+    meta: WorkflowInputResponseMeta
+
+
+class WorkflowInputRegistrationRead(BaseModel):
+    batch: WorkflowInputBatchRead
+    item_id: int
+    reused: bool
+
+
+class WorkflowInputRegistrationEnvelope(BaseModel):
+    data: WorkflowInputRegistrationRead
+    meta: WorkflowInputResponseMeta
+
+
+class WorkflowInputConversionEnvelope(BaseModel):
+    data: WorkflowInputConversionRead
+    meta: WorkflowInputResponseMeta
