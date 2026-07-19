@@ -378,8 +378,12 @@ stop_all_workers() {
     local spec queue concurrency slug display
     for spec in "${WORKER_SPECS[@]}"; do
         IFS='|' read -r queue concurrency slug display <<<"$spec"
+        # A missing/stale pidfile is normal during partial recovery. Finish
+        # evaluating every queue so one unavailable worker cannot prevent the
+        # rest of the topology from restarting.
         stop_celery_worker "$queue" "$slug" || true
     done
+    return 0
 }
 
 wait_port() {
