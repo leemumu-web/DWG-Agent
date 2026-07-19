@@ -6,7 +6,7 @@
 
 DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx 使用 React 管理端和 FastAPI API；MySQL 保存身份、权限、项目、文件元数据、任务、结果、复核、审计、工作流以及 Celery broker/result 状态；Local FS 或 MinIO 保存文件字节；Celery worker 调用各 Stage 完成长任务。
 
-当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、五条可执行队列路径、Excel Final 关系化导入、Linux 九阶段生产编排，以及统一监视 MySQL 登记、Local/MinIO 对象、入出库流水和一致性处置的数据控制台。DXF→Excel 与 Excel Final 已接入工作流但默认关闭；拆板、CAM 工作包、Windows/SinoCAM 与结果接纳保留接口和留白。Redis/Valkey 已从活动架构移除。
+当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、DXF 分类分流、Excel Final 关系化导入、Linux 十阶段生产编排，以及统一监视 MySQL 登记、Local/MinIO 对象、入出库流水和一致性处置的数据控制台。Steel DXF Classifier、DXF→Excel 与 Excel Final 已接入工作流并由独立开关控制；拆板、CAM 工作包、Windows/SinoCAM 与结果接纳保留接口和留白。Redis/Valkey 已从活动架构移除。
 
 ## 阅读路径
 
@@ -16,7 +16,7 @@ DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx �
 4. [企业技术规范](../DWG-Agent企业平台技术规范.md)：必须长期保持的架构、安全和交付约束。
 5. [架构](architecture.md)：组件职责以及同步、异步、SSE、下载、存储一致性路径。
 6. [API 参考](api.md)：从当前 FastAPI OpenAPI 自动生成的路由清单和关键生产契约。
-7. [数据库](database.md)：30 张模型表、8 张 Celery runtime 表、迁移、流转账本和恢复集合。
+7. [数据库](database.md)：32 张模型表、8 张 Celery runtime 表、迁移、流转账本和恢复集合。
 8. [处理管线](processing-pipelines.md)与[通用工作流](workflow-framework.md)：转换执行与业务编排的区别。
 9. [配置](configuration.md)、[部署](deployment.md)和[运维](operations.md)：本地/Compose 实施和事故处理。
 10. [安全](security.md)、[验证](workflow-verification.md)与[路线图](roadmap.md)：发布前边界、证据和后续工作。
@@ -57,7 +57,7 @@ DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx �
 - `docs/`、根 README、技术规范和一方组件 README 由本仓库维护，采用中文。
 - `Stages/` 中已跟踪的算法说明由对应 Stage 维护；平台文档只描述调用契约和验证边界。
 - `third_parts/` 属于上游/外部项目，不因本项目改为中文文档而重写其原始说明。
-- `Stages/dxf2excel` 是父仓库维护的一方 Stage；源码、锁文件和单测纳入门禁，外部 corpus、生成工作簿、缓存和虚拟环境不纳入版本控制。
+- `Stages/dxf2excel` 与 `Stages/steel_dxf_classifier_v1.1.0` 是父仓库维护的一方 Stage；源码、锁文件和单测纳入门禁，外部 corpus、生成结果、缓存和虚拟环境不纳入版本控制。
 
 ## 更新规则
 

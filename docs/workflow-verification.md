@@ -1,7 +1,7 @@
 # 全栈工作流验证
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
-> **最近文档审计运行：** 2026-07-18
+> **最近发布验证：** 2026-07-19
 ## 1. 证据层级
 
 | 层级 | 能证明 | 不能证明 |
@@ -61,7 +61,7 @@ DWG_VERIFY_PASSWORD='<configured-password>' \
 python tests/run_full_verify.py
 ```
 
-生成 OpenAPI 当前包含 104 个 path、124 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
+生成 OpenAPI 当前包含 105 个 path、125 个 operation。只读 verifier 检查 liveness、readiness、login、精确分页 files/Jobs read 和受管 process topology；它不创建处理 Job/工作流、不上传文件、不中断存储，也不验证签名 result digest。
 
 ## 3.1 2026-07-19 生产输入冻结发布证据
 
@@ -70,23 +70,23 @@ python tests/run_full_verify.py
 | 门禁 | 结果 | 实际覆盖 |
 |---|---|---|
 | 输入 service/API/CAD batch 聚焦回归 | **29 passed** | 登记、真实对象校验、转换幂等/attempt 重试、broker 失败补偿、配对、冻结、项目权限、OpenAPI schema、冻结文件删除保护。 |
-| Backend 全量 | **980 passed，6 skipped** | 当前全部 API/service/security/state/migration 回归；15 条既有 dependency/deprecation warning。 |
+| Backend 全量 | **988 passed，6 skipped** | 当前全部 API/service/security/state/migration 回归；15 条既有 dependency/deprecation warning。 |
 | Frontend contract | **24 passed** | 页面级生产批次提交、创建后自动启动并在同一抽屉原地进入上传、draft 原地恢复入口、专用面板、DWG/Excel accept、人工 DXF 错误、UUID 上传幂等键、冻结确认与 API 路径。 |
 | Frontend production build | **pass** | React 19 + TypeScript 6 + Vite 8；服务器返回的 `source_dwg`/`source_excel` 角色与 UI 一致。 |
 | Playwright 生产输入场景 | **1 passed** | 在 Nginx 当前构建上验证拒绝人工 DXF、上传 DWG/Excel、服务器配对反馈、冻结确认和只读清单；route fixture 不写真实生产数据。 |
-| API/文档一致性 | **pass** | 104 paths / 124 operations；生产输入成功响应使用具名 Pydantic envelope，不是空 OpenAPI schema。 |
-| 活动 MySQL 与全栈 | **pass** | 活动库从 `d5e8a1c4b720` 增量升级到 `f7a9c2d4e610`，当前 39 张运行表；FastAPI 重启后源码时间一致，五类 worker、Nginx、API proxy 和 SPA 全部正常。 |
+| API/文档一致性 | **pass** | 105 paths / 125 operations；生产输入和分类查询响应使用具名 Pydantic envelope，不是空 OpenAPI schema。 |
+| 活动 MySQL 与全栈 | **pass** | 活动库已增量升级到 `a9e4c7d2f610`，当前 41 张运行表；FastAPI 源码时间一致，六类 worker、Nginx、API proxy 和 SPA 全部正常。 |
 | 独立代码复核 | **pass** | 并发创建、单 Excel 行锁、broker 补偿和冻结文件保护四项 Important 修复后复核，无剩余 Critical/Important。 |
 
 本轮没有向真实项目提交业务 DWG，因此 Playwright 证明 UI/API 状态契约，980 项隔离测试证明服务器不变量，运行状态证明当前 MySQL/worker/API/Nginx 拓扑可用；真实 ODA 输出质量仍须在发布批次中用获准 DWG 样本验收，不能用 fixture 冒充。
 
 ## 3.2 2026-07-19 Linux 生产工作流证据
 
-本轮以当前源码搭建 `linux_production` 九阶段服务器框架。DXF→Excel 与 Excel Final 调用既有 Job/Celery 接口；图纸拆板、CAM 工作包、Windows CAM 和结果接纳只暴露稳定输入、产物和 501 留白契约，不把核心算法伪装为已实现。
+本轮以当前源码搭建 `linux_production` 十阶段服务器框架。DXF 分类分流、DXF→Excel 与 Excel Final 调用既有 Job/Celery 接口；图纸拆板、CAM 工作包、Windows CAM 和结果接纳只暴露稳定输入、产物和 501 留白契约，不把核心算法伪装为已实现。
 
 | 门禁 | 结果 | 实际覆盖 |
 |---|---|---|
-| 九阶段贯通测试 | **pass** | 输入冻结、留白交接、DXF→Excel Job/Result、设计屏障、Excel Final Job/Result、CAM 三段交接与交付归档；最终 9/9 `succeeded`、流程 100%。 |
+| 十阶段贯通测试 | **pass** | 输入冻结、DXF 分类分流、留白交接、DXF→Excel Job/Result、设计屏障、Excel Final Job/Result、CAM 三段交接与交付归档。 |
 | 失败恢复 | **pass** | 自动阶段失败/单独取消后停留原阶段；同一 executions 请求复用 Job、attempt +1、清除错误并重新投递；显式取消流程仍保持终态。 |
 | Backend 全量 | **959 passed，6 skipped** | API/service/security/state、旧工作流兼容与新增生产工作流回归；15 条既有 dependency/deprecation warning。 |
 | Stage 测试 | **30 + 30 + 17 + 259 passed** | DWG→DXF、DXF→DWG、DXF→Excel 与 Excel Final。 |
@@ -95,7 +95,21 @@ python tests/run_full_verify.py
 | Infrastructure / Compose | **82/82 pass** | Nginx、worker wrapper、环境键和 Compose 结构；`docker compose config --quiet` 通过。 |
 | 空 schema migration | **pass** | 独立 `dwg_agent_migration_test_976010` 从空 schema 升级到 `d5e8a1c4b720`，29 张表、管理员种子 1 条，随后删除测试 schema。 |
 
-上述九阶段贯通是隔离数据库中的服务器状态机与真实 Job/Result 模型集成证据；它不代表留白算法或 Windows/SinoCAM 已经实现，也不替代带有效 CAD/Excel 样本的 Celery/对象存储发布验收。
+上述十阶段贯通是隔离数据库中的服务器状态机与真实 Job/Result 模型集成证据；它不代表留白算法或 Windows/SinoCAM 已经实现，也不替代带有效 CAD/Excel 样本的 Celery/对象存储发布验收。
+
+## 3.3 2026-07-19 DXF 分类分流发布证据
+
+分类阶段严格读取冻结批次的服务器派生 DXF，暂存时规范化为 `*_拆板前.dxf`，调用 `steel_dxf_classifier.cli --json`，再把逐图分流 DXF、JSON 报告和 CSV 清单分别登记到 MySQL 与对象存储。下一阶段 `drawing_processing` 仍是明确留白，不会由分类完成自动越过。
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| Classifier 1.1.0 自测 | **52 passed** | 文件名、读取、分类、分流目录、JSON/CSV 契约和 CLI 退出码。 |
+| 真实 DXF CLI 样本 | **pass** | 原工程 DXF 以 `验证项目_dxf` 输入，生成 `验证项目_BH_dxf/*_拆板前.dxf`、分类报告 JSON 与分类清单 CSV，退出码 0。 |
+| 平台全量回归 | **988 passed，6 skipped** | 分类 API、Job attempt、MinIO/File/AnalysisResult/workflow artifact、run/item 台账、迁移及旧功能回归。 |
+| 浏览器流程 | **1 passed** | 同一抽屉完成创建、DWG/Excel 上传、服务器 DXF、冻结、启动分类、状态反馈和结果下载。 |
+| 活动数据库/进程 | **pass** | `a9e4c7d2f610` head、41 张运行表、`dxf_classification` 独立 worker，Nginx/FastAPI/SPA 健康。 |
+
+本次没有向用户真实生产项目注入验证记录；真实 CLI 使用仓库外保留的获准验证样本，平台存储与台账由隔离集成测试和活动 MySQL schema/worker 验证共同覆盖。
 
 ## 4. 2026-07-18 CAD 转换控制台验证证据
 

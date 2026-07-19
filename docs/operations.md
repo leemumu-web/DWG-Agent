@@ -61,7 +61,7 @@ Compose 日志：
 
 ```bash
 docker compose logs --since=15m backend-api worker-report mysql minio nginx
-docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg worker-dxf2excel worker-excel-final
+docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg worker-dxf2excel worker-dxf-classification worker-excel-final
 ```
 
 重启前保留首个异常、request ID、Job ID/attempt、worker node、依赖状态和时间戳。当前日志没有集中保留或关联后端；`/tmp` 日志会在重启时丢失，容器日志保留取决于 Docker logging driver。
@@ -116,7 +116,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `f7a9c2d4e610` 和 30 张模型表，额外验证生产输入账本、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 的空 MySQL/MinIO Compose 验证是新增输入账本前的历史证据。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `a9e4c7d2f610` 和 32 张模型表，额外验证生产输入、DXF 分类账本、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 的空 MySQL/MinIO Compose 验证是新增输入账本前的历史证据。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 

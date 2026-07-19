@@ -98,12 +98,14 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `DXF_PIPELINE_ENABLED` | `false` | 启用 DWG -> DXF Job 创建 |
 | `DXF2DWG_PIPELINE_ENABLED` | `false` | 启用 DXF -> DWG Job 创建 |
 | `DXF2EXCEL_PIPELINE_ENABLED` | `false` | 启用 DXF batch -> Excel Job 创建 |
+| `DXF_CLASSIFICATION_PIPELINE_ENABLED` | `false` | 启用冻结生产 DXF 的 Steel DXF Classifier 1.1.0 分类分流 Job |
 | `EXCEL_FINAL_PIPELINE_ENABLED` | `false` | 启用 Excel Final 端点/Job |
 | `CAD_WORKER_ENABLED` | `false` | Windows worker 缺失时必须保持 false |
 | `CELERY_TASK_ALWAYS_EAGER` | `false` | 测试/开发捷径，不是生产 worker 拓扑 |
 | `CELERY_STALE_JOB_TIMEOUT_SECONDS` | 代码默认 600；仓库环境模板 7200 | worker 启动时判定无更新 `running` Job 的阈值；受支持部署应使用高于最长处理超时的模板值 |
 | `EXCEL_FINAL_STAGE_ROOT` | 自动探测 | 可选 Stage 路径覆盖；代码字段存在但模板未列出 |
 | `EXCEL_FINAL_TIMEOUT_SECONDS` | 1800 | 子进程超时，限制为 30-7200 秒 |
+| `DXF_CLASSIFICATION_TIMEOUT_SECONDS` | 1800 | 分类器 CLI 子进程超时，限制为 30-7200 秒 |
 | `DXF_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DWG -> DXF Celery prefork 数 |
 | `DXF2DWG_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DXF -> DWG Celery prefork 数 |
 | `DXF_WORKER_DISPLAY` | `:91` | DWG -> DXF worker 独占的持久 Xvfb display |

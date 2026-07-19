@@ -21,14 +21,15 @@
 | 顺序 | stage code | 执行方式 | 当前实现与产物 |
 |---:|---|---|---|
 | 1 | `source_intake` | guarded | 人工上传多个 DWG 和唯一 Excel；服务器生成并校验同名 DXF，创建 Drawing 后冻结输入清单 |
-| 2 | `drawing_processing` | placeholder | 图纸分类、自动/人工拆板与校验接口留白；绑定交接产物后人工确认 |
-| 3 | `excel_stage1` | automated | 真实创建 `extract_dxf_to_excel` Job；输入 `batch_name`；产物 `stage1_excel` |
-| 4 | `design_barrier` | manual | 人工确认图纸和基础 Excel 已满足最终合并条件 |
-| 5 | `excel_final` | automated | 真实创建 `process_excel_final` Job；输入 Excel `file_id`；产物 `final_excel` |
-| 6 | `cam_packaging` | placeholder | 生产规则分组、清单冻结和 CAM 工作包接口留白 |
-| 7 | `windows_cam` | external | Node Agent、租约、fencing token、SinoCAM Runner 外部接口留白 |
-| 8 | `result_acceptance` | placeholder | 结果摘要、文件稳定性和正式接纳接口留白 |
-| 9 | `delivery_archive` | manual | 确认已登记产物并结束流程 |
+| 2 | `dxf_classification` | automated | 真实创建 `classify_steel_dxf` Job；按 1.1.0 契约预处理和分类分流；产物为逐图 DXF、JSON 报告和 CSV 清单 |
+| 3 | `drawing_processing` | placeholder | 自动/人工拆板与独立校验接口留白；分类已在上一阶段完成 |
+| 4 | `excel_stage1` | automated | 真实创建 `extract_dxf_to_excel` Job；输入 `batch_name`；产物 `stage1_excel` |
+| 5 | `design_barrier` | manual | 人工确认图纸和基础 Excel 已满足最终合并条件 |
+| 6 | `excel_final` | automated | 真实创建 `process_excel_final` Job；输入 Excel `file_id`；产物 `final_excel` |
+| 7 | `cam_packaging` | placeholder | 生产规则分组、清单冻结和 CAM 工作包接口留白 |
+| 8 | `windows_cam` | external | Node Agent、租约、fencing token、SinoCAM Runner 外部接口留白 |
+| 9 | `result_acceptance` | placeholder | 结果摘要、文件稳定性和正式接纳接口留白 |
+| 10 | `delivery_archive` | manual | 确认已登记产物并结束流程 |
 
 `implemented` 表示服务器代码存在，仍受 feature flag、Stage、有效输入、数据库、worker 和存储约束；不表示默认可用。`placeholder` / `external` 表示接口与产物契约存在但核心执行器不存在。
 
@@ -51,6 +52,10 @@
 ### 3.4 `workflow_input_batches` / `workflow_input_items`
 
 每个 Linux workflow 至多一个输入批次。批次记录状态、冻结版本、规范清单 SHA-256 和冻结时间；条目只引用现有 `StoredFile`，记录 DWG/Excel 角色、规范化 stem、转换 `job_id + attempt`、派生 DXF 和最终 `drawing_id`。创建使用唯一约束、savepoint 和 winner reload 保证并发幂等；登记/移除/转换通过批次行锁串行化，避免并发登记两个 Excel。对象字节、大小和 SHA-256 仍由 `/files` 与 storage adapter 管理，不复制存储。
+
+### 3.5 `dxf_classification_runs` / `dxf_classification_items`
+
+每个 Job attempt 建立独立分类 run，保存 workflow/project/job、冻结输入清单 SHA-256、分类器/CLI/报告 schema 版本、汇总、JSON 报告和 CSV 清单文件引用。逐图 item 保存 Drawing、来源派生 DXF、分流输出 DXF、处置、零件类型、诊断、证据和遵循 1.1.0 的输出目录名。`(job_id, job_attempt)` 与 `(run_id, source_file_id)` 唯一，旧 attempt 不覆盖新结果。
 
 ## 4. 状态与执行
 
@@ -78,6 +83,16 @@ completion API 只接受当前可操作阶段：
 ### 4.3 自动执行
 
 `POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 先验证项目角色、当前阶段和 execution kind。
+
+`dxf_classification`：
+
+1. 要求 `DXF_CLASSIFICATION_PIPELINE_ENABLED=true`，且生产输入已经冻结；
+2. 只读取冻结条目登记的服务器派生 DXF，重新核对对象大小和 SHA-256；
+3. 临时输入目录命名为 `<项目代码>-workflow-<id>_dxf`，通过 `python -m steel_dxf_classifier.cli --json` 调用 1.1.0 正式进程契约；
+4. 分类器只在临时副本上增加 `*_拆板前.dxf`，原始 MinIO DXF 不改名；
+5. 输出严格使用 `<项目名>_<零件类型>_dxf`、`<项目名>_待确认_dxf`、`<项目名>_无法读取_dxf`，逐图核对报告、数量和字节摘要；
+6. 每个分流 DXF、JSON 报告和 CSV 清单分别写入 MinIO、登记 `files`，并关联 classification item/artifact/result；
+7. CLI 退出码 2 表示“完成但需确认”，仍保存完整结果并进入拆板留白阶段；退出码 1/64 或契约不一致使当前 attempt 失败并允许重试。
 
 `excel_stage1`：
 
@@ -120,6 +135,7 @@ completion API 只接受当前可操作阶段：
 | GET | `/api/v1/workflows` | 权限过滤后的分页列表，可按项目/状态过滤 |
 | POST | `/api/v1/workflows` | 创建流程与阶段 |
 | GET | `/api/v1/workflows/{workflow_id}` | 详情、Job 同步和自动产物挂接 |
+| GET | `/api/v1/workflows/{workflow_id}/dxf-classification` | 最新分类 attempt、Job、汇总、逐图来源/输出和报告登记 |
 | POST | `/api/v1/workflows/{workflow_id}/artifacts` | 绑定已有 File/Result，重复请求幂等 |
 | POST | `/api/v1/workflows/{workflow_id}/start` | 启动草稿 |
 | GET, POST | `/api/v1/workflows/{workflow_id}/input-batch` | 读取/幂等建立生产输入批次 |
@@ -149,6 +165,8 @@ completion API 只接受当前可操作阶段：
 | 415 | `NOT_EXCEL` | Excel Final 输入扩展名不支持 |
 | 501 | `WORKFLOW_STAGE_NOT_IMPLEMENTED` | 阶段接口存在，但核心实现留白；details 返回输入/产物契约 |
 | 503 | `DXF2EXCEL_PIPELINE_DISABLED` | DXF→Excel flag 关闭 |
+| 503 | `DXF_CLASSIFICATION_PIPELINE_DISABLED` | DXF 分类分流 flag 关闭 |
+| 409 | `CLASSIFICATION_SOURCE_MISSING` / `CLASSIFICATION_SOURCE_REQUIRED` | 冻结清单缺少可读派生 DXF |
 | 503 | `EXCEL_FINAL_PIPELINE_DISABLED` | Excel Final flag 关闭 |
 
 ## 6. 前端
@@ -157,11 +175,13 @@ React `生产流程` 页面读取模板，提供：
 
 - 页面级“提交生产批次”主入口：选择项目和批次名称后连续创建并启动 Linux workflow，同一抽屉原地切换到资料上传，不要求用户重新寻找详情入口；启动失败时也在原抽屉提供重试，没有项目时明确引导先创建项目；
 - 已创建但启动失败的 draft 在详情主体保留“启动并进入上传”恢复入口；
-- Linux 九阶段生产轨道和实现状态标签；
+- Linux 十阶段生产轨道和实现状态标签；
 - 项目内流程创建、分页、状态筛选、启动和取消；
 - source intake 专用四步面板：多选 DWG、单个 Excel、服务器转换、确认冻结；
 - 逐文件上传/登记、Job attempt/进度、DXF 配对、结构化问题和修复建议；
 - 上传成功但登记失败时只重试登记，避免重复保存对象；
+- 同一新建抽屉在冻结后原地进入 DXF 分类控制台，无需重新选择文件；
+- 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断、分流 DXF 与 JSON/CSV 下载；
 - DXF 批次执行与 Excel 文件执行；
 - placeholder/external 接口探测与明确留白提示；
 - Job/attempt/进度/错误展示；
@@ -171,16 +191,16 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-2026-07-19 新增聚焦测试覆盖输入批次唯一性、真实 DWG/Excel 校验、人工 DXF 拒绝、转换幂等/重试、配对、冻结建图、防 completion 绕过、项目隔离，以及九阶段模板、DXF→Excel/Excel Final、留白契约和 active Job 取消。前端合同测试与 TypeScript/Vite production build 已通过；完整门禁和确切计数见[工作流验证](workflow-verification.md)。
+2026-07-19 新增聚焦测试覆盖输入批次唯一性、真实 DWG/Excel 校验、人工 DXF 拒绝、转换幂等/重试、配对、冻结建图、分类器命名/I/O/对象/账本契约、防 completion 绕过、项目隔离，以及十阶段模板、DXF→Excel/Excel Final、留白契约和 active Job 取消。前端合同、TypeScript/Vite production build 与 Playwright 新建→上传→冻结→分类分流场景已通过；完整门禁和确切计数见[工作流验证](workflow-verification.md)。
 
 仍未完成：
 
-- 图纸分类、自动拆板、人工拆板结果业务校验；
+- 自动拆板、人工拆板结果业务校验；
 - 深化设计 barrier 的机器完整性校验；
 - CAM 规则分组和工作包生成；
 - Windows Node Agent、租约、fencing token、SinoCAM Runner/Adapter；
 - CAM 结果正式接纳算法与确定性交付清单；
 - 多请求并发推进的行锁/version 控制；
-- 真实有效样本下 MySQL、Celery、MinIO、Nginx 全链路复验。
+- 获准真实生产图纸下的分类准确率业务验收。
 
-因此本次交付是 Linux 服务器端完整编排框架和两条真实处理接线，不是 SinoCAM 生产闭环已经完成的声明。
+因此本次交付已完成服务器输入冻结和 DXF 分类分流，并保留后续拆板/CAM 边界；不是 SinoCAM 生产闭环已经完成的声明。

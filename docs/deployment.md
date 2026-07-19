@@ -40,7 +40,7 @@ bash scripts/docker.sh check
 - `HTTP_PORT`：宿主 HTTP 端口，默认 `80`。
 - `DWG_AGENT_IMAGE`、`DWG_AGENT_FRONTEND_IMAGE`：默认本地 tag；CI/CD 可改为不可变 registry tag/digest。
 - `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
-- `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false。
+- `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false；分类 worker 使用独立 `dxf_classification` 队列。
 - `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
 
 ## 构建与启动

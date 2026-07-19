@@ -62,6 +62,18 @@ DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。
 
 该管线可消费上传的 DXF 或此前可访问的转换结果。结果选择是确定性的：先选最新成功 Job，再选最新成功 result row，不会静默选择任意历史输出。
 
+## 冻结 DXF 分类与分流
+
+`DXF_CLASSIFICATION_PIPELINE_ENABLED=true` 启用生产工作流 `dxf_classification` 阶段。公开 executions 端点只接受当前 Linux workflow，要求输入批次已经冻结，并从 `workflow_input_items.derived_dxf_file_id` 获取确定输入，不允许操作者手选任意文件或批次。
+
+任务类型为 `classify_steel_dxf`，pipeline/queue 为 `steel_dxf_classifier` / `dxf_classification`。步骤为 `stage_classifier_input`、`run_steel_dxf_classifier` 和 `persist_classification_outputs`。worker 重新核对每个 MinIO 对象的登记大小与 SHA-256，再以 `<项目代码>-workflow-<id>_dxf` 暂存输入，通过 `steel_dxf_classifier.cli --json` 调用 1.1.0 正式 I/O 契约。
+
+分类器只修改临时副本名称：`A001.dxf` 变为 `A001_拆板前.dxf`，原始派生 DXF 对象保持不变。输出目录严格为 `<项目名>_<零件类型>_dxf`、`<项目名>_待确认_dxf` 或 `<项目名>_无法读取_dxf`。平台在写入前核对逐图报告、一一对应、输出存在性与来源/输出字节摘要；随后把每个 DXF 存入 `dxf-derived`，把 JSON 报告和 CSV 清单存入 reports bucket，并分别建立 `files`、`dxf_classification_runs/items`、`workflow_artifacts` 和 `analysis_results` 关系。
+
+CLI 退出码 2 是成功完成但包含人工待确认/无法读取文件，不按技术故障重试。退出码 1/64、超时、stderr/schema/数量/命名/摘要不一致使当前 Job attempt 失败；同一 workflow/stage 重试复用 Job 并递增 attempt，MinIO 使用独立 attempt 前缀。分类完成后流程进入 `drawing_processing` 留白阶段，不表示拆板已经完成。
+
+`Stages/steel_dxf_classifier_v1.1.0` 以一方源码、锁文件、规则文档和内置测试纳入父仓库；独立仓库中的真实项目 ZIP、验证输出、虚拟环境和缓存不随平台源码分发。
+
 ## DXF 转 Excel
 
 `DXF2EXCEL_PIPELINE_ENABLED=true` 允许 `task_type=extract_dxf_to_excel`。service 收集请求 `batch_name` 下可访问的 DXF，暂存可读对象，调用 `dxf2excel` 包，存储一个工作簿，并在 Job step 中记录部分下载 warning。

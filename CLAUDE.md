@@ -20,8 +20,8 @@ Celery workers (无入站监听) <-> MySQL SQL transport/result backend -> track
 - `internal: true` 是 externally-isolated 网络：backend-api/worker 无外部 egress；启用 CAD worker/LLM 前须补可 egress 网络 + `cad-worker.internal` 解析。
 - `Stages/dxf2excel` 是父仓库正常跟踪的一方 Stage；不得恢复为 gitlink，验证 corpus 与生成工作簿不得提交。
 - 生产配置关闭 OpenAPI/Swagger/ReDoc。
-- 当前 Alembic head 为 `f7a9c2d4e610`；30 张模型表，加 Alembic version 表与 8 张 Celery runtime 表后最多 39 张表。
-- `linux_production` 工作流已公开接通多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/冻结、DXF→Excel/Excel Final Job、attempt 同步和结果挂接；图纸/CAM/Windows/结果接纳阶段保持 501 留白契约。
+- 当前 Alembic head 为 `a9e4c7d2f610`；32 张模型表，加 Alembic version 表与 8 张 Celery runtime 表后最多 41 张表。
+- `linux_production` 工作流已公开接通多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/冻结、Steel DXF Classifier 1.1.0 分类分流、DXF→Excel/Excel Final Job、attempt 同步和结果挂接；拆板/CAM/Windows/结果接纳阶段保持 501 留白契约。
 
 ## 工程规则
 

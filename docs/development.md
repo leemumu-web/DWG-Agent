@@ -124,7 +124,7 @@ bash scripts/db.sh migration-test
 cd backend && uv run alembic check
 ```
 
-Alembic 当前拥有 30 张 SQLAlchemy 模型表，其中包含三张工作流表、两张生产输入账本和三张流转/扫描表；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
+Alembic 当前拥有 32 张 SQLAlchemy 模型表，其中包含三张工作流表、两张生产输入账本、两张 DXF 分类账本和三张流转/扫描表；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
 
 ## 测试层级
 
