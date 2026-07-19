@@ -116,7 +116,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `d5e8a1c4b720` 和 28 张模型表，额外验证 `jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 另以空 MySQL/MinIO Compose 卷验证了 Kombu 首次建表、索引和 report worker ready。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `f7a9c2d4e610` 和 30 张模型表，额外验证生产输入账本、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。2026-07-12 的空 MySQL/MinIO Compose 验证是新增输入账本前的历史证据。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 

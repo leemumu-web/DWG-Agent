@@ -16,7 +16,7 @@ DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx �
 4. [企业技术规范](../DWG-Agent企业平台技术规范.md)：必须长期保持的架构、安全和交付约束。
 5. [架构](architecture.md)：组件职责以及同步、异步、SSE、下载、存储一致性路径。
 6. [API 参考](api.md)：从当前 FastAPI OpenAPI 自动生成的路由清单和关键生产契约。
-7. [数据库](database.md)：28 张模型表、8 张 Celery runtime 表、迁移、流转账本和恢复集合。
+7. [数据库](database.md)：30 张模型表、8 张 Celery runtime 表、迁移、流转账本和恢复集合。
 8. [处理管线](processing-pipelines.md)与[通用工作流](workflow-framework.md)：转换执行与业务编排的区别。
 9. [配置](configuration.md)、[部署](deployment.md)和[运维](operations.md)：本地/Compose 实施和事故处理。
 10. [安全](security.md)、[验证](workflow-verification.md)与[路线图](roadmap.md)：发布前边界、证据和后续工作。

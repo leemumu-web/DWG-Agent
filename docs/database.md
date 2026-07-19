@@ -98,9 +98,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-Alembic/SQLAlchemy 管理 **28 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 29 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **37 张表**。
+Alembic/SQLAlchemy 管理 **30 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 31 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **39 张表**。
 
-不能把 37 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 可能只有 29 张；Kombu broker 与 result backend 又可能分阶段建表。2026-07-12 的空卷 Compose 验证在 report worker ready、尚未产生 Celery result 时观察到 33 张表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
+不能把 39 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 31 张；Kombu broker 与 result backend 又可能分阶段建表。2026-07-12 的 33 表观察值是新增输入账本前的历史证据。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -498,11 +498,13 @@ Agent 运行中的单个工具调用和推理步骤。
 
 迁移 `9c4e7b1a2d60` 扩容真实业务标识：零件/构件 `component_no` 为 VARCHAR(512)，`part_no` 与 `profile_spec` 为 VARCHAR(255)，`part_type` 与 `spec` 为 VARCHAR(128)。迁移只扩大列宽，不重写历史 Excel Final 建表迁移，也不管理 Celery/Kombu 表。
 
-### 2.10 通用工作流 -- 3 张表
+### 2.10 通用工作流与生产输入 -- 5 张表
 
 - `workflow_runs` 保存项目级流程、类型、状态、当前阶段、整体进度、配置、错误和生命周期时间；按项目/创建者/状态建立索引。
 - `workflow_stage_runs` 保存模板生成的有序阶段，`(workflow_run_id, stage_code)` 唯一；可选记录 `job_id` 与 `job_attempt`，同步时只接受匹配 attempt。
 - `workflow_artifacts` 保存流程/阶段到 `files` 或 `analysis_results` 的引用和版本字段，不保存对象字节。
+- `workflow_input_batches` 保存每个 Linux workflow 唯一的生产输入状态、冻结版本、清单 SHA-256、错误与冻结时间。
+- `workflow_input_items` 引用源 DWG/Excel、转换 Job attempt、派生 DXF 和 Drawing；同批次同 `file_id` 唯一。
 
 删除 workflow 时阶段和 artifact 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束；公开 API 通过资源权限、非空引用和幂等查重维护当前不变量，并在 Job 成功同步时自动挂接结果。完整状态机和边界见[Linux 生产工作流](workflow-framework.md)。
 
@@ -622,8 +624,9 @@ analysis_results ──< workflow_artifacts
 | `6d2f8a9c1b40` | 新增文件流转账本、一致性扫描表、文件软删除时间与对象位置唯一约束 | 2026-07-12 |
 | `9c4e7b1a2d60` | 扩容 Excel Final 构件号、零件号、类型与规格字段 | 2026-07-13 |
 | `d5e8a1c4b720` | 新增 `jobs.request_key` 与用户/任务/请求键唯一约束 | 2026-07-13 |
+| `f7a9c2d4e610` | 新增生产输入批次与条目账本 | 2026-07-19 |
 
-线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40 → 9c4e7b1a2d60 → d5e8a1c4b720`；**`d5e8a1c4b720` 是当前 head。**
+线性链为 `40452ddd24e7 → b8f9e7d6c5a4 → c3d2e1f0a9b8 → 53cd59adf848 → 1d1696c7e854 → 3480bd86ddc3 → 7f2a9c4e6b10 → 8c61f4d2a9e7 → a74c2e9f1d30 → e4a1c7f2b930 → 6d2f8a9c1b40 → 9c4e7b1a2d60 → d5e8a1c4b720 → f7a9c2d4e610`；**`f7a9c2d4e610` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -674,7 +677,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **28 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **30 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
@@ -763,7 +766,7 @@ bash scripts/db.sh init
 
 | 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL `dwg_agent` | 28 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
+| MySQL `dwg_agent` | 30 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
 | `hardware_handbook` | schema/data 或独立管理的权威源 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |

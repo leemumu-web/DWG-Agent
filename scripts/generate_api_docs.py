@@ -238,6 +238,10 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 
 `POST /api/v1/workflows/{workflow_id}/artifacts` 只绑定现有 `file_id` / `result_id`，不接收文件字节。服务端同时验证项目写权限与目标资源读权限；相同 workflow、stage、artifact type、file、result 的重放返回原 artifact 和 `reused=true`。
 
+`source_intake` 不再允许用通用 artifact/completion 绕过。人工只上传至少一个 `.dwg` 和恰好一个 `.xls`/`.xlsx`：先以带 `Idempotency-Key` 的 `POST /api/v1/files` 保存字节，再用 `POST /api/v1/workflows/{workflow_id}/input-batch/files` 登记引用。人工 `.dxf` 返回 `INPUT_DXF_NOT_ALLOWED`；服务器通过 `POST .../input-batch/conversion-requests` 复用现有 `convert_dwg_to_dxf` Job，失败重试递增 attempt，成功 Result 必须产生同名、可读且格式有效的 DXF。
+
+`GET .../input-batch` 返回每个 DWG 的上传、Job、attempt、进度、派生 DXF、配对和错误建议。`POST .../input-batch/freeze` 在行锁内重新读取所有源对象，核对大小、SHA-256、真实格式、唯一 Excel 和规范化文件名，然后为每个 DWG 创建 Drawing/Version、挂接 `source_file`/`derived_dxf`/`source_excel` artifact、计算规范 JSON 清单 SHA-256，并原子完成 `source_intake`。冻结后所有增删和转换请求被拒绝。
+
 `linux_production` 对每阶段强制执行模板声明的 artifact type 白名单；不匹配返回 `422 WORKFLOW_ARTIFACT_TYPE_INVALID`。因此 placeholder/external 阶段必须提交约定类型的真实交接产物，不能用任意文件满足 completion。旧模板未声明白名单，保持兼容。
 
 `POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 只执行当前阶段。`excel_stage1` 接收 `execution_kind=dxf_to_excel` 与 `batch_name`；`excel_final` 接收 `execution_kind=excel_final` 与 `file_id`。两者以工作流/阶段幂等键创建或复用 Job，同事务绑定 attempt，commit 后才投递。自动阶段不能通过 completion 绕过。若绑定 Job 已失败或被单独取消，重放同一 executions 请求会复用 Job、递增 attempt、清除阶段错误并重新投递；响应以 `retried=true` 明确区分普通幂等复用。显式取消整个流程后不可重开。

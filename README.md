@@ -27,8 +27,8 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、99 个 OpenAPI path 和 118 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张；SQLite 只用于 pytest |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、104 个 OpenAPI path 和 124 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 30 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 31 张表；Celery runtime 全部初始化后最多 39 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
 | 数据控制台 | ✅ | 总览、文件登记、存储对象、入出库流水、一致性五页签 | 管理员可扫描/处置，审计员只读/预检；永久清理不可恢复且必须确认 |
@@ -38,7 +38,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Linux 生产工作流 | ⚠️ | 九阶段 `linux_production`、文件绑定、DXF→Excel/Excel Final Job、attempt 同步、自动产物、取消和生产流程控制台 | 图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口；两条管线默认关闭 |
+| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、九阶段、DXF→Excel/Excel Final Job、attempt 同步和生产流程控制台 | 图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口；处理管线默认关闭 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | API、模型和权限边界保留 | 不继续实现；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | 图纸元数据与格式转换边界保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 不在当前交付范围 |
