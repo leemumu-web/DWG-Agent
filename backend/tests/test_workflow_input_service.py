@@ -10,7 +10,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
+from app.models.job import Job
 from app.models.project import Project, ProjectMember
+from app.models.result import AnalysisResult
 from app.models.user import User
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.schemas.workflow_schema import WorkflowCreate
@@ -228,3 +230,125 @@ def test_rejects_fake_xlsx_container(db, tmp_path, monkeypatch):
         workflow_input_service.register_input_file(db, batch, fake)
 
     assert error.value.detail["code"] == "INPUT_EXCEL_UNREADABLE"
+
+
+def _registered_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
+    user, project, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
+    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    for index, name in enumerate(dwg_names):
+        stored = _stored_object(
+            db,
+            storage,
+            name,
+            b"AC1027" + bytes([index + 1]) * 2048,
+        )
+        workflow_input_service.register_input_file(db, batch, stored)
+    excel = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
+    workflow_input_service.register_input_file(db, batch, excel)
+    return user, project, workflow, batch, storage
+
+
+def test_conversion_jobs_are_project_bound_idempotent_and_retryable(
+    db, tmp_path, monkeypatch
+):
+    user, project, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
+    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
+
+    first = workflow_input_service.prepare_input_conversions(
+        db, batch, created_by=user.id
+    )
+    replay = workflow_input_service.prepare_input_conversions(
+        db, batch, created_by=user.id
+    )
+
+    assert len(first.jobs) == 2
+    assert first.dispatch == [(job.id, 1) for job in first.jobs]
+    assert replay.dispatch == []
+    assert [job.id for job in replay.jobs] == [job.id for job in first.jobs]
+    assert all(job.project_id == project.id for job in first.jobs)
+    assert all(job.task_type == "convert_dwg_to_dxf" for job in first.jobs)
+    assert all(item.status == "converting" for item in batch.items if item.role == "source_dwg")
+
+    first.jobs[0].status = "failed"
+    db.flush()
+    retried = workflow_input_service.prepare_input_conversions(
+        db, batch, created_by=user.id
+    )
+
+    assert retried.jobs[0].attempt == 2
+    assert retried.jobs[0].status == "queued"
+    assert retried.dispatch == [(retried.jobs[0].id, 2)]
+
+
+def test_conversion_feature_gate_is_enforced(db, tmp_path, monkeypatch):
+    user, _, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
+    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", False)
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+
+    assert error.value.detail["code"] == "DXF_PIPELINE_DISABLED"
+    assert db.query(Job).count() == 0
+
+
+def test_sync_pairs_only_successful_server_derived_dxf(db, tmp_path, monkeypatch):
+    user, _, _, batch, storage = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=("Assembly 01.dwg",)
+    )
+    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
+    plan = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    job = plan.jobs[0]
+    derived = _stored_object(
+        db,
+        storage,
+        "Assembly 01.dxf",
+        b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+    )
+    db.add(
+        AnalysisResult(
+            job_id=job.id,
+            result_type="convert_dwg_to_dxf",
+            result_file_id=derived.id,
+            status="succeeded",
+        )
+    )
+    job.status = "succeeded"
+    job.progress = 100
+    db.flush()
+
+    workflow_input_service.sync_input_batch(db, batch)
+
+    dwg_item = next(item for item in batch.items if item.role == "source_dwg")
+    assert dwg_item.status == "paired"
+    assert dwg_item.derived_dxf_file_id == derived.id
+    assert batch.status == "ready_to_freeze"
+
+
+def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
+    user, _, _, batch, storage = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=("source.dwg",)
+    )
+    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
+    job = workflow_input_service.prepare_input_conversions(
+        db, batch, created_by=user.id
+    ).jobs[0]
+    derived = _stored_object(db, storage, "other.dxf", b"0\nEOF\n")
+    db.add(
+        AnalysisResult(
+            job_id=job.id,
+            result_type="convert_dwg_to_dxf",
+            result_file_id=derived.id,
+            status="succeeded",
+        )
+    )
+    job.status = "succeeded"
+    db.flush()
+
+    workflow_input_service.sync_input_batch(db, batch)
+
+    item = next(item for item in batch.items if item.role == "source_dwg")
+    assert item.status == "conversion_failed"
+    assert item.error_code == "INPUT_DXF_NAME_MISMATCH"
+    assert batch.status == "needs_attention"
