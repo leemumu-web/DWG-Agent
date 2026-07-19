@@ -13,6 +13,7 @@ from app.models.storage_scan import StorageScanFinding, StorageScanRun
 from app.models.token_blacklist import TokenBlacklist
 from app.models.user import User
 from app.models.workflow import WorkflowArtifact, WorkflowRun, WorkflowStageRun
+from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 
 __all__ = [
     "AgentMemory",
@@ -43,4 +44,6 @@ __all__ = [
     "WorkflowArtifact",
     "WorkflowRun",
     "WorkflowStageRun",
+    "WorkflowInputBatch",
+    "WorkflowInputItem",
 ]

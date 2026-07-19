@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.workflow_input import WorkflowInputBatch
 
 
 class WorkflowRun(TimestampMixin, Base):
@@ -36,6 +39,9 @@ class WorkflowRun(TimestampMixin, Base):
     )
     artifacts: Mapped[list["WorkflowArtifact"]] = relationship(
         back_populates="workflow", cascade="all, delete-orphan"
+    )
+    input_batch: Mapped[WorkflowInputBatch | None] = relationship(
+        back_populates="workflow", cascade="all, delete-orphan", uselist=False
     )
 
 
