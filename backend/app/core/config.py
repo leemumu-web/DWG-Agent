@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     # DXF→Excel material-table extraction
     dxf2excel_pipeline_enabled: bool = False
 
+    # Frozen production DXF classification and routing
+    dxf_classification_pipeline_enabled: bool = False
+    dxf_classification_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
+
     # Excel→final part-list processing (excel_final pipeline)
     excel_final_pipeline_enabled: bool = False
     # The Stage is a standalone script project rather than an importable Python

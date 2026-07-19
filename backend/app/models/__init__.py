@@ -2,6 +2,7 @@ from app.models.agent_memory import AgentMemory
 from app.models.agent_run import AgentRun, AgentRunStep
 from app.models.audit_log import AuditLog
 from app.models.drawing import Drawing, DrawingVersion
+from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
@@ -22,6 +23,8 @@ __all__ = [
     "AuditLog",
     "Drawing",
     "DrawingVersion",
+    "DxfClassificationRun",
+    "DxfClassificationItem",
     "ExcelFinalBatch",
     "ExcelFinalComponent",
     "ExcelFinalPart",

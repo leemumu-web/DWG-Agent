@@ -12,7 +12,11 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.config import settings
-from app.core.constants import TASK_DXF_TO_EXCEL, TASK_EXCEL_FINAL
+from app.core.constants import (
+    TASK_DXF_TO_EXCEL,
+    TASK_EXCEL_FINAL,
+    TASK_STEEL_DXF_CLASSIFICATION,
+)
 from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.db.pagination import paginate_scalars
 from app.models.file import StoredFile
@@ -22,6 +26,11 @@ from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
+from app.schemas.dxf_classification_schema import (
+    DxfClassificationItemRead,
+    DxfClassificationRunRead,
+)
+from app.schemas.file_schema import FileRead
 from app.schemas.job_schema import JobCreate, JobRead
 from app.schemas.workflow_schema import (
     WorkflowArtifactCreate,
@@ -32,6 +41,7 @@ from app.schemas.workflow_schema import (
     WorkflowStageExecutionCreate,
 )
 from app.services.audit_service import write_audit_log
+from app.services.dxf_classification_service import latest_classification_run
 from app.services.file_service import require_file_read_access
 from app.services.job_access import require_job_read_access
 from app.services.job_service import cancel_job as transition_job_to_cancelled
@@ -290,6 +300,44 @@ def execute_workflow_stage(
             )
         task_type = TASK_EXCEL_FINAL
         params = {"file_id": stored.id}
+    elif payload.execution_kind == "steel_dxf_classification":
+        if not settings.dxf_classification_pipeline_enabled:
+            raise service_unavailable(
+                "DXF_CLASSIFICATION_PIPELINE_DISABLED",
+                "DXF classification pipeline is disabled. Set DXF_CLASSIFICATION_PIPELINE_ENABLED=true to enable.",
+            )
+        batch = workflow.input_batch
+        if batch is None or batch.status != "frozen" or not batch.manifest_sha256:
+            raise AppHTTPException(
+                409,
+                "WORKFLOW_INPUT_BATCH_NOT_FROZEN",
+                "The production input batch must be frozen before DXF classification.",
+            )
+        derived_files: list[StoredFile] = []
+        for item in batch.items:
+            if item.role != "source_dwg" or item.derived_dxf_file_id is None:
+                continue
+            derived = db.get(StoredFile, item.derived_dxf_file_id)
+            if derived is None or derived.status == "deleted":
+                raise AppHTTPException(
+                    409,
+                    "CLASSIFICATION_SOURCE_MISSING",
+                    "A frozen derived DXF is unavailable.",
+                    {"item_id": item.id, "file_id": item.derived_dxf_file_id},
+                )
+            require_file_read_access(db, current_user, derived)
+            derived_files.append(derived)
+        if not derived_files:
+            raise AppHTTPException(
+                409,
+                "CLASSIFICATION_SOURCE_REQUIRED",
+                "The frozen input batch contains no derived DXF files.",
+            )
+        task_type = TASK_STEEL_DXF_CLASSIFICATION
+        params = {
+            "workflow_id": workflow.id,
+            "input_manifest_sha256": batch.manifest_sha256,
+        }
     else:
         raise AppHTTPException(
             501,
@@ -342,6 +390,82 @@ def execute_workflow_stage(
         },
         request.state.request_id,
     )
+
+
+@router.get(
+    "/{workflow_id}/dxf-classification",
+    summary="读取最新 DXF 分类分流账本",
+    description="返回分类 Job、版本、汇总、逐图来源/输出登记和 JSON/CSV 报告文件。",
+)
+def get_dxf_classification(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = _load_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    sync_workflow_from_jobs(db, workflow)
+    run = latest_classification_run(db, workflow.id)
+    db.commit()
+    if run is None:
+        return ok(None, request.state.request_id)
+    job = db.get(Job, run.job_id)
+    if job is None:
+        raise not_found("Classification job")
+    report_file = db.get(StoredFile, run.report_file_id) if run.report_file_id else None
+    manifest_file = db.get(StoredFile, run.manifest_file_id) if run.manifest_file_id else None
+    items: list[DxfClassificationItemRead] = []
+    for item in run.items:
+        source_file = db.get(StoredFile, item.source_file_id)
+        output_file = db.get(StoredFile, item.output_file_id)
+        if source_file is None or output_file is None:
+            raise AppHTTPException(
+                409,
+                "CLASSIFICATION_LEDGER_INCOMPLETE",
+                "A classification item references a missing file registration.",
+                {"item_id": item.id},
+            )
+        items.append(
+            DxfClassificationItemRead(
+                id=item.id,
+                drawing_id=item.drawing_id,
+                source_file=FileRead.model_validate(source_file),
+                output_file=FileRead.model_validate(output_file),
+                source_name=item.source_name,
+                output_name=item.output_name,
+                output_directory=item.output_directory,
+                disposition=item.disposition,
+                part_type=item.part_type,
+                diagnostics=item.diagnostics_json or [],
+            )
+        )
+    payload = DxfClassificationRunRead(
+        id=run.id,
+        workflow_run_id=run.workflow_run_id,
+        status=run.status,
+        classifier_version=run.classifier_version,
+        report_schema=run.report_schema,
+        cli_schema=run.cli_schema,
+        project_name=run.project_name,
+        input_manifest_sha256=run.input_manifest_sha256,
+        input_count=run.input_count,
+        classified_count=run.classified_count,
+        review_required_count=run.review_required_count,
+        unreadable_count=run.unreadable_count,
+        type_counts=run.type_counts_json or {},
+        report_file=FileRead.model_validate(report_file) if report_file else None,
+        manifest_file=FileRead.model_validate(manifest_file) if manifest_file else None,
+        job=JobRead.model_validate(job),
+        items=items,
+        error_code=run.error_code,
+        error_message=run.error_message,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+    )
+    return ok(payload, request.state.request_id)
 
 
 @router.get("/{workflow_id}")

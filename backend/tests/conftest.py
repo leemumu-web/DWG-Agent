@@ -76,6 +76,7 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.services.dxf_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf2dwg_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf2excel_service.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.services.dxf_classification_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.excel_final_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.celery_app.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.tasks_report.SessionLocal", TestSessionLocal)

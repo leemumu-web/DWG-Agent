@@ -446,7 +446,7 @@ def test_freeze_creates_drawings_manifest_artifacts_and_completes_source_intake(
     assert len(versions) == 2
     assert all(item.status == "frozen" for item in batch.items)
     assert all(item.drawing_id is not None for item in batch.items if item.role == "source_dwg")
-    assert workflow.current_stage == "drawing_processing"
+    assert workflow.current_stage == "dxf_classification"
     assert {artifact.artifact_type for artifact in workflow.artifacts} == {
         "source_file",
         "source_excel",

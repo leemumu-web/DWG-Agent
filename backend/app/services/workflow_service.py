@@ -77,9 +77,18 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 artifact_types=("source_file", "source_excel", "derived_dxf"),
             ),
             _stage(
+                "dxf_classification",
+                "DXF 分类与分流",
+                "调用 Steel DXF Classifier 1.1.0 预处理并按零件类型分流冻结 DXF。",
+                execution_mode="automated",
+                execution_kind="steel_dxf_classification",
+                required_inputs=("frozen_derived_dxf",),
+                artifact_types=("classified_dxf", "classification_report", "classification_manifest"),
+            ),
+            _stage(
                 "drawing_processing",
                 "图纸分类与拆板",
-                "预留自动拆板、人工拆板回流与独立校验契约。",
+                "预留自动拆板、人工拆板回流与独立校验契约；分类分流已在上一阶段完成。",
                 execution_mode="placeholder",
                 implementation_status="placeholder",
                 execution_kind="drawing_processing",
@@ -336,11 +345,6 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
         stage.finished_at = job.finished_at
         if job.status == "succeeded":
             capability = get_stage_capability(workflow, stage.stage_code)
-            artifact_type = (
-                capability.artifact_types[0]
-                if capability.artifact_types
-                else f"{stage.stage_code}_result"
-            )
             results = list(
                 db.scalars(
                     select(AnalysisResult).where(
@@ -350,6 +354,19 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                 ).all()
             )
             for result in results:
+                requested_artifact_type = (
+                    result.result_json.get("workflow_artifact_type")
+                    if isinstance(result.result_json, dict)
+                    else None
+                )
+                artifact_type = (
+                    requested_artifact_type
+                    if isinstance(requested_artifact_type, str)
+                    and requested_artifact_type in capability.artifact_types
+                    else capability.artifact_types[0]
+                    if capability.artifact_types
+                    else f"{stage.stage_code}_result"
+                )
                 attach_artifact(
                     db,
                     workflow,

@@ -41,6 +41,7 @@ def test_linux_production_workflow_documentation_matches_public_routes() -> None
     )
     for stage in (
         "source_intake",
+        "dxf_classification",
         "drawing_processing",
         "excel_stage1",
         "design_barrier",

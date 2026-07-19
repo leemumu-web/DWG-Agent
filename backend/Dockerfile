@@ -4,7 +4,7 @@
 # Multi-stage: builder installs deps, runtime is minimal.
 #
 # 关键设计：build context = 仓库根（见 compose.yaml），因为 backend/pyproject.toml
-# 把 dwg-converter / dxf-converter / dxf2excel 声明为 editable path 依赖，
+# 把 dwg-converter / dxf-converter / dxf2excel / steel-dxf-classifier 声明为 editable path 依赖，
 # 指向 ../Stages/ 下对应目录（相对 backend/）。这些路径在 ./backend 上下文
 # 之外，故必须以仓库根为上下文，把 Stages/ 一并 COPY 进 builder，uv sync --frozen 才能
 # 解析 lock 里锁定的 editable 源。
@@ -41,6 +41,7 @@ COPY backend/pyproject.toml backend/uv.lock backend/README.md ./backend/
 COPY Stages/dwg2dxf ./Stages/dwg2dxf
 COPY Stages/dxf2dwg ./Stages/dxf2dwg
 COPY Stages/dxf2excel ./Stages/dxf2excel
+COPY Stages/steel_dxf_classifier_v1.1.0 ./Stages/steel_dxf_classifier_v1.1.0
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend

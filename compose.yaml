@@ -119,6 +119,13 @@ services:
       - app_var:/app/var
     profiles: [workers]
 
+  worker-dxf-classification:
+    <<: *worker
+    command: celery -A app.workers.celery_app:celery_app worker -Q dxf_classification -n dxf-classification@%h --concurrency=1
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+
   worker-excel-final:
     <<: *worker
     command: celery -A app.workers.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1

@@ -48,6 +48,13 @@ STEP_DOWNLOAD_DXF_BATCH = "download_dxf_batch"
 STEP_RUN_DXF2EXCEL = "run_dxf2excel_pipeline"
 STEP_PERSIST_EXCEL = "persist_excel_result"
 
+# Steel DXF classification pipeline
+PIPELINE_STEEL_DXF_CLASSIFIER = "steel_dxf_classifier"
+TASK_STEEL_DXF_CLASSIFICATION = "classify_steel_dxf"
+STEP_STAGE_CLASSIFIER_INPUT = "stage_classifier_input"
+STEP_RUN_STEEL_DXF_CLASSIFIER = "run_steel_dxf_classifier"
+STEP_PERSIST_CLASSIFICATION = "persist_classification_outputs"
+
 # Excel→final part-list pipeline (excel_final)
 PIPELINE_EXCEL_FINAL = "excel_final"
 TASK_EXCEL_FINAL = "process_excel_final"

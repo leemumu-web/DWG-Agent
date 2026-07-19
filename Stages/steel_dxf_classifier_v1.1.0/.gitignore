@@ -1,0 +1,12 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+dist/
+build/
+.coverage
+.codex/
+项目1.zip
+项目2.zip
+validation_projects/
+release_outputs/

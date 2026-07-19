@@ -53,6 +53,7 @@ def test_linux_production_template_has_complete_ordered_server_framework(db):
 
     assert [stage.stage_code for stage in workflow.stages] == [
         "source_intake",
+        "dxf_classification",
         "drawing_processing",
         "excel_stage1",
         "design_barrier",
@@ -70,6 +71,14 @@ def test_linux_production_template_exposes_honest_capabilities():
     stages = {stage.code: stage for stage in production.stages}
 
     assert stages["source_intake"].execution_mode == "manual"
+    assert stages["dxf_classification"].execution_mode == "automated"
+    assert stages["dxf_classification"].implementation_status == "implemented"
+    assert stages["dxf_classification"].execution_kind == "steel_dxf_classification"
+    assert stages["dxf_classification"].artifact_types == [
+        "classified_dxf",
+        "classification_report",
+        "classification_manifest",
+    ]
     assert stages["excel_stage1"].implementation_status == "implemented"
     assert stages["excel_stage1"].execution_kind == "dxf_to_excel"
     assert stages["excel_final"].implementation_status == "implemented"
@@ -152,6 +161,16 @@ def _mark_input_batch_frozen(db, workflow: WorkflowRun) -> WorkflowInputBatch:
     return batch
 
 
+def _complete_classification_fixture(workflow: WorkflowRun) -> None:
+    """Advance the newly implemented automated classifier in downstream state-machine tests."""
+    stage = next(item for item in workflow.stages if item.stage_code == "dxf_classification")
+    drawing = next(item for item in workflow.stages if item.stage_code == "drawing_processing")
+    stage.status = "succeeded"
+    stage.progress = 100
+    drawing.status = "waiting_input"
+    workflow_service.recompute_workflow(workflow)
+
+
 def _mark_api_input_batch_frozen(workflow_id: int) -> None:
     from tests import conftest
 
@@ -160,6 +179,17 @@ def _mark_api_input_batch_frozen(workflow_id: int) -> None:
         workflow = db.get(WorkflowRun, workflow_id)
         assert workflow is not None
         _mark_input_batch_frozen(db, workflow)
+        db.commit()
+
+
+def _mark_api_classification_complete(workflow_id: int) -> None:
+    from tests import conftest
+
+    assert conftest._test_session_factory is not None
+    with conftest._test_session_factory() as db:
+        workflow = db.get(WorkflowRun, workflow_id)
+        assert workflow is not None
+        _complete_classification_fixture(workflow)
         db.commit()
 
 
@@ -181,7 +211,7 @@ def test_source_intake_requires_the_dedicated_batch_freeze(db):
     _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
 
-    assert workflow.current_stage == "drawing_processing"
+    assert workflow.current_stage == "dxf_classification"
 
 
 def test_repeated_file_binding_is_idempotent(db):
@@ -319,6 +349,7 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
         f"/api/v1/workflows/{workflow_id}/stages/source_intake/completion",
         headers=owner_headers,
     ).status_code == 200
+    _mark_api_classification_complete(workflow_id)
     assert client.post(
         f"/api/v1/workflows/{workflow_id}/artifacts",
         headers=owner_headers,
@@ -457,7 +488,7 @@ def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch
     assert data["job"]["attempt"] == 2
     assert data["job"]["status"] == "queued"
     assert data["workflow"]["status"] == "running"
-    assert data["workflow"]["stages"][2]["job_attempt"] == 2
+    assert data["workflow"]["stages"][3]["job_attempt"] == 2
     assert data["retried"] is True
     assert dispatched == [(job_id, 1), (job_id, 2)]
 
@@ -474,6 +505,7 @@ def test_successful_job_sync_attaches_result_once_and_advances(db):
     )
     _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
+    _complete_classification_fixture(workflow)
     workflow_service.attach_artifact(
         db,
         workflow,
@@ -532,6 +564,7 @@ def test_cancelled_bound_job_stays_on_its_recoverable_workflow_stage(db):
     )
     _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
+    _complete_classification_fixture(workflow)
     workflow_service.attach_artifact(
         db,
         workflow,
@@ -719,6 +752,7 @@ def test_placeholder_execution_exposes_complete_contract():
         f"/api/v1/workflows/{workflow_id}/stages/source_intake/completion",
         headers=owner_headers,
     )
+    _mark_api_classification_complete(workflow_id)
 
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/executions",
@@ -749,6 +783,7 @@ def test_automated_stage_cannot_be_manually_completed(db):
     )
     _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
+    _complete_classification_fixture(workflow)
     workflow_service.attach_artifact(
         db,
         workflow,
@@ -774,6 +809,7 @@ def test_placeholder_handoff_requires_an_artifact(db):
     )
     _mark_input_batch_frozen(db, workflow)
     workflow_service.complete_manual_stage(workflow, "source_intake")
+    _complete_classification_fixture(workflow)
 
     with pytest.raises(AppHTTPException, match="handoff artifact"):
         workflow_service.complete_manual_stage(workflow, "drawing_processing")
@@ -874,6 +910,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
 
     _mark_input_batch_frozen(db, workflow)
     bind_and_complete("source_intake", "source_file", source)
+    _complete_classification_fixture(workflow)
     bind_and_complete("drawing_processing", "processed_drawing", source)
     stage1 = finish_job("excel_stage1", "extract_dxf_to_excel", "stage1.xlsx")
     bind_and_complete("design_barrier", "review_record", stage1)
@@ -886,7 +923,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
     assert workflow.current_stage == "delivery_archive"
-    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 9
+    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 10
     assert {artifact.artifact_type for artifact in workflow.artifacts} == {
         "source_file",
         "processed_drawing",

@@ -21,6 +21,7 @@ DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"
 # start-all / start-dev / stop-all / status 全部从这里派生，避免各脚本各写一份列表。
 WORKER_SPECS=(
     "report|1|report|"
+    "dxf_classification|1|dxf-classification|"
     "dxf|${DXF_WORKER_CONCURRENCY}|dxf|${DXF_WORKER_DISPLAY}"
     "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
     "dxf2excel|1|dxf2excel|"

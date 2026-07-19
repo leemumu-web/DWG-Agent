@@ -257,6 +257,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-multipart" },
     { name = "sqlalchemy" },
+    { name = "steel-dxf-classifier" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "xlrd" },
 ]
@@ -292,6 +293,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.1" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "sqlalchemy", specifier = ">=2.0.30" },
+    { name = "steel-dxf-classifier", editable = "../Stages/steel_dxf_classifier_v1.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
     { name = "xlrd", specifier = ">=2.0,<3" },
 ]
@@ -1047,6 +1049,20 @@ sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/bb/2799cc2ede3ed41131f8975621e7213dfc7ef4acbbaadfa440f32500c370/starlette-1.3.1-py3-none-any.whl", hash = "sha256:c7372aae11c3c3f26a42df7bd626cec2f47d03483d261d369516a615a53714c6", size = 73632, upload-time = "2026-06-12T09:23:10.017Z" },
 ]
+
+[[package]]
+name = "steel-dxf-classifier"
+version = "1.1.0"
+source = { editable = "../Stages/steel_dxf_classifier_v1.1.0" }
+dependencies = [
+    { name = "ezdxf" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "ezdxf", specifier = ">=1.4.2,<1.5" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.3,<9" }]
 
 [[package]]
 name = "typer"

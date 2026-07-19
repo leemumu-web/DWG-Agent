@@ -277,6 +277,24 @@ def test_production_submission_stays_in_one_drawer_until_files_are_uploaded():
     assert "<ProductionInputPanel" in create_drawer
 
 
+def test_dxf_classification_has_dedicated_guarded_frontend_console():
+    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    panel_source = _frontend_source("features/workflows/DxfClassificationPanel.tsx")
+    api_source = _frontend_source("api/workflows.api.ts")
+    type_source = _frontend_source("types/workflow.ts")
+
+    assert "<DxfClassificationPanel" in page_source
+    assert "dxf_classification" in page_source
+    assert "开始 DXF 分类分流" in panel_source
+    assert "steel_dxf_classification" in panel_source
+    assert "分类报告 JSON" in panel_source
+    assert "分类清单 CSV" in panel_source
+    assert "output_directory" in panel_source
+    assert "getDxfClassification" in api_source
+    assert "/dxf-classification" in api_source
+    assert "DxfClassificationRun" in type_source
+
+
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
     api_source = _frontend_source("api/data-admin.api.ts")

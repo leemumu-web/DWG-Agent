@@ -124,7 +124,14 @@ def test_start_stop_status_scripts_manage_report_worker():
     assert "WORKER_SPECS" in lib_content
     # Every queue/slug must appear in WORKER_SPECS (defined in lib.sh, iterated
     # by start_all_workers / stop_all_workers / status.sh).
-    for label in ("report", "dxf", "dxf2dwg", "dxf2excel", "excel-final"):
+    for label in (
+        "report",
+        "dxf-classification",
+        "dxf",
+        "dxf2dwg",
+        "dxf2excel",
+        "excel-final",
+    ):
         assert label in lib_content
 
     status_content = _read("scripts/status.sh")
@@ -138,6 +145,7 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
     stop_content = _read("scripts/stop-all.sh")
 
     expected = {
+        "dxf_classification": "dxf-classification",
         "dxf": "dxf",
         "dxf2dwg": "dxf2dwg",
         "dxf2excel": "dxf2excel",
@@ -151,6 +159,17 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
         assert f"{queue}" in lib_content
         assert slug in lib_content
     assert "stop_all_workers" in stop_content
+
+
+def test_database_backup_uses_a_dump_client_not_the_interactive_client():
+    content = _read("scripts/db.sh")
+    backup_section = content[content.index("backup_cmd()") : content.index("restore_cmd()")]
+
+    assert "pick_mysql_dump_client" in content
+    assert "mariadb-dump" in content
+    assert "mysqldump" in content
+    assert '"$MYSQL_DUMP_CLIENT"' in backup_section
+    assert '"$MYSQL_CLIENT" -h' not in backup_section
 
 
 def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():

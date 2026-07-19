@@ -43,6 +43,7 @@ __pycache__/
 # --- Runtime data (filesystem-based storage, logs, dbs) ---
 var/
 backend/var/
+/backups/
 *.db
 *.sqlite
 *.db-journal

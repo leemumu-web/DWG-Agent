@@ -24,11 +24,13 @@ from app.core.constants import (
     PIPELINE_DXF2DWG,
     PIPELINE_DXF2EXCEL,
     PIPELINE_EXCEL_FINAL,
+    PIPELINE_STEEL_DXF_CLASSIFIER,
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
     TASK_DXF_TO_EXCEL,
     TASK_EXCEL_FINAL,
+    TASK_STEEL_DXF_CLASSIFICATION,
 )
 from app.core.exceptions import AppHTTPException
 from app.db.session import SessionLocal
@@ -82,6 +84,8 @@ def _pipeline_for(task_type: str) -> str:
         return PIPELINE_DXF2EXCEL
     if task_type == TASK_EXCEL_FINAL:
         return PIPELINE_EXCEL_FINAL
+    if task_type == TASK_STEEL_DXF_CLASSIFICATION:
+        return PIPELINE_STEEL_DXF_CLASSIFIER
     return PIPELINE_STUB
 
 
@@ -435,6 +439,14 @@ def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
     return str(async_result.id)
 
 
+def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
+    """投递冻结 DXF 分类分流任务。"""
+    from app.workers.tasks_dxf_classification import classify_steel_dxf_task
+
+    async_result = classify_steel_dxf_task.delay(job_id, attempt)
+    return str(async_result.id)
+
+
 def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
     """按 pipeline 投递到对应 Celery 队列。
 
@@ -448,6 +460,8 @@ def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
         return enqueue_dxf2excel_job(job_id, attempt)
     if pipeline == PIPELINE_EXCEL_FINAL:
         return enqueue_excel_final_job(job_id, attempt)
+    if pipeline == PIPELINE_STEEL_DXF_CLASSIFIER:
+        return enqueue_dxf_classification_job(job_id, attempt)
     return enqueue_stub_job(job_id, attempt)
 
 

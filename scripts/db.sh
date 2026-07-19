@@ -7,6 +7,7 @@ source "$(dirname "$0")/lib.sh"
 ROOT_ENV_FILE="${DWG_ROOT_ENV_FILE:-$PROJECT_ROOT/.env}"
 ENV_FILE="${DWG_ENV_FILE:-$PROJECT_ROOT/backend/.env}"
 MYSQL_CLIENT="${MYSQL_CLIENT:-}"
+MYSQL_DUMP_CLIENT="${MYSQL_DUMP_CLIENT:-}"
 
 usage() {
     cat <<'EOF'
@@ -52,6 +53,21 @@ pick_mysql_client() {
         MYSQL_CLIENT=mysql
     else
         err "找不到 mariadb/mysql 客户端"
+        return 1
+    fi
+}
+
+pick_mysql_dump_client() {
+    if [ -n "$MYSQL_DUMP_CLIENT" ]; then
+        command -v "$MYSQL_DUMP_CLIENT" >/dev/null || { err "找不到 MySQL dump 工具: $MYSQL_DUMP_CLIENT"; return 1; }
+        return 0
+    fi
+    if command -v mariadb-dump >/dev/null 2>&1; then
+        MYSQL_DUMP_CLIENT=mariadb-dump
+    elif command -v mysqldump >/dev/null 2>&1; then
+        MYSQL_DUMP_CLIENT=mysqldump
+    else
+        err "找不到 mariadb-dump/mysqldump"
         return 1
     fi
 }
@@ -332,6 +348,8 @@ expected_tables = {
     "audit_logs",
     "drawing_versions",
     "drawings",
+    "dxf_classification_items",
+    "dxf_classification_runs",
     "excel_final_batches",
     "excel_final_components",
     "excel_final_parts",
@@ -383,7 +401,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "f7a9c2d4e610":
+    if version != "a9e4c7d2f610":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}
@@ -459,11 +477,14 @@ run_alembic_upgrade() {
 backup_cmd() {
     local outfile="${1:-dwg_agent_$(date +%Y%m%d_%H%M%S).sql.gz}"
     start_cmd
-    pick_mysql_client
+    pick_mysql_dump_client
     info "备份 $DB_NAME → $outfile"
-    MYSQL_PWD="$DB_PASSWORD" "$MYSQL_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" \
-        --single-transaction --routines --triggers --events --skip-column-statistics \
-        | gzip > "$outfile"
+    local dump_options=(--single-transaction --routines --triggers --events)
+    if [ "$MYSQL_DUMP_CLIENT" = "mysqldump" ] && "$MYSQL_DUMP_CLIENT" --help 2>/dev/null | grep -q -- "--column-statistics"; then
+        dump_options+=(--skip-column-statistics)
+    fi
+    MYSQL_PWD="$DB_PASSWORD" "$MYSQL_DUMP_CLIENT" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" \
+        "${dump_options[@]}" | gzip > "$outfile"
     local size
     size="$(du -h "$outfile" | cut -f1)"
     ok "备份完成: $outfile ($size)"

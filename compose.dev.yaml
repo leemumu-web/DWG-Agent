@@ -16,6 +16,7 @@ services:
       - ./Stages/dwg2dxf:/app/Stages/dwg2dxf
       - ./Stages/dxf2dwg:/app/Stages/dxf2dwg
       - ./Stages/dxf2excel:/app/Stages/dxf2excel
+      - ./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0
       - ./Stages/excel_final:/app/Stages/excel_final
 
   worker-report:
@@ -36,6 +37,11 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./Stages/dxf2excel:/app/Stages/dxf2excel
+
+  worker-dxf-classification:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0
 
   worker-excel-final:
     volumes:

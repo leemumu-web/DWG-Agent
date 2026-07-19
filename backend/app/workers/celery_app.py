@@ -28,6 +28,7 @@ JOB_QUEUE_NAMES = (
     "dxf",
     "dxf2dwg",
     "dxf2excel",
+    "dxf_classification",
     "excel_final",
     "report",
 )
@@ -54,6 +55,7 @@ celery_app = Celery(
         "app.workers.tasks_dxf",
         "app.workers.tasks_dxf2dwg",
         "app.workers.tasks_dxf2excel",
+        "app.workers.tasks_dxf_classification",
         "app.workers.tasks_excel_final",
         "app.workers.tasks_report",
     ],
@@ -92,6 +94,7 @@ celery_app.conf.update(
         "app.workers.tasks_dxf.*": {"queue": "dxf"},
         "app.workers.tasks_dxf2dwg.*": {"queue": "dxf2dwg"},
         "app.workers.tasks_dxf2excel.*": {"queue": "dxf2excel"},
+        "app.workers.tasks_dxf_classification.*": {"queue": "dxf_classification"},
         "app.workers.tasks_excel_final.*": {"queue": "excel_final"},
         "app.workers.tasks_cad.*": {"queue": "cad"},
         "app.workers.tasks_report.*": {"queue": "report"},
