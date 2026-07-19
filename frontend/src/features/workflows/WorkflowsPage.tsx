@@ -53,6 +53,7 @@ import type {
   WorkflowRun,
   WorkflowStageCapability,
 } from '../../types/workflow';
+import { ProductionInputPanel } from './ProductionInputPanel';
 
 const WORKFLOW_STATUS: Record<string, StatusStyle> = {
   draft: { color: '#667085', bg: '#f8fafc', border: '#e2e8f0', label: '草稿' },
@@ -208,6 +209,7 @@ export function WorkflowsPage() {
   const completedCount = workflows.filter((item) => item.status === 'succeeded').length;
   const canConfirm = Boolean(
     detail && actionableStage && currentCapability
+    && actionableStage.stage_code !== 'source_intake'
     && currentCapability.execution_mode !== 'automated'
     && (currentCapability.execution_mode === 'manual' || currentArtifacts.length > 0),
   );
@@ -265,7 +267,15 @@ export function WorkflowsPage() {
               };
             })} />
 
-            {actionableStage && currentCapability && !TERMINAL.has(detail.status) && (
+            {detail.workflow_type === 'linux_production' && detail.status !== 'draft' && (
+              <ProductionInputPanel
+                workflowId={detail.id}
+                sourceIntakeActive={Boolean(actionableStage && actionableStage.stage_code === 'source_intake')}
+                onFrozen={invalidate}
+              />
+            )}
+
+            {actionableStage && currentCapability && actionableStage.stage_code !== 'source_intake' && !TERMINAL.has(detail.status) && (
               <Card title={<Space><CloudServerOutlined />当前阶段控制台{capabilityTag(currentCapability)}</Space>} style={{ marginTop: 12 }}>
                 <Alert type={currentCapability.implementation_status === 'implemented' ? 'info' : 'warning'} showIcon message={currentCapability.description} description={currentCapability.implementation_status === 'implemented' ? `执行方式：${currentCapability.execution_mode}` : `接口已预留：${currentCapability.execution_kind}；需输入 ${currentCapability.required_inputs.join('、') || '无'}；产物 ${currentCapability.artifact_types.join('、') || '待定义'}`} />
                 {currentCapability.execution_mode === 'automated' && (

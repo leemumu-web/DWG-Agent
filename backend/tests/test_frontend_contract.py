@@ -225,6 +225,29 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     assert "CAD 图纸业务算法和 Agent 不在本模块范围内" not in page_source
 
 
+def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
+    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    panel_source = _frontend_source("features/workflows/ProductionInputPanel.tsx")
+    api_source = _frontend_source("api/workflow-inputs.api.ts")
+
+    assert "<ProductionInputPanel" in page_source
+    assert "actionableStage.stage_code === 'source_intake'" in page_source
+    assert 'accept=".dwg"' in panel_source
+    assert 'accept=".xls,.xlsx"' in panel_source
+    assert "上传 DWG" in panel_source
+    assert "上传 Excel" in panel_source
+    assert "INPUT_DXF_NOT_ALLOWED" in panel_source
+    assert "冻结后不可修改" in panel_source
+    assert "crypto.randomUUID()" in panel_source
+    for path in (
+        "/input-batch",
+        "/input-batch/files",
+        "/input-batch/conversion-requests",
+        "/input-batch/freeze",
+    ):
+        assert path in api_source
+
+
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
     api_source = _frontend_source("api/data-admin.api.ts")

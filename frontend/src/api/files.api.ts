@@ -39,11 +39,12 @@ export async function listBatches(fileExt?: string) {
   return res.data.data;
 }
 
-export async function uploadFile(file: File, batchName?: string): Promise<StoredFile> {
+export async function uploadFile(file: File, batchName?: string, idempotencyKey?: string): Promise<StoredFile> {
   const form = new FormData();
   form.append('upload', file);
   const res = await apiClient.post<ApiEnvelope<StoredFile>>('/api/v1/files', form, {
     params: batchName ? { batch_name: batchName } : undefined,
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
     timeout: 120_000,
   });
   return res.data.data;
