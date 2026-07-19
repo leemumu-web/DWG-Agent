@@ -197,6 +197,34 @@ def test_frontend_system_health_lists_every_pipeline_flag():
         assert feature in source
 
 
+def test_workflow_console_uses_backend_templates_files_and_stage_execution():
+    api_source = _frontend_source("api/workflows.api.ts")
+    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    type_source = _frontend_source("types/workflow.ts")
+
+    for path in (
+        "/api/v1/workflows/templates",
+        "/artifacts",
+        "/executions",
+    ):
+        assert path in api_source
+    for contract in (
+        "WorkflowTemplate",
+        "WorkflowStageCapability",
+        "WorkflowArtifactCreatePayload",
+        "WorkflowStageExecutionPayload",
+    ):
+        assert f"interface {contract}" in type_source
+    assert "linux_production" in api_source
+    assert "listFilesPage" in page_source
+    assert "listBatches" in page_source
+    assert "downloadFile" in page_source
+    assert "createWorkflowArtifact" in page_source
+    assert "executeWorkflowStage" in page_source
+    assert "接口已预留" in page_source
+    assert "CAD 图纸业务算法和 Agent 不在本模块范围内" not in page_source
+
+
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
     api_source = _frontend_source("api/data-admin.api.ts")
