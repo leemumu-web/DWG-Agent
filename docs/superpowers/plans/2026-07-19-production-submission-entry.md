@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make production batch submission visible from an empty workflow page and enter DWG/Excel upload immediately after creation.
+**Goal:** Make production batch submission visible from an empty workflow page and enter DWG/Excel upload in the same drawer immediately after creation.
 
-**Architecture:** Keep all backend contracts unchanged. Compose existing create and start APIs in one frontend mutation, then reuse `ProductionInputPanel`; render an in-body recovery action for draft workflows.
+**Architecture:** Keep all backend contracts unchanged. Compose existing create and start APIs in one frontend mutation, retain the returned workflow as local submission state, and morph the same drawer from metadata form into `ProductionInputPanel`; render an in-drawer recovery action for draft workflows.
 
 **Tech Stack:** React 19, TypeScript 6, Ant Design, React Query, pytest frontend source contracts, Playwright.
 
@@ -25,8 +25,8 @@
 
 - [ ] Rename the page and drawer actions to production submission language.
 - [ ] Fix the submitted workflow type to `linux_production` and call `startWorkflow(created.id)` after `createWorkflow`.
-- [ ] On success close the form, open workflow detail and invalidate list/detail queries.
-- [ ] If start fails, keep the created draft discoverable and show the backend error.
+- [ ] On success keep the submission drawer open, widen it, store the workflow locally and render `ProductionInputPanel` without a detail-drawer transition.
+- [ ] If start fails, keep the created draft in the same drawer and show a retry-start action with the backend error.
 - [ ] Render an in-body `启动并进入上传` action for every Linux draft.
 
 ### Task 3: Verify browser behavior and publish
@@ -38,4 +38,3 @@
 - [ ] Extend the mocked workflow scenario to prove the primary action is visible on an empty/list page and the draft recovery action exists.
 - [ ] Run the frontend contract, `npm run build`, and the workflow Playwright test.
 - [ ] Update the frontend workflow documentation, commit the implementation, rebuild the served static bundle, and verify Nginx status.
-
