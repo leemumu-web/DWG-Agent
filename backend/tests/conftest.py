@@ -79,6 +79,7 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.services.dxf_classification_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.excel_final_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.celery_app.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.workers.tasks_maintenance.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.tasks_report.SessionLocal", TestSessionLocal)
 
     # db_health() uses the module-level engine directly

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.api.deps import DbSession, require_roles
 from app.core.constants import ROLE_ADMIN, ROLE_AUDITOR
@@ -62,3 +62,40 @@ def mark_message_read(message_id: int, request: Request, db: DbSession, _user=De
 def get_windows_node_contract(request: Request, _user=Depends(reader)):
     """Published draft only; no Windows node endpoints are active yet."""
     return ok(windows_node_contract(), request.state.request_id)
+
+
+@router.post("/maintenance/reconcile-stale-jobs", status_code=202)
+def queue_stale_job_reconciliation(request: Request, db: DbSession, _user=Depends(require_roles(ROLE_ADMIN))):
+    """Queue the bounded stale-running-job recovery on the maintenance worker."""
+    event = ControlPlaneEvent(
+        source="api",
+        direction="internal",
+        event_type="maintenance.reconcile_stale_jobs.queued",
+        severity="info",
+        target_kind="maintenance",
+        target_id="reconcile_stale_jobs",
+        payload_json={"queue": "maintenance"},
+        message="An administrator queued stale running job reconciliation.",
+    )
+    db.add(event)
+    db.commit()
+    try:
+        from app.workers.tasks_maintenance import reconcile_stale_jobs_task
+
+        result = reconcile_stale_jobs_task.apply_async(queue="maintenance")
+    except Exception as exc:
+        db.execute(
+            update(ControlPlaneEvent)
+            .where(ControlPlaneEvent.id == event.id)
+            .values(
+                event_type="maintenance.reconcile_stale_jobs.enqueue_failed",
+                severity="error",
+                message=f"Maintenance queue dispatch failed: {exc.__class__.__name__}",
+            )
+        )
+        db.commit()
+        raise HTTPException(status_code=503, detail="Maintenance queue is unavailable") from exc
+    return ok(
+        {"operation": "reconcile_stale_jobs", "queue": "maintenance", "task_id": result.id},
+        request.state.request_id,
+    )

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.core.security import hash_password
 from app.db.init_db import init_db
 from app.main import app
+from app.models.role import Role
+from app.models.user import User
 from app.services.control_plane_service import record_worker_activity
 
 
@@ -49,3 +53,30 @@ def test_windows_node_contract_is_explicitly_pending():
     response = client.get("/api/v1/control-plane/contracts/windows-node-agent", headers=_admin_headers(client))
     assert response.status_code == 200, response.text
     assert response.json()["data"]["status"] == "pending"
+
+
+def test_admin_can_queue_bounded_stale_job_recovery():
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/control-plane/maintenance/reconcile-stale-jobs",
+        headers=_admin_headers(client),
+    )
+    assert response.status_code == 202, response.text
+    payload = response.json()["data"]
+    assert payload["queue"] == "maintenance"
+    assert payload["operation"] == "reconcile_stale_jobs"
+
+
+def test_auditor_cannot_queue_maintenance_work(db):
+    client = TestClient(app)
+    init_db()
+    auditor = User(username="auditor", password_hash=hash_password("AuditorPass1234"), real_name="Auditor")
+    auditor.roles.append(db.scalar(select(Role).where(Role.code == "auditor")))
+    db.add(auditor)
+    db.commit()
+    login = client.post("/api/v1/auth/sessions", json={"username": "auditor", "password": "AuditorPass1234"})
+    response = client.post(
+        "/api/v1/control-plane/maintenance/reconcile-stale-jobs",
+        headers={"Authorization": f"Bearer {login.json()['data']['access_token']}"},
+    )
+    assert response.status_code == 403, response.text

@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **110 个 path、130 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **111 个 path、131 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -169,6 +169,7 @@
 | `GET` | `/api/v1/control-plane/messages` |
 | `PATCH` | `/api/v1/control-plane/messages/{message_id}/read` |
 | `GET` | `/api/v1/control-plane/contracts/windows-node-agent` |
+| `POST` | `/api/v1/control-plane/maintenance/reconcile-stale-jobs` |
 
 ## Excel Final
 

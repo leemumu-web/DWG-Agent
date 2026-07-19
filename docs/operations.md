@@ -206,6 +206,8 @@ STORAGE_BACKEND=minio MINIO_ENDPOINT="http://$MINIO_IP:9000" \
 
 ## Worker 与队列事故
 
+管理员可在“数据与存储 → 运行与通信”手动提交一次「恢复超时运行任务」。该操作仅投递 `maintenance` queue 的 `reconcile_stale_jobs`，只会处理超过 `CELERY_STALE_JOB_TIMEOUT_SECONDS` 且仍为 running 的 Job；每次投递和完成都会写入 `control_plane_events`。它不会自动启动周期维护，不会删除对象，也不会修复业务格式错误。若维护队列不可用，API 返回 503 并保留 enqueue_failed 事件，先恢复 worker 后再由管理员重试。
+
 ```bash
 bash scripts/status.sh
 ps -ef | rg 'celery.*app.workers.celery_app'
