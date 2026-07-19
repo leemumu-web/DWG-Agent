@@ -34,6 +34,7 @@ from app.schemas.workflow_schema import (
 from app.services.audit_service import write_audit_log
 from app.services.file_service import require_file_read_access
 from app.services.job_access import require_job_read_access
+from app.services.job_service import cancel_job as transition_job_to_cancelled
 from app.services.job_service import create_or_reuse_job, dispatch_committed_job
 from app.services.workflow_service import (
     attach_artifact,
@@ -228,7 +229,14 @@ def execute_workflow_stage(
             501,
             "WORKFLOW_STAGE_NOT_IMPLEMENTED",
             "This workflow stage has an API contract but no server implementation yet.",
-            {"stage_code": stage_code, "execution_kind": payload.execution_kind},
+            {
+                "stage_code": stage_code,
+                "execution_kind": payload.execution_kind,
+                "implementation_status": capability.implementation_status,
+                "execution_mode": capability.execution_mode,
+                "required_inputs": capability.required_inputs,
+                "artifact_types": capability.artifact_types,
+            },
         )
     if payload.execution_kind == "dxf_to_excel":
         if not settings.dxf2excel_pipeline_enabled:
@@ -394,6 +402,20 @@ def cancel_workflow_api(
 ):
     workflow = _load_detail(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    current_stage = next(
+        (stage for stage in workflow.stages if stage.stage_code == workflow.current_stage),
+        None,
+    )
+    if current_stage is not None and current_stage.job_id is not None:
+        job = db.get(Job, current_stage.job_id)
+        if job is not None and job.status in {
+            "pending",
+            "queued",
+            "running",
+            "validating",
+            "waiting_cad_worker",
+        }:
+            transition_job_to_cancelled(db, job)
     cancel_workflow(workflow)
     write_audit_log(
         db,

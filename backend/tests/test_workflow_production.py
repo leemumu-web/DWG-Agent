@@ -290,6 +290,16 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
         headers=owner_headers,
     ).status_code == 200
     assert client.post(
+        f"/api/v1/workflows/{workflow_id}/artifacts",
+        headers=owner_headers,
+        json={
+            "stage_code": "drawing_processing",
+            "artifact_type": "processed_drawing",
+            "file_id": file_id,
+            "metadata": {"handoff": "test-fixture"},
+        },
+    ).status_code == 201
+    assert client.post(
         f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/completion",
         headers=owner_headers,
     ).status_code == 200
@@ -376,6 +386,13 @@ def test_successful_job_sync_attaches_result_once_and_advances(db):
         file_id=source.id,
     )
     workflow_service.complete_manual_stage(workflow, "source_intake")
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        artifact_type="processed_drawing",
+        file_id=source.id,
+    )
     workflow_service.complete_manual_stage(workflow, "drawing_processing")
     job = Job(
         project_id=project.id,
@@ -415,22 +432,58 @@ def test_successful_job_sync_attaches_result_once_and_advances(db):
     assert artifacts[0].result_id == result.id
 
 
-def _api_workflow_at_excel_final(client, owner_headers, project_id: int):
-    workflow_id, _ = _api_workflow_at_excel_stage(client, owner_headers, project_id)
-    assert client.post(
-        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/completion",
+def _api_workflow_at_excel_final(
+    client, owner_headers, project_id: int, monkeypatch
+):
+    from app.api.v1 import workflows_api
+    from app.core.config import settings
+    from tests import conftest
+
+    workflow_id, batch_name = _api_workflow_at_excel_stage(
+        client, owner_headers, project_id
+    )
+    monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
+    monkeypatch.setattr(workflows_api, "dispatch_committed_job", lambda _db, _job: None)
+    executed = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
         headers=owner_headers,
-    ).status_code == 200
+        json={"execution_kind": "dxf_to_excel", "batch_name": batch_name},
+    )
+    assert executed.status_code == 202, executed.text
+    assert client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        files={"upload": ("stage1.xlsx", b"excel source", "application/octet-stream")},
+    ).status_code == 201
+    uploaded = client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        files={"upload": ("stage1-result.xlsx", b"excel result", "application/octet-stream")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    job_id = executed.json()["data"]["job"]["id"]
+    assert conftest._test_session_factory is not None
+    with conftest._test_session_factory() as db:
+        job = db.get(Job, job_id)
+        assert job is not None
+        job.status = "succeeded"
+        job.progress = 100
+        db.add(
+            AnalysisResult(
+                job_id=job.id,
+                result_type="extract_dxf_to_excel",
+                result_file_id=uploaded.json()["data"]["id"],
+                status="succeeded",
+            )
+        )
+        db.commit()
+    synced = client.get(f"/api/v1/workflows/{workflow_id}", headers=owner_headers)
+    assert synced.status_code == 200, synced.text
+    assert synced.json()["data"]["current_stage"] == "design_barrier"
     assert client.post(
         f"/api/v1/workflows/{workflow_id}/stages/design_barrier/completion",
         headers=owner_headers,
     ).status_code == 200
-    uploaded = client.post(
-        "/api/v1/files",
-        headers=owner_headers,
-        files={"upload": ("stage1.xlsx", b"excel source", "application/octet-stream")},
-    )
-    assert uploaded.status_code == 201, uploaded.text
     return workflow_id, uploaded.json()["data"]["id"]
 
 
@@ -444,7 +497,7 @@ def test_excel_final_execution_reuses_existing_pipeline(monkeypatch):
     _, owner_headers = _engineer_user(client, admin_headers, "prod-final")
     project_id = _project(client, owner_headers)
     workflow_id, file_id = _api_workflow_at_excel_final(
-        client, owner_headers, project_id
+        client, owner_headers, project_id, monkeypatch
     )
     dispatched: list[int] = []
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
@@ -476,7 +529,9 @@ def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
     admin_headers = _admin_headers(client)
     _, owner_headers = _engineer_user(client, admin_headers, "prod-final-ext")
     project_id = _project(client, owner_headers)
-    workflow_id, _ = _api_workflow_at_excel_final(client, owner_headers, project_id)
+    workflow_id, _ = _api_workflow_at_excel_final(
+        client, owner_headers, project_id, monkeypatch
+    )
     uploaded = client.post(
         "/api/v1/files",
         headers=owner_headers,
@@ -496,3 +551,131 @@ def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
 
     assert response.status_code == 415, response.text
     assert response.json()["error"]["code"] == "NOT_EXCEL"
+
+
+def test_placeholder_execution_exposes_complete_contract():
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-placeholder")
+    project_id = _project(client, owner_headers)
+    created = client.post(
+        "/api/v1/workflows",
+        headers=owner_headers,
+        json={
+            "project_id": project_id,
+            "name": "Placeholder contract",
+            "workflow_type": "linux_production",
+        },
+    )
+    workflow_id = created.json()["data"]["id"]
+    uploaded = client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        files={"upload": ("source.dxf", b"0\nEOF\n", "image/vnd.dxf")},
+    )
+    file_id = uploaded.json()["data"]["id"]
+    client.post(
+        f"/api/v1/workflows/{workflow_id}/artifacts",
+        headers=owner_headers,
+        json={
+            "stage_code": "source_intake",
+            "artifact_type": "source_file",
+            "file_id": file_id,
+        },
+    )
+    client.post(f"/api/v1/workflows/{workflow_id}/start", headers=owner_headers)
+    client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/source_intake/completion",
+        headers=owner_headers,
+    )
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/executions",
+        headers=owner_headers,
+        json={"execution_kind": "drawing_processing"},
+    )
+
+    assert response.status_code == 501, response.text
+    error = response.json()["error"]
+    assert error["code"] == "WORKFLOW_STAGE_NOT_IMPLEMENTED"
+    assert error["details"]["implementation_status"] == "placeholder"
+    assert error["details"]["required_inputs"] == ["drawing_files"]
+    assert error["details"]["artifact_types"] == [
+        "processed_drawing",
+        "validation_report",
+    ]
+
+
+def test_automated_stage_cannot_be_manually_completed(db):
+    _, _, workflow = _production_workflow(db)
+    source = _stored_file(db)
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_file",
+        file_id=source.id,
+    )
+    workflow_service.complete_manual_stage(workflow, "source_intake")
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        artifact_type="processed_drawing",
+        file_id=source.id,
+    )
+    workflow_service.complete_manual_stage(workflow, "drawing_processing")
+
+    with pytest.raises(AppHTTPException, match="execution endpoint"):
+        workflow_service.complete_manual_stage(workflow, "excel_stage1")
+
+
+def test_placeholder_handoff_requires_an_artifact(db):
+    _, _, workflow = _production_workflow(db)
+    source = _stored_file(db)
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_file",
+        file_id=source.id,
+    )
+    workflow_service.complete_manual_stage(workflow, "source_intake")
+
+    with pytest.raises(AppHTTPException, match="handoff artifact"):
+        workflow_service.complete_manual_stage(workflow, "drawing_processing")
+
+
+def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
+    from app.api.v1 import workflows_api
+    from app.core.config import settings
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-cancel")
+    project_id = _project(client, owner_headers)
+    workflow_id, batch_name = _api_workflow_at_excel_stage(
+        client, owner_headers, project_id
+    )
+    monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
+    monkeypatch.setattr(workflows_api, "dispatch_committed_job", lambda _db, _job: None)
+    executed = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
+        headers=owner_headers,
+        json={"execution_kind": "dxf_to_excel", "batch_name": batch_name},
+    )
+    assert executed.status_code == 202, executed.text
+    job_id = executed.json()["data"]["job"]["id"]
+
+    cancelled = client.post(
+        f"/api/v1/workflows/{workflow_id}/cancellation-requests",
+        headers=owner_headers,
+    )
+    job = client.get(f"/api/v1/jobs/{job_id}", headers=owner_headers)
+
+    assert cancelled.status_code == 200, cancelled.text
+    assert job.status_code == 200, job.text
+    assert job.json()["data"]["status"] == "cancelled"

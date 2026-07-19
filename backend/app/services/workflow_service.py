@@ -357,6 +357,13 @@ def complete_manual_stage(workflow: WorkflowRun, stage_code: str) -> WorkflowRun
         raise AppHTTPException(
             409, "WORKFLOW_STAGE_NOT_ACTIONABLE", "This workflow stage is not awaiting input."
         )
+    capability = get_stage_capability(workflow, stage_code)
+    if capability.execution_mode == "automated":
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_STAGE_REQUIRES_EXECUTION",
+            "This automated stage must use its execution endpoint.",
+        )
     if (
         workflow.workflow_type == "linux_production"
         and stage_code == "source_intake"
@@ -366,6 +373,15 @@ def complete_manual_stage(workflow: WorkflowRun, stage_code: str) -> WorkflowRun
             409,
             "WORKFLOW_SOURCE_FILE_REQUIRED",
             "At least one source file must be bound before freezing workflow input.",
+        )
+    if (
+        capability.execution_mode in {"placeholder", "external"}
+        and not stage.artifacts
+    ):
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_HANDOFF_ARTIFACT_REQUIRED",
+            "At least one handoff artifact must be bound before confirming this stage.",
         )
     now = datetime.now(UTC)
     stage.status = "succeeded"
