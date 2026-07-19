@@ -91,6 +91,7 @@ def register_file_api(
     workflow_id: int,
     payload: WorkflowInputFileCreate,
     request: Request,
+    response: Response,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
@@ -114,6 +115,8 @@ def register_file_api(
         request=request,
     )
     db.commit()
+    if reused:
+        response.status_code = status.HTTP_200_OK
     return ok(
         {"batch": describe_input_batch(db, batch).model_dump(), "item_id": item.id, "reused": reused},
         request.state.request_id,

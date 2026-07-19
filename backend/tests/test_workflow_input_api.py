@@ -88,6 +88,14 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
         )
         assert registered.status_code == 201, registered.text
 
+    replayed = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch/files",
+        headers=owner_headers,
+        json={"file_id": dwg_id},
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["data"]["reused"] is True
+
     conversion = client.post(
         f"/api/v1/workflows/{workflow_id}/input-batch/conversion-requests",
         headers=owner_headers,
@@ -158,3 +166,20 @@ def test_input_batch_is_project_scoped(monkeypatch, tmp_path):
     )
 
     assert forbidden.status_code == 403
+
+
+def test_input_batch_openapi_exposes_complete_guarded_surface():
+    paths = _client().app.openapi()["paths"]
+
+    expected = {
+        "/api/v1/workflows/{workflow_id}/input-batch": {"get", "post"},
+        "/api/v1/workflows/{workflow_id}/input-batch/files": {"post"},
+        "/api/v1/workflows/{workflow_id}/input-batch/files/{item_id}": {"delete"},
+        "/api/v1/workflows/{workflow_id}/input-batch/conversion-requests": {"post"},
+        "/api/v1/workflows/{workflow_id}/input-batch/freeze": {"post"},
+    }
+    for path, methods in expected.items():
+        assert path in paths
+        assert methods <= set(paths[path])
+        for method in methods:
+            assert paths[path][method]["summary"]
