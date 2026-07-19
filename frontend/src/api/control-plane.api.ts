@@ -17,3 +17,4 @@ export async function listControlPlaneEvents() { return (await apiClient.get<Pag
 export async function listPlatformMessages() { return (await apiClient.get<PageEnvelope<PlatformMessage>>('/api/v1/control-plane/messages?page=1&page_size=20')).data; }
 export async function markPlatformMessageRead(id: number) { return (await apiClient.patch<ApiEnvelope<PlatformMessage>>(`/api/v1/control-plane/messages/${id}/read`)).data.data; }
 export async function getWindowsNodeContract() { return (await apiClient.get<ApiEnvelope<WindowsNodeContract>>('/api/v1/control-plane/contracts/windows-node-agent')).data.data; }
+export async function queueStaleJobReconciliation() { return (await apiClient.post<ApiEnvelope<{ operation: string; queue: string; task_id: string }>>('/api/v1/control-plane/maintenance/reconcile-stale-jobs')).data.data; }

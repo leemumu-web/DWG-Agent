@@ -17,6 +17,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 button, input, textarea, select { font: inherit; }
+.connectivity-banner { position: sticky; top: 0; z-index: 1001; border-radius: 0; }
 
 .app-shell { min-height: 100vh; }
 .app-sider {

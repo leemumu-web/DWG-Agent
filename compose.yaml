@@ -86,6 +86,8 @@ services:
     volumes:
       - app_var:/app/var
     environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: report
       DWG_WORKER_CONCURRENCY: "2"
 
@@ -122,6 +124,8 @@ services:
       - app_var:/app/var
     profiles: [workers]
     environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf2excel
       DWG_WORKER_CONCURRENCY: "1"
 
@@ -132,6 +136,8 @@ services:
       - app_var:/app/var
     profiles: [workers]
     environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf_classification
       DWG_WORKER_CONCURRENCY: "1"
 
@@ -142,6 +148,8 @@ services:
       - app_var:/app/var
     profiles: [workers]
     environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: excel_final
       DWG_WORKER_CONCURRENCY: "1"
 
@@ -153,6 +161,8 @@ services:
       - app_var:/app/var
     profiles: [workers]
     environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dispatch
       DWG_WORKER_CONCURRENCY: "1"
 
@@ -163,6 +173,8 @@ services:
       - app_var:/app/var
     profiles: [workers]
     environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: maintenance
       DWG_WORKER_CONCURRENCY: "1"
 

@@ -197,6 +197,27 @@ def test_frontend_system_health_lists_every_pipeline_flag():
         assert feature in source
 
 
+def test_frontend_has_global_recovery_and_connectivity_feedback():
+    providers = _frontend_source("app/providers.tsx")
+    boundary = _frontend_source("components/AppErrorBoundary.tsx")
+    connectivity = _frontend_source("components/ConnectivityBanner.tsx")
+
+    assert "AppErrorBoundary" in providers
+    assert "retry: (failureCount, error)" in providers
+    assert "online" in connectivity and "offline" in connectivity
+    assert "重新加载当前页面" in boundary
+
+
+def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
+    api_source = _frontend_source("api/control-plane.api.ts")
+    page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
+
+    assert "/maintenance/reconcile-stale-jobs" in api_source
+    assert "恢复超时运行任务" in page_source
+    assert "getInfrastructureOverview" in page_source
+    assert "MinIO" in page_source
+
+
 def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     api_source = _frontend_source("api/workflows.api.ts")
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")

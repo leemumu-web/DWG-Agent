@@ -306,6 +306,24 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   // ── System ─────────────────────────────────────────────────────────────
+  test('GET /api/v1/control-plane/overview — storage and worker snapshot', async ({ request }) => {
+    const r = await request.get(`${BASE}/api/v1/control-plane/overview`, { headers: auth(token) });
+    expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.data.broker).toHaveProperty('kind', 'mysql_sqlalchemy');
+    expect(Array.isArray(body.data.workers)).toBe(true);
+    expect(body.data.implementation).toHaveProperty('windows_node_agent', 'pending');
+  });
+
+  test('POST /api/v1/control-plane/maintenance/reconcile-stale-jobs — bounded worker action', async ({ request }) => {
+    const r = await request.post(`${BASE}/api/v1/control-plane/maintenance/reconcile-stale-jobs`, { headers: auth(token) });
+    expect(r.status()).toBe(202);
+    const body = await r.json();
+    expect(body.data).toHaveProperty('operation', 'reconcile_stale_jobs');
+    expect(body.data).toHaveProperty('queue', 'maintenance');
+    expect(body.data).toHaveProperty('task_id');
+  });
+
   test('GET /api/v1/system/health/oda — ODA health', async ({ request }) => {
     const r = await request.get(`${BASE}/api/v1/system/health/oda`, {
       headers: auth(token),

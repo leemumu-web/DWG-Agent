@@ -42,7 +42,8 @@ import {
   previewStorageRemediation,
   startStorageScan,
 } from '../../api/data-admin.api';
-import { getControlPlaneOverview, getWindowsNodeContract, listControlPlaneEvents, listPlatformMessages, markPlatformMessageRead, type PlatformMessage } from '../../api/control-plane.api';
+import { getControlPlaneOverview, getWindowsNodeContract, listControlPlaneEvents, listPlatformMessages, markPlatformMessageRead, queueStaleJobReconciliation, type PlatformMessage } from '../../api/control-plane.api';
+import { getInfrastructureOverview } from '../../api/system.api';
 import { describeApiError } from '../../api/error';
 import type {
   FileTransfer,
@@ -113,12 +114,21 @@ function stateTag(status?: string | null) {
 }
 
 function RuntimeCommunicationPanel() {
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const overview = useQuery({ queryKey: ['control-plane', 'overview'], queryFn: getControlPlaneOverview, refetchInterval: () => document.hidden ? false : 15_000 });
   const events = useQuery({ queryKey: ['control-plane', 'events'], queryFn: listControlPlaneEvents, refetchInterval: () => document.hidden ? false : 15_000 });
   const messages = useQuery({ queryKey: ['control-plane', 'messages'], queryFn: listPlatformMessages, refetchInterval: () => document.hidden ? false : 15_000 });
   const contract = useQuery({ queryKey: ['control-plane', 'windows-contract'], queryFn: getWindowsNodeContract });
   const read = useMutation({ mutationFn: markPlatformMessageRead, onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['control-plane'] }) });
+  const recover = useMutation({
+    mutationFn: queueStaleJobReconciliation,
+    onSuccess: (result) => {
+      message.success(`已提交维护任务 ${result.task_id.slice(0, 8)}；仅恢复超过阈值的运行任务。`);
+      void queryClient.invalidateQueries({ queryKey: ['control-plane'] });
+    },
+    onError: () => message.error('维护队列暂不可用；未执行恢复，请检查 Worker 后重试。'),
+  });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['control-plane'] });
   const data = overview.data;
   return <Space orientation="vertical" size={18} style={{ width: '100%' }}>
@@ -138,7 +148,7 @@ function RuntimeCommunicationPanel() {
         { title: 'Broker 就绪', dataIndex: 'broker_ready_messages', render: (value: number | null) => value ?? '不可用' },
       ]} />
     </Card>
-    <Row gutter={[16, 16]}><Col xs={24} xl={14}><Card title="Worker 活动登记"><Table rowKey="id" size="small" loading={overview.isLoading} pagination={false} dataSource={data?.workers ?? []} scroll={{ x: 780 }} columns={[
+    <Row gutter={[16, 16]}><Col xs={24} xl={14}><Card title="Worker 活动登记" extra={<Button loading={recover.isPending} onClick={() => recover.mutate()}>恢复超时运行任务</Button>}><Typography.Paragraph type="secondary">仅处理已超过后端 stale timeout 且仍处于 running 的任务；不会重试业务失败、删除文件或启动周期调度。</Typography.Paragraph><Table rowKey="id" size="small" loading={overview.isLoading} pagination={false} dataSource={data?.workers ?? []} scroll={{ x: 780 }} columns={[
       { title: 'Worker', dataIndex: 'worker_name', ellipsis: true }, { title: '状态', dataIndex: 'status', render: stateTag }, { title: '队列', dataIndex: 'queues', render: (value: string[]) => value.length ? value.map((item) => <Tag key={item}>{item}</Tag>) : '—' }, { title: '并发', dataIndex: 'concurrency' }, { title: '最近活动', dataIndex: 'last_seen_at', render: (value: string) => new Date(value).toLocaleString() },
     ]} /></Card></Col><Col xs={24} xl={10}><Card title="Windows Node Agent 合同（待实现）" loading={contract.isLoading}><Typography.Paragraph><Tag color="warning">{contract.data?.status ?? 'pending'}</Tag> {contract.data?.transport}</Typography.Paragraph><Typography.Text type="secondary">未来接口：</Typography.Text>{contract.data?.endpoints.map((endpoint) => <div key={endpoint.path}><Typography.Text code>{endpoint.method} {endpoint.path}</Typography.Text> — {endpoint.purpose}</div>)}<Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>尚不可用：{contract.data?.not_available.join('、')}</Typography.Paragraph></Card></Col></Row>
     <Row gutter={[16, 16]}><Col xs={24} xl={12}><Card title="运维消息"><Table<PlatformMessage> rowKey="id" size="small" loading={messages.isLoading} pagination={false} dataSource={messages.data?.data ?? []} columns={[
@@ -156,6 +166,7 @@ function OverviewPanel() {
     refetchInterval: () => document.hidden ? false : 30_000,
   });
   const data = query.data;
+  const infrastructure = useQuery({ queryKey: ['system', 'infrastructure'], queryFn: getInfrastructureOverview, refetchInterval: () => document.hidden ? false : 30_000 });
   const scanRisk = (data?.latest_scan?.missing_object_count ?? 0)
     + (data?.latest_scan?.untracked_object_count ?? 0)
     + (data?.latest_scan?.size_mismatch_count ?? 0);
@@ -191,6 +202,16 @@ function OverviewPanel() {
         </Card>
       </Col>
     </Row>
+    <Card title="MySQL 与对象存储就绪状态" loading={infrastructure.isLoading} extra={<Button icon={<ReloadOutlined />} onClick={() => infrastructure.refetch()} loading={infrastructure.isFetching}>校验</Button>}>
+      {infrastructure.isError ? <Alert type="error" showIcon message="无法读取基础设施状态" description="未执行任何对象修改；请检查管理员权限、数据库与对象存储连接。" /> : <Descriptions column={{ xs: 1, lg: 3 }} size="small" items={[
+        { key: 'db', label: 'MySQL', children: <>{stateTag(infrastructure.data?.database.status)} {infrastructure.data?.database.engine ?? '—'} / {infrastructure.data?.database.table_count ?? '—'} 表</> },
+        { key: 'storage', label: '当前对象后端', children: <>{stateTag(infrastructure.data?.storage.status)} {infrastructure.data?.storage.backend === 'minio' ? 'MinIO（生产对象存储）' : infrastructure.data?.storage.backend === 'local' ? '本地存储（当前开发运行）' : '—'}</> },
+        { key: 'rule', label: '恢复规则', children: infrastructure.data?.recovery.consistency_rule ?? '—' },
+      ]} />}
+      {infrastructure.data && <Table rowKey="name" size="small" pagination={false} dataSource={infrastructure.data.storage.buckets} style={{ marginTop: 16 }} columns={[
+        { title: 'Bucket', dataIndex: 'name' }, { title: 'MySQL 可用登记', dataIndex: 'tracked_files' }, { title: '实际对象数', dataIndex: 'object_count', render: (value: number | null) => value ?? '不可用' },
+      ]} />}
+    </Card>
   </Space>;
 }
 

@@ -1,13 +1,19 @@
 import { App, ConfigProvider, Spin } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import type { PropsWithChildren } from 'react';
+import { AppErrorBoundary } from '../components/AppErrorBoundary';
+import { ConnectivityBanner } from '../components/ConnectivityBanner';
 import { useAuthInit } from '../hooks/useAuthInit';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: 2,
+      retry: (failureCount, error) => {
+        const status = isAxiosError(error) ? error.response?.status : undefined;
+        return failureCount < 2 && (status === undefined || status >= 500);
+      },
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     },
   },
@@ -56,7 +62,10 @@ export function AppProviders({ children }: PropsWithChildren) {
       }}
     >
       <QueryClientProvider client={queryClient}>
-        <App>{children}</App>
+        <App>
+          <ConnectivityBanner />
+          <AppErrorBoundary>{children}</AppErrorBoundary>
+        </App>
       </QueryClientProvider>
     </ConfigProvider>
   );
