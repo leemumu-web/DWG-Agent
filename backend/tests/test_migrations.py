@@ -19,6 +19,7 @@ EXCEL_FINAL_WIDTH_REVISION = VERSIONS_DIR / "9c4e7b1a2d60_widen_excel_final_iden
 JOB_REQUEST_KEY_REVISION = VERSIONS_DIR / "d5e8a1c4b720_add_job_request_key.py"
 WORKFLOW_INPUT_REVISION = VERSIONS_DIR / "f7a9c2d4e610_add_workflow_input_batches.py"
 DXF_CLASSIFICATION_REVISION = VERSIONS_DIR / "a9e4c7d2f610_add_dxf_classification_stage.py"
+CONTROL_PLANE_REVISION = VERSIONS_DIR / "c1e9a4b7d220_add_control_plane_framework.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -199,6 +200,14 @@ def test_dxf_classification_migration_adds_ledger_and_stage_backfill():
     assert 'stage_code="dxf_classification"' in source
 
 
+def test_control_plane_migration_extends_head_with_persisted_observability():
+    source = CONTROL_PLANE_REVISION.read_text(encoding="utf-8")
+    assert 'down_revision: str | None = "a9e4c7d2f610"' in source
+    for table in ("worker_runtimes", "control_plane_events", "platform_messages"):
+        assert f'"{table}"' in source
+        assert f'op.drop_table("{table}")' in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -238,7 +247,7 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "a9e4c7d2f610"' in source
+    assert 'version != "c1e9a4b7d220"' in source
     assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
     assert '"uq_jobs_actor_task_request_key"' in source

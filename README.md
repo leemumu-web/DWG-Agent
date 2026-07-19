@@ -27,9 +27,10 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、105 个 OpenAPI path 和 125 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 32 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 33 张表；Celery runtime 全部初始化后最多 41 张；SQLite 只用于 pytest |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、110 个 OpenAPI path 和 130 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 35 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 36 张表；Celery runtime 全部初始化后最多 44 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
+| 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
 | 数据控制台 | ✅ | 总览、文件登记、存储对象、入出库流水、一致性五页签 | 管理员可扫描/处置，审计员只读/预检；永久清理不可恢复且必须确认 |
 | Excel Final 控制台 | ✅ | 权限过滤精确总览、任务监视、跨批次检索、比重查询、批次/零件/构件分页、结果预览和 URL 状态恢复 | 上传/建任务使用数据库级幂等键；健康栏显示实际数据库/存储后端；管线关闭时历史数据仍可浏览 |

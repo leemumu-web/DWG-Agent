@@ -29,6 +29,7 @@ GROUP_NAMES = {
     "agent-runs": "Agent（禁用边界）",
     "agent-tools": "Agent（禁用边界）",
     "system": "系统",
+    "control-plane": "运行与通信控制平面",
     "excel-final": "Excel Final",
     "workflows": "生产流程",
 }

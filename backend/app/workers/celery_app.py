@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import logging
+import os
+import socket
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from celery import Celery
-from celery.signals import celeryd_init, worker_process_init, worker_ready, worker_shutdown
+from celery.signals import (
+    celeryd_init,
+    task_postrun,
+    task_prerun,
+    worker_process_init,
+    worker_ready,
+    worker_shutdown,
+)
 from sqlalchemy import MetaData, Table, delete, inspect, select, text, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
@@ -25,12 +34,14 @@ WORKER_READY_MARKER = Path("/tmp/dwg-celery-ready")
 JOB_QUEUE_NAMES = (
     "agent",
     "cad",
+    "dispatch",
     "dxf",
     "dxf2dwg",
     "dxf2excel",
     "dxf_classification",
     "excel_final",
     "report",
+    "maintenance",
 )
 
 _celery_engine_options = {
@@ -98,6 +109,8 @@ celery_app.conf.update(
         "app.workers.tasks_excel_final.*": {"queue": "excel_final"},
         "app.workers.tasks_cad.*": {"queue": "cad"},
         "app.workers.tasks_report.*": {"queue": "report"},
+        "app.workers.tasks_dispatch.*": {"queue": "dispatch"},
+        "app.workers.tasks_maintenance.*": {"queue": "maintenance"},
     },
     task_serializer="json",
     task_track_started=True,
@@ -343,6 +356,29 @@ def update_worker_readiness_marker(
         marker.unlink(missing_ok=True)
 
 
+def _worker_identity(sender=None) -> str:
+    return str(getattr(sender, "hostname", None) or os.environ.get("CELERY_WORKER_NODENAME") or f"unknown@{socket.gethostname()}")
+
+
+def _worker_queues() -> list[str]:
+    return [item.strip() for item in os.environ.get("DWG_WORKER_QUEUE", "").split(",") if item.strip()]
+
+
+def _record_control_plane_signal(status: str, event_type: str, sender=None, task_id: str | None = None) -> None:
+    """Never let optional observability persistence disrupt a Celery task."""
+    try:
+        from app.services.control_plane_service import record_worker_activity
+        with SessionLocal() as db:
+            record_worker_activity(
+                db, worker_name=_worker_identity(sender), status=status, event_type=event_type,
+                queues=_worker_queues(), concurrency=int(os.environ.get("DWG_WORKER_CONCURRENCY", "1")),
+                correlation_id=task_id,
+            )
+            db.commit()
+    except Exception:
+        logger.exception("Failed to persist control-plane worker signal")
+
+
 @worker_process_init.connect
 def _dispose_resources_in_worker_child(**_kwargs) -> None:
     dispose_inherited_resources()
@@ -374,17 +410,31 @@ def _maintain_mysql_runtime_on_worker_start(sender=None, **_kwargs) -> None:
     except Exception:
         logger.exception("Failed to reconcile stale running jobs")
     update_worker_readiness_marker(True)
+    _record_control_plane_signal("online", "worker.online", sender)
 
 
 @worker_shutdown.connect
-def _remove_worker_readiness_marker(**_kwargs) -> None:
+def _remove_worker_readiness_marker(sender=None, **_kwargs) -> None:
+    _record_control_plane_signal("stopped", "worker.stopped", sender)
     update_worker_readiness_marker(False)
+
+
+@task_prerun.connect
+def _record_task_start(task_id=None, task=None, **_kwargs) -> None:
+    _record_control_plane_signal("online", "task.started", correlation_id=task_id)
+
+
+@task_postrun.connect
+def _record_task_finish(task_id=None, **_kwargs) -> None:
+    _record_control_plane_signal("online", "task.finished", correlation_id=task_id)
 
 
 # Import task modules once so tests and shell probes see registered tasks
 # immediately after importing app.workers.celery_app.
+from app.workers import tasks_dispatch as _tasks_dispatch  # noqa: E402,F401
 from app.workers import tasks_dxf as _tasks_dxf  # noqa: E402,F401
 from app.workers import tasks_dxf2dwg as _tasks_dxf2dwg  # noqa: E402,F401
 from app.workers import tasks_dxf2excel as _tasks_dxf2excel  # noqa: E402,F401
 from app.workers import tasks_excel_final as _tasks_excel_final  # noqa: E402,F401
+from app.workers import tasks_maintenance as _tasks_maintenance  # noqa: E402,F401
 from app.workers import tasks_report as _tasks_report  # noqa: E402,F401

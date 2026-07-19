@@ -26,6 +26,8 @@ WORKER_SPECS=(
     "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
     "dxf2excel|1|dxf2excel|"
     "excel_final|1|excel-final|"
+    "dispatch|1|dispatch|"
+    "maintenance|1|maintenance|"
 )
 
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
@@ -325,7 +327,7 @@ start_celery_worker() {
             "$queue" "$concurrency" "${slug}-local@%h" "$display" \
             >"$logfile" 2>&1 </dev/null &
     else
-        nohup setsid "${celery_cmd[@]}" \
+        DWG_WORKER_QUEUE="$queue" DWG_WORKER_CONCURRENCY="$concurrency" nohup setsid "${celery_cmd[@]}" \
             -A app.workers.celery_app:celery_app worker \
             -Q "$queue" -n "${slug}-local@%h" \
             --concurrency="$concurrency" --loglevel=INFO \
@@ -376,8 +378,12 @@ stop_all_workers() {
     local spec queue concurrency slug display
     for spec in "${WORKER_SPECS[@]}"; do
         IFS='|' read -r queue concurrency slug display <<<"$spec"
+        # A missing/stale pidfile is normal during partial recovery. Finish
+        # evaluating every queue so one unavailable worker cannot prevent the
+        # rest of the topology from restarting.
         stop_celery_worker "$queue" "$slug" || true
     done
+    return 0
 }
 
 wait_port() {

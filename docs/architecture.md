@@ -118,7 +118,9 @@ local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落�
 
 broker 为 `sqla+mysql+pymysql://...`，result backend 为 `db+mysql+pymysql://...`，都从有效应用 MySQL DSN 派生。Celery engine 使用 `READ COMMITTED`、有界 pool、pre-ping、LIFO 和 recycle。`kombu_message(queue_id, timestamp, id, visible)` 按队列缩小 message claim。
 
-SQL transport 没有 fanout remote control。worker 健康使用 Celery PID 加 `worker_ready` marker，不使用 `inspect`。result row 在 24 小时后过期；业务 Job 历史没有自动保留策略。
+SQL transport 没有 fanout remote control。worker 健康使用 Celery PID 加 `worker_ready` marker，不使用 `inspect`。控制平面额外将 Celery lifecycle/task signal 最佳努力写入 `worker_runtimes` 和 `control_plane_events`；其 `last_seen_at` 是活动观测而非 broker lease，超过阈值才在管理端显示 stale。管理员可在“运行与通信”查看 SQL broker ready 行数、Worker、运维消息和事件。result row 在 24 小时后过期；业务 Job 历史没有自动保留策略。
+
+`dispatch` 与 `maintenance` 是已启动可观察的 queue/process 身份预留，尚无业务任务路由；它们不等同于 durable outbox 或 Celery Beat。未来 Windows Node Agent 的 HTTP 注册、heartbeat、事件 envelope 已通过 `/api/v1/control-plane/contracts/windows-node-agent` 发布 draft，但认证、lease fencing、Named Pipe CAD runner 和命令投递均未实现。
 
 worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_worker_lost`，在 prefork child 死亡但 worker 父进程存活时重新投递任务。由于 Kombu 在消息被 reserve 的瞬间（child ack 之前）就把 `kombu_message` 行标为 `visible=False`，启动时的 broker 清理只删除 timestamp 早于 `CELERY_STALE_JOB_TIMEOUT_SECONDS` 两倍的 invisible 行，因此绝不会销毁仍在运行或等待重投的任务消息。当整个 worker 或主机死亡时，SQL transport 无法恢复投递；`reconcile_stale_running_jobs` 是权威兜底：把 `updated_at` 早于 stale 超时的 `running` Job 标记为失败，以便重试。
 

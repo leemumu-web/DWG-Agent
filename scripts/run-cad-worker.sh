@@ -84,6 +84,8 @@ Xvfb "$display" -screen 0 1024x768x24 -nolisten tcp >/tmp/dwg-xvfb-${queue}.log 
 xvfb_pid=$!
 wait_for_x_socket
 export DISPLAY="$display"
+export DWG_WORKER_QUEUE="$queue"
+export DWG_WORKER_CONCURRENCY="$concurrency"
 
 if [ -x .venv/bin/celery ]; then
     celery_cmd=(.venv/bin/celery)
