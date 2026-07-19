@@ -76,6 +76,12 @@ const STAGE_STATUS: Record<string, 'wait' | 'process' | 'finish' | 'error'> = {
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 const ACTIONABLE = new Set(['ready', 'waiting_input', 'waiting_review']);
 
+function suggestedBatchName(projectCode: string): string {
+  const now = new Date();
+  const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  return `${projectCode}-${day}-生产批次`;
+}
+
 function capabilityTag(capability?: WorkflowStageCapability) {
   if (!capability) return null;
   if (capability.implementation_status === 'implemented') {
@@ -101,11 +107,13 @@ export function WorkflowsPage() {
   const [fileExt, setFileExt] = useState<string>();
   const [selectedFileId, setSelectedFileId] = useState<number>();
   const [executionBatch, setExecutionBatch] = useState<string>();
+  const [batchNameTouched, setBatchNameTouched] = useState(false);
   const [form] = Form.useForm();
 
   const openSubmission = () => {
     setSubmissionWorkflow(null);
     setSubmissionStartError(null);
+    setBatchNameTouched(false);
     form.resetFields();
     setCreateOpen(true);
   };
@@ -113,6 +121,7 @@ export function WorkflowsPage() {
     setCreateOpen(false);
     setSubmissionWorkflow(null);
     setSubmissionStartError(null);
+    setBatchNameTouched(false);
     form.resetFields();
   };
 
@@ -163,6 +172,10 @@ export function WorkflowsPage() {
     : [];
   const availableFiles = filesQ.data?.data ?? [];
   const fileMap = useMemo(() => new Map(availableFiles.map((file) => [file.id, file])), [availableFiles]);
+  const selectSubmissionProject = (projectId: number | undefined) => {
+    const project = projectId ? projectMap.get(projectId) : undefined;
+    if (!batchNameTouched) form.setFieldValue('name', project ? suggestedBatchName(project.code) : undefined);
+  };
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['workflows'] });
@@ -193,6 +206,7 @@ export function WorkflowsPage() {
     },
     onSuccess: ({ workflow, startError }) => {
       form.resetFields();
+      setBatchNameTouched(false);
       setSubmissionWorkflow(workflow);
       setSubmissionStartError(startError ? describeApiError(startError, '启动失败') : null);
       invalidate();
@@ -289,7 +303,7 @@ export function WorkflowsPage() {
       <PageHeader
         title="生产流程"
         subtitle="从多份 DWG 与一份 Excel 开始生产批次；服务器生成并冻结 DXF，随后按标题栏信息预处理和分类分流"
-        extra={<Space><Button icon={<ReloadOutlined />} loading={workflowsQ.isFetching} onClick={() => workflowsQ.refetch()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={openSubmission}>提交生产批次</Button></Space>}
+        extra={<Space><Button icon={<ReloadOutlined />} loading={workflowsQ.isFetching} onClick={() => workflowsQ.refetch()}>刷新</Button><Button type="primary" size="large" icon={<PlusOutlined />} onClick={openSubmission}>新建并上传生产批次</Button></Space>}
       />
       <StatGrid>
         <StatCard label="当前页流程" value={workflows.length} icon={<ApartmentOutlined />} color="#2563eb" bg="#eff6ff" />
@@ -301,7 +315,7 @@ export function WorkflowsPage() {
         <Select allowClear placeholder="筛选状态" value={status} onChange={(value) => { setStatus(value); setPage(1); }} style={{ width: 180 }} options={Object.entries(WORKFLOW_STATUS).map(([value, meta]) => ({ value, label: meta.label }))} />
         <Typography.Text type="secondary">共 {workflowsQ.data?.pagination.total ?? 0} 条流程</Typography.Text>
       </div>
-      <Table className="surface-table" rowKey="id" dataSource={workflows} columns={columns} loading={workflowsQ.isLoading} scroll={{ x: 1050 }} pagination={{ current: page, pageSize, total: workflowsQ.data?.pagination.total ?? 0, showSizeChanger: true, onChange: (nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); } }} locale={{ emptyText: <Empty description={<Space orientation="vertical"><span>暂无生产批次</span><Button type="primary" onClick={openSubmission}>提交第一批生产资料</Button></Space>} /> }} />
+      <Table className="surface-table" rowKey="id" dataSource={workflows} columns={columns} loading={workflowsQ.isLoading} scroll={{ x: 1050 }} pagination={{ current: page, pageSize, total: workflowsQ.data?.pagination.total ?? 0, showSizeChanger: true, onChange: (nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); } }} locale={{ emptyText: <Empty description={<Space orientation="vertical"><span>还没有生产批次</span><Typography.Text type="secondary">从项目、批次名和生产资料开始，DXF 由服务器生成。</Typography.Text><Button type="primary" icon={<CloudUploadOutlined />} onClick={openSubmission}>新建并上传第一批资料</Button></Space>} /> }} />
 
       <Drawer title={detail ? `流程 #${detail.id} · ${detail.name}` : '流程详情'} open={detailId !== null} onClose={() => setDetailId(null)} width="min(920px, 96vw)" loading={detailQ.isLoading} extra={detail && <Space>{detail.status === 'draft' && <Button type="primary" loading={startMutation.isPending} onClick={() => startMutation.mutate(detail.id)}>启动</Button>}{canConfirm && detail.status !== 'draft' && actionableStage && <Button type="primary" loading={completeMutation.isPending} onClick={() => completeMutation.mutate({ id: detail.id, stage: actionableStage.stage_code })}>确认当前阶段</Button>}{!TERMINAL.has(detail.status) && <Popconfirm title="确定取消流程及当前活动任务？" onConfirm={() => cancelMutation.mutate(detail.id)}><Button danger icon={<StopOutlined />}>取消</Button></Popconfirm>}</Space>}>
         {detail && (
@@ -383,11 +397,13 @@ export function WorkflowsPage() {
       </Drawer>
 
       <Drawer
-        title={submissionWorkflow ? `生产批次 #${submissionWorkflow.id} · 资料提交` : '提交生产批次'}
+        title={submissionWorkflow ? `生产批次 #${submissionWorkflow.id} · 资料提交` : '新建生产批次'}
         open={createOpen}
         onClose={closeSubmission}
         width={submissionWorkflow ? 'min(1120px, 96vw)' : 520}
-        extra={!submissionWorkflow && <Button type="primary" loading={createMutation.isPending} disabled={!hasProjects} onClick={() => form.submit()}>创建并进入上传</Button>}
+        closable={!createMutation.isPending}
+        maskClosable={!createMutation.isPending}
+        keyboard={!createMutation.isPending}
       >
         {submissionWorkflow ? (
           submissionWorkflow.status === 'draft' ? (
@@ -414,12 +430,32 @@ export function WorkflowsPage() {
             </>
           )
         ) : (
-          <Form form={form} layout="vertical" requiredMark={false} onFinish={(values) => createMutation.mutate(values)}>
-            <Form.Item name="project_id" label="所属项目" rules={[{ required: true, message: '请选择项目' }]}><Select showSearch optionFilterProp="label" placeholder="选择项目" options={(projectsQ.data ?? []).map((project) => ({ value: project.id, label: `${project.code} · ${project.name}` }))} /></Form.Item>
-            <Form.Item name="name" label="批次名称" rules={[{ required: true, message: '请输入批次名称' }, { max: 128 }]}><Input placeholder="如 2026-07 钢构生产批次" /></Form.Item>
-            {hasProjects
-              ? <Alert type="info" showIcon message="提交后直接进入资料上传" description="系统会创建并启动 Linux 生产流程。请准备多个 DWG 和恰好一个 Excel；DXF 由服务器转换生成。" />
-              : <Alert type="warning" showIcon message="需要先创建项目" description="生产批次必须归属一个项目，当前没有可选项目。" action={<Button href="/projects">先创建项目</Button>} />}
+          <Form className="production-create-form" form={form} layout="vertical" requiredMark={false} onFinish={(values) => createMutation.mutate(values)}>
+            <section className="production-create-hero" aria-label="生产批次说明">
+              <Typography.Text className="production-create-eyebrow">生产资料入口</Typography.Text>
+              <Typography.Title level={4}>先建批次，再在当前窗口上传资料</Typography.Title>
+              <Typography.Paragraph>上传多个 DWG 与恰好一个 Excel；系统会完成 DXF 转换、配对、冻结和后续分类分流。</Typography.Paragraph>
+            </section>
+            <Steps className="production-create-steps" size="small" current={0} responsive items={[{ title: '选择项目' }, { title: '确认批次名' }, { title: '进入资料上传' }]} />
+            <div className="production-create-checklist" aria-label="文件准备清单">
+              <span><CheckCircleOutlined /> 多个 DWG + 1 个 Excel</span>
+              <span><CloudServerOutlined /> 无需准备 DXF</span>
+            </div>
+            <Form.Item name="project_id" label="所属项目" rules={[{ required: true, message: '请选择项目' }]} extra="批次将继承项目权限和文件归属。">
+              <Select showSearch optionFilterProp="label" disabled={createMutation.isPending} placeholder="选择本次生产资料所属项目" onChange={selectSubmissionProject} options={(projectsQ.data ?? []).map((project) => ({ value: project.id, label: `${project.code} · ${project.name}` }))} />
+            </Form.Item>
+            <Form.Item name="name" label="批次名称" rules={[{ required: true, message: '请输入批次名称' }, { max: 128 }]} extra="已按项目和日期生成建议名称，可按现场批次规则修改。">
+              <Input disabled={createMutation.isPending} placeholder="例如 P001-20260719-生产批次" onChange={() => setBatchNameTouched(true)} />
+            </Form.Item>
+            {hasProjects ? (
+              <div className="production-create-actions">
+                <Typography.Text type="secondary">本步不会上传文件；创建成功后直接进入资料上传。</Typography.Text>
+                <Space className="production-create-action-buttons" wrap>
+                  <Button disabled={createMutation.isPending} onClick={closeSubmission}>取消</Button>
+                  <Button htmlType="submit" type="primary" icon={<CloudUploadOutlined />} loading={createMutation.isPending}>创建批次，下一步上传文件</Button>
+                </Space>
+              </div>
+            ) : <Alert type="warning" showIcon message="需要先创建项目" description="生产批次必须归属一个项目，当前没有可选项目。" action={<Button href="/projects">先创建项目</Button>} />}
           </Form>
         )}
       </Drawer>

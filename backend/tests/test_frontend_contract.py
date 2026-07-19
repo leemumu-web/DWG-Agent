@@ -251,8 +251,11 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
 def test_production_submission_entry_creates_starts_and_opens_upload():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
 
-    assert "提交生产批次" in page_source
-    assert "创建并进入上传" in page_source
+    assert "新建并上传生产批次" in page_source
+    assert "创建批次，下一步上传文件" in page_source
+    assert "本步不会上传文件" in page_source
+    assert "suggestedBatchName" in page_source
+    assert "batchNameTouched" in page_source
     assert "await createWorkflow" in page_source
     assert "await startWorkflow(created.id)" in page_source
     assert page_source.index("await createWorkflow") < page_source.index(
