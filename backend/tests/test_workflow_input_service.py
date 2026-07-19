@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import workflow_input_service, workflow_service
+from app.services.job_service import dispatch_committed_conversion_batch
 from app.storage.local_storage import LocalFileStorage
 
 
@@ -292,6 +293,43 @@ def test_conversion_feature_gate_is_enforced(db, tmp_path, monkeypatch):
 
     assert error.value.detail["code"] == "DXF_PIPELINE_DISABLED"
     assert db.query(Job).count() == 0
+
+
+def test_batch_dispatch_failure_marks_queued_attempt_retryable(db, monkeypatch):
+    user, project, _ = _workflow(db)
+    job = Job(
+        project_id=project.id,
+        created_by=user.id,
+        task_type="convert_dwg_to_dxf",
+        precision_level="normal",
+        pipeline="dxf",
+        status="queued",
+        attempt=1,
+        priority=0,
+        progress=0,
+        params_json={"file_id": 1},
+    )
+    db.add(job)
+    db.commit()
+
+    def fail_dispatch(_serialized):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(
+        "app.workers.tasks_dxf.convert_dwg_to_dxf_batch_task.delay",
+        fail_dispatch,
+    )
+    with pytest.raises(AppHTTPException) as error:
+        dispatch_committed_conversion_batch(
+            task_type="convert_dwg_to_dxf", jobs=[(job.id, job.attempt)]
+        )
+
+    db.expire_all()
+    failed = db.get(Job, job.id)
+    assert error.value.detail["code"] == "JOB_ENQUEUE_FAILED"
+    assert failed is not None
+    assert failed.status == "failed"
+    assert failed.error_code == "JOB_ENQUEUE_FAILED"
 
 
 def test_sync_pairs_only_successful_server_derived_dxf(db, tmp_path, monkeypatch):

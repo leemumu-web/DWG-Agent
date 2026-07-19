@@ -50,7 +50,7 @@
 
 ### 3.4 `workflow_input_batches` / `workflow_input_items`
 
-每个 Linux workflow 至多一个输入批次。批次记录状态、冻结版本、规范清单 SHA-256 和冻结时间；条目只引用现有 `StoredFile`，记录 DWG/Excel 角色、规范化 stem、转换 `job_id + attempt`、派生 DXF 和最终 `drawing_id`。对象字节、大小和 SHA-256 仍由 `/files` 与 storage adapter 管理，不复制存储。
+每个 Linux workflow 至多一个输入批次。批次记录状态、冻结版本、规范清单 SHA-256 和冻结时间；条目只引用现有 `StoredFile`，记录 DWG/Excel 角色、规范化 stem、转换 `job_id + attempt`、派生 DXF 和最终 `drawing_id`。创建使用唯一约束、savepoint 和 winner reload 保证并发幂等；登记/移除/转换通过批次行锁串行化，避免并发登记两个 Excel。对象字节、大小和 SHA-256 仍由 `/files` 与 storage adapter 管理，不复制存储。
 
 ## 4. 状态与执行
 
@@ -71,9 +71,9 @@ completion API 只接受当前可操作阶段：
 
 人工输入严格为至少一个 DWG 和恰好一个 Excel（XLS/XLSX），不上传 DXF。浏览器先复用带 `Idempotency-Key` 的 `/files` 上传，再把 `file_id` 登记到 workflow input batch。服务端逐个重新读取对象并校验登记大小、SHA-256、DWG 文件头或 Excel 可读工作表；第二个 Excel、人工 DXF、同名 DWG 和伪扩展文件均返回稳定问题码。
 
-转换请求为每个 DWG 建立稳定的 `convert_dwg_to_dxf` Job：活动/成功 Job 幂等复用，失败或取消 Job 通过现有 retry 递增 attempt。API 先提交数据库再投递 worker。状态查询只接纳条目绑定 attempt 的成功 Result，并验证派生对象、DXF 结构和规范化同名配对。
+转换请求为每个 DWG 建立稳定的 `convert_dwg_to_dxf` Job：活动/成功 Job 幂等复用，失败或取消 Job 通过现有 retry 递增 attempt。API 先提交数据库再投递 worker；明确的 broker 投递失败会以 status + attempt 条件把仍 queued 的 Job 标为 `JOB_ENQUEUE_FAILED`，下一次请求可递增 attempt 重投，已被 worker 领取的状态不会被覆盖。状态查询只接纳条目绑定 attempt 的成功 Result，并验证派生对象、DXF 结构和规范化同名配对。
 
-冻结在事务和行锁内再次校验全部源对象及配对；随后按 DWG 创建 `Drawing` 与 DWG `DrawingVersion`，挂接 `source_file`、`derived_dxf` 和批次级 `source_excel` artifact，计算 canonical JSON 清单 SHA-256，并原子完成 `source_intake`。冻结后批次只读，不能增删文件或重投转换。
+冻结在事务和行锁内再次校验全部源对象及配对；随后按 DWG 创建 `Drawing` 与 DWG `DrawingVersion`，挂接 `source_file`、`derived_dxf` 和批次级 `source_excel` artifact，计算 canonical JSON 清单 SHA-256，并原子完成 `source_intake`。冻结后批次只读，不能增删文件或重投转换；通用 `/files` 单文件、批量和批次删除也会锁定并拒绝冻结清单引用，防止 DWG、Excel 或派生 DXF 被旁路软删除。
 
 ### 4.3 自动执行
 
@@ -143,7 +143,9 @@ completion API 只接受当前可操作阶段：
 | 409 | `WORKFLOW_INPUT_BATCH_NOT_FROZEN` | 试图用通用 completion 绕过输入冻结 |
 | 409 | `INPUT_EXCEL_ALREADY_EXISTS` / `INPUT_DWG_NAME_CONFLICT` | 唯一 Excel 或规范化 DWG 名冲突 |
 | 415 | `INPUT_DXF_NOT_ALLOWED` | 人工上传了应由服务器生成的 DXF |
-| 422 | `INPUT_FILE_CHECKSUM_MISMATCH` / `INPUT_FILE_FORMAT_INVALID` | 对象摘要或真实格式未通过复核 |
+| 409/415 | `INPUT_OBJECT_CHECKSUM_MISMATCH` / `FILE_NOT_DWG` / `INPUT_EXCEL_UNREADABLE` | 对象摘要或真实格式未通过复核 |
+| 409 | `FILE_REFERENCED_BY_FROZEN_INPUT` | 通用文件删除试图破坏冻结输入清单 |
+| 503 | `JOB_ENQUEUE_FAILED` | Job 已保存但 broker 投递失败；Job 已收敛为可重试失败状态 |
 | 415 | `NOT_EXCEL` | Excel Final 输入扩展名不支持 |
 | 501 | `WORKFLOW_STAGE_NOT_IMPLEMENTED` | 阶段接口存在，但核心实现留白；details 返回输入/产物契约 |
 | 503 | `DXF2EXCEL_PIPELINE_DISABLED` | DXF→Excel flag 关闭 |

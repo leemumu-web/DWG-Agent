@@ -38,6 +38,7 @@ from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
+from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
 from app.schemas.file_schema import (
@@ -210,6 +211,25 @@ def _require_file_read_access(db: Session, current_user: CurrentUser, stored: St
 
 
 def _require_file_delete_access(db: Session, current_user: CurrentUser, stored: StoredFile) -> None:
+    frozen_input = db.scalar(
+        select(WorkflowInputBatch)
+        .join(WorkflowInputItem, WorkflowInputItem.input_batch_id == WorkflowInputBatch.id)
+        .where(
+            WorkflowInputBatch.status == "frozen",
+            or_(
+                WorkflowInputItem.file_id == stored.id,
+                WorkflowInputItem.derived_dxf_file_id == stored.id,
+            ),
+        )
+        .with_for_update()
+    )
+    if frozen_input is not None:
+        raise AppHTTPException(
+            409,
+            "FILE_REFERENCED_BY_FROZEN_INPUT",
+            "A file in a frozen production input manifest cannot be deleted.",
+            {"workflow_id": frozen_input.workflow_run_id, "input_batch_id": frozen_input.id},
+        )
     # If all associated projects are soft-deleted, treat the file as not found (BUG-7).
     active_ids = _file_project_ids(db, stored.id, include_deleted=False)
     all_ids = _file_project_ids(db, stored.id, include_deleted=True)

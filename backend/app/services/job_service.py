@@ -456,17 +456,65 @@ def dispatch_committed_conversion_batch(
     task_type: str,
     jobs: list[tuple[int, int]],
 ) -> str:
-    """Send one batch message while retaining one database Job per source file."""
+    """Send one batch message and compensate definite broker failures.
+
+    Queued attempts are marked failed through guarded updates so an HTTP replay
+    can use the normal retry path. Attempts already claimed by a worker win.
+    """
     serialized = [[job_id, attempt] for job_id, attempt in jobs]
-    if task_type == TASK_DWG_TO_DXF:
-        from app.workers.tasks_dxf import convert_dwg_to_dxf_batch_task
+    try:
+        if task_type == TASK_DWG_TO_DXF:
+            from app.workers.tasks_dxf import convert_dwg_to_dxf_batch_task
 
-        return str(convert_dwg_to_dxf_batch_task.delay(serialized).id)
-    if task_type == TASK_DXF_TO_DWG:
-        from app.workers.tasks_dxf2dwg import convert_dxf_to_dwg_batch_task
+            return str(convert_dwg_to_dxf_batch_task.delay(serialized).id)
+        if task_type == TASK_DXF_TO_DWG:
+            from app.workers.tasks_dxf2dwg import convert_dxf_to_dwg_batch_task
 
-        return str(convert_dxf_to_dwg_batch_task.delay(serialized).id)
-    raise ValueError(f"Unsupported conversion batch task type: {task_type}")
+            return str(convert_dxf_to_dwg_batch_task.delay(serialized).id)
+        raise ValueError(f"Unsupported conversion batch task type: {task_type}")
+    except ValueError:
+        raise
+    except Exception as exc:
+        logger.exception("Celery batch dispatch failed for jobs=%s", [job[0] for job in jobs])
+        message = "The conversion batch could not be dispatched to the queue."
+        finished_at = datetime.now(UTC)
+        with SessionLocal() as compensation_db:
+            for job_id, attempt in jobs:
+                event = make_event(
+                    type_="error",
+                    status=JOB_FAILED,
+                    progress=0,
+                    error_code="JOB_ENQUEUE_FAILED",
+                    error_message=message,
+                    message=message,
+                    job_id=job_id,
+                    attempt=attempt,
+                )
+                compensation_db.execute(
+                    update(Job)
+                    .where(
+                        Job.id == job_id,
+                        Job.status == JOB_QUEUED,
+                        Job.attempt == attempt,
+                    )
+                    .values(
+                        status=JOB_FAILED,
+                        progress=0,
+                        error_code="JOB_ENQUEUE_FAILED",
+                        error_message=message,
+                        progress_data=event,
+                        finished_at=finished_at,
+                        updated_at=finished_at,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+            compensation_db.commit()
+        raise AppHTTPException(
+            503,
+            "JOB_ENQUEUE_FAILED",
+            "Jobs were saved but the conversion batch could not be dispatched to Celery.",
+            {"job_ids": [job_id for job_id, _attempt in jobs]},
+        ) from exc
 
 
 def dispatch_committed_job(db: Session, job: Job) -> str:

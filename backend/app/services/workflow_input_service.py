@@ -12,6 +12,7 @@ from pathlib import Path
 import openpyxl
 import xlrd
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -81,16 +82,40 @@ def create_input_batch(
     )
     if existing is not None:
         return existing
-    batch = WorkflowInputBatch(
-        workflow=workflow,
-        project_id=workflow.project_id,
-        created_by=created_by,
-        status="uploading",
-        version=1,
-    )
-    db.add(batch)
-    db.flush()
+    try:
+        with db.begin_nested():
+            batch = WorkflowInputBatch(
+                workflow=workflow,
+                project_id=workflow.project_id,
+                created_by=created_by,
+                status="uploading",
+                version=1,
+            )
+            db.add(batch)
+            db.flush()
+    except IntegrityError:
+        winner = db.scalar(
+            select(WorkflowInputBatch)
+            .where(WorkflowInputBatch.workflow_run_id == workflow.id)
+            .with_for_update()
+        )
+        if winner is None:
+            raise
+        return winner
     return batch
+
+
+def _lock_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBatch:
+    """Serialize mutable input operations and refresh their item collection."""
+    locked = db.scalar(
+        select(WorkflowInputBatch)
+        .where(WorkflowInputBatch.id == batch.id)
+        .with_for_update()
+    )
+    if locked is None:
+        raise AppHTTPException(404, "INPUT_BATCH_NOT_FOUND", "Input batch not found.")
+    db.expire(locked, ["items"])
+    return locked
 
 
 def _read_verified_object(stored: StoredFile) -> bytes:
@@ -188,6 +213,7 @@ def register_input_file(
     batch: WorkflowInputBatch,
     stored: StoredFile,
 ) -> WorkflowInputItem:
+    batch = _lock_input_batch(db, batch)
     if batch.status == "frozen":
         raise AppHTTPException(
             409, "INPUT_BATCH_FROZEN", "Frozen input batches cannot be modified."
@@ -251,6 +277,7 @@ def remove_input_item(
     batch: WorkflowInputBatch,
     item_id: int,
 ) -> None:
+    batch = _lock_input_batch(db, batch)
     if batch.status == "frozen":
         raise AppHTTPException(
             409, "INPUT_BATCH_FROZEN", "Frozen input batches cannot be modified."
@@ -275,6 +302,7 @@ def prepare_input_conversions(
     *,
     created_by: int,
 ) -> InputConversionPlan:
+    batch = _lock_input_batch(db, batch)
     if batch.status == "frozen":
         raise AppHTTPException(
             409, "INPUT_BATCH_FROZEN", "Frozen input batches cannot be modified."

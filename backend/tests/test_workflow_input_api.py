@@ -3,7 +3,9 @@ from __future__ import annotations
 from io import BytesIO
 
 import openpyxl
+from sqlalchemy import select
 
+from app.models.workflow_input import WorkflowInputBatch
 from app.storage.local_storage import LocalFileStorage
 from tests.test_workflow_api import (
     _admin_headers,
@@ -190,3 +192,38 @@ def test_input_batch_openapi_exposes_complete_guarded_surface():
             )
             if code := success.get("content"):
                 assert code["application/json"]["schema"]
+
+
+def test_frozen_input_source_cannot_be_deleted_through_files_api(
+    db, monkeypatch, tmp_path
+):
+    _use_storage(monkeypatch, tmp_path)
+    client = _client()
+    _, owner_headers, _, workflow_id = _setup(client, "frozen-delete")
+    batch_data = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
+    ).json()["data"]
+    file_id = _upload(
+        client,
+        owner_headers,
+        "protected.dwg",
+        b"AC1027" + bytes(2048),
+        batch_data["id"],
+    )
+    registered = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch/files",
+        headers=owner_headers,
+        json={"file_id": file_id},
+    )
+    assert registered.status_code == 201, registered.text
+    batch = db.scalar(
+        select(WorkflowInputBatch).where(WorkflowInputBatch.id == batch_data["id"])
+    )
+    assert batch is not None
+    batch.status = "frozen"
+    db.commit()
+
+    deleted = client.delete(f"/api/v1/files/{file_id}", headers=owner_headers)
+
+    assert deleted.status_code == 409, deleted.text
+    assert deleted.json()["error"]["code"] == "FILE_REFERENCED_BY_FROZEN_INPUT"
