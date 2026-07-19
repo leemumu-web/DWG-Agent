@@ -26,6 +26,21 @@ class WorkflowTemplateRead(BaseModel):
     stages: list[WorkflowStageCapability]
 
 
+class WorkflowArtifactCreate(BaseModel):
+    stage_code: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]+$")
+    artifact_type: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]+$")
+    file_id: int | None = Field(default=None, gt=0)
+    result_id: int | None = Field(default=None, gt=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("result_id")
+    @classmethod
+    def require_reference(cls, value: int | None, info):
+        if value is None and info.data.get("file_id") is None:
+            raise ValueError("An artifact must reference file_id or result_id.")
+        return value
+
+
 class WorkflowCreate(BaseModel):
     project_id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=128)

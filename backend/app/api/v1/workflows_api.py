@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -11,19 +11,32 @@ from app.api.deps import (
     require_project_member,
     require_project_role,
 )
-from app.core.exceptions import AppHTTPException
+from app.core.exceptions import AppHTTPException, not_found
 from app.db.pagination import paginate_scalars
+from app.models.file import StoredFile
+from app.models.job import Job
 from app.models.project import ProjectMember
+from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
-from app.schemas.workflow_schema import WorkflowCreate, WorkflowDetail, WorkflowRead
+from app.schemas.workflow_schema import (
+    WorkflowArtifactCreate,
+    WorkflowArtifactRead,
+    WorkflowCreate,
+    WorkflowDetail,
+    WorkflowRead,
+)
 from app.services.audit_service import write_audit_log
+from app.services.file_service import require_file_read_access
+from app.services.job_access import require_job_read_access
 from app.services.workflow_service import (
+    attach_artifact,
     cancel_workflow,
     complete_manual_stage,
     create_workflow,
     get_workflow_or_404,
+    list_workflow_templates,
     start_workflow,
     sync_workflow_from_jobs,
 )
@@ -50,6 +63,15 @@ def _load_detail(db: Session, workflow_id: int) -> WorkflowRun:
     if workflow is None:
         return get_workflow_or_404(db, workflow_id)
     return workflow
+
+
+@router.get(
+    "/templates",
+    summary="列出工作流模板与阶段能力",
+    description="返回后端权威的阶段顺序、执行方式、实现状态和输入输出契约。",
+)
+def get_workflow_templates(request: Request, current_user: CurrentUser):
+    return ok(list_workflow_templates(), request.state.request_id)
 
 
 @router.get("")
@@ -104,6 +126,71 @@ def create_workflow_api(
     )
     db.commit()
     return ok(WorkflowDetail.model_validate(_load_detail(db, workflow.id)), request.state.request_id)
+
+
+@router.post(
+    "/{workflow_id}/artifacts",
+    status_code=status.HTTP_201_CREATED,
+    summary="绑定工作流文件或结果产物",
+    description=(
+        "复用文件中心和分析结果中的既有登记，只保存引用，不重复上传字节。"
+        "同一阶段、类型和引用的重复请求幂等返回已有产物。"
+    ),
+)
+def create_workflow_artifact(
+    workflow_id: int,
+    payload: WorkflowArtifactCreate,
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = _load_detail(db, workflow_id)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    if payload.file_id is not None:
+        stored = db.get(StoredFile, payload.file_id)
+        if stored is None or stored.status == "deleted":
+            raise not_found("File")
+        require_file_read_access(db, current_user, stored)
+    if payload.result_id is not None:
+        result = db.get(AnalysisResult, payload.result_id)
+        if result is None:
+            raise not_found("Result")
+        job = db.get(Job, result.job_id)
+        if job is None:
+            raise not_found("Job")
+        require_job_read_access(db, current_user, job)
+    known_artifact_ids = {artifact.id for artifact in workflow.artifacts}
+    artifact = attach_artifact(
+        db,
+        workflow,
+        stage_code=payload.stage_code,
+        artifact_type=payload.artifact_type,
+        file_id=payload.file_id,
+        result_id=payload.result_id,
+        metadata=payload.metadata,
+    )
+    reused = artifact.id in known_artifact_ids
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="workflow_artifacts.reuse" if reused else "workflow_artifacts.create",
+        resource_type="workflow",
+        resource_id=workflow.id,
+        after_json=payload.model_dump(),
+        request=request,
+    )
+    db.commit()
+    if reused:
+        response.status_code = status.HTTP_200_OK
+    return ok(
+        {
+            "artifact": WorkflowArtifactRead.model_validate(artifact),
+            "workflow": WorkflowDetail.model_validate(_load_detail(db, workflow.id)),
+            "reused": reused,
+        },
+        request.state.request_id,
+    )
 
 
 @router.get("/{workflow_id}")

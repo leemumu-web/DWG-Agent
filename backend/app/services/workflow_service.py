@@ -225,9 +225,20 @@ def attach_artifact(
     stage = next((item for item in workflow.stages if item.stage_code == stage_code), None)
     if stage is None:
         raise AppHTTPException(422, "WORKFLOW_STAGE_UNKNOWN", "Unknown workflow stage.")
+    existing = db.scalar(
+        select(WorkflowArtifact).where(
+            WorkflowArtifact.workflow_run_id == workflow.id,
+            WorkflowArtifact.stage_run_id == stage.id,
+            WorkflowArtifact.artifact_type == artifact_type,
+            WorkflowArtifact.file_id == file_id,
+            WorkflowArtifact.result_id == result_id,
+        )
+    )
+    if existing is not None:
+        return existing
     artifact = WorkflowArtifact(
-        workflow_run_id=workflow.id,
-        stage_run_id=stage.id,
+        workflow=workflow,
+        stage=stage,
         artifact_type=artifact_type,
         file_id=file_id,
         result_id=result_id,
@@ -286,6 +297,16 @@ def complete_manual_stage(workflow: WorkflowRun, stage_code: str) -> WorkflowRun
     if stage.status not in {"ready", "waiting_input", "waiting_review"}:
         raise AppHTTPException(
             409, "WORKFLOW_STAGE_NOT_ACTIONABLE", "This workflow stage is not awaiting input."
+        )
+    if (
+        workflow.workflow_type == "linux_production"
+        and stage_code == "source_intake"
+        and not any(artifact.file_id is not None for artifact in stage.artifacts)
+    ):
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_SOURCE_FILE_REQUIRED",
+            "At least one source file must be bound before freezing workflow input.",
         )
     now = datetime.now(UTC)
     stage.status = "succeeded"
