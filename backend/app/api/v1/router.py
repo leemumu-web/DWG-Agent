@@ -17,6 +17,7 @@ from app.api.v1 import (
     roles_api,
     system_api,
     users_api,
+    workflow_inputs_api,
     workflows_api,
 )
 
@@ -40,3 +41,8 @@ api_router.include_router(agent_runs_api.router, tags=["agent-runs"])
 api_router.include_router(system_api.router, prefix="/system", tags=["system"])
 api_router.include_router(excel_final_api.router, prefix="/excel-final", tags=["excel-final"])
 api_router.include_router(workflows_api.router, prefix="/workflows", tags=["workflows"])
+api_router.include_router(
+    workflow_inputs_api.router,
+    prefix="/workflows",
+    tags=["workflow-inputs"],
+)

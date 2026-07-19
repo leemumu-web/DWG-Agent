@@ -23,8 +23,15 @@ from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
-from app.schemas.job_schema import JobCreate
-from app.services.job_service import create_or_reuse_job, retry_job
+from app.schemas.file_schema import FileRead
+from app.schemas.job_schema import JobCreate, JobRead
+from app.schemas.workflow_input_schema import (
+    WorkflowInputBatchRead,
+    WorkflowInputCounts,
+    WorkflowInputIssueRead,
+    WorkflowInputItemRead,
+)
+from app.services.job_service import cancel_job, create_or_reuse_job, retry_job
 from app.services.storage_service import (
     MIN_DWG_SIZE_BYTES,
     get_storage_backend,
@@ -226,6 +233,40 @@ def register_input_file(
     db.add(item)
     db.flush()
     return item
+
+
+def get_input_batch(db: Session, workflow_id: int) -> WorkflowInputBatch:
+    batch = db.scalar(
+        select(WorkflowInputBatch).where(
+            WorkflowInputBatch.workflow_run_id == workflow_id
+        )
+    )
+    if batch is None:
+        raise AppHTTPException(404, "INPUT_BATCH_NOT_FOUND", "Input batch not found.")
+    return batch
+
+
+def remove_input_item(
+    db: Session,
+    batch: WorkflowInputBatch,
+    item_id: int,
+) -> None:
+    if batch.status == "frozen":
+        raise AppHTTPException(
+            409, "INPUT_BATCH_FROZEN", "Frozen input batches cannot be modified."
+        )
+    item = next((value for value in batch.items if value.id == item_id), None)
+    if item is None:
+        raise AppHTTPException(404, "INPUT_ITEM_NOT_FOUND", "Input item not found.")
+    if item.conversion_job_id is not None:
+        job = db.get(Job, item.conversion_job_id)
+        if job is not None and job.status in _ACTIVE_JOB_STATUSES:
+            cancel_job(db, job)
+    db.delete(item)
+    db.flush()
+    batch.status = "uploading"
+    batch.error_code = None
+    batch.error_message = None
 
 
 def prepare_input_conversions(
@@ -599,3 +640,92 @@ def freeze_input_batch(
     workflow_service.complete_manual_stage(workflow, "source_intake")
     db.flush()
     return batch
+
+
+def describe_input_batch(
+    db: Session,
+    batch: WorkflowInputBatch,
+) -> WorkflowInputBatchRead:
+    sync_input_batch(db, batch)
+    dwg_items = [item for item in batch.items if item.role == "source_dwg"]
+    excel_items = [item for item in batch.items if item.role == "source_excel"]
+    issues: list[WorkflowInputIssueRead] = []
+    if not dwg_items:
+        issues.append(
+            WorkflowInputIssueRead(
+                code="INPUT_DWG_REQUIRED",
+                message="至少上传一个有效 DWG。",
+                recommended_action="upload_dwg",
+            )
+        )
+    if len(excel_items) != 1:
+        issues.append(
+            WorkflowInputIssueRead(
+                code="INPUT_EXCEL_COUNT_INVALID",
+                message="必须上传且只能上传一个可读 Excel。",
+                recommended_action="upload_excel" if not excel_items else "remove_excel",
+            )
+        )
+    item_reads: list[WorkflowInputItemRead] = []
+    for item in batch.items:
+        stored = db.get(StoredFile, item.file_id)
+        if stored is None:
+            raise AppHTTPException(
+                409,
+                "INPUT_FILE_NOT_FOUND",
+                "A registered input file no longer exists.",
+                {"item_id": item.id, "file_id": item.file_id},
+            )
+        job = db.get(Job, item.conversion_job_id) if item.conversion_job_id else None
+        derived = db.get(StoredFile, item.derived_dxf_file_id) if item.derived_dxf_file_id else None
+        if item.error_code:
+            issues.append(
+                WorkflowInputIssueRead(
+                    item_id=item.id,
+                    file_name=item.original_name,
+                    code=item.error_code,
+                    message=item.error_message or "输入文件需要处理。",
+                    recommended_action=(
+                        "retry_conversion"
+                        if item.role == "source_dwg"
+                        else "remove_file"
+                    ),
+                )
+            )
+        item_reads.append(
+            WorkflowInputItemRead(
+                id=item.id,
+                role=item.role,
+                status=item.status,
+                original_name=item.original_name,
+                normalized_stem=item.normalized_stem,
+                file=FileRead.model_validate(stored),
+                conversion_job=JobRead.model_validate(job) if job else None,
+                derived_dxf=FileRead.model_validate(derived) if derived else None,
+                drawing_id=item.drawing_id,
+                error_code=item.error_code,
+                error_message=item.error_message,
+            )
+        )
+    counts = WorkflowInputCounts(
+        dwg=len(dwg_items),
+        excel=len(excel_items),
+        paired=sum(item.status in {"paired", "frozen"} for item in dwg_items),
+        converting=sum(item.status == "converting" for item in dwg_items),
+        failed=sum(item.status == "conversion_failed" for item in dwg_items),
+    )
+    return WorkflowInputBatchRead(
+        id=batch.id,
+        workflow_run_id=batch.workflow_run_id,
+        project_id=batch.project_id,
+        status=batch.status,
+        version=batch.version,
+        manifest_sha256=batch.manifest_sha256,
+        frozen_at=batch.frozen_at,
+        counts=counts,
+        items=item_reads,
+        issues=issues,
+        freeze_ready=batch.status in {"ready_to_freeze", "frozen"},
+        created_at=batch.created_at,
+        updated_at=batch.updated_at,
+    )
