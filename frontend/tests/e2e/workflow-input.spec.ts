@@ -51,12 +51,12 @@ async function mockWorkflow(page: Page) {
     id: 501, workflow_run_id: 41, project_id: 7, status: frozen ? 'frozen' : items.some((item) => item.derived_dxf) ? 'ready_to_freeze' : 'uploading',
     version: frozen ? 1 : 0, manifest_sha256: frozen ? 'a'.repeat(64) : null, frozen_at: frozen ? now : null,
     counts: {
-      dwg: items.filter((item) => item.role === 'dwg').length,
-      excel: items.filter((item) => item.role === 'excel').length,
+      dwg: items.filter((item) => item.role === 'source_dwg').length,
+      excel: items.filter((item) => item.role === 'source_excel').length,
       paired: items.filter((item) => item.derived_dxf).length,
       converting: 0, failed: 0,
     },
-    items, issues: [], freeze_ready: items.some((item) => item.role === 'dwg') && items.some((item) => item.role === 'excel') && items.filter((item) => item.role === 'dwg').every((item) => item.derived_dxf),
+    items, issues: [], freeze_ready: items.some((item) => item.role === 'source_dwg') && items.some((item) => item.role === 'source_excel') && items.filter((item) => item.role === 'source_dwg').every((item) => item.derived_dxf),
     created_at: now, updated_at: now,
   });
 
@@ -76,7 +76,7 @@ async function mockWorkflow(page: Page) {
     await json(route, storedFile(nextFileId, name), 201);
   });
   await page.route('**/api/v1/workflows/41/input-batch/conversion-requests', async (route) => {
-    items = items.map((item) => item.role === 'dwg' ? {
+    items = items.map((item) => item.role === 'source_dwg' ? {
       ...item,
       status: 'paired',
       conversion_job: { id: 801, task_type: 'convert_dwg_to_dxf', precision_level: 'normal', status: 'succeeded', attempt: 1, priority: 0, progress: 100, created_at: now, updated_at: now },
@@ -86,14 +86,14 @@ async function mockWorkflow(page: Page) {
   });
   await page.route('**/api/v1/workflows/41/input-batch/freeze', async (route) => {
     frozen = true;
-    items = items.map((item, index) => item.role === 'dwg' ? { ...item, status: 'frozen', drawing_id: 1000 + index } : { ...item, status: 'frozen' });
+    items = items.map((item, index) => item.role === 'source_dwg' ? { ...item, status: 'frozen', drawing_id: 1000 + index } : { ...item, status: 'frozen' });
     await json(route, batch());
   });
   await page.route('**/api/v1/workflows/41/input-batch/files', async (route) => {
     const fileId = Number((route.request().postDataJSON() as { file_id: number }).file_id);
     const file = fileId === 701 ? storedFile(fileId, 'panel-A.dwg') : storedFile(fileId, 'parts.xlsx');
     const item = {
-      id: 600 + fileId, role: file.file_ext === '.dwg' ? 'dwg' : 'excel', status: 'validated',
+      id: 600 + fileId, role: file.file_ext === '.dwg' ? 'source_dwg' : 'source_excel', status: 'validated',
       original_name: file.original_name, normalized_stem: file.original_name.replace(/\.[^.]+$/, '').toLowerCase(),
       file, conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null,
     };

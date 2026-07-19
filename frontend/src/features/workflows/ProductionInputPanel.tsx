@@ -56,7 +56,7 @@ function itemStatus(item: WorkflowInputItem) {
   if (item.status === 'paired') return <Tag color="success">已配对</Tag>;
   if (item.status === 'failed') return <Tag color="error">需修复</Tag>;
   if (ACTIVE_JOB.has(item.conversion_job?.status ?? '')) return <Tag icon={<LoadingOutlined />} color="processing">转换中</Tag>;
-  if (item.role === 'excel') return <Tag color="blue">已校验</Tag>;
+  if (item.role === 'source_excel') return <Tag color="blue">已校验</Tag>;
   return <Tag>待转换</Tag>;
 }
 
@@ -175,7 +175,7 @@ export function ProductionInputPanel({
       title: '源文件', key: 'file',
       render: (_: unknown, item: WorkflowInputItem) => <Space><FileOutlined /><div><Typography.Text strong>{item.original_name}</Typography.Text><div><Typography.Text type="secondary" style={{ fontSize: 12 }}>#{item.file.id} · {fmtSize(item.file.size_bytes)} · SHA-256 {item.file.sha256.slice(0, 10)}…</Typography.Text></div></div></Space>,
     },
-    { title: '类型', dataIndex: 'role', width: 86, render: (role: string) => role === 'excel' ? <Tag icon={<FileExcelOutlined />} color="green">Excel</Tag> : <Tag color="blue">DWG</Tag> },
+    { title: '类型', dataIndex: 'role', width: 86, render: (role: string) => role === 'source_excel' ? <Tag icon={<FileExcelOutlined />} color="green">Excel</Tag> : <Tag color="blue">DWG</Tag> },
     {
       title: '服务器处理', key: 'processing', width: 210,
       render: (_: unknown, item: WorkflowInputItem) => <div>{itemStatus(item)}{item.conversion_job && <><Progress percent={item.conversion_job.progress ?? 0} size="small" /><Typography.Text type="secondary" style={{ fontSize: 12 }}>任务 #{item.conversion_job.id} · 尝试 #{item.conversion_job.attempt}</Typography.Text></>}{item.derived_dxf && <div><Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => downloadFile(item.derived_dxf!.id, item.derived_dxf!.original_name)}>下载生成 DXF</Button></div>}</div>,
@@ -184,7 +184,7 @@ export function ProductionInputPanel({
       title: '反馈', key: 'feedback',
       render: (_: unknown, item: WorkflowInputItem) => item.error_code
         ? <Typography.Text type="danger">{item.error_code}：{item.error_message}</Typography.Text>
-        : item.drawing_id ? <Typography.Link href="/drawings">图纸 #{item.drawing_id}</Typography.Link> : <Typography.Text type="secondary">{item.role === 'dwg' ? `将配对为 ${item.normalized_stem}.dxf` : '批次级数据表'}</Typography.Text>,
+        : item.drawing_id ? <Typography.Link href="/drawings">图纸 #{item.drawing_id}</Typography.Link> : <Typography.Text type="secondary">{item.role === 'source_dwg' ? `将配对为 ${item.normalized_stem}.dxf` : '批次级数据表'}</Typography.Text>,
     },
     {
       title: '操作', key: 'actions', width: 88,

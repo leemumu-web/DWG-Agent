@@ -19,7 +19,7 @@ export interface WorkflowInputIssue {
 
 export interface WorkflowInputItem {
   id: number;
-  role: 'dwg' | 'excel';
+  role: 'source_dwg' | 'source_excel';
   status: string;
   original_name: string;
   normalized_stem: string;
@@ -52,4 +52,3 @@ export interface WorkflowInputConversion {
   jobs: Job[];
   dispatched_count: number;
 }
-
