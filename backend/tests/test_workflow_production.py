@@ -6,7 +6,9 @@ import pytest
 
 from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
+from app.models.job import Job
 from app.models.project import Project, ProjectMember
+from app.models.result import AnalysisResult
 from app.models.user import User
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import workflow_service
@@ -361,3 +363,136 @@ def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
 
     assert response.status_code == 503, response.text
     assert response.json()["error"]["code"] == "DXF2EXCEL_PIPELINE_DISABLED"
+
+
+def test_successful_job_sync_attaches_result_once_and_advances(db):
+    _, project, workflow = _production_workflow(db)
+    source = _stored_file(db)
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_file",
+        file_id=source.id,
+    )
+    workflow_service.complete_manual_stage(workflow, "source_intake")
+    workflow_service.complete_manual_stage(workflow, "drawing_processing")
+    job = Job(
+        project_id=project.id,
+        task_type="extract_dxf_to_excel",
+        pipeline="dxf2excel",
+        status="queued",
+        attempt=1,
+        progress=0,
+        precision_level="normal",
+        params_json={"batch_name": "sync-test"},
+    )
+    db.add(job)
+    db.flush()
+    workflow_service.bind_stage_job(db, workflow, stage_code="excel_stage1", job=job)
+    output = _stored_file(db, name="stage1.xlsx")
+    result = AnalysisResult(
+        job_id=job.id,
+        result_type="extract_dxf_to_excel",
+        result_file_id=output.id,
+        status="succeeded",
+    )
+    db.add(result)
+    job.status = "succeeded"
+    job.progress = 100
+    db.flush()
+
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+
+    stage = next(item for item in workflow.stages if item.stage_code == "excel_stage1")
+    artifacts = [item for item in workflow.artifacts if item.stage_run_id == stage.id]
+    assert workflow.current_stage == "design_barrier"
+    assert workflow.status == "waiting_input"
+    assert len(artifacts) == 1
+    assert artifacts[0].artifact_type == "stage1_excel"
+    assert artifacts[0].file_id == output.id
+    assert artifacts[0].result_id == result.id
+
+
+def _api_workflow_at_excel_final(client, owner_headers, project_id: int):
+    workflow_id, _ = _api_workflow_at_excel_stage(client, owner_headers, project_id)
+    assert client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/completion",
+        headers=owner_headers,
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/design_barrier/completion",
+        headers=owner_headers,
+    ).status_code == 200
+    uploaded = client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        files={"upload": ("stage1.xlsx", b"excel source", "application/octet-stream")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    return workflow_id, uploaded.json()["data"]["id"]
+
+
+def test_excel_final_execution_reuses_existing_pipeline(monkeypatch):
+    from app.api.v1 import workflows_api
+    from app.core.config import settings
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-final")
+    project_id = _project(client, owner_headers)
+    workflow_id, file_id = _api_workflow_at_excel_final(
+        client, owner_headers, project_id
+    )
+    dispatched: list[int] = []
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    monkeypatch.setattr(
+        workflows_api,
+        "dispatch_committed_job",
+        lambda _db, job: dispatched.append(job.id),
+    )
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_final/executions",
+        headers=owner_headers,
+        json={"execution_kind": "excel_final", "file_id": file_id},
+    )
+
+    assert response.status_code == 202, response.text
+    data = response.json()["data"]
+    assert data["job"]["task_type"] == "process_excel_final"
+    assert data["job"]["params_json"] == {"file_id": file_id}
+    assert data["workflow"]["current_stage"] == "excel_final"
+    assert dispatched == [data["job"]["id"]]
+
+
+def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
+    from app.core.config import settings
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-final-ext")
+    project_id = _project(client, owner_headers)
+    workflow_id, _ = _api_workflow_at_excel_final(client, owner_headers, project_id)
+    uploaded = client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        files={"upload": ("drawing.dxf", b"0\nEOF\n", "image/vnd.dxf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_final/executions",
+        headers=owner_headers,
+        json={
+            "execution_kind": "excel_final",
+            "file_id": uploaded.json()["data"]["id"],
+        },
+    )
+
+    assert response.status_code == 415, response.text
+    assert response.json()["error"]["code"] == "NOT_EXCEL"

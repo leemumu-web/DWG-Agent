@@ -12,7 +12,7 @@ from app.api.deps import (
     require_project_role,
 )
 from app.core.config import settings
-from app.core.constants import TASK_DXF_TO_EXCEL
+from app.core.constants import TASK_DXF_TO_EXCEL, TASK_EXCEL_FINAL
 from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.db.pagination import paginate_scalars
 from app.models.file import StoredFile
@@ -218,48 +218,82 @@ def execute_workflow_stage(
 ):
     workflow = _load_detail(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
-    require_stage_execution(
+    capability = require_stage_execution(
         workflow,
         stage_code=stage_code,
         execution_kind=payload.execution_kind,
     )
-    if payload.execution_kind != "dxf_to_excel":
+    if capability.implementation_status != "implemented":
         raise AppHTTPException(
             501,
             "WORKFLOW_STAGE_NOT_IMPLEMENTED",
             "This workflow stage has an API contract but no server implementation yet.",
             {"stage_code": stage_code, "execution_kind": payload.execution_kind},
         )
-    if not settings.dxf2excel_pipeline_enabled:
-        raise service_unavailable(
-            "DXF2EXCEL_PIPELINE_DISABLED",
-            "DXF→Excel pipeline is disabled. Set DXF2EXCEL_PIPELINE_ENABLED=true to enable.",
-        )
-    if payload.batch_name is None:
-        raise AppHTTPException(
-            422,
-            "WORKFLOW_BATCH_REQUIRED",
-            "batch_name is required for the DXF-to-Excel workflow stage.",
-        )
-    batch_files = list(
-        db.scalars(
-            select(StoredFile).where(
-                StoredFile.batch_name == payload.batch_name,
-                StoredFile.file_ext == ".dxf",
-                StoredFile.status != "deleted",
+    if payload.execution_kind == "dxf_to_excel":
+        if not settings.dxf2excel_pipeline_enabled:
+            raise service_unavailable(
+                "DXF2EXCEL_PIPELINE_DISABLED",
+                "DXF→Excel pipeline is disabled. Set DXF2EXCEL_PIPELINE_ENABLED=true to enable.",
             )
-        ).all()
-    )
-    if not batch_files:
-        raise not_found("DXF batch")
-    for stored in batch_files:
+        if payload.batch_name is None:
+            raise AppHTTPException(
+                422,
+                "WORKFLOW_BATCH_REQUIRED",
+                "batch_name is required for the DXF-to-Excel workflow stage.",
+            )
+        batch_files = list(
+            db.scalars(
+                select(StoredFile).where(
+                    StoredFile.batch_name == payload.batch_name,
+                    StoredFile.file_ext == ".dxf",
+                    StoredFile.status != "deleted",
+                )
+            ).all()
+        )
+        if not batch_files:
+            raise not_found("DXF batch")
+        for stored in batch_files:
+            require_file_read_access(db, current_user, stored)
+        task_type = TASK_DXF_TO_EXCEL
+        params = {"batch_name": payload.batch_name}
+    elif payload.execution_kind == "excel_final":
+        if not settings.excel_final_pipeline_enabled:
+            raise service_unavailable(
+                "EXCEL_FINAL_PIPELINE_DISABLED",
+                "Excel→Final pipeline is disabled. Set EXCEL_FINAL_PIPELINE_ENABLED=true to enable.",
+            )
+        if payload.file_id is None:
+            raise AppHTTPException(
+                422,
+                "WORKFLOW_EXCEL_FILE_REQUIRED",
+                "file_id is required for the Excel Final workflow stage.",
+            )
+        stored = db.get(StoredFile, payload.file_id)
+        if stored is None or stored.status == "deleted":
+            raise not_found("File")
         require_file_read_access(db, current_user, stored)
+        if stored.file_ext.lower() not in {".xls", ".xlsx"}:
+            raise AppHTTPException(
+                415,
+                "NOT_EXCEL",
+                "Only .xls or .xlsx files can be processed.",
+            )
+        task_type = TASK_EXCEL_FINAL
+        params = {"file_id": stored.id}
+    else:
+        raise AppHTTPException(
+            501,
+            "WORKFLOW_STAGE_NOT_IMPLEMENTED",
+            "This workflow stage has an API contract but no server implementation yet.",
+            {"stage_code": stage_code, "execution_kind": payload.execution_kind},
+        )
     job, reused = create_or_reuse_job(
         db,
         JobCreate(
             project_id=workflow.project_id,
-            task_type=TASK_DXF_TO_EXCEL,
-            params={"batch_name": payload.batch_name},
+            task_type=task_type,
+            params=params,
         ),
         created_by=current_user.id,
         request_key=f"workflow-{workflow.id}-{stage_code}",

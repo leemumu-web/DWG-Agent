@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import AppHTTPException, not_found
 from app.models.job import Job
+from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowArtifact, WorkflowRun, WorkflowStageRun
 from app.schemas.workflow_schema import (
     WorkflowCreate,
@@ -312,10 +313,36 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
         stage.error_message = job.error_message
         stage.started_at = job.started_at or stage.started_at
         stage.finished_at = job.finished_at
-        if job.status == "succeeded" and stage.stage_code == "excel_process":
+        if job.status == "succeeded":
+            capability = get_stage_capability(workflow, stage.stage_code)
+            artifact_type = (
+                capability.artifact_types[0]
+                if capability.artifact_types
+                else f"{stage.stage_code}_result"
+            )
+            results = list(
+                db.scalars(
+                    select(AnalysisResult).where(
+                        AnalysisResult.job_id == job.id,
+                        AnalysisResult.status == "succeeded",
+                    )
+                ).all()
+            )
+            for result in results:
+                attach_artifact(
+                    db,
+                    workflow,
+                    stage_code=stage.stage_code,
+                    artifact_type=artifact_type,
+                    file_id=result.result_file_id,
+                    result_id=result.id,
+                    metadata={"job_id": job.id, "job_attempt": job.attempt},
+                )
             next_stage = _next_stage(workflow, stage.sequence)
             if next_stage is not None and next_stage.status == "pending":
-                next_stage.status = "waiting_review"
+                next_stage.status = (
+                    "waiting_review" if stage.stage_code == "excel_process" else "waiting_input"
+                )
                 next_stage.started_at = now
     recompute_workflow(workflow)
     db.flush()
