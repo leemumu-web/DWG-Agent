@@ -111,6 +111,7 @@ test('production source intake prevents DXF mistakes and freezes server-generate
     sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
   }, { token: 'e2e-token', savedUser: user });
   await page.goto('/workflows');
+  await expect(page.getByRole('button', { name: /提交生产批次/ })).toBeVisible();
   await page.getByRole('button', { name: '详情' }).click();
   await expect(page.getByText('只需上传多个 DWG 和一个 Excel')).toBeVisible();
 
