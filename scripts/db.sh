@@ -351,6 +351,8 @@ expected_tables = {
     "storage_scan_runs",
     "token_blacklist",
     "workflow_artifacts",
+    "workflow_input_batches",
+    "workflow_input_items",
     "workflow_runs",
     "workflow_stage_runs",
 }
@@ -381,7 +383,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "d5e8a1c4b720":
+    if version != "f7a9c2d4e610":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}

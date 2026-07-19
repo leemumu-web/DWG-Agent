@@ -17,6 +17,7 @@ JOB_STEP_ATTEMPT_REVISION = VERSIONS_DIR / "a74c2e9f1d30_add_job_step_attempt.py
 DATA_CONSOLE_REVISION = VERSIONS_DIR / "6d2f8a9c1b40_add_data_console_ledger.py"
 EXCEL_FINAL_WIDTH_REVISION = VERSIONS_DIR / "9c4e7b1a2d60_widen_excel_final_identifiers.py"
 JOB_REQUEST_KEY_REVISION = VERSIONS_DIR / "d5e8a1c4b720_add_job_request_key.py"
+WORKFLOW_INPUT_REVISION = VERSIONS_DIR / "f7a9c2d4e610_add_workflow_input_batches.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -174,6 +175,17 @@ def test_job_request_key_migration_extends_head_with_unique_idempotency_boundary
     assert '["created_by", "task_type", "request_key"]' in source
 
 
+def test_workflow_input_migration_extends_head_and_is_reversible():
+    source = WORKFLOW_INPUT_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "d5e8a1c4b720"' in source
+    for table in ("workflow_input_batches", "workflow_input_items"):
+        assert f'"{table}"' in source
+        assert f'op.drop_table("{table}")' in source
+    assert '"uq_workflow_input_batch_workflow"' in source
+    assert '"uq_workflow_input_item_file"' in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -204,12 +216,14 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "storage_scan_findings",
         "storage_scan_runs",
         "workflow_artifacts",
+        "workflow_input_batches",
+        "workflow_input_items",
         "workflow_runs",
         "workflow_stage_runs",
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "d5e8a1c4b720"' in source
+    assert 'version != "f7a9c2d4e610"' in source
     assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
     assert '"uq_jobs_actor_task_request_key"' in source
