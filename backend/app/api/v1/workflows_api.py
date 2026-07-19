@@ -11,7 +11,9 @@ from app.api.deps import (
     require_project_member,
     require_project_role,
 )
-from app.core.exceptions import AppHTTPException, not_found
+from app.core.config import settings
+from app.core.constants import TASK_DXF_TO_EXCEL
+from app.core.exceptions import AppHTTPException, not_found, service_unavailable
 from app.db.pagination import paginate_scalars
 from app.models.file import StoredFile
 from app.models.job import Job
@@ -20,23 +22,28 @@ from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.schemas.common import ok
 from app.schemas.common import page as page_response
+from app.schemas.job_schema import JobCreate, JobRead
 from app.schemas.workflow_schema import (
     WorkflowArtifactCreate,
     WorkflowArtifactRead,
     WorkflowCreate,
     WorkflowDetail,
     WorkflowRead,
+    WorkflowStageExecutionCreate,
 )
 from app.services.audit_service import write_audit_log
 from app.services.file_service import require_file_read_access
 from app.services.job_access import require_job_read_access
+from app.services.job_service import create_or_reuse_job, dispatch_committed_job
 from app.services.workflow_service import (
     attach_artifact,
+    bind_stage_job,
     cancel_workflow,
     complete_manual_stage,
     create_workflow,
     get_workflow_or_404,
     list_workflow_templates,
+    require_stage_execution,
     start_workflow,
     sync_workflow_from_jobs,
 )
@@ -187,6 +194,97 @@ def create_workflow_artifact(
         {
             "artifact": WorkflowArtifactRead.model_validate(artifact),
             "workflow": WorkflowDetail.model_validate(_load_detail(db, workflow.id)),
+            "reused": reused,
+        },
+        request.state.request_id,
+    )
+
+
+@router.post(
+    "/{workflow_id}/stages/{stage_code}/executions",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="执行工作流自动或外部阶段",
+    description=(
+        "按后端模板能力调用已实现的 Linux Job；未实现阶段保留同一路径并返回稳定能力边界。"
+    ),
+)
+def execute_workflow_stage(
+    workflow_id: int,
+    stage_code: str,
+    payload: WorkflowStageExecutionCreate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = _load_detail(db, workflow_id)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    require_stage_execution(
+        workflow,
+        stage_code=stage_code,
+        execution_kind=payload.execution_kind,
+    )
+    if payload.execution_kind != "dxf_to_excel":
+        raise AppHTTPException(
+            501,
+            "WORKFLOW_STAGE_NOT_IMPLEMENTED",
+            "This workflow stage has an API contract but no server implementation yet.",
+            {"stage_code": stage_code, "execution_kind": payload.execution_kind},
+        )
+    if not settings.dxf2excel_pipeline_enabled:
+        raise service_unavailable(
+            "DXF2EXCEL_PIPELINE_DISABLED",
+            "DXF→Excel pipeline is disabled. Set DXF2EXCEL_PIPELINE_ENABLED=true to enable.",
+        )
+    if payload.batch_name is None:
+        raise AppHTTPException(
+            422,
+            "WORKFLOW_BATCH_REQUIRED",
+            "batch_name is required for the DXF-to-Excel workflow stage.",
+        )
+    batch_files = list(
+        db.scalars(
+            select(StoredFile).where(
+                StoredFile.batch_name == payload.batch_name,
+                StoredFile.file_ext == ".dxf",
+                StoredFile.status != "deleted",
+            )
+        ).all()
+    )
+    if not batch_files:
+        raise not_found("DXF batch")
+    for stored in batch_files:
+        require_file_read_access(db, current_user, stored)
+    job, reused = create_or_reuse_job(
+        db,
+        JobCreate(
+            project_id=workflow.project_id,
+            task_type=TASK_DXF_TO_EXCEL,
+            params={"batch_name": payload.batch_name},
+        ),
+        created_by=current_user.id,
+        request_key=f"workflow-{workflow.id}-{stage_code}",
+    )
+    bind_stage_job(db, workflow, stage_code=stage_code, job=job)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="workflow_stages.execution_reused" if reused else "workflow_stages.execute",
+        resource_type="workflow",
+        resource_id=workflow.id,
+        after_json={
+            "stage_code": stage_code,
+            "execution_kind": payload.execution_kind,
+            "job_id": job.id,
+        },
+        request=request,
+    )
+    db.commit()
+    if not reused:
+        dispatch_committed_job(db, job)
+    return ok(
+        {
+            "workflow": WorkflowDetail.model_validate(_load_detail(db, workflow.id)),
+            "job": JobRead.model_validate(job),
             "reused": reused,
         },
         request.state.request_id,

@@ -41,6 +41,20 @@ class WorkflowArtifactCreate(BaseModel):
         return value
 
 
+class WorkflowStageExecutionCreate(BaseModel):
+    execution_kind: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]+$")
+    batch_name: str | None = Field(default=None, max_length=255)
+    file_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("batch_name")
+    @classmethod
+    def normalize_batch_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class WorkflowCreate(BaseModel):
     project_id: int = Field(gt=0)
     name: str = Field(min_length=1, max_length=128)

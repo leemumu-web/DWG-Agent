@@ -248,3 +248,116 @@ def test_non_member_cannot_bind_workflow_artifact():
     )
 
     assert response.status_code == 403, response.text
+
+
+def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
+    batch_name = f"production-{uuid4().hex[:8]}"
+    created = client.post(
+        "/api/v1/workflows",
+        headers=owner_headers,
+        json={
+            "project_id": project_id,
+            "name": "Executable production",
+            "workflow_type": "linux_production",
+        },
+    )
+    assert created.status_code == 201, created.text
+    workflow_id = created.json()["data"]["id"]
+    uploaded = client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        params={"batch_name": batch_name},
+        files={"upload": ("drawing.dxf", b"0\nSECTION\n2\nHEADER\n0\nEOF\n", "image/vnd.dxf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    file_id = uploaded.json()["data"]["id"]
+    assert client.post(
+        f"/api/v1/workflows/{workflow_id}/artifacts",
+        headers=owner_headers,
+        json={
+            "stage_code": "source_intake",
+            "artifact_type": "source_file",
+            "file_id": file_id,
+        },
+    ).status_code == 201
+    assert client.post(
+        f"/api/v1/workflows/{workflow_id}/start", headers=owner_headers
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/source_intake/completion",
+        headers=owner_headers,
+    ).status_code == 200
+    assert client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/completion",
+        headers=owner_headers,
+    ).status_code == 200
+    return workflow_id, batch_name
+
+
+def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
+    from app.api.v1 import workflows_api
+    from app.core.config import settings
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-exec")
+    project_id = _project(client, owner_headers)
+    workflow_id, batch_name = _api_workflow_at_excel_stage(
+        client, owner_headers, project_id
+    )
+    dispatched: list[int] = []
+    monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
+    monkeypatch.setattr(
+        workflows_api,
+        "dispatch_committed_job",
+        lambda _db, job: dispatched.append(job.id),
+        raising=False,
+    )
+    payload = {"execution_kind": "dxf_to_excel", "batch_name": batch_name}
+
+    first = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
+        headers=owner_headers,
+        json=payload,
+    )
+    second = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
+        headers=owner_headers,
+        json=payload,
+    )
+
+    assert first.status_code == 202, first.text
+    assert second.status_code == 202, second.text
+    first_data = first.json()["data"]
+    second_data = second.json()["data"]
+    assert first_data["job"]["task_type"] == "extract_dxf_to_excel"
+    assert first_data["job"]["project_id"] == project_id
+    assert first_data["workflow"]["current_stage"] == "excel_stage1"
+    assert first_data["workflow"]["status"] == "running"
+    assert second_data["job"]["id"] == first_data["job"]["id"]
+    assert second_data["reused"] is True
+    assert dispatched == [first_data["job"]["id"]]
+
+
+def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
+    from app.core.config import settings
+    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
+
+    client = _client()
+    admin_headers = _admin_headers(client)
+    _, owner_headers = _engineer_user(client, admin_headers, "prod-gate")
+    project_id = _project(client, owner_headers)
+    workflow_id, batch_name = _api_workflow_at_excel_stage(
+        client, owner_headers, project_id
+    )
+    monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", False)
+
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
+        headers=owner_headers,
+        json={"execution_kind": "dxf_to_excel", "batch_name": batch_name},
+    )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "DXF2EXCEL_PIPELINE_DISABLED"

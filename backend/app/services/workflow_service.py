@@ -159,6 +159,38 @@ def list_workflow_templates() -> list[WorkflowTemplateRead]:
     return list(WORKFLOW_TEMPLATES.values())
 
 
+def get_stage_capability(
+    workflow: WorkflowRun, stage_code: str
+) -> WorkflowStageCapability:
+    template = WORKFLOW_TEMPLATES[workflow.workflow_type]
+    capability = next((stage for stage in template.stages if stage.code == stage_code), None)
+    if capability is None:
+        raise AppHTTPException(422, "WORKFLOW_STAGE_UNKNOWN", "Unknown workflow stage.")
+    return capability
+
+
+def require_stage_execution(
+    workflow: WorkflowRun,
+    *,
+    stage_code: str,
+    execution_kind: str,
+) -> WorkflowStageCapability:
+    capability = get_stage_capability(workflow, stage_code)
+    if workflow.current_stage != stage_code:
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_STAGE_NOT_CURRENT",
+            "Only the current workflow stage can be executed.",
+        )
+    if capability.execution_kind != execution_kind:
+        raise AppHTTPException(
+            422,
+            "WORKFLOW_EXECUTION_KIND_INVALID",
+            "The execution kind does not match this workflow stage.",
+        )
+    return capability
+
+
 def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) -> WorkflowRun:
     workflow = WorkflowRun(
         project_id=payload.project_id,
