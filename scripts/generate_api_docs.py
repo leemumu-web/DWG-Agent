@@ -231,6 +231,19 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 
 前端 `/files/excel-final` 支持 `job_id`、`batch_page`、`batch_size`、`batch_id`、`part_no`、`spec`、`material`、`search_page`、`search_size` 和内部搜索激活标记。默认值不强制写入 URL；关闭抽屉、清空搜索及分页更新只修改自身参数，不覆盖同页任务状态。
 """
+    workflow_contract = """
+## Linux 生产工作流契约
+
+`GET /api/v1/workflows/templates` 返回后端权威模板和阶段能力。`linux_production` 固定为 `source_intake`、`drawing_processing`、`excel_stage1`、`design_barrier`、`excel_final`、`cam_packaging`、`windows_cam`、`result_acceptance`、`delivery_archive` 九阶段。每个阶段声明执行方式、实现状态、execution kind、所需输入和产物类型；前端不得自行把 placeholder 判断为已实现。
+
+`POST /api/v1/workflows/{workflow_id}/artifacts` 只绑定现有 `file_id` / `result_id`，不接收文件字节。服务端同时验证项目写权限与目标资源读权限；相同 workflow、stage、artifact type、file、result 的重放返回原 artifact 和 `reused=true`。
+
+`POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 只执行当前阶段。`excel_stage1` 接收 `execution_kind=dxf_to_excel` 与 `batch_name`；`excel_final` 接收 `execution_kind=excel_final` 与 `file_id`。两者以工作流/阶段幂等键创建或复用 Job，同事务绑定 attempt，commit 后才投递。自动阶段不能通过 completion 绕过。
+
+图纸拆板、CAM 工作包、Windows CAM 和结果接纳保留同一 executions 路径，但返回 HTTP 501 `WORKFLOW_STAGE_NOT_IMPLEMENTED`；`details` 包含 `implementation_status`、`execution_mode`、`required_inputs` 和 `artifact_types`。绑定外部交接产物后，owner/engineer 可通过 completion 明确确认交接；这不代表平台执行了留白算法。
+
+详情查询同步匹配 attempt 的 Job，成功时幂等挂接 AnalysisResult/File 并推进下一阶段。取消流程会先取消当前 active Job。feature flag 关闭分别返回 `DXF2EXCEL_PIPELINE_DISABLED` 或 `EXCEL_FINAL_PIPELINE_DISABLED`。
+"""
     sections = ["# API 参考", "", intro, common]
     grouped = route_rows()
     seen: set[str] = set()
@@ -250,6 +263,7 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
         [
             cad_conversion_contract,
             excel_final_contract,
+            workflow_contract,
             "## 运行时文档",
             "",
             "development/debug 模式启动后，访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。",

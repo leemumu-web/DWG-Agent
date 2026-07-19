@@ -504,7 +504,7 @@ Agent 运行中的单个工具调用和推理步骤。
 - `workflow_stage_runs` 保存模板生成的有序阶段，`(workflow_run_id, stage_code)` 唯一；可选记录 `job_id` 与 `job_attempt`，同步时只接受匹配 attempt。
 - `workflow_artifacts` 保存流程/阶段到 `files` 或 `analysis_results` 的引用和版本字段，不保存对象字节。
 
-删除 workflow 时阶段和 artifact 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束，当前公开 API 也未挂接产物。完整状态机和边界见[通用工作流](workflow-framework.md)。
+删除 workflow 时阶段和 artifact 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束；公开 API 通过资源权限、非空引用和幂等查重维护当前不变量，并在 Job 成功同步时自动挂接结果。完整状态机和边界见[Linux 生产工作流](workflow-framework.md)。
 
 ---
 

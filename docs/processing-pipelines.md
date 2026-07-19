@@ -30,7 +30,7 @@ API 在 Job 持久化和投递后返回 HTTP 202。投递失败只条件标记�
 | Agent | `agent` | Agent-run 请求 | 无 | 只有 API/model 边界；task module 是占位 |
 | Windows CAD | `cad` | 预留 | 无 | 配置/task/目录占位；没有部署 worker |
 
-这些管线是 Job 执行层，不会自动推进 `WorkflowRun`。当前工作流公开 API 也不会创建或绑定这些 Job；操作员在两个页面分别操作。两层自动接线仍属于[通用工作流](workflow-framework.md)的未完成项。
+这些管线是 Job 执行层。`linux_production` 工作流的 `excel_stage1` 和 `excel_final` 公开执行端点会创建或复用对应 Job、绑定 attempt，并在详情同步时推进阶段和挂接结果；其他转换页仍可独立使用。图纸/CAM/Windows 留白阶段不创建伪 Job。详见[Linux 生产工作流](workflow-framework.md)。
 
 ## DWG 转 DXF
 
@@ -70,7 +70,7 @@ DXF 源文件和成功转换得到的 DXF 可在前端打开鉴权 SVG 预览。
 
 `Stages/dxf2excel` 的源码、锁文件和内置单测已由父仓库直接跟踪，backend editable dependency 与 image build context 可以从源码检出恢复。Stage README 记录的 419 文件逐格历史验证依赖外部 corpus；当前仓库只包含最小解码单测，因此发布验收必须单独提供许可合规且摘要固定的 corpus。
 
-成功批次的前端操作可显式确认“生成零件清单”。实现先从 extraction Job 的结果登记中取得 Excel `result_file_id`，再以 `dxf2excel-{extraction_job_id}-{result_file_id}` 幂等键调用 Excel Final process 端点；同步 ref/UI Set 防止同一页面双击，服务端唯一约束负责刷新、多标签和多进程竞态。成功或重放后都导航到 `/files/excel-final?job_id=...`。该桥接复用已登记对象，不重新上传字节，也不表示通用 workflow route 已自动编排。
+独立 DXF→Excel 页面的“生成零件清单”桥接仍保留：从 extraction result 取得 `result_file_id`，以 `dxf2excel-{extraction_job_id}-{result_file_id}` 调用 Excel Final。生产流程页面则由 workflow executions 以工作流/阶段幂等键创建同类 Job，并自动绑定 result artifact；两条入口都复用已登记对象，不重新上传字节。
 
 ## Excel Final
 

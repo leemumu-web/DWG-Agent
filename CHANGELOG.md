@@ -9,16 +9,19 @@
 - 面向技术人员的 v0.1 技术预览指南、全量审计报告和贡献指南。
 - 文档门禁动态校验根 README OpenAPI 数、`CLAUDE.md` Alembic head/表数和 DXF→Excel Stage 跟踪边界。
 - `make verify-quick`、`make verify-full` 与 full gate 的 DXF→Excel Stage 测试。
+- Linux 九阶段 `linux_production` 模板、模板能力 API、文件/结果产物绑定和统一阶段执行端点。
+- 生产流程控制台的文件筛选/绑定、DXF→Excel、Excel Final、占位契约和产物下载操作。
 
 ### Changed
 
 - `Stages/dxf2excel` 从不可还原 gitlink 转为父仓库普通跟踪源码；外部验证 corpus、生成工作簿、PDF、cache 和虚拟环境继续排除。
-- 当前文档事实更新为 OpenAPI 96 paths / 115 operations、Alembic `d5e8a1c4b720`、28 张模型表和完整 runtime 最多 37 张表。
+- 当前文档事实更新为 OpenAPI 99 paths / 118 operations、Alembic `d5e8a1c4b720`、28 张模型表和完整 runtime 最多 37 张表。
+- 工作流直接复用现有 Job/Celery 与 `/files`：自动阶段按工作流/阶段幂等绑定 attempt，成功结果自动挂接，取消流程同步取消 active Job。
 
 ### Known limitations
 
 - Compose 仅发布 HTTP，不提供 TLS。
-- Agent、CAD 图纸业务算法和 Windows CAD Worker 不属于交付范围。
+- 图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳只有接口与产物契约，核心执行尚未实现。
 - 自动备份恢复、集中监控告警和生产容量验收尚未交付。
 - 仓库 LICENSE、ODA/第三方组件和样本数据分发策略尚待负责人确认。
 

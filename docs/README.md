@@ -6,7 +6,7 @@
 
 DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx 使用 React 管理端和 FastAPI API；MySQL 保存身份、权限、项目、文件元数据、任务、结果、复核、审计、工作流以及 Celery broker/result 状态；Local FS 或 MinIO 保存文件字节；Celery worker 调用各 Stage 完成长任务。
 
-当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、五条可执行队列路径、Excel Final 关系化导入、人工生产流程，以及统一监视 MySQL 登记、Local/MinIO 对象、入出库流水和一致性处置的数据控制台。四条转换管线默认关闭并受外部依赖约束；Agent 执行、CAD 图纸业务算法和 Windows CAD Worker 是明确非目标。Redis/Valkey 已从活动架构移除。
+当前主要可用面包括身份/RBAC、项目、文件、图纸元数据、Job/JobStep、结果与复核、审计、五条可执行队列路径、Excel Final 关系化导入、Linux 九阶段生产编排，以及统一监视 MySQL 登记、Local/MinIO 对象、入出库流水和一致性处置的数据控制台。DXF→Excel 与 Excel Final 已接入工作流但默认关闭；拆板、CAM 工作包、Windows/SinoCAM 与结果接纳保留接口和留白。Redis/Valkey 已从活动架构移除。
 
 ## 阅读路径
 
@@ -35,7 +35,7 @@ DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx �
 | [开发](development.md) | 怎样修改代码并保持契约稳定 | 包清单、测试、Makefile、模块边界 |
 | [运维](operations.md) | 怎样判定健康、备份、恢复和定位事故 | 健康端点、状态脚本、日志、备份脚本 |
 | [处理管线](processing-pipelines.md) | 每条 Job 的输入、队列、Stage、输出和启用条件是什么 | pipeline API/service/task 和 Stage 文档 |
-| [通用工作流](workflow-framework.md) | 人工编排层已经做了什么，还没有接通什么 | workflow model/service/API/UI/迁移/测试 |
+| [Linux 生产工作流](workflow-framework.md) | 哪些阶段真实执行，哪些阶段只暴露留白契约 | workflow model/service/API/UI/Job/File/Result |
 | [安全](security.md) | 身份、权限、文件、下载、错误和审计如何约束 | auth/dependency/service、安全测试、Nginx |
 | [验证](workflow-verification.md) | 什么测试能证明什么，当前实际跑到了哪一层 | 本轮命令输出与历史 E2E 记录 |
 | [路线图](roadmap.md) | 哪些问题仍会阻断可复现或生产交付 | 当前实现缺口和明确非目标 |

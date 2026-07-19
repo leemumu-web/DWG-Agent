@@ -27,7 +27,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、96 个 OpenAPI path 和 115 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、99 个 OpenAPI path 和 118 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 28 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 29 张表；Celery runtime 全部初始化后最多 37 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
@@ -38,7 +38,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| 通用工作流 | ⚠️ | `workflow_runs/stage_runs/artifacts`、项目权限、状态推进、审计 API 和"生产流程"页面 | 仅持久化和展示人工编排；尚未自动创建 Excel Final Job 或自动挂接产物 |
+| Linux 生产工作流 | ⚠️ | 九阶段 `linux_production`、文件绑定、DXF→Excel/Excel Final Job、attempt 同步、自动产物、取消和生产流程控制台 | 图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口；两条管线默认关闭 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | API、模型和权限边界保留 | 不继续实现；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | 图纸元数据与格式转换边界保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 不在当前交付范围 |
@@ -91,9 +91,9 @@ Celery workers（无入站监听端口）
 
 ### 工作流边界
 
-通用工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 表达项目内的业务阶段和产物版本。当前公开能力包括创建、列表、详情、启动、人工阶段确认、取消和前端展示。
+工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` 覆盖输入冻结、图纸交接、Excel 两阶段、CAM/Windows 交接、结果接纳和归档；`excel_stage1` 与 `excel_final` 已直接复用现有 Job/Celery 管线，详情同步成功结果并自动挂接 File/AnalysisResult。
 
-service 内部具备 Job attempt 绑定、Job 状态同步和产物挂接函数，但通用 workflow route 尚未公开接线。因此它仍是**可审计的人工编排骨架**，不是自动生产闭环。独立的 DXF → Excel 页面可以显式确认并把成功结果登记为 Excel Final Job；这不等同于通用工作流自动编排。详见[通用工作流框架](docs/workflow-framework.md)。
+这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/workflow-framework.md)。
 
 ## 🎯 范围边界
 

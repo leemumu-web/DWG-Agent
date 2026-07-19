@@ -60,9 +60,9 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
         -> 版本化 WorkflowArtifacts(file/result)
 ```
 
-通用工作流是项目范围内的编排元数据。当前提供 `excel_delivery` 与 `file_delivery` 模板，以及创建、启动、人工确认、取消 API 和 React 生产流程页面。它不是另一套队列：Job/JobStep 仍是执行事实源，同步只接受阶段记录的 Job attempt。
+工作流是项目范围内的薄编排层，不是另一套队列或存储。兼容的 `excel_delivery`、`file_delivery` 之外，`linux_production` 提供从输入冻结到交付归档的九阶段服务器框架。Job/JobStep 仍是执行事实源，File/AnalysisResult 仍是产物事实源；工作流只绑定匹配 attempt 并保存引用。
 
-通用 workflow route **不会**自动创建 Excel Final Job，也不会自动挂接其结果产物。`bind_stage_job()`、`sync_workflow_from_jobs()` 和 `attach_artifact()` 是内部 service 能力，但公开 workflow route 没有调用 Job 绑定或产物挂接函数。DXF→Excel 页面另有一个显式确认桥接：定位成功 extraction result 的已登记文件 ID，调用 Excel Final process 端点并跳转到带 `job_id` 的监视页；它不改变通用工作流的人工编排边界。详见[通用工作流框架](workflow-framework.md)。
+公开 route 已接通现有 DXF→Excel 与 Excel Final Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。文件通过 `/files` 登记后再绑定，不重复上传。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段，执行端点返回 501；绑定外部交接产物后可人工确认推进。详见[Linux 生产工作流框架](workflow-framework.md)。
 
 Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用上传流水/StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。
 
@@ -158,7 +158,7 @@ access token 位于 `sessionStorage`，因此同源 XSS 仍是威胁。refresh/S
 - MySQL/storage 失败时禁止增加进程内正确性 fallback。
 - 没有显式迁移设计时，禁止让 broker 凭据脱离权威 MySQL DSN。
 - 保持 Agent/CAD flag 关闭。Agent 执行、CAD 图纸业务算法、交互拆板和 Windows CAD Worker 是当前项目明确非目标。
-- Job 创建和产物挂接完成并验证前，禁止把通用工作流描述为自动处理闭环。
+- 只能把 `excel_stage1` 与 `excel_final` 描述为已接线自动阶段；placeholder/external 阶段在真实实现与验证前禁止描述为生产闭环。
 - 修复 `Stages/dxf2excel` 归属前，禁止声称 clean-clone/Docker 可复现。
 - Nginx 有已测试 TLS listener 和证书生命周期前，禁止声称 HTTPS。
 - worker 规模超过有界 SQL transport 时评估 RabbitMQ，同时保持 MySQL 为业务事实。

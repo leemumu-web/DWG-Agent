@@ -2,9 +2,9 @@
 
 ## 基线
 
-截至 2026-07-18 的审计，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、96 个 OpenAPI path / 115 个 operation、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、五页签数据控制台、四条转换 service path、Excel Final 关系化导入、通用生产流程界面和广泛自动测试。
+截至 2026-07-19 的实现，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、99 个 OpenAPI path / 118 个 operation、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、五页签数据控制台、四条转换 service path、Excel Final 关系化导入、Linux 生产流程界面和广泛自动测试。
 
-这不表示每个目录都 production-ready。feature flag 默认关闭，通用工作流仍需人工确认阶段，尚未自动连接 Excel Final Job/产物；Compose 缺少完整运维自动化。`Stages/dxf2excel` 源码现可由 clean clone 重建，但大规模验证 corpus 不随仓库分发。Agent 执行和 CAD 图纸业务算法/Windows CAD Worker 不再是路线图交付项。
+这不表示每个目录都 production-ready。feature flag 默认关闭，Linux 工作流只真实接通 DXF→Excel 和 Excel Final；拆板、CAM 工作包、Windows/SinoCAM 和结果接纳仍是显式留白。Compose 缺少完整运维自动化；大规模验证 corpus 不随仓库分发。
 
 Redis/Valkey 已从活动运行时架构完整移除。历史 migration 或说明只能把它作为已移除历史提及。
 
@@ -53,16 +53,15 @@ Redis/Valkey 已从活动运行时架构完整移除。历史 migration 或说�
 - 验证 cancellation 在安全时终止 child work，不只更新 Job status。
 - 为部分外部失败增加确定性 object reconciliation 和 retry policy。
 
-## P1：通用工作流闭环
+## P1：生产工作流深化
 
-在不增加 CAD 图纸算法或 Agent 执行的前提下，补齐当前人工边界：
+DXF→Excel、Excel Final、attempt 同步、文件/结果产物和 active Job 取消已经接线。下一阶段：
 
-- 从 `excel_process` 阶段创建带项目权限和 attempt 绑定的 Excel Final Job；
-- 同步 Job 终态，且不允许 stale attempt 推进阶段；
-- 将源文件/结果文件挂接为版本化工作流产物；
-- 复核批准/退回必须推进或重新打开正确阶段；
-- 持久化交付记录及带 SHA-256 的确定性打包清单；
-- 增加 API、迁移、权限、浏览器、取消、重试及真实 MySQL/Celery/storage 测试。
+- 为拆板、CAM 工作包、Windows/SinoCAM 与结果接纳实现当前已暴露的接口契约；
+- 将复核批准/退回与 design barrier 和失败恢复接通；
+- 增加并发推进的行锁/version 控制；
+- 持久化带 SHA-256、算法版本和 attempt 的确定性交付清单；
+- 使用真实 MySQL/Celery/MinIO/Nginx 和许可样本验证完整 Linux 链路。
 
 ## 冻结 / 排除子系统
 

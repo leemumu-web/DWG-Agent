@@ -21,7 +21,7 @@ Celery workers (无入站监听) <-> MySQL SQL transport/result backend -> track
 - `Stages/dxf2excel` 是父仓库正常跟踪的一方 Stage；不得恢复为 gitlink，验证 corpus 与生成工作簿不得提交。
 - 生产配置关闭 OpenAPI/Swagger/ReDoc。
 - 当前 Alembic head 为 `d5e8a1c4b720`；28 张模型表，加 Alembic version 表与 8 张 Celery runtime 表后最多 37 张表。
-- 通用工作流是人工编排骨架，公开路径尚未自动创建 Job 或挂接产物。
+- `linux_production` 工作流已公开接通文件产物、DXF→Excel/Excel Final Job、attempt 同步和结果挂接；图纸/CAM/Windows/结果接纳阶段保持 501 留白契约。
 
 ## 工程规则
 
