@@ -93,12 +93,27 @@ export function WorkflowsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [status, setStatus] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [submissionWorkflow, setSubmissionWorkflow] = useState<WorkflowDetail | null>(null);
+  const [submissionStartError, setSubmissionStartError] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [fileBatch, setFileBatch] = useState<string>();
   const [fileExt, setFileExt] = useState<string>();
   const [selectedFileId, setSelectedFileId] = useState<number>();
   const [executionBatch, setExecutionBatch] = useState<string>();
   const [form] = Form.useForm();
+
+  const openSubmission = () => {
+    setSubmissionWorkflow(null);
+    setSubmissionStartError(null);
+    form.resetFields();
+    setCreateOpen(true);
+  };
+  const closeSubmission = () => {
+    setCreateOpen(false);
+    setSubmissionWorkflow(null);
+    setSubmissionStartError(null);
+    form.resetFields();
+  };
 
   const workflowsQ = useQuery({
     queryKey: ['workflows', page, pageSize, status],
@@ -166,12 +181,12 @@ export function WorkflowsPage() {
       }
     },
     onSuccess: ({ workflow, startError }) => {
-      setCreateOpen(false);
       form.resetFields();
-      setDetailId(workflow.id);
+      setSubmissionWorkflow(workflow);
+      setSubmissionStartError(startError ? describeApiError(startError, '启动失败') : null);
       invalidate();
       if (startError) {
-        message.warning(`批次已创建，但启动失败：${describeApiError(startError, '请在详情中重试启动')}`);
+        message.warning(`批次已创建，但启动失败：${describeApiError(startError, '请重试启动')}`);
       } else {
         message.success('生产批次已创建并启动，请上传 DWG 和 Excel');
       }
@@ -180,8 +195,19 @@ export function WorkflowsPage() {
   });
   const startMutation = useMutation({
     mutationFn: startWorkflow,
-    onSuccess: () => { message.success('流程已启动'); invalidate(); },
-    onError: (error: unknown) => message.error(error instanceof Error ? error.message : '启动失败'),
+    onSuccess: (started) => {
+      if (submissionWorkflow?.id === started.id) {
+        setSubmissionWorkflow(started);
+        setSubmissionStartError(null);
+      }
+      message.success('流程已启动，可以提交生产资料');
+      invalidate();
+    },
+    onError: (error: unknown) => {
+      const text = describeApiError(error, '启动失败');
+      if (submissionWorkflow) setSubmissionStartError(text);
+      message.error(text);
+    },
   });
   const completeMutation = useMutation({
     mutationFn: ({ id, stage }: { id: number; stage: string }) => completeWorkflowStage(id, stage),
@@ -252,7 +278,7 @@ export function WorkflowsPage() {
       <PageHeader
         title="生产流程"
         subtitle="从多份 DWG 与一份 Excel 开始生产批次；服务器生成 DXF、校验配对并冻结输入，后续阶段沿生产轨道推进"
-        extra={<Space><Button icon={<ReloadOutlined />} loading={workflowsQ.isFetching} onClick={() => workflowsQ.refetch()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>提交生产批次</Button></Space>}
+        extra={<Space><Button icon={<ReloadOutlined />} loading={workflowsQ.isFetching} onClick={() => workflowsQ.refetch()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={openSubmission}>提交生产批次</Button></Space>}
       />
       <StatGrid>
         <StatCard label="当前页流程" value={workflows.length} icon={<ApartmentOutlined />} color="#2563eb" bg="#eff6ff" />
@@ -264,7 +290,7 @@ export function WorkflowsPage() {
         <Select allowClear placeholder="筛选状态" value={status} onChange={(value) => { setStatus(value); setPage(1); }} style={{ width: 180 }} options={Object.entries(WORKFLOW_STATUS).map(([value, meta]) => ({ value, label: meta.label }))} />
         <Typography.Text type="secondary">共 {workflowsQ.data?.pagination.total ?? 0} 条流程</Typography.Text>
       </div>
-      <Table className="surface-table" rowKey="id" dataSource={workflows} columns={columns} loading={workflowsQ.isLoading} scroll={{ x: 1050 }} pagination={{ current: page, pageSize, total: workflowsQ.data?.pagination.total ?? 0, showSizeChanger: true, onChange: (nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); } }} locale={{ emptyText: <Empty description={<Space orientation="vertical"><span>暂无生产批次</span><Button type="primary" onClick={() => setCreateOpen(true)}>提交第一批生产资料</Button></Space>} /> }} />
+      <Table className="surface-table" rowKey="id" dataSource={workflows} columns={columns} loading={workflowsQ.isLoading} scroll={{ x: 1050 }} pagination={{ current: page, pageSize, total: workflowsQ.data?.pagination.total ?? 0, showSizeChanger: true, onChange: (nextPage, nextSize) => { setPage(nextPage); setPageSize(nextSize); } }} locale={{ emptyText: <Empty description={<Space orientation="vertical"><span>暂无生产批次</span><Button type="primary" onClick={openSubmission}>提交第一批生产资料</Button></Space>} /> }} />
 
       <Drawer title={detail ? `流程 #${detail.id} · ${detail.name}` : '流程详情'} open={detailId !== null} onClose={() => setDetailId(null)} width="min(920px, 96vw)" loading={detailQ.isLoading} extra={detail && <Space>{detail.status === 'draft' && <Button type="primary" loading={startMutation.isPending} onClick={() => startMutation.mutate(detail.id)}>启动</Button>}{canConfirm && detail.status !== 'draft' && actionableStage && <Button type="primary" loading={completeMutation.isPending} onClick={() => completeMutation.mutate({ id: detail.id, stage: actionableStage.stage_code })}>确认当前阶段</Button>}{!TERMINAL.has(detail.status) && <Popconfirm title="确定取消流程及当前活动任务？" onConfirm={() => cancelMutation.mutate(detail.id)}><Button danger icon={<StopOutlined />}>取消</Button></Popconfirm>}</Space>}>
         {detail && (
@@ -337,14 +363,38 @@ export function WorkflowsPage() {
         )}
       </Drawer>
 
-      <Drawer title="提交生产批次" open={createOpen} onClose={() => setCreateOpen(false)} width={520} extra={<Button type="primary" loading={createMutation.isPending} disabled={!hasProjects} onClick={() => form.submit()}>创建并进入上传</Button>}>
-        <Form form={form} layout="vertical" requiredMark={false} onFinish={(values) => createMutation.mutate(values)}>
-          <Form.Item name="project_id" label="所属项目" rules={[{ required: true, message: '请选择项目' }]}><Select showSearch optionFilterProp="label" placeholder="选择项目" options={(projectsQ.data ?? []).map((project) => ({ value: project.id, label: `${project.code} · ${project.name}` }))} /></Form.Item>
-          <Form.Item name="name" label="批次名称" rules={[{ required: true, message: '请输入批次名称' }, { max: 128 }]}><Input placeholder="如 2026-07 钢构生产批次" /></Form.Item>
-          {hasProjects
-            ? <Alert type="info" showIcon message="提交后直接进入资料上传" description="系统会创建并启动 Linux 生产流程。请准备多个 DWG 和恰好一个 Excel；DXF 由服务器转换生成。" />
-            : <Alert type="warning" showIcon message="需要先创建项目" description="生产批次必须归属一个项目，当前没有可选项目。" action={<Button href="/projects">先创建项目</Button>} />}
-        </Form>
+      <Drawer
+        title={submissionWorkflow ? `生产批次 #${submissionWorkflow.id} · 资料提交` : '提交生产批次'}
+        open={createOpen}
+        onClose={closeSubmission}
+        width={submissionWorkflow ? 'min(1120px, 96vw)' : 520}
+        extra={!submissionWorkflow && <Button type="primary" loading={createMutation.isPending} disabled={!hasProjects} onClick={() => form.submit()}>创建并进入上传</Button>}
+      >
+        {submissionWorkflow ? (
+          submissionWorkflow.status === 'draft' ? (
+            <Alert
+              type="warning"
+              showIcon
+              message="批次已创建，等待启动"
+              description={submissionStartError ?? '启动后即可在当前窗口上传多个 DWG 和一个 Excel。'}
+              action={<Button type="primary" loading={startMutation.isPending} onClick={() => startMutation.mutate(submissionWorkflow.id)}>重试启动并进入上传</Button>}
+            />
+          ) : (
+            <ProductionInputPanel
+              workflowId={submissionWorkflow.id}
+              sourceIntakeActive={submissionWorkflow.current_stage === 'source_intake'}
+              onFrozen={invalidate}
+            />
+          )
+        ) : (
+          <Form form={form} layout="vertical" requiredMark={false} onFinish={(values) => createMutation.mutate(values)}>
+            <Form.Item name="project_id" label="所属项目" rules={[{ required: true, message: '请选择项目' }]}><Select showSearch optionFilterProp="label" placeholder="选择项目" options={(projectsQ.data ?? []).map((project) => ({ value: project.id, label: `${project.code} · ${project.name}` }))} /></Form.Item>
+            <Form.Item name="name" label="批次名称" rules={[{ required: true, message: '请输入批次名称' }, { max: 128 }]}><Input placeholder="如 2026-07 钢构生产批次" /></Form.Item>
+            {hasProjects
+              ? <Alert type="info" showIcon message="提交后直接进入资料上传" description="系统会创建并启动 Linux 生产流程。请准备多个 DWG 和恰好一个 Excel；DXF 由服务器转换生成。" />
+              : <Alert type="warning" showIcon message="需要先创建项目" description="生产批次必须归属一个项目，当前没有可选项目。" action={<Button href="/projects">先创建项目</Button>} />}
+          </Form>
+        )}
       </Drawer>
     </>
   );

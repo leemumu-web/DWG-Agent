@@ -263,6 +263,20 @@ def test_production_submission_entry_creates_starts_and_opens_upload():
     assert "先创建项目" in page_source
 
 
+def test_production_submission_stays_in_one_drawer_until_files_are_uploaded():
+    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    success_handler = page_source.split("onSuccess: ({ workflow, startError })", 1)[1].split(
+        "onError:", 1
+    )[0]
+
+    assert "setSubmissionWorkflow(workflow)" in success_handler
+    assert "setCreateOpen(false)" not in success_handler
+    assert "submissionWorkflow" in page_source
+    assert "重试启动并进入上传" in page_source
+    create_drawer = page_source.split("title={submissionWorkflow", 1)[1]
+    assert "<ProductionInputPanel" in create_drawer
+
+
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
     api_source = _frontend_source("api/data-admin.api.ts")

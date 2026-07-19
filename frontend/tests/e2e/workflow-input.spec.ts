@@ -61,9 +61,18 @@ async function mockWorkflow(page: Page) {
   });
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
-  await page.route('**/api/v1/projects', (route) => json(route, [{ id: 7, code: 'P7', name: '生产项目' }]));
+  await page.route('**/api/v1/projects?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      ...envelope([{ id: 7, code: 'P7', name: '生产项目' }]),
+      pagination: { page: 1, page_size: 200, total: 1, total_pages: 1 },
+    }),
+  }));
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
   await page.route('**/api/v1/workflows?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...envelope([workflow]), pagination: { page: 1, page_size: 20, total: 1, total_pages: 1 } }) }));
+  await page.route('**/api/v1/workflows', (route) => json(route, { ...workflow, status: 'draft', started_at: null, stages, artifacts: [] }, 201));
+  await page.route('**/api/v1/workflows/41/start', (route) => json(route, { ...workflow, stages, artifacts: [] }));
   await page.route('**/api/v1/workflows/41', (route) => json(route, { ...workflow, stages, artifacts: [] }));
   await page.route('**/api/v1/files/batches**', (route) => json(route, []));
   await page.route('**/api/v1/files?**', async (route) => {
@@ -112,6 +121,16 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   }, { token: 'e2e-token', savedUser: user });
   await page.goto('/workflows');
   await expect(page.getByRole('button', { name: /提交生产批次/ })).toBeVisible();
+  await page.getByRole('button', { name: /提交生产批次/ }).click();
+  const submission = page.getByRole('dialog', { name: '提交生产批次' });
+  await submission.getByRole('combobox', { name: '所属项目' }).click();
+  await page.getByText('P7 · 生产项目').click();
+  await submission.getByRole('textbox', { name: '批次名称' }).fill('浏览器生产批次');
+  await submission.getByRole('button', { name: '创建并进入上传' }).click();
+  const uploadStep = page.getByRole('dialog', { name: '生产批次 #41 · 资料提交' });
+  await expect(uploadStep.getByRole('button', { name: /上传 DWG/ })).toBeVisible();
+  await expect(uploadStep.getByRole('button', { name: '上传 Excel' })).toBeVisible();
+  await uploadStep.getByRole('button', { name: '关闭' }).click();
   await page.getByRole('button', { name: '详情' }).click();
   await expect(page.getByText('只需上传多个 DWG 和一个 Excel')).toBeVisible();
 
