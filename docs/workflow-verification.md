@@ -108,6 +108,7 @@ python tests/run_full_verify.py
 | 平台全量回归 | **988 passed，6 skipped** | 分类 API、Job attempt、MinIO/File/AnalysisResult/workflow artifact、run/item 台账、迁移及旧功能回归。 |
 | 浏览器流程 | **1 passed** | 同一抽屉完成创建、DWG/Excel 上传、服务器 DXF、冻结、启动分类、状态反馈和结果下载。 |
 | 活动数据库/进程 | **pass** | `a9e4c7d2f610` head、41 张运行表、`dxf_classification` 独立 worker，Nginx/FastAPI/SPA 健康。 |
+| 生产 MinIO | **pass** | `docker compose --profile workers config` 包含分类 worker；MinIO healthy，并完成临时对象 put/stat/get/字节核对/remove 闭环，未改动业务对象。 |
 
 本次没有向用户真实生产项目注入验证记录；真实 CLI 使用仓库外保留的获准验证样本，平台存储与台账由隔离集成测试和活动 MySQL schema/worker 验证共同覆盖。
 
