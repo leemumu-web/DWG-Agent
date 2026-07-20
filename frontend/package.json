@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test:api": "npx playwright test tests/e2e/api-contract.spec.ts",
-    "test:e2e": "npx playwright test tests/e2e/files-page-buttons.spec.ts tests/e2e/jobs-page-buttons.spec.ts tests/e2e/workflow-input.spec.ts",
+    "test:e2e": "npx playwright test tests/e2e/files-page-buttons.spec.ts tests/e2e/jobs-page-buttons.spec.ts tests/e2e/workflow-input.spec.ts tests/e2e/infrastructure-console.spec.ts",
     "test:e2e:files": "npx playwright test tests/e2e/files-page-buttons.spec.ts",
     "test:e2e:jobs": "npx playwright test tests/e2e/jobs-page-buttons.spec.ts",
     "test": "npm run test:api"

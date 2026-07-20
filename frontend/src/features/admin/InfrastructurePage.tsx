@@ -167,6 +167,9 @@ function OverviewPanel() {
   });
   const data = query.data;
   const infrastructure = useQuery({ queryKey: ['system', 'infrastructure'], queryFn: getInfrastructureOverview, refetchInterval: () => document.hidden ? false : 30_000 });
+  const storageMismatches = (infrastructure.data?.storage.buckets ?? []).filter(
+    (bucket) => bucket.object_count !== null && bucket.object_count !== bucket.tracked_files,
+  );
   const scanRisk = (data?.latest_scan?.missing_object_count ?? 0)
     + (data?.latest_scan?.untracked_object_count ?? 0)
     + (data?.latest_scan?.size_mismatch_count ?? 0);
@@ -211,6 +214,7 @@ function OverviewPanel() {
       {infrastructure.data && <Table rowKey="name" size="small" pagination={false} dataSource={infrastructure.data.storage.buckets} style={{ marginTop: 16 }} columns={[
         { title: 'Bucket', dataIndex: 'name' }, { title: 'MySQL 可用登记', dataIndex: 'tracked_files' }, { title: '实际对象数', dataIndex: 'object_count', render: (value: number | null) => value ?? '不可用' },
       ]} />}
+      {infrastructure.data && (storageMismatches.length ? <Alert style={{ marginTop: 16 }} type="warning" showIcon message={`Bucket 对账发现 ${storageMismatches.length} 个差额`} description="对象数与 MySQL 可用登记不一致；请在“一致性”页创建扫描，先预检后再处置。" /> : <Alert style={{ marginTop: 16 }} type="success" showIcon message="Bucket 对账：当前可见对象数与 MySQL 可用登记一致。" />)}
     </Card>
   </Space>;
 }
