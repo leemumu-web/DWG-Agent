@@ -304,7 +304,7 @@ export function DailyArchivePanel() {
             <Descriptions size="small" column={{ xs: 1, md: 2 }} items={[
               { key: 'buckets', label: 'Bucket 分布', span: 2, children: distribution(preview.bucket_counts, '无') },
               { key: 'formats', label: '格式分布', span: 2, children: distribution(preview.format_counts, '无') },
-              { key: 'window', label: 'UTC 查询窗口', span: 2, children: `${new Date(preview.window_start).toLocaleString()} — ${new Date(preview.window_end).toLocaleString()}` },
+              { key: 'window', label: '业务日时间窗口', span: 2, children: `${new Date(preview.window_start).toLocaleString()} — ${new Date(preview.window_end).toLocaleString()}（${preview.timezone}）` },
               { key: 'hash', label: '冻结清单', span: 2, children: <Typography.Text code copyable={{ text: preview.source_manifest_sha256 }}>{preview.source_manifest_sha256}</Typography.Text> },
               { key: 'expiry', label: '确认有效期', children: previewExpired ? '已过期' : `${new Date(preview.expires_at).toLocaleTimeString()}（剩余 ${Math.ceil(previewSecondsRemaining / 60)} 分钟）` },
               { key: 'mode', label: '整理方式', children: <Tag color="success">只新增，不改源文件</Tag> },

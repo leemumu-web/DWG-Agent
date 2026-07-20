@@ -179,7 +179,7 @@ bash scripts/docker.sh smoke
 2. 在“文件登记”按名称/ID/SHA-256、状态、bucket、格式定位 MySQL 行，并从详情复制 bucket/key 与摘要。
 3. 在“存储对象”按 bucket 和前缀游标分页，核对对象大小、修改时间及关联 file ID；对象枚举期间 API 不长期占用 MySQL 连接。
 4. 在“流转流水”按方向、状态和操作筛选；`failed` 表示操作已终止，`compensation_required` 表示自动补偿没有恢复一致性，必须人工核查对象和登记。
-5. 在“每日归档”选择业务日期和可选 Bucket，先预检文件数、总量、格式/Bucket 分布、UTC 查询窗口和清单 SHA-256。签名预检默认 10 分钟有效；历史 `daily-archives/` 对象自动排除。确认后由 maintenance worker 生成 ZIP/manifest，页面自动轮询并复用已有活动/成功结果。失败时从历史行带回日期/范围重新预检，不能手工把 run 改为 succeeded。
+5. 在“每日归档”选择业务日期和可选 Bucket，先预检文件数、总量、格式/Bucket 分布、带时区的业务日窗口和清单 SHA-256。签名预检默认 10 分钟有效；历史 `daily-archives/` 对象自动排除。确认后由 maintenance worker 生成 ZIP/manifest，页面自动轮询并复用已有活动/成功结果。失败时从历史行带回日期/范围重新预检，不能手工把 run 改为 succeeded。
 6. 每日归档成功后分别下载 ZIP 和 JSON 清单，并在“文件登记”核对两个 `files` 行、在“流转流水”核对 `daily_archive`/`daily_archive_manifest`。它只整理每日可用登记，不移动或删除源对象，也不替代数据库与 MinIO 恢复集合。
 7. 启动一致性扫描后轮询 run，不刷新总览触发全量扫描。按 finding 类型和 `待处置/已处置` 筛选；每次最多选择 100 项且总量不超过 1 GiB。
 8. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
