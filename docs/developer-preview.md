@@ -66,7 +66,7 @@ make docs-check
 cd backend && uv run alembic current && cd ..
 ```
 
-预期先确认：MySQL 配置一致、迁移处于 `a9e4c7d2f610`、OpenAPI 为 105 paths / 125 operations、生产配置关闭运行时 API 文档、Compose 未发布 443。
+预期先确认：MySQL 配置一致、迁移处于 `e2f4b8c6a130`、OpenAPI 为 114 paths / 135 operations、生产配置关闭运行时 API 文档、Compose 未发布 443。
 
 ## 修改路径
 

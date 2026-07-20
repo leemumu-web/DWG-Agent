@@ -2,6 +2,8 @@ import { apiClient, type ApiEnvelope, type PageEnvelope } from './client';
 import type {
   DataAdminFile,
   DataAdminOverview,
+  DailyArchivePreview,
+  DailyArchiveRun,
   FileTransfer,
   RemediationAction,
   RemediationPreview,
@@ -115,6 +117,50 @@ export async function executeStorageRemediation(payload: {
   const response = await apiClient.post<ApiEnvelope<RemediationResult>>(
     '/api/v1/data-admin/remediations/execute',
     payload,
+  );
+  return response.data.data;
+}
+
+export async function previewDailyArchive(payload: {
+  archive_date?: string;
+  scope_bucket?: string;
+}) {
+  const response = await apiClient.post<ApiEnvelope<DailyArchivePreview>>(
+    '/api/v1/data-admin/daily-archives/preview',
+    {
+      archive_date: payload.archive_date || null,
+      scope_bucket: payload.scope_bucket || null,
+    },
+  );
+  return response.data.data;
+}
+
+export async function createDailyArchive(payload: {
+  preview_token: string;
+  idempotency_key: string;
+}) {
+  const response = await apiClient.post<ApiEnvelope<DailyArchiveRun>>(
+    '/api/v1/data-admin/daily-archives',
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function listDailyArchives(params: PageQuery & {
+  status?: string;
+  scope_bucket?: string;
+  archive_date?: string;
+}) {
+  const response = await apiClient.get<PageEnvelope<DailyArchiveRun>>(
+    '/api/v1/data-admin/daily-archives',
+    { params },
+  );
+  return response.data;
+}
+
+export async function getDailyArchive(archiveId: number) {
+  const response = await apiClient.get<ApiEnvelope<DailyArchiveRun>>(
+    `/api/v1/data-admin/daily-archives/${archiveId}`,
   );
   return response.data.data;
 }

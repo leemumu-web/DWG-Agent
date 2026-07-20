@@ -63,6 +63,10 @@ Celery broker/result URL 分别计算为 `sqla+<effective-mysql-dsn>` 和 `db+<e
 | `MAX_UPLOAD_SIZE_MB` | 512 | 单次上传流式限制 |
 | `MAX_ZIP_EXTRACT_MB` | 2048 | ZIP 总解压大小限制 |
 | `MAX_ZIP_ENTRY_COUNT` | 1000 | ZIP entry 数量限制 |
+| `BUSINESS_TIMEZONE` | `Asia/Shanghai` | 每日归档自然日边界；修改后旧预检令牌失效 |
+| `DAILY_ARCHIVE_PREVIEW_TTL_MINUTES` | 10 | 归档签名预检有效分钟数，限制 1-60 |
+| `DAILY_ARCHIVE_MAX_FILES` | 5000 | 单次归档冻结文件数上限，限制 1-50000 |
+| `DAILY_ARCHIVE_MAX_SOURCE_GB` | 50 | 单次归档源文件总量上限，限制 1-500 GiB |
 | `MINIO_ENDPOINT` | `http://localhost:9000` | API endpoint，不是 console endpoint |
 | `MINIO_ACCESS_KEY` | 空 | MinIO 客户端身份 |
 | `MINIO_SECRET_KEY` | 空 | MinIO 客户端 secret |

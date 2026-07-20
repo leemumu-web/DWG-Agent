@@ -167,7 +167,11 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await expect(submission.getByText('进入资料上传', { exact: true })).toBeVisible();
   await submission.getByRole('combobox', { name: '所属项目' }).click();
   await page.getByText('P7 · 生产项目').click();
-  await expect(submission.getByRole('textbox', { name: '批次名称' })).toHaveValue('P7-20260719-生产批次');
+  const browserDate = await page.evaluate(() => {
+    const current = new Date();
+    return `${current.getFullYear()}${String(current.getMonth() + 1).padStart(2, '0')}${String(current.getDate()).padStart(2, '0')}`;
+  });
+  await expect(submission.getByRole('textbox', { name: '批次名称' })).toHaveValue(`P7-${browserDate}-生产批次`);
   await submission.getByRole('textbox', { name: '批次名称' }).fill('浏览器生产批次');
   await expect(submission.getByText('本步不会上传文件')).toBeVisible();
   await submission.getByRole('button', { name: '创建批次，下一步上传文件' }).click();

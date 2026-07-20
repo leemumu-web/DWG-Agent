@@ -15,7 +15,7 @@ bash scripts/doctor.sh --since-minutes 60
 bash scripts/stop-all.sh
 ```
 
-`start-all.sh` 按需构建前端，启动已实现队列 worker 及 `dispatch`、`maintenance` 两个框架预留 worker、FastAPI `8010` 和本地 Nginx `8080`。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。每个启动脚本还传入队列/并发环境元数据，供控制平面写入 MySQL 活动记录；它不构成分布式 lease。
+`start-all.sh` 按需构建前端，启动已实现队列 worker、`dispatch` 框架预留 worker和承载有界运维/每日归档任务的 `maintenance` worker、FastAPI `8010` 与本地 Nginx `8080`。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。每个启动脚本还传入队列/并发环境元数据，供控制平面写入 MySQL 活动记录；它不构成分布式 lease。
 
 后端代码晚于当前 Uvicorn 进程时，`status.sh` 报告“运行代码已过期”并返回非零。此时使用 `bash scripts/start-all.sh --restart-backend`；它只优雅停止 cwd 为本仓库 `backend/` 的 Uvicorn，未知进程占用 8010 时拒绝操作。前端源码、依赖清单或构建配置晚于 `dist/index.html` 时，普通 `start-all.sh` 会重新构建，也可用 `--rebuild` 强制执行。
 
@@ -173,15 +173,17 @@ bash scripts/docker.sh smoke
 
 ## 数据控制台运行手册
 
-入口为 `/admin/infrastructure`，包含总览、文件登记、存储对象、流转流水和一致性五个页签。管理员可扫描和执行处置；审计员可读取并生成预检，但不能启动扫描或执行处置。
+入口为 `/admin/infrastructure`，包含总览、文件登记、存储对象、流转流水、每日归档、一致性和运行通信七个页签。管理员可提交归档、扫描和执行处置；审计员可读取并生成归档/处置预检，但不能提交归档、启动扫描或执行处置。
 
 1. 先看总览的数据库/存储健康、今日入库/出库、失败或待补偿流水、最近扫描计数。
 2. 在“文件登记”按名称/ID/SHA-256、状态、bucket、格式定位 MySQL 行，并从详情复制 bucket/key 与摘要。
 3. 在“存储对象”按 bucket 和前缀游标分页，核对对象大小、修改时间及关联 file ID；对象枚举期间 API 不长期占用 MySQL 连接。
 4. 在“流转流水”按方向、状态和操作筛选；`failed` 表示操作已终止，`compensation_required` 表示自动补偿没有恢复一致性，必须人工核查对象和登记。
-5. 启动一致性扫描后轮询 run，不刷新总览触发全量扫描。按 finding 类型和 `待处置/已处置` 筛选；每次最多选择 100 项且总量不超过 1 GiB。
-6. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
-7. 永久清理要求输入 `PURGE`，字节不可恢复。若对象已删而 MySQL 提交失败，流水为 `compensation_required`；保留 request ID/transfer UID，重新扫描并按事故流程处理，不能把旧 finding 手工改成 resolved。
+5. 在“每日归档”选择业务日期和可选 Bucket，先预检文件数、总量、格式/Bucket 分布、UTC 查询窗口和清单 SHA-256。签名预检默认 10 分钟有效；历史 `daily-archives/` 对象自动排除。确认后由 maintenance worker 生成 ZIP/manifest，页面自动轮询并复用已有活动/成功结果。失败时从历史行带回日期/范围重新预检，不能手工把 run 改为 succeeded。
+6. 每日归档成功后分别下载 ZIP 和 JSON 清单，并在“文件登记”核对两个 `files` 行、在“流转流水”核对 `daily_archive`/`daily_archive_manifest`。它只整理每日可用登记，不移动或删除源对象，也不替代数据库与 MinIO 恢复集合。
+7. 启动一致性扫描后轮询 run，不刷新总览触发全量扫描。按 finding 类型和 `待处置/已处置` 筛选；每次最多选择 100 项且总量不超过 1 GiB。
+8. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
+9. 永久清理要求输入 `PURGE`，字节不可恢复。若对象已删而 MySQL 提交失败，流水为 `compensation_required`；保留 request ID/transfer UID，重新扫描并按事故流程处理，不能把旧 finding 手工改成 resolved。
 
 DXF 在线预览对象会以 `operation=preview_generate` 登记内部生成流水，并发生成的锁内缓存复用写 `preview_cache_reuse`；源文件变化、缓存对象丢失或源 DXF 软删除时写 `preview_invalidate`，浏览器读取写 `direction=outbound, operation=preview`。源删除后 SVG 物理对象仍处于保留期，但登记和内容端点必须不可用。排查预览时应同时核对源 DXF、SVG `files` 行、对象 `stat` 和流水；不要把弹窗能打开当作登记一致性的充分证据。
 

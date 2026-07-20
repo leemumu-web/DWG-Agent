@@ -2,7 +2,7 @@
 
 ## 基线
 
-截至 2026-07-19 的实现，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、105 个 OpenAPI path / 125 个 operation、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、五页签数据控制台、Steel DXF Classifier 1.1.0 分类分流、Excel Final 关系化导入，以及含“多 DWG + 单 Excel → 服务器 DXF → 冻结 → 分类分流”的 Linux 生产流程界面。
+截至 2026-07-20 的实现，本仓库是实际 React/FastAPI/MySQL/Celery/storage 平台，不只是骨架。当前已有 authentication/RBAC、project/file/Job/result/review/audit/workflow model、114 个 OpenAPI path / 135 个 operation、attempt-safe Job execution、Local/MinIO adapter、文件流转账本、一致性扫描与处置、非破坏式每日归档、七页签数据控制台、Steel DXF Classifier 1.1.0 分类分流、Excel Final 关系化导入，以及含“多 DWG + 单 Excel → 服务器 DXF → 冻结 → 分类分流”的 Linux 生产流程界面。
 
 这不表示每个目录都 production-ready。feature flag 默认关闭，Linux 工作流只真实接通 DXF→Excel 和 Excel Final；拆板、CAM 工作包、Windows/SinoCAM 和结果接纳仍是显式留白。Compose 缺少完整运维自动化；大规模验证 corpus 不随仓库分发。
 

@@ -11,7 +11,7 @@ async function json(route: Route, data: unknown, status = 200) {
 async function mockConsole(page: Page) {
   const storage = {
     status: 'ok', checked_at: now,
-    database: { status: 'ok', engine: 'mysql', database: 'dwg_agent', latency_ms: 2, table_count: 44, pool: { size: 2, max_overflow: 2, recycle_seconds: 3600 } },
+    database: { status: 'ok', engine: 'mysql', database: 'dwg_agent', latency_ms: 2, table_count: 45, pool: { size: 2, max_overflow: 2, recycle_seconds: 3600 } },
     storage: { status: 'ok', backend: 'minio', latency_ms: 3, buckets: [{ name: 'dwg-original', tracked_files: 3, object_count: 3 }, { name: 'dxf-derived', tracked_files: 2, object_count: 2 }] },
     catalog: { available_files: 5, tracked_bytes: 1024, extensions: { '.dwg': 3 } }, capacity: { status: 'unknown', disk_total_bytes: null, disk_used_bytes: null, disk_free_bytes: null }, recovery: { consistency_rule: 'MySQL metadata and object storage must be backed up and restored as one recovery set.', automated_backup: false },
   };

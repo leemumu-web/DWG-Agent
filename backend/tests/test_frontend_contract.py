@@ -218,6 +218,23 @@ def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
     assert "MinIO" in page_source
 
 
+def test_daily_archive_console_uses_preview_queue_poll_and_signed_download_contracts():
+    panel = _frontend_source("features/admin/DailyArchivePanel.tsx")
+    data_api = _frontend_source("api/data-admin.api.ts")
+    files_api = _frontend_source("api/files.api.ts")
+    infrastructure = _frontend_source("features/admin/InfrastructurePage.tsx")
+
+    assert "/daily-archives/preview" in data_api
+    assert "/daily-archives/${archiveId}" in data_api
+    assert "preview_token" in data_api
+    assert "idempotency_key" in data_api
+    assert "每日归档" in infrastructure
+    assert "非破坏式每日整理" in panel
+    assert "refetchInterval" in panel
+    assert "downloadFile" in panel
+    assert "/download-url" in files_api
+
+
 def test_dashboard_turns_existing_task_and_review_state_into_next_actions():
     source = _frontend_source("features/dashboard/DashboardPage.tsx")
 

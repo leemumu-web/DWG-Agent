@@ -112,7 +112,9 @@ MySQL 的 `files` 是业务登记事实源，Local FS/MinIO 是字节事实源�
 
 上传、ZIP 每个有效条目、worker 生成文件和 DXF SVG 预览缓存均走该路径。预览缓存以源文件 ID、SHA-256 前缀和 renderer 版本分组，MySQL 登记 SVG 文件，MinIO/Local 保存字节；缓存命中仍由对象 `stat` 验证。锁内二次命中写 `preview_cache_reuse`，明确表示零字节复用而非生成。源 DXF 软删除在同一数据库事务中把对应预览登记标为 deleted 并写 `preview_invalidate`；物理 SVG 仍遵循保留期/对账/purge。下载/ZIP/预览出库在响应流开始前登记 outbound 意图，iterator 正常耗尽、客户端中断或存储读取失败后按实际字节独立结算。软删除只更新登记并保留对象；恢复会清空 `deleted_at`。永久清理先锁定 finding/关联登记并重检对象，再删除对象；只有元数据提交成功后才把独立流水结算为成功，提交失败留下 `compensation_required`，不声称原子回滚了不可恢复字节。
 
-local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落盘。MinIO/local 都实现 stat、exists 和游标分页清单。report worker 异步生成 `storage_scan_runs` 与异常 `storage_scan_findings`，分类为对象缺失、未登记对象、大小不符和软删除对象保留。管理员可在五页签数据控制台执行带签名预检 token、5 分钟有效期、实时摘要重检、批量数量/字节上限和幂等键的四种处置；审计员只有读取与预检权限。`reap-storage` 仍用于保留期回收和脚本化维护，不替代扫描/处置账本。
+local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落盘。MinIO/local 都实现 stat、exists 和游标分页清单。report worker 异步生成 `storage_scan_runs` 与异常 `storage_scan_findings`，分类为对象缺失、未登记对象、大小不符和软删除对象保留。管理员可在七页签数据控制台执行带签名预检 token、5 分钟有效期、实时摘要重检、批量数量/字节上限和幂等键的四种处置；审计员只有读取与预检权限。`reap-storage` 仍用于保留期回收和脚本化维护，不替代扫描/处置账本。
+
+数据控制台现有七个页签。每日归档与一致性处置使用不同安全语义：归档按 `Asia/Shanghai` 自然日生成带签名的冻结清单，maintenance worker 流式读取源对象，在 `dwg-reports/daily-archives/YYYY-MM-DD/` 新增 ZIP 和 JSON manifest，并把两者登记到 `files`/`file_transfers`；不移动或删除源对象。历史归档前缀自动排除，避免递归打包。相同清单复用成功结果，活动任务复用运行记录；源文件状态、摘要或对象可读性变化时整次失败，不返回貌似完整的 ZIP。完整边界见[每日一键归档设计](daily-archive-design.md)。
 
 ## MySQL 与 Celery
 
@@ -120,9 +122,9 @@ broker 为 `sqla+mysql+pymysql://...`，result backend 为 `db+mysql+pymysql://.
 
 SQL transport 没有 fanout remote control。worker 健康使用 Celery PID 加 `worker_ready` marker，不使用 `inspect`。控制平面额外将 Celery lifecycle/task signal 最佳努力写入 `worker_runtimes` 和 `control_plane_events`；其 `last_seen_at` 是活动观测而非 broker lease，超过阈值才在管理端显示 stale。管理员可在“运行与通信”查看 SQL broker ready 行数、Worker、运维消息和事件。result row 在 24 小时后过期；业务 Job 历史没有自动保留策略。
 
-`dispatch` 与 `maintenance` 是已启动可观察的 queue/process 身份预留，尚无业务任务路由；它们不等同于 durable outbox 或 Celery Beat。未来 Windows Node Agent 的 HTTP 注册、heartbeat、事件 envelope 已通过 `/api/v1/control-plane/contracts/windows-node-agent` 发布 draft，但认证、lease fencing、Named Pipe CAD runner 和命令投递均未实现。
+`dispatch` 是已启动可观察的 queue/process 身份预留；`maintenance` 已承载人工 stale Job 恢复和每日归档两个有界任务。它们不等同于 durable outbox 或 Celery Beat。未来 Windows Node Agent 的 HTTP 注册、heartbeat、事件 envelope 已通过 `/api/v1/control-plane/contracts/windows-node-agent` 发布 draft，但认证、lease fencing、Named Pipe CAD runner 和命令投递均未实现。
 
-`maintenance` 现有一个人工触发、范围受限的实现：管理员经 `POST /api/v1/control-plane/maintenance/reconcile-stale-jobs` 将超出既有 stale timeout 的 running Job 交给 maintenance queue。恢复仍使用 Job status/attempt 条件更新，完成数写入控制平面事件；它不是周期调度，不扫描或修改 MinIO 对象，也不替代 Celery Beat。
+`maintenance` 任务都由已认证请求显式提交：管理员经 `POST /api/v1/control-plane/maintenance/reconcile-stale-jobs` 恢复超过 stale timeout 的 running Job；每日归档经 data-admin 预检/提交端点冻结文件 ID 后异步生成新对象。两者的完成/失败都写控制平面事件。当前没有周期调度，不启用 Celery Beat；stale 恢复不扫描对象，每日归档只新增产物而不修改源对象。
 
 前端以 React Query 统一处理读取请求：仅对网络或 5xx 进行有界重试，认证/校验/权限类 4xx 不会无意义重放。应用级错误边界保护单一路由渲染异常，浏览器 offline 提示保留当前表单与表格状态；各业务页面仍负责展示其 API 的具体错误和恢复动作。
 

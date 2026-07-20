@@ -125,3 +125,45 @@ export interface RemediationResult {
   count: number;
   file_ids: number[];
 }
+
+export interface DailyArchivePreview {
+  archive_date: string;
+  timezone: string;
+  scope_bucket?: string | null;
+  window_start: string;
+  window_end: string;
+  file_count: number;
+  total_bytes: number;
+  excluded_archive_files: number;
+  bucket_counts: Record<string, number>;
+  format_counts: Record<string, number>;
+  source_manifest_sha256: string;
+  can_archive: boolean;
+  block_reason?: string | null;
+  expires_at: string;
+  preview_token: string;
+}
+
+export interface DailyArchiveRun {
+  id: number;
+  archive_date: string;
+  timezone: string;
+  scope_bucket?: string | null;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  actor_user_id: number;
+  source_manifest_sha256: string;
+  file_count: number;
+  total_bytes: number;
+  bucket_counts: Record<string, number>;
+  format_counts: Record<string, number>;
+  task_id?: string | null;
+  archive_file_id?: number | null;
+  manifest_file_id?: number | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  reused: boolean;
+}

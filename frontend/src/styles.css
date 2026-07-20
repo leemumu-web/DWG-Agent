@@ -187,15 +187,50 @@ button, input, textarea, select { font: inherit; }
 .cursor-pager { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; }
 .scan-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 22px; color: var(--console-steel); }
 .scan-strip span:not(:first-child) { padding-left: 12px; border-left: 1px solid var(--console-line); }
+.daily-archive-command,
+.daily-archive-preview { height: 100%; }
+.daily-archive-command .ant-card-body,
+.daily-archive-preview .ant-card-body { min-height: 350px; }
+.daily-archive-scope-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 18px;
+  padding: 12px 13px;
+  color: #38546c;
+  background: #f2f7fa;
+  border: 1px solid #d8e5ec;
+  border-radius: 8px;
+  line-height: 1.65;
+}
+.daily-archive-scope-note .anticon { margin-top: 4px; color: #27718c; }
+.daily-archive-metrics {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  background: linear-gradient(110deg,#f4f8fa,#fbfcfd);
+  border: 1px solid #dce6ec;
+  border-radius: 4px 12px 4px 4px;
+}
+.daily-archive-metrics .ant-statistic:not(:first-child) { padding-left: 14px; border-left: 1px solid #d8e2e8; }
+.daily-archive-metrics .ant-statistic-content { font-size: 20px; }
+.daily-archive-active { overflow: hidden; border-left: 4px solid #3d718c; }
+.daily-archive-active--succeeded { border-left-color: #39835b; }
+.daily-archive-active--failed { border-left-color: #bb3c35; }
+.daily-archive-active-actions { display: flex; align-items: flex-end; justify-content: flex-end; }
 
 @media (max-width: 980px) {
   .data-console-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .data-console-hero { align-items: flex-start; flex-direction: column; }
+  .daily-archive-active-actions { justify-content: flex-start; }
 }
 @media (max-width: 560px) {
   .data-console-hero { padding: 22px 18px; }
   .data-console-metrics { grid-template-columns: 1fr; }
   .data-console-tabs > .ant-tabs-nav { overflow-x: auto; }
+  .daily-archive-metrics { grid-template-columns: 1fr; }
+  .daily-archive-metrics .ant-statistic:not(:first-child) { padding: 10px 0 0; border-top: 1px solid #d8e2e8; border-left: 0; }
 }
 .ant-drawer .ant-descriptions, .ant-drawer .ant-table-wrapper, .ant-drawer .ant-form { background: #fff; }
 .ant-btn, .ant-input-affix-wrapper, .ant-input, .ant-select-selector { transition-duration: .16s !important; }

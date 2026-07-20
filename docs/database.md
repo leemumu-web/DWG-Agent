@@ -510,6 +510,12 @@ Agent 运行中的单个工具调用和推理步骤。
 
 删除 workflow 时阶段和 artifact 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束；公开 API 通过资源权限、非空引用和幂等查重维护当前不变量，并在 Job 成功同步时自动挂接结果。完整状态机和边界见[Linux 生产工作流](workflow-framework.md)。
 
+### 2.11 每日归档 -- 1 张表
+
+`daily_archive_runs` 保存指定业务日期和可选 Bucket 范围的非破坏式归档运行。`source_file_ids_json` 与 `source_manifest_sha256` 冻结预检范围，`file_count`/`total_bytes` 及 Bucket/格式 JSON 保存可核对统计；`task_id` 关联 maintenance 投递；`archive_file_id` 和 `manifest_file_id` 分别引用 ZIP 与 JSON 清单的 `files` 行。状态为 `queued/running/succeeded/failed/cancelled`，失败保留稳定错误码、信息和结束时间。
+
+`(actor_user_id, idempotency_key)` 唯一，防止同一浏览器提交重放。`(archive_date, scope_key, status)` 支持活动任务复用和历史查询；`source_manifest_sha256` 索引支持同清单成功结果复用。结果文件删除时外键置 NULL，运行与审计记录保留。文件字节仍由当前 Local/MinIO 后端保存，并通过两个独立 `file_transfers` 结算。
+
 ---
 
 ## 3. 实体关系总览
@@ -682,7 +688,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **35 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、DXF 分类和控制平面账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **36 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、DXF 分类、控制平面与每日归档账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
