@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-**Delivery tier: v0.1 technical preview. Documentation audit baseline: working tree as of July 18, 2026.** This tier is intended for technical evaluation and continued development; it does not represent production readiness. Runtime facts are governed by the current code, migrations, configuration, and recorded verification. The [technical preview guide](docs/developer-preview.md) provides the first-install and acceptance path, the [audit report](docs/audit-report-2026-07-18.md) records evidence and residual risks, and the [Enterprise Platform Technical Specification](DWG-Agent企业平台技术规范.md) defines normative boundaries. The repository maintains Chinese documentation only.
+**Delivery tier: v0.1 technical preview. Current documentation baseline: July 21, 2026.** This tier is intended for technical evaluation and continued development; it does not represent production readiness. Runtime facts are governed by the current code, migrations, configuration, and [verification evidence](docs/verification/current.md). The [development guide](docs/guides/development.md) provides the first-install path, the [implementation status](docs/architecture/implementation-status.md) records residual risks, and the [Enterprise Platform Technical Specification](docs/architecture/platform-specification.md) defines normative boundaries. The repository maintains Chinese project documentation only.
 
 > [!IMPORTANT]
 > This README describes only what is present in the repository today. Placeholder directories, disabled feature flags, and unconfigured infrastructure are not presented as delivered capabilities. Detailed project documentation is maintained **in Chinese only** under [docs/](docs/README.md); this English README provides a project-level overview.
@@ -15,9 +15,9 @@ Choose a path based on what you need:
 |---|---|
 | Understand what the platform can and cannot do | [Platform Status](#-platform-status) → [Scope Boundaries](#-scope-boundaries) |
 | Understand deployment and communication | [System Architecture](#️-system-architecture) → [Local Setup](#-local-setup) |
-| See which processing pipelines can be enabled | [Processing Capabilities](#-processing-capabilities) → [Pipeline documentation](docs/processing-pipelines.md) |
-| Develop and validate changes | [Development and Verification](#-development-and-verification) → [Development guide](docs/development.md) |
-| Deploy and operate the platform | [Compose Deployment](#compose-deployment) → [Deployment guide](docs/deployment.md) → [Operations guide](docs/operations.md) |
+| See which processing pipelines can be enabled | [Processing Capabilities](#-processing-capabilities) → [Workflow boundaries](docs/architecture/workflow.md) |
+| Develop and validate changes | [Development and Verification](#-development-and-verification) → [Development guide](docs/guides/development.md) |
+| Deploy and operate the platform | [Compose Deployment](#compose-deployment) → [Deployment guide](docs/guides/deployment.md) → [Operations guide](docs/guides/operations.md) |
 
 Status markers: **✅ Implemented** · **⚠️ Conditionally available** · **⏸️ Disabled/placeholder** · **❌ Out of scope**
 
@@ -93,7 +93,7 @@ Each execution generation is identified by `(job_id, attempt)`. A retry incremen
 
 Generic workflows use `workflow_runs → workflow_stage_runs → workflow_artifacts` to model project-level business stages and artifact versions. Public capabilities include create, list, detail, start, manual stage confirmation, cancellation, and frontend display.
 
-The service layer contains functions for Job-attempt binding, Job-state synchronization, and artifact attachment, but the generic workflow routes do not expose those connections. The result is an **auditable manual orchestration skeleton**, not an automated production loop. The dedicated DXF → Excel UI can explicitly confirm a successful result and register it as an Excel Final Job; that is not generic workflow automation. See the [generic workflow framework](docs/workflow-framework.md).
+The public workflow routes bind Job attempts, synchronize authoritative state, and attach artifacts for implemented stages. Placeholder and external stages still require explicit handoff artifacts and do not claim an automated production loop. See the [Linux production workflow](docs/architecture/workflow.md).
 
 ## 🎯 Scope Boundaries
 
@@ -212,7 +212,7 @@ npx playwright test
 
 These verification layers are not interchangeable: SQLite pytest checks business logic, `migration-test` checks an empty MySQL schema, `infra/verify.sh` checks static and active infrastructure contracts, and Playwright checks browser interactions.
 
-A complete release acceptance still requires real MySQL, Celery, MinIO, and valid sample files to exercise upload, processing, retry, SSE, signed download, storage interruption, and recovery end to end. See [workflow verification](docs/workflow-verification.md).
+A complete release acceptance still requires real MySQL, Celery, MinIO, and valid sample files to exercise upload, processing, retry, SSE, signed download, storage interruption, and recovery end to end. See [current verification evidence](docs/verification/current.md).
 
 ## 🗂️ Repository Layout
 
@@ -232,11 +232,11 @@ third_parts/    External/upstream projects; not automatically delivered platform
 
 | Category | Documents |
 |---|---|
-| Overview | [Technical preview guide](docs/developer-preview.md) · [Audit report](docs/audit-report-2026-07-18.md) · [Documentation index](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) |
-| Specification | [Enterprise Platform Technical Specification](DWG-Agent企业平台技术规范.md) |
-| Design | [Architecture](docs/architecture.md) · [Database](docs/database.md) · [Generic workflow framework](docs/workflow-framework.md) |
-| Development | [Development guide](docs/development.md) · [API](docs/api.md) · [Configuration](docs/configuration.md) |
-| Pipelines | [Processing pipelines](docs/processing-pipelines.md) · [Workflow verification](docs/workflow-verification.md) |
-| Delivery | [Deployment](docs/deployment.md) · [Operations](docs/operations.md) · [Security](docs/security.md) · [Roadmap](docs/roadmap.md) |
+| Overview | [Implementation status](docs/architecture/implementation-status.md) · [Verification evidence](docs/verification/current.md) · [Documentation index](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) |
+| Specification | [Enterprise Platform Technical Specification](docs/architecture/platform-specification.md) |
+| Design | [Architecture](docs/architecture/overview.md) · [Database](docs/reference/database.md) · [Linux production workflow](docs/architecture/workflow.md) |
+| Development | [Development guide](docs/guides/development.md) · [API](docs/reference/api.md) · [Configuration](docs/reference/configuration.md) |
+| Pipelines | [Workflow boundaries](docs/architecture/workflow.md) · [Verification evidence](docs/verification/current.md) |
+| Delivery | [Deployment](docs/guides/deployment.md) · [Operations](docs/guides/operations.md) · [Security](docs/guides/security.md) · [Implementation gaps](docs/architecture/implementation-status.md) |
 
-After changing routes, run `make docs-generate` to regenerate `docs/api.md`. Before committing, run `make docs-check`.
+After changing routes, run `make docs-generate` to regenerate `docs/reference/api.md`. Before committing, run `make docs-check`.

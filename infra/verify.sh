@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DWG-Agent Platform — 基础设施验证脚本
 # 测试: Nginx 配置 / Docker Compose / Dockerfile / MySQL / 环境模板
-# 规范参考: DWG-Agent企业平台技术规范.md §2.1 §3 §17.4 §17.5
+# 规范参考: docs/architecture/platform-specification.md §2.1 §3 §17.4 §17.5
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -499,7 +499,7 @@ REQUIRED_FILES=(
     "infra/nginx/README.md"
     ".env.example"
     ".env.docker.example"
-    "docs/deployment.md"
+    "docs/guides/deployment.md"
 )
 
 for f in "${REQUIRED_FILES[@]}"; do

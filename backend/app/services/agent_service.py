@@ -8,7 +8,7 @@ When the Agent subsystem is enabled (AGENT_ENABLED=true), this service will:
 - Dispatch Celery tasks to the agent queue
 - Provide query methods for agent-run detail and steps
 
-See spec §11 and docs/roadmap.md §3 for the full Stage 2 implementation plan.
+See docs/architecture/implementation-status.md for the current placeholder boundary.
 """
 
 

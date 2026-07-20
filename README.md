@@ -2,7 +2,7 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-**交付级别：v0.1 技术预览版。文档审计基线：2026-07-18 的当前工作树。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和本轮验证为准；[技术预览指南](docs/developer-preview.md)给出首次安装和验收路径，[审计报告](docs/audit-report-2026-07-18.md)记录证据与剩余风险，[企业平台技术规范](DWG-Agent企业平台技术规范.md)给出规范性边界。仓库只维护中文项目文档。
+**交付级别：v0.1 技术预览版。当前文档基线：2026-07-21。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；[开发指南](docs/guides/development.md)给出首次安装和验收路径，[实现状态](docs/architecture/implementation-status.md)记录证据与剩余风险，[企业平台技术规范](docs/architecture/platform-specification.md)给出规范性边界。仓库只维护中文项目文档。
 
 > [!IMPORTANT]
 > 本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。详细项目文档仅维护[中文版本](docs/README.md)，英文 README 用于提供项目概览。
@@ -15,9 +15,9 @@
 |---|---|
 | 项目能做什么、不能做什么 | [平台状态](#-平台状态) → [范围边界](#-范围边界) |
 | 系统如何部署和通信 | [系统架构](#️-系统架构) → [本地启动](#-本地启动) |
-| 哪些处理管线可以启用 | [处理能力](#-处理能力) → [启用条件](docs/processing-pipelines.md) |
-| 如何开发和验证 | [开发与验证](#-开发与验证) → [开发文档](docs/development.md) |
-| 如何部署和运维 | [Compose 部署](#compose-部署) → [部署文档](docs/deployment.md) → [运维文档](docs/operations.md) |
+| 哪些处理管线可以启用 | [处理能力](#-处理能力) → [工作流与启用边界](docs/architecture/workflow.md) |
+| 如何开发和验证 | [开发与验证](#-开发与验证) → [开发文档](docs/guides/development.md) |
+| 如何部署和运维 | [Compose 部署](#compose-部署) → [部署文档](docs/guides/deployment.md) → [运维文档](docs/guides/operations.md) |
 
 状态标记：**✅ 已实现** · **⚠️ 有条件可用** · **⏸️ 默认关闭/占位** · **❌ 不在当前交付范围**
 
@@ -94,7 +94,7 @@ Celery workers（无入站监听端口）
 
 工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` 覆盖输入冻结、图纸交接、Excel 两阶段、CAM/Windows 交接、结果接纳和归档；`excel_stage1` 与 `excel_final` 已直接复用现有 Job/Celery 管线，详情同步成功结果并自动挂接 File/AnalysisResult。
 
-这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/workflow-framework.md)。
+这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
 
 ## 🎯 范围边界
 
@@ -214,7 +214,7 @@ npx playwright test
 
 测试层级不能互相替代：SQLite pytest 验证业务逻辑，`migration-test` 验证空 MySQL schema，`infra/verify.sh` 验证静态与活动基础设施契约，Playwright 验证浏览器交互。
 
-完整发布验收还必须使用真实 MySQL、Celery、MinIO 和有效样本，完成上传、处理、重试、SSE、签名下载、存储中断与恢复闭环。详见[工作流验证](docs/workflow-verification.md)。
+完整发布验收还必须使用真实 MySQL、Celery、MinIO 和有效样本，完成上传、处理、重试、SSE、签名下载、存储中断与恢复闭环。详见[当前验证证据](docs/verification/current.md)。
 
 ## 🗂️ 仓库结构
 
@@ -234,11 +234,11 @@ third_parts/    外部/上游项目；不代表平台直接交付的能力
 
 | 分类 | 文档 |
 |---|---|
-| 总览 | [技术预览指南](docs/developer-preview.md) · [审计报告](docs/audit-report-2026-07-18.md) · [文档索引](docs/README.md) · [贡献指南](CONTRIBUTING.md) · [变更记录](CHANGELOG.md) |
-| 规范 | [企业平台技术规范](DWG-Agent企业平台技术规范.md) |
-| 设计 | [架构](docs/architecture.md) · [数据库](docs/database.md) · [通用工作流框架](docs/workflow-framework.md) |
-| 开发 | [开发指南](docs/development.md) · [API](docs/api.md) · [配置参考](docs/configuration.md) |
-| 管线 | [处理管线](docs/processing-pipelines.md) · [工作流验证](docs/workflow-verification.md) |
-| 交付 | [部署](docs/deployment.md) · [运维](docs/operations.md) · [安全](docs/security.md) · [路线图](docs/roadmap.md) |
+| 总览 | [实现状态](docs/architecture/implementation-status.md) · [验证证据](docs/verification/current.md) · [文档索引](docs/README.md) · [贡献指南](CONTRIBUTING.md) · [变更记录](CHANGELOG.md) |
+| 规范 | [企业平台技术规范](docs/architecture/platform-specification.md) |
+| 设计 | [架构](docs/architecture/overview.md) · [数据库](docs/reference/database.md) · [Linux 生产工作流](docs/architecture/workflow.md) |
+| 开发 | [开发指南](docs/guides/development.md) · [API](docs/reference/api.md) · [配置参考](docs/reference/configuration.md) |
+| 管线 | [工作流与处理边界](docs/architecture/workflow.md) · [当前验证证据](docs/verification/current.md) |
+| 交付 | [部署](docs/guides/deployment.md) · [运维](docs/guides/operations.md) · [安全](docs/guides/security.md) · [实现差距](docs/architecture/implementation-status.md) |
 
-路由变更后运行 `make docs-generate` 生成 `docs/api.md`；提交前运行 `make docs-check`。
+路由变更后运行 `make docs-generate` 生成 `docs/reference/api.md`；提交前运行 `make docs-check`。

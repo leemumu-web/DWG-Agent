@@ -13,21 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 REQUIRED_DOCS = {
     "README.md",
-    "api.md",
-    "architecture.md",
-    "audit-report-2026-07-18.md",
-    "configuration.md",
-    "daily-archive-design.md",
-    "database.md",
-    "deployment.md",
-    "developer-preview.md",
-    "development.md",
-    "operations.md",
-    "processing-pipelines.md",
-    "roadmap.md",
-    "security.md",
-    "workflow-framework.md",
-    "workflow-verification.md",
+    "architecture/implementation-status.md",
+    "architecture/overview.md",
+    "architecture/platform-specification.md",
+    "architecture/workflow.md",
+    "guides/deployment.md",
+    "guides/development.md",
+    "guides/operations.md",
+    "guides/security.md",
+    "reference/api.md",
+    "reference/configuration.md",
+    "reference/database.md",
+    "verification/current.md",
 }
 
 LINK_RE = re.compile(r"(?<!!)\[[^]]*]\(([^)]+)\)")
@@ -47,29 +44,47 @@ COMPONENT_READMES = (
 
 
 def _documentation_set(errors: list[str]) -> None:
-    current = {path.name for path in DOCS.glob("*.md")}
-    if current != REQUIRED_DOCS:
+    current = {
+        path.relative_to(DOCS).as_posix() for path in DOCS.rglob("*.md")
+    }
+    missing = REQUIRED_DOCS - current
+    if missing:
         errors.append(
-            "Documentation file set differs: "
-            f"missing={sorted(REQUIRED_DOCS - current)}, extra={sorted(current - REQUIRED_DOCS)}"
+            "Required documentation is incomplete: "
+            f"missing={sorted(missing)}"
+        )
+    unexpected_root_docs = {
+        path.name for path in DOCS.glob("*.md") if path.name != "README.md"
+    }
+    if unexpected_root_docs:
+        errors.append(
+            "Documentation must be classified below docs/: "
+            f"unclassified={sorted(unexpected_root_docs)}"
         )
     if (DOCS / "zh").exists():
         errors.append("docs/zh must not be recreated; maintained documentation is Chinese-only")
     forbidden = ("docs/zh/", "英文对应文档", "English mirror", "双语契约", "中英文参考")
-    for path in sorted(DOCS.glob("*.md")):
+    for path in sorted(DOCS.rglob("*.md")):
         content = path.read_text(encoding="utf-8")
         for marker in forbidden:
             if marker in content:
                 errors.append(f"{path.relative_to(ROOT)} contains obsolete marker: {marker}")
 
 
+def _read_required(path: Path, errors: list[str]) -> str:
+    if not path.is_file():
+        errors.append(f"missing required document: {path.relative_to(ROOT)}")
+        return ""
+    return path.read_text(encoding="utf-8")
+
+
 def _generated_api_docs(errors: list[str]) -> None:
     sys.path.insert(0, str(ROOT / "scripts"))
     from generate_api_docs import render
 
-    expected = {DOCS / "api.md": render()}
+    expected = {DOCS / "reference/api.md": render()}
     for path, generated in expected.items():
-        if path.read_text(encoding="utf-8") != generated:
+        if _read_required(path, errors) != generated:
             errors.append(
                 f"{path.relative_to(ROOT)} is stale; run "
                 "cd backend && uv run python ../scripts/generate_api_docs.py"
@@ -82,11 +97,9 @@ def _owned_markdown_files() -> list[Path]:
         ROOT / "README_EN.md",
         ROOT / "CHANGELOG.md",
         ROOT / "CONTRIBUTING.md",
-        ROOT / "DWG-Agent企业平台技术规范.md",
-        ROOT / "CLAUDE.md",
         *COMPONENT_READMES,
     ]
-    markdown_files.extend(sorted(DOCS.glob("*.md")))
+    markdown_files.extend(sorted(DOCS.rglob("*.md")))
     markdown_files.extend(
         ROOT / relative
         for relative in (
@@ -207,8 +220,8 @@ def _database_contract(errors: list[str]) -> None:
     else:
         current_head = heads[0]
 
-    for path in (DOCS / "database.md",):
-        content = path.read_text(encoding="utf-8")
+    for path in (DOCS / "reference/database.md",):
+        content = _read_required(path, errors)
         for env_name, default in expected_defaults.items():
             if f"| `{env_name}` | {default}" not in content:
                 errors.append(
@@ -236,9 +249,10 @@ def _database_contract(errors: list[str]) -> None:
 
 def _repository_boundaries(errors: list[str]) -> None:
     root_readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    claude_md = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-    specification = (ROOT / "DWG-Agent企业平台技术规范.md").read_text(encoding="utf-8")
-    deployment_doc = (DOCS / "deployment.md").read_text(encoding="utf-8")
+    specification = _read_required(
+        DOCS / "architecture/platform-specification.md", errors
+    )
+    deployment_doc = _read_required(DOCS / "guides/deployment.md", errors)
 
     if "`codex`" in specification or "codex branch" in specification.lower():
         errors.append("Technical specification contains an obsolete codex-branch status")
@@ -294,15 +308,14 @@ def _repository_boundaries(errors: list[str]) -> None:
         for method in path_item
         if method.lower() in {"get", "post", "put", "patch", "delete", "options", "head"}
     )
-    for label, content in (("README.md", root_readme), ("CLAUDE.md", claude_md)):
-        if label == "README.md" and (
-            f"{path_count} 个 OpenAPI path" not in content
-            or f"{operation_count} 个 operation" not in content
-        ):
-            errors.append(
-                f"{label} must document the current {path_count} OpenAPI paths and "
-                f"{operation_count} operations"
-            )
+    if (
+        f"{path_count} 个 OpenAPI path" not in root_readme
+        or f"{operation_count} 个 operation" not in root_readme
+    ):
+        errors.append(
+            f"README.md must document the current {path_count} OpenAPI paths and "
+            f"{operation_count} operations"
+        )
 
     from alembic.config import Config
     from alembic.script import ScriptDirectory
@@ -315,15 +328,18 @@ def _repository_boundaries(errors: list[str]) -> None:
     current_head = ScriptDirectory.from_config(alembic_config).get_current_head()
     model_table_count = len(Base.metadata.tables)
     initialized_table_count = model_table_count + 1 + 8
-    if current_head and current_head not in claude_md:
-        errors.append(f"CLAUDE.md omits current Alembic head {current_head}")
+    database_doc = _read_required(DOCS / "reference/database.md", errors)
+    if current_head and current_head not in database_doc:
+        errors.append(
+            f"docs/reference/database.md omits current Alembic head {current_head}"
+        )
     if (
-        f"{model_table_count} 张模型表" not in claude_md
-        or f"最多 {initialized_table_count} 张表" not in claude_md
+        f"{model_table_count} 张模型表" not in database_doc
+        or f"最多为 **{initialized_table_count} 张表**" not in database_doc
     ):
         errors.append(
-            "CLAUDE.md must document the current model/runtime table counts "
-            f"({model_table_count}/{initialized_table_count})"
+            "docs/reference/database.md must document the current model/runtime table "
+            f"counts ({model_table_count}/{initialized_table_count})"
         )
 
     required_root_docs = ("CHANGELOG.md", "CONTRIBUTING.md")
@@ -351,8 +367,8 @@ def _production_docs_contract(errors: list[str]) -> None:
     if not production_disables_docs:
         errors.append("FastAPI runtime documentation gate changed; update documentation contract")
         return
-    for path in (DOCS / "api.md",):
-        content = path.read_text(encoding="utf-8")
+    for path in (DOCS / "reference/api.md",):
+        content = _read_required(path, errors)
         if "`APP_ENV=production`" not in content or "`DEBUG=false`" not in content:
             errors.append(
                 f"{path.relative_to(ROOT)} must document disabled production runtime docs"

@@ -25,4 +25,4 @@ uv run python ../scripts/check_docs.py
 cd .. && bash scripts/db.sh migration-test
 ```
 
-SQLite pytest、空 MySQL migration 和真实 broker/storage/browser E2E 是不同证据层，不能互相替代。详细边界见[架构](../docs/architecture.md)和[开发说明](../docs/development.md)。
+SQLite pytest、空 MySQL migration 和真实 broker/storage/browser E2E 是不同证据层，不能互相替代。详细边界见[架构](../docs/architecture/overview.md)和[开发说明](../docs/guides/development.md)。

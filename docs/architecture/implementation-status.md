@@ -1,10 +1,14 @@
-# complete_framework 对《架构设计.txt》的实现进度审计报告
+# 目标架构实现状态与差距
+
+> 本文保留原始逐项调研证据，并作为目标差距的历史基线。2026-07-21 起，仓库结构重构的实时设计与计划见[领域重构设计](../superpowers/specs/2026-07-21-repository-domain-reorganization-design.md)和[实施计划](../superpowers/plans/2026-07-21-repository-domain-reorganization.md)。文中旧路径或旧排除声明仅代表调研时点，不应解释为当前完成状态。
+
+## 历史审计说明
 
 > 2026-07-19 增量更新：`linux_production` 已扩展为十阶段框架，生产批次在同一前端抽屉完成创建、多个 DWG + 单 Excel 上传、服务器 DXF 转换和冻结；随后接通 Steel DXF Classifier 1.1.0，对冻结 DXF 预处理、分类分流，并将 DXF/JSON/CSV 同步登记到 MySQL 和对象存储。DXF→Excel、Excel Final、Job attempt、结果产物和 active Job 取消继续复用现有实现。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确的 placeholder/external 接口。本报告其余章节保留 2026-07-18 审计快照。
 
-> 审计日期：2026-07-18  
-> 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`  
-> 目标依据：`/home/Creeken/Paper/CAD_research/架构设计.txt`  
+> 审计日期：2026-07-18
+> 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`
+> 目标依据：`/home/Creeken/Paper/CAD_research/结构图/架构设计.txt`
 > 审计方法：阅读目标架构、仓库说明、架构/部署/管线/工作流/验证文档，检查 FastAPI、SQLAlchemy 模型、Celery、存储适配、React、Compose、Nginx、各 Stage 与 Windows worker 占位代码，并执行可重复的静态检查、构建和部分测试。
 
 ---
@@ -52,7 +56,7 @@
 
 ### 1.3 最关键的项目方向问题
 
-当前仓库自己的 `README.md`、`CLAUDE.md` 和 `docs/roadmap.md` 明确把以下内容冻结或排除：
+历史审计时仓库说明曾把以下内容冻结或排除；当前以本文件顶部列出的领域重构设计与实施计划为准：
 
 - CAD 构件提取、分类、自动/交互拆板、左右进；
 - Windows CAD Worker；
@@ -381,7 +385,7 @@ Excel Final 已有独立 Stage、进程隔离、输入探测、手册数据库�
 
 **风险：** 团队可能继续完善转换控制台、Agent 占位或通用管理功能，却不推进最终生产价值链。
 
-**建议：** 建立新的目标追踪矩阵，以《架构设计.txt》章节为 epic；修改 `README.md`、`docs/roadmap.md` 和 `CLAUDE.md` 中的排除声明。
+**当前处置：** 本轮重构先建立机器可校验的模块目录和目标追踪矩阵，并同步 README、模块文档与验证证据；目标章节不得仅靠说明文字标记为完成。
 
 ### 5.2 P0：broker/outbox 与目标可靠性模型不一致
 

@@ -1,67 +1,7 @@
-#!/usr/bin/env python3
-"""Generate the Chinese API route reference from FastAPI."""
+# API 参考
 
-from __future__ import annotations
+本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **114 个 path、135 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
-import sys
-from collections import defaultdict
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-API_DOC_PATH = ROOT / "docs" / "reference" / "api.md"
-sys.path.insert(0, str(ROOT / "backend"))
-
-from app.main import app  # noqa: E402
-
-GROUP_NAMES = {
-    "health": "健康检查",
-    "auth": "认证",
-    "data-admin": "数据控制台",
-    "users": "用户",
-    "roles": "角色与权限",
-    "permissions": "角色与权限",
-    "projects": "项目",
-    "files": "文件与下载",
-    "drawings": "图纸",
-    "jobs": "任务",
-    "results": "结果与复核",
-    "reviews": "结果与复核",
-    "audit-logs": "审计",
-    "agent-runs": "Agent（禁用边界）",
-    "agent-tools": "Agent（禁用边界）",
-    "system": "系统",
-    "control-plane": "运行与通信控制平面",
-    "excel-final": "Excel Final",
-    "workflows": "生产流程",
-}
-
-
-def group_key(path: str) -> str:
-    if path.startswith("/health"):
-        return "health"
-    parts = path.split("/")
-    return parts[3] if len(parts) > 3 else "other"
-
-
-def route_rows() -> dict[str, list[tuple[str, str]]]:
-    grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for path, operations in app.openapi()["paths"].items():
-        methods = ", ".join(method.upper() for method in operations)
-        grouped[group_key(path)].append((methods, path))
-    return grouped
-
-
-def render() -> str:
-    schema = app.openapi()
-    path_count = len(schema["paths"])
-    operation_count = sum(len(operations) for operations in schema["paths"].values())
-    intro = (
-        "本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI "
-        "OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。"
-        f"当前 OpenAPI 包含 **{path_count} 个 path、{operation_count} 个 operation**。"
-        "路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。"
-    )
-    common = """
 ## 统一约定
 
 - 本地直连基地址：`http://127.0.0.1:8010`；Nginx 入口：`http://127.0.0.1:8080`；容器内部 API 端口同为 `8010`。
@@ -77,8 +17,202 @@ def render() -> str:
 - 数据控制台读取允许 `admin/auditor`，扫描与处置执行只允许 `admin`；处置必须先预检，再携带绑定操作人和目标摘要的短期 token 与幂等键执行。
 - 文件/流水/finding 使用服务端页码分页；对象清单使用不透明 cursor。永久清理未登记对象还必须提交确认词 `PURGE`。
 - `AGENT_ENABLED=false` 时 Agent 端点返回 503；仓库没有可执行 Agent task，本项目也不把 Agent 执行列为当前交付目标。
-"""
-    cad_conversion_contract = """
+
+## 健康检查
+
+| Method | Path |
+|---|---|
+| `GET` | `/health` |
+| `GET` | `/health/ready` |
+
+## 认证
+
+| Method | Path |
+|---|---|
+| `POST` | `/api/v1/auth/sessions` |
+| `DELETE` | `/api/v1/auth/sessions/current` |
+| `POST` | `/api/v1/auth/tokens/refresh` |
+| `GET` | `/api/v1/auth/me` |
+| `PATCH` | `/api/v1/auth/password` |
+
+## 数据控制台
+
+| Method | Path |
+|---|---|
+| `POST` | `/api/v1/data-admin/daily-archives/preview` |
+| `POST, GET` | `/api/v1/data-admin/daily-archives` |
+| `GET` | `/api/v1/data-admin/daily-archives/{archive_id}` |
+| `GET` | `/api/v1/data-admin/overview` |
+| `GET` | `/api/v1/data-admin/files` |
+| `GET` | `/api/v1/data-admin/files/{file_id}` |
+| `GET` | `/api/v1/data-admin/objects` |
+| `GET` | `/api/v1/data-admin/transfers` |
+| `GET` | `/api/v1/data-admin/transfers/{transfer_uid}` |
+| `POST, GET` | `/api/v1/data-admin/scans` |
+| `POST` | `/api/v1/data-admin/remediations/preview` |
+| `POST` | `/api/v1/data-admin/remediations/execute` |
+| `GET` | `/api/v1/data-admin/scans/{scan_id}` |
+| `GET` | `/api/v1/data-admin/scans/{scan_id}/findings` |
+
+## 用户
+
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/users` |
+| `GET, PATCH, DELETE` | `/api/v1/users/{user_id}` |
+| `PATCH` | `/api/v1/users/me` |
+| `POST` | `/api/v1/users/{user_id}/roles` |
+| `DELETE` | `/api/v1/users/{user_id}/roles/{role_id}` |
+| `POST` | `/api/v1/users/{user_id}/password-reset-requests` |
+| `POST` | `/api/v1/users/{user_id}/disable-requests` |
+| `POST` | `/api/v1/users/{user_id}/enable-requests` |
+
+## 角色与权限
+
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/roles` |
+| `PUT` | `/api/v1/roles/{role_id}/permissions` |
+| `GET` | `/api/v1/permissions` |
+
+## 项目
+
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/projects` |
+| `GET, PATCH, DELETE` | `/api/v1/projects/{project_id}` |
+| `GET, POST` | `/api/v1/projects/{project_id}/members` |
+| `PATCH, DELETE` | `/api/v1/projects/{project_id}/members/{member_id}` |
+
+## 文件与下载
+
+| Method | Path |
+|---|---|
+| `POST, GET` | `/api/v1/files` |
+| `POST` | `/api/v1/files/upload-zip` |
+| `GET` | `/api/v1/files/batches` |
+| `POST` | `/api/v1/files/batches/bulk-delete` |
+| `DELETE` | `/api/v1/files/batches/{batch_name}` |
+| `GET` | `/api/v1/files/batches/{batch_name}/download-zip` |
+| `GET` | `/api/v1/files/{file_id}/excel-preview` |
+| `GET` | `/api/v1/files/{file_id}/dxf-preview` |
+| `GET` | `/api/v1/files/{file_id}/dxf-preview/content` |
+| `GET, DELETE` | `/api/v1/files/{file_id}` |
+| `GET` | `/api/v1/files/{file_id}/download-url` |
+| `GET` | `/api/v1/files/{file_id}/download` |
+| `POST` | `/api/v1/files/bulk-delete` |
+| `POST` | `/api/v1/files/download-zip/preview` |
+| `POST` | `/api/v1/files/download-zip` |
+
+## 图纸
+
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/drawings` |
+| `GET, PATCH, DELETE` | `/api/v1/drawings/{drawing_id}` |
+| `GET, POST` | `/api/v1/drawings/{drawing_id}/versions` |
+| `GET` | `/api/v1/drawings/{drawing_id}/preview` |
+
+## 任务
+
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/jobs` |
+| `POST` | `/api/v1/jobs/batches` |
+| `POST` | `/api/v1/jobs/cancellation-requests` |
+| `GET` | `/api/v1/jobs/events/stream` |
+| `GET` | `/api/v1/jobs/{job_id}` |
+| `POST` | `/api/v1/jobs/{job_id}/cancellation-requests` |
+| `POST` | `/api/v1/jobs/{job_id}/retry-requests` |
+| `GET` | `/api/v1/jobs/{job_id}/steps` |
+| `GET` | `/api/v1/jobs/{job_id}/logs` |
+| `GET` | `/api/v1/jobs/{job_id}/events` |
+| `GET` | `/api/v1/jobs/{job_id}/results` |
+| `POST` | `/api/v1/jobs/cancel-all-active` |
+
+## 结果与复核
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/results/{result_id}` |
+| `GET` | `/api/v1/results/{result_id}/download-url` |
+| `POST, GET` | `/api/v1/results/{result_id}/reviews` |
+| `GET` | `/api/v1/reviews/pending` |
+
+## 审计
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/audit-logs` |
+| `GET` | `/api/v1/audit-logs/{audit_log_id}` |
+
+## Agent（禁用边界）
+
+| Method | Path |
+|---|---|
+| `POST` | `/api/v1/agent-runs` |
+| `GET` | `/api/v1/agent-runs/{agent_run_id}` |
+| `GET` | `/api/v1/agent-runs/{agent_run_id}/steps` |
+| `GET` | `/api/v1/agent-tools` |
+
+## 系统
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/system/health` |
+| `GET` | `/api/v1/system/infrastructure` |
+| `GET` | `/api/v1/system/health/oda` |
+
+## 运行与通信控制平面
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/control-plane/overview` |
+| `GET` | `/api/v1/control-plane/events` |
+| `GET` | `/api/v1/control-plane/messages` |
+| `PATCH` | `/api/v1/control-plane/messages/{message_id}/read` |
+| `GET` | `/api/v1/control-plane/contracts/windows-node-agent` |
+| `POST` | `/api/v1/control-plane/maintenance/reconcile-stale-jobs` |
+
+## Excel Final
+
+| Method | Path |
+|---|---|
+| `POST` | `/api/v1/excel-final/upload` |
+| `POST` | `/api/v1/excel-final/process` |
+| `POST` | `/api/v1/excel-final/upload-and-process` |
+| `GET` | `/api/v1/excel-final/process/{job_id}` |
+| `GET` | `/api/v1/excel-final/process/{job_id}/download` |
+| `GET` | `/api/v1/excel-final/overview` |
+| `GET` | `/api/v1/excel-final/batches` |
+| `GET` | `/api/v1/excel-final/batches/{batch_id}` |
+| `GET` | `/api/v1/excel-final/batches/{batch_id}/parts` |
+| `GET` | `/api/v1/excel-final/batches/{batch_id}/parts/{part_id}` |
+| `GET` | `/api/v1/excel-final/batches/{batch_id}/components` |
+| `GET` | `/api/v1/excel-final/parts/search` |
+| `GET` | `/api/v1/excel-final/weights/lookup` |
+| `GET` | `/api/v1/excel-final/health` |
+
+## 生产流程
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/workflows/templates` |
+| `GET, POST` | `/api/v1/workflows` |
+| `POST` | `/api/v1/workflows/{workflow_id}/artifacts` |
+| `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` |
+| `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification` |
+| `GET` | `/api/v1/workflows/{workflow_id}` |
+| `POST` | `/api/v1/workflows/{workflow_id}/start` |
+| `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion` |
+| `POST` | `/api/v1/workflows/{workflow_id}/cancellation-requests` |
+| `POST, GET` | `/api/v1/workflows/{workflow_id}/input-batch` |
+| `POST` | `/api/v1/workflows/{workflow_id}/input-batch/files` |
+| `DELETE` | `/api/v1/workflows/{workflow_id}/input-batch/files/{item_id}` |
+| `POST` | `/api/v1/workflows/{workflow_id}/input-batch/conversion-requests` |
+| `POST` | `/api/v1/workflows/{workflow_id}/input-batch/freeze` |
+
+
 ## CAD 转换生产契约
 
 ### 批量创建转换任务
@@ -221,8 +355,8 @@ HTTP 200 预检响应：
 Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前范围文件数作分母：`succeeded` 计 100，非停滞 active Job 计经 0-100 截断的当前进度，`failed`、`cancelled`、无 Job 和超过 60 秒仍为 0% 的停滞 `queued` 计 0。因此失败 Job 保留的历史进度不会抬高汇总。
 
 只有最新 Job 状态加载完成后才显示“未提交”。无 Job、`failed`、`cancelled` 或停滞 `queued` 文件进入“提交/重试”集合；活动任务与可补交文件可同时存在，暂停和补交入口因而可同时显示。
-"""
-    excel_final_contract = """
+
+
 ## Excel Final 幂等与监视契约
 
 `POST /process` 和 `POST /upload-and-process` 接受 `Idempotency-Key`。键去除首尾空白后必须为 1-96 个 ASCII 字母、数字、点、下划线、冒号或连字符。服务端按端点作用域保存到 `jobs.request_key`，数据库唯一约束覆盖 `(created_by, task_type, request_key)`：首次提交返回 `reused=false` 并分发 Job；相同键和相同参数重放返回同一 `job_id`、`reused=true`，不再次分发；同一 process 键改用另一个 `file_id` 返回 `409 IDEMPOTENCY_KEY_REUSED`。不带键保留旧的每次创建行为，仓库前端始终发送键。
@@ -232,8 +366,8 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 `GET /health` 除 Stage/依赖/五金手册字段外，还返回 `database_backend`、`database_available`、`storage_backend`、`storage_available`、`storage_bucket` 与稳定的 `degraded_components`。`ready` 要求处理开关、Stage/依赖、手册库、业务数据库和对象存储同时可用；响应不包含底层连接异常或凭据。
 
 前端 `/files/excel-final` 支持 `job_id`、`batch_page`、`batch_size`、`batch_id`、`part_no`、`spec`、`material`、`search_page`、`search_size` 和内部搜索激活标记。默认值不强制写入 URL；关闭抽屉、清空搜索及分页更新只修改自身参数，不覆盖同页任务状态。
-"""
-    workflow_contract = """
+
+
 ## Linux 生产工作流契约
 
 `GET /api/v1/workflows/templates` 返回后端权威模板和阶段能力。`linux_production` 固定为 `source_intake`、`dxf_classification`、`drawing_processing`、`excel_stage1`、`design_barrier`、`excel_final`、`cam_packaging`、`windows_cam`、`result_acceptance`、`delivery_archive` 十阶段。每个阶段声明执行方式、实现状态、execution kind、所需输入和产物类型；前端不得自行把 placeholder 判断为已实现。
@@ -255,42 +389,8 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 图纸拆板、CAM 工作包、Windows CAM 和结果接纳保留同一 executions 路径，但返回 HTTP 501 `WORKFLOW_STAGE_NOT_IMPLEMENTED`；`details` 包含 `implementation_status`、`execution_mode`、`required_inputs` 和 `artifact_types`。绑定外部交接产物后，owner/engineer 可通过 completion 明确确认交接；这不代表平台执行了留白算法。
 
 详情查询同步匹配 attempt 的 Job，成功时幂等挂接 AnalysisResult/File 并推进下一阶段。取消流程会先取消当前 active Job。feature flag 关闭分别返回 `DXF2EXCEL_PIPELINE_DISABLED` 或 `EXCEL_FINAL_PIPELINE_DISABLED`。
-"""
-    sections = ["# API 参考", "", intro, common]
-    grouped = route_rows()
-    seen: set[str] = set()
-    for key in GROUP_NAMES:
-        display = GROUP_NAMES[key]
-        if display in seen or key not in grouped:
-            continue
-        seen.add(display)
-        rows: list[tuple[str, str]] = []
-        for candidate, name in GROUP_NAMES.items():
-            if name == display:
-                rows.extend(grouped.get(candidate, []))
-        sections.extend([f"## {display}", "", "| Method | Path |", "|---|---|"])
-        sections.extend(f"| `{method}` | `{path}` |" for method, path in rows)
-        sections.append("")
-    sections.extend(
-        [
-            cad_conversion_contract,
-            excel_final_contract,
-            workflow_contract,
-            "## 运行时文档",
-            "",
-            "development/debug 模式启动后，访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。",
-            "当 `APP_ENV=production` 且 `DEBUG=false` 时，这三个运行时文档入口有意关闭；生产应使用本生成文件和版本化 OpenAPI artifact。",
-            "",
-        ]
-    )
-    return "\n".join(sections)
 
+## 运行时文档
 
-def main() -> int:
-    API_DOC_PATH.parent.mkdir(parents=True, exist_ok=True)
-    API_DOC_PATH.write_text(render(), encoding="utf-8")
-    return 0
-
-
-if __name__ == "__main__":
-    main()
+development/debug 模式启动后，访问 `/docs`、`/redoc` 或 `/openapi.json` 获取请求/响应 schema。
+当 `APP_ENV=production` 且 `DEBUG=false` 时，这三个运行时文档入口有意关闭；生产应使用本生成文件和版本化 OpenAPI artifact。

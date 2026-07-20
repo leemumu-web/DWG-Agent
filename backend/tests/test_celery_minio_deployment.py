@@ -428,7 +428,7 @@ def test_env_examples_expose_celery_eager_flag_with_consistent_keys():
 
 
 def test_deployment_docs_match_mysql_derived_celery_url_behavior():
-    content = (REPO_ROOT / "docs/deployment.md").read_text()
+    content = (REPO_ROOT / "docs/guides/deployment.md").read_text()
 
     assert "direct " + chr(96) + "os.environ" not in content
     assert "从有效 MySQL DSN 派生" in content

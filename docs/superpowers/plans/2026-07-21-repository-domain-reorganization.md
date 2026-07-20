@@ -60,7 +60,7 @@ The three pre-existing backend failures at commit `4d93ed5` are caused by delete
 - Move and refresh content from: `目标架构实现进度报告.md`
 - Delete after references change: the two root source Markdown files
 
-- [ ] **Step 1: Confirm the known red gate**
+- [x] **Step 1: Confirm the known red gate**
 
 Run:
 
@@ -73,7 +73,7 @@ cd backend
 
 Expected: three failures caused only by missing documentation paths.
 
-- [ ] **Step 2: Point generated API documentation at the classified reference directory**
+- [x] **Step 2: Point generated API documentation at the classified reference directory**
 
 Change `scripts/generate_api_docs.py` to use one constant:
 
@@ -88,7 +88,7 @@ def main() -> int:
 
 Update generator prose and Makefile-facing messages to name `docs/reference/api.md`.
 
-- [ ] **Step 3: Make the documentation checker report missing files instead of crashing**
+- [x] **Step 3: Make the documentation checker report missing files instead of crashing**
 
 Use a checked read helper in `scripts/check_docs.py`:
 
@@ -102,7 +102,7 @@ def _read_required(path: Path, errors: list[str]) -> str:
 
 Set `DOCS` to the new categorized files and compare generated content with `docs/reference/api.md`. A missing document must produce a normal non-zero checker result, never a traceback.
 
-- [ ] **Step 4: Write the categorized documentation set**
+- [x] **Step 4: Write the categorized documentation set**
 
 Each guide must contain real commands and current limitations. In particular, `docs/guides/deployment.md` must state all of these current facts because the contract test enforces them:
 
@@ -116,7 +116,7 @@ The Compose stack currently exposes HTTP and does not claim completed TLS.
 
 `docs/architecture/workflow.md` must include the existing public input and workflow routes, the ten-stage `linux_production` framework, the server-side DWG→DXF rule, classification 1.1.0, and explicit placeholder stages.
 
-- [ ] **Step 5: Update all owned Markdown links**
+- [x] **Step 5: Update all owned Markdown links**
 
 Run:
 
@@ -127,7 +127,7 @@ rg -n 'docs/(api|architecture|database|configuration|development|deployment|oper
 
 Replace every result with a real new path. Do not keep compatibility files whose only content is a link.
 
-- [ ] **Step 6: Generate API reference and run the focused gate**
+- [x] **Step 6: Generate API reference and run the focused gate**
 
 Run:
 
@@ -142,7 +142,7 @@ cd backend
 
 Expected: documentation checker passes and all focused tests pass.
 
-- [ ] **Step 7: Run the full backend baseline**
+- [x] **Step 7: Run the full backend baseline**
 
 Run:
 
@@ -153,7 +153,7 @@ cd backend
 
 Expected: at least `1004 passed, 6 skipped`, with no failures. Record the exact current number in `docs/verification/current.md`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add README.md README_EN.md backend/README.md frontend/README.md infra/README.md \

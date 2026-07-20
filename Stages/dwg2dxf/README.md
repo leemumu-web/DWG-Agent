@@ -13,7 +13,7 @@ DWG 文件/目录 → ODA File Converter (subprocess) → DXF
 
 本目录是独立 converter package，也是 `backend/` 的 editable dependency。平台只在 `DXF_PIPELINE_ENABLED=true` 时从 `dxf` Celery 队列调用。该包不负责用户认证、Job、存储授权或生产 FastAPI 服务。已跟踪 Linux AppImage 仍要求兼容主机、Xvfb/FUSE、ODA 许可审查和真实代表性 DWG 验证。
 
-单元测试主要验证命令构造、隔离、错误解析和边界，不等同于所有 DWG 版本的转换认证。平台级状态、重试和结果持久化见 [`docs/processing-pipelines.md`](../../docs/processing-pipelines.md)。
+单元测试主要验证命令构造、隔离、错误解析和边界，不等同于所有 DWG 版本的转换认证。平台级状态、重试和结果持久化见[Linux 生产工作流](../../docs/architecture/workflow.md)。
 
 ---
 

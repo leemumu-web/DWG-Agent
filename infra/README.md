@@ -1,6 +1,6 @@
 # 基础设施
 
-`infra/` 维护 Nginx 网关、MySQL 初始化数据/授权和静态部署验证。最终 Compose 拓扑位于根 `compose.yaml`，详细部署和恢复边界见[部署](../docs/deployment.md)与[运维](../docs/operations.md)。
+`infra/` 维护 Nginx 网关、MySQL 初始化数据/授权和静态部署验证。最终 Compose 拓扑位于根 `compose.yaml`，详细部署和恢复边界见[部署指南](../docs/guides/deployment.md)与[运维指南](../docs/guides/operations.md)。
 
 ```bash
 cp .env.docker.example .env.docker

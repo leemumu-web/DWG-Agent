@@ -1,14 +1,16 @@
 # DWG-Agent 企业平台技术规范
 
-**版本：2.2**
+> 本规范已按仓库领域分层迁入架构文档。它描述必须长期保持的产品与运行边界；当前实现进度以[实现状态](implementation-status.md)和[当前验证证据](../verification/current.md)为准。
 
-**状态：实现同步规范；审计基线为 2026-07-11 的 `main` 工作树（HEAD `d178fcf` 加当前未提交变更）**
+**版本：2.3**
+
+**状态：实现同步规范；审计基线为 2026-07-21 的 `main` 工作树**
 
 **适用范围：React、Nginx、FastAPI、MySQL、Celery、Local/MinIO 存储及仓库内 CAD/Excel Stage**
 
 本文是平台设计与实现边界的规范性说明。实际端点由 FastAPI OpenAPI 生成，数据库结构由 SQLAlchemy 模型和 Alembic 迁移定义，部署行为由 `compose.yaml`、Dockerfile、Nginx 配置和脚本定义。文档与这些事实冲突时，应先修复实现或明确记录偏差，不能用文档掩盖差异。
 
-## 1. 目标、角色与非目标
+## 1. 目标、角色与当前边界
 
 平台面向企业内部操作员、工程师、复核员和审计员，提供 CAD/Excel 文件接入、异步处理、任务追踪、结果下载、复核和审计。
 
@@ -16,14 +18,15 @@
 
 - 用户、角色、权限、项目成员、文件、图纸版本、任务、结果、复核与审计。
 - MySQL 权威状态、Celery SQL broker/result、本地或 MinIO 对象存储。
-- report 框架任务及四条受功能开关保护的确定性转换管线。
-- 项目级通用工作流模型、人工阶段推进、审计 API 和生产流程页面。
+- report/maintenance 框架任务及受功能开关保护的确定性 CAD、分类和 Excel 管线。
+- 项目级工作流、多个 DWG + 单个 Excel 的生产输入、服务器 DWG→DXF、输入冻结、Steel DXF Classifier 1.1.0 分类分流、阶段推进、审计 API 和生产流程页面。
 - 前端登录刷新、分页、轮询/SSE、重试和签名下载交互。
 
-当前明确不交付：
+目标架构中已有契约但当前尚未实现：
 
 - Agent 推理任务体、LangGraph/MCP 工具执行闭环。
-- Windows ZWCAD worker、远程 CAD 节点认证及其 Compose 服务。
+- 图纸自动/人工拆板业务校验、CAM 工作包、Windows Node Agent、CAM Runner、SinoCAM Adapter 与正式结果接纳。
+- RabbitMQ、事务 Outbox 与 Celery Beat；当前仍使用 MySQL SQLAlchemy transport 和显式维护请求。
 - 已完成的公网 TLS、证书轮换、WAF、集中监控告警、日志汇聚、自动备份或灾难恢复。
 - 任意规模的 Celery 横向扩容保证或高吞吐 broker SLA。
 
@@ -83,11 +86,11 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 - `APP_ENV=production` 且 `DEBUG=false` 时禁用 OpenAPI、Swagger 和 ReDoc，并使用通用 500 消息。
 - `REFRESH_COOKIE_SECURE` 默认随 `APP_ENV`；公网只能使用 TLS + Secure cookie。HTTP 私网覆盖为 `false` 是风险接受，不是推荐生产配置。
 
-完整字段、默认值和敏感性见 `docs/configuration.md`。
+完整字段、默认值和敏感性见[配置参考](../reference/configuration.md)。
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `e4a1c7f2b930`，SQLAlchemy/Alembic 管理 25 张模型表。
+- 当前 Alembic head 为 `e2f4b8c6a130`，SQLAlchemy/Alembic 管理 36 张模型表。
 - 空迁移 schema 加 `alembic_version` 为 26 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 34 张。不能把 34 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
@@ -122,11 +125,11 @@ failed/cancelled  -> retry -> queued (attempt + 1)
 
 - 工作流必须属于项目，写操作只允许项目 owner/engineer，其他项目成员只读；
 - `WorkflowRun` 是业务编排元数据，`Job`/`JobStep` 仍是异步执行事实；
-- service 内部可以绑定 `(job_id, job_attempt)` 并同步匹配 attempt 的状态，但当前公开 route 没有接线；
-- 产物模型存在，但当前公开 route 不会挂接 file/result，也没有版本唯一约束；
-- 人工 completion 不接收验收证据，只代表状态推进；
-- 取消工作流不会自动撤销 Celery Job 或终止子进程；
-- 完成自动 Job 创建、结果挂接、复核联动和交付清单前，不得称为生产自动闭环。
+- 公开 route 已为已实现阶段绑定 `(job_id, job_attempt)`、同步匹配 attempt 的状态并挂接 file/result；
+- `source_intake` 只接受多个 DWG 与唯一 Excel，人工 DXF 被拒绝；DXF 必须由服务器转换并登记后才能冻结；
+- 通用 completion 不能绕过输入冻结或自动阶段执行；placeholder/external 阶段必须提交符合契约的交接产物；
+- 取消工作流会协调活动 Job，但外部子进程的强制终止能力仍取决于具体 Stage；
+- 拆板、CAM、Windows/SinoCAM、结果接纳和确定性交付清单完成前，不得称为生产自动闭环。
 
 ## 8. Celery 队列边界
 
@@ -135,7 +138,7 @@ failed/cancelled  -> retry -> queued (attempt + 1)
 | `report` | `run_stub_job` 已实现，用于框架任务 | Compose core、本地脚本 |
 | `dxf` | DWG -> DXF 已实现 | `workers` profile、本地脚本 |
 | `dxf2dwg` | DXF -> DWG 已实现 | `workers` profile、本地脚本 |
-| `dxf2excel` | DXF -> Excel task 已实现，但 Stage gitlink 损坏 | `workers` profile、本地脚本 |
+| `dxf2excel` | DXF -> Excel task 与普通跟踪 Stage 已实现 | `workers` profile、本地脚本 |
 | `excel_final` | Excel Final task 已实现 | `workers` profile、本地脚本 |
 | `agent` | module 仅占位，无 Celery task | Compose 有占位 worker；本地脚本不启动 |
 | `cad` | module 仅占位，无 Celery task | 无 Compose/local worker |
@@ -185,7 +188,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
 - `DEBUG=true` 的未处理 500 响应可能包含异常字符串，只能用于受控开发；生产必须 `DEBUG=false`。
-- 运行时交互文档仅在 development 或 debug 模式存在。生产 API 参考应使用仓库生成的 `docs/api.md`。
+- 运行时交互文档仅在 development 或 debug 模式存在。生产 API 参考应使用仓库生成的 `docs/reference/api.md`。
 
 ## 12. SSE
 
@@ -197,7 +200,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 |---|---|---|---|
 | `dwg2dxf` | 普通跟踪目录 | ODA、Xvfb/FUSE | 源码和 ODA AppImage 已跟踪；仍需许可与真实样本验证 |
 | `dxf2dwg` | 普通跟踪目录 | ODA、Xvfb/FUSE | 同上 |
-| `dxf2excel` | gitlink | ezdxf/pandas/openpyxl | 当前 gitlink 无 `.gitmodules` 且目标对象缺失，干净 clone 不可复现 |
+| `dxf2excel` | 普通跟踪目录 | ezdxf/pandas/openpyxl | 源码与锁文件可从干净 clone 重放；历史外部验证 corpus 不随仓库分发 |
 | `excel_final` | 普通跟踪目录 | pandas/openpyxl/xlrd、手册 MySQL | backend 通过隔离子进程调用，不作为包导入 |
 
 Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清单 schema 的真实工作簿。legacy 二进制 `.xls` 通过锁定的 `xlrd` 读取；文本探测失败必须进入 Excel fallback。子进程 stdout 用结构化 JSON 与 backend 通信，完整 stderr 只进入 worker log。成功后同时写结果对象、`files`/`analysis_results` 和 Excel Final batch/part/component；客户端错误不得包含 traceback、DSN 或主机路径。
@@ -207,7 +210,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - Axios 对 401 只执行一次共享 refresh 请求，避免并发刷新风暴；登录和 refresh 请求自身不循环重试。
 - React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
 - Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
-- 生产流程页面提供人工模板创建、状态筛选、阶段时间线、启动/确认/取消；它不自动创建 Job、上传文件或挂接产物。
+- 生产流程页面以“提交生产批次”为主入口，在同一抽屉完成创建、启动、多个 DWG + 单 Excel 上传、服务器转换、冻结与 DXF 分类；后续留白阶段展示契约、交接产物和可恢复错误。
 - EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。
 - UI 权限守卫只控制显示，不替代 API 授权。
 
@@ -229,7 +232,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - MySQL 和 MinIO 使用命名卷且不发布宿主端口。
 - MinIO 固定 registry digest；MySQL 使用 8.4 tag，未固定 digest。
 - backend 在 Gunicorn 前执行 Alembic upgrade 和 seed。
-- Docker build 依赖 `Stages/dxf2excel` 实体源码；gitlink 未修复前新 clone 构建不可靠。
+- Docker build 依赖 `Stages/dxf2excel` 实体源码；该 Stage 已作为普通跟踪目录纳入构建上下文。
 - Compose 没有 TLS、证书、监控、备份调度、滚动升级或多副本协调，不应直接标记为完整生产方案。仓库虽提供手工 backup/restore 命令，但没有跨 MySQL/MinIO 原子快照或自动演练。
 
 ## 17. 数据保护与审计边界
@@ -277,16 +280,16 @@ cd frontend && npm run build && npx playwright test
 | 未完成领域 | 完成所需证据 |
 |---|---|
 | TLS | 受控 TLS termination、80 跳转、HSTS、浏览器/openssl 握手和续期演练 |
-| `dxf2excel` 仓库完整性 | 普通跟踪目录或有效 `.gitmodules` + 可获取 commit；clean clone、`uv sync --locked`、Docker build 通过 |
-| 通用工作流闭环 | Job/attempt 自动绑定、file/result 产物挂接、复核联动、取消协调、交付清单和真实 MySQL/Celery/MinIO/browser E2E |
+| Linux 生产工作流闭环 | 已实现阶段需真实 MySQL/Celery/MinIO/browser E2E；拆板、CAM、Windows/SinoCAM、结果接纳与交付清单需完成实现和故障恢复 |
 | 运维 | 指标、告警、集中日志、备份调度、恢复演练、容量和保留策略 |
-| Broker 扩容 | 压测数据、连接预算、故障恢复与 RabbitMQ/其他 broker ADR |
+| RabbitMQ / Outbox / Beat | Compose 服务、持久卷、健康检查、事务投递、重连/恢复测试、周期调度和运行手册 |
+| Windows 执行面 | Node Agent 认证与租约、fencing token、CAM Runner/Adapter、命令/结果协议和真实 Windows 故障恢复 |
 
-Agent/model/MCP 执行、CAD 图纸业务算法和 Windows CAD Worker 是当前项目明确非目标，不列入完成交付标准；已有 route/model/config/目录只作为兼容边界保留，相关 flag 必须保持 false。
+核心算法尚未实现时只保留 API、schema、输入输出和错误契约，相关 flag 必须保持 false；这些目标能力不得因本轮目录重构被删除，也不得以占位状态计入完成率。
 
 ## 20. 文档治理
 
-- 项目只维护 `docs/*.md` 中文文档，不再创建旧双语目录或英文镜像。
+- 项目只维护 `docs/` 分类目录中的中文文档，不再创建旧双语目录或英文镜像。
 - 路由变更后运行 `make docs-generate`；提交前运行 `make docs-check`。
 - 组件 README 描述本目录的运行方式和边界；根 README 不复制完整内部算法。
 - `third_parts/` 是上游/外部文档，不纳入项目中文化范围；平台只能记录集成边界，不能改写上游历史。

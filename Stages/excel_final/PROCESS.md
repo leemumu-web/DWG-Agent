@@ -1,6 +1,6 @@
 # 钢结构零件清单处理流程文档
 
-> **文档边界：** 本文是 Stage 内部算法说明，不是平台 API/权限/Job 契约。平台通过隔离子进程调用本 Stage，集成边界见 [`README.md`](README.md) 与 [`docs/processing-pipelines.md`](../../docs/processing-pipelines.md)。输入输出行为以当前代码和测试为准。
+> **文档边界：** 本文是 Stage 内部算法说明，不是平台 API/权限/Job 契约。平台通过隔离子进程调用本 Stage，集成边界见 [`README.md`](README.md) 与[Linux 生产工作流](../../docs/architecture/workflow.md)。输入输出行为以当前代码和测试为准。
 
 ## 概述
 

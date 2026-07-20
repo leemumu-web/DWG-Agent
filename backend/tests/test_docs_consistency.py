@@ -27,9 +27,11 @@ def test_frontend_env_example_uses_fixed_local_backend_port() -> None:
 
 
 def test_linux_production_workflow_documentation_matches_public_routes() -> None:
-    workflow = (REPO_ROOT / "docs/workflow-framework.md").read_text(encoding="utf-8")
-    architecture = (REPO_ROOT / "docs/architecture.md").read_text(encoding="utf-8")
-    pipelines = (REPO_ROOT / "docs/processing-pipelines.md").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / "docs/architecture/workflow.md").read_text(encoding="utf-8")
+    architecture = (REPO_ROOT / "docs/architecture/overview.md").read_text(encoding="utf-8")
+    pipelines = (REPO_ROOT / "docs/architecture/implementation-status.md").read_text(
+        encoding="utf-8"
+    )
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     combined = "\n".join((workflow, architecture, pipelines, readme))
 
