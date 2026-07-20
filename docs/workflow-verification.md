@@ -251,7 +251,27 @@ uv run python ../scripts/benchmark_cad_conversion.py \
 
 最终自动门禁为 backend **896 passed、6 skipped**（15 条既有 dependency/deprecation warning）、Ruff 无错误、Alembic 无待生成 operation；两个 ODA Stage 各 **30 passed**；TypeScript 6 + Vite 8 production build、Compose config 和文档一致性均通过。双向转换页的实时浏览器聚焦回归为 **8 passed、2 skipped**：单文件上传确实调用批量 Job API，“继续任务”调用批量入口，active 可见性和范围统计均通过；两个“点击全部暂停”用例因各自页面加载时没有 active Job 按设计跳过，作用域取消由前述真实 2 文件 API 闭环和后端授权/状态测试覆盖。
 
-## 10. 2026-07-11 基线证据
+## 10. 2026-07-20 每日归档与数据控制台证据
+
+本轮为数据控制台增加非破坏性的每日一键归档：按 `Asia/Shanghai` 业务日冻结已登记且对象可读的文件，后台任务生成 ZIP 与独立 JSON 清单，再把两个产物写入对象存储并登记到 MySQL。预检令牌绑定日期、桶范围、文件 ID 与清单摘要，执行接口具备权限、幂等、容量上限和源对象二次校验；归档不会移动、删除或软删除源文件，也不替代数据库和对象存储灾备。
+
+| 门禁 | 结果 | 实际覆盖 |
+|---|---|---|
+| Backend Ruff | pass | 每日归档模型、服务、API、maintenance task、存储流式写入、迁移和测试 |
+| Backend 全量 | **1004 passed，6 skipped** | 135.87 秒；15 条既有 dependency/deprecation/test-secret warning，无失败 |
+| Alembic | pass | 单一 head `e2f4b8c6a130`；活动 MySQL 增量升级成功，`alembic check` 无待生成 operation |
+| 活动数据库 | pass | MySQL 当前共 45 张运行时表，包含 `daily_archive_runs` 与 8 张 Celery 运行时表 |
+| Documentation checker | pass | 生成 OpenAPI 为 114 个 path / 135 个 operation；配置、API、数据库、运维、架构和专项设计同步 |
+| Frontend production build | pass | TypeScript/Vite production bundle；`dayjs` 固定为直接依赖 |
+| Playwright 全量 | **64 passed，1 skipped** | 每日归档预检、二次确认、异步进度、成功结果、ZIP 下载，以及现有上传/工作流/管理页面回归 |
+| 真实浏览器只读复核 | pass | 通过 Nginx 登录并打开真实每日归档页；预检 HTTP 200，当前业务日冻结 217 个文件、约 457.1 MiB，页面无 console error |
+| 归档产物隔离闭环 | pass | 测试存储实际生成 ZIP、`manifest.json` 和独立 JSON 清单；产物均登记 `files`/`file_transfers`，幂等重放不重复生成 |
+
+真实浏览器复核运行在当前开发栈，后端如实报告 MySQL 和 `local` storage；生产 Compose 的同一存储接口配置为 MinIO。本轮没有点击真实页面的最终执行按钮，因此没有对 217 个现有业务文件生成归档产物，也不把该只读预检描述为真实 MinIO 归档执行。ZIP/清单写入、MySQL 登记、重复提交复用、对象缺失失败和令牌篡改拒绝由隔离服务/API/浏览器回归覆盖。
+
+`bash scripts/db.sh migration-test` 需要非交互 `sudo` 创建临时 MySQL schema，当前会话没有该权限，因此该项未执行成功；没有删改任何数据库。替代证据为活动 MySQL 的旧 head 到 `e2f4b8c6a130` 增量升级、模型/索引对齐修正后的 `alembic check`、SQLite 完整迁移链和全量回归，不能把它表述为临时 MySQL 空库迁移已通过。
+
+## 11. 2026-07-11 基线证据
 
 2026-07-11 文档审计运行使用已有本地 MySQL 和已经运行的本地 Nginx/FastAPI/五个已实现 worker；没有重启 stack 或重建 Compose volume。
 
@@ -271,7 +291,7 @@ uv run python ../scripts/benchmark_cad_conversion.py \
 
 全量运行提供仓库已知有效 Tekla 清单，并通过成功 upload -> Celery -> result -> 首次下载失败 -> 新签名 digest 验证。另一个 `阚导出材料表.xls` 探针因缺少必要 `构件编号` 和 `数量` 列被正确拒绝；相关文件名/扩展名不足以证明输入有效。许多其他 Files/Jobs UI 测试使用确定性 route fixture，只证明 UI/API contract，不证明真实对象处理。
 
-## 11. 历史集成记录
+## 12. 历史集成记录
 
 仓库此前记录了 2026-07-11 fresh-volume 集成运行，观察为：
 
@@ -282,7 +302,7 @@ uv run python ../scripts/benchmark_cad_conversion.py \
 
 以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-13 的当前证据见第 6 节：当前源码为 91 path/110 operation，并已用当前源码 API、真实浏览器和真实 MySQL/MinIO 验证预览与登记链路。通用工作流的自动 Job/产物接线仍是独立范围；DXF→Excel 页面的显式 Excel Final 桥接不改变该边界。
 
-## 12. 故障定位
+## 13. 故障定位
 
 1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
 2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。
