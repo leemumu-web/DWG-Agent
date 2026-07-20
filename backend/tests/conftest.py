@@ -79,7 +79,10 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.modules.cad_processing.dxf_to_dwg.execution.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.modules.cad_processing.dxf_to_excel.execution.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.modules.dxf_classification.execution.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.services.excel_final_service.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr(
+        "app.modules.excel_processing.execution.SessionLocal",
+        TestSessionLocal,
+    )
     monkeypatch.setattr("app.platform.messaging.celery_app.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.tasks_maintenance.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.tasks_report.SessionLocal", TestSessionLocal)

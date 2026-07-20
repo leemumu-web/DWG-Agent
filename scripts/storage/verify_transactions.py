@@ -72,7 +72,10 @@ def main() -> None:
 
     excel_key = f"verify-excel-{probe_id}"
     workbook = _xlsx_bytes()
-    with patch("app.api.v1.excel_final_api.dispatch_committed_job", lambda _db, _job: None):
+    with patch(
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
+        lambda _db, _job: None,
+    ):
         first = _require(
             client.post(
                 "/api/v1/excel-final/upload-and-process",

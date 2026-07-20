@@ -80,7 +80,7 @@ COPY --from=builder /app/.venv /app/.venv
 
 # editable 安装的 .pth 指向 /app/Stages/*，runtime 必须带源码，否则 import 失败。
 COPY --from=builder /app/Stages /app/Stages
-# 独立 Excel Final Stage 由 app.integrations.excel_final_runner 在子进程中执行。
+# 独立 Excel Final Stage 由 excel_processing.stage_runner 在子进程中执行。
 COPY Stages/excel_final /app/Stages/excel_final
 
 # Copy application code

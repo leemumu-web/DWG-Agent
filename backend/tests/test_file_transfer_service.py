@@ -187,7 +187,7 @@ def test_excel_final_upload_automatically_records_inbound_transfer(
         lambda: storage,
     )
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.settings.excel_final_pipeline_enabled",
+        "app.modules.excel_processing.availability.settings.excel_final_pipeline_enabled",
         True,
     )
     client = TestClient(app)

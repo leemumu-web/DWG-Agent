@@ -3,16 +3,13 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.integrations.excel_final import ExcelFinalProcessError
-from app.models.excel_final import ExcelFinalBatch, ExcelFinalPart
+from app.modules.excel_processing.execution import _mark_job_failed, run_excel_final_processing
+from app.modules.excel_processing.models import ExcelFinalBatch, ExcelFinalPart
+from app.modules.excel_processing.persistence import replace_batch_for_job
+from app.modules.excel_processing.stage_adapter import ExcelFinalProcessError
 from app.modules.files.interface import StoredFile
 from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
-from app.services.excel_final_service import (
-    _mark_job_failed,
-    _replace_batch_for_job,
-    run_excel_final_processing,
-)
 
 
 def test_retry_replaces_previously_committed_excel_batch(db: Session):
@@ -52,7 +49,7 @@ def test_retry_replaces_previously_committed_excel_batch(db: Session):
     db.add(ExcelFinalPart(batch_id=old_batch.id, seq=1, part_no="OLD"))
     db.commit()
 
-    replacement = _replace_batch_for_job(
+    replacement = replace_batch_for_job(
         db,
         job_id=job.id,
         file_id=source.id,
@@ -151,7 +148,7 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
     monkeypatch,
     tmp_path,
 ):
-    from app.services import excel_final_service as service
+    from app.modules.excel_processing import execution as service
 
     source = StoredFile(
         bucket="dwg-reports",
@@ -183,8 +180,8 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
     def fake_stage(worker_db: Session, file_id: int, _work_dir):
         return source_path, worker_db.get(StoredFile, file_id)
 
-    monkeypatch.setattr(service, "_stage_excel_source", fake_stage)
-    monkeypatch.setattr(service, "_detect_format", lambda _path: "tsv")
+    monkeypatch.setattr(service, "stage_excel_source", fake_stage)
+    monkeypatch.setattr(service, "detect_source_format", lambda _path: "tsv")
     monkeypatch.setattr(
         service,
         "run_excel_final_pipeline",

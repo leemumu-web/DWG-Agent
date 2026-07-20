@@ -4,7 +4,7 @@
 
 ## 历史审计说明
 
-> 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing 和 dxf_classification 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。CAD 域按 DWG→DXF、DXF→DWG、DXF 材料表、预览渲染和共享执行原语细分，版本策略、批处理、对象/结果登记和任务编排不再混放；Classifier 1.1 的 CLI/schema/命名适配、run/item 与文件账本、Job/Workflow 编排分别归档。文件域仍拥有文件行、预览授权和传输 saga，Job 域仍拥有执行状态，跨域只经 `interface.py`。当前 SSE 无事件编号补发、投递无 Outbox。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。
+> 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification 和 excel_processing 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。CAD 域按 DWG→DXF、DXF→DWG、DXF 材料表、预览渲染和共享执行原语细分；Classifier 1.1 的适配、账本和编排分别归档；Excel Final 的上传事务、14 个 route、Stage 子进程、工作簿导入、三张关系表和 Job 编排也已分层。files 仍拥有文件行/传输 saga，jobs 仍拥有执行状态，跨域只经 `interface.py`；Excel 归域不代表跨图纸最终屏障或左右进合并已实现。当前 SSE 无事件编号补发、投递无 Outbox。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`

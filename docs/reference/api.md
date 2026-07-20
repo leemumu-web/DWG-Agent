@@ -181,17 +181,17 @@
 | `POST` | `/api/v1/excel-final/upload` |
 | `POST` | `/api/v1/excel-final/process` |
 | `POST` | `/api/v1/excel-final/upload-and-process` |
-| `GET` | `/api/v1/excel-final/process/{job_id}` |
-| `GET` | `/api/v1/excel-final/process/{job_id}/download` |
 | `GET` | `/api/v1/excel-final/overview` |
 | `GET` | `/api/v1/excel-final/batches` |
+| `GET` | `/api/v1/excel-final/parts/search` |
+| `GET` | `/api/v1/excel-final/weights/lookup` |
+| `GET` | `/api/v1/excel-final/health` |
+| `GET` | `/api/v1/excel-final/process/{job_id}` |
+| `GET` | `/api/v1/excel-final/process/{job_id}/download` |
 | `GET` | `/api/v1/excel-final/batches/{batch_id}` |
 | `GET` | `/api/v1/excel-final/batches/{batch_id}/parts` |
 | `GET` | `/api/v1/excel-final/batches/{batch_id}/parts/{part_id}` |
 | `GET` | `/api/v1/excel-final/batches/{batch_id}/components` |
-| `GET` | `/api/v1/excel-final/parts/search` |
-| `GET` | `/api/v1/excel-final/weights/lookup` |
-| `GET` | `/api/v1/excel-final/health` |
 
 ## 生产流程
 

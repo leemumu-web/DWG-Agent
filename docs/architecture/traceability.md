@@ -11,7 +11,7 @@
 | `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | workflow input freeze、Drawing 服务、生产流程测试 |
 | 服务器 DWG→DXF、DXF→DWG、DXF 材料表提取 | `cad_processing` | partial | `modules/cad_processing/` 按方向拆分版本策略、批处理、登记和执行；三个独立 Stage 保持原路径，ODA 与真实样本仍需部署验收 |
 | `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.1.0 契约，`persistence.py` 登记两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
-| `E1-E4` Excel Final 处理 | `excel_processing` | partial | Excel Final 已有实现；真实 schema/手册库仍是依赖。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
+| `E1-E4` Excel Final 处理 | `excel_processing` | partial | `stage_adapter` 隔离 Stage，`execution` 编排 Job/MinIO，`importers`/`persistence` 登记三张 MySQL 关系表；真实 schema、手册库和跨图纸最终屏障仍是依赖/缺口。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
 | 图纸拆板与设计屏障 | `workflows` | placeholder | 阶段、输入输出、交接 artifact 和 `WORKFLOW_STAGE_NOT_IMPLEMENTED` |
 | CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
 | `AGENT/RUNNER/ADAPTER/SINOCAM` | `windows_execution` | external | draft control-plane contract；认证、租约、fencing、Runner 未实现 |
@@ -76,4 +76,5 @@
 | `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Step/Result/Review 四张表，attempt 状态机与 Celery transport 解耦。 |
 | CAD 转换、预览解释与 DXF 材料表 | `app/modules/cad_processing/` | 无自有表和 HTTP 前缀；`files`/`jobs` 只经 `cad_processing.interface` 调用，Stage 代码保持独立产品。 |
 | Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.1.0 CLI 和输出命名由 adapter 校验。 |
+| `/excel-final` 与 Excel Final task | `app/modules/excel_processing/` | 拥有 batch/part/component 三张表；files/jobs 由公开接口组合，Stage 子进程、导入、持久化和 HTTP route 分层；稳定 task name/queue 不变。 |
 | 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |

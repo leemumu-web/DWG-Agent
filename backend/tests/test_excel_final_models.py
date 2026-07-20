@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from sqlalchemy import BigInteger
 
-from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
+from app.modules.excel_processing.models import (
+    ExcelFinalBatch,
+    ExcelFinalComponent,
+    ExcelFinalPart,
+)
 
 
 def test_excel_final_identifiers_use_platform_bigint_type():

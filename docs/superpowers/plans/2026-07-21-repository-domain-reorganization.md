@@ -752,19 +752,60 @@ git commit -m "refactor: group CAD processing and classification"
 - Update imports, task registry, tests, catalog
 - Delete old Excel files
 
-- [ ] **Step 1: Add router and idempotency interface tests**
+**Refined responsibility map (2026-07-21):**
+
+```text
+backend/app/modules/excel_processing/
+├── README.md                 # capability, ownership, dependencies and known gaps
+├── interface.py              # only supported cross-domain imports
+├── models.py                 # batch / part / component relationship projection
+├── schemas.py                # typed import statistics shared by import and execution
+├── access.py                 # input, Job and batch read authorization
+├── idempotency.py            # endpoint-scoped request-key validation
+├── uploads.py                # durable /files transfer saga reuse
+├── staging.py                # StoredFile download and input-format detection
+├── importers.py              # workbook -> part/component row projection
+├── persistence.py            # batch replacement and cleanup ownership
+├── presentation.py           # stable API response projection
+├── stage_adapter.py          # Stage discovery, probes, subprocess boundary, normalization
+├── stage_runner.py           # isolated child-process entry point
+├── execution.py              # attempt-aware Job orchestration and MinIO result registration
+├── tasks.py                  # stable Celery public name
+└── routes/
+    ├── router.py             # explicit static-before-parameter route order
+    ├── processing.py         # upload, submit, status and download
+    ├── catalog.py            # overview, batches, parts and components
+    ├── tools.py              # handbook weight lookup
+    └── health.py             # truthful dependency readiness
+```
+
+The refactor must preserve all 14 method/path/function-name triples, the
+`app.workers.tasks_excel_final.process_excel_final` task name, the
+`excel_final` queue, the three existing table names and relationships, upload
+and Job idempotency, access filters, MinIO transfer/result registration, and
+attempt-aware cleanup. Static routes are composed before parameter routes.
+`jobs` may request Excel-owned cleanup only through `interface.py`; it may not
+issue SQL against Excel tables. `Stages/excel_final` remains an independent
+algorithm product and is invoked only by the adapter/runner seam.
+
+This is the currently implemented one-file Excel Final pipeline. It must remain
+documented as partial: the architecture target's drawing-wide readiness
+barrier, left/right-inset merge and automatic final aggregation are not made
+real by this directory move and must not be reported as completed.
+
+- [x] **Step 1: Add router and idempotency interface tests**
 
 Preserve upload/process request keys, project access, batch pagination, part/component detail, weight lookup and health behavior.
 
-- [ ] **Step 2: Split the 896-line route module**
+- [x] **Step 2: Split the 904-line route module**
 
 Register `/parts/search` and `/weights/lookup` before parameterized batch routes. Preserve function names and responses.
 
-- [ ] **Step 3: Move adapter and execution implementation**
+- [x] **Step 3: Move adapter and execution implementation**
 
 Keep subprocess isolation and Stage path resolution behind `stage_adapter.py`; relationship import and Job lifecycle calls remain in domain implementation. Expose the Excel temporary-row cleanup operation through `excel_processing.interface`, then replace the transitional direct `jobs.lifecycle/recovery -> app.models.excel_final.ExcelFinalBatch` dependency without changing cancellation or stale-recovery behavior.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 cd backend
@@ -772,10 +813,10 @@ cd backend
   tests/test_excel_final_models.py tests/test_excel_final_retry.py \
   tests/test_excel_final_idempotency.py tests/architecture
 cd ../Stages/excel_final
-.venv/bin/pytest -q multi_split/tests
+uv run pytest -q multi_split/tests
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app backend/tests docs/architecture

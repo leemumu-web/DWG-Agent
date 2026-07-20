@@ -3,7 +3,6 @@ from app.models.agent_run import AgentRun, AgentRunStep
 from app.models.audit_log import AuditLog
 from app.models.control_plane import ControlPlaneEvent, PlatformMessage, WorkerRuntime
 from app.models.daily_archive import DailyArchiveRun
-from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.workflow import WorkflowArtifact, WorkflowRun, WorkflowStageRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 
@@ -14,9 +13,6 @@ __all__ = [
     "AuditLog",
     "ControlPlaneEvent",
     "DailyArchiveRun",
-    "ExcelFinalBatch",
-    "ExcelFinalComponent",
-    "ExcelFinalPart",
     "PlatformMessage",
     "WorkflowArtifact",
     "WorkflowRun",

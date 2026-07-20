@@ -24,7 +24,8 @@ from app.platform.storage.local import LocalFileStorage
 def _enable_pipeline_under_test(monkeypatch: pytest.MonkeyPatch):
     """Keep this module independent from the developer/CI feature-flag default."""
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.settings.excel_final_pipeline_enabled", True
+        "app.modules.excel_processing.availability.settings.excel_final_pipeline_enabled",
+        True,
     )
 
 
@@ -109,7 +110,7 @@ def test_process_replay_returns_same_job(
     stored = _excel_file(db, owner_id=admin.id, suffix="replay")
     dispatched: list[int] = []
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.dispatch_committed_job",
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
         lambda _db, job: dispatched.append(job.id),
     )
     request_headers = {**headers, "Idempotency-Key": "process-1"}
@@ -137,7 +138,7 @@ def test_process_rejects_same_key_for_different_file(
     first_file = _excel_file(db, owner_id=admin.id, suffix="first")
     second_file = _excel_file(db, owner_id=admin.id, suffix="second")
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.dispatch_committed_job",
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
         lambda _db, _job: None,
     )
     request_headers = {**headers, "Idempotency-Key": "process-conflict"}
@@ -195,7 +196,7 @@ def test_upload_and_process_replay_reuses_file_and_job(
     client, headers, _admin = _admin_client(db)
     dispatched: list[int] = []
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.dispatch_committed_job",
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
         lambda _db, job: dispatched.append(job.id),
     )
     request_headers = {**headers, "Idempotency-Key": "upload-1"}
@@ -235,7 +236,7 @@ def test_process_rejects_non_excel_stored_file(
     db.add(stored)
     db.commit()
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.dispatch_committed_job",
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
         lambda _db, _job: None,
     )
 
@@ -257,15 +258,15 @@ def _ready_excel_final_dependencies(
     stage_root.mkdir()
     (stage_root / "handbook.py").write_text("# health fixture\n", encoding="utf-8")
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.get_excel_final_stage_root",
+        "app.modules.excel_processing.routes.health.get_excel_final_stage_root",
         lambda: stage_root,
     )
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.excel_final_dependencies_available",
+        "app.modules.excel_processing.routes.health.excel_final_dependencies_available",
         lambda: True,
     )
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.handbook_database_available",
+        "app.modules.excel_processing.routes.health.handbook_database_available",
         lambda: True,
     )
 
@@ -279,7 +280,7 @@ def test_excel_final_health_reports_actual_database_and_storage_backends(
     _ready_excel_final_dependencies(monkeypatch, tmp_path)
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.get_storage_backend",
+        "app.modules.excel_processing.routes.health.get_storage_backend",
         lambda: storage,
         raising=False,
     )
@@ -310,11 +311,14 @@ def test_excel_final_health_degrades_safely_when_storage_fails(
     _ready_excel_final_dependencies(monkeypatch, tmp_path)
     storage = FailingHealthStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.api.v1.excel_final_api.get_storage_backend",
+        "app.modules.excel_processing.routes.health.get_storage_backend",
         lambda: storage,
         raising=False,
     )
-    monkeypatch.setattr("app.api.v1.excel_final_api.settings.storage_backend", "minio")
+    monkeypatch.setattr(
+        "app.modules.excel_processing.routes.health.settings.storage_backend",
+        "minio",
+    )
 
     response = client.get("/api/v1/excel-final/health", headers=headers)
 

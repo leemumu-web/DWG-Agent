@@ -9,11 +9,11 @@ from app.api.v1 import (
     audit_logs_api,
     control_plane_api,
     data_admin_api,
-    excel_final_api,
     system_api,
     workflow_inputs_api,
     workflows_api,
 )
+from app.modules.excel_processing.routes.router import router as excel_processing_router
 from app.modules.files.routes.router import router as files_router
 from app.modules.identity.routes.router import roles_router, sessions_router, users_router
 from app.modules.jobs.routes.router import jobs_router, results_router, reviews_router
@@ -38,7 +38,11 @@ api_router.include_router(audit_logs_api.router, prefix="/audit-logs", tags=["au
 api_router.include_router(agent_runs_api.router, tags=["agent-runs"])
 api_router.include_router(system_api.router, prefix="/system", tags=["system"])
 api_router.include_router(control_plane_api.router, prefix="/control-plane", tags=["control-plane"])
-api_router.include_router(excel_final_api.router, prefix="/excel-final", tags=["excel-final"])
+api_router.include_router(
+    excel_processing_router,
+    prefix="/excel-final",
+    tags=["excel-final"],
+)
 api_router.include_router(workflows_api.router, prefix="/workflows", tags=["workflows"])
 api_router.include_router(
     workflow_inputs_api.router,

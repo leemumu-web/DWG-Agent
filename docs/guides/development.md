@@ -19,8 +19,11 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 | `backend/app/platform/` | config、database、HTTP、Celery transport、logging、token、storage 技术 seam |
 | `backend/app/modules/identity/` | 会话、用户、全局 RBAC 与六张身份表；公共入口为 `interface.py` |
 | `backend/app/modules/projects/` | 项目、成员、图纸和版本；公共入口为 `interface.py` |
+| `backend/app/modules/files/` | 文件登记、传输 saga、下载/预览与存储一致性；公共入口为 `interface.py` |
+| `backend/app/modules/jobs/` | Job/Step/Result/Review、attempt、事件和投递；公共入口为 `interface.py` |
 | `backend/app/modules/cad_processing/` | CAD 转换、DXF 解释/预览与 DXF 材料表；公共入口为 `interface.py` |
 | `backend/app/modules/dxf_classification/` | Classifier 1.1 适配、两张账本与 Job/Workflow 编排；公共入口为 `interface.py` |
+| `backend/app/modules/excel_processing/` | Excel Final 上传/执行、三张关系投影表、查询与手册工具；公共入口为 `interface.py` |
 | `backend/app/modules/operations/audit/` | 当前跨领域审计写入口；其余 operations 尚待迁移 |
 | `backend/app/modules/` | 其他按领域迁移后的业务能力；不得被 platform 反向导入 |
 | `backend/app/api/`、`services/`、`models/`、`schemas/` | 尚待迁移的纵向业务切片，不能再承接新平台实现 |
@@ -114,7 +117,7 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 
 ## Worker 变更
 
-当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 8 个 task module 并锁定 11 个公共任务名；CAD 转换的 5 个历史任务名由一个领域 task module 注册，分类任务由另一个领域 module 注册。空的 Agent/CAD module 仍只是禁用占位，`dispatch` 是可观察进程身份预留，不能把它们描述成核心处理能力。
+当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 8 个 task module 并锁定 11 个公共任务名；CAD 转换的 5 个历史任务名由一个领域 task module 注册，分类与 Excel Final 任务分别由各自领域 module 注册。空的 Agent/CAD module 仍只是禁用占位，`dispatch` 是可观察进程身份预留，不能把它们描述成核心处理能力。
 
 MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 

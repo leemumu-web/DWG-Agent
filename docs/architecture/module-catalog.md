@@ -31,7 +31,7 @@
 
 当前 11 个任务名包含 `app.workers.tasks_dxf_classification.classify_steel_dxf`。早期人工基线误记为 10；运行时快照已纠正，后续以脚本从 Celery registry 读取的集合为准。
 
-11 个稳定任务名目前由 8 个 Python task module 装配；CAD 的 5 个任务集中在 `cad_processing.tasks`，分类任务集中在 `dxf_classification.tasks`。这是实现文件归并，不改变已入队消息使用的历史任务名和队列。
+11 个稳定任务名目前由 8 个 Python task module 装配；CAD 的 5 个任务集中在 `cad_processing.tasks`，分类任务集中在 `dxf_classification.tasks`，Excel Final 任务集中在 `excel_processing.tasks`。这是实现文件归并，不改变已入队消息使用的历史任务名和队列。
 
 ## 修改规则
 

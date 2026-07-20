@@ -1,3 +1,5 @@
+"""Isolated child-process entry point for the standalone Excel Final Stage."""
+
 from __future__ import annotations
 
 import argparse

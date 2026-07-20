@@ -8,17 +8,18 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1055 passed, 6 skipped, 21 warnings in 124.86s`；1061 项全部完成收集 |
+| 后端全量 | pass | `1064 passed, 6 skipped, 21 warnings in 121.23s`；1070 项全部完成收集 |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 16 个模型模块、36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130`；`alembic check` 无漂移 |
-| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；8 个 task module 显式装配，CAD 五任务和分类一任务已归域；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
+| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；8 个 task module 显式装配，CAD 五任务、分类一任务和 Excel Final 一任务已归域；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `39 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径、文件/作业/CAD/分类边界与 module catalog 纳入契约 |
+| 架构聚焦测试 | pass | `47 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径、文件/作业/CAD/分类/Excel 边界与 module catalog 纳入契约 |
 | Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
 | Files 聚焦回归 | pass | `158 passed, 7 warnings`；上传、登记、传输账本、补偿、预览、下载、存储一致性与架构边界通过 |
 | Jobs 聚焦回归 | pass | `140 passed, 3 skipped, 15 warnings`；创建、批量创建、attempt 隔离、取消/重试、投递补偿、SSE、Result/Review 权限、stale 恢复与架构边界通过 |
 | CAD / 分类聚焦回归 | pass | `98 passed, 7 warnings`；三个转换方向、批处理、DXF 预览、Classifier 1.1、稳定任务名/队列、两张分类表、跨域接口与退役路径通过 |
-| 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 passed`；`dwg-converter 0.1.0`、`dxf-converter 0.1.0`、`dxf2excel 0.1.0`、`steel-dxf-classifier 1.1.0` 路径/CLI/行为保持 |
+| Excel 处理聚焦回归 | pass | `40 passed, 1 skipped, 1 warning`；Stage adapter/真实 runner 启动、流式导入、三张模型表、attempt 清理/重试、请求幂等、14 个 route 与领域边界通过；跳过项需要真实 MySQL |
+| 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 259 passed`；三个 CAD Stage、Classifier 1.1.0 与 Excel Final `multi_split` 路径/CLI/行为保持 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
 | 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
@@ -41,6 +42,8 @@ files 现按“登记事实、存储适配、跨系统事务”三层拆分：�
 jobs 现按创建、attempt 生命周期、Celery 投递、事件流、恢复、复核和 HTTP 用例分层，领域模块独占 `jobs`、`job_steps`、`analysis_results`、`review_records` 四张表。13 个 Job、4 个 Result、1 个 Review operation 的 method/path/function-name 保持不变，静态 Job 路径先于 `/{job_id}` 组合；其他业务域只通过 `app.modules.jobs.interface` 调用。平台消息层只保留通用 Celery app、SQL transport 与 worker-ready callback，Job stale 恢复由 bootstrap 注册，platform 不再反向导入业务模型。当前仍是 commit 后直接投递并对明确 broker 错误补偿，不是 transactional Outbox；SSE 仍读取 `jobs.progress_data` 最新快照，没有持久事件编号和 replay；这些目标差距均保留在模块与架构文档中。
 
 cad_processing 现把共享 attempt/source/JobStep 原语、ODA 目录批调用、DXF 统计、纯预览渲染和预览缓存登记分别隔离；DWG→DXF 与 DXF→DWG 各自拥有 contracts、版本策略、产物登记、单任务和批任务文件，DXF→材料表拥有批次 staging、产物登记和执行文件。dxf_classification 则把 Classifier 1.1 CLI/schema/退出码/命名契约放入 adapter，把冻结来源、分流文件、run/item 和 AnalysisResult 账本放入 persistence，把 Job/Workflow 顺序留在 execution。Files 仍拥有文件行和传输 saga，Jobs 仍拥有任务事实；外部业务模块只经两个 `interface.py` 调用。图纸自动拆板仍是下一阶段明确留白，不因分类器目录完善而改变实现状态。
+
+excel_processing 现把一份 904 行 route 和 826 行 service 拆为 processing/catalog/tools/health HTTP 入口、访问与幂等规则、files 上传 saga 复用、源文件 staging、流式 workbook importer、批次持久化、响应投影、Stage adapter/runner、Job execution 与稳定 Celery task。14 个 method/path/function-name、三张表、`excel_final` queue 和历史公共 task name 均未改变；所有静态 route 先于参数 route。jobs 的取消和 stale 恢复不再直接删除 Excel 模型，而通过 `excel_processing.interface` 请求域内级联清理。该结构只证明既有单文件 Excel Final 切片，跨全部图纸的最终屏障、左右进合并、自动汇总和外部手册数据仍是明确缺口。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19

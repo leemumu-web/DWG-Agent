@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
-from app.models.excel_final import ExcelFinalBatch
+from app.modules.excel_processing.interface import cleanup_excel_processing_rows
 from app.modules.jobs.models import Job
 from app.platform.config.constants import JOB_FAILED, JOB_RUNNING
 from app.platform.config.settings import settings
@@ -99,7 +99,7 @@ def reconcile_stale_running_jobs(
             )
             updated = result.rowcount or 0
             if updated:
-                db.execute(delete(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id))
+                cleanup_excel_processing_rows(db, (job_id,))
             recovered += updated
         db.commit()
     return recovered

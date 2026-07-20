@@ -291,7 +291,7 @@ def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
         (REPO_ROOT / path).read_text()
         for path in (
             "backend/app/modules/jobs/routes/commands.py",
-            "backend/app/api/v1/excel_final_api.py",
+            "backend/app/modules/excel_processing/routes/processing.py",
         )
     )
 

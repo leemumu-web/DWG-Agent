@@ -211,27 +211,29 @@
       "title": "Excel Final 处理与关系化导入",
       "status": "partial",
       "architecture_nodes": ["E1", "E2", "E3", "E4", "Q_EXCEL", "W_EXCEL"],
-      "backend_paths": [
-        "backend/app/api/v1/excel_final_api.py",
-        "backend/app/integrations/excel_final.py",
-        "backend/app/integrations/excel_final_runner.py",
-        "backend/app/models/excel_final.py",
-        "backend/app/services/excel_final_service.py",
-        "backend/app/workers/tasks_excel_final.py"
-      ],
+      "backend_paths": ["backend/app/modules/excel_processing"],
       "frontend_paths": [
         "frontend/src/api/excel-final.api.ts",
-        "frontend/src/features/files/Dxf2ExcelPage.tsx",
-        "frontend/src/features/files/ExcelFinalPage.tsx"
+        "frontend/src/features/files/ExcelFinalPage.tsx",
+        "frontend/src/features/files/excel-final"
       ],
       "tables": ["excel_final_batches", "excel_final_components", "excel_final_parts"],
       "http_prefixes": ["/api/v1/excel-final"],
       "celery_tasks": ["app.workers.tasks_excel_final.process_excel_final"],
       "queues": ["excel_final"],
       "stages": ["Stages/excel_final"],
-      "tests": ["backend/tests/test_excel_final_import.py"],
-      "docs": ["Stages/excel_final/PROCESS.md", "docs/architecture/workflow.md"],
-      "notes": "Excel Final is wired behind a flag; production input schema and external handbook data remain deployment dependencies. DXF material-workbook extraction belongs to cad_processing because DXF is its source domain."
+      "tests": [
+        "backend/tests/architecture/test_excel_processing_boundaries.py",
+        "backend/tests/test_excel_final_adapter.py",
+        "backend/tests/test_excel_final_import.py",
+        "backend/tests/test_excel_final_retry.py"
+      ],
+      "docs": [
+        "Stages/excel_final/PROCESS.md",
+        "backend/app/modules/excel_processing/README.md",
+        "docs/architecture/workflow.md"
+      ],
+      "notes": "The implemented one-file Excel Final pipeline owns isolated Stage execution, MinIO result registration and three MySQL relationship tables. Production input schema, the external handbook database and the target drawing-wide final barrier remain dependencies or gaps. DXF material-workbook extraction belongs to cad_processing because DXF is its source domain."
     },
     {
       "code": "operations",

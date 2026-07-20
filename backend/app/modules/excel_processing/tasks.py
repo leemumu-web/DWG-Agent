@@ -1,8 +1,10 @@
+"""Celery entry point for Excel Final processing."""
+
 from __future__ import annotations
 
+from app.modules.excel_processing.execution import run_excel_final_processing
 from app.modules.jobs.interface import summarize_job_execution
 from app.platform.messaging.celery_app import celery_app
-from app.services.excel_final_service import run_excel_final_processing
 
 
 @celery_app.task(name="app.workers.tasks_excel_final.process_excel_final", bind=True)

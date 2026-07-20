@@ -42,8 +42,8 @@ def get_excel_final_stage_root() -> Path:
         candidates.append(settings.excel_final_stage_root.expanduser())
     candidates.extend(
         (
+            integration_file.parents[4] / "Stages" / "excel_final",
             integration_file.parents[3] / "Stages" / "excel_final",
-            integration_file.parents[2] / "Stages" / "excel_final",
         )
     )
 
@@ -207,7 +207,7 @@ def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
         "-m",
-        "app.integrations.excel_final_runner",
+        "app.modules.excel_processing.stage_runner",
         *arguments,
         "--stage-root",
         str(stage_root),
@@ -233,6 +233,8 @@ def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
 def _stage_environment() -> dict[str, str]:
     environment = os.environ.copy()
     database_config = settings.handbook_database_config
+    application_root = str(Path(__file__).resolve().parents[3])
+    inherited_python_path = environment.get("PYTHONPATH", "")
     environment.update(
         {
             "DWG_HANDBOOK_MYSQL_HOST": str(database_config["host"]),
@@ -240,6 +242,12 @@ def _stage_environment() -> dict[str, str]:
             "DWG_HANDBOOK_MYSQL_DATABASE": str(database_config["database"]),
             "DWG_HANDBOOK_MYSQL_USER": str(database_config["user"]),
             "DWG_HANDBOOK_MYSQL_PASSWORD": str(database_config["password"]),
+            # The child runs with cwd=Stages/excel_final. Make the source
+            # backend root (or Docker /app root) explicit instead of relying
+            # on the parent console script's transient sys.path.
+            "PYTHONPATH": os.pathsep.join(
+                value for value in (application_root, inherited_python_path) if value
+            ),
         }
     )
     return environment

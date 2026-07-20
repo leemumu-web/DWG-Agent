@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
+from app.modules.excel_processing.models import (
+    ExcelFinalBatch,
+    ExcelFinalComponent,
+    ExcelFinalPart,
+)
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
@@ -294,7 +298,10 @@ def test_excel_final_cannot_process_another_users_upload(db: Session, monkeypatc
     owner_id, _ = _create_user(client, admin_headers, "file-owner")
     _, stranger_headers = _create_user(client, admin_headers, "file-stranger")
     stored, _, _ = _seed_excel_batch(db, owner_id=owner_id)
-    monkeypatch.setattr("app.api.v1.excel_final_api.settings.excel_final_pipeline_enabled", True)
+    monkeypatch.setattr(
+        "app.modules.excel_processing.availability.settings.excel_final_pipeline_enabled",
+        True,
+    )
 
     response = client.post(
         f"/api/v1/excel-final/process?file_id={stored.id}", headers=stranger_headers

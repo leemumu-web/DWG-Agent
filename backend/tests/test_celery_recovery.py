@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.excel_final import ExcelFinalBatch
+from app.modules.excel_processing.models import ExcelFinalBatch
 from app.modules.jobs.interface import Job, reconcile_stale_running_jobs, summarize_job_execution
 from app.platform.messaging import celery_app as celery_runtime
 from app.platform.messaging.celery_app import (

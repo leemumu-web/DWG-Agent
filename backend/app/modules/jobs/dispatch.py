@@ -63,10 +63,9 @@ def enqueue_dxf2excel_job(job_id: int, attempt: int) -> str:
 
 def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
     """投递 Excel→零件清单 处理任务到 Celery excel_final 队列。"""
-    from app.workers.tasks_excel_final import process_excel_final_task
+    from app.modules.excel_processing.interface import enqueue_excel_final_job as enqueue
 
-    async_result = process_excel_final_task.delay(job_id, attempt)
-    return str(async_result.id)
+    return enqueue(job_id, attempt)
 
 
 def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:

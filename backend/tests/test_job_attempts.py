@@ -10,7 +10,7 @@ from sqlalchemy.sql.dml import Update
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.audit_log import AuditLog
-from app.models.excel_final import ExcelFinalBatch, ExcelFinalPart
+from app.modules.excel_processing.models import ExcelFinalBatch, ExcelFinalPart
 from app.modules.jobs.event_stream import job_snapshot
 from app.modules.jobs.interface import (
     Job,

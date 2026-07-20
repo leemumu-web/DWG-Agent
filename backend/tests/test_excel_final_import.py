@@ -8,12 +8,19 @@ from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
+from app.modules.excel_processing import importers
+from app.modules.excel_processing.importers import (
+    import_components_to_db,
+    import_parts_to_db,
+)
+from app.modules.excel_processing.models import (
+    ExcelFinalBatch,
+    ExcelFinalComponent,
+    ExcelFinalPart,
+)
 from app.modules.files.interface import StoredFile
 from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
-from app.services import excel_final_service
-from app.services.excel_final_service import _import_components_to_db, _import_parts_to_db
 
 
 def _batch(db: Session) -> ExcelFinalBatch:
@@ -80,7 +87,7 @@ def test_excel_final_import_skips_totals_row(db: Session, tmp_path: Path):
         ],
     )
 
-    stats = _import_parts_to_db(db, batch.id, output_path)
+    stats = import_parts_to_db(db, batch.id, output_path)
 
     assert stats == {"parts_imported": 1}
     assert db.scalar(select(func.count()).select_from(ExcelFinalPart)) == 1
@@ -96,7 +103,7 @@ def test_excel_final_import_rejects_missing_core_headers(db: Session, tmp_path: 
     _workbook(output_path, ["序号", "零件号"], [[1, "P-1"]])
 
     with pytest.raises(ValueError, match="missing required columns"):
-        _import_parts_to_db(db, batch.id, output_path)
+        import_parts_to_db(db, batch.id, output_path)
 
 
 def test_excel_final_parts_imports_sparse_rows_and_optional_fields(db: Session, tmp_path: Path):
@@ -108,7 +115,7 @@ def test_excel_final_parts_imports_sparse_rows_and_optional_fields(db: Session, 
         [["2", " C-2 ", " P-2 ", None, "PL8*80", "120.5", " Q235B ", "0"]],
     )
 
-    stats = _import_parts_to_db(db, batch.id, output_path)
+    stats = import_parts_to_db(db, batch.id, output_path)
 
     assert stats == {"parts_imported": 1}
     part = db.scalar(select(ExcelFinalPart))
@@ -132,7 +139,7 @@ def test_excel_final_parts_uses_intermediate_sheet_fallback(db: Session, tmp_pat
         sheet_name="整理表_拆板后",
     )
 
-    assert _import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
+    assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
 
 
 def test_excel_final_parts_returns_error_when_sheet_is_absent(db: Session, tmp_path: Path):
@@ -140,7 +147,7 @@ def test_excel_final_parts_returns_error_when_sheet_is_absent(db: Session, tmp_p
     output_path = tmp_path / "missing-sheet.xlsx"
     _workbook(output_path, ["other"], [], sheet_name="Sheet1")
 
-    assert _import_parts_to_db(db, batch.id, output_path) == {
+    assert import_parts_to_db(db, batch.id, output_path) == {
         "parts_imported": 0,
         "error": "No 整理表 sheet found",
     }
@@ -164,7 +171,7 @@ def test_excel_final_components_imports_rows_and_preserves_zero_qty(
         sheet_name="构件表",
     )
 
-    stats = _import_components_to_db(db, batch.id, output_path)
+    stats = import_components_to_db(db, batch.id, output_path)
 
     assert stats == {"components_imported": 2}
     components = list(db.scalars(select(ExcelFinalComponent).order_by(ExcelFinalComponent.id)))
@@ -184,7 +191,7 @@ def test_excel_final_components_allows_missing_optional_columns(db: Session, tmp
         sheet_name="构件表",
     )
 
-    stats = _import_components_to_db(db, batch.id, output_path)
+    stats = import_components_to_db(db, batch.id, output_path)
 
     assert stats == {"components_imported": 1}
     component = db.scalar(select(ExcelFinalComponent))
@@ -208,7 +215,7 @@ def test_excel_final_components_rejects_missing_component_number(
     )
 
     with pytest.raises(ValueError, match="missing required column: 构件编号"):
-        _import_components_to_db(db, batch.id, output_path)
+        import_components_to_db(db, batch.id, output_path)
 
 
 def test_excel_final_components_returns_zero_when_sheet_is_absent(
@@ -219,7 +226,7 @@ def test_excel_final_components_returns_zero_when_sheet_is_absent(
     output_path = tmp_path / "no-components.xlsx"
     _workbook(output_path, ["序号"], [], sheet_name="整理表")
 
-    assert _import_components_to_db(db, batch.id, output_path) == {"components_imported": 0}
+    assert import_components_to_db(db, batch.id, output_path) == {"components_imported": 0}
 
 
 def test_excel_final_importers_never_use_random_cell_access(monkeypatch, tmp_path: Path):
@@ -234,7 +241,7 @@ def test_excel_final_importers_never_use_random_cell_access(monkeypatch, tmp_pat
     component_sheet.append(["C-1", 1, 123.5])
     workbook.save(output_path)
 
-    real_load_workbook = excel_final_service.openpyxl.load_workbook
+    real_load_workbook = importers.openpyxl.load_workbook
 
     def guarded_load_workbook(*args, **kwargs):
         loaded = real_load_workbook(*args, **kwargs)
@@ -242,8 +249,8 @@ def test_excel_final_importers_never_use_random_cell_access(monkeypatch, tmp_pat
             sheet.cell = Mock(side_effect=AssertionError("random worksheet access is forbidden"))
         return loaded
 
-    monkeypatch.setattr(excel_final_service.openpyxl, "load_workbook", guarded_load_workbook)
+    monkeypatch.setattr(importers.openpyxl, "load_workbook", guarded_load_workbook)
     db = Mock()
 
-    assert _import_parts_to_db(db, 1, output_path) == {"parts_imported": 1}
-    assert _import_components_to_db(db, 1, output_path) == {"components_imported": 1}
+    assert import_parts_to_db(db, 1, output_path) == {"parts_imported": 1}
+    assert import_components_to_db(db, 1, output_path) == {"components_imported": 1}

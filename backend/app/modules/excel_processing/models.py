@@ -1,4 +1,4 @@
-"""SQLAlchemy models for excel_final pipeline — processed steel part data.
+"""SQLAlchemy models owned by the Excel Final relationship projection.
 
 Three tables mirror the Excel output sheets:
   - excel_final_batches    — processing run metadata

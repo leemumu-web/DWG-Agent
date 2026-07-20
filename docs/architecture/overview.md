@@ -44,7 +44,7 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 
 后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
 
-identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。对应旧 `api/v1`、`models`、`schemas`、`services` 文件已删除，HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 worker-ready callback，由 bootstrap 注册 Job 恢复。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
+identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类和 Excel Final 也分别进入 `cad_processing`、`dxf_classification` 与 `excel_processing`：Excel 域把 14 个 HTTP operation、三张关系投影表、上传事务复用、Stage 子进程、工作簿导入和稳定 Celery 任务按职责分开，jobs 只能经其 `interface.py` 请求清理。对应旧横向文件已删除，HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 worker-ready callback，由 bootstrap 注册 Job 恢复。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
 
 ## 同步请求路径
 
@@ -68,7 +68,7 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
 
 公开 route 已接通 Steel DXF Classifier、DXF→Excel 与 Excel Final Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。文件通过 `/files` 登记后再绑定，不重复上传。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
 
-Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用上传流水/StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。
+Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用 files transfer saga 与 StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。执行成功同时登记结果对象、File、AnalysisResult 和 batch/part/component；失败、取消或 stale 恢复通过 Excel 公开清理接口移除本 attempt 的临时关系行。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。这是单文件 Excel Final 切片；跨全部图纸的最终屏障、左右进合并和自动汇总仍未实现。
 
 ## 异步请求路径
 

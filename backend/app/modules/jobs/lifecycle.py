@@ -4,11 +4,11 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from app.models.excel_final import ExcelFinalBatch
+from app.modules.excel_processing.interface import cleanup_excel_processing_rows
 from app.modules.jobs.event_stream import make_event
 from app.modules.jobs.models import Job
 from app.platform.config.constants import (
@@ -250,7 +250,7 @@ def cancel_active_jobs_in_transaction(db: Session) -> ActiveJobCancellation:
         return ActiveJobCancellation(job_ids=(), cancelled_count=0)
 
     now = datetime.now(UTC)
-    db.execute(delete(ExcelFinalBatch).where(ExcelFinalBatch.job_id.in_(job_ids)))
+    cleanup_excel_processing_rows(db, job_ids)
     result = db.execute(
         update(Job)
         .where(Job.id.in_(job_ids), Job.status.in_(active_statuses))
@@ -323,7 +323,7 @@ def cancel_job(db: Session, job: Job) -> Job:
             "JOB_NOT_CANCELLABLE",
             f"Job cannot be cancelled because it is already {current_status}.",
         )
-    db.execute(delete(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job.id))
+    cleanup_excel_processing_rows(db, (job.id,))
     db.expire(job)
     return db.get(Job, job.id, populate_existing=True) or job
 

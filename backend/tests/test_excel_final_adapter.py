@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from app.integrations import excel_final
+from app.modules.excel_processing import stage_adapter as excel_final
 
 
 def test_excel_final_stage_root_resolves_tracked_standalone_layout():
@@ -78,11 +78,34 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     )
 
     command = captured["command"]
-    assert command[:3] == [sys.executable, "-m", "app.integrations.excel_final_runner"]
+    assert command[:3] == [
+        sys.executable,
+        "-m",
+        "app.modules.excel_processing.stage_runner",
+    ]
     assert "not-on-command-line" not in command
     assert captured["cwd"] == excel_final.get_excel_final_stage_root()
     assert captured["env"]["DWG_HANDBOOK_MYSQL_PASSWORD"] == "not-on-command-line"
     assert result == output_path
+
+
+def test_excel_final_runner_is_importable_from_stage_working_directory():
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.modules.excel_processing.stage_runner",
+            "--help",
+        ],
+        cwd=excel_final.get_excel_final_stage_root(),
+        env=excel_final._stage_environment(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "Isolated Excel Final Stage runner" in completed.stdout
 
 
 def test_excel_final_pipeline_logs_internal_failure_but_raises_safe_message(
@@ -162,7 +185,8 @@ def test_excel_final_adapter_normalizes_legacy_fixed_width_bolt_row(tmp_path: Pa
 
 def test_excel_final_completion_event_does_not_pass_duplicate_batch_id():
     source = (
-        Path(__file__).resolve().parents[1] / "app/services/excel_final_service.py"
+        Path(__file__).resolve().parents[1]
+        / "app/modules/excel_processing/execution.py"
     ).read_text(encoding="utf-8")
 
     assert "batch_id=batch.id" not in source

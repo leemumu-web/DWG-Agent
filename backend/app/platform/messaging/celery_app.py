@@ -64,7 +64,7 @@ celery_app = Celery(
         "app.workers.tasks_cad",
         "app.modules.cad_processing.tasks",
         "app.modules.dxf_classification.tasks",
-        "app.workers.tasks_excel_final",
+        "app.modules.excel_processing.tasks",
         "app.workers.tasks_report",
     ],
 )
