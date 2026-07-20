@@ -74,8 +74,8 @@ fi
 
 # ── 5. Nginx ───────────────────────────────────────────────────
 step "5/5 Nginx 网关"
-NGINX_CONF="$PROJECT_ROOT/infra/nginx/nginx.local.conf"
-NGINX_PIDFILE="$PROJECT_ROOT/infra/nginx/logs/nginx.pid"
+NGINX_CONF="$PROJECT_ROOT/infra/gateway/nginx/nginx.local.conf"
+NGINX_PIDFILE="$PROJECT_ROOT/infra/gateway/nginx/logs/nginx.pid"
 
 # 检查是否已有本项目的 nginx 在运行。master 通常属于 root，读取
 # /proc 不需要 root 凭据，更适合无交互运维脚本。

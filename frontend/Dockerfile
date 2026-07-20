@@ -14,7 +14,7 @@ RUN npm run build
 
 FROM ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
-COPY infra/nginx/nginx.conf /etc/nginx/nginx.conf
+COPY infra/gateway/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 USER nginx

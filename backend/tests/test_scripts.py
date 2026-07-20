@@ -426,7 +426,10 @@ def test_scripts_readme_documents_every_operational_entrypoint():
 
 
 def test_nginx_proxies_fastapi_documentation_routes():
-    for relative_path in ("infra/nginx/nginx.local.conf", "infra/nginx/nginx.conf"):
+    for relative_path in (
+        "infra/gateway/nginx/nginx.local.conf",
+        "infra/gateway/nginx/nginx.conf",
+    ):
         content = _read(relative_path)
         assert "location = /openapi.json" in content
         assert "location ~ ^/(docs|redoc)(/.*)?$" in content

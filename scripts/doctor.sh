@@ -5,7 +5,7 @@ source "$(dirname "$0")/lib.sh"
 
 LOG_ONLY=false
 SINCE_MINUTES="${DOCTOR_SINCE_MINUTES:-60}"
-ACCESS_LOG="${NGINX_ACCESS_LOG:-$PROJECT_ROOT/infra/nginx/logs/access.log}"
+ACCESS_LOG="${NGINX_ACCESS_LOG:-$PROJECT_ROOT/infra/gateway/nginx/logs/access.log}"
 
 while (($# > 0)); do
     case "$1" in

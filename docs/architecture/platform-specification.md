@@ -257,7 +257,7 @@ cd Stages/dwg2dxf && uv run pytest -q && cd ../..
 cd Stages/dxf2dwg && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose config --quiet
 cd frontend && npm run build && npx playwright test
 ```

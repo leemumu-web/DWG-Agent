@@ -1,0 +1,1 @@
+# MinIO runtime data belongs to volumes and is never committed here.

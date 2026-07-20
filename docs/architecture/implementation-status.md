@@ -97,7 +97,7 @@ Celery workers
 | CAD 转换 Stage | `Stages/dwg2dxf`、`Stages/dxf2dwg` | 基于 ODA 的双向格式转换 |
 | DXF 表格提取 | `Stages/dxf2excel` | DXF 材料表提取，但父仓库 gitlink 损坏 |
 | Excel Final | `Stages/excel_final` | 表格整理、拆分、手册查询与最终工作簿生成 |
-| Windows 执行端 | `cad-worker/` | 只有 README 占位，无可执行实现 |
+| Windows 执行端 | `windows/` | 已按 Node Agent、CAM Runner、SinoCAM Adapter、协议分层；仍无可执行实现 |
 | 基础设施 | `compose.yaml`、`infra/`、`scripts/` | HTTP Nginx、FastAPI、MySQL、MinIO 和多个 worker 的部署/检查脚本 |
 
 ---
@@ -273,7 +273,7 @@ Celery workers
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
-| Windows Service Node Agent | 未实现 | `cad-worker/` 只有占位 README |
+| Windows Service Node Agent | 未实现 | `windows/node-agent/` 只有目标契约 |
 | 一次性注册令牌 | 未实现 | 无注册接口和模型 |
 | 每节点独立凭据、轮换、吊销、隔离 | 未实现 | 只有一个全局 `CAD_WORKER_API_KEY` 配置占位，与目标相反 |
 | 节点心跳、boot_id、能力与磁盘状态 | 未实现 | 无 Node 表和 API |
@@ -451,7 +451,7 @@ Stages/steel_split_validator/
 
 ### 5.5 P0：Windows/SinoCAM 全子系统缺失
 
-建议分成三个代码产品，而不是一个模糊的 `cad-worker`：
+当前已经按三个进程产品和协议边界拆分目录，后续实现不得重新合并成一个模糊的 worker：
 
 1. `windows/node-agent`：Windows Service、HTTPS、节点身份、SQLite、租约、传输、恢复；
 2. `windows/cam-runner`：交互会话程序、Named Pipe、单实例、Job Object、超时与输出监控；
@@ -660,7 +660,7 @@ BH 稳定后再增加 BOX，其他类型继续走人工分支。
 | `Stages/dxf2dwg` | 30 passed |
 | `Stages/excel_final/multi_split/tests` | 259 passed |
 | `docker compose config --quiet` | 通过 |
-| `infra/verify.sh` | 82/82 通过；活动 MySQL 集成检查被跳过 |
+| `infra/verification/verify.sh` | 历史审计为 82/82 通过；活动 MySQL 集成检查被跳过 |
 
 ### 8.2 未形成通过证据的项目
 

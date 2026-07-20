@@ -15,8 +15,13 @@
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
 | 架构聚焦测试 | pass | `6 passed, 6 warnings`；当前后端收集 `1016 tests` |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、211 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
+| 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
+| 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
+| 基础设施聚焦回归 | pass | `104 passed, 7 warnings`；Compose config、架构快照、文档门禁同时通过 |
 
 此次基线只证明当前自动化后端与文档契约全绿，不等同于真实 MySQL、MinIO、ODA、RabbitMQ 或 Windows/SinoCAM 生产验收。当前 Celery 使用 MySQL SQLAlchemy transport；RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 仍是目标/留白能力。人工初始盘点曾漏掉 `classify_steel_dxf`，机器 registry 确认稳定任务总数为 11，现已同步设计、计划和文档。
+
+`scripts/status.sh` 的只读检查确认本机 MySQL 45 张运行表、8 组 worker、FastAPI、Nginx 代理与 SPA 均可达；它同时如实报告当前 FastAPI 进程早于本轮源码。重构尚在进行，因此本阶段没有中途重启运行服务，最终验收再统一刷新受管进程。根 `image.png` 与 `frontend/public/logo.png` SHA-256 完全相同，已删除前者并由 README 复用后者；旧 Nginx runtime logs 原样移入 `infra/gateway/nginx/logs/`。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19
@@ -63,7 +68,7 @@ cd ../excel_final && uv run pytest -q multi_split/tests
 cd ../..
 
 bash scripts/db.sh migration-test
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose config --quiet
 
 cd frontend

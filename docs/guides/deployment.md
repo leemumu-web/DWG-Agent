@@ -141,7 +141,7 @@ Compose 是单机编排，不提供 rolling deployment 或多副本 migration �
 
 ```bash
 bash -n scripts/docker.sh
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose --env-file .env.docker config --quiet
 docker compose --env-file .env.docker --profile workers config --quiet
 bash scripts/docker.sh build

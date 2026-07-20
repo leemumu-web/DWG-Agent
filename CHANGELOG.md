@@ -17,6 +17,9 @@
 
 ### Changed
 
+- 基础设施按 gateway、database、storage、messaging、operations、verification 分类；Windows 目标边界拆为 Node Agent、CAM Runner、SinoCAM Adapter 与协议。
+- Compose、Nginx、本地脚本、文档和测试同步新路径；RabbitMQ/Outbox/Beat 保持真实目标留白。
+- 删除与 `frontend/public/logo.png` 字节相同的根 `image.png`，运行日志无损迁入网关目录。
 - `Stages/dxf2excel` 从不可还原 gitlink 转为父仓库普通跟踪源码；外部验证 corpus、生成工作簿、PDF、cache 和虚拟环境继续排除。
 - 当前文档事实更新为 OpenAPI 114 paths / 135 operations、Alembic `e2f4b8c6a130`、36 张模型表和完整 runtime 最多 45 张表。
 - 工作流直接复用现有 Job/Celery 与 `/files`：自动阶段按工作流/阶段幂等绑定 attempt，成功结果自动挂接，取消流程同步取消 active Job。

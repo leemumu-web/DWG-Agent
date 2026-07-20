@@ -145,7 +145,7 @@ Agent 占位字段为 `MODEL_NAME=deepseek-chat`、`MODEL_API_KEY`、`MODEL_BASE
 
 ```bash
 # 解析模板与 Compose 契约
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose config --quiet
 
 # 验证 Settings 与数据库行为

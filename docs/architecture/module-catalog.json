@@ -348,7 +348,11 @@
       "queues": [],
       "stages": [],
       "tests": ["backend/tests/test_celery_minio_deployment.py"],
-      "docs": ["docs/architecture/implementation-status.md", "docs/guides/deployment.md"],
+      "docs": [
+        "docs/architecture/implementation-status.md",
+        "docs/guides/deployment.md",
+        "infra/messaging/rabbitmq/README.md"
+      ],
       "notes": "Current broker is MySQL SQLAlchemy transport; RabbitMQ, transactional Outbox and Beat are not deployed."
     },
     {
@@ -359,7 +363,7 @@
       "backend_paths": [
         "backend/app/integrations/zwcad",
         "backend/app/workers/tasks_cad.py",
-        "cad-worker/README.md"
+        "windows/README.md"
       ],
       "frontend_paths": ["frontend/src/api/control-plane.api.ts"],
       "tables": [],
@@ -368,7 +372,14 @@
       "queues": ["cad"],
       "stages": [],
       "tests": ["backend/tests/test_control_plane_api.py"],
-      "docs": ["cad-worker/README.md", "docs/architecture/implementation-status.md"],
+      "docs": [
+        "docs/architecture/implementation-status.md",
+        "windows/README.md",
+        "windows/cam-runner/README.md",
+        "windows/node-agent/README.md",
+        "windows/protocols/README.md",
+        "windows/sinocam-adapter/README.md"
+      ],
       "notes": "Only a draft control-plane contract and compatibility symbols exist; authentication, leases, fencing and runners are unimplemented."
     }
   ]

@@ -1,5 +1,7 @@
 # DWG-Agent Enterprise CAD Processing Platform
 
+<img src="frontend/public/logo.png" alt="DWG-Agent" width="120" />
+
 [简体中文](README.md) | [English](README_EN.md)
 
 **Delivery tier: v0.1 technical preview. Current documentation baseline: July 21, 2026.** This tier is intended for technical evaluation and continued development; it does not represent production readiness. Runtime facts are governed by the current code, migrations, configuration, and [verification evidence](docs/verification/current.md). The [development guide](docs/guides/development.md) provides the first-install path, the [implementation status](docs/architecture/implementation-status.md) records residual risks, and the [Enterprise Platform Technical Specification](docs/architecture/platform-specification.md) defines normative boundaries. The repository maintains Chinese project documentation only.
@@ -83,7 +85,7 @@ Celery workers (no inbound listening ports)
 | DXF → Excel / `dxf2excel` | ⚠️ Stage source, platform service/task, and tests are tracked in the parent repository | `DXF2EXCEL_PIPELINE_ENABLED=false` | Valid DXF, Stage locked dependencies; built-in tests cover decoding only; real batches still require external corpus acceptance |
 | Excel Final / `excel_final` | ⚠️ Backend adapter, isolated subprocess, relational import, and Stage tests exist | `EXCEL_FINAL_PIPELINE_ENABLED=false` | Valid Tekla/initial-sheet schema, read-only `hardware_handbook` database, and sufficient timeout |
 | Agent / `agent` | ⏸️ API and persistence boundaries exist; task is an empty placeholder | `AGENT_ENABLED=false` | Delivery conditions are not met |
-| CAD / `cad` | ⏸️ Task and `cad-worker/` are empty placeholders | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |
+| Windows / `cad` | ⏸️ `windows/` separates external process contracts; task remains a placeholder | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |
 
 ### Job Consistency
 
@@ -198,7 +200,7 @@ cd Stages/dxf2dwg && uv run pytest -q && cd ../..
 cd Stages/dxf2excel && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose config --quiet
 ```
 
@@ -210,7 +212,7 @@ npm run build
 npx playwright test
 ```
 
-These verification layers are not interchangeable: SQLite pytest checks business logic, `migration-test` checks an empty MySQL schema, `infra/verify.sh` checks static and active infrastructure contracts, and Playwright checks browser interactions.
+These verification layers are not interchangeable: SQLite pytest checks business logic, `migration-test` checks an empty MySQL schema, `infra/verification/verify.sh` checks static and active infrastructure contracts, and Playwright checks browser interactions.
 
 A complete release acceptance still requires real MySQL, Celery, MinIO, and valid sample files to exercise upload, processing, retry, SSE, signed download, storage interruption, and recovery end to end. See [current verification evidence](docs/verification/current.md).
 
@@ -221,8 +223,8 @@ backend/        FastAPI, SQLAlchemy, Alembic, Celery, storage adapters, and pyte
 frontend/       React administration UI, API client, and Playwright
 Stages/         Independent CAD/Excel processing stages; Python Stage source is tracked, external binaries/corpus managed separately
 agents/         Placeholder directories for undelivered Agents
-cad-worker/     Placeholder protocol for the undelivered Windows CAD worker
-infra/          Nginx, MySQL initialization, and Compose verification
+windows/        Node Agent, CAM Runner, SinoCAM Adapter, and protocol contracts
+infra/          Gateway, database, storage, messaging target, operations, verification
 scripts/        Local lifecycle, database, and documentation tools
 docs/           The only maintained detailed documentation set; written in Chinese
 third_parts/    External/upstream projects; not automatically delivered platform capabilities

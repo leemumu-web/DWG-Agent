@@ -6,8 +6,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NGINX_CONFIGS = (
-    REPO_ROOT / "infra/nginx/nginx.conf",
-    REPO_ROOT / "infra/nginx/nginx.local.conf",
+    REPO_ROOT / "infra/gateway/nginx/nginx.conf",
+    REPO_ROOT / "infra/gateway/nginx/nginx.local.conf",
 )
 
 

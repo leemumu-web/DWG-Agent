@@ -1,5 +1,7 @@
 # DWG-Agent 企业 CAD 处理平台
 
+<img src="frontend/public/logo.png" alt="DWG-Agent" width="120" />
+
 [简体中文](README.md) | [English](README_EN.md)
 
 **交付级别：v0.1 技术预览版。当前文档基线：2026-07-21。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；[开发指南](docs/guides/development.md)给出首次安装和验收路径，[实现状态](docs/architecture/implementation-status.md)记录证据与剩余风险，[企业平台技术规范](docs/architecture/platform-specification.md)给出规范性边界。仓库只维护中文项目文档。
@@ -84,7 +86,7 @@ Celery workers（无入站监听端口）
 | DXF → Excel / `dxf2excel` | ⚠️ Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
 | Excel Final / `excel_final` | ⚠️ backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
 | Agent / `agent` | ⏸️ API 和持久化边界存在，task 为空占位 | `AGENT_ENABLED=false` | 尚未满足交付条件 |
-| CAD / `cad` | ⏸️ task 和 `cad-worker/` 均为空占位 | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
+| Windows / `cad` | ⏸️ `windows/` 分进程保留外部契约，task 为空占位 | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
 
 ### 任务一致性
 
@@ -200,7 +202,7 @@ cd Stages/dxf2dwg && uv run pytest -q && cd ../..
 cd Stages/dxf2excel && uv run pytest -q && cd ../..
 cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
 bash scripts/db.sh migration-test
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose config --quiet
 ```
 
@@ -212,7 +214,7 @@ npm run build
 npx playwright test
 ```
 
-测试层级不能互相替代：SQLite pytest 验证业务逻辑，`migration-test` 验证空 MySQL schema，`infra/verify.sh` 验证静态与活动基础设施契约，Playwright 验证浏览器交互。
+测试层级不能互相替代：SQLite pytest 验证业务逻辑，`migration-test` 验证空 MySQL schema，`infra/verification/verify.sh` 验证静态与活动基础设施契约，Playwright 验证浏览器交互。
 
 完整发布验收还必须使用真实 MySQL、Celery、MinIO 和有效样本，完成上传、处理、重试、SSE、签名下载、存储中断与恢复闭环。详见[当前验证证据](docs/verification/current.md)。
 
@@ -223,8 +225,8 @@ backend/        FastAPI、SQLAlchemy、Alembic、Celery、存储适配与 pytest
 frontend/       React 管理端、API client 与 Playwright
 Stages/         独立 CAD/Excel 处理阶段；Python Stage 源码已跟踪，外部二进制/corpus 另行管理
 agents/         未交付的 Agent 目录占位
-cad-worker/     未交付的 Windows CAD worker 协议占位
-infra/          Nginx、MySQL 初始化、Compose 验证
+windows/        Node Agent、CAM Runner、SinoCAM Adapter 与协议留白
+infra/          网关、数据库、存储、消息目标、运维与验证
 scripts/        本地启停、数据库与文档工具
 docs/           唯一维护的中文详细文档
 third_parts/    外部/上游项目；不代表平台直接交付的能力

@@ -18,8 +18,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = REPO_ROOT / "compose.yaml"
-NGINX_DOCKER = REPO_ROOT / "infra/nginx/nginx.conf"
-NGINX_LOCAL = REPO_ROOT / "infra/nginx/nginx.local.conf"
+NGINX_DOCKER = REPO_ROOT / "infra/gateway/nginx/nginx.conf"
+NGINX_LOCAL = REPO_ROOT / "infra/gateway/nginx/nginx.local.conf"
 
 BACKEND_PORT = "8010"
 

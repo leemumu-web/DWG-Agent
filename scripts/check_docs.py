@@ -34,11 +34,21 @@ COMPONENT_READMES = (
     ROOT / "backend/migrations/README.md",
     ROOT / "frontend/README.md",
     ROOT / "infra/README.md",
-    ROOT / "infra/nginx/README.md",
+    ROOT / "infra/gateway/nginx/README.md",
+    ROOT / "infra/database/mysql/README.md",
+    ROOT / "infra/storage/minio/README.md",
+    ROOT / "infra/messaging/rabbitmq/README.md",
+    ROOT / "infra/operations/backup/README.md",
+    ROOT / "infra/operations/monitoring/README.md",
+    ROOT / "infra/verification/README.md",
     ROOT / "agents/cad-agent/README.md",
     ROOT / "agents/excel-agent/README.md",
     ROOT / "agents/report-agent/README.md",
-    ROOT / "cad-worker/README.md",
+    ROOT / "windows/README.md",
+    ROOT / "windows/node-agent/README.md",
+    ROOT / "windows/cam-runner/README.md",
+    ROOT / "windows/sinocam-adapter/README.md",
+    ROOT / "windows/protocols/README.md",
     ROOT / "Stages/excel_final/README.md",
 )
 
@@ -258,7 +268,7 @@ def _repository_boundaries(errors: list[str]) -> None:
         errors.append("Technical specification contains an obsolete codex-branch status")
 
     compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
-    nginx = (ROOT / "infra/nginx/nginx.conf").read_text(encoding="utf-8")
+    nginx = (ROOT / "infra/gateway/nginx/nginx.conf").read_text(encoding="utf-8")
     dead_tls_mapping = '"443:8443"' in compose and not re.search(
         r"^\s*listen\s+8443\b", nginx, re.MULTILINE
     )

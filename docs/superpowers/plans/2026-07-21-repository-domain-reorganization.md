@@ -294,7 +294,7 @@ git commit -m "test: lock repository architecture contracts"
 - Modify: `docs/architecture/module-catalog.json`
 - Delete: duplicate root `image.png` after README points to `frontend/public/logo.png`
 
-- [ ] **Step 1: Extend tests with target path assertions**
+- [x] **Step 1: Extend tests with target path assertions**
 
 Update infrastructure tests to assert the new categorized paths and current truthful RabbitMQ state:
 
@@ -308,7 +308,7 @@ assert "not implemented" in rabbitmq_readme.lower()
 
 Run focused tests and expect failure before moves.
 
-- [ ] **Step 2: Move infrastructure files with history-preserving patches**
+- [x] **Step 2: Move infrastructure files with history-preserving patches**
 
 Move files without editing SQL or Nginx behavior. Update Compose mounts exactly:
 
@@ -319,7 +319,7 @@ Move files without editing SQL or Nginx behavior. Update Compose mounts exactly:
 
 Update local Nginx config and log paths in scripts to `infra/gateway/nginx`.
 
-- [ ] **Step 3: Build truthful target placeholders**
+- [x] **Step 3: Build truthful target placeholders**
 
 RabbitMQ, backup and monitoring README files must use a status block:
 
@@ -332,7 +332,7 @@ application configuration, worker recovery tests and operations runbook.
 
 Windows README files must describe interfaces and required evidence, not executable success.
 
-- [ ] **Step 4: Verify paths and behavior**
+- [x] **Step 4: Verify paths and behavior**
 
 Run:
 
@@ -347,7 +347,7 @@ cd backend
 
 Expected: all static and activity-safe checks pass; no service names change.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add infra windows compose.yaml backend/Dockerfile scripts backend/tests docs README.md README_EN.md frontend/public/logo.png image.png cad-worker

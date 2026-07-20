@@ -143,7 +143,7 @@ cd ../excel_final && uv run pytest -q multi_split/tests
 # MySQL/infrastructure
 cd ../..
 bash scripts/db.sh migration-test
-bash infra/verify.sh
+bash infra/verification/verify.sh
 docker compose config --quiet
 
 # Frontend

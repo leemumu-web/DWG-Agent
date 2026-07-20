@@ -23,10 +23,10 @@ Browser -> Nginx -> /api/v1/*、/health*、/docs、/redoc、/openapi.json -> Fas
 FastAPI JSON 错误直接通过，Nginx 只格式化自身错误。生产 FastAPI 会关闭运行时 API 文档，代理 location 不会改变该策略。Nginx 也不是授权层，每个资源仍由 FastAPI 校验。
 
 ```bash
-sudo nginx -t -c "$(pwd)/infra/nginx/nginx.local.conf"
-sudo nginx -c "$(pwd)/infra/nginx/nginx.local.conf"
-sudo nginx -c "$(pwd)/infra/nginx/nginx.local.conf" -s reload
-sudo nginx -c "$(pwd)/infra/nginx/nginx.local.conf" -s quit
+sudo nginx -t -c "$(pwd)/infra/gateway/nginx/nginx.local.conf"
+sudo nginx -c "$(pwd)/infra/gateway/nginx/nginx.local.conf"
+sudo nginx -c "$(pwd)/infra/gateway/nginx/nginx.local.conf" -s reload
+sudo nginx -c "$(pwd)/infra/gateway/nginx/nginx.local.conf" -s quit
 ```
 
 本地配置包含当前仓库绝对路径，移动仓库后必须检查其 header、root、log 和 PID 路径。

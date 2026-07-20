@@ -4,7 +4,7 @@
 # 规范参考: docs/architecture/platform-specification.md §2.1 §3 §17.4 §17.5
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 PASS=0
@@ -64,8 +64,8 @@ echo "════════════════════════�
 echo ""
 echo "── 1. Nginx 配置 ──"
 
-NGINX_DOCKER="infra/nginx/nginx.conf"
-NGINX_LOCAL="infra/nginx/nginx.local.conf"
+NGINX_DOCKER="infra/gateway/nginx/nginx.conf"
+NGINX_LOCAL="infra/gateway/nginx/nginx.local.conf"
 
 # 1.1 文件存在
 assert_file "$NGINX_DOCKER"  "nginx.conf (Docker) 存在"
@@ -151,10 +151,13 @@ svcs = data.get("services", {})
 errors = []
 workers = {
     "worker-agent": "agent",
+    "worker-dispatch": "dispatch",
     "worker-dxf": "dxf",
+    "worker-dxf-classification": "dxf_classification",
     "worker-dxf2dwg": "dxf2dwg",
     "worker-dxf2excel": "dxf2excel",
     "worker-excel-final": "excel_final",
+    "worker-maintenance": "maintenance",
     "worker-report": "report",
 }
 expected = {"nginx", "backend-api", "mysql", "minio", *workers}
@@ -258,7 +261,7 @@ PYEOF
 )
 
 if echo "$COMPOSE_CHECKS" | grep -q 'ALL_CHECKS_PASSED'; then
-    pass "compose.yaml 全部结构检查通过 (11 services, MySQL-backed runtime)"
+    pass "compose.yaml 全部结构检查通过 (13 services, MySQL-backed runtime)"
 else
     while IFS= read -r line; do
         [ -n "$line" ] && fail "compose.yaml" "$line"
@@ -485,18 +488,30 @@ echo "── 5. 文件完整性 ──"
 REQUIRED_FILES=(
     "compose.yaml"
     "backend/Dockerfile"
-    "infra/nginx/nginx.conf"
-    "infra/nginx/nginx.local.conf"
-    "infra/nginx/.gitignore"
-    "infra/nginx/ssl/.gitkeep"
-    "infra/mysql/init.sql"
+    "infra/gateway/nginx/nginx.conf"
+    "infra/gateway/nginx/nginx.local.conf"
+    "infra/gateway/nginx/.gitignore"
+    "infra/gateway/nginx/ssl/.gitkeep"
+    "infra/database/mysql/init.sql"
+    "infra/database/mysql/hardware_handbook.sql"
+    "infra/database/mysql/README.md"
+    "infra/storage/minio/README.md"
+    "infra/messaging/rabbitmq/README.md"
+    "infra/operations/backup/README.md"
+    "infra/operations/monitoring/README.md"
+    "infra/verification/README.md"
+    "windows/README.md"
+    "windows/node-agent/README.md"
+    "windows/cam-runner/README.md"
+    "windows/sinocam-adapter/README.md"
+    "windows/protocols/README.md"
     "scripts/db.sh"
     "scripts/start-all.sh"
     "scripts/start-dev.sh"
     "scripts/status.sh"
     "scripts/stop-all.sh"
     "infra/README.md"
-    "infra/nginx/README.md"
+    "infra/gateway/nginx/README.md"
     ".env.example"
     ".env.docker.example"
     "docs/guides/deployment.md"
@@ -528,7 +543,7 @@ echo ""
 echo "── 6. 死代码检查 ──"
 
 # conf.d/ and snippets/ should NOT exist (removed as dead code)
-for d in "infra/nginx/conf.d" "infra/nginx/snippets"; do
+for d in "infra/gateway/nginx/conf.d" "infra/gateway/nginx/snippets"; do
     if [ ! -d "$d" ]; then
         pass "已清理: $d/ 不存在"
     else

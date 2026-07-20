@@ -438,7 +438,7 @@ def test_deployment_docs_match_mysql_derived_celery_url_behavior():
 
 def test_infra_docs_match_current_core_and_profile_worker_topology():
     infra = (REPO_ROOT / "infra/README.md").read_text()
-    nginx = (REPO_ROOT / "infra/nginx/README.md").read_text()
+    nginx = (REPO_ROOT / "infra/gateway/nginx/README.md").read_text()
 
     assert "worker-report" in infra
     for worker in ("worker-dxf", "worker-dxf2dwg", "worker-dxf2excel", "worker-excel-final"):

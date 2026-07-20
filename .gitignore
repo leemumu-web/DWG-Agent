@@ -48,7 +48,7 @@ backend/var/
 *.sqlite
 *.db-journal
 *.sqlite-journal
-infra/nginx/logs/
+infra/gateway/nginx/logs/
 logs/
 
 # --- IDE / Editor ---

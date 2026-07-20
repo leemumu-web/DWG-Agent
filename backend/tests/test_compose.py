@@ -137,12 +137,12 @@ class TestComposeYamlValid:
         assert ":latest" not in services["minio"]["image"]
         assert "${HTTP_PORT:-80}:8080" in services["nginx"]["ports"]
 
-        nginx_conf = (REPO_ROOT / "infra/nginx/nginx.conf").read_text()
+        nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text()
         assert "listen 8080;" in nginx_conf
         assert "listen 80;" not in nginx_conf
 
     def test_docker_nginx_conf_uses_unprivileged_runtime_paths(self):
-        nginx_conf = (REPO_ROOT / "infra/nginx/nginx.conf").read_text()
+        nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text()
 
         assert "/var/log/nginx" not in nginx_conf
         assert "error_log /dev/stderr warn;" in nginx_conf
@@ -218,7 +218,9 @@ class TestMysqlService:
 
         assert any("01-platform.sql" in str(volume) for volume in volumes)
         assert any("02-hardware-handbook.sql" in str(volume) for volume in volumes)
-        init_sql = (REPO_ROOT / "infra/mysql/init.sql").read_text(encoding="utf-8")
+        init_sql = (REPO_ROOT / "infra/database/mysql/init.sql").read_text(
+            encoding="utf-8"
+        )
         assert "GRANT SELECT ON hardware_handbook.*" in init_sql
 
     def test_mysql_has_healthcheck(self):
@@ -246,6 +248,40 @@ class TestMinioService:
             },
         )
         assert "MINIO_ROOT_PASSWORD" not in minio["environment"]
+
+
+class TestClassifiedInfrastructureLayout:
+    def test_runtime_assets_live_under_explicit_owners(self):
+        for relative in (
+            "infra/gateway/nginx/nginx.conf",
+            "infra/database/mysql/init.sql",
+            "infra/storage/minio",
+            "infra/verification/verify.sh",
+        ):
+            assert (REPO_ROOT / relative).exists(), relative
+
+    def test_rabbitmq_target_is_truthful_and_not_silently_deployed(self):
+        data = _load()
+        readme = (REPO_ROOT / "infra/messaging/rabbitmq/README.md").read_text()
+
+        assert "rabbitmq" not in data["services"]
+        assert "Status: target contract, not deployed in current Compose." in readme
+        assert "MySQL SQLAlchemy Celery transport" in readme
+
+    def test_windows_boundary_is_split_by_process_role(self):
+        for relative in (
+            "windows/node-agent/README.md",
+            "windows/cam-runner/README.md",
+            "windows/sinocam-adapter/README.md",
+            "windows/protocols/README.md",
+        ):
+            assert (REPO_ROOT / relative).is_file(), relative
+
+        assert not (REPO_ROOT / "cad-worker").exists()
+
+    def test_root_logo_duplicate_is_removed(self):
+        assert (REPO_ROOT / "frontend/public/logo.png").is_file()
+        assert not (REPO_ROOT / "image.png").exists()
 
 
 class TestDockerEnvironmentFiles:
