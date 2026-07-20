@@ -351,6 +351,7 @@ expected_tables = {
     "dxf_classification_items",
     "dxf_classification_runs",
     "control_plane_events",
+    "daily_archive_runs",
     "excel_final_batches",
     "excel_final_components",
     "excel_final_parts",
@@ -404,7 +405,7 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "c1e9a4b7d220":
+    if version != "e2f4b8c6a130":
         raise SystemExit(f"unexpected Alembic head: {version}")
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}

@@ -20,6 +20,7 @@ JOB_REQUEST_KEY_REVISION = VERSIONS_DIR / "d5e8a1c4b720_add_job_request_key.py"
 WORKFLOW_INPUT_REVISION = VERSIONS_DIR / "f7a9c2d4e610_add_workflow_input_batches.py"
 DXF_CLASSIFICATION_REVISION = VERSIONS_DIR / "a9e4c7d2f610_add_dxf_classification_stage.py"
 CONTROL_PLANE_REVISION = VERSIONS_DIR / "c1e9a4b7d220_add_control_plane_framework.py"
+DAILY_ARCHIVE_REVISION = VERSIONS_DIR / "e2f4b8c6a130_add_daily_archive_runs.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -208,6 +209,17 @@ def test_control_plane_migration_extends_head_with_persisted_observability():
         assert f'op.drop_table("{table}")' in source
 
 
+def test_daily_archive_migration_extends_head_with_durable_outputs():
+    source = DAILY_ARCHIVE_REVISION.read_text(encoding="utf-8")
+    assert 'down_revision: str | None = "c1e9a4b7d220"' in source
+    assert '"daily_archive_runs"' in source
+    assert '"source_file_ids_json"' in source
+    assert '"source_manifest_sha256"' in source
+    assert '"archive_file_id"' in source
+    assert '"manifest_file_id"' in source
+    assert 'op.drop_table("daily_archive_runs")' in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -240,6 +252,7 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "workflow_artifacts",
         "dxf_classification_runs",
         "dxf_classification_items",
+        "daily_archive_runs",
         "workflow_input_batches",
         "workflow_input_items",
         "workflow_runs",
@@ -247,7 +260,7 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "c1e9a4b7d220"' in source
+    assert 'version != "e2f4b8c6a130"' in source
     assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
     assert '"uq_jobs_actor_task_request_key"' in source

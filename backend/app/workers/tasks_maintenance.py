@@ -6,6 +6,7 @@ an authenticated API call until a durable scheduler/outbox exists.
 
 from app.db.session import SessionLocal
 from app.models.control_plane import ControlPlaneEvent
+from app.services.daily_archive_service import execute_daily_archive_run
 from app.workers.celery_app import celery_app, reconcile_stale_running_jobs
 
 
@@ -28,3 +29,39 @@ def reconcile_stale_jobs_task() -> dict[str, int | str]:
         )
         db.commit()
     return {"operation": "reconcile_stale_jobs", "recovered_jobs": recovered}
+
+
+@celery_app.task(name="app.workers.tasks_maintenance.create_daily_archive")
+def create_daily_archive_task(run_id: int) -> dict[str, int | str]:
+    """Create a frozen, non-destructive daily archive and register both outputs."""
+    try:
+        execute_daily_archive_run(run_id, factory=SessionLocal)
+    except Exception:
+        with SessionLocal() as db:
+            db.add(
+                ControlPlaneEvent(
+                    source="worker",
+                    direction="internal",
+                    event_type="maintenance.daily_archive.failed",
+                    severity="error",
+                    target_kind="daily_archive_run",
+                    target_id=str(run_id),
+                    message="Daily archive generation failed.",
+                )
+            )
+            db.commit()
+        raise
+    with SessionLocal() as db:
+        db.add(
+            ControlPlaneEvent(
+                source="worker",
+                direction="internal",
+                event_type="maintenance.daily_archive.completed",
+                severity="info",
+                target_kind="daily_archive_run",
+                target_id=str(run_id),
+                message="Daily archive generation completed.",
+            )
+        )
+        db.commit()
+    return {"operation": "create_daily_archive", "archive_run_id": run_id}

@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 512
     max_zip_extract_mb: int = 2048  # max total uncompressed size when extracting a ZIP
     max_zip_entry_count: int = 1000  # max number of files inside a single ZIP
+    business_timezone: str = "Asia/Shanghai"
+    daily_archive_preview_ttl_minutes: int = Field(default=10, ge=1, le=60)
+    daily_archive_max_files: int = Field(default=5000, ge=1, le=50000)
+    daily_archive_max_source_gb: int = Field(default=50, ge=1, le=500)
 
     jwt_secret_key: str = "change-me-in-dev-change-me-in-prod-32chars"
     jwt_algorithm: str = "HS256"

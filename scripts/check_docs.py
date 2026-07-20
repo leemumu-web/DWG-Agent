@@ -17,6 +17,7 @@ REQUIRED_DOCS = {
     "architecture.md",
     "audit-report-2026-07-18.md",
     "configuration.md",
+    "daily-archive-design.md",
     "database.md",
     "deployment.md",
     "developer-preview.md",

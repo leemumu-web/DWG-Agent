@@ -16,10 +16,11 @@ DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx �
 4. [企业技术规范](../DWG-Agent企业平台技术规范.md)：必须长期保持的架构、安全和交付约束。
 5. [架构](architecture.md)：组件职责以及同步、异步、SSE、下载、存储一致性路径。
 6. [API 参考](api.md)：从当前 FastAPI OpenAPI 自动生成的路由清单和关键生产契约。
-7. [数据库](database.md)：35 张模型表、8 张 Celery runtime 表、迁移、控制平面与流转账本和恢复集合。
-8. [处理管线](processing-pipelines.md)与[通用工作流](workflow-framework.md)：转换执行与业务编排的区别。
-9. [配置](configuration.md)、[部署](deployment.md)和[运维](operations.md)：本地/Compose 实施和事故处理。
-10. [安全](security.md)、[验证](workflow-verification.md)与[路线图](roadmap.md)：发布前边界、证据和后续工作。
+7. [数据库](database.md)：36 张模型表、8 张 Celery runtime 表、迁移、控制平面、每日归档与流转账本和恢复集合。
+8. [每日一键归档](daily-archive-design.md)：非破坏式预检、冻结清单、异步 ZIP/manifest 与恢复规则。
+9. [处理管线](processing-pipelines.md)与[通用工作流](workflow-framework.md)：转换执行与业务编排的区别。
+10. [配置](configuration.md)、[部署](deployment.md)和[运维](operations.md)：本地/Compose 实施和事故处理。
+11. [安全](security.md)、[验证](workflow-verification.md)与[路线图](roadmap.md)：发布前边界、证据和后续工作。
 
 ## 文档职责
 
@@ -29,6 +30,7 @@ DWG-Agent 是一个内部 CAD/Excel 文件处理平台。浏览器通过 Nginx �
 | [API 参考](api.md) | 当前有哪些 HTTP 路由 | FastAPI `app.openapi()`；由 `make docs-generate` 生成 |
 | [配置](configuration.md) | 每个环境变量怎样生效，默认值和风险是什么 | `core/config.py`、`.env*.example`、Compose、前端构建参数 |
 | [数据库](database.md) | 表、关系、迁移、seed、Celery runtime 和备份边界是什么 | SQLAlchemy model、Alembic、Kombu/Celery backend、`scripts/db.sh` |
+| [每日一键归档](daily-archive-design.md) | 怎样安全整理每日生产文件并登记归档产物 | `daily_archive_runs`、data-admin API、maintenance task、storage adapter |
 | [部署](deployment.md) | 怎样构建并启动本地/Compose 拓扑 | Dockerfile、`compose.yaml`、Nginx、`scripts/docker.sh` |
 | [技术预览指南](developer-preview.md) | 怎样从 clean checkout 进入可开发状态 | 锁文件、脚本、门禁和本轮证据 |
 | [审计报告](audit-report-2026-07-18.md) | 当前能交付到什么程度、还剩什么风险 | 本轮命令输出、源码与配置审计 |
