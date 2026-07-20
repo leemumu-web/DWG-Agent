@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # DWG-Agent — 全栈健康检查
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib/common.sh"
+source "$(dirname "$0")/lib/local_stack.sh"
+source "$(dirname "$0")/lib/cad_worker.sh"
 
 echo -e "${BLUE}══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  DWG-Agent 状态检查${NC}"

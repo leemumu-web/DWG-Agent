@@ -17,6 +17,8 @@
 
 ### Changed
 
+- 运维脚本改为稳定 facade + 分类实现：数据库、Compose、本地进程和 CAD worker 生命周期分别归入 `scripts/lib/`，CAD、Windows、storage、docs 工具归入对应目录。
+- `scripts/db.sh`、`docker.sh`、启动/停止/状态/诊断/验证命令保持调用方式；`scripts/lib.sh` 降为旧调用者兼容聚合。
 - 基础设施按 gateway、database、storage、messaging、operations、verification 分类；Windows 目标边界拆为 Node Agent、CAM Runner、SinoCAM Adapter 与协议。
 - Compose、Nginx、本地脚本、文档和测试同步新路径；RabbitMQ/Outbox/Beat 保持真实目标留白。
 - 删除与 `frontend/public/logo.png` 字节相同的根 `image.png`，运行日志无损迁入网关目录。

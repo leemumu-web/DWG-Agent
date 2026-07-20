@@ -28,7 +28,6 @@ import re
 import shutil
 import socket
 import subprocess
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -49,6 +48,7 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 VERSIONS_DIR = BACKEND_ROOT / "migrations" / "versions"
 DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
+COMPOSE_LIBRARY = SCRIPTS_DIR / "lib" / "compose.sh"
 
 EXPECTED_HEAD = "e2f4b8c6a130"
 
@@ -84,11 +84,13 @@ def _destructive_db_tests_enabled() -> bool:
 
 
 def _load_reap_storage():
-    """Import scripts/reap_storage.py (adds backend/ to sys.path on import)."""
-    if str(SCRIPTS_DIR) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS_DIR))
-    module = importlib.import_module("reap_storage")
-    return importlib.reload(module)
+    """Import the classified storage reaper directly from its file path."""
+    script = SCRIPTS_DIR / "storage" / "reap.py"
+    spec = importlib.util.spec_from_file_location("storage_reap", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _make_stored_file(*, storage_key: str, status: str, updated_at: datetime) -> StoredFile:
@@ -367,7 +369,7 @@ class TestBackupCompleteness:
         per database (a single-db dump does not), so this flag form is what makes a
         restore recreate both schemas.
         """
-        source = DOCKER_SCRIPT.read_text(encoding="utf-8")
+        source = COMPOSE_LIBRARY.read_text(encoding="utf-8")
         assert "--databases" in source
         assert '"$MYSQL_DATABASE" hardware_handbook' in source
         assert "gzip" in source and "mysql.sql.gz" in source

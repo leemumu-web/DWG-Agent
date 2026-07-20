@@ -29,10 +29,10 @@ frontend-dev:
 	cd frontend && npm run dev
 
 docs-generate:
-	cd backend && uv run python ../scripts/generate_api_docs.py
+	cd backend && uv run python ../scripts/docs/generate_api.py
 
 docs-check:
-	cd backend && uv run python ../scripts/check_docs.py
+	cd backend && uv run python ../scripts/docs/check.py
 
 db-start:
 	bash scripts/db.sh start

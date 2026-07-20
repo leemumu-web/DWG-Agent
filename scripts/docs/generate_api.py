@@ -7,7 +7,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 API_DOC_PATH = ROOT / "docs" / "reference" / "api.md"
 sys.path.insert(0, str(ROOT / "backend"))
 
@@ -56,7 +56,7 @@ def render() -> str:
     path_count = len(schema["paths"])
     operation_count = sum(len(operations) for operations in schema["paths"].values())
     intro = (
-        "本文件由 `cd backend && uv run python ../scripts/generate_api_docs.py` 从 FastAPI "
+        "本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI "
         "OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。"
         f"当前 OpenAPI 包含 **{path_count} 个 path、{operation_count} 个 operation**。"
         "路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。"

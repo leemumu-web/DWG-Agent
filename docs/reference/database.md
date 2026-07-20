@@ -833,7 +833,7 @@ Compose 不发布 MySQL/MinIO 宿主端口，也没有调度 backup service。`b
 
 软删除只把 `files.status` 置为 `deleted`，不删除底层存储对象；崩溃时"已写对象但事务回滚"也会留下无 DB 行的孤儿对象。二者都会让磁盘/桶单调增长，并使 §6.2.1 的登记字节数与真实占用逐渐偏离。
 
-`scripts/reap_storage.py`（经 `bash scripts/db.sh reap-storage` 调用）负责回收：
+`scripts/storage/reap.py`（经稳定入口 `bash scripts/db.sh reap-storage` 调用）负责回收：
 
 ```bash
 # 预览（默认 dry-run，不删任何东西）

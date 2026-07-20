@@ -14,8 +14,8 @@ RUNTIME_DIR="${FORWARD_RUNTIME_DIR:-}"
 usage() {
     cat <<'EOF'
 Usage:
-  bash scripts/forward-to-win11.sh [start|stop|restart|status] [options]
-  bash scripts/forward-to-win11.sh --stop [options]
+  bash scripts/windows/forward_to_win11.sh [start|stop|restart|status] [options]
+  bash scripts/windows/forward_to_win11.sh --stop [options]
 
 Manage an SSH remote-forward tunnel. With no command, "start" is used.
 

@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 REQUIRED_DOCS = {
     "README.md",
@@ -89,15 +89,15 @@ def _read_required(path: Path, errors: list[str]) -> str:
 
 
 def _generated_api_docs(errors: list[str]) -> None:
-    sys.path.insert(0, str(ROOT / "scripts"))
-    from generate_api_docs import render
+    sys.path.insert(0, str(ROOT / "scripts" / "docs"))
+    from generate_api import render
 
     expected = {DOCS / "reference/api.md": render()}
     for path, generated in expected.items():
         if _read_required(path, errors) != generated:
             errors.append(
                 f"{path.relative_to(ROOT)} is stale; run "
-                "cd backend && uv run python ../scripts/generate_api_docs.py"
+                "cd backend && uv run python ../scripts/docs/generate_api.py"
             )
 
 
@@ -308,7 +308,7 @@ def _repository_boundaries(errors: list[str]) -> None:
             f"missing={sorted(missing_stage_files)}"
         )
 
-    from generate_api_docs import app
+    from generate_api import app
 
     schema = app.openapi()
     path_count = len(schema["paths"])

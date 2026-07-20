@@ -1,6 +1,21 @@
 # 运维脚本
 
-本目录是本地、Compose、数据库、Windows 转发和质量门禁的操作入口。所有命令应从仓库根目录执行；脚本不会把“进程存在”直接解释为转换管线可用。
+本目录是本地、Compose、数据库、Windows 转发和质量门禁的操作入口。所有命令应从仓库根目录执行；脚本不会把“进程存在”直接解释为转换管线可用。根目录 Shell 文件是稳定的人机/自动化接口，具体实现按职责放在 `lib/`、`cad/`、`docs/`、`storage/`、`windows/`，调用者不应绕过稳定入口复制数据库或进程控制逻辑。
+
+## 目录责任
+
+| 目录或文件 | 单一责任 |
+|---|---|
+| `lib/common.sh` | 仓库路径、输出、环境文件、端口与宿主服务原语。 |
+| `lib/database.sh` | MySQL 配置、迁移、种子、备份恢复和 `db_main`。 |
+| `lib/compose.sh` | Compose 校验、生命周期、MySQL/MinIO 备份恢复和 `compose_main`。 |
+| `lib/local_stack.sh` | 本地 FastAPI/Vite 进程归属、PID 和构建/运行版本新旧检查。 |
+| `lib/cad_worker.sh` | Celery 队列拓扑、worker 生命周期及 Xvfb 所有权。 |
+| `lib.sh` | 仅供旧调用者兼容的聚合导出；新增入口应按需加载上述库。 |
+| `cad/` | 真实 CAD 样本基准工具。 |
+| `docs/` | API 文档生成与仓库文档契约检查。 |
+| `storage/` | 对象回收与数据库/对象存储事务探针。 |
+| `windows/` | Linux 侧访问 Windows 节点的通信脚本。 |
 
 ## 常用闭环
 
@@ -25,7 +40,7 @@ bash scripts/verify.sh full --allow-blocked
 
 | 脚本 | 用途 | 关键边界 |
 |---|---|---|
-| `start-all.sh` | MySQL、五个 worker、FastAPI、前端 dist、Nginx | 已占用 8010 时不擅自重启；源码晚于进程会警告。 |
+| `start-all.sh` | MySQL、八个 worker、FastAPI、前端 dist、Nginx | 已占用 8010 时不擅自重启；源码晚于进程会警告。 |
 | `start-all.sh --restart-backend` | 优雅重载本项目 FastAPI | 只识别 cwd 为本仓库 `backend/` 的 Uvicorn；未知进程占端口时拒绝操作。 |
 | `start-all.sh --rebuild` | 强制重建前端 | 普通启动也会在 `src/` 或依赖清单晚于 `dist/index.html` 时重建。 |
 | `start-dev.sh` | Uvicorn reload + Vite HMR | 开发入口，不经过本地 Nginx 静态托管。 |
@@ -46,16 +61,16 @@ bash scripts/verify.sh full --allow-blocked
 |---|---|---|
 | `db.sh` | `start`、`check`、`status`、`migrate`、`migration-test`、`backup`、`restore`、`reap-storage` | `migration-test` 和部分系统操作可能需要 sudo；先在非生产 schema 验证。 |
 | `docker.sh` | `check`、`up`、`up-workers`、`status`、`smoke`、`logs`、`backup`、`restore`、`down` | Compose 与本地 worker 不应同时消费同一 CAD 队列。 |
-| `reap_storage.py` | 存储保留期回收实现 | 通常经 `bash scripts/db.sh reap-storage --dry-run` 调用，不直接猜测删除对象。 |
-| `verify_storage_transactions.py` | 存储事务验证 | 用于隔离验证，不替代真实对象恢复演练。 |
+| `storage/reap.py` | 存储保留期回收实现 | 通常经 `bash scripts/db.sh reap-storage --dry-run` 调用，不直接猜测删除对象。 |
+| `storage/verify_transactions.py` | 存储事务验证 | 用于隔离验证，不替代真实对象恢复演练。 |
 
 ## Windows 与 CAD worker
 
 | 脚本 | 用途 |
 |---|---|
-| `forward-to-win11.sh` | 管理 Win11 到本地 `:8080` 的 SSH remote-forward；`status` 未运行返回 3。 |
+| `windows/forward_to_win11.sh` | 管理 Win11 到本地 `:8080` 的 SSH remote-forward；`status` 未运行返回 3。 |
 | `run-cad-worker.sh` | 为本地 ODA worker 管理独立 Xvfb、DISPLAY、PID 和退出清理。 |
-| `benchmark_cad_conversion.py` | 对真实样本测量双向转换吞吐，不作为日常启动脚本。 |
+| `cad/benchmark_conversion.py` | 对真实样本测量双向转换吞吐，不作为日常启动脚本。 |
 
 出现客户端 405 时先运行 `status.sh`；若提示运行代码过期，使用 `start-all.sh --restart-backend`。ZIP 409 先看 `doctor.sh` 的 request ID，再在弹窗重新预检格式。文件夹上传曾因浏览器并发 8 超过默认 API 连接池总容量 4 而产生 QueuePool 500；当前前端把同一时刻的文件上传限制为 4。
 

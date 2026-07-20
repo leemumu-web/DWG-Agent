@@ -14,14 +14,18 @@
 | Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名；本轮尚未移动实现 |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
 | 架构聚焦测试 | pass | `6 passed, 6 warnings`；当前后端收集 `1016 tests` |
-| 统一 quick 门禁 | pass | Shell、ruff、架构、211 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
+| 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
 | 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
 | 基础设施聚焦回归 | pass | `104 passed, 7 warnings`；Compose config、架构快照、文档门禁同时通过 |
+| 脚本分层聚焦回归 | pass | `132 passed, 2 skipped`；稳定 facade、递归 Shell 语法、数据库/Compose/存储/Windows 通信与文档路径通过 |
+| 脚本真实入口 | pass | `db.sh check=0`、`docker.sh check=0`；MySQL 45 表、应用凭据、Compose 与 MinIO 配置均由新分层入口验证 |
 
 此次基线只证明当前自动化后端与文档契约全绿，不等同于真实 MySQL、MinIO、ODA、RabbitMQ 或 Windows/SinoCAM 生产验收。当前 Celery 使用 MySQL SQLAlchemy transport；RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 仍是目标/留白能力。人工初始盘点曾漏掉 `classify_steel_dxf`，机器 registry 确认稳定任务总数为 11，现已同步设计、计划和文档。
 
 `scripts/status.sh` 的只读检查确认本机 MySQL 45 张运行表、8 组 worker、FastAPI、Nginx 代理与 SPA 均可达；它同时如实报告当前 FastAPI 进程早于本轮源码。重构尚在进行，因此本阶段没有中途重启运行服务，最终验收再统一刷新受管进程。根 `image.png` 与 `frontend/public/logo.png` SHA-256 完全相同，已删除前者并由 README 复用后者；旧 Nginx runtime logs 原样移入 `infra/gateway/nginx/logs/`。
+
+脚本接口现分为三层：仓库根 `scripts/*.sh` 保持既有操作命令；`scripts/lib/` 分别拥有通用、数据库、Compose、本地栈和 CAD worker 生命周期；CAD 基准、Windows 转发、存储维护、文档生成/检查进入对应分类目录。`scripts/lib.sh` 仅保留兼容聚合，新增脚本必须按需依赖具体库。旧 Python/Windows 实现路径已退出，Makefile、测试和文档均指向分类路径。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19
@@ -56,7 +60,7 @@ Celery worker <- MySQL queue -> Stage -> MySQL state + storage result
 make docs-check
 
 cd backend
-uv run ruff check app tests ../tests/run_full_verify.py ../scripts/check_docs.py ../scripts/generate_api_docs.py
+uv run ruff check app tests ../tests/run_full_verify.py ../scripts/docs/check.py ../scripts/docs/generate_api.py
 uv run pytest -q
 uv run alembic check
 cd ..
@@ -253,7 +257,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 
 ```bash
 cd backend
-uv run python ../scripts/benchmark_cad_conversion.py \
+uv run python ../scripts/cad/benchmark_conversion.py \
   --input-dir '/home/Creeken/Paper/CAD_research/Data/十份排版/排版1/C区域四节钢柱（宝冶）/2.零件图/1：1零件图' \
   --concurrency 1,2,4,8 --direction roundtrip --mode batch \
   --json-output ../output/cad-benchmark-full-tuning.json

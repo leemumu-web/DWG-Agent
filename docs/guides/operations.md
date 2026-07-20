@@ -191,7 +191,7 @@ DXF 在线预览对象会以 `operation=preview_generate` 登记内部生成流�
 
 ```bash
 cd backend
-STORAGE_BACKEND=local .venv/bin/python ../scripts/verify_storage_transactions.py
+STORAGE_BACKEND=local .venv/bin/python ../scripts/storage/verify_transactions.py
 
 # Compose MinIO 不发布宿主端口；只为探针读取内部地址和容器凭据，不打印 secret。
 MINIO_IP=$(docker inspect complete_framework-minio-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
@@ -199,7 +199,7 @@ MINIO_ACCESS_KEY=$(sed -n 's/^MINIO_ACCESS_KEY=//p' ../.env.docker | head -n 1)
 MINIO_SECRET_KEY=$(sed -n 's/^MINIO_SECRET_KEY=//p' ../.env.docker | head -n 1)
 STORAGE_BACKEND=minio MINIO_ENDPOINT="http://$MINIO_IP:9000" \
   MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \
-  .venv/bin/python ../scripts/verify_storage_transactions.py
+  .venv/bin/python ../scripts/storage/verify_transactions.py
 ```
 
 脚本创建独立探针对象，验证 Excel 重放只登记一个文件/Job、DXF SVG 入库与鉴权出库、源删除联动和传输终态；结束时软删除登记、删除合成 Job 并物理移除仅由本次创建的对象。它不会处置既有 finding。宿主 `.env` 与 `.env.docker` 的 MinIO endpoint/凭据必须分别核对；`SignatureDoesNotMatch` 是凭据不一致，不是网络故障。

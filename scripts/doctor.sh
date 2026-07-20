@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DWG-Agent — 生产式本地环境诊断（服务、运行版本、近期 HTTP 异常）
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib/common.sh"
 
 LOG_ONLY=false
 SINCE_MINUTES="${DOCTOR_SINCE_MINUTES:-60}"
@@ -36,7 +36,7 @@ if ! $LOG_ONLY; then
 
     step "Win11 访问隧道"
     set +e
-    bash "$PROJECT_ROOT/scripts/forward-to-win11.sh" status
+    bash "$PROJECT_ROOT/scripts/windows/forward_to_win11.sh" status
     forward_rc=$?
     set -e
     if [ "$forward_rc" -eq 3 ]; then

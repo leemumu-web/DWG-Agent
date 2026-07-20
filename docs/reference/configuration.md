@@ -26,15 +26,15 @@ FastAPI 端口 `8010`（本地与容器一致）、Vite `5173` 和本地 Nginx `
 本机服务正常监听 `127.0.0.1:8080` 后，可通过 SSH config 中的 `win11` host 在 Windows 回环地址建立反向转发：
 
 ```bash
-bash scripts/forward-to-win11.sh start
-bash scripts/forward-to-win11.sh status
-bash scripts/forward-to-win11.sh restart --remote-port 18080
-bash scripts/forward-to-win11.sh stop
+bash scripts/windows/forward_to_win11.sh start
+bash scripts/windows/forward_to_win11.sh status
+bash scripts/windows/forward_to_win11.sh restart --remote-port 18080
+bash scripts/windows/forward_to_win11.sh stop
 ```
 
 默认映射为 Win11 `127.0.0.1:8080` -> 本机 `127.0.0.1:8080`。脚本使用配置专属的 SSH ControlMaster socket 管理生命周期，不通过 PID 或模糊进程匹配停止其他 SSH 会话；重复 `start` 是幂等操作。远端 bind address 有意保持 `127.0.0.1`，脚本不会修改 SSH server 的 `GatewayPorts`，因而不会默认把管理界面暴露给 Win11 所在网络。
 
-配置优先级为命令行参数 > 环境变量 > 默认值。可用环境变量为 `FORWARD_REMOTE_HOST`、`FORWARD_REMOTE_BIND_ADDRESS`、`FORWARD_REMOTE_PORT`、`FORWARD_LOCAL_ADDRESS`、`FORWARD_LOCAL_PORT` 和 `FORWARD_RUNTIME_DIR`；完整参数以 `bash scripts/forward-to-win11.sh --help` 为准。`status` 在隧道运行时返回 0，未运行时返回 3，适合监控脚本直接判定。
+配置优先级为命令行参数 > 环境变量 > 默认值。可用环境变量为 `FORWARD_REMOTE_HOST`、`FORWARD_REMOTE_BIND_ADDRESS`、`FORWARD_REMOTE_PORT`、`FORWARD_LOCAL_ADDRESS`、`FORWARD_LOCAL_PORT` 和 `FORWARD_RUNTIME_DIR`；完整参数以 `bash scripts/windows/forward_to_win11.sh --help` 为准。`status` 在隧道运行时返回 0，未运行时返回 3，适合监控脚本直接判定。
 
 ## 数据库与连接池
 
@@ -119,7 +119,7 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 
 ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`ODA_CONVERTER_TIMEOUT=300`、`ODA_CONVERTER_RETRIES=1`、`ODA_XVFB_RUN=true`、`DXF2DWG_CONVERTER_VERSION=ACAD2018`、`DXF2DWG_CONVERTER_AUDIT=true`、`DXF2DWG_CONVERTER_TIMEOUT=300`、`DXF2DWG_CONVERTER_RETRIES=1`，`ODA_HOME` 默认空。
 
-两个 CAD worker 由 `scripts/run-cad-worker.sh` 各自启动一个持久 Xvfb；已有 `DISPLAY` 时 Stage 不再为每次 ODA 调用执行 `xvfb-run -a`。`DXF_WORKER_CONCURRENCY=8` 与 `DXF2DWG_WORKER_CONCURRENCY=8` 是跨批次吞吐默认值，不表示单批次盲目启动 8 个 ODA。单批次按文件数和版本分组后自适应为最多 4 个目录分片；135 文件实测中 4 分片处于吞吐拐点。调整前必须用 `scripts/benchmark_cad_conversion.py` 在部署机器和代表性图纸上复测。
+两个 CAD worker 由 `scripts/run-cad-worker.sh` 各自启动一个持久 Xvfb；已有 `DISPLAY` 时 Stage 不再为每次 ODA 调用执行 `xvfb-run -a`。`DXF_WORKER_CONCURRENCY=8` 与 `DXF2DWG_WORKER_CONCURRENCY=8` 是跨批次吞吐默认值，不表示单批次盲目启动 8 个 ODA。单批次按文件数和版本分组后自适应为最多 4 个目录分片；135 文件实测中 4 分片处于吞吐拐点。调整前必须用 `scripts/cad/benchmark_conversion.py` 在部署机器和代表性图纸上复测。
 
 同一队列只能有一套 worker topology。`scripts/status.sh` 报告“本地与 Compose 同时消费”时，基准、调度归属和取消结果均不可信，应停止其中一套后再验收。worker/Celery healthy 只证明进程与 broker 可达，不能证明 ODA 对具体 DWG/DXF 有效；必须检查终态、输出头、文件数和下载结果。
 

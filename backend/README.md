@@ -21,7 +21,7 @@ development/debug 暴露 `/docs`、`/redoc` 和 `/openapi.json`，production 且
 uv run ruff check app tests ../tests/run_full_verify.py
 uv run pytest -q
 uv run alembic check
-uv run python ../scripts/check_docs.py
+uv run python ../scripts/docs/check.py
 cd .. && bash scripts/db.sh migration-test
 ```
 

@@ -41,3 +41,16 @@
 ## 变更追溯
 
 每个重构提交必须同时满足：运行契约快照不变、module catalog 路径有效、表/operation/task 唯一归属、受影响模块测试通过、文档路径同步。若目标能力仍留白，必须保留端点、schema、错误码和输入输出契约，而不是删除“不好归类”的占位边界。
+
+## 运维脚本追溯
+
+| 稳定入口 | 分类实现 | 主要运行事实 |
+|---|---|---|
+| `start-all.sh`、`start-dev.sh`、`stop-all.sh`、`status.sh` | `lib/common.sh`、`lib/local_stack.sh`、`lib/database.sh`、`lib/cad_worker.sh` | 本地 MySQL、FastAPI、前端、Nginx 与八组 worker 生命周期。 |
+| `db.sh` | `lib/database.sh`、`storage/reap.py` | MySQL schema/种子/迁移/备份与登记对象保留期回收。 |
+| `docker.sh` | `lib/compose.sh` | Compose 服务检查、MySQL + MinIO 备份恢复。 |
+| `run-cad-worker.sh` | `lib/cad_worker.sh` | CAD 队列、Xvfb、DISPLAY、PID 和优雅退出。 |
+| `doctor.sh` | `lib/common.sh`、`windows/forward_to_win11.sh` | 服务版本、HTTP 异常和可选 Windows 反向隧道诊断。 |
+| `verify.sh`、Makefile 文档目标 | `docs/check.py`、`docs/generate_api.py`、`architecture/` | 质量门禁、生成 API、路径/契约/归属一致性。 |
+
+`scripts/lib.sh` 只为既有外部 source 调用保留聚合兼容，不是新增实现归属。完整参数和安全边界见 [`scripts/README.md`](../../scripts/README.md)。

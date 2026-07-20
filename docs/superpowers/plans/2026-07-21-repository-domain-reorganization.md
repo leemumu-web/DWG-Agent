@@ -373,11 +373,11 @@ git commit -m "refactor: classify infrastructure and Windows contracts"
 - Modify: `scripts/lib.sh` into a compatibility facade sourcing classified libraries
 - Modify: Dockerfile, Compose, Makefile, tests, docs
 
-- [ ] **Step 1: Add tests for stable command interfaces and classified implementation**
+- [x] **Step 1: Add tests for stable command interfaces and classified implementation**
 
 Assert every root facade remains executable and sources a classified implementation. Add a shell syntax parameterized test over both root facades and `scripts/lib/*.sh`.
 
-- [ ] **Step 2: Extract common and local lifecycle functions**
+- [x] **Step 2: Extract common and local lifecycle functions**
 
 Move color/log/path primitives to `lib/common.sh`, MySQL helpers to `lib/database.sh`, Compose backup/restore helpers to `lib/compose.sh`, worker/Xvfb lifecycle to `lib/cad_worker.sh`, and local process ownership to `lib/local_stack.sh`.
 
@@ -393,11 +393,11 @@ db_main "$@"
 
 Keep output, exit codes and accepted arguments unchanged.
 
-- [ ] **Step 3: Update internal Python script paths**
+- [x] **Step 3: Update internal Python script paths**
 
 Replace references with the categorized locations in Makefile, Dockerfile, tests and docs. `scripts/db.sh reap-storage` must invoke `scripts/storage/reap.py`; users still call the stable shell command. `make docs` and `make docs-check` must invoke `scripts/docs/generate_api.py` and `scripts/docs/check.py`; update checker imports and contract tests in the same commit so no invocation points at the retired root Python paths.
 
-- [ ] **Step 4: Run script gates**
+- [x] **Step 4: Run script gates**
 
 ```bash
 find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
@@ -412,7 +412,7 @@ backend/.venv/bin/python scripts/docs/check.py
 
 Expected: all tests pass and status remains read-only.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts Makefile backend/Dockerfile compose.yaml backend/tests docs

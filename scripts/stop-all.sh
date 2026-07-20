@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # DWG-Agent — 一键停止全栈
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib/common.sh"
+source "$(dirname "$0")/lib/local_stack.sh"
+source "$(dirname "$0")/lib/cad_worker.sh"
 
 echo -e "${RED}══════════════════════════════════════════════════════${NC}"
 echo -e "${RED}  DWG-Agent 停止服务${NC}"

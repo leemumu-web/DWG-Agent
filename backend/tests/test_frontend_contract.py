@@ -69,7 +69,7 @@ def test_folder_upload_concurrency_fits_default_api_database_pool():
 
 
 def test_generated_api_source_documents_zip_preview_and_conflicts():
-    source = (REPO_ROOT / "scripts/generate_api_docs.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "scripts/docs/generate_api.py").read_text(encoding="utf-8")
 
     assert "/api/v1/files/download-zip/preview" in source
     assert "missing_count" in source

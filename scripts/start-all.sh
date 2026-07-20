@@ -4,7 +4,10 @@
 #       bash scripts/start-all.sh --rebuild     # 强制重建前端
 #       bash scripts/start-all.sh --restart-backend  # 安全重载本项目后端
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib/common.sh"
+source "$(dirname "$0")/lib/database.sh"
+source "$(dirname "$0")/lib/local_stack.sh"
+source "$(dirname "$0")/lib/cad_worker.sh"
 
 REBUILD=false
 RESTART_BACKEND=false

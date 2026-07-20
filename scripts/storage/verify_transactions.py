@@ -2,7 +2,7 @@
 """Exercise registered upload, idempotent Job, DXF preview, and outbound ledgers.
 
 Run from ``backend`` so the application package and its selected storage/database
-configuration are authoritative. The probe soft-deletes its files, removes the
+configuration are authoritative. This classified storage probe soft-deletes its files, removes the
 queued synthetic Job, and physically removes only the objects it created.
 """
 

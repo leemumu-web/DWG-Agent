@@ -2,7 +2,10 @@
 # DWG-Agent — 开发模式启动（后端 + Vite HMR，不走 Nginx）
 # 用法: bash scripts/start-dev.sh
 set -euo pipefail
-source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/lib/common.sh"
+source "$(dirname "$0")/lib/database.sh"
+source "$(dirname "$0")/lib/local_stack.sh"
+source "$(dirname "$0")/lib/cad_worker.sh"
 
 echo -e "${BLUE}══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  DWG-Agent 开发模式${NC}"

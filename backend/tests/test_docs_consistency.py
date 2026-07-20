@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def test_documentation_consistency_gate_passes() -> None:
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts/check_docs.py")],
+        [sys.executable, str(REPO_ROOT / "scripts/docs/check.py")],
         cwd=REPO_ROOT,
         text=True,
         capture_output=True,

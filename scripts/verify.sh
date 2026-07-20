@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # DWG-Agent — 统一质量门禁
 set -uo pipefail
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$(dirname "$0")/lib/common.sh"
 MODE="quick"
 ALLOW_BLOCKED=false
 PASS_COUNT=0
@@ -60,7 +59,7 @@ run_optional_gate() {
     return 0
 }
 
-run_gate "Shell 语法" bash -c 'bash -n scripts/*.sh' \
+run_gate "Shell 语法" bash -c 'find scripts -name "*.sh" -print0 | xargs -0 -n1 bash -n' \
     -- "$PROJECT_ROOT"
 run_gate "Python 静态检查" bash -c \
     'cd backend && uv run ruff check app tests ../tests/run_full_verify.py' \

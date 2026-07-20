@@ -9,9 +9,9 @@ before commit — they have no matching ``StoredFile`` row at all.
 Usage
 -----
     cd backend
-    uv run python ../scripts/reap_storage.py --dry-run
-    uv run python ../scripts/reap_storage.py --retention-days 30
-    uv run python ../scripts/reap_storage.py --retention-days 0 --no-dry-run
+    uv run python ../scripts/storage/reap.py --dry-run
+    uv run python ../scripts/storage/reap.py --retention-days 30
+    uv run python ../scripts/storage/reap.py --retention-days 0 --no-dry-run
 
 Also available via::
 
@@ -28,7 +28,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Ensure backend/ is on sys.path so we can import the app modules.
-_backend = Path(__file__).resolve().parents[1] / "backend"
+_backend = Path(__file__).resolve().parents[2] / "backend"
 if str(_backend) not in sys.path:
     sys.path.insert(0, str(_backend))
 

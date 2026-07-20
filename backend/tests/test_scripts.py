@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import stat
 import subprocess
 from pathlib import Path
 
@@ -15,7 +16,7 @@ def _read(path: str) -> str:
 
 
 def test_cad_benchmark_cli_contract_and_concurrency_parser(tmp_path):
-    script = PROJECT_ROOT / "scripts/benchmark_cad_conversion.py"
+    script = PROJECT_ROOT / "scripts/cad/benchmark_conversion.py"
     assert script.is_file()
 
     spec = importlib.util.spec_from_file_location("cad_benchmark", script)
@@ -55,7 +56,10 @@ def test_database_script_provides_mysql_runtime_entrypoints():
     db_script = PROJECT_ROOT / "scripts/db.sh"
 
     assert db_script.exists()
-    content = db_script.read_text(encoding="utf-8")
+    facade = db_script.read_text(encoding="utf-8")
+    content = _read("scripts/lib/database.sh")
+    assert "lib/database.sh" in facade
+    assert 'db_main "$@"' in facade
     for command in (
         "start",
         "setup-user",
@@ -74,7 +78,7 @@ def test_database_script_provides_mysql_runtime_entrypoints():
 
 
 def test_database_script_runs_alembic_and_checks_timestamp_schema():
-    content = _read("scripts/db.sh")
+    content = _read("scripts/lib/database.sh")
 
     assert "uv run alembic upgrade head" in content
     for table in (
@@ -89,7 +93,7 @@ def test_database_script_runs_alembic_and_checks_timestamp_schema():
 
 
 def test_database_script_exposes_isolated_mysql_migration_test():
-    content = _read("scripts/db.sh")
+    content = _read("scripts/lib/database.sh")
 
     assert '"migration-test")' in content
     assert "dwg_agent_migration_test_" in content
@@ -105,10 +109,10 @@ def test_start_scripts_delegate_database_startup_to_db_script():
         content = _read(path)
         assert "ensure_db_ready" in content
         assert "ensure_service 3306" not in content
-    # lib.sh ensure_db_ready must delegate to db.sh:
-    lib_content = _read("scripts/lib.sh")
-    assert 'scripts/db.sh" start' in lib_content
-    assert 'scripts/db.sh" init' in lib_content
+    # The classified database implementation delegates to the stable facade.
+    database_content = _read("scripts/lib/database.sh")
+    assert 'scripts/db.sh" start' in database_content
+    assert 'scripts/db.sh" init' in database_content
 
 
 def test_start_stop_status_scripts_manage_report_worker():
@@ -117,10 +121,10 @@ def test_start_stop_status_scripts_manage_report_worker():
         assert "start_all_workers" in _read(path)
 
     assert "stop_all_workers" in _read("scripts/stop-all.sh")
-    assert "stop_celery_worker" in _read("scripts/lib.sh")
-    assert "dwg-agent-${label}.pid" in _read("scripts/lib.sh")
+    assert "stop_celery_worker" in _read("scripts/lib/cad_worker.sh")
+    assert "dwg-agent-${label}.pid" in _read("scripts/lib/cad_worker.sh")
 
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/cad_worker.sh")
     assert "WORKER_SPECS" in lib_content
     # Every queue/slug must appear in WORKER_SPECS (defined in lib.sh, iterated
     # by start_all_workers / stop_all_workers / status.sh).
@@ -140,7 +144,7 @@ def test_start_stop_status_scripts_manage_report_worker():
 
 
 def test_local_scripts_manage_every_implemented_pipeline_worker():
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/cad_worker.sh")
     start_contents = [_read("scripts/start-all.sh"), _read("scripts/start-dev.sh")]
     stop_content = _read("scripts/stop-all.sh")
 
@@ -162,7 +166,7 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
 
 
 def test_database_backup_uses_a_dump_client_not_the_interactive_client():
-    content = _read("scripts/db.sh")
+    content = _read("scripts/lib/database.sh")
     backup_section = content[content.index("backup_cmd()") : content.index("restore_cmd()")]
 
     assert "pick_mysql_dump_client" in content
@@ -176,9 +180,11 @@ def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():
     wrapper = PROJECT_ROOT / "scripts/run-cad-worker.sh"
 
     assert wrapper.is_file()
-    content = wrapper.read_text(encoding="utf-8")
+    facade = wrapper.read_text(encoding="utf-8")
+    content = _read("scripts/lib/cad_worker.sh")
+    assert "cad_worker_main" in facade
     assert "Xvfb" in content
-    assert "trap cleanup" in content
+    assert "trap cad_worker_cleanup" in content
     assert 'export DISPLAY="$display"' in content
     assert "celery_pid" in content
     assert "wait_for_x_socket" in content
@@ -191,7 +197,7 @@ def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():
 
 
 def test_local_cad_worker_concurrency_and_display_are_configurable():
-    content = _read("scripts/lib.sh")
+    content = _read("scripts/lib/cad_worker.sh")
 
     assert 'DXF_WORKER_CONCURRENCY="${DXF_WORKER_CONCURRENCY:-8}"' in content
     assert 'DXF2DWG_WORKER_CONCURRENCY="${DXF2DWG_WORKER_CONCURRENCY:-8}"' in content
@@ -202,7 +208,7 @@ def test_local_cad_worker_concurrency_and_display_are_configurable():
 
 
 def test_worker_stop_signals_only_celery_parent_processes():
-    content = _read("scripts/lib.sh")
+    content = _read("scripts/lib/cad_worker.sh")
 
     assert "celery_worker_parent_pids" in content
     assert 'kill -TERM "${parent_pids[@]}"' in content
@@ -226,7 +232,7 @@ def test_stop_all_does_not_kill_unowned_backend_port():
 
 
 def test_worker_lifecycle_detects_orphaned_pidfiles_and_duplicate_consumers():
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/cad_worker.sh")
     stop_content = _read("scripts/stop-all.sh")
 
     assert "celery_worker_pids" in lib_content
@@ -249,11 +255,11 @@ def test_start_script_does_not_print_bootstrap_password():
     # start-all.sh may identify the configured account but must never print or
     # even read the secret into a shell variable just to render its summary.
     start_all = _read("scripts/start-all.sh")
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/common.sh")
 
     assert "SuperAdminPass1" not in start_all
     assert "print_admin_credentials" in start_all
-    # lib.sh must reference the env var names (not the actual password)
+    # The common library references names only, never the actual password.
     assert "SUPER_ADMIN_PASSWORD" in lib_content
     assert "SUPER_ADMIN_USERNAME" in lib_content
     assert 'pass="$(env_value' not in lib_content
@@ -264,7 +270,7 @@ def test_start_script_does_not_print_bootstrap_password():
 def test_background_start_is_stable_and_dev_start_keeps_hot_reload():
     start_all = _read("scripts/start-all.sh")
     start_dev = _read("scripts/start-dev.sh")
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/local_stack.sh")
 
     assert "--reload" not in start_all
     assert "start_local_backend" in start_all
@@ -275,7 +281,7 @@ def test_background_start_is_stable_and_dev_start_keeps_hot_reload():
 
 def test_start_all_supports_explicit_owned_backend_restart():
     start_all = _read("scripts/start-all.sh")
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/local_stack.sh")
 
     assert "--restart-backend" in start_all
     assert "restart_owned_backend" in start_all
@@ -287,7 +293,7 @@ def test_start_all_supports_explicit_owned_backend_restart():
 def test_nginx_liveness_check_does_not_require_sudo_credentials():
     start_all = _read("scripts/start-all.sh")
     stop_all = _read("scripts/stop-all.sh")
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/common.sh")
 
     assert "process_exists" in lib_content
     assert "process_exists \"$NGINX_PID\"" in start_all
@@ -296,7 +302,7 @@ def test_nginx_liveness_check_does_not_require_sudo_credentials():
 
 
 def test_runtime_and_frontend_staleness_are_reported():
-    lib_content = _read("scripts/lib.sh")
+    lib_content = _read("scripts/lib/local_stack.sh")
     status_content = _read("scripts/status.sh")
     start_content = _read("scripts/start-all.sh")
 
@@ -315,7 +321,7 @@ def test_files_newer_than_epoch_uses_real_mtimes(tmp_path):
     os.utime(older, (100, 100))
     os.utime(newer, (300, 300))
     command = (
-        f'source "{PROJECT_ROOT / "scripts/lib.sh"}"; '
+        f'source "{PROJECT_ROOT / "scripts/lib/local_stack.sh"}"; '
         'files_newer_than_epoch 200 "$1" "$2"'
     )
 
@@ -336,6 +342,68 @@ def test_files_newer_than_epoch_uses_real_mtimes(tmp_path):
 
     assert stale.returncode == 0
     assert fresh.returncode == 1
+
+
+def test_script_interfaces_are_stable_executable_facades():
+    facades = (
+        "start-all.sh",
+        "start-dev.sh",
+        "stop-all.sh",
+        "status.sh",
+        "doctor.sh",
+        "db.sh",
+        "docker.sh",
+        "verify.sh",
+        "run-cad-worker.sh",
+    )
+    for name in facades:
+        path = PROJECT_ROOT / "scripts" / name
+        assert path.is_file(), name
+        assert path.stat().st_mode & stat.S_IXUSR, name
+        assert "/lib/" in path.read_text(encoding="utf-8"), name
+
+
+def test_script_implementations_are_classified_and_legacy_paths_retired():
+    expected = (
+        "scripts/lib/common.sh",
+        "scripts/lib/local_stack.sh",
+        "scripts/lib/database.sh",
+        "scripts/lib/compose.sh",
+        "scripts/lib/cad_worker.sh",
+        "scripts/cad/benchmark_conversion.py",
+        "scripts/windows/forward_to_win11.sh",
+        "scripts/storage/reap.py",
+        "scripts/storage/verify_transactions.py",
+        "scripts/docs/check.py",
+        "scripts/docs/generate_api.py",
+    )
+    for relative in expected:
+        assert (PROJECT_ROOT / relative).is_file(), relative
+
+    retired = (
+        "scripts/benchmark_cad_conversion.py",
+        "scripts/forward-to-win11.sh",
+        "scripts/reap_storage.py",
+        "scripts/verify_storage_transactions.py",
+        "scripts/check_docs.py",
+        "scripts/generate_api_docs.py",
+    )
+    for relative in retired:
+        assert not (PROJECT_ROOT / relative).exists(), relative
+
+
+def test_all_shell_interfaces_and_libraries_have_valid_syntax():
+    scripts = sorted((PROJECT_ROOT / "scripts").rglob("*.sh"))
+    assert scripts
+    for script in scripts:
+        result = subprocess.run(
+            ["bash", "-n", str(script)],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, f"{script}: {result.stderr}"
 
 
 def test_doctor_groups_4xx_separates_499_and_redacts_queries(tmp_path):
@@ -416,9 +484,9 @@ def test_scripts_readme_documents_every_operational_entrypoint():
         "verify.sh",
         "db.sh",
         "docker.sh",
-        "forward-to-win11.sh",
+        "windows/forward_to_win11.sh",
         "run-cad-worker.sh",
-        "reap_storage.py",
+        "storage/reap.py",
     ):
         assert command in content
     assert "--restart-backend" in content
