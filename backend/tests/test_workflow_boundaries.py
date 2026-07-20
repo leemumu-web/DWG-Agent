@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.project import Project, ProjectMember
-from app.models.user import User
+from app.modules.identity.interface import User
+from app.modules.projects.interface import Project, ProjectMember
 from app.platform.http.exceptions import AppHTTPException
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services.workflow_service import (

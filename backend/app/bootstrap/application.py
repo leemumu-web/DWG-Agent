@@ -11,8 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.v1.router import api_router
 from app.bootstrap.model_registry import load_models
+from app.bootstrap.router import api_router
 from app.platform.config.settings import settings
 from app.platform.database.session import db_health
 from app.platform.http.envelopes import meta, ok
@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     # Table creation is owned by Alembic — run ``alembic upgrade head`` before
     # starting the app, or use ``scripts/db.sh init``.
     try:
-        from app.platform.database.seed import init_db
+        from app.bootstrap.seed import init_db
 
         init_db()
     except Exception:
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
         logger = logging.getLogger(__name__)
         logger.warning(
             "Seed data initialisation failed — tables may not exist yet. "
-            "Run: cd backend && uv run alembic upgrade head && uv run python -m app.platform.database.seed"
+            "Run: cd backend && uv run alembic upgrade head && uv run python -m app.bootstrap.seed"
         )
     yield
 

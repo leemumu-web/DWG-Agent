@@ -4,11 +4,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.job import Job
-from app.models.user import User
-from app.platform.database.seed import init_db
+from app.modules.identity.interface import User
 
 
 def _admin_headers(client: TestClient) -> dict[str, str]:

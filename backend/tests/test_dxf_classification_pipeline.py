@@ -8,15 +8,15 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.project import Project, ProjectMember
-from app.models.user import User
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
-from app.platform.database.seed import init_db
+from app.modules.identity.interface import User
+from app.modules.projects.interface import Project, ProjectMember
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import dxf_classification_service, workflow_service
 from app.services.storage_service import get_storage_backend

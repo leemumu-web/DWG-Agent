@@ -9,11 +9,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
 import app.services.job_service as job_service
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.platform.config.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
-from app.platform.database.seed import init_db
 from app.platform.http.exceptions import AppHTTPException
 from app.services.job_service import run_local_stub_job
 

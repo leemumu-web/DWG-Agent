@@ -60,7 +60,16 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/seed | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 19 个模型模块和 36 张表。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 19 个模型模块和 36 张表。 |
+| 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
 | Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 10 个 task module；11 个 `app.workers.tasks_*` 公共名不变。 |
-| Settings、HTTP envelope/error、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；项目权限暂由 `modules/projects/access.py` 拥有。 |
+| Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
 | Local/MinIO 字节接口 | `app/platform/storage/` | 文件登记、权限和跨 MySQL/对象补偿仍属于后续 files/operations 领域迁移。 |
+
+## 后端业务域追溯
+
+| 外部契约 | 正式实现 | 依赖边界 |
+|---|---|---|
+| `/auth`、`/users`、`/roles`、`/permissions` | `app/modules/identity/` | 其他模块只导入 `identity.interface`；拥有六张 RBAC/token 表。 |
+| `/projects`、`/drawings` | `app/modules/projects/` | 其他模块只导入 `projects.interface`；拥有四张项目/图纸表。 |
+| 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |

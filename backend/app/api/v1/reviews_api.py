@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db, has_global_project_access
 from app.models.job import Job
-from app.models.project import ProjectMember
 from app.models.result import AnalysisResult
+from app.modules.identity.interface import CurrentUser
+from app.modules.projects.interface import ProjectMember, has_global_project_access
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import page as page_response
 from app.schemas.result_schema import AnalysisResultRead
 

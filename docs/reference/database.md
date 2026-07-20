@@ -714,7 +714,7 @@ uv run alembic history
 
 ### 5.1 哪些数据会被种子化
 
-`backend/app/platform/database/seed.py` 中的 `init_db()` 函数在应用启动时（在 `lifespan` 处理器中）自动调用。该函数是幂等的 -- 如果数据已存在，则跳过插入。
+`backend/app/bootstrap/seed.py` 中的 `init_db()` 函数在应用启动时（在 `lifespan` 处理器中）自动调用。该函数是幂等的 -- 如果数据已存在，则跳过插入。
 
 **7 个角色:**
 

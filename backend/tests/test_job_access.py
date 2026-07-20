@@ -7,13 +7,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.user import User
+from app.modules.identity.interface import User
 from app.platform.config.constants import TASK_EXCEL_FINAL
-from app.platform.database.seed import init_db
 
 
 def _client() -> TestClient:

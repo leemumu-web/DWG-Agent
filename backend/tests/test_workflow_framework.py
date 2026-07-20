@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.models.project import Project, ProjectMember
-from app.models.user import User
+from app.modules.identity.interface import User
+from app.modules.projects.interface import Project, ProjectMember
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services.workflow_service import (
     cancel_workflow,

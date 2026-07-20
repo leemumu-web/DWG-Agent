@@ -12,13 +12,17 @@ from urllib.parse import quote
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.project import Project
 from app.models.result import AnalysisResult
-from app.models.user import User
-from app.modules.projects.access import get_project_membership, has_global_project_access
+from app.modules.identity.interface import User
+from app.modules.projects.interface import (
+    Drawing,
+    DrawingVersion,
+    Project,
+    get_project_membership,
+    has_global_project_access,
+)
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException, forbidden
 from app.schemas.file_schema import (

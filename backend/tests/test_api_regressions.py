@@ -10,13 +10,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 
 import app.platform.database.session as db_session
+from app.bootstrap.seed import init_db
 from app.main import app
-from app.platform.database.seed import init_db
+from app.modules.identity.schemas.user import UserCreate
+from app.modules.identity.users import create_user
+from app.modules.projects.schemas.project import ProjectCreate
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.security.tokens import create_access_token
-from app.schemas.project_schema import ProjectCreate
-from app.schemas.user_schema import UserCreate
-from app.services.user_service import create_user
 
 _DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
 

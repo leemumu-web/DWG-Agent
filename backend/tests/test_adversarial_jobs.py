@@ -23,9 +23,9 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.platform.config.settings import settings
-from app.platform.database.seed import init_db
 
 
 def _client() -> TestClient:

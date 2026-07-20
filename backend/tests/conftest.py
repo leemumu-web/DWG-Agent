@@ -71,7 +71,7 @@ def _isolate_test_db(monkeypatch):
     # names must point to our test objects.
     # init_db no longer imports engine (table creation is Alembic-owned);
     # only SessionLocal is monkeypatched for seed-data writes.
-    monkeypatch.setattr("app.platform.database.seed.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.bootstrap.seed.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.job_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf2dwg_service.SessionLocal", TestSessionLocal)

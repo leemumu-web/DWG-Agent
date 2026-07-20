@@ -4,18 +4,18 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import (
-    CurrentUser,
-    get_db,
+from app.models.file import StoredFile
+from app.models.job import Job
+from app.models.result import AnalysisResult
+from app.models.workflow import WorkflowRun
+from app.modules.identity.interface import CurrentUser
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.projects.interface import (
+    ProjectMember,
     has_global_project_access,
     require_project_member,
     require_project_role,
 )
-from app.models.file import StoredFile
-from app.models.job import Job
-from app.models.project import ProjectMember
-from app.models.result import AnalysisResult
-from app.models.workflow import WorkflowRun
 from app.platform.config.constants import (
     TASK_DXF_TO_EXCEL,
     TASK_EXCEL_FINAL,
@@ -23,6 +23,7 @@ from app.platform.config.constants import (
 )
 from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, not_found, service_unavailable
@@ -40,7 +41,6 @@ from app.schemas.workflow_schema import (
     WorkflowRead,
     WorkflowStageExecutionCreate,
 )
-from app.services.audit_service import write_audit_log
 from app.services.dxf_classification_service import latest_classification_run
 from app.services.file_service import require_file_read_access
 from app.services.job_access import require_job_read_access

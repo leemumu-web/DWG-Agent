@@ -17,6 +17,9 @@
 
 ### Changed
 
+- 身份/RBAC 与项目/图纸目录由横向 `api/models/schemas/services` 归入 `app.modules.identity` 和 `app.modules.projects`；跨领域调用统一经过各自 `interface.py`，HTTP 与数据库契约保持不变。
+- `api/deps.py` 拆为 platform DB dependency、identity authentication/global-role dependency 与 projects membership policy；审计写入形成 operations 稳定 interface。
+- 应用 router 和依赖领域模型的幂等 seed 归入 `app.bootstrap`，共享时间戳 mixin 归入 `app.platform.database`，消除 platform 对业务模块的反向依赖。
 - 后端公共技术能力按 config、database、http、messaging、observability、security、storage 归入 `app.platform`，应用/模型/任务装配归入 `app.bootstrap`；`app.main:app` 保持稳定门面。
 - Celery 官方运行入口迁至 `app.platform.messaging.celery_app:celery_app`，11 个已发布 `app.workers.*` 任务名保持不变，确保已排队消息兼容。
 - Alembic、Compose、脚本、测试和文档统一使用显式模型/任务 registry；架构测试禁止平台层反向依赖业务模块并拒绝旧平台包导入。

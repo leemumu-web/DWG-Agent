@@ -4,7 +4,7 @@
 
 ## 历史审计说明
 
-> 2026-07-19 增量更新：`linux_production` 已扩展为十阶段框架，生产批次在同一前端抽屉完成创建、多个 DWG + 单 Excel 上传、服务器 DXF 转换和冻结；随后接通 Steel DXF Classifier 1.1.0，对冻结 DXF 预处理、分类分流，并将 DXF/JSON/CSV 同步登记到 MySQL 和对象存储。DXF→Excel、Excel Final、Job attempt、结果产物和 active Job 取消继续复用现有实现。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确的 placeholder/external 接口。本报告其余章节保留 2026-07-18 审计快照。
+> 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity 和 projects 已完成纵向归域；HTTP、ORM 与权限语义保持机器契约不变。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`

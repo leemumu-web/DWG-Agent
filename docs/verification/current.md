@@ -1,6 +1,6 @@
 # 全栈工作流验证
 
-## 2026-07-21 文档分类与后端平台层迁移基线
+## 2026-07-21 文档分类、后端平台层与首批业务域迁移基线
 
 本节是当前重构的权威回归基线；后续带日期的小节保留历史证据，不覆盖本节结果。
 
@@ -8,12 +8,13 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1024 passed, 6 skipped, 21 warnings in 118.69s` |
+| 后端全量 | pass | `1030 passed, 6 skipped, 21 warnings in 118.67s` |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130` |
 | Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；官方运行入口迁至 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | 平台边界、显式 model/task registry 与退役路径纳入契约；当前后端收集 `1030 tests` |
+| 架构聚焦测试 | pass | `18 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径与 module catalog 纳入契约；当前后端收集 `1036 tests` |
+| Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
 | 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
@@ -28,6 +29,8 @@
 脚本接口现分为三层：仓库根 `scripts/*.sh` 保持既有操作命令；`scripts/lib/` 分别拥有通用、数据库、Compose、本地栈和 CAD worker 生命周期；CAD 基准、Windows 转发、存储维护、文档生成/检查进入对应分类目录。`scripts/lib.sh` 仅保留兼容聚合，新增脚本必须按需依赖具体库。旧 Python/Windows 实现路径已退出，Makefile、测试和文档均指向分类路径。
 
 后端公共技术能力现归入 `backend/app/platform/` 的 config、database、http、messaging、observability、security、storage 七个子边界；应用装配归入 `backend/app/bootstrap/`，`app.main:app` 只保留稳定 ASGI 门面。模型与任务由显式 registry 装配，平台层通过 AST 契约禁止反向依赖业务模块；旧 `core/`、`db/`、`storage/`、`utils/` 生产导入已退出。基础设施验证器同时检查 CAD worker 门面委托与分类实现，避免目录重组后出现“只验证门面、不验证实际命令”的盲区。
+
+identity 与 projects 已成为首批完整业务切片：routes、models、schemas、应用服务分别在领域目录内分组，其他业务代码只能通过 `interface.py` 使用身份、全局角色、项目成员和图纸目录能力。六张身份表和四张项目/图纸表的 owner 由架构测试锁定；旧 `api/deps.py` 及对应 route/model/schema/service 文件均已删除。通用 DB dependency 与 timestamp mixin 留在 platform，HTTP router 和依赖 identity model 的 seed 留在 bootstrap，审计写入通过 operations audit interface，platform→modules 反向依赖保持为零。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19

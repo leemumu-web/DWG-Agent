@@ -19,11 +19,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.platform.config.settings import settings
-from app.platform.database.seed import init_db
 
 SAMPLE_DXF_DIR = Path(__file__).resolve().parents[2] / "Stages" / "dxf2excel" / "original_dxf"
 

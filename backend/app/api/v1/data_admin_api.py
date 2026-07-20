@@ -6,21 +6,22 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 
-from app.api.deps import DbSession, require_roles
 from app.models.daily_archive import DailyArchiveRun
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
 from app.models.storage_scan import StorageScanFinding, StorageScanRun
+from app.modules.identity.interface import require_roles
+from app.modules.operations.audit.interface import write_audit_log
 from app.platform.config.constants import ROLE_ADMIN, ROLE_AUDITOR
 from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, not_found
 from app.platform.storage.base import StorageError
 from app.schemas.file_schema import FileRead
 from app.services import storage_service
-from app.services.audit_service import write_audit_log
 from app.services.daily_archive_service import (
     daily_archive_run_data,
     prepare_daily_archive_run,

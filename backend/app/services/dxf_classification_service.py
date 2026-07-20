@@ -17,10 +17,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
-from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.modules.projects.interface import Project
 from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,

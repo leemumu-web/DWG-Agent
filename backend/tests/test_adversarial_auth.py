@@ -24,14 +24,14 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
+from app.bootstrap.seed import init_db
 from app.main import app
-from app.platform.config.settings import settings
-from app.platform.database.seed import init_db
-from app.platform.security.tokens import decode_token
-from app.services.auth_service import (
+from app.modules.identity.authentication import (
     is_token_blacklisted,
     record_password_change,
 )
+from app.platform.config.settings import settings
+from app.platform.security.tokens import decode_token
 
 
 def _client() -> TestClient:
@@ -285,7 +285,7 @@ class TestPasswordChangeStaleness:
         # test_token_issued_after_password_change_still_valid).
         from datetime import UTC, datetime
 
-        from app.models.user import User
+        from app.modules.identity.interface import User
 
         user = db.get(User, 1)
         assert user is not None, "Admin user (id=1) not found in test DB"

@@ -3,23 +3,13 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.project import Project, ProjectMember
-from app.models.user import User
-from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN
+from app.modules.identity.interface import User, is_admin
+from app.modules.projects.models.project import Project, ProjectMember
 from app.platform.http.exceptions import forbidden, not_found
 
 
-def user_role_codes(user: User) -> set[str]:
-    return {role.code for role in user.roles}
-
-
 def has_global_project_access(user: User) -> bool:
-    return bool({ROLE_SUPER_ADMIN, ROLE_ADMIN}.intersection(user_role_codes(user)))
-
-
-def is_admin(user: User) -> bool:
-    """Return True if the user holds admin or super_admin global permissions (§8.3)."""
-    return has_global_project_access(user)
+    return is_admin(user)
 
 
 def get_project_membership(db: Session, user: User, project_id: int) -> ProjectMember | None:

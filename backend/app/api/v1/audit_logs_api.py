@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import String, cast, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_roles
 from app.models.audit_log import AuditLog
-from app.models.user import User
+from app.modules.identity.interface import User, require_roles
 from app.platform.config.constants import ROLE_AUDITOR, ROLE_SUPER_ADMIN
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import not_found

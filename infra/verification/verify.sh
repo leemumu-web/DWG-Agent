@@ -308,7 +308,7 @@ assert_grep "$DOCKERFILE" 'COPY Stages/dxf2excel'       "Dockerfile: COPY Stages
 assert_grep "$DOCKERFILE" 'COPY Stages/excel_final'     "Dockerfile: COPY Stages/excel_final (editable path 依赖)"
 # 3.5.2 ODA 运行时 + init_db 种子（首次启动可用 admin 登录）
 assert_grep "$DOCKERFILE" 'tools/oda'                   "Dockerfile: COPY ODA 二进制"
-assert_grep "$DOCKERFILE" 'app.platform.database.seed' "Dockerfile: CMD 含 seed 种子"
+assert_grep "$DOCKERFILE" 'app.bootstrap.seed' "Dockerfile: CMD 含 seed 种子"
 
 # 3.5.3 根 .dockerignore 存在（context=根后排除 Stages/.venv 等膨胀源）
 assert_file ".dockerignore" ".dockerignore 存在 (context=仓库根)"

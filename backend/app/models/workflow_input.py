@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.mixins import TimestampMixin
 from app.platform.database.base import Base, PKType
+from app.platform.database.mixins import TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.workflow import WorkflowRun

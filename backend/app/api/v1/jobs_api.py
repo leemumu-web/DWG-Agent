@@ -9,18 +9,17 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.deps import (
-    CurrentUser,
-    CurrentUserForSSE,
-    get_db,
-    has_global_project_access,
-    require_project_role,
-)
-from app.models.drawing import Drawing
 from app.models.excel_final import ExcelFinalBatch
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.modules.identity.interface import CurrentUser, CurrentUserForSSE
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.projects.interface import (
+    Drawing,
+    has_global_project_access,
+    require_project_role,
+)
 from app.platform.config.constants import (
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
@@ -30,6 +29,7 @@ from app.platform.config.constants import (
 from app.platform.config.settings import settings
 from app.platform.config.validators import validate_sort_by
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, not_found, service_unavailable
@@ -41,7 +41,6 @@ from app.schemas.job_schema import (
     JobStepRead,
 )
 from app.schemas.result_schema import AnalysisResultRead
-from app.services.audit_service import write_audit_log
 from app.services.file_service import require_file_read_access
 from app.services.job_access import (
     PROJECT_JOB_WRITE_ROLES,

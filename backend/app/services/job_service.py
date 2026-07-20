@@ -10,11 +10,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from app.models.drawing import Drawing
 from app.models.excel_final import ExcelFinalBatch
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.modules.projects.interface import Drawing
 from app.platform.config.constants import (
     JOB_CANCELLED,
     JOB_FAILED,

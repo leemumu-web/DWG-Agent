@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.models.job import Job
-from app.models.user import User
+from app.modules.identity.interface import User
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.schemas.job_schema import JobCreate
 from app.services.job_service import create_or_reuse_job

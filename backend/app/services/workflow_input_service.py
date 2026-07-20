@@ -15,12 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.modules.projects.interface import Drawing, DrawingVersion
 from app.platform.config.constants import TASK_DWG_TO_DXF
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException

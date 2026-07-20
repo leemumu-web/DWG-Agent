@@ -35,14 +35,16 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 |---|---|---|
 | Nginx | 入口、SPA fallback、代理限制、SSE 传输设置 | 业务授权或当前 TLS 声明 |
 | 前端 | 工作流 UX、有限重试、query cache、下载编排 | 最终权限裁决或持久状态 |
-| API route/dependency | HTTP 校验、auth context、envelope | 重复 domain transaction |
-| Service | transaction、permission、状态转换、storage compensation | UI 状态或 broker-specific 业务事实 |
+| Module route/dependency | HTTP 校验、auth context、envelope | 重复 domain transaction |
+| Module application/service | transaction、permission、状态转换、storage compensation | UI 状态或 broker-specific 业务事实 |
 | Worker/task | attempt 领取和 Stage 编排 | 无条件状态写入或内存 fallback |
 | MySQL | 业务事实、audit row、Celery broker/result | 对象字节或高吞吐 broker 承诺 |
 | Storage | 由 bucket/key 标识的不透明字节 | 用户/项目访问规则 |
 | Stage | 确定性 CAD/Excel 转换 | 平台 auth、Job ownership 或 public error |
 
-后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
+后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
+
+identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务。两者的旧 `api/v1`、`models`、`schemas`、`services` 文件已删除，HTTP 注册顺序、表名与权限结果由机器契约锁定。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
 
 ## 同步请求路径
 

@@ -112,4 +112,4 @@ HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
 # 规范 §17.4 CMD 字面量保留：alembic upgrade head && ... gunicorn app.main:app
 # --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120
 CMD ["sh", "-c", \
-     "alembic upgrade head && python -m app.platform.database.seed && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
+     "alembic upgrade head && python -m app.bootstrap.seed && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]

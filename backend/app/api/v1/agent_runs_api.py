@@ -4,16 +4,17 @@ from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db
 from app.models.agent_run import AgentRun, AgentRunStep
-from app.modules.projects.access import has_global_project_access, require_project_member
+from app.modules.identity.interface import CurrentUser
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.projects.interface import has_global_project_access, require_project_member
 from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import forbidden, not_found, service_unavailable
 from app.schemas.agent_schema import AgentRunCreate, AgentRunRead, AgentRunStepRead
-from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 

@@ -8,11 +8,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql.dml import Update
 
 from app.api.v1.jobs_api import _job_snapshot
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalPart
 from app.models.job import Job, JobStep
-from app.platform.database.seed import init_db
 from app.platform.http.exceptions import AppHTTPException
 from app.schemas.job_schema import JobStepRead
 from app.services.job_service import (

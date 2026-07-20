@@ -10,13 +10,13 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
 from app.models.job import Job
-from app.models.user import User
+from app.modules.identity.interface import User
 from app.platform.config.constants import TASK_EXCEL_FINAL
-from app.platform.database.seed import init_db
 from app.platform.storage.base import StorageError
 from app.platform.storage.local import LocalFileStorage
 

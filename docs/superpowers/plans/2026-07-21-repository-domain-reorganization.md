@@ -528,19 +528,27 @@ git commit -m "refactor: establish backend platform modules"
 - Update router/model registry/imports/tests/catalog
 - Delete migrated old files
 
-- [ ] **Step 1: Add domain interface and ownership tests**
+Implementation refinement after import-graph audit:
+
+- `identity/` uses `routes/`, `models/` and `schemas/` because each concern has multiple real files; authentication, role access and user application logic stay directly visible at the domain root.
+- `projects/` uses `routes/`, `models/`, `schemas/` and `services/`; `interface.py` is the only cross-domain import path.
+- Generic `DbSession/get_db` belongs to `platform/http/dependencies.py`; bearer/cookie auth belongs to identity, and project membership belongs to projects.
+- HTTP router composition and identity-dependent seed data belong to `bootstrap/`; platform must remain unable to import any business module.
+- Audit writes use `modules/operations/audit/interface.py` so identity/projects do not depend on a legacy private service.
+
+- [x] **Step 1: Add domain interface and ownership tests**
 
 Assert identity owns six RBAC/token tables and projects owns four project/drawing tables. Assert role/project permission outcomes through the public interfaces.
 
-- [ ] **Step 2: Move identity as one vertical slice**
+- [x] **Step 2: Move identity as one vertical slice**
 
 Preserve router paths `/auth`, `/users`, `/roles`; preserve token cookie scopes, password invalidation, self-protection and audit calls. Run identity and security tests before continuing.
 
-- [ ] **Step 3: Move projects and drawings**
+- [x] **Step 3: Move projects and drawings**
 
 Preserve `/projects`, `/drawings`, membership SQL filtering, version increment behavior and drawing preview delegation.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 cd backend

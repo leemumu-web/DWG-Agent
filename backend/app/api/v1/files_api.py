@@ -14,18 +14,20 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.api.deps import (
-    CurrentUser,
-    get_db,
+from app.models.file import StoredFile
+from app.models.job import Job
+from app.models.result import AnalysisResult
+from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.modules.identity.interface import CurrentUser
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.projects.interface import (
+    Drawing,
+    DrawingVersion,
+    Project,
+    ProjectMember,
     get_project_membership,
     has_global_project_access,
 )
-from app.models.drawing import Drawing, DrawingVersion
-from app.models.file import StoredFile
-from app.models.job import Job
-from app.models.project import Project, ProjectMember
-from app.models.result import AnalysisResult
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.platform.config.constants import (
     ALLOWED_UPLOAD_EXTENSIONS,
     JOB_PENDING,
@@ -38,6 +40,7 @@ from app.platform.config.constants import (
 )
 from app.platform.config.validators import validate_sort_by
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, forbidden, not_found
@@ -52,7 +55,6 @@ from app.schemas.file_schema import (
     ZipDownloadRequest,
     ZipUploadResult,
 )
-from app.services.audit_service import write_audit_log
 from app.services.dxf_preview_service import (
     MAX_DXF_SIZE_BYTES,
     get_or_create_dxf_preview,

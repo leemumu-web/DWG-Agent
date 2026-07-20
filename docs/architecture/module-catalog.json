@@ -11,17 +11,7 @@
       "title": "身份、会话与权限",
       "status": "implemented",
       "architecture_nodes": ["API", "MYSQL", "WEB"],
-      "backend_paths": [
-        "backend/app/api/deps.py",
-        "backend/app/api/v1/auth_api.py",
-        "backend/app/api/v1/roles_api.py",
-        "backend/app/api/v1/users_api.py",
-        "backend/app/models/role.py",
-        "backend/app/models/token_blacklist.py",
-        "backend/app/models/user.py",
-        "backend/app/services/auth_service.py",
-        "backend/app/services/user_service.py"
-      ],
+      "backend_paths": ["backend/app/modules/identity"],
       "frontend_paths": [
         "frontend/src/api/auth.api.ts",
         "frontend/src/features/auth/LoginPage.tsx",
@@ -45,7 +35,11 @@
       "celery_tasks": [],
       "queues": [],
       "stages": [],
-      "tests": ["backend/tests/test_adversarial_auth.py", "backend/tests/test_rbac_deep.py"],
+      "tests": [
+        "backend/tests/architecture/test_identity_projects_boundaries.py",
+        "backend/tests/test_adversarial_auth.py",
+        "backend/tests/test_rbac_deep.py"
+      ],
       "docs": ["docs/guides/security.md", "docs/reference/api.md"],
       "notes": "FastAPI is the authorization boundary; UI guards are usability only."
     },
@@ -54,14 +48,7 @@
       "title": "项目、成员与图纸目录",
       "status": "implemented",
       "architecture_nodes": ["API", "MYSQL", "U11", "WEB"],
-      "backend_paths": [
-        "backend/app/api/v1/drawings_api.py",
-        "backend/app/api/v1/projects_api.py",
-        "backend/app/models/drawing.py",
-        "backend/app/models/project.py",
-        "backend/app/services/drawing_service.py",
-        "backend/app/services/project_service.py"
-      ],
+      "backend_paths": ["backend/app/modules/projects"],
       "frontend_paths": [
         "frontend/src/api/drawings.api.ts",
         "frontend/src/api/projects.api.ts",
@@ -73,7 +60,11 @@
       "celery_tasks": [],
       "queues": [],
       "stages": [],
-      "tests": ["backend/tests/test_service_layer.py", "backend/tests/test_sql_pagination.py"],
+      "tests": [
+        "backend/tests/architecture/test_identity_projects_boundaries.py",
+        "backend/tests/test_service_layer.py",
+        "backend/tests/test_sql_pagination.py"
+      ],
       "docs": ["docs/architecture/overview.md", "docs/reference/database.md"],
       "notes": "Project membership scopes drawing, file, Job and workflow access."
     },
@@ -273,7 +264,7 @@
         "backend/app/models/audit_log.py",
         "backend/app/models/control_plane.py",
         "backend/app/models/daily_archive.py",
-        "backend/app/services/audit_service.py",
+        "backend/app/modules/operations/audit/interface.py",
         "backend/app/services/control_plane_service.py",
         "backend/app/services/daily_archive_service.py",
         "backend/app/services/infrastructure_service.py",

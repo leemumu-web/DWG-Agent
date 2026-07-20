@@ -15,9 +15,12 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 
 | 路径 | 归属 |
 |---|---|
-| `backend/app/bootstrap/` | FastAPI composition、显式模型/任务 registry |
+| `backend/app/bootstrap/` | FastAPI/router/seed composition、显式模型/任务 registry |
 | `backend/app/platform/` | config、database、HTTP、Celery transport、logging、token、storage 技术 seam |
-| `backend/app/modules/` | 按领域迁移后的业务能力；不得被 platform 反向导入 |
+| `backend/app/modules/identity/` | 会话、用户、全局 RBAC 与六张身份表；公共入口为 `interface.py` |
+| `backend/app/modules/projects/` | 项目、成员、图纸和版本；公共入口为 `interface.py` |
+| `backend/app/modules/operations/audit/` | 当前跨领域审计写入口；其余 operations 尚待迁移 |
+| `backend/app/modules/` | 其他按领域迁移后的业务能力；不得被 platform 反向导入 |
 | `backend/app/api/`、`services/`、`models/`、`schemas/` | 尚待迁移的纵向业务切片，不能再承接新平台实现 |
 | `backend/app/workers/` | 稳定 task module/name；Celery 应用位于 `platform/messaging/` |
 | `backend/app/platform/storage/` | local/MinIO byte adapter |
@@ -83,7 +86,7 @@ docker compose -f compose.yaml -f compose.dev.yaml --profile workers config --qu
 - 禁止把 traceback、DSN、child stderr、secret 或 host path 放进客户端可见错误。
 - 禁止增加 Redis/Valkey 或内存正确性 fallback 掩盖依赖失败。
 
-FastAPI lifespan seed initialization 在本地运行时是 best-effort。Docker 在 Gunicorn 前执行 migration/seed。测试必须按实际模式判断，不能假设进程启动就代表 ready。
+FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装配。seed 依赖 identity 模型，因此不属于 platform database；Docker 在 Gunicorn 前显式执行 migration/seed。测试必须按实际模式判断，不能假设进程启动就代表 ready。
 
 ## API 变更
 

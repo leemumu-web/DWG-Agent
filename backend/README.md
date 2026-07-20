@@ -7,7 +7,7 @@ uv python install 3.12
 uv sync --locked
 cp ../.env.example .env
 uv run alembic upgrade head
-uv run python -m app.platform.database.seed
+uv run python -m app.bootstrap.seed
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 

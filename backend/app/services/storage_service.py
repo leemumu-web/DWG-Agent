@@ -91,7 +91,7 @@ def _prepare_storage_transfer(
     transaction while preserving the same state machine fields.
     """
     from app.models.file_transfer import FileTransfer
-    from app.models.mixins import utcnow
+    from app.platform.database.mixins import utcnow
     from app.services.file_transfer_service import (
         TransferSpec,
         begin_transfer,
@@ -202,7 +202,7 @@ def _settle_storage_write_failure(
     durable_intent: bool,
 ) -> None:
     from app.models.file_transfer import FileTransfer
-    from app.models.mixins import utcnow
+    from app.platform.database.mixins import utcnow
     from app.services.file_transfer_service import session_factory_for, settle_transfer
 
     if durable_intent:

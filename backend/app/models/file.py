@@ -5,8 +5,8 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.mixins import TimestampMixin
 from app.platform.database.base import Base, PKType
+from app.platform.database.mixins import TimestampMixin
 
 
 class StoredFile(TimestampMixin, Base):

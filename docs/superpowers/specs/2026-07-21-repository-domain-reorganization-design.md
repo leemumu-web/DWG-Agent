@@ -114,10 +114,11 @@ backend/app/
 │   ├── application.py              # lifespan、中间件、错误处理、health
 │   ├── router.py                   # 按 module 注册 router，固定顺序
 │   ├── model_registry.py           # 显式导入全部 ORM model
-│   └── task_registry.py            # 显式导入全部 Celery task
+│   ├── task_registry.py            # 显式导入全部 Celery task
+│   └── seed.py                     # 组合领域模型与平台 Session 的幂等初始数据
 ├── platform/
 │   ├── config/                     # Settings、常量、配置校验
-│   ├── database/                   # Base、Session、分页、seed
+│   ├── database/                   # Base、Session、时间戳 mixin、分页
 │   ├── http/                       # 响应 envelope、异常、通用 dependency
 │   ├── messaging/                  # Celery app、队列 topology、worker lifecycle
 │   ├── observability/              # logging、request_id、健康探针基础
@@ -139,17 +140,28 @@ backend/app/
 
 ### 5.1 每个业务 module 的内部模板
 
-小 module 使用平坦结构，避免每层只有一个文件：
+小 module 使用平坦结构，避免每层只有一个文件；当同一技术责任已经存在两个以上实现文件时才建立子目录。identity 实际包含三组 route、三组 model 和两组 schema，因此采用以下可导航结构：
 
 ```text
 identity/
 ├── README.md
-├── router.py
-├── models.py
-├── schemas.py
+├── interface.py
 ├── access.py
 ├── authentication.py
-└── users.py
+├── dependencies.py
+├── users.py
+├── routes/
+│   ├── router.py
+│   ├── sessions.py
+│   ├── users.py
+│   └── roles.py
+├── models/
+│   ├── user.py
+│   ├── role.py
+│   └── token_blacklist.py
+└── schemas/
+    ├── auth.py
+    └── user.py
 ```
 
 大 module 在真实职责超过三个时再分子目录：
@@ -184,7 +196,8 @@ files/
 | `core/exceptions.py`、`schemas/common.py`、`api/deps.py` 的通用部分 | `platform/http/` | HTTP envelope、错误和无领域 dependency |
 | `core/security.py` | `platform/security/tokens.py` | 纯 JWT/密码 primitive；角色判断不在此处 |
 | `core/logger.py` | `platform/observability/logging.py` | 日志初始化 |
-| `db/*` | `platform/database/` | Base、Session、分页、seed；公开 import 由 `__init__.py` 限定 |
+| `db/base.py`、`session.py`、`pagination.py` 与共享 model mixin | `platform/database/` | 纯数据库机制；公开 import 由 `__init__.py` 限定 |
+| `db/init_db.py` | `bootstrap/seed.py` | 初始数据依赖 identity model，必须在 composition 层装配，不能反向放入 platform |
 | `storage/base.py`、`local_storage.py`、`minio_storage.py`、`utils/path_utils.py` | `platform/storage/` | 两个真实 adapter 形成有效 seam |
 | `workers/celery_app.py` | `platform/messaging/celery_app.py` | 当前 MySQL broker 生命周期如实保留；目标 RabbitMQ 不伪装完成 |
 | `main.py` | `bootstrap/application.py` + 根 `main.py` | 根文件保留稳定 `app.main:app` interface |

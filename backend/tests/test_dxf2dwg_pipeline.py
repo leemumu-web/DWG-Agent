@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.platform.config.constants import (
     JOB_FAILED,
@@ -23,7 +24,6 @@ from app.platform.config.constants import (
     TASK_DXF_TO_DWG,
 )
 from app.platform.config.settings import settings
-from app.platform.database.seed import init_db
 
 
 @pytest.fixture(autouse=True)

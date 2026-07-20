@@ -7,7 +7,7 @@ import inspect
 
 from sqlalchemy import text
 
-from app.api.deps import get_current_user, get_current_user_for_sse
+from app.modules.identity.interface import get_current_user, get_current_user_for_sse
 from app.platform.config.settings import Settings, settings
 from app.platform.database import session as session_module
 from app.platform.database.session import SessionLocal, db_health, engine, get_db, pool_args

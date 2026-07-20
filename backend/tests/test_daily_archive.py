@@ -11,10 +11,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.daily_archive import DailyArchiveRun
 from app.models.file import StoredFile
-from app.platform.database.seed import init_db
 from app.platform.storage.base import StorageObjectNotFound
 from app.platform.storage.local import LocalFileStorage
 
@@ -213,7 +213,7 @@ def test_daily_archive_marks_run_failed_when_frozen_object_is_missing(
     )
     admin_id = db.scalar(select(DailyArchiveRun.actor_user_id).limit(1))
     if admin_id is None:
-        from app.models.user import User
+        from app.modules.identity.interface import User
 
         admin_id = db.scalar(select(User.id).order_by(User.id).limit(1))
     assert admin_id is not None

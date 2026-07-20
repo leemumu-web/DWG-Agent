@@ -5,7 +5,7 @@
 | Package | Responsibility | Excludes |
 |---|---|---|
 | `config` | Pydantic settings, shared constants and validated sort keys | Project membership or workflow state transitions |
-| `database` | SQLAlchemy base/session/pagination and idempotent seed command | Domain repositories and business transactions |
+| `database` | SQLAlchemy base/session/timestamp mixins/pagination | Domain repositories, seed data and business transactions |
 | `http` | Error/envelope transport shapes | Domain authorization decisions |
 | `messaging` | Current Celery application and MySQL SQL-transport lifecycle | MySQL business rows as a message/result substitute |
 | `observability` | Process logging setup | Monitoring stack claims |

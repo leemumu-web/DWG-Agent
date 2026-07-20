@@ -6,8 +6,8 @@ from typing import Any
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.mixins import TimestampMixin
 from app.platform.database.base import Base, PKType
+from app.platform.database.mixins import TimestampMixin
 
 
 class AgentRun(TimestampMixin, Base):

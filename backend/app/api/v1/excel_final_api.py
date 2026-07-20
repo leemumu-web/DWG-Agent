@@ -13,7 +13,6 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db, has_global_project_access
 from app.integrations.excel_final import (
     ExcelFinalIntegrationError,
     excel_final_dependencies_available,
@@ -25,14 +24,17 @@ from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFi
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
+from app.modules.identity.interface import CurrentUser
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.projects.interface import has_global_project_access
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, forbidden, not_found, service_unavailable
 from app.platform.storage.base import StorageError
-from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
 from app.services.file_transfer_service import (
     ACTIVE_TRANSFER_STATUSES,

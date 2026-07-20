@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.api.deps import CurrentUser, DbSession, require_roles
+from app.modules.identity.interface import CurrentUser, require_roles
 from app.platform.config.constants import ROLE_ADMIN
 from app.platform.config.settings import settings
+from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok
 from app.services.infrastructure_service import infrastructure_overview
 

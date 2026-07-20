@@ -7,8 +7,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.bootstrap.seed import init_db
 from app.main import app
-from app.platform.database.seed import init_db
 
 
 def _client() -> TestClient:
@@ -296,7 +296,7 @@ def test_admin_still_blocked_from_deleted_project_drawing():
 
 def test_user_self_update_ignores_status_field():
     """UserSelfUpdate silently ignores 'status' — not a field on the schema."""
-    from app.schemas.user_schema import UserSelfUpdate
+    from app.modules.identity.schemas.user import UserSelfUpdate
 
     u = UserSelfUpdate(real_name="New Name")
     assert u.real_name == "New Name"
@@ -313,7 +313,7 @@ def test_user_self_update_rejects_html_in_real_name():
     """UserSelfUpdate must reject HTML tags in real_name (BUG-3)."""
     from pydantic import ValidationError
 
-    from app.schemas.user_schema import UserSelfUpdate
+    from app.modules.identity.schemas.user import UserSelfUpdate
 
     try:
         UserSelfUpdate(real_name="<script>alert(1)</script>")

@@ -13,16 +13,16 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.bootstrap.seed import init_db
 from app.main import app
-from app.platform.database.seed import init_db
+from app.modules.identity.users import reset_user_password
+from app.modules.projects.services import drawings as drawing_service
+from app.modules.projects.services import projects as project_service
 from app.services import (
     agent_service,
-    drawing_service,
     file_service,
-    project_service,
     review_service,
 )
-from app.services.user_service import reset_user_password
 
 # ---------------------------------------------------------------------------
 # helpers

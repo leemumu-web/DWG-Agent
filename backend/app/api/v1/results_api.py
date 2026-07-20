@@ -4,13 +4,15 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, get_db, require_project_role
 from app.models.job import Job
 from app.models.result import AnalysisResult, ReviewRecord
+from app.modules.identity.interface import CurrentUser
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.projects.interface import require_project_role
+from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import not_found
 from app.schemas.result_schema import AnalysisResultRead, ReviewCreate, ReviewRead
-from app.services.audit_service import write_audit_log
 from app.services.file_service import build_signed_download_url
 from app.services.job_access import require_job_read_access, require_job_write_access
 

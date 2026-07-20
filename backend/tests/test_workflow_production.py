@@ -6,11 +6,11 @@ import pytest
 
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
-from app.models.user import User
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch
+from app.modules.identity.interface import User
+from app.modules.projects.interface import Project, ProjectMember
 from app.platform.http.exceptions import AppHTTPException
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import workflow_service

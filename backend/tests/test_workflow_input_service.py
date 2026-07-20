@@ -8,13 +8,12 @@ import openpyxl
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
-from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
-from app.models.user import User
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.modules.identity.interface import User
+from app.modules.projects.interface import Drawing, DrawingVersion, Project, ProjectMember
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
 from app.schemas.workflow_schema import WorkflowCreate

@@ -15,9 +15,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
-from app.models.mixins import utcnow
 from app.models.storage_scan import StorageScanFinding, StorageScanRun
 from app.platform.config.settings import settings
+from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import (
     AbstractStorageBackend,

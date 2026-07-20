@@ -7,10 +7,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
-from app.platform.database.seed import init_db
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError
 from app.platform.storage.local import LocalFileStorage
