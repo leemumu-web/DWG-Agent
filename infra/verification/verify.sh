@@ -191,7 +191,12 @@ if "/health/ready" not in backend_hc:
 if set(backend.get("depends_on", {})) != {"mysql", "minio"}:
     errors.append("backend-api depends_on 应为 mysql + minio")
 
-cad_worker_script = open("scripts/run-cad-worker.sh").read()
+cad_worker_facade = open("scripts/run-cad-worker.sh").read()
+cad_worker_script = open("scripts/lib/cad_worker.sh").read()
+if 'source "$(dirname "$0")/lib/cad_worker.sh"' not in cad_worker_facade:
+    errors.append("CAD worker 稳定入口必须委托 scripts/lib/cad_worker.sh")
+if 'cad_worker_main "$@"' not in cad_worker_facade:
+    errors.append("CAD worker 稳定入口必须原样传递参数")
 for name, queue in workers.items():
     worker = svcs.get(name, {})
     command_value = worker.get("command", "")
@@ -200,14 +205,14 @@ for name, queue in workers.items():
     if is_cad_worker:
         if not isinstance(command_value, list) or command_value[:2] != ["/app/scripts/run-cad-worker.sh", queue]:
             errors.append(f"{name} 包装脚本或队列名错误")
-        if '-A app.workers.celery_app:celery_app worker' not in cad_worker_script:
+        if '-A app.platform.messaging.celery_app:celery_app worker' not in cad_worker_script:
             errors.append(f"{name} Celery app 路径错误")
         if '-Q "$queue"' not in cad_worker_script:
             errors.append(f"{name} 包装脚本未传递队列")
     else:
         if f"-Q {queue}" not in command:
             errors.append(f"{name} 队列名错误")
-        if "app.workers.celery_app:celery_app" not in command:
+        if "app.platform.messaging.celery_app:celery_app" not in command:
             errors.append(f"{name} Celery app 路径错误")
     if "uv run celery" in command:
         errors.append(f"{name} 不应依赖 runtime 中的 uv")
@@ -303,7 +308,7 @@ assert_grep "$DOCKERFILE" 'COPY Stages/dxf2excel'       "Dockerfile: COPY Stages
 assert_grep "$DOCKERFILE" 'COPY Stages/excel_final'     "Dockerfile: COPY Stages/excel_final (editable path 依赖)"
 # 3.5.2 ODA 运行时 + init_db 种子（首次启动可用 admin 登录）
 assert_grep "$DOCKERFILE" 'tools/oda'                   "Dockerfile: COPY ODA 二进制"
-assert_grep "$DOCKERFILE" 'app.db.init_db'              "Dockerfile: CMD 含 init_db 种子"
+assert_grep "$DOCKERFILE" 'app.platform.database.seed' "Dockerfile: CMD 含 seed 种子"
 
 # 3.5.3 根 .dockerignore 存在（context=根后排除 Stages/.venv 等膨胀源）
 assert_file ".dockerignore" ".dockerignore 存在 (context=仓库根)"

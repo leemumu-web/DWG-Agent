@@ -5,14 +5,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db
-from app.core.config import settings
-from app.core.exceptions import forbidden, not_found, service_unavailable
-from app.core.permissions import has_global_project_access, require_project_member
-from app.db.pagination import paginate_scalars
 from app.models.agent_run import AgentRun, AgentRunStep
+from app.modules.projects.access import has_global_project_access, require_project_member
+from app.platform.config.settings import settings
+from app.platform.database.pagination import paginate_scalars
+from app.platform.http.envelopes import ok
+from app.platform.http.envelopes import page as page_response
+from app.platform.http.exceptions import forbidden, not_found, service_unavailable
 from app.schemas.agent_schema import AgentRunCreate, AgentRunRead, AgentRunStepRead
-from app.schemas.common import ok
-from app.schemas.common import page as page_response
 from app.services.audit_service import write_audit_log
 
 router = APIRouter()

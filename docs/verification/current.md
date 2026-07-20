@@ -1,6 +1,6 @@
 # 全栈工作流验证
 
-## 2026-07-21 文档分类与重构前基线
+## 2026-07-21 文档分类与后端平台层迁移基线
 
 本节是当前重构的权威回归基线；后续带日期的小节保留历史证据，不覆盖本节结果。
 
@@ -8,12 +8,12 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1004 passed, 6 skipped, 15 warnings in 120.40s` |
+| 后端全量 | pass | `1024 passed, 6 skipped, 21 warnings in 118.69s` |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130` |
-| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名；本轮尚未移动实现 |
+| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；官方运行入口迁至 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `6 passed, 6 warnings`；当前后端收集 `1016 tests` |
+| 架构聚焦测试 | pass | 平台边界、显式 model/task registry 与退役路径纳入契约；当前后端收集 `1030 tests` |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
 | 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
@@ -26,6 +26,8 @@
 `scripts/status.sh` 的只读检查确认本机 MySQL 45 张运行表、8 组 worker、FastAPI、Nginx 代理与 SPA 均可达；它同时如实报告当前 FastAPI 进程早于本轮源码。重构尚在进行，因此本阶段没有中途重启运行服务，最终验收再统一刷新受管进程。根 `image.png` 与 `frontend/public/logo.png` SHA-256 完全相同，已删除前者并由 README 复用后者；旧 Nginx runtime logs 原样移入 `infra/gateway/nginx/logs/`。
 
 脚本接口现分为三层：仓库根 `scripts/*.sh` 保持既有操作命令；`scripts/lib/` 分别拥有通用、数据库、Compose、本地栈和 CAD worker 生命周期；CAD 基准、Windows 转发、存储维护、文档生成/检查进入对应分类目录。`scripts/lib.sh` 仅保留兼容聚合，新增脚本必须按需依赖具体库。旧 Python/Windows 实现路径已退出，Makefile、测试和文档均指向分类路径。
+
+后端公共技术能力现归入 `backend/app/platform/` 的 config、database、http、messaging、observability、security、storage 七个子边界；应用装配归入 `backend/app/bootstrap/`，`app.main:app` 只保留稳定 ASGI 门面。模型与任务由显式 registry 装配，平台层通过 AST 契约禁止反向依赖业务模块；旧 `core/`、`db/`、`storage/`、`utils/` 生产导入已退出。基础设施验证器同时检查 CAD worker 门面委托与分类实现，避免目录重组后出现“只验证门面、不验证实际命令”的盲区。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19

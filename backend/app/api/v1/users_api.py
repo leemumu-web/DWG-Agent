@@ -11,14 +11,14 @@ from app.api.deps import (
     require_roles,
     user_role_codes,
 )
-from app.core.constants import ACTIVE, DELETED, DISABLED, ROLE_ADMIN, ROLE_SUPER_ADMIN
-from app.core.exceptions import AppHTTPException, forbidden, not_found
-from app.core.validators import validate_sort_by
-from app.db.pagination import paginate_scalars
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.common import ok
-from app.schemas.common import page as page_response
+from app.platform.config.constants import ACTIVE, DELETED, DISABLED, ROLE_ADMIN, ROLE_SUPER_ADMIN
+from app.platform.config.validators import validate_sort_by
+from app.platform.database.pagination import paginate_scalars
+from app.platform.http.envelopes import ok
+from app.platform.http.envelopes import page as page_response
+from app.platform.http.exceptions import AppHTTPException, forbidden, not_found
 from app.schemas.user_schema import (
     AssignRoleRequest,
     UserCreate,

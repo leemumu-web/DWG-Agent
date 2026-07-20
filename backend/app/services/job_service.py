@@ -10,8 +10,12 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.constants import (
+from app.models.drawing import Drawing
+from app.models.excel_final import ExcelFinalBatch
+from app.models.file import StoredFile
+from app.models.job import Job, JobStep
+from app.models.result import AnalysisResult
+from app.platform.config.constants import (
     JOB_CANCELLED,
     JOB_FAILED,
     JOB_PENDING,
@@ -32,13 +36,9 @@ from app.core.constants import (
     TASK_EXCEL_FINAL,
     TASK_STEEL_DXF_CLASSIFICATION,
 )
-from app.core.exceptions import AppHTTPException
-from app.db.session import SessionLocal
-from app.models.drawing import Drawing
-from app.models.excel_final import ExcelFinalBatch
-from app.models.file import StoredFile
-from app.models.job import Job, JobStep
-from app.models.result import AnalysisResult
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
+from app.platform.http.exceptions import AppHTTPException
 from app.schemas.job_schema import JobCreate
 from app.services.job_events import make_event, publish_job_event
 from app.services.storage_service import save_bytes_as_file

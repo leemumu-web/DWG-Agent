@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from app.platform.messaging.celery_app import celery_app, summarize_job_execution
 from app.services.dxf_classification_service import run_dxf_classification
-from app.workers.celery_app import celery_app, summarize_job_execution
 
 
 @celery_app.task(name="app.workers.tasks_dxf_classification.classify_steel_dxf", bind=True)

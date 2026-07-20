@@ -4,15 +4,15 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.core.exceptions import forbidden
-from app.core.permissions import (
+from app.models.job import Job
+from app.models.project import ProjectMember
+from app.models.user import User
+from app.modules.projects.access import (
     has_global_project_access,
     require_project_member,
     require_project_role,
 )
-from app.models.job import Job
-from app.models.project import ProjectMember
-from app.models.user import User
+from app.platform.http.exceptions import forbidden
 
 PROJECT_JOB_WRITE_ROLES = {"project_owner", "project_engineer"}
 

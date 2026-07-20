@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from app.core.constants import ACTIVE, DISABLED
+from app.platform.config.constants import ACTIVE, DISABLED
 
 # Common passwords banned in production — prevents the laziest brute-force wins.
 _COMMON_PASSWORDS = frozenset({

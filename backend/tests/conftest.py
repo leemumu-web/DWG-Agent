@@ -10,9 +10,9 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.base import Base
-from app.db.session import get_db as original_get_db
 from app.main import app
+from app.platform.database.base import Base
+from app.platform.database.session import get_db as original_get_db
 
 # Module-level vars set by _isolate_test_db so the db fixture can use them.
 _test_session_factory: sessionmaker | None = None
@@ -71,19 +71,19 @@ def _isolate_test_db(monkeypatch):
     # names must point to our test objects.
     # init_db no longer imports engine (table creation is Alembic-owned);
     # only SessionLocal is monkeypatched for seed-data writes.
-    monkeypatch.setattr("app.db.init_db.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.platform.database.seed.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.job_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf2dwg_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf2excel_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.dxf_classification_service.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.services.excel_final_service.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.workers.celery_app.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr("app.platform.messaging.celery_app.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.tasks_maintenance.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.workers.tasks_report.SessionLocal", TestSessionLocal)
 
     # db_health() uses the module-level engine directly
-    monkeypatch.setattr("app.db.session.engine", engine)
+    monkeypatch.setattr("app.platform.database.session.engine", engine)
 
     yield
 

@@ -24,8 +24,10 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.constants import (
+from app.models.file import StoredFile
+from app.models.job import Job, JobStep
+from app.models.result import AnalysisResult
+from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_DXF2EXCEL,
@@ -34,10 +36,9 @@ from app.core.constants import (
     STEP_RUN_DXF2EXCEL,
     TASK_DXF_TO_EXCEL,
 )
-from app.db.session import SessionLocal
-from app.models.file import StoredFile
-from app.models.job import Job, JobStep
-from app.models.result import AnalysisResult
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
+from app.platform.storage.base import StorageObjectNotFound
 from app.services.job_events import make_event
 from app.services.job_service import (
     claim_queued_job,
@@ -50,7 +51,6 @@ from app.services.storage_service import (
     sanitize_filename,
     save_bytes_as_file,
 )
-from app.storage.base import StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
 

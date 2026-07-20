@@ -92,7 +92,7 @@ Celery workers
 | 服务层 | `backend/app/services/` | 权限、Job、工作流、文件事务、存储对账、转换管线、Excel Final 等 |
 | 数据模型 | `backend/app/models/` | 用户、项目、文件、图纸、Job、结果、审计、workflow、Excel Final、流转和扫描模型 |
 | 异步执行 | `backend/app/workers/` | report、dxf、dxf2dwg、dxf2excel、excel_final；agent/cad 是占位 |
-| 存储 | `backend/app/storage/` | Local 与 MinIO adapter |
+| 存储 | `backend/app/platform/storage/` | Local 与 MinIO adapter |
 | 前端 | `frontend/src/` | 管理、上传、转换、任务、复核、审计、基础设施、Excel Final、工作流页面 |
 | CAD 转换 Stage | `Stages/dwg2dxf`、`Stages/dxf2dwg` | 基于 ODA 的双向格式转换 |
 | DXF 表格提取 | `Stages/dxf2excel` | DXF 材料表提取，但父仓库 gitlink 损坏 |

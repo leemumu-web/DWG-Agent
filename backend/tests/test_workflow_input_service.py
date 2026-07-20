@@ -8,7 +8,6 @@ import openpyxl
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.core.exceptions import AppHTTPException
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
@@ -16,10 +15,11 @@ from app.models.project import Project, ProjectMember
 from app.models.result import AnalysisResult
 from app.models.user import User
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.local import LocalFileStorage
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import workflow_input_service, workflow_service
 from app.services.job_service import dispatch_committed_conversion_batch
-from app.storage.local_storage import LocalFileStorage
 
 
 def _workflow(db):

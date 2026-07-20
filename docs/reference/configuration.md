@@ -2,7 +2,7 @@
 
 ## 加载与优先级
 
-`backend/app/core/config.py` 使用 Pydantic Settings，并从进程工作目录解析 `.env`。仓库脚本从 `backend/` 启动 Python，因此 API 和 worker 通常读取 `backend/.env`；根目录数据库和 shell 工具读取根 `.env`。两份文件的 `MYSQL_*` 必须一致。Compose 通过 `env_file` 读取 `.env.docker`。
+`backend/app/platform/config/settings.py` 使用 Pydantic Settings，并从进程工作目录解析 `.env`。仓库脚本从 `backend/` 启动 Python，因此 API 和 worker 通常读取 `backend/.env`；根目录数据库和 shell 工具读取根 `.env`。两份文件的 `MYSQL_*` 必须一致。Compose 通过 `env_file` 读取 `.env.docker`。
 
 环境变量覆盖 `.env`。设置 `DATABASE_URL` 时，它覆盖 SQLAlchemy 的组件字段；若为 MySQL URL，也成为 Celery 的派生来源，否则 Celery 仍从 `MYSQL_*` 生成 MySQL URL。除测试外，不支持非 MySQL 运行时覆盖。
 

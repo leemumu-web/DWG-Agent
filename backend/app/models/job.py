@@ -6,8 +6,8 @@ from typing import Any
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
+from app.platform.database.base import Base, PKType
 
 
 class Job(TimestampMixin, Base):

@@ -16,8 +16,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
+from app.platform.database.base import Base, PKType
 
 
 class DailyArchiveRun(TimestampMixin, Base):

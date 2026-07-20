@@ -12,15 +12,15 @@ from urllib.parse import quote
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.exceptions import AppHTTPException, forbidden
-from app.core.permissions import get_project_membership, has_global_project_access
 from app.models.drawing import Drawing, DrawingVersion
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.project import Project
 from app.models.result import AnalysisResult
 from app.models.user import User
+from app.modules.projects.access import get_project_membership, has_global_project_access
+from app.platform.config.settings import settings
+from app.platform.http.exceptions import AppHTTPException, forbidden
 from app.schemas.file_schema import (
     DownloadUrlRead,
     ZipAvailabilityPreview,
@@ -85,7 +85,7 @@ def build_result_map(db: Session, file_ids: list[int]) -> dict[int, StoredFile |
 
     Optimisation: O(n+m) single-scan build instead of nested loops.
     """
-    from app.core.constants import TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
+    from app.platform.config.constants import TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
 
     file_ids_set = frozenset(file_ids)
     if not file_ids_set:

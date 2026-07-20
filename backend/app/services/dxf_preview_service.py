@@ -31,9 +31,14 @@ from ezdxf.addons.drawing.svg import SVGBackend
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
+from app.platform.config.settings import settings
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import (
+    AbstractStorageBackend,
+    StorageError,
+    StorageObjectNotFound,
+)
 from app.services.file_transfer_service import (
     TransferSpec,
     complete_reused_transfer_in_transaction,
@@ -44,11 +49,6 @@ from app.services.file_transfer_service import (
     settle_transfer,
 )
 from app.services.storage_service import sanitize_filename, save_bytes_as_file
-from app.storage.base import (
-    AbstractStorageBackend,
-    StorageError,
-    StorageObjectNotFound,
-)
 
 logger = logging.getLogger(__name__)
 

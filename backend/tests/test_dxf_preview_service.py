@@ -7,12 +7,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import StorageError
+from app.platform.storage.local import LocalFileStorage
 from app.services import dxf_preview_service as service
-from app.storage.base import StorageError
-from app.storage.local_storage import LocalFileStorage
 
 
 def _dxf_bytes(*, block_lines: int = 0) -> bytes:

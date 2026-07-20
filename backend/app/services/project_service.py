@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AppHTTPException, not_found
 from app.models.project import Project, ProjectMember
+from app.platform.http.exceptions import AppHTTPException, not_found
 from app.schemas.project_schema import ProjectCreate, ProjectMemberCreate, ProjectMemberUpdate
 
 

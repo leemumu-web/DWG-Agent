@@ -27,7 +27,7 @@ WORKER_SPECS=(
 
 celery_worker_pattern() {
     local queue="$1" slug="$2"
-    printf '%s' "[c]elery.*-A app\\.workers\\.celery_app(:celery_app)? worker.*-Q ${queue}( |$).*-n ${slug}-local@"
+    printf '%s' "[c]elery.*-A app\\.platform\\.messaging\\.celery_app(:celery_app)? worker.*-Q ${queue}( |$).*-n ${slug}-local@"
 }
 
 celery_worker_pids() {
@@ -115,7 +115,7 @@ start_celery_worker() {
             >"$logfile" 2>&1 </dev/null &
     else
         DWG_WORKER_QUEUE="$queue" DWG_WORKER_CONCURRENCY="$concurrency" nohup setsid "${celery_cmd[@]}" \
-            -A app.workers.celery_app:celery_app worker \
+            -A app.platform.messaging.celery_app:celery_app worker \
             -Q "$queue" -n "${slug}-local@%h" \
             --concurrency="$concurrency" --loglevel=INFO \
             >"$logfile" 2>&1 </dev/null &
@@ -264,7 +264,7 @@ cad_worker_main() {
     fi
 
     "${celery_cmd[@]}" \
-        -A app.workers.celery_app:celery_app worker \
+        -A app.platform.messaging.celery_app:celery_app worker \
         -Q "$queue" -n "$node_name" \
         --concurrency="$concurrency" --prefetch-multiplier=1 --loglevel=INFO &
     celery_pid=$!

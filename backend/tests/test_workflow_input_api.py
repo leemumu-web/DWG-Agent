@@ -6,7 +6,7 @@ import openpyxl
 from sqlalchemy import select
 
 from app.models.workflow_input import WorkflowInputBatch
-from app.storage.local_storage import LocalFileStorage
+from app.platform.storage.local import LocalFileStorage
 from tests.test_workflow_api import (
     _admin_headers,
     _client,
@@ -63,7 +63,7 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
     client = _client()
     _, owner_headers, _, workflow_id = _setup(client)
     dispatched: list[tuple[str, list[tuple[int, int]]]] = []
-    monkeypatch.setattr("app.core.config.settings.dxf_pipeline_enabled", True)
+    monkeypatch.setattr("app.platform.config.settings.settings.dxf_pipeline_enabled", True)
     monkeypatch.setattr(
         "app.api.v1.workflow_inputs_api.dispatch_committed_conversion_batch",
         lambda *, task_type, jobs: dispatched.append((task_type, jobs)),

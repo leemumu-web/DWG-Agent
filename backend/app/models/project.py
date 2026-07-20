@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
+from app.platform.database.base import Base, PKType
 
 
 class Project(TimestampMixin, Base):

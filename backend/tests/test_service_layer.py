@@ -11,8 +11,8 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.init_db import init_db
 from app.main import app
+from app.platform.database.seed import init_db
 from app.services import (
     agent_service,
     file_service,
@@ -84,7 +84,7 @@ class TestFileService:
         file_service.validate_download_signature(1, expires, sig)
 
     def test_validate_download_signature_rejects_wrong_sig(self):
-        from app.core.exceptions import AppHTTPException
+        from app.platform.http.exceptions import AppHTTPException
 
         url = file_service.build_signed_download_url(1)
         params = url.url.split("?")[1]
@@ -94,7 +94,7 @@ class TestFileService:
         assert exc.value.status_code == 403
 
     def test_validate_download_signature_rejects_expired(self):
-        from app.core.exceptions import AppHTTPException
+        from app.platform.http.exceptions import AppHTTPException
 
         with pytest.raises(AppHTTPException) as exc:
             file_service.validate_download_signature(1, 1, "any")
@@ -461,13 +461,13 @@ class TestStorageServiceValidation:
         validate_dwg_header(b"AC1032")
 
     def test_validate_dwg_header_rejects_garbage(self):
-        from app.core.exceptions import AppHTTPException
+        from app.platform.http.exceptions import AppHTTPException
 
         with pytest.raises((AppHTTPException, ValueError)):
             validate_dwg_header(b"GARBAGE")
 
     def test_validate_dwg_header_rejects_short(self):
-        from app.core.exceptions import AppHTTPException
+        from app.platform.http.exceptions import AppHTTPException
 
         with pytest.raises((AppHTTPException, ValueError)):
             validate_dwg_header(b"AC")
@@ -477,7 +477,7 @@ class TestStorageServiceValidation:
         assert result.endswith(".dwg")
 
     def test_validate_upload_name_rejects_exe(self):
-        from app.core.exceptions import AppHTTPException
+        from app.platform.http.exceptions import AppHTTPException
 
         with pytest.raises(AppHTTPException) as exc:
             validate_upload_name("malware.exe")

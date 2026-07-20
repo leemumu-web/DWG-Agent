@@ -87,12 +87,12 @@
         "backend/app/models/file.py",
         "backend/app/models/file_transfer.py",
         "backend/app/models/storage_scan.py",
+        "backend/app/platform/storage",
         "backend/app/services/dxf_preview_service.py",
         "backend/app/services/file_service.py",
         "backend/app/services/file_transfer_service.py",
         "backend/app/services/storage_reconciliation_service.py",
-        "backend/app/services/storage_service.py",
-        "backend/app/storage"
+        "backend/app/services/storage_service.py"
       ],
       "frontend_paths": [
         "frontend/src/api/files.api.ts",
@@ -340,7 +340,7 @@
       "title": "RabbitMQ、Outbox 与周期调度目标",
       "status": "placeholder",
       "architecture_nodes": ["BEAT", "OUTBOX", "RABBIT", "SCHEDULER"],
-      "backend_paths": ["backend/app/workers/celery_app.py", "compose.yaml"],
+      "backend_paths": ["backend/app/platform/messaging/celery_app.py", "compose.yaml"],
       "frontend_paths": ["frontend/src/features/admin/InfrastructurePage.tsx"],
       "tables": [],
       "http_prefixes": [],

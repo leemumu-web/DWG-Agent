@@ -19,8 +19,8 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy import select
 
-from app.core.config import settings
-from app.db.session import SessionLocal
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
 from app.main import app
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer

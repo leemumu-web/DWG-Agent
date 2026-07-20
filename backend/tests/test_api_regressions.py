@@ -9,11 +9,11 @@ from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 
-import app.db.session as db_session
-from app.core.exceptions import AppHTTPException
-from app.core.security import create_access_token
-from app.db.init_db import init_db
+import app.platform.database.session as db_session
 from app.main import app
+from app.platform.database.seed import init_db
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.security.tokens import create_access_token
 from app.schemas.project_schema import ProjectCreate
 from app.schemas.user_schema import UserCreate
 from app.services.user_service import create_user

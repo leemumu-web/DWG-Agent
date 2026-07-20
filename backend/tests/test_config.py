@@ -7,7 +7,7 @@ isolated. The module-level ``settings`` singleton (cached by ``@lru_cache``) is
 
 from __future__ import annotations
 
-from app.core.config import Settings
+from app.platform.config.settings import Settings
 
 
 # ---------------------------------------------------------------------------

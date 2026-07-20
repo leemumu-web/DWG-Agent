@@ -13,7 +13,7 @@ from typing import Literal
 import pymysql
 from openpyxl import load_workbook
 
-from app.core.config import settings
+from app.platform.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -82,7 +82,7 @@ services:
 
   worker-report:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
     volumes:
       - app_var:/app/var
     environment:
@@ -119,7 +119,7 @@ services:
 
   worker-dxf2excel:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf2excel -n dxf2excel@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf2excel -n dxf2excel@%h --concurrency=1
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -131,7 +131,7 @@ services:
 
   worker-dxf-classification:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q dxf_classification -n dxf-classification@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_classification -n dxf-classification@%h --concurrency=1
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -143,7 +143,7 @@ services:
 
   worker-excel-final:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -156,7 +156,7 @@ services:
   # Framework-only workers: their queues are observable but no core task is routed yet.
   worker-dispatch:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q dispatch -n dispatch@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dispatch -n dispatch@%h --concurrency=1
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -168,7 +168,7 @@ services:
 
   worker-maintenance:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q maintenance -n maintenance@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q maintenance -n maintenance@%h --concurrency=1
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -181,7 +181,7 @@ services:
   # Placeholder queue only. AGENT_ENABLED must remain false until an Agent task exists.
   worker-agent:
     <<: *worker
-    command: celery -A app.workers.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
     volumes:
       - app_var:/app/var
     profiles: [workers]

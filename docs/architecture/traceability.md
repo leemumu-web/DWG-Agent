@@ -54,3 +54,13 @@
 | `verify.sh`、Makefile 文档目标 | `docs/check.py`、`docs/generate_api.py`、`architecture/` | 质量门禁、生成 API、路径/契约/归属一致性。 |
 
 `scripts/lib.sh` 只为既有外部 source 调用保留聚合兼容，不是新增实现归属。完整参数和安全边界见 [`scripts/README.md`](../../scripts/README.md)。
+
+## 后端平台追溯
+
+| 运行接口 | 正式实现 | 兼容或装配边界 |
+|---|---|---|
+| `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
+| SQLAlchemy metadata/session/seed | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 19 个模型模块和 36 张表。 |
+| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 10 个 task module；11 个 `app.workers.tasks_*` 公共名不变。 |
+| Settings、HTTP envelope/error、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；项目权限暂由 `modules/projects/access.py` 拥有。 |
+| Local/MinIO 字节接口 | `app/platform/storage/` | 文件登记、权限和跨 MySQL/对象补偿仍属于后续 files/operations 领域迁移。 |

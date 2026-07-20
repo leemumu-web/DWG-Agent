@@ -8,12 +8,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.core.exceptions import AppHTTPException
-from app.db.init_db import init_db
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
 from app.models.mixins import utcnow
 from app.models.storage_scan import StorageScanFinding, StorageScanRun
+from app.platform.database.seed import init_db
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.local import LocalFileStorage
 from app.services.storage_reconciliation_service import (
     _sign_preview,
     execute_remediation,
@@ -21,7 +22,6 @@ from app.services.storage_reconciliation_service import (
     preview_remediation,
 )
 from app.services.storage_service import register_pending_destructive_transfer
-from app.storage.local_storage import LocalFileStorage
 
 
 def _factory(db):

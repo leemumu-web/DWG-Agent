@@ -42,6 +42,8 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 | Storage | 由 bucket/key 标识的不透明字节 | 用户/项目访问规则 |
 | Stage | 确定性 CAD/Excel 转换 | 平台 auth、Job ownership 或 public error |
 
+后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
+
 ## 同步请求路径
 
 ```text

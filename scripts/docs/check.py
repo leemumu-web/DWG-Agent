@@ -204,8 +204,8 @@ def _database_contract(errors: list[str]) -> None:
     from alembic.script import ScriptDirectory
 
     from app import models as _models  # noqa: F401
-    from app.core.config import Settings
-    from app.db.base import Base
+    from app.platform.config.settings import Settings
+    from app.platform.database.base import Base
 
     fields = Settings.model_fields
     expected_defaults = {
@@ -330,9 +330,10 @@ def _repository_boundaries(errors: list[str]) -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    from app import models as _models  # noqa: F401
-    from app.db.base import Base
+    from app.bootstrap.model_registry import load_models
+    from app.platform.database.base import Base
 
+    load_models()
     alembic_config = Config(str(ROOT / "backend/alembic.ini"))
     alembic_config.set_main_option("script_location", str(ROOT / "backend/migrations"))
     current_head = ScriptDirectory.from_config(alembic_config).get_current_head()
@@ -369,7 +370,9 @@ def _component_document_contract(errors: list[str]) -> None:
 
 
 def _production_docs_contract(errors: list[str]) -> None:
-    main_source = (ROOT / "backend/app/main.py").read_text(encoding="utf-8")
+    main_source = (ROOT / "backend/app/bootstrap/application.py").read_text(
+        encoding="utf-8"
+    )
     production_disables_docs = (
         'docs_url="/docs" if (settings.app_env == "development" or settings.debug) else None'
         in main_source

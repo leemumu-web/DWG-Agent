@@ -438,7 +438,7 @@ git commit -m "refactor: separate script commands from implementations"
 - Delete after migration: old `core/`, `db/`, `storage/`, `utils/` implementation files
 - Keep temporarily: `api/deps.py` until identity/project access migration
 
-- [ ] **Step 1: Add platform dependency tests**
+- [x] **Step 1: Add platform dependency tests**
 
 Use AST to reject platform imports from business modules:
 
@@ -450,11 +450,11 @@ def test_platform_never_imports_business_modules() -> None:
 
 Add registry tests asserting all 36 tables and 11 tasks are loaded from explicit registry imports.
 
-- [ ] **Step 2: Move pure platform seams first**
+- [x] **Step 2: Move pure platform seams first**
 
 Move database, storage adapters, security primitives, config and logging without changing function/class bodies. Add narrow package exports; do not wildcard-export implementation internals.
 
-- [ ] **Step 3: Move Celery application while retaining public task names**
+- [x] **Step 3: Move Celery application while retaining public task names**
 
 Official runtime path becomes:
 
@@ -470,7 +470,7 @@ Update Compose, `run-cad-worker.sh`, local worker helpers and tests. The decorat
 
 This preserves already queued message compatibility.
 
-- [ ] **Step 4: Create explicit registries and bootstrap**
+- [x] **Step 4: Create explicit registries and bootstrap**
 
 `model_registry.py` imports every domain model module; `task_registry.py` imports each task module. `main.py` contains only:
 
@@ -480,7 +480,7 @@ from app.bootstrap.application import app
 __all__ = ["app"]
 ```
 
-- [ ] **Step 5: Update imports and string patch targets atomically**
+- [x] **Step 5: Update imports and string patch targets atomically**
 
 Search both code and strings:
 
@@ -490,7 +490,7 @@ rg -n 'app\.(core|db|storage|utils|workers\.celery_app)' backend scripts compose
 
 No old production import may remain. Tests patch the location where a dependency is looked up, not where it was originally defined.
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 ```bash
 cd backend
@@ -507,7 +507,7 @@ docker compose config --quiet
 
 Expected: at least 1010 tests collected; contract snapshot unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app backend/tests backend/migrations compose.yaml compose.dev.yaml scripts docs

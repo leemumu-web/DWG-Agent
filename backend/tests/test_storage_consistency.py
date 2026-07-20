@@ -8,14 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.main import app
+from app.platform.storage.base import StorageError
+from app.platform.storage.local import LocalFileStorage
+from app.platform.storage.minio import MinioStorage
 from app.services.storage_service import (
     clear_storage_backend_cache,
     get_storage_backend,
     save_bytes_as_file,
 )
-from app.storage.base import StorageError
-from app.storage.local_storage import LocalFileStorage
-from app.storage.minio_storage import MinioStorage
 
 
 class TrackingStorage:
@@ -103,10 +103,10 @@ def test_minio_network_error_is_normalized():
 
 
 def test_readiness_returns_503_when_storage_is_unavailable(monkeypatch):
-    from app import main as main_module
+    from app.bootstrap import application as application_module
 
     monkeypatch.setattr(
-        main_module,
+        application_module,
         "storage_health",
         lambda: {"status": "error", "message": "storage unavailable"},
         raising=False,

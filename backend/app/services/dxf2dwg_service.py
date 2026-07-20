@@ -25,13 +25,16 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
+from app.platform.config.settings import settings
 
 # 如果配置了 ODA_HOME，注入环境变量供 dxf_converter.check_env 探测
 if settings.oda_home:
     os.environ.setdefault("ODA_HOME", settings.oda_home)
 
-from app.core.constants import (
+from app.models.file import StoredFile
+from app.models.job import Job, JobStep
+from app.models.result import AnalysisResult
+from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_DXF2DWG,
@@ -40,10 +43,8 @@ from app.core.constants import (
     STEP_RUN_ODA_CONVERT_DXF,
     TASK_DXF_TO_DWG,
 )
-from app.db.session import SessionLocal
-from app.models.file import StoredFile
-from app.models.job import Job, JobStep
-from app.models.result import AnalysisResult
+from app.platform.database.session import SessionLocal
+from app.platform.storage.base import StorageError, StorageObjectNotFound
 from app.services.dxf_stats import _count_dxf_stats, dxf_entity_summary
 from app.services.job_events import make_event
 from app.services.job_service import (
@@ -58,7 +59,6 @@ from app.services.storage_service import (
     sanitize_filename,
     save_bytes_as_file,
 )
-from app.storage.base import StorageError, StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ def _resolve_source_dwg_version(db: Session, source_file_id: int) -> str | None:
 
     Returns None when the DXF was uploaded directly (no prior conversion).
     """
-    from app.core.constants import TASK_DWG_TO_DXF
+    from app.platform.config.constants import TASK_DWG_TO_DXF
 
     result = db.scalars(
         select(AnalysisResult).where(

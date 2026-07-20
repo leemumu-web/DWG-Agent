@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
 from app.models.role import user_roles
+from app.platform.database.base import Base, PKType
 
 if TYPE_CHECKING:
     from app.models.role import Role

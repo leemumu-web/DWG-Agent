@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from app.platform.messaging.celery_app import celery_app, summarize_job_execution
 from app.services.dxf2excel_service import run_dxf2excel_extraction
-from app.workers.celery_app import celery_app, summarize_job_execution
 
 
 @celery_app.task(name="app.workers.tasks_dxf2excel.extract_dxf_to_excel", bind=True)

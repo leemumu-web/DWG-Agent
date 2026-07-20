@@ -11,8 +11,8 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.db.init_db import init_db
 from app.main import app
+from app.platform.database.seed import init_db
 
 # ---------------------------------------------------------------------------
 # helpers

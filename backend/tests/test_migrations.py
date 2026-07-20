@@ -8,6 +8,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = PROJECT_ROOT / "backend" / "migrations" / "versions"
 ALEMBIC_ENV = PROJECT_ROOT / "backend" / "migrations" / "env.py"
 DB_SCRIPT = PROJECT_ROOT / "scripts" / "db.sh"
+DB_IMPLEMENTATION = PROJECT_ROOT / "scripts" / "lib" / "database.sh"
 INITIAL_REVISION = VERSIONS_DIR / "40452ddd24e7_initial.py"
 MYSQL_BACKEND_REVISION = VERSIONS_DIR / "1d1696c7e854_remove_redis_add_mysql_backend.py"
 EXCEL_FINAL_REVISION = VERSIONS_DIR / "3480bd86ddc3_add_excel_final_tables.py"
@@ -238,7 +239,7 @@ def test_alembic_autogenerate_excludes_celery_owned_tables():
 
 
 def test_mysql_migration_smoke_script_checks_current_business_tables():
-    source = DB_SCRIPT.read_text(encoding="utf-8")
+    source = DB_IMPLEMENTATION.read_text(encoding="utf-8")
 
     for table in (
         "agent_memory",

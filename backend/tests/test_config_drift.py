@@ -62,7 +62,7 @@ class TestBackendPortUnification:
 
     def test_celery_broker_and_result_derive_from_mysql(self):
         sys.path.insert(0, str(REPO_ROOT / "backend"))
-        from app.core.config import Settings
+        from app.platform.config.settings import Settings
 
         s = Settings(_env_file=None, mysql_password="pw")
         assert s.celery_broker_url.startswith("sqla+mysql+pymysql://")

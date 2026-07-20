@@ -24,10 +24,10 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
-from app.core.security import decode_token
-from app.db.init_db import init_db
 from app.main import app
+from app.platform.config.settings import settings
+from app.platform.database.seed import init_db
+from app.platform.security.tokens import decode_token
 from app.services.auth_service import (
     is_token_blacklisted,
     record_password_change,

@@ -5,13 +5,13 @@ from io import BytesIO
 
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
-from app.db.init_db import init_db
 from app.main import app
 from app.models.file import StoredFile
+from app.platform.config.settings import settings
+from app.platform.database.seed import init_db
+from app.platform.storage.base import StorageConfigurationError
+from app.platform.storage.local import LocalFileStorage
 from app.services import infrastructure_service
-from app.storage.base import StorageConfigurationError
-from app.storage.local_storage import LocalFileStorage
 
 _DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
 
@@ -243,7 +243,7 @@ def test_catalog_stats_count_only_available(db):
 
 def test_default_bucket_object_counts_returns_zero():
     """The abstract base default yields 0 per bucket (backends override)."""
-    from app.storage.base import AbstractStorageBackend
+    from app.platform.storage.base import AbstractStorageBackend
 
     class _StubBackend(AbstractStorageBackend):
         def check_health(self) -> None:  # pragma: no cover - trivial stub
@@ -262,12 +262,12 @@ def test_default_bucket_object_counts_returns_zero():
             return None
 
         def stat_object(self, *a, **k):  # pragma: no cover
-            from app.storage.base import StorageObjectNotFound
+            from app.platform.storage.base import StorageObjectNotFound
 
             raise StorageObjectNotFound("missing")
 
         def list_objects(self, *a, **k):  # pragma: no cover
-            from app.storage.base import ObjectPage
+            from app.platform.storage.base import ObjectPage
 
             return ObjectPage(items=[], next_cursor=None)
 

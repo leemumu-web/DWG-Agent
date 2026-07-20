@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.pagination import paginate_scalars
 from app.models.job import Job
+from app.platform.database.pagination import paginate_scalars
 
 
 def _add_jobs(db: Session, count: int) -> None:

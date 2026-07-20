@@ -14,11 +14,11 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.project import Project, ProjectMember
 from app.models.user import User
+from app.platform.http.exceptions import AppHTTPException
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services.workflow_service import (
     attach_artifact,

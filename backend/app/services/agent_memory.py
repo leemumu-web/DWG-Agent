@@ -2,7 +2,7 @@
 
 Key schema:  ``agent_memory`` table row per session_id → JSON messages list.
 
-TTL and max-message cap come from ``app.core.config.settings``.
+TTL and max-message cap come from ``app.platform.config.settings.settings``.
 Expired rows are cleaned up on read.
 
 At Stage 1 this module is infrastructure only — it is validated by tests but **not**
@@ -17,8 +17,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.agent_memory import AgentMemory
+from app.platform.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

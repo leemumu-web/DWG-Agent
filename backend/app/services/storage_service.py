@@ -13,14 +13,18 @@ from fastapi import UploadFile
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.constants import ALLOWED_UPLOAD_EXTENSIONS
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
-from app.storage.base import AbstractStorageBackend, StorageConfigurationError, StorageError
-from app.storage.local_storage import LocalFileStorage
-from app.storage.minio_storage import MinioStorage
-from app.utils.path_utils import ensure_within_root
+from app.platform.config.constants import ALLOWED_UPLOAD_EXTENSIONS
+from app.platform.config.settings import settings
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import (
+    AbstractStorageBackend,
+    StorageConfigurationError,
+    StorageError,
+)
+from app.platform.storage.local import LocalFileStorage
+from app.platform.storage.minio import MinioStorage
+from app.platform.storage.paths import ensure_within_root
 
 ALLOWED_DWG_MIME_TYPES = {
     "application/acad",

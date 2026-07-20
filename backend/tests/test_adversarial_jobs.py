@@ -23,9 +23,9 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
-from app.db.init_db import init_db
 from app.main import app
+from app.platform.config.settings import settings
+from app.platform.database.seed import init_db
 
 
 def _client() -> TestClient:
@@ -182,7 +182,7 @@ class TestDxfPipelineGate:
         h = _admin(client)
         pid = _make_project(client, h)
         # The repo .env sets DXF_PIPELINE_ENABLED=true; flip off then on to be explicit.
-        import app.core.config as cfg
+        import app.platform.config.settings as cfg
         prev = cfg.settings.dxf_pipeline_enabled
         cfg.settings.dxf_pipeline_enabled = True
         try:

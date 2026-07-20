@@ -212,7 +212,7 @@ STORAGE_BACKEND=minio MINIO_ENDPOINT="http://$MINIO_IP:9000" \
 
 ```bash
 bash scripts/status.sh
-ps -ef | rg 'celery.*app.workers.celery_app'
+ps -ef | rg 'celery.*app.platform.messaging.celery_app'
 ```
 
 检查每个本地队列恰好有一个预期受管 node。SQL transport 没有可靠 fanout inspect 健康路径。worker 死亡可使 Job 保持 running，直到 `CELERY_STALE_JOB_TIMEOUT_SECONDS`；随后 worker 启动将其标记 `CELERY_WORKER_LOST`。使用创建新 attempt 的 retry API 前，先验证 Stage 和存储。

@@ -8,9 +8,9 @@ from typing import Any
 from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.control_plane import ControlPlaneEvent, PlatformMessage, WorkerRuntime
 from app.models.job import Job
+from app.platform.config.settings import settings
 
 CONTROL_QUEUE_NAMES = (
     "report", "dxf_classification", "dxf", "dxf2dwg", "dxf2excel", "excel_final",

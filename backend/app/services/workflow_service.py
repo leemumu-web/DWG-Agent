@@ -5,10 +5,10 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AppHTTPException, not_found
 from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowArtifact, WorkflowRun, WorkflowStageRun
+from app.platform.http.exceptions import AppHTTPException, not_found
 from app.schemas.workflow_schema import (
     WorkflowCreate,
     WorkflowStageCapability,

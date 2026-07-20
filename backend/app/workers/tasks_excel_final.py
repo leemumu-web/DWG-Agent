@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from app.platform.messaging.celery_app import celery_app, summarize_job_execution
 from app.services.excel_final_service import run_excel_final_processing
-from app.workers.celery_app import celery_app, summarize_job_execution
 
 
 @celery_app.task(name="app.workers.tasks_excel_final.process_excel_final", bind=True)

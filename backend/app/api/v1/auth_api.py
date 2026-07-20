@@ -8,13 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db, get_raw_access_token
-from app.core.config import settings
-from app.core.constants import ACTIVE, JOB_EVENTS_COOKIE_NAME
-from app.core.exceptions import AppHTTPException
-from app.core.security import decode_token, hash_password, verify_password
 from app.models.user import User
+from app.platform.config.constants import ACTIVE, JOB_EVENTS_COOKIE_NAME
+from app.platform.config.settings import settings
+from app.platform.http.envelopes import ok
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.security.tokens import decode_token, hash_password, verify_password
 from app.schemas.auth_schema import ChangePasswordRequest, LoginRequest, LoginResponse
-from app.schemas.common import ok
 from app.schemas.user_schema import UserRead
 from app.services.audit_service import write_audit_log
 from app.services.auth_service import authenticate_user, build_login_token, build_refresh_token

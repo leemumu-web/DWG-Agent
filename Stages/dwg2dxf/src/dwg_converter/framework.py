@@ -29,7 +29,7 @@ from typing import Any
 from .check_env import check_environment, EnvironmentStatus
 from .engines.oda_converter import ConvertResult, BatchResult, OdaConvertError
 
-# ---- error codes (match backend/app/core/exceptions.py pattern) ------------
+# ---- error codes (match backend/app/platform/http/exceptions.py pattern) ---
 
 # 所有错误码使用 UPPER_SNAKE_CASE，与服务端 AppHTTPException 对齐。
 ERROR_CODES = {

@@ -20,7 +20,13 @@ from app.api.deps import (
     get_project_membership,
     has_global_project_access,
 )
-from app.core.constants import (
+from app.models.drawing import Drawing, DrawingVersion
+from app.models.file import StoredFile
+from app.models.job import Job
+from app.models.project import Project, ProjectMember
+from app.models.result import AnalysisResult
+from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.platform.config.constants import (
     ALLOWED_UPLOAD_EXTENSIONS,
     JOB_PENDING,
     JOB_QUEUED,
@@ -30,17 +36,12 @@ from app.core.constants import (
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
 )
-from app.core.exceptions import AppHTTPException, forbidden, not_found
-from app.core.validators import validate_sort_by
-from app.db.pagination import paginate_scalars
-from app.models.drawing import Drawing, DrawingVersion
-from app.models.file import StoredFile
-from app.models.job import Job
-from app.models.project import Project, ProjectMember
-from app.models.result import AnalysisResult
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
-from app.schemas.common import ok
-from app.schemas.common import page as page_response
+from app.platform.config.validators import validate_sort_by
+from app.platform.database.pagination import paginate_scalars
+from app.platform.http.envelopes import ok
+from app.platform.http.envelopes import page as page_response
+from app.platform.http.exceptions import AppHTTPException, forbidden, not_found
+from app.platform.storage.base import AbstractStorageBackend, StorageError, StorageObjectNotFound
 from app.schemas.file_schema import (
     BatchBulkDeleteRequest,
     BatchBulkDeleteResult,
@@ -84,7 +85,6 @@ from app.services.storage_service import (
     validate_dwg_header,
     validate_upload_name,
 )
-from app.storage.base import AbstractStorageBackend, StorageError, StorageObjectNotFound
 
 router = APIRouter()
 
@@ -387,7 +387,7 @@ async def upload_zip(
     import io
     import zipfile
 
-    from app.core.config import settings
+    from app.platform.config.settings import settings
 
     # ── validate the upload is a .zip ──────────────────────────────────────
     zip_original = sanitize_filename(upload.filename or "unnamed.zip")

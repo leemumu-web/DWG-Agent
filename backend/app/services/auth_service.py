@@ -7,10 +7,10 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.constants import ACTIVE
-from app.core.security import create_access_token, create_refresh_token, verify_password
 from app.models.token_blacklist import TokenBlacklist
 from app.models.user import User
+from app.platform.config.constants import ACTIVE
+from app.platform.security.tokens import create_access_token, create_refresh_token, verify_password
 
 logger = logging.getLogger(__name__)
 

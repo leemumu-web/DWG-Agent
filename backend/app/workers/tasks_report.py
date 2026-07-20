@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from app.core.config import settings
-from app.db.session import SessionLocal
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
+from app.platform.messaging.celery_app import celery_app, summarize_job_execution
 from app.services import storage_service
 from app.services.job_service import run_local_stub_job
 from app.services.storage_reconciliation_service import execute_scan_run
-from app.workers.celery_app import celery_app, summarize_job_execution
 
 
 @celery_app.task(name="app.workers.tasks_report.run_stub_job", bind=True)

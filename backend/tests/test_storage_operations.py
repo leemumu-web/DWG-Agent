@@ -36,11 +36,11 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
-from app.core.security import verify_password
-from app.db.init_db import PERMISSION_SEEDS, ROLE_SEEDS, init_db
 from app.models import Permission, Role, User
 from app.models.file import StoredFile
+from app.platform.config.settings import settings
+from app.platform.database.seed import PERMISSION_SEEDS, ROLE_SEEDS, init_db
+from app.platform.security.tokens import verify_password
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"

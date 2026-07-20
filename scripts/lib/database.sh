@@ -20,7 +20,7 @@ DWG-Agent MySQL helper
 Commands:
   start         启动本机 MySQL/MariaDB，并验证 backend/.env 应用凭据可登录
   setup-user    根据 backend/.env 创建/更新 dwg_agent 库、dwg_user 用户和授权
-  init          执行 alembic upgrade head + app.db.init_db，补齐迁移与种子数据
+  init          执行 alembic upgrade head + app.platform.database.seed，补齐迁移与种子数据
   migrate       执行 alembic upgrade head，修复已存在 MySQL schema 漂移
   migration-test
                 创建临时 MySQL schema，从空库执行 alembic upgrade head + 种子兼容性并验证表结构
@@ -291,7 +291,7 @@ init_cmd() {
     info "执行数据库迁移..."
     run_alembic_upgrade
     info "写入种子数据..."
-    (cd "$PROJECT_ROOT/backend" && uv run python -m app.db.init_db)
+    (cd "$PROJECT_ROOT/backend" && uv run python -m app.platform.database.seed)
     ok "数据库初始化完成"
 }
 
@@ -352,7 +352,7 @@ SQL
     (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run python - <<'PY'
 from sqlalchemy import create_engine, inspect, text
 
-from app.core.config import settings
+from app.platform.config.settings import settings
 
 expected_tables = {
     "agent_memory",
@@ -475,7 +475,7 @@ print(f"Alembic head: {version}; business tables: {len(expected_tables)}")
 PY
     )
     info "验证种子数据兼容性..."
-    (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run python -m app.db.init_db) || {
+    (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run python -m app.platform.database.seed) || {
         err "种子数据不兼容 — 迁移可能新增 NOT NULL 列或重命名列但未同步更新 init_db"
         cleanup_migration_test
         trap - EXIT
@@ -551,7 +551,7 @@ reset_cmd() {
 
     ok "数据库已重建"
     info "执行迁移 + 种子..."
-    (cd "$PROJECT_ROOT/backend" && uv run alembic upgrade head && uv run python -m app.db.init_db)
+    (cd "$PROJECT_ROOT/backend" && uv run alembic upgrade head && uv run python -m app.platform.database.seed)
     ok "重置完成: 迁移 + 种子数据已就绪"
 }
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.security import hash_password
-from app.db.init_db import init_db
 from app.main import app
 from app.models.role import Role
 from app.models.user import User
+from app.platform.database.seed import init_db
+from app.platform.security.tokens import hash_password
 from app.services.control_plane_service import record_worker_activity
 
 

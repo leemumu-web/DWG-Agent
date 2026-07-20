@@ -7,9 +7,9 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.exceptions import AppHTTPException, not_found
 from app.models.file_transfer import FileTransfer
 from app.models.mixins import utcnow
+from app.platform.http.exceptions import AppHTTPException, not_found
 
 ACTIVE_TRANSFER_STATUSES = {"prepared", "in_progress"}
 TERMINAL_TRANSFER_STATUSES = {

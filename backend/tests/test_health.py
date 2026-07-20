@@ -33,10 +33,10 @@ class TestReadinessHealth:
         assert response.json()["data"]["database"]["status"] == "ok"
 
     def test_readiness_returns_503_when_database_is_unavailable(self, monkeypatch):
-        from app import main as main_module
+        from app.bootstrap import application as application_module
 
         monkeypatch.setattr(
-            main_module,
+            application_module,
             "db_health",
             lambda: {"status": "error", "message": "database unavailable"},
         )

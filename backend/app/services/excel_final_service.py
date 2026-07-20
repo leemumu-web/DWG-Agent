@@ -25,17 +25,6 @@ import openpyxl
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.constants import (
-    JOB_RUNNING,
-    PIPELINE_EXCEL_FINAL,
-    STEP_DOWNLOAD_EXCEL_SOURCE,
-    STEP_IMPORT_PARTS_DB,
-    STEP_PERSIST_EXCEL_FINAL,
-    STEP_RUN_EXCEL_FINAL,
-    TASK_EXCEL_FINAL,
-)
-from app.db.session import SessionLocal
 from app.integrations.excel_final import (
     ExcelFinalUnavailableError,
     run_excel_final_pipeline,
@@ -44,6 +33,18 @@ from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFi
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.platform.config.constants import (
+    JOB_RUNNING,
+    PIPELINE_EXCEL_FINAL,
+    STEP_DOWNLOAD_EXCEL_SOURCE,
+    STEP_IMPORT_PARTS_DB,
+    STEP_PERSIST_EXCEL_FINAL,
+    STEP_RUN_EXCEL_FINAL,
+    TASK_EXCEL_FINAL,
+)
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
+from app.platform.storage.base import StorageObjectNotFound
 from app.services.job_events import make_event
 from app.services.job_service import (
     claim_queued_job,
@@ -56,7 +57,6 @@ from app.services.storage_service import (
     sanitize_filename,
     save_bytes_as_file,
 )
-from app.storage.base import StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
 

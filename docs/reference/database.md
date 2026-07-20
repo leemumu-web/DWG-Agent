@@ -12,7 +12,7 @@
 
 生产/运行时数据库引擎为 MySQL 8.x，通过 `mysql+pymysql://` 访问。
 
-**配置** (`backend/app/db/session.py`):
+**配置** (`backend/app/platform/database/session.py`):
 
 ```python
 pool_args = {
@@ -714,7 +714,7 @@ uv run alembic history
 
 ### 5.1 哪些数据会被种子化
 
-`backend/app/db/init_db.py` 中的 `init_db()` 函数在应用启动时（在 `lifespan` 处理器中）自动调用。该函数是幂等的 -- 如果数据已存在，则跳过插入。
+`backend/app/platform/database/seed.py` 中的 `init_db()` 函数在应用启动时（在 `lifespan` 处理器中）自动调用。该函数是幂等的 -- 如果数据已存在，则跳过插入。
 
 **7 个角色:**
 

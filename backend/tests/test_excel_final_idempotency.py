@@ -10,15 +10,15 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import TASK_EXCEL_FINAL
-from app.db.init_db import init_db
 from app.main import app
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
 from app.models.job import Job
 from app.models.user import User
-from app.storage.base import StorageError
-from app.storage.local_storage import LocalFileStorage
+from app.platform.config.constants import TASK_EXCEL_FINAL
+from app.platform.database.seed import init_db
+from app.platform.storage.base import StorageError
+from app.platform.storage.local import LocalFileStorage
 
 
 @pytest.fixture(autouse=True)

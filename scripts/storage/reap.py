@@ -34,13 +34,13 @@ if str(_backend) not in sys.path:
 
 from sqlalchemy import func, select  # noqa: E402 - backend path is injected above
 
-from app.core.config import settings  # noqa: E402 - backend path is injected above
-from app.db.session import SessionLocal  # noqa: E402 - backend path is injected above
+from app.platform.config.settings import settings  # noqa: E402 - backend path is injected above
+from app.platform.database.session import SessionLocal  # noqa: E402 - backend path is injected above
 from app.models.file import StoredFile  # noqa: E402 - backend path is injected above
 from app.services.storage_service import (  # noqa: E402 - backend path is injected above
     get_storage_backend,
 )
-from app.storage.base import StorageError  # noqa: E402 - backend path is injected above
+from app.platform.storage.base import StorageError  # noqa: E402 - backend path is injected above
 
 logger = logging.getLogger("reap_storage")
 logging.basicConfig(

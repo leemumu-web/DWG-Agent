@@ -13,7 +13,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, PKType
+from app.platform.database.base import Base, PKType
 
 
 class ExcelFinalBatch(Base):

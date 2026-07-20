@@ -4,8 +4,8 @@ from io import BytesIO
 
 from fastapi.testclient import TestClient
 
-from app.db.init_db import init_db
 from app.main import app
+from app.platform.database.seed import init_db
 
 _DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
 

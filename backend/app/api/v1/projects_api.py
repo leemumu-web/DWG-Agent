@@ -12,12 +12,12 @@ from app.api.deps import (
     require_project_member,
     require_project_role,
 )
-from app.core.exceptions import AppHTTPException, not_found
-from app.core.validators import validate_sort_by
-from app.db.pagination import paginate_scalars
 from app.models.project import Project, ProjectMember
-from app.schemas.common import ok
-from app.schemas.common import page as page_response
+from app.platform.config.validators import validate_sort_by
+from app.platform.database.pagination import paginate_scalars
+from app.platform.http.envelopes import ok
+from app.platform.http.envelopes import page as page_response
+from app.platform.http.exceptions import AppHTTPException, not_found
 from app.schemas.project_schema import (
     ProjectCreate,
     ProjectMemberCreate,

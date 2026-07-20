@@ -7,13 +7,13 @@ uv python install 3.12
 uv sync --locked
 cp ../.env.example .env
 uv run alembic upgrade head
-uv run python -m app.db.init_db
+uv run python -m app.platform.database.seed
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
 `uv sync` 依赖父仓库正常跟踪的 `../Stages/dwg2dxf`、`../Stages/dxf2dwg` 和 `../Stages/dxf2excel`。三者都是 editable path dependency；不得只复制 `backend/` 单独安装，也不得把 Stage 改回不可还原的 gitlink。
 
-运行规则：route 负责 HTTP/dependency，service 负责事务和不变量，task 调用 service；worker 的领取、进度、终态和恢复写入必须匹配 status + attempt；storage 保存字节，MySQL 保存权限元数据和 SHA-256。Agent/CAD task 是占位，相关 flag 保持 false。
+运行规则：`main.py` 只保留稳定 ASGI facade，`bootstrap/` 装配应用、模型与任务，`platform/` 提供数据库、HTTP、配置、消息、安全和存储技术接口，业务逐步归入 `modules/`。过渡期 route/service/task 仍保持原有事务边界；worker 的领取、进度、终态和恢复写入必须匹配 status + attempt；storage 保存字节，MySQL 保存权限元数据和 SHA-256。Agent/CAD task 是占位，相关 flag 保持 false。
 
 development/debug 暴露 `/docs`、`/redoc` 和 `/openapi.json`，production 且 `DEBUG=false` 时关闭。`/health` 仅表示进程存活；`/health/ready` 同时探测 MySQL 和已配置存储。
 

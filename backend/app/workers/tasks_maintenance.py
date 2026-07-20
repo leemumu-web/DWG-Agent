@@ -4,10 +4,10 @@ Celery Beat is intentionally not enabled: every operation is explicitly queued b
 an authenticated API call until a durable scheduler/outbox exists.
 """
 
-from app.db.session import SessionLocal
 from app.models.control_plane import ControlPlaneEvent
+from app.platform.database.session import SessionLocal
+from app.platform.messaging.celery_app import celery_app, reconcile_stale_running_jobs
 from app.services.daily_archive_service import execute_daily_archive_run
-from app.workers.celery_app import celery_app, reconcile_stale_running_jobs
 
 
 @celery_app.task(name="app.workers.tasks_maintenance.reconcile_stale_jobs")

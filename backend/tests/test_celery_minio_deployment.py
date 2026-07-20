@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
 import app.services.job_service as job_service
-from app.core.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
-from app.core.exceptions import AppHTTPException
-from app.db.init_db import init_db
 from app.main import app
 from app.models.job import Job
 from app.models.result import AnalysisResult
+from app.platform.config.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
+from app.platform.database.seed import init_db
+from app.platform.http.exceptions import AppHTTPException
 from app.services.job_service import run_local_stub_job
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,7 +30,7 @@ def test_runtime_dependencies_include_celery_and_minio_without_flower():
 
 
 def test_minio_storage_backend_creates_bucket_and_streams_objects():
-    from app.storage.minio_storage import MinioStorage
+    from app.platform.storage.minio import MinioStorage
 
     class FakeObject:
         def __init__(self, payload: bytes):
@@ -146,8 +146,8 @@ def test_result_download_url_is_signed_and_downloads_generated_file():
 
 
 def test_celery_app_registers_stage1_stub_task():
-    from app.core.config import settings
-    from app.workers.celery_app import celery_app
+    from app.platform.config.settings import settings
+    from app.platform.messaging.celery_app import celery_app
 
     assert celery_app.conf.broker_url == settings.celery_broker_url
     assert celery_app.conf.result_backend == settings.celery_result_backend
@@ -155,13 +155,13 @@ def test_celery_app_registers_stage1_stub_task():
 
 
 def test_mysql_result_rows_have_bounded_retention():
-    from app.workers.celery_app import celery_app
+    from app.platform.messaging.celery_app import celery_app
 
     assert celery_app.conf.result_expires == 24 * 60 * 60
 
 
 def test_celery_mysql_engines_use_bounded_pools():
-    from app.workers.celery_app import celery_app
+    from app.platform.messaging.celery_app import celery_app
 
     expected = {
         "pool_pre_ping": True,
@@ -180,7 +180,7 @@ def test_celery_mysql_engines_use_bounded_pools():
 
 
 def test_sql_broker_maintenance_adds_queue_ordering_index():
-    from app.workers.celery_app import (
+    from app.platform.messaging.celery_app import (
         SQL_BROKER_MESSAGE_INDEX,
         ensure_sql_broker_message_index,
     )
@@ -206,7 +206,7 @@ def test_sql_broker_maintenance_adds_queue_ordering_index():
 
 
 def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
-    from app.workers.celery_app import (
+    from app.platform.messaging.celery_app import (
         SQL_BROKER_MESSAGE_INDEX,
         prepare_sql_broker_schema,
     )
@@ -269,7 +269,7 @@ def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
 
 
 def test_worker_startup_cleans_expired_mysql_result_rows():
-    from app.workers import celery_app as celery_module
+    from app.platform.messaging import celery_app as celery_module
 
     calls: list[str] = []
 
@@ -407,7 +407,7 @@ def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default
         if service_name in {"worker-dxf", "worker-dxf2dwg"}:
             assert command[0] == "/app/scripts/run-cad-worker.sh"
         else:
-            assert "app.workers.celery_app:celery_app" in command
+            assert "app.platform.messaging.celery_app:celery_app" in command
 
     assert "profiles" not in data["services"]["worker-report"]
 

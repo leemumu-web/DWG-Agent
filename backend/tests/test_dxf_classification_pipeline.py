@@ -8,7 +8,6 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db.init_db import init_db
 from app.main import app
 from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
 from app.models.file import StoredFile
@@ -17,6 +16,7 @@ from app.models.project import Project, ProjectMember
 from app.models.user import User
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.platform.database.seed import init_db
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import dxf_classification_service, workflow_service
 from app.services.storage_service import get_storage_backend
@@ -114,7 +114,7 @@ def _frozen_classification_job(db, tmp_path: Path):
 def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     db, monkeypatch, tmp_path: Path
 ):
-    from app.core.config import settings
+    from app.platform.config.settings import settings
 
     monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "local_storage_root", tmp_path / "storage")
@@ -194,7 +194,7 @@ def test_classifier_naming_contract_uses_project_code_and_workflow_id():
 
 def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatch):
     from app.api.v1 import workflows_api
-    from app.core.config import settings
+    from app.platform.config.settings import settings
 
     init_db()
     client = TestClient(app)

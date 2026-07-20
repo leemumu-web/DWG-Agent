@@ -5,11 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, get_db, has_global_project_access
-from app.db.pagination import paginate_scalars
 from app.models.job import Job
 from app.models.project import ProjectMember
 from app.models.result import AnalysisResult
-from app.schemas.common import page as page_response
+from app.platform.database.pagination import paginate_scalars
+from app.platform.http.envelopes import page as page_response
 from app.schemas.result_schema import AnalysisResultRead
 
 router = APIRouter()

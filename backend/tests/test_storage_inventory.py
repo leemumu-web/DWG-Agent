@@ -10,14 +10,14 @@ from typing import BinaryIO
 import pytest
 from minio.error import S3Error
 
-from app.storage.base import (
+from app.platform.storage.base import (
     AbstractStorageBackend,
     ObjectInfo,
     StorageError,
     StorageObjectNotFound,
 )
-from app.storage.local_storage import LocalFileStorage
-from app.storage.minio_storage import MinioStorage
+from app.platform.storage.local import LocalFileStorage
+from app.platform.storage.minio import MinioStorage
 
 
 def _put(storage: AbstractStorageBackend, bucket: str, key: str, payload: bytes) -> None:

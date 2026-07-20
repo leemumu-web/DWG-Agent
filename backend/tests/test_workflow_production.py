@@ -4,7 +4,6 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.project import Project, ProjectMember
@@ -12,6 +11,7 @@ from app.models.result import AnalysisResult
 from app.models.user import User
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch
+from app.platform.http.exceptions import AppHTTPException
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import workflow_service
 
@@ -369,7 +369,7 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
 
 def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     from app.api.v1 import workflows_api
-    from app.core.config import settings
+    from app.platform.config.settings import settings
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
     client = _client()
@@ -414,7 +414,7 @@ def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
 
 
 def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
-    from app.core.config import settings
+    from app.platform.config.settings import settings
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
     client = _client()
@@ -438,8 +438,8 @@ def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
 
 def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch):
     from app.api.v1 import workflows_api
-    from app.core.config import settings
     from app.models.job import Job
+    from app.platform.config.settings import settings
     from tests import conftest
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
@@ -597,7 +597,7 @@ def _api_workflow_at_excel_final(
     client, owner_headers, project_id: int, monkeypatch
 ):
     from app.api.v1 import workflows_api
-    from app.core.config import settings
+    from app.platform.config.settings import settings
     from tests import conftest
 
     workflow_id, batch_name = _api_workflow_at_excel_stage(
@@ -650,7 +650,7 @@ def _api_workflow_at_excel_final(
 
 def test_excel_final_execution_reuses_existing_pipeline(monkeypatch):
     from app.api.v1 import workflows_api
-    from app.core.config import settings
+    from app.platform.config.settings import settings
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
     client = _client()
@@ -683,7 +683,7 @@ def test_excel_final_execution_reuses_existing_pipeline(monkeypatch):
 
 
 def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
-    from app.core.config import settings
+    from app.platform.config.settings import settings
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
     client = _client()
@@ -833,7 +833,7 @@ def test_linux_stage_rejects_artifact_type_outside_declared_contract(db):
 
 def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
     from app.api.v1 import workflows_api
-    from app.core.config import settings
+    from app.platform.config.settings import settings
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
     client = _client()

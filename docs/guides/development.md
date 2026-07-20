@@ -15,10 +15,12 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 
 | 路径 | 归属 |
 |---|---|
-| `backend/app/api/` | HTTP dependency 与 routing |
-| `backend/app/services/` | transaction、permission、orchestration |
-| `backend/app/workers/` | Celery 配置和 task entrypoint |
-| `backend/app/storage/` | local/MinIO byte adapter |
+| `backend/app/bootstrap/` | FastAPI composition、显式模型/任务 registry |
+| `backend/app/platform/` | config、database、HTTP、Celery transport、logging、token、storage 技术 seam |
+| `backend/app/modules/` | 按领域迁移后的业务能力；不得被 platform 反向导入 |
+| `backend/app/api/`、`services/`、`models/`、`schemas/` | 尚待迁移的纵向业务切片，不能再承接新平台实现 |
+| `backend/app/workers/` | 稳定 task module/name；Celery 应用位于 `platform/messaging/` |
+| `backend/app/platform/storage/` | local/MinIO byte adapter |
 | `backend/migrations/` | Alembic 所有的业务 schema |
 | `frontend/src/api/` | typed HTTP client、auth refresh、download |
 | `frontend/src/features/` | workflow page |
@@ -44,7 +46,7 @@ make verify-quick
 ## 本地运行
 
 ```bash
-# Vite :5173、FastAPI :8010、五个已实现队列 worker
+# Vite :5173、FastAPI :8010、八个本地 worker 身份
 bash scripts/start-dev.sh
 
 # Built SPA 经 Nginx :8080 -> FastAPI :8010
@@ -55,7 +57,7 @@ bash scripts/start-all.sh
 
 ### Docker 热更新覆盖
 
-需要复用 Compose 内的 MySQL、MinIO 和五个已实现 worker，同时热更新 FastAPI 时：
+需要复用 Compose 内的 MySQL、MinIO 和启用的 worker profile，同时热更新 FastAPI 时：
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml --profile workers up --build
@@ -107,7 +109,7 @@ FastAPI lifespan seed initialization 在本地运行时是 best-effort。Docker 
 
 ## Worker 变更
 
-队列为 `report`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`agent` 和 `cad`，但只有前五个有 task 实现。禁止把工作路由到占位 module。
+当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 10 个 task module 并锁定 11 个公共任务名；空的 Agent/CAD module 仍只是禁用占位，`dispatch` 是可观察进程身份预留，不能把它们描述成核心处理能力。
 
 MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 

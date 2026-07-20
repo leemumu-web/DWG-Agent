@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin
+from app.platform.database.base import Base, PKType
 
 if TYPE_CHECKING:
     from app.models.user import User

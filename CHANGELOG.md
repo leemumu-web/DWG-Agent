@@ -17,6 +17,9 @@
 
 ### Changed
 
+- 后端公共技术能力按 config、database、http、messaging、observability、security、storage 归入 `app.platform`，应用/模型/任务装配归入 `app.bootstrap`；`app.main:app` 保持稳定门面。
+- Celery 官方运行入口迁至 `app.platform.messaging.celery_app:celery_app`，11 个已发布 `app.workers.*` 任务名保持不变，确保已排队消息兼容。
+- Alembic、Compose、脚本、测试和文档统一使用显式模型/任务 registry；架构测试禁止平台层反向依赖业务模块并拒绝旧平台包导入。
 - 运维脚本改为稳定 facade + 分类实现：数据库、Compose、本地进程和 CAD worker 生命周期分别归入 `scripts/lib/`，CAD、Windows、storage、docs 工具归入对应目录。
 - `scripts/db.sh`、`docker.sh`、启动/停止/状态/诊断/验证命令保持调用方式；`scripts/lib.sh` 降为旧调用者兼容聚合。
 - 基础设施按 gateway、database、storage、messaging、operations、verification 分类；Windows 目标边界拆为 Node Agent、CAM Runner、SinoCAM Adapter 与协议。
@@ -27,6 +30,10 @@
 - 工作流直接复用现有 Job/Celery 与 `/files`：自动阶段按工作流/阶段幂等绑定 attempt，成功结果自动挂接，取消流程同步取消 active Job。
 - 自动阶段失败或被单独取消后可从同一 executions 端点重试：复用 Job、递增 attempt、重开原阶段并保持旧 worker fencing；显式取消流程仍不可重开。
 - Linux 生产阶段按模板强制校验 artifact type，任意文件类型不能绕过占位/外部交接条件。
+
+### Fixed
+
+- 修正 Celery 任务开始/结束信号向控制面观测函数传递错误关键字的问题，并增加任务 ID 转发回归测试。
 
 ### Known limitations
 

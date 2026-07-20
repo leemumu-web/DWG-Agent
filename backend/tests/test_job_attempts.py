@@ -8,12 +8,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql.dml import Update
 
 from app.api.v1.jobs_api import _job_snapshot
-from app.core.exceptions import AppHTTPException
-from app.db.init_db import init_db
 from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalPart
 from app.models.job import Job, JobStep
+from app.platform.database.seed import init_db
+from app.platform.http.exceptions import AppHTTPException
 from app.schemas.job_schema import JobStepRead
 from app.services.job_service import (
     cancel_job,
@@ -328,7 +328,7 @@ def test_cancel_all_locks_exact_active_set_and_reports_broker_purge(
     db.commit()
 
     monkeypatch.setattr(
-        "app.workers.celery_app.purge_queued_job_messages",
+        "app.platform.messaging.celery_app.purge_queued_job_messages",
         lambda: ({"dxf": 2, "excel_final": 3}, {"report": "unavailable"}),
     )
     init_db()

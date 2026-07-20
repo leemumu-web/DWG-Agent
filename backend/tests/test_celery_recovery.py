@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.excel_final import ExcelFinalBatch
 from app.models.job import Job
-from app.workers.celery_app import (
+from app.platform.messaging import celery_app as celery_runtime
+from app.platform.messaging.celery_app import (
     cleanup_consumed_broker_messages,
     dispose_inherited_resources,
     purge_queued_job_messages,
@@ -253,6 +254,28 @@ def test_worker_readiness_marker_tracks_ready_and_shutdown(tmp_path):
 
     update_worker_readiness_marker(False, marker)
     assert not marker.exists()
+
+
+def test_task_lifecycle_signals_forward_the_celery_task_id(monkeypatch):
+    recorded: list[tuple[str, str, str | None]] = []
+
+    def record(
+        status: str,
+        event_type: str,
+        sender=None,
+        task_id: str | None = None,
+    ) -> None:
+        recorded.append((status, event_type, task_id))
+
+    monkeypatch.setattr(celery_runtime, "_record_control_plane_signal", record)
+
+    celery_runtime._record_task_start(task_id="task-123")
+    celery_runtime._record_task_finish(task_id="task-123")
+
+    assert recorded == [
+        ("online", "task.started", "task-123"),
+        ("online", "task.finished", "task-123"),
+    ]
 
 
 def test_purge_queued_job_messages_uses_transport_channel_and_reports_failures():

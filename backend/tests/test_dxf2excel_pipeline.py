@@ -19,11 +19,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.db.init_db import init_db
 from app.main import app
 from app.models.job import Job
 from app.models.result import AnalysisResult
+from app.platform.config.settings import settings
+from app.platform.database.seed import init_db
 
 SAMPLE_DXF_DIR = Path(__file__).resolve().parents[2] / "Stages" / "dxf2excel" / "original_dxf"
 
@@ -33,7 +33,7 @@ def _enable_dxf2excel_pipeline(monkeypatch):
     """所有测试默认开启 DXF→Excel 管线开关，关闭 Celery eager 以防执行真实的 task body。"""
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
     # Patch the celery app's actual config so tasks are never executed inline.
-    from app.workers.celery_app import celery_app
+    from app.platform.messaging.celery_app import celery_app
     monkeypatch.setitem(celery_app.conf, "task_always_eager", False)
 
 

@@ -39,14 +39,15 @@ def _http_contract() -> tuple[list[str], list[str]]:
 
 
 def _orm_tables() -> list[str]:
-    from app import models as _models  # noqa: F401
-    from app.db.base import Base
+    from app.bootstrap.model_registry import load_models
+    from app.platform.database.base import Base
 
+    load_models()
     return sorted(Base.metadata.tables)
 
 
 def _celery_tasks() -> list[str]:
-    from app.workers.celery_app import celery_app
+    from app.platform.messaging.celery_app import celery_app
 
     celery_app.loader.import_default_modules()
     return sorted(name for name in celery_app.tasks if name.startswith("app.workers."))

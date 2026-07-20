@@ -9,10 +9,8 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.constants import ACTIVE, JOB_EVENTS_COOKIE_NAME, ROLE_SUPER_ADMIN
-from app.core.exceptions import AppHTTPException, forbidden
-from app.core.permissions import (  # noqa: F401 -- re-export for backward-compatible API-layer access
+from app.models.user import User
+from app.modules.projects.access import (  # noqa: F401 -- re-export for backward-compatible API-layer access
     get_project_membership,
     has_global_project_access,
     is_admin,
@@ -21,9 +19,11 @@ from app.core.permissions import (  # noqa: F401 -- re-export for backward-compa
     require_project_role,
     user_role_codes,
 )
-from app.core.security import decode_token
-from app.db.session import get_db
-from app.models.user import User
+from app.platform.config.constants import ACTIVE, JOB_EVENTS_COOKIE_NAME, ROLE_SUPER_ADMIN
+from app.platform.config.settings import settings
+from app.platform.database.session import get_db
+from app.platform.http.exceptions import AppHTTPException, forbidden
+from app.platform.security.tokens import decode_token
 
 DbSession = Annotated[Session, Depends(get_db)]
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.api_v1_prefix}/auth/sessions", auto_error=False)

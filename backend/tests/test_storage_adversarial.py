@@ -14,12 +14,12 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.local import LocalFileStorage
+from app.platform.storage.paths import ensure_within_root
 from app.services import storage_service
 from app.services.storage_service import save_bytes_as_file, save_upload_file
-from app.storage.local_storage import LocalFileStorage
-from app.utils.path_utils import ensure_within_root
 
 # ── test doubles ──────────────────────────────────────────────────────────────
 

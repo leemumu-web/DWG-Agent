@@ -11,8 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.core.config import settings
-from app.core.constants import (
+from app.platform.config.constants import (
     JOB_RUNNING,
     PIPELINE_DXF,
     PIPELINE_DXF2DWG,
@@ -21,7 +20,8 @@ from app.core.constants import (
     STEP_RUN_ODA_CONVERT,
     STEP_RUN_ODA_CONVERT_DXF,
 )
-from app.db.session import SessionLocal
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
 from app.services.dxf2dwg_service import (
     ERROR_CODE_DWG_FAILED,
     _resolve_dwg_output_version,

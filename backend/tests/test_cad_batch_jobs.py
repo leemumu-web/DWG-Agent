@@ -7,9 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
-from app.db.init_db import init_db
 from app.main import app
+from app.platform.config.settings import settings
+from app.platform.database.seed import init_db
 
 
 @pytest.fixture(autouse=True)

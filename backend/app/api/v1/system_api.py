@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 
 from app.api.deps import CurrentUser, DbSession, require_roles
-from app.core.config import settings
-from app.core.constants import ROLE_ADMIN
-from app.schemas.common import ok
+from app.platform.config.constants import ROLE_ADMIN
+from app.platform.config.settings import settings
+from app.platform.http.envelopes import ok
 from app.services.infrastructure_service import infrastructure_overview
 
 router = APIRouter()

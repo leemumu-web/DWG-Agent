@@ -6,8 +6,8 @@ from typing import Any
 from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, PKType
 from app.models.mixins import TimestampMixin, utcnow
+from app.platform.database.base import Base, PKType
 
 
 class WorkerRuntime(TimestampMixin, Base):

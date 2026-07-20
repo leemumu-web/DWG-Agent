@@ -6,11 +6,11 @@ from io import BytesIO
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 
-from app.core.config import settings
-from app.db import session as session_module
-from app.db.init_db import init_db
 from app.main import app
-from app.storage.local_storage import LocalFileStorage
+from app.platform.config.settings import settings
+from app.platform.database import session as session_module
+from app.platform.database.seed import init_db
+from app.platform.storage.local import LocalFileStorage
 
 _DWG = b"AC1027" + b"\x00" * 1018
 

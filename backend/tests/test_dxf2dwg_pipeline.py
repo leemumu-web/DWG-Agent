@@ -14,16 +14,16 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
-from app.core.constants import (
+from app.main import app
+from app.platform.config.constants import (
     JOB_FAILED,
     JOB_SUCCEEDED,
     PIPELINE_DXF2DWG,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
 )
-from app.db.init_db import init_db
-from app.main import app
+from app.platform.config.settings import settings
+from app.platform.database.seed import init_db
 
 
 @pytest.fixture(autouse=True)

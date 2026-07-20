@@ -7,10 +7,10 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.constants import ACTIVE, DELETED
-from app.core.exceptions import AppHTTPException, not_found
-from app.core.security import hash_password
 from app.models.user import User
+from app.platform.config.constants import ACTIVE, DELETED
+from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.security.tokens import hash_password
 from app.schemas.user_schema import UserCreate, UserSelfUpdate, UserUpdate
 
 

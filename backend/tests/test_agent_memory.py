@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.models.agent_memory import AgentMemory
+from app.platform.config.settings import settings
 from app.services.agent_memory import (
     append_and_save,
     delete_session_history,

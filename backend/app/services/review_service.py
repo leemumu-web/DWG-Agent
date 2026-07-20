@@ -9,7 +9,7 @@ from app.schemas.result_schema import ReviewCreate
 
 def get_result_job(db: Session, result: AnalysisResult) -> Job:
     """Resolve the Job that produced this analysis result."""
-    from app.core.exceptions import not_found
+    from app.platform.http.exceptions import not_found
 
     job = db.get(Job, result.job_id)
     if not job:

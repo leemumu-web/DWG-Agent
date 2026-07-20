@@ -11,12 +11,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.init_db import init_db
 from app.main import app
 from app.models.daily_archive import DailyArchiveRun
 from app.models.file import StoredFile
-from app.storage.base import StorageObjectNotFound
-from app.storage.local_storage import LocalFileStorage
+from app.platform.database.seed import init_db
+from app.platform.storage.base import StorageObjectNotFound
+from app.platform.storage.local import LocalFileStorage
 
 _DWG = b"AC1027" + b"\x00" * 1018
 

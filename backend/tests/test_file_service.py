@@ -13,11 +13,11 @@ from io import BytesIO
 import pytest
 
 import app.services.job_service as job_service
-from app.core.constants import JOB_SUCCEEDED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
-from app.core.exceptions import AppHTTPException
 from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
+from app.platform.config.constants import JOB_SUCCEEDED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
+from app.platform.http.exceptions import AppHTTPException
 from app.services.file_service import (
     build_result_map,
     build_zip,

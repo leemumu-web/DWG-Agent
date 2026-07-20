@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from app.platform.messaging.celery_app import celery_app, summarize_job_execution
 from app.services.cad_batch_service import run_dxf_to_dwg_batch
 from app.services.dxf2dwg_service import run_dxf_to_dwg_conversion
-from app.workers.celery_app import celery_app, summarize_job_execution
 
 
 @celery_app.task(name="app.workers.tasks_dxf2dwg.convert_dxf_to_dwg", bind=True)

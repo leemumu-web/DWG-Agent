@@ -14,8 +14,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import settings
-from app.core.constants import (
+from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
+from app.models.file import StoredFile
+from app.models.job import Job, JobStep
+from app.models.project import Project
+from app.models.result import AnalysisResult
+from app.models.workflow import WorkflowRun
+from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,
     PIPELINE_STEEL_DXF_CLASSIFIER,
@@ -24,14 +30,8 @@ from app.core.constants import (
     STEP_STAGE_CLASSIFIER_INPUT,
     TASK_STEEL_DXF_CLASSIFICATION,
 )
-from app.db.session import SessionLocal
-from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
-from app.models.file import StoredFile
-from app.models.job import Job, JobStep
-from app.models.project import Project
-from app.models.result import AnalysisResult
-from app.models.workflow import WorkflowRun
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.platform.config.settings import settings
+from app.platform.database.session import SessionLocal
 from app.services.job_events import make_event
 from app.services.job_service import (
     claim_queued_job,

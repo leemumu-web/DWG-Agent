@@ -16,23 +16,23 @@ from app.api.deps import (
     has_global_project_access,
     require_project_role,
 )
-from app.core.config import settings
-from app.core.constants import (
-    TASK_DWG_TO_DXF,
-    TASK_DXF_TO_DWG,
-    TASK_DXF_TO_EXCEL,
-    TASK_EXCEL_FINAL,
-)
-from app.core.exceptions import AppHTTPException, not_found, service_unavailable
-from app.core.validators import validate_sort_by
-from app.db.pagination import paginate_scalars
 from app.models.drawing import Drawing
 from app.models.excel_final import ExcelFinalBatch
 from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
-from app.schemas.common import ok
-from app.schemas.common import page as page_response
+from app.platform.config.constants import (
+    TASK_DWG_TO_DXF,
+    TASK_DXF_TO_DWG,
+    TASK_DXF_TO_EXCEL,
+    TASK_EXCEL_FINAL,
+)
+from app.platform.config.settings import settings
+from app.platform.config.validators import validate_sort_by
+from app.platform.database.pagination import paginate_scalars
+from app.platform.http.envelopes import ok
+from app.platform.http.envelopes import page as page_response
+from app.platform.http.exceptions import AppHTTPException, not_found, service_unavailable
 from app.schemas.job_schema import (
     ConversionBatchCreate,
     JobBulkCancellation,
@@ -617,7 +617,7 @@ def cancel_all_active(
 
     Uses a bulk SQL UPDATE to avoid the MySQL 1020 error caused by
     the Celery worker modifying the same rows concurrently."""
-    from app.workers.celery_app import purge_queued_job_messages
+    from app.platform.messaging.celery_app import purge_queued_job_messages
 
     if not has_global_project_access(current_user):
         raise AppHTTPException(403, "FORBIDDEN", "Only administrators can cancel all jobs.")

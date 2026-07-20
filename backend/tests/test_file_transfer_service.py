@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.exceptions import AppHTTPException
-from app.db.init_db import init_db
 from app.main import app
 from app.models.file import StoredFile
 from app.models.file_transfer import FileTransfer
+from app.platform.database.seed import init_db
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import StorageError
+from app.platform.storage.local import LocalFileStorage
 from app.services.file_transfer_service import (
     TransferSpec,
     begin_transfer,
@@ -21,8 +23,6 @@ from app.services.file_transfer_service import (
     settle_transfer,
 )
 from app.services.storage_service import save_bytes_as_file
-from app.storage.base import StorageError
-from app.storage.local_storage import LocalFileStorage
 
 _DWG = b"AC1027" + b"\x00" * 1018
 
