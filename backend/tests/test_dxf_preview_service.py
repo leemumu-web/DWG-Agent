@@ -7,11 +7,12 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.cad_processing import preview as service
+from app.modules.cad_processing import preview_rendering as rendering
 from app.modules.files.interface import FileTransfer, StoredFile
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError
 from app.platform.storage.local import LocalFileStorage
-from app.services import dxf_preview_service as service
 
 
 def _dxf_bytes(*, block_lines: int = 0) -> bytes:
@@ -30,7 +31,7 @@ def _dxf_bytes(*, block_lines: int = 0) -> bytes:
 
 
 def test_render_dxf_returns_safe_svg_and_metadata() -> None:
-    rendered = service.render_dxf_to_svg(_dxf_bytes(block_lines=3))
+    rendered = rendering.render_dxf_to_svg(_dxf_bytes(block_lines=3))
 
     lower = rendered.payload.lower()
     assert rendered.payload.startswith(b"<?xml")
@@ -41,30 +42,30 @@ def test_render_dxf_returns_safe_svg_and_metadata() -> None:
     assert "0" in rendered.layers
     assert rendered.bounds.max_x > rendered.bounds.min_x
     assert rendered.bounds.max_y > rendered.bounds.min_y
-    assert not any(token in lower for token in service.FORBIDDEN_SVG_TOKENS)
+    assert not any(token in lower for token in rendering.FORBIDDEN_SVG_TOKENS)
 
 
 def test_document_entity_limit_counts_entities_outside_modelspace(monkeypatch) -> None:
-    baseline = service.inspect_dxf(_dxf_bytes(block_lines=12))
+    baseline = rendering.inspect_dxf(_dxf_bytes(block_lines=12))
     assert baseline.document_entities > baseline.modelspace_entities
     monkeypatch.setattr(
-        service,
+        rendering,
         "MAX_DXF_ENTITIES",
         baseline.modelspace_entities,
     )
 
     with pytest.raises(AppHTTPException) as exc:
-        service.render_dxf_to_svg(_dxf_bytes(block_lines=12))
+        rendering.render_dxf_to_svg(_dxf_bytes(block_lines=12))
 
     assert exc.value.status_code == 413
     assert exc.value.detail["code"] == "DXF_TOO_COMPLEX"
 
 
 def test_output_size_limit_is_enforced(monkeypatch) -> None:
-    monkeypatch.setattr(service, "MAX_PREVIEW_BYTES", 32)
+    monkeypatch.setattr(rendering, "MAX_PREVIEW_BYTES", 32)
 
     with pytest.raises(AppHTTPException) as exc:
-        service.render_dxf_to_svg(_dxf_bytes())
+        rendering.render_dxf_to_svg(_dxf_bytes())
 
     assert exc.value.status_code == 413
     assert exc.value.detail["code"] == "DXF_PREVIEW_TOO_LARGE"
@@ -72,7 +73,7 @@ def test_output_size_limit_is_enforced(monkeypatch) -> None:
 
 def test_invalid_dxf_has_public_error() -> None:
     with pytest.raises(AppHTTPException) as exc:
-        service.render_dxf_to_svg(b"not-a-dxf")
+        rendering.render_dxf_to_svg(b"not-a-dxf")
 
     assert exc.value.status_code == 415
     assert exc.value.detail["code"] == "DXF_PARSE_ERROR"
@@ -81,7 +82,7 @@ def test_invalid_dxf_has_public_error() -> None:
 
 def test_declared_source_size_limit_is_checked() -> None:
     with pytest.raises(AppHTTPException) as exc:
-        service.validate_dxf_source_size(service.MAX_DXF_SIZE_BYTES + 1)
+        rendering.validate_dxf_source_size(rendering.MAX_DXF_SIZE_BYTES + 1)
 
     assert exc.value.status_code == 413
     assert exc.value.detail["code"] == "DXF_TOO_LARGE"

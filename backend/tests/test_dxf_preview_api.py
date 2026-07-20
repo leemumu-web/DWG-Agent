@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.cad_processing.preview import MAX_DXF_SIZE_BYTES
 from app.modules.files.interface import FileTransfer, StoredFile
 from app.platform.storage.local import LocalFileStorage
-from app.services.dxf_preview_service import MAX_DXF_SIZE_BYTES
 
 
 def _dxf_bytes() -> bytes:

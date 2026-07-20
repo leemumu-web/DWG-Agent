@@ -33,6 +33,7 @@ def _enable_dxf2excel_pipeline(monkeypatch):
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
     # Patch the celery app's actual config so tasks are never executed inline.
     from app.platform.messaging.celery_app import celery_app
+
     monkeypatch.setitem(celery_app.conf, "task_always_eager", False)
 
 
@@ -67,7 +68,7 @@ def _create_job(client: TestClient, headers: dict, batch_name: str) -> dict:
 class TestServiceHelpers:
     def test_resolve_batch_name(self):
         """_resolve_batch_name 从 params_json 提取 batch_name。"""
-        from app.services.dxf2excel_service import _resolve_batch_name
+        from app.modules.cad_processing.dxf_to_excel.execution import _resolve_batch_name
 
         job = MagicMock()
         job.params_json = {"batch_name": " 排版1 "}
@@ -81,8 +82,8 @@ class TestServiceHelpers:
 
     def test_mark_job_failed_sets_error(self, db: Session):
         """_mark_job_failed 仅结束已认领且 attempt 匹配的任务。"""
+        from app.modules.cad_processing.dxf_to_excel.execution import _mark_job_failed
         from app.modules.jobs.interface import claim_queued_job
-        from app.services.dxf2excel_service import _mark_job_failed
 
         init_db()
 
@@ -123,7 +124,7 @@ class TestServiceHelpers:
 
     def test_mark_job_failed_skips_terminal(self, db: Session):
         """_mark_job_failed 不覆盖已处于终态的 job（succeeded/cancelled）。"""
-        from app.services.dxf2excel_service import _mark_job_failed
+        from app.modules.cad_processing.dxf_to_excel.execution import _mark_job_failed
 
         init_db()
 
@@ -148,7 +149,7 @@ class TestServiceHelpers:
     def test_successful_run_persists_terminal_progress_in_same_transaction(
         self, db: Session, monkeypatch, tmp_path: Path
     ):
-        from app.services import dxf2excel_service as service
+        from app.modules.cad_processing.dxf_to_excel import execution as service
 
         monkeypatch.setattr(settings, "storage_backend", "local")
         monkeypatch.setattr(settings, "local_storage_root", tmp_path / "storage")
@@ -193,9 +194,7 @@ class TestServiceHelpers:
         assert persisted.progress_data["type"] == "done"
         assert persisted.progress_data["status"] == "succeeded"
         assert persisted.progress_data["excel_file_id"] > 0
-        assert db.scalar(
-            select(AnalysisResult).where(AnalysisResult.job_id == job_id)
-        ) is not None
+        assert db.scalar(select(AnalysisResult).where(AnalysisResult.job_id == job_id)) is not None
 
 
 # ── Feature gate ──────────────────────────────────────────────────────────────
@@ -249,9 +248,7 @@ class TestJobCancellation:
         assert resp.status_code == 202
         job_id = resp.json()["data"]["id"]
 
-        cancel_resp = client.post(
-            f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers
-        )
+        cancel_resp = client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
         assert cancel_resp.status_code == 202
         assert cancel_resp.json()["data"]["status"] == "cancelled"
 

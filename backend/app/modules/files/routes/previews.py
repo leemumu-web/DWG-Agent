@@ -7,6 +7,12 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.modules.cad_processing.interface import (
+    MAX_DXF_SIZE_BYTES,
+    get_or_create_dxf_preview,
+    preview_batch_name,
+    validate_dxf_source_size,
+)
 from app.modules.files.access import require_file_read_access
 from app.modules.files.models import StoredFile
 from app.modules.files.schemas import DxfPreviewBoundsRead, DxfPreviewRead
@@ -27,14 +33,9 @@ from app.platform.storage.base import (
     StorageError,
     StorageObjectNotFound,
 )
-from app.services.dxf_preview_service import (
-    MAX_DXF_SIZE_BYTES,
-    get_or_create_dxf_preview,
-    preview_batch_name,
-    validate_dxf_source_size,
-)
 
 router = APIRouter()
+
 
 def _column_letter(index: int) -> str:
     """Convert 0-based column index to Excel column letter(s): 0→A, 25→Z, 26→AA."""

@@ -689,26 +689,38 @@ git commit -m "refactor: deepen job and result lifecycle"
 
 **Files:**
 
-- Create: `backend/app/modules/cad_processing/{README.md,interface.py,execution.py,preview.py,statistics.py,tasks.py}`
-- Create conversion subpackages for `dwg_to_dxf`, `dxf_to_dwg`, `dxf_to_excel`
+- Create: `backend/app/modules/cad_processing/{README.md,interface.py,execution.py,statistics.py,tasks.py}`
+- Create preview rendering/cache files and conversion subpackages for `dwg_to_dxf`, `dxf_to_dwg`, `dxf_to_excel`
 - Move CAD batch and conversion implementation
-- Create: `backend/app/modules/dxf_classification/{README.md,interface.py,models.py,schemas.py,execution.py,tasks.py}`
+- Create: `backend/app/modules/dxf_classification/{README.md,interface.py,models.py,schemas.py,adapter.py,persistence.py,execution.py,tasks.py}`
 - Update imports, task registry, tests, module catalog
 - Delete migrated old service/task/model/schema files
 
-- [ ] **Step 1: Lock Stage and task contracts**
+Refined responsibility map after auditing 3,882 backend lines, six public Celery tasks, four Stage packages and the production diagrams:
 
-Add assertions for package names/versions, task names, queue routes and Stage availability. Do not move `Stages/*` paths.
+- `cad_processing` owns conversion orchestration and DXF interpretation but no ORM tables or HTTP prefix. `/files` continues to own preview authorization/streaming and `/jobs` continues to own task state; both call the CAD public interface.
+- `execution.py` owns only genuinely shared worker primitives: exception normalization, attempt-aware failure, JobStep construction, source file-id parsing and Local/MinIO source staging. Direction-specific error codes, metadata and result rules do not enter the common layer.
+- `dwg_to_dxf/` and `dxf_to_dwg/` each separate version resolution, result persistence, single-job execution and batch execution. Shared ODA group invocation remains in a small batch adapter; Stage internals are not copied into the backend.
+- `dxf_to_excel/` remains a CAD-processing conversion because it consumes DXF and produces the first material workbook; Excel Final alone moves to `excel_processing` in Task 10. Its batch staging and extraction execution remain distinct from one-file ODA conversion.
+- DXF preview is split into bounded inspection/rendering and cache/registration responsibilities. Generated SVG remains a registered `files` row and uses the existing transfer saga; moving the renderer must not move file ownership.
+- `cad_processing.tasks` registers the five existing conversion tasks with their exact historical `app.workers.tasks_*` names. `dxf_classification.tasks` registers the sixth. Celery include-module paths may change, while task names, queue routes, worker commands and Compose services do not.
+- `dxf_classification` owns `dxf_classification_runs` and `dxf_classification_items`. `adapter.py` enforces the Steel DXF Classifier 1.1.0 CLI/schema/exit-code and naming contract; `persistence.py` owns source/output ledgers; `execution.py` owns Job/workflow orchestration.
+- Other business modules may use only `cad_processing.interface` or `dxf_classification.interface`. Until Workflow moves in Task 11, classification has an explicitly documented transitional dependency on the old workflow input/artifact services; it must not be described as a fully decoupled workflow domain.
+- Stable Stage product seams remain exactly `dwg-converter 0.1.0`, `dxf-converter 0.1.0`, `dxf2excel 0.1.0` and `steel-dxf-classifier 1.1.0` under their current `Stages/*` paths. No Stage source, sample corpus, lock file or CLI entry point moves in this task.
 
-- [ ] **Step 2: Extract shared conversion execution behavior**
+- [x] **Step 1: Lock Stage and task contracts**
+
+Add assertions for package names/versions, task names, queue routes, two classification tables, public interfaces, cross-domain imports, retired paths and Stage availability. Do not move `Stages/*` paths.
+
+- [x] **Step 2: Extract shared conversion execution behavior**
 
 Move repeated source staging, error text, JobStep creation and attempt-aware failure logic to `execution.py`. Direction-specific version detection and result metadata remain in their conversion subpackage.
 
-- [ ] **Step 3: Move preview/statistics and classification**
+- [x] **Step 3: Move preview/statistics and classification**
 
 Files routes use the CAD preview interface. Workflow routes use the classification interface. Classification continues to invoke Steel DXF Classifier 1.1.0 and persist JSON/CSV/DXF outputs.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 cd backend
@@ -722,7 +734,7 @@ cd ../dxf2excel && .venv/bin/pytest -q
 cd ../steel_dxf_classifier_v1.1.0 && .venv/bin/pytest -q
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app backend/tests docs/architecture

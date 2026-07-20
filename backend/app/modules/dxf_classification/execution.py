@@ -1,31 +1,58 @@
+"""Attempt-aware workflow orchestration for Steel DXF classification."""
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
-import subprocess
-import sys
 import tempfile
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
-from app.modules.files.interface import StoredFile, save_bytes_as_file
+from app.modules.dxf_classification.adapter import (
+    CLASSIFIER_VERSION,
+    CLI_SCHEMA,
+    REPORT_SCHEMA,
+    ClassificationError,
+    classifier_project_name,
+)
+from app.modules.dxf_classification.adapter import (
+    invoke_classifier as _invoke_classifier,
+)
+from app.modules.dxf_classification.adapter import (
+    preprocessed_name as _preprocessed_name,
+)
+from app.modules.dxf_classification.adapter import (
+    safe_route as _safe_route,
+)
+from app.modules.dxf_classification.persistence import (
+    classification_sources as _classification_sources,
+)
+from app.modules.dxf_classification.persistence import (
+    finish_classification_run,
+    get_or_create_classification_run,
+    load_classification_run,
+    record_classification_analysis,
+    record_classification_item,
+)
+from app.modules.dxf_classification.persistence import (
+    mark_classification_failed as _mark_failed,
+)
+from app.modules.dxf_classification.persistence import (
+    persist_output as _persist_output,
+)
+from app.modules.files.interface import StoredFile
 from app.modules.jobs.interface import (
-    AnalysisResult,
-    Job,
     JobStep,
     claim_queued_job,
     commit_job_progress,
     complete_job_attempt,
-    fail_job_attempt,
     make_event,
 )
 from app.modules.projects.interface import Project
@@ -36,70 +63,12 @@ from app.platform.config.constants import (
     STEP_PERSIST_CLASSIFICATION,
     STEP_RUN_STEEL_DXF_CLASSIFIER,
     STEP_STAGE_CLASSIFIER_INPUT,
-    TASK_STEEL_DXF_CLASSIFICATION,
 )
-from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 from app.services.workflow_input_service import _read_verified_object
 from app.services.workflow_service import attach_artifact
 
 logger = logging.getLogger(__name__)
-
-CLASSIFIER_VERSION = "1.1.0"
-REPORT_SCHEMA = "STEEL-DXF-CLASSIFICATION-1.1"
-CLI_SCHEMA = "STEEL-DXF-CLI-1.1"
-ERROR_CODE_CLASSIFICATION_FAILED = "DXF_CLASSIFICATION_FAILED"
-ERROR_CODE_CLASSIFICATION_CONTRACT = "DXF_CLASSIFICATION_CONTRACT_INVALID"
-
-
-class ClassificationError(RuntimeError):
-    pass
-
-
-def classifier_project_name(project_code: str, workflow_id: int) -> str:
-    return f"{project_code}-workflow-{workflow_id}"
-
-
-def _preprocessed_name(name: str) -> str:
-    source = Path(name).name
-    if Path(source).suffix.lower() != ".dxf":
-        raise ClassificationError(f"分类输入不是 DXF: {source}")
-    stem = Path(source).stem
-    if not stem.endswith("_拆板前"):
-        stem = f"{stem}_拆板前"
-    return f"{stem}.dxf"
-
-
-def _invoke_classifier(input_directory: Path) -> dict[str, Any]:
-    try:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "steel_dxf_classifier.cli",
-                "--json",
-                str(input_directory),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=settings.dxf_classification_timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ClassificationError("DXF 分类器执行超时。") from exc
-    if completed.returncode not in {0, 2}:
-        message = completed.stderr.strip() or "DXF 分类器执行失败。"
-        raise ClassificationError(message.removeprefix("错误: ").strip())
-    if completed.stderr.strip():
-        raise ClassificationError("DXF 分类器成功退出时产生了非预期 stderr。")
-    try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise ClassificationError("DXF 分类器未返回合法 JSON。") from exc
-    if payload.get("schema") != CLI_SCHEMA or payload.get("exit_code") != completed.returncode:
-        raise ClassificationError("DXF 分类器 CLI schema 或退出码不符合 1.1 契约。")
-    return payload
 
 
 def _add_step(
@@ -125,80 +94,6 @@ def _add_step(
             started_at=now,
             finished_at=now,
         )
-    )
-
-
-def _classification_sources(db: Session, workflow: WorkflowRun) -> list[tuple[WorkflowInputItem, StoredFile]]:
-    batch = workflow.input_batch
-    if batch is None or batch.status != "frozen" or not batch.manifest_sha256:
-        raise ClassificationError("生产输入批次尚未冻结。")
-    sources: list[tuple[WorkflowInputItem, StoredFile]] = []
-    for item in batch.items:
-        if item.role != "source_dwg":
-            continue
-        if item.derived_dxf_file_id is None:
-            raise ClassificationError(f"输入条目 {item.id} 缺少服务器派生 DXF。")
-        stored = db.get(StoredFile, item.derived_dxf_file_id)
-        if stored is None or stored.status == "deleted":
-            raise ClassificationError(f"输入条目 {item.id} 的派生 DXF 不可用。")
-        sources.append((item, stored))
-    if not sources:
-        raise ClassificationError("冻结批次中没有可分类的 DXF。")
-    return sources
-
-
-def _safe_route(project_name: str, route: object) -> str:
-    if not isinstance(route, str) or Path(route).name != route:
-        raise ClassificationError("分类报告包含非法输出目录。")
-    if not route.startswith(f"{project_name}_") or not route.endswith("_dxf"):
-        raise ClassificationError("分类输出目录不符合 1.1 命名契约。")
-    return route
-
-
-def _persist_output(
-    db: Session,
-    *,
-    job: Job,
-    workflow_id: int,
-    attempt: int,
-    relative_path: str,
-    path: Path,
-    batch_name: str,
-    content_type: str,
-) -> StoredFile:
-    return save_bytes_as_file(
-        db,
-        bucket=settings.minio_bucket_dxf_derived if path.suffix.lower() == ".dxf" else settings.minio_bucket_reports,
-        storage_key=f"workflows/{workflow_id}/dxf-classification/attempt-{attempt}/{relative_path}",
-        original_name=path.name,
-        file_ext=path.suffix.lower(),
-        content_type=content_type,
-        payload=path.read_bytes(),
-        uploaded_by=job.created_by,
-        batch_name=batch_name,
-        request_id=f"dxf-classification:{job.id}:{attempt}:{relative_path}",
-    )
-
-
-def _mark_failed(db: Session, job_id: int, attempt: int, exc: Exception) -> None:
-    message = str(exc) or exc.__class__.__name__
-    run = db.scalar(
-        select(DxfClassificationRun).where(
-            DxfClassificationRun.job_id == job_id,
-            DxfClassificationRun.job_attempt == attempt,
-        )
-    )
-    if run is not None:
-        run.status = "failed"
-        run.error_code = ERROR_CODE_CLASSIFICATION_FAILED
-        run.error_message = message
-        run.finished_at = datetime.now(UTC)
-    fail_job_attempt(
-        db,
-        job_id,
-        attempt=attempt,
-        error_code=ERROR_CODE_CLASSIFICATION_FAILED,
-        error_message=message,
     )
 
 
@@ -240,29 +135,19 @@ def run_dxf_classification(
         project_name = classifier_project_name(project.code, workflow.id)
         batch = workflow.input_batch
         assert batch is not None and batch.manifest_sha256 is not None
-        run = db.scalar(
-            select(DxfClassificationRun).where(
-                DxfClassificationRun.job_id == job.id,
-                DxfClassificationRun.job_attempt == attempt,
-            )
+        run = get_or_create_classification_run(
+            db,
+            job=job,
+            workflow=workflow,
+            attempt=attempt,
+            project_name=project_name,
+            manifest_sha256=batch.manifest_sha256,
+            input_count=len(sources),
         )
-        if run is None:
-            run = DxfClassificationRun(
-                workflow_run_id=workflow.id,
-                project_id=workflow.project_id,
-                job_id=job.id,
-                job_attempt=attempt,
-                status="running",
-                classifier_version=CLASSIFIER_VERSION,
-                project_name=project_name,
-                input_manifest_sha256=batch.manifest_sha256,
-                input_count=len(sources),
-                started_at=datetime.now(UTC),
-            )
-            db.add(run)
-            db.commit()
 
-        with tempfile.TemporaryDirectory(prefix=f"dxf-classification-{job.id}-{attempt}-") as raw_root:
+        with tempfile.TemporaryDirectory(
+            prefix=f"dxf-classification-{job.id}-{attempt}-"
+        ) as raw_root:
             root = Path(raw_root)
             input_directory = root / f"{project_name}_dxf"
             input_directory.mkdir()
@@ -289,7 +174,9 @@ def run_dxf_classification(
                 job.id,
                 attempt=attempt,
                 progress=25,
-                event=make_event(type_="progress", status=JOB_RUNNING, progress=25, message="分类输入已校验"),
+                event=make_event(
+                    type_="progress", status=JOB_RUNNING, progress=25, message="分类输入已校验"
+                ),
             )
             if job is None:
                 return
@@ -307,7 +194,11 @@ def run_dxf_classification(
                 raise ClassificationError("分类器输出 schema 不符合 1.1 契约。")
             results = report.get("results")
             summary = report.get("summary")
-            if not isinstance(results, list) or not isinstance(summary, dict) or len(results) != len(sources):
+            if (
+                not isinstance(results, list)
+                or not isinstance(summary, dict)
+                or len(results) != len(sources)
+            ):
                 raise ClassificationError("分类报告逐图数量与冻结输入不一致。")
             _add_step(
                 db,
@@ -323,18 +214,18 @@ def run_dxf_classification(
                 job.id,
                 attempt=attempt,
                 progress=70,
-                event=make_event(type_="progress", status=JOB_RUNNING, progress=70, message="DXF 分类分流完成"),
+                event=make_event(
+                    type_="progress", status=JOB_RUNNING, progress=70, message="DXF 分类分流完成"
+                ),
             )
             if job is None:
                 return
 
-            run = db.scalar(
-                select(DxfClassificationRun).where(
-                    DxfClassificationRun.job_id == job.id,
-                    DxfClassificationRun.job_attempt == attempt,
-                )
+            run = load_classification_run(
+                db,
+                job_id=job.id,
+                attempt=attempt,
             )
-            assert run is not None
             seen: set[str] = set()
             for result in results:
                 if not isinstance(result, dict):
@@ -352,7 +243,10 @@ def run_dxf_classification(
                 if not output_path.is_file():
                     raise ClassificationError(f"分类输出缺失: {route}/{output_name}")
                 output_payload = output_path.read_bytes()
-                if hashlib.sha256(output_payload).hexdigest() != hashlib.sha256(source_payload).hexdigest():
+                if (
+                    hashlib.sha256(output_payload).hexdigest()
+                    != hashlib.sha256(source_payload).hexdigest()
+                ):
                     raise ClassificationError(f"分类输出字节与来源不一致: {output_name}")
                 output_file = _persist_output(
                     db,
@@ -364,23 +258,15 @@ def run_dxf_classification(
                     batch_name=route,
                     content_type="application/dxf",
                 )
-                db.add(
-                    DxfClassificationItem(
-                        run=run,
-                        drawing_id=input_item.drawing_id,
-                        source_file_id=source_file.id,
-                        output_file_id=output_file.id,
-                        source_name=source_file.original_name,
-                        output_name=output_name,
-                        output_directory=route,
-                        disposition=str(result.get("disposition") or ""),
-                        part_type=result.get("part_type") if isinstance(result.get("part_type"), str) else None,
-                        diagnostics_json=result.get("diagnostics") if isinstance(result.get("diagnostics"), list) else [],
-                        evidence_json={
-                            "candidates": result.get("candidates", []),
-                            "source_metadata": result.get("source_metadata", {}),
-                        },
-                    )
+                record_classification_item(
+                    db,
+                    run=run,
+                    input_item=input_item,
+                    source_file=source_file,
+                    output_file=output_file,
+                    output_name=output_name,
+                    route=route,
+                    result=result,
                 )
                 attach_artifact(
                     db,
@@ -418,25 +304,16 @@ def run_dxf_classification(
                 batch_name=f"{project_name}_classification",
                 content_type="text/csv",
             )
-            analysis = AnalysisResult(
-                job_id=job.id,
-                result_type=TASK_STEEL_DXF_CLASSIFICATION,
-                result_json={
-                    "workflow_id": workflow.id,
-                    "run_id": run.id,
-                    "workflow_artifact_type": "classification_report",
-                    "cli": cli_payload,
-                    "summary": summary,
-                    "manifest_file_id": manifest_file.id,
-                },
-                confidence=Decimal("1.0000"),
-                result_file_id=report_file.id,
-                algorithm_version=CLASSIFIER_VERSION,
-                tool_version="steel-dxf-classifier",
-                status="succeeded",
+            analysis = record_classification_analysis(
+                db,
+                job=job,
+                workflow_id=workflow.id,
+                run=run,
+                cli_payload=cli_payload,
+                summary=summary,
+                report_file=report_file,
+                manifest_file=manifest_file,
             )
-            db.add(analysis)
-            db.flush()
             attach_artifact(
                 db,
                 workflow,
@@ -454,16 +331,13 @@ def run_dxf_classification(
                 file_id=manifest_file.id,
                 metadata={"classifier_version": CLASSIFIER_VERSION},
             )
-            run.status = "completed_with_review" if cli_payload.get("exit_code") == 2 else "completed"
-            run.report_schema = REPORT_SCHEMA
-            run.cli_schema = CLI_SCHEMA
-            run.classified_count = int(summary.get("classified_count") or 0)
-            run.review_required_count = int(summary.get("review_required_count") or 0)
-            run.unreadable_count = int(summary.get("unreadable_count") or 0)
-            run.type_counts_json = summary.get("type_counts") if isinstance(summary.get("type_counts"), dict) else {}
-            run.report_file_id = report_file.id
-            run.manifest_file_id = manifest_file.id
-            run.finished_at = datetime.now(UTC)
+            finish_classification_run(
+                run,
+                cli_payload=cli_payload,
+                summary=summary,
+                report_file=report_file,
+                manifest_file=manifest_file,
+            )
             _add_step(
                 db,
                 job.id,
@@ -503,12 +377,3 @@ def run_dxf_classification(
         logger.exception("DXF classification failed for job %s", job_id)
     finally:
         db.close()
-
-
-def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificationRun | None:
-    return db.scalar(
-        select(DxfClassificationRun)
-        .where(DxfClassificationRun.workflow_run_id == workflow_id)
-        .options(selectinload(DxfClassificationRun.items))
-        .order_by(DxfClassificationRun.job_attempt.desc(), DxfClassificationRun.id.desc())
-    )

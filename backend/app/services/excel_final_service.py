@@ -5,7 +5,7 @@
       → AnalysisResult 登记 → SSE 推送。
 
 设计要点:
-- 仿 dxf2excel_service.py 的状态机结构。
+- 沿用 cad_processing/dxf_to_excel 的 attempt-aware 状态机结构。
 - 输入: 单个 Excel 文件 (file_id), 非批次。
 - 输出: 处理后的 Excel + MySQL 结构化数据。
 - 每步写 job_steps + publish_job_event。

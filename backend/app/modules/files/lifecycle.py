@@ -22,8 +22,7 @@ def soft_delete_file_in_transaction(
     request_id: str,
     batch_ref: str | None = None,
 ) -> None:
-    # Temporary adapter seam until CAD preview moves into its own domain module.
-    from app.services.dxf_preview_service import invalidate_dxf_previews_for_source
+    from app.modules.cad_processing.interface import invalidate_dxf_previews_for_source
 
     invalidate_dxf_previews_for_source(
         db,

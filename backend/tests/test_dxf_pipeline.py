@@ -169,13 +169,13 @@ def test_run_dxf_conversion_success():
     file_id = _upload_dwg(client, headers)
 
     fake = _make_fake_convert_result(success=True)
-    from app.services import dxf_service
+    from app.modules.cad_processing.dwg_to_dxf import persistence as dxf_persistence
 
     with (
         patch("dwg_converter.convert_file", return_value=fake),
         patch(
-            "app.services.dxf_service.save_bytes_as_file",
-            wraps=dxf_service.save_bytes_as_file,
+            "app.modules.cad_processing.dwg_to_dxf.persistence.save_bytes_as_file",
+            wraps=dxf_persistence.save_bytes_as_file,
         ) as save_result,
     ):
         resp = client.post(

@@ -11,9 +11,9 @@
 | `files` | implemented | 4 | 17 | 0 | 上传、登记、下载、预览、对象补偿 |
 | `jobs` | implemented | 4 | 18 | 1 | Job attempt、步骤、结果、复核、SSE |
 | `workflows` | partial | 5 | 16 | 0 | 生产批次、输入冻结、阶段和产物编排 |
-| `cad_processing` | partial | 0 | 0 | 4 | DWG→DXF 与 DXF→DWG Stage 调用 |
+| `cad_processing` | partial | 0 | 0 | 5 | DWG/DXF 格式转换、DXF 预览解释与材料表提取 |
 | `dxf_classification` | partial | 2 | 0 | 1 | Steel DXF Classifier 1.1.0 分类分流 |
-| `excel_processing` | partial | 3 | 14 | 2 | DXF→Excel、Excel Final 与关系化导入 |
+| `excel_processing` | partial | 3 | 14 | 1 | Excel Final 与关系化导入 |
 | `operations` | partial | 5 | 29 | 3 | 审计、数据控制台、控制平面、归档、扫描 |
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |
 | `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Outbox、Beat 的目标边界 |
@@ -30,6 +30,8 @@
 - `external`：仓库定义交接边界，执行进程或商业系统在仓库外。
 
 当前 11 个任务名包含 `app.workers.tasks_dxf_classification.classify_steel_dxf`。早期人工基线误记为 10；运行时快照已纠正，后续以脚本从 Celery registry 读取的集合为准。
+
+11 个稳定任务名目前由 8 个 Python task module 装配；CAD 的 5 个任务集中在 `cad_processing.tasks`，分类任务集中在 `dxf_classification.tasks`。这是实现文件归并，不改变已入队消息使用的历史任务名和队列。
 
 ## 修改规则
 

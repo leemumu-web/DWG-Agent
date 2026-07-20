@@ -42,26 +42,23 @@ def enqueue_stub_job(job_id: int, attempt: int) -> str:
 
 def enqueue_dxf_job(job_id: int, attempt: int) -> str:
     """投递 DWG→DXF 转换任务到 Celery dxf 队列。"""
-    from app.workers.tasks_dxf import convert_dwg_to_dxf_task
+    from app.modules.cad_processing.interface import enqueue_dwg_to_dxf_job
 
-    async_result = convert_dwg_to_dxf_task.delay(job_id, attempt)
-    return str(async_result.id)
+    return enqueue_dwg_to_dxf_job(job_id, attempt)
 
 
 def enqueue_dxf2dwg_job(job_id: int, attempt: int) -> str:
     """投递 DXF→DWG 转换任务到 Celery dxf2dwg 队列。"""
-    from app.workers.tasks_dxf2dwg import convert_dxf_to_dwg_task
+    from app.modules.cad_processing.interface import enqueue_dxf_to_dwg_job
 
-    async_result = convert_dxf_to_dwg_task.delay(job_id, attempt)
-    return str(async_result.id)
+    return enqueue_dxf_to_dwg_job(job_id, attempt)
 
 
 def enqueue_dxf2excel_job(job_id: int, attempt: int) -> str:
     """投递 DXF→Excel 提取任务到 Celery dxf2excel 队列。"""
-    from app.workers.tasks_dxf2excel import extract_dxf_to_excel_task
+    from app.modules.cad_processing.interface import enqueue_dxf_to_excel_job
 
-    async_result = extract_dxf_to_excel_task.delay(job_id, attempt)
-    return str(async_result.id)
+    return enqueue_dxf_to_excel_job(job_id, attempt)
 
 
 def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
@@ -74,10 +71,9 @@ def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
 
 def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
     """投递冻结 DXF 分类分流任务。"""
-    from app.workers.tasks_dxf_classification import classify_steel_dxf_task
+    from app.modules.dxf_classification.interface import enqueue_dxf_classification_job
 
-    async_result = classify_steel_dxf_task.delay(job_id, attempt)
-    return str(async_result.id)
+    return enqueue_dxf_classification_job(job_id, attempt)
 
 
 def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
@@ -111,13 +107,13 @@ def dispatch_committed_conversion_batch(
     serialized = [[job_id, attempt] for job_id, attempt in jobs]
     try:
         if task_type == TASK_DWG_TO_DXF:
-            from app.workers.tasks_dxf import convert_dwg_to_dxf_batch_task
+            from app.modules.cad_processing.interface import enqueue_dwg_to_dxf_batch
 
-            return str(convert_dwg_to_dxf_batch_task.delay(serialized).id)
+            return enqueue_dwg_to_dxf_batch(serialized)
         if task_type == TASK_DXF_TO_DWG:
-            from app.workers.tasks_dxf2dwg import convert_dxf_to_dwg_batch_task
+            from app.modules.cad_processing.interface import enqueue_dxf_to_dwg_batch
 
-            return str(convert_dxf_to_dwg_batch_task.delay(serialized).id)
+            return enqueue_dxf_to_dwg_batch(serialized)
         raise ValueError(f"Unsupported conversion batch task type: {task_type}")
     except ValueError:
         raise

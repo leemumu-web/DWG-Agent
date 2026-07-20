@@ -76,7 +76,6 @@
       "backend_paths": [
         "backend/app/modules/files",
         "backend/app/platform/storage",
-        "backend/app/services/dxf_preview_service.py",
         "backend/app/services/storage_reconciliation_service.py"
       ],
       "frontend_paths": [
@@ -165,13 +164,7 @@
       "title": "CAD 格式转换",
       "status": "partial",
       "architecture_nodes": ["Q_DXF", "TEKLA", "W_DXF"],
-      "backend_paths": [
-        "backend/app/services/cad_batch_service.py",
-        "backend/app/services/dxf2dwg_service.py",
-        "backend/app/services/dxf_service.py",
-        "backend/app/workers/tasks_dxf.py",
-        "backend/app/workers/tasks_dxf2dwg.py"
-      ],
+      "backend_paths": ["backend/app/modules/cad_processing"],
       "frontend_paths": [
         "frontend/src/components/ConversionPage.tsx",
         "frontend/src/features/files/Dwg2DxfPage.tsx",
@@ -183,25 +176,26 @@
         "app.workers.tasks_dxf.convert_dwg_to_dxf",
         "app.workers.tasks_dxf.convert_dwg_to_dxf_batch",
         "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg",
-        "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg_batch"
+        "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg_batch",
+        "app.workers.tasks_dxf2excel.extract_dxf_to_excel"
       ],
-      "queues": ["dxf", "dxf2dwg"],
-      "stages": ["Stages/dwg2dxf", "Stages/dxf2dwg"],
-      "tests": ["backend/tests/test_cad_batch_jobs.py", "backend/tests/test_dxf_pipeline.py"],
+      "queues": ["dxf", "dxf2dwg", "dxf2excel"],
+      "stages": ["Stages/dwg2dxf", "Stages/dxf2dwg", "Stages/dxf2excel"],
+      "tests": [
+        "backend/tests/architecture/test_cad_processing_boundaries.py",
+        "backend/tests/test_cad_batch_jobs.py",
+        "backend/tests/test_dxf2excel_pipeline.py",
+        "backend/tests/test_dxf_pipeline.py"
+      ],
       "docs": ["Stages/dwg2dxf/README.md", "docs/architecture/workflow.md"],
-      "notes": "Task implementations exist behind flags and require ODA/runtime/sample validation."
+      "notes": "Direction-specific version, persistence, batch and execution layers call independent Stage packages behind flags; ODA/runtime/sample validation remains deployment work."
     },
     {
       "code": "dxf_classification",
       "title": "Steel DXF 预处理与分类分流",
       "status": "partial",
       "architecture_nodes": ["D1", "D10", "D11", "D12", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "W_DXF"],
-      "backend_paths": [
-        "backend/app/models/dxf_classification.py",
-        "backend/app/schemas/dxf_classification_schema.py",
-        "backend/app/services/dxf_classification_service.py",
-        "backend/app/workers/tasks_dxf_classification.py"
-      ],
+      "backend_paths": ["backend/app/modules/dxf_classification"],
       "frontend_paths": ["frontend/src/features/workflows/DxfClassificationPanel.tsx"],
       "tables": ["dxf_classification_items", "dxf_classification_runs"],
       "http_prefixes": [],
@@ -214,7 +208,7 @@
     },
     {
       "code": "excel_processing",
-      "title": "DXF→Excel 与 Excel Final",
+      "title": "Excel Final 处理与关系化导入",
       "status": "partial",
       "architecture_nodes": ["E1", "E2", "E3", "E4", "Q_EXCEL", "W_EXCEL"],
       "backend_paths": [
@@ -222,9 +216,7 @@
         "backend/app/integrations/excel_final.py",
         "backend/app/integrations/excel_final_runner.py",
         "backend/app/models/excel_final.py",
-        "backend/app/services/dxf2excel_service.py",
         "backend/app/services/excel_final_service.py",
-        "backend/app/workers/tasks_dxf2excel.py",
         "backend/app/workers/tasks_excel_final.py"
       ],
       "frontend_paths": [
@@ -234,15 +226,12 @@
       ],
       "tables": ["excel_final_batches", "excel_final_components", "excel_final_parts"],
       "http_prefixes": ["/api/v1/excel-final"],
-      "celery_tasks": [
-        "app.workers.tasks_dxf2excel.extract_dxf_to_excel",
-        "app.workers.tasks_excel_final.process_excel_final"
-      ],
-      "queues": ["dxf2excel", "excel_final"],
-      "stages": ["Stages/dxf2excel", "Stages/excel_final"],
-      "tests": ["backend/tests/test_dxf2excel_pipeline.py", "backend/tests/test_excel_final_import.py"],
+      "celery_tasks": ["app.workers.tasks_excel_final.process_excel_final"],
+      "queues": ["excel_final"],
+      "stages": ["Stages/excel_final"],
+      "tests": ["backend/tests/test_excel_final_import.py"],
       "docs": ["Stages/excel_final/PROCESS.md", "docs/architecture/workflow.md"],
-      "notes": "Existing Stage implementations are wired behind flags; production input schema and external handbook data remain deployment dependencies."
+      "notes": "Excel Final is wired behind a flag; production input schema and external handbook data remain deployment dependencies. DXF material-workbook extraction belongs to cad_processing because DXF is its source domain."
     },
     {
       "code": "operations",

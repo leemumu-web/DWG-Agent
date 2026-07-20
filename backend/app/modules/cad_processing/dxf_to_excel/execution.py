@@ -17,63 +17,53 @@ from __future__ import annotations
 import logging
 import tempfile
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
-from uuid import uuid4
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.files.interface import (
-    StoredFile,
-    get_storage_backend,
-    sanitize_filename,
-    save_bytes_as_file,
+from app.modules.cad_processing.dxf_to_excel.contracts import (
+    ERROR_CODE_DXF2EXCEL_FAILED,
+    ERROR_CODE_DXF2EXCEL_UNAVAILABLE,
+    ERROR_CODE_EMPTY_BATCH,
+)
+from app.modules.cad_processing.dxf_to_excel.persistence import (
+    persist_excel_extraction_result,
+)
+from app.modules.cad_processing.dxf_to_excel.staging import (
+    batch_workbook_stem,
+)
+from app.modules.cad_processing.dxf_to_excel.staging import (
+    resolve_batch_name as _resolve_batch_name,
+)
+from app.modules.cad_processing.dxf_to_excel.staging import (
+    stage_dxf_batch as _stage_dxf_batch,
+)
+from app.modules.cad_processing.execution import (
+    CadProcessingError as AppError,
+)
+from app.modules.cad_processing.execution import (
+    add_job_step as _add_step,
+)
+from app.modules.cad_processing.execution import (
+    exception_message as _exception_message,
+)
+from app.modules.cad_processing.execution import (
+    mark_job_failed,
 )
 from app.modules.jobs.interface import (
-    AnalysisResult,
-    Job,
-    JobStep,
     claim_queued_job,
     commit_job_progress,
-    complete_job_attempt,
-    fail_job_attempt,
     make_event,
 )
 from app.platform.config.constants import (
     JOB_RUNNING,
-    JOB_SUCCEEDED,
     PIPELINE_DXF2EXCEL,
     STEP_DOWNLOAD_DXF_BATCH,
-    STEP_PERSIST_EXCEL,
     STEP_RUN_DXF2EXCEL,
-    TASK_DXF_TO_EXCEL,
 )
-from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
-from app.platform.storage.base import StorageObjectNotFound
 
 logger = logging.getLogger(__name__)
-
-ERROR_CODE_EMPTY_BATCH = "DXF2EXCEL_EMPTY_BATCH"
-ERROR_CODE_DXF2EXCEL_FAILED = "DXF2EXCEL_PIPELINE_FAILED"
-ERROR_CODE_DXF2EXCEL_NO_OUTPUT = "DXF2EXCEL_NO_OUTPUT"
-ERROR_CODE_DXF2EXCEL_UNAVAILABLE = "DXF2EXCEL_UNAVAILABLE"
-ERROR_CODE_STORAGE_FAILED = "DXF2EXCEL_STORAGE_FAILED"
-
-_EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-_EXCEL_EXT = ".xlsx"
-_ALGO_VERSION = "dxf2excel"
-
-
-def _exception_message(exc: Exception) -> str:
-    detail = getattr(exc, "detail", None)
-    if isinstance(detail, dict):
-        message = detail.get("message")
-        if isinstance(message, str) and message:
-            return message
-    message = str(exc)
-    return message or exc.__class__.__name__
 
 
 def _mark_job_failed(
@@ -83,122 +73,14 @@ def _mark_job_failed(
     exc: Exception,
     error_code: str = ERROR_CODE_DXF2EXCEL_FAILED,
 ) -> None:
-    """在 worker 当前事务内提交失败状态与待写步骤。"""
-    try:
-        fail_job_attempt(
-            db,
-            job_id,
-            attempt=attempt,
-            error_code=error_code,
-            error_message=_exception_message(exc),
-        )
-    except Exception:
-        db.rollback()
-        logger.exception("Failed to mark dxf2excel job %s as failed", job_id)
-
-
-def _add_step(
-    db: Session,
-    job_id: int,
-    attempt: int,
-    step_name: str,
-    worker_name: str,
-    status: str,
-    *,
-    input_json: dict | None = None,
-    output_json: dict | None = None,
-    error_message: str | None = None,
-    started_at: datetime | None = None,
-) -> None:
-    db.add(
-        JobStep(
-            job_id=job_id,
-            attempt=attempt,
-            step_name=step_name,
-            worker_name=worker_name,
-            status=status,
-            input_json=input_json,
-            output_json=output_json,
-            error_message=error_message,
-            started_at=started_at,
-            finished_at=datetime.now(UTC),
-        )
+    mark_job_failed(
+        db,
+        job_id,
+        attempt,
+        exc,
+        error_code=error_code,
+        logger=logger,
     )
-
-
-def _resolve_batch_name(job: Job) -> str | None:
-    """从 job.params_json 取 batch_name。"""
-    params = job.params_json or {}
-    raw = params.get("batch_name")
-    if isinstance(raw, str) and raw.strip():
-        return raw.strip()
-    return None
-
-
-def _stage_dxf_batch(
-    db: Session,
-    batch_name: str,
-    work_dir: Path,
-) -> tuple[list[Path], dict]:
-    """下载 batch 内所有 .dxf 文件到 work_dir。
-
-    Returns (local_paths, stats_dict) where stats_dict has keys:
-        dxf_count, downloaded, total_bytes, errors
-    """
-    dxf_files = list(
-        db.scalars(
-            select(StoredFile).where(
-                StoredFile.batch_name == batch_name,
-                StoredFile.file_ext == ".dxf",
-                StoredFile.status != "deleted",
-            )
-        ).all()
-    )
-
-    stats: dict = {
-        "dxf_count": len(dxf_files),
-        "downloaded": 0,
-        "total_bytes": 0,
-        "errors": [],
-    }
-
-    if not dxf_files:
-        return [], stats
-
-    storage = get_storage_backend()
-    local_paths: list[Path] = []
-
-    for sfile in dxf_files:
-        try:
-            local = storage.local_path(sfile.bucket, sfile.storage_key)
-            if local is not None:
-                # local backend: 直接使用路径（零拷贝）
-                if not local.exists() or not local.is_file():
-                    raise StorageObjectNotFound(f"{sfile.bucket}/{sfile.storage_key}")
-                # 复制到 work_dir 以统一路径管理（process_all 不改源文件）
-                dest = work_dir / sanitize_filename(sfile.original_name)
-                dest.write_bytes(local.read_bytes())
-            else:
-                # minio backend: 流式下载
-                dest = work_dir / sanitize_filename(sfile.original_name)
-                with dest.open("wb") as out:
-                    for chunk in storage.iter_file(sfile.bucket, sfile.storage_key):
-                        out.write(chunk)
-            local_paths.append(dest)
-            stats["downloaded"] += 1
-            stats["total_bytes"] += dest.stat().st_size
-        except Exception as exc:
-            logger.warning(
-                "Failed to stage DXF %s (file_id=%s): %s",
-                sfile.original_name,
-                sfile.id,
-                exc,
-            )
-            stats["errors"].append(
-                {"file_id": sfile.id, "original_name": sfile.original_name, "error": str(exc)}
-            )
-
-    return local_paths, stats
 
 
 def run_dxf2excel_extraction(
@@ -309,7 +191,7 @@ def run_dxf2excel_extraction(
 
             # ---- 3. 逐文件运行 dxf2excel pipeline（实时进度） ----
             pipeline_started = datetime.now(UTC)
-            output_path = work_dir / f"{sanitize_filename(batch_name)}.xlsx"
+            output_path = work_dir / f"{batch_workbook_stem(batch_name)}.xlsx"
 
             try:
                 from dxf2excel.excel_writer import write_excel
@@ -367,15 +249,15 @@ def run_dxf2excel_extraction(
                 # Per-file progress: 30 → 70 mapped across all files
                 file_progress = 30 + int(40 * (i + 1) / total_files)
                 progress_event = make_event(
-                        type_="progress",
-                        progress=file_progress,
-                        step_name=STEP_RUN_DXF2EXCEL,
-                        status=JOB_RUNNING,
-                        message=f"提取中: {i + 1}/{total_files} — {fp.name}",
-                        file_index=i + 1,
-                        total_files=total_files,
-                        current_file=fp.name,
-                    )
+                    type_="progress",
+                    progress=file_progress,
+                    step_name=STEP_RUN_DXF2EXCEL,
+                    status=JOB_RUNNING,
+                    message=f"提取中: {i + 1}/{total_files} — {fp.name}",
+                    file_index=i + 1,
+                    total_files=total_files,
+                    current_file=fp.name,
+                )
                 # Commit to MySQL every N files so polling sees intermediate values
                 if (i + 1) % _COMMIT_EVERY_N == 0 or i + 1 == total_files:
                     job = commit_job_progress(
@@ -451,92 +333,15 @@ def run_dxf2excel_extraction(
             if job is None:
                 return
 
-            # ---- 4. 持久化 Excel ----
-            persist_started = datetime.now(UTC)
-            if not output_path.is_file():
-                _mark_job_failed(
-                    db,
-                    job_id,
-                    attempt,
-                    AppError("Excel 输出文件未生成"),
-                    error_code=ERROR_CODE_DXF2EXCEL_NO_OUTPUT,
-                )
-                return
-
-            excel_bytes = output_path.read_bytes()
-            storage_key = f"jobs/{job.id}/{uuid4().hex}{_EXCEL_EXT}"
-            output_basename = sanitize_filename(batch_name)
-
-            excel_file = save_bytes_as_file(
+            if not persist_excel_extraction_result(
                 db,
-                bucket=settings.minio_bucket_reports,
-                storage_key=storage_key,
-                original_name=f"{output_basename}{_EXCEL_EXT}",
-                file_ext=_EXCEL_EXT,
-                content_type=_EXCEL_CONTENT_TYPE,
-                payload=excel_bytes,
-                uploaded_by=job.created_by,
-            )
-
-            result_payload = {
-                "source": "dxf2excel",
-                "job_id": job.id,
-                "task_type": TASK_DXF_TO_EXCEL,
-                "batch_name": batch_name,
-                **pipeline_stats,
-                "excel_file_id": excel_file.id,
-            }
-            analysis = AnalysisResult(
-                job_id=job.id,
-                drawing_id=job.drawing_id,
-                result_type=TASK_DXF_TO_EXCEL,
-                result_json=result_payload,
-                confidence=Decimal("1.0000"),
-                result_file_id=excel_file.id,
-                algorithm_version=_ALGO_VERSION,
-                tool_version="dxf2excel",
-                status="succeeded",
-            )
-            db.add(analysis)
-            db.flush()  # 让 analysis.id 可用
-
-            _add_step(
-                db,
-                job_id,
-                attempt,
-                STEP_PERSIST_EXCEL,
-                worker_name,
-                "succeeded",
-                input_json={"excel_size": len(excel_bytes)},
-                output_json={
-                    "excel_file_id": excel_file.id,
-                    "analysis_result_id": analysis.id,
-                    "tables_found": pipeline_stats["tables_found"],
-                    "data_rows": pipeline_stats["data_rows"],
-                    "warnings_count": pipeline_stats["warnings_count"],
-                },
-                started_at=persist_started,
-            )
-            completed_job = complete_job_attempt(
-                db,
-                job_id,
+                job_id=job_id,
                 attempt=attempt,
-                event=make_event(
-                    type_="done",
-                    status=JOB_SUCCEEDED,
-                    progress=100,
-                    step_name=STEP_PERSIST_EXCEL,
-                    message=f"Excel 已生成: {pipeline_stats['tables_found']} 张表, "
-                    f"{pipeline_stats['data_rows']} 行数据, "
-                    f"{pipeline_stats['warnings_count']} 个警告",
-                    excel_file_id=excel_file.id,
-                    excel_name=f"{output_basename}{_EXCEL_EXT}",
-                    tables_found=pipeline_stats["tables_found"],
-                    data_rows=pipeline_stats["data_rows"],
-                    warnings_count=pipeline_stats["warnings_count"],
-                ),
-            )
-            if completed_job is None:
+                batch_name=batch_name,
+                output_path=output_path,
+                pipeline_stats=pipeline_stats,
+                worker_name=worker_name,
+            ):
                 return
 
     except Exception as exc:
@@ -552,7 +357,3 @@ def run_dxf2excel_extraction(
         logger.exception("DXF2Excel extraction failed for job %s", job_id)
     finally:
         db.close()
-
-
-class AppError(Exception):
-    """dxf2excel_service 内部业务错误（消息友好，不带 traceback 泄露）。"""

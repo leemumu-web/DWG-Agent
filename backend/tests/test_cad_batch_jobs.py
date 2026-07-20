@@ -187,9 +187,7 @@ def test_conversion_events_stream_returns_ordered_terminal_snapshot():
     data_line = next(line for line in response.text.splitlines() if line.startswith("data: "))
     payload = json.loads(data_line.removeprefix("data: "))
     assert payload["type"] == "snapshot"
-    assert [job["params_json"]["file_id"] for job in payload["jobs"]] == list(
-        reversed(file_ids)
-    )
+    assert [job["params_json"]["file_id"] for job in payload["jobs"]] == list(reversed(file_ids))
     assert [job["status"] for job in payload["jobs"]] == ["cancelled", "cancelled"]
 
 
@@ -247,7 +245,7 @@ def test_list_jobs_latest_per_file_omits_superseded_attempt_rows():
 def test_oda_batch_group_uses_bounded_parallel_shards(tmp_path, monkeypatch):
     from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
 
-    from app.services import cad_batch_service
+    from app.modules.cad_processing import batching as cad_batch_service
 
     input_dir = tmp_path / "input"
     input_dir.mkdir()
@@ -285,12 +283,10 @@ def test_oda_batch_group_uses_bounded_parallel_shards(tmp_path, monkeypatch):
     assert len(results) == len(files)
 
 
-def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
-    db, monkeypatch
-):
+def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(db, monkeypatch):
     from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
 
-    from app.services import cad_batch_service
+    from app.modules.cad_processing.dwg_to_dxf import batch as cad_batch_service
 
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -350,19 +346,15 @@ def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
         current = client.get(f"/api/v1/jobs/{job['id']}", headers=headers).json()["data"]
         assert current["status"] == "succeeded"
         assert current["progress"] == 100
-        results = client.get(
-            f"/api/v1/jobs/{job['id']}/results", headers=headers
-        ).json()["data"]
+        results = client.get(f"/api/v1/jobs/{job['id']}/results", headers=headers).json()["data"]
         assert len(results) == 1
         assert results[0]["result_type"] == "convert_dwg_to_dxf"
 
 
-def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
-    db, monkeypatch
-):
+def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(db, monkeypatch):
     from dxf_converter.engines.oda_converter import BatchResult, ConvertResult
 
-    from app.services import cad_batch_service
+    from app.modules.cad_processing.dxf_to_dwg import batch as cad_batch_service
 
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -419,9 +411,7 @@ def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
         current = client.get(f"/api/v1/jobs/{job['id']}", headers=headers).json()["data"]
         assert current["status"] == "succeeded"
         assert current["progress"] == 100
-        results = client.get(
-            f"/api/v1/jobs/{job['id']}/results", headers=headers
-        ).json()["data"]
+        results = client.get(f"/api/v1/jobs/{job['id']}/results", headers=headers).json()["data"]
         assert len(results) == 1
         assert results[0]["result_type"] == "convert_dxf_to_dwg"
 
@@ -429,7 +419,7 @@ def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
 def test_dwg_batch_missing_result_fails_only_the_unmatched_job(db, monkeypatch):
     from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
 
-    from app.services import cad_batch_service
+    from app.modules.cad_processing.dwg_to_dxf import batch as cad_batch_service
 
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -455,9 +445,7 @@ def test_dwg_batch_missing_result_fails_only_the_unmatched_job(db, monkeypatch):
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / f"{first.stem}.dxf"
         target.write_text("  0\nEOF\n", encoding="ascii")
-        return BatchResult(
-            [ConvertResult(source=first, target=target, success=True, returncode=0)]
-        )
+        return BatchResult([ConvertResult(source=first, target=target, success=True, returncode=0)])
 
     monkeypatch.setattr("dwg_converter.convert_directory", fake_partial_batch)
     summary = cad_batch_service.run_dwg_to_dxf_batch(

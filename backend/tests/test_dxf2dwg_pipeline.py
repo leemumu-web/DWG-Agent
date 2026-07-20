@@ -73,13 +73,17 @@ def _admin_headers(client: TestClient) -> dict[str, str]:
 
 def _create_project(client: TestClient, headers: dict, code: str) -> int:
     resp = client.post(
-        "/api/v1/projects", headers=headers, json={"code": code, "name": code},
+        "/api/v1/projects",
+        headers=headers,
+        json={"code": code, "name": code},
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["data"]["id"]
 
 
-def _upload_dxf(client: TestClient, headers: dict, name: str = "test.dxf", content: bytes | None = None) -> int:
+def _upload_dxf(
+    client: TestClient, headers: dict, name: str = "test.dxf", content: bytes | None = None
+) -> int:
     """上传一个 DXF 文件，返回 file_id。
 
     DXF 是文本格式，可直接造一个最小合法 DXF（含 $ACADVER 头）。
@@ -106,7 +110,9 @@ def _minimal_dxf(acadver: str = "AC1015") -> bytes:
     ).encode()
 
 
-def _create_dxf2dwg_job(client: TestClient, headers: dict, project_id: int, file_id: int) -> tuple[int, dict]:
+def _create_dxf2dwg_job(
+    client: TestClient, headers: dict, project_id: int, file_id: int
+) -> tuple[int, dict]:
     resp = client.post(
         "/api/v1/jobs",
         headers=headers,
@@ -173,13 +179,13 @@ def test_run_dxf2dwg_conversion_success():
     fid = _upload_dxf(client, headers)
 
     fake = _make_fake_convert_result(success=True)
-    from app.services import dxf2dwg_service
+    from app.modules.cad_processing.dxf_to_dwg import persistence as dxf2dwg_persistence
 
     with (
         patch("dxf_converter.convert_file", return_value=fake) as mock_conv,
         patch(
-            "app.services.dxf2dwg_service.save_bytes_as_file",
-            wraps=dxf2dwg_service.save_bytes_as_file,
+            "app.modules.cad_processing.dxf_to_dwg.persistence.save_bytes_as_file",
+            wraps=dxf2dwg_persistence.save_bytes_as_file,
         ) as save_result,
     ):
         job_id, _ = _create_dxf2dwg_job(client, headers, pid, fid)
@@ -213,7 +219,9 @@ def test_run_dxf2dwg_conversion_success():
 # ── version resolution priority ────────────────────────────────────────────────
 
 
-def _seed_dwg_to_dxf_analysis_result(client: TestClient, headers: dict, dxf_file_id: int, tool_version: str) -> None:
+def _seed_dwg_to_dxf_analysis_result(
+    client: TestClient, headers: dict, dxf_file_id: int, tool_version: str
+) -> None:
     """模拟 DWG→DXF 管线产物：在测试 DB 里插入一条 AnalysisResult，
     result_file_id 指向给定 DXF 文件，tool_version 记录原始 DWG 版本。
 
@@ -221,17 +229,21 @@ def _seed_dwg_to_dxf_analysis_result(client: TestClient, headers: dict, dxf_file
     job（mock ODA 成功）拿到 job_id，再插入 AnalysisResult 关联它。
     """
     from unittest.mock import MagicMock
+
     # 上传一个 DWG 文件用于创建 DWG→DXF job
     dwg_bytes = b"AC1027\x00" + b"\x00" * 1024
     resp = client.post(
-        "/api/v1/files", headers=headers,
+        "/api/v1/files",
+        headers=headers,
         files={"upload": ("seed.dwg", dwg_bytes, "application/acad")},
     )
     assert resp.status_code == 201
     dwg_file_id = resp.json()["data"]["id"]
 
     resp = client.post(
-        "/api/v1/projects", headers=headers, json={"code": "SEED", "name": "SEED"},
+        "/api/v1/projects",
+        headers=headers,
+        json={"code": "SEED", "name": "SEED"},
     )
     seed_pid = resp.json()["data"]["id"]
 
@@ -247,7 +259,8 @@ def _seed_dwg_to_dxf_analysis_result(client: TestClient, headers: dict, dxf_file
 
     with patch("dwg_converter.convert_file", return_value=fake):
         resp = client.post(
-            "/api/v1/jobs", headers=headers,
+            "/api/v1/jobs",
+            headers=headers,
             json={
                 "project_id": seed_pid,
                 "task_type": TASK_DWG_TO_DXF,
@@ -259,21 +272,23 @@ def _seed_dwg_to_dxf_analysis_result(client: TestClient, headers: dict, dxf_file
 
     from decimal import Decimal
 
-    import app.services.dxf2dwg_service as dxf2dwg_svc
+    import app.modules.cad_processing.dxf_to_dwg.execution as dxf2dwg_svc
     from app.modules.jobs.interface import AnalysisResult
 
     db = dxf2dwg_svc.SessionLocal()
     try:
-        db.add(AnalysisResult(
-            job_id=seed_job_id,
-            result_type=TASK_DWG_TO_DXF,
-            result_json={"source": "test"},
-            confidence=Decimal("1.0000"),
-            result_file_id=dxf_file_id,
-            algorithm_version="oda-file-converter",
-            tool_version=tool_version,
-            status="succeeded",
-        ))
+        db.add(
+            AnalysisResult(
+                job_id=seed_job_id,
+                result_type=TASK_DWG_TO_DXF,
+                result_json={"source": "test"},
+                confidence=Decimal("1.0000"),
+                result_file_id=dxf_file_id,
+                algorithm_version="oda-file-converter",
+                tool_version=tool_version,
+                status="succeeded",
+            )
+        )
         db.commit()
     finally:
         db.close()
@@ -391,7 +406,7 @@ def test_run_dxf2dwg_conversion_source_missing():
 
     # 先上传一个 DXF 拿到合法 file_id，再把它从 storage 删掉模拟缺失
     fid = _upload_dxf(client, headers)
-    import app.services.dxf2dwg_service as dxf2dwg_svc
+    import app.modules.cad_processing.dxf_to_dwg.execution as dxf2dwg_svc
     from app.modules.files.interface import StoredFile, get_storage_backend
 
     db = dxf2dwg_svc.SessionLocal()

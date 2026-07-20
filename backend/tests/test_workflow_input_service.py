@@ -249,18 +249,12 @@ def _registered_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")
     return user, project, workflow, batch, storage
 
 
-def test_conversion_jobs_are_project_bound_idempotent_and_retryable(
-    db, tmp_path, monkeypatch
-):
+def test_conversion_jobs_are_project_bound_idempotent_and_retryable(db, tmp_path, monkeypatch):
     user, project, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
     monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
 
-    first = workflow_input_service.prepare_input_conversions(
-        db, batch, created_by=user.id
-    )
-    replay = workflow_input_service.prepare_input_conversions(
-        db, batch, created_by=user.id
-    )
+    first = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    replay = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
 
     assert len(first.jobs) == 2
     assert first.dispatch == [(job.id, 1) for job in first.jobs]
@@ -272,9 +266,7 @@ def test_conversion_jobs_are_project_bound_idempotent_and_retryable(
 
     first.jobs[0].status = "failed"
     db.flush()
-    retried = workflow_input_service.prepare_input_conversions(
-        db, batch, created_by=user.id
-    )
+    retried = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
 
     assert retried.jobs[0].attempt == 2
     assert retried.jobs[0].status == "queued"
@@ -313,7 +305,7 @@ def test_batch_dispatch_failure_marks_queued_attempt_retryable(db, monkeypatch):
         raise RuntimeError("broker unavailable")
 
     monkeypatch.setattr(
-        "app.workers.tasks_dxf.convert_dwg_to_dxf_batch_task.delay",
+        "app.modules.cad_processing.tasks.convert_dwg_to_dxf_batch_task.delay",
         fail_dispatch,
     )
     with pytest.raises(AppHTTPException) as error:
@@ -367,9 +359,7 @@ def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
         db, tmp_path, monkeypatch, dwg_names=("source.dwg",)
     )
     monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
-    job = workflow_input_service.prepare_input_conversions(
-        db, batch, created_by=user.id
-    ).jobs[0]
+    job = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id).jobs[0]
     derived = _stored_object(db, storage, "other.dxf", b"0\nEOF\n")
     db.add(
         AnalysisResult(
@@ -466,12 +456,8 @@ def test_freeze_rejects_duplicate_normalized_dwg_names(db, tmp_path, monkeypatch
     assert db.query(Drawing).count() == 0
 
 
-def test_source_intake_cannot_be_manually_completed_before_batch_freeze(
-    db, tmp_path, monkeypatch
-):
-    _, _, workflow, batch, _ = _registered_batch(
-        db, tmp_path, monkeypatch, dwg_names=("A.dwg",)
-    )
+def test_source_intake_cannot_be_manually_completed_before_batch_freeze(db, tmp_path, monkeypatch):
+    _, _, workflow, batch, _ = _registered_batch(db, tmp_path, monkeypatch, dwg_names=("A.dwg",))
     workflow_service.start_workflow(db, workflow)
     source = next(item for item in batch.items if item.role == "source_dwg")
     workflow_service.attach_artifact(

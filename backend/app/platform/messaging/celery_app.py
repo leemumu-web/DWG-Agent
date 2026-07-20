@@ -62,10 +62,8 @@ celery_app = Celery(
     include=[
         "app.workers.tasks_agent",
         "app.workers.tasks_cad",
-        "app.workers.tasks_dxf",
-        "app.workers.tasks_dxf2dwg",
-        "app.workers.tasks_dxf2excel",
-        "app.workers.tasks_dxf_classification",
+        "app.modules.cad_processing.tasks",
+        "app.modules.dxf_classification.tasks",
         "app.workers.tasks_excel_final",
         "app.workers.tasks_report",
     ],

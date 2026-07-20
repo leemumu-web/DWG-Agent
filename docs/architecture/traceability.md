@@ -9,9 +9,9 @@
 | `U1-U3` 创建批次、上传、格式检查 | `workflows` + `files` | implemented | `modules/files/{routes/uploads,registration,validation}.py`、`workflow_inputs_api.py`、输入服务测试 |
 | `U4-U9` 上传完整性、规范化、DWG/Excel 配对 | `workflows` | implemented | `workflow_input_service.py`、`test_workflow_input_*` |
 | `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | workflow input freeze、Drawing 服务、生产流程测试 |
-| 服务器 DWG→DXF | `cad_processing` | partial | `tasks_dxf.py`、`Stages/dwg2dxf`；默认 flag 与 ODA 依赖仍需部署验收 |
-| `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | 分类 task/service、两张账本、Classifier 1.1.0 I/O 契约 |
-| `E1-E4` Excel 处理 | `excel_processing` | partial | DXF→Excel 与 Excel Final 已有实现；真实 schema/手册库仍是依赖 |
+| 服务器 DWG→DXF、DXF→DWG、DXF 材料表提取 | `cad_processing` | partial | `modules/cad_processing/` 按方向拆分版本策略、批处理、登记和执行；三个独立 Stage 保持原路径，ODA 与真实样本仍需部署验收 |
+| `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.1.0 契约，`persistence.py` 登记两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
+| `E1-E4` Excel Final 处理 | `excel_processing` | partial | Excel Final 已有实现；真实 schema/手册库仍是依赖。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
 | 图纸拆板与设计屏障 | `workflows` | placeholder | 阶段、输入输出、交接 artifact 和 `WORKFLOW_STAGE_NOT_IMPLEMENTED` |
 | CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
 | `AGENT/RUNNER/ADAPTER/SINOCAM` | `windows_execution` | external | draft control-plane contract；认证、租约、fencing、Runner 未实现 |
@@ -62,7 +62,7 @@
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
 | SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 16 个模型模块和 36 张表；files 与 jobs 各自的四张表分别共用一个聚合模型模块。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
-| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 10 个 task module 并注册 jobs stale-recovery callback；11 个 `app.workers.tasks_*` 公共名不变。 |
+| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 8 个 task module 并注册 jobs stale-recovery callback；11 个 `app.workers.tasks_*` 公共名不变。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
 | Local/MinIO 字节接口 | `app/platform/storage/` | adapter、安全路径、选择缓存和健康检查；不导入 ORM 或文件业务。 |
 
@@ -74,4 +74,6 @@
 | `/projects`、`/drawings` | `app/modules/projects/` | 其他模块只导入 `projects.interface`；拥有四张项目/图纸表。 |
 | `/files` | `app/modules/files/` | 其他模块只导入 `files.interface`；拥有文件、传输和扫描四张表，与 platform byte adapter 解耦。 |
 | `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Step/Result/Review 四张表，attempt 状态机与 Celery transport 解耦。 |
+| CAD 转换、预览解释与 DXF 材料表 | `app/modules/cad_processing/` | 无自有表和 HTTP 前缀；`files`/`jobs` 只经 `cad_processing.interface` 调用，Stage 代码保持独立产品。 |
+| Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.1.0 CLI 和输出命名由 adapter 校验。 |
 | 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |

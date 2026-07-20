@@ -1,8 +1,10 @@
+"""Celery entry point for Steel DXF Classifier 1.1.0."""
+
 from __future__ import annotations
 
+from app.modules.dxf_classification.execution import run_dxf_classification
 from app.modules.jobs.interface import summarize_job_execution
 from app.platform.messaging.celery_app import celery_app
-from app.services.dxf_classification_service import run_dxf_classification
 
 
 @celery_app.task(name="app.workers.tasks_dxf_classification.classify_steel_dxf", bind=True)

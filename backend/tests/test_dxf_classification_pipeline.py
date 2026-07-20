@@ -10,15 +10,16 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.modules.dxf_classification import execution as dxf_classification_service
+from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.files.interface import StoredFile, get_storage_backend
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
 from app.modules.projects.interface import Project, ProjectMember
 from app.schemas.workflow_schema import WorkflowCreate
-from app.services import dxf_classification_service, workflow_service
+from app.services import workflow_service
 
 
 def _frozen_classification_job(db, tmp_path: Path):
@@ -140,21 +141,28 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
                 "output_directories": [route],
                 "elapsed_seconds": 0.01,
             },
-            "results": [{
-                "source_name": renamed.name,
-                "disposition": "classified",
-                "part_type": "BH",
-                "diagnostics": [],
-                "candidates": [],
-                "source_metadata": {},
-                "output_directory": route,
-            }],
+            "results": [
+                {
+                    "source_name": renamed.name,
+                    "disposition": "classified",
+                    "part_type": "BH",
+                    "diagnostics": [],
+                    "candidates": [],
+                    "source_metadata": {},
+                    "output_directory": route,
+                }
+            ],
         }
         report_path = input_directory.parent / f"{project_name}_分类报告.json"
         report_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
         manifest_path = input_directory.parent / f"{project_name}_分类清单.csv"
         manifest_path.write_text("文件名,处置\nA001_拆板前.dxf,classified\n", encoding="utf-8")
-        return {"schema": "STEEL-DXF-CLI-1.1", "status": "completed", "exit_code": 0, "summary": report["summary"]}
+        return {
+            "schema": "STEEL-DXF-CLI-1.1",
+            "status": "completed",
+            "exit_code": 0,
+            "summary": report["summary"],
+        }
 
     monkeypatch.setattr(dxf_classification_service, "_invoke_classifier", fake_cli)
     dxf_classification_service.run_dxf_classification(job_id, worker_name="test-classifier")
@@ -288,7 +296,5 @@ def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatc
     assert second_data["job"]["id"] == first_data["job"]["id"]
     assert second_data["reused"] is True
     assert dispatched == [(first_data["job"]["id"], 1)]
-    empty = client.get(
-        f"/api/v1/workflows/{workflow.id}/dxf-classification", headers=headers
-    )
+    empty = client.get(f"/api/v1/workflows/{workflow.id}/dxf-classification", headers=headers)
     assert empty.status_code == 200 and empty.json()["data"] is None
