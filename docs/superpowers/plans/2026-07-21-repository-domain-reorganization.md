@@ -20,7 +20,7 @@ OpenAPI operations:        135
 OpenAPI contract SHA-256:  ef35e9cbb2e613a0f0b37f6fdf87a5001375c88d518a0346ce8db2fea5e63019
 ORM model tables:          36
 Alembic revisions:         17, single head e2f4b8c6a130
-Celery public task names:  10 app.workers.* names
+Celery public task names:  11 app.workers.* names
 Backend collected tests:   at least 1010
 Frontend public routes:    unchanged
 Compose service names:     unchanged
@@ -169,6 +169,7 @@ git commit -m "docs: rebuild categorized project documentation"
 
 - Create: `docs/architecture/module-catalog.json`
 - Create: `docs/architecture/module-catalog.md`
+- Create: `docs/architecture/runtime-contract.json`
 - Create: `docs/architecture/traceability.md`
 - Create: `scripts/architecture/snapshot_contracts.py`
 - Create: `scripts/architecture/check_module_catalog.py`
@@ -178,7 +179,7 @@ git commit -m "docs: rebuild categorized project documentation"
 - Modify: `Makefile`
 - Modify: `scripts/README.md`
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 The snapshot test must assert exact HTTP, table and task sets, not only counts:
 
@@ -194,14 +195,14 @@ The catalog test must assert:
 ```python
 assert set(catalog["owned_tables"]) == set(Base.metadata.tables)
 assert len(all_owned_operations) == 135
-assert len(all_owned_tasks) == 10
+assert len(all_owned_tasks) == 11
 assert not duplicate_primary_owners
 assert not missing_paths
 ```
 
 Run the two tests and expect failure because scripts/catalog do not yet exist.
 
-- [ ] **Step 2: Implement deterministic snapshot generation**
+- [x] **Step 2: Implement deterministic snapshot generation**
 
 The script must emit sorted JSON containing:
 
@@ -218,7 +219,7 @@ The script must emit sorted JSON containing:
 
 Use JSON parsing for Compose only if a YAML parser is already available in the repo environment; otherwise extract services through `docker compose config --format json` in the command mode and keep the pure-Python test focused on application contracts.
 
-- [ ] **Step 3: Populate module ownership**
+- [x] **Step 3: Populate module ownership**
 
 Use these primary table owners:
 
@@ -240,7 +241,7 @@ cad_processing:    no owned table; owns task and Stage interfaces
 
 Every catalog entry also lists its architecture node IDs, current status (`implemented`, `partial`, `placeholder`, `external`), paths, HTTP prefixes, tasks, queues, Stage packages, tests and docs.
 
-- [ ] **Step 4: Add architecture gates to normal verification**
+- [x] **Step 4: Add architecture gates to normal verification**
 
 Add to `scripts/verify.sh quick` and Makefile:
 
@@ -250,7 +251,7 @@ backend/.venv/bin/python scripts/architecture/check_module_catalog.py
 
 Expose `make architecture-check` and document it.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 
@@ -447,7 +448,7 @@ def test_platform_never_imports_business_modules() -> None:
     assert violations == []
 ```
 
-Add registry tests asserting all 36 tables and 10 tasks are loaded from explicit registry imports.
+Add registry tests asserting all 36 tables and 11 tasks are loaded from explicit registry imports.
 
 - [ ] **Step 2: Move pure platform seams first**
 

@@ -1,0 +1,375 @@
+{
+  "schema_version": 1,
+  "runtime_contract": "docs/architecture/runtime-contract.json",
+  "source_diagrams": [
+    "/home/Creeken/Paper/CAD_research/结构图/总流程图.mmd",
+    "/home/Creeken/Paper/CAD_research/结构图/总节点图.mmd"
+  ],
+  "modules": [
+    {
+      "code": "identity",
+      "title": "身份、会话与权限",
+      "status": "implemented",
+      "architecture_nodes": ["API", "MYSQL", "WEB"],
+      "backend_paths": [
+        "backend/app/api/deps.py",
+        "backend/app/api/v1/auth_api.py",
+        "backend/app/api/v1/roles_api.py",
+        "backend/app/api/v1/users_api.py",
+        "backend/app/models/role.py",
+        "backend/app/models/token_blacklist.py",
+        "backend/app/models/user.py",
+        "backend/app/services/auth_service.py",
+        "backend/app/services/user_service.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/auth.api.ts",
+        "frontend/src/features/auth/LoginPage.tsx",
+        "frontend/src/features/users/UsersPage.tsx",
+        "frontend/src/stores/auth.store.ts"
+      ],
+      "tables": [
+        "sys_permissions",
+        "sys_role_permissions",
+        "sys_roles",
+        "sys_user_roles",
+        "sys_users",
+        "token_blacklist"
+      ],
+      "http_prefixes": [
+        "/api/v1/auth",
+        "/api/v1/permissions",
+        "/api/v1/roles",
+        "/api/v1/users"
+      ],
+      "celery_tasks": [],
+      "queues": [],
+      "stages": [],
+      "tests": ["backend/tests/test_adversarial_auth.py", "backend/tests/test_rbac_deep.py"],
+      "docs": ["docs/guides/security.md", "docs/reference/api.md"],
+      "notes": "FastAPI is the authorization boundary; UI guards are usability only."
+    },
+    {
+      "code": "projects",
+      "title": "项目、成员与图纸目录",
+      "status": "implemented",
+      "architecture_nodes": ["API", "MYSQL", "U11", "WEB"],
+      "backend_paths": [
+        "backend/app/api/v1/drawings_api.py",
+        "backend/app/api/v1/projects_api.py",
+        "backend/app/models/drawing.py",
+        "backend/app/models/project.py",
+        "backend/app/services/drawing_service.py",
+        "backend/app/services/project_service.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/drawings.api.ts",
+        "frontend/src/api/projects.api.ts",
+        "frontend/src/features/drawings/DrawingsPage.tsx",
+        "frontend/src/features/projects/ProjectsPage.tsx"
+      ],
+      "tables": ["drawing_versions", "drawings", "project_members", "projects"],
+      "http_prefixes": ["/api/v1/drawings", "/api/v1/projects"],
+      "celery_tasks": [],
+      "queues": [],
+      "stages": [],
+      "tests": ["backend/tests/test_service_layer.py", "backend/tests/test_sql_pagination.py"],
+      "docs": ["docs/architecture/overview.md", "docs/reference/database.md"],
+      "notes": "Project membership scopes drawing, file, Job and workflow access."
+    },
+    {
+      "code": "files",
+      "title": "文件登记、对象流转与预览",
+      "status": "implemented",
+      "architecture_nodes": ["MINIO", "MYSQL", "U10", "U2", "U3", "U6"],
+      "backend_paths": [
+        "backend/app/api/v1/files_api.py",
+        "backend/app/models/file.py",
+        "backend/app/models/file_transfer.py",
+        "backend/app/models/storage_scan.py",
+        "backend/app/services/dxf_preview_service.py",
+        "backend/app/services/file_service.py",
+        "backend/app/services/file_transfer_service.py",
+        "backend/app/services/storage_reconciliation_service.py",
+        "backend/app/services/storage_service.py",
+        "backend/app/storage"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/files.api.ts",
+        "frontend/src/components/DxfPreviewModal.tsx",
+        "frontend/src/components/FileUpload.tsx",
+        "frontend/src/components/ZipDownloadModal.tsx"
+      ],
+      "tables": ["file_transfers", "files", "storage_scan_findings", "storage_scan_runs"],
+      "http_prefixes": ["/api/v1/files"],
+      "celery_tasks": [],
+      "queues": [],
+      "stages": [],
+      "tests": ["backend/tests/test_file_service.py", "backend/tests/test_storage_consistency.py"],
+      "docs": ["docs/architecture/overview.md", "docs/guides/operations.md"],
+      "notes": "MySQL owns registry facts; Local or MinIO owns bytes; file_transfers records compensation."
+    },
+    {
+      "code": "jobs",
+      "title": "异步任务、结果与复核",
+      "status": "implemented",
+      "architecture_nodes": ["MYSQL", "POOL", "PROCCTRL", "SSE"],
+      "backend_paths": [
+        "backend/app/api/v1/jobs_api.py",
+        "backend/app/api/v1/results_api.py",
+        "backend/app/api/v1/reviews_api.py",
+        "backend/app/models/job.py",
+        "backend/app/models/result.py",
+        "backend/app/services/job_access.py",
+        "backend/app/services/job_events.py",
+        "backend/app/services/job_service.py",
+        "backend/app/services/review_service.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/jobs.api.ts",
+        "frontend/src/api/results.api.ts",
+        "frontend/src/api/reviews.api.ts",
+        "frontend/src/features/jobs/JobsPage.tsx",
+        "frontend/src/features/reviews/ReviewsPage.tsx"
+      ],
+      "tables": ["analysis_results", "job_steps", "jobs", "review_records"],
+      "http_prefixes": ["/api/v1/jobs", "/api/v1/results", "/api/v1/reviews"],
+      "celery_tasks": ["app.workers.tasks_report.run_stub_job"],
+      "queues": ["report"],
+      "stages": [],
+      "tests": ["backend/tests/test_job_attempts.py", "backend/tests/test_job_lifecycle.py"],
+      "docs": ["docs/architecture/overview.md", "docs/reference/api.md"],
+      "notes": "Job and JobStep are attempt-fenced execution facts; Celery result rows are not business results."
+    },
+    {
+      "code": "workflows",
+      "title": "生产批次与流程编排",
+      "status": "partial",
+      "architecture_nodes": ["PIPE", "U1", "U10", "U11", "U4", "U5", "U7", "U8", "U9"],
+      "backend_paths": [
+        "backend/app/api/v1/workflow_inputs_api.py",
+        "backend/app/api/v1/workflows_api.py",
+        "backend/app/models/workflow.py",
+        "backend/app/models/workflow_input.py",
+        "backend/app/services/workflow_input_service.py",
+        "backend/app/services/workflow_service.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/workflow-inputs.api.ts",
+        "frontend/src/api/workflows.api.ts",
+        "frontend/src/features/workflows/DxfClassificationPanel.tsx",
+        "frontend/src/features/workflows/ProductionInputPanel.tsx",
+        "frontend/src/features/workflows/WorkflowsPage.tsx"
+      ],
+      "tables": [
+        "workflow_artifacts",
+        "workflow_input_batches",
+        "workflow_input_items",
+        "workflow_runs",
+        "workflow_stage_runs"
+      ],
+      "http_prefixes": ["/api/v1/workflows"],
+      "celery_tasks": [],
+      "queues": [],
+      "stages": [],
+      "tests": ["backend/tests/test_workflow_framework.py", "backend/tests/test_workflow_production.py"],
+      "docs": ["docs/architecture/workflow.md", "docs/verification/current.md"],
+      "notes": "DWG plus one Excel intake, server DXF conversion, freeze and classification are wired; later production stages expose truthful placeholders."
+    },
+    {
+      "code": "cad_processing",
+      "title": "CAD 格式转换",
+      "status": "partial",
+      "architecture_nodes": ["Q_DXF", "TEKLA", "W_DXF"],
+      "backend_paths": [
+        "backend/app/services/cad_batch_service.py",
+        "backend/app/services/dxf2dwg_service.py",
+        "backend/app/services/dxf_service.py",
+        "backend/app/workers/tasks_dxf.py",
+        "backend/app/workers/tasks_dxf2dwg.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/components/ConversionPage.tsx",
+        "frontend/src/features/files/Dwg2DxfPage.tsx",
+        "frontend/src/features/files/Dxf2DwgPage.tsx"
+      ],
+      "tables": [],
+      "http_prefixes": [],
+      "celery_tasks": [
+        "app.workers.tasks_dxf.convert_dwg_to_dxf",
+        "app.workers.tasks_dxf.convert_dwg_to_dxf_batch",
+        "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg",
+        "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg_batch"
+      ],
+      "queues": ["dxf", "dxf2dwg"],
+      "stages": ["Stages/dwg2dxf", "Stages/dxf2dwg"],
+      "tests": ["backend/tests/test_cad_batch_jobs.py", "backend/tests/test_dxf_pipeline.py"],
+      "docs": ["Stages/dwg2dxf/README.md", "docs/architecture/workflow.md"],
+      "notes": "Task implementations exist behind flags and require ODA/runtime/sample validation."
+    },
+    {
+      "code": "dxf_classification",
+      "title": "Steel DXF 预处理与分类分流",
+      "status": "partial",
+      "architecture_nodes": ["D1", "D10", "D11", "D12", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "W_DXF"],
+      "backend_paths": [
+        "backend/app/models/dxf_classification.py",
+        "backend/app/schemas/dxf_classification_schema.py",
+        "backend/app/services/dxf_classification_service.py",
+        "backend/app/workers/tasks_dxf_classification.py"
+      ],
+      "frontend_paths": ["frontend/src/features/workflows/DxfClassificationPanel.tsx"],
+      "tables": ["dxf_classification_items", "dxf_classification_runs"],
+      "http_prefixes": [],
+      "celery_tasks": ["app.workers.tasks_dxf_classification.classify_steel_dxf"],
+      "queues": ["dxf_classification"],
+      "stages": ["Stages/steel_dxf_classifier_v1.1.0"],
+      "tests": ["backend/tests/test_dxf_classification_pipeline.py"],
+      "docs": ["Stages/steel_dxf_classifier_v1.1.0/docs/IO_CONTRACT.md", "docs/architecture/workflow.md"],
+      "notes": "Classifier 1.1.0 output names and source/output relations are registered in MySQL and object storage."
+    },
+    {
+      "code": "excel_processing",
+      "title": "DXF→Excel 与 Excel Final",
+      "status": "partial",
+      "architecture_nodes": ["E1", "E2", "E3", "E4", "Q_EXCEL", "W_EXCEL"],
+      "backend_paths": [
+        "backend/app/api/v1/excel_final_api.py",
+        "backend/app/integrations/excel_final.py",
+        "backend/app/integrations/excel_final_runner.py",
+        "backend/app/models/excel_final.py",
+        "backend/app/services/dxf2excel_service.py",
+        "backend/app/services/excel_final_service.py",
+        "backend/app/workers/tasks_dxf2excel.py",
+        "backend/app/workers/tasks_excel_final.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/excel-final.api.ts",
+        "frontend/src/features/files/Dxf2ExcelPage.tsx",
+        "frontend/src/features/files/ExcelFinalPage.tsx"
+      ],
+      "tables": ["excel_final_batches", "excel_final_components", "excel_final_parts"],
+      "http_prefixes": ["/api/v1/excel-final"],
+      "celery_tasks": [
+        "app.workers.tasks_dxf2excel.extract_dxf_to_excel",
+        "app.workers.tasks_excel_final.process_excel_final"
+      ],
+      "queues": ["dxf2excel", "excel_final"],
+      "stages": ["Stages/dxf2excel", "Stages/excel_final"],
+      "tests": ["backend/tests/test_dxf2excel_pipeline.py", "backend/tests/test_excel_final_import.py"],
+      "docs": ["Stages/excel_final/PROCESS.md", "docs/architecture/workflow.md"],
+      "notes": "Existing Stage implementations are wired behind flags; production input schema and external handbook data remain deployment dependencies."
+    },
+    {
+      "code": "operations",
+      "title": "审计、控制平面、归档与一致性",
+      "status": "partial",
+      "architecture_nodes": ["BACKUP", "MONITOR", "Q_MAINTAIN", "W_MAINTAIN"],
+      "backend_paths": [
+        "backend/app/api/v1/audit_logs_api.py",
+        "backend/app/api/v1/control_plane_api.py",
+        "backend/app/api/v1/data_admin_api.py",
+        "backend/app/api/v1/system_api.py",
+        "backend/app/models/audit_log.py",
+        "backend/app/models/control_plane.py",
+        "backend/app/models/daily_archive.py",
+        "backend/app/services/audit_service.py",
+        "backend/app/services/control_plane_service.py",
+        "backend/app/services/daily_archive_service.py",
+        "backend/app/services/infrastructure_service.py",
+        "backend/app/workers/tasks_maintenance.py",
+        "backend/app/workers/tasks_report.py"
+      ],
+      "frontend_paths": [
+        "frontend/src/api/control-plane.api.ts",
+        "frontend/src/api/data-admin.api.ts",
+        "frontend/src/features/admin/DailyArchivePanel.tsx",
+        "frontend/src/features/admin/InfrastructurePage.tsx"
+      ],
+      "tables": [
+        "audit_logs",
+        "control_plane_events",
+        "daily_archive_runs",
+        "platform_messages",
+        "worker_runtimes"
+      ],
+      "http_prefixes": [
+        "/api/v1/audit-logs",
+        "/api/v1/control-plane",
+        "/api/v1/data-admin",
+        "/api/v1/system",
+        "/health"
+      ],
+      "celery_tasks": [
+        "app.workers.tasks_maintenance.create_daily_archive",
+        "app.workers.tasks_maintenance.reconcile_stale_jobs",
+        "app.workers.tasks_report.scan_storage_consistency"
+      ],
+      "queues": ["maintenance", "report"],
+      "stages": [],
+      "tests": ["backend/tests/test_control_plane_api.py", "backend/tests/test_daily_archive.py"],
+      "docs": ["docs/guides/operations.md", "docs/verification/current.md"],
+      "notes": "Maintenance is explicitly requested; periodic scheduling, automated off-site backup and full observability remain absent."
+    },
+    {
+      "code": "automation",
+      "title": "Agent 自动化契约",
+      "status": "placeholder",
+      "architecture_nodes": ["API", "MYSQL"],
+      "backend_paths": [
+        "backend/app/agents",
+        "backend/app/api/v1/agent_runs_api.py",
+        "backend/app/models/agent_memory.py",
+        "backend/app/models/agent_run.py",
+        "backend/app/services/agent_memory.py",
+        "backend/app/services/agent_service.py",
+        "backend/app/workers/tasks_agent.py"
+      ],
+      "frontend_paths": ["frontend/src/api/agent-runs.api.ts"],
+      "tables": ["agent_memory", "agent_run_steps", "agent_runs"],
+      "http_prefixes": ["/api/v1/agent-runs", "/api/v1/agent-tools"],
+      "celery_tasks": [],
+      "queues": ["agent"],
+      "stages": [],
+      "tests": ["backend/tests/test_agent_memory.py"],
+      "docs": ["agents/report-agent/README.md", "docs/architecture/implementation-status.md"],
+      "notes": "Models and read contracts exist; no public Celery task or model/MCP execution is delivered."
+    },
+    {
+      "code": "messaging_target",
+      "title": "RabbitMQ、Outbox 与周期调度目标",
+      "status": "placeholder",
+      "architecture_nodes": ["BEAT", "OUTBOX", "RABBIT", "SCHEDULER"],
+      "backend_paths": ["backend/app/workers/celery_app.py", "compose.yaml"],
+      "frontend_paths": ["frontend/src/features/admin/InfrastructurePage.tsx"],
+      "tables": [],
+      "http_prefixes": [],
+      "celery_tasks": [],
+      "queues": [],
+      "stages": [],
+      "tests": ["backend/tests/test_celery_minio_deployment.py"],
+      "docs": ["docs/architecture/implementation-status.md", "docs/guides/deployment.md"],
+      "notes": "Current broker is MySQL SQLAlchemy transport; RabbitMQ, transactional Outbox and Beat are not deployed."
+    },
+    {
+      "code": "windows_execution",
+      "title": "Windows Node Agent 与 SinoCAM 执行面",
+      "status": "external",
+      "architecture_nodes": ["ADAPTER", "AGENT", "Q_CAM", "RUNNER", "SINOCAM", "W_CAM"],
+      "backend_paths": [
+        "backend/app/integrations/zwcad",
+        "backend/app/workers/tasks_cad.py",
+        "cad-worker/README.md"
+      ],
+      "frontend_paths": ["frontend/src/api/control-plane.api.ts"],
+      "tables": [],
+      "http_prefixes": [],
+      "celery_tasks": [],
+      "queues": ["cad"],
+      "stages": [],
+      "tests": ["backend/tests/test_control_plane_api.py"],
+      "docs": ["cad-worker/README.md", "docs/architecture/implementation-status.md"],
+      "notes": "Only a draft control-plane contract and compatibility symbols exist; authentication, leases, fencing and runners are unimplemented."
+    }
+  ]
+}

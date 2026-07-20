@@ -38,6 +38,8 @@ bash scripts/verify.sh full --allow-blocked
 
 `verify.sh quick` 执行 Shell 语法、ruff、聚焦后端/脚本回归、文档一致性和前端生产构建。`verify.sh full` 追加完整后端、Alembic、基础设施、Compose、四个 Stage、隔离 MySQL 迁移和 Playwright；DXF→Excel 源码随仓库分发，因此其内置测试是必过门禁。`--allow-blocked` 仅把明确依赖 sudo、Windows/ODA 或外部 Stage 环境的可选门禁记为 blocked；代码、测试、文档和构建失败仍返回非零。也可使用 `make verify-quick` 和 `make verify-full`。
 
+目录迁移前后必须运行 `make architecture-check`。它比较 `runtime-contract.json` 与当前 FastAPI、ORM、Celery、React router、Compose 和 Alembic，并验证 `module-catalog.json` 对 36 张表、135 个 HTTP operation 与 11 个任务名的唯一归属。只有有意修改外部契约并同步兼容性说明时才可执行快照脚本的 `--write`；普通重构不得用重写快照消除失败。
+
 ## 数据库与容器
 
 | 脚本 | 常用命令 | 说明 |

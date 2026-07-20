@@ -7,6 +7,8 @@
 ### Added
 
 - 按架构、参考、指南、验证四层重建项目文档，并建立领域化仓库重构设计与可回滚实施计划。
+- 增加运行契约快照、12 模块归属清单和结构图追溯矩阵；校正 Celery 稳定任务数为 11。
+- 恢复非破坏性的运行栈验证脚本，保持统一门禁的静态检查入口完整。
 - 面向技术人员的 v0.1 技术预览指南、全量审计报告和贡献指南。
 - 文档门禁动态校验根 README OpenAPI 数、数据库参考中的 Alembic head/表数和 DXF→Excel Stage 跟踪边界。
 - `make verify-quick`、`make verify-full` 与 full gate 的 DXF→Excel Stage 测试。

@@ -1,10 +1,14 @@
-.PHONY: verify-quick verify-full backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev docs-generate docs-check db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs docker-check docker-build docker-up docker-up-workers docker-status docker-smoke docker-down start-all start-dev status stop-all tree
+.PHONY: verify-quick verify-full architecture-check backend-install backend-init-db backend-dev backend-check frontend-install frontend-dev docs-generate docs-check db-start db-setup db-init db-migrate db-migration-test db-check db-status db-shell db-logs docker-check docker-build docker-up docker-up-workers docker-status docker-smoke docker-down start-all start-dev status stop-all tree
 
 verify-quick:
 	bash scripts/verify.sh quick
 
 verify-full:
 	bash scripts/verify.sh full
+
+architecture-check:
+	backend/.venv/bin/python scripts/architecture/snapshot_contracts.py --check
+	backend/.venv/bin/python scripts/architecture/check_module_catalog.py
 
 backend-install:
 	cd backend && uv sync --locked

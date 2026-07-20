@@ -24,7 +24,7 @@
 | HTTP 合同摘要 | `ef35e9cbb2e613a0f0b37f6fdf87a5001375c88d518a0346ce8db2fea5e63019` | 每批迁移一致 |
 | SQLAlchemy 模型表 | 36 | 表名、列、约束不因搬迁变化 |
 | Alembic revision | 17 个线性 revision，head `e2f4b8c6a130` | 历史文件与 revision ID 不改写 |
-| Celery 任务名 | 10 个 `app.workers.*` 名称 | 消息协议名称保持不变 |
+| Celery 任务名 | 11 个 `app.workers.*` 名称 | 消息协议名称保持不变 |
 | 后端测试收集 | 1010 | 不减少；允许新增 |
 | 后端基线 | 1001 passed、6 skipped、3 failed | 先修复 3 个纯文档删除失败，再以全绿为后续门禁 |
 | 前端路由 | 登录、仪表盘、项目、生产流程、四条文件管线、图纸、Job、复核、用户、角色、基础设施、审计、个人资料 | URL 与权限不变 |
@@ -358,7 +358,7 @@ docs/
 └── superpowers/{specs,plans}/
 ```
 
-`docs/architecture/module-catalog.json` 是机器可检查的事实源。每个条目至少包含：code、status、architecture_nodes、backend_paths、frontend_paths、tables、http_prefixes、celery_tasks、queues、stages、tests、docs。检查器验证路径存在、所有 36 个 ORM 表有唯一主要 owner、所有 135 个 operation 和 10 个 task 有 owner、未实现能力标记为 placeholder/external。
+`docs/architecture/module-catalog.json` 是机器可检查的事实源。每个条目至少包含：code、status、architecture_nodes、backend_paths、frontend_paths、tables、http_prefixes、celery_tasks、queues、stages、tests、docs。检查器验证路径存在、所有 36 个 ORM 表有唯一主要 owner、所有 135 个 operation 和 11 个 task 有 owner、未实现能力标记为 placeholder/external。
 
 ## 10. 兼容与迁移策略
 
@@ -381,7 +381,7 @@ docs/
 - 领域聚焦测试
 - OpenAPI 合同摘要一致
 - ORM 36 表集合一致
-- Celery 10 个显式任务名一致
+- Celery 11 个显式任务名一致
 - `alembic check`
 
 ### 每批前端移动
@@ -425,4 +425,3 @@ RabbitMQ、transactional outbox、单实例 Beat、租约/fencing token 完整�
 5. 文档链接、生成脚本、Makefile、Compose、Dockerfile和操作命令全部指向真实路径。
 6. 每个 module 的 interface、依赖、错误模式和验证入口可由 README 独立理解。
 7. Git 历史按可回滚批次提交并推送到远程 `main`。
-

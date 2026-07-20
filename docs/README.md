@@ -18,6 +18,8 @@
 | [平台技术规范](architecture/platform-specification.md) | 必须长期保持的产品、数据、安全和部署约束 |
 | [Linux 生产工作流](architecture/workflow.md) | 批次、阶段、输入输出、状态机和留白接口 |
 | [实现状态与差距](architecture/implementation-status.md) | 目标架构中哪些已经有代码和证据 |
+| [模块目录](architecture/module-catalog.md) | 每个表、HTTP、任务、Stage、前端和测试由谁负责 |
+| [架构追溯矩阵](architecture/traceability.md) | 结构图节点如何落到当前模块与真实状态 |
 | [领域重构设计](superpowers/specs/2026-07-21-repository-domain-reorganization-design.md) | 本轮仓库分类原则和目标目录 |
 | [领域重构计划](superpowers/plans/2026-07-21-repository-domain-reorganization.md) | 可回滚的实施顺序与验收门禁 |
 

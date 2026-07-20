@@ -11,9 +11,12 @@
 | 后端全量 | pass | `1004 passed, 6 skipped, 15 warnings in 120.40s` |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130` |
-| Celery 公共任务名 | pass | 10 个 `app.workers.*` 稳定任务名；本轮尚未移动实现 |
+| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名；本轮尚未移动实现 |
+| 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
+| 架构聚焦测试 | pass | `6 passed, 6 warnings`；当前后端收集 `1016 tests` |
+| 统一 quick 门禁 | pass | Shell、ruff、架构、211 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 
-此次基线只证明当前自动化后端与文档契约全绿，不等同于真实 MySQL、MinIO、ODA、RabbitMQ 或 Windows/SinoCAM 生产验收。当前 Celery 使用 MySQL SQLAlchemy transport；RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 仍是目标/留白能力。
+此次基线只证明当前自动化后端与文档契约全绿，不等同于真实 MySQL、MinIO、ODA、RabbitMQ 或 Windows/SinoCAM 生产验收。当前 Celery 使用 MySQL SQLAlchemy transport；RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 仍是目标/留白能力。人工初始盘点曾漏掉 `classify_steel_dxf`，机器 registry 确认稳定任务总数为 11，现已同步设计、计划和文档。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19

@@ -1,0 +1,43 @@
+# 架构追溯矩阵
+
+本矩阵把 `/home/Creeken/Paper/CAD_research/结构图/` 中的总流程节点映射到当前模块、代码和证据。完整逐文件清单由 [`module-catalog.json`](module-catalog.json) 维护。
+
+## Linux 主流程
+
+| 流程节点 | 模块 | 当前事实 | 主要代码/证据 |
+|---|---|---|---|
+| `U1-U3` 创建批次、上传、格式检查 | `workflows` + `files` | implemented | `workflow_inputs_api.py`、`file_service.py`、输入服务测试 |
+| `U4-U9` 上传完整性、规范化、DWG/Excel 配对 | `workflows` | implemented | `workflow_input_service.py`、`test_workflow_input_*` |
+| `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | workflow input freeze、Drawing 服务、生产流程测试 |
+| 服务器 DWG→DXF | `cad_processing` | partial | `tasks_dxf.py`、`Stages/dwg2dxf`；默认 flag 与 ODA 依赖仍需部署验收 |
+| `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | 分类 task/service、两张账本、Classifier 1.1.0 I/O 契约 |
+| `E1-E4` Excel 处理 | `excel_processing` | partial | DXF→Excel 与 Excel Final 已有实现；真实 schema/手册库仍是依赖 |
+| 图纸拆板与设计屏障 | `workflows` | placeholder | 阶段、输入输出、交接 artifact 和 `WORKFLOW_STAGE_NOT_IMPLEMENTED` |
+| CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
+| `AGENT/RUNNER/ADAPTER/SINOCAM` | `windows_execution` | external | draft control-plane contract；认证、租约、fencing、Runner 未实现 |
+| 结果接纳与交付归档 | `workflows` + `operations` | partial | 每日归档可用；SinoCAM 结果接纳与确定性交付清单未实现 |
+
+## 平台与基础设施
+
+| 架构节点 | 模块 | 当前事实 | 不得误报的目标差距 |
+|---|---|---|---|
+| `NGINX/API/WEB` | 多模块入口 | implemented | Compose 当前仅 HTTP，没有完成 TLS |
+| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 36 张模型表 |
+| `MINIO` | `files` | implemented in Compose | 本地开发可用 local；跨 MySQL/对象不存在单一 ACID 事务 |
+| `RABBIT` | `messaging_target` | placeholder | 当前 broker 是 MySQL SQLAlchemy transport |
+| `OUTBOX` | `messaging_target` | placeholder | 当前 commit 后投递有补偿，不是事务 Outbox |
+| `BEAT/SCHEDULER` | `messaging_target` | placeholder | maintenance 由 API 显式提交，不是周期任务 |
+| `Q_* / W_*` | CAD、Excel、operations | partial | worker ready 只证明连接，不证明 Stage/样本可用 |
+| `BACKUP/MONITOR` | `operations` | partial | 有手动工具和控制台；没有自动离机备份、指标告警或 RPO/RTO |
+
+## 数据事实归属
+
+- MySQL：身份、项目、文件登记、Job、Workflow、分类、Excel、运维与 Agent 账本。
+- Local/MinIO：原始 DWG、服务器生成 DXF、分类分流 DXF、Excel、报告和归档字节。
+- Celery broker/result：投递与短期运行数据；不替代 Job、AnalysisResult 或审计。
+- Stage：确定性文件处理，不拥有平台身份、项目权限或最终业务状态。
+- 前端：提高操作效率、展示结构化反馈和恢复动作，不拥有最终权限与状态机。
+
+## 变更追溯
+
+每个重构提交必须同时满足：运行契约快照不变、module catalog 路径有效、表/operation/task 唯一归属、受影响模块测试通过、文档路径同步。若目标能力仍留白，必须保留端点、schema、错误码和输入输出契约，而不是删除“不好归类”的占位边界。

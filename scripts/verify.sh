@@ -65,6 +65,9 @@ run_gate "Shell 语法" bash -c 'bash -n scripts/*.sh' \
 run_gate "Python 静态检查" bash -c \
     'cd backend && uv run ruff check app tests ../tests/run_full_verify.py' \
     -- "$PROJECT_ROOT"
+run_gate "架构契约与模块归属" bash -c \
+    'cd backend && uv run python ../scripts/architecture/snapshot_contracts.py --check && uv run python ../scripts/architecture/check_module_catalog.py' \
+    -- "$PROJECT_ROOT"
 run_gate "聚焦后端与脚本回归" bash -c \
     'cd backend && uv run pytest -q tests/test_scripts.py tests/test_forward_to_win11_script.py tests/test_compose.py tests/test_file_service.py tests/test_file_transfer_service.py tests/test_adversarial_files.py tests/test_frontend_contract.py' \
     -- "$PROJECT_ROOT"
