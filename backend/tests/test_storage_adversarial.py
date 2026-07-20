@@ -14,12 +14,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.file import StoredFile
+from app.modules.files.interface import StoredFile, save_bytes_as_file, save_upload_file
+from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
 from app.platform.storage.paths import ensure_within_root
-from app.services import storage_service
-from app.services.storage_service import save_bytes_as_file, save_upload_file
 
 # ── test doubles ──────────────────────────────────────────────────────────────
 
@@ -44,7 +43,7 @@ def _use_local_backend(monkeypatch, root: Path) -> LocalFileStorage:
     """Point the service layer's storage backend at a real temp-dir adapter."""
     storage = LocalFileStorage(root)
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
     return storage
 
@@ -237,7 +236,7 @@ def test_soft_delete_keeps_storage_object(db: Session, tmp_path: Path, monkeypat
 def test_deleted_file_is_not_downloadable(db: Session):
     """The download handler must reject a soft-deleted row with 404 before it
     ever reaches access checks or the storage backend."""
-    from app.api.v1 import files_api
+    from app.modules.files.routes import downloads as files_api
 
     stored = _make_stored(db, status="available")
     db.commit()
@@ -288,7 +287,7 @@ def test_empty_upload_is_rejected(db: Session, tmp_path: Path, monkeypatch):
 
 def test_oversized_upload_is_rejected(db: Session, tmp_path: Path, monkeypatch):
     _use_local_backend(monkeypatch, tmp_path / "storage")
-    monkeypatch.setattr(storage_service.settings, "max_upload_size_mb", 1)
+    monkeypatch.setattr(settings, "max_upload_size_mb", 1)
     # 1 MiB + 10 bytes — trips the > max check on the second read chunk.
     oversized = b"D" * (1024 * 1024 + 10)
     upload = FakeUpload("big.dxf", oversized, content_type="application/octet-stream")

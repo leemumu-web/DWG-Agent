@@ -7,8 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
+from app.modules.files.interface import FileTransfer, StoredFile
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError
 from app.platform.storage.local import LocalFileStorage
@@ -120,7 +119,7 @@ def test_preview_generation_registers_file_and_generated_transfer(
     payload = _dxf_bytes(block_lines=3)
     storage = LocalFileStorage(tmp_path / "storage")
     source = _source_file(db, storage, payload)
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
 
     result = service.get_or_create_dxf_preview(
         db,
@@ -156,7 +155,7 @@ def test_minio_style_cache_hit_uses_stat_not_local_path(
     payload = _dxf_bytes()
     storage = NoLocalPathStorage(tmp_path / "storage")
     source = _source_file(db, storage, payload)
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     first = service.get_or_create_dxf_preview(
         db,
         source,
@@ -190,7 +189,7 @@ def test_missing_cached_object_is_replaced_and_recorded(
     payload = _dxf_bytes()
     storage = LocalFileStorage(tmp_path / "storage")
     source = _source_file(db, storage, payload)
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     first = service.get_or_create_dxf_preview(
         db,
         source,
@@ -231,7 +230,7 @@ def test_preview_prepares_durable_transfer_before_render_and_source_lock(
     payload = _dxf_bytes()
     storage = LocalFileStorage(tmp_path / "storage")
     source = _source_file(db, storage, payload)
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     events: list[str] = []
     real_prepare = service.prepare_transfer_in_transaction
     real_render = service.render_inspected_dxf_to_svg
@@ -296,7 +295,7 @@ def test_preview_write_failure_keeps_durable_failed_transfer(
     payload = _dxf_bytes()
     storage = PreviewWriteFailureStorage(tmp_path / "storage")
     source = _source_file(db, storage, payload)
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
 
     with pytest.raises(AppHTTPException) as exc:
         service.get_or_create_dxf_preview(
@@ -322,7 +321,7 @@ def test_locked_cache_race_records_reuse_instead_of_zero_byte_generation(
     payload = _dxf_bytes()
     storage = LocalFileStorage(tmp_path / "storage")
     source = _source_file(db, storage, payload)
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     first = service.get_or_create_dxf_preview(
         db,
         source,

@@ -19,13 +19,11 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy import select
 
+from app.main import app
+from app.models.job import Job
+from app.modules.files.interface import FileTransfer, StoredFile, get_storage_backend
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
-from app.main import app
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
-from app.models.job import Job
-from app.services.storage_service import get_storage_backend
 
 
 def _auth(client: TestClient) -> dict[str, str]:

@@ -12,24 +12,17 @@ from urllib.parse import quote
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
-from app.modules.identity.interface import User
-from app.modules.projects.interface import (
-    Drawing,
-    DrawingVersion,
-    Project,
-    get_project_membership,
-    has_global_project_access,
-)
-from app.platform.config.settings import settings
-from app.platform.http.exceptions import AppHTTPException, forbidden
-from app.schemas.file_schema import (
+from app.modules.files.models import StoredFile
+from app.modules.files.schemas import (
     DownloadUrlRead,
     ZipAvailabilityPreview,
     ZipFormatAvailability,
 )
+from app.platform.config.settings import settings
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage import factory as storage_factory
 
 DOWNLOAD_URL_TTL_SECONDS = 300
 
@@ -263,7 +256,6 @@ def build_zip_to_path(
     Every requested source and format must be available. Storage read failures
     abort the whole export instead of returning a plausible but incomplete ZIP.
     """
-    from app.services.storage_service import get_storage_backend
 
     resolution = _resolve_zip_availability(db, file_ids, formats)
     requested_ids = resolution.requested_ids
@@ -304,7 +296,7 @@ def build_zip_to_path(
                 )
             )
 
-    storage = get_storage_backend()
+    storage = storage_factory.get_storage_backend()
     tmp = NamedTemporaryFile(suffix=".zip", delete=False)
     path = Path(tmp.name)
     tmp.close()
@@ -333,53 +325,3 @@ def build_zip_to_path(
         size_bytes=size_bytes,
         included_file_ids=requested_ids,
     )
-
-
-def file_project_ids(db: Session, file_id: int) -> set[int]:
-    drawing_project_ids = db.scalars(
-        select(Drawing.project_id)
-        .join(DrawingVersion, DrawingVersion.drawing_id == Drawing.id)
-        .join(Project, Project.id == Drawing.project_id)
-        .where(
-            DrawingVersion.file_id == file_id,
-            Drawing.status != "deleted",
-            Project.status != "deleted",
-        )
-    ).all()
-    result_project_ids = db.scalars(
-        select(Job.project_id)
-        .join(AnalysisResult, AnalysisResult.job_id == Job.id)
-        .join(Project, Project.id == Job.project_id)
-        .where(
-            AnalysisResult.result_file_id == file_id,
-            Job.project_id.is_not(None),
-            Project.status != "deleted",
-        )
-    ).all()
-    return {
-        project_id
-        for project_id in (*drawing_project_ids, *result_project_ids)
-        if project_id is not None
-    }
-
-
-def can_read_file(db: Session, current_user: User, stored: StoredFile) -> bool:
-    if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
-        return True
-    return any(
-        get_project_membership(db, current_user, project_id)
-        for project_id in file_project_ids(db, stored.id)
-    )
-
-
-def require_file_read_access(
-    db: Session, current_user: User, stored: StoredFile
-) -> None:
-    if not can_read_file(db, current_user, stored):
-        raise forbidden("File access is restricted.")
-
-
-def require_file_delete_access(current_user: User, stored: StoredFile) -> None:
-    if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
-        return
-    raise forbidden("Only the uploader or an administrator can delete this file.")

@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.daily_archive import DailyArchiveRun
-from app.models.file import StoredFile
+from app.modules.files.interface import StoredFile
 from app.platform.storage.base import StorageObjectNotFound
 from app.platform.storage.local import LocalFileStorage
 
@@ -35,7 +35,7 @@ def test_daily_archive_preview_freezes_business_day_snapshot(tmp_path, monkeypat
     from app.services.daily_archive_service import preview_daily_archive
 
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     inside = StoredFile(
         bucket="dwg-original",
         storage_key="uploads/inside.dwg",
@@ -93,7 +93,7 @@ def test_daily_archive_api_persists_zip_manifest_and_reuses_submission(
     db,
 ):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     uploaded = client.post(
@@ -166,7 +166,7 @@ def test_daily_archive_api_persists_zip_manifest_and_reuses_submission(
 
 def test_daily_archive_rejects_tampered_preview_token(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
 
@@ -192,7 +192,7 @@ def test_daily_archive_marks_run_failed_when_frozen_object_is_missing(
     )
 
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     init_db()
     source = StoredFile(
         bucket="dwg-original",

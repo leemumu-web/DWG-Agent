@@ -93,11 +93,13 @@ def test_minio_storage_backend_creates_bucket_and_streams_objects():
 
 
 def test_files_api_uses_storage_backend_instead_of_local_path_only():
-    content = (REPO_ROOT / "backend/app/api/v1/files_api.py").read_text()
+    content = (
+        REPO_ROOT / "backend/app/modules/files/routes/downloads.py"
+    ).read_text()
 
     assert "get_local_file_path" not in content
     assert "StreamingResponse" in content
-    assert "get_storage_backend" in content
+    assert "storage_factory.get_storage_backend" in content
 
 
 def test_result_download_url_is_signed_and_downloads_generated_file():

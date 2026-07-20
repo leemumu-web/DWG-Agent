@@ -9,20 +9,20 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
-from app.platform.http.exceptions import AppHTTPException
-from app.platform.storage.base import StorageError
-from app.platform.storage.local import LocalFileStorage
-from app.services.file_transfer_service import (
+from app.modules.files.interface import (
+    FileTransfer,
+    StoredFile,
     TransferSpec,
     begin_transfer,
     complete_transfer_in_transaction,
     mark_transfer_in_progress,
+    save_bytes_as_file,
     settle_stream,
     settle_transfer,
 )
-from app.services.storage_service import save_bytes_as_file
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import StorageError
+from app.platform.storage.local import LocalFileStorage
 
 _DWG = b"AC1027" + b"\x00" * 1018
 
@@ -145,7 +145,7 @@ def test_generated_file_automatically_records_internal_transfer(db, tmp_path, mo
     init_db()
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend",
+        "app.platform.storage.factory.get_storage_backend",
         lambda: storage,
     )
 
@@ -183,7 +183,7 @@ def test_excel_final_upload_automatically_records_inbound_transfer(
 ):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend",
+        "app.platform.storage.factory.get_storage_backend",
         lambda: storage,
     )
     monkeypatch.setattr(
@@ -250,7 +250,7 @@ def test_settle_transfer_persists_public_failure_without_secret(db):
 def test_upload_commits_file_transfer_with_metadata(db, tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -273,7 +273,7 @@ def test_upload_commits_file_transfer_with_metadata(db, tmp_path, monkeypatch):
 def test_upload_retry_with_same_idempotency_key_reuses_file(db, tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
     client = TestClient(app)
     headers = _admin_headers(client)
@@ -297,7 +297,7 @@ def _fail_stored_file_flush(session: Session, _flush_context, _instances) -> Non
 def test_upload_metadata_failure_compensates_object(db, tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
     client = TestClient(app, raise_server_exceptions=False)
     headers = _admin_headers(client)
@@ -326,7 +326,7 @@ def test_upload_compensation_failure_is_persisted(db, tmp_path, monkeypatch):
 
     storage = FailingDeleteStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
     client = TestClient(app, raise_server_exceptions=False)
     headers = _admin_headers(client)
@@ -448,9 +448,9 @@ def test_stream_closes_source_iterator_when_consumer_closes(db):
 def test_file_download_settles_outbound_transfer(db, tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
-    monkeypatch.setattr("app.api.v1.files_api.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     uploaded = _upload(client, headers, "download-source")
@@ -479,9 +479,9 @@ def test_file_download_settles_outbound_transfer(db, tmp_path, monkeypatch):
 def test_zip_download_settles_outbound_transfer(db, tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
-    monkeypatch.setattr("app.api.v1.files_api.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     uploaded = _upload(client, headers, "zip-source")
@@ -512,9 +512,9 @@ def test_zip_download_settles_outbound_transfer(db, tmp_path, monkeypatch):
 def test_zip_preview_reports_unavailable_converted_format(db, tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
-    monkeypatch.setattr("app.api.v1.files_api.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     uploaded = _upload(client, headers, "zip-preview-source")
@@ -553,9 +553,9 @@ def test_batch_zip_download_uses_strict_export_and_transfer_ledger(
 ):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend", lambda: storage
+        "app.platform.storage.factory.get_storage_backend", lambda: storage
     )
-    monkeypatch.setattr("app.api.v1.files_api.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app, raise_server_exceptions=False)
     headers = _admin_headers(client)
     uploaded = _upload(

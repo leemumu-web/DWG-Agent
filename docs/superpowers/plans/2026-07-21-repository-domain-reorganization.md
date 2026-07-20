@@ -582,11 +582,20 @@ git commit -m "refactor: group identity and project catalog domains"
 - Update imports, patches, registry, catalog and tests
 - Delete old files only after zero references
 
-- [ ] **Step 1: Add router order and interface tests**
+Implementation refinement after route, model and storage-call-graph audit:
+
+- The file domain owns four persistence facts: `files`, `file_transfers`, `storage_scan_runs` and `storage_scan_findings`.  Reconciliation execution/remediation remains in the legacy operations service until Task 12, and may consume those models only through `files.interface`.
+- `platform/storage/factory.py` owns backend selection, cache reset, health and local-path resolution.  It must not import ORM models or file-domain rules.
+- `validation.py` owns filename/path, MIME and DWG-header rules; `registration.py` owns upload/generated-byte/generated-path registration; `storage_transactions.py` owns the transfer ledger plus SQLAlchemy commit/rollback compensation hooks.
+- `exports.py` owns signed URLs, format pairing and ZIP creation; `lifecycle.py` owns file soft deletion and preview invalidation.  These explicit files prevent the old 846-line storage service from being recreated under a new name.
+- Routes are split into uploads, catalog, batches, previews and downloads.  Static catalog/download endpoints are registered before any `/{file_id}` route; all 17 existing method/path/function-name contracts remain fixed.
+- Other business modules import StoredFile, schemas, access, registration, transfer and storage-factory facades only through `files.interface`; tests may import private modules when validating their internal responsibility.
+
+- [x] **Step 1: Add router order and interface tests**
 
 Assert `/files/batches`, `/files/download-zip/preview` and `/files/{file_id}` resolve to their intended endpoints. Add tests for interface exports used by jobs/workflows/operations.
 
-- [ ] **Step 2: Split `files_api.py` by use case**
+- [x] **Step 2: Split `files_api.py` by use case**
 
 Maintain this include order:
 
@@ -602,11 +611,11 @@ router.include_router(downloads.item_router)
 
 Function names and operation IDs remain unchanged.
 
-- [ ] **Step 3: Deepen storage transactions**
+- [x] **Step 3: Deepen storage transactions**
 
 `storage_transactions.py` owns MySQL/object compensation hooks and file-transfer settlement. `platform.storage` owns only adapter behavior. `validation.py` owns filename, MIME, DWG header and safe-path rules.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 cd backend
@@ -617,7 +626,7 @@ cd backend
 .venv/bin/alembic check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app backend/tests docs/architecture

@@ -5,8 +5,12 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.models import FileTransfer, StorageScanFinding, StorageScanRun
-from app.models.file import StoredFile
+from app.modules.files.interface import (
+    FileTransfer,
+    StorageScanFinding,
+    StorageScanRun,
+    StoredFile,
+)
 
 
 def _stored_file(*, bucket: str, storage_key: str) -> StoredFile:

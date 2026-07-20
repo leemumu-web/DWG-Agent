@@ -13,12 +13,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.bootstrap.model_registry import load_models
 from app.bootstrap.router import api_router
+from app.modules.files.interface import storage_health
 from app.platform.config.settings import settings
 from app.platform.database.session import db_health
 from app.platform.http.envelopes import meta, ok
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.observability.logging import configure_logging
-from app.services.storage_service import storage_health
 
 configure_logging()
 load_models()

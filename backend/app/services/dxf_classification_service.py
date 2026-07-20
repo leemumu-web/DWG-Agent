@@ -15,11 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
-from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
+from app.modules.files.interface import StoredFile, save_bytes_as_file
 from app.modules.projects.interface import Project
 from app.platform.config.constants import (
     JOB_RUNNING,
@@ -39,7 +39,6 @@ from app.services.job_service import (
     complete_job_attempt,
     fail_job_attempt,
 )
-from app.services.storage_service import save_bytes_as_file
 from app.services.workflow_input_service import _read_verified_object
 from app.services.workflow_service import attach_artifact
 

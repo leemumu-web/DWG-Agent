@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.models.file import StoredFile
+from app.modules.files.interface import StoredFile, require_file_read_access
 from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member, require_project_role
@@ -19,7 +19,6 @@ from app.schemas.workflow_input_schema import (
     WorkflowInputFileCreate,
     WorkflowInputRegistrationEnvelope,
 )
-from app.services.file_service import require_file_read_access
 from app.services.job_service import dispatch_committed_conversion_batch
 from app.services.workflow_input_service import (
     create_input_batch,

@@ -13,6 +13,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+import app.modules.files.interface as file_service
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.identity.users import reset_user_password
@@ -20,7 +21,6 @@ from app.modules.projects.services import drawings as drawing_service
 from app.modules.projects.services import projects as project_service
 from app.services import (
     agent_service,
-    file_service,
     review_service,
 )
 

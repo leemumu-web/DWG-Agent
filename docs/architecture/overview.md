@@ -44,7 +44,7 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 
 后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
 
-identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务。两者的旧 `api/v1`、`models`、`schemas`、`services` 文件已删除，HTTP 注册顺序、表名与权限结果由机器契约锁定。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
+identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿。对应旧 `api/v1`、`models`、`schemas`、`services` 文件已删除，HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
 
 ## 同步请求路径
 

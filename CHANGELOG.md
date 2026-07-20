@@ -17,6 +17,8 @@
 
 ### Changed
 
+- 文件登记、四张流转/扫描事实表、项目范围权限、上传登记、签名/ZIP 导出与 MySQL/Local/MinIO 补偿统一归入 `app.modules.files`；其他业务模块只通过 `files.interface` 使用。
+- 1482 行文件 API 按上传、目录、批次、预览和下载拆分；存储选择/健康属于 `platform.storage.factory`，文件校验、登记、导出、生命周期与补偿分文件维护。
 - 身份/RBAC 与项目/图纸目录由横向 `api/models/schemas/services` 归入 `app.modules.identity` 和 `app.modules.projects`；跨领域调用统一经过各自 `interface.py`，HTTP 与数据库契约保持不变。
 - `api/deps.py` 拆为 platform DB dependency、identity authentication/global-role dependency 与 projects membership policy；审计写入形成 operations 稳定 interface。
 - 应用 router 和依赖领域模型的幂等 seed 归入 `app.bootstrap`，共享时间戳 mixin 归入 `app.platform.database`，消除 platform 对业务模块的反向依赖。
@@ -36,6 +38,7 @@
 
 ### Fixed
 
+- 修正 `/files/bulk-delete` 和 `/files/download-zip*` 注册在 `/{file_id}` 之后而可能被参数路由遮蔽的问题，新增 17 个 method/path/function-name 顺序契约。
 - 修正 Celery 任务开始/结束信号向控制面观测函数传递错误关键字的问题，并增加任务 ID 转发回归测试。
 
 ### Known limitations

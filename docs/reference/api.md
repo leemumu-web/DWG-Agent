@@ -90,6 +90,7 @@
 |---|---|
 | `POST, GET` | `/api/v1/files` |
 | `POST` | `/api/v1/files/upload-zip` |
+| `POST` | `/api/v1/files/bulk-delete` |
 | `GET` | `/api/v1/files/batches` |
 | `POST` | `/api/v1/files/batches/bulk-delete` |
 | `DELETE` | `/api/v1/files/batches/{batch_name}` |
@@ -97,12 +98,11 @@
 | `GET` | `/api/v1/files/{file_id}/excel-preview` |
 | `GET` | `/api/v1/files/{file_id}/dxf-preview` |
 | `GET` | `/api/v1/files/{file_id}/dxf-preview/content` |
+| `POST` | `/api/v1/files/download-zip/preview` |
+| `POST` | `/api/v1/files/download-zip` |
 | `GET, DELETE` | `/api/v1/files/{file_id}` |
 | `GET` | `/api/v1/files/{file_id}/download-url` |
 | `GET` | `/api/v1/files/{file_id}/download` |
-| `POST` | `/api/v1/files/bulk-delete` |
-| `POST` | `/api/v1/files/download-zip/preview` |
-| `POST` | `/api/v1/files/download-zip` |
 
 ## 图纸
 

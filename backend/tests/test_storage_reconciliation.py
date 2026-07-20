@@ -9,9 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app.bootstrap.seed import init_db
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
-from app.models.storage_scan import StorageScanFinding, StorageScanRun
+from app.modules.files.interface import (
+    FileTransfer,
+    StorageScanFinding,
+    StorageScanRun,
+    StoredFile,
+    register_pending_destructive_transfer,
+)
 from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
@@ -21,7 +25,6 @@ from app.services.storage_reconciliation_service import (
     execute_scan_run,
     preview_remediation,
 )
-from app.services.storage_service import register_pending_destructive_transfer
 
 
 def _factory(db):

@@ -4,7 +4,7 @@
 
 ## 历史审计说明
 
-> 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity 和 projects 已完成纵向归域；HTTP、ORM 与权限语义保持机器契约不变。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。
+> 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity、projects 和 files 已完成纵向归域；HTTP、ORM 与权限语义由机器契约锁定。文件域已分离五类 route、登记/校验/导出/补偿职责和 Local/MinIO platform factory。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`

@@ -13,9 +13,7 @@ from uuid import uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
-from app.models.storage_scan import StorageScanFinding, StorageScanRun
+from app.modules.files.interface import FileTransfer, StorageScanFinding, StorageScanRun, StoredFile
 from app.platform.config.settings import settings
 from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
@@ -48,7 +46,7 @@ def _prepare_purge_transfer(
     findings: list[StorageScanFinding],
     total_bytes: int,
 ) -> tuple[str, bool]:
-    from app.services.file_transfer_service import (
+    from app.modules.files.interface import (
         TransferSpec,
         begin_transfer,
         mark_transfer_in_progress,
@@ -627,7 +625,7 @@ def execute_remediation(
             total_bytes=total_bytes,
         )
         if durable_purge_transfer:
-            from app.services.storage_service import (
+            from app.modules.files.interface import (
                 register_pending_destructive_transfer,
             )
 
@@ -694,7 +692,7 @@ def execute_remediation(
             finding.resolved_at = utcnow()
     except StorageError as exc:
         if durable_purge_transfer and purge_transfer_uid is not None:
-            from app.services.file_transfer_service import session_factory_for, settle_transfer
+            from app.modules.files.interface import session_factory_for, settle_transfer
 
             settle_transfer(
                 session_factory_for(db),

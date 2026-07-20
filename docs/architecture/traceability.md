@@ -6,7 +6,7 @@
 
 | 流程节点 | 模块 | 当前事实 | 主要代码/证据 |
 |---|---|---|---|
-| `U1-U3` 创建批次、上传、格式检查 | `workflows` + `files` | implemented | `workflow_inputs_api.py`、`file_service.py`、输入服务测试 |
+| `U1-U3` 创建批次、上传、格式检查 | `workflows` + `files` | implemented | `modules/files/{routes/uploads,registration,validation}.py`、`workflow_inputs_api.py`、输入服务测试 |
 | `U4-U9` 上传完整性、规范化、DWG/Excel 配对 | `workflows` | implemented | `workflow_input_service.py`、`test_workflow_input_*` |
 | `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | workflow input freeze、Drawing 服务、生产流程测试 |
 | 服务器 DWG→DXF | `cad_processing` | partial | `tasks_dxf.py`、`Stages/dwg2dxf`；默认 flag 与 ODA 依赖仍需部署验收 |
@@ -60,11 +60,11 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 19 个模型模块和 36 张表。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 17 个模型模块和 36 张表；文件域四张表共用一个聚合模型模块。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
 | Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 10 个 task module；11 个 `app.workers.tasks_*` 公共名不变。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
-| Local/MinIO 字节接口 | `app/platform/storage/` | 文件登记、权限和跨 MySQL/对象补偿仍属于后续 files/operations 领域迁移。 |
+| Local/MinIO 字节接口 | `app/platform/storage/` | adapter、安全路径、选择缓存和健康检查；不导入 ORM 或文件业务。 |
 
 ## 后端业务域追溯
 
@@ -72,4 +72,5 @@
 |---|---|---|
 | `/auth`、`/users`、`/roles`、`/permissions` | `app/modules/identity/` | 其他模块只导入 `identity.interface`；拥有六张 RBAC/token 表。 |
 | `/projects`、`/drawings` | `app/modules/projects/` | 其他模块只导入 `projects.interface`；拥有四张项目/图纸表。 |
+| `/files` | `app/modules/files/` | 其他模块只导入 `files.interface`；拥有文件、传输和扫描四张表，与 platform byte adapter 解耦。 |
 | 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |

@@ -8,13 +8,14 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1030 passed, 6 skipped, 21 warnings in 118.67s` |
+| 后端全量 | pass | `1036 passed, 6 skipped, 21 warnings in 119.19s` |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130` |
 | Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；官方运行入口迁至 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `18 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径与 module catalog 纳入契约；当前后端收集 `1036 tests` |
+| 架构聚焦测试 | pass | `24 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径、文件域边界与 module catalog 纳入契约；当前后端收集 `1042 tests` |
 | Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
+| Files 聚焦回归 | pass | `158 passed, 7 warnings`；上传、登记、传输账本、补偿、预览、下载、存储一致性与架构边界通过 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
 | 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
@@ -31,6 +32,8 @@
 后端公共技术能力现归入 `backend/app/platform/` 的 config、database、http、messaging、observability、security、storage 七个子边界；应用装配归入 `backend/app/bootstrap/`，`app.main:app` 只保留稳定 ASGI 门面。模型与任务由显式 registry 装配，平台层通过 AST 契约禁止反向依赖业务模块；旧 `core/`、`db/`、`storage/`、`utils/` 生产导入已退出。基础设施验证器同时检查 CAD worker 门面委托与分类实现，避免目录重组后出现“只验证门面、不验证实际命令”的盲区。
 
 identity 与 projects 已成为首批完整业务切片：routes、models、schemas、应用服务分别在领域目录内分组，其他业务代码只能通过 `interface.py` 使用身份、全局角色、项目成员和图纸目录能力。六张身份表和四张项目/图纸表的 owner 由架构测试锁定；旧 `api/deps.py` 及对应 route/model/schema/service 文件均已删除。通用 DB dependency 与 timestamp mixin 留在 platform，HTTP router 和依赖 identity model 的 seed 留在 bootstrap，审计写入通过 operations audit interface，platform→modules 反向依赖保持为零。
+
+files 现按“登记事实、存储适配、跨系统事务”三层拆分：领域模块独占 `files`、`file_transfers`、`storage_scan_runs`、`storage_scan_findings` 四张表，`platform/storage/factory.py` 只负责后端选择、缓存、健康检查和本地路径解析。上传、目录、批次、预览、下载五类 routes 保持原有 17 个 method/path/function-name 契约，并强制所有静态路径先于 `/{file_id}` 注册，修复旧实现中批量删除和 ZIP 下载路径可能被参数路由遮蔽的问题。其他业务模块只通过 `app.modules.files.interface` 使用文件能力；旧横向 file model/schema/service/API 路径已退出。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19

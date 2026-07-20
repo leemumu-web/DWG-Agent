@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
+from app.modules.files.interface import FileRead, StoredFile, require_file_read_access
 from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import (
@@ -31,7 +31,6 @@ from app.schemas.dxf_classification_schema import (
     DxfClassificationItemRead,
     DxfClassificationRunRead,
 )
-from app.schemas.file_schema import FileRead
 from app.schemas.job_schema import JobCreate, JobRead
 from app.schemas.workflow_schema import (
     WorkflowArtifactCreate,
@@ -42,7 +41,6 @@ from app.schemas.workflow_schema import (
     WorkflowStageExecutionCreate,
 )
 from app.services.dxf_classification_service import latest_classification_run
-from app.services.file_service import require_file_read_access
 from app.services.job_access import require_job_read_access
 from app.services.job_service import cancel_job as transition_job_to_cancelled
 from app.services.job_service import create_or_reuse_job, dispatch_committed_job

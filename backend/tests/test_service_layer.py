@@ -13,15 +13,13 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.services import (
-    agent_service,
-    file_service,
-)
-from app.services.storage_service import (
+from app.modules.files import exports as file_service
+from app.modules.files.interface import (
     build_storage_path,
     validate_dwg_header,
     validate_upload_name,
 )
+from app.services import agent_service
 
 # ---------------------------------------------------------------------------
 # helpers

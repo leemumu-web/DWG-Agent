@@ -340,7 +340,7 @@ def reconcile_stale_running_jobs(
 
 def dispose_inherited_resources(db_engine: Engine = engine) -> None:
     """Drop application DB connections inherited across Celery's fork boundary."""
-    from app.services.storage_service import clear_storage_backend_cache
+    from app.platform.storage.factory import clear_storage_backend_cache
 
     db_engine.dispose(close=False)
     clear_storage_backend_cache()

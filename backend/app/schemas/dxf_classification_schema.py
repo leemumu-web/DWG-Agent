@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.schemas.file_schema import FileRead
+from app.modules.files.interface import FileRead
 from app.schemas.job_schema import JobRead
 
 

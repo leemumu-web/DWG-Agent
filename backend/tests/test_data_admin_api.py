@@ -75,7 +75,7 @@ def _auditor_headers(client: TestClient, admin_headers: dict[str, str]) -> dict[
 
 def test_data_admin_overview_identifies_environment_without_secrets(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
 
@@ -92,7 +92,7 @@ def test_data_admin_overview_identifies_environment_without_secrets(tmp_path, mo
 
 def test_data_admin_files_are_server_paginated(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     for index in range(2):
@@ -136,7 +136,7 @@ def test_data_admin_objects_mark_registration(tmp_path, monkeypatch):
         length=3,
         content_type="application/octet-stream",
     )
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
 
@@ -162,7 +162,7 @@ def test_object_enumeration_releases_database_connection_first(tmp_path, monkeyp
         length=3,
         content_type="application/octet-stream",
     )
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     checkins = 0
@@ -193,7 +193,7 @@ def test_object_enumeration_releases_database_connection_first(tmp_path, monkeyp
 
 def test_data_admin_rejects_viewer(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     admin = _admin_headers(client)
     viewer = _viewer_headers(client, admin)
@@ -203,7 +203,7 @@ def test_data_admin_rejects_viewer(tmp_path, monkeypatch):
 
 def test_data_admin_transfers_are_server_paginated(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
     uploaded = client.post(
@@ -251,7 +251,7 @@ def test_admin_can_start_and_read_consistency_scan(tmp_path, monkeypatch):
         length=3,
         content_type="application/octet-stream",
     )
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
 
@@ -277,7 +277,7 @@ def test_admin_can_start_and_read_consistency_scan(tmp_path, monkeypatch):
 
 def test_data_admin_scans_are_server_paginated(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     headers = _admin_headers(client)
 
@@ -321,7 +321,7 @@ def test_auditor_can_preview_remediation_but_only_admin_can_execute(
         length=4,
         content_type="application/octet-stream",
     )
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     admin = _admin_headers(client)
     auditor = _auditor_headers(client, admin)

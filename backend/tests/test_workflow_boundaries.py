@@ -14,8 +14,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.file import StoredFile
 from app.models.job import Job
+from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.projects.interface import Project, ProjectMember
 from app.platform.http.exceptions import AppHTTPException

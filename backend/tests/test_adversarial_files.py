@@ -30,18 +30,18 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
 from app.models.job import Job
+from app.modules.files.interface import (
+    DOWNLOAD_URL_TTL_SECONDS,
+    FileTransfer,
+    StoredFile,
+    download_signature,
+    validate_download_signature,
+)
 from app.modules.identity.interface import User
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.security.tokens import hash_password
 from app.platform.storage.local import LocalFileStorage
-from app.services.file_service import (
-    DOWNLOAD_URL_TTL_SECONDS,
-    download_signature,
-    validate_download_signature,
-)
 
 
 def _client() -> TestClient:
@@ -203,7 +203,7 @@ class TestBulkDeleteBatches:
         assert response.json()["data"]["deleted_file_count"] == 2
 
     def test_mid_delete_failure_rolls_back_every_batch(self, db, monkeypatch):
-        from app.api.v1 import files_api
+        from app.modules.files.routes import batches as files_api
 
         init_db()
         client = TestClient(app, raise_server_exceptions=False)
@@ -216,7 +216,7 @@ class TestBulkDeleteBatches:
         second = self._create_batch(
             client, headers, db, name=second_name, job_status="queued"
         )
-        original = files_api._soft_delete_file_in_transaction
+        original = files_api.soft_delete_file_in_transaction
         calls = 0
 
         def fail_after_first(*args, **kwargs):
@@ -226,7 +226,7 @@ class TestBulkDeleteBatches:
                 raise RuntimeError("injected atomic folder deletion failure")
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(files_api, "_soft_delete_file_in_transaction", fail_after_first)
+        monkeypatch.setattr(files_api, "soft_delete_file_in_transaction", fail_after_first)
 
         response = client.post(
             "/api/v1/files/batches/bulk-delete",
@@ -758,11 +758,11 @@ class TestZipUpload:
         tmp_path,
         monkeypatch,
     ):
-        from app.api.v1 import files_api
+        from app.modules.files.routes import uploads as files_api
 
         storage = LocalFileStorage(tmp_path / "zip-rollback-storage")
         monkeypatch.setattr(
-            "app.services.storage_service.get_storage_backend",
+            "app.platform.storage.factory.get_storage_backend",
             lambda: storage,
         )
         original_save = files_api.save_bytes_as_file

@@ -11,9 +11,9 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.excel_final import ExcelFinalBatch
-from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.modules.files.interface import StoredFile, save_bytes_as_file
 from app.modules.projects.interface import Drawing
 from app.platform.config.constants import (
     JOB_CANCELLED,
@@ -41,7 +41,6 @@ from app.platform.database.session import SessionLocal
 from app.platform.http.exceptions import AppHTTPException
 from app.schemas.job_schema import JobCreate
 from app.services.job_events import make_event, publish_job_event
-from app.services.storage_service import save_bytes_as_file
 
 logger = logging.getLogger(__name__)
 

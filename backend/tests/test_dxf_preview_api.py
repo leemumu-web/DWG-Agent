@@ -11,8 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
+from app.modules.files.interface import FileTransfer, StoredFile
 from app.platform.storage.local import LocalFileStorage
 from app.services.dxf_preview_service import MAX_DXF_SIZE_BYTES
 
@@ -77,8 +76,8 @@ def _upload_dxf(
 
 
 def _use_storage(monkeypatch, storage: LocalFileStorage) -> None:
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
-    monkeypatch.setattr("app.api.v1.files_api.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
 
 
 def test_dxf_preview_generates_cache_and_streams_authenticated_content(

@@ -13,17 +13,17 @@ from io import BytesIO
 import pytest
 
 import app.services.job_service as job_service
-from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
-from app.platform.config.constants import JOB_SUCCEEDED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
-from app.platform.http.exceptions import AppHTTPException
-from app.services.file_service import (
+from app.modules.files.interface import (
+    StoredFile,
     build_result_map,
     build_zip,
     build_zip_to_path,
     preview_zip_availability,
 )
+from app.platform.config.constants import JOB_SUCCEEDED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
+from app.platform.http.exceptions import AppHTTPException
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -370,7 +370,7 @@ class TestBuildZip:
                     bucket="dwg-original", storage_key="k1")
         db.commit()
         storage = FakeStorage({("dwg-original", "k1"): b"DWGCONTENT"})
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, name = build_zip(db, [src.id], ["dwg"], "export")
         assert name == "export.zip"
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
@@ -394,7 +394,7 @@ class TestBuildZip:
             ("dwg-original", "sk1"): b"SRC_DWG",
             ("dxf-derived", "rk1"): b"RESULT_DXF",
         })
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dxf"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             assert "export/plan.dxf" in zf.namelist()
@@ -417,7 +417,7 @@ class TestBuildZip:
             ("dxf-original", "sk2"): b"SRC_DXF",
             ("dwg-derived", "rk2"): b"RESULT_DWG",
         })
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dwg"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             assert "export/data.dwg" in zf.namelist()
@@ -431,7 +431,7 @@ class TestBuildZip:
                     bucket="dxf-original", storage_key="sk3")
         db.commit()
         storage = FakeStorage({("dxf-original", "sk3"): b"DXF_DATA"})
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dxf"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             assert zf.read("export/layout.dxf") == b"DXF_DATA"
@@ -453,7 +453,7 @@ class TestBuildZip:
             ("dwg-original", "sk4"): b"SRC_DWG",
             ("dxf-derived", "rk4"): b"RES_DXF",
         })
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dwg", "dxf"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             names = zf.namelist()
@@ -467,7 +467,7 @@ class TestBuildZip:
     def test_missing_source_fails_export(self, monkeypatch):
         db = job_service.SessionLocal()
         storage = FakeStorage({})
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         with pytest.raises(AppHTTPException) as exc:
             build_zip(db, [999], ["dwg"], "export")
         assert exc.value.detail["code"] == "FILE_EXPORT_SOURCE_MISSING"
@@ -484,7 +484,7 @@ class TestBuildZip:
             ("dwg-original", "ka"): b"AAA",
             ("dwg-original", "kb"): b"BBB",
         })
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [f1.id, f2.id], ["dwg"], "export")
         # Both files have stem "plan" → both numbered: (1) and (2)
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
@@ -503,7 +503,7 @@ class TestBuildZip:
                     bucket="dxf-original", storage_key="sk")
         db.commit()
         storage = FakeStorage({("dxf-original", "sk"): b"DXF_ONLY"})
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         with pytest.raises(AppHTTPException) as exc:
             build_zip(db, [src.id], ["dwg"], "export")
         assert exc.value.detail["code"] == "FILE_EXPORT_FORMAT_UNAVAILABLE"
@@ -520,7 +520,7 @@ class TestBuildZip:
             def iter_file(self, bucket, key, chunk_size=1024*1024):
                 raise RuntimeError("storage unavailable")
 
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend",
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend",
                            lambda: BadStorage())
         with pytest.raises(AppHTTPException) as exc:
             build_zip(db, [src.id], ["dwg"], "export")
@@ -539,7 +539,7 @@ class TestBuildZip:
         )
         db.commit()
         storage = FakeStorage({("dwg-original", "large-key"): b"A" * 4096})
-        monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
 
         prepared = build_zip_to_path(db, [src.id], ["dwg"], "export")
         try:

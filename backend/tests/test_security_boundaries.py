@@ -15,9 +15,9 @@ from sqlalchemy.orm import Session
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.agent_run import AgentRun, AgentRunStep
-from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
+from app.modules.files.interface import StoredFile
 
 
 def _client() -> TestClient:

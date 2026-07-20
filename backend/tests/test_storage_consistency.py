@@ -8,14 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.main import app
-from app.platform.storage.base import StorageError
-from app.platform.storage.local import LocalFileStorage
-from app.platform.storage.minio import MinioStorage
-from app.services.storage_service import (
+from app.modules.files.interface import (
     clear_storage_backend_cache,
     get_storage_backend,
     save_bytes_as_file,
 )
+from app.platform.storage.base import StorageError
+from app.platform.storage.local import LocalFileStorage
+from app.platform.storage.minio import MinioStorage
 
 
 class TrackingStorage:
@@ -32,7 +32,7 @@ class TrackingStorage:
 
 
 def _save(db: Session, storage: TrackingStorage, monkeypatch):
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     return save_bytes_as_file(
         db,
         bucket="dwg-derived",
@@ -67,11 +67,11 @@ def test_storage_object_is_retained_after_database_commit(db: Session, monkeypat
 
 
 def test_storage_backend_is_cached_for_the_same_configuration(tmp_path: Path, monkeypatch):
-    from app.services import storage_service
+    from app.platform.storage import factory as storage_factory
 
     clear_storage_backend_cache()
-    monkeypatch.setattr(storage_service.settings, "storage_backend", "local")
-    monkeypatch.setattr(storage_service.settings, "local_storage_root", tmp_path)
+    monkeypatch.setattr(storage_factory.settings, "storage_backend", "local")
+    monkeypatch.setattr(storage_factory.settings, "local_storage_root", tmp_path)
 
     first = get_storage_backend()
     second = get_storage_backend()

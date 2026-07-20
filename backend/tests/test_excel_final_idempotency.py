@@ -12,9 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
 from app.models.job import Job
+from app.modules.files.interface import FileTransfer, StoredFile
 from app.modules.identity.interface import User
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.platform.storage.base import StorageError
@@ -190,7 +189,7 @@ def test_upload_and_process_replay_reuses_file_and_job(
 ):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
-        "app.services.storage_service.get_storage_backend",
+        "app.platform.storage.factory.get_storage_backend",
         lambda: storage,
     )
     client, headers, _admin = _admin_client(db)

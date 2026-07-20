@@ -74,16 +74,10 @@
       "status": "implemented",
       "architecture_nodes": ["MINIO", "MYSQL", "U10", "U2", "U3", "U6"],
       "backend_paths": [
-        "backend/app/api/v1/files_api.py",
-        "backend/app/models/file.py",
-        "backend/app/models/file_transfer.py",
-        "backend/app/models/storage_scan.py",
+        "backend/app/modules/files",
         "backend/app/platform/storage",
         "backend/app/services/dxf_preview_service.py",
-        "backend/app/services/file_service.py",
-        "backend/app/services/file_transfer_service.py",
-        "backend/app/services/storage_reconciliation_service.py",
-        "backend/app/services/storage_service.py"
+        "backend/app/services/storage_reconciliation_service.py"
       ],
       "frontend_paths": [
         "frontend/src/api/files.api.ts",
@@ -96,7 +90,11 @@
       "celery_tasks": [],
       "queues": [],
       "stages": [],
-      "tests": ["backend/tests/test_file_service.py", "backend/tests/test_storage_consistency.py"],
+      "tests": [
+        "backend/tests/architecture/test_files_boundaries.py",
+        "backend/tests/test_file_service.py",
+        "backend/tests/test_storage_consistency.py"
+      ],
       "docs": ["docs/architecture/overview.md", "docs/guides/operations.md"],
       "notes": "MySQL owns registry facts; Local or MinIO owns bytes; file_transfers records compensation."
     },

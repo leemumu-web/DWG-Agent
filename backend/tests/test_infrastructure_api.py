@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.file import StoredFile
+from app.modules.files.interface import StoredFile
 from app.platform.config.settings import settings
 from app.platform.storage.base import StorageConfigurationError
 from app.platform.storage.local import LocalFileStorage

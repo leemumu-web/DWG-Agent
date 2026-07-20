@@ -10,7 +10,6 @@ from app.api.v1 import (
     control_plane_api,
     data_admin_api,
     excel_final_api,
-    files_api,
     jobs_api,
     results_api,
     reviews_api,
@@ -18,6 +17,7 @@ from app.api.v1 import (
     workflow_inputs_api,
     workflows_api,
 )
+from app.modules.files.routes.router import router as files_router
 from app.modules.identity.routes.router import roles_router, sessions_router, users_router
 from app.modules.projects.routes.router import drawings_router, projects_router
 
@@ -31,7 +31,7 @@ api_router.include_router(
 api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(roles_router, tags=["roles"])
 api_router.include_router(projects_router, prefix="/projects", tags=["projects"])
-api_router.include_router(files_api.router, prefix="/files", tags=["files"])
+api_router.include_router(files_router, prefix="/files", tags=["files"])
 api_router.include_router(drawings_router, prefix="/drawings", tags=["drawings"])
 api_router.include_router(jobs_api.router, prefix="/jobs", tags=["jobs"])
 api_router.include_router(results_api.router, prefix="/results", tags=["results"])

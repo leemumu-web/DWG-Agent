@@ -37,7 +37,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.bootstrap.seed import PERMISSION_SEEDS, ROLE_SEEDS, init_db
-from app.models.file import StoredFile
+from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import Permission, Role, User
 from app.platform.config.settings import settings
 from app.platform.security.tokens import verify_password

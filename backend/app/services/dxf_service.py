@@ -33,9 +33,15 @@ if settings.oda_home:
 # 框架集成适配层 — dwg_converter.framework 提供统一错误码映射
 from dwg_converter.framework import ERROR_CODES as _EC
 
-from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.modules.files.interface import (
+    StoredFile,
+    get_storage_backend,
+    prepare_generated_file_transfer,
+    sanitize_filename,
+    save_bytes_as_file,
+)
 from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,
@@ -54,12 +60,6 @@ from app.services.job_service import (
     commit_job_progress,
     complete_job_attempt,
     fail_job_attempt,
-)
-from app.services.storage_service import (
-    get_storage_backend,
-    prepare_generated_file_transfer,
-    sanitize_filename,
-    save_bytes_as_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ def _stage_source_dwg(db: Session, job: Job, source_file_id: int, work_dir: Path
     minio backend: storage.iter_file() 流式写到 work_dir/source.dwg。
     返回本地 Path 或 None（源文件不存在）。
     """
-    from app.models.file import StoredFile
+    from app.modules.files.interface import StoredFile
 
     stored = db.get(StoredFile, source_file_id)
     if not stored or stored.status == "deleted":
@@ -260,7 +260,7 @@ def persist_dxf_conversion_result(
     )
     job = db.get(Job, job_id, populate_existing=True)
     if job is None or job.status != JOB_RUNNING or job.attempt != attempt:
-        from app.services.file_transfer_service import session_factory_for, settle_transfer
+        from app.modules.files.interface import session_factory_for, settle_transfer
 
         db.rollback()
         settle_transfer(
@@ -284,7 +284,7 @@ def persist_dxf_conversion_result(
         batch_name=source_file.batch_name if source_file else None,
         transfer_uid=transfer_uid,
     )
-    from app.services.file_transfer_service import complete_transfer_in_transaction
+    from app.modules.files.interface import complete_transfer_in_transaction
 
     complete_transfer_in_transaction(
         db,

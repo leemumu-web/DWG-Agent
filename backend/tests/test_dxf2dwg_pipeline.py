@@ -392,8 +392,7 @@ def test_run_dxf2dwg_conversion_source_missing():
     # 先上传一个 DXF 拿到合法 file_id，再把它从 storage 删掉模拟缺失
     fid = _upload_dxf(client, headers)
     import app.services.dxf2dwg_service as dxf2dwg_svc
-    from app.models.file import StoredFile
-    from app.services.storage_service import get_storage_backend
+    from app.modules.files.interface import StoredFile, get_storage_backend
 
     db = dxf2dwg_svc.SessionLocal()
     try:

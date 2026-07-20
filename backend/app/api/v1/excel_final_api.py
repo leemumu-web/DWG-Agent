@@ -21,9 +21,21 @@ from app.integrations.excel_final import (
     lookup_excel_final_weight,
 )
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
-from app.models.file import StoredFile
 from app.models.job import Job
 from app.models.result import AnalysisResult
+from app.modules.files.interface import (
+    ACTIVE_TRANSFER_STATUSES,
+    StoredFile,
+    TransferSpec,
+    build_signed_download_url,
+    complete_transfer_in_transaction,
+    get_storage_backend,
+    prepare_transfer_in_transaction,
+    sanitize_filename,
+    save_upload_file,
+    session_factory_for,
+    settle_transfer,
+)
 from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import has_global_project_access
@@ -35,18 +47,8 @@ from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, forbidden, not_found, service_unavailable
 from app.platform.storage.base import StorageError
-from app.services.file_service import build_signed_download_url
-from app.services.file_transfer_service import (
-    ACTIVE_TRANSFER_STATUSES,
-    TransferSpec,
-    complete_transfer_in_transaction,
-    prepare_transfer_in_transaction,
-    session_factory_for,
-    settle_transfer,
-)
 from app.services.job_access import job_read_filter, require_job_read_access
 from app.services.job_service import create_or_reuse_job, dispatch_committed_job
-from app.services.storage_service import get_storage_backend, sanitize_filename, save_upload_file
 
 router = APIRouter()
 

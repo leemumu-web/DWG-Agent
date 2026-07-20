@@ -10,9 +10,9 @@ from sqlalchemy import String, cast, delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.excel_final import ExcelFinalBatch
-from app.models.file import StoredFile
 from app.models.job import Job, JobStep
 from app.models.result import AnalysisResult
+from app.modules.files.interface import StoredFile, require_file_read_access
 from app.modules.identity.interface import CurrentUser, CurrentUserForSSE
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import (
@@ -41,7 +41,6 @@ from app.schemas.job_schema import (
     JobStepRead,
 )
 from app.schemas.result_schema import AnalysisResultRead
-from app.services.file_service import require_file_read_access
 from app.services.job_access import (
     PROJECT_JOB_WRITE_ROLES,
     job_read_filter,

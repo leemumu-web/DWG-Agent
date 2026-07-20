@@ -173,6 +173,9 @@ files/
 ├── models.py
 ├── schemas.py
 ├── access.py
+├── exports.py
+├── lifecycle.py
+├── registration.py
 ├── validation.py
 ├── storage_transactions.py
 └── routes/
@@ -183,6 +186,8 @@ files/
     ├── previews.py
     └── downloads.py
 ```
+
+`models.py` 保持四张表的聚合视图：`files` 是登记事实，`file_transfers` 是跨 MySQL/对象存储补偿账本，`storage_scan_runs` 和 `storage_scan_findings` 是一致性检查事实。扫描和处置的用例行为属于 `operations/storage_reconciliation`，不因此把对象适配器或管理员策略混入模型。`registration.py` 只负责字节入库与 `StoredFile` 登记，`storage_transactions.py` 负责 transfer ledger 和 SQLAlchemy commit/rollback 补偿，`exports.py` 负责签名与 ZIP 选择，`lifecycle.py` 负责软删除。
 
 每个 `README.md` 固定回答：module 做什么、public interface、拥有的数据、依赖、错误模式、同步/异步数据流、测试位置、当前实现与目标差距。
 
@@ -198,7 +203,7 @@ files/
 | `core/logger.py` | `platform/observability/logging.py` | 日志初始化 |
 | `db/base.py`、`session.py`、`pagination.py` 与共享 model mixin | `platform/database/` | 纯数据库机制；公开 import 由 `__init__.py` 限定 |
 | `db/init_db.py` | `bootstrap/seed.py` | 初始数据依赖 identity model，必须在 composition 层装配，不能反向放入 platform |
-| `storage/base.py`、`local_storage.py`、`minio_storage.py`、`utils/path_utils.py` | `platform/storage/` | 两个真实 adapter 形成有效 seam |
+| `storage/base.py`、`local_storage.py`、`minio_storage.py`、`utils/path_utils.py` | `platform/storage/` | 两个真实 adapter 形成有效 seam；`factory.py` 只负责选择、缓存、健康检查和本地路径解析 |
 | `workers/celery_app.py` | `platform/messaging/celery_app.py` | 当前 MySQL broker 生命周期如实保留；目标 RabbitMQ 不伪装完成 |
 | `main.py` | `bootstrap/application.py` + 根 `main.py` | 根文件保留稳定 `app.main:app` interface |
 

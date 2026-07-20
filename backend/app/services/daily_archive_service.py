@@ -15,16 +15,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session, sessionmaker
 
+import app.modules.files.interface as storage_service
 from app.models.daily_archive import DailyArchiveRun
-from app.models.file import StoredFile
-from app.models.file_transfer import FileTransfer
-from app.platform.config.settings import settings
-from app.platform.database.mixins import utcnow
-from app.platform.http.exceptions import AppHTTPException
-from app.platform.storage.base import StorageError
-from app.schemas.data_admin_schema import DailyArchivePreview, DailyArchiveRunRead
-from app.services import storage_service
-from app.services.file_transfer_service import (
+from app.modules.files.interface import (
+    FileTransfer,
+    StoredFile,
     TransferSpec,
     begin_transfer,
     complete_transfer_in_transaction,
@@ -32,6 +27,11 @@ from app.services.file_transfer_service import (
     prepare_transfer_in_transaction,
     settle_transfer,
 )
+from app.platform.config.settings import settings
+from app.platform.database.mixins import utcnow
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import StorageError
+from app.schemas.data_admin_schema import DailyArchivePreview, DailyArchiveRunRead
 
 DAILY_ARCHIVE_PREFIX = "daily-archives/"
 DAILY_ARCHIVE_ACTIVE = {"queued", "running"}

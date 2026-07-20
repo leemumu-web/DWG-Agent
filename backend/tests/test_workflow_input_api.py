@@ -25,7 +25,7 @@ def _xlsx() -> bytes:
 
 def _use_storage(monkeypatch, tmp_path):
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr("app.services.storage_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     monkeypatch.setattr("app.services.workflow_input_service.get_storage_backend", lambda: storage)
     return storage
 
