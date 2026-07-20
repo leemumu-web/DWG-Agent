@@ -120,15 +120,15 @@
 | `GET, POST` | `/api/v1/jobs` |
 | `POST` | `/api/v1/jobs/batches` |
 | `POST` | `/api/v1/jobs/cancellation-requests` |
+| `POST` | `/api/v1/jobs/cancel-all-active` |
 | `GET` | `/api/v1/jobs/events/stream` |
 | `GET` | `/api/v1/jobs/{job_id}` |
-| `POST` | `/api/v1/jobs/{job_id}/cancellation-requests` |
-| `POST` | `/api/v1/jobs/{job_id}/retry-requests` |
 | `GET` | `/api/v1/jobs/{job_id}/steps` |
 | `GET` | `/api/v1/jobs/{job_id}/logs` |
+| `POST` | `/api/v1/jobs/{job_id}/cancellation-requests` |
+| `POST` | `/api/v1/jobs/{job_id}/retry-requests` |
 | `GET` | `/api/v1/jobs/{job_id}/events` |
 | `GET` | `/api/v1/jobs/{job_id}/results` |
-| `POST` | `/api/v1/jobs/cancel-all-active` |
 
 ## 结果与复核
 

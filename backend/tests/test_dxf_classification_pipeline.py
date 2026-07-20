@@ -11,11 +11,11 @@ from sqlalchemy import select
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.dxf_classification import DxfClassificationItem, DxfClassificationRun
-from app.models.job import Job
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.files.interface import StoredFile, get_storage_backend
 from app.modules.identity.interface import User
+from app.modules.jobs.interface import Job
 from app.modules.projects.interface import Project, ProjectMember
 from app.schemas.workflow_schema import WorkflowCreate
 from app.services import dxf_classification_service, workflow_service

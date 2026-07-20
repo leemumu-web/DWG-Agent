@@ -30,7 +30,6 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.job import Job
 from app.modules.files.interface import (
     DOWNLOAD_URL_TTL_SECONDS,
     FileTransfer,
@@ -39,6 +38,7 @@ from app.modules.files.interface import (
     validate_download_signature,
 )
 from app.modules.identity.interface import User
+from app.modules.jobs.interface import Job
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.security.tokens import hash_password
 from app.platform.storage.local import LocalFileStorage

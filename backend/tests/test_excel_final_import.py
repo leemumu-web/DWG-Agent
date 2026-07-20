@@ -9,8 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
-from app.models.job import Job
 from app.modules.files.interface import StoredFile
+from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.services import excel_final_service
 from app.services.excel_final_service import _import_components_to_db, _import_parts_to_db

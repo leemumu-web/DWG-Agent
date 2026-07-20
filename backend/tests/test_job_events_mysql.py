@@ -3,9 +3,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.job import Job
-from app.schemas.job_schema import JobRead
-from app.services.job_events import job_event_stream, jobs_event_stream
+from app.modules.jobs.interface import Job, JobRead, job_event_stream, jobs_event_stream
 
 
 def _job() -> Job:

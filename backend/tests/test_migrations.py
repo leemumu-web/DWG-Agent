@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.models.job import JobStep
+from app.modules.jobs.interface import JobStep
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = PROJECT_ROOT / "backend" / "migrations" / "versions"

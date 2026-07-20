@@ -6,11 +6,10 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.job import Job
-from app.models.result import AnalysisResult
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.files.models import StoredFile
 from app.modules.identity.interface import User
+from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.projects.interface import (
     Drawing,
     DrawingVersion,

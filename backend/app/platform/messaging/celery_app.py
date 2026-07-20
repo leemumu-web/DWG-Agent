@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,14 +16,10 @@ from celery.signals import (
     worker_ready,
     worker_shutdown,
 )
-from sqlalchemy import MetaData, Table, delete, inspect, select, text, update
+from sqlalchemy import MetaData, Table, delete, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import sessionmaker
 
-from app.models.excel_final import ExcelFinalBatch
-from app.models.job import Job
-from app.platform.config.constants import JOB_FAILED, JOB_RUNNING
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal, engine
 
@@ -55,6 +52,8 @@ _celery_engine_options = {
     # InnoDB next-key locks spanning unrelated queues under concurrent workers.
     "isolation_level": "READ COMMITTED",
 }
+
+_worker_ready_callbacks: dict[str, Callable[[], None]] = {}
 
 celery_app = Celery(
     "dwg_agent",
@@ -131,9 +130,7 @@ def ensure_sql_broker_message_index(
     inspector = inspect(db_engine)
     if not inspector.has_table(table_name):
         return False
-    if SQL_BROKER_MESSAGE_INDEX in {
-        item["name"] for item in inspector.get_indexes(table_name)
-    }:
+    if SQL_BROKER_MESSAGE_INDEX in {item["name"] for item in inspector.get_indexes(table_name)}:
         return False
 
     statement = text(
@@ -201,31 +198,6 @@ def purge_queued_job_messages(
     return purged, errors
 
 
-def summarize_job_execution(
-    job_id: int,
-    pipeline: str,
-    *,
-    session_factory: sessionmaker | None = None,
-) -> dict[str, int | str]:
-    """Build the Celery result payload from the authoritative MySQL job row."""
-    factory = session_factory or SessionLocal
-    with factory() as db:
-        job = db.get(Job, job_id)
-        if job is None:
-            return {
-                "job_id": job_id,
-                "pipeline": pipeline,
-                "status": "missing",
-                "attempt": 0,
-            }
-        return {
-            "job_id": job.id,
-            "pipeline": pipeline,
-            "status": job.status,
-            "attempt": job.attempt,
-        }
-
-
 def cleanup_expired_task_results(app: Celery = celery_app) -> None:
     """Bound growth of Celery's MySQL result tables on every worker start."""
     try:
@@ -275,67 +247,18 @@ def cleanup_consumed_broker_messages(
     return result.rowcount or 0
 
 
-def reconcile_stale_running_jobs(
-    session_factory: sessionmaker = SessionLocal,
-    *,
-    timeout_seconds: int | None = None,
-) -> int:
-    """Fail running jobs abandoned by a dead SQL-broker worker.
+def register_worker_ready_callback(name: str, callback: Callable[[], None]) -> None:
+    """Register one idempotently named application maintenance callback."""
+    _worker_ready_callbacks[name] = callback
 
-    A second conditional UPDATE protects jobs that complete or emit progress
-    after the candidate scan but before reconciliation.
-    """
-    timeout = timeout_seconds or settings.celery_stale_job_timeout_seconds
-    now = datetime.now(UTC)
-    cutoff = now - timedelta(seconds=timeout)
-    recovered = 0
-    with session_factory() as db:
-        candidates = db.execute(
-            select(Job.id, Job.progress, Job.attempt).where(
-                Job.status == JOB_RUNNING,
-                Job.updated_at < cutoff,
-            )
-        ).all()
-        for job_id, progress, attempt in candidates:
-            message = (
-                f"Worker stopped updating this job for more than {timeout} seconds. "
-                "Retry the job after verifying the queue worker is healthy."
-            )
-            event = {
-                "type": "error",
-                "status": JOB_FAILED,
-                "progress": progress or 0,
-                "error_code": "CELERY_WORKER_LOST",
-                "error_message": message,
-                "message": message,
-                "job_id": job_id,
-                "attempt": attempt,
-            }
-            result = db.execute(
-                update(Job)
-                .where(
-                    Job.id == job_id,
-                    Job.status == JOB_RUNNING,
-                    Job.attempt == attempt,
-                    Job.updated_at < cutoff,
-                )
-                .values(
-                    status=JOB_FAILED,
-                    error_code="CELERY_WORKER_LOST",
-                    error_message=message,
-                    progress_data=event,
-                    finished_at=now,
-                    updated_at=now,
-                )
-            )
-            updated = result.rowcount or 0
-            if updated:
-                db.execute(
-                    delete(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id)
-                )
-            recovered += updated
-        db.commit()
-    return recovered
+
+def run_worker_ready_callbacks() -> None:
+    """Run application callbacks without hiding one callback's failure."""
+    for name, callback in tuple(_worker_ready_callbacks.items()):
+        try:
+            callback()
+        except Exception:
+            logger.exception("Worker-ready callback failed: %s", name)
 
 
 def dispose_inherited_resources(db_engine: Engine = engine) -> None:
@@ -357,21 +280,34 @@ def update_worker_readiness_marker(
 
 
 def _worker_identity(sender=None) -> str:
-    return str(getattr(sender, "hostname", None) or os.environ.get("CELERY_WORKER_NODENAME") or f"unknown@{socket.gethostname()}")
+    return str(
+        getattr(sender, "hostname", None)
+        or os.environ.get("CELERY_WORKER_NODENAME")
+        or f"unknown@{socket.gethostname()}"
+    )
 
 
 def _worker_queues() -> list[str]:
-    return [item.strip() for item in os.environ.get("DWG_WORKER_QUEUE", "").split(",") if item.strip()]
+    return [
+        item.strip() for item in os.environ.get("DWG_WORKER_QUEUE", "").split(",") if item.strip()
+    ]
 
 
-def _record_control_plane_signal(status: str, event_type: str, sender=None, task_id: str | None = None) -> None:
+def _record_control_plane_signal(
+    status: str, event_type: str, sender=None, task_id: str | None = None
+) -> None:
     """Never let optional observability persistence disrupt a Celery task."""
     try:
         from app.services.control_plane_service import record_worker_activity
+
         with SessionLocal() as db:
             record_worker_activity(
-                db, worker_name=_worker_identity(sender), status=status, event_type=event_type,
-                queues=_worker_queues(), concurrency=int(os.environ.get("DWG_WORKER_CONCURRENCY", "1")),
+                db,
+                worker_name=_worker_identity(sender),
+                status=status,
+                event_type=event_type,
+                queues=_worker_queues(),
+                concurrency=int(os.environ.get("DWG_WORKER_CONCURRENCY", "1")),
                 correlation_id=task_id,
             )
             db.commit()
@@ -403,12 +339,7 @@ def _maintain_mysql_runtime_on_worker_start(sender=None, **_kwargs) -> None:
             logger.info("Removed %s stale SQL broker rows", removed)
     except Exception:
         logger.exception("Failed to clean stale SQL broker rows")
-    try:
-        recovered = reconcile_stale_running_jobs()
-        if recovered:
-            logger.warning("Marked %s stale running jobs as failed", recovered)
-    except Exception:
-        logger.exception("Failed to reconcile stale running jobs")
+    run_worker_ready_callbacks()
     update_worker_readiness_marker(True)
     _record_control_plane_signal("online", "worker.online", sender)
 

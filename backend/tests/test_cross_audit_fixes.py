@@ -14,15 +14,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.modules.files.interface as file_service
+import app.modules.jobs.interface as jobs_interface
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.identity.users import reset_user_password
 from app.modules.projects.services import drawings as drawing_service
 from app.modules.projects.services import projects as project_service
-from app.services import (
-    agent_service,
-    review_service,
-)
+from app.services import agent_service
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -532,21 +530,19 @@ class TestNewServiceFiles:
         assert hasattr(drawing_service, "archive_drawing")
         assert hasattr(drawing_service, "create_drawing_version")
 
-    def test_review_service_imports(self):
-        """review_service exports expected functions."""
-        assert hasattr(review_service, "get_result_job")
-        assert hasattr(review_service, "create_review")
+    def test_jobs_interface_exports_review_operations(self):
+        """The Job domain boundary exposes result lookup and review creation."""
+        assert hasattr(jobs_interface, "get_result_job")
+        assert hasattr(jobs_interface, "create_review")
 
     def test_agent_service_imports(self):
         """agent_service is a Stage 2 placeholder."""
         assert hasattr(agent_service, "create_agent_run")
 
-    def test_job_service_cancel_job_available(self):
-        """cancel_job is exported from job_service."""
-        from app.services.job_service import cancel_job, retry_job
-
-        assert callable(cancel_job)
-        assert callable(retry_job)
+    def test_jobs_interface_exports_lifecycle_operations(self):
+        """The Job domain boundary exposes cancellation and retry operations."""
+        assert callable(jobs_interface.cancel_job)
+        assert callable(jobs_interface.retry_job)
 
     def test_user_service_reset_password_available(self):
         """reset_user_password is exported from user_service."""
@@ -559,7 +555,7 @@ class TestNewServiceFiles:
 
 
 class TestCancelRetryJobService:
-    """Unit-level tests for cancel_job / retry_job in job_service."""
+    """Unit-level tests for Job-domain cancellation and retry operations."""
 
     def test_cancel_job_raises_on_succeeded_status(self):
         """Cancelling a succeeded job raises 409."""

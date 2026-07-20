@@ -7,15 +7,15 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql.dml import Update
 
-from app.api.v1.jobs_api import _job_snapshot
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalPart
-from app.models.job import Job, JobStep
-from app.platform.http.exceptions import AppHTTPException
-from app.schemas.job_schema import JobStepRead
-from app.services.job_service import (
+from app.modules.jobs.event_stream import job_snapshot
+from app.modules.jobs.interface import (
+    Job,
+    JobStep,
+    JobStepRead,
     cancel_job,
     claim_queued_job,
     commit_job_progress,
@@ -24,6 +24,7 @@ from app.services.job_service import (
     fail_job_attempt,
     retry_job,
 )
+from app.platform.http.exceptions import AppHTTPException
 
 
 def _job(db: Session, *, status: str, attempt: int = 1, progress: int = 0) -> Job:
@@ -77,7 +78,7 @@ def test_dispatch_includes_the_current_attempt_in_the_celery_message(
         captured.append((job_id, pipeline, attempt))
         return "task-3"
 
-    monkeypatch.setattr("app.services.job_service.enqueue_job", capture)
+    monkeypatch.setattr("app.modules.jobs.dispatch.enqueue_job", capture)
 
     assert dispatch_committed_job(db, job) == "task-3"
     assert captured == [(job.id, "local_stub", 3)]
@@ -93,7 +94,7 @@ def test_dispatch_compensation_cannot_overwrite_job_claimed_after_read(
     def ambiguous_delivery(_job_id: int, _pipeline: str, _attempt: int) -> str:
         raise RuntimeError("broker response lost after delivery")
 
-    monkeypatch.setattr("app.services.job_service.enqueue_job", ambiguous_delivery)
+    monkeypatch.setattr("app.modules.jobs.dispatch.enqueue_job", ambiguous_delivery)
     original_execute = Session.execute
     raced = False
 
@@ -231,7 +232,7 @@ def test_sse_snapshot_contains_only_current_attempt_steps(db: Session):
     )
     db.commit()
 
-    snapshot = _job_snapshot(db, job.id)
+    snapshot = job_snapshot(db, job.id)
 
     assert snapshot["attempt"] == 2
     assert snapshot["steps"] == [

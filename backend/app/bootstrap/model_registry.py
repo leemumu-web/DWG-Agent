@@ -15,13 +15,12 @@ def load_models() -> tuple[ModuleType, ...]:
         daily_archive,
         dxf_classification,
         excel_final,
-        job,
-        result,
         workflow,
         workflow_input,
     )
     from app.modules.files import models as files
     from app.modules.identity.models import role, token_blacklist, user
+    from app.modules.jobs import models as jobs
     from app.modules.projects.models import drawing, project
 
     return (
@@ -34,9 +33,8 @@ def load_models() -> tuple[ModuleType, ...]:
         dxf_classification,
         excel_final,
         files,
-        job,
+        jobs,
         project,
-        result,
         role,
         token_blacklist,
         user,

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import app.modules.files.interface as storage_service
+from app.modules.jobs.interface import run_local_stub_job, summarize_job_execution
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
-from app.platform.messaging.celery_app import celery_app, summarize_job_execution
-from app.services.job_service import run_local_stub_job
+from app.platform.messaging.celery_app import celery_app
 from app.services.storage_reconciliation_service import execute_scan_run
 
 

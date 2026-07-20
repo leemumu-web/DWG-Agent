@@ -79,7 +79,7 @@ def test_create_conversion_batch_returns_ordered_jobs_and_dispatches_once():
     ]
 
     with patch(
-        "app.api.v1.jobs_api.dispatch_committed_conversion_batch",
+        "app.modules.jobs.routes.commands.dispatch_committed_conversion_batch",
         create=True,
     ) as dispatch:
         response = _create_batch(
@@ -124,7 +124,7 @@ def test_scoped_cancellation_only_changes_requested_jobs():
     headers = _admin_headers(client)
     file_ids = [_upload_dwg(client, headers, f"source-{index}.dwg") for index in range(3)]
     with patch(
-        "app.api.v1.jobs_api.dispatch_committed_conversion_batch",
+        "app.modules.jobs.routes.commands.dispatch_committed_conversion_batch",
         create=True,
     ):
         created = _create_batch(
@@ -159,7 +159,7 @@ def test_conversion_events_stream_returns_ordered_terminal_snapshot():
     client = TestClient(app)
     headers = _admin_headers(client)
     file_ids = [_upload_dwg(client, headers, f"stream-{index}.dwg") for index in range(2)]
-    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
         created = _create_batch(
             client,
             headers,
@@ -214,7 +214,7 @@ def test_list_jobs_latest_per_file_omits_superseded_attempt_rows():
     client = TestClient(app)
     headers = _admin_headers(client)
     file_id = _upload_dwg(client, headers, "latest-only.dwg")
-    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
         first = _create_batch(
             client,
             headers,
@@ -298,7 +298,7 @@ def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
         _upload_dwg(client, headers, "batch-first.dwg"),
         _upload_dwg(client, headers, "batch-second.dwg"),
     ]
-    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
         created = _create_batch(
             client,
             headers,
@@ -370,7 +370,7 @@ def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
         _upload_dxf(client, headers, "batch-first.dxf"),
         _upload_dxf(client, headers, "batch-second.dxf"),
     ]
-    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
         created = _create_batch(
             client,
             headers,
@@ -437,7 +437,7 @@ def test_dwg_batch_missing_result_fails_only_the_unmatched_job(db, monkeypatch):
         _upload_dwg(client, headers, "matched.dwg"),
         _upload_dwg(client, headers, "missing.dwg"),
     ]
-    with patch("app.api.v1.jobs_api.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
         created = _create_batch(
             client,
             headers,

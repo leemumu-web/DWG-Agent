@@ -17,6 +17,8 @@
 
 ### Changed
 
+- Job、JobStep、AnalysisResult 与 ReviewRecord 四张事实表归入 `app.modules.jobs`；创建/attempt 状态机、Celery 投递、SSE 当前状态、stub 执行、恢复和复核按职责拆分，跨领域调用统一经过 `jobs.interface`。
+- 694 行 Job API 拆为查询、命令、事件、结果和复核 routes，保持 13 个 Job、4 个 Result、1 个 Review operation 不变；platform messaging 通过通用 worker-ready callback 装配 stale Job 恢复，不再导入 Job ORM。
 - 文件登记、四张流转/扫描事实表、项目范围权限、上传登记、签名/ZIP 导出与 MySQL/Local/MinIO 补偿统一归入 `app.modules.files`；其他业务模块只通过 `files.interface` 使用。
 - 1482 行文件 API 按上传、目录、批次、预览和下载拆分；存储选择/健康属于 `platform.storage.factory`，文件校验、登记、导出、生命周期与补偿分文件维护。
 - 身份/RBAC 与项目/图纸目录由横向 `api/models/schemas/services` 归入 `app.modules.identity` 和 `app.modules.projects`；跨领域调用统一经过各自 `interface.py`，HTTP 与数据库契约保持不变。
@@ -38,6 +40,7 @@
 
 ### Fixed
 
+- Job 静态路径统一在 `/{job_id}` 之前装配，并以精确 method/path/function-name 契约防止后续新增静态入口被参数路由遮蔽。
 - 修正 `/files/bulk-delete` 和 `/files/download-zip*` 注册在 `/{file_id}` 之后而可能被参数路由遮蔽的问题，新增 17 个 method/path/function-name 顺序契约。
 - 修正 Celery 任务开始/结束信号向控制面观测函数传递错误关键字的问题，并增加任务 ID 转发回归测试。
 

@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.integrations.excel_final import ExcelFinalProcessError
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalPart
-from app.models.job import Job
 from app.modules.files.interface import StoredFile
+from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.services.excel_final_service import (
     _mark_job_failed,

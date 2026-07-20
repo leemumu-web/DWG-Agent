@@ -20,8 +20,8 @@ from openpyxl import Workbook
 from sqlalchemy import select
 
 from app.main import app
-from app.models.job import Job
 from app.modules.files.interface import FileTransfer, StoredFile, get_storage_backend
+from app.modules.jobs.interface import Job
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 

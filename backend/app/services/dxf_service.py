@@ -33,14 +33,22 @@ if settings.oda_home:
 # 框架集成适配层 — dwg_converter.framework 提供统一错误码映射
 from dwg_converter.framework import ERROR_CODES as _EC
 
-from app.models.job import Job, JobStep
-from app.models.result import AnalysisResult
 from app.modules.files.interface import (
     StoredFile,
     get_storage_backend,
     prepare_generated_file_transfer,
     sanitize_filename,
     save_bytes_as_file,
+)
+from app.modules.jobs.interface import (
+    AnalysisResult,
+    Job,
+    JobStep,
+    claim_queued_job,
+    commit_job_progress,
+    complete_job_attempt,
+    fail_job_attempt,
+    make_event,
 )
 from app.platform.config.constants import (
     JOB_RUNNING,
@@ -54,13 +62,6 @@ from app.platform.config.constants import (
 from app.platform.database.session import SessionLocal
 from app.platform.storage.base import StorageError, StorageObjectNotFound
 from app.services.dxf_stats import _count_dxf_stats, dxf_entity_summary
-from app.services.job_events import make_event
-from app.services.job_service import (
-    claim_queued_job,
-    commit_job_progress,
-    complete_job_attempt,
-    fail_job_attempt,
-)
 
 logger = logging.getLogger(__name__)
 

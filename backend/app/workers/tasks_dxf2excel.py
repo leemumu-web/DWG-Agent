@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.platform.messaging.celery_app import celery_app, summarize_job_execution
+from app.modules.jobs.interface import summarize_job_execution
+from app.platform.messaging.celery_app import celery_app
 from app.services.dxf2excel_service import run_dxf2excel_extraction
 
 

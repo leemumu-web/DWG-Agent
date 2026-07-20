@@ -7,6 +7,7 @@ from types import ModuleType
 
 def load_tasks() -> tuple[ModuleType, ...]:
     """Import task modules while retaining their stable public task names."""
+    from app.modules.jobs.recovery import register_job_worker_maintenance
     from app.workers import (
         tasks_agent,
         tasks_cad,
@@ -19,6 +20,8 @@ def load_tasks() -> tuple[ModuleType, ...]:
         tasks_maintenance,
         tasks_report,
     )
+
+    register_job_worker_maintenance()
 
     return (
         tasks_agent,

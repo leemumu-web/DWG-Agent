@@ -7,7 +7,6 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
 from app.modules.files.access import (
     file_list_access_filter,
     require_file_delete_access,
@@ -25,6 +24,8 @@ from app.modules.files.storage_transactions import (
 )
 from app.modules.files.validation import sanitize_filename
 from app.modules.identity.interface import CurrentUser
+from app.modules.jobs.interface import Job
+from app.modules.jobs.interface import cancel_job as transition_job_to_cancelled
 from app.modules.operations.audit.interface import write_audit_log
 from app.platform.config.constants import (
     JOB_PENDING,
@@ -38,7 +39,6 @@ from app.platform.config.constants import (
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import not_found
-from app.services.job_service import cancel_job as transition_job_to_cancelled
 
 router = APIRouter()
 

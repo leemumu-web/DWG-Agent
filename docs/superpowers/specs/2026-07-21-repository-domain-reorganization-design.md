@@ -224,13 +224,20 @@ files/
 | 当前范围 | 目标 module |
 |---|---|
 | `jobs_api`、`results_api`、`reviews_api`、job/result models/schemas、job access/events/review | `modules/jobs/` |
-| `job_service` 的 create/claim/progress/complete/fail | `modules/jobs/lifecycle.py` |
+| `job_service` 的 create/reuse/batch create | `modules/jobs/creation.py` |
+| `job_service` 的 claim/progress/complete/fail | `modules/jobs/lifecycle.py` |
 | `job_service` 的 enqueue/dispatch | `modules/jobs/dispatch.py` |
-| `job_service` 的 cancel/retry | `modules/jobs/commands.py` |
+| `job_service` 的 cancel/retry | `modules/jobs/lifecycle.py`；HTTP 命令编排在 `routes/commands.py` |
+| framework stub 的文件/结果生成 | `modules/jobs/stub_execution.py`，继续明确标为留白验证实现 |
+| stale Job 恢复与 Celery 返回摘要 | `modules/jobs/recovery.py`；platform messaging 不再导入业务模型 |
 | `workflows_api`、`workflow_inputs_api`、workflow/input models/schemas/services | `modules/workflows/` |
 | 输入注册、转换同步、冻结、展示 | `modules/workflows/intake/{registration,conversion,freeze,presentation}.py` |
 
-Job module 对外提供一个深 `interface.py`；转换、Excel 和 Workflow 不应知道 Job 表更新细节。
+Job module 对外提供一个深 `interface.py`；转换、Excel、files 和 Workflow 不应知道 Job 表更新细节。`creation.py` 隔离请求幂等和 pipeline 选择，`lifecycle.py` 只负责执行代际状态机。模块聚合拥有 `jobs`、`job_steps`、`analysis_results`、`review_records` 四张业务事实表，routes 分为 query、command、event、result、review 五类，并继续暴露 `/jobs`、`/results`、`/reviews` 三个既有前缀。13 个 Job、4 个 Result、1 个 Review operation 的 method/path/function-name 保持不变；所有静态 Job 路径必须先于 `/{job_id}` 注册。
+
+当前 SSE 只轮询 `jobs.progress_data` 的最新持久快照，没有独立事件表、连续事件编号或断线补发；`event_stream.py` 只能按当前能力命名和说明，不能宣称已经实现目标架构中的 durable replay。当前 dispatch 仍是 commit 后直接发送 Celery 消息并对确定失败进行条件补偿，不是 transactional outbox。RabbitMQ、Outbox、lease/fencing token 和持久事件流继续作为明确目标差距保留。
+
+`platform/messaging/celery_app.py` 继续作为稳定 `-A app.platform.messaging.celery_app:celery_app` 入口，拥有 Celery 配置、SQL transport 维护和通用 worker lifecycle callback seam；Job 摘要、stale-running 扫描和 Excel 临时行清理属于业务恢复，迁入 jobs module，并由 bootstrap registry 注册回调。Excel 域迁移前，cleanup 暂时直接引用旧 `ExcelFinalBatch` 模型；迁移后由 `excel_processing.interface` 提供删除临时行的业务操作，jobs 不跨域操作该表。这样既不改变 worker 命令和 11 个公共 task name，也消除 platform 对 Job/Result ORM 的反向依赖。
 
 ### 6.4 CAD、分类与 Excel
 

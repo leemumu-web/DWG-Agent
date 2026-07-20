@@ -6,14 +6,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.excel_final import ExcelFinalBatch
-from app.models.job import Job
+from app.modules.jobs.interface import Job, reconcile_stale_running_jobs, summarize_job_execution
 from app.platform.messaging import celery_app as celery_runtime
 from app.platform.messaging.celery_app import (
     cleanup_consumed_broker_messages,
     dispose_inherited_resources,
     purge_queued_job_messages,
-    reconcile_stale_running_jobs,
-    summarize_job_execution,
     update_worker_readiness_marker,
 )
 
@@ -65,9 +63,7 @@ def test_cleanup_removes_only_stale_consumed_sql_broker_rows(db: Session):
         now=datetime.now(UTC),
     )
 
-    remaining = db.execute(
-        text("SELECT id, visible FROM test_kombu_message ORDER BY id")
-    ).all()
+    remaining = db.execute(text("SELECT id, visible FROM test_kombu_message ORDER BY id")).all()
     assert deleted == 1
     # The reserved-but-unacked row (id=1) MUST survive: deleting it would make
     # task_reject_on_worker_lost unable to redeliver after a child loss.
@@ -110,12 +106,9 @@ def test_cleanup_preserves_reserved_message_within_stale_window(db: Session):
         now=datetime.now(UTC),
     )
 
-    remaining = db.execute(
-        text("SELECT id, visible FROM test_kombu_message ORDER BY id")
-    ).all()
+    remaining = db.execute(text("SELECT id, visible FROM test_kombu_message ORDER BY id")).all()
     assert deleted == 0
     assert remaining == [(1, 0), (2, 0)]
-
 
 
 def test_reconcile_marks_only_stale_running_jobs_failed(db: Session):
@@ -147,9 +140,7 @@ def test_reconcile_marks_only_stale_running_jobs_failed(db: Session):
     assert db.get(Job, stale.id).progress_data["type"] == "error"
     assert db.get(Job, fresh.id).status == "running"
     assert db.get(Job, queued.id).status == "queued"
-    assert db.scalar(
-        select(ExcelFinalBatch.id).where(ExcelFinalBatch.job_id == stale.id)
-    ) is None
+    assert db.scalar(select(ExcelFinalBatch.id).where(ExcelFinalBatch.job_id == stale.id)) is None
 
 
 def test_reconcile_does_not_overwrite_job_changed_after_candidate_scan(db: Session, monkeypatch):
@@ -229,9 +220,9 @@ def test_reconcile_does_not_overwrite_new_attempt_with_stale_timestamp(
     assert recovered == 0
     assert current.status == "running"
     assert current.attempt == 2
-    assert db.scalar(
-        select(ExcelFinalBatch.id).where(ExcelFinalBatch.job_id == stale.id)
-    ) == batch.id
+    assert (
+        db.scalar(select(ExcelFinalBatch.id).where(ExcelFinalBatch.job_id == stale.id)) == batch.id
+    )
 
 
 def test_worker_child_disposes_inherited_application_pool():
@@ -254,6 +245,35 @@ def test_worker_readiness_marker_tracks_ready_and_shutdown(tmp_path):
 
     update_worker_readiness_marker(False, marker)
     assert not marker.exists()
+
+
+def test_job_recovery_is_registered_in_generic_worker_ready_seam():
+    assert "jobs.reconcile_stale_running" in celery_runtime._worker_ready_callbacks
+
+
+def test_worker_ready_runs_domain_recovery_before_publishing_ready(monkeypatch):
+    order: list[str] = []
+
+    monkeypatch.setattr(celery_runtime, "cleanup_expired_task_results", lambda _app: None)
+    monkeypatch.setattr(celery_runtime, "cleanup_consumed_broker_messages", lambda: 0)
+    monkeypatch.setattr(
+        celery_runtime,
+        "run_worker_ready_callbacks",
+        lambda: order.append("domain-recovery"),
+    )
+    monkeypatch.setattr(
+        celery_runtime,
+        "update_worker_readiness_marker",
+        lambda ready: order.append(f"ready:{ready}"),
+    )
+    monkeypatch.setattr(celery_runtime, "_record_control_plane_signal", lambda *args: None)
+
+    class Sender:
+        app = celery_runtime.celery_app
+
+    celery_runtime._maintain_mysql_runtime_on_worker_start(Sender())
+
+    assert order == ["domain-recovery", "ready:True"]
 
 
 def test_task_lifecycle_signals_forward_the_celery_task_id(monkeypatch):

@@ -12,9 +12,6 @@ from io import BytesIO
 
 import pytest
 
-import app.services.job_service as job_service
-from app.models.job import Job
-from app.models.result import AnalysisResult
 from app.modules.files.interface import (
     StoredFile,
     build_result_map,
@@ -22,6 +19,7 @@ from app.modules.files.interface import (
     build_zip_to_path,
     preview_zip_availability,
 )
+from app.modules.jobs.interface import AnalysisResult, Job
 from app.platform.config.constants import JOB_SUCCEEDED, TASK_DWG_TO_DXF, TASK_DXF_TO_DWG
 from app.platform.http.exceptions import AppHTTPException
 
@@ -100,105 +98,119 @@ class FakeStorage:
 
 
 class TestBuildResultMap:
-    def test_empty_input_returns_empty_dict(self):
-        db = job_service.SessionLocal()
+    def test_empty_input_returns_empty_dict(self, db):
         result = build_result_map(db, [])
         assert result == {}
-        db.close()
 
-    def test_no_matching_job_returns_all_none(self):
-        db = job_service.SessionLocal()
+    def test_no_matching_job_returns_all_none(self, db):
         f1 = _file(db, original_name="a.dwg", file_ext=".dwg")
         f2 = _file(db, original_name="b.dwg", file_ext=".dwg")
         result = build_result_map(db, [f1.id, f2.id])
         assert result == {f1.id: None, f2.id: None}
         db.rollback()
-        db.close()
 
-    def test_dwg_to_dxf_succeeded_returns_dxf_result(self):
-        db = job_service.SessionLocal()
+    def test_dwg_to_dxf_succeeded_returns_dxf_result(self, db):
         src = _file(db, original_name="plan.dwg", file_ext=".dwg", bucket="dwg-original")
         res = _file(db, original_name="plan.dxf", file_ext=".dxf", bucket="dxf-derived")
-        job = _job(db, task_type=TASK_DWG_TO_DXF, status="succeeded",
-                   params_json={"file_id": src.id})
-        _result(db, job_id=job.id, result_type=TASK_DWG_TO_DXF,
-                result_file_id=res.id, status="succeeded")
+        job = _job(
+            db, task_type=TASK_DWG_TO_DXF, status="succeeded", params_json={"file_id": src.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
         result = build_result_map(db, [src.id])
         assert result[src.id] is not None
         assert result[src.id].id == res.id
         assert result[src.id].file_ext == ".dxf"
         db.rollback()
-        db.close()
 
-    def test_dxf_to_dwg_succeeded_returns_dwg_result(self):
-        db = job_service.SessionLocal()
+    def test_dxf_to_dwg_succeeded_returns_dwg_result(self, db):
         src = _file(db, original_name="export.dxf", file_ext=".dxf", bucket="dxf-original")
         res = _file(db, original_name="export.dwg", file_ext=".dwg", bucket="dwg-derived")
-        job = _job(db, task_type=TASK_DXF_TO_DWG, status="succeeded",
-                   params_json={"file_id": src.id})
-        _result(db, job_id=job.id, result_type=TASK_DXF_TO_DWG,
-                result_file_id=res.id, status="succeeded")
+        job = _job(
+            db, task_type=TASK_DXF_TO_DWG, status="succeeded", params_json={"file_id": src.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DXF_TO_DWG,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
         result = build_result_map(db, [src.id])
         assert result[src.id] is not None
         assert result[src.id].id == res.id
         assert result[src.id].file_ext == ".dwg"
         db.rollback()
-        db.close()
 
-    def test_job_not_succeeded_returns_none(self):
-        db = job_service.SessionLocal()
+    def test_job_not_succeeded_returns_none(self, db):
         src = _file(db, original_name="fail.dwg", file_ext=".dwg")
-        job = _job(db, task_type=TASK_DWG_TO_DXF, status="failed",
-                   params_json={"file_id": src.id})
+        job = _job(db, task_type=TASK_DWG_TO_DXF, status="failed", params_json={"file_id": src.id})
         res = _file(db, original_name="fail.dxf", file_ext=".dxf")
-        _result(db, job_id=job.id, result_type=TASK_DWG_TO_DXF,
-                result_file_id=res.id, status="succeeded")
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
         result = build_result_map(db, [src.id])
         assert result[src.id] is None  # job not succeeded → not matched
         db.rollback()
-        db.close()
 
-    def test_mixed_results(self):
-        db = job_service.SessionLocal()
+    def test_mixed_results(self, db):
         src1 = _file(db, original_name="ok.dwg", file_ext=".dwg")
         src2 = _file(db, original_name="nojob.dwg", file_ext=".dwg")
         src3 = _file(db, original_name="also_nojob.dwg", file_ext=".dwg")
 
         res = _file(db, original_name="ok.dxf", file_ext=".dxf", bucket="dxf-derived")
-        job = _job(db, task_type=TASK_DWG_TO_DXF, status="succeeded",
-                   params_json={"file_id": src1.id})
-        _result(db, job_id=job.id, result_type=TASK_DWG_TO_DXF,
-                result_file_id=res.id, status="succeeded")
+        job = _job(
+            db, task_type=TASK_DWG_TO_DXF, status="succeeded", params_json={"file_id": src1.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
         result = build_result_map(db, [src1.id, src2.id, src3.id])
         assert result[src1.id] is not None
         assert result[src2.id] is None
         assert result[src3.id] is None
         db.rollback()
-        db.close()
 
-    def test_result_file_soft_deleted_returns_none(self):
+    def test_result_file_soft_deleted_returns_none(self, db):
         """A deleted result file should not be returned."""
-        db = job_service.SessionLocal()
         src = _file(db, original_name="src.dwg", file_ext=".dwg", bucket="dwg-original")
-        res = _file(db, original_name="res.dxf", file_ext=".dxf", bucket="dxf-derived",
-                    status="deleted")
-        job = _job(db, task_type=TASK_DWG_TO_DXF, status="succeeded",
-                   params_json={"file_id": src.id})
-        _result(db, job_id=job.id, result_type=TASK_DWG_TO_DXF,
-                result_file_id=res.id, status="succeeded")
+        res = _file(
+            db, original_name="res.dxf", file_ext=".dxf", bucket="dxf-derived", status="deleted"
+        )
+        job = _job(
+            db, task_type=TASK_DWG_TO_DXF, status="succeeded", params_json={"file_id": src.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
         result = build_result_map(db, [src.id])
         assert result[src.id] is None  # deleted file excluded
         db.rollback()
-        db.close()
 
-    def test_multiple_successful_jobs_return_latest_job_result(self):
+    def test_multiple_successful_jobs_return_latest_job_result(self, db):
         """A retry/new conversion must replace the older downloadable result."""
-        db = job_service.SessionLocal()
         src = _file(db, original_name="retry.dwg", file_ext=".dwg", bucket="dwg-original")
         old_result = _file(
             db,
@@ -245,11 +257,9 @@ class TestBuildResultMap:
         assert result[src.id] is not None
         assert result[src.id].id == new_result.id
         db.rollback()
-        db.close()
 
-    def test_multiple_results_for_latest_job_return_latest_result(self):
+    def test_multiple_results_for_latest_job_return_latest_result(self, db):
         """Result selection is deterministic even if a job emitted replacement rows."""
-        db = job_service.SessionLocal()
         src = _file(db, original_name="replace.dwg", file_ext=".dwg", bucket="dwg-original")
         first_result = _file(
             db,
@@ -290,15 +300,13 @@ class TestBuildResultMap:
         assert result[src.id] is not None
         assert result[src.id].id == replacement_result.id
         db.rollback()
-        db.close()
 
 
 # ── build_zip ────────────────────────────────────────────────────────────────
 
 
 class TestBuildZip:
-    def test_preview_reports_partial_format_coverage(self):
-        db = job_service.SessionLocal()
+    def test_preview_reports_partial_format_coverage(self, db):
         source_with_result = _file(
             db,
             original_name="converted.dwg",
@@ -349,10 +357,8 @@ class TestBuildZip:
         assert by_format["dxf"].missing_file_ids == [source_without_result.id]
         assert by_format["dxf"].complete is False
         db.rollback()
-        db.close()
 
-    def test_preview_deduplicates_file_ids(self):
-        db = job_service.SessionLocal()
+    def test_preview_deduplicates_file_ids(self, db):
         source = _file(db, original_name="only.dwg", file_ext=".dwg")
         db.commit()
 
@@ -362,12 +368,11 @@ class TestBuildZip:
         assert preview.can_download is True
         assert preview.formats[0].available_count == 1
         db.rollback()
-        db.close()
 
-    def test_dwg_source_want_dwg_includes_source(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="plan.dwg", file_ext=".dwg",
-                    bucket="dwg-original", storage_key="k1")
+    def test_dwg_source_want_dwg_includes_source(self, db, monkeypatch):
+        src = _file(
+            db, original_name="plan.dwg", file_ext=".dwg", bucket="dwg-original", storage_key="k1"
+        )
         db.commit()
         storage = FakeStorage({("dwg-original", "k1"): b"DWGCONTENT"})
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
@@ -377,58 +382,77 @@ class TestBuildZip:
             assert "export/plan.dwg" in zf.namelist()
             assert zf.read("export/plan.dwg") == b"DWGCONTENT"
         db.rollback()
-        db.close()
 
-    def test_dwg_source_with_dxf_result_want_dxf_includes_result(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="plan.dwg", file_ext=".dwg",
-                    bucket="dwg-original", storage_key="sk1")
-        res = _file(db, original_name="plan.dxf", file_ext=".dxf",
-                    bucket="dxf-derived", storage_key="rk1")
-        job = _job(db, task_type=TASK_DWG_TO_DXF, status="succeeded",
-                   params_json={"file_id": src.id})
-        _result(db, job_id=job.id, result_type=TASK_DWG_TO_DXF,
-                result_file_id=res.id, status="succeeded")
+    def test_dwg_source_with_dxf_result_want_dxf_includes_result(self, db, monkeypatch):
+        src = _file(
+            db, original_name="plan.dwg", file_ext=".dwg", bucket="dwg-original", storage_key="sk1"
+        )
+        res = _file(
+            db, original_name="plan.dxf", file_ext=".dxf", bucket="dxf-derived", storage_key="rk1"
+        )
+        job = _job(
+            db, task_type=TASK_DWG_TO_DXF, status="succeeded", params_json={"file_id": src.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
-        storage = FakeStorage({
-            ("dwg-original", "sk1"): b"SRC_DWG",
-            ("dxf-derived", "rk1"): b"RESULT_DXF",
-        })
+        storage = FakeStorage(
+            {
+                ("dwg-original", "sk1"): b"SRC_DWG",
+                ("dxf-derived", "rk1"): b"RESULT_DXF",
+            }
+        )
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dxf"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             assert "export/plan.dxf" in zf.namelist()
             assert zf.read("export/plan.dxf") == b"RESULT_DXF"
         db.rollback()
-        db.close()
 
-    def test_dxf_source_with_dwg_result_want_dwg_includes_result(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="data.dxf", file_ext=".dxf",
-                    bucket="dxf-original", storage_key="sk2")
-        res = _file(db, original_name="data.dwg", file_ext=".dwg",
-                    bucket="dwg-derived", storage_key="rk2")
-        job = _job(db, task_type=TASK_DXF_TO_DWG, status="succeeded",
-                   params_json={"file_id": src.id})
-        _result(db, job_id=job.id, result_type=TASK_DXF_TO_DWG,
-                result_file_id=res.id, status="succeeded")
+    def test_dxf_source_with_dwg_result_want_dwg_includes_result(self, db, monkeypatch):
+        src = _file(
+            db, original_name="data.dxf", file_ext=".dxf", bucket="dxf-original", storage_key="sk2"
+        )
+        res = _file(
+            db, original_name="data.dwg", file_ext=".dwg", bucket="dwg-derived", storage_key="rk2"
+        )
+        job = _job(
+            db, task_type=TASK_DXF_TO_DWG, status="succeeded", params_json={"file_id": src.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DXF_TO_DWG,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
-        storage = FakeStorage({
-            ("dxf-original", "sk2"): b"SRC_DXF",
-            ("dwg-derived", "rk2"): b"RESULT_DWG",
-        })
+        storage = FakeStorage(
+            {
+                ("dxf-original", "sk2"): b"SRC_DXF",
+                ("dwg-derived", "rk2"): b"RESULT_DWG",
+            }
+        )
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dwg"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             assert "export/data.dwg" in zf.namelist()
             assert zf.read("export/data.dwg") == b"RESULT_DWG"
         db.rollback()
-        db.close()
 
-    def test_dxf_source_want_dxf_includes_source(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="layout.dxf", file_ext=".dxf",
-                    bucket="dxf-original", storage_key="sk3")
+    def test_dxf_source_want_dxf_includes_source(self, db, monkeypatch):
+        src = _file(
+            db,
+            original_name="layout.dxf",
+            file_ext=".dxf",
+            bucket="dxf-original",
+            storage_key="sk3",
+        )
         db.commit()
         storage = FakeStorage({("dxf-original", "sk3"): b"DXF_DATA"})
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
@@ -436,23 +460,31 @@ class TestBuildZip:
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             assert zf.read("export/layout.dxf") == b"DXF_DATA"
         db.rollback()
-        db.close()
 
-    def test_both_formats_all_available_includes_both(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="plan.dwg", file_ext=".dwg",
-                    bucket="dwg-original", storage_key="sk4")
-        res = _file(db, original_name="plan.dxf", file_ext=".dxf",
-                    bucket="dxf-derived", storage_key="rk4")
-        job = _job(db, task_type=TASK_DWG_TO_DXF, status="succeeded",
-                   params_json={"file_id": src.id})
-        _result(db, job_id=job.id, result_type=TASK_DWG_TO_DXF,
-                result_file_id=res.id, status="succeeded")
+    def test_both_formats_all_available_includes_both(self, db, monkeypatch):
+        src = _file(
+            db, original_name="plan.dwg", file_ext=".dwg", bucket="dwg-original", storage_key="sk4"
+        )
+        res = _file(
+            db, original_name="plan.dxf", file_ext=".dxf", bucket="dxf-derived", storage_key="rk4"
+        )
+        job = _job(
+            db, task_type=TASK_DWG_TO_DXF, status="succeeded", params_json={"file_id": src.id}
+        )
+        _result(
+            db,
+            job_id=job.id,
+            result_type=TASK_DWG_TO_DXF,
+            result_file_id=res.id,
+            status="succeeded",
+        )
         db.commit()
-        storage = FakeStorage({
-            ("dwg-original", "sk4"): b"SRC_DWG",
-            ("dxf-derived", "rk4"): b"RES_DXF",
-        })
+        storage = FakeStorage(
+            {
+                ("dwg-original", "sk4"): b"SRC_DWG",
+                ("dxf-derived", "rk4"): b"RES_DXF",
+            }
+        )
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [src.id], ["dwg", "dxf"], "export")
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
@@ -462,28 +494,28 @@ class TestBuildZip:
             assert zf.read("export/plan.dwg") == b"SRC_DWG"
             assert zf.read("export/plan.dxf") == b"RES_DXF"
         db.rollback()
-        db.close()
 
-    def test_missing_source_fails_export(self, monkeypatch):
-        db = job_service.SessionLocal()
+    def test_missing_source_fails_export(self, db, monkeypatch):
         storage = FakeStorage({})
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         with pytest.raises(AppHTTPException) as exc:
             build_zip(db, [999], ["dwg"], "export")
         assert exc.value.detail["code"] == "FILE_EXPORT_SOURCE_MISSING"
-        db.close()
 
-    def test_stem_deduplication_adds_suffix(self, monkeypatch):
-        db = job_service.SessionLocal()
-        f1 = _file(db, original_name="plan.dwg", file_ext=".dwg",
-                   bucket="dwg-original", storage_key="ka")
-        f2 = _file(db, original_name="plan.dwg", file_ext=".dwg",
-                   bucket="dwg-original", storage_key="kb")
+    def test_stem_deduplication_adds_suffix(self, db, monkeypatch):
+        f1 = _file(
+            db, original_name="plan.dwg", file_ext=".dwg", bucket="dwg-original", storage_key="ka"
+        )
+        f2 = _file(
+            db, original_name="plan.dwg", file_ext=".dwg", bucket="dwg-original", storage_key="kb"
+        )
         db.commit()
-        storage = FakeStorage({
-            ("dwg-original", "ka"): b"AAA",
-            ("dwg-original", "kb"): b"BBB",
-        })
+        storage = FakeStorage(
+            {
+                ("dwg-original", "ka"): b"AAA",
+                ("dwg-original", "kb"): b"BBB",
+            }
+        )
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
         zip_bytes, _ = build_zip(db, [f1.id, f2.id], ["dwg"], "export")
         # Both files have stem "plan" → both numbered: (1) and (2)
@@ -495,12 +527,11 @@ class TestBuildZip:
             assert zf.read("export/plan(1).dwg") == b"AAA"
             assert zf.read("export/plan(2).dwg") == b"BBB"
         db.rollback()
-        db.close()
 
-    def test_want_format_but_no_result_fails_export(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="only.dxf", file_ext=".dxf",
-                    bucket="dxf-original", storage_key="sk")
+    def test_want_format_but_no_result_fails_export(self, db, monkeypatch):
+        src = _file(
+            db, original_name="only.dxf", file_ext=".dxf", bucket="dxf-original", storage_key="sk"
+        )
         db.commit()
         storage = FakeStorage({("dxf-original", "sk"): b"DXF_ONLY"})
         monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
@@ -508,28 +539,30 @@ class TestBuildZip:
             build_zip(db, [src.id], ["dwg"], "export")
         assert exc.value.detail["code"] == "FILE_EXPORT_FORMAT_UNAVAILABLE"
         db.rollback()
-        db.close()
 
-    def test_storage_read_failure_fails_export(self, monkeypatch):
-        db = job_service.SessionLocal()
-        src = _file(db, original_name="bad.dwg", file_ext=".dwg",
-                    bucket="dwg-original", storage_key="badkey")
+    def test_storage_read_failure_fails_export(self, db, monkeypatch):
+        src = _file(
+            db,
+            original_name="bad.dwg",
+            file_ext=".dwg",
+            bucket="dwg-original",
+            storage_key="badkey",
+        )
         db.commit()
 
         class BadStorage:
-            def iter_file(self, bucket, key, chunk_size=1024*1024):
+            def iter_file(self, bucket, key, chunk_size=1024 * 1024):
                 raise RuntimeError("storage unavailable")
 
-        monkeypatch.setattr("app.platform.storage.factory.get_storage_backend",
-                           lambda: BadStorage())
+        monkeypatch.setattr(
+            "app.platform.storage.factory.get_storage_backend", lambda: BadStorage()
+        )
         with pytest.raises(AppHTTPException) as exc:
             build_zip(db, [src.id], ["dwg"], "export")
         assert exc.value.detail["code"] == "STORAGE_INCONSISTENT"
         db.rollback()
-        db.close()
 
-    def test_build_zip_to_path_returns_spooled_export(self, monkeypatch):
-        db = job_service.SessionLocal()
+    def test_build_zip_to_path_returns_spooled_export(self, db, monkeypatch):
         src = _file(
             db,
             original_name="large.dwg",

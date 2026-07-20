@@ -21,8 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.job import Job
-from app.models.result import AnalysisResult
+from app.modules.jobs.interface import AnalysisResult, Job
 from app.platform.config.settings import settings
 
 SAMPLE_DXF_DIR = Path(__file__).resolve().parents[2] / "Stages" / "dxf2excel" / "original_dxf"
@@ -82,8 +81,8 @@ class TestServiceHelpers:
 
     def test_mark_job_failed_sets_error(self, db: Session):
         """_mark_job_failed 仅结束已认领且 attempt 匹配的任务。"""
+        from app.modules.jobs.interface import claim_queued_job
         from app.services.dxf2excel_service import _mark_job_failed
-        from app.services.job_service import claim_queued_job
 
         init_db()
 

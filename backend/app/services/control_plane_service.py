@@ -9,7 +9,7 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
 from app.models.control_plane import ControlPlaneEvent, PlatformMessage, WorkerRuntime
-from app.models.job import Job
+from app.modules.jobs.interface import Job
 from app.platform.config.settings import settings
 
 CONTROL_QUEUE_NAMES = (

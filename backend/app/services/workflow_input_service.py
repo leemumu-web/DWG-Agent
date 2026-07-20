@@ -15,8 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
-from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.files.interface import (
@@ -26,19 +24,26 @@ from app.modules.files.interface import (
     get_storage_backend,
     validate_dwg_header,
 )
+from app.modules.jobs.interface import (
+    AnalysisResult,
+    Job,
+    JobCreate,
+    JobRead,
+    cancel_job,
+    create_or_reuse_job,
+    retry_job,
+)
 from app.modules.projects.interface import Drawing, DrawingVersion
 from app.platform.config.constants import TASK_DWG_TO_DXF
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError, StorageObjectNotFound
-from app.schemas.job_schema import JobCreate, JobRead
 from app.schemas.workflow_input_schema import (
     WorkflowInputBatchRead,
     WorkflowInputCounts,
     WorkflowInputIssueRead,
     WorkflowInputItemRead,
 )
-from app.services.job_service import cancel_job, create_or_reuse_job, retry_job
 
 _WHITESPACE = re.compile(r"\s+")
 _ACTIVE_JOB_STATUSES = {

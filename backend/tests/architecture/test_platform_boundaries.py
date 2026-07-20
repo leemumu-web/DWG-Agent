@@ -62,7 +62,7 @@ def test_model_registry_loads_every_contract_table() -> None:
 
     modules = load_models()
 
-    assert len(modules) == 17
+    assert len(modules) == 16
     assert sorted(Base.metadata.tables) == SNAPSHOT["orm_tables"]
 
 

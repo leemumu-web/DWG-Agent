@@ -5,8 +5,9 @@ an authenticated API call until a durable scheduler/outbox exists.
 """
 
 from app.models.control_plane import ControlPlaneEvent
+from app.modules.jobs.interface import reconcile_stale_running_jobs
 from app.platform.database.session import SessionLocal
-from app.platform.messaging.celery_app import celery_app, reconcile_stale_running_jobs
+from app.platform.messaging.celery_app import celery_app
 from app.services.daily_archive_service import execute_daily_archive_run
 
 

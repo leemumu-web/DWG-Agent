@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.platform.messaging.celery_app import celery_app, summarize_job_execution
+from app.modules.jobs.interface import summarize_job_execution
+from app.platform.messaging.celery_app import celery_app
 from app.services.cad_batch_service import run_dwg_to_dxf_batch
 from app.services.dxf_service import run_dxf_conversion
 

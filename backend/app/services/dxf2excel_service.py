@@ -24,13 +24,21 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.job import Job, JobStep
-from app.models.result import AnalysisResult
 from app.modules.files.interface import (
     StoredFile,
     get_storage_backend,
     sanitize_filename,
     save_bytes_as_file,
+)
+from app.modules.jobs.interface import (
+    AnalysisResult,
+    Job,
+    JobStep,
+    claim_queued_job,
+    commit_job_progress,
+    complete_job_attempt,
+    fail_job_attempt,
+    make_event,
 )
 from app.platform.config.constants import (
     JOB_RUNNING,
@@ -44,13 +52,6 @@ from app.platform.config.constants import (
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 from app.platform.storage.base import StorageObjectNotFound
-from app.services.job_events import make_event
-from app.services.job_service import (
-    claim_queued_job,
-    commit_job_progress,
-    complete_job_attempt,
-    fail_job_attempt,
-)
 
 logger = logging.getLogger(__name__)
 

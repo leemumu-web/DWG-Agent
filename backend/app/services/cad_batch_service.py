@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.modules.jobs.interface import claim_queued_job, commit_job_progress, make_event
 from app.platform.config.constants import (
     JOB_RUNNING,
     PIPELINE_DXF,
@@ -57,8 +58,6 @@ from app.services.dxf_service import (
     persist_dxf_conversion_result,
 )
 from app.services.dxf_stats import _count_dxf_stats
-from app.services.job_events import make_event
-from app.services.job_service import claim_queued_job, commit_job_progress
 
 logger = logging.getLogger(__name__)
 

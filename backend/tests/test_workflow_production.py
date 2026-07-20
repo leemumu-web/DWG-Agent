@@ -4,12 +4,11 @@ from uuid import uuid4
 
 import pytest
 
-from app.models.job import Job
-from app.models.result import AnalysisResult
 from app.models.workflow import WorkflowRun
 from app.models.workflow_input import WorkflowInputBatch
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
+from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.projects.interface import Project, ProjectMember
 from app.platform.http.exceptions import AppHTTPException
 from app.schemas.workflow_schema import WorkflowCreate
@@ -438,7 +437,7 @@ def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
 
 def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch):
     from app.api.v1 import workflows_api
-    from app.models.job import Job
+    from app.modules.jobs.interface import Job
     from app.platform.config.settings import settings
     from tests import conftest
     from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project

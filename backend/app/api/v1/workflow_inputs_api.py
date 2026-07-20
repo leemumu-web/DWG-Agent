@@ -5,13 +5,13 @@ from sqlalchemy.orm import Session
 
 from app.modules.files.interface import StoredFile, require_file_read_access
 from app.modules.identity.interface import CurrentUser
+from app.modules.jobs.interface import JobRead, dispatch_committed_conversion_batch
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member, require_project_role
 from app.platform.config.constants import TASK_DWG_TO_DXF
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import not_found
-from app.schemas.job_schema import JobRead
 from app.schemas.workflow_input_schema import (
     WorkflowInputBatchEnvelope,
     WorkflowInputConversionEnvelope,
@@ -19,7 +19,6 @@ from app.schemas.workflow_input_schema import (
     WorkflowInputFileCreate,
     WorkflowInputRegistrationEnvelope,
 )
-from app.services.job_service import dispatch_committed_conversion_batch
 from app.services.workflow_input_service import (
     create_input_batch,
     describe_input_batch,

@@ -639,24 +639,36 @@ git commit -m "refactor: deepen the file registry module"
 
 - Create module files under `backend/app/modules/jobs/`
 - Split routes into `queries.py`, `commands.py`, `events.py`, `results.py`, `reviews.py`
-- Split implementation into `lifecycle.py`, `dispatch.py`, `access.py`, `event_stream.py`
+- Split implementation into `creation.py`, `lifecycle.py`, `dispatch.py`, `access.py`, `event_stream.py`, `stub_execution.py`, `recovery.py`
 - Create `interface.py`, `models.py`, `schemas.py`, `README.md`
 - Update Celery callers, workflow/CAD/Excel callers, tests, catalog
 - Delete old job/result/review files
 
-- [ ] **Step 1: Add lifecycle contract tests**
+Implementation refinement after auditing all 18 HTTP operations, four tables, six worker callers and the source architecture:
 
-Test the deep interface across create → claim → progress → complete/fail and cancel/retry. Assert stale attempts cannot mutate current attempt.
+- The module owns `jobs`, `job_steps`, `analysis_results` and `review_records`. It does not own Celery transport tables or file bytes.
+- `creation.py` owns pipeline selection, create/batch-create and request-key idempotent reuse. `lifecycle.py` owns every status/attempt guarded mutation, including claim, progress, complete/fail, single cancel/retry and bulk active cancellation. Pending result/step rows remain in the same transaction so a stale attempt rolls them back.
+- `dispatch.py` owns pipeline-to-task routing, public Celery names and post-commit dispatch compensation. It must state that this is the currently implemented direct-dispatch seam, not the planned Outbox.
+- `event_stream.py` owns current-row snapshot construction and bounded short-session polling. The current schema has no durable event IDs/replay; route and module documentation must preserve that truthful limitation.
+- `stub_execution.py` owns the executable framework smoke result and keeps its explicit placeholder message. `recovery.py` owns authoritative Job summaries and stale-running recovery.
+- `platform.messaging` remains the stable Celery app/SQL transport adapter and exposes a generic worker-ready callback registry. Bootstrap registers Job recovery, so platform imports no jobs business model while Compose/CAD worker commands remain unchanged.
+- `routes/router.py` exports `jobs_router`, `results_router` and `reviews_router`. Job static routes (`/batches`, `/cancellation-requests`, `/events/stream`, `/cancel-all-active`) are composed before `/{job_id}` routes; all 13 Job + 4 Result + 1 Review method/path/function-name contracts remain fixed.
+- Other business modules use only `app.modules.jobs.interface`; bootstrap alone may import the route aggregator. Tests may import private files only to validate the responsibility itself.
+- `interface.py` never imports routes. Old route/model/schema/service files are removed only after a zero-reference audit.
 
-- [ ] **Step 2: Split HTTP routes without changing operation IDs**
+- [x] **Step 1: Add lifecycle and boundary contract tests**
+
+Test the deep interface across create → claim → progress → complete/fail and cancel/retry. Assert stale attempts cannot mutate current attempt. Lock exact table ownership, the 13 Job + 4 Result + 1 Review routes, static-path precedence, public exports, platform independence and retired paths.
+
+- [x] **Step 2: Split HTTP routes without changing operation IDs**
 
 Register static `/events/stream`, `/batches`, `/cancellation-requests` before `/{job_id}`. Keep SSE response behavior and cookie authentication unchanged.
 
-- [ ] **Step 3: Split job implementation**
+- [x] **Step 3: Split job implementation**
 
-`lifecycle.py` owns state transitions; `dispatch.py` maps pipeline to stable task name; `commands.py` owns cancel/retry; `event_stream.py` owns current snapshot streaming. Other domains import only `jobs.interface`.
+`lifecycle.py` owns state transitions; `dispatch.py` maps pipeline to stable task name; HTTP `routes/commands.py` orchestrates cancel/retry/audit; `event_stream.py` owns current snapshot streaming; `recovery.py` plugs stale recovery into the generic platform callback seam. Other domains import only `jobs.interface`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 ```bash
 cd backend
@@ -666,7 +678,7 @@ cd backend
 .venv/bin/alembic check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app backend/tests docs/architecture
@@ -738,7 +750,7 @@ Register `/parts/search` and `/weights/lookup` before parameterized batch routes
 
 - [ ] **Step 3: Move adapter and execution implementation**
 
-Keep subprocess isolation and Stage path resolution behind `stage_adapter.py`; relationship import and Job lifecycle calls remain in domain implementation.
+Keep subprocess isolation and Stage path resolution behind `stage_adapter.py`; relationship import and Job lifecycle calls remain in domain implementation. Expose the Excel temporary-row cleanup operation through `excel_processing.interface`, then replace the transitional direct `jobs.lifecycle/recovery -> app.models.excel_final.ExcelFinalBatch` dependency without changing cancellation or stale-recovery behavior.
 
 - [ ] **Step 4: Verify**
 

@@ -4,17 +4,18 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.job import Job
 from app.modules.identity.interface import User
+from app.modules.jobs.models import AnalysisResult, Job
 from app.modules.projects.interface import (
     ProjectMember,
     has_global_project_access,
     require_project_member,
     require_project_role,
 )
-from app.platform.http.exceptions import forbidden
+from app.platform.http.exceptions import forbidden, not_found
 
 PROJECT_JOB_WRITE_ROLES = {"project_owner", "project_engineer"}
+PROJECT_REVIEW_ROLES = {"project_owner", "project_reviewer"}
 
 
 def job_read_filter(user: User) -> ColumnElement[bool]:
@@ -49,3 +50,25 @@ def require_job_write_access(db: Session, user: User, job: Job) -> None:
         return
     if job.created_by != user.id:
         raise forbidden("Only the job creator or an administrator can modify this job.")
+
+
+def get_result_job(db: Session, result: AnalysisResult) -> Job:
+    job = db.get(Job, result.job_id)
+    if job is None:
+        raise not_found("Job")
+    return job
+
+
+def require_result_read_access(db: Session, user: User, result: AnalysisResult) -> Job:
+    job = get_result_job(db, result)
+    require_job_read_access(db, user, job)
+    return job
+
+
+def require_result_review_access(db: Session, user: User, result: AnalysisResult) -> Job:
+    job = get_result_job(db, result)
+    if job.project_id is not None:
+        require_project_role(db, user, job.project_id, PROJECT_REVIEW_ROLES)
+    else:
+        require_job_write_access(db, user, job)
+    return job

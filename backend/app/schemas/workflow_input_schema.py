@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.modules.files.interface import FileRead
-from app.schemas.job_schema import JobRead
+from app.modules.jobs.interface import JobRead
 
 
 class WorkflowInputFileCreate(BaseModel):

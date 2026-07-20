@@ -1,9 +1,10 @@
-"""Durable job progress events backed by the ``jobs`` MySQL table.
+"""Persistent latest-state Job progress backed by the ``jobs`` MySQL row.
 
 Workers store the latest event in ``Job.progress_data`` in the same transaction
 as the authoritative status/progress fields. SSE readers use a fresh short-lived
 session for every poll so MySQL transactions never pin a stale snapshot or occupy
-a pool connection while waiting.
+a pool connection while waiting. This is not a numbered event log and cannot
+replay intermediate events after a disconnect.
 """
 
 from __future__ import annotations
@@ -17,13 +18,48 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
+from app.modules.jobs.models import Job, JobStep
 
 logger = logging.getLogger(__name__)
 
 _POLL_INTERVAL = 2.0
 _MAX_DURATION = 600.0
 _TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
+
+
+def job_snapshot(db: Session, job_id: int) -> dict[str, Any]:
+    """Read the authoritative Job and current-attempt Step snapshot."""
+    job = db.get(Job, job_id)
+    if job is None:
+        return {"type": "snapshot", "job_id": job_id, "status": "unknown"}
+    steps = list(
+        db.scalars(
+            select(JobStep)
+            .where(JobStep.job_id == job_id, JobStep.attempt == job.attempt)
+            .order_by(JobStep.id)
+        ).all()
+    )
+    return {
+        "type": "snapshot",
+        "job_id": job_id,
+        "status": job.status,
+        "attempt": job.attempt,
+        "progress": job.progress,
+        "pipeline": job.pipeline,
+        "task_type": job.task_type,
+        "error_code": job.error_code,
+        "error_message": job.error_message,
+        "progress_data": job.progress_data,
+        "steps": [
+            {
+                "attempt": step.attempt,
+                "step_name": step.step_name,
+                "status": step.status,
+                "error_message": step.error_message,
+            }
+            for step in steps
+        ],
+    }
 
 
 def make_event(

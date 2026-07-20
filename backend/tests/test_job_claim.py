@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.job import Job
-from app.services.job_service import claim_queued_job
+from app.modules.jobs.interface import Job, claim_queued_job
 
 
 def _job(db: Session, *, status: str = "queued") -> Job:

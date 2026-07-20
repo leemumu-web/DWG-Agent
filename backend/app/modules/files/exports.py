@@ -12,14 +12,13 @@ from urllib.parse import quote
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
-from app.models.result import AnalysisResult
 from app.modules.files.models import StoredFile
 from app.modules.files.schemas import (
     DownloadUrlRead,
     ZipAvailabilityPreview,
     ZipFormatAvailability,
 )
+from app.modules.jobs.interface import AnalysisResult, Job
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage import factory as storage_factory

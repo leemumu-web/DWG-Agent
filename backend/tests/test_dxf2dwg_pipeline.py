@@ -260,7 +260,7 @@ def _seed_dwg_to_dxf_analysis_result(client: TestClient, headers: dict, dxf_file
     from decimal import Decimal
 
     import app.services.dxf2dwg_service as dxf2dwg_svc
-    from app.models.result import AnalysisResult
+    from app.modules.jobs.interface import AnalysisResult
 
     db = dxf2dwg_svc.SessionLocal()
     try:

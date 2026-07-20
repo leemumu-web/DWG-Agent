@@ -60,9 +60,9 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 17 个模型模块和 36 张表；文件域四张表共用一个聚合模型模块。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 16 个模型模块和 36 张表；files 与 jobs 各自的四张表分别共用一个聚合模型模块。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
-| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 10 个 task module；11 个 `app.workers.tasks_*` 公共名不变。 |
+| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 10 个 task module 并注册 jobs stale-recovery callback；11 个 `app.workers.tasks_*` 公共名不变。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
 | Local/MinIO 字节接口 | `app/platform/storage/` | adapter、安全路径、选择缓存和健康检查；不导入 ORM 或文件业务。 |
 
@@ -73,4 +73,5 @@
 | `/auth`、`/users`、`/roles`、`/permissions` | `app/modules/identity/` | 其他模块只导入 `identity.interface`；拥有六张 RBAC/token 表。 |
 | `/projects`、`/drawings` | `app/modules/projects/` | 其他模块只导入 `projects.interface`；拥有四张项目/图纸表。 |
 | `/files` | `app/modules/files/` | 其他模块只导入 `files.interface`；拥有文件、传输和扫描四张表，与 platform byte adapter 解耦。 |
+| `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Step/Result/Review 四张表，attempt 状态机与 Celery transport 解耦。 |
 | 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |

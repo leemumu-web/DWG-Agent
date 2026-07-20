@@ -352,8 +352,8 @@ class TestStubWorkerIdempotency:
         on a succeeded job must NOT create a second AnalysisResult."""
         from sqlalchemy import select
 
-        from app.models.result import AnalysisResult
-        from app.services.job_service import SessionLocal, run_local_stub_job
+        from app.modules.jobs.interface import AnalysisResult
+        from app.modules.jobs.stub_execution import SessionLocal, run_local_stub_job
 
         client = _client()
         h = _admin(client)

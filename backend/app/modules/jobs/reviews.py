@@ -2,19 +2,8 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
-from app.models.result import AnalysisResult, ReviewRecord
-from app.schemas.result_schema import ReviewCreate
-
-
-def get_result_job(db: Session, result: AnalysisResult) -> Job:
-    """Resolve the Job that produced this analysis result."""
-    from app.platform.http.exceptions import not_found
-
-    job = db.get(Job, result.job_id)
-    if not job:
-        raise not_found("Job")
-    return job
+from app.modules.jobs.models import AnalysisResult, ReviewRecord
+from app.modules.jobs.schemas import ReviewCreate
 
 
 def create_review(

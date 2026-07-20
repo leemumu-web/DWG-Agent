@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
-from app.models.job import Job
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
+from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
 
 

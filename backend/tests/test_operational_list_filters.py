@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.models.audit_log import AuditLog
-from app.models.job import Job
 from app.modules.identity.interface import User
+from app.modules.jobs.interface import Job
 
 
 def _admin_headers(client: TestClient) -> dict[str, str]:

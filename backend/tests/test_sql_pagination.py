@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.job import Job
+from app.modules.jobs.interface import Job
 from app.platform.database.pagination import paginate_scalars
 
 

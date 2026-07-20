@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.job import Job
+from app.modules.jobs.interface import Job
 
 
 def _client() -> TestClient:

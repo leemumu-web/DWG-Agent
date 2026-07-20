@@ -21,8 +21,6 @@ from app.integrations.excel_final import (
     lookup_excel_final_weight,
 )
 from app.models.excel_final import ExcelFinalBatch, ExcelFinalComponent, ExcelFinalPart
-from app.models.job import Job
-from app.models.result import AnalysisResult
 from app.modules.files.interface import (
     ACTIVE_TRANSFER_STATUSES,
     StoredFile,
@@ -37,6 +35,14 @@ from app.modules.files.interface import (
     settle_transfer,
 )
 from app.modules.identity.interface import CurrentUser
+from app.modules.jobs.interface import (
+    AnalysisResult,
+    Job,
+    create_or_reuse_job,
+    dispatch_committed_job,
+    job_read_filter,
+    require_job_read_access,
+)
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import has_global_project_access
 from app.platform.config.constants import TASK_EXCEL_FINAL
@@ -47,8 +53,6 @@ from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, forbidden, not_found, service_unavailable
 from app.platform.storage.base import StorageError
-from app.services.job_access import job_read_filter, require_job_read_access
-from app.services.job_service import create_or_reuse_job, dispatch_committed_job
 
 router = APIRouter()
 
@@ -245,7 +249,7 @@ def process_file(
             "Only .xls or .xlsx files can be processed.",
         )
 
-    from app.schemas.job_schema import JobCreate
+    from app.modules.jobs.interface import JobCreate
 
     payload = JobCreate(
         task_type=TASK_EXCEL_FINAL,
@@ -336,7 +340,7 @@ async def upload_and_process(
     )
     db.flush()
 
-    from app.schemas.job_schema import JobCreate
+    from app.modules.jobs.interface import JobCreate
 
     payload = JobCreate(
         task_type=TASK_EXCEL_FINAL,

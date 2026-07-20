@@ -8,14 +8,13 @@ import yaml
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 
-import app.services.job_service as job_service
+import app.modules.jobs.dispatch as job_dispatch
+import app.modules.jobs.stub_execution as job_stub
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.job import Job
-from app.models.result import AnalysisResult
+from app.modules.jobs.interface import AnalysisResult, Job, run_local_stub_job
 from app.platform.config.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
 from app.platform.http.exceptions import AppHTTPException
-from app.services.job_service import run_local_stub_job
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -291,7 +290,7 @@ def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
     api_sources = "\n".join(
         (REPO_ROOT / path).read_text()
         for path in (
-            "backend/app/api/v1/jobs_api.py",
+            "backend/app/modules/jobs/routes/commands.py",
             "backend/app/api/v1/excel_final_api.py",
         )
     )
@@ -322,7 +321,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     def fail_enqueue(job_id: int, pipeline: str, attempt: int) -> str:
         raise RuntimeError("mysql broker unavailable")
 
-    monkeypatch.setattr(job_service, "enqueue_job", fail_enqueue)
+    monkeypatch.setattr(job_dispatch, "enqueue_job", fail_enqueue)
 
     response = client.post(
         "/api/v1/jobs",
@@ -337,7 +336,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     assert response.status_code == 503, response.text
     assert response.json()["error"]["code"] == "JOB_ENQUEUE_FAILED"
 
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         job = db.query(Job).order_by(Job.id.desc()).first()
         assert job is not None
@@ -357,7 +356,7 @@ def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
         json={"username": "admin", "password": "SuperAdminPass1"},
     )
     headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         job = Job(
             created_by=1,
@@ -378,12 +377,12 @@ def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
     def fail_enqueue(job_id: int, pipeline: str, attempt: int) -> str:
         raise RuntimeError("mysql://user:secret@broker/internal")
 
-    monkeypatch.setattr(job_service, "enqueue_job", fail_enqueue)
+    monkeypatch.setattr(job_dispatch, "enqueue_job", fail_enqueue)
 
     response = client.post(f"/api/v1/jobs/{job_id}/retry-requests", headers=headers)
 
     assert response.status_code == 503, response.text
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         retried = db.get(Job, job_id)
         assert retried.status == JOB_FAILED
@@ -454,7 +453,7 @@ def test_infra_docs_match_current_core_and_profile_worker_topology():
 
 def test_stub_worker_does_not_overwrite_cancelled_job():
     init_db()
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         job = Job(
             task_type="cancelled_before_worker",
@@ -471,7 +470,7 @@ def test_stub_worker_does_not_overwrite_cancelled_job():
 
     run_local_stub_job(job_id)
 
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         job = db.get(Job, job_id)
         assert job is not None
@@ -483,7 +482,7 @@ def test_stub_worker_does_not_overwrite_cancelled_job():
 
 def test_stub_worker_marks_job_failed_when_result_storage_fails(monkeypatch):
     init_db()
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         job = Job(
             task_type="storage_failure",
@@ -501,14 +500,14 @@ def test_stub_worker_marks_job_failed_when_result_storage_fails(monkeypatch):
     def fail_storage(*args, **kwargs):
         raise AppHTTPException(503, "STORAGE_WRITE_FAILED", "storage unavailable")
 
-    monkeypatch.setattr(job_service, "save_bytes_as_file", fail_storage)
+    monkeypatch.setattr(job_stub, "save_bytes_as_file", fail_storage)
 
     try:
         run_local_stub_job(job_id)
     except AppHTTPException:
         pass
 
-    db = job_service.SessionLocal()
+    db = job_dispatch.SessionLocal()
     try:
         job = db.get(Job, job_id)
         assert job is not None
