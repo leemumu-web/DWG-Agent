@@ -45,6 +45,16 @@ export function DashboardPage() {
   const running = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
   const failed = jobs.filter((j) => j.status === 'failed').length;
   const recentJobs = jobs.slice(0, 6);
+  const pendingReviews = reviewsQ.data?.length ?? 0;
+  const projectCount = projectsQ.data?.length ?? 0;
+  const actionItems = [
+    failed > 0 ? { key: 'failed', tone: 'risk', title: `${failed} 个任务需要处理`, description: '查看错误原因并选择重新提交或取消。', label: '处理失败任务', to: '/jobs' } : null,
+    pendingReviews > 0 ? { key: 'reviews', tone: 'warning', title: `${pendingReviews} 项结果等待复核`, description: '处理完成前，结果不会进入下一步交接。', label: '进入复核队列', to: '/reviews' } : null,
+    projectCount === 0 ? { key: 'project', tone: 'info', title: '先创建或加入一个项目', description: '项目用于组织后续文件、任务和生产流程。', label: '管理项目', to: '/projects' } : null,
+  ].filter((item): item is NonNullable<typeof item> => item !== null);
+  if (!actionItems.length) {
+    actionItems.push({ key: 'workflow', tone: 'success', title: '生产环境已准备就绪', description: '从生产流程创建批次，上传 DWG 与 Excel 后由服务器生成 DXF。', label: '新建生产批次', to: '/workflows' });
+  }
 
   const anyError = projectsQ.isError || filesQ.isError || jobsQ.isError;
 
@@ -114,10 +124,11 @@ export function DashboardPage() {
                     (j.status === 'running' || j.status === 'queued') ? <SyncOutlined spin style={{ color: st.color }} /> :
                     <ClockCircleOutlined style={{ color: st.color }} />;
                   return (
-                    <div
+                    <button
                       key={j.id}
-                      onClick={() => navigate('/jobs')}
                       className="dashboard-job-row"
+                      aria-label={`查看任务 ${j.id} 详情`}
+                      onClick={() => navigate('/jobs')}
                     >
                       <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{icon}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -132,7 +143,7 @@ export function DashboardPage() {
                       <Typography.Text type="secondary" style={{ fontSize: 13, width: 48, textAlign: 'right' }}>
                         {j.progress}%
                       </Typography.Text>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -149,6 +160,14 @@ export function DashboardPage() {
                 <Link to="/projects"><Button block icon={<ProjectOutlined />}>我的项目</Button></Link>
                 <Link to="/jobs"><Button block icon={<ThunderboltOutlined />}>任务列表</Button></Link>
                 <Link to="/reviews"><Button block icon={<AuditOutlined />}>待复核结果</Button></Link>
+              </Space>
+            </Card>
+            <Card title="今日工作建议" size="small" className="dashboard-action-card">
+              <Space orientation="vertical" size={10} style={{ width: '100%' }}>
+                {actionItems.map((action) => <div className={`dashboard-action dashboard-action-${action.tone}`} key={action.key}>
+                  <div style={{ minWidth: 0 }}><Typography.Text strong>{action.title}</Typography.Text><Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>{action.description}</Typography.Text></div>
+                  <Button type="link" size="small" onClick={() => navigate(action.to)}>{action.label} <ArrowRightOutlined /></Button>
+                </div>)}
               </Space>
             </Card>
             <Card title="当前阶段" size="small">

@@ -44,6 +44,11 @@ avoid retrying authorization/validation failures while retaining bounded retry f
 transient network/5xx failures. These protections apply uniformly to all existing
 pages without changing page-specific business workflows.
 
+The dashboard also derives an ordered “today's work suggestions” list from the
+existing project, failed-job and pending-review queries. Every suggestion is a normal
+keyboard-accessible route action; recent-job rows are semantic buttons rather than
+click-only containers.
+
 ## Acceptance criteria
 
 - Admin can queue only the bounded stale-job reconciliation; auditor gets 403.

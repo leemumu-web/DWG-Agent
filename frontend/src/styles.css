@@ -74,6 +74,12 @@ button, input, textarea, select { font: inherit; }
 .app-content-inner { width: 100%; max-width: 1680px; margin: 0 auto; animation: page-enter .24s ease-out both; }
 .user-trigger { cursor: pointer; padding: 6px 8px; border-radius: 10px; transition: background .2s; }
 .user-trigger:hover { background: #f1f5f9; }
+.dashboard-action-card .ant-card-body { padding: 12px; }
+.dashboard-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 11px; border: 1px solid #e7ebf1; border-radius: 10px; }
+.dashboard-action-risk { background: #fff7f7; border-color: #ffd7d5; }
+.dashboard-action-warning { background: #fffbeb; border-color: #fde7ae; }
+.dashboard-action-info { background: #f4f8ff; border-color: #cfe0ff; }
+.dashboard-action-success { background: #f3fcf7; border-color: #c9efd8; }
 
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 22px; }
 .page-header-title { margin: 0 !important; letter-spacing: -.02em; }
@@ -244,8 +250,9 @@ button, input, textarea, select { font: inherit; }
 .dashboard-hero::after { content: ''; position: absolute; width: 260px; height: 260px; right: -70px; top: -130px; border-radius: 50%; border: 50px solid rgba(255,255,255,.07); }
 .dashboard-hero .ant-typography { color: inherit; }
 .dashboard-hero-meta { color: rgba(255,255,255,.72); }
-.dashboard-job-row { display: flex; align-items: center; gap: 12px; padding: 13px 20px; cursor: pointer; border-bottom: 1px solid #f0f2f5; transition: background .15s; }
+.dashboard-job-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 20px; text-align: left; color: inherit; background: transparent; border: 0; border-bottom: 1px solid #f0f2f5; cursor: pointer; transition: background .15s; }
 .dashboard-job-row:hover { background: #f8fbff; }
+.dashboard-job-row:focus-visible { position: relative; z-index: 1; outline: 2px solid #2563eb; outline-offset: -2px; background: #f4f8ff; }
 
 .login-page { min-height: 100vh; display: flex; background: #fff; }
 .login-brand-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 52px 6vw; color: #fff; position: relative; overflow: hidden; background: radial-gradient(circle at 85% 15%,rgba(56,189,248,.28),transparent 28%),linear-gradient(140deg,#0f172a,#1e3a8a 62%,#0f766e); }

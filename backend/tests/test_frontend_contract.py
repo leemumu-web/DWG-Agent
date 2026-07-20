@@ -218,6 +218,16 @@ def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
     assert "MinIO" in page_source
 
 
+def test_dashboard_turns_existing_task_and_review_state_into_next_actions():
+    source = _frontend_source("features/dashboard/DashboardPage.tsx")
+
+    assert "今日工作建议" in source
+    assert "failed > 0" in source
+    assert "reviewsQ.data" in source
+    assert "navigate(action.to)" in source
+    assert 'aria-label={`查看任务 ${j.id} 详情`}' in source
+
+
 def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     api_source = _frontend_source("api/workflows.api.ts")
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
