@@ -8,6 +8,14 @@ from urllib.parse import quote as url_quote
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Anchor to the backend/ package root so that relative storage paths are
+# independent of the process working directory.  When running locally
+# config.py lives at backend/app/core/ → parents[1] = backend/; inside the
+# Docker container it lives at /app/app/core/ → parents[1] = /app/ — both
+# match the expected ./var/storage layout.  The LOCAL_STORAGE_ROOT env var
+# remains the authoritative override for custom deployments.
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -38,7 +46,7 @@ class Settings(BaseSettings):
     db_pool_recycle_seconds: int = Field(default=3600, ge=60)
 
     storage_backend: Literal["local", "minio"] = "local"
-    local_storage_root: Path = Path("./var/storage")
+    local_storage_root: Path = _BACKEND_DIR / "var" / "storage"
     max_upload_size_mb: int = 512
     max_zip_extract_mb: int = 2048  # max total uncompressed size when extracting a ZIP
     max_zip_entry_count: int = 1000  # max number of files inside a single ZIP
