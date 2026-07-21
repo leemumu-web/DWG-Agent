@@ -266,7 +266,7 @@ def test_worker_ready_runs_domain_recovery_before_publishing_ready(monkeypatch):
         "update_worker_readiness_marker",
         lambda ready: order.append(f"ready:{ready}"),
     )
-    monkeypatch.setattr(celery_runtime, "_record_control_plane_signal", lambda *args: None)
+    monkeypatch.setattr(celery_runtime, "_emit_worker_signal", lambda *args: None)
 
     class Sender:
         app = celery_runtime.celery_app
@@ -287,7 +287,7 @@ def test_task_lifecycle_signals_forward_the_celery_task_id(monkeypatch):
     ) -> None:
         recorded.append((status, event_type, task_id))
 
-    monkeypatch.setattr(celery_runtime, "_record_control_plane_signal", record)
+    monkeypatch.setattr(celery_runtime, "_emit_worker_signal", record)
 
     celery_runtime._record_task_start(task_id="task-123")
     celery_runtime._record_task_finish(task_id="task-123")

@@ -16,15 +16,15 @@ from app.modules.files.interface import (
     StoredFile,
     register_pending_destructive_transfer,
 )
+from app.modules.operations.storage_reconciliation.remediation import (
+    _sign_preview,
+    execute_remediation,
+    preview_remediation,
+)
+from app.modules.operations.storage_reconciliation.scanning import execute_scan_run
 from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
-from app.services.storage_reconciliation_service import (
-    _sign_preview,
-    execute_remediation,
-    execute_scan_run,
-    preview_remediation,
-)
 
 
 def _factory(db):
@@ -99,9 +99,7 @@ def test_scan_classifies_deleted_object_as_retained(db, tmp_path):
 
     run = _run(db, storage, ["dwg-original"])
 
-    finding = db.scalar(
-        select(StorageScanFinding).where(StorageScanFinding.run_id == run.id)
-    )
+    finding = db.scalar(select(StorageScanFinding).where(StorageScanFinding.run_id == run.id))
     assert finding is not None
     assert finding.finding_type == "retained_deleted"
     assert run.retained_deleted_count == 1
@@ -164,9 +162,7 @@ def test_execute_rejects_changed_target_after_preview(db, tmp_path):
     storage = LocalFileStorage(tmp_path / "storage")
     _put(storage, "dwg-original", "orphan/purge.dwg", b"abc")
     run = _run(db, storage, ["dwg-original"])
-    finding = db.scalar(
-        select(StorageScanFinding).where(StorageScanFinding.run_id == run.id)
-    )
+    finding = db.scalar(select(StorageScanFinding).where(StorageScanFinding.run_id == run.id))
     preview = preview_remediation(
         db,
         storage,
@@ -226,9 +222,7 @@ def test_register_existing_computes_digest_and_is_idempotent(db, tmp_path):
     payload = b"0\nSECTION\n2\nENTITIES\n0\nEOF\n"
     _put(storage, "dxf-original", "orphan/recovered-object", payload)
     run = _run(db, storage, ["dxf-original"])
-    finding = db.scalar(
-        select(StorageScanFinding).where(StorageScanFinding.run_id == run.id)
-    )
+    finding = db.scalar(select(StorageScanFinding).where(StorageScanFinding.run_id == run.id))
     preview = preview_remediation(
         db,
         storage,
@@ -278,9 +272,7 @@ def test_restore_clears_deleted_at_and_records_transfer(db, tmp_path):
     db.commit()
     _put(storage, stored_file.bucket, stored_file.storage_key, b"abc")
     run = _run(db, storage, ["dwg-original"])
-    finding = db.scalar(
-        select(StorageScanFinding).where(StorageScanFinding.run_id == run.id)
-    )
+    finding = db.scalar(select(StorageScanFinding).where(StorageScanFinding.run_id == run.id))
     preview = preview_remediation(
         db,
         storage,
@@ -323,9 +315,7 @@ def test_soft_delete_missing_sets_deleted_at_and_records_transfer(db, tmp_path):
     )
     db.commit()
     run = _run(db, storage, ["dwg-original"])
-    finding = db.scalar(
-        select(StorageScanFinding).where(StorageScanFinding.run_id == run.id)
-    )
+    finding = db.scalar(select(StorageScanFinding).where(StorageScanFinding.run_id == run.id))
     preview = preview_remediation(
         db,
         storage,
@@ -366,9 +356,10 @@ def test_destructive_transfer_settles_only_after_metadata_commit(db):
     db.add(transfer)
     db.commit()
 
-    assert db.scalar(
-        select(FileTransfer.id).where(FileTransfer.transfer_uid == transfer.transfer_uid)
-    ) == transfer.id
+    assert (
+        db.scalar(select(FileTransfer.id).where(FileTransfer.transfer_uid == transfer.transfer_uid))
+        == transfer.id
+    )
     register_pending_destructive_transfer(
         db,
         transfer.transfer_uid,
@@ -394,9 +385,10 @@ def test_destructive_transfer_exposes_compensation_when_metadata_rolls_back(db):
     db.add(transfer)
     db.commit()
 
-    assert db.scalar(
-        select(FileTransfer.id).where(FileTransfer.transfer_uid == transfer.transfer_uid)
-    ) == transfer.id
+    assert (
+        db.scalar(select(FileTransfer.id).where(FileTransfer.transfer_uid == transfer.transfer_uid))
+        == transfer.id
+    )
     register_pending_destructive_transfer(
         db,
         transfer.transfer_uid,

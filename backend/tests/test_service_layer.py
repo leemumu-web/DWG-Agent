@@ -13,13 +13,13 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.automation.contracts.interface import automation_capability_contracts
 from app.modules.files import exports as file_service
 from app.modules.files.interface import (
     build_storage_path,
     validate_dwg_header,
     validate_upload_name,
 )
-from app.services import agent_service
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -361,11 +361,13 @@ class TestReviewService:
         jid = resp.json()["data"]["id"]
 
         import time
+
         time.sleep(2)
 
         results = client.get(f"/api/v1/jobs/{jid}/results", headers=admin_h)
         if not results.json()["data"]:
             import pytest
+
             pytest.skip("Stub worker did not produce results")
         rid = results.json()["data"][0]["id"]
 
@@ -438,9 +440,7 @@ class TestUserServiceAPI:
         client.post(f"/api/v1/users/{uid}/password-reset-requests", headers=admin_h)
         audit = client.get("/api/v1/audit-logs", headers=admin_h)
         logs = audit.json()["data"]
-        reset_log = next(
-            (log for log in logs if log["action"] == "users.password_reset"), None
-        )
+        reset_log = next((log for log in logs if log["action"] == "users.password_reset"), None)
         assert reset_log is not None
         assert reset_log.get("ip_address"), "password reset audit should have ip_address"
 
@@ -489,16 +489,15 @@ class TestStorageServiceValidation:
 
 
 # =============================================================================
-# agent_service — Stage 2 placeholder
+# Automation execution contract — deliberately non-executable
 # =============================================================================
 
 
 class TestAgentService:
-    def test_create_agent_run_raises_not_implemented(self):
-        with pytest.raises(NotImplementedError):
-            agent_service.create_agent_run(
-                db=None, user_id=1, session_id="test", task="test task"
-            )
+    def test_agent_runtime_is_explicitly_disabled(self):
+        contracts = {item.code: item for item in automation_capability_contracts()}
+        assert contracts["agent_runtime"].status == "disabled"
+        assert "Celery Agent task" in contracts["agent_runtime"].not_available
 
 
 # =============================================================================

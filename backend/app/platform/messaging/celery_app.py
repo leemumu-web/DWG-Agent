@@ -21,12 +21,14 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 
 from app.platform.config.settings import settings
-from app.platform.database.session import SessionLocal, engine
+from app.platform.database.session import engine
 
 logger = logging.getLogger(__name__)
 
 SQL_BROKER_MESSAGE_INDEX = "ix_kombu_message_queue_timestamp_id_visible"
 WORKER_READY_MARKER = Path("/tmp/dwg-celery-ready")
+
+RESERVED_EXECUTION_QUEUES = ("agent", "cad", "dispatch")
 
 JOB_QUEUE_NAMES = (
     "agent",
@@ -54,18 +56,20 @@ _celery_engine_options = {
 }
 
 _worker_ready_callbacks: dict[str, Callable[[], None]] = {}
+_worker_signal_callbacks: dict[str, Callable[..., None]] = {}
 
 celery_app = Celery(
     "dwg_agent",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
     include=[
-        "app.workers.tasks_agent",
-        "app.workers.tasks_cad",
         "app.modules.cad_processing.tasks",
         "app.modules.dxf_classification.tasks",
         "app.modules.excel_processing.tasks",
-        "app.workers.tasks_report",
+        "app.modules.jobs.tasks",
+        "app.modules.operations.daily_archive.tasks",
+        "app.modules.operations.storage_reconciliation.tasks",
+        "app.modules.operations.control_plane.tasks",
     ],
 )
 
@@ -98,15 +102,12 @@ celery_app.conf.update(
     task_default_queue="default",
     task_eager_propagates=True,
     task_routes={
-        "app.workers.tasks_agent.*": {"queue": "agent"},
         "app.workers.tasks_dxf.*": {"queue": "dxf"},
         "app.workers.tasks_dxf2dwg.*": {"queue": "dxf2dwg"},
         "app.workers.tasks_dxf2excel.*": {"queue": "dxf2excel"},
         "app.workers.tasks_dxf_classification.*": {"queue": "dxf_classification"},
         "app.workers.tasks_excel_final.*": {"queue": "excel_final"},
-        "app.workers.tasks_cad.*": {"queue": "cad"},
         "app.workers.tasks_report.*": {"queue": "report"},
-        "app.workers.tasks_dispatch.*": {"queue": "dispatch"},
         "app.workers.tasks_maintenance.*": {"queue": "maintenance"},
     },
     task_serializer="json",
@@ -250,6 +251,14 @@ def register_worker_ready_callback(name: str, callback: Callable[[], None]) -> N
     _worker_ready_callbacks[name] = callback
 
 
+def register_worker_signal_callback(
+    name: str,
+    callback: Callable[..., None],
+) -> None:
+    """Register one business observer without importing it into platform."""
+    _worker_signal_callbacks[name] = callback
+
+
 def run_worker_ready_callbacks() -> None:
     """Run application callbacks without hiding one callback's failure."""
     for name, callback in tuple(_worker_ready_callbacks.items()):
@@ -291,16 +300,13 @@ def _worker_queues() -> list[str]:
     ]
 
 
-def _record_control_plane_signal(
+def _emit_worker_signal(
     status: str, event_type: str, sender=None, task_id: str | None = None
 ) -> None:
-    """Never let optional observability persistence disrupt a Celery task."""
-    try:
-        from app.services.control_plane_service import record_worker_activity
-
-        with SessionLocal() as db:
-            record_worker_activity(
-                db,
+    """Notify optional observers without letting them disrupt a Celery task."""
+    for name, callback in tuple(_worker_signal_callbacks.items()):
+        try:
+            callback(
                 worker_name=_worker_identity(sender),
                 status=status,
                 event_type=event_type,
@@ -308,9 +314,8 @@ def _record_control_plane_signal(
                 concurrency=int(os.environ.get("DWG_WORKER_CONCURRENCY", "1")),
                 correlation_id=task_id,
             )
-            db.commit()
-    except Exception:
-        logger.exception("Failed to persist control-plane worker signal")
+        except Exception:
+            logger.exception("Worker signal observer failed: %s", name)
 
 
 @worker_process_init.connect
@@ -339,23 +344,23 @@ def _maintain_mysql_runtime_on_worker_start(sender=None, **_kwargs) -> None:
         logger.exception("Failed to clean stale SQL broker rows")
     run_worker_ready_callbacks()
     update_worker_readiness_marker(True)
-    _record_control_plane_signal("online", "worker.online", sender)
+    _emit_worker_signal("online", "worker.online", sender)
 
 
 @worker_shutdown.connect
 def _remove_worker_readiness_marker(sender=None, **_kwargs) -> None:
-    _record_control_plane_signal("stopped", "worker.stopped", sender)
+    _emit_worker_signal("stopped", "worker.stopped", sender)
     update_worker_readiness_marker(False)
 
 
 @task_prerun.connect
 def _record_task_start(task_id=None, task=None, **_kwargs) -> None:
-    _record_control_plane_signal("online", "task.started", task_id=task_id)
+    _emit_worker_signal("online", "task.started", task_id=task_id)
 
 
 @task_postrun.connect
 def _record_task_finish(task_id=None, **_kwargs) -> None:
-    _record_control_plane_signal("online", "task.finished", task_id=task_id)
+    _emit_worker_signal("online", "task.finished", task_id=task_id)
 
 
 # Load the explicit task registry once so tests, workers and shell probes see

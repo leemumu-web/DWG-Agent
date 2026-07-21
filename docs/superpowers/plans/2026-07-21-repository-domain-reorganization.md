@@ -943,6 +943,76 @@ git commit -m "refactor: group production workflow orchestration"
 
 ## Task 12: Group operations and truthful automation contracts
 
+Implementation refinement after tracing every remaining legacy Python module, all 29 operations
+HTTP operations, five operations-owned tables, three automation-owned tables, four maintenance
+task names and the target RabbitMQ/Outbox/Windows nodes in the source architecture:
+
+```text
+backend/app/modules/
+├── operations/
+│   ├── router.py                         # stable /data-admin composition order only
+│   ├── audit/{models,schemas,routes,interface}.py
+│   ├── daily_archive/
+│   │   ├── models.py                     # daily_archive_runs
+│   │   ├── schemas.py
+│   │   ├── planning.py                   # date scope, frozen manifest, signed preview
+│   │   ├── execution.py                  # streamed ZIP/manifest creation + registration
+│   │   ├── presentation.py               # stable API projection
+│   │   ├── routes.py
+│   │   └── tasks.py                      # stable public maintenance task name
+│   ├── data_catalog/
+│   │   ├── queries.py                    # MySQL operational read model
+│   │   ├── presentation.py               # file/transfer/object projections
+│   │   ├── infrastructure.py             # bounded MySQL/MinIO health probes
+│   │   ├── routes.py                     # overview/files/objects/transfers
+│   │   └── system_routes.py              # existing /system operations
+│   ├── storage_reconciliation/
+│   │   ├── schemas.py
+│   │   ├── scanning.py                   # compare MySQL registry with MinIO objects
+│   │   ├── remediation.py                # signed preview + bounded compensation actions
+│   │   ├── presentation.py
+│   │   ├── routes.py
+│   │   └── tasks.py                      # stable public report task name
+│   └── control_plane/
+│       ├── models.py                     # runtimes, events, messages
+│       ├── service.py
+│       ├── routes.py
+│       ├── interface.py                  # event writes used by other operations tasks
+│       └── tasks.py                      # stale-job reconciliation
+└── automation/
+    ├── agent/
+    │   ├── models/{memory,runs}.py        # delivered MySQL persistence only
+    │   ├── schemas.py
+    │   ├── memory.py                     # tested TTL/cap storage helper
+    │   ├── routes.py                     # unchanged explicit AGENT_DISABLED boundary
+    │   └── README.md
+    └── contracts/
+        ├── schemas.py                    # descriptive contract states, no executor
+        ├── interface.py                  # Windows/MCP/ZWCAD capability description
+        └── README.md
+```
+
+The four storage reconciliation persistence tables remain owned by `modules/files/models.py`:
+operations consumes `StorageScanRun` and `StorageScanFinding` only through `files.interface`.
+Moving use-case behavior must not move those tables or the storage adapter.  Audit, archive and
+control-plane tables move with their operation owners; the two Agent model modules preserve the
+same three table names and relationships.
+
+The externally observable contract is frozen during this task: 29 operations-owned HTTP
+operations, four Agent HTTP operations, all operation IDs and registration precedence, five plus
+three ORM table names, and all 11 Celery public task names remain unchanged.  The four affected
+task names deliberately keep the historical `app.workers.tasks_*` strings even though their
+implementation modules move.  `run_stub_job` becomes a jobs-owned task; archive, reconciliation
+and stale-job recovery become daily-archive, storage-reconciliation and control-plane tasks.
+
+There is no executable Agent, MCP, ZWCAD, Node Agent, CAM Runner, RabbitMQ, transactional Outbox or
+Beat implementation to migrate.  Empty task/adapter modules are removed instead of being retained
+as false evidence.  Reserved `agent`, `cad` and `dispatch` queue names remain deployment seams, but
+no task is registered for them.  `AGENT_ENABLED=false` continues returning `503 AGENT_DISABLED`
+from every Agent route, and the Windows contract continues declaring authentication, leases,
+fencing and runner execution unimplemented.  Current Celery transport remains MySQL SQLAlchemy;
+this refactor must not relabel it RabbitMQ.
+
 **Files:**
 
 - Create: operations submodules `daily_archive`, `data_catalog`, `storage_reconciliation`, `control_plane`, `audit`
@@ -953,19 +1023,37 @@ git commit -m "refactor: group production workflow orchestration"
 - Delete empty Python files: old `tasks_agent.py`, `tasks_cad.py`, `tasks_dispatch.py`, one-line placeholder adapters
 - Update registry, imports, tests, catalog
 
-- [ ] **Step 1: Add honesty tests**
+- [x] **Step 1: Add ownership and honesty tests**
 
-Assert placeholder/external automation modules have no registered Celery tasks and return explicit disabled/not-implemented responses. Assert current maintenance tasks remain registered.
+Assert exact operations/Agent route method-path-function order, exact table owners, stable task
+names/queues and both import orders. Assert placeholder/external automation has no registered
+task, empty adapter modules no longer exist, Agent routes return explicit disabled responses and
+the Windows contract reports draft/unimplemented capabilities.
 
-- [ ] **Step 2: Split operations by owner**
+- [x] **Step 2: Split operations by owner without moving file-owned facts**
 
 Daily archive owns preview/run/manifest; reconciliation owns scan/finding/remediation; data catalog is read-only operational projection; control plane owns runtime messages/events; audit owns append/read.
 
-- [ ] **Step 3: Remove misleading empty implementation modules**
+Compose `/data-admin` in the existing observable order: four daily archive operations, six data
+catalog operations, then six scan/remediation operations.  Preserve static routes ahead of
+`/daily-archives/{archive_id}`, `/transfers/{transfer_uid}` and `/scans/{scan_id}` where relevant.
+
+- [x] **Step 3: Move task implementations behind domain interfaces**
+
+Keep the four historical task `name=` values and maintenance/report queue routing.  The task
+registry imports seven real task modules (jobs, CAD, classification, Excel, archive,
+reconciliation and control plane) instead of eight modules containing three empty placeholders.
+Other domains record control-plane events through `control_plane.interface`, not its ORM model.
+
+- [x] **Step 4: Remove misleading empty implementation modules**
 
 Represent unimplemented Windows/Agent capabilities in README, schemas and explicit interface methods. Remove 1-line Python files that imply concrete adapters exist.
 
-- [ ] **Step 4: Verify**
+After all imports are migrated, delete the now-empty legacy `app/api`, `app/models`, `app/schemas`,
+`app/services` and `app/workers` source packages.  Do not add compatibility facades that recreate
+the horizontal dependency direction.
+
+- [x] **Step 5: Verify focused behavior and frozen contracts**
 
 ```bash
 cd backend
@@ -976,7 +1064,16 @@ cd backend
 .venv/bin/alembic check
 ```
 
-- [ ] **Step 5: Commit**
+Then run the full backend suite, quick verification gate, frontend production build,
+documentation/architecture checks and runtime snapshot check. Expected public totals remain
+114 paths, 135 operations, 36 tables and 11 tasks.
+
+Completed evidence: operations/automation focused selection `160 passed, 3 skipped`; architecture
+`62 passed`; full backend `1079 passed, 6 skipped`; Alembic no drift; runtime snapshot and module
+catalog retained 114 paths, 135 operations, 36 tables and 11 tasks. The quick gate passed all 6
+sections with 218 focused tests, documentation checks and the frontend production build.
+
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/app backend/tests docs/architecture

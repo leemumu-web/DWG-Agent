@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.agent_run import AgentRun, AgentRunStep
+from app.modules.automation.agent.models.runs import AgentRun, AgentRunStep
 from app.modules.files.interface import StoredFile
 from app.modules.jobs.interface import AnalysisResult, Job
 
@@ -633,7 +633,7 @@ def test_agent_run_details_and_steps_are_restricted_to_the_owner(
     )
     db.commit()
     run_id = run.id
-    monkeypatch.setattr("app.api.v1.agent_runs_api.settings.agent_enabled", True)
+    monkeypatch.setattr("app.modules.automation.agent.routes.settings.agent_enabled", True)
 
     owner_headers = _login(client, owner_name, "AgentOwnerPass1")
     assert client.get(f"/api/v1/agent-runs/{run_id}", headers=owner_headers).status_code == 200

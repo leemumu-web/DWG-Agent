@@ -25,10 +25,10 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 | `backend/app/modules/dxf_classification/` | Classifier 1.1 适配、两张账本与 Job/Workflow 编排；公共入口为 `interface.py` |
 | `backend/app/modules/excel_processing/` | Excel Final 上传/执行、三张关系投影表、查询与手册工具；公共入口为 `interface.py` |
 | `backend/app/modules/workflows/` | 生产模板、五张流程/输入表、状态机、Job 同步、输入冻结和 16 个 route；公共入口为 `interface.py` |
-| `backend/app/modules/operations/audit/` | 当前跨领域审计写入口；其余 operations 尚待迁移 |
-| `backend/app/modules/` | 其他按领域迁移后的业务能力；不得被 platform 反向导入 |
-| `backend/app/api/`、`services/`、`models/`、`schemas/` | operations/automation 等尚待迁移的纵向业务切片；workflow 旧横向文件已退出，不能在旧目录恢复双实现 |
-| `backend/app/workers/`、`modules/*/tasks.py` | 未迁移与已归域的 task module；公共 task name 仍保持稳定，Celery 应用位于 `platform/messaging/` |
+| `backend/app/modules/operations/` | 审计、归档、数据目录、存储对账和控制平面；跨域写入口位于各 owner 的 `interface.py` |
+| `backend/app/modules/automation/` | 已交付 Agent 数据基础与未实现 Agent/MCP/ZWCAD/Windows 契约分开 |
+| `backend/app/modules/` | 全部按领域归组的业务能力；不得被 platform 反向导入 |
+| `backend/app/modules/*/tasks.py` | 7 个真实 task module；公共 task name 保持稳定，Celery 应用位于 `platform/messaging/` |
 | `backend/app/platform/storage/` | local/MinIO byte adapter |
 | `backend/migrations/` | Alembic 所有的业务 schema |
 | `frontend/src/api/` | typed HTTP client、auth refresh、download |
@@ -118,7 +118,7 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 
 ## Worker 变更
 
-当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 8 个 task module 并锁定 11 个公共任务名；CAD 转换的 5 个历史任务名由一个领域 task module 注册，分类与 Excel Final 任务分别由各自领域 module 注册。空的 Agent/CAD module 仍只是禁用占位，`dispatch` 是可观察进程身份预留，不能把它们描述成核心处理能力。
+当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 7 个真实 task module 并锁定 11 个公共任务名；CAD 转换的 5 个历史任务名由一个领域 module 注册，分类、Excel Final、Job stub、归档、存储对账和 stale recovery 由各自 owner 注册。`agent`、`cad`、`dispatch` 是保留队列，没有对应 task module 或执行器，不能描述成核心处理能力。
 
 MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 

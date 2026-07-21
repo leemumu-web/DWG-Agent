@@ -6,14 +6,14 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.models.agent_memory import AgentMemory
-from app.platform.config.settings import settings
-from app.services.agent_memory import (
+from app.modules.automation.agent.memory import (
     append_and_save,
     delete_session_history,
     get_session_history,
     save_session_history,
 )
+from app.modules.automation.agent.models.memory import AgentMemory
+from app.platform.config.settings import settings
 
 
 class TestGetSessionHistory:

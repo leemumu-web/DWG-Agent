@@ -13,8 +13,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.daily_archive import DailyArchiveRun
 from app.modules.files.interface import StoredFile
+from app.modules.operations.daily_archive.models import DailyArchiveRun
 from app.platform.storage.base import StorageObjectNotFound
 from app.platform.storage.local import LocalFileStorage
 
@@ -32,7 +32,7 @@ def _admin_headers(client: TestClient) -> dict[str, str]:
 
 
 def test_daily_archive_preview_freezes_business_day_snapshot(tmp_path, monkeypatch, db):
-    from app.services.daily_archive_service import preview_daily_archive
+    from app.modules.operations.daily_archive.planning import preview_daily_archive
 
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
@@ -185,8 +185,8 @@ def test_daily_archive_marks_run_failed_when_frozen_object_is_missing(
     monkeypatch,
     db,
 ):
-    from app.services.daily_archive_service import (
-        execute_daily_archive_run,
+    from app.modules.operations.daily_archive.execution import execute_daily_archive_run
+    from app.modules.operations.daily_archive.planning import (
         prepare_daily_archive_run,
         preview_daily_archive,
     )

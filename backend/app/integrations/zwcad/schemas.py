@@ -1,1 +1,0 @@
-"""ZWCAD Worker schema placeholder."""

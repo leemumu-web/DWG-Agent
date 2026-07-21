@@ -642,7 +642,7 @@ analysis_results ──< workflow_artifacts
 ### 4.2 如何创建新迁移
 
 ```bash
-# 1. 修改 app/models/ 中的 SQLAlchemy 模型
+# 1. 修改对应 app/modules/<domain>/ 中由 model registry 装配的 SQLAlchemy 模型
 
 # 2. 生成迁移脚本
 cd backend

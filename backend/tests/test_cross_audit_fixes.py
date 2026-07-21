@@ -17,10 +17,10 @@ import app.modules.files.interface as file_service
 import app.modules.jobs.interface as jobs_interface
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.automation.contracts.interface import automation_capability_contracts
 from app.modules.identity.users import reset_user_password
 from app.modules.projects.services import drawings as drawing_service
 from app.modules.projects.services import projects as project_service
-from app.services import agent_service
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -59,7 +59,7 @@ def _create_user(
     )
     assert resp.status_code == 201, resp.text
     user_id = resp.json()["data"]["id"]
-    for role_code in (roles or []):
+    for role_code in roles or []:
         r = client.post(
             f"/api/v1/users/{user_id}/roles",
             headers=admin_headers,
@@ -69,9 +69,7 @@ def _create_user(
     return user_id
 
 
-def _login(
-    client: TestClient, username: str, password: str = "TestPass1234"
-) -> dict[str, str]:
+def _login(client: TestClient, username: str, password: str = "TestPass1234") -> dict[str, str]:
     resp = client.post(
         "/api/v1/auth/sessions",
         json={"username": username, "password": password},
@@ -104,9 +102,7 @@ class TestAuditLogIPCature:
         audit_resp = client.get("/api/v1/audit-logs", headers=headers)
         assert audit_resp.status_code == 200
         logs = audit_resp.json()["data"]
-        creation_log = next(
-            (log for log in logs if log["action"] == "users.create"), None
-        )
+        creation_log = next((log for log in logs if log["action"] == "users.create"), None)
         assert creation_log is not None, "Expected a users.create audit log"
         assert creation_log.get("ip_address"), (
             f"ip_address should not be empty; got {creation_log.get('ip_address')!r}"
@@ -126,9 +122,7 @@ class TestAuditLogIPCature:
         audit_resp = client.get("/api/v1/audit-logs", headers=headers)
         assert audit_resp.status_code == 200
         logs = audit_resp.json()["data"]
-        login_log = next(
-            (log for log in logs if log["action"] == "auth.login"), None
-        )
+        login_log = next((log for log in logs if log["action"] == "auth.login"), None)
         assert login_log is not None, "Expected an auth.login audit log"
         assert login_log.get("user_agent"), (
             f"user_agent should not be empty; got {login_log.get('user_agent')!r}"
@@ -149,9 +143,7 @@ class TestAuditLogIPCature:
         audit_resp = client.get("/api/v1/audit-logs", headers=headers)
         assert audit_resp.status_code == 200
         logs = audit_resp.json()["data"]
-        creation_log = next(
-            (log for log in logs if log["action"] == "projects.create"), None
-        )
+        creation_log = next((log for log in logs if log["action"] == "projects.create"), None)
         assert creation_log is not None
         assert creation_log.get("ip_address"), "ip_address should be populated"
 
@@ -172,9 +164,7 @@ class TestAuditLogIPCature:
         audit_resp = client.get("/api/v1/audit-logs", headers=headers)
         assert audit_resp.status_code == 200
         logs = audit_resp.json()["data"]
-        upload_log = next(
-            (log for log in logs if log["action"] == "files.upload"), None
-        )
+        upload_log = next((log for log in logs if log["action"] == "files.upload"), None)
         assert upload_log is not None, "Expected a files.upload audit log"
         assert upload_log.get("ip_address"), "ip_address should be populated"
 
@@ -263,9 +253,7 @@ class TestDeletedAuthProfile:
 
         audit_resp = client.get("/api/v1/audit-logs", headers=headers)
         logs = audit_resp.json()["data"]
-        update_log = next(
-            (log for log in logs if log["action"] == "users.update_self"), None
-        )
+        update_log = next((log for log in logs if log["action"] == "users.update_self"), None)
         assert update_log is not None, "Expected users.update_self audit log"
         assert update_log.get("ip_address"), "ip_address should be populated"
 
@@ -327,9 +315,7 @@ class TestDeleteProjectMember:
         )
 
         list_resp = client.get("/api/v1/projects", headers=headers)
-        project = next(
-            (p for p in list_resp.json()["data"] if p["code"] == code), None
-        )
+        project = next((p for p in list_resp.json()["data"] if p["code"] == code), None)
 
         username = _unique("audit-mem")
         uid = _create_user(client, headers, username, roles=["viewer"])
@@ -347,9 +333,7 @@ class TestDeleteProjectMember:
 
         audit_resp = client.get("/api/v1/audit-logs", headers=headers)
         logs = audit_resp.json()["data"]
-        del_log = next(
-            (log for log in logs if log["action"] == "project_members.delete"), None
-        )
+        del_log = next((log for log in logs if log["action"] == "project_members.delete"), None)
         assert del_log is not None, "Expected project_members.delete audit log"
         assert del_log.get("ip_address"), "ip_address should be populated"
 
@@ -372,9 +356,7 @@ class TestReviewDecisionValidation:
             json={"code": code, "name": f"Review Project {code}"},
         )
         proj_resp = client.get("/api/v1/projects", headers=headers)
-        project = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code), None
-        )
+        project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
 
         # Create drawing
         draw_resp = client.post(
@@ -406,9 +388,7 @@ class TestReviewDecisionValidation:
         time.sleep(1.5)
 
         # Get results
-        results_resp = client.get(
-            f"/api/v1/jobs/{job_id}/results", headers=headers
-        )
+        results_resp = client.get(f"/api/v1/jobs/{job_id}/results", headers=headers)
         assert results_resp.status_code == 200, results_resp.text
         results = results_resp.json()["data"]
         if not results:
@@ -535,9 +515,10 @@ class TestNewServiceFiles:
         assert hasattr(jobs_interface, "get_result_job")
         assert hasattr(jobs_interface, "create_review")
 
-    def test_agent_service_imports(self):
-        """agent_service is a Stage 2 placeholder."""
-        assert hasattr(agent_service, "create_agent_run")
+    def test_automation_contract_reports_missing_executor(self):
+        contracts = {item.code: item for item in automation_capability_contracts()}
+        assert contracts["agent_runtime"].status == "disabled"
+        assert contracts["mcp_cad"].status == "not_implemented"
 
     def test_jobs_interface_exports_lifecycle_operations(self):
         """The Job domain boundary exposes cancellation and retry operations."""
@@ -570,9 +551,7 @@ class TestCancelRetryJobService:
             json={"code": code, "name": f"Cancel {code}"},
         )
         proj_resp = client.get("/api/v1/projects", headers=headers)
-        project = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code), None
-        )
+        project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
         draw_resp = client.post(
             "/api/v1/drawings",
             headers=headers,
@@ -618,9 +597,7 @@ class TestCancelRetryJobService:
             json={"code": code, "name": f"Retry {code}"},
         )
         proj_resp = client.get("/api/v1/projects", headers=headers)
-        project = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code), None
-        )
+        project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
         draw_resp = client.post(
             "/api/v1/drawings",
             headers=headers,
@@ -673,9 +650,7 @@ class TestDeleteProjectMemberEdgeCases:
             json={"code": code, "name": f"Edge {code}"},
         )
         proj_resp = client.get("/api/v1/projects", headers=headers)
-        project = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code), None
-        )
+        project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
 
         resp = client.delete(
             f"/api/v1/projects/{project['id']}/members/999999",
@@ -704,12 +679,8 @@ class TestDeleteProjectMemberEdgeCases:
         )
 
         proj_resp = client.get("/api/v1/projects", headers=headers)
-        proj_a = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code_a), None
-        )
-        proj_b = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code_b), None
-        )
+        proj_a = next((p for p in proj_resp.json()["data"] if p["code"] == code_a), None)
+        proj_b = next((p for p in proj_resp.json()["data"] if p["code"] == code_b), None)
 
         username = _unique("cross-proj")
         uid = _create_user(client, headers, username, roles=["viewer"])
@@ -741,9 +712,7 @@ class TestDeleteProjectMemberEdgeCases:
             json={"code": code, "name": f"NonOwner {code}"},
         )
         proj_resp = client.get("/api/v1/projects", headers=headers)
-        project = next(
-            (p for p in proj_resp.json()["data"] if p["code"] == code), None
-        )
+        project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
 
         # Create engineer user
         eng_username = _unique("engineer-no-own")
@@ -825,9 +794,7 @@ class TestFullFlowAuditIP:
         for log in logs:
             if log["action"] in expected_actions:
                 found_actions.add(log["action"])
-                assert log.get("ip_address"), (
-                    f"Audit log {log['action']} should have ip_address"
-                )
+                assert log.get("ip_address"), f"Audit log {log['action']} should have ip_address"
 
         assert found_actions == expected_actions, (
             f"Missing expected audit actions: {expected_actions - found_actions}"

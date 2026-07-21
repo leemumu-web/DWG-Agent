@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.files.interface import StoredFile
+from app.modules.operations.data_catalog import infrastructure as infrastructure_service
 from app.platform.config.settings import settings
 from app.platform.storage.base import StorageConfigurationError
 from app.platform.storage.local import LocalFileStorage
-from app.services import infrastructure_service
 
 _DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
 
@@ -48,9 +48,7 @@ def _viewer_headers(client: TestClient) -> dict[str, str]:
     )
     assert assign.status_code == 201, assign.text
 
-    login = client.post(
-        "/api/v1/auth/sessions", json={"username": username, "password": password}
-    )
+    login = client.post("/api/v1/auth/sessions", json={"username": username, "password": password})
     assert login.status_code == 201, login.text
     return {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 

@@ -13,7 +13,6 @@ from app.modules.jobs.models import Job
 from app.platform.config.constants import JOB_FAILED, JOB_RUNNING
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
-from app.platform.messaging.celery_app import register_worker_ready_callback
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +112,8 @@ def _reconcile_jobs_on_worker_ready() -> None:
 
 def register_job_worker_maintenance() -> None:
     """Register domain recovery in the generic Celery worker-ready seam."""
+    from app.platform.messaging.celery_app import register_worker_ready_callback
+
     register_worker_ready_callback(
         "jobs.reconcile_stale_running",
         _reconcile_jobs_on_worker_ready,

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.orm import Session
 
-from app.models.audit_log import AuditLog
+from app.modules.operations.audit.models import AuditLog
 
 if TYPE_CHECKING:
     from fastapi import Request

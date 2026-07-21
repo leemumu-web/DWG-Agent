@@ -88,10 +88,10 @@ Celery workers
 
 | 层次 | 主要位置 | 当前能力 |
 |---|---|---|
-| API | `backend/app/api/v1/` | auth、users、roles、projects、files、drawings、jobs、results、reviews、audit、workflow、data-admin、Excel Final 等 |
-| 服务层 | `backend/app/services/` | 权限、Job、工作流、文件事务、存储对账、转换管线、Excel Final 等 |
-| 数据模型 | `backend/app/models/` | 用户、项目、文件、图纸、Job、结果、审计、workflow、Excel Final、流转和扫描模型 |
-| 异步执行 | `backend/app/workers/` | report、dxf、dxf2dwg、dxf2excel、excel_final；agent/cad 是占位 |
+| 业务模块 | `backend/app/modules/` | identity、projects、files、jobs、workflows、CAD/分类/Excel、operations 和 automation 按 owner 共置 route/model/schema/use case/task |
+| 应用装配 | `backend/app/bootstrap/` | FastAPI router、model registry、task registry 与 seed；不保存业务规则 |
+| 平台服务 | `backend/app/platform/` | 配置、数据库、HTTP、Celery/SQL transport、日志、安全和 Local/MinIO 技术 seam；AST 门禁禁止导入业务模块 |
+| 异步执行 | `backend/app/modules/*/tasks.py` | 7 个真实 module 注册 11 个历史公共 task name；agent/cad/dispatch 只保留队列契约，无 task |
 | 存储 | `backend/app/platform/storage/` | Local 与 MinIO adapter |
 | 前端 | `frontend/src/` | 管理、上传、转换、任务、复核、审计、基础设施、Excel Final、工作流页面 |
 | CAD 转换 Stage | `Stages/dwg2dxf`、`Stages/dxf2dwg` | 基于 ODA 的双向格式转换 |

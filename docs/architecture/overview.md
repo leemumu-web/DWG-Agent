@@ -44,7 +44,7 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 
 后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
 
-identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类、Excel Final 和生产工作流也分别进入 `cad_processing`、`dxf_classification`、`excel_processing` 与 `workflows`。Excel 域把 14 个 operation、三张关系投影表、上传事务复用、Stage 子进程、工作簿导入和稳定 Celery 任务按职责分开；工作流域把五张流程/输入表、模板、状态机、Job 同步、阶段执行计划、输入四种转换和 16 个 operation 分层。跨域调用只经各模块 `interface.py`；对应旧横向文件已删除，HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 worker-ready callback，由 bootstrap 注册 Job 恢复。重构期间尚未迁移的 operations/automation 业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现或恢复 workflow 双实现。
+identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类、Excel Final 和生产工作流分别进入 `cad_processing`、`dxf_classification`、`excel_processing` 与 `workflows`。operations 进一步按 audit、daily archive、data catalog、storage reconciliation、control plane 分层；automation 把已交付的三张表/会话记忆/API 与未实现执行契约分开。跨域调用只经各模块 `interface.py`；旧 `api/models/schemas/services/workers` 横向业务源码和空 Agent/MCP/ZWCAD 适配器已经退出。HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 callback seam，由 bootstrap 注册 Job 恢复和控制平面 observer，不反向导入业务模块。
 
 ## 同步请求路径
 
@@ -121,7 +121,7 @@ MySQL 的 `files` 是业务登记事实源，Local FS/MinIO 是字节事实源�
 
 上传、ZIP 每个有效条目、worker 生成文件和 DXF SVG 预览缓存均走该路径。预览缓存以源文件 ID、SHA-256 前缀和 renderer 版本分组，MySQL 登记 SVG 文件，MinIO/Local 保存字节；缓存命中仍由对象 `stat` 验证。锁内二次命中写 `preview_cache_reuse`，明确表示零字节复用而非生成。源 DXF 软删除在同一数据库事务中把对应预览登记标为 deleted 并写 `preview_invalidate`；物理 SVG 仍遵循保留期/对账/purge。下载/ZIP/预览出库在响应流开始前登记 outbound 意图，iterator 正常耗尽、客户端中断或存储读取失败后按实际字节独立结算。软删除只更新登记并保留对象；恢复会清空 `deleted_at`。永久清理先锁定 finding/关联登记并重检对象，再删除对象；只有元数据提交成功后才把独立流水结算为成功，提交失败留下 `compensation_required`，不声称原子回滚了不可恢复字节。
 
-local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落盘。MinIO/local 都实现 stat、exists 和游标分页清单。report worker 异步生成 `storage_scan_runs` 与异常 `storage_scan_findings`，分类为对象缺失、未登记对象、大小不符和软删除对象保留。管理员可在七页签数据控制台执行带签名预检 token、5 分钟有效期、实时摘要重检、批量数量/字节上限和幂等键的四种处置；审计员只有读取与预检权限。`reap-storage` 仍用于保留期回收和脚本化维护，不替代扫描/处置账本。
+local 后端 `put_fileobj` 经临时文件、`fsync` 和原子 `os.replace` 落盘。MinIO/local 都实现 stat、exists 和游标分页清单。`operations/storage_reconciliation` 的 report-queue task 异步生成 files 域拥有的 `storage_scan_runs` 与异常 `storage_scan_findings`，分类为对象缺失、未登记对象、大小不符和软删除对象保留。管理员可在七页签数据控制台执行带签名预检 token、5 分钟有效期、实时摘要重检、批量数量/字节上限和幂等键的四种处置；审计员只有读取与预检权限。`reap-storage` 仍用于保留期回收和脚本化维护，不替代扫描/处置账本。
 
 数据控制台现有七个页签。每日归档与一致性处置使用不同安全语义：归档按 `Asia/Shanghai` 自然日生成带签名的冻结清单，maintenance worker 流式读取源对象，在 `dwg-reports/daily-archives/YYYY-MM-DD/` 新增 ZIP 和 JSON manifest，并把两者登记到 `files`/`file_transfers`；不移动或删除源对象。历史归档前缀自动排除，避免递归打包。相同清单复用成功结果，活动任务复用运行记录；源文件状态、摘要或对象可读性变化时整次失败，不返回貌似完整的 ZIP。完整操作边界见[运维指南](../guides/operations.md#数据控制台运行手册)。
 

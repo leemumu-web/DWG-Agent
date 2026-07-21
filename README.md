@@ -43,7 +43,7 @@
 |---|---|---|---|
 | Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.1.0 分类分流、十阶段、DXF→Excel/Excel Final Job、attempt 同步和生产流程控制台 | 图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口；处理管线由开关控制 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
-| Agent | ⏸️ | API、模型和权限边界保留 | 不继续实现；`tasks_agent.py` 保持占位，`AGENT_ENABLED=false` |
+| Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和能力契约保留 | 不继续实现；无 Agent task/执行器，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | 图纸元数据与格式转换边界保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 不在当前交付范围 |
 | Redis/Valkey | ❌ | 当前运行时不使用 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
 

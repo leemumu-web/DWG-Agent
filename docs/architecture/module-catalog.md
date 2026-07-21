@@ -31,12 +31,21 @@
 
 当前 11 个任务名包含 `app.workers.tasks_dxf_classification.classify_steel_dxf`。早期人工基线误记为 10；运行时快照已纠正，后续以脚本从 Celery registry 读取的集合为准。
 
-11 个稳定任务名目前由 8 个 Python task module 装配；CAD 的 5 个任务集中在 `cad_processing.tasks`，分类任务集中在 `dxf_classification.tasks`，Excel Final 任务集中在 `excel_processing.tasks`。这是实现文件归并，不改变已入队消息使用的历史任务名和队列。
+11 个稳定任务名目前由 7 个真实 Python task module 装配：CAD 的 5 个任务集中在
+`cad_processing.tasks`，分类与 Excel Final 各一个，report stub 归 `jobs.tasks`；归档、对账与
+stale recovery 分别归 daily archive、storage reconciliation 和 control plane。历史
+`app.workers.tasks_*` 名称与队列不变；空 Agent/CAD/dispatch task module 已删除。
 
 `workflows` 的 5 张表和 16 个 operation 现集中在 `app/modules/workflows/`。模型/Schema、模板、
 状态机、Job 同步、阶段执行计划、输入登记/转换/冻结/展示以及七类 route 均可从目录直接
 追溯；人工输入仍严格为多个 DWG + 一个 Excel，DXF 只允许服务器派生。该归并没有增加
 Celery task，也没有把四个 placeholder/external 阶段升级为已实现。
+
+`operations` 现按 audit、daily archive、data catalog、storage reconciliation 和 control
+plane 五个 owner 分层；`automation` 把已交付的三张表/会话记忆/API 与未实现的
+Agent/MCP/ZWCAD/Windows 执行契约物理分开。旧 `app/api`、`models`、`schemas`、`services`、
+`workers` 横向业务源码均已退出。扫描 run/finding 表仍由 files 拥有，operations 只经
+`files.interface` 使用；目录迁移没有改变表 owner。
 
 ## 修改规则
 

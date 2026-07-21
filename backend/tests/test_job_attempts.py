@@ -9,7 +9,6 @@ from sqlalchemy.sql.dml import Update
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.audit_log import AuditLog
 from app.modules.excel_processing.models import ExcelFinalBatch, ExcelFinalPart
 from app.modules.jobs.event_stream import job_snapshot
 from app.modules.jobs.interface import (
@@ -24,6 +23,7 @@ from app.modules.jobs.interface import (
     fail_job_attempt,
     retry_job,
 )
+from app.modules.operations.audit.models import AuditLog
 from app.platform.http.exceptions import AppHTTPException
 
 

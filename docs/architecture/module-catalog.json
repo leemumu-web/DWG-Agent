@@ -75,8 +75,7 @@
       "architecture_nodes": ["MINIO", "MYSQL", "U10", "U2", "U3", "U6"],
       "backend_paths": [
         "backend/app/modules/files",
-        "backend/app/platform/storage",
-        "backend/app/services/storage_reconciliation_service.py"
+        "backend/app/platform/storage"
       ],
       "frontend_paths": [
         "frontend/src/api/files.api.ts",
@@ -239,19 +238,7 @@
       "status": "partial",
       "architecture_nodes": ["BACKUP", "MONITOR", "Q_MAINTAIN", "W_MAINTAIN"],
       "backend_paths": [
-        "backend/app/api/v1/audit_logs_api.py",
-        "backend/app/api/v1/control_plane_api.py",
-        "backend/app/api/v1/data_admin_api.py",
-        "backend/app/api/v1/system_api.py",
-        "backend/app/models/audit_log.py",
-        "backend/app/models/control_plane.py",
-        "backend/app/models/daily_archive.py",
-        "backend/app/modules/operations/audit/interface.py",
-        "backend/app/services/control_plane_service.py",
-        "backend/app/services/daily_archive_service.py",
-        "backend/app/services/infrastructure_service.py",
-        "backend/app/workers/tasks_maintenance.py",
-        "backend/app/workers/tasks_report.py"
+        "backend/app/modules/operations"
       ],
       "frontend_paths": [
         "frontend/src/api/control-plane.api.ts",
@@ -280,9 +267,19 @@
       ],
       "queues": ["maintenance", "report"],
       "stages": [],
-      "tests": ["backend/tests/test_control_plane_api.py", "backend/tests/test_daily_archive.py"],
-      "docs": ["docs/guides/operations.md", "docs/verification/current.md"],
-      "notes": "Maintenance is explicitly requested; periodic scheduling, automated off-site backup and full observability remain absent."
+      "tests": [
+        "backend/tests/architecture/test_operations_automation_boundaries.py",
+        "backend/tests/test_control_plane_api.py",
+        "backend/tests/test_daily_archive.py",
+        "backend/tests/test_data_admin_api.py",
+        "backend/tests/test_storage_reconciliation.py"
+      ],
+      "docs": [
+        "backend/app/modules/operations/README.md",
+        "docs/guides/operations.md",
+        "docs/verification/current.md"
+      ],
+      "notes": "Audit, daily archive, read-only data catalog, storage reconciliation and control-plane use cases are grouped by owner. Maintenance is explicitly requested; periodic scheduling, automated off-site backup and full observability remain absent."
     },
     {
       "code": "automation",
@@ -290,13 +287,8 @@
       "status": "placeholder",
       "architecture_nodes": ["API", "MYSQL"],
       "backend_paths": [
-        "backend/app/agents",
-        "backend/app/api/v1/agent_runs_api.py",
-        "backend/app/models/agent_memory.py",
-        "backend/app/models/agent_run.py",
-        "backend/app/services/agent_memory.py",
-        "backend/app/services/agent_service.py",
-        "backend/app/workers/tasks_agent.py"
+        "backend/app/modules/automation/agent",
+        "backend/app/modules/automation/contracts"
       ],
       "frontend_paths": ["frontend/src/api/agent-runs.api.ts"],
       "tables": ["agent_memory", "agent_run_steps", "agent_runs"],
@@ -304,9 +296,16 @@
       "celery_tasks": [],
       "queues": ["agent"],
       "stages": [],
-      "tests": ["backend/tests/test_agent_memory.py"],
-      "docs": ["agents/report-agent/README.md", "docs/architecture/implementation-status.md"],
-      "notes": "Models and read contracts exist; no public Celery task or model/MCP execution is delivered."
+      "tests": [
+        "backend/tests/architecture/test_operations_automation_boundaries.py",
+        "backend/tests/test_agent_memory.py"
+      ],
+      "docs": [
+        "agents/report-agent/README.md",
+        "backend/app/modules/automation/README.md",
+        "docs/architecture/implementation-status.md"
+      ],
+      "notes": "MySQL models, bounded session memory and disabled/read HTTP contracts exist; no public Celery task or Agent, LLM, LangGraph, MCP or ZWCAD execution is delivered."
     },
     {
       "code": "messaging_target",
@@ -334,8 +333,7 @@
       "status": "external",
       "architecture_nodes": ["ADAPTER", "AGENT", "Q_CAM", "RUNNER", "SINOCAM", "W_CAM"],
       "backend_paths": [
-        "backend/app/integrations/zwcad",
-        "backend/app/workers/tasks_cad.py",
+        "backend/app/modules/automation/contracts",
         "windows/README.md"
       ],
       "frontend_paths": ["frontend/src/api/control-plane.api.ts"],
@@ -353,7 +351,7 @@
         "windows/protocols/README.md",
         "windows/sinocam-adapter/README.md"
       ],
-      "notes": "Only a draft control-plane contract and compatibility symbols exist; authentication, leases, fencing and runners are unimplemented."
+      "notes": "Only a draft control-plane contract exists; empty compatibility adapters were removed. Authentication, leases, fencing and runners are unimplemented."
     }
   ]
 }

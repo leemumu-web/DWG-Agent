@@ -66,7 +66,7 @@
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
 | SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 15 个模型模块和 36 张表；files、jobs 与 workflows 分别通过领域模型包装配其多张表。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
-| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 8 个 task module 并注册 jobs stale-recovery callback；11 个 `app.workers.tasks_*` 公共名不变。 |
+| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 7 个真实 task module，并注册 jobs stale-recovery 与 control-plane observer；11 个 `app.workers.tasks_*` 公共名不变。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
 | Local/MinIO 字节接口 | `app/platform/storage/` | adapter、安全路径、选择缓存和健康检查；不导入 ORM 或文件业务。 |
 

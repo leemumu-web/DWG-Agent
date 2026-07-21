@@ -75,17 +75,36 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.modules.jobs.dispatch.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.modules.jobs.recovery.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.modules.jobs.stub_execution.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.modules.cad_processing.dwg_to_dxf.execution.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.modules.cad_processing.dxf_to_dwg.execution.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.modules.cad_processing.dxf_to_excel.execution.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr(
+        "app.modules.cad_processing.dwg_to_dxf.execution.SessionLocal", TestSessionLocal
+    )
+    monkeypatch.setattr(
+        "app.modules.cad_processing.dxf_to_dwg.execution.SessionLocal", TestSessionLocal
+    )
+    monkeypatch.setattr(
+        "app.modules.cad_processing.dxf_to_excel.execution.SessionLocal", TestSessionLocal
+    )
     monkeypatch.setattr("app.modules.dxf_classification.execution.SessionLocal", TestSessionLocal)
     monkeypatch.setattr(
         "app.modules.excel_processing.execution.SessionLocal",
         TestSessionLocal,
     )
-    monkeypatch.setattr("app.platform.messaging.celery_app.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.workers.tasks_maintenance.SessionLocal", TestSessionLocal)
-    monkeypatch.setattr("app.workers.tasks_report.SessionLocal", TestSessionLocal)
+    monkeypatch.setattr(
+        "app.modules.operations.control_plane.tasks.SessionLocal",
+        TestSessionLocal,
+    )
+    monkeypatch.setattr(
+        "app.modules.operations.control_plane.interface.SessionLocal",
+        TestSessionLocal,
+    )
+    monkeypatch.setattr(
+        "app.modules.operations.daily_archive.tasks.SessionLocal",
+        TestSessionLocal,
+    )
+    monkeypatch.setattr(
+        "app.modules.operations.storage_reconciliation.tasks.SessionLocal",
+        TestSessionLocal,
+    )
 
     # db_health() uses the module-level engine directly
     monkeypatch.setattr("app.platform.database.session.engine", engine)

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def enqueue_stub_job(job_id: int, attempt: int) -> str:
-    from app.workers.tasks_report import run_stub_job_task
+    from app.modules.jobs.tasks import run_stub_job_task
 
     async_result = run_stub_job_task.delay(job_id, attempt)
     return str(async_result.id)

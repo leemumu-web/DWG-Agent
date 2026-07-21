@@ -8,18 +8,19 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1072 passed, 6 skipped, 21 warnings in 130.73s`；1078 项全部完成收集 |
+| 后端全量 | pass | `1079 passed, 6 skipped, 21 warnings in 130.18s`；1085 项全部完成收集 |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 15 个模型模块、36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130`；`alembic check` 无漂移 |
-| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；8 个 task module 显式装配，CAD 五任务、分类一任务和 Excel Final 一任务已归域；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
+| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；7 个真实 task module 显式装配，空 Agent/CAD/dispatch module 已删除；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `55 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径、文件/作业/CAD/分类/Excel/workflow 边界与 module catalog 纳入契约 |
+| 架构聚焦测试 | pass | `62 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径、文件/作业/CAD/分类/Excel/workflow/operations/automation 边界与 module catalog 纳入契约 |
 | Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
 | Files 聚焦回归 | pass | `158 passed, 7 warnings`；上传、登记、传输账本、补偿、预览、下载、存储一致性与架构边界通过 |
 | Jobs 聚焦回归 | pass | `140 passed, 3 skipped, 15 warnings`；创建、批量创建、attempt 隔离、取消/重试、投递补偿、SSE、Result/Review 权限、stale 恢复与架构边界通过 |
 | CAD / 分类聚焦回归 | pass | `98 passed, 7 warnings`；三个转换方向、批处理、DXF 预览、Classifier 1.1、稳定任务名/队列、两张分类表、跨域接口与退役路径通过 |
 | Excel 处理聚焦回归 | pass | `40 passed, 1 skipped, 1 warning`；Stage adapter/真实 runner 启动、流式导入、三张模型表、attempt 清理/重试、请求幂等、14 个 route 与领域边界通过；跳过项需要真实 MySQL |
 | Workflow 聚焦回归 | pass | `73 passed, 1 warning`；五张表、16 个 route、十阶段能力、多个 DWG + 单 Excel、服务器派生 DXF、冻结/删除保护、Job 同步、分类账本和留白契约通过 |
+| Operations/automation 聚焦回归 | pass | `160 passed, 3 skipped`；归档、数据目录、存储对账/处置、基础设施、控制平面、Agent memory、禁用契约、任务恢复和跨域边界通过 |
 | 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 259 passed`；三个 CAD Stage、Classifier 1.1.0 与 Excel Final `multi_split` 路径/CLI/行为保持 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
@@ -53,6 +54,18 @@ workflows 现把两个 route、两个 model、两个 schema 和两个 service �
 人工输入仍为多个 DWG + 一个 Excel，DXF 只由服务器生成；四个后续核心阶段保持
 placeholder/external。完整后端、Alembic、架构/文档门禁和前端 production build 均通过，
 本轮未重启运行中的旧进程，也未把隔离测试描述为真实 ODA/SinoCAM 生产验收。
+
+operations 现按 audit、daily archive、data catalog、storage reconciliation 和 control plane
+五个 owner 分层；automation 把三张已交付数据表/会话记忆/API 与未实现的
+Agent/MCP/ZWCAD/Windows 执行契约分开。归档的签名冻结预检、流式 ZIP/manifest、MinIO 与
+files/transfer 双登记不变；扫描 run/finding 表仍由 files 域拥有，处置仍要求签名 token、
+actor 绑定、幂等键、目标快照、数量/字节上限和永久删除确认词。旧
+`app/api/models/schemas/services/workers` 横向业务源码及一行占位 adapter 已退出。
+
+任务 registry 从包含三个空占位的 8 个 module 收敛为 7 个真实 module；11 个历史公共任务
+名和 report/maintenance 等队列保持不变。`agent`、`cad`、`dispatch` 仅保留队列契约，未
+注册任务。platform 通过通用 worker-signal callback 通知由 bootstrap 注册的 control-plane
+observer，不反向导入业务模块；两个方向的导入顺序和 worker-ready 顺序均有回归覆盖。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19
