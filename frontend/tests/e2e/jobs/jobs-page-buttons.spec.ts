@@ -4,7 +4,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { API_BASE } from './test-env';
+import { API_BASE } from '../support/test-env';
 
 async function login(page: Page) {
   const apiResp = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {

@@ -14,7 +14,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
-import { API_BASE } from './test-env';
+import { API_BASE } from '../support/test-env';
 
 // ── direction matrix ─────────────────────────────────────────────────────────
 

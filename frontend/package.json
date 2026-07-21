@@ -8,10 +8,13 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "npm run check:architecture && tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "test:api": "npx playwright test tests/e2e/api-contract.spec.ts",
-    "test:e2e": "npx playwright test tests/e2e/files-page-buttons.spec.ts tests/e2e/jobs-page-buttons.spec.ts tests/e2e/workflow-input.spec.ts tests/e2e/infrastructure-console.spec.ts tests/e2e/daily-archive.spec.ts",
-    "test:e2e:files": "npx playwright test tests/e2e/files-page-buttons.spec.ts",
-    "test:e2e:jobs": "npx playwright test tests/e2e/jobs-page-buttons.spec.ts",
+    "test:api": "npx playwright test tests/e2e/contracts",
+    "test:e2e": "npx playwright test tests/e2e",
+    "test:e2e:excel": "npx playwright test tests/e2e/excel-processing",
+    "test:e2e:files": "npx playwright test tests/e2e/files",
+    "test:e2e:jobs": "npx playwright test tests/e2e/jobs",
+    "test:e2e:operations": "npx playwright test tests/e2e/operations",
+    "test:e2e:workflows": "npx playwright test tests/e2e/workflows",
     "test": "npm run test:api"
   },
   "dependencies": {

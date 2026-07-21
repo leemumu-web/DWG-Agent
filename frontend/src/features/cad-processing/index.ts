@@ -1,3 +1,5 @@
+import './styles.css';
+
 export { ConversionPage } from './ConversionPage';
 export type { ConversionPageProps } from './ConversionPage';
 export { Dwg2DxfPage } from './Dwg2DxfPage';

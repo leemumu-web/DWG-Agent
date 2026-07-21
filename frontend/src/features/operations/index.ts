@@ -1,3 +1,5 @@
+import './styles.css';
+
 export { AuditLogsPage } from './pages/AuditLogsPage';
 export { InfrastructurePage } from './pages/InfrastructurePage';
 export * from './api/auditLogs';

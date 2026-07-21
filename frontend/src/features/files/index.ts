@@ -1,3 +1,5 @@
+import './styles.css';
+
 export { DxfPreviewModal } from './DxfPreviewModal';
 export { FileUpload } from './FileUpload';
 export { FilesLayout } from './FilesLayout';

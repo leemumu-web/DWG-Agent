@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { API_BASE } from './test-env';
+import { API_BASE } from '../support/test-env';
 
 const VALID_SAMPLE = process.env.PLAYWRIGHT_EXCEL_SAMPLE_PATH;
 

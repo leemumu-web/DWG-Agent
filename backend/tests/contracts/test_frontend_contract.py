@@ -57,13 +57,15 @@ def test_non_idempotent_uploads_are_not_automatically_retried():
 
 def test_folder_upload_concurrency_fits_default_api_database_pool():
     api_source = _frontend_source("features/files/files.api.ts")
-    page_source = _frontend_source("features/cad-processing/ConversionPage.tsx")
+    upload_panel = _frontend_source(
+        "features/cad-processing/components/conversion/ConversionUploadPanel.tsx"
+    )
 
     # Default API pool budget is DB_POOL_SIZE=2 + MAX_OVERFLOW=2. The browser
     # must not open eight simultaneous upload transactions against four slots.
     assert "opts?.concurrency ?? 4" in api_source
-    assert "concurrency: 4" in page_source
-    assert "concurrency: 8" not in page_source
+    assert "concurrency: 4" in upload_panel
+    assert "concurrency: 8" not in upload_panel
 
 
 def test_generated_api_source_documents_zip_preview_and_conflicts():
@@ -118,9 +120,9 @@ def test_browser_e2e_uses_session_storage_and_cookie_sse_auth():
     sources = "\n".join(
         _e2e_source(path)
         for path in (
-            "files-page-buttons.spec.ts",
-            "jobs-page-buttons.spec.ts",
-            "api-contract.spec.ts",
+            "files/files-page-buttons.spec.ts",
+            "jobs/jobs-page-buttons.spec.ts",
+            "contracts/api-contract.spec.ts",
         )
     )
 
@@ -209,12 +211,17 @@ def test_frontend_has_global_recovery_and_connectivity_feedback():
 
 def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
     api_source = _frontend_source("features/operations/api/controlPlane.ts")
-    page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
+    runtime_panel = _frontend_source(
+        "features/operations/components/data-console/RuntimeCommunicationPanel.tsx"
+    )
+    overview_panel = _frontend_source(
+        "features/operations/components/data-console/OverviewPanel.tsx"
+    )
 
     assert "/maintenance/reconcile-stale-jobs" in api_source
-    assert "恢复超时运行任务" in page_source
-    assert "getInfrastructureOverview" in page_source
-    assert "MinIO" in page_source
+    assert "恢复超时运行任务" in runtime_panel
+    assert "getInfrastructureOverview" in overview_panel
+    assert "MinIO" in overview_panel
 
 
 def test_daily_archive_console_uses_preview_queue_poll_and_signed_download_contracts():
@@ -349,6 +356,15 @@ def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
     api_source = _frontend_source("features/operations/api/dataAdmin.ts")
     type_source = _frontend_source("features/operations/types/dataAdmin.ts")
+    files_panel = _frontend_source(
+        "features/operations/components/data-console/FilesPanel.tsx"
+    )
+    transfers_panel = _frontend_source(
+        "features/operations/components/data-console/TransfersPanel.tsx"
+    )
+    consistency_panel = _frontend_source(
+        "features/operations/components/data-console/ConsistencyPanel.tsx"
+    )
 
     assert "useSearchParams" in page_source
     for key in ("overview", "files", "objects", "transfers", "consistency"):
@@ -372,13 +388,13 @@ def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
         "StorageScanFinding",
     ):
         assert f"interface {contract}" in type_source
-    assert "listStorageScans" in page_source
-    assert "getDataAdminFile" in page_source
-    assert "getFileTransfer" in page_source
-    assert "处置预检" in page_source
-    assert "RemediationDrawer" in page_source
-    assert "登记详情" in page_source
-    assert "流水详情" in page_source
+    assert "listStorageScans" in consistency_panel
+    assert "getDataAdminFile" in files_panel
+    assert "getFileTransfer" in transfers_panel
+    assert "处置预检" in consistency_panel
+    assert "RemediationDrawer" in consistency_panel
+    assert "登记详情" in files_panel
+    assert "流水详情" in transfers_panel
     assert "destroyOnHidden" in page_source
 
 

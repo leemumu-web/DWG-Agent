@@ -1,0 +1,16 @@
+.pipeline-tabs { margin: -8px 0 18px; padding: 0 16px; background: #fff; border: 1px solid #e7ebf1; border-radius: 13px; }
+.pipeline-tabs .ant-tabs-nav { margin: 0; }
+.pipeline-tabs .ant-tabs-tab { padding-block: 14px; }
+
+.file-upload-zone:hover, .ant-upload-drag:hover { border-color: #2563eb !important; background: #f7faff !important; }
+.upload-toast-stack { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+.upload-toast { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; transition: opacity .28s cubic-bezier(.4,0,.2,1),transform .28s cubic-bezier(.4,0,.2,1),max-height .28s cubic-bezier(.4,0,.2,1),padding .28s cubic-bezier(.4,0,.2,1); box-shadow: 0 1px 3px rgba(0,0,0,.06); max-height: 42px; }
+.toast-enter { animation: toast-slide-in .32s cubic-bezier(.34,1.56,.64,1) forwards; }
+.toast-visible { opacity: 1; transform: translateX(0); }
+.toast-exit { animation: toast-slide-out .28s cubic-bezier(.4,0,.2,1) forwards; }
+.toast-icon { flex-shrink: 0; display: flex; align-items: center; }
+.toast-name { min-width: 0; }
+.upload-icon { font-size: 48px; color: #8cadd9; transition: color .25s,transform .25s; }
+.ant-upload-drag:hover .upload-icon { color: #2563eb; transform: scale(1.08); }
+@keyframes toast-slide-in { from { opacity:0; transform:translateX(60px) scale(.92); max-height:0; padding-block:0; } to { opacity:1; transform:none; max-height:42px; } }
+@keyframes toast-slide-out { from { opacity:1; transform:none; max-height:42px; } to { opacity:0; transform:translateX(80px); max-height:0; padding-block:0; } }

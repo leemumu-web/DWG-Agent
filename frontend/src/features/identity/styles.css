@@ -1,0 +1,8 @@
+.login-page { min-height: 100vh; display: flex; background: #fff; }
+.login-brand-panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; padding: 52px 6vw; color: #fff; position: relative; overflow: hidden; background: radial-gradient(circle at 85% 15%,rgba(56,189,248,.28),transparent 28%),linear-gradient(140deg,#0f172a,#1e3a8a 62%,#0f766e); }
+.login-form-panel { flex: 0 0 460px; display: grid; place-items: center; padding: 48px; background: #fff; }
+
+@media (max-width: 900px) {
+  .login-brand-panel { display: none; }
+  .login-form-panel { flex: 1 1 auto; padding: 28px; }
+}

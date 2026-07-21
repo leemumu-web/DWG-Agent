@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
-import { API_BASE } from './test-env';
+import { API_BASE } from '../support/test-env';
 
 async function login(page: Page) {
   const response = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
@@ -30,6 +30,8 @@ test('data console monitors paged MySQL, storage, transfers and findings', async
     page.goto('/admin/infrastructure?tab=overview'),
   ]);
   expect(overviewResponse.status()).toBe(200);
+  const overviewBody = await overviewResponse.json();
+  const latestScanId = overviewBody.data?.latest_scan?.id as number | undefined;
   await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
   await expect(page.locator('.data-console-hero').getByText('正常', { exact: true })).toBeVisible();
   for (const tab of ['总览', '文件登记', '存储对象', '流转流水', '一致性']) {
@@ -80,13 +82,23 @@ test('data console monitors paged MySQL, storage, transfers and findings', async
     await page.locator('.ant-drawer-close').click();
   }
 
-  const findingsPromise = page.waitForResponse(
-    (response) => response.url().includes('/findings?')
-      && response.url().includes('resolution_status=open'),
-  );
-  await page.getByRole('tab', { name: '一致性' }).click();
-  const findingsResponse = await findingsPromise;
-  expect(findingsResponse.status()).toBe(200);
+  if (latestScanId) {
+    const findingsPromise = page.waitForResponse(
+      (response) => response.url().includes(`/scans/${latestScanId}/findings?`)
+        && response.url().includes('resolution_status=open'),
+    );
+    await page.getByRole('tab', { name: '一致性' }).click();
+    const findingsResponse = await findingsPromise;
+    expect(findingsResponse.status()).toBe(200);
+  } else {
+    const invalidFindingsRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/findings?')) invalidFindingsRequests.push(request.url());
+    });
+    await page.getByRole('tab', { name: '一致性' }).click();
+    await expect(page.getByText('选择“开始扫描”生成 MySQL 与对象存储的时间点快照。')).toBeVisible();
+    expect(invalidFindingsRequests).toEqual([]);
+  }
   await expect(page.getByText('异常明细')).toBeVisible();
   await expect(page.getByLabel('异常类型筛选')).toBeVisible();
   await expect(page.getByLabel('处置状态筛选')).toBeVisible();

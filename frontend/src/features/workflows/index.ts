@@ -1,3 +1,5 @@
+import './styles.css';
+
 export { WorkflowsPage } from './WorkflowsPage';
 export * from './workflow-inputs.api';
 export * from './workflows.api';

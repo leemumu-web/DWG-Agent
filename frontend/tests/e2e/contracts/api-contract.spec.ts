@@ -5,7 +5,7 @@
  * These run against the real backend. No browser needed — pure HTTP.
  */
 import { test, expect } from '@playwright/test';
-import { API_BASE as BASE } from './test-env';
+import { API_BASE as BASE } from '../support/test-env';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 

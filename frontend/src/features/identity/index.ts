@@ -1,3 +1,5 @@
+import './styles.css';
+
 export { LoginPage } from './LoginPage';
 export { ProfilePage } from './ProfilePage';
 export { RolesPage } from './RolesPage';

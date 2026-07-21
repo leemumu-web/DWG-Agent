@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { API_BASE } from './test-env';
+import { API_BASE } from '../support/test-env';
 
 const MINIMAL_DXF = `0
 SECTION

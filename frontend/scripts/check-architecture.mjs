@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const FRONTEND_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_ROOT = path.join(FRONTEND_ROOT, 'src');
 const FEATURE_ROOT = path.join(SRC_ROOT, 'features');
+const E2E_ROOT = path.join(FRONTEND_ROOT, 'tests', 'e2e');
 
 const EXPECTED_FEATURES = new Set([
   'automation',
@@ -22,6 +23,7 @@ const EXPECTED_FEATURES = new Set([
   'workflows',
 ]);
 const LEGACY_SOURCE_DIRECTORIES = ['api', 'components', 'hooks', 'stores', 'types', 'utils'];
+const LEGACY_SOURCE_FILES = ['styles.css'];
 const REQUIRED_SHARED_FILES = [
   'shared/api/client.ts',
   'shared/api/error.ts',
@@ -30,9 +32,35 @@ const REQUIRED_SHARED_FILES = [
   'shared/auth/store.ts',
   'shared/auth/useAuthInit.ts',
   'shared/components/index.ts',
+  'shared/styles/index.css',
+];
+const REQUIRED_FEATURE_FILES = [
+  'cad-processing/styles.css',
+  'dashboard/styles.css',
+  'files/styles.css',
+  'identity/styles.css',
+  'operations/styles.css',
+  'workflows/styles.css',
 ];
 const SOURCE_EXTENSIONS = ['.ts', '.tsx'];
 const RESOLUTION_SUFFIXES = ['', '.ts', '.tsx', '.css', '/index.ts', '/index.tsx'];
+const EXPECTED_E2E_WORKSPACES = new Set([
+  'contracts',
+  'excel-processing',
+  'files',
+  'jobs',
+  'operations',
+  'support',
+  'workflows',
+]);
+const REQUIRED_FEATURE_PARTITIONS = [
+  'cad-processing/components/conversion',
+  'cad-processing/components/dxf2excel',
+  'excel-processing/model',
+  'operations/components/data-console',
+  'workflows/model',
+];
+const MAX_SOURCE_LINES = 600;
 
 function posix(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -91,6 +119,10 @@ function checkLayout(violations) {
       violations.push(`legacy source directory must be retired: src/${directory}`);
     }
   }
+  for (const file of LEGACY_SOURCE_FILES) {
+    const legacyPath = path.join(SRC_ROOT, file);
+    if (fs.existsSync(legacyPath)) violations.push(`legacy source file must be retired: src/${file}`);
+  }
 
   const actualFeatures = fs.existsSync(FEATURE_ROOT)
     ? fs.readdirSync(FEATURE_ROOT, { withFileTypes: true })
@@ -109,9 +141,39 @@ function checkLayout(violations) {
     const entry = featureEntry(feature);
     if (!fs.existsSync(entry)) violations.push(`missing public feature entry: ${relativeToSource(entry)}`);
   }
+  for (const relativePath of REQUIRED_FEATURE_FILES) {
+    const expected = path.join(FEATURE_ROOT, relativePath);
+    if (!fs.existsSync(expected)) {
+      violations.push(`missing feature-owned style boundary: ${relativeToSource(expected)}`);
+    }
+  }
+  for (const relativePath of REQUIRED_FEATURE_PARTITIONS) {
+    const expected = path.join(FEATURE_ROOT, relativePath);
+    if (!fs.existsSync(expected) || !fs.statSync(expected).isDirectory()) {
+      violations.push(`missing feature sub-partition: features/${relativePath}`);
+    }
+  }
   for (const relativePath of REQUIRED_SHARED_FILES) {
     const expected = path.join(SRC_ROOT, relativePath);
     if (!fs.existsSync(expected)) violations.push(`missing shared boundary: src/${relativePath}`);
+  }
+}
+
+function checkE2eLayout(violations) {
+  const rootSpecs = fs.readdirSync(E2E_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.spec.ts'))
+    .map((entry) => entry.name)
+    .sort();
+  if (rootSpecs.length) {
+    violations.push(`E2E specs must be feature-owned, found at root: ${rootSpecs.join(', ')}`);
+  }
+  const actual = fs.readdirSync(E2E_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  const expected = [...EXPECTED_E2E_WORKSPACES].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    violations.push(`E2E workspaces differ: expected ${expected.join(', ')}; found ${actual.join(', ')}`);
   }
 }
 
@@ -150,10 +212,17 @@ function checkDependency(sourceFile, targetFile, violations) {
 function main() {
   const violations = [];
   checkLayout(violations);
+  checkE2eLayout(violations);
 
   const files = sourceFiles();
   for (const sourceFile of files) {
     const source = fs.readFileSync(sourceFile, 'utf8');
+    const lineCount = source.split(/\r?\n/).length;
+    if (lineCount > MAX_SOURCE_LINES) {
+      violations.push(
+        `source file exceeds ${MAX_SOURCE_LINES} lines; split by responsibility: ${relativeToSource(sourceFile)} (${lineCount})`,
+      );
+    }
     for (const specifier of importSpecifiers(source)) {
       const targetFile = resolveRelativeImport(sourceFile, specifier);
       if (targetFile) checkDependency(sourceFile, targetFile, violations);

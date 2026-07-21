@@ -1,65 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
-  Card,
   Checkbox,
   Popconfirm,
   message,
-  Progress,
   Space,
-  Tag,
-  Tooltip,
   Typography,
   Alert,
 } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
-  EyeOutlined,
   FolderOpenOutlined,
-  FolderOutlined,
-  ReloadOutlined,
-  FileTextOutlined,
   CheckCircleFilled,
   SyncOutlined,
-  CloseCircleFilled,
   CloudOutlined,
-  FileZipOutlined,
-  PlayCircleOutlined,
-  PauseCircleOutlined,
-  CloseOutlined,
-  FileExcelOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   listBatches,
-  uploadZip,
-  uploadFolder,
-  uploadFile,
   downloadFile,
   deleteBatch,
   downloadBatchZip,
 } from '../files';
 import { ExcelPreview, processExcelFinalFile } from '../excel-processing';
 import { cancelJob, createDxf2ExcelJob, getJobResults, listJobsPage, retryJob } from '../jobs';
-import type { BatchInfo } from '../files';
 import type { Job } from '../jobs';
-
-const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
-  succeeded: { color: '#52c41a', bg: '#f6ffed', label: '已完成', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> },
-  running:   { color: '#1677ff', bg: '#e6f4ff', label: '提取中', icon: <SyncOutlined style={{ color: '#1677ff' }} spin /> },
-  queued:    { color: '#faad14', bg: '#fffbe6', label: '排队中', icon: <SyncOutlined style={{ color: '#faad14' }} /> },
-  failed:    { color: '#ff4d4f', bg: '#fff2f0', label: '失败',   icon: <CloseCircleFilled style={{ color: '#ff4d4f' }} /> },
-  cancelled: { color: '#8c8c8c', bg: '#fafafa', label: '已取消', icon: <CloseCircleFilled style={{ color: '#8c8c8c' }} /> },
-};
+import { DxfBatchCard } from './components/dxf2excel/DxfBatchCard';
+import { DxfUploadPanel } from './components/dxf2excel/DxfUploadPanel';
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export function Dxf2ExcelPage() {
   const navigate = useNavigate();
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const zipInputRef = useRef<HTMLInputElement>(null);
   const finalSubmissionRef = useRef<Set<string>>(new Set());
 
   // Multi-select state
@@ -307,9 +281,6 @@ export function Dxf2ExcelPage() {
     }
   }, [selectedArr]);
 
-  // ── folder upload ────────────────────────────────────────────────────────
-  const handleFolderClick = () => folderInputRef.current?.click();
-
   // ── error state ───────────────────────────────────────────────────────────
   if (batchesQ.isError && !batchesQ.data) {
     return (
@@ -340,80 +311,7 @@ export function Dxf2ExcelPage() {
         ))}
       </div>
 
-      {/* ── upload area ──────────────────────────────────────────────────── */}
-      <div style={{ background: '#fafcff', border: '1px solid #e8ecf1', borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <input
-          ref={folderInputRef}
-          type="file"
-          /* @ts-expect-error webkitdirectory */
-          webkitdirectory=""
-          multiple
-          style={{ display: 'none' }}
-          onChange={async (e) => {
-            const raw = e.target.files;
-            if (raw && raw.length > 0) {
-              const files = Array.from(raw);
-              const firstPath = (files[0] as { webkitRelativePath?: string }).webkitRelativePath || '';
-              const folderName = firstPath.split('/')[0] || `导入_${Date.now()}`;
-              const result = await uploadFolder(files, folderName, {
-                fileExt: '.dxf',
-                onFile: async (file: File, bn: string) => uploadFile(file, bn),
-              });
-              if (result.success > 0) {
-                message.success(`已导入 ${result.success}/${result.total} 个文件到 "${folderName}"`);
-                if (result.failures.length > 0) {
-                  const examples = result.failures.slice(0, 3)
-                    .map((failure) => `${failure.file_name}: ${failure.reason}`)
-                    .join('；');
-                  message.warning(`部分文件上传失败：${examples}`, 10);
-                }
-                refresh();
-              } else if (result.total > 0) {
-                const examples = result.failures.slice(0, 3)
-                  .map((failure) => `${failure.file_name}: ${failure.reason}`)
-                  .join('；');
-                message.error(`全部 ${result.total} 个文件上传失败${examples ? `：${examples}` : ''}`, 10);
-              } else {
-                message.warning('文件夹中没有 .dxf 文件');
-              }
-              e.target.value = '';
-            }
-          }}
-        />
-        <Button icon={<FolderOpenOutlined />} onClick={handleFolderClick}
-          style={{ borderColor: '#722ed1', color: '#722ed1', fontWeight: 500 }}>
-          上传文件夹
-        </Button>
-        <input
-          ref={zipInputRef}
-          type="file"
-          accept=".zip"
-          style={{ display: 'none' }}
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            try {
-              const result = await uploadZip(file, '.dxf');
-              if (result.success_count > 0) {
-                message.success(`已解压 ${result.success_count}/${result.success_count + result.skipped_count} 个文件到 "${result.batch_name}"`);
-                refresh();
-              } else {
-                message.warning('压缩包中没有 .dxf 文件');
-              }
-            } catch (err) {
-              message.error(err instanceof Error ? err.message : '解压失败');
-            }
-            e.target.value = '';
-          }}
-        />
-        <Button icon={<FileZipOutlined />} onClick={() => zipInputRef.current?.click()}
-          style={{ borderColor: '#eb2f96', color: '#eb2f96', fontWeight: 500 }}>
-          上传压缩包
-        </Button>
-        <Typography.Text type="secondary">
-          支持 .dxf / .zip 格式，单文件最大 512 MB，每个文件夹将生成一个 Excel
-        </Typography.Text>
-      </div>
+      <DxfUploadPanel onUploaded={refresh} />
 
       {/* ── selection toolbar ────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -474,182 +372,24 @@ export function Dxf2ExcelPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-          {batches.map((b: BatchInfo) => {
-            const job = jobsByBatch.get(b.name);
-            const s = job ? (STATUS[job.status] ?? STATUS.cancelled) : null;
-            const isDone = job?.status === 'succeeded';
-            const isFailed = job?.status === 'failed' || job?.status === 'cancelled';
-            const isProcessing = job?.status === 'running' || job?.status === 'queued';
-            const hasNoJob = !job;
-            const isSelected = selectedBatches.has(b.name);
-
-            return (
-              <Card
-                key={b.name}
-                hoverable
-                size="small"
-                style={{
-                  borderRadius: 10,
-                  border: isSelected ? '2px solid #1677ff' : undefined,
-                  background: isSelected ? '#e6f4ff' : undefined,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  {/* Checkbox */}
-                  <Checkbox
-                    checked={isSelected}
-                    onChange={() => toggleBatch(b.name)}
-                    style={{ marginTop: 4 }}
-                  />
-
-                  {/* Folder icon */}
-                  <FolderOutlined style={{ fontSize: 28, color: '#faad14', marginTop: 2 }} />
-
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Batch name */}
-                    <Tooltip title={b.name}>
-                      <Typography.Text strong ellipsis style={{ fontSize: 14, maxWidth: 180, display: 'block' }}>
-                        {b.name}
-                      </Typography.Text>
-                    </Tooltip>
-
-                    {/* File count + size + time */}
-                    <div style={{ marginTop: 4 }}>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                        <FileTextOutlined style={{ marginRight: 4 }} />
-                        {b.file_count} 个 DXF 文件
-                      </Typography.Text>
-                    </div>
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                      {new Date(b.latest_created_at).toLocaleString('zh-CN', {
-                        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-                      })}
-                    </Typography.Text>
-
-                    {/* Job status */}
-                    <div style={{ marginTop: 10 }}>
-                      {/* Processing state — progress bar + pause button */}
-                      {isProcessing && job && (
-                        <div>
-                          <Tag style={{ color: s!.color, background: s!.bg, border: 'none', borderRadius: 6, marginBottom: 6 }}>
-                            {s!.icon} <span style={{ marginLeft: 4 }}>{s!.label}</span>
-                          </Tag>
-                          <Progress percent={job.progress} size="small"
-                            strokeColor={s!.color}
-                            status={job.status === 'failed' ? 'exception' : undefined} />
-                          <div style={{ marginTop: 6 }}>
-                            <Button size="small" icon={<PauseCircleOutlined />}
-                              onClick={() => handleCancel(b.name)}>
-                              暂停
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Done state — status tag */}
-                      {isDone && (
-                        <Tag style={{ color: s!.color, background: s!.bg, border: 'none', borderRadius: 6 }}>
-                          {s!.icon} <span style={{ marginLeft: 4 }}>{s!.label}</span>
-                        </Tag>
-                      )}
-
-                      {/* Failed / cancelled state */}
-                      {isFailed && (
-                        <Tag style={{ color: s!.color, background: s!.bg, border: 'none', borderRadius: 6 }}>
-                          {s!.icon} <span style={{ marginLeft: 4 }}>{s!.label}</span>
-                          {job?.error_code && (
-                            <Tooltip title={job.error_message || job.error_code}>
-                              <span style={{ marginLeft: 4, fontSize: 11, color: '#8c8c8c' }}>
-                                ({job.error_code})
-                              </span>
-                            </Tooltip>
-                          )}
-                        </Tag>
-                      )}
-
-                      {/* Action buttons */}
-                      <div style={{ marginTop: 8 }}>
-                        {/* No job yet — start extraction */}
-                        {hasNoJob && (
-                          <Button type="primary" size="small" icon={<PlayCircleOutlined />}
-                            onClick={() => handleProcess(b.name)}>
-                            开始提取
-                          </Button>
-                        )}
-
-                        {/* Done — preview + download + retry + clear */}
-                        {isDone && job && (
-                          <Space size={4} wrap>
-                            <Button type="primary" size="small" icon={<EyeOutlined />}
-                              onClick={() => handlePreviewExcel(b.name)}>
-                              预览
-                            </Button>
-                            <Tooltip title="下载 Excel">
-                              <Button size="small" icon={<DownloadOutlined />}
-                                onClick={() => handleDownloadExcel(b.name)} />
-                            </Tooltip>
-                            <Tooltip title="重新提取">
-                              <Button size="small" icon={<ReloadOutlined />}
-                                onClick={() => handleRetry(b.name)} />
-                            </Tooltip>
-                            <Popconfirm
-                              title="生成最终零件清单？"
-                              description="将当前 Excel 结果登记到 Excel Final 管道并开始处理。"
-                              okText="确认生成"
-                              cancelText="取消"
-                              onConfirm={() => handleProcessExcelFinal(b.name)}
-                            >
-                              <Button
-                                size="small"
-                                icon={<FileExcelOutlined />}
-                                loading={finalSubmittingBatches.has(b.name)}
-                              >
-                                生成零件清单
-                              </Button>
-                            </Popconfirm>
-                            <Popconfirm
-                              title={`删除批次 "${b.name}"？`}
-                              description="批次内所有 .dxf 文件将被删除，此操作不可撤销"
-                              onConfirm={() => handleDeleteBatch(b.name)}
-                              okText="确认删除"
-                              cancelText="取消"
-                              okButtonProps={{ danger: true }}
-                            >
-                              <Button size="small" danger icon={<DeleteOutlined />} />
-                            </Popconfirm>
-                          </Space>
-                        )}
-
-                        {/* Failed/cancelled — retry + clear */}
-                        {isFailed && job && (
-                          <Space size={4}>
-                            <Button size="small" danger icon={<ReloadOutlined />}
-                              onClick={() => handleRetry(b.name)}>
-                              重试提取
-                            </Button>
-                            <Button size="small" icon={<CloseOutlined />}
-                              onClick={() => handleClear(b.name)}>
-                              取消提取
-                            </Button>
-                            <Popconfirm
-                              title={`删除批次 "${b.name}"？`}
-                              description="批次内所有 .dxf 文件将被删除"
-                              onConfirm={() => handleDeleteBatch(b.name)}
-                              okText="确认删除"
-                              cancelText="取消"
-                              okButtonProps={{ danger: true }}
-                            >
-                              <Button size="small" danger icon={<DeleteOutlined />} />
-                            </Popconfirm>
-                          </Space>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            );
-          })}
+          {batches.map((batch) => (
+            <DxfBatchCard
+              key={batch.name}
+              batch={batch}
+              job={jobsByBatch.get(batch.name)}
+              selected={selectedBatches.has(batch.name)}
+              finalSubmitting={finalSubmittingBatches.has(batch.name)}
+              onToggle={toggleBatch}
+              onProcess={handleProcess}
+              onPreview={handlePreviewExcel}
+              onDownload={handleDownloadExcel}
+              onRetry={handleRetry}
+              onCancel={handleCancel}
+              onClear={handleClear}
+              onDelete={handleDeleteBatch}
+              onProcessExcelFinal={handleProcessExcelFinal}
+            />
+          ))}
         </div>
       )}
 
