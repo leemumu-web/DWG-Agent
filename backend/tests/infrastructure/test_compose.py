@@ -9,7 +9,8 @@ from pathlib import Path
 
 import yaml
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+from tests.support.paths import REPO_ROOT
+
 COMPOSE_PATH = REPO_ROOT / "compose.yaml"
 DEV_COMPOSE_PATH = REPO_ROOT / "compose.dev.yaml"
 DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"

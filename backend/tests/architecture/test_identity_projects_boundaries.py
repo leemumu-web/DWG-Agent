@@ -8,8 +8,8 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.platform.http.exceptions import AppHTTPException
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_ROOT = REPO_ROOT / "backend" / "app"
 
 IDENTITY_TABLES = {

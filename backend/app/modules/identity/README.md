@@ -27,4 +27,5 @@
 - 审计行通过 `app.modules.operations.audit.interface` 写入；身份模块不拥有审计表。
 - UI 权限守卫只改善交互，最终授权始终由这里的 FastAPI dependency 和领域规则决定。
 
-主要回归：`test_adversarial_auth.py`、`test_rbac_deep.py`、`test_token_lifecycle.py`、`test_security_boundaries.py` 和 `tests/architecture/test_identity_projects_boundaries.py`。
+主要回归位于 `backend/tests/identity/` 和 `backend/tests/security/`；领域所有权由
+`backend/tests/architecture/test_identity_projects_boundaries.py` 锁定。

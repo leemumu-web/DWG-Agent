@@ -47,8 +47,8 @@ The three pre-existing backend failures at commit `4d93ed5` are caused by delete
 - Create: `docs/verification/current.md`
 - Modify: `scripts/generate_api_docs.py`
 - Modify: `scripts/check_docs.py`
-- Modify: `backend/tests/test_docs_consistency.py`
-- Modify: `backend/tests/test_celery_minio_deployment.py`
+- Modify: `backend/tests/contracts/test_docs_consistency.py`
+- Modify: `backend/tests/infrastructure/test_celery_minio_deployment.py`
 - Modify: `README.md`
 - Modify: `README_EN.md`
 - Modify: `backend/README.md`
@@ -67,8 +67,8 @@ Run:
 ```bash
 cd backend
 .venv/bin/pytest -q \
-  tests/test_docs_consistency.py \
-  tests/test_celery_minio_deployment.py::test_deployment_docs_match_mysql_derived_celery_url_behavior
+  tests/contracts/test_docs_consistency.py \
+  tests/infrastructure/test_celery_minio_deployment.py::test_deployment_docs_match_mysql_derived_celery_url_behavior
 ```
 
 Expected: three failures caused only by missing documentation paths.
@@ -136,8 +136,8 @@ backend/.venv/bin/python scripts/generate_api_docs.py
 backend/.venv/bin/python scripts/check_docs.py
 cd backend
 .venv/bin/pytest -q \
-  tests/test_docs_consistency.py \
-  tests/test_celery_minio_deployment.py::test_deployment_docs_match_mysql_derived_celery_url_behavior
+  tests/contracts/test_docs_consistency.py \
+  tests/infrastructure/test_celery_minio_deployment.py::test_deployment_docs_match_mysql_derived_celery_url_behavior
 ```
 
 Expected: documentation checker passes and all focused tests pass.
@@ -158,7 +158,7 @@ Expected: at least `1004 passed, 6 skipped`, with no failures. Record the exact 
 ```bash
 git add README.md README_EN.md backend/README.md frontend/README.md infra/README.md \
   backend/migrations/README.md docs scripts/generate_api_docs.py scripts/check_docs.py \
-  backend/tests/test_docs_consistency.py backend/tests/test_celery_minio_deployment.py \
+  backend/tests/contracts/test_docs_consistency.py backend/tests/infrastructure/test_celery_minio_deployment.py \
   Stages DWG-Agent企业平台技术规范.md 目标架构实现进度报告.md
 git commit -m "docs: rebuild categorized project documentation"
 ```
@@ -341,8 +341,8 @@ bash -n scripts/*.sh
 docker compose config --quiet
 bash infra/verification/verify.sh
 cd backend
-.venv/bin/pytest -q tests/test_compose.py tests/test_config_drift.py \
-  tests/test_nginx_contract.py tests/test_mysql_runtime.py
+.venv/bin/pytest -q tests/infrastructure/test_compose.py tests/infrastructure/test_config_drift.py \
+  tests/infrastructure/test_nginx_contract.py tests/infrastructure/test_mysql_runtime.py
 ```
 
 Expected: all static and activity-safe checks pass; no service names change.
@@ -402,9 +402,9 @@ Replace references with the categorized locations in Makefile, Dockerfile, tests
 ```bash
 find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
 cd backend
-.venv/bin/pytest -q tests/test_scripts.py tests/test_forward_to_win11_script.py \
-  tests/test_storage_operations.py tests/test_compose.py \
-  tests/test_docs_consistency.py tests/test_frontend_contract.py
+.venv/bin/pytest -q tests/infrastructure/test_scripts.py tests/infrastructure/test_forward_to_win11_script.py \
+  tests/infrastructure/test_storage_operations.py tests/infrastructure/test_compose.py \
+  tests/contracts/test_docs_consistency.py tests/contracts/test_frontend_contract.py
 cd ..
 bash scripts/status.sh
 backend/.venv/bin/python scripts/docs/check.py
@@ -497,9 +497,9 @@ cd backend
 .venv/bin/python -m compileall -q app
 .venv/bin/ruff check app tests
 .venv/bin/pytest --collect-only -q
-.venv/bin/pytest -q tests/architecture tests/test_db_session.py \
-  tests/test_storage_consistency.py tests/test_storage_inventory.py \
-  tests/test_celery_recovery.py tests/test_celery_minio_deployment.py
+.venv/bin/pytest -q tests/architecture tests/infrastructure/test_db_session.py \
+  tests/files/test_storage_consistency.py tests/files/test_storage_inventory.py \
+  tests/infrastructure/test_celery_recovery.py tests/infrastructure/test_celery_minio_deployment.py
 .venv/bin/alembic check
 cd ..
 docker compose config --quiet
@@ -553,9 +553,9 @@ Preserve `/projects`, `/drawings`, membership SQL filtering, version increment b
 ```bash
 cd backend
 .venv/bin/ruff check app tests
-.venv/bin/pytest -q tests/test_adversarial_auth.py tests/test_rbac_deep.py \
-  tests/test_token_lifecycle.py tests/test_security_boundaries.py \
-  tests/test_service_layer.py tests/test_rigorous.py tests/architecture
+.venv/bin/pytest -q tests/security/test_adversarial_auth.py tests/identity/test_rbac_deep.py \
+  tests/identity/test_token_lifecycle.py tests/security/test_security_boundaries.py \
+  tests/projects/test_service_layer.py tests/regression/test_rigorous.py tests/architecture
 .venv/bin/alembic check
 ```
 
@@ -619,10 +619,10 @@ Function names and operation IDs remain unchanged.
 
 ```bash
 cd backend
-.venv/bin/pytest -q tests/test_adversarial_files.py tests/test_file_service.py \
-  tests/test_file_transfer_models.py tests/test_file_transfer_service.py \
-  tests/test_storage_adversarial.py tests/test_storage_consistency.py \
-  tests/test_dxf_preview_api.py tests/architecture
+.venv/bin/pytest -q tests/files/test_adversarial_files.py tests/files/test_file_service.py \
+  tests/files/test_file_transfer_models.py tests/files/test_file_transfer_service.py \
+  tests/files/test_storage_adversarial.py tests/files/test_storage_consistency.py \
+  tests/cad_processing/test_dxf_preview_api.py tests/architecture
 .venv/bin/alembic check
 ```
 
@@ -672,9 +672,9 @@ Register static `/events/stream`, `/batches`, `/cancellation-requests` before `/
 
 ```bash
 cd backend
-.venv/bin/pytest -q tests/test_adversarial_jobs.py tests/test_job_access.py \
-  tests/test_job_attempts.py tests/test_job_claim.py tests/test_job_events_mysql.py \
-  tests/test_job_lifecycle.py tests/test_celery_recovery.py tests/architecture
+.venv/bin/pytest -q tests/jobs/test_adversarial_jobs.py tests/jobs/test_job_access.py \
+  tests/jobs/test_job_attempts.py tests/jobs/test_job_claim.py tests/jobs/test_job_events_mysql.py \
+  tests/jobs/test_job_lifecycle.py tests/infrastructure/test_celery_recovery.py tests/architecture
 .venv/bin/alembic check
 ```
 
@@ -724,10 +724,10 @@ Files routes use the CAD preview interface. Workflow routes use the classificati
 
 ```bash
 cd backend
-.venv/bin/pytest -q tests/test_cad_batch_jobs.py tests/test_dxf_pipeline.py \
-  tests/test_dxf2dwg_pipeline.py tests/test_dxf2excel_pipeline.py \
-  tests/test_dxf_preview_api.py tests/test_dxf_preview_service.py \
-  tests/test_dxf_classification_pipeline.py tests/architecture
+.venv/bin/pytest -q tests/cad_processing/test_cad_batch_jobs.py tests/cad_processing/test_dxf_pipeline.py \
+  tests/cad_processing/test_dxf2dwg_pipeline.py tests/cad_processing/test_dxf2excel_pipeline.py \
+  tests/cad_processing/test_dxf_preview_api.py tests/cad_processing/test_dxf_preview_service.py \
+  tests/dxf_classification/test_dxf_classification_pipeline.py tests/architecture
 cd ../Stages/dwg2dxf && .venv/bin/pytest -q
 cd ../dxf2dwg && .venv/bin/pytest -q
 cd ../dxf2excel && .venv/bin/pytest -q
@@ -809,9 +809,9 @@ Keep subprocess isolation and Stage path resolution behind `stage_adapter.py`; r
 
 ```bash
 cd backend
-.venv/bin/pytest -q tests/test_excel_final_adapter.py tests/test_excel_final_import.py \
-  tests/test_excel_final_models.py tests/test_excel_final_retry.py \
-  tests/test_excel_final_idempotency.py tests/architecture
+.venv/bin/pytest -q tests/excel_processing/test_excel_final_adapter.py tests/excel_processing/test_excel_final_import.py \
+  tests/excel_processing/test_excel_final_models.py tests/excel_processing/test_excel_final_retry.py \
+  tests/excel_processing/test_excel_final_idempotency.py tests/architecture
 cd ../Stages/excel_final
 uv run pytest -q multi_split/tests
 ```
@@ -918,10 +918,10 @@ six input-batch operations. Collection/static routes therefore stay ahead of the
 
 ```bash
 cd backend
-.venv/bin/pytest -q tests/test_workflow_api.py tests/test_workflow_boundaries.py \
-  tests/test_workflow_framework.py tests/test_workflow_input_api.py \
-  tests/test_workflow_input_service.py tests/test_workflow_production.py \
-  tests/test_dxf_classification_pipeline.py tests/architecture
+.venv/bin/pytest -q tests/workflows/test_workflow_api.py tests/workflows/test_workflow_boundaries.py \
+  tests/workflows/test_workflow_framework.py tests/workflows/test_workflow_input_api.py \
+  tests/workflows/test_workflow_input_service.py tests/workflows/test_workflow_production.py \
+  tests/dxf_classification/test_dxf_classification_pipeline.py tests/architecture
 .venv/bin/alembic check
 ```
 
@@ -1057,10 +1057,10 @@ the horizontal dependency direction.
 
 ```bash
 cd backend
-.venv/bin/pytest -q tests/test_daily_archive.py tests/test_data_admin_api.py \
-  tests/test_storage_reconciliation.py tests/test_infrastructure_api.py \
-  tests/test_control_plane_api.py tests/test_agent_memory.py \
-  tests/test_adversarial_jobs.py tests/architecture
+.venv/bin/pytest -q tests/operations/test_daily_archive.py tests/operations/test_data_admin_api.py \
+  tests/operations/test_storage_reconciliation.py tests/operations/test_infrastructure_api.py \
+  tests/operations/test_control_plane_api.py tests/automation/test_agent_memory.py \
+  tests/jobs/test_adversarial_jobs.py tests/architecture
 .venv/bin/alembic check
 ```
 
@@ -1085,12 +1085,12 @@ git commit -m "refactor: group operations and automation contracts"
 **Files:**
 
 - Keep: `backend/tests/conftest.py`
-- Create: `backend/tests/support/paths.py`
-- Move tests into: `architecture`, `contracts`, `identity`, `projects`, `files`, `jobs`, `workflows`, `cad_processing`, `dxf_classification`, `excel_processing`, `operations`, `security`, `infrastructure`, `regression`
+- Create: `backend/tests/support/{paths,database,workflow_api}.py`
+- Move tests into: `architecture`, `automation`, `contracts`, `identity`, `projects`, `files`, `jobs`, `workflows`, `cad_processing`, `dxf_classification`, `excel_processing`, `operations`, `security`, `infrastructure`, `regression`
 - Update imports, patch strings, path calculations, verification scripts and catalog
-- Delete empty root `backend/tests/__init__.py` if package semantics are unnecessary
+- Keep root `backend/tests/__init__.py`: `tests.support` is the explicit shared-helper package
 
-- [ ] **Step 1: Add stable repository path helper**
+- [x] **Step 1: Add stable repository path helper**
 
 ```python
 from pathlib import Path
@@ -1101,17 +1101,25 @@ FRONTEND_ROOT = REPO_ROOT / "frontend"
 STAGES_ROOT = REPO_ROOT / "Stages"
 ```
 
-Moved tests import this helper instead of counting `parents[n]` locally.
+Moved tests import this helper instead of counting `parents[n]` locally. Database session access and
+workflow HTTP builders also moved into `tests.support`; tests no longer import another test module or
+the private state of `conftest.py`.
 
-- [ ] **Step 2: Move tests by primary behavior**
+- [x] **Step 2: Move tests by primary behavior**
 
-Cross-domain adversarial/regression suites go to `regression/`; do not split test functions merely to force one-owner purity. File names remain recognizable for Git history.
+Cross-domain adversarial/regression suites go to `regression/`; domain-specific adversarial suites
+remain beside their owner. Do not split test functions merely to force one-owner purity. File names
+remain recognizable for Git history.
 
-- [ ] **Step 3: Validate monkeypatch targets**
+- [x] **Step 3: Validate monkeypatch targets**
 
 Add a test that statically extracts string targets passed to `monkeypatch.setattr`/`patch`, imports the module and verifies the final attribute exists. Exclude dynamically constructed targets with an explicit list and explanation.
 
-- [ ] **Step 4: Verify collection and full suite**
+The layout contract rejects root-level test files and requires every domain directory. The patch
+contract currently resolves 96 literal targets and requires exact source-location reasons for any
+future dynamic target.
+
+- [x] **Step 4: Verify collection and full suite**
 
 ```bash
 cd backend
@@ -1121,7 +1129,13 @@ cd backend
 
 Expected: collected count is no lower than the pre-move count and all non-conditional tests pass.
 
-- [ ] **Step 5: Commit**
+Completed evidence: collection is exactly 1092 tests (the original 1085 plus seven new architecture
+contracts); workflow/support focused regression is `115 passed`; architecture is `69 passed`; full
+backend is `1086 passed, 6 skipped, 21 warnings`. No production path, HTTP operation, table or task
+contract changed. The six-section quick gate also passes with 218 focused tests, documentation
+checks and a frontend production build.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/tests scripts docs/architecture

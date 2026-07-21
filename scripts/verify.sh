@@ -68,7 +68,7 @@ run_gate "架构契约与模块归属" bash -c \
     'cd backend && uv run python ../scripts/architecture/snapshot_contracts.py --check && uv run python ../scripts/architecture/check_module_catalog.py' \
     -- "$PROJECT_ROOT"
 run_gate "聚焦后端与脚本回归" bash -c \
-    'cd backend && uv run pytest -q tests/test_scripts.py tests/test_forward_to_win11_script.py tests/test_compose.py tests/test_file_service.py tests/test_file_transfer_service.py tests/test_adversarial_files.py tests/test_frontend_contract.py' \
+    'cd backend && uv run pytest -q tests/infrastructure/test_scripts.py tests/infrastructure/test_forward_to_win11_script.py tests/infrastructure/test_compose.py tests/files/test_file_service.py tests/files/test_file_transfer_service.py tests/files/test_adversarial_files.py tests/contracts/test_frontend_contract.py' \
     -- "$PROJECT_ROOT"
 run_gate "API/文档一致性" bash -c 'make docs-check' -- "$PROJECT_ROOT"
 run_gate "前端生产构建" bash -c 'cd frontend && npm run build' -- "$PROJECT_ROOT"

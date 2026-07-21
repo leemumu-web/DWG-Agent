@@ -7,12 +7,7 @@ from sqlalchemy import select
 
 from app.modules.workflows.interface import WorkflowInputBatch
 from app.platform.storage.local import LocalFileStorage
-from tests.test_workflow_api import (
-    _admin_headers,
-    _client,
-    _engineer_user,
-    _project,
-)
+from tests.support import workflow_api as workflow_test_api
 
 
 def _xlsx() -> bytes:
@@ -33,9 +28,9 @@ def _use_storage(monkeypatch, tmp_path):
 
 
 def _setup(client, prefix="input-api"):
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, prefix)
-    project_id = _project(client, owner_headers)
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, prefix)
+    project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
         headers=owner_headers,
@@ -62,7 +57,7 @@ def _upload(client, headers, name: str, payload: bytes, batch_id: int) -> int:
 
 def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
-    client = _client()
+    client = workflow_test_api.client()
     _, owner_headers, _, workflow_id = _setup(client)
     dispatched: list[tuple[str, list[tuple[int, int]]]] = []
     monkeypatch.setattr("app.platform.config.settings.settings.dxf_pipeline_enabled", True)
@@ -119,7 +114,7 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
 
 def test_registration_rejects_human_dxf_and_second_excel(monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
-    client = _client()
+    client = workflow_test_api.client()
     _, owner_headers, _, workflow_id = _setup(client, "input-errors")
     batch = client.post(
         f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
@@ -155,9 +150,9 @@ def test_registration_rejects_human_dxf_and_second_excel(monkeypatch, tmp_path):
 
 def test_input_batch_is_project_scoped(monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
-    client = _client()
+    client = workflow_test_api.client()
     admin_headers, owner_headers, _, workflow_id = _setup(client, "input-owner")
-    _, stranger_headers = _engineer_user(client, admin_headers, "input-stranger")
+    _, stranger_headers = workflow_test_api.create_engineer_user(client, admin_headers, "input-stranger")
     assert (
         client.post(
             f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
@@ -171,7 +166,7 @@ def test_input_batch_is_project_scoped(monkeypatch, tmp_path):
 
 
 def test_input_batch_openapi_exposes_complete_guarded_surface():
-    paths = _client().app.openapi()["paths"]
+    paths = workflow_test_api.client().app.openapi()["paths"]
 
     expected = {
         "/api/v1/workflows/{workflow_id}/input-batch": {"get", "post"},
@@ -196,7 +191,7 @@ def test_input_batch_openapi_exposes_complete_guarded_surface():
 
 def test_frozen_input_source_cannot_be_deleted_through_files_api(db, monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
-    client = _client()
+    client = workflow_test_api.client()
     _, owner_headers, _, workflow_id = _setup(client, "frozen-delete")
     batch_data = client.post(
         f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers

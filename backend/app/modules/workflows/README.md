@@ -50,6 +50,7 @@ artifact 与 canonical manifest SHA-256。冻结后 DWG、Excel 和派生 DXF �
 
 ## 验证
 
-行为回归位于 `test_workflow_*` 与 `test_dxf_classification_pipeline.py`；结构边界位于
-`tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 114 path、135 operation、
-36 张模型表和 11 个 Celery task。
+行为回归位于 `backend/tests/workflows/`，分类集成位于
+`backend/tests/dxf_classification/`；结构边界位于
+`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 114 path、
+135 operation、36 张模型表和 11 个 Celery task。

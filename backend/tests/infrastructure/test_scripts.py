@@ -4,11 +4,10 @@ import importlib.util
 import os
 import stat
 import subprocess
-from pathlib import Path
 
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.paths import REPO_ROOT as PROJECT_ROOT
 
 
 def _read(path: str) -> str:

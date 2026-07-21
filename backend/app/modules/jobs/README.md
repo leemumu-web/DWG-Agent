@@ -45,7 +45,7 @@ remains intentionally non-production and says so in its generated Result.
 
 ## Verification
 
-Core regression lives in `backend/tests/test_job_*.py`,
-`backend/tests/test_jobs_module_contract.py`, Result/Review security tests and
+Core regression lives in `backend/tests/jobs/test_job_*.py`,
+`backend/tests/jobs/test_jobs_module_contract.py`, Result/Review security tests and
 `backend/tests/architecture/test_jobs_boundaries.py`. Runtime HTTP, ORM and Celery
 names are also locked by `docs/architecture/runtime-contract.json`.

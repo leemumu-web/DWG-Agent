@@ -4,7 +4,8 @@ import ast
 import importlib
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.support.paths import REPO_ROOT
+
 APP_ROOT = REPO_ROOT / "backend" / "app"
 
 EXCEL_TABLES = {

@@ -150,7 +150,9 @@ docker compose config --quiet
 
 # 验证 Settings 与数据库行为
 cd backend
-uv run pytest -q tests/test_config.py tests/test_mysql_runtime.py tests/test_compose.py
+uv run pytest -q tests/infrastructure/test_config.py \
+  tests/infrastructure/test_mysql_runtime.py \
+  tests/infrastructure/test_compose.py
 ```
 
 启用管线前必须同时验证 flag 和依赖 readiness。通用 worker 健康但 flag 关闭或 Stage 缺失，不能证明管线可用。

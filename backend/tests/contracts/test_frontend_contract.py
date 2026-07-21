@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.paths import REPO_ROOT
 
 
 def _frontend_source(path: str) -> str:

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from app.platform.http.exceptions import AppHTTPException
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_ROOT = REPO_ROOT / "backend" / "app"
 
 WORKFLOW_TABLES = {

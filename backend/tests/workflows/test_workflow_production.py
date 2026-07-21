@@ -12,6 +12,8 @@ from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.interface import WorkflowInputBatch, WorkflowRun
 from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.http.exceptions import AppHTTPException
+from tests.support import workflow_api as workflow_test_api
+from tests.support.database import open_test_session
 
 
 def _owner_project(db):
@@ -170,10 +172,7 @@ def _complete_classification_fixture(workflow: WorkflowRun) -> None:
 
 
 def _mark_api_input_batch_frozen(workflow_id: int) -> None:
-    from tests import conftest
-
-    assert conftest._test_session_factory is not None
-    with conftest._test_session_factory() as db:
+    with open_test_session() as db:
         workflow = db.get(WorkflowRun, workflow_id)
         assert workflow is not None
         _mark_input_batch_frozen(db, workflow)
@@ -181,10 +180,7 @@ def _mark_api_input_batch_frozen(workflow_id: int) -> None:
 
 
 def _mark_api_classification_complete(workflow_id: int) -> None:
-    from tests import conftest
-
-    assert conftest._test_session_factory is not None
-    with conftest._test_session_factory() as db:
+    with open_test_session() as db:
         workflow = db.get(WorkflowRun, workflow_id)
         assert workflow is not None
         _complete_classification_fixture(workflow)
@@ -236,12 +232,10 @@ def test_repeated_file_binding_is_idempotent(db):
 
 
 def test_artifact_api_reuses_files_and_is_idempotent():
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
-
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-artifact")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-artifact")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
         headers=owner_headers,
@@ -282,13 +276,11 @@ def test_artifact_api_reuses_files_and_is_idempotent():
 
 
 def test_non_member_cannot_bind_workflow_artifact():
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
-
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-owner")
-    _, stranger_headers = _engineer_user(client, admin_headers, "prod-stranger")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-owner")
+    _, stranger_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-stranger")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
         headers=owner_headers,
@@ -381,12 +373,11 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
 def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-exec")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-exec")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, batch_name = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     dispatched: list[int] = []
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
@@ -424,12 +415,11 @@ def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
 
 def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
     from app.platform.config.settings import settings
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-gate")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-gate")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, batch_name = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", False)
 
@@ -447,13 +437,11 @@ def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch
     from app.modules.jobs.interface import Job
     from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
-    from tests import conftest
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-retry")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-retry")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, batch_name = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     dispatched: list[tuple[int, int]] = []
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
@@ -470,8 +458,7 @@ def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch
     )
     assert first.status_code == 202, first.text
     job_id = first.json()["data"]["job"]["id"]
-    assert conftest._test_session_factory is not None
-    with conftest._test_session_factory() as db:
+    with open_test_session() as db:
         job = db.get(Job, job_id)
         assert job is not None
         job.status = "failed"
@@ -601,7 +588,6 @@ def test_cancelled_bound_job_stays_on_its_recoverable_workflow_stage(db):
 def _api_workflow_at_excel_final(client, owner_headers, project_id: int, monkeypatch):
     from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
-    from tests import conftest
 
     workflow_id, batch_name = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
@@ -627,8 +613,7 @@ def _api_workflow_at_excel_final(client, owner_headers, project_id: int, monkeyp
     )
     assert uploaded.status_code == 201, uploaded.text
     job_id = executed.json()["data"]["job"]["id"]
-    assert conftest._test_session_factory is not None
-    with conftest._test_session_factory() as db:
+    with open_test_session() as db:
         job = db.get(Job, job_id)
         assert job is not None
         job.status = "succeeded"
@@ -658,12 +643,11 @@ def _api_workflow_at_excel_final(client, owner_headers, project_id: int, monkeyp
 def test_excel_final_execution_reuses_existing_pipeline(monkeypatch):
     from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-final")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-final")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, file_id = _api_workflow_at_excel_final(
         client, owner_headers, project_id, monkeypatch
     )
@@ -691,12 +675,11 @@ def test_excel_final_execution_reuses_existing_pipeline(monkeypatch):
 
 def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
     from app.platform.config.settings import settings
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-final-ext")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-final-ext")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, _ = _api_workflow_at_excel_final(client, owner_headers, project_id, monkeypatch)
     uploaded = client.post(
         "/api/v1/files",
@@ -720,12 +703,10 @@ def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
 
 
 def test_placeholder_execution_exposes_complete_contract():
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
-
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-placeholder")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-placeholder")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
         headers=owner_headers,
@@ -839,12 +820,11 @@ def test_linux_stage_rejects_artifact_type_outside_declared_contract(db):
 def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
     from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
-    from tests.test_workflow_api import _admin_headers, _client, _engineer_user, _project
 
-    client = _client()
-    admin_headers = _admin_headers(client)
-    _, owner_headers = _engineer_user(client, admin_headers, "prod-cancel")
-    project_id = _project(client, owner_headers)
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-cancel")
+    project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, batch_name = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     monkeypatch.setattr(settings, "dxf2excel_pipeline_enabled", True)
     monkeypatch.setattr(workflows_api, "dispatch_committed_job", lambda _db, _job: None)

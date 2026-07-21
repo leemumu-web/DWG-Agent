@@ -37,8 +37,9 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_identity_projects_boundaries.py",
-        "backend/tests/test_adversarial_auth.py",
-        "backend/tests/test_rbac_deep.py"
+        "backend/tests/identity/test_rbac_deep.py",
+        "backend/tests/identity/test_token_lifecycle.py",
+        "backend/tests/security/test_adversarial_auth.py"
       ],
       "docs": ["docs/guides/security.md", "docs/reference/api.md"],
       "notes": "FastAPI is the authorization boundary; UI guards are usability only."
@@ -62,8 +63,8 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_identity_projects_boundaries.py",
-        "backend/tests/test_service_layer.py",
-        "backend/tests/test_sql_pagination.py"
+        "backend/tests/projects/test_service_layer.py",
+        "backend/tests/projects/test_sql_pagination.py"
       ],
       "docs": ["docs/architecture/overview.md", "docs/reference/database.md"],
       "notes": "Project membership scopes drawing, file, Job and workflow access."
@@ -90,8 +91,8 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_files_boundaries.py",
-        "backend/tests/test_file_service.py",
-        "backend/tests/test_storage_consistency.py"
+        "backend/tests/files/test_file_service.py",
+        "backend/tests/files/test_storage_consistency.py"
       ],
       "docs": ["docs/architecture/overview.md", "docs/guides/operations.md"],
       "notes": "MySQL owns registry facts; Local or MinIO owns bytes; file_transfers records compensation."
@@ -116,9 +117,9 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_jobs_boundaries.py",
-        "backend/tests/test_job_attempts.py",
-        "backend/tests/test_job_lifecycle.py",
-        "backend/tests/test_jobs_module_contract.py"
+        "backend/tests/jobs/test_job_attempts.py",
+        "backend/tests/jobs/test_job_lifecycle.py",
+        "backend/tests/jobs/test_jobs_module_contract.py"
       ],
       "docs": ["docs/architecture/overview.md", "docs/reference/api.md"],
       "notes": "Job and JobStep are attempt-fenced execution facts; dispatch is direct with guarded compensation, current SSE is latest-row polling rather than durable numbered replay, and Celery result rows are not business results."
@@ -149,9 +150,9 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_workflow_boundaries.py",
-        "backend/tests/test_workflow_framework.py",
-        "backend/tests/test_workflow_input_service.py",
-        "backend/tests/test_workflow_production.py"
+        "backend/tests/workflows/test_workflow_framework.py",
+        "backend/tests/workflows/test_workflow_input_service.py",
+        "backend/tests/workflows/test_workflow_production.py"
       ],
       "docs": ["docs/architecture/workflow.md", "docs/verification/current.md"],
       "notes": "DWG plus one Excel intake, server DXF conversion, freeze and classification are wired; later production stages expose truthful placeholders."
@@ -180,9 +181,9 @@
       "stages": ["Stages/dwg2dxf", "Stages/dxf2dwg", "Stages/dxf2excel"],
       "tests": [
         "backend/tests/architecture/test_cad_processing_boundaries.py",
-        "backend/tests/test_cad_batch_jobs.py",
-        "backend/tests/test_dxf2excel_pipeline.py",
-        "backend/tests/test_dxf_pipeline.py"
+        "backend/tests/cad_processing/test_cad_batch_jobs.py",
+        "backend/tests/cad_processing/test_dxf2excel_pipeline.py",
+        "backend/tests/cad_processing/test_dxf_pipeline.py"
       ],
       "docs": ["Stages/dwg2dxf/README.md", "docs/architecture/workflow.md"],
       "notes": "Direction-specific version, persistence, batch and execution layers call independent Stage packages behind flags; ODA/runtime/sample validation remains deployment work."
@@ -199,7 +200,7 @@
       "celery_tasks": ["app.workers.tasks_dxf_classification.classify_steel_dxf"],
       "queues": ["dxf_classification"],
       "stages": ["Stages/steel_dxf_classifier_v1.1.0"],
-      "tests": ["backend/tests/test_dxf_classification_pipeline.py"],
+      "tests": ["backend/tests/dxf_classification/test_dxf_classification_pipeline.py"],
       "docs": ["Stages/steel_dxf_classifier_v1.1.0/docs/IO_CONTRACT.md", "docs/architecture/workflow.md"],
       "notes": "Classifier 1.1.0 output names and source/output relations are registered in MySQL and object storage."
     },
@@ -221,9 +222,9 @@
       "stages": ["Stages/excel_final"],
       "tests": [
         "backend/tests/architecture/test_excel_processing_boundaries.py",
-        "backend/tests/test_excel_final_adapter.py",
-        "backend/tests/test_excel_final_import.py",
-        "backend/tests/test_excel_final_retry.py"
+        "backend/tests/excel_processing/test_excel_final_adapter.py",
+        "backend/tests/excel_processing/test_excel_final_import.py",
+        "backend/tests/excel_processing/test_excel_final_retry.py"
       ],
       "docs": [
         "Stages/excel_final/PROCESS.md",
@@ -269,10 +270,10 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_operations_automation_boundaries.py",
-        "backend/tests/test_control_plane_api.py",
-        "backend/tests/test_daily_archive.py",
-        "backend/tests/test_data_admin_api.py",
-        "backend/tests/test_storage_reconciliation.py"
+        "backend/tests/operations/test_control_plane_api.py",
+        "backend/tests/operations/test_daily_archive.py",
+        "backend/tests/operations/test_data_admin_api.py",
+        "backend/tests/operations/test_storage_reconciliation.py"
       ],
       "docs": [
         "backend/app/modules/operations/README.md",
@@ -298,7 +299,7 @@
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_operations_automation_boundaries.py",
-        "backend/tests/test_agent_memory.py"
+        "backend/tests/automation/test_agent_memory.py"
       ],
       "docs": [
         "agents/report-agent/README.md",
@@ -319,7 +320,7 @@
       "celery_tasks": [],
       "queues": [],
       "stages": [],
-      "tests": ["backend/tests/test_celery_minio_deployment.py"],
+      "tests": ["backend/tests/infrastructure/test_celery_minio_deployment.py"],
       "docs": [
         "docs/architecture/implementation-status.md",
         "docs/guides/deployment.md",
@@ -342,7 +343,7 @@
       "celery_tasks": [],
       "queues": ["cad"],
       "stages": [],
-      "tests": ["backend/tests/test_control_plane_api.py"],
+      "tests": ["backend/tests/operations/test_control_plane_api.py"],
       "docs": [
         "docs/architecture/implementation-status.md",
         "windows/README.md",

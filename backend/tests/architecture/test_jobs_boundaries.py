@@ -4,7 +4,8 @@ import ast
 import importlib
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.support.paths import REPO_ROOT
+
 APP_ROOT = REPO_ROOT / "backend" / "app"
 
 JOB_TABLES = {"analysis_results", "job_steps", "jobs", "review_records"}

@@ -23,8 +23,9 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.platform.config.settings import settings
+from tests.support.paths import STAGES_ROOT
 
-SAMPLE_DXF_DIR = Path(__file__).resolve().parents[2] / "Stages" / "dxf2excel" / "original_dxf"
+SAMPLE_DXF_DIR = STAGES_ROOT / "dxf2excel" / "original_dxf"
 
 
 @pytest.fixture(autouse=True)

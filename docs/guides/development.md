@@ -139,6 +139,12 @@ Alembic 当前拥有 36 张 SQLAlchemy 模型表，其中包含工作流、生�
 
 ## 测试层级
 
+后端测试与 `app/modules` 采用同一领域词汇：身份、文件、Job、workflow、CAD、分类、Excel、
+operations 和 automation 分别位于 `backend/tests/<domain>/`；共享平台/部署测试位于
+`infrastructure/`，跨领域历史审计位于 `regression/`，依赖与归属保护位于
+`architecture/`。公共测试构造器只放在 `tests/support/`，测试文件不得互相导入。
+完整映射见 `backend/tests/README.md`。
+
 ```bash
 # Backend 静态与隔离 API/service 测试
 cd backend

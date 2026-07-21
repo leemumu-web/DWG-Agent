@@ -5,79 +5,16 @@ state-machine boundaries exercised through the TestClient."""
 
 from __future__ import annotations
 
-from uuid import uuid4
-
-from fastapi.testclient import TestClient
-
-from app.bootstrap.seed import init_db
-from app.main import app
-
-
-def _client() -> TestClient:
-    init_db()
-    return TestClient(app, raise_server_exceptions=False)
-
-
-def _admin_headers(client: TestClient) -> dict[str, str]:
-    resp = client.post(
-        "/api/v1/auth/sessions",
-        json={"username": "admin", "password": "SuperAdminPass1"},
-    )
-    assert resp.status_code == 201, resp.text
-    return {"Authorization": f"Bearer {resp.json()['data']['access_token']}"}
-
-
-def _engineer_user(
-    client: TestClient, admin_h: dict[str, str], prefix: str = "eng"
-) -> tuple[int, dict[str, str]]:
-    username = f"{prefix}-{uuid4().hex[:8]}"
-    pwd = "EngPassword1234"
-    created = client.post(
-        "/api/v1/users",
-        headers=admin_h,
-        json={"username": username, "password": pwd, "real_name": f"Eng {prefix}"},
-    )
-    assert created.status_code == 201, created.text
-    uid = created.json()["data"]["id"]
-    role_resp = client.post(
-        f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "engineer"}
-    )
-    assert role_resp.status_code == 201, role_resp.text
-    login = client.post("/api/v1/auth/sessions", json={"username": username, "password": pwd})
-    assert login.status_code == 201, login.text
-    return uid, {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
-
-
-def _project(client: TestClient, owner_h: dict[str, str]) -> int:
-    code = f"WFAPI-{uuid4().hex[:6]}"
-    resp = client.post(
-        "/api/v1/projects",
-        headers=owner_h,
-        json={"code": code, "name": f"API Test {code}", "description": "test"},
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()["data"]["id"]
-
-
-def _add_member(
-    client: TestClient, project_id: int, user_id: int, role: str, admin_h: dict[str, str]
-) -> None:
-    resp = client.post(
-        f"/api/v1/projects/{project_id}/members",
-        headers=admin_h,
-        json={"user_id": user_id, "project_role": role},
-    )
-    assert resp.status_code == 201, resp.text
-
+from tests.support import workflow_api as workflow_test_api
 
 # ── create workflow ──────────────────────────────────────────────────────────
 
 
 def test_create_workflow_returns_201_and_stages():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "wf-create")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "wf-create")
+    pid = workflow_test_api.create_project(c, owner_h)
     resp = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -92,9 +29,9 @@ def test_create_workflow_returns_201_and_stages():
 
 
 def test_create_workflow_missing_project_rejected():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "ghost-proj")
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "ghost-proj")
     resp = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -104,10 +41,10 @@ def test_create_workflow_missing_project_rejected():
 
 
 def test_create_workflow_blank_name_rejected():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "blank-nm")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "blank-nm")
+    pid = workflow_test_api.create_project(c, owner_h)
     for name in ("", "   "):
         resp = c.post(
             "/api/v1/workflows",
@@ -118,10 +55,10 @@ def test_create_workflow_blank_name_rejected():
 
 
 def test_create_workflow_bad_type_rejected():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "bad-typ")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "bad-typ")
+    pid = workflow_test_api.create_project(c, owner_h)
     resp = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -131,11 +68,11 @@ def test_create_workflow_bad_type_rejected():
 
 
 def test_non_member_cannot_create_workflow():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "owner-cr")
-    _, stranger_h = _engineer_user(c, admin_h, "str-cr")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "owner-cr")
+    _, stranger_h = workflow_test_api.create_engineer_user(c, admin_h, "str-cr")
+    pid = workflow_test_api.create_project(c, owner_h)
     resp = c.post(
         "/api/v1/workflows",
         headers=stranger_h,
@@ -148,14 +85,14 @@ def test_non_member_cannot_create_workflow():
 
 
 def test_list_workflows_shows_only_accessible():
-    c = _client()
-    admin_h = _admin_headers(c)
-    oid_a, owner_a = _engineer_user(c, admin_h, "la")
-    oid_b, owner_b = _engineer_user(c, admin_h, "lb")
-    oid_c, _ = _engineer_user(c, admin_h, "lc")
-    pa = _project(c, owner_a)
-    pb = _project(c, owner_b)
-    _add_member(c, pb, oid_c, "project_viewer", admin_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    oid_a, owner_a = workflow_test_api.create_engineer_user(c, admin_h, "la")
+    oid_b, owner_b = workflow_test_api.create_engineer_user(c, admin_h, "lb")
+    oid_c, _ = workflow_test_api.create_engineer_user(c, admin_h, "lc")
+    pa = workflow_test_api.create_project(c, owner_a)
+    pb = workflow_test_api.create_project(c, owner_b)
+    workflow_test_api.add_project_member(c, pb, oid_c, "project_viewer", admin_h)
     c.post(
         "/api/v1/workflows",
         headers=owner_a,
@@ -176,10 +113,10 @@ def test_list_workflows_shows_only_accessible():
 
 
 def test_list_workflows_paginated():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "lp")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "lp")
+    pid = workflow_test_api.create_project(c, owner_h)
     for idx in range(5):
         c.post(
             "/api/v1/workflows",
@@ -193,10 +130,10 @@ def test_list_workflows_paginated():
 
 
 def test_list_workflows_filter_by_status():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "lfs")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "lfs")
+    pid = workflow_test_api.create_project(c, owner_h)
     c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -210,9 +147,9 @@ def test_list_workflows_filter_by_status():
 
 
 def test_list_workflows_bad_status_rejected():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "lbs")
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "lbs")
     resp = c.get("/api/v1/workflows", headers=owner_h, params={"status": "flying"})
     assert resp.status_code >= 400, resp.text
 
@@ -221,10 +158,10 @@ def test_list_workflows_bad_status_rejected():
 
 
 def test_get_workflow_returns_detail():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "gd")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "gd")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -240,11 +177,11 @@ def test_get_workflow_returns_detail():
 
 
 def test_get_workflow_non_member_rejected():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "gd-owner")
-    _, stranger_h = _engineer_user(c, admin_h, "gd-str")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "gd-owner")
+    _, stranger_h = workflow_test_api.create_engineer_user(c, admin_h, "gd-str")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -256,9 +193,9 @@ def test_get_workflow_non_member_rejected():
 
 
 def test_get_nonexistent_workflow_returns_404():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "g404")
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "g404")
     resp = c.get("/api/v1/workflows/99999", headers=owner_h)
     assert resp.status_code == 404, resp.text
 
@@ -267,10 +204,10 @@ def test_get_nonexistent_workflow_returns_404():
 
 
 def test_start_workflow_transitions():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "sw")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "sw")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -283,10 +220,10 @@ def test_start_workflow_transitions():
 
 
 def test_cannot_start_twice():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "sw2")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "sw2")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -299,12 +236,12 @@ def test_cannot_start_twice():
 
 
 def test_non_owner_cannot_start():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "sw-own")
-    vid, viewer_h = _engineer_user(c, admin_h, "sw-view")
-    pid = _project(c, owner_h)
-    _add_member(c, pid, vid, "project_viewer", admin_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "sw-own")
+    vid, viewer_h = workflow_test_api.create_engineer_user(c, admin_h, "sw-view")
+    pid = workflow_test_api.create_project(c, owner_h)
+    workflow_test_api.add_project_member(c, pid, vid, "project_viewer", admin_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -319,10 +256,10 @@ def test_non_owner_cannot_start():
 
 
 def test_complete_stage_advances():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "cs")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "cs")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -337,10 +274,10 @@ def test_complete_stage_advances():
 
 
 def test_complete_unknown_stage_rejected():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "cs-bad")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "cs-bad")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -353,12 +290,12 @@ def test_complete_unknown_stage_rejected():
 
 
 def test_viewer_cannot_complete_stage():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "cs-own")
-    vid, viewer_h = _engineer_user(c, admin_h, "cs-view")
-    pid = _project(c, owner_h)
-    _add_member(c, pid, vid, "project_viewer", admin_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "cs-own")
+    vid, viewer_h = workflow_test_api.create_engineer_user(c, admin_h, "cs-view")
+    pid = workflow_test_api.create_project(c, owner_h)
+    workflow_test_api.add_project_member(c, pid, vid, "project_viewer", admin_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -375,10 +312,10 @@ def test_viewer_cannot_complete_stage():
 
 
 def test_cancel_workflow():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "canc")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "canc")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -392,18 +329,18 @@ def test_cancel_workflow():
 
 
 def test_cancel_nonexistent_workflow_404():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "c404")
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "c404")
     resp = c.post("/api/v1/workflows/99999/cancellation-requests", headers=owner_h)
     assert resp.status_code == 404, resp.text
 
 
 def test_cancelled_workflow_still_readable():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "cr")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "cr")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,
@@ -420,10 +357,10 @@ def test_cancelled_workflow_still_readable():
 
 
 def test_list_empty_with_no_workflows():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "el")
-    _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "el")
+    workflow_test_api.create_project(c, owner_h)
     resp = c.get("/api/v1/workflows", headers=owner_h)
     assert resp.status_code == 200
     assert resp.json()["data"] == []
@@ -433,10 +370,10 @@ def test_list_empty_with_no_workflows():
 
 
 def test_cancel_draft_workflow_without_start():
-    c = _client()
-    admin_h = _admin_headers(c)
-    _, owner_h = _engineer_user(c, admin_h, "dc")
-    pid = _project(c, owner_h)
+    c = workflow_test_api.client()
+    admin_h = workflow_test_api.admin_headers(c)
+    _, owner_h = workflow_test_api.create_engineer_user(c, admin_h, "dc")
+    pid = workflow_test_api.create_project(c, owner_h)
     created = c.post(
         "/api/v1/workflows",
         headers=owner_h,

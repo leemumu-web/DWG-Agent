@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.paths import REPO_ROOT
+
 NGINX_CONFIGS = (
     REPO_ROOT / "infra/gateway/nginx/nginx.conf",
     REPO_ROOT / "infra/gateway/nginx/nginx.local.conf",

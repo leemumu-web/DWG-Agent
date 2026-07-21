@@ -15,8 +15,7 @@ from app.main import app
 from app.modules.jobs.interface import AnalysisResult, Job, run_local_stub_job
 from app.platform.config.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
 from app.platform.http.exceptions import AppHTTPException
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.paths import REPO_ROOT
 
 
 def test_runtime_dependencies_include_celery_and_minio_without_flower():

@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 
 from app.platform.database.base import Base
+from tests.support.paths import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_ROOT = REPO_ROOT / "backend" / "app"
 SNAPSHOT = json.loads(
     (REPO_ROOT / "docs" / "architecture" / "runtime-contract.json").read_text(

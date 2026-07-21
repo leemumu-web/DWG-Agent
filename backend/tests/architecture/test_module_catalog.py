@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+from tests.support.paths import REPO_ROOT
+
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.architecture.check_module_catalog import (  # noqa: E402

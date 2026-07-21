@@ -8,6 +8,7 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from app.modules.excel_processing import stage_adapter as excel_final
+from tests.support.paths import BACKEND_ROOT
 
 
 def test_excel_final_stage_root_resolves_tracked_standalone_layout():
@@ -185,7 +186,7 @@ def test_excel_final_adapter_normalizes_legacy_fixed_width_bolt_row(tmp_path: Pa
 
 def test_excel_final_completion_event_does_not_pass_duplicate_batch_id():
     source = (
-        Path(__file__).resolve().parents[1]
+        BACKEND_ROOT
         / "app/modules/excel_processing/execution.py"
     ).read_text(encoding="utf-8")
 

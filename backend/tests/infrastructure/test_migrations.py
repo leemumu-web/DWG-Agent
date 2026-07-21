@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from app.modules.jobs.interface import JobStep
+from tests.support.paths import REPO_ROOT as PROJECT_ROOT
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = PROJECT_ROOT / "backend" / "migrations" / "versions"
 ALEMBIC_ENV = PROJECT_ROOT / "backend" / "migrations" / "env.py"
 DB_SCRIPT = PROJECT_ROOT / "scripts" / "db.sh"

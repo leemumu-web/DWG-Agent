@@ -13,9 +13,7 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.platform.database.base import Base
 from app.platform.database.session import get_db as original_get_db
-
-# Module-level vars set by _isolate_test_db so the db fixture can use them.
-_test_session_factory: sessionmaker | None = None
+from tests.support.database import get_test_session_factory, install_test_session_factory
 
 
 @pytest.fixture(autouse=True)
@@ -31,8 +29,6 @@ def _isolate_test_db(monkeypatch):
     test double. StaticPool is required because SQLite in-memory databases are
     scoped to one DB-API connection.
     """
-    global _test_session_factory
-
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -55,7 +51,7 @@ def _isolate_test_db(monkeypatch):
     TestSessionLocal = sessionmaker(
         bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
     )
-    _test_session_factory = TestSessionLocal
+    install_test_session_factory(TestSessionLocal)
 
     def _override_get_db():
         db = TestSessionLocal()
@@ -117,8 +113,7 @@ def _isolate_test_db(monkeypatch):
 @pytest.fixture
 def db() -> Session:
     """Provide a fresh SQLAlchemy session for direct service-layer tests."""
-    assert _test_session_factory is not None, "_isolate_test_db must run first (autouse)"
-    session = _test_session_factory()
+    session = get_test_session_factory()()
     try:
         yield session
     finally:

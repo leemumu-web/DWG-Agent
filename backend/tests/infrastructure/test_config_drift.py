@@ -12,11 +12,11 @@ this file retains only the still-relevant platform invariants.)
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.paths import REPO_ROOT
+
 COMPOSE = REPO_ROOT / "compose.yaml"
 NGINX_DOCKER = REPO_ROOT / "infra/gateway/nginx/nginx.conf"
 NGINX_LOCAL = REPO_ROOT / "infra/gateway/nginx/nginx.local.conf"

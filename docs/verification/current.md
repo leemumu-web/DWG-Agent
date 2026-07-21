@@ -8,12 +8,12 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1079 passed, 6 skipped, 21 warnings in 130.18s`；1085 项全部完成收集 |
+| 后端全量 | pass | `1086 passed, 6 skipped, 21 warnings in 137.36s`；1092 项全部完成收集，较迁移前仅增加 7 个架构保护 |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 15 个模型模块、36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130`；`alembic check` 无漂移 |
 | Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；7 个真实 task module 显式装配，空 Agent/CAD/dispatch module 已删除；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `62 passed, 6 warnings`；平台/领域依赖、轻量 public interface、显式 registry、退役路径、文件/作业/CAD/分类/Excel/workflow/operations/automation 边界与 module catalog 纳入契约 |
+| 架构聚焦测试 | pass | `69 passed, 6 warnings`；除平台/领域依赖、public interface、registry、退役路径和 module catalog 外，新增领域化测试目录、support-only 依赖、集中路径解析与 96 个字符串 patch target 的静态契约 |
 | Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
 | Files 聚焦回归 | pass | `158 passed, 7 warnings`；上传、登记、传输账本、补偿、预览、下载、存储一致性与架构边界通过 |
 | Jobs 聚焦回归 | pass | `140 passed, 3 skipped, 15 warnings`；创建、批量创建、attempt 隔离、取消/重试、投递补偿、SSE、Result/Review 权限、stale 恢复与架构边界通过 |

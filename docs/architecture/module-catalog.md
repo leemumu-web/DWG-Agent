@@ -47,6 +47,11 @@ Agent/MCP/ZWCAD/Windows 执行契约物理分开。旧 `app/api`、`models`、`s
 `workers` 横向业务源码均已退出。扫描 run/finding 表仍由 files 拥有，operations 只经
 `files.interface` 使用；目录迁移没有改变表 owner。
 
+后端测试现以相同 owner 分层到 `backend/tests/<domain>/`，共享路径、会话和 workflow HTTP
+构造器集中在 `backend/tests/support/`。根目录只保留全局 `conftest.py` 和 package 边界；
+跨领域历史审计保留在 `regression/`，避免为了目录纯度拆散原始审计证据。架构测试同时检查
+目录完整性和字符串 patch target，防止后续移动留下静默失效的 mock。
+
 ## 修改规则
 
 1. 移动实现时先更新 JSON 路径，再执行 `make architecture-check`。

@@ -29,7 +29,6 @@ import shutil
 import socket
 import subprocess
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -41,8 +40,8 @@ from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import Permission, Role, User
 from app.platform.config.settings import settings
 from app.platform.security.tokens import verify_password
+from tests.support.paths import REPO_ROOT as PROJECT_ROOT
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = PROJECT_ROOT / "backend"
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 VERSIONS_DIR = BACKEND_ROOT / "migrations" / "versions"

@@ -22,4 +22,6 @@
 - 全局角色判断只通过 `app.modules.identity.interface`；对象字节、文件登记和预览渲染不归本模块。
 - 审计写入通过 operations audit interface；MySQL Session/分页属于 platform。
 
-主要回归：`test_service_layer.py`、`test_sql_pagination.py`、`test_cross_audit_fixes.py`、workflow/file 权限测试和 `tests/architecture/test_identity_projects_boundaries.py`。
+主要回归位于 `backend/tests/projects/`，跨领域历史审计位于
+`backend/tests/regression/`；领域所有权由
+`backend/tests/architecture/test_identity_projects_boundaries.py` 锁定。
