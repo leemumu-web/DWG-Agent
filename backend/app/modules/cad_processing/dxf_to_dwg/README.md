@@ -10,7 +10,11 @@
 `versions.py` first resolves original DWG provenance from a prior
 DWG-to-DXF `AnalysisResult`, validates that value, then falls back to the DXF
 `$ACADVER` header and finally the configured default. `persistence.py` owns
-DWG/Files registration. Single and batch attempt orchestration remain separate.
+DWG/Files registration. `contracts.py` owns stable success/failure metadata,
+`execution.py` owns one-file attempt orchestration and `batch.py` owns the
+one-authoritative-Job-per-source batch path. Single and batch attempt
+orchestration remain separate so a shard cannot silently create a second
+business Job.
 
 The feature flag and ODA runtime/sample validation remain production gates.
 This optional export direction does not overwrite the source DXF or original

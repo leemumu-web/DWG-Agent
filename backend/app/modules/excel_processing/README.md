@@ -10,6 +10,20 @@
 4. `importers.py` 把输出工作簿的“整理表”和“构件表”投影到 `excel_final_parts` 与 `excel_final_components`；`persistence.py` 拥有批次替换、统计和清理。
 5. `routes/catalog.py` 只查询关系化投影；`routes/tools.py` 提供手册比重查询；`routes/health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
 
+## 顶层源码分工
+
+- `access.py` 统一校验输入文件、Job 和 batch 的资源所有权；route 不重复拼授权查询。
+- `availability.py` 只执行 Excel Final feature flag 门禁，不把依赖健康误当成开关状态。
+- `idempotency.py` 规范并作用域化请求幂等键，防止不同 operation 误复用同一个 key。
+- `models.py` 定义 `ExcelFinalBatch`、`ExcelFinalPart`、`ExcelFinalComponent` 三张关系投影表。
+- `schemas.py` 定义导入过程的 typed statistics；HTTP DTO 由 route/presentation 保持稳定。
+- `staging.py` 解析 file ID、下载登记对象并识别源格式；不直接写业务终态。
+- `uploads.py` 复用 files transfer saga 保存上传对象，避免另建一套对象补偿逻辑。
+- `importers.py` 流式读取结果工作簿，`persistence.py` 写入/替换关系投影。
+- `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。
+- `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
+- `stage_adapter.py` / `stage_runner.py` 隔离父进程与 Stage；`interface.py` 是跨域唯一入口。
+
 ## 边界与依赖方向
 
 - 其他业务模块只能导入 `interface.py`。尤其 jobs 的取消、重试恢复只能请求 Excel 域清理，不能直接操作 Excel 表。

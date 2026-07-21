@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`interface.py` 是身份、项目、文件、Job、工作流等领域唯一允许调用的审计写入口；它组装 actor、action、resource、request IP、User-Agent 与 before/after JSON，并写入 operations 拥有的既有 `audit_logs` 表。审计读取 API 由 operations 顶层 route/service 提供。
+`interface.py` 是身份、项目、文件、Job、工作流等领域唯一允许调用的审计写入口；它组装 actor、action、resource、request IP、User-Agent 与 before/after JSON，并写入 operations 拥有的既有 `audit_logs` 表。`models.py` 定义 AuditLog，`schemas.py` 定义稳定读取 DTO，`routes.py` 提供受权限约束的列表和单条读取 API。
 
 ## 输入与输出
 

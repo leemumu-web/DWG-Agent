@@ -233,10 +233,13 @@ def validation_errors() -> list[str]:
                 f"partition README lacks substantive business detail: {relative}/README.md"
             )
         source_files = _direct_source_files(directory)
-        if source_files and not any(source.name in content for source in source_files):
+        undocumented_sources = [
+            source.name for source in source_files if source.name not in content
+        ]
+        if undocumented_sources:
             errors.append(
-                "partition README does not identify any owned source file: "
-                f"{relative}/README.md"
+                "partition README omits directly owned source files: "
+                f"{relative}/README.md missing={undocumented_sources}"
             )
         if not any(marker in lowered for marker in BOUNDARY_MARKERS):
             errors.append(

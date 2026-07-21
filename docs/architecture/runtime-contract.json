@@ -2,6 +2,18 @@
   "alembic_heads": [
     "e2f4b8c6a130"
   ],
+  "celery_task_routes": [
+    "app.workers.tasks_agent.* -> agent",
+    "app.workers.tasks_cad.* -> cad",
+    "app.workers.tasks_dispatch.* -> dispatch",
+    "app.workers.tasks_dxf.* -> dxf",
+    "app.workers.tasks_dxf2dwg.* -> dxf2dwg",
+    "app.workers.tasks_dxf2excel.* -> dxf2excel",
+    "app.workers.tasks_dxf_classification.* -> dxf_classification",
+    "app.workers.tasks_excel_final.* -> excel_final",
+    "app.workers.tasks_maintenance.* -> maintenance",
+    "app.workers.tasks_report.* -> report"
+  ],
   "celery_tasks": [
     "app.workers.tasks_dxf.convert_dwg_to_dxf",
     "app.workers.tasks_dxf.convert_dwg_to_dxf_batch",

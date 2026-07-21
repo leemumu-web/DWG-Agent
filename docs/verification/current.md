@@ -8,12 +8,12 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1091 passed, 6 skipped, 21 warnings in 122.65s`；新增分区、无 root MySQL 验收、Nginx 上传缓冲和缓存时间戳保护后全部完成收集 |
+| 后端全量 | pass | `1093 passed, 6 skipped, 21 warnings in 122.76s`；在既有回归上新增预留队列 route 与分区源码说明完整性测试，没有删除或放宽旧测试 |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 15 个模型模块、36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130`；`alembic check` 无漂移 |
-| Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；7 个真实 task module 显式装配，空 Agent/CAD/dispatch module 已删除；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
-| 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `70 passed, 6 warnings`；除平台/领域依赖、public interface、registry、退役路径和 module catalog 外，新增领域化测试目录、support-only 依赖、集中路径解析与 96 个字符串 patch target 的静态契约 |
+| Celery 公共任务与路由 | pass | 11 个 `app.workers.*` 稳定任务名和 10 条 `pattern -> queue` 路由保持不变；7 个真实 task module 显式装配，Agent/CAD/dispatch 只有预留路由且没有 task；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
+| 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属，10 条任务路由由快照直接比对 |
+| 架构聚焦测试 | pass | `72 passed, 6 warnings`；除平台/领域依赖、public interface、registry、退役路径和 module catalog 外，新增 10 条 task route 与每个直接源码均被 README 说明的静态契约 |
 | Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
 | Files 聚焦回归 | pass | `158 passed, 7 warnings`；上传、登记、传输账本、补偿、预览、下载、存储一致性与架构边界通过 |
 | Jobs 聚焦回归 | pass | `140 passed, 3 skipped, 15 warnings`；创建、批量创建、attempt 隔离、取消/重试、投递补偿、SSE、Result/Review 权限、stale 恢复与架构边界通过 |
@@ -23,18 +23,37 @@
 | Operations/automation 聚焦回归 | pass | `160 passed, 3 skipped`；归档、数据目录、存储对账/处置、基础设施、控制平面、Agent memory、禁用契约、任务恢复和跨域边界通过 |
 | 前端领域边界 | pass | 106 个 TypeScript 源文件归入 app、shared 与 11 个 feature；超大页面拆为 CAD 上传/文件夹/总览/列模型、DXF→Excel 卡片、Excel/Workflow 展示模型和六个运维面板；单文件上限 600 行；29 项前端源码契约与 production build 通过 |
 | E2E 分区 | pass | 9 个 spec 归入 contracts、excel-processing、files、jobs、operations、workflows，support 单独保存环境；Playwright 成功收集 98 个用例 |
-| Playwright 全量 | pass | `94 passed, 4 skipped in 2.4m`；条件不足项按既有测试条件跳过；数据控制台测试在无扫描历史时验证真实空状态，不再依赖残留数据库记录 |
+| Playwright 全量 | pass | 最终统一门禁 `93 passed, 5 skipped in 2.4m`；同一最终源码另两轮为 94/4、95/3，跳过数随活动 Job/批次前置条件变化，三轮均无失败 |
 | 分区说明 | pass | backend、tests、infra、scripts、frontend/E2E 自动发现源码 owner，并显式覆盖 Stage、Agent 与 Windows 产品边界，共 134 个维护分区；均有就地业务 README，架构检查拒绝缺失、空泛、未引用真实源码或未声明能力边界的文档 |
 | 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 259 passed`；三个 CAD Stage、Classifier 1.1.0 与 Excel Final `multi_split` 路径/CLI/行为保持 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、221 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
-| 统一 full 门禁 | partial | 其余 14 个 gate 通过；隔离 MySQL 空库迁移因非交互 sudo blocked；首次浏览器运行暴露并修复无扫描历史的脆弱等待，随后 Playwright 全量独立重跑通过 |
+| 统一 full 门禁 | pass | `PASS=17 FAIL=0 BLOCKED=0`；包含空 MySQL 迁移、五组 Stage、全量后端、基础设施、Compose、文档、构建和 Playwright |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
-| 基础设施验证 | pass | `95 / 95`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；无 root sudo 时回退应用账号，真实验证活动 MySQL 45 表、种子与时间列 |
+| 基础设施验证 | pass | `122 / 122`；Nginx、13 个 Compose service、挂载、环境键、活动 MySQL 45 表、种子、权限与时间列全部通过 |
+| 隔离 MySQL 迁移 | pass | 临时 schema 从空库升级全部 17 个 revision 至 `e2f4b8c6a130`，验证 36 张业务表与管理员种子后自动清理 |
 | 基础设施聚焦回归 | pass | `104 passed, 7 warnings`；Compose config、架构快照、文档门禁同时通过 |
 | 脚本分层聚焦回归 | pass | `132 passed, 2 skipped`；稳定 facade、递归 Shell 语法、数据库/Compose/存储/Windows 通信与文档路径通过 |
 | 脚本真实入口 | pass | `db.sh check=0`、`docker.sh check=0`；MySQL 45 表、应用凭据、Compose 与 MinIO 配置均由新分层入口验证 |
 
 自动化基线证明隔离后端、Stage、浏览器合同、文档和架构契约；下述本机运行检查另行证明当前 MySQL/Celery/FastAPI 实例可用，两者不能互相替代。尚未使用获准生产 DWG 对 ODA 输出质量做本轮发布验收，也没有实现 RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 或 SinoCAM Adapter。当前 Celery 明确使用 MySQL SQLAlchemy transport。人工初始盘点曾漏掉 `classify_steel_dxf`，机器 registry 确认稳定任务总数为 11，现已同步设计、计划和文档。
+
+### 与 `delete` 参考节点的无缺失复核
+
+本轮以提交 `4d93ed5cb60b86585f9dbdba9f3e9bc57c6e90bd`（`delete` 完成后的仓库）为参考节点，使用独立 detached worktree 导入两套应用并比较运行时和源码合同，而不是依据文件名猜测迁移是否完整。
+
+| 对比面 | 参考节点 | 当前结果 | 结论 |
+|---|---:|---:|---|
+| FastAPI | 114 path / 135 operation | 114 / 135 | method、path、operationId 零缺失 |
+| SQLAlchemy | 36 表 | 36 表 | 表、字段类型、nullable、主键、外键、唯一约束和索引零差异 |
+| Alembic / Settings | 单一同 head / 同环境字段 | 同参考节点 | revision 集合与配置键无缺失 |
+| Celery | 11 task / 10 route | 11 / 10 | 三条预留 route 曾在重构中遗漏，本轮恢复；仍无 Agent/CAD/dispatch task |
+| React Router | 18 URL | 18 URL | URL 集合零缺失 |
+| 前端公共导出 | 266 名称 | 309 名称 | 参考导出全部存在，新增 43 个分区组件/类型出口 |
+| 后端公共定义 | 471 名称 | 567 名称 | 参考符号全部存在；增强的文件删除接口增加 DB 参数以执行冻结输入保护 |
+| Compose | 13 service | 13 service | 服务、队列、依赖和健康语义保留，只有分类后的源码/挂载路径变化 |
+| Pytest 收集 | 1000 | 1099 | 参考用例仅有四个旧模块形态节点被更严格的 interface/capability 测试替代，没有对应行为空洞；当前结果为 1093 passed、6 skipped |
+
+参考节点的六个旧脚本实现路径已按既定重构方案退役，真实实现位于 `scripts/cad/`、`scripts/docs/`、`scripts/storage/` 和 `scripts/windows/`；回归测试明确禁止旧路径复活。稳定的人机入口仍是根层 Shell facade。参考节点的一行 Agent/MCP/ZWCAD 空模块没有执行行为，当前以 capability contract、HTTP 503 和就地 README 表达同一留白，避免用可导入空文件制造“已实现”错觉。
 
 2026-07-22 最终运行刷新使用官方入口启动八组 worker：report、dxf-classification、dxf、dxf2dwg、dxf2excel、excel-final、dispatch、maintenance；进程命令均加载 `app.platform.messaging.celery_app:celery_app`，旧 `app.workers.celery_app` 进程已退出。`scripts/status.sh` 确认本机 MySQL 应用凭据、45 张运行表、管理员种子与时间列，FastAPI `:8010` 运行源码时间一致，前端 production dist 为最新。历史 root Nginx 日志/pid 已逐一改名保留为 `*.root-before-20260722-release`；本地配置改用仓库自有 `logs/client-body/` 上传缓冲并去除启停 sudo 依赖后，Nginx `:8080`、SPA、`/health`、`/health/ready` 全部可达，readiness 同时报告 database/storage `ok`。该修复来自真实 Playwright 首轮 3 个上传 500，精准重跑 3/3、随后全量 94 passed/4 skipped。根 `image.png` 与 `frontend/public/logo.png` SHA-256 完全相同，已删除前者并由 README 复用后者；历史 Nginx runtime logs 仍位于忽略的部署日志目录。
 
@@ -68,8 +87,8 @@ actor 绑定、幂等键、目标快照、数量/字节上限和永久删除确�
 `app/api/models/schemas/services/workers` 横向业务源码及一行占位 adapter 已退出。
 
 任务 registry 从包含三个空占位的 8 个 module 收敛为 7 个真实 module；11 个历史公共任务
-名和 report/maintenance 等队列保持不变。`agent`、`cad`、`dispatch` 仅保留队列契约，未
-注册任务。platform 通过通用 worker-signal callback 通知由 bootstrap 注册的 control-plane
+名、10 条任务路由和 report/maintenance 等队列保持不变。`agent`、`cad`、`dispatch` 仅保留
+确定路由与队列契约，未注册任务。platform 通过通用 worker-signal callback 通知由 bootstrap 注册的 control-plane
 observer，不反向导入业务模块；两个方向的导入顺序和 worker-ready 顺序均有回归覆盖。
 
 前端现由 `app`、`shared` 与 11 个 feature 纵向边界组成。认证刷新合并、sessionStorage、

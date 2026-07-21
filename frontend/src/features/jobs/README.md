@@ -4,6 +4,8 @@
 
 `JobsPage.tsx` 提供筛选、分页、详情、取消、重试和结果动作；`JobTimeline.tsx` 展示 attempt/step；`useJobEvents.ts` 订阅 SSE 并回填 Query cache；`jobs.api.ts`、`results.api.ts` 与 `job.ts`、`result.ts` 定义传输合同。
 
+`index.ts` 是 Job 页面、hooks、请求和类型的稳定出口；跨 feature 只从这里引用 Job 能力，避免绑定页面内部状态或私有查询键。
+
 ## 业务流
 
 输入是持久化 Job/Step/Result、当前用户权限和 SSE 当前快照，输出是任务可观测、恢复及结果下载入口。断流时回到权威查询，重试后必须跟随新 attempt。

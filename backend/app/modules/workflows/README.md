@@ -25,6 +25,7 @@ artifact 与 canonical manifest SHA-256。冻结后 DWG、Excel 和派生 DXF �
 - `artifacts.py`：阶段类型白名单和 file/result 引用幂等绑定。
 - `job_sync.py`：`job_id + attempt` 绑定、Result 投影和阶段推进。
 - `stage_execution.py`：已实现阶段的参数/权限/feature flag/Job 复用计划；不提交或投递。
+- `access.py`：集中 workflow detail 加载、项目成员授权和 route 共享常量。
 - `intake/`：按登记、转换、冻结、展示四种状态转换拆分。
 - `routes/`：只处理 HTTP dependency、项目授权、审计、commit 后 dispatch 和 envelope。
 - `interface.py`：其他业务模块唯一允许导入的工作流边界。
@@ -53,4 +54,4 @@ artifact 与 canonical manifest SHA-256。冻结后 DWG、Excel 和派生 DXF �
 行为回归位于 `backend/tests/workflows/`，分类集成位于
 `backend/tests/dxf_classification/`；结构边界位于
 `backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 114 path、
-135 operation、36 张模型表和 11 个 Celery task。
+135 operation、36 张模型表、11 个 Celery task 和 10 条任务路由。

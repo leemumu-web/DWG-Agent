@@ -213,6 +213,17 @@ def test_task_registry_contains_only_real_modules_and_keeps_public_names() -> No
     assert not any(name.startswith("app.workers.tasks_dispatch.") for name in registered)
 
 
+def test_reserved_execution_queues_keep_deterministic_routes_without_fake_tasks() -> None:
+    from app.platform.messaging.celery_app import (
+        RESERVED_EXECUTION_QUEUES,
+        celery_app,
+    )
+
+    routes = celery_app.conf.task_routes
+    for queue in RESERVED_EXECUTION_QUEUES:
+        assert routes[f"app.workers.tasks_{queue}.*"] == {"queue": queue}
+
+
 def test_automation_contract_is_explicit_and_non_executable() -> None:
     from app.modules.automation.contracts.interface import (
         automation_capability_contracts,

@@ -125,7 +125,7 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 
 ## Worker 变更
 
-当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 7 个真实 task module 并锁定 11 个公共任务名；CAD 转换的 5 个历史任务名由一个领域 module 注册，分类、Excel Final、Job stub、归档、存储对账和 stale recovery 由各自 owner 注册。`agent`、`cad`、`dispatch` 是保留队列，没有对应 task module 或执行器，不能描述成核心处理能力。
+当前配置声明 `report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`agent` 和 `cad` 队列。任务 registry 显式加载 7 个真实 task module 并锁定 11 个公共任务名；运行时快照另锁定 10 条 `app.workers.tasks_* -> queue` 路由。CAD 转换的 5 个历史任务名由一个领域 module 注册，分类、Excel Final、Job stub、归档、存储对账和 stale recovery 由各自 owner 注册。`agent`、`cad`、`dispatch` 只有确定路由和队列身份，没有对应 task module 或执行器，不能描述成核心处理能力。
 
 MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 

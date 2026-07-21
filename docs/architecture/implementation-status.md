@@ -656,25 +656,25 @@ BH 稳定后再增加 BOX，其他类型继续走人工分支。
 
 | 验证 | 本次结果 |
 |---|---|
-| 文档/架构 | 134 个分区 README、12 个模块、36 张 ORM 表、135 个 HTTP operation、11 个稳定 Celery task 均通过机器门禁 |
-| Backend 全量 | 1091 passed、6 skipped、21 warnings；没有删除测试，跳过项保留真实外部/MySQL 条件 |
+| 文档/架构 | 134 个分区 README、12 个模块、36 张 ORM 表、135 个 HTTP operation、11 个稳定 Celery task 与 10 条任务路由均通过机器门禁 |
+| Backend 全量 | 1093 passed、6 skipped、21 warnings；新增预留路由与分区说明完整性回归，没有删除测试，跳过项保留真实外部/MySQL 条件 |
 | Alembic | 单一 head `e2f4b8c6a130`，`alembic check` 无新增 upgrade operation |
-| Frontend | 106 个 TypeScript 源文件、11 个 feature、production build 通过；Playwright 94 passed、4 skipped |
+| Frontend | 106 个 TypeScript 源文件、11 个 feature、production build 通过；最终统一门禁 Playwright 93 passed、5 skipped，同源码三轮均无失败 |
 | `Stages/dwg2dxf` | 30 passed |
 | `Stages/dxf2dwg` | 30 passed |
 | `Stages/dxf2excel` | 17 passed |
 | `Stages/steel_dxf_classifier_v1.1.0` | 52 passed |
 | `Stages/excel_final/multi_split/tests` | 259 passed |
 | `docker compose config --quiet` | 通过 |
-| `infra/verification/verify.sh` | 95/95；除 Nginx/Compose/Dockerfile/环境和路径外，已通过应用账号验证活动 MySQL 45 表、种子与时间列，不再因无 root sudo 误判不可达 |
+| `infra/verification/verify.sh` | 122/122；Nginx/Compose/Dockerfile/环境/路径、活动 MySQL 45 表、种子、权限与时间列全部通过 |
+| 隔离 MySQL 迁移 | 临时 schema 从空库执行 17 个 revision 到 `e2f4b8c6a130`，验证 36 张业务表与管理员种子后自动清理 |
 | 当前进程 | 八组 worker 使用官方 platform Celery 入口，FastAPI `:8010` 与源码一致，liveness/readiness 均为 `ok` |
 
-### 8.2 未形成通过证据的项目
+### 8.2 仍未形成通过证据的项目
 
-非交互会话没有 sudo 凭据，因此没有创建并删除独立 MySQL 空 schema，`scripts/db.sh migration-test`
-仍是 blocked；活动库的 45 表检查和 `alembic check` 不能冒充空库迁移演练。本地 Nginx 已改为
-仓库用户管理并使用自有上传临时目录，`:8080` 的 SPA、健康/就绪和完整 Playwright 均在最终源码上
-重新通过；旧 root 日志只做保留性改名，没有删除。
+本地 Nginx 已改为仓库用户管理并使用自有上传临时目录，`:8080` 的 SPA、健康/就绪和完整
+Playwright 均在最终源码上重新通过；旧 root 日志只做保留性改名，没有删除。空 MySQL 迁移
+已经在最终统一门禁中通过，不再列为阻塞项。
 
 仓库未部署 RabbitMQ，且没有真实拆板、Windows Node Agent 或 SinoCAM 实现，因此不能执行这些
 目标 E2E。本轮也没有向生产项目写入业务 DWG；ODA 与 Classifier 的自动化/Stage 证据不能代替

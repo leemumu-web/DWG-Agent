@@ -4,6 +4,8 @@
 
 `pages/` 提供审计页和数据控制台；`api/` 调用 system、data-admin、control-plane、audit；`types/` 保存运维 DTO；`components/data-console/` 拆分六个面板；`DailyArchivePanel`、`RemediationDrawer` 承担受控维护动作；`styles.css` 保存局部布局。
 
+`index.ts` 仅重导出管理员页面和必要运维合同，防止普通业务 feature 深层耦合扫描、处置或基础设施组件。
+
 ## 业务流
 
 管理员先查看 MySQL、MinIO、Worker 和通信事实，再对归档或一致性 finding 执行预检、确认和有界处置。输出包含 run、finding、transfer、archive 记录及 request ID。

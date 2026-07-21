@@ -34,7 +34,9 @@
 11 个稳定任务名目前由 7 个真实 Python task module 装配：CAD 的 5 个任务集中在
 `cad_processing.tasks`，分类与 Excel Final 各一个，report stub 归 `jobs.tasks`；归档、对账与
 stale recovery 分别归 daily archive、storage reconciliation 和 control plane。历史
-`app.workers.tasks_*` 名称与队列不变；空 Agent/CAD/dispatch task module 已删除。
+`app.workers.tasks_*` 名称与队列不变；10 条 `pattern -> queue` 映射也进入
+`runtime-contract.json`。空 Agent/CAD/dispatch task module 已删除，但对应路由仍保留，路由不
+等于任务注册或核心实现。
 
 `workflows` 的 5 张表和 16 个 operation 现集中在 `app/modules/workflows/`。模型/Schema、模板、
 状态机、Job 同步、阶段执行计划、输入登记/转换/冻结/展示以及七类 route 均可从目录直接
@@ -87,4 +89,4 @@ cd backend && .venv/bin/pytest -q tests/architecture
 cd ../frontend && npm run check:architecture
 ```
 
-检查器验证路径存在、数组确定性排序、36 张 ORM 表唯一归属、135 个 HTTP operation 唯一归属、11 个 Celery 任务唯一归属，以及目标能力的显式状态。
+检查器验证路径存在、数组确定性排序、36 张 ORM 表唯一归属、135 个 HTTP operation 唯一归属、11 个 Celery 任务唯一归属、10 条任务路由稳定，以及目标能力的显式状态。

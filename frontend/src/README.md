@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`main.tsx` 挂载 React；`app/` 组合 Provider、路由和应用壳；`shared/` 提供无业务归属的 HTTP、认证与通用 UI；`features/` 保存 11 个业务 owner。全局样式从 `shared/styles/index.css` 载入，各 feature 自行加载局部样式。
+`main.tsx` 挂载 React；`App.tsx` 保留稳定根组件并委托 app provider/router；`vite-env.d.ts` 只引入 Vite 客户端环境类型；`app/` 组合 Provider、路由和应用壳；`shared/` 提供无业务归属的 HTTP、认证与通用 UI；`features/` 保存 11 个业务 owner。全局样式从 `shared/styles/index.css` 载入，各 feature 自行加载局部样式。
 
 ## 业务流与依赖
 

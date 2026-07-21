@@ -2,7 +2,7 @@
 
 ## 现有覆盖
 
-生命周期、attempt、claim 和 access 测试覆盖创建、幂等、投递补偿、锁、fencing、取消、重试与项目权限；module contract 覆盖 route/task；adversarial 覆盖越权/非法状态；`test_job_events_mysql.py` 在可用 MySQL 上验证 SSE/并发事实。
+`test_job_lifecycle.py` 覆盖基础状态转换、step、cancel/retry 与跨项目校验；`test_job_attempts.py` 锁定新执行世代、stale worker fencing、投递补偿、SSE 当前 attempt 和 Excel 临时行清理；`test_job_claim.py` 验证并发 claim 只有一个胜者；`test_job_access.py` 验证无项目 Job、Result/Excel 查询和他人上传隔离；`test_jobs_module_contract.py` 验证公开 lifecycle 接口；`test_adversarial_jobs.py` 覆盖越权、非法状态、排序白名单和分页边界；`test_job_events_mysql.py` 在可用 MySQL 上验证 SSE/并发事实。
 
 ## 证据边界
 

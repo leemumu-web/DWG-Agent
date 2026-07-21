@@ -53,6 +53,13 @@ def _celery_tasks() -> list[str]:
     return sorted(name for name in celery_app.tasks if name.startswith("app.workers."))
 
 
+def _celery_task_routes() -> list[str]:
+    from app.platform.messaging.celery_app import celery_app
+
+    routes = celery_app.conf.task_routes or {}
+    return sorted(f"{pattern} -> {route['queue']}" for pattern, route in routes.items())
+
+
 def _frontend_routes() -> list[str]:
     router_path = REPO_ROOT / "frontend" / "src" / "app" / "router.tsx"
     source = router_path.read_text(encoding="utf-8")
@@ -102,6 +109,7 @@ def build_contract_snapshot() -> dict[str, Any]:
     http_paths, http_operations = _http_contract()
     return {
         "alembic_heads": _alembic_heads(),
+        "celery_task_routes": _celery_task_routes(),
         "celery_tasks": _celery_tasks(),
         "compose_services": _compose_services(),
         "frontend_routes": _frontend_routes(),

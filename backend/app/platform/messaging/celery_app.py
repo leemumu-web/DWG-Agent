@@ -102,6 +102,12 @@ celery_app.conf.update(
     task_default_queue="default",
     task_eager_propagates=True,
     task_routes={
+        # Keep deterministic transport seams for execution planes whose task
+        # implementations are intentionally absent.  These entries route a
+        # future published name; they do not register or execute a fake task.
+        "app.workers.tasks_agent.*": {"queue": "agent"},
+        "app.workers.tasks_cad.*": {"queue": "cad"},
+        "app.workers.tasks_dispatch.*": {"queue": "dispatch"},
         "app.workers.tasks_dxf.*": {"queue": "dxf"},
         "app.workers.tasks_dxf2dwg.*": {"queue": "dxf2dwg"},
         "app.workers.tasks_dxf2excel.*": {"queue": "dxf2excel"},

@@ -25,6 +25,12 @@ tables remain platform infrastructure; result files remain in the files module.
 - `recovery.py`: Celery return summaries and stale-running Job reconciliation.
 - `reviews.py`: Review record creation.
 - `routes/`: query, command, event, Result and Review HTTP use cases.
+- `models.py`: Job, JobStep, AnalysisResult and ReviewRecord ORM ownership.
+- `schemas.py`: stable create/read/bulk-cancel/Result/Review HTTP data contracts.
+- `tasks.py`: the historical report-queue compatibility task that delegates to
+  `stub_execution.py`; it does not contain a second Job state machine.
+- `interface.py`: the only cross-domain import surface, including execution summaries,
+  stale recovery and the local stub entry point.
 
 ## Failure and transaction rules
 
