@@ -1,3 +1,5 @@
+"""Workflow, stage, template and artifact API contracts."""
+
 from __future__ import annotations
 
 from datetime import datetime

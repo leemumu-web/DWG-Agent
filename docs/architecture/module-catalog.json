@@ -129,14 +129,7 @@
       "title": "生产批次与流程编排",
       "status": "partial",
       "architecture_nodes": ["PIPE", "U1", "U10", "U11", "U4", "U5", "U7", "U8", "U9"],
-      "backend_paths": [
-        "backend/app/api/v1/workflow_inputs_api.py",
-        "backend/app/api/v1/workflows_api.py",
-        "backend/app/models/workflow.py",
-        "backend/app/models/workflow_input.py",
-        "backend/app/services/workflow_input_service.py",
-        "backend/app/services/workflow_service.py"
-      ],
+      "backend_paths": ["backend/app/modules/workflows"],
       "frontend_paths": [
         "frontend/src/api/workflow-inputs.api.ts",
         "frontend/src/api/workflows.api.ts",
@@ -155,7 +148,12 @@
       "celery_tasks": [],
       "queues": [],
       "stages": [],
-      "tests": ["backend/tests/test_workflow_framework.py", "backend/tests/test_workflow_production.py"],
+      "tests": [
+        "backend/tests/architecture/test_workflow_boundaries.py",
+        "backend/tests/test_workflow_framework.py",
+        "backend/tests/test_workflow_input_service.py",
+        "backend/tests/test_workflow_production.py"
+      ],
       "docs": ["docs/architecture/workflow.md", "docs/verification/current.md"],
       "notes": "DWG plus one Excel intake, server DXF conversion, freeze and classification are wired; later production stages expose truthful placeholders."
     },

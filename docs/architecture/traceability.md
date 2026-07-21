@@ -6,9 +6,9 @@
 
 | 流程节点 | 模块 | 当前事实 | 主要代码/证据 |
 |---|---|---|---|
-| `U1-U3` 创建批次、上传、格式检查 | `workflows` + `files` | implemented | `modules/files/{routes/uploads,registration,validation}.py`、`workflow_inputs_api.py`、输入服务测试 |
-| `U4-U9` 上传完整性、规范化、DWG/Excel 配对 | `workflows` | implemented | `workflow_input_service.py`、`test_workflow_input_*` |
-| `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | workflow input freeze、Drawing 服务、生产流程测试 |
+| `U1-U3` 创建批次、上传、格式检查 | `workflows` + `files` | implemented | `modules/files/{routes/uploads,registration,validation}.py`、`modules/workflows/{routes/intake,intake/registration}.py`、输入 API/服务测试 |
+| `U4-U9` 上传完整性、规范化、DWG/Excel 配对 | `workflows` | implemented | `modules/workflows/intake/{registration,conversion,presentation}.py`、`test_workflow_input_*` |
+| `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | `modules/workflows/intake/freeze.py`、projects 公开 Drawing 能力、生产流程测试 |
 | 服务器 DWG→DXF、DXF→DWG、DXF 材料表提取 | `cad_processing` | partial | `modules/cad_processing/` 按方向拆分版本策略、批处理、登记和执行；三个独立 Stage 保持原路径，ODA 与真实样本仍需部署验收 |
 | `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.1.0 契约，`persistence.py` 登记两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
 | `E1-E4` Excel Final 处理 | `excel_processing` | partial | `stage_adapter` 隔离 Stage，`execution` 编排 Job/MinIO，`importers`/`persistence` 登记三张 MySQL 关系表；真实 schema、手册库和跨图纸最终屏障仍是依赖/缺口。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
@@ -16,6 +16,10 @@
 | CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
 | `AGENT/RUNNER/ADAPTER/SINOCAM` | `windows_execution` | external | draft control-plane contract；认证、租约、fencing、Runner 未实现 |
 | 结果接纳与交付归档 | `workflows` + `operations` | partial | 每日归档可用；SinoCAM 结果接纳与确定性交付清单未实现 |
+
+> 输入规则校正：结构图早期节点写有人工上传 DXF/DWG/Excel；当前已经确认并实现的契约是
+> 人工只上传多个 DWG 和一个 Excel，DXF 必须由服务器转换 Job 生成并逐图配对。追溯节点
+> 仍沿用 `U1-U11`，但不能据旧文字开放人工 DXF。
 
 ## 平台与基础设施
 
@@ -60,7 +64,7 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 16 个模型模块和 36 张表；files 与 jobs 各自的四张表分别共用一个聚合模型模块。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载 15 个模型模块和 36 张表；files、jobs 与 workflows 分别通过领域模型包装配其多张表。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
 | Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 8 个 task module 并注册 jobs stale-recovery callback；11 个 `app.workers.tasks_*` 公共名不变。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
@@ -77,4 +81,5 @@
 | CAD 转换、预览解释与 DXF 材料表 | `app/modules/cad_processing/` | 无自有表和 HTTP 前缀；`files`/`jobs` 只经 `cad_processing.interface` 调用，Stage 代码保持独立产品。 |
 | Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.1.0 CLI 和输出命名由 adapter 校验。 |
 | `/excel-final` 与 Excel Final task | `app/modules/excel_processing/` | 拥有 batch/part/component 三张表；files/jobs 由公开接口组合，Stage 子进程、导入、持久化和 HTTP route 分层；稳定 task name/queue 不变。 |
+| `/workflows` | `app/modules/workflows/` | 拥有 run/stage/artifact/input batch/input item 五张表；模板、状态机、Job 同步、阶段执行、输入四种转换和 16 个 HTTP operation 分层；其他模块只经 `workflows.interface`。 |
 | 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |

@@ -18,9 +18,7 @@ from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
 from app.modules.projects.interface import Project, ProjectMember
-from app.platform.http.exceptions import AppHTTPException
-from app.schemas.workflow_schema import WorkflowCreate
-from app.services.workflow_service import (
+from app.modules.workflows.interface import (
     attach_artifact,
     bind_stage_job,
     cancel_workflow,
@@ -30,6 +28,8 @@ from app.services.workflow_service import (
     start_workflow,
     sync_workflow_from_jobs,
 )
+from app.modules.workflows.schemas import WorkflowCreate
+from app.platform.http.exceptions import AppHTTPException
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -296,9 +296,7 @@ def test_artifact_needs_file_or_result(db: Session):
 def test_artifact_unknown_stage_rejected(db: Session):
     _, _, workflow = _make_draft(db)
     with pytest.raises(AppHTTPException, match="Unknown workflow stage"):
-        attach_artifact(
-            db, workflow, stage_code="ghost_stage", artifact_type="output", file_id=1
-        )
+        attach_artifact(db, workflow, stage_code="ghost_stage", artifact_type="output", file_id=1)
 
 
 def test_artifact_attached_with_valid_file_id(db: Session):

@@ -44,7 +44,7 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 
 后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
 
-identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类和 Excel Final 也分别进入 `cad_processing`、`dxf_classification` 与 `excel_processing`：Excel 域把 14 个 HTTP operation、三张关系投影表、上传事务复用、Stage 子进程、工作簿导入和稳定 Celery 任务按职责分开，jobs 只能经其 `interface.py` 请求清理。对应旧横向文件已删除，HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 worker-ready callback，由 bootstrap 注册 Job 恢复。重构期间尚未迁移的业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现。
+identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类、Excel Final 和生产工作流也分别进入 `cad_processing`、`dxf_classification`、`excel_processing` 与 `workflows`。Excel 域把 14 个 operation、三张关系投影表、上传事务复用、Stage 子进程、工作簿导入和稳定 Celery 任务按职责分开；工作流域把五张流程/输入表、模板、状态机、Job 同步、阶段执行计划、输入四种转换和 16 个 operation 分层。跨域调用只经各模块 `interface.py`；对应旧横向文件已删除，HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 worker-ready callback，由 bootstrap 注册 Job 恢复。重构期间尚未迁移的 operations/automation 业务代码继续留在 `api/models/schemas/services/workers`，但不得向这些旧横向目录增加新的平台实现或恢复 workflow 双实现。
 
 ## 同步请求路径
 
@@ -65,6 +65,11 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
 ```
 
 工作流是项目范围内的薄编排层，不是另一套队列或存储。兼容的 `excel_delivery`、`file_delivery` 之外，`linux_production` 提供从输入冻结、DXF 分类分流到交付归档的十阶段服务器框架。Job/JobStep 仍是执行事实源，File/AnalysisResult 仍是产物事实源；工作流只绑定匹配 attempt 并保存引用。
+
+人工输入的当前权威契约是多个 DWG 加恰好一个 Excel，DXF 由服务器转换产生。工作流登记会
+重读对象并复核大小、摘要和真实格式；转换同步只接受绑定 attempt 的服务器派生 DXF；冻结
+后 files 删除保护经工作流公开接口查询不可变引用。早期结构图中的人工 DXF 上传文字已被此
+后续确认规则取代。
 
 公开 route 已接通 Steel DXF Classifier、DXF→Excel 与 Excel Final Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。文件通过 `/files` 登记后再绑定，不重复上传。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
 

@@ -20,4 +20,4 @@
 
 ## 依赖、测试与差距
 
-身份和项目权限通过它们的 `interface.py`使用。CAD SVG 预览与 Job/Workflow 关联暂时依赖尚未迁移的领域文件，将在对应垂直切片消除。边界测试位于 `tests/architecture/test_files_boundaries.py`，回归覆盖文件权限、传输、存储一致性、上传、批次和 DXF 预览。生产 MinIO 与运维处置仍需按部署环境实测。
+身份、项目、Job、CAD 与 workflow 能力均通过各自 `interface.py` 使用。冻结输入删除保护只请求 workflow 的不可变引用投影，不直接查询其模型；为避免公开接口循环，该查询在删除命令内延迟解析。边界测试位于 `tests/architecture/test_files_boundaries.py` 和 `test_workflow_boundaries.py`，回归覆盖文件权限、传输、存储一致性、上传、批次、DXF 预览和冻结清单保护。生产 MinIO 与运维处置仍需按部署环境实测。

@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from app.modules.identity.interface import User
 from app.modules.projects.interface import Project, ProjectMember
-from app.schemas.workflow_schema import WorkflowCreate
-from app.services.workflow_service import (
+from app.modules.workflows.interface import (
     cancel_workflow,
     complete_manual_stage,
     create_workflow,
     start_workflow,
 )
+from app.modules.workflows.schemas import WorkflowCreate
 
 
 def _owner_project(db):
-    user = User(username="workflow-owner", password_hash="x", real_name="Workflow Owner", status="active")
+    user = User(
+        username="workflow-owner", password_hash="x", real_name="Workflow Owner", status="active"
+    )
     db.add(user)
     db.flush()
     project = Project(code="WF-001", name="Workflow Project", owner_id=user.id, status="active")
@@ -27,7 +29,9 @@ def test_excel_delivery_workflow_has_bounded_non_cad_stages(db):
     user, project = _owner_project(db)
     workflow = create_workflow(
         db,
-        WorkflowCreate(project_id=project.id, name="Excel delivery", workflow_type="excel_delivery"),
+        WorkflowCreate(
+            project_id=project.id, name="Excel delivery", workflow_type="excel_delivery"
+        ),
         created_by=user.id,
     )
 
@@ -38,7 +42,10 @@ def test_excel_delivery_workflow_has_bounded_non_cad_stages(db):
         "quality_review",
         "delivery",
     ]
-    assert all("cad" not in stage.stage_code and "agent" not in stage.stage_code for stage in workflow.stages)
+    assert all(
+        "cad" not in stage.stage_code and "agent" not in stage.stage_code
+        for stage in workflow.stages
+    )
 
 
 def test_manual_workflow_stages_advance_and_finish(db):

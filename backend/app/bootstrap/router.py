@@ -10,14 +10,13 @@ from app.api.v1 import (
     control_plane_api,
     data_admin_api,
     system_api,
-    workflow_inputs_api,
-    workflows_api,
 )
 from app.modules.excel_processing.routes.router import router as excel_processing_router
 from app.modules.files.routes.router import router as files_router
 from app.modules.identity.routes.router import roles_router, sessions_router, users_router
 from app.modules.jobs.routes.router import jobs_router, results_router, reviews_router
 from app.modules.projects.routes.router import drawings_router, projects_router
+from app.modules.workflows.routes.router import router as workflows_router
 
 api_router = APIRouter()
 api_router.include_router(sessions_router, prefix="/auth", tags=["auth"])
@@ -43,9 +42,4 @@ api_router.include_router(
     prefix="/excel-final",
     tags=["excel-final"],
 )
-api_router.include_router(workflows_api.router, prefix="/workflows", tags=["workflows"])
-api_router.include_router(
-    workflow_inputs_api.router,
-    prefix="/workflows",
-    tags=["workflow-inputs"],
-)
+api_router.include_router(workflows_router, prefix="/workflows")

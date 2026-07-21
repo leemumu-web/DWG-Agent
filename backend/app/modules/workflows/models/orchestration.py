@@ -1,3 +1,5 @@
+"""Workflow run, stage and artifact persistence."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,7 +12,7 @@ from app.platform.database.base import Base, PKType
 from app.platform.database.mixins import TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.workflow_input import WorkflowInputBatch
+    from app.modules.workflows.models.intake import WorkflowInputBatch
 
 
 class WorkflowRun(TimestampMixin, Base):
@@ -34,10 +36,12 @@ class WorkflowRun(TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    stages: Mapped[list["WorkflowStageRun"]] = relationship(
-        back_populates="workflow", cascade="all, delete-orphan", order_by="WorkflowStageRun.sequence"
+    stages: Mapped[list[WorkflowStageRun]] = relationship(
+        back_populates="workflow",
+        cascade="all, delete-orphan",
+        order_by="WorkflowStageRun.sequence",
     )
-    artifacts: Mapped[list["WorkflowArtifact"]] = relationship(
+    artifacts: Mapped[list[WorkflowArtifact]] = relationship(
         back_populates="workflow", cascade="all, delete-orphan"
     )
     input_batch: Mapped[WorkflowInputBatch | None] = relationship(
@@ -72,7 +76,7 @@ class WorkflowStageRun(TimestampMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     workflow: Mapped[WorkflowRun] = relationship(back_populates="stages")
-    artifacts: Mapped[list["WorkflowArtifact"]] = relationship(back_populates="stage")
+    artifacts: Mapped[list[WorkflowArtifact]] = relationship(back_populates="stage")
 
 
 class WorkflowArtifact(TimestampMixin, Base):

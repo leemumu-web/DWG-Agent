@@ -827,37 +827,114 @@ git commit -m "refactor: group Excel processing"
 
 **Files:**
 
-- Create module under `backend/app/modules/workflows/`
-- Create intake files `registration.py`, `conversion.py`, `freeze.py`, `presentation.py`
-- Split workflow routes into templates/query/commands/artifacts/execution/classification
-- Move workflow/input models and schemas
-- Create `interface.py`, `README.md`
-- Update imports/tests/catalog and delete old files
+- Create the following owner tree under `backend/app/modules/workflows/`:
 
-- [ ] **Step 1: Lock the server-derived DXF invariant**
+  ```text
+  workflows/
+  ├── README.md                 # owner boundary, lifecycle and extension map
+  ├── interface.py              # the only supported cross-domain imports
+  ├── access.py                 # detail loading and shared project-write roles
+  ├── artifacts.py              # artifact validation and idempotent attachment
+  ├── job_sync.py               # Job attempt binding and result/status projection
+  ├── lifecycle.py              # create/start/manual-complete/cancel/recompute state machine
+  ├── stage_execution.py        # implemented/placeholder stage execution planning
+  ├── templates.py              # authoritative templates and stage capabilities
+  ├── models/
+  │   ├── orchestration.py      # workflow_runs, workflow_stage_runs, workflow_artifacts
+  │   └── intake.py             # workflow_input_batches, workflow_input_items
+  ├── schemas/
+  │   ├── orchestration.py      # template, workflow, stage and artifact HTTP contracts
+  │   └── intake.py             # input ledger, diagnostics and response envelopes
+  ├── intake/
+  │   ├── registration.py       # object verification, DWG/Excel rules, link/remove/query
+  │   ├── conversion.py         # idempotent DWG-to-DXF Job plan and attempt sync
+  │   ├── freeze.py             # collision checks, Drawing creation and manifest freeze
+  │   └── presentation.py       # operator-facing counts, issues and next actions
+  └── routes/
+      ├── templates.py          # GET template capabilities
+      ├── queries.py            # list/detail reads
+      ├── commands.py           # create/start/manual-complete/cancel
+      ├── artifacts.py          # existing File/Result attachment
+      ├── execution.py          # automated and placeholder execution endpoint
+      ├── classification.py     # classification ledger projection
+      ├── intake.py             # six input-batch operations
+      └── router.py             # stable 16-operation composition order
+  ```
 
-Add an architecture-level test asserting workflow input registration accepts DWG/Excel and rejects human DXF. Keep one Excel limit and freeze manifest behavior.
+- Move both workflow model groups and both schema groups; update the explicit model registry.
+- Replace the two bootstrap routers with one composed domain router while preserving the
+  existing `workflows` and `workflow-inputs` OpenAPI tags.
+- Update imports/tests/catalog and delete the old API/model/schema/service files.
 
-- [ ] **Step 2: Split intake implementation by state transition**
+**Non-negotiable behavior contract:**
+
+- The latest confirmed product rule overrides the older drawing wording: an operator uploads
+  one batch containing **one or more DWG files and exactly one readable XLS/XLSX file**. Human
+  DXF registration remains rejected with `INPUT_DXF_NOT_ALLOWED`; each accepted DXF is produced
+  by a successful server-side DWG-to-DXF Job attempt, checksum-verified, linked to its DWG and
+  frozen into the manifest. The architecture source's older “DXF + DWG + Excel upload” wording
+  is documented as superseded rather than silently reintroduced.
+- Preserve the five SQL table names and every column/index/constraint, the 16 HTTP
+  method/path/function-name triples, the ten ordered `linux_production` stages, legacy template
+  order, error codes, audit actions, status codes, Job request keys, dispatch timing and response
+  envelopes. This task creates no migration and no new Celery task.
+- `drawing_processing`, `cam_packaging`, `windows_cam` and `result_acceptance` remain truthful
+  placeholder/external contracts. No success is synthesized for missing core algorithms.
+- `files` asks `workflows.interface` for an immutable frozen-input reference instead of querying
+  workflow tables. `dxf_classification` imports workflow models, object verification and artifact
+  attachment only through `workflows.interface`. To avoid an interface-import cycle, the file
+  delete guard resolves that workflow query lazily inside the command path.
+- Route handlers own HTTP/auth/audit/commit/dispatch concerns. `stage_execution.py` owns the
+  pre-commit execution plan; intake modules own state transitions. Storage bytes remain owned by
+  `files`, Jobs/Results by `jobs`, Drawings by `projects`, and classifier ledgers by
+  `dxf_classification`.
+
+- [x] **Step 1: Lock the server-derived DXF invariant**
+
+Add an architecture-level boundary test for the exact public interface, five owned tables,
+16 routes and their static precedence, ten-stage production capability snapshot, internal layer
+map, cross-domain import policy, registry ownership and retired legacy paths. Keep the existing
+behavior tests that prove valid DWG/Excel registration, second-Excel rejection, human-DXF
+rejection, server-derived pairing, manifest hashing and frozen-file deletion protection.
+
+- [x] **Step 2: Split intake implementation by state transition**
 
 Registration owns format/readability and file linking; conversion owns Job plans/sync; freeze owns name collision, manifest hash, Drawing creation and artifact attachment; presentation owns response diagnostics.
 
-- [ ] **Step 3: Split orchestration routes and preserve stage contracts**
+`registration.py` additionally exposes a verified-object read through the workflow interface for
+the classifier, and a small immutable `FrozenInputReference` query for the file deletion guard.
+Callers never receive or mutate the input-batch ORM row for that guard.
+
+- [x] **Step 3: Split orchestration routes and preserve stage contracts**
 
 Keep all ten `linux_production` stages, implemented capability flags and placeholder handoff requirements unchanged.
 
-- [ ] **Step 4: Verify**
+Keep route registration in its present observable order: templates; collection list/create;
+artifact binding; stage execution; classification query; detail; start/complete/cancel; then the
+six input-batch operations. Collection/static routes therefore stay ahead of the generic
+`/{workflow_id}` detail route.
+
+- [x] **Step 4: Verify**
 
 ```bash
 cd backend
 .venv/bin/pytest -q tests/test_workflow_api.py tests/test_workflow_boundaries.py \
   tests/test_workflow_framework.py tests/test_workflow_input_api.py \
   tests/test_workflow_input_service.py tests/test_workflow_production.py \
-  tests/architecture
+  tests/test_dxf_classification_pipeline.py tests/architecture
 .venv/bin/alembic check
 ```
 
-- [ ] **Step 5: Commit**
+Then run the full backend suite, quick verification gate, documentation/architecture checks and
+confirm the public snapshot remains 114 paths, 135 operations, 36 tables and 11 tasks before
+committing.
+
+Completed evidence: workflow/input/API/production/classification focus `73 passed`; architecture
+`55 passed`; full backend `1072 passed, 6 skipped`; Alembic no drift; quick gate `6/6`; frontend
+production build passed; runtime contract remained 114 paths, 135 operations, 36 tables and
+11 tasks.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/app backend/tests docs/architecture

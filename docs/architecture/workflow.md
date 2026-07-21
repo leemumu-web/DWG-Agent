@@ -12,6 +12,18 @@
 
 公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、DXF→Excel、Excel Final、Job attempt 同步、结果产物挂接和 active Job 取消。拆板算法、CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现；它们拥有稳定阶段、输入输出和执行端点，但调用返回真实 501 边界，不伪造成功。
 
+### 1.1 代码归属与输入规则校正
+
+工作流正式实现位于 `backend/app/modules/workflows/`：`models/` 拥有五张表，`schemas/`
+拥有 HTTP/展示契约，`templates.py` 是阶段事实源，`lifecycle.py` 与 `job_sync.py` 分别负责
+业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 16 个
+operation。其他业务模块只能导入 `workflows.interface`；旧的 workflow API/model/schema/service
+横向文件已经退出。
+
+`/home/Creeken/Paper/CAD_research/结构图/` 中的早期流程文字包含人工上传 DXF。随后确认的
+当前产品规则优先：人工只上传多个 DWG 和一个 Excel，DXF 必须由服务器 DWG→DXF Job
+生成、登记、校验和配对。结构图节点仍用于追溯，但不能据旧文字恢复人工 DXF 输入。
+
 ## 2. 模板与阶段能力
 
 `GET /api/v1/workflows/templates` 是模板元数据的权威入口。前端根据返回的 `execution_mode`、`implementation_status`、`execution_kind`、`required_inputs` 和 `artifact_types` 渲染操作，不在浏览器中猜测后端能力。
@@ -158,7 +170,7 @@ completion API 只接受当前可操作阶段：
 | 409 | `WORKFLOW_HANDOFF_ARTIFACT_REQUIRED` | 留白/外部阶段尚无交接产物 |
 | 409 | `WORKFLOW_INPUT_BATCH_NOT_FROZEN` | 试图用通用 completion 绕过输入冻结 |
 | 409 | `INPUT_EXCEL_ALREADY_EXISTS` / `INPUT_DWG_NAME_CONFLICT` | 唯一 Excel 或规范化 DWG 名冲突 |
-| 415 | `INPUT_DXF_NOT_ALLOWED` | 人工上传了应由服务器生成的 DXF |
+| 422 | `INPUT_DXF_NOT_ALLOWED` | 人工登记了应由服务器生成的 DXF |
 | 409/415 | `INPUT_OBJECT_CHECKSUM_MISMATCH` / `FILE_NOT_DWG` / `INPUT_EXCEL_UNREADABLE` | 对象摘要或真实格式未通过复核 |
 | 409 | `FILE_REFERENCED_BY_FROZEN_INPUT` | 通用文件删除试图破坏冻结输入清单 |
 | 503 | `JOB_ENQUEUE_FAILED` | Job 已保存但 broker 投递失败；Job 已收敛为可重试失败状态 |
@@ -191,7 +203,7 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-2026-07-19 新增聚焦测试覆盖输入批次唯一性、真实 DWG/Excel 校验、人工 DXF 拒绝、转换幂等/重试、配对、冻结建图、分类器命名/I/O/对象/账本契约、防 completion 绕过、项目隔离，以及十阶段模板、DXF→Excel/Excel Final、留白契约和 active Job 取消。前端合同、TypeScript/Vite production build 与 Playwright 新建→上传→冻结→分类分流场景已通过；完整门禁和确切计数见[当前验证证据](../verification/current.md)。
+2026-07-21 领域重构后，工作流边界、输入/API、生产状态机与 DXF 分类聚焦回归为 73 项通过；五张表、16 个 operation、十阶段能力、公开接口、跨域导入和退役路径另由架构测试锁定。前端合同、TypeScript/Vite production build 与 Playwright 新建→上传→冻结→分类分流的既有发布证据仍保留；本轮最终全量门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 

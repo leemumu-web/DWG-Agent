@@ -13,8 +13,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.workflow import WorkflowRun
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.dxf_classification.adapter import (
     CLASSIFIER_VERSION,
     CLI_SCHEMA,
@@ -56,6 +54,13 @@ from app.modules.jobs.interface import (
     make_event,
 )
 from app.modules.projects.interface import Project
+from app.modules.workflows.interface import (
+    WorkflowInputBatch,
+    WorkflowInputItem,
+    WorkflowRun,
+    attach_artifact,
+    read_verified_input_object,
+)
 from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_SUCCEEDED,
@@ -65,8 +70,6 @@ from app.platform.config.constants import (
     STEP_STAGE_CLASSIFIER_INPUT,
 )
 from app.platform.database.session import SessionLocal
-from app.services.workflow_input_service import _read_verified_object
-from app.services.workflow_service import attach_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +157,7 @@ def run_dxf_classification(
             by_output_name: dict[str, tuple[WorkflowInputItem, StoredFile, bytes]] = {}
             for item, stored in sources:
                 name = Path(stored.original_name).name
-                payload = _read_verified_object(stored)
+                payload = read_verified_input_object(stored)
                 output_name = _preprocessed_name(name)
                 key = output_name.casefold()
                 if key in by_output_name:

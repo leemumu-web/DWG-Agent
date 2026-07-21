@@ -24,9 +24,10 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 | `backend/app/modules/cad_processing/` | CAD 转换、DXF 解释/预览与 DXF 材料表；公共入口为 `interface.py` |
 | `backend/app/modules/dxf_classification/` | Classifier 1.1 适配、两张账本与 Job/Workflow 编排；公共入口为 `interface.py` |
 | `backend/app/modules/excel_processing/` | Excel Final 上传/执行、三张关系投影表、查询与手册工具；公共入口为 `interface.py` |
+| `backend/app/modules/workflows/` | 生产模板、五张流程/输入表、状态机、Job 同步、输入冻结和 16 个 route；公共入口为 `interface.py` |
 | `backend/app/modules/operations/audit/` | 当前跨领域审计写入口；其余 operations 尚待迁移 |
 | `backend/app/modules/` | 其他按领域迁移后的业务能力；不得被 platform 反向导入 |
-| `backend/app/api/`、`services/`、`models/`、`schemas/` | 尚待迁移的纵向业务切片，不能再承接新平台实现 |
+| `backend/app/api/`、`services/`、`models/`、`schemas/` | operations/automation 等尚待迁移的纵向业务切片；workflow 旧横向文件已退出，不能在旧目录恢复双实现 |
 | `backend/app/workers/`、`modules/*/tasks.py` | 未迁移与已归域的 task module；公共 task name 仍保持稳定，Celery 应用位于 `platform/messaging/` |
 | `backend/app/platform/storage/` | local/MinIO byte adapter |
 | `backend/migrations/` | Alembic 所有的业务 schema |

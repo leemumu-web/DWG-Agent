@@ -33,6 +33,11 @@
 
 11 个稳定任务名目前由 8 个 Python task module 装配；CAD 的 5 个任务集中在 `cad_processing.tasks`，分类任务集中在 `dxf_classification.tasks`，Excel Final 任务集中在 `excel_processing.tasks`。这是实现文件归并，不改变已入队消息使用的历史任务名和队列。
 
+`workflows` 的 5 张表和 16 个 operation 现集中在 `app/modules/workflows/`。模型/Schema、模板、
+状态机、Job 同步、阶段执行计划、输入登记/转换/冻结/展示以及七类 route 均可从目录直接
+追溯；人工输入仍严格为多个 DWG + 一个 Excel，DXF 只允许服务器派生。该归并没有增加
+Celery task，也没有把四个 placeholder/external 阶段升级为已实现。
+
 ## 修改规则
 
 1. 移动实现时先更新 JSON 路径，再执行 `make architecture-check`。

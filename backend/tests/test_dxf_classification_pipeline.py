@@ -10,16 +10,15 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.models.workflow import WorkflowRun
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.dxf_classification import execution as dxf_classification_service
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.files.interface import StoredFile, get_storage_backend
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
 from app.modules.projects.interface import Project, ProjectMember
-from app.schemas.workflow_schema import WorkflowCreate
-from app.services import workflow_service
+from app.modules.workflows import interface as workflow_service
+from app.modules.workflows.interface import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
+from app.modules.workflows.schemas import WorkflowCreate
 
 
 def _frozen_classification_job(db, tmp_path: Path):
@@ -200,7 +199,7 @@ def test_classifier_naming_contract_uses_project_code_and_workflow_id():
 
 
 def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatch):
-    from app.api.v1 import workflows_api
+    from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
 
     init_db()

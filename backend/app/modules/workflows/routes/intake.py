@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""Production input-batch HTTP operations."""
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
@@ -8,30 +8,30 @@ from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.interface import JobRead, dispatch_committed_conversion_batch
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member, require_project_role
-from app.platform.config.constants import TASK_DWG_TO_DXF
-from app.platform.http.dependencies import get_db
-from app.platform.http.envelopes import ok
-from app.platform.http.exceptions import not_found
-from app.schemas.workflow_input_schema import (
+from app.modules.workflows.access import WORKFLOW_WRITE_ROLES
+from app.modules.workflows.intake.conversion import prepare_input_conversions
+from app.modules.workflows.intake.freeze import freeze_input_batch
+from app.modules.workflows.intake.presentation import describe_input_batch
+from app.modules.workflows.intake.registration import (
+    create_input_batch,
+    get_input_batch,
+    register_input_file,
+    remove_input_item,
+)
+from app.modules.workflows.lifecycle import get_workflow_or_404
+from app.modules.workflows.schemas import (
     WorkflowInputBatchEnvelope,
     WorkflowInputConversionEnvelope,
     WorkflowInputConversionRead,
     WorkflowInputFileCreate,
     WorkflowInputRegistrationEnvelope,
 )
-from app.services.workflow_input_service import (
-    create_input_batch,
-    describe_input_batch,
-    freeze_input_batch,
-    get_input_batch,
-    prepare_input_conversions,
-    register_input_file,
-    remove_input_item,
-)
-from app.services.workflow_service import get_workflow_or_404
+from app.platform.config.constants import TASK_DWG_TO_DXF
+from app.platform.http.dependencies import get_db
+from app.platform.http.envelopes import ok
+from app.platform.http.exceptions import not_found
 
 router = APIRouter()
-WRITE_ROLES = {"project_owner", "project_engineer"}
 
 
 @router.post(
@@ -49,13 +49,13 @@ def create_batch_api(
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
-    require_project_role(db, current_user, workflow.project_id, WRITE_ROLES)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     reused = workflow.input_batch is not None
     batch = create_input_batch(db, workflow, created_by=current_user.id)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action="workflow_input_batches.reuse" if reused else "workflow_input_batches.create",
+        action=("workflow_input_batches.reuse" if reused else "workflow_input_batches.create"),
         resource_type="workflow_input_batch",
         resource_id=batch.id,
         request=request,
@@ -102,7 +102,7 @@ def register_file_api(
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
-    require_project_role(db, current_user, workflow.project_id, WRITE_ROLES)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     batch = get_input_batch(db, workflow_id)
     stored = db.get(StoredFile, payload.file_id)
     if stored is None or stored.status == "deleted":
@@ -114,17 +114,25 @@ def register_file_api(
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action="workflow_input_files.reuse" if reused else "workflow_input_files.register",
+        action=("workflow_input_files.reuse" if reused else "workflow_input_files.register"),
         resource_type="workflow_input_item",
         resource_id=item.id,
-        after_json={"workflow_id": workflow.id, "file_id": stored.id, "role": item.role},
+        after_json={
+            "workflow_id": workflow.id,
+            "file_id": stored.id,
+            "role": item.role,
+        },
         request=request,
     )
     db.commit()
     if reused:
         response.status_code = status.HTTP_200_OK
     return ok(
-        {"batch": describe_input_batch(db, batch).model_dump(), "item_id": item.id, "reused": reused},
+        {
+            "batch": describe_input_batch(db, batch).model_dump(),
+            "item_id": item.id,
+            "reused": reused,
+        },
         request.state.request_id,
     )
 
@@ -142,7 +150,7 @@ def remove_file_api(
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
-    require_project_role(db, current_user, workflow.project_id, WRITE_ROLES)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     batch = get_input_batch(db, workflow_id)
     remove_input_item(db, batch, item_id)
     write_audit_log(
@@ -171,7 +179,7 @@ def convert_batch_api(
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
-    require_project_role(db, current_user, workflow.project_id, WRITE_ROLES)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     batch = get_input_batch(db, workflow_id)
     plan = prepare_input_conversions(db, batch, created_by=current_user.id)
     write_audit_log(
@@ -180,7 +188,10 @@ def convert_batch_api(
         action="workflow_input_batches.convert",
         resource_type="workflow_input_batch",
         resource_id=batch.id,
-        after_json={"job_ids": [job.id for job in plan.jobs], "dispatch": plan.dispatch},
+        after_json={
+            "job_ids": [job.id for job in plan.jobs],
+            "dispatch": plan.dispatch,
+        },
         request=request,
     )
     db.commit()
@@ -207,7 +218,7 @@ def freeze_batch_api(
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
-    require_project_role(db, current_user, workflow.project_id, WRITE_ROLES)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     batch = freeze_input_batch(db, get_input_batch(db, workflow_id))
     write_audit_log(
         db,

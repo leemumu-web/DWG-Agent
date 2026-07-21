@@ -1,0 +1,322 @@
+from __future__ import annotations
+
+import ast
+import importlib
+from pathlib import Path
+
+import pytest
+
+from app.platform.http.exceptions import AppHTTPException
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+APP_ROOT = REPO_ROOT / "backend" / "app"
+
+WORKFLOW_TABLES = {
+    "workflow_artifacts",
+    "workflow_input_batches",
+    "workflow_input_items",
+    "workflow_runs",
+    "workflow_stage_runs",
+}
+
+WORKFLOW_PUBLIC_CONTRACT = {
+    "FrozenInputReference",
+    "WorkflowArtifact",
+    "WorkflowInputBatch",
+    "WorkflowInputItem",
+    "WorkflowRun",
+    "WorkflowStageRun",
+    "attach_artifact",
+    "bind_stage_job",
+    "cancel_workflow",
+    "complete_manual_stage",
+    "create_workflow",
+    "find_frozen_input_reference",
+    "get_workflow_or_404",
+    "list_workflow_templates",
+    "read_verified_input_object",
+    "recompute_workflow",
+    "start_workflow",
+    "sync_workflow_from_jobs",
+}
+
+EXPECTED_ROUTES = [
+    (("GET",), "/templates", "get_workflow_templates"),
+    (("GET",), "", "list_workflows"),
+    (("POST",), "", "create_workflow_api"),
+    (("POST",), "/{workflow_id}/artifacts", "create_workflow_artifact"),
+    (
+        ("POST",),
+        "/{workflow_id}/stages/{stage_code}/executions",
+        "execute_workflow_stage",
+    ),
+    (("GET",), "/{workflow_id}/dxf-classification", "get_dxf_classification"),
+    (("GET",), "/{workflow_id}", "get_workflow"),
+    (("POST",), "/{workflow_id}/start", "start_workflow_api"),
+    (
+        ("POST",),
+        "/{workflow_id}/stages/{stage_code}/completion",
+        "complete_stage_api",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/cancellation-requests",
+        "cancel_workflow_api",
+    ),
+    (("POST",), "/{workflow_id}/input-batch", "create_batch_api"),
+    (("GET",), "/{workflow_id}/input-batch", "get_batch_api"),
+    (("POST",), "/{workflow_id}/input-batch/files", "register_file_api"),
+    (
+        ("DELETE",),
+        "/{workflow_id}/input-batch/files/{item_id}",
+        "remove_file_api",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/input-batch/conversion-requests",
+        "convert_batch_api",
+    ),
+    (("POST",), "/{workflow_id}/input-batch/freeze", "freeze_batch_api"),
+]
+
+EXPECTED_PRODUCTION_STAGES = [
+    (
+        "source_intake",
+        "manual",
+        "implemented",
+        None,
+        ("dwg_files", "excel_file"),
+        ("source_file", "source_excel", "derived_dxf"),
+    ),
+    (
+        "dxf_classification",
+        "automated",
+        "implemented",
+        "steel_dxf_classification",
+        ("frozen_derived_dxf",),
+        ("classified_dxf", "classification_report", "classification_manifest"),
+    ),
+    (
+        "drawing_processing",
+        "placeholder",
+        "placeholder",
+        "drawing_processing",
+        ("drawing_files",),
+        ("processed_drawing", "validation_report"),
+    ),
+    (
+        "excel_stage1",
+        "automated",
+        "implemented",
+        "dxf_to_excel",
+        ("batch_name",),
+        ("stage1_excel",),
+    ),
+    (
+        "design_barrier",
+        "manual",
+        "implemented",
+        None,
+        (),
+        ("review_record",),
+    ),
+    (
+        "excel_final",
+        "automated",
+        "implemented",
+        "excel_final",
+        ("file_id",),
+        ("final_excel",),
+    ),
+    (
+        "cam_packaging",
+        "placeholder",
+        "placeholder",
+        "cam_packaging",
+        ("final_excel", "processed_drawings"),
+        ("cam_package",),
+    ),
+    (
+        "windows_cam",
+        "external",
+        "external",
+        "windows_cam",
+        ("cam_package",),
+        ("cam_result", "runner_diagnostics"),
+    ),
+    (
+        "result_acceptance",
+        "placeholder",
+        "placeholder",
+        "result_acceptance",
+        ("cam_result",),
+        ("acceptance_report",),
+    ),
+    (
+        "delivery_archive",
+        "manual",
+        "implemented",
+        None,
+        (),
+        ("delivery_file",),
+    ),
+]
+
+EXPECTED_INTERNAL_LAYERS = {
+    "modules/workflows": {
+        "access.py",
+        "artifacts.py",
+        "interface.py",
+        "job_sync.py",
+        "lifecycle.py",
+        "stage_execution.py",
+        "templates.py",
+    },
+    "modules/workflows/models": {"intake.py", "orchestration.py"},
+    "modules/workflows/schemas": {"intake.py", "orchestration.py"},
+    "modules/workflows/intake": {
+        "conversion.py",
+        "freeze.py",
+        "presentation.py",
+        "registration.py",
+    },
+    "modules/workflows/routes": {
+        "artifacts.py",
+        "classification.py",
+        "commands.py",
+        "execution.py",
+        "intake.py",
+        "queries.py",
+        "router.py",
+        "templates.py",
+    },
+}
+
+
+def _imports(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    return names
+
+
+def _routes(router) -> list[tuple[tuple[str, ...], str, str]]:
+    return [(tuple(sorted(route.methods or ())), route.path, route.name) for route in router.routes]
+
+
+def test_workflow_interface_is_exact_and_owns_five_tables() -> None:
+    workflows = importlib.import_module("app.modules.workflows.interface")
+
+    assert set(workflows.__all__) == WORKFLOW_PUBLIC_CONTRACT
+    assert {
+        workflows.WorkflowArtifact.__table__.name,
+        workflows.WorkflowInputBatch.__table__.name,
+        workflows.WorkflowInputItem.__table__.name,
+        workflows.WorkflowRun.__table__.name,
+        workflows.WorkflowStageRun.__table__.name,
+    } == WORKFLOW_TABLES
+
+
+def test_workflow_router_preserves_all_operations_order_and_tags() -> None:
+    module = importlib.import_module("app.modules.workflows.routes.router")
+
+    routes = _routes(module.router)
+    assert routes == EXPECTED_ROUTES
+    assert routes.index((("GET",), "/templates", "get_workflow_templates")) < routes.index(
+        (("GET",), "/{workflow_id}", "get_workflow")
+    )
+    assert all(
+        route.tags == (["workflow-inputs"] if "input-batch" in route.path else ["workflows"])
+        for route in module.router.routes
+    )
+
+
+def test_linux_production_contract_keeps_server_derived_dxf_and_honest_gaps() -> None:
+    registration = importlib.import_module("app.modules.workflows.intake.registration")
+    templates = importlib.import_module("app.modules.workflows.templates")
+
+    assert registration.classify_human_input_extension(".dwg") == "source_dwg"
+    assert registration.classify_human_input_extension(".xls") == "source_excel"
+    assert registration.classify_human_input_extension(".xlsx") == "source_excel"
+    with pytest.raises(AppHTTPException) as raised:
+        registration.classify_human_input_extension(".dxf")
+    assert raised.value.detail["code"] == "INPUT_DXF_NOT_ALLOWED"
+
+    production = templates.WORKFLOW_TEMPLATES["linux_production"]
+    assert [
+        (
+            stage.code,
+            stage.execution_mode,
+            stage.implementation_status,
+            stage.execution_kind,
+            tuple(stage.required_inputs),
+            tuple(stage.artifact_types),
+        )
+        for stage in production.stages
+    ] == EXPECTED_PRODUCTION_STAGES
+
+
+def test_workflow_internal_responsibilities_are_traceable() -> None:
+    for relative, expected_files in EXPECTED_INTERNAL_LAYERS.items():
+        directory = APP_ROOT / relative
+        assert expected_files <= {path.name for path in directory.glob("*.py")}, relative
+
+    assert "subprocess" not in _imports(APP_ROOT / "modules/workflows/stage_execution.py")
+    assert "openpyxl" not in _imports(APP_ROOT / "modules/workflows/intake/conversion.py")
+    assert "app.modules.jobs.interface" not in _imports(
+        APP_ROOT / "modules/workflows/models/orchestration.py"
+    )
+
+
+def test_other_business_modules_use_only_workflow_interface() -> None:
+    violations: list[str] = []
+    prefix = "app.modules.workflows"
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        relative = path.relative_to(APP_ROOT)
+        if relative.parts[:2] == ("modules", "workflows") or relative.parts[:1] == ("bootstrap",):
+            continue
+        for imported in _imports(path):
+            if imported.startswith(prefix) and not imported.startswith(f"{prefix}.interface"):
+                violations.append(f"{relative} -> {imported}")
+
+    assert violations == []
+
+
+def test_file_delete_guard_and_classifier_use_workflow_interface() -> None:
+    for relative in (
+        "modules/files/access.py",
+        "modules/dxf_classification/execution.py",
+        "modules/dxf_classification/persistence.py",
+    ):
+        imports = _imports(APP_ROOT / relative)
+        assert "app.modules.workflows.interface" in imports
+        assert not any(name.startswith("app.models.workflow") for name in imports)
+        assert not any(name.startswith("app.services.workflow") for name in imports)
+
+
+def test_model_registry_uses_workflow_domain_package() -> None:
+    from app.bootstrap.model_registry import load_models
+
+    names = {module.__name__ for module in load_models()}
+    assert "app.modules.workflows.models" in names
+    assert "app.models.workflow" not in names
+    assert "app.models.workflow_input" not in names
+
+
+def test_legacy_workflow_implementation_files_are_retired() -> None:
+    retired = (
+        "api/v1/workflow_inputs_api.py",
+        "api/v1/workflows_api.py",
+        "models/workflow.py",
+        "models/workflow_input.py",
+        "schemas/workflow_input_schema.py",
+        "schemas/workflow_schema.py",
+        "services/workflow_input_service.py",
+        "services/workflow_service.py",
+    )
+
+    assert [path for path in retired if (APP_ROOT / path).exists()] == []

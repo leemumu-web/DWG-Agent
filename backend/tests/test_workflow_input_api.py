@@ -5,7 +5,7 @@ from io import BytesIO
 import openpyxl
 from sqlalchemy import select
 
-from app.models.workflow_input import WorkflowInputBatch
+from app.modules.workflows.interface import WorkflowInputBatch
 from app.platform.storage.local import LocalFileStorage
 from tests.test_workflow_api import (
     _admin_headers,
@@ -26,7 +26,9 @@ def _xlsx() -> bytes:
 def _use_storage(monkeypatch, tmp_path):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
-    monkeypatch.setattr("app.services.workflow_input_service.get_storage_backend", lambda: storage)
+    monkeypatch.setattr(
+        "app.modules.workflows.intake.registration.get_storage_backend", lambda: storage
+    )
     return storage
 
 
@@ -65,16 +67,12 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
     dispatched: list[tuple[str, list[tuple[int, int]]]] = []
     monkeypatch.setattr("app.platform.config.settings.settings.dxf_pipeline_enabled", True)
     monkeypatch.setattr(
-        "app.api.v1.workflow_inputs_api.dispatch_committed_conversion_batch",
+        "app.modules.workflows.routes.intake.dispatch_committed_conversion_batch",
         lambda *, task_type, jobs: dispatched.append((task_type, jobs)),
     )
 
-    created = client.post(
-        f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
-    )
-    replay = client.post(
-        f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
-    )
+    created = client.post(f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers)
+    replay = client.post(f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers)
     assert created.status_code == 201, created.text
     assert replay.status_code == 200, replay.text
     batch_id = created.json()["data"]["id"]
@@ -102,9 +100,7 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
         f"/api/v1/workflows/{workflow_id}/input-batch/conversion-requests",
         headers=owner_headers,
     )
-    detail = client.get(
-        f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
-    )
+    detail = client.get(f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers)
 
     assert conversion.status_code == 202, conversion.text
     assert detail.status_code == 200, detail.text
@@ -131,11 +127,14 @@ def test_registration_rejects_human_dxf_and_second_excel(monkeypatch, tmp_path):
     first_excel = _upload(client, owner_headers, "first.xlsx", _xlsx(), batch["id"])
     second_excel = _upload(client, owner_headers, "second.xlsx", _xlsx(), batch["id"])
     dxf = _upload(client, owner_headers, "manual.dxf", b"0\nEOF\n", batch["id"])
-    assert client.post(
-        f"/api/v1/workflows/{workflow_id}/input-batch/files",
-        headers=owner_headers,
-        json={"file_id": first_excel},
-    ).status_code == 201
+    assert (
+        client.post(
+            f"/api/v1/workflows/{workflow_id}/input-batch/files",
+            headers=owner_headers,
+            json={"file_id": first_excel},
+        ).status_code
+        == 201
+    )
 
     duplicate = client.post(
         f"/api/v1/workflows/{workflow_id}/input-batch/files",
@@ -159,13 +158,14 @@ def test_input_batch_is_project_scoped(monkeypatch, tmp_path):
     client = _client()
     admin_headers, owner_headers, _, workflow_id = _setup(client, "input-owner")
     _, stranger_headers = _engineer_user(client, admin_headers, "input-stranger")
-    assert client.post(
-        f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
-    ).status_code == 201
-
-    forbidden = client.get(
-        f"/api/v1/workflows/{workflow_id}/input-batch", headers=stranger_headers
+    assert (
+        client.post(
+            f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers
+        ).status_code
+        == 201
     )
+
+    forbidden = client.get(f"/api/v1/workflows/{workflow_id}/input-batch", headers=stranger_headers)
 
     assert forbidden.status_code == 403
 
@@ -194,9 +194,7 @@ def test_input_batch_openapi_exposes_complete_guarded_surface():
                 assert code["application/json"]["schema"]
 
 
-def test_frozen_input_source_cannot_be_deleted_through_files_api(
-    db, monkeypatch, tmp_path
-):
+def test_frozen_input_source_cannot_be_deleted_through_files_api(db, monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
     client = _client()
     _, owner_headers, _, workflow_id = _setup(client, "frozen-delete")
@@ -216,9 +214,7 @@ def test_frozen_input_source_cannot_be_deleted_through_files_api(
         json={"file_id": file_id},
     )
     assert registered.status_code == 201, registered.text
-    batch = db.scalar(
-        select(WorkflowInputBatch).where(WorkflowInputBatch.id == batch_data["id"])
-    )
+    batch = db.scalar(select(WorkflowInputBatch).where(WorkflowInputBatch.id == batch_data["id"]))
     assert batch is not None
     batch.status = "frozen"
     db.commit()

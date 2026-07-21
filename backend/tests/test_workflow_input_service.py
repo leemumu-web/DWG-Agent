@@ -8,15 +8,18 @@ import openpyxl
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import AnalysisResult, Job, dispatch_committed_conversion_batch
 from app.modules.projects.interface import Drawing, DrawingVersion, Project, ProjectMember
+from app.modules.workflows import interface as workflow_service
+from app.modules.workflows.intake import conversion as workflow_input_conversion
+from app.modules.workflows.intake import freeze as workflow_input_freeze
+from app.modules.workflows.intake import registration as workflow_input_registration
+from app.modules.workflows.interface import WorkflowInputBatch, WorkflowInputItem
+from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
-from app.schemas.workflow_schema import WorkflowCreate
-from app.services import workflow_input_service, workflow_service
 
 
 def _workflow(db):
@@ -156,16 +159,16 @@ def test_input_batch_model_has_one_batch_per_workflow_and_ordered_items(db):
 def test_registers_multiple_real_dwgs_and_one_readable_excel(db, tmp_path, monkeypatch):
     user, _, workflow = _workflow(db)
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
-    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     first = _stored_object(db, storage, " B  01.dwg", b"AC1027" + bytes(2048))
     second = _stored_object(db, storage, "A.dwg", b"AC1018" + bytes(2048))
     excel = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
 
-    first_item = workflow_input_service.register_input_file(db, batch, first)
-    second_item = workflow_input_service.register_input_file(db, batch, second)
-    excel_item = workflow_input_service.register_input_file(db, batch, excel)
-    replay = workflow_input_service.register_input_file(db, batch, first)
+    first_item = workflow_input_registration.register_input_file(db, batch, first)
+    second_item = workflow_input_registration.register_input_file(db, batch, second)
+    excel_item = workflow_input_registration.register_input_file(db, batch, excel)
+    replay = workflow_input_registration.register_input_file(db, batch, first)
 
     assert first_item.normalized_stem == "b 01"
     assert second_item.role == "source_dwg"
@@ -177,12 +180,12 @@ def test_registers_multiple_real_dwgs_and_one_readable_excel(db, tmp_path, monke
 def test_rejects_human_dxf_with_stable_error(db, tmp_path, monkeypatch):
     user, _, workflow = _workflow(db)
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
-    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     dxf = _stored_object(db, storage, "manual.dxf", b"0\nSECTION\n0\nEOF\n")
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_input_service.register_input_file(db, batch, dxf)
+        workflow_input_registration.register_input_file(db, batch, dxf)
 
     assert error.value.detail["code"] == "INPUT_DXF_NOT_ALLOWED"
     assert batch.items == []
@@ -191,14 +194,14 @@ def test_rejects_human_dxf_with_stable_error(db, tmp_path, monkeypatch):
 def test_rejects_second_excel_without_changing_batch(db, tmp_path, monkeypatch):
     user, _, workflow = _workflow(db)
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
-    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     first = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
     second = _stored_object(db, storage, "other.xlsx", _xlsx_bytes())
-    workflow_input_service.register_input_file(db, batch, first)
+    workflow_input_registration.register_input_file(db, batch, first)
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_input_service.register_input_file(db, batch, second)
+        workflow_input_registration.register_input_file(db, batch, second)
 
     assert error.value.detail["code"] == "INPUT_EXCEL_ALREADY_EXISTS"
     assert [item.file_id for item in batch.items] == [first.id]
@@ -207,13 +210,13 @@ def test_rejects_second_excel_without_changing_batch(db, tmp_path, monkeypatch):
 def test_rejects_object_digest_mismatch(db, tmp_path, monkeypatch):
     user, _, workflow = _workflow(db)
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
-    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     stored = _stored_object(db, storage, "source.dwg", b"AC1027" + bytes(2048))
     stored.sha256 = "0" * 64
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_input_service.register_input_file(db, batch, stored)
+        workflow_input_registration.register_input_file(db, batch, stored)
 
     assert error.value.detail["code"] == "INPUT_OBJECT_CHECKSUM_MISMATCH"
 
@@ -221,12 +224,12 @@ def test_rejects_object_digest_mismatch(db, tmp_path, monkeypatch):
 def test_rejects_fake_xlsx_container(db, tmp_path, monkeypatch):
     user, _, workflow = _workflow(db)
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
-    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     fake = _stored_object(db, storage, "fake.xlsx", b"not an excel container")
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_input_service.register_input_file(db, batch, fake)
+        workflow_input_registration.register_input_file(db, batch, fake)
 
     assert error.value.detail["code"] == "INPUT_EXCEL_UNREADABLE"
 
@@ -234,8 +237,8 @@ def test_rejects_fake_xlsx_container(db, tmp_path, monkeypatch):
 def _registered_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
     user, project, workflow = _workflow(db)
     storage = LocalFileStorage(tmp_path / "storage")
-    monkeypatch.setattr(workflow_input_service, "get_storage_backend", lambda: storage)
-    batch = workflow_input_service.create_input_batch(db, workflow, created_by=user.id)
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     for index, name in enumerate(dwg_names):
         stored = _stored_object(
             db,
@@ -243,18 +246,18 @@ def _registered_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")
             name,
             b"AC1027" + bytes([index + 1]) * 2048,
         )
-        workflow_input_service.register_input_file(db, batch, stored)
+        workflow_input_registration.register_input_file(db, batch, stored)
     excel = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
-    workflow_input_service.register_input_file(db, batch, excel)
+    workflow_input_registration.register_input_file(db, batch, excel)
     return user, project, workflow, batch, storage
 
 
 def test_conversion_jobs_are_project_bound_idempotent_and_retryable(db, tmp_path, monkeypatch):
     user, project, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
-    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
 
-    first = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
-    replay = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    first = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
+    replay = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
 
     assert len(first.jobs) == 2
     assert first.dispatch == [(job.id, 1) for job in first.jobs]
@@ -266,7 +269,7 @@ def test_conversion_jobs_are_project_bound_idempotent_and_retryable(db, tmp_path
 
     first.jobs[0].status = "failed"
     db.flush()
-    retried = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    retried = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
 
     assert retried.jobs[0].attempt == 2
     assert retried.jobs[0].status == "queued"
@@ -275,10 +278,10 @@ def test_conversion_jobs_are_project_bound_idempotent_and_retryable(db, tmp_path
 
 def test_conversion_feature_gate_is_enforced(db, tmp_path, monkeypatch):
     user, _, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
-    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", False)
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", False)
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+        workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
 
     assert error.value.detail["code"] == "DXF_PIPELINE_DISABLED"
     assert db.query(Job).count() == 0
@@ -325,8 +328,8 @@ def test_sync_pairs_only_successful_server_derived_dxf(db, tmp_path, monkeypatch
     user, _, _, batch, storage = _registered_batch(
         db, tmp_path, monkeypatch, dwg_names=("Assembly 01.dwg",)
     )
-    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
-    plan = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    plan = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
     job = plan.jobs[0]
     derived = _stored_object(
         db,
@@ -346,7 +349,7 @@ def test_sync_pairs_only_successful_server_derived_dxf(db, tmp_path, monkeypatch
     job.progress = 100
     db.flush()
 
-    workflow_input_service.sync_input_batch(db, batch)
+    workflow_input_conversion.sync_input_batch(db, batch)
 
     dwg_item = next(item for item in batch.items if item.role == "source_dwg")
     assert dwg_item.status == "paired"
@@ -358,8 +361,8 @@ def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
     user, _, _, batch, storage = _registered_batch(
         db, tmp_path, monkeypatch, dwg_names=("source.dwg",)
     )
-    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
-    job = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id).jobs[0]
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    job = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id).jobs[0]
     derived = _stored_object(db, storage, "other.dxf", b"0\nEOF\n")
     db.add(
         AnalysisResult(
@@ -372,7 +375,7 @@ def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
     job.status = "succeeded"
     db.flush()
 
-    workflow_input_service.sync_input_batch(db, batch)
+    workflow_input_conversion.sync_input_batch(db, batch)
 
     item = next(item for item in batch.items if item.role == "source_dwg")
     assert item.status == "conversion_failed"
@@ -384,8 +387,8 @@ def _ready_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
     user, project, workflow, batch, storage = _registered_batch(
         db, tmp_path, monkeypatch, dwg_names=dwg_names
     )
-    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
-    plan = workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    plan = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
     for item, job in zip(
         [item for item in batch.items if item.role == "source_dwg"],
         plan.jobs,
@@ -409,7 +412,7 @@ def _ready_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
         job.status = "succeeded"
         job.progress = 100
     db.flush()
-    workflow_input_service.sync_input_batch(db, batch)
+    workflow_input_conversion.sync_input_batch(db, batch)
     workflow_service.start_workflow(db, workflow)
     return user, project, workflow, batch
 
@@ -419,9 +422,9 @@ def test_freeze_creates_drawings_manifest_artifacts_and_completes_source_intake(
 ):
     _, project, workflow, batch = _ready_batch(db, tmp_path, monkeypatch)
 
-    frozen = workflow_input_service.freeze_input_batch(db, batch)
+    frozen = workflow_input_freeze.freeze_input_batch(db, batch)
     first_manifest = frozen.manifest_sha256
-    replay = workflow_input_service.freeze_input_batch(db, batch)
+    replay = workflow_input_freeze.freeze_input_batch(db, batch)
 
     drawings = list(db.query(Drawing).filter(Drawing.project_id == project.id).all())
     versions = list(db.query(DrawingVersion).all())
@@ -446,11 +449,11 @@ def test_freeze_rejects_duplicate_normalized_dwg_names(db, tmp_path, monkeypatch
         db, tmp_path, monkeypatch, dwg_names=("A.dwg", "Ａ.DWG")
     )
     workflow_service.start_workflow(db, workflow)
-    monkeypatch.setattr(workflow_input_service.settings, "dxf_pipeline_enabled", True)
-    workflow_input_service.prepare_input_conversions(db, batch, created_by=user.id)
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_input_service.freeze_input_batch(db, batch)
+        workflow_input_freeze.freeze_input_batch(db, batch)
 
     assert error.value.detail["code"] == "INPUT_DWG_NAME_CONFLICT"
     assert db.query(Drawing).count() == 0

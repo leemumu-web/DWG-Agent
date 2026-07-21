@@ -1,3 +1,5 @@
+"""Workflow input-batch and input-item persistence."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,7 +12,7 @@ from app.platform.database.base import Base, PKType
 from app.platform.database.mixins import TimestampMixin
 
 if TYPE_CHECKING:
-    from app.models.workflow import WorkflowRun
+    from app.modules.workflows.models.orchestration import WorkflowRun
 
 
 class WorkflowInputBatch(TimestampMixin, Base):
@@ -50,7 +52,9 @@ class WorkflowInputItem(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     input_batch_id: Mapped[int] = mapped_column(
-        ForeignKey("workflow_input_batches.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("workflow_input_batches.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     file_id: Mapped[int] = mapped_column(ForeignKey("files.id"), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False)

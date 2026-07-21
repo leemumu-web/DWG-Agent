@@ -10,8 +10,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.workflow import WorkflowRun
-from app.models.workflow_input import WorkflowInputItem
 from app.modules.dxf_classification.adapter import (
     CLASSIFIER_VERSION,
     CLI_SCHEMA,
@@ -25,6 +23,7 @@ from app.modules.dxf_classification.models import (
 )
 from app.modules.files.interface import StoredFile, save_bytes_as_file
 from app.modules.jobs.interface import AnalysisResult, Job, fail_job_attempt
+from app.modules.workflows.interface import WorkflowInputItem, WorkflowRun
 from app.platform.config.constants import TASK_STEEL_DXF_CLASSIFICATION
 from app.platform.config.settings import settings
 

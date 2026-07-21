@@ -6,7 +6,6 @@ from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.models.workflow_input import WorkflowInputBatch, WorkflowInputItem
 from app.modules.files.models import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import AnalysisResult, Job
@@ -127,8 +126,7 @@ def can_read_file(db: Session, current_user: User, stored: StoredFile) -> bool:
     if has_global_project_access(current_user) or stored.uploaded_by == current_user.id:
         return True
     return any(
-        get_project_membership(db, current_user, project_id)
-        for project_id in active_project_ids
+        get_project_membership(db, current_user, project_id) for project_id in active_project_ids
     )
 
 
@@ -142,24 +140,20 @@ def require_file_read_access(db: Session, current_user: User, stored: StoredFile
 
 
 def require_file_delete_access(db: Session, current_user: User, stored: StoredFile) -> None:
-    frozen_input = db.scalar(
-        select(WorkflowInputBatch)
-        .join(WorkflowInputItem, WorkflowInputItem.input_batch_id == WorkflowInputBatch.id)
-        .where(
-            WorkflowInputBatch.status == "frozen",
-            or_(
-                WorkflowInputItem.file_id == stored.id,
-                WorkflowInputItem.derived_dxf_file_id == stored.id,
-            ),
-        )
-        .with_for_update()
-    )
-    if frozen_input is not None:
+    # Resolve lazily: workflow registration depends on files.interface, so a
+    # top-level reverse import would make both public boundaries order-sensitive.
+    from app.modules.workflows.interface import find_frozen_input_reference
+
+    frozen_reference = find_frozen_input_reference(db, stored.id, for_update=True)
+    if frozen_reference is not None:
         raise AppHTTPException(
             409,
             "FILE_REFERENCED_BY_FROZEN_INPUT",
             "A file in a frozen production input manifest cannot be deleted.",
-            {"workflow_id": frozen_input.workflow_run_id, "input_batch_id": frozen_input.id},
+            {
+                "workflow_id": frozen_reference.workflow_id,
+                "input_batch_id": frozen_reference.input_batch_id,
+            },
         )
 
     active_ids = file_project_ids(db, stored.id, include_deleted=False)
