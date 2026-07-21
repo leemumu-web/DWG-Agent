@@ -101,6 +101,15 @@ def test_database_script_exposes_isolated_mysql_migration_test():
     assert "uv run alembic upgrade head" in content
 
 
+def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
+    content = _read("infra/verification/verify.sh")
+
+    assert "sudo -n mariadb" in content
+    assert "bash scripts/db.sh check" in content
+    assert "MYSQL_APPLICATION_AVAILABLE" in content
+    assert "application path was verified" in content
+
+
 def test_start_scripts_delegate_database_startup_to_db_script():
     # start-all/start-dev use the shared ensure_db_ready() helper which
     # internally calls ``bash scripts/db.sh start`` (and init on first run).
@@ -230,6 +239,24 @@ def test_stop_all_does_not_kill_unowned_backend_port():
     assert 'port_free "$LOCAL_BACKEND_PORT"' in content
 
 
+def test_local_nginx_lifecycle_does_not_require_root_privileges():
+    start_content = _read("scripts/start-all.sh")
+    stop_content = _read("scripts/stop-all.sh")
+
+    assert "sudo nginx" not in start_content
+    assert "sudo nginx" not in stop_content
+    assert "NGINX_CLIENT_BODY_DIR" in start_content
+    assert 'mkdir -p "$NGINX_CLIENT_BODY_DIR"' in start_content
+
+
+def test_backend_staleness_ignores_generated_python_bytecode():
+    content = _read("scripts/lib/local_stack.sh")
+
+    assert "__pycache__" in content
+    assert "*.pyc" in content
+    assert "*.pyo" in content
+
+
 def test_worker_lifecycle_detects_orphaned_pidfiles_and_duplicate_consumers():
     lib_content = _read("scripts/lib/cad_worker.sh")
     stop_content = _read("scripts/stop-all.sh")
@@ -238,6 +265,9 @@ def test_worker_lifecycle_detects_orphaned_pidfiles_and_duplicate_consumers():
     assert "stop_celery_worker" in lib_content
     assert 'pgrep -f "$pattern"' in lib_content
     assert "已存在但 pidfile 缺失" in lib_content
+    assert "worker_pid_is_owned" in lib_content
+    assert "旧版或不兼容 Worker" in lib_content
+    assert "-A app.platform.messaging.celery_app:celery_app worker" in lib_content
     assert "stop_all_workers" in stop_content
     assert "inspect" not in lib_content
 

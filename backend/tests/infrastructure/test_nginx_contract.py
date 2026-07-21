@@ -48,3 +48,11 @@ def test_nginx_forwards_request_identity_and_client_context(config_path: Path):
         "X-Request-ID $request_id",
     ):
         assert f"proxy_set_header {header};" in content
+
+
+def test_local_nginx_buffers_uploads_inside_the_owned_runtime_directory():
+    content = NGINX_CONFIGS[1].read_text(encoding="utf-8")
+
+    expected = REPO_ROOT / "infra/gateway/nginx/logs/client-body"
+    assert f"client_body_temp_path {expected} 1 2;" in content
+    assert "client_body_temp_path /var/lib/nginx/client-body" not in content

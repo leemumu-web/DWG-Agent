@@ -327,11 +327,16 @@ assert_grep "$DOCKERFILE" 'STOPSIGNAL'     "Dockerfile: STOPSIGNAL"
 echo ""
 echo "── 4. MySQL 集成 ──"
 
-# MariaDB uses unix socket auth for root — use sudo mariadb
+# Prefer the detailed root audit when passwordless sudo is available. Local
+# release verification must not, however, treat root shell access as a
+# prerequisite for proving the application's own MySQL path.
 MYSQL_AVAILABLE=false
-if command -v mariadb &>/dev/null && sudo mariadb -e "SELECT 1" &>/dev/null 2>&1; then
+MYSQL_APPLICATION_AVAILABLE=false
+if command -v mariadb &>/dev/null && sudo -n mariadb -e "SELECT 1" &>/dev/null 2>&1; then
     MYSQL_AVAILABLE=true
-    MYSQL_CMD="sudo mariadb"
+    MYSQL_CMD="sudo -n mariadb"
+elif command -v mariadb &>/dev/null && bash scripts/db.sh check &>/dev/null; then
+    MYSQL_APPLICATION_AVAILABLE=true
 fi
 
 if $MYSQL_AVAILABLE; then
@@ -481,6 +486,9 @@ PY
     else
         fail "MySQL" ".env 不存在，无法验证应用数据库凭据"
     fi
+elif $MYSQL_APPLICATION_AVAILABLE; then
+    pass "MySQL: 应用凭据、运行 schema、种子与时间列检查通过"
+    dim "  root-only grants audit skipped (no non-interactive sudo); application path was verified"
 else
     dim "  MySQL 未运行或不可达 — 跳过集成测试"
     dim "  启动: sudo systemctl start mariadb"

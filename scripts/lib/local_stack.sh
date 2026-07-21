@@ -16,7 +16,11 @@ files_newer_than_epoch() {
         [ -e "$path" ] || continue
         if [ -f "$path" ]; then
             [ "$(stat -c %Y "$path")" -gt "$epoch" ] && return 0
-        elif find "$path" -type f -newermt "@${epoch}" -print -quit 2>/dev/null | grep -q .; then
+        elif find "$path" -type f \
+            ! -path '*/__pycache__/*' \
+            ! -name '*.pyc' \
+            ! -name '*.pyo' \
+            -newermt "@${epoch}" -print -quit 2>/dev/null | grep -q .; then
             return 0
         fi
     done

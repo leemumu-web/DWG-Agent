@@ -48,26 +48,46 @@ celery_worker_parent_pids() {
     done
 }
 
+worker_pid_is_owned() {
+    local pid="$1" queue="$2" slug="$3" args
+    args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+    [ -n "$args" ] || return 1
+    [[ "$args" == *"$PROJECT_ROOT"* ]] || return 1
+    if [[ "$args" == *"run-cad-worker.sh ${queue} "* ]]; then
+        return 0
+    fi
+    [[ "$args" == *"celery"* && "$args" == *"-Q ${queue} "* && "$args" == *"-n ${slug}-local@"* ]]
+}
+
 stop_celery_worker() {
     local queue="$1" slug="${2:-${1//_/-}}"
     local label="worker-${slug}"
     local pidfile="/tmp/dwg-agent-${label}.pid"
+    local tracked_pid
+    tracked_pid="$(cat "$pidfile" 2>/dev/null || true)"
 
-    if ! celery_worker_pids "$queue" "$slug" | grep -q .; then
+    local -a parent_pids
+    mapfile -t parent_pids < <(celery_worker_parent_pids "$queue" "$slug")
+    if [[ "$tracked_pid" =~ ^[1-9][0-9]*$ ]] \
+        && process_exists "$tracked_pid" \
+        && worker_pid_is_owned "$tracked_pid" "$queue" "$slug" \
+        && ! printf '%s\n' "${parent_pids[@]}" | grep -qx "$tracked_pid"; then
+        parent_pids+=("$tracked_pid")
+    fi
+
+    if [ "${#parent_pids[@]}" -eq 0 ]; then
         rm -f "$pidfile"
         ok "Celery ${label} 未运行"
         return 0
     fi
 
-    local -a parent_pids
-    mapfile -t parent_pids < <(celery_worker_parent_pids "$queue" "$slug")
-    if [ "${#parent_pids[@]}" -eq 0 ]; then
-        warn "Celery ${label} 未找到主进程；保持现状"
-        return 1
-    fi
     kill -TERM "${parent_pids[@]}" 2>/dev/null || true
     for _ in $(seq 1 15); do
-        if ! celery_worker_pids "$queue" "$slug" | grep -q .; then
+        local any_running=false pid
+        for pid in "${parent_pids[@]}"; do
+            process_exists "$pid" && any_running=true
+        done
+        if ! $any_running && ! celery_worker_pids "$queue" "$slug" | grep -q .; then
             rm -f "$pidfile"
             ok "Celery ${label} 已停止"
             return 0
@@ -86,8 +106,18 @@ start_celery_worker() {
     local node="${slug}-local@$(hostname)"
 
     if pidfile_running "$pidfile"; then
-        ok "Celery ${label} 已运行"
-        return 0
+        local tracked_pid
+        tracked_pid="$(cat "$pidfile")"
+        if celery_worker_pids "$queue" "$slug" | grep -q .; then
+            ok "Celery ${label} 已运行"
+            return 0
+        fi
+        if worker_pid_is_owned "$tracked_pid" "$queue" "$slug"; then
+            err "Celery ${label} 的 pidfile 指向旧版或不兼容 Worker；请先执行 stop-all 后重试"
+            return 1
+        fi
+        warn "Celery ${label} 的 pidfile 指向非本项目进程；移除失效跟踪文件"
+        rm -f "$pidfile"
     fi
 
     local -a discovered_pids

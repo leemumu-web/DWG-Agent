@@ -79,25 +79,27 @@ fi
 step "5/5 Nginx 网关"
 NGINX_CONF="$PROJECT_ROOT/infra/gateway/nginx/nginx.local.conf"
 NGINX_PIDFILE="$PROJECT_ROOT/infra/gateway/nginx/logs/nginx.pid"
+NGINX_CLIENT_BODY_DIR="$PROJECT_ROOT/infra/gateway/nginx/logs/client-body"
+mkdir -p "$NGINX_CLIENT_BODY_DIR"
 
-# 检查是否已有本项目的 nginx 在运行。master 通常属于 root，读取
-# /proc 不需要 root 凭据，更适合无交互运维脚本。
+# 检查是否已有本项目的 nginx 在运行。当前本地配置以仓库用户启动；
+# 只读 /proc 的归属检查同样兼容升级前由 root 启动的历史进程。
 NGINX_PID="$(cat "$NGINX_PIDFILE" 2>/dev/null || true)"
 if [ -f "$NGINX_PIDFILE" ] && process_exists "$NGINX_PID"; then
     ok "Nginx 已运行 (:8080)"
 else
     # 端口被占但不是我们的 → 报错退出，让用户自行处理
     if ! port_free 8080; then
-        err "端口 8080 已被占用，请先释放: sudo nginx -c $NGINX_CONF -s quit"
+        err "端口 8080 已被占用，请先释放: nginx -c $NGINX_CONF -s quit"
         exit 1
     fi
     info "启动 Nginx (:8080)..."
-    sudo nginx -c "$NGINX_CONF"
+    nginx -c "$NGINX_CONF"
     sleep 1
     if ! port_free 8080; then
         ok "Nginx 已启动 (:8080)"
     else
-        err "Nginx 启动失败，请检查: sudo nginx -t -c $NGINX_CONF"
+        err "Nginx 启动失败，请检查: nginx -t -c $NGINX_CONF"
         exit 1
     fi
 fi
