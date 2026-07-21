@@ -1396,7 +1396,7 @@ source-untraceable or boundary-free README files instead of trusting the earlier
 The 1091-test backend result, Stage counts and Playwright rerun remain the latest completed gates;
 runtime evidence is refreshed again before release without upgrading placeholder/external status.
 
-- [ ] **Step 7: Final commit and push**
+- [x] **Step 7: Final commit and push**
 
 ```bash
 git add -A
@@ -1409,3 +1409,8 @@ test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
 ```
 
 Expected: clean `main`, local and remote SHA identical.
+
+The 19-commit reorganization series through `ec39897` was pushed directly to `origin/main` after all
+release gates above passed. This checklist-only publication record is committed and pushed as the
+final follow-up; release completion requires the post-push `HEAD == origin/main` assertion and a clean
+worktree, not merely a successful `git push` message.
