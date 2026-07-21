@@ -236,12 +236,18 @@ def test_automation_contract_is_explicit_and_non_executable() -> None:
 
 
 def test_legacy_horizontal_business_packages_and_fake_adapters_are_retired() -> None:
-    for name in ("api", "models", "schemas", "services", "workers"):
-        root = APP_ROOT / name
-        assert not root.exists() or not list(root.rglob("*.py")), name
-    for name in ("agents", "mcp_client", "integrations/zwcad"):
-        root = APP_ROOT / name
-        assert not root.exists() or not list(root.rglob("*.py")), name
+    for name in (
+        "api",
+        "models",
+        "schemas",
+        "services",
+        "workers",
+        "agents",
+        "mcp_client",
+        "repositories",
+        "integrations/zwcad",
+    ):
+        assert not (APP_ROOT / name).exists(), name
 
 
 def test_other_business_modules_use_operations_interfaces_only() -> None:

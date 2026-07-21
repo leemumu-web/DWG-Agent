@@ -13,3 +13,5 @@ DWG-to-DXF `AnalysisResult`, validates that value, then falls back to the DXF
 DWG/Files registration. Single and batch attempt orchestration remain separate.
 
 The feature flag and ODA runtime/sample validation remain production gates.
+This optional export direction does not overwrite the source DXF or original
+DWG and must not be interpreted as a mandatory production-workflow round trip.

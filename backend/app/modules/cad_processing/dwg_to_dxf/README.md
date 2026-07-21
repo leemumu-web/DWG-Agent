@@ -14,3 +14,5 @@
 
 Successful automated tests do not prove the deployment ODA AppImage can open
 every production drawing; representative DWG validation remains mandatory.
+This direction must not accept a browser-uploaded DXF as a substitute for the
+server-derived production input, and it does not own Workflow state changes.

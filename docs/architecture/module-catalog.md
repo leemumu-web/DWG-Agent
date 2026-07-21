@@ -58,6 +58,18 @@ Agent/MCP/ZWCAD/Windows 执行契约物理分开。旧 `app/api`、`models`、`s
 调用同样只允许经过该公共入口。旧顶层 `api/components/hooks/stores/types/utils` 已退出；
 `npm run check:architecture` 与 production build 会阻止这些目录或私有跨域导入重新出现。
 
+前端第二层分区也已落地：CAD 通用转换拆为上传、文件夹、总览和表格列模型，DXF→Excel
+拆为上传与批次卡片，Excel 预览解析进入 model，数据控制台拆为六个面板；共享/feature 样式
+按 owner 分文件。架构门禁同时限制 TypeScript 单文件不超过 600 行。Playwright 的 9 个
+spec 按 7 个工作区归档，当前可收集 98 个浏览器用例。
+
+仓库当前检查 134 个维护边界，均有就地 `README.md`，说明真实源码/接口、业务流、
+依赖、输出与未实现边界。`scripts/architecture/check_partition_docs.py` 不再信任固定数量的
+手工清单：backend、frontend、tests、infra、scripts 中直接拥有源码的目录会自动纳入，Stage、
+Agent 与 Windows 外部产品边界显式纳入，并检查实质内容、至少一个真实文件名和能力边界；
+该门禁已加入 `make architecture-check` 与统一 quick
+验证，避免新增或移动分区后文档再次失联。
+
 ## 修改规则
 
 1. 移动实现时先更新 JSON 路径，再执行 `make architecture-check`。

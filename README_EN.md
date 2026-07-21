@@ -29,21 +29,22 @@ Status markers: **✅ Implemented** · **⚠️ Conditionally available** · **�
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Web and API | ✅ | React administration UI, Nginx gateway, 96 OpenAPI paths, and 115 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
-| Data | ✅ | MySQL 8.x is the only runtime source of business truth; Alembic manages 28 model tables, and Celery creates 8 broker/result tables on demand | A migrated empty database has 29 tables; up to 37 after all Celery runtime tables exist; SQLite is used only by pytest |
+| Web and API | ✅ | React administration UI, Nginx gateway, 114 OpenAPI paths, and 135 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
+| Data | ✅ | MySQL 8.x is the only runtime source of business truth; Alembic manages 36 model tables, and Celery creates 8 broker/result tables on demand | A migrated empty database has 37 tables including `alembic_version`; up to 45 after all Celery runtime tables exist; SQLite is used only by pytest |
 | Asynchronous jobs | ✅ | Celery uses the MySQL SQLAlchemy transport and MySQL result backend | Suitable for the current bounded worker topology; not equivalent to a high-throughput message broker |
+| Runtime communication | ✅ | MySQL persists best-effort worker observations, control-plane events, and administrator messages | RabbitMQ, Beat, Outbox, and a Windows Node Agent remain explicit target contracts |
 | Storage | ✅ | Local/MinIO inventory, transfer ledger, asynchronous consistency scans, DXF preview lifecycle, and four safe remediation actions | MySQL stores registrations and the storage layer stores bytes; cross-system changes use saga/compensation rather than a claimed single ACID transaction |
-| Data console | ✅ | Overview, file registrations, storage objects, transfer history, and consistency views | Administrators can scan/remediate; auditors are read-only and may run previews; permanent deletion is irreversible and requires confirmation |
+| Data console | ✅ | Seven workspaces: overview, file registrations, objects, transfers, daily archive, consistency, and runtime communication | Administrators can archive/scan/remediate; auditors are read-only and may run previews; permanent deletion is irreversible and requires confirmation |
 | Excel Final console | ✅ | Permission-filtered overview, job monitoring, cross-batch search, weight-ratio queries, batch/part/component pagination, result preview, and URL state restoration | Upload/job creation uses database idempotency keys; health bars show actual database/storage backends; historical data remains available while the pipeline is disabled |
 
 ### Orchestration and Extension Capabilities
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Generic workflows | ⚠️ | `workflow_runs/stage_runs/artifacts`, project permissions, state transitions, audit APIs, and a Production Workflow UI | Provides persisted, visible manual orchestration only; it does not automatically create Excel Final jobs or attach artifacts |
+| Linux production workflow | ⚠️ | Multiple-DWG + one-Excel intake, server-side DWG→DXF pairing/freezing, Steel DXF Classifier 1.1.0 routing, ten stages, DXF→Excel/Excel Final Jobs, attempt synchronization, and a production console | Plate splitting, CAM packaging, Windows/SinoCAM, and result acceptance remain explicit placeholder/external stages |
 | Conversion pipelines | ⚠️ | Service paths for report, DWG → DXF, DXF → DWG, DXF → Excel, and Excel Final; authenticated SVG preview for DXF | All four business pipelines are disabled by default and depend on ODA, Stage integrity, or the handbook database; online preview has independent size/complexity limits |
-| Agent | ⏸️ | API, model, and permission boundaries remain | No further implementation is planned; `tasks_agent.py` remains a placeholder and `AGENT_ENABLED=false` |
-| Windows CAD worker | ⏸️ | Drawing metadata and format-conversion boundaries remain | Component extraction, classification, plate splitting, left/right feed handling, interactive CAD, and the CAD Worker are outside the current delivery scope |
+| Agent | ⏸️ | Three MySQL tables, bounded session memory, API/permission boundaries, and machine-readable capability contracts are grouped under `automation` | No Agent Celery task or LLM/LangGraph/MCP executor exists; `AGENT_ENABLED=false` |
+| Windows CAD worker | ⏸️ | Node/CAM/protocol directories and a draft control-plane contract remain | Node authentication, leases/fencing, plate splitting, left/right feed, interactive CAD, CAM Runner, and SinoCAM Adapter are not implemented; Steel DXF classification is a delivered Linux slice |
 | Redis/Valkey | ❌ | Not part of the current runtime | Business state, SSE, token revocation, Agent memory, and Celery broker/results use MySQL directly |
 
 ## 🏗️ System Architecture
@@ -83,9 +84,10 @@ Celery workers (no inbound listening ports)
 | DWG → DXF / `dxf` | ⚠️ Service, task, tests, and ODA adapter exist | `DXF_PIPELINE_ENABLED=false` | ODA File Converter, a headless X environment, and a validated source DWG |
 | DXF → DWG / `dxf2dwg` | ⚠️ Service, task, tests, and ODA adapter exist | `DXF2DWG_PIPELINE_ENABLED=false` | Same as above, plus a valid DXF input |
 | DXF → Excel / `dxf2excel` | ⚠️ Stage source, platform service/task, and tests are tracked in the parent repository | `DXF2EXCEL_PIPELINE_ENABLED=false` | Valid DXF, Stage locked dependencies; built-in tests cover decoding only; real batches still require external corpus acceptance |
+| Steel DXF classification / `dxf_classification` | ⚠️ Classifier 1.1.0, Job/Workflow orchestration, two ledger tables, and registered DXF/JSON/CSV outputs are wired | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | Requires frozen server-derived DXFs and representative business samples; classification is not plate splitting |
 | Excel Final / `excel_final` | ⚠️ Backend adapter, isolated subprocess, relational import, and Stage tests exist | `EXCEL_FINAL_PIPELINE_ENABLED=false` | Valid Tekla/initial-sheet schema, read-only `hardware_handbook` database, and sufficient timeout |
-| Agent / `agent` | ⏸️ API and persistence boundaries exist; task is an empty placeholder | `AGENT_ENABLED=false` | Delivery conditions are not met |
-| Windows / `cad` | ⏸️ `windows/` separates external process contracts; task remains a placeholder | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |
+| Agent / `agent` | ⏸️ API/persistence and the queue name remain; no Celery task is registered | `AGENT_ENABLED=false` | A connected idle queue worker does not make the missing executor available |
+| Windows / `cad` | ⏸️ `windows/` separates Node Agent, CAM Runner, Adapter, and protocol contracts; no Celery task is registered | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |
 
 ### Job Consistency
 
@@ -93,9 +95,9 @@ Each execution generation is identified by `(job_id, attempt)`. A retry incremen
 
 ### Workflow Boundary
 
-Generic workflows use `workflow_runs → workflow_stage_runs → workflow_artifacts` to model project-level business stages and artifact versions. Public capabilities include create, list, detail, start, manual stage confirmation, cancellation, and frontend display.
+The `linux_production` workflow uses `workflow_runs → workflow_stage_runs → workflow_artifacts` plus input-batch/drawing-unit rows. Operators upload multiple DWGs and exactly one Excel file; the server creates DWG→DXF Jobs, validates and pairs derived DXFs, freezes an immutable manifest, and can run Classifier 1.1.0 plus the wired Excel stages. Public routes bind the current Job attempt, synchronize authoritative state, and attach registered File/AnalysisResult artifacts.
 
-The public workflow routes bind Job attempts, synchronize authoritative state, and attach artifacts for implemented stages. Placeholder and external stages still require explicit handoff artifacts and do not claim an automated production loop. See the [Linux production workflow](docs/architecture/workflow.md).
+Plate splitting, CAM packaging, Windows/SinoCAM execution, and deterministic result acceptance remain placeholder/external stages. They expose handoff contracts and explicit not-implemented errors rather than fake success. See the [Linux production workflow](docs/architecture/workflow.md).
 
 ## 🎯 Scope Boundaries
 
@@ -108,11 +110,11 @@ The public workflow routes bind Job attempts, synchronize authoritative state, a
 
 ### Outside the Current Delivery Scope
 
-- CAD drawing component extraction, automatic classification, automatic/interactive plate splitting, and left/right feed algorithms;
+- CAD component extraction, automatic/interactive plate splitting, and left/right feed algorithms (Steel DXF preprocessing/classification is already implemented and is not in this list);
 - ZWCAD secondary development and the Windows CAD Worker;
-- Productized Agent behavior, model calls, MCP tool orchestration, and Agent memory.
+- Agent execution, model calls, MCP tool orchestration, and product orchestration around the delivered bounded session memory.
 
-Related routes, models, configuration, or placeholder directories remain only as historical or compatibility boundaries. Their presence does not indicate planned delivery.
+Only real routes/models/configuration and machine-readable capability contracts remain; misleading empty task/client/adapter modules were removed. A contract indicates an integration seam, not a delivered executor.
 
 ## ⚠️ Known Limitations
 
@@ -143,7 +145,7 @@ bash scripts/db.sh init
 bash scripts/start-dev.sh
 ```
 
-`start-dev.sh` starts workers for the five implemented queues (excluding agent/cad), FastAPI on `8010`, and Vite. `start-all.sh` also builds the frontend and starts local Nginx on `8080`. A worker may remain healthy while a feature flag is disabled, but the corresponding API will reject new jobs.
+`start-dev.sh` starts eight local workers: `report`, `dxf_classification`, `dxf`, `dxf2dwg`, `dxf2excel`, `excel_final`, `dispatch`, and `maintenance` (not `agent/cad`), plus FastAPI on `8010` and Vite. `start-all.sh` also builds the frontend and starts local Nginx on `8080`. `dispatch` is currently an observable reserved queue identity. A worker may remain healthy while a feature flag is disabled, but the corresponding API will reject new jobs.
 
 To reuse MySQL/MinIO from containers while hot-reloading the API, run:
 
@@ -177,7 +179,7 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-The core set is `nginx/backend-api/mysql/minio/worker-report`. The `workers` profile adds conversion workers and the placeholder `worker-agent`. A healthy `worker-agent` means only that the Celery process connected to the broker; it does not mean Agent tasks are implemented.
+The core set is `nginx/backend-api/mysql/minio/worker-report`. The `workers` profile adds five CAD/Excel workers, `dispatch`, `maintenance`, and the contract-only `worker-agent`, for 13 Compose services in total. A healthy `worker-agent` means only that a Celery process connected to the broker; no Agent task or executor is registered.
 
 ## 🧪 Development and Verification
 

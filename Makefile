@@ -9,6 +9,7 @@ verify-full:
 architecture-check:
 	backend/.venv/bin/python scripts/architecture/snapshot_contracts.py --check
 	backend/.venv/bin/python scripts/architecture/check_module_catalog.py
+	backend/.venv/bin/python scripts/architecture/check_partition_docs.py
 
 backend-install:
 	cd backend && uv sync --locked

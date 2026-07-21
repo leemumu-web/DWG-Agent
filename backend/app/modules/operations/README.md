@@ -14,3 +14,5 @@ facts only through the corresponding `interface.py`.
 
 The current broker reported by this domain is MySQL SQLAlchemy transport. RabbitMQ, a transactional
 Outbox, Celery Beat, automatic off-site backup and complete metrics/alerting remain target gaps.
+Operations must report those gaps as contracts, not manufacture healthy runtime
+records or provide destructive actions without server-side preflight guards.

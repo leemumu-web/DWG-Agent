@@ -1,0 +1,9 @@
+# 工作流测试
+
+## 现有覆盖
+
+`test_workflow_framework.py`、`test_workflow_production.py`、`test_workflow_api.py` 覆盖模板、创建、启动、确认、取消、stage/artifact 和权限；`test_workflow_input_service.py`、`test_workflow_input_api.py` 覆盖多个 DWG + 单 Excel、格式/配对、服务器派生 DXF、补交、冻结和 drawing unit；`test_workflow_boundaries.py` 固定 owner/interface/route 顺序和留白能力。
+
+## 证据边界
+
+输入是 files/jobs/Stage fixture 与隔离数据库，输出是当前上传→转换→冻结→分类的后端证据；后续拆板、Windows/CAM 和最终屏障仍未实现。

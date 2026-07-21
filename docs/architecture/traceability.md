@@ -82,4 +82,4 @@
 | Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.1.0 CLI 和输出命名由 adapter 校验。 |
 | `/excel-final` 与 Excel Final task | `app/modules/excel_processing/` | 拥有 batch/part/component 三张表；files/jobs 由公开接口组合，Stage 子进程、导入、持久化和 HTTP route 分层；稳定 task name/queue 不变。 |
 | `/workflows` | `app/modules/workflows/` | 拥有 run/stage/artifact/input batch/input item 五张表；模板、状态机、Job 同步、阶段执行、输入四种转换和 16 个 HTTP operation 分层；其他模块只经 `workflows.interface`。 |
-| 跨领域 audit write | `app/modules/operations/audit/interface.py` | audit 读取/model 在后续 operations 切片迁移，写入口已稳定。 |
+| 跨领域 audit write 与 `/audit-logs` read | `app/modules/operations/audit/interface.py` + operations 路由/服务/模型 | 写入统一经 audit interface；读取、ORM、筛选与权限均已归 operations，不再依赖旧横向路径。 |

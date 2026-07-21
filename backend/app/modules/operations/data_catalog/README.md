@@ -6,4 +6,4 @@ storage and bounded infrastructure probes. `queries.py` owns database projection
 and `system_routes.py` retains the existing authenticated `/system` contract.
 
 The module does not upload, delete or repair files. Mutating file behavior remains behind
-`modules/files/interface.py`; consistency remediation has its own guarded operations module.
+`app/modules/files/interface.py`; consistency remediation has its own guarded operations module.

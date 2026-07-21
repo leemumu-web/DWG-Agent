@@ -95,7 +95,7 @@ Celery workers
 | 存储 | `backend/app/platform/storage/` | Local 与 MinIO adapter |
 | 前端 | `frontend/src/` | 管理、上传、转换、任务、复核、审计、基础设施、Excel Final、工作流页面 |
 | CAD 转换 Stage | `Stages/dwg2dxf`、`Stages/dxf2dwg` | 基于 ODA 的双向格式转换 |
-| DXF 表格提取 | `Stages/dxf2excel` | DXF 材料表提取，但父仓库 gitlink 损坏 |
+| DXF 表格提取 | `Stages/dxf2excel` | DXF 材料表提取；历史损坏 gitlink 已转换为父仓库普通 tracked source，内置测试可从干净 clone 重放，419 文件历史 corpus 仍不分发 |
 | Excel Final | `Stages/excel_final` | 表格整理、拆分、手册查询与最终工作簿生成 |
 | Windows 执行端 | `windows/` | 已按 Node Agent、CAM Runner、SinoCAM Adapter、协议分层；仍无可执行实现 |
 | 基础设施 | `compose.yaml`、`infra/`、`scripts/` | HTTP Nginx、FastAPI、MySQL、MinIO 和多个 worker 的部署/检查脚本 |
@@ -190,35 +190,35 @@ Celery workers
 | Windows 预签名直传 | 未实现 | 当前下载使用应用自身的 300 秒 HMAC URL并经 FastAPI鉴权流式读取，不是 Windows 与 MinIO 直接传输 |
 | 孤立对象/缺失对象处理 | 已实现 | 数据控制台支持扫描、预检及多类处置 |
 
-**评价：** 文件事务和一致性治理已经超过普通原型水平，可直接复用到目标架构；但需要增加批次输入冻结、版本和 Windows 预签名直传契约。
+**评价：** 文件事务和一致性治理已经超过普通原型水平，并已被生产输入冻结和分类分流复用；仍缺 Windows 节点使用的外部 HTTPS 预签名直传契约。
 
 ### 3.6 批次接收、DXF/DWG 配对与输入冻结
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
-| 一次上传 DXF、DWG、Excel 整批数据 | 部分实现 | 有文件夹/ZIP/批量上传和 `batch_name`，但不是目标领域批次事务 |
-| `batch_id` 与批次状态机 | 未实现 | 没有统一 ProcessingBatch 模型；ExcelFinalBatch 是 Excel 输出关系化批次，不等价 |
-| 真实格式、文件头、可读性校验 | 部分实现 | 各转换入口有扩展名、部分 header/解析校验；没有批次级统一验证器 |
-| 文件名规范化规则和版本 | 未实现 | 未见固定版本的规范化、保留原名/规范名和冲突诊断模型 |
-| DXF/DWG 唯一一一配对 | 未实现 | 当前双向格式转换是独立 Job，不是目标的对应图纸配对 |
-| 缺失、重复、冲突待修复状态 | 未实现 | 没有批次修复状态和前端缺件清单 |
-| 冻结输入清单和清单哈希 | 未实现 | Job params 可引用输入，但没有目标级 frozen manifest/version/hash |
-| 图纸处理单元 | 未实现 | `Drawing`/`DrawingVersion` 是通用图纸版本模型，没有原始 DXF/DWG 对、分类、零件号、拆板状态和最终结果字段 |
+| 一次上传生产批次 | 已实现当前输入切片 | 已按后续确认规则改为“多个 DWG + 恰好一个 Excel”；前端在新建 `linux_production` 批次后原地提供上传、转换、错误和冻结反馈，人工 DXF 被拒绝 |
+| `batch_id` 与批次状态机 | 已实现当前输入切片 | `WorkflowInputBatch` 以 `workflow_run_id` 唯一绑定生产流程，保存 `uploading`、转换同步、`ready_to_freeze`、`frozen`、版本和错误信息；它不是全目标通用 `ProcessingBatch` |
+| 真实格式、文件头、可读性校验 | 已实现当前输入切片 | `registration.py` 从 Local/MinIO 重读字节并核对 SQL 大小/SHA-256，验证 DWG header/最小长度和 XLS/XLSX 至少一个可见工作表；尚未覆盖所有未来人工拆板/CAM 文件类型 |
+| 文件名规范化规则和版本 | 部分实现 | NFKC、首尾/连续空白和 casefold 规则用于检测 DWG 同名冲突，同时保留 `original_name` 与 `normalized_stem`；批次 `version=1` 已保存，但规范化算法尚无独立版本字段 |
+| 服务器派生 DXF 与 DWG 一一配对 | 已实现当前输入切片 | 每个 `source_dwg` 条目幂等绑定当前 attempt 的 `convert_dwg_to_dxf` Job 和唯一 `derived_dxf_file_id`；同名、可读性和对象摘要在冻结前复核 |
+| 缺失、重复、冲突诊断 | 已实现当前输入切片 | 转换状态、`error_code/error_message`、冻结时 issues 和规范化名称冲突均返回前端；当前通过同一批次内修改/重试修复，没有独立“待修复工单”模型 |
+| 冻结输入清单和清单哈希 | 已实现 | `freeze.py` 重新读取全部对象，按稳定顺序生成 canonical JSON，保存 `manifest_sha256`、`frozen_at` 和版本，并通过 Files 删除保护禁止旁路删除 |
+| 图纸处理单元 | 部分实现 | 每个冻结 DWG 创建内部 `Drawing`/`DrawingVersion`，输入条目保存 `drawing_id` 并关联源 DWG、派生 DXF；自动/人工拆板状态、零件号和最终结果仍待后续领域模型补齐 |
 
-**评价：** 这是进入目标业务主链前必须补齐的第一层领域能力。
+**评价：** 当前确定范围内的输入接收、服务器转换、诊断、冻结与文件保护已经形成可执行纵向切片；下一步不是重做上传，而是扩展图纸处理单元的拆板/人工回流状态。
 
 ### 3.7 DXF 分类、BH/BOX 自动拆板和独立校验
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
-| DXF 右上角语义分类 | 未实现 | 当前 `dxf2excel` 有表格分类器，但不是 BH/BOX 图纸分类业务 |
-| 保存原始文字、依据、诊断、算法版本 | 未实现 | 没有对应领域结果模型 |
+| DXF 右上角语义分类 | 已实现当前分类切片 | `steel_dxf_classifier_v1.1.0` 读取标题栏截面/规格字段，区分 BH、BOX、PL、RHS 等具体类型；证据不足进入待确认/无法读取，不猜测类型 |
+| 保存依据、诊断、算法版本 | 已实现当前分类切片 | `DxfClassificationRun/Item` 保存 Classifier 1.1.0、输入 manifest、来源/输出、候选证据和诊断，JSON/CSV 报告、分流 DXF 同时登记为 File/AnalysisResult；尚未覆盖拆板 validator 的几何检查项 |
 | BH/BOX 自动拆板 | 未实现 | 没有标题栏识别、截面解析、视图定位、孔洞、腹板/翼板轮廓、重排等实现 |
 | 非 BH/BOX 自动转人工 | 未实现 | 没有人工拆板状态机 |
 | 独立拆板结果校验 | 未实现 | 没有轮廓闭合、板件数量、厚度、孔洞、零件映射等独立 validator |
 | 候选结果与正式结果分离 | 未实现 | 通用 result/review 可复用，但目标领域未接线 |
-| 每 attempt 独立目录/对象路径 | 部分实现 | 临时目录按 Job 使用，输出对象使用 UUID；没有显式 attempts 目录和 fencing token |
-| 输入下载后重新计算 SHA-256 | 部分实现 | storage 元数据有 SHA-256，部分读取路径校验；不是所有 Stage 都按冻结 manifest 强制复算 |
+| 每 attempt 独立目录/对象路径 | 部分实现 | 分类输出明确写入 `workflows/{workflow_id}/dxf-classification/attempt-{attempt}/...`，Job attempt 能拒绝旧执行；全局独立 fencing token/lease 尚未实现 |
+| 输入下载后重新计算 SHA-256 | 已实现于输入/分类切片 | 冻结前从存储重读并核对登记摘要；分类只从已冻结的 `derived_dxf_file_id` 清单取源。未来拆板与 Windows 下载仍需沿用同一强制校验 |
 
 需要特别区分：
 
@@ -226,7 +226,7 @@ Celery workers
 - `Stages/dxf2excel` 是**图纸表格文字提取**；
 - 它们都不等价于目标要求的**钢结构截面自动拆板**。
 
-**评价：** 该核心算法域基本尚未开始平台化实现。
+**评价：** “预处理、标题栏证据分类、分流、报告、MySQL/对象存储登记”已经平台化；BH/BOX 自动拆板、失败转人工和独立几何校验仍是下一阶段核心留白，不能把分类成功写成拆板完成。
 
 ### 3.8 人工拆板回流
 
@@ -247,7 +247,7 @@ Celery workers
 |---|---|---|
 | Excel 基础处理 | 部分实现/较成熟 | `Stages/excel_final`、backend integration、关系化导入和控制台已实现较多实际处理能力 |
 | 生成整理表和 part 表 | 部分实现 | Stage 中存在对应整理、拆分、零件写入逻辑，但需用目标真实样本核对最终字段语义 |
-| 与 DXF 任务并行 | 未接入目标流程 | 现有 Job 可并行，但没有目标批次 orchestration |
+| 与 DXF 任务编排 | 部分接入 | `linux_production` 已定义 `dxf_classification` 与 `excel_stage1` 自动执行契约并复用 Job；当前阶段仍按顺序推进，不是目标文档设想的批次并行屏障 |
 | 等待所有图纸自动/人工结果 | 未实现 | 无图纸处理单元屏障 |
 | 合并左右进信息 | 未实现 | 上游左右进识别不存在，Excel Final 无法接收完整目标数据 |
 | part 表登记原始/拆板后逻辑路径 | 未实现或不足 | 现有 output 与 result file ID 可映射，但没有目标清单内所有图纸的稳定业务对象引用 |
@@ -262,9 +262,9 @@ Celery workers
 |---|---|---|
 | WorkflowRun/StageRun/Artifact 模型 | 已实现 | 具备阶段、进度、Job attempt 绑定字段和版本化 artifact |
 | 创建、启动、人工确认、取消 | 已实现 | API 与 React 页面存在 |
-| `bind_stage_job`、`sync_workflow_from_jobs` | 部分实现 | service 内存在，但公开 route 没有自动创建/绑定 Job |
-| 自动挂接文件/结果产物 | 未完成 | `attach_artifact` 存在，未形成公开自动闭环 |
-| 目标钢结构批次工作流 | 未实现 | 当前模板主要是 `excel_delivery`、`file_delivery` |
+| Job 绑定、同步和重试 | 已实现于自动阶段 | 公开执行端点按阶段能力创建/复用 Job，绑定 `job_id + attempt`，同步 Result、失败/取消并支持新 attempt；不适用于留白阶段 |
+| 自动挂接文件/结果产物 | 部分实现 | 输入冻结、分类、DXF→Excel 和 Excel Final 能将受支持的 File/Result 挂接为 artifact；拆板、CAM 和结果接纳没有产物实现 |
+| 目标钢结构批次工作流 | 部分实现 | `linux_production` 已提供十阶段框架，前四个服务器切片与 Excel Final 可调用现有实现；拆板、CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
 | 数据库屏障 | 未实现 | 没有目标的原子 compare-and-set 批次阶段推进 |
 
 **评价：** 这是可复用的编排元数据框架，但不能被视为目标业务 orchestration 已完成。
@@ -293,7 +293,10 @@ Celery workers
 | Linux CAM 结果校验 Worker | 未实现 | 无 CAM result validator task |
 | CAM 批次屏障和最终结果包 | 未实现 | 无相关领域模型/任务 |
 
-**评价：** Windows/SinoCAM 子系统为 **0→1 阶段**，不能因为存在 `cad` 队列名、配置项或 `integrations/zwcad` 占位文件而计入实现进度。
+**评价：** Windows/SinoCAM 子系统为 **0→1 阶段**。仓库已经删除会误导接手者的
+`integrations/zwcad` 空占位文件，只在
+`backend/app/modules/automation/contracts/` 暴露机器可读的未实现状态；不能因为存在
+`cad` 队列名、配置项或合同接口而计入实现进度。
 
 ### 3.12 SSE 和事件恢复
 
@@ -459,11 +462,11 @@ Stages/steel_split_validator/
 
 Linux 侧同时需要 node/lease/work-package/result models、API 和 Celery prepare/validate/finalize task。
 
-### 5.6 P0：`Stages/dxf2excel` 无法从干净 clone 恢复
+### 5.6 已解决的历史 P0：`Stages/dxf2excel` 无法从干净 clone 恢复
 
-父仓库把它记录成 gitlink `86e99dce5ebce992273c7df78ca13d58036f7472`，但没有 `.gitmodules`，当前本地目录只是残留填充。全新 clone、CI 和 Docker build不能保证得到源码。
+2026-07-18 审计时，父仓库把它记录成 gitlink `86e99dce5ebce992273c7df78ca13d58036f7472`，但没有 `.gitmodules`，当时全新 clone、CI 和 Docker build 不能保证得到源码。
 
-这是现有功能本身的发布阻断项，应优先转换为普通 tracked directory，或恢复有效子模块 URL 和可达 commit。
+该阻断项现已解决：`Stages/dxf2excel` 是普通 tracked directory，backend editable dependency 和 Docker build context 不再依赖不可还原 gitlink。仍未随仓库分发的是 419 文件历史 corpus 与生成物；这属于真实样本验收缺口，不是源码引用缺失。
 
 ### 5.7 P1：SSE 不具备历史回放
 
@@ -501,7 +504,7 @@ Linux 侧同时需要 node/lease/work-package/result models、API 和 Celery pre
 1. 确认《架构设计.txt》为规范性目标；
 2. 删除文档中“拆板和 Windows worker 不交付”的冲突声明；
 3. 建立目标能力矩阵和验收用例；
-4. 修复 `Stages/dxf2excel` gitlink；
+4. 修复 `Stages/dxf2excel` gitlink（已完成，现为普通 tracked source）；
 5. 保护现有稳定的文件、权限、Job 和 Excel Final 能力；
 6. 建立干净 clone、依赖安装和镜像构建门禁。
 
@@ -647,50 +650,42 @@ BH 稳定后再增加 BOX，其他类型继续走人工分支。
 
 ---
 
-## 8. 本次验证结果
+## 8. 2026-07-22 重构发布验证结果
 
 ### 8.1 通过项
 
 | 验证 | 本次结果 |
 |---|---|
-| 文档一致性 `make docs-check` | 通过 |
-| Backend Ruff | 通过 |
-| Frontend `npm run build` | 通过 |
+| 文档/架构 | 134 个分区 README、12 个模块、36 张 ORM 表、135 个 HTTP operation、11 个稳定 Celery task 均通过机器门禁 |
+| Backend 全量 | 1091 passed、6 skipped、21 warnings；没有删除测试，跳过项保留真实外部/MySQL 条件 |
+| Alembic | 单一 head `e2f4b8c6a130`，`alembic check` 无新增 upgrade operation |
+| Frontend | 106 个 TypeScript 源文件、11 个 feature、production build 通过；Playwright 94 passed、4 skipped |
 | `Stages/dwg2dxf` | 30 passed |
 | `Stages/dxf2dwg` | 30 passed |
+| `Stages/dxf2excel` | 17 passed |
+| `Stages/steel_dxf_classifier_v1.1.0` | 52 passed |
 | `Stages/excel_final/multi_split/tests` | 259 passed |
 | `docker compose config --quiet` | 通过 |
-| `infra/verification/verify.sh` | 历史审计为 82/82 通过；活动 MySQL 集成检查被跳过 |
+| `infra/verification/verify.sh` | 95/95；除 Nginx/Compose/Dockerfile/环境和路径外，已通过应用账号验证活动 MySQL 45 表、种子与时间列，不再因无 root sudo 误判不可达 |
+| 当前进程 | 八组 worker 使用官方 platform Celery 入口，FastAPI `:8010` 与源码一致，liveness/readiness 均为 `ok` |
 
 ### 8.2 未形成通过证据的项目
 
-后端全量 pytest 本次运行没有全部通过。测试主体大量通过，但有 18 个测试路径尝试连接本机 MySQL `dwg_user@127.0.0.1`，当前环境未提供对应密码，返回：
+非交互会话没有 sudo 凭据，因此没有创建并删除独立 MySQL 空 schema，`scripts/db.sh migration-test`
+仍是 blocked；活动库的 45 表检查和 `alembic check` 不能冒充空库迁移演练。本地 Nginx 已改为
+仓库用户管理并使用自有上传临时目录，`:8080` 的 SPA、健康/就绪和完整 Playwright 均在最终源码上
+重新通过；旧 root 日志只做保留性改名，没有删除。
 
-```text
-Access denied for user 'dwg_user'@'localhost' (using password: NO)
-```
+仓库未部署 RabbitMQ，且没有真实拆板、Windows Node Agent 或 SinoCAM 实现，因此不能执行这些
+目标 E2E。本轮也没有向生产项目写入业务 DWG；ODA 与 Classifier 的自动化/Stage 证据不能代替
+获准样本的人工质量验收。当前 MinIO/Local 存储与 SQL 登记行为由 files/分类集成测试和既有临时
+对象闭环覆盖，未把未执行的生产对象写入验证描述。
 
-因此本报告不能把本次运行写成“后端全量通过”。仓库文档记录了 2026-07-18 的历史基线 **924 passed、6 skipped**，但那是带既定环境的历史证据，不替代本次复验。后续应修正这些测试对模块级 `SessionLocal`/真实 MySQL 环境的依赖或使用正确的测试数据库配置，然后重新执行：
+### 8.3 发布工作树要求
 
-```bash
-cd backend
-uv run pytest -q
-uv run alembic check
-bash ../scripts/db.sh migration-test
-```
-
-本次未执行完整 Playwright，也未执行真实 RabbitMQ（仓库不存在）、真实 MinIO 文件闭环、真实拆板、Windows Node Agent 或 SinoCAM E2E。
-
-### 8.3 工作树状态注意事项
-
-审计期间仓库不是干净工作树，至少观察到：
-
-- `Stages/dwg2dxf/convert/output_dxf/.gitkeep` 被删除；
-- `output/playwright/data-console-final.png` 有修改；
-- `main` 相对 `origin/main` 领先 21 个提交；
-- 还有其他并发编辑痕迹。
-
-本报告没有回滚或覆盖这些既有/并发修改。提交前应按仓库并发协作约束重新检查 `git status`、文件 mtime 和活动进程。
+浏览器截图、运行日志、pid、`__pycache__` 和临时输出不属于源码发布物。正式推送前必须再次执行
+`git diff --check`、查看完整 staged diff、确认没有退役包或临时产物，并在推送后证明本地 `HEAD`
+与 `origin/main` 相同。该要求是发布门禁，不用“曾经测试通过”替代当前 Git 状态。
 
 ---
 
@@ -698,15 +693,17 @@ bash ../scripts/db.sh migration-test
 
 当前 `complete_framework` 已经完成了一个质量较高的“企业文件处理平台底座”，其中认证权限、文件与对象一致性、Job attempt、审计、转换工具、Excel Final、管理端和部署测试都具有明显复用价值。
 
-但它尚未完成《架构设计.txt》所要求的核心生产系统。缺失的并非少量页面或几个 API，而是四个完整领域：
+它已经形成《架构设计.txt》目标中的服务器前段切片：操作员提交多个 DWG 与一个 Excel，服务器
+完成 DWG→DXF、摘要复核和输入冻结，再由 Classifier 1.1.0 预处理、分类、分流，并把源文件与
+派生文件登记进 MySQL 和对象存储。它尚未完成完整生产系统，剩余的不是少量页面，而是四个完整领域：
 
-1. **批次输入、DXF/DWG 配对、输入冻结和图纸处理单元；**
-2. **BH/BOX 自动拆板、独立校验和人工拆板回流；**
+1. **BH/BOX 自动拆板、独立几何校验和人工拆板回流；**
+2. **图纸完成屏障、左右进合并、批次级 Excel 最终一致性与 CAM 输入清单；**
 3. **基于 RabbitMQ/outbox/Beat/lease/fencing 的目标可靠性体系；**
 4. **Windows Node Agent、CAM Runner、SinoCAM Adapter 和 CAM 工作包闭环。**
 
 因此，最准确的进度表述是：
 
-> **平台底座已基本成形，部分 CAD/Excel 工具链已可用；目标钢结构深化设计与 SinoCAM 分布式生产主链尚未形成。**
+> **平台底座、生产输入冻结和 DXF 分类分流已形成可执行服务器切片；自动拆板、人工回流、最终屏障与 SinoCAM 分布式生产后半链仍未形成。**
 
-下一步应首先解决范围冲突与仓库可复现性，然后按“可靠任务基础 → 批次配对 → BH 最小拆板闭环 → Excel 屏障 → Windows 模拟节点 → 真实 SinoCAM”的顺序推进，避免在没有领域模型和可靠性协议的情况下直接把脚本或 Windows GUI 自动化硬接到现有 Job API 上。
+下一步应按“BH 最小拆板闭环 → 人工回流/独立校验 → Excel 屏障 → RabbitMQ/outbox/lease 加固 → Windows 模拟节点 → 真实 SinoCAM”的顺序推进；复用现有 Files、Job attempt、Workflow artifact 和分类账本，避免另建一套文件或任务事实源。

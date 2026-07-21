@@ -45,8 +45,8 @@ The three pre-existing backend failures at commit `4d93ed5` are caused by delete
 - Create: `docs/guides/operations.md`
 - Create: `docs/guides/security.md`
 - Create: `docs/verification/current.md`
-- Modify: `scripts/generate_api_docs.py`
-- Modify: `scripts/check_docs.py`
+- Modify: `scripts/docs/generate_api.py`
+- Modify: `scripts/docs/check.py`
 - Modify: `backend/tests/contracts/test_docs_consistency.py`
 - Modify: `backend/tests/infrastructure/test_celery_minio_deployment.py`
 - Modify: `README.md`
@@ -75,7 +75,7 @@ Expected: three failures caused only by missing documentation paths.
 
 - [x] **Step 2: Point generated API documentation at the classified reference directory**
 
-Change `scripts/generate_api_docs.py` to use one constant:
+Change `scripts/docs/generate_api.py` to use one constant:
 
 ```python
 API_DOC_PATH = ROOT / "docs" / "reference" / "api.md"
@@ -90,7 +90,7 @@ Update generator prose and Makefile-facing messages to name `docs/reference/api.
 
 - [x] **Step 3: Make the documentation checker report missing files instead of crashing**
 
-Use a checked read helper in `scripts/check_docs.py`:
+Use a checked read helper in `scripts/docs/check.py`:
 
 ```python
 def _read_required(path: Path, errors: list[str]) -> str:
@@ -132,8 +132,8 @@ Replace every result with a real new path. Do not keep compatibility files whose
 Run:
 
 ```bash
-backend/.venv/bin/python scripts/generate_api_docs.py
-backend/.venv/bin/python scripts/check_docs.py
+backend/.venv/bin/python scripts/docs/generate_api.py
+backend/.venv/bin/python scripts/docs/check.py
 cd backend
 .venv/bin/pytest -q \
   tests/contracts/test_docs_consistency.py \
@@ -157,7 +157,7 @@ Expected: at least `1004 passed, 6 skipped`, with no failures. Record the exact 
 
 ```bash
 git add README.md README_EN.md backend/README.md frontend/README.md infra/README.md \
-  backend/migrations/README.md docs scripts/generate_api_docs.py scripts/check_docs.py \
+  backend/migrations/README.md docs scripts/docs/generate_api.py scripts/docs/check.py \
   backend/tests/contracts/test_docs_consistency.py backend/tests/infrastructure/test_celery_minio_deployment.py \
   Stages DWG-Agent企业平台技术规范.md 目标架构实现进度报告.md
 git commit -m "docs: rebuild categorized project documentation"
@@ -705,7 +705,7 @@ Refined responsibility map after auditing 3,882 backend lines, six public Celery
 - DXF preview is split into bounded inspection/rendering and cache/registration responsibilities. Generated SVG remains a registered `files` row and uses the existing transfer saga; moving the renderer must not move file ownership.
 - `cad_processing.tasks` registers the five existing conversion tasks with their exact historical `app.workers.tasks_*` names. `dxf_classification.tasks` registers the sixth. Celery include-module paths may change, while task names, queue routes, worker commands and Compose services do not.
 - `dxf_classification` owns `dxf_classification_runs` and `dxf_classification_items`. `adapter.py` enforces the Steel DXF Classifier 1.1.0 CLI/schema/exit-code and naming contract; `persistence.py` owns source/output ledgers; `execution.py` owns Job/workflow orchestration.
-- Other business modules may use only `cad_processing.interface` or `dxf_classification.interface`. Until Workflow moves in Task 11, classification has an explicitly documented transitional dependency on the old workflow input/artifact services; it must not be described as a fully decoupled workflow domain.
+- Other business modules may use only `cad_processing.interface` or `dxf_classification.interface`. At this Task 9 checkpoint classification still had a documented transitional dependency on the then-unmigrated Workflow code; Task 11 removed it. The current module uses `workflows.interface` only and must not be documented using this historical checkpoint as though it were still active.
 - Stable Stage product seams remain exactly `dwg-converter 0.1.0`, `dxf-converter 0.1.0`, `dxf2excel 0.1.0` and `steel-dxf-classifier 1.1.0` under their current `Stages/*` paths. No Stage source, sample corpus, lock file or CLI entry point moves in this task.
 
 - [x] **Step 1: Lock Stage and task contracts**
@@ -803,7 +803,7 @@ Register `/parts/search` and `/weights/lookup` before parameterized batch routes
 
 - [x] **Step 3: Move adapter and execution implementation**
 
-Keep subprocess isolation and Stage path resolution behind `stage_adapter.py`; relationship import and Job lifecycle calls remain in domain implementation. Expose the Excel temporary-row cleanup operation through `excel_processing.interface`, then replace the transitional direct `jobs.lifecycle/recovery -> app.models.excel_final.ExcelFinalBatch` dependency without changing cancellation or stale-recovery behavior.
+Keep subprocess isolation and Stage path resolution behind `stage_adapter.py`; relationship import and Job lifecycle calls remain in domain implementation. Expose the Excel temporary-row cleanup operation through `excel_processing.interface`, then remove the transitional direct dependency from jobs lifecycle/recovery to the former Excel model path without changing cancellation or stale-recovery behavior. The current tree must not import that retired path.
 
 - [x] **Step 4: Verify**
 
@@ -1215,19 +1215,35 @@ git commit -m "refactor: colocate frontend feature contracts"
 - Modify Playwright configuration only if recursive discovery needs explicit pattern
 - Update module catalog and frontend README
 
-- [ ] **Step 1: Add focused interaction coverage before splits**
+- [x] **Step 1: Add focused interaction coverage before splits**
 
 Ensure existing E2E tests cover upload, bulk actions, retry/cancel, preview/download, production submission, archive, consistency and control-plane refresh. Add only missing assertions before extracting implementation.
 
-- [ ] **Step 2: Split stateful pages by hook/view seam**
+The existing nine specs already covered every listed interaction, so no duplicate scenarios were
+added. Recursive discovery now collects 98 browser tests. The data-console case was made independent
+of residual database scan rows: it verifies findings when a latest scan exists and the truthful empty
+state/no invalid request when it does not.
+
+- [x] **Step 2: Split stateful pages by hook/view seam**
 
 Hooks own queries/mutations/derived state; view files receive explicit typed props. Do not move permission checks into presentation-only code. Preserve accessible labels and error/request-id feedback.
 
-- [ ] **Step 3: Split styles by owner**
+The actual split follows cohesive state seams rather than forcing every query into a hook:
+Infrastructure is a 51-line composition page with six independently querying panels; Conversion
+owns orchestration while upload, folders, overview and column presentation receive typed props;
+DXF-to-Excel owns orchestration while upload and batch cards are independent; Excel and workflow
+pure display transformations live under model. The largest source is now 575 lines and the checker
+enforces a 600-line ceiling. Role checks remain in the consistency container.
+
+- [x] **Step 3: Split styles by owner**
 
 Keep tokens/layout/surface styles in `shared/styles`; move `.conversion-*`, `.data-console-*`, `.daily-archive-*`, `.production-*`, `.login-*` selectors to their feature styles. Import styles from the owning feature entry.
 
-- [ ] **Step 4: Move Playwright specs and use directory scripts**
+Global layout remains in `shared/styles/index.css`; CAD, dashboard, files, identity, operations and
+workflows import their own styles from the feature public entry. The legacy `src/styles.css` path is
+rejected by the architecture checker.
+
+- [x] **Step 4: Move Playwright specs and use directory scripts**
 
 Example package scripts:
 
@@ -1239,7 +1255,11 @@ Example package scripts:
 }
 ```
 
-- [ ] **Step 5: Verify and commit**
+Specs now live in contracts, excel-processing, files, jobs, operations and workflows; support owns
+only the shared environment. Package scripts expose the full suite and each functional directory,
+and the checker rejects root specs or an unexpected workspace set.
+
+- [x] **Step 5: Verify and commit**
 
 ```bash
 npm --prefix frontend run build
@@ -1247,6 +1267,10 @@ npm --prefix frontend run test:e2e
 git add frontend docs/architecture
 git commit -m "refactor: split frontend workspaces by feature"
 ```
+
+Production build passes with 106 source files and 11 feature boundaries. Frontend source/architecture
+focus is `98 passed, 6 warnings`; Playwright final rerun is `94 passed, 4 skipped` across all 98
+collected tests. This task is committed together with its local partition documentation.
 
 ## Task 16: Final documentation, runtime and completion audit
 
@@ -1259,7 +1283,7 @@ git commit -m "refactor: split frontend workspaces by feature"
 - Update README tree and commands
 - No compatibility file may point to a missing path
 
-- [ ] **Step 1: Prove no legacy layout remains**
+- [x] **Step 1: Prove no legacy layout remains**
 
 Run:
 
@@ -1277,7 +1301,12 @@ rg -n 'app\.(services|models|schemas|workers)|frontend/src/(api|types)|infra/(ng
 
 Expected: no obsolete production import/path; permitted historical Celery task-name strings are documented exceptions.
 
-- [ ] **Step 2: Run every static and contract gate**
+Tracked-file and reference audits found no retired backend/frontend/infra production path. The final
+audit also removed orphan bytecode-only `api/models/schemas/services/workers/agents/mcp_client`
+directories left by pre-migration processes; current tests may regenerate `__pycache__` only below
+active source packages. Stable Celery strings are message protocol names, not importable legacy modules.
+
+- [x] **Step 2: Run every static and contract gate**
 
 ```bash
 git diff --check
@@ -1297,19 +1326,26 @@ bash infra/verification/verify.sh
 
 Expected: all non-external gates pass, test collection is at least 1010, HTTP/table/task snapshots match.
 
-- [ ] **Step 3: Run all Stage gates**
+Shell, Ruff, snapshots, module/catalog/document checks, Compose, infrastructure 95/95, Alembic and
+the full backend suite pass. Final backend result is `1091 passed, 6 skipped, 21 warnings`; the only
+external block is isolated MySQL schema creation requiring non-interactive sudo.
+
+- [x] **Step 3: Run all Stage gates**
 
 ```bash
 cd Stages/dwg2dxf && .venv/bin/pytest -q
 cd ../dxf2dwg && .venv/bin/pytest -q
 cd ../dxf2excel && .venv/bin/pytest -q
 cd ../steel_dxf_classifier_v1.1.0 && .venv/bin/pytest -q
-cd ../excel_final && .venv/bin/pytest -q multi_split/tests
+cd ../excel_final && uv run pytest -q multi_split/tests
 ```
 
 Record exact pass counts; no test file may be removed.
 
-- [ ] **Step 4: Run frontend and browser gates**
+Results are DWG-to-DXF 30, DXF-to-DWG 30, DXF-to-Excel 17, Steel DXF Classifier 52 and Excel Final
+259 passed. Test files and runtime task contracts remain present.
+
+- [x] **Step 4: Run frontend and browser gates**
 
 ```bash
 npm --prefix frontend run build
@@ -1318,7 +1354,11 @@ npm --prefix frontend run test:e2e
 
 Record exact pass/skip counts and inspect at least the production workflow, conversion, Excel Final and operations console in a real browser with zero console errors.
 
-- [ ] **Step 5: Verify current runtime safely**
+TypeScript/Vite production build passes. Playwright final result is `94 passed, 4 skipped in 2.4m`;
+the suite covers both conversion directions, Excel Final, operations and production input through
+the local Nginx/browser path with its existing console-error assertions.
+
+- [x] **Step 5: Verify current runtime safely**
 
 ```bash
 bash scripts/status.sh
@@ -1328,7 +1368,13 @@ curl -fsS http://127.0.0.1:8080/health/ready
 
 If running source is stale, selectively restart only owned FastAPI/workers after static gates. Do not execute destructive archive/remediation actions against business data.
 
-- [ ] **Step 6: Update evidence and audit requirements one by one**
+Final runtime uses the platform Celery entry for all eight worker identities, the managed FastAPI
+process matches current application source, and MySQL reports 45 tables through application
+credentials. Historical root-owned Nginx logs/pid were preserved under timestamped names; the local
+gateway now runs as the repository user with an owned request-body temp directory. SPA, liveness,
+readiness, database/storage readiness and the 94-pass/4-skip browser suite all traverse `:8080`.
+
+- [x] **Step 6: Update evidence and audit requirements one by one**
 
 In `docs/verification/current.md`, record:
 
@@ -1343,6 +1389,12 @@ Compose/infra evidence
 current local versus production storage distinction
 external/blocked gates with exact reasons
 ```
+
+The current verification record now includes the 106-source frontend boundary and 134 documented
+partitions discovered from the actual source tree. The partition gate rejects missing, generic,
+source-untraceable or boundary-free README files instead of trusting the earlier fixed count of 90.
+The 1091-test backend result, Stage counts and Playwright rerun remain the latest completed gates;
+runtime evidence is refreshed again before release without upgrading placeholder/external status.
 
 - [ ] **Step 7: Final commit and push**
 

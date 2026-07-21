@@ -1,6 +1,6 @@
 # 全栈工作流验证
 
-## 2026-07-21 文档分类、后端平台层与业务域迁移基线
+## 2026-07-22 文档分类、后端平台层与业务域迁移发布基线
 
 本节是当前重构的权威回归基线；后续带日期的小节保留历史证据，不覆盖本节结果。
 
@@ -8,12 +8,12 @@
 |---|---|---|
 | 文档一致性 | pass | 分类文档集合、相对链接、生成 API、端口、数据库 head/表数与生产文档开关通过 |
 | 文档契约聚焦测试 | pass | `4 passed, 1 warning` |
-| 后端全量 | pass | `1086 passed, 6 skipped, 21 warnings in 137.36s`；1092 项全部完成收集，较迁移前仅增加 7 个架构保护 |
+| 后端全量 | pass | `1091 passed, 6 skipped, 21 warnings in 122.65s`；新增分区、无 root MySQL 验收、Nginx 上传缓冲和缓存时间戳保护后全部完成收集 |
 | OpenAPI | pass | 114 个 path、135 个 operation；生成文件为 `docs/reference/api.md` |
 | ORM / Alembic | pass | 15 个模型模块、36 张模型表；17 个线性 revision；单一 head `e2f4b8c6a130`；`alembic check` 无漂移 |
 | Celery 公共任务名 | pass | 11 个 `app.workers.*` 稳定任务名保持不变；7 个真实 task module 显式装配，空 Agent/CAD/dispatch module 已删除；官方运行入口为 `app.platform.messaging.celery_app:celery_app` |
 | 架构契约 | pass | 运行时快照与 12 模块目录通过；36 表、135 operation、11 task 唯一归属 |
-| 架构聚焦测试 | pass | `69 passed, 6 warnings`；除平台/领域依赖、public interface、registry、退役路径和 module catalog 外，新增领域化测试目录、support-only 依赖、集中路径解析与 96 个字符串 patch target 的静态契约 |
+| 架构聚焦测试 | pass | `70 passed, 6 warnings`；除平台/领域依赖、public interface、registry、退役路径和 module catalog 外，新增领域化测试目录、support-only 依赖、集中路径解析与 96 个字符串 patch target 的静态契约 |
 | Identity/projects 聚焦回归 | pass | `264 passed, 13 warnings`；认证、RBAC、token、项目/图纸服务、分页、审计、dependency 与安全边界通过 |
 | Files 聚焦回归 | pass | `158 passed, 7 warnings`；上传、登记、传输账本、补偿、预览、下载、存储一致性与架构边界通过 |
 | Jobs 聚焦回归 | pass | `140 passed, 3 skipped, 15 warnings`；创建、批量创建、attempt 隔离、取消/重试、投递补偿、SSE、Result/Review 权限、stale 恢复与架构边界通过 |
@@ -21,18 +21,22 @@
 | Excel 处理聚焦回归 | pass | `40 passed, 1 skipped, 1 warning`；Stage adapter/真实 runner 启动、流式导入、三张模型表、attempt 清理/重试、请求幂等、14 个 route 与领域边界通过；跳过项需要真实 MySQL |
 | Workflow 聚焦回归 | pass | `73 passed, 1 warning`；五张表、16 个 route、十阶段能力、多个 DWG + 单 Excel、服务器派生 DXF、冻结/删除保护、Job 同步、分类账本和留白契约通过 |
 | Operations/automation 聚焦回归 | pass | `160 passed, 3 skipped`；归档、数据目录、存储对账/处置、基础设施、控制平面、Agent memory、禁用契约、任务恢复和跨域边界通过 |
-| 前端领域边界 | pass | 91 个 TypeScript 源文件归入 app、shared 与 11 个 feature；退役 6 个横向源码目录；Node 架构门禁、29 项前端源码契约与 production build 通过 |
+| 前端领域边界 | pass | 106 个 TypeScript 源文件归入 app、shared 与 11 个 feature；超大页面拆为 CAD 上传/文件夹/总览/列模型、DXF→Excel 卡片、Excel/Workflow 展示模型和六个运维面板；单文件上限 600 行；29 项前端源码契约与 production build 通过 |
+| E2E 分区 | pass | 9 个 spec 归入 contracts、excel-processing、files、jobs、operations、workflows，support 单独保存环境；Playwright 成功收集 98 个用例 |
+| Playwright 全量 | pass | `94 passed, 4 skipped in 2.4m`；条件不足项按既有测试条件跳过；数据控制台测试在无扫描历史时验证真实空状态，不再依赖残留数据库记录 |
+| 分区说明 | pass | backend、tests、infra、scripts、frontend/E2E 自动发现源码 owner，并显式覆盖 Stage、Agent 与 Windows 产品边界，共 134 个维护分区；均有就地业务 README，架构检查拒绝缺失、空泛、未引用真实源码或未声明能力边界的文档 |
 | 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 259 passed`；三个 CAD Stage、Classifier 1.1.0 与 Excel Final `multi_split` 路径/CLI/行为保持 |
-| 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
+| 统一 quick 门禁 | pass | Shell、ruff、架构、221 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
+| 统一 full 门禁 | partial | 其余 14 个 gate 通过；隔离 MySQL 空库迁移因非交互 sudo blocked；首次浏览器运行暴露并修复无扫描历史的脆弱等待，随后 Playwright 全量独立重跑通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
-| 基础设施验证 | pass | `94 / 94`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；活动 MySQL 集成在该脚本内因探针判定不可达而跳过 |
+| 基础设施验证 | pass | `95 / 95`；Nginx 语法、13 个 Compose service、挂载、环境键与文件完整性通过；无 root sudo 时回退应用账号，真实验证活动 MySQL 45 表、种子与时间列 |
 | 基础设施聚焦回归 | pass | `104 passed, 7 warnings`；Compose config、架构快照、文档门禁同时通过 |
 | 脚本分层聚焦回归 | pass | `132 passed, 2 skipped`；稳定 facade、递归 Shell 语法、数据库/Compose/存储/Windows 通信与文档路径通过 |
 | 脚本真实入口 | pass | `db.sh check=0`、`docker.sh check=0`；MySQL 45 表、应用凭据、Compose 与 MinIO 配置均由新分层入口验证 |
 
-此次基线只证明当前自动化后端与文档契约全绿，不等同于真实 MySQL、MinIO、ODA、RabbitMQ 或 Windows/SinoCAM 生产验收。当前 Celery 使用 MySQL SQLAlchemy transport；RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 仍是目标/留白能力。人工初始盘点曾漏掉 `classify_steel_dxf`，机器 registry 确认稳定任务总数为 11，现已同步设计、计划和文档。
+自动化基线证明隔离后端、Stage、浏览器合同、文档和架构契约；下述本机运行检查另行证明当前 MySQL/Celery/FastAPI 实例可用，两者不能互相替代。尚未使用获准生产 DWG 对 ODA 输出质量做本轮发布验收，也没有实现 RabbitMQ、Outbox、Beat、Windows Node Agent、CAM Runner 或 SinoCAM Adapter。当前 Celery 明确使用 MySQL SQLAlchemy transport。人工初始盘点曾漏掉 `classify_steel_dxf`，机器 registry 确认稳定任务总数为 11，现已同步设计、计划和文档。
 
-`scripts/status.sh` 的只读检查确认本机 MySQL 45 张运行表、8 组 worker、FastAPI、Nginx 代理与 SPA 均可达；它同时如实报告当前 FastAPI 进程早于本轮源码。重构尚在进行，因此本阶段没有中途重启运行服务，最终验收再统一刷新受管进程。根 `image.png` 与 `frontend/public/logo.png` SHA-256 完全相同，已删除前者并由 README 复用后者；旧 Nginx runtime logs 原样移入 `infra/gateway/nginx/logs/`。
+2026-07-22 最终运行刷新使用官方入口启动八组 worker：report、dxf-classification、dxf、dxf2dwg、dxf2excel、excel-final、dispatch、maintenance；进程命令均加载 `app.platform.messaging.celery_app:celery_app`，旧 `app.workers.celery_app` 进程已退出。`scripts/status.sh` 确认本机 MySQL 应用凭据、45 张运行表、管理员种子与时间列，FastAPI `:8010` 运行源码时间一致，前端 production dist 为最新。历史 root Nginx 日志/pid 已逐一改名保留为 `*.root-before-20260722-release`；本地配置改用仓库自有 `logs/client-body/` 上传缓冲并去除启停 sudo 依赖后，Nginx `:8080`、SPA、`/health`、`/health/ready` 全部可达，readiness 同时报告 database/storage `ok`。该修复来自真实 Playwright 首轮 3 个上传 500，精准重跑 3/3、随后全量 94 passed/4 skipped。根 `image.png` 与 `frontend/public/logo.png` SHA-256 完全相同，已删除前者并由 README 复用后者；历史 Nginx runtime logs 仍位于忽略的部署日志目录。
 
 脚本接口现分为三层：仓库根 `scripts/*.sh` 保持既有操作命令；`scripts/lib/` 分别拥有通用、数据库、Compose、本地栈和 CAD worker 生命周期；CAD 基准、Windows 转发、存储维护、文档生成/检查进入对应分类目录。`scripts/lib.sh` 仅保留兼容聚合，新增脚本必须按需依赖具体库。旧 Python/Windows 实现路径已退出，Makefile、测试和文档均指向分类路径。
 
@@ -53,8 +57,8 @@ workflows 现把两个 route、两个 model、两个 schema 和两个 service �
 输入按登记、转换、冻结和面向操作员的诊断展示拆分，16 个 operation 按原顺序组合。files
 删除保护只通过 workflow 公开接口请求冻结引用，Classifier 也不再调用 workflow 私有函数。
 人工输入仍为多个 DWG + 一个 Excel，DXF 只由服务器生成；四个后续核心阶段保持
-placeholder/external。完整后端、Alembic、架构/文档门禁和前端 production build 均通过，
-本轮未重启运行中的旧进程，也未把隔离测试描述为真实 ODA/SinoCAM 生产验收。
+placeholder/external。完整后端、Alembic、架构/文档门禁和前端 production build 均通过；
+最终刷新后的 FastAPI、八组 worker 与 Nginx 当前可达，但仍未把隔离测试描述为真实 ODA/SinoCAM 生产验收。
 
 operations 现按 audit、daily archive、data catalog、storage reconciliation 和 control plane
 五个 owner 分层；automation 把三张已交付数据表/会话记忆/API 与未实现的
@@ -71,10 +75,12 @@ observer，不反向导入业务模块；两个方向的导入顺序和 worker-r
 前端现由 `app`、`shared` 与 11 个 feature 纵向边界组成。认证刷新合并、sessionStorage、
 HttpOnly cookie SSE、上传并发、Job attempt、下载重签名、生产批次连续提交、DXF 分类、
 Excel Final 桥接和每日归档交互均保留原实现；API、类型、页面和领域组件只改变归属路径。
-架构脚本拒绝旧顶层横向目录、shared 反向依赖和跨 feature 私有导入，并已接入 `npm run build`。
+架构脚本拒绝旧顶层横向目录、shared 反向依赖、跨 feature 私有导入和超过 600 行的源码，
+并已接入 `npm run build`。样式已从单一 `src/styles.css` 拆到 shared 与六个 feature；
+E2E 也按 7 个工作区归档。134 个维护边界由真实源码 owner 自动发现并补充 Stage/Agent/Windows 产品边界，统一检查本地 README，不以总览文档或固定手工清单替代。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
-> **最近发布验证：** 2026-07-19
+> **最近发布验证：** 2026-07-22
 ## 1. 证据层级
 
 | 层级 | 能证明 | 不能证明 |

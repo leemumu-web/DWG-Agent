@@ -8,3 +8,5 @@ stable API projection.
 
 No source object is moved or deleted. There is no automatic schedule or off-site backup; the
 maintenance task is queued only by the authenticated API operation.
+The archive must not be presented as a backup until retention, off-site copies
+and a tested restore procedure exist.

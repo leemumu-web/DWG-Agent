@@ -13,3 +13,5 @@ registration. `contracts.py` keeps error/output metadata consistent.
 
 This first workbook remains in CAD processing because its source domain is a
 DXF batch. Excel Final and its relational import belong to `excel_processing`.
+This task must not write those three relational tables or claim that the final
+cross-drawing merge barrier has completed.

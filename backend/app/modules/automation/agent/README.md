@@ -1,5 +1,9 @@
 # Agent data foundation
 
+`models/` owns the three delivered tables, `memory.py` enforces bounded session
+history, `schemas.py` defines run/step/memory contracts, and `routes.py` exposes
+the authenticated HTTP boundary.
+
 Delivered today:
 
 - MySQL models for runs, steps and bounded session history;

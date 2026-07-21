@@ -31,7 +31,10 @@ dxf_classification/
 └── tasks.py           stable public task name and queue binding
 ```
 
-Until the Workflow domain moves in its dedicated refactor, execution retains a
-documented transitional dependency on the old workflow input/artifact services.
-The classifier performs preprocessing and classification only; automatic plate
-splitting remains a later explicit stage, not an implied implementation.
+Workflow is now fully grouped under `app.modules.workflows`; classification
+uses only its public interface and no longer imports retired workflow
+model/service paths. The classifier performs preprocessing and classification
+only; automatic plate splitting remains a later explicit stage, not an implied
+implementation.
+It must not modify the immutable server-derived source DXF or upgrade a
+needs-review classifier exit into an unqualified automatic success.

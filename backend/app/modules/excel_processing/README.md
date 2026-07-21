@@ -8,7 +8,7 @@
 2. `execution.py` 使用 jobs 模块的 attempt 状态机下载源文件、记录步骤、调用独立 Stage、登记结果文件与 `analysis_results`。
 3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。密码只通过子进程环境传递。
 4. `importers.py` 把输出工作簿的“整理表”和“构件表”投影到 `excel_final_parts` 与 `excel_final_components`；`persistence.py` 拥有批次替换、统计和清理。
-5. `routes/catalog.py` 只查询关系化投影；`tools.py` 提供手册比重查询；`health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
+5. `routes/catalog.py` 只查询关系化投影；`routes/tools.py` 提供手册比重查询；`routes/health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
 
 ## 边界与依赖方向
 

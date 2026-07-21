@@ -5,6 +5,7 @@
 ## 安装
 
 需要 Linux、Python 3.12–3.13 和 [uv](https://docs.astral.sh/uv/)。在仓库根目录使用锁定环境安装：
+包名、CLI 入口、Python 范围和依赖声明以本目录 `pyproject.toml` 为准，锁定解析以 `uv.lock` 为准。
 
 ```bash
 uv sync --frozen

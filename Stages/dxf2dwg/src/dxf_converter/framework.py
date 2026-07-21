@@ -2,8 +2,10 @@
 
 本模块是 dxf_converter 与 complete_framework 之间的桥梁：
 - 不依赖 FastAPI/pydantic（保持 converter 零硬依赖），只使用 stdlib dataclasses。
-- 调用方（backend/app/services/dwg_service.py）直接用本模块的返回值构造
-  FastAPI Response，无需手动做错误码映射。
+- 平台执行入口位于
+  `backend/app/modules/cad_processing/dxf_to_dwg/execution.py`；错误码契约由同目录
+  `contracts.py` 复用。
+- Stage 只提供转换与健康检查数据，不直接构造 FastAPI Response。
 
 用法::
 

@@ -28,3 +28,5 @@ root.
 entire recursive suite.  Cross-domain regression files stay intact when
 splitting them would obscure their audit history.  Test modules must import
 shared builders from `tests.support`, never from another `test_*.py` module.
+Passing isolated tests must not be reported as MySQL, MinIO, ODA, browser or
+Windows production acceptance unless that external layer was actually exercised.

@@ -111,7 +111,9 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 
 - API、类型、页面、领域 hook 和组件随功能放入 `src/features/<feature>/`，禁止重建顶层 `src/api`、`components`、`hooks`、`stores`、`types` 或 `utils`。
 - 跨功能依赖只能导入目标功能的 `index.ts`；`shared` 不能反向导入功能代码；`app` 只负责组合。
-- `npm run check:architecture` 静态检查 11 个功能边界、退役目录和跨边界导入；`npm run build` 已包含该门禁。
+- `npm run check:architecture` 静态检查 11 个功能边界、关键子分区、退役目录、跨边界导入和 600 行单文件上限；`npm run build` 已包含该门禁。
+- 状态复杂的页面按“页面编排、上传、展示组件、纯模型”拆分；不得把拆出的逻辑重新复制回页面。
+- 每个维护分区必须有就地 `README.md`，写明真实源码/接口、业务进入与输出、跨域依赖和未实现边界；`make architecture-check` 当前检查 134 个边界，其中 backend、frontend、tests、infra、scripts 的源码 owner 自动发现，Stage、Agent 与 Windows 外部产品边界显式纳入，不能靠漏改手工清单绕过。
 - Nginx 后使用相对 API request；只在 Vite 直连开发时使用 `VITE_API_BASE_URL`。
 - Access 状态属于 `sessionStorage`；refresh/SSE 依赖 HttpOnly cookie。
 - Axios 401 interceptor 执行一次共享 refresh，禁止递归重试 login/refresh。
@@ -119,6 +121,7 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 - UI guard 改善导航，但永远不替代 API authorization。
 - Polling/SSE 必须在 terminal Job state 停止或稳定。
 - 可见工作流变化与失败/重试行为增加 Playwright 覆盖。
+- E2E 按 `tests/e2e/<feature>/` 归属；共享环境只放 `support`，根目录不放 spec。
 
 ## Worker 变更
 

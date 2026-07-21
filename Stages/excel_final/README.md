@@ -2,7 +2,7 @@
 
 这是独立 Python 3.11+ 钢结构零件清单处理器。它接受受支持的 Tekla 文本导出或包含必要初始表 schema 的真实工作簿，并生成规范化多 sheet `.xlsx`；[PROCESS.md](PROCESS.md) 是逐步算法手册。
 
-平台不把此目录作为 backend package 导入。`app.integrations.excel_final_runner` 在隔离子进程执行 `main.py`，并设置有界 timeout 和结构化 JSON adapter。Celery、MySQL、存储、权限和 attempt 仍由 backend 管理。
+平台不把此目录作为 backend package 导入。`backend/app/modules/excel_processing/stage_adapter.py` 是父进程唯一入口，`stage_runner.py` 在隔离子进程执行本目录 `main.py`，并设置有界 timeout 和结构化 JSON adapter。Celery、MySQL、存储、权限和 attempt 仍由 backend 管理。
 
 支持输入边界：
 

@@ -15,6 +15,28 @@ Celery workers（无入站监听端口）
   -> MySQL + storage + processing Stages
 ```
 
+## 仓库全局规划
+
+仓库按“稳定入口—应用装配—技术平台—业务 owner—独立算法—部署设施—外部执行合同—验证证据”组织。目录名不是能力完成证明，真实状态必须同时查看实现状态、公开合同和验证证据。
+
+| 分区 | 当前真实职责 | 进入/调用规则 | 能力状态依据 |
+|---|---|---|---|
+| `frontend/src/app` | Router、Provider、应用壳 | 只经 feature `index.ts` 装配 | production build + 前端合同/E2E |
+| `frontend/src/shared` | HTTP、认证会话、通用 UI/样式 | 不得反向依赖 feature | Node 架构检查 |
+| `frontend/src/features/*` | 11 个页面/API/type/组件 owner | 跨 feature 只经公共入口 | 后端合同 + Playwright |
+| `backend/app/bootstrap` | FastAPI、router、model/task registry、seed | 唯一 composition root | OpenAPI/ORM/Celery 快照 |
+| `backend/app/platform` | config、database、http、messaging、observability、security、storage seam | 不得导入业务 module | AST 边界测试 |
+| `backend/app/modules/*` | 业务 route/model/schema/use case/task 与公开 interface | 跨域只经目标 `interface.py` | 表/operation/task 唯一 owner |
+| `backend/app/integrations` | 将来真正跨产品、跨域共享的 adapter 边界 | 当前无可执行 adapter | automation capability contract |
+| `Stages/*` | 独立版本 CAD/Excel/分类算法包 | 由领域 adapter/worker 调用，不拥有平台权限 | 各 Stage 自有测试 + 真实样本验收 |
+| `infra/*` | gateway、database、storage、messaging target、operations、verification | 配置必须与 Compose 现实一致 | Compose/Nginx/infra verifier |
+| `scripts/*` | 稳定操作 facade 与分类实现 | 根命令稳定，implementation 进入 `lib/cad/docs/storage/windows` | Shell/脚本回归 + 真实 status |
+| `windows/*`、`agents/*` | 外部 Node/CAM/Agent 交接合同 | 核心执行仍留白 | `placeholder` / `external` 状态 |
+| `backend/tests/*`、`frontend/tests/e2e/*` | 与生产 owner 镜像的回归证据 | support 不放业务断言 | pytest/Playwright 收集与执行 |
+| `docs/*` | 架构、参考、操作与验证事实 | 生成内容与人工结论分别维护 | docs checker + 分区 README 门禁 |
+
+每个维护分区的就地 `README.md` 必须回答：现有文件/接口或任务是什么、业务如何进入并输出什么、依赖哪个 owner、不能负责什么、哪些能力仍未实现。全局 owner 和目标差距由[模块目录](module-catalog.md)、[追溯矩阵](traceability.md)与[实现状态](implementation-status.md)统一说明；局部 README 不得自行改变状态口径。
+
 运行时没有 Redis/Valkey。token 吊销、密码变更检查、Agent memory、Job 进度、SSE 快照、broker message 和 task result 均使用 MySQL。
 
 ## 部署现实
@@ -152,9 +174,10 @@ worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_
 | DWG -> DXF | `dxf` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
 | DXF -> DWG | `dxf2dwg` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
 | DXF -> Excel | `dxf2excel` | service/task 与父仓库跟踪 Stage | flag 关闭；大规模验证 corpus 不随源码分发 |
+| Steel DXF classification | `dxf_classification` | 1.1.0 Stage、task、两张账本表、Workflow 与 DXF/JSON/CSV 登记 | flag 关闭；分类准确率需真实样本，且不等于拆板 |
 | Excel Final | `excel_final` | 隔离 Stage + 关系化导入 | flag 关闭；需要内容 schema 和手册库 |
-| Agent | `agent` | 只有 API/model | task module 是空占位 |
-| Windows CAD | `cad` | 配置占位 | 无 task、worker、service 或 Compose node |
+| Agent | `agent` | 三张表、会话 memory、API 与 capability contract | 无注册 task/执行器；queue/process 只能是 contract-only |
+| Windows CAD | `cad` | 配置与外部 Node/CAM/协议合同 | 无 task、worker、service 或 Compose node |
 
 步骤名、格式、输出和启用检查见[Linux 生产工作流](workflow.md)。
 

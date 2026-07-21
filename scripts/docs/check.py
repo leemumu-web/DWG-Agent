@@ -110,6 +110,18 @@ def _owned_markdown_files() -> list[Path]:
         *COMPONENT_READMES,
     ]
     markdown_files.extend(sorted(DOCS.rglob("*.md")))
+    for root in (
+        ROOT / "backend/app",
+        ROOT / "backend/tests",
+        ROOT / "frontend/src",
+        ROOT / "frontend/tests/e2e",
+        ROOT / "infra",
+        ROOT / "scripts",
+        ROOT / "agents",
+        ROOT / "Stages",
+        ROOT / "windows",
+    ):
+        markdown_files.extend(sorted(root.rglob("README.md")))
     markdown_files.extend(
         ROOT / relative
         for relative in (
@@ -203,7 +215,7 @@ def _database_contract(errors: list[str]) -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    from app import models as _models  # noqa: F401
+    from app.bootstrap.model_registry import MODEL_MODULES as _model_modules  # noqa: F401
     from app.platform.config.settings import Settings
     from app.platform.database.base import Base
 

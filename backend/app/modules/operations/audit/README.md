@@ -1,5 +1,13 @@
-# Audit interface
+# 审计写入边界
 
-`interface.py` 是跨领域审计写入口，当前实现写入既有 `audit_logs` ORM 表。身份、项目、文件、Job 和工作流只能依赖该入口，不应直接复制 actor、request IP、User-Agent 或 before/after JSON 的组装规则。
+## 现有实现
 
-审计读取路由、ORM 与完整 operations 目录将在 operations 垂直切片中迁入；此处已经是稳定目标路径，不是空占位。
+`interface.py` 是身份、项目、文件、Job、工作流等领域唯一允许调用的审计写入口；它组装 actor、action、resource、request IP、User-Agent 与 before/after JSON，并写入 operations 拥有的既有 `audit_logs` 表。审计读取 API 由 operations 顶层 route/service 提供。
+
+## 输入与输出
+
+输入是数据库 session、actor、动作、资源标识、请求上下文和变化快照，输出是一条可查询的 AuditLog 事实；写入规则由本入口统一，避免各域字段漂移。
+
+## 边界
+
+审计不是业务事务成功的替代，也不保存密钥、Authorization、Cookie 或对象字节；跨域调用不得直接复制模型/组装逻辑。

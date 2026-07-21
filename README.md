@@ -43,8 +43,8 @@
 |---|---|---|---|
 | Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.1.0 分类分流、十阶段、DXF→Excel/Excel Final Job、attempt 同步和生产流程控制台 | 图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口；处理管线由开关控制 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
-| Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和能力契约保留 | 不继续实现；无 Agent task/执行器，`AGENT_ENABLED=false` |
-| Windows CAD worker | ⏸️ | 图纸元数据与格式转换边界保留 | 构件提取、分类、拆板、左右进、交互式 CAD 和 CAD Worker 不在当前交付范围 |
+| Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和机器可读能力契约已归 `automation` | 核心执行留白；无 Agent task、LLM/LangGraph/MCP 执行器，`AGENT_ENABLED=false` |
+| Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、拆板、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；已交付的 Steel DXF 分类属于 Linux 流程 |
 | Redis/Valkey | ❌ | 当前运行时不使用 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
 
 ## 🏗️ 系统架构
@@ -84,9 +84,10 @@ Celery workers（无入站监听端口）
 | DWG → DXF / `dxf` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF_PIPELINE_ENABLED=false` | ODA File Converter、无头 X 环境、源 DWG 校验通过 |
 | DXF → DWG / `dxf2dwg` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF2DWG_PIPELINE_ENABLED=false` | 同上，并要求有效 DXF |
 | DXF → Excel / `dxf2excel` | ⚠️ Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
+| Steel DXF 分类 / `dxf_classification` | ⚠️ Classifier 1.1.0、Job/Workflow 编排、两张账本表及 DXF/JSON/CSV 双登记已接通 | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | 需要冻结的服务器派生 DXF 与代表性业务样本；分类不等于自动拆板 |
 | Excel Final / `excel_final` | ⚠️ backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
-| Agent / `agent` | ⏸️ API 和持久化边界存在，task 为空占位 | `AGENT_ENABLED=false` | 尚未满足交付条件 |
-| Windows / `cad` | ⏸️ `windows/` 分进程保留外部契约，task 为空占位 | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
+| Agent / `agent` | ⏸️ API/持久化与队列名保留，没有注册 Celery task | `AGENT_ENABLED=false` | 缺少真实执行器；运行一个空闲 queue worker 也不代表能力可用 |
+| Windows / `cad` | ⏸️ `windows/` 按 Node Agent/CAM Runner/Adapter/协议保留外部合同，没有注册 Celery task | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
 
 ### 任务一致性
 
@@ -110,11 +111,11 @@ Celery workers（无入站监听端口）
 
 ### 不在当前交付范围
 
-- CAD 图纸构件提取、自动分类、自动/交互拆板和左右进业务算法；
+- CAD 图纸构件提取、自动/交互拆板和左右进业务算法（Steel DXF 预处理与分类分流已经实现，不在此列）；
 - 中望 CAD 二次开发及 Windows CAD Worker；
-- Agent、模型调用、MCP 工具编排和 Agent memory 产品化。
+- Agent 执行、模型调用、MCP 工具编排和已交付会话 memory 的产品化编排。
 
-仓库中的相关 route、model、config 或占位目录只作为历史/兼容边界保留，不表示将继续实现。
+仓库只保留真实 route/model/config 与机器可读 capability 合同；误导性的空 task/client/adapter 已删除。合同存在只表示接口留白，不表示核心能力已经实现。
 
 ## ⚠️ 已知限制
 
@@ -145,7 +146,7 @@ bash scripts/db.sh init
 bash scripts/start-dev.sh
 ```
 
-`start-dev.sh` 启动五个已实现队列 worker（不含 agent/cad）、FastAPI `8010` 和 Vite。`start-all.sh` 还会构建前端并启动本地 Nginx `8080`。功能开关关闭时 worker 可以存活，但对应 API 会拒绝创建任务。
+`start-dev.sh` 启动 8 组本地 worker：`report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`（不启动 `agent/cad`），并启动 FastAPI `8010` 和 Vite。`start-all.sh` 还会构建前端并启动本地 Nginx `8080`。`dispatch` 当前是可观察的队列身份预留；功能开关关闭时 worker 可以存活，但对应 API 会拒绝创建任务。
 
 需要复用容器内 MySQL/MinIO 并热更新 API 时，可运行：
 
@@ -179,7 +180,7 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加转换 worker 和占位的 `worker-agent`。`worker-agent` healthy 只表示 Celery 进程已连接 broker，不表示 Agent task 已实现。
+核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 5 组 CAD/Excel worker、`dispatch`、`maintenance` 和 contract-only `worker-agent`，Compose 总计 13 个服务。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
 
 ## 🧪 开发与验证
 
