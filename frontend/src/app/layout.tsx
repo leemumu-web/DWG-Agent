@@ -20,9 +20,9 @@ import {
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { logout } from '../api/auth.api';
-import { useAuthStore } from '../stores/auth.store';
-import { roleColor } from '../components/ui';
+import { logout } from '../shared/auth';
+import { useAuthStore } from '../shared/auth';
+import { roleColor } from '../shared/components';
 
 const { Header, Sider, Content } = Layout;
 

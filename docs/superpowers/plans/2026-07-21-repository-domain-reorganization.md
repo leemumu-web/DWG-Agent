@@ -1149,25 +1149,38 @@ git commit -m "refactor: mirror backend tests to domain modules"
 - Create: `frontend/src/shared/api/{client,error}.ts`
 - Create: `frontend/src/shared/auth/`
 - Create: `frontend/src/shared/components/`
-- Create: `frontend/src/shared/hooks/`
+- Keep hooks with their owning feature; create `frontend/src/shared/hooks/` only when a hook has no business owner
 - Create feature directories from the design
 - Move each feature's `api/*.ts` and `types/*.ts` beside its pages
 - Update all imports and router lazy imports
 - Delete empty `hooks/.gitkeep`, `utils/.gitkeep`, old `api/`, old `types/`, old `components/` when empty
 
-- [ ] **Step 1: Add a frontend architecture checker**
+- [x] **Step 1: Add a frontend architecture checker**
 
 Create a Node script that rejects imports from `features/*` into another feature's private files; cross-feature calls must use the target feature's `index.ts` public interface. Reject any re-creation of top-level `src/api` or `src/types` after migration.
 
-- [ ] **Step 2: Move shared HTTP/auth first**
+`frontend/scripts/check-architecture.mjs` now validates the exact 11-feature set, required shared
+boundaries, retired horizontal directories, shared-to-feature direction and public-entry-only
+composition/cross-feature imports. It is part of `npm run build`.
+
+- [x] **Step 2: Move shared HTTP/auth first**
 
 Move Axios client/error and authentication store/guard/init hook. Preserve refresh coalescing, session storage and error enrichment.
 
-- [ ] **Step 3: Move vertical feature contracts**
+The Axios client/error, authentication API/session/store/guards/init hook and application error/
+connectivity components now live under `src/shared`. The 29 source-contract tests retain the exact
+refresh, sessionStorage, HttpOnly-cookie SSE and recovery assertions.
+
+- [x] **Step 3: Move vertical feature contracts**
 
 For each feature, create `index.ts` exporting only its public route/page/types needed elsewhere. Move request and type files without changing runtime logic.
 
-- [ ] **Step 4: Verify after each feature**
+Identity, projects, files, jobs, workflows, CAD processing, Excel processing, operations, reviews,
+dashboard and the honest automation placeholder each have a public `index.ts`. API/type/page/hook
+files were moved with Git history; old top-level `api/components/hooks/stores/types/utils` and the
+obsolete admin/auth/drawings/profile/users feature fragments are gone.
+
+- [x] **Step 4: Verify after each feature**
 
 Run:
 
@@ -1179,7 +1192,12 @@ cd backend
 
 Expected: build succeeds; router URL snapshot unchanged.
 
-- [ ] **Step 5: Commit**
+Each migration batch passed TypeScript/Vite production build. Final evidence is 91 source files and
+11 feature boundaries accepted by the Node checker, `29 passed` frontend source contracts, and
+`35 passed, 6 warnings` for frontend plus module/runtime contract focus. The runtime snapshot remains
+114 paths, 135 operations, 36 tables, 11 tasks and the same React route set.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src frontend/package.json backend/tests docs/architecture scripts

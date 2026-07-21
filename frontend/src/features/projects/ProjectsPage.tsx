@@ -31,9 +31,9 @@ import {
   listProjects,
   removeProjectMember,
   type ProjectMember,
-} from '../../api/projects.api';
-import { listUsers } from '../../api/users.api';
-import type { Project } from '../../types/project';
+} from './projects.api';
+import { listUsers } from '../identity';
+import type { Project } from './project';
 import {
   fmtDateTime,
   PageHeader,
@@ -42,7 +42,7 @@ import {
   StatGrid,
   StatusChip,
   statusOf,
-} from '../../components/ui';
+} from '../../shared/components';
 
 const PROJECT_ROLES = [
   { value: 'project_owner', label: '项目负责人' },

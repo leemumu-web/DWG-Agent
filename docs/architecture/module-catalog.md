@@ -52,6 +52,12 @@ Agent/MCP/ZWCAD/Windows 执行契约物理分开。旧 `app/api`、`models`、`s
 跨领域历史审计保留在 `regression/`，避免为了目录纯度拆散原始审计证据。架构测试同时检查
 目录完整性和字符串 patch target，防止后续移动留下静默失效的 mock。
 
+前端也按 owner 收拢为 11 个 `src/features/<feature>/` 目录。身份与通用会话基础分别位于
+`features/identity` 和 `shared/auth`；CAD 转换、Excel Final、文件登记、Job、工作流与运维控制台
+各自拥有 API、类型和页面。`src/app` 只从每个 feature 的 `index.ts` 组合路由，跨 feature
+调用同样只允许经过该公共入口。旧顶层 `api/components/hooks/stores/types/utils` 已退出；
+`npm run check:architecture` 与 production build 会阻止这些目录或私有跨域导入重新出现。
+
 ## 修改规则
 
 1. 移动实现时先更新 JSON 路径，再执行 `make architecture-check`。
@@ -66,6 +72,7 @@ Agent/MCP/ZWCAD/Windows 执行契约物理分开。旧 `app/api`、`models`、`s
 make architecture-check
 backend/.venv/bin/python scripts/architecture/snapshot_contracts.py --check
 cd backend && .venv/bin/pytest -q tests/architecture
+cd ../frontend && npm run check:architecture
 ```
 
 检查器验证路径存在、数组确定性排序、36 张 ORM 表唯一归属、135 个 HTTP operation 唯一归属、11 个 Celery 任务唯一归属，以及目标能力的显式状态。

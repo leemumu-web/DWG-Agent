@@ -2,25 +2,25 @@ import { lazy, Suspense } from 'react';
 import { Spin } from 'antd';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './layout';
-import { RequireAuth, RequireRoles } from '../components/PermissionGuard';
+import { RequireAuth, RequireRoles } from '../shared/auth';
 
-const LoginPage = lazy(() => import('../features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
-const DashboardPage = lazy(() => import('../features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
-const ProjectsPage = lazy(() => import('../features/projects/ProjectsPage').then((module) => ({ default: module.ProjectsPage })));
-const FilesLayout = lazy(() => import('../features/files/FilesLayout').then((module) => ({ default: module.FilesLayout })));
-const Dwg2DxfPage = lazy(() => import('../features/files/Dwg2DxfPage').then((module) => ({ default: module.Dwg2DxfPage })));
-const Dxf2DwgPage = lazy(() => import('../features/files/Dxf2DwgPage').then((module) => ({ default: module.Dxf2DwgPage })));
-const Dxf2ExcelPage = lazy(() => import('../features/files/Dxf2ExcelPage').then((module) => ({ default: module.Dxf2ExcelPage })));
-const ExcelFinalPage = lazy(() => import('../features/files/ExcelFinalPage').then((module) => ({ default: module.ExcelFinalPage })));
-const DrawingsPage = lazy(() => import('../features/drawings/DrawingsPage').then((module) => ({ default: module.DrawingsPage })));
-const JobsPage = lazy(() => import('../features/jobs/JobsPage').then((module) => ({ default: module.JobsPage })));
-const ReviewsPage = lazy(() => import('../features/reviews/ReviewsPage').then((module) => ({ default: module.ReviewsPage })));
-const UsersPage = lazy(() => import('../features/users/UsersPage').then((module) => ({ default: module.UsersPage })));
-const AuditLogsPage = lazy(() => import('../features/admin/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })));
-const RolesPage = lazy(() => import('../features/admin/RolesPage').then((module) => ({ default: module.RolesPage })));
-const ProfilePage = lazy(() => import('../features/profile/ProfilePage').then((module) => ({ default: module.ProfilePage })));
-const WorkflowsPage = lazy(() => import('../features/workflows/WorkflowsPage').then((module) => ({ default: module.WorkflowsPage })));
-const InfrastructurePage = lazy(() => import('../features/admin/InfrastructurePage').then((module) => ({ default: module.InfrastructurePage })));
+const LoginPage = lazy(() => import('../features/identity').then((module) => ({ default: module.LoginPage })));
+const DashboardPage = lazy(() => import('../features/dashboard').then((module) => ({ default: module.DashboardPage })));
+const ProjectsPage = lazy(() => import('../features/projects').then((module) => ({ default: module.ProjectsPage })));
+const FilesLayout = lazy(() => import('../features/files').then((module) => ({ default: module.FilesLayout })));
+const Dwg2DxfPage = lazy(() => import('../features/cad-processing').then((module) => ({ default: module.Dwg2DxfPage })));
+const Dxf2DwgPage = lazy(() => import('../features/cad-processing').then((module) => ({ default: module.Dxf2DwgPage })));
+const Dxf2ExcelPage = lazy(() => import('../features/cad-processing').then((module) => ({ default: module.Dxf2ExcelPage })));
+const ExcelFinalPage = lazy(() => import('../features/excel-processing').then((module) => ({ default: module.ExcelFinalPage })));
+const DrawingsPage = lazy(() => import('../features/projects').then((module) => ({ default: module.DrawingsPage })));
+const JobsPage = lazy(() => import('../features/jobs').then((module) => ({ default: module.JobsPage })));
+const ReviewsPage = lazy(() => import('../features/reviews').then((module) => ({ default: module.ReviewsPage })));
+const UsersPage = lazy(() => import('../features/identity').then((module) => ({ default: module.UsersPage })));
+const AuditLogsPage = lazy(() => import('../features/operations').then((module) => ({ default: module.AuditLogsPage })));
+const RolesPage = lazy(() => import('../features/identity').then((module) => ({ default: module.RolesPage })));
+const ProfilePage = lazy(() => import('../features/identity').then((module) => ({ default: module.ProfilePage })));
+const WorkflowsPage = lazy(() => import('../features/workflows').then((module) => ({ default: module.WorkflowsPage })));
+const InfrastructurePage = lazy(() => import('../features/operations').then((module) => ({ default: module.InfrastructurePage })));
 
 export function AppRouter() {
   return (

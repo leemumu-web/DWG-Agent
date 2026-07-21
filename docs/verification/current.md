@@ -21,6 +21,7 @@
 | Excel 处理聚焦回归 | pass | `40 passed, 1 skipped, 1 warning`；Stage adapter/真实 runner 启动、流式导入、三张模型表、attempt 清理/重试、请求幂等、14 个 route 与领域边界通过；跳过项需要真实 MySQL |
 | Workflow 聚焦回归 | pass | `73 passed, 1 warning`；五张表、16 个 route、十阶段能力、多个 DWG + 单 Excel、服务器派生 DXF、冻结/删除保护、Job 同步、分类账本和留白契约通过 |
 | Operations/automation 聚焦回归 | pass | `160 passed, 3 skipped`；归档、数据目录、存储对账/处置、基础设施、控制平面、Agent memory、禁用契约、任务恢复和跨域边界通过 |
+| 前端领域边界 | pass | 91 个 TypeScript 源文件归入 app、shared 与 11 个 feature；退役 6 个横向源码目录；Node 架构门禁、29 项前端源码契约与 production build 通过 |
 | 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 259 passed`；三个 CAD Stage、Classifier 1.1.0 与 Excel Final `multi_split` 路径/CLI/行为保持 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、218 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
@@ -66,6 +67,11 @@ actor 绑定、幂等键、目标快照、数量/字节上限和永久删除确�
 名和 report/maintenance 等队列保持不变。`agent`、`cad`、`dispatch` 仅保留队列契约，未
 注册任务。platform 通过通用 worker-signal callback 通知由 bootstrap 注册的 control-plane
 observer，不反向导入业务模块；两个方向的导入顺序和 worker-ready 顺序均有回归覆盖。
+
+前端现由 `app`、`shared` 与 11 个 feature 纵向边界组成。认证刷新合并、sessionStorage、
+HttpOnly cookie SSE、上传并发、Job attempt、下载重签名、生产批次连续提交、DXF 分类、
+Excel Final 桥接和每日归档交互均保留原实现；API、类型、页面和领域组件只改变归属路径。
+架构脚本拒绝旧顶层横向目录、shared 反向依赖和跨 feature 私有导入，并已接入 `npm run build`。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
 > **最近发布验证：** 2026-07-19

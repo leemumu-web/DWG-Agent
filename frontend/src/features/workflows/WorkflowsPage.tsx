@@ -34,9 +34,9 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { downloadFile, listBatches, listFilesPage } from '../../api/files.api';
-import { describeApiError } from '../../api/error';
-import { listProjects } from '../../api/projects.api';
+import { downloadFile, listBatches, listFilesPage } from '../files';
+import { describeApiError } from '../../shared/api';
+import { listProjects } from '../projects';
 import {
   cancelWorkflow,
   completeWorkflowStage,
@@ -47,14 +47,14 @@ import {
   listWorkflows,
   listWorkflowTemplates,
   startWorkflow,
-} from '../../api/workflows.api';
-import { fmtDateTime, fmtSize, PageHeader, StatCard, StatGrid, StatusChip, type StatusStyle } from '../../components/ui';
-import type { StoredFile } from '../../types/file';
+} from './workflows.api';
+import { fmtDateTime, fmtSize, PageHeader, StatCard, StatGrid, StatusChip, type StatusStyle } from '../../shared/components';
+import type { StoredFile } from '../files';
 import type {
   WorkflowDetail,
   WorkflowRun,
   WorkflowStageCapability,
-} from '../../types/workflow';
+} from './workflow';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
 

@@ -12,21 +12,21 @@ def _e2e_source(path: str) -> str:
 
 
 def test_frontend_password_change_matches_backend_patch_contract():
-    source = _frontend_source("api/auth.api.ts")
+    source = _frontend_source("shared/auth/api.ts")
 
     assert "apiClient.patch" in source
     assert "'/api/v1/auth/password'" in source
 
 
 def test_frontend_keeps_access_token_in_session_storage_only():
-    source = _frontend_source("stores/auth.store.ts")
+    source = _frontend_source("shared/auth/store.ts")
 
     assert "sessionStorage" in source
     assert "localStorage" not in source
 
 
 def test_frontend_sse_never_puts_access_token_in_url():
-    source = _frontend_source("hooks/useJobEvents.ts")
+    source = _frontend_source("features/jobs/useJobEvents.ts")
 
     assert "?token=" not in source
     assert "encodeURIComponent(token)" not in source
@@ -34,21 +34,21 @@ def test_frontend_sse_never_puts_access_token_in_url():
 
 
 def test_auth_init_can_restore_session_from_httponly_cookie():
-    source = _frontend_source("hooks/useAuthInit.ts")
+    source = _frontend_source("shared/auth/useAuthInit.ts")
 
     assert "setSession(data.access_token, data.user)" in source
     assert "if (!token)" not in source
 
 
 def test_password_change_immediately_clears_revoked_frontend_session():
-    source = _frontend_source("features/profile/ProfilePage.tsx")
+    source = _frontend_source("features/identity/ProfilePage.tsx")
 
     assert "clearSession()" in source
     assert "navigate('/login'" in source
 
 
 def test_non_idempotent_uploads_are_not_automatically_retried():
-    source = _frontend_source("api/files.api.ts")
+    source = _frontend_source("features/files/files.api.ts")
 
     assert "apiClient.post<ApiEnvelope<StoredFile>>('/api/v1/files'" in source
     assert "apiClient.post<ApiEnvelope<ZipUploadResult>>('/api/v1/files/upload-zip'" in source
@@ -56,8 +56,8 @@ def test_non_idempotent_uploads_are_not_automatically_retried():
 
 
 def test_folder_upload_concurrency_fits_default_api_database_pool():
-    api_source = _frontend_source("api/files.api.ts")
-    page_source = _frontend_source("components/ConversionPage.tsx")
+    api_source = _frontend_source("features/files/files.api.ts")
+    page_source = _frontend_source("features/cad-processing/ConversionPage.tsx")
 
     # Default API pool budget is DB_POOL_SIZE=2 + MAX_OVERFLOW=2. The browser
     # must not open eight simultaneous upload transactions against four slots.
@@ -76,7 +76,7 @@ def test_generated_api_source_documents_zip_preview_and_conflicts():
 
 
 def test_conversion_submission_preserves_partial_chunk_results():
-    source = _frontend_source("api/jobs.api.ts")
+    source = _frontend_source("features/jobs/jobs.api.ts")
 
     assert "interface ConversionBatchSubmission" in source
     assert "submittedJobs" in source
@@ -91,8 +91,8 @@ def test_conversion_submission_preserves_partial_chunk_results():
 
 
 def test_folder_bulk_delete_uses_atomic_batch_endpoint():
-    api_source = _frontend_source("api/files.api.ts")
-    page_source = _frontend_source("components/ConversionPage.tsx")
+    api_source = _frontend_source("features/files/files.api.ts")
+    page_source = _frontend_source("features/cad-processing/ConversionPage.tsx")
 
     assert "interface BatchBulkDeleteResult" in api_source
     assert "'/api/v1/files/batches/bulk-delete'" in api_source
@@ -105,7 +105,7 @@ def test_folder_bulk_delete_uses_atomic_batch_endpoint():
 
 
 def test_download_retries_with_a_fresh_signed_url_through_auth_interceptor():
-    source = _frontend_source("api/files.api.ts")
+    source = _frontend_source("features/files/files.api.ts")
 
     assert "isRetryableDownloadError" in source
     assert "apiClient.get<Blob>(url" in source
@@ -130,11 +130,11 @@ def test_browser_e2e_uses_session_storage_and_cookie_sse_auth():
 
 
 def test_excel_final_has_frontend_api_types_route_and_tab():
-    api_source = _frontend_source("api/excel-final.api.ts")
+    api_source = _frontend_source("features/excel-processing/api.ts")
     router_source = _frontend_source("app/router.tsx")
     tabs_source = _frontend_source("features/files/FilesLayout.tsx")
-    page_source = _frontend_source("features/files/ExcelFinalPage.tsx")
-    type_source = _frontend_source("types/excel-final.ts")
+    page_source = _frontend_source("features/excel-processing/ExcelFinalPage.tsx")
+    type_source = _frontend_source("features/excel-processing/types.ts")
 
     assert "/api/v1/excel-final/upload-and-process" in api_source
     assert "/api/v1/excel-final/batches" in api_source
@@ -146,9 +146,9 @@ def test_excel_final_has_frontend_api_types_route_and_tab():
 
 
 def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
-    page_source = _frontend_source("features/files/ExcelFinalPage.tsx")
+    page_source = _frontend_source("features/excel-processing/ExcelFinalPage.tsx")
     drawer_source = _frontend_source(
-        "features/files/excel-final/ExcelFinalBatchDrawer.tsx"
+        "features/excel-processing/components/ExcelFinalBatchDrawer.tsx"
     )
 
     assert "queryKey: ['excel-final-status', jobId]" in page_source
@@ -162,10 +162,11 @@ def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
 
 
 def test_dxf_to_excel_result_bridges_to_excel_final_without_dynamic_imports():
-    page_source = _frontend_source("features/files/Dxf2ExcelPage.tsx")
-    api_source = _frontend_source("api/excel-final.api.ts")
+    page_source = _frontend_source("features/cad-processing/Dxf2ExcelPage.tsx")
+    api_source = _frontend_source("features/excel-processing/api.ts")
 
-    assert "import { processExcelFinalFile }" in page_source
+    assert "processExcelFinalFile" in page_source
+    assert "from '../excel-processing'" in page_source
     assert "finalSubmissionRef.current.has(batchName)" in page_source
     assert "getJobResults(extractionJob.id)" in page_source
     assert "`dxf2excel-${extractionJob.id}-${excel.result_file_id}`" in page_source
@@ -184,7 +185,7 @@ def test_job_drawer_loads_steps_for_the_current_attempt_only():
 
 
 def test_frontend_system_health_lists_every_pipeline_flag():
-    source = _frontend_source("api/system.api.ts")
+    source = _frontend_source("features/operations/api/system.ts")
 
     for feature in (
         "dxf_pipeline",
@@ -197,8 +198,8 @@ def test_frontend_system_health_lists_every_pipeline_flag():
 
 def test_frontend_has_global_recovery_and_connectivity_feedback():
     providers = _frontend_source("app/providers.tsx")
-    boundary = _frontend_source("components/AppErrorBoundary.tsx")
-    connectivity = _frontend_source("components/ConnectivityBanner.tsx")
+    boundary = _frontend_source("shared/components/AppErrorBoundary.tsx")
+    connectivity = _frontend_source("shared/components/ConnectivityBanner.tsx")
 
     assert "AppErrorBoundary" in providers
     assert "retry: (failureCount, error)" in providers
@@ -207,8 +208,8 @@ def test_frontend_has_global_recovery_and_connectivity_feedback():
 
 
 def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
-    api_source = _frontend_source("api/control-plane.api.ts")
-    page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
+    api_source = _frontend_source("features/operations/api/controlPlane.ts")
+    page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
 
     assert "/maintenance/reconcile-stale-jobs" in api_source
     assert "恢复超时运行任务" in page_source
@@ -217,10 +218,10 @@ def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
 
 
 def test_daily_archive_console_uses_preview_queue_poll_and_signed_download_contracts():
-    panel = _frontend_source("features/admin/DailyArchivePanel.tsx")
-    data_api = _frontend_source("api/data-admin.api.ts")
-    files_api = _frontend_source("api/files.api.ts")
-    infrastructure = _frontend_source("features/admin/InfrastructurePage.tsx")
+    panel = _frontend_source("features/operations/components/DailyArchivePanel.tsx")
+    data_api = _frontend_source("features/operations/api/dataAdmin.ts")
+    files_api = _frontend_source("features/files/files.api.ts")
+    infrastructure = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
 
     assert "/daily-archives/preview" in data_api
     assert "/daily-archives/${archiveId}" in data_api
@@ -244,9 +245,9 @@ def test_dashboard_turns_existing_task_and_review_state_into_next_actions():
 
 
 def test_workflow_console_uses_backend_templates_files_and_stage_execution():
-    api_source = _frontend_source("api/workflows.api.ts")
+    api_source = _frontend_source("features/workflows/workflows.api.ts")
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
-    type_source = _frontend_source("types/workflow.ts")
+    type_source = _frontend_source("features/workflows/workflow.ts")
 
     for path in (
         "/api/v1/workflows/templates",
@@ -274,7 +275,7 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
 def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
     panel_source = _frontend_source("features/workflows/ProductionInputPanel.tsx")
-    api_source = _frontend_source("api/workflow-inputs.api.ts")
+    api_source = _frontend_source("features/workflows/workflow-inputs.api.ts")
 
     assert "<ProductionInputPanel" in page_source
     assert "actionableStage.stage_code === 'source_intake'" in page_source
@@ -329,8 +330,8 @@ def test_production_submission_stays_in_one_drawer_until_files_are_uploaded():
 def test_dxf_classification_has_dedicated_guarded_frontend_console():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
     panel_source = _frontend_source("features/workflows/DxfClassificationPanel.tsx")
-    api_source = _frontend_source("api/workflows.api.ts")
-    type_source = _frontend_source("types/workflow.ts")
+    api_source = _frontend_source("features/workflows/workflows.api.ts")
+    type_source = _frontend_source("features/workflows/workflow.ts")
 
     assert "<DxfClassificationPanel" in page_source
     assert "dxf_classification" in page_source
@@ -345,9 +346,9 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
 
 
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
-    page_source = _frontend_source("features/admin/InfrastructurePage.tsx")
-    api_source = _frontend_source("api/data-admin.api.ts")
-    type_source = _frontend_source("types/data-admin.ts")
+    page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
+    api_source = _frontend_source("features/operations/api/dataAdmin.ts")
+    type_source = _frontend_source("features/operations/types/dataAdmin.ts")
 
     assert "useSearchParams" in page_source
     for key in ("overview", "files", "objects", "transfers", "consistency"):
@@ -390,12 +391,12 @@ def test_auditor_can_open_read_only_data_console():
 
 
 def test_operational_tables_use_bounded_server_pagination():
-    files_api = _frontend_source("api/files.api.ts")
-    jobs_api = _frontend_source("api/jobs.api.ts")
-    audit_api = _frontend_source("api/audit-logs.api.ts")
-    conversion_page = _frontend_source("components/ConversionPage.tsx")
+    files_api = _frontend_source("features/files/files.api.ts")
+    jobs_api = _frontend_source("features/jobs/jobs.api.ts")
+    audit_api = _frontend_source("features/operations/api/auditLogs.ts")
+    conversion_page = _frontend_source("features/cad-processing/ConversionPage.tsx")
     jobs_page = _frontend_source("features/jobs/JobsPage.tsx")
-    audit_page = _frontend_source("features/admin/AuditLogsPage.tsx")
+    audit_page = _frontend_source("features/operations/pages/AuditLogsPage.tsx")
 
     assert "listFilesPage" in files_api
     assert "listJobsPage" in jobs_api

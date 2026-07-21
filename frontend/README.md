@@ -5,8 +5,31 @@
 ```bash
 npm ci
 npm run dev      # http://127.0.0.1:5173
+npm run check:architecture
 npm run build
 ```
+
+## 源码边界
+
+```text
+src/
+├── app/                 # Router、Provider、应用壳层
+├── shared/              # api、auth、通用组件；不得依赖 feature
+└── features/
+    ├── identity/        # 登录、个人资料、用户与角色
+    ├── projects/        # 项目、成员、图纸目录
+    ├── files/           # 文件登记、上传、预览与下载
+    ├── jobs/            # Job、Step、Result 与事件
+    ├── workflows/       # 生产流程、输入冻结、分类阶段
+    ├── cad-processing/  # DWG/DXF 转换与 DXF→Excel
+    ├── excel-processing/# Excel Final 导入、查询与预览
+    ├── operations/      # 审计、存储、归档与控制平面
+    └── ...              # dashboard、reviews、automation
+```
+
+API、类型、领域 hook 和页面随其 feature 放置；跨 feature 只允许导入目标目录的
+`index.ts`。`app` 也只通过这些公共入口装配路由。顶层 `api/components/hooks/stores/types/utils`
+属于已退役结构，架构检查器会拒绝其重建、shared 反向依赖或私有跨域导入。
 
 经本地 Nginx `http://127.0.0.1:8080` 时保持 `VITE_API_BASE_URL` 为空；Vite 直连 FastAPI 时使用 `http://127.0.0.1:8010`。access token 位于 `sessionStorage`，refresh/SSE token 使用 HttpOnly cookie。UI 权限与按钮隐藏只是交互辅助，FastAPI 才是授权边界。
 

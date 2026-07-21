@@ -13,10 +13,8 @@
       "architecture_nodes": ["API", "MYSQL", "WEB"],
       "backend_paths": ["backend/app/modules/identity"],
       "frontend_paths": [
-        "frontend/src/api/auth.api.ts",
-        "frontend/src/features/auth/LoginPage.tsx",
-        "frontend/src/features/users/UsersPage.tsx",
-        "frontend/src/stores/auth.store.ts"
+        "frontend/src/features/identity",
+        "frontend/src/shared/auth"
       ],
       "tables": [
         "sys_permissions",
@@ -50,12 +48,7 @@
       "status": "implemented",
       "architecture_nodes": ["API", "MYSQL", "U11", "WEB"],
       "backend_paths": ["backend/app/modules/projects"],
-      "frontend_paths": [
-        "frontend/src/api/drawings.api.ts",
-        "frontend/src/api/projects.api.ts",
-        "frontend/src/features/drawings/DrawingsPage.tsx",
-        "frontend/src/features/projects/ProjectsPage.tsx"
-      ],
+      "frontend_paths": ["frontend/src/features/projects"],
       "tables": ["drawing_versions", "drawings", "project_members", "projects"],
       "http_prefixes": ["/api/v1/drawings", "/api/v1/projects"],
       "celery_tasks": [],
@@ -79,10 +72,7 @@
         "backend/app/platform/storage"
       ],
       "frontend_paths": [
-        "frontend/src/api/files.api.ts",
-        "frontend/src/components/DxfPreviewModal.tsx",
-        "frontend/src/components/FileUpload.tsx",
-        "frontend/src/components/ZipDownloadModal.tsx"
+        "frontend/src/features/files"
       ],
       "tables": ["file_transfers", "files", "storage_scan_findings", "storage_scan_runs"],
       "http_prefixes": ["/api/v1/files"],
@@ -104,11 +94,8 @@
       "architecture_nodes": ["API", "MYSQL", "SSE"],
       "backend_paths": ["backend/app/modules/jobs"],
       "frontend_paths": [
-        "frontend/src/api/jobs.api.ts",
-        "frontend/src/api/results.api.ts",
-        "frontend/src/api/reviews.api.ts",
-        "frontend/src/features/jobs/JobsPage.tsx",
-        "frontend/src/features/reviews/ReviewsPage.tsx"
+        "frontend/src/features/jobs",
+        "frontend/src/features/reviews"
       ],
       "tables": ["analysis_results", "job_steps", "jobs", "review_records"],
       "http_prefixes": ["/api/v1/jobs", "/api/v1/results", "/api/v1/reviews"],
@@ -131,11 +118,7 @@
       "architecture_nodes": ["PIPE", "U1", "U10", "U11", "U4", "U5", "U7", "U8", "U9"],
       "backend_paths": ["backend/app/modules/workflows"],
       "frontend_paths": [
-        "frontend/src/api/workflow-inputs.api.ts",
-        "frontend/src/api/workflows.api.ts",
-        "frontend/src/features/workflows/DxfClassificationPanel.tsx",
-        "frontend/src/features/workflows/ProductionInputPanel.tsx",
-        "frontend/src/features/workflows/WorkflowsPage.tsx"
+        "frontend/src/features/workflows"
       ],
       "tables": [
         "workflow_artifacts",
@@ -164,9 +147,7 @@
       "architecture_nodes": ["Q_DXF", "TEKLA", "W_DXF"],
       "backend_paths": ["backend/app/modules/cad_processing"],
       "frontend_paths": [
-        "frontend/src/components/ConversionPage.tsx",
-        "frontend/src/features/files/Dwg2DxfPage.tsx",
-        "frontend/src/features/files/Dxf2DwgPage.tsx"
+        "frontend/src/features/cad-processing"
       ],
       "tables": [],
       "http_prefixes": [],
@@ -211,9 +192,7 @@
       "architecture_nodes": ["E1", "E2", "E3", "E4", "Q_EXCEL", "W_EXCEL"],
       "backend_paths": ["backend/app/modules/excel_processing"],
       "frontend_paths": [
-        "frontend/src/api/excel-final.api.ts",
-        "frontend/src/features/files/ExcelFinalPage.tsx",
-        "frontend/src/features/files/excel-final"
+        "frontend/src/features/excel-processing"
       ],
       "tables": ["excel_final_batches", "excel_final_components", "excel_final_parts"],
       "http_prefixes": ["/api/v1/excel-final"],
@@ -242,10 +221,7 @@
         "backend/app/modules/operations"
       ],
       "frontend_paths": [
-        "frontend/src/api/control-plane.api.ts",
-        "frontend/src/api/data-admin.api.ts",
-        "frontend/src/features/admin/DailyArchivePanel.tsx",
-        "frontend/src/features/admin/InfrastructurePage.tsx"
+        "frontend/src/features/operations"
       ],
       "tables": [
         "audit_logs",
@@ -291,7 +267,7 @@
         "backend/app/modules/automation/agent",
         "backend/app/modules/automation/contracts"
       ],
-      "frontend_paths": ["frontend/src/api/agent-runs.api.ts"],
+      "frontend_paths": ["frontend/src/features/automation"],
       "tables": ["agent_memory", "agent_run_steps", "agent_runs"],
       "http_prefixes": ["/api/v1/agent-runs", "/api/v1/agent-tools"],
       "celery_tasks": [],
@@ -314,7 +290,7 @@
       "status": "placeholder",
       "architecture_nodes": ["BEAT", "OUTBOX", "RABBIT", "SCHEDULER"],
       "backend_paths": ["backend/app/platform/messaging/celery_app.py", "compose.yaml"],
-      "frontend_paths": ["frontend/src/features/admin/InfrastructurePage.tsx"],
+      "frontend_paths": ["frontend/src/features/operations/pages/InfrastructurePage.tsx"],
       "tables": [],
       "http_prefixes": [],
       "celery_tasks": [],
@@ -337,7 +313,7 @@
         "backend/app/modules/automation/contracts",
         "windows/README.md"
       ],
-      "frontend_paths": ["frontend/src/api/control-plane.api.ts"],
+      "frontend_paths": ["frontend/src/features/operations/api/controlPlane.ts"],
       "tables": [],
       "http_prefixes": [],
       "celery_tasks": [],

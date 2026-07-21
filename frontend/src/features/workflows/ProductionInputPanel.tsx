@@ -29,8 +29,8 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { describeApiError } from '../../api/error';
-import { downloadFile, uploadFile } from '../../api/files.api';
+import { describeApiError } from '../../shared/api';
+import { downloadFile, uploadFile } from '../files';
 import {
   createWorkflowInputBatch,
   freezeWorkflowInputBatch,
@@ -38,10 +38,10 @@ import {
   registerWorkflowInputFile,
   removeWorkflowInputFile,
   requestWorkflowInputConversions,
-} from '../../api/workflow-inputs.api';
-import { fmtDateTime, fmtSize } from '../../components/ui';
-import type { StoredFile } from '../../types/file';
-import type { WorkflowInputBatch, WorkflowInputItem } from '../../types/workflow-input';
+} from './workflow-inputs.api';
+import { fmtDateTime, fmtSize } from '../../shared/components';
+import type { StoredFile } from '../files';
+import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
 
 interface OrphanUpload {
   file: StoredFile;

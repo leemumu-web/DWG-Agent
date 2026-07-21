@@ -2,9 +2,8 @@ import { App, ConfigProvider, Spin } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import type { PropsWithChildren } from 'react';
-import { AppErrorBoundary } from '../components/AppErrorBoundary';
-import { ConnectivityBanner } from '../components/ConnectivityBanner';
-import { useAuthInit } from '../hooks/useAuthInit';
+import { AppErrorBoundary, ConnectivityBanner } from '../shared/components';
+import { useAuthInit } from '../shared/auth';
 
 const queryClient = new QueryClient({
   defaultOptions: {

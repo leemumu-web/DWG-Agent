@@ -15,12 +15,12 @@ import {
 } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { listProjects } from '../../api/projects.api';
-import { listFilesPage } from '../../api/files.api';
-import { listJobsPage } from '../../api/jobs.api';
-import { listPendingReviews } from '../../api/reviews.api';
-import { useAuthStore } from '../../stores/auth.store';
-import { fmtRelative, StatCard, StatGrid, StatusChip, JOB_STATUS } from '../../components/ui';
+import { listProjects } from '../projects';
+import { listFilesPage } from '../files';
+import { listJobsPage } from '../jobs';
+import { listPendingReviews } from '../reviews';
+import { useAuthStore } from '../../shared/auth';
+import { fmtRelative, StatCard, StatGrid, StatusChip, JOB_STATUS } from '../../shared/components';
 
 const STAGE_LABEL = 'Stage 1 · 生产就绪骨架';
 

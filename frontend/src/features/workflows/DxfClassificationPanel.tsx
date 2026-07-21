@@ -17,11 +17,11 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { downloadFile } from '../../api/files.api';
-import { executeWorkflowStage, getDxfClassification } from '../../api/workflows.api';
-import { describeApiError } from '../../api/error';
-import { fmtSize } from '../../components/ui';
-import type { DxfClassificationItem, WorkflowStage } from '../../types/workflow';
+import { downloadFile } from '../files';
+import { executeWorkflowStage, getDxfClassification } from './workflows.api';
+import { describeApiError } from '../../shared/api';
+import { fmtSize } from '../../shared/components';
+import type { DxfClassificationItem, WorkflowStage } from './workflow';
 
 interface Props {
   workflowId: number;

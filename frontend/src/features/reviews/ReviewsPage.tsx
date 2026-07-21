@@ -31,8 +31,8 @@ import {
   listResultReviews,
   submitReview,
   type ReviewRecord,
-} from '../../api/reviews.api';
-import type { AnalysisResult } from '../../types/result';
+} from './reviews.api';
+import type { AnalysisResult } from '../jobs';
 import {
   fmtConfidence,
   fmtDateTime,
@@ -40,7 +40,7 @@ import {
   PageHeader,
   StatCard,
   StatGrid,
-} from '../../components/ui';
+} from '../../shared/components';
 
 type Decision = 'approved' | 'rejected' | 'needs_revision';
 

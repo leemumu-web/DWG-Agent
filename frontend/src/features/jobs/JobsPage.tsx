@@ -32,11 +32,11 @@ import {
   getJobSteps,
   listJobsPage,
   retryJob,
-} from '../../api/jobs.api';
-import { downloadFile } from '../../api/files.api';
-import { JobTimeline } from '../../components/JobTimeline';
-import { useJobEvents } from '../../hooks/useJobEvents';
-import type { Job, JobStep } from '../../types/job';
+} from './jobs.api';
+import { downloadFile } from '../files';
+import { JobTimeline } from './JobTimeline';
+import { useJobEvents } from './useJobEvents';
+import type { Job, JobStep } from './job';
 import {
   fmtDateTime,
   JOB_STATUS,
@@ -45,7 +45,7 @@ import {
   StatGrid,
   StatusChip,
   statusOf,
-} from '../../components/ui';
+} from '../../shared/components';
 
 const pipelineLabel: Record<string, string> = {
   local_stub: '框架冒烟',

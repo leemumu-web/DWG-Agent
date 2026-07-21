@@ -44,6 +44,8 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 
 后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
 
+前端采用同一领域词汇做纵向切片：`src/app` 只装配 Router、Provider 和应用壳层，`src/shared` 只放无业务归属的 HTTP/认证/错误边界/通用 UI，`src/features` 下的 11 个功能目录共同拥有页面、API、类型、领域 hook 和组件。跨功能调用只能经过目标目录的 `index.ts`，shared 不得反向依赖 feature；Node 架构门禁在每次 production build 前拒绝旧横向目录和私有深层导入。URL、请求字段、React Query 行为与 FastAPI 授权边界不因目录迁移改变。
+
 identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类、Excel Final 和生产工作流分别进入 `cad_processing`、`dxf_classification`、`excel_processing` 与 `workflows`。operations 进一步按 audit、daily archive、data catalog、storage reconciliation、control plane 分层；automation 把已交付的三张表/会话记忆/API 与未实现执行契约分开。跨域调用只经各模块 `interface.py`；旧 `api/models/schemas/services/workers` 横向业务源码和空 Agent/MCP/ZWCAD 适配器已经退出。HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 callback seam，由 bootstrap 注册 Job 恢复和控制平面 observer，不反向导入业务模块。
 
 ## 同步请求路径

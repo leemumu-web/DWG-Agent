@@ -31,8 +31,9 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 | `backend/app/modules/*/tasks.py` | 7 个真实 task module；公共 task name 保持稳定，Celery 应用位于 `platform/messaging/` |
 | `backend/app/platform/storage/` | local/MinIO byte adapter |
 | `backend/migrations/` | Alembic 所有的业务 schema |
-| `frontend/src/api/` | typed HTTP client、auth refresh、download |
-| `frontend/src/features/` | workflow page |
+| `frontend/src/app/` | Router、Provider 与应用壳层；只通过功能模块公共入口装配页面 |
+| `frontend/src/shared/` | 无业务归属的 HTTP client、认证会话、错误边界与通用 UI |
+| `frontend/src/features/` | identity、projects、files、jobs、workflows、CAD、Excel、operations 等 11 个纵向功能边界；每个目录以 `index.ts` 暴露公共入口 |
 | `Stages/` | 可独立运行的 domain processor；源码/锁文件跟踪，外部 corpus 与生成物排除 |
 | `infra/` | Nginx、MySQL 初始化、部署验证 |
 | `scripts/` | 本地生命周期、DB 和文档工具 |
@@ -108,6 +109,9 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 
 ## Frontend 变更
 
+- API、类型、页面、领域 hook 和组件随功能放入 `src/features/<feature>/`，禁止重建顶层 `src/api`、`components`、`hooks`、`stores`、`types` 或 `utils`。
+- 跨功能依赖只能导入目标功能的 `index.ts`；`shared` 不能反向导入功能代码；`app` 只负责组合。
+- `npm run check:architecture` 静态检查 11 个功能边界、退役目录和跨边界导入；`npm run build` 已包含该门禁。
 - Nginx 后使用相对 API request；只在 Vite 直连开发时使用 `VITE_API_BASE_URL`。
 - Access 状态属于 `sessionStorage`；refresh/SSE 依赖 HttpOnly cookie。
 - Axios 401 interceptor 执行一次共享 refresh，禁止递归重试 login/refresh。
@@ -165,6 +169,7 @@ docker compose config --quiet
 
 # Frontend
 cd frontend
+npm run check:architecture
 npm run build
 npx playwright test
 ```
