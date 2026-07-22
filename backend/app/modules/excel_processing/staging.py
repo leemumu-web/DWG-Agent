@@ -43,8 +43,14 @@ def detect_source_format(filepath: Path) -> str:
     if filepath.suffix.lower() in (".xlsx", ".xlsm"):
         try:
             workbook = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        except Exception:
+            # Malformed workbooks are handed to the Stage so its parser can
+            # produce the canonical safe error mapping.
+            return "tsv"
+        try:
+            if len(workbook.sheetnames) != 1:
+                raise ValueError("Excel Final input must contain exactly one worksheet")
             if "初始表" in workbook.sheetnames:
-                workbook.close()
                 return "init"
             worksheet = workbook.worksheets[0]
             row2_cells = [
@@ -56,14 +62,10 @@ def detect_source_format(filepath: Path) -> str:
                 for keyword in _INIT_TABLE_SIGNATURE
                 if any(keyword in cell for cell in row2_cells)
             )
-            workbook.close()
             if match_count >= 7:
                 return "init"
-        except Exception:
-            # Binary/legacy inputs and malformed workbooks are intentionally
-            # handed to the Stage's broader text/Excel reader for canonical
-            # error mapping.
-            pass
+        finally:
+            workbook.close()
     return "tsv"
 
 

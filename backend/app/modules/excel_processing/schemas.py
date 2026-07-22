@@ -29,6 +29,24 @@ class ExcelFinalPartType(StrEnum):
     UNCLASSIFIED = "unclassified"
 
 
+class HandbookCategory(StrEnum):
+    FLAT_STEEL = "flat_steel"
+    ROUND_BAR = "round_bar"
+    REBAR = "rebar"
+    SQUARE_BAR = "square_bar"
+    I_BEAM = "i_beam"
+    H_BEAM = "h_beam"
+    T_BEAM = "t_beam"
+    CHANNEL = "channel"
+    ANGLE = "angle"
+    STEEL_PIPE = "steel_pipe"
+    SQUARE_TUBE = "square_tube"
+    HFW_PIPE = "hfw_pipe"
+    W_BEAM = "w_beam"
+    PLATE = "plate"
+    SKIP = "skip"
+
+
 class WeightValidationStatus(StrEnum):
     OK = "ok"
     WARNING = "warning"
@@ -68,6 +86,7 @@ __all__ = [
     "BatchImportStats",
     "ComponentsImportStats",
     "ExcelFinalPartType",
+    "HandbookCategory",
     "PartsImportStats",
     "QualityExpectation",
     "QualityImportStats",

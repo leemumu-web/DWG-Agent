@@ -45,7 +45,12 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
 
     result = run_excel_final_pipeline(PREPROCESSED, output, source_format="tsv")
 
-    assert result == output
+    assert result.protocol_version == 1
+    assert result.output_path == output.resolve()
+    assert result.quality_status == "ok"
+    assert result.warning_count == 0
+    assert result.severe_warning_count == 0
+    assert result.report_summary["info_count"] == 198
     assert _sha256(SOURCE) == baseline["sha256"]
     formulas = load_workbook(output, read_only=True, data_only=False)
     values = load_workbook(output, read_only=True, data_only=True)

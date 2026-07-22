@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.excel_processing.stage_adapter import ExcelFinalLookupResult
 from app.modules.files.interface import FileTransfer, StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
@@ -329,3 +330,83 @@ def test_excel_final_health_degrades_safely_when_storage_fails(
     assert data["degraded_components"] == ["object_storage"]
     assert data["ready"] is False
     assert "minio-secret-host.internal" not in response.text
+
+
+def test_weight_lookup_requires_category(db: Session):
+    client, headers, _admin = _admin_client(db)
+
+    response = client.get(
+        "/api/v1/excel-final/weights/lookup",
+        params={"spec": "6*30"},
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"category": "round_bar", "spec": "D24"},
+        {"category": "round_bar", "spec": "D24", "material": "HRB400"},
+        {"category": "rebar", "spec": "D24", "material": "Q355B"},
+        {"category": "flat_steel", "spec": "D24", "material": "Q355B"},
+    ],
+)
+def test_weight_lookup_rejects_d_series_material_category_conflicts(
+    db: Session,
+    params: dict[str, str],
+):
+    client, headers, _admin = _admin_client(db)
+
+    response = client.get(
+        "/api/v1/excel-final/weights/lookup",
+        params=params,
+        headers=headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_HANDBOOK_LOOKUP"
+
+
+def test_weight_lookup_exposes_category_aware_result(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client, headers, _admin = _admin_client(db)
+    captured: dict[str, object] = {}
+
+    def fake_lookup(**kwargs):
+        captured.update(kwargs)
+        return ExcelFinalLookupResult(
+            protocol_version=1,
+            category="round_bar",
+            normalized_spec="24",
+            material="Q355B",
+            weight_kg_per_m=3.55,
+            source="round_square_bar:round_bar",
+            status="hit",
+        )
+
+    monkeypatch.setattr(
+        "app.modules.excel_processing.routes.tools.lookup_excel_final_weight",
+        fake_lookup,
+    )
+
+    response = client.get(
+        "/api/v1/excel-final/weights/lookup",
+        params={"category": "round_bar", "spec": "D24", "material": "Q355B"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured == {"category": "round_bar", "spec": "D24", "material": "Q355B"}
+    assert response.json()["data"] == {
+        "category": "round_bar",
+        "spec": "D24",
+        "normalized_spec": "24",
+        "material": "Q355B",
+        "weight_kg_per_m": 3.55,
+        "source": "round_square_bar:round_bar",
+        "status": "hit",
+    }

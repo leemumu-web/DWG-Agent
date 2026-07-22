@@ -10,6 +10,24 @@ from pathlib import Path
 from typing import Any
 
 _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
+_PROTOCOL_VERSION = 1
+_LOOKUP_CATEGORIES = (
+    "flat_steel",
+    "round_bar",
+    "rebar",
+    "square_bar",
+    "i_beam",
+    "h_beam",
+    "t_beam",
+    "channel",
+    "angle",
+    "steel_pipe",
+    "square_tube",
+    "hfw_pipe",
+    "w_beam",
+    "plate",
+    "skip",
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -24,7 +42,9 @@ def _parse_args() -> argparse.Namespace:
 
     lookup_parser = subparsers.add_parser("lookup")
     lookup_parser.add_argument("--stage-root", required=True, type=Path)
+    lookup_parser.add_argument("--category", required=True, choices=_LOOKUP_CATEGORIES)
     lookup_parser.add_argument("--spec", required=True)
+    lookup_parser.add_argument("--material")
     return parser.parse_args()
 
 
@@ -61,24 +81,55 @@ def _process(args: argparse.Namespace) -> None:
         result = run_pipeline(args.input.resolve(), args.output.resolve())
     if not Path(result).is_file():
         raise RuntimeError(f"Excel Final Stage did not create its output: {result}")
+    summary = dict(result.report_summary)
+    summary["category_counts"] = dict(summary.get("category_counts", {}))
+    summary["representative_messages"] = list(
+        summary.get("representative_messages", [])
+    )
+    _emit_result(
+        {
+            "protocol_version": _PROTOCOL_VERSION,
+            "operation": "process",
+            "output_path": str(result.output_path),
+            "quality_status": result.quality_status,
+            "warning_count": result.warning_count,
+            "severe_warning_count": result.severe_warning_count,
+            "report_summary": summary,
+        }
+    )
 
 
 def _lookup(args: argparse.Namespace) -> None:
     database_config = _configure_stage(args.stage_root)
     from handbook import SteelHandbookDB
 
-    handbook = SteelHandbookDB(database_config, max_retries=1)
+    handbook = SteelHandbookDB(database_config)
     try:
-        weight, source = handbook.lookup(args.spec)
+        result = handbook.lookup(args.category, args.spec, material=args.material)
     finally:
         handbook.close()
+    _emit_result(
+        {
+            "protocol_version": _PROTOCOL_VERSION,
+            "operation": "lookup",
+            "category": result.category,
+            "normalized_spec": result.normalized_spec,
+            "material": args.material,
+            "weight_kg_per_m": (
+                float(result.value_kg_per_m)
+                if result.value_kg_per_m is not None
+                else None
+            ),
+            "source": result.source,
+            "status": result.status.value,
+        }
+    )
+
+
+def _emit_result(payload: dict[str, object]) -> None:
     print(
         _RESULT_PREFIX
-        + json.dumps(
-            {"weight_kg_per_m": weight, "source": source},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
 
 

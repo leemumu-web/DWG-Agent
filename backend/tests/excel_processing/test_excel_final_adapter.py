@@ -1,14 +1,38 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 
 from app.modules.excel_processing import stage_adapter as excel_final
+from app.modules.excel_processing.staging import detect_source_format
 from tests.support.paths import BACKEND_ROOT
+
+
+def _protocol_line(payload: dict[str, object]) -> str:
+    return "DWG_EXCEL_FINAL_RESULT=" + json.dumps(payload, ensure_ascii=False)
+
+
+def _process_payload(output_path: Path) -> dict[str, object]:
+    return {
+        "protocol_version": 1,
+        "operation": "process",
+        "output_path": str(output_path.resolve()),
+        "quality_status": "warning",
+        "warning_count": 1,
+        "severe_warning_count": 0,
+        "report_summary": {
+            "info_count": 2,
+            "warning_count": 1,
+            "severe_warning_count": 0,
+            "category_counts": {"RECT未证明": 2, "手册查无": 1},
+            "representative_messages": ["规格查无"],
+        },
+    }
 
 
 def test_excel_final_stage_root_resolves_tracked_standalone_layout():
@@ -67,7 +91,12 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
         workbook = Workbook()
         workbook.active.title = "整理表"
         workbook.save(output_path)
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_protocol_line(_process_payload(output_path)),
+            stderr="",
+        )
 
     monkeypatch.setattr(excel_final.subprocess, "run", fake_run)
     monkeypatch.setattr(excel_final.settings, "handbook_mysql_password", "not-on-command-line")
@@ -87,7 +116,14 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     assert "not-on-command-line" not in command
     assert captured["cwd"] == excel_final.get_excel_final_stage_root()
     assert captured["env"]["DWG_HANDBOOK_MYSQL_PASSWORD"] == "not-on-command-line"
-    assert result == output_path
+    assert result.output_path == output_path.resolve()
+    assert result.protocol_version == 1
+    assert result.quality_status == "warning"
+    assert result.warning_count == 1
+    assert result.report_summary["category_counts"] == {
+        "RECT未证明": 2,
+        "手册查无": 1,
+    }
 
 
 def test_excel_final_runner_is_importable_from_stage_working_directory():
@@ -132,56 +168,119 @@ def test_excel_final_pipeline_logs_internal_failure_but_raises_safe_message(
 
     assert str(failure.value) == "Excel Final Stage failed while processing the input."
     assert "pipeline exploded" not in str(failure.value)
-    assert "pipeline exploded" in caplog.text
+    assert "pipeline exploded" not in caplog.text
+    assert "processing failure" in caplog.text
 
 
-def test_excel_final_adapter_normalizes_legacy_fixed_width_bolt_row(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        (lambda payload: payload.pop("quality_status"), "invalid process result"),
+        (lambda payload: payload.update(protocol_version=2), "invalid process result"),
+        (lambda payload: payload.update(quality_status="mystery"), "invalid process result"),
+        (lambda payload: payload.update(warning_count=-1), "invalid process result"),
+        (
+            lambda payload: payload.update(traceback="mysql://user:secret@internal/db"),
+            "invalid process result",
+        ),
+    ],
+)
+def test_excel_final_process_protocol_rejects_malformed_or_extra_fields(
+    monkeypatch,
+    tmp_path: Path,
+    mutation,
+    match: str,
+):
+    source_path = tmp_path / "source.xlsx"
     output_path = tmp_path / "result.xlsx"
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "整理表"
-    sheet.append(
-        [
-            "序号",
-            "构件编号",
-            "构件数",
-            "类型",
-            "零件号",
-            "截面型材",
-            "规格",
-            "宽度(mm)",
-            "长度(mm)",
-            "材质",
-            "数量",
-            "总数",
-            "总长(mm)",
-            "单净重(kg)",
-            "总净重(kg)",
-        ]
+    source_path.write_bytes(b"input")
+    payload = _process_payload(output_path)
+    mutation(payload)
+
+    def fake_run(command, **kwargs):
+        output_path.touch()
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_protocol_line(payload),
+            stderr="",
+        )
+
+    monkeypatch.setattr(excel_final.subprocess, "run", fake_run)
+
+    with pytest.raises(excel_final.ExcelFinalProcessError, match=match):
+        excel_final.run_excel_final_pipeline(
+            source_path,
+            output_path,
+            source_format="init",
+        )
+
+
+def test_excel_final_lookup_protocol_passes_category_spec_and_material(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_protocol_line(
+                {
+                    "protocol_version": 1,
+                    "operation": "lookup",
+                    "category": "round_bar",
+                    "normalized_spec": "24",
+                    "material": "Q355B",
+                    "weight_kg_per_m": 3.55,
+                    "source": "round_square_bar:round_bar",
+                    "status": "hit",
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(excel_final.subprocess, "run", fake_run)
+
+    result = excel_final.lookup_excel_final_weight(
+        category="round_bar",
+        spec="D24",
+        material="Q355B",
     )
-    sheet.append([8, "C-1", 1, None, "M20", "C", "C", None, 2, "90", 0, 0, 0, 0, 0])
-    workbook.save(output_path)
 
-    normalized_count = excel_final.normalize_excel_final_output(output_path)
+    assert result.weight_kg_per_m == 3.55
+    assert result.normalized_spec == "24"
+    command = captured["command"]
+    assert command[command.index("--category") + 1] == "round_bar"
+    assert command[command.index("--spec") + 1] == "24"
+    assert command[command.index("--material") + 1] == "Q355B"
 
-    result = load_workbook(output_path, read_only=True, data_only=True)
-    row = [cell.value for cell in result["整理表"][2]]
-    result.close()
-    assert normalized_count == 1
-    assert row[3:15] == [
-        "紧固件",
-        "M20",
-        "M20",
-        "M20",
-        None,
-        90,
-        "C",
-        2,
-        2,
-        180,
-        0,
-        0,
-    ]
+
+def test_retired_post_output_repair_is_absent():
+    assert not hasattr(excel_final, "normalize_excel_final_output")
+
+
+@pytest.mark.parametrize("suffix", [".xlsx", ".xlsm"])
+def test_excel_final_format_detection_rejects_multi_sheet_workbooks(
+    tmp_path: Path,
+    suffix: str,
+):
+    source_path = tmp_path / f"multi-sheet{suffix}"
+    workbook = Workbook()
+    workbook.active.title = "原始清单"
+    workbook.create_sheet("人工结果")
+    workbook.save(source_path)
+
+    with pytest.raises(ValueError, match="exactly one worksheet"):
+        detect_source_format(source_path)
+
+
+def test_excel_final_format_detection_accepts_single_initial_sheet(tmp_path: Path):
+    source_path = tmp_path / "single-sheet.xlsx"
+    workbook = Workbook()
+    workbook.active.title = "初始表"
+    workbook.save(source_path)
+
+    assert detect_source_format(source_path) == "init"
 
 
 def test_excel_final_completion_event_does_not_pass_duplicate_batch_id():

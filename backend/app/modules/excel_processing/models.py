@@ -2,7 +2,7 @@
 
 Three tables mirror the Excel output sheets:
   - excel_final_batches    — processing run metadata
-  - excel_final_parts      — 整理表 (27-column final part list)
+  - excel_final_parts      — 整理表 (35-column canonical part list projection)
   - excel_final_components — 构件表 (component summary)
 """
 

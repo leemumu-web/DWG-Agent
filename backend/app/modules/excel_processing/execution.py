@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
+from app.modules.excel_processing.models import ExcelFinalBatch
 from app.modules.excel_processing.persistence import (
     cleanup_excel_processing_rows,
     import_workbook_for_job,
@@ -60,6 +61,7 @@ ERROR_CODE_NO_OUTPUT = "EXCEL_FINAL_NO_OUTPUT"
 ERROR_CODE_UNAVAILABLE = "EXCEL_FINAL_UNAVAILABLE"
 ERROR_CODE_STORAGE_FAILED = "EXCEL_FINAL_STORAGE_FAILED"
 ERROR_CODE_NOT_EXCEL = "EXCEL_FINAL_NOT_EXCEL"
+ERROR_CODE_INPUT_CONTRACT = "EXCEL_FINAL_INPUT_CONTRACT"
 ERROR_CODE_DB_IMPORT_FAILED = "EXCEL_FINAL_DB_IMPORT_FAILED"
 
 _EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -133,6 +135,35 @@ def _add_step(
             finished_at=datetime.now(UTC),
         )
     )
+
+
+def _quality_payload(result) -> dict[str, object]:
+    return {
+        "quality_status": result.quality_status,
+        "warning_count": result.warning_count,
+        "severe_warning_count": result.severe_warning_count,
+        "report_summary": result.report_summary,
+    }
+
+
+def _completion_message(batch: ExcelFinalBatch) -> str:
+    message = (
+        f"处理完成: {batch.part_count} 个零件, {batch.component_count} 个构件；"
+        f"质量={batch.quality_status}, 警告={batch.warning_count}, "
+        f"严重={batch.severe_warning_count}"
+    )
+    summary = batch.report_summary or {}
+    categories = summary.get("category_counts", {})
+    handbook_misses = 0
+    if isinstance(categories, dict):
+        handbook_misses = sum(
+            int(count)
+            for category, count in categories.items()
+            if "查无" in str(category) and isinstance(count, int)
+        )
+    if handbook_misses:
+        message += f"；手册查无={handbook_misses}，请查看处理报告"
+    return message
 
 
 def run_excel_final_processing(
@@ -231,13 +262,23 @@ def run_excel_final_processing(
             if job is None:
                 return
 
-            source_format = detect_source_format(source_path)
+            try:
+                source_format = detect_source_format(source_path)
+            except ValueError as exc:
+                _mark_job_failed(
+                    db,
+                    job_id,
+                    attempt,
+                    AppError(str(exc)),
+                    error_code=ERROR_CODE_INPUT_CONTRACT,
+                )
+                return
             logger.info("Detected format for file_id=%s: %s", file_id, source_format)
             output_basename = sanitize_filename(source_file.original_name.rsplit(".", 1)[0])
             output_path = work_dir / f"{output_basename}_处理后.xlsx"
             pipeline_started = datetime.now(UTC)
             try:
-                run_excel_final_pipeline(
+                pipeline_result = run_excel_final_pipeline(
                     source_path,
                     output_path,
                     source_format=source_format,
@@ -292,7 +333,10 @@ def run_excel_final_processing(
                 worker_name,
                 "succeeded",
                 input_json={"file_id": file_id, "format": source_format},
-                output_json={"output": str(output_path)},
+                output_json={
+                    "output": str(output_path),
+                    **_quality_payload(pipeline_result),
+                },
                 started_at=pipeline_started,
             )
             job = commit_job_progress(
@@ -305,7 +349,11 @@ def run_excel_final_processing(
                     progress=60,
                     step_name=STEP_RUN_EXCEL_FINAL,
                     status=JOB_RUNNING,
-                    message=f"流水线完成 (format={source_format})",
+                    message=(
+                        f"流水线完成 (format={source_format}, "
+                        f"quality={pipeline_result.quality_status})"
+                    ),
+                    **_quality_payload(pipeline_result),
                 ),
             )
             if job is None:
@@ -329,6 +377,7 @@ def run_excel_final_processing(
                     source_type=source_format,
                     source_name=source_file.original_name,
                     output_path=output_path,
+                    expected_quality=pipeline_result.quality_expectation(),
                 )
             except Exception as exc:
                 logger.exception("Database import failed for Excel Final job %s", job_id)
@@ -432,10 +481,7 @@ def run_excel_final_processing(
                     status="succeeded",
                     progress=100,
                     step_name=STEP_PERSIST_EXCEL_FINAL,
-                    message=(
-                        f"处理完成: {batch.part_count} 个零件, "
-                        f"{batch.component_count} 个构件"
-                    ),
+                    message=_completion_message(batch),
                     excel_file_id=excel_file.id,
                     excel_name=f"{output_basename}_处理后{_EXCEL_EXT}",
                     part_count=batch.part_count,
