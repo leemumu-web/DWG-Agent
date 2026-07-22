@@ -128,7 +128,7 @@ def test_remnant_source_sha_is_unique(db_session, user, stored_file, material):
 - Produces API service functions `list_materials`, `create_material`, `update_material`, `replace_aliases`.
 - Roles: `remnant_worker` can read/use; `admin` and `super_admin` can manage catalog.
 
-- [ ] **Step 1: Test exact code/alias normalization, preserved suffixes, disabled material rejection, same-series expansion, duplicate alias conflict, and non-admin mutation denial.**
+- [x] **Step 1: Test exact code/alias normalization, preserved suffixes, disabled material rejection, same-series expansion, duplicate alias conflict, and non-admin mutation denial.**
 
 ```python
 def test_family_expansion_does_not_strip_suffix(session):
@@ -137,10 +137,10 @@ def test_family_expansion_does_not_strip_suffix(session):
     assert material_ids_for_search(session, "Q235B-Z15", include_family=True) == [1, 2, 3]
 ```
 
-- [ ] **Step 2: Run focused tests; expect missing services.**
-- [ ] **Step 3: Implement uppercase+NFKC lookup without truncating codes, exact alias resolution, enabled checks and SQL family expansion; seed `remnant_worker` permission role without granting admin catalog mutations.**
-- [ ] **Step 4: Run `cd backend && uv run pytest tests/remnant_inventory/test_materials.py tests/identity/test_rbac_deep.py -q`; expect PASS.**
-- [ ] **Step 5: Commit `feat(remnants): add managed material catalog`.**
+- [x] **Step 2: Run focused tests; expect missing services.**
+- [x] **Step 3: Implement uppercase+NFKC lookup without truncating codes, exact alias resolution, enabled checks and SQL family expansion; seed `remnant_worker` permission role without granting admin catalog mutations.**
+- [x] **Step 4: Run `cd backend && uv run pytest tests/remnant_inventory/test_materials.py tests/identity/test_rbac_deep.py -q`; expect PASS.**
+- [x] **Step 5: Commit `feat(remnants): add managed material catalog`.**
 
 ### Task 4: 实现批量上传登记与重复检测
 
