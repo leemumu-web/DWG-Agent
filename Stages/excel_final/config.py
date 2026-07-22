@@ -67,21 +67,8 @@ HEADER_UNITS = {
 }
 
 # ── Hardware Handbook DB ───────────────────────────────────────
-DB_CONFIG = {
-    "host": "127.0.0.1",
-    "user": "adminer",
-    "password": "adminer123",
-    "database": "hardware_handbook",
-    "charset": "utf8mb4",
-    "connect_timeout": 5,
-}
-
-# Miscellaneous items not in the standard handbook (nuts, threaded rods)
-MISC_WEIGHTS: dict[str, float] = {
-    "NUT_M24": 0.112,
-    "NUT_M30": 0.224,
-    "TT25": 0.039,
-}
+# The platform injects the read-only connection at the process boundary.
+DB_CONFIG: dict[str, object] = {}
 
 # 初始表 format signature headers (for auto-detection)
 INIT_TABLE_SIGNATURE = [

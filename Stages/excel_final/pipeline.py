@@ -48,12 +48,8 @@ def run_pipeline(input_file: Path, output_file: Path | None = None):
     log.info("  输出: %s", output_file)
     log.info("=" * 60)
 
-    # ── Initialize handbook DB ──
-    try:
-        init_handbook(cfg.DB_CONFIG)
-    except Exception as e:
-        log.error("五金手册数据库初始化失败: %s", e)
-        log.error("比重查找将仅使用公式计算和杂项表。")
+    # ── Initialize handbook DB; infrastructure failures are fatal. ──
+    init_handbook(cfg.DB_CONFIG)
 
     try:
         # ── Steps 0-1 ──
@@ -63,7 +59,7 @@ def run_pipeline(input_file: Path, output_file: Path | None = None):
         comp_col, comp_qty_col, part_col, qty_col, batch_col, comp_rows = steps_2_5_setup(wb, ws)
 
         # ── Step 6 ──
-        ws_comp = step_6_split_sheets(wb, ws, comp_col, comp_qty_col, part_col, qty_col, batch_col, comp_rows)
+        step_6_split_sheets(wb, ws, comp_col, comp_qty_col, part_col, qty_col, batch_col, comp_rows)
         ws = wb["整理表"]
 
         # ── Steps 7-9 ──

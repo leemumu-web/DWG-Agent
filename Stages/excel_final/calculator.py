@@ -16,6 +16,7 @@ from openpyxl.styles import Font
 import config as cfg
 from utils import safe_str, safe_float, get_headers, find_col_by_keyword, insert_column
 from handbook import lookup_steel_weight
+from spec_parser import LookupPolicy, classify_normalized_spec
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ def steps_15_19_calculations(wb, ws_name):
     spec_col = find_col_by_keyword(headers, "规格")
     width_col = find_col_by_keyword(headers, "宽度")
     type_col = find_col_by_keyword(headers, "类型")
+    material_col = find_col_by_keyword(headers, cfg.KW_材质)
 
     # Find 截面型材 for step-19 lookup
     sec_col = None
@@ -124,8 +126,6 @@ def steps_15_19_calculations(wb, ws_name):
         fixed = 0
         missed: list[str] = []
         red_font = Font(color="FF0000")
-        import re as _re_step19
-
         for r in range(2, ws.max_row + 1):
             type_val = safe_str(ws.cell(row=r, column=type_col).value)
             if type_val:
@@ -140,31 +140,39 @@ def steps_15_19_calculations(wb, ws_name):
             if not lookup_spec:
                 continue
 
-            # Skip non-profile specs: bolts, studs, summary text, single chars
-            if _re_step19.match(r"^(TS|HS)\s*\d+", lookup_spec, _re_step19.I):
-                continue
-            if _re_step19.match(r"^M\d+", lookup_spec, _re_step19.I):
-                continue
-            if _re_step19.match(r"^(STUD|stud|栓钉)$", lookup_spec.strip()):
-                continue
             if any(kw in lookup_spec for kw in ["合计", "总计"]):
                 continue
             if len(lookup_spec) <= 2 and not lookup_spec.isdigit():
                 continue
 
-            density, source = lookup_steel_weight(lookup_spec)
+            material = (
+                safe_str(ws.cell(row=r, column=material_col).value)
+                if material_col is not None
+                else ""
+            )
+            decision = classify_normalized_spec(lookup_spec, material=material)
+            if decision.lookup_policy is LookupPolicy.SKIP:
+                continue
+            if decision.lookup_policy is LookupPolicy.NOT_FOUND:
+                density, source = None, decision.reason or "not_found"
+            elif (
+                decision.lookup_policy is LookupPolicy.HANDBOOK
+                and decision.handbook_category is not None
+            ):
+                density, source = lookup_steel_weight(
+                    decision.handbook_category.value,
+                    decision.normalized_spec,
+                    material=material,
+                )
+            else:
+                continue
             length = safe_float(ws.cell(row=r, column=len_col).value)
             total = safe_float(ws.cell(row=r, column=total_col).value)
 
             if density is not None:
                 ws.cell(row=r, column=density_col).value = density
                 if length:
-                    if source and source.startswith("杂项"):
-                        # MISC items (nuts, threaded rods): weight is per PIECE,
-                        # not per meter.  Use the piece weight directly.
-                        theo_unit = density
-                    else:
-                        theo_unit = length * density / 1000
+                    theo_unit = length * density / 1000
                     ws.cell(row=r, column=theo_wt_col).value = round(theo_unit, 3)
                     if total:
                         ws.cell(row=r, column=theo_total_wt_col).value = round(theo_unit * total, 2)
