@@ -184,6 +184,7 @@ def validate_parent_weights(
     density_source: str,
     theoretical_unit_weight: Decimal | None,
     theory_basis: TheoryBasis,
+    report_missing_source_weights: bool = True,
 ) -> WeightValidationResult:
     issues: list[QualityIssue] = []
     source_fields = (
@@ -193,7 +194,7 @@ def validate_parent_weights(
         ("总毛重", source.source_total_gross),
     )
     for field, value in source_fields:
-        if value is None:
+        if value is None and report_missing_source_weights:
             issues.append(_quality_issue(
                 source,
                 level=IssueLevel.WARNING,
