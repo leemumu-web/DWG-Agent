@@ -18,6 +18,7 @@ EXPECTED_TEST_DOMAINS = {
     "jobs",
     "operations",
     "projects",
+    "remnant_inventory",
     "regression",
     "security",
     "workflows",

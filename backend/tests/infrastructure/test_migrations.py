@@ -20,6 +20,7 @@ WORKFLOW_INPUT_REVISION = VERSIONS_DIR / "f7a9c2d4e610_add_workflow_input_batche
 DXF_CLASSIFICATION_REVISION = VERSIONS_DIR / "a9e4c7d2f610_add_dxf_classification_stage.py"
 CONTROL_PLANE_REVISION = VERSIONS_DIR / "c1e9a4b7d220_add_control_plane_framework.py"
 DAILY_ARCHIVE_REVISION = VERSIONS_DIR / "e2f4b8c6a130_add_daily_archive_runs.py"
+REMNANT_INVENTORY_REVISION = VERSIONS_DIR / "2b7e91d4c830_add_remnant_inventory.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -217,6 +218,30 @@ def test_daily_archive_migration_extends_head_with_durable_outputs():
     assert '"archive_file_id"' in source
     assert '"manifest_file_id"' in source
     assert 'op.drop_table("daily_archive_runs")' in source
+
+
+def test_remnant_inventory_migration_extends_head_and_is_reversible():
+    source = REMNANT_INVENTORY_REVISION.read_text(encoding="utf-8")
+    assert 'down_revision: str | None = "e2f4b8c6a130"' in source
+    for table in (
+        "remnant_materials",
+        "remnant_material_aliases",
+        "remnant_import_batches",
+        "remnant_import_items",
+        "remnants",
+        "remnant_parts",
+    ):
+        assert f'"{table}"' in source
+        assert f'op.drop_table("{table}")' in source
+    for constraint in (
+        "uq_remnant_material_code",
+        "uq_remnant_material_alias_normalized",
+        "uq_remnant_import_item_batch_source",
+        "uq_remnant_source_sha256",
+        "uq_remnant_import_item_confirmation",
+        "uq_remnant_part_number",
+    ):
+        assert f'"{constraint}"' in source
 
 
 def test_alembic_autogenerate_excludes_celery_owned_tables():

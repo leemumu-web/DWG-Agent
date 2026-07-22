@@ -100,7 +100,7 @@ def parse_dxf(path: Path) -> ParseResult:
 - Produces models `RemnantMaterial`, `RemnantMaterialAlias`, `RemnantImportBatch`, `RemnantImportItem`, `Remnant`, `RemnantPart`.
 - Stable status strings: item `uploaded|converting|parsing|pending_confirmation|confirmed|failed|cancelled`; remnant `available|reserved|used|archived`.
 
-- [ ] **Step 1: Write failing model tests for unique source SHA, unique `(remnant_id, part_no)`, alias uniqueness, DECIMAL thickness and all foreign keys.**
+- [x] **Step 1: Write failing model tests for unique source SHA, unique `(remnant_id, part_no)`, alias uniqueness, DECIMAL thickness and all foreign keys.**
 
 ```python
 def test_remnant_source_sha_is_unique(db_session, user, stored_file, material):
@@ -111,10 +111,10 @@ def test_remnant_source_sha_is_unique(db_session, user, stored_file, material):
         db_session.commit()
 ```
 
-- [ ] **Step 2: Run `cd backend && uv run pytest tests/remnant_inventory/test_models.py -q`; expect missing module failure.**
-- [ ] **Step 3: Implement typed SQLAlchemy models with `DECIMAL(10,3)` thickness, JSON candidate/evidence/warning columns, batch counters, item `attempt`, remnant `version`, audit user/time fields, indexes for `(material_id, thickness_mm, status)` and all named constraints.**
-- [ ] **Step 4: Add Alembic upgrade/downgrade creating tables in FK order, register models, then run `cd backend && uv run pytest tests/remnant_inventory/test_models.py tests/infrastructure/test_migrations.py -q`; expect PASS.**
-- [ ] **Step 5: Regenerate module catalog with `backend/.venv/bin/python scripts/architecture/snapshot_contracts.py` and commit `feat(remnants): add inventory persistence model`.**
+- [x] **Step 2: Run `cd backend && uv run pytest tests/remnant_inventory/test_models.py -q`; expect missing module failure.**
+- [x] **Step 3: Implement typed SQLAlchemy models with `DECIMAL(10,3)` thickness, JSON candidate/evidence/warning columns, batch counters, item `attempt`, remnant `version`, audit user/time fields, indexes for `(material_id, thickness_mm, status)` and all named constraints.**
+- [x] **Step 4: Add Alembic upgrade/downgrade creating tables in FK order, register models, then run `cd backend && uv run pytest tests/remnant_inventory/test_models.py tests/infrastructure/test_migrations.py -q`; expect PASS.**
+- [x] **Step 5: Regenerate module catalog with `backend/.venv/bin/python scripts/architecture/snapshot_contracts.py` and commit `feat(remnants): add inventory persistence model`.**
 
 ### Task 3: 实现材质目录、别名和权限
 

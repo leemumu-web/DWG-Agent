@@ -9,6 +9,7 @@
 | `identity` | implemented | 6 | 20 | 0 | 登录、token、用户、角色、权限 |
 | `projects` | implemented | 4 | 17 | 0 | 项目成员、图纸与版本目录 |
 | `files` | implemented | 4 | 17 | 0 | 上传、登记、下载、预览、对象补偿 |
+| `remnant_inventory` | partial | 6 | 0 | 0 | 材质目录、导入账本与全厂共享余料状态 |
 | `jobs` | implemented | 4 | 18 | 1 | Job attempt、步骤、结果、复核、SSE |
 | `workflows` | partial | 5 | 16 | 0 | 生产批次、输入冻结、阶段和产物编排 |
 | `cad_processing` | partial | 0 | 0 | 5 | DWG/DXF 格式转换、DXF 预览解释与材料表提取 |
@@ -18,7 +19,7 @@
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |
 | `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Outbox、Beat 的目标边界 |
 | `windows_execution` | external | 0 | 0 | 0 | Node Agent、CAM Runner、SinoCAM Adapter |
-| **合计** |  | **36** | **135** | **11** | 所有运行契约唯一归属 |
+| **合计** |  | **42** | **135** | **11** | 所有运行契约唯一归属 |
 
 “HTTP operation 为 0”不表示模块不可用。例如 CAD 转换与分类由 Job/Workflow 公共端点触发，模块拥有任务和 Stage，而 HTTP 入口由 `jobs` 或 `workflows` 拥有。归属只设一个主 owner，避免同一契约由多个目录同时负责。
 
@@ -89,4 +90,4 @@ cd backend && .venv/bin/pytest -q tests/architecture
 cd ../frontend && npm run check:architecture
 ```
 
-检查器验证路径存在、数组确定性排序、36 张 ORM 表唯一归属、135 个 HTTP operation 唯一归属、11 个 Celery 任务唯一归属、10 条任务路由稳定，以及目标能力的显式状态。
+检查器验证路径存在、数组确定性排序、42 张 ORM 表唯一归属、135 个 HTTP operation 唯一归属、11 个 Celery 任务唯一归属、10 条任务路由稳定，以及目标能力的显式状态。

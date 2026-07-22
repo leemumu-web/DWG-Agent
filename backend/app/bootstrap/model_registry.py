@@ -18,6 +18,7 @@ def load_models() -> tuple[ModuleType, ...]:
     from app.modules.operations.control_plane import models as control_plane
     from app.modules.operations.daily_archive import models as daily_archive
     from app.modules.projects.models import drawing, project
+    from app.modules.remnant_inventory import models as remnant_inventory
     from app.modules.workflows import models as workflows
 
     return (
@@ -32,6 +33,7 @@ def load_models() -> tuple[ModuleType, ...]:
         files,
         jobs,
         project,
+        remnant_inventory,
         role,
         token_blacklist,
         user,

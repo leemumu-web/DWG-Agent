@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "e2f4b8c6a130"
+    "2b7e91d4c830"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -337,6 +337,12 @@
     "platform_messages",
     "project_members",
     "projects",
+    "remnant_import_batches",
+    "remnant_import_items",
+    "remnant_material_aliases",
+    "remnant_materials",
+    "remnant_parts",
+    "remnants",
     "review_records",
     "storage_scan_findings",
     "storage_scan_runs",
