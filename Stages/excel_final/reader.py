@@ -10,18 +10,288 @@ from __future__ import annotations
 
 import logging
 import re as _re
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import openpyxl
 
 from config import KW_批次, KW_构件编号, KW_零件号, KW_数量, KW_材质
+from domain import ComponentRowKind, ComponentSourceRow, SourcePart
+from input_contract import HeaderDetection, InputKind, detect_canonical_header, inspect_production_input
+from quality import IssueLevel, QualityIssue
 from utils import safe_str, remove_all_spaces
 
 log = logging.getLogger(__name__)
 
 # Keywords for detecting steel-table content (encoding confirmation)
 _CONTENT_KWS = ["构件编号", "零件", "规格", "长度", "材质", "数量", "型材", "型 材"]
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalWorkbookRead:
+    source_path: Path
+    sheet_name: str
+    header: HeaderDetection
+    working_values: tuple[tuple[Any, ...], ...]
+    parts: tuple[SourcePart, ...]
+    component_rows: tuple[ComponentSourceRow, ...]
+    issues: tuple[QualityIssue, ...]
+
+
+def _working_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(" ", "").replace("　", "")
+    return value
+
+
+def _row_value(row: tuple[Any, ...], columns: dict[str, int] | Any, field: str) -> Any:
+    column = columns.get(field)
+    if column is None or column > len(row):
+        return None
+    return row[column - 1]
+
+
+def _text(value: Any) -> str | None:
+    if value is None:
+        return None
+    result = str(value)
+    return result if result else None
+
+
+def _decimal(value: Any, *, field: str, source_row: int) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"row {source_row} field {field} is not numeric: {value!r}") from exc
+
+
+def _component_source_row(
+    row: tuple[Any, ...],
+    columns: Any,
+    *,
+    sheet_name: str,
+    source_row: int,
+    kind: ComponentRowKind,
+) -> ComponentSourceRow:
+    component_no = _text(_row_value(row, columns, "构件编号"))
+    if not component_no:
+        raise ValueError(f"row {source_row} component source row has no component number")
+    return ComponentSourceRow(
+        source_sheet=sheet_name,
+        source_row=source_row,
+        kind=kind,
+        batch=_text(_row_value(row, columns, "批次")),
+        component_no=component_no,
+        component_qty=_decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row),
+        original_spec=_text(_row_value(row, columns, "规格")),
+        material=_text(_row_value(row, columns, "材质")),
+        source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
+        source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
+        source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
+        source_total_gross=_decimal(_row_value(row, columns, "总毛重"), field="总毛重", source_row=source_row),
+        source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
+        source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
+        component_length=_decimal(_row_value(row, columns, "构件长度"), field="构件长度", source_row=source_row),
+        component_width=_decimal(_row_value(row, columns, "构件宽度"), field="构件宽度", source_row=source_row),
+        component_height=_decimal(_row_value(row, columns, "构件高度"), field="构件高度", source_row=source_row),
+    )
+
+
+def _component_identity(row: ComponentSourceRow) -> tuple[object, ...]:
+    return (
+        row.batch,
+        row.component_qty,
+        row.original_spec,
+        row.material,
+        row.component_length,
+        row.component_width,
+        row.component_height,
+    )
+
+
+def _canonicalize_values(
+    *,
+    source_path: Path,
+    sheet_name: str,
+    header: HeaderDetection,
+    working_values: tuple[tuple[Any, ...], ...],
+) -> CanonicalWorkbookRead:
+    columns = header.columns
+    parts: list[SourcePart] = []
+    component_rows: list[ComponentSourceRow] = []
+    issues: list[QualityIssue] = []
+    starts: dict[str, ComponentSourceRow] = {}
+    current: ComponentSourceRow | None = None
+
+    for source_row, row in enumerate(working_values[header.row_number:], start=header.row_number + 1):
+        batch = _text(_row_value(row, columns, "批次"))
+        component_no = _text(_row_value(row, columns, "构件编号"))
+        part_no = _text(_row_value(row, columns, "零件号"))
+
+        if component_no and "合计" in component_no and not part_no:
+            continue
+        if component_no and part_no == "构件小计":
+            subtotal = _component_source_row(
+                row,
+                columns,
+                sheet_name=sheet_name,
+                source_row=source_row,
+                kind=ComponentRowKind.SUBTOTAL,
+            )
+            component_rows.append(subtotal)
+            continue
+        if component_no and not part_no:
+            start = _component_source_row(
+                row,
+                columns,
+                sheet_name=sheet_name,
+                source_row=source_row,
+                kind=ComponentRowKind.START,
+            )
+            previous = starts.get(start.component_no)
+            if previous is not None and _component_identity(previous) != _component_identity(start):
+                issues.append(QualityIssue(
+                    level=IssueLevel.SEVERE,
+                    category="构件编号冲突",
+                    source_sheet=sheet_name,
+                    source_row=source_row,
+                    component_no=start.component_no,
+                    part_no=None,
+                    spec=start.original_spec,
+                    field="构件元数据",
+                    actual_value=_component_identity(start),
+                    expected_value=_component_identity(previous),
+                    absolute_error=None,
+                    relative_error=None,
+                    affects_part=True,
+                    density_source=None,
+                    description=(
+                        f"构件编号 {start.component_no} 在来源行 {previous.source_row} 与 "
+                        f"{source_row} 的元数据不一致"
+                    ),
+                ))
+            else:
+                starts[start.component_no] = start
+            component_rows.append(start)
+            current = start
+            continue
+        if not part_no:
+            continue
+        if current is None:
+            raise ValueError(f"row {source_row} part {part_no!r} has no preceding component row")
+
+        length = _decimal(_row_value(row, columns, "零件长度"), field="零件长度", source_row=source_row)
+        quantity = _decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row)
+        if length is None or quantity is None or current.component_qty is None:
+            raise ValueError(
+                f"row {source_row} part {part_no!r} requires length, quantity, and component quantity"
+            )
+        parts.append(SourcePart(
+            source_sheet=sheet_name,
+            source_row=source_row,
+            source_seq=source_row - header.row_number,
+            batch=batch or current.batch,
+            component_no=current.component_no,
+            component_qty=current.component_qty,
+            part_no=part_no,
+            original_spec=_text(_row_value(row, columns, "规格")) or "",
+            material=_text(_row_value(row, columns, "材质")) or "",
+            length=length,
+            original_qty=quantity,
+            source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
+            source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
+            source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
+            source_total_gross=_decimal(_row_value(row, columns, "总毛重"), field="总毛重", source_row=source_row),
+            source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
+            source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
+            classification=None,
+        ))
+
+    return CanonicalWorkbookRead(
+        source_path=source_path,
+        sheet_name=sheet_name,
+        header=header,
+        working_values=working_values,
+        parts=tuple(parts),
+        component_rows=tuple(component_rows),
+        issues=tuple(issues),
+    )
+
+
+def _worksheet_values(worksheet: Any) -> tuple[tuple[Any, ...], ...]:
+    return tuple(
+        tuple(_working_value(value) for value in row)
+        for row in worksheet.iter_rows(values_only=True)
+    )
+
+
+def read_canonical_workbook(path: str | Path) -> CanonicalWorkbookRead:
+    """Read one reviewed worksheet into immutable canonical source records."""
+    inspected = inspect_production_input(Path(path))
+    if inspected.kind is not InputKind.WORKBOOK or inspected.sheet_name is None:
+        raise ValueError("canonical workbook reader requires a one-sheet .xlsx/.xlsm source")
+
+    workbook = openpyxl.load_workbook(inspected.path, read_only=True, data_only=False)
+    try:
+        worksheet = workbook[inspected.sheet_name]
+        header = detect_canonical_header(worksheet)
+        working_values = _worksheet_values(worksheet)
+    finally:
+        workbook.close()
+    return _canonicalize_values(
+        source_path=inspected.path,
+        sheet_name=inspected.sheet_name,
+        header=header,
+        working_values=working_values,
+    )
+
+
+def _tab_text_workbook(path: Path) -> openpyxl.Workbook | None:
+    for encoding in ("utf-8-sig", "gb18030", "gbk", "gb2312"):
+        try:
+            text = path.read_text(encoding=encoding)
+        except UnicodeError:
+            continue
+        if "\t" not in text:
+            return None
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet.title = "原表"
+        for line in text.splitlines():
+            worksheet.append([value if value != "" else None for value in line.split("\t")])
+        return workbook
+    return None
+
+
+def read_canonical_source(path: str | Path) -> CanonicalWorkbookRead:
+    """Dispatch a workbook or Tekla text export into the canonical reader."""
+    inspected = inspect_production_input(Path(path))
+    if inspected.kind is InputKind.WORKBOOK:
+        return read_canonical_workbook(inspected.path)
+
+    workbook = _tab_text_workbook(inspected.path)
+    if workbook is None:
+        workbook, _ = step_0_1_load_and_clean(
+            inspected.path,
+            inspected.path.with_name(f".{inspected.path.stem}.canonical-unused.xlsx"),
+        )
+    try:
+        worksheet = workbook["原表"]
+        header = detect_canonical_header(worksheet)
+        working_values = _worksheet_values(worksheet)
+    finally:
+        workbook.close()
+    return _canonicalize_values(
+        source_path=inspected.path,
+        sheet_name="原表",
+        header=header,
+        working_values=working_values,
+    )
 
 
 def _try_read(input_file: Path, sep: str, enc: str) -> pd.DataFrame | None:

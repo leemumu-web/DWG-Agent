@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
@@ -29,6 +30,32 @@ class SourcePart:
     source_unit_area: Decimal | None
     source_total_area: Decimal | None
     classification: str | None
+
+
+class ComponentRowKind(StrEnum):
+    START = "start"
+    SUBTOTAL = "subtotal"
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentSourceRow:
+    source_sheet: str
+    source_row: int
+    kind: ComponentRowKind
+    batch: str | None
+    component_no: str
+    component_qty: Decimal | None
+    original_spec: str | None
+    material: str | None
+    source_unit_net: Decimal | None
+    source_total_net: Decimal | None
+    source_unit_gross: Decimal | None
+    source_total_gross: Decimal | None
+    source_unit_area: Decimal | None
+    source_total_area: Decimal | None
+    component_length: Decimal | None
+    component_width: Decimal | None
+    component_height: Decimal | None
 
 
 @dataclass(frozen=True, slots=True)
