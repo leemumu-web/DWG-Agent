@@ -97,6 +97,14 @@ def test_ensure_within_root_accepts_legitimate_child(tmp_path: Path):
     assert resolved.is_relative_to(root.resolve())
 
 
+def test_windows_parent_directory_sync_is_a_supported_noop(tmp_path: Path, monkeypatch):
+    from app.platform.storage import local
+
+    monkeypatch.setattr(local.os, "name", "nt")
+    monkeypatch.setattr(local.os, "open", lambda *_args, **_kwargs: pytest.fail("directory open is unsupported on Windows"))
+    local._fsync_parent_directory(tmp_path)
+
+
 # ── 8. `../` inside storage_key is rejected ───────────────────────────────────
 
 

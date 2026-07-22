@@ -157,7 +157,7 @@ def test_family_expansion_does_not_strip_suffix(session):
 - Exposes file validation helpers for DWG and DXF through `files.interface` only.
 - Adds settings `remnant_inventory_enabled: bool = False`, `remnant_import_max_files: int = 100`.
 
-- [ ] **Step 1: Test mixed DWG/DXF, zero files, over-config limit, forged extension/header, same-batch SHA duplicate, existing-remnant SHA duplicate and partial storage compensation.**
+- [x] **Step 1: Test mixed DWG/DXF, zero files, over-config limit, forged extension/header, same-batch SHA duplicate, existing-remnant SHA duplicate and partial storage compensation.**
 
 ```python
 def test_duplicate_source_returns_existing_remnant(client, worker_headers, existing_remnant, same_dwg):
@@ -168,10 +168,10 @@ def test_duplicate_source_returns_existing_remnant(client, worker_headers, exist
     assert response.json()["error"]["details"]["remnant_id"] == existing_remnant.id
 ```
 
-- [ ] **Step 2: Run focused test; expect missing service and settings.**
-- [ ] **Step 3: Stream each upload once into the files registry, calculate SHA-256 there, validate AC10xx DWG header or parseable DXF structure, persist item rows independently, and schedule post-commit dispatch data without running conversion in the request.**
-- [ ] **Step 4: Run import tests plus `backend/tests/files`; expect PASS and no leaked temp objects.**
-- [ ] **Step 5: Commit `feat(remnants): register mixed drawing import batches`.**
+- [x] **Step 2: Run focused test; expect missing service and settings.**
+- [x] **Step 3: Stream each upload once into the files registry, calculate SHA-256 there, validate AC10xx DWG header or parseable DXF structure, persist item rows independently, and schedule post-commit dispatch data without running conversion in the request.**
+- [x] **Step 4: Run import tests plus `backend/tests/files`; expect PASS and no leaked temp objects.**
+- [x] **Step 5: Commit `feat(remnants): register mixed drawing import batches`.**
 
 ### Task 5: 接入批量 DWG 转换与逐图解析任务
 

@@ -66,6 +66,7 @@ from app.modules.files.validation import (
     SUPPORTED_DWG_HEADERS,
     sanitize_filename,
     validate_dwg_header,
+    validate_dxf_structure,
     validate_upload_mime,
     validate_upload_name,
 )
@@ -150,6 +151,7 @@ __all__ = [
     "storage_health",
     "validate_download_signature",
     "validate_dwg_header",
+    "validate_dxf_structure",
     "validate_upload_mime",
     "validate_upload_name",
 ]
