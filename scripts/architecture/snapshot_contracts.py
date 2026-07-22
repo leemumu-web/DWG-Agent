@@ -16,6 +16,9 @@ SNAPSHOT_PATH = REPO_ROOT / "docs" / "architecture" / "runtime-contract.json"
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put"}
 ROUTE_PATH_RE = re.compile(r"<Route\b[^>]*\bpath=\"([^\"]+)\"")
 COMPOSE_SERVICE_RE = re.compile(r"^  ([A-Za-z0-9][A-Za-z0-9_-]*):(?:\s*(?:#.*)?)?$")
+REMNANT_WORKER_RE = re.compile(
+    r"-Q\s+(remnant_(?:convert|parse)).*?--concurrency=\$\{[^:}]+:-(\d+)\}"
+)
 
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
@@ -95,6 +98,15 @@ def _compose_services() -> list[str]:
     return sorted(services)
 
 
+def _worker_queue_concurrency() -> dict[str, int]:
+    source = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
+    values = {queue: int(value) for queue, value in REMNANT_WORKER_RE.findall(source)}
+    expected = {"remnant_convert", "remnant_parse"}
+    if values.keys() != expected:
+        raise RuntimeError(f"missing remnant worker concurrency contract: {expected - values.keys()}")
+    return dict(sorted(values.items()))
+
+
 def _alembic_heads() -> list[str]:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
@@ -116,6 +128,7 @@ def build_contract_snapshot() -> dict[str, Any]:
         "http_operations": http_operations,
         "http_paths": http_paths,
         "orm_tables": _orm_tables(),
+        "worker_queue_concurrency": _worker_queue_concurrency(),
     }
 
 

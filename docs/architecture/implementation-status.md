@@ -2,6 +2,8 @@
 
 > 本文保留原始逐项调研证据，并作为目标差距的历史基线。2026-07-21 起，仓库结构重构的实时设计与计划见[领域重构设计](../superpowers/specs/2026-07-21-repository-domain-reorganization-design.md)和[实施计划](../superpowers/plans/2026-07-21-repository-domain-reorganization.md)。文中旧路径或旧排除声明仅代表调研时点，不应解释为当前完成状态。
 
+> 2026-07-22 余料库更新：独立 `remnant_inventory` 后端领域、DXF 确定性解析 Stage、六张业务表、21 个 API 操作、`remnant_convert`/`remnant_parse` 专用队列（默认并发 2/4）以及 Web 检索、批量导入、刷新恢复、人工校正、部分确认、预占和原图下载界面已实现。功能仍默认关闭，只有完成[余料库上线与运行手册](../operations/remnant-inventory.md)中的真实样本、材质、权限、备份和回滚门禁后才允许启用。该纵向功能不代表历史审计所述自动拆板或 Windows/SinoCAM 闭环已经实现。
+
 ## 历史审计说明
 
 > 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。CAD 域按 DWG→DXF、DXF→DWG、DXF 材料表、预览渲染和共享执行原语细分；Classifier 1.1 的适配、账本和编排分别归档；Excel Final 的上传事务、14 个 route、Stage 子进程、工作簿导入、三张关系表和 Job 编排也已分层。workflows 的五张表、模板/状态机/Job 同步/阶段执行规划、输入登记/转换/冻结/展示和 16 个 route 已分层，files 与 classifier 不再直连 workflow 私有模型或服务。files 仍拥有文件行/传输 saga，jobs 仍拥有执行状态，跨域只经 `interface.py`；目录归域不代表跨图纸最终屏障、左右进合并或留白核心算法已实现。当前 SSE 无事件编号补发、投递无 Outbox。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。

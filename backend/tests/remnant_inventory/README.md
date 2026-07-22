@@ -4,4 +4,6 @@
 
 `test_import_batches.py` 覆盖 DXF 结构校验、混合 DWG/DXF 登记、配置上限、ZIP 拒绝和两级 SHA-256 重复检测。`test_execution.py` 覆盖单次目录 ODA 调用、解析 attempt fencing、批次计数以及专用 Celery 队列。`test_confirmation.py` 覆盖人工校正、批量厚度、重试、取消和幂等部分确认。`test_inventory.py` 覆盖精确及系列检索、生命周期、乐观并发预占、审计、预览和真实原图下载权限。`test_api.py` 覆盖功能开关、鉴权、multipart 导入、编辑确认、分页检索、生命周期及稳定 HTTP envelope。
 
+`test_real_fixture_regressions.py` 锁定离线样本工具的显式路径、144 份 AC1032 枚举能力、仅元数据输出和不复制源图边界；真实 ODA 转换结果仍必须在安装了平台对应 ODA File Converter 的验收环境复核。
+
 测试边界：这里不得复制生产服务算法，也不能把 SQLite 单元测试当作 MySQL 并发或真实 ODA 验收。数据库迁移、Compose 和架构一致性分别由 `tests/infrastructure`、`tests/architecture` 以及最终真实样本门禁补充验证。

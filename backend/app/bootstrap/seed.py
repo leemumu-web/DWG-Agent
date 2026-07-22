@@ -10,8 +10,8 @@ from app.platform.config.constants import (
     ROLE_AUDITOR,
     ROLE_ENGINEER,
     ROLE_OPERATOR,
-    ROLE_REVIEWER,
     ROLE_REMNANT_WORKER,
+    ROLE_REVIEWER,
     ROLE_SUPER_ADMIN,
     ROLE_VIEWER,
 )

@@ -326,12 +326,15 @@ def test_download_uses_actual_uploaded_source(service, reserved_by_actor, source
 - Corpus command accepts explicit external directory and writes only candidate JSON/CSV to an explicit output path; no business DWG enters git.
 - Feature remains disabled until material setup and acceptance checklist are complete.
 
-- [ ] **Step 1: Add tests proving the corpus script requires explicit paths, excludes source bytes, handles 144 AC1032 DWGs, and runtime contract lists both queues/concurrency values.**
-- [ ] **Step 2: Run contract tests; expect missing runtime entries.**
-- [ ] **Step 3: Implement report command that hashes files, invokes existing batch conversion adapter, parses each DXF, emits candidate/evidence/warnings and aggregate counts; document admin material setup, retry, queue health, permission matrix, backup/rollback and feature-flag enablement.**
-- [ ] **Step 4: Run against `C:\Users\Ran-xin\Desktop\kuak\余料库\手动拆分清单` into a gitignored temp output; inspect that 144 DWGs are enumerated and no source drawing appears in `git status`.**
-- [ ] **Step 5: Run `make verify-quick`, Stage tests, all backend remnant tests, frontend remnant E2E/build, `make docs-check`, `git diff --check`; all must exit 0.**
-- [ ] **Step 6: Commit `docs(remnants): add rollout and sample calibration gate`.**
+- [x] **Step 1: Add tests proving the corpus script requires explicit paths, excludes source bytes, handles 144 AC1032 DWGs, and runtime contract lists both queues/concurrency values.**
+- [x] **Step 2: Run contract tests; expect missing runtime entries.**
+- [x] **Step 3: Implement report command that hashes files, invokes existing batch conversion adapter, parses each DXF, emits candidate/evidence/warnings and aggregate counts; document admin material setup, retry, queue health, permission matrix, backup/rollback and feature-flag enablement.**
+- [x] **Step 4: Run against `C:\Users\Ran-xin\Desktop\kuak\余料库\手动拆分清单` into a gitignored temp output; inspect that 144 DWGs are enumerated and no source drawing appears in `git status`.**
+- [x] **Step 5: Run `make verify-quick`, Stage tests, all backend remnant tests, frontend remnant E2E/build, `make docs-check`, `git diff --check`; all must exit 0.**
+
+  Windows 验收记录：逐项等价门禁已通过；`verify.sh` 本身因仓库 Shell 文件 CRLF/Windows 路径约束无法在本机执行，基础设施脚本测试同因平台假设阻塞。真实目录确认 144/144 为 AC1032 且没有源图进入 Git；本机缺少 Windows 版 ODA File Converter，故转换/解析实样验收保留为外部 worker 环境门禁，不宣称通过。
+
+- [x] **Step 6: Commit `docs(remnants): add rollout and sample calibration gate`.**
 
 ### Task 12: 最终验收与发布准备
 

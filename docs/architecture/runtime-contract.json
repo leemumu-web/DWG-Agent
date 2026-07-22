@@ -405,5 +405,9 @@
     "workflow_input_items",
     "workflow_runs",
     "workflow_stage_runs"
-  ]
+  ],
+  "worker_queue_concurrency": {
+    "remnant_convert": 2,
+    "remnant_parse": 4
+  }
 }
