@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { App, Button, Card, Empty, Space, Table, Typography } from 'antd';
+import { App, Button, Card, Empty, Space, Table, Tabs, Typography } from 'antd';
 import { DatabaseOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -13,9 +13,15 @@ import {
   releaseRemnant,
   reserveRemnant,
   searchRemnants,
+  cancelRemnantImportBatch,
+  retryRemnantImportItem,
 } from './api';
+import { RemnantBatchProgress } from './RemnantBatchProgress';
+import { RemnantConfirmationPanel } from './RemnantConfirmationPanel';
+import { RemnantImportPanel } from './RemnantImportPanel';
 import { RemnantDetailDrawer, StatusTag } from './RemnantDetailDrawer';
 import { RemnantSearchPanel } from './RemnantSearchPanel';
+import { useRemnantBatch } from './useRemnantBatch';
 import type { Remnant, RemnantSearch, RemnantStatus } from './types';
 import './styles.css';
 
@@ -37,6 +43,8 @@ export function RemnantInventoryPage() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const search = useMemo(() => fromParams(params), [params]);
+  const activeTab = params.get('tab') === 'import' ? 'import' : 'search';
+  const batchId = params.get('batch') ? Number(params.get('batch')) : undefined;
   const [selectedId, setSelectedId] = useState<number>();
   const [preview, setPreview] = useState<{ id: number; name: string }>();
   const user = useAuthStore((state) => state.user);
@@ -52,6 +60,17 @@ export function RemnantInventoryPage() {
     queryKey: ['remnant', selectedId],
     queryFn: () => getRemnant(selectedId!),
     enabled: selectedId !== undefined,
+  });
+  const batch = useRemnantBatch(batchId);
+  const batchAction = useMutation({
+    mutationFn: async ({ kind, itemId }: { kind: 'retry' | 'cancel'; itemId?: number }) => {
+      if (kind === 'retry') await retryRemnantImportItem(itemId!);
+      else if (batchId) await cancelRemnantImportBatch(batchId);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['remnant-import-batch', batchId] });
+      message.success('批次状态已更新');
+    },
   });
 
   const refresh = async (row?: Remnant) => {
@@ -96,12 +115,17 @@ export function RemnantInventoryPage() {
           <Typography.Text type="secondary">按材质与厚度查找、预览和预占全厂共享余料。</Typography.Text>
         </div>
       </header>
-      <RemnantSearchPanel
-        materials={materials.data ?? []}
-        loading={materials.isLoading}
-        value={search}
-        onSearch={updateSearch}
-      />
+      <Tabs
+        activeKey={activeTab}
+        onChange={(tab) => {
+          const target = new URLSearchParams(params);
+          if (tab === 'import') target.set('tab', 'import');
+          else { target.delete('tab'); target.delete('batch'); }
+          setParams(target);
+        }}
+        items={[
+          { key: 'search', label: '余料检索', children: <div className="remnant-tab-stack">
+      <RemnantSearchPanel materials={materials.data ?? []} loading={materials.isLoading} value={search} onSearch={updateSearch} />
       <Card className="remnant-results-card" bordered={false}>
         <div className="remnant-section-heading">
           <div>
@@ -138,6 +162,24 @@ export function RemnantInventoryPage() {
           ]}
         />
       </Card>
+          </div> },
+          { key: 'import', label: '批量导入', children: <div className="remnant-tab-stack">
+            <RemnantImportPanel onCreated={(created) => {
+              const target = new URLSearchParams(params);
+              target.set('tab', 'import'); target.set('batch', String(created.id)); setParams(target);
+            }} />
+            {batch.data && <>
+              <RemnantBatchProgress
+                batch={batch.data}
+                loading={batch.isFetching || batchAction.isPending}
+                onRetry={(item) => batchAction.mutate({ kind: 'retry', itemId: item.id })}
+                onCancel={() => batchAction.mutate({ kind: 'cancel' })}
+              />
+              {batch.data.pending_count > 0 && <RemnantConfirmationPanel batch={batch.data} materials={materials.data ?? []} />}
+            </>}
+          </div> },
+        ]}
+      />
       <RemnantDetailDrawer
         open={selectedId !== undefined}
         remnant={detail.data}
@@ -159,4 +201,3 @@ export function RemnantInventoryPage() {
     </section>
   );
 }
-

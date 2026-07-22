@@ -306,11 +306,11 @@ def test_download_uses_actual_uploaded_source(service, reserved_by_actor, source
 - Batch ID persists in URL as `?tab=import&batch=<id>`.
 - Polling stops only at batch terminal state; pending-confirmation remains recoverable after refresh.
 
-- [ ] **Step 1: Mock mixed file upload and assert no ZIP input, per-item progress/failure/retry, refresh restoration, row selection, bulk thickness, editable material/project/parts, warnings/evidence, selected-valid partial confirmation and original filename display.**
-- [ ] **Step 2: Run import E2E; expect missing controls.**
-- [ ] **Step 3: Implement multi-file DWG/DXF uploader, progress table, 2-second active polling with background refetch disabled at terminal state, bulk thickness modal, split preview/editor confirmation view, part-tag editing and row-level validation messages.**
-- [ ] **Step 4: Run all remnant E2E, architecture check and production build; expect PASS.**
-- [ ] **Step 5: Commit `feat(frontend): add remnant batch confirmation flow`.**
+- [x] **Step 1: Mock mixed file upload and assert no ZIP input, per-item progress/failure/retry, refresh restoration, row selection, bulk thickness, editable material/project/parts, warnings/evidence, selected-valid partial confirmation and original filename display.**
+- [x] **Step 2: Run import E2E; expect missing controls.**
+- [x] **Step 3: Implement multi-file DWG/DXF uploader, progress table, 2-second active polling with background refetch disabled at terminal state, bulk thickness modal, split preview/editor confirmation view, part-tag editing and row-level validation messages.**
+- [x] **Step 4: Run all remnant E2E, architecture check and production build; expect PASS.**
+- [x] **Step 5: Commit `feat(frontend): add remnant batch confirmation flow`.**
 
 ### Task 11: 真实样本校准、回归夹具和上线门禁
 

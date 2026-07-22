@@ -4,4 +4,4 @@
 
 检索通过 React Query 缓存，预占冲突会失效库存查询；在线图形复用 files feature 公开的 `DxfPreviewModal`。原图下载标签按后端返回的 `.dwg`/`.dxf` 展示，只有预占人和管理员能触发。
 
-当前第一阶段页面负责检索与详情；批量导入、进度恢复和人工确认组件在同一 feature 内继续追加，不建立第二套文件、Job 或预览状态。
+`RemnantImportPanel.tsx` 负责多文件登记，`RemnantBatchProgress.tsx` 展示逐图状态与重试，`useRemnantBatch.ts` 负责 URL 批次恢复和轮询终止，`RemnantConfirmationPanel.tsx` 负责批量厚度、候选校正、证据/警告和选择性确认。所有组件仍复用同一个文件、Job 和预览状态，不建立第二套存储事实。

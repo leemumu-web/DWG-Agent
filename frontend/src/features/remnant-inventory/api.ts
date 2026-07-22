@@ -1,5 +1,13 @@
 import { apiClient, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
-import type { OriginalDownload, Remnant, RemnantMaterial, RemnantSearch } from './types';
+import type {
+  ImportConfirmationResult,
+  OriginalDownload,
+  Remnant,
+  RemnantImportBatch,
+  RemnantImportItem,
+  RemnantMaterial,
+  RemnantSearch,
+} from './types';
 
 export async function listRemnantMaterials(): Promise<RemnantMaterial[]> {
   const response = await apiClient.get<ApiEnvelope<RemnantMaterial[]>>('/api/v1/remnant-materials');
@@ -60,4 +68,61 @@ export async function downloadOriginal(remnantId: number): Promise<void> {
   anchor.download = prepared.file_name;
   anchor.click();
   URL.revokeObjectURL(href);
+}
+
+export async function createRemnantImportBatch(files: File[]): Promise<RemnantImportBatch> {
+  const form = new FormData();
+  files.forEach((file) => form.append('files', file));
+  const response = await apiClient.post<ApiEnvelope<RemnantImportBatch>>(
+    '/api/v1/remnant-import-batches',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return response.data.data;
+}
+
+export async function getRemnantImportBatch(batchId: number): Promise<RemnantImportBatch> {
+  const response = await apiClient.get<ApiEnvelope<RemnantImportBatch>>(
+    `/api/v1/remnant-import-batches/${batchId}`,
+  );
+  return response.data.data;
+}
+
+export async function updateRemnantImportItem(
+  itemId: number,
+  payload: { thickness_mm?: string; material_id?: number; project_no?: string; parts?: string[] },
+): Promise<RemnantImportItem> {
+  const response = await apiClient.patch<ApiEnvelope<RemnantImportItem>>(
+    `/api/v1/remnant-import-items/${itemId}`,
+    payload,
+  );
+  return response.data.data;
+}
+
+export async function bulkApplyThickness(
+  batchId: number,
+  itemIds: number[],
+  thicknessMm: string,
+): Promise<number[]> {
+  const response = await apiClient.post<ApiEnvelope<{ updated_item_ids: number[] }>>(
+    `/api/v1/remnant-import-batches/${batchId}/bulk-thickness`,
+    { item_ids: itemIds, thickness_mm: thicknessMm },
+  );
+  return response.data.data.updated_item_ids;
+}
+
+export async function retryRemnantImportItem(itemId: number): Promise<void> {
+  await apiClient.post(`/api/v1/remnant-import-items/${itemId}/retry`);
+}
+
+export async function cancelRemnantImportBatch(batchId: number): Promise<void> {
+  await apiClient.post(`/api/v1/remnant-import-batches/${batchId}/cancel`);
+}
+
+export async function confirmRemnantImportItems(itemIds: number[]): Promise<ImportConfirmationResult> {
+  const response = await apiClient.post<ApiEnvelope<ImportConfirmationResult>>(
+    '/api/v1/remnant-import-items/bulk-confirm',
+    { item_ids: itemIds },
+  );
+  return response.data.data;
 }

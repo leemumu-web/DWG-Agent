@@ -48,3 +48,62 @@ export interface OriginalDownload {
   expires_in: number;
 }
 
+export type RemnantImportItemStatus = 'uploaded' | 'converting' | 'parsing'
+  | 'pending_confirmation' | 'confirmed' | 'failed' | 'cancelled';
+
+export interface CandidateEvidence {
+  raw_text: string;
+  entity_type: string;
+  layer: string;
+  block_path: string[];
+  x?: number;
+  y?: number;
+}
+
+export interface RemnantCandidate {
+  value: string;
+  evidence: CandidateEvidence[];
+}
+
+export interface RemnantImportItem {
+  id: number;
+  batch_id: number;
+  source_file_id: number;
+  dxf_file_id: number | null;
+  original_name: string;
+  source_ext: '.dwg' | '.dxf';
+  attempt: number;
+  status: RemnantImportItemStatus;
+  material_candidates: RemnantCandidate[];
+  project_candidates: RemnantCandidate[];
+  part_candidates: RemnantCandidate[];
+  warnings: { code: string; message: string }[];
+  thickness_mm: string | null;
+  material_id: number | null;
+  project_no: string | null;
+  parts: string[];
+  error_code: string | null;
+  error_message: string | null;
+}
+
+export interface RemnantImportBatch {
+  id: number;
+  created_by: number;
+  status: 'uploaded' | 'processing' | 'awaiting_confirmation' | 'confirmed' | 'cancelled';
+  total_count: number;
+  converting_count: number;
+  parsing_count: number;
+  pending_count: number;
+  confirmed_count: number;
+  failed_count: number;
+  cancelled_count: number;
+  items: RemnantImportItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ImportConfirmationResult {
+  confirmed: { item_id: number; remnant_id: number }[];
+  invalid: { item_id: number; code: string }[];
+  already_confirmed: { item_id: number; remnant_id: number }[];
+}
