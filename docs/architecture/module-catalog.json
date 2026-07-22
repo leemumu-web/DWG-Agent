@@ -103,15 +103,18 @@
         "remnants"
       ],
       "http_prefixes": [],
-      "celery_tasks": [],
-      "queues": [],
+      "celery_tasks": [
+        "app.workers.tasks_remnant_convert.convert_batch",
+        "app.workers.tasks_remnant_parse.parse_item"
+      ],
+      "queues": ["remnant_convert", "remnant_parse"],
       "stages": ["Stages/remnant_drawing_reader"],
       "tests": ["backend/tests/remnant_inventory"],
       "docs": [
         "backend/app/modules/remnant_inventory/README.md",
         "docs/superpowers/specs/2026-07-22-remnant-inventory-design.md"
       ],
-      "notes": "余料领域已拥有材质、导入账本与正式库存模型；HTTP、异步转换解析和 Web 端按实施计划继续交付。"
+      "notes": "余料领域已拥有材质、导入账本、正式库存模型和 attempt-fenced 转换解析任务；HTTP 和 Web 端按实施计划继续交付。"
     },
     {
       "code": "jobs",

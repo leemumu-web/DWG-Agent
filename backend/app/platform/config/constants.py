@@ -28,6 +28,10 @@ JOB_CANCELLED = "cancelled"
 PIPELINE_STUB = "local_stub"
 PIPELINE_DXF = "dxf_open_source"
 PIPELINE_CAD = "zwcad_worker"
+PIPELINE_REMNANT_CONVERT = "remnant_convert"
+PIPELINE_REMNANT_PARSE = "remnant_parse"
+TASK_REMNANT_CONVERT = "convert_remnant_dwg"
+TASK_REMNANT_PARSE = "parse_remnant_drawing"
 
 # DWG→DXF pipeline
 PIPELINE_DXF2DWG = "dxf2dwg_open_source"

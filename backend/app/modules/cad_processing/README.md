@@ -11,6 +11,8 @@ does not own HTTP authorization, file rows, Job rows or Stage algorithms.
 - `interface.py` is the only import path for other business modules.
 - `execution.py` contains shared attempt-aware worker primitives only.
 - `batching.py` contains only the common ODA directory-call adapter.
+- `remnant_conversion.py` exposes one directory-level DWG conversion call for
+  the remnant domain without taking ownership of its ledger or lifecycle.
 - `dwg_to_dxf/` and `dxf_to_dwg/` each separate `contracts.py`,
   `versions.py`, `persistence.py`, single-job `execution.py` and `batch.py`.
 - `dxf_to_excel/` separates batch lookup/download in `staging.py`, workbook
@@ -31,6 +33,7 @@ cad_processing/
 ├── interface.py             cross-domain API
 ├── execution.py             shared attempt/source/step primitives
 ├── batching.py              shared ODA directory invocation
+├── remnant_conversion.py    single-call remnant DWG directory adapter
 ├── preview_rendering.py     bounded parse and SVG renderer
 ├── preview.py               cache, file row and transfer ledger
 ├── statistics.py            entity statistics

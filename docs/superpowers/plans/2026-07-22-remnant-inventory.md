@@ -188,7 +188,7 @@ def test_duplicate_source_returns_existing_remnant(client, worker_headers, exist
 - Produces Celery tasks `app.modules.remnant_inventory.tasks.convert_batch(batch_id, expected_attempts)` and `parse_item(item_id, expected_attempt)`.
 - Consumes one public CAD function `convert_dwg_directory(inputs: Mapping[int, Path], output_dir: Path) -> Mapping[int, Path]`.
 
-- [ ] **Step 1: Test one ODA invocation per batch, direct-DXF parse dispatch, per-file conversion failure, four parallel queue consumers by compose contract, retry attempt increment, and stale attempt update rejection.**
+- [x] **Step 1: Test one ODA invocation per batch, direct-DXF parse dispatch, per-file conversion failure, four parallel queue consumers by compose contract, retry attempt increment, and stale attempt update rejection.**
 
 ```python
 def test_old_parse_attempt_cannot_overwrite_retry(session, item, stage_result):
@@ -198,10 +198,10 @@ def test_old_parse_attempt_cannot_overwrite_retry(session, item, stage_result):
     assert item.status == "parsing"
 ```
 
-- [ ] **Step 2: Run execution and compose tests; expect task/queue failures.**
-- [ ] **Step 3: Implement per-task temp directories, one directory conversion call, output reconciliation, derived-file registration, Stage subprocess with timeout, sanitized stable errors, `status + attempt` guarded updates, counters recalculated from item rows, and task dispatch only after DB commit.**
-- [ ] **Step 4: Route `remnant_convert` and `remnant_parse`, add dedicated workers with concurrency 2 and 4, and include tasks in both registries. Run `cd backend && uv run pytest tests/remnant_inventory/test_execution.py tests/infrastructure/test_compose.py tests/architecture -q`; expect PASS.**
-- [ ] **Step 5: Commit `feat(remnants): process imports on dedicated workers`.**
+- [x] **Step 2: Run execution and compose tests; expect task/queue failures.**
+- [x] **Step 3: Implement per-task temp directories, one directory conversion call, output reconciliation, derived-file registration, Stage subprocess with timeout, sanitized stable errors, `status + attempt` guarded updates, counters recalculated from item rows, and task dispatch only after DB commit.**
+- [x] **Step 4: Route `remnant_convert` and `remnant_parse`, add dedicated workers with concurrency 2 and 4, and include tasks in both registries. Run `cd backend && uv run pytest tests/remnant_inventory/test_execution.py tests/infrastructure/test_compose.py tests/architecture -q`; expect PASS.**
+- [x] **Step 5: Commit `feat(remnants): process imports on dedicated workers`.**
 
 ### Task 6: 实现人工校正、批量厚度和幂等确认
 

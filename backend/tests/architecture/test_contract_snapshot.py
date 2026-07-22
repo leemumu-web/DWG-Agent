@@ -26,8 +26,8 @@ def test_contract_snapshot_locks_every_public_surface() -> None:
     assert len(snapshot["http_paths"]) == 114
     assert len(snapshot["http_operations"]) == 135
     assert len(snapshot["orm_tables"]) == 42
-    assert len(snapshot["celery_tasks"]) == 11
-    assert len(snapshot["celery_task_routes"]) == 10
+    assert len(snapshot["celery_tasks"]) == 13
+    assert len(snapshot["celery_task_routes"]) == 12
     assert "app.workers.tasks_agent.* -> agent" in snapshot["celery_task_routes"]
     assert "app.workers.tasks_cad.* -> cad" in snapshot["celery_task_routes"]
     assert "app.workers.tasks_dispatch.* -> dispatch" in snapshot["celery_task_routes"]

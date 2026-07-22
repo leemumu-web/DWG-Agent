@@ -22,6 +22,7 @@ STAGE_PRODUCTS = {
 
 CAD_PUBLIC_CONTRACT = {
     "MAX_DXF_SIZE_BYTES",
+    "convert_dwg_directory",
     "enqueue_dwg_to_dxf_batch",
     "enqueue_dwg_to_dxf_job",
     "enqueue_dxf_to_dwg_batch",

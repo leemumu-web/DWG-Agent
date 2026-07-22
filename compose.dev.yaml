@@ -18,6 +18,7 @@ services:
       - ./Stages/dxf2excel:/app/Stages/dxf2excel
       - ./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0
       - ./Stages/excel_final:/app/Stages/excel_final
+      - ./Stages/remnant_drawing_reader:/app/Stages/remnant_drawing_reader
 
   worker-report:
     volumes:
@@ -47,3 +48,13 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./Stages/excel_final:/app/Stages/excel_final
+
+  worker-remnant-convert:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages/dwg2dxf:/app/Stages/dwg2dxf
+
+  worker-remnant-parse:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages/remnant_drawing_reader:/app/Stages/remnant_drawing_reader

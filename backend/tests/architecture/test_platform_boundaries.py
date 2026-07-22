@@ -75,7 +75,7 @@ def test_task_registry_loads_every_stable_task_name() -> None:
         name for name in celery_app.tasks if name.startswith("app.workers.tasks_")
     )
 
-    assert len(modules) == 7
+    assert len(modules) == 8
     assert names == SNAPSHOT["celery_tasks"]
 
 

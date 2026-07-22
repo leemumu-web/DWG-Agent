@@ -30,6 +30,8 @@ APP_SERVICE_NAMES = (
     "worker-dxf2excel",
     "worker-excel-final",
     "worker-report",
+    "worker-remnant-convert",
+    "worker-remnant-parse",
 )
 
 
@@ -122,6 +124,8 @@ class TestComposeYamlValid:
             "worker-dxf2excel",
             "worker-excel-final",
             "worker-report",
+            "worker-remnant-convert",
+            "worker-remnant-parse",
             "mysql",
             "minio",
         }

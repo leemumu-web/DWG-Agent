@@ -41,6 +41,8 @@ JOB_QUEUE_NAMES = (
     "excel_final",
     "report",
     "maintenance",
+    "remnant_convert",
+    "remnant_parse",
 )
 
 _celery_engine_options = {
@@ -70,6 +72,7 @@ celery_app = Celery(
         "app.modules.operations.daily_archive.tasks",
         "app.modules.operations.storage_reconciliation.tasks",
         "app.modules.operations.control_plane.tasks",
+        "app.modules.remnant_inventory.tasks",
     ],
 )
 
@@ -115,6 +118,8 @@ celery_app.conf.update(
         "app.workers.tasks_excel_final.*": {"queue": "excel_final"},
         "app.workers.tasks_report.*": {"queue": "report"},
         "app.workers.tasks_maintenance.*": {"queue": "maintenance"},
+        "app.workers.tasks_remnant_convert.*": {"queue": "remnant_convert"},
+        "app.workers.tasks_remnant_parse.*": {"queue": "remnant_parse"},
     },
     task_serializer="json",
     task_track_started=True,

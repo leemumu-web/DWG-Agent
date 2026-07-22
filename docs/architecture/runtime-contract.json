@@ -12,6 +12,8 @@
     "app.workers.tasks_dxf_classification.* -> dxf_classification",
     "app.workers.tasks_excel_final.* -> excel_final",
     "app.workers.tasks_maintenance.* -> maintenance",
+    "app.workers.tasks_remnant_convert.* -> remnant_convert",
+    "app.workers.tasks_remnant_parse.* -> remnant_parse",
     "app.workers.tasks_report.* -> report"
   ],
   "celery_tasks": [
@@ -24,6 +26,8 @@
     "app.workers.tasks_excel_final.process_excel_final",
     "app.workers.tasks_maintenance.create_daily_archive",
     "app.workers.tasks_maintenance.reconcile_stale_jobs",
+    "app.workers.tasks_remnant_convert.convert_batch",
+    "app.workers.tasks_remnant_parse.parse_item",
     "app.workers.tasks_report.run_stub_job",
     "app.workers.tasks_report.scan_storage_consistency"
   ],
@@ -40,6 +44,8 @@
     "worker-dxf2excel",
     "worker-excel-final",
     "worker-maintenance",
+    "worker-remnant-convert",
+    "worker-remnant-parse",
     "worker-report"
   ],
   "frontend_routes": [

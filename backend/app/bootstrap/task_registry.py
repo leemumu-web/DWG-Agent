@@ -20,6 +20,7 @@ def load_tasks() -> tuple[ModuleType, ...]:
     from app.modules.operations.storage_reconciliation import (
         tasks as storage_reconciliation,
     )
+    from app.modules.remnant_inventory import tasks as remnant_inventory
 
     register_job_worker_maintenance()
     register_control_plane_worker_observer()
@@ -32,6 +33,7 @@ def load_tasks() -> tuple[ModuleType, ...]:
         daily_archive,
         storage_reconciliation,
         control_plane,
+        remnant_inventory,
     )
 
 

@@ -42,6 +42,7 @@ COPY Stages/dwg2dxf ./Stages/dwg2dxf
 COPY Stages/dxf2dwg ./Stages/dxf2dwg
 COPY Stages/dxf2excel ./Stages/dxf2excel
 COPY Stages/steel_dxf_classifier_v1.1.0 ./Stages/steel_dxf_classifier_v1.1.0
+COPY Stages/remnant_drawing_reader ./Stages/remnant_drawing_reader
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend
