@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from enum import StrEnum
 
 from domain import ParentPartEvidence, SourcePart
+from multi_split.profile import split_fabricated_geometry
 from quality import IssueLevel, QualityIssue
 
 STEEL_DENSITY = Decimal("7.85")
@@ -62,26 +63,19 @@ def fabricated_parent_unit_weight(
     length: Decimal,
     density: Decimal = STEEL_DENSITY,
 ) -> Decimal:
-    profile_type = profile.upper()
-    if profile_type == "BH":
-        web_height = height - Decimal("2") * flange_thickness
-        cross_section_area = (
-            web_thickness * web_height
-            + Decimal("2") * flange_thickness * width
-        )
-    elif profile_type == "BOX":
-        web_height = height - Decimal("2") * flange_thickness
-        cross_section_area = (
-            Decimal("2") * web_thickness * web_height
-            + Decimal("2") * flange_thickness * width
-        )
-    elif profile_type == "BT":
-        web_height = height - flange_thickness
-        cross_section_area = web_thickness * web_height + flange_thickness * width
-    else:
-        raise ValueError(f"unsupported fabricated profile: {profile}")
-    if min(height, width, web_thickness, flange_thickness, length, web_height) <= 0:
+    if length <= 0:
         raise ValueError(f"fabricated profile has non-positive geometry: {profile}")
+    children = split_fabricated_geometry(
+        profile,
+        height,
+        width,
+        web_thickness,
+        flange_thickness,
+    )
+    cross_section_area = sum(
+        child.thickness * child.width * child.quantity_multiplier
+        for child in children
+    )
     return cross_section_area * length * density / Decimal("1000000")
 
 

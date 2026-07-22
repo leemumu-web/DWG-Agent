@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import re
 import logging
+from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,64 @@ _I_PREFIXES = {"I", "HI"}
 _BT_PREFIXES = {"BT"}
 _BOX_PREFIXES = {"BOX"}
 _PL_PREFIXES = {"PL", "-"}
+
+
+@dataclass(frozen=True, slots=True)
+class FabricatedChildGeometry:
+    part_type: str
+    thickness: Decimal
+    width: Decimal
+    quantity_multiplier: Decimal
+    is_main: bool
+
+
+def split_fabricated_geometry(
+    profile: str,
+    height: Decimal,
+    width: Decimal,
+    web_thickness: Decimal,
+    flange_thickness: Decimal,
+    *,
+    require_positive: bool = True,
+) -> tuple[FabricatedChildGeometry, FabricatedChildGeometry]:
+    """Return the canonical web/flange geometry for BH, BOX, or BT."""
+    profile_type = profile.upper()
+    if profile_type == "BT":
+        web_height = height - flange_thickness
+        web_multiplier = flange_multiplier = Decimal("1")
+    elif profile_type == "BOX":
+        web_height = height - Decimal("2") * flange_thickness
+        web_multiplier = flange_multiplier = Decimal("2")
+    elif profile_type == "BH":
+        web_height = height - Decimal("2") * flange_thickness
+        web_multiplier = Decimal("1")
+        flange_multiplier = Decimal("2")
+    else:
+        raise ValueError(f"unsupported fabricated profile: {profile}")
+    if require_positive and min(
+        height,
+        width,
+        web_thickness,
+        flange_thickness,
+        web_height,
+    ) <= 0:
+        raise ValueError(f"fabricated profile has non-positive geometry: {profile}")
+    return (
+        FabricatedChildGeometry(
+            part_type=f"{profile_type}腹",
+            thickness=web_thickness,
+            width=web_height,
+            quantity_multiplier=web_multiplier,
+            is_main=True,
+        ),
+        FabricatedChildGeometry(
+            part_type=f"{profile_type}翼",
+            thickness=flange_thickness,
+            width=width,
+            quantity_multiplier=flange_multiplier,
+            is_main=False,
+        ),
+    )
 
 
 def _detect_profile_type(spec: str) -> str | None:
@@ -221,19 +280,25 @@ def split_profile_df(
                 H, B, tw, tf = dims
                 web_label, flange_label = LABELS.get(ptype, ("腹板", "翼缘"))
 
-                if ptype == "BT":
-                    web_height = H - tf          # VBA: bharray(1) - bharray(4)
-                    web_qty_mult = 1
-                    flange_qty_mult = 1
-                elif ptype == "BOX":
-                    web_height = H - 2 * tf      # same formula as BH
-                    web_qty_mult = 2             # BOX: 2 webs per section
-                    flange_qty_mult = 2          # BOX: 2 flanges per section
-                else:
-                    # BH, I: web = H - 2*tf, 1 web + 2 flanges
+                if ptype == "I":
+                    # Legacy-only I splitting remains for VBA compatibility.
                     web_height = H - 2 * tf      # VBA: bharray(1) - 2*bharray(4)
                     web_qty_mult = 1
                     flange_qty_mult = 2
+                else:
+                    web_geometry, flange_geometry = split_fabricated_geometry(
+                        ptype,
+                        Decimal(str(H)),
+                        Decimal(str(B)),
+                        Decimal(str(tw)),
+                        Decimal(str(tf)),
+                        require_positive=False,
+                    )
+                    web_height = float(web_geometry.width)
+                    web_qty_mult = int(web_geometry.quantity_multiplier)
+                    flange_qty_mult = int(flange_geometry.quantity_multiplier)
+                    web_label = web_geometry.part_type
+                    flange_label = flange_geometry.part_type
 
                 # Row 1: web
                 r_web = row.copy()
