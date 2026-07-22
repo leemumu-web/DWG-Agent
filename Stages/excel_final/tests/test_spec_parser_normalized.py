@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib
 from decimal import Decimal
 
-import pandas as pd
 import pytest
 
 
@@ -211,29 +210,3 @@ def test_legacy_classifier_no_longer_calls_d15_to_d29_studs_or_ha_bh() -> None:
     assert parser.classify_spec("D24") == "UNKNOWN"
     assert parser.classify_spec("HA700*300*16*30") == "UNKNOWN"
     assert parser.classify_spec("I20a") == "I"
-
-
-def test_initial_transform_has_no_d8_constant_weight_path() -> None:
-    reader_init = importlib.import_module("reader_init")
-    transform_init = importlib.import_module("transform_init")
-    component = reader_init.ComponentInfo("C1", 1, 1.0, "C1")
-    part = reader_init.PartRow(
-        part_no="p1",
-        spec="D8",
-        length=1000,
-        material="Q355B",
-        qty=1,
-        unit_weight=None,
-        total_weight=None,
-        surface_area=None,
-        note="",
-        original_seq=1,
-    )
-
-    built = transform_init.build_df([part], component)
-    calculated = transform_init.calculate(built)
-
-    assert built.at[0, "_orig_type"] == "D"
-    assert pd.isna(calculated.at[0, "比重"])
-    assert pd.isna(calculated.at[0, "理单重"])
-    assert pd.isna(calculated.at[0, "理总重"])

@@ -8,7 +8,6 @@ from typing import Any
 
 import pymysql
 import pytest
-from openpyxl import Workbook
 
 
 class FakeCursor:
@@ -219,36 +218,6 @@ def test_stage_config_contains_no_default_database_secret_or_misc_weights() -> N
     assert '"user":' not in source
     assert '"password":' not in source
     assert '"database":' not in source
-
-
-def test_legacy_calculator_calls_repository_with_confirmed_category_and_material(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calculator = importlib.import_module("calculator")
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-
-    def fake_lookup(*args: object, **kwargs: object) -> tuple[float | None, str]:
-        calls.append((args, kwargs))
-        return (20.0, "fake:confirmed_category")
-
-    monkeypatch.setattr(calculator, "lookup_steel_weight", fake_lookup)
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "整理表"
-    sheet.append([
-        "构件编号", "构件数", "类型", "零件号", "截面型材", "规格", "宽度",
-        "长度", "材质", "数量", "单毛重", "总毛重",
-    ])
-    sheet.append(["C1", 1, None, "p1", "I20a", "I20a", None, 1000, "Q355B", 1])
-    sheet.append(["C1", 1, None, "p2", "D24", "D24", None, 1000, "Q355B", 1])
-    sheet.append(["C1", 1, None, "p3", "NUT_M24", "NUT_M24", None, 24, "Q420B", 1])
-
-    calculator.steps_15_19_calculations(workbook, "整理表")
-
-    assert calls == [
-        (("i_beam", "I20A"), {"material": "Q355B"}),
-        (("round_bar", "24"), {"material": "Q355B"}),
-    ]
 
 
 def test_pipeline_does_not_swallow_handbook_initialization_failure() -> None:

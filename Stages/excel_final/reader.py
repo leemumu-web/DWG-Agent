@@ -22,7 +22,7 @@ from config import KW_批次, KW_构件编号, KW_零件号, KW_数量, KW_材�
 from domain import ComponentRowKind, ComponentSourceRow, SourcePart
 from input_contract import HeaderDetection, InputKind, detect_canonical_header, inspect_production_input
 from quality import IssueLevel, QualityIssue
-from utils import safe_str, remove_all_spaces
+from utils import safe_str
 
 log = logging.getLogger(__name__)
 
@@ -276,10 +276,7 @@ def read_canonical_source(path: str | Path) -> CanonicalWorkbookRead:
 
     workbook = _tab_text_workbook(inspected.path)
     if workbook is None:
-        workbook, _ = step_0_1_load_and_clean(
-            inspected.path,
-            inspected.path.with_name(f".{inspected.path.stem}.canonical-unused.xlsx"),
-        )
+        workbook = _space_text_workbook(inspected.path)
     try:
         worksheet = workbook["原表"]
         header = detect_canonical_header(worksheet)
@@ -335,11 +332,8 @@ def _merge_split_headers(headers: list[str]) -> list[str]:
     return merged
 
 
-def step_0_1_load_and_clean(input_file: Path, output_file: Path):
-    """Load the .xls, convert to .xlsx, apply Steps 0-1.
-
-    Returns (workbook, ws_整理表).
-    """
+def _space_text_workbook(input_file: Path) -> openpyxl.Workbook:
+    """Adapt a recognized whitespace-delimited Tekla export to one raw sheet."""
     log.info("Loading %s ...", input_file)
 
     encodings = ["gbk", "gb2312", "gb18030", "utf-8", "latin-1"]
@@ -389,10 +383,9 @@ def step_0_1_load_and_clean(input_file: Path, output_file: Path):
         if score > best_score:
             best_score = score
             best_row = i
-    if best_score >= 2:
-        header_row = best_row
-    else:
-        header_row = 5  # fallback
+    if best_score < 2:
+        raise ValueError("whitespace Tekla text has no credible header candidate")
+    header_row = best_row
     log.info("  Detected header at row %d (score=%d/%d).", header_row, best_score, len(keywords))
 
     # ---- Extract headers ----
@@ -531,12 +524,4 @@ def step_0_1_load_and_clean(input_file: Path, output_file: Path):
             if val is not None:
                 ws_raw.cell(row=i + 2, column=j + 1, value=val)
 
-    # Step 0: Remove spaces from 原表
-    remove_all_spaces(ws_raw)
-
-    # Step 1: Copy 原表 → 整理表
-    ws = wb.copy_worksheet(ws_raw)
-    ws.title = "整理表"
-
-    log.info("Steps 0-1: Loaded → '原表', copied → '整理表'. 原表 preserved.")
-    return wb, ws
+    return wb

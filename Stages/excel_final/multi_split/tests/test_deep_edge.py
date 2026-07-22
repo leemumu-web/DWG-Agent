@@ -10,23 +10,19 @@ import pandas as pd
 import pytest
 
 from multi_split import (
-    split_profile_df, split_profile_excel, DEFAULT_MODES,
-    fillin, multisort, multisort_from_strings,
-    combination_check, combination_merge, mddzb, transtxt,
-    SortSpec, ColumnMapping, SunFireConfig, read_excel, write_excel,
+    split_profile_df, split_profile_excel, fillin, multisort, combination_check, combination_merge, mddzb, transtxt,
+    SortSpec, ColumnMapping, SunFireConfig,
 )
 from multi_split.bom import (
-    _safe_str, _build_attachment_string, _combine_profiles,
-    _detect_main_materials, _map_standard_columns, qdmade,
+    _build_attachment_string, _combine_profiles,
+    _map_standard_columns, qdmade,
 )
 from multi_split.profile import (
-    _detect_profile_type, _parse_four_num, _parse_plate,
-    _clean_number_str, _resolve_col,
+    _parse_four_num, _parse_plate,
+    _clean_number_str,
 )
 from multi_split.utils import (
-    detect_header_row, strip_newlines, get_column_headers,
-    resolve_column, resolve_columns, detect_data_region,
-    _col_index_to_letter,
+    detect_header_row, resolve_column, _col_index_to_letter,
 )
 
 
@@ -333,7 +329,6 @@ class TestHeaderDetectionDeep:
 
     def test_header_with_some_empty_cells(self):
         """Header row has 7/8 non-empty (>= 87.5% threshold)."""
-        cols = [f"C{i}" for i in range(8)]
         data = [
             ["Project", None, None, None, None, None, None, None],
             ["H1", None, "H3", "H4", "H5", "H6", "H7", "H8"],  # 7/8 = 87.5% ≥ 7/8
@@ -585,10 +580,10 @@ class TestTXTImportDeep:
 # ============================================================================
 
 class TestBoxPipeline:
-    """BOX split integration: multi_split → post_split step 11/12/13/14."""
+    """BOX split integration within the compatibility package."""
 
     def test_box_split_then_relabel_is_noop(self):
-        """After split, BOX labels already correct → step 11 relabel has no effect."""
+        """BOX labels are correct without any external relabeling."""
         df = pd.DataFrame({
             "规格": ["BOX650*300*14*24"],
             "宽度": ["300"],
@@ -817,7 +812,6 @@ class TestPipelineIntegration:
 
     def test_excel_roundtrip_with_box(self, tmp_path):
         """Write Excel with BOX, split, read back, verify labels & qty."""
-        import openpyxl
         path = tmp_path / "box_test.xlsx"
 
         df = pd.DataFrame({

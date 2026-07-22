@@ -9,7 +9,6 @@ import pytest
 from multi_split import (
     split_profile_df,
     split_profile_excel,
-    DEFAULT_MODES,
     fillin,
     multisort,
     multisort_from_strings,
@@ -981,35 +980,10 @@ class TestDetectDataRegion:
 
 
 class TestPipelineCompatibility:
-    """Ensure the bridge module still works correctly."""
-
-    def test_bridge_import(self):
-        from multi_split_bridge import step_10_multi_split
-        assert callable(step_10_multi_split)
-
-    def test_full_public_api(self):
-        """All public exports accessible."""
-        from multi_split import (
-            split_profile_df,
-            split_profile_excel,
-            DEFAULT_MODES,
-            SortSpec,
-            ColumnMapping,
-            SunFireConfig,
-            fillin,
-            multisort,
-            multisort_from_strings,
-            combination_check,
-            combination_merge,
-            combination_merge_legacy,
-            mddzb,
-            transtxt,
-        )
-        # All imported successfully — test passes by not raising ImportError
+    """Ensure the vendored compatibility package public API remains importable."""
 
     def test_split_profile_excel_roundtrip(self, tmp_path):
         """Write Excel, split, read back."""
-        import openpyxl
         excel_path = tmp_path / "test.xlsx"
 
         # Create test Excel
@@ -1382,30 +1356,6 @@ class TestPipelineLabels:
             assert "翼" in result.iloc[idx]["零件类型"], \
                 f"Row {idx} type {result.iloc[idx]['零件类型']!r} does not contain '翼'"
 
-    def test_post_split_box_relabel(self):
-        """Simulate post_split step 11 BOX relabel with VBA labels."""
-        # Simulate a BOX section where BH was split
-        type_val = "BOX钢BH腹"  # what split_profile_df would produce for a BOX section with BH profile
-        # Apply post_split step 11 logic
-        new_type = type_val
-        new_type = new_type.replace("BH腹", "BOX腹")
-        new_type = new_type.replace("BH翼", "BOX翼")
-        assert new_type == "BOX钢BOX腹"
-
-        type_val2 = "BOX钢BH翼"
-        new_type2 = type_val2
-        new_type2 = new_type2.replace("BH腹", "BOX腹")
-        new_type2 = new_type2.replace("BH翼", "BOX翼")
-        assert new_type2 == "BOX钢BOX翼"
-
-    def test_prorate_flange_skip(self):
-        """Prorate skips pairs where flange type contains '翼'."""
-        flange_type = "H钢BH翼"
-        assert "翼" in flange_type  # would be skipped by prorate
-
-        web_type = "H钢BH腹"
-        assert "翼" not in web_type  # would NOT be skipped
-
     def test_large_batch_split_performance(self):
         """100-row batch with mixed specs."""
         specs = []
@@ -1479,7 +1429,7 @@ class TestBoxSplit:
         assert len(result) == 1  # passes through unsplit
 
     def test_box_label_compatibility(self):
-        """BOX翼 contains '翼' for downstream step 13 / prorate compatibility."""
+        """Explicit BOX mode emits the expected wing label."""
         df = pd.DataFrame({
             "规格": ["BOX650*300*14*24"],
             "宽度": ["300"],

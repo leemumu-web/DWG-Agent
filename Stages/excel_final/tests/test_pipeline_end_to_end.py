@@ -199,3 +199,40 @@ def test_invalid_confirmed_split_is_reported_without_dropping_source_row(tmp_pat
         assert any(row[1] == "拆板几何异常" and row[5] == "bad-box" for row in report)
     finally:
         result.close()
+
+
+def test_documentation_contract_rejects_legacy_production_rules() -> None:
+    stage_root = Path(__file__).resolve().parents[1]
+    readme = (stage_root / "README.md").read_text(encoding="utf-8")
+    process = (stage_root / "PROCESS.md").read_text(encoding="utf-8")
+    multi_split = (stage_root / "multi_split/CLAUDE.md").read_text(encoding="utf-8")
+
+    combined_production_docs = readme + "\n" + process
+    forbidden = (
+        "标准 25 步",
+        "回退到第 6 行",
+        "回退到假设第 6 行",
+        "BH / HA",
+        "I / HI",
+        "公式回退计算",
+        "NUT_M24",
+        "五个子表",
+        "整理表_拆板后",
+    )
+    assert all(term not in combined_production_docs for term in forbidden)
+    for required in (
+        "固定六表",
+        "plate_constant:7.85",
+        "flat_steel",
+        "round_bar",
+        "rebar",
+        "PipelineOutcome",
+        "处理报告",
+        "公式缓存",
+        "表净重",
+        "表毛重",
+    ):
+        assert required in combined_production_docs
+    assert "兼容" in multi_split
+    assert "规范流程" in multi_split
+    assert "split_fabricated_geometry" in multi_split
