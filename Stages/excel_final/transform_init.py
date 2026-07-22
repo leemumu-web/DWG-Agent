@@ -4,8 +4,8 @@ Core pipeline:
   1. build_df()       — PartRows → normalized DataFrame with classified specs
   2. apply_split()    — multi_split.split_profile_df(modes=["BH","BT","BOX","I","PL"])
   3. fix_post_split() — clear flange weights
-  4. apply_ordering() — PL+split (original order) → D19 → D8 → M20
-  5. calculate()      — theory weights, totals, D8 density
+  4. apply_ordering() — stable legacy ordering before canonical migration
+  5. calculate()      — plate-only derived weights
   6. generate_ids()   — import part IDs, import component IDs
 """
 
@@ -16,7 +16,7 @@ import logging
 import pandas as pd
 
 from multi_split import split_profile_df
-from spec_parser import classify_spec, parse_plate_dims, D8_DENSITY
+from spec_parser import classify_spec, parse_plate_dims
 from reader_init import ComponentInfo, PartRow
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ def build_df(part_rows: list[PartRow], comp_info: ComponentInfo) -> pd.DataFrame
     """
     rows = []
     for pr in part_rows:
-        spec_type = classify_spec(pr.spec)
+        spec_type = classify_spec(pr.spec, pr.material)
         spec_val = pr.spec
         width_val: str | float | None = None
 
@@ -163,7 +163,7 @@ def calculate(df: pd.DataFrame) -> pd.DataFrame:
     """Compute derived columns: totals, lengths, theory weights, density.
 
     Uses the formula spec×width×length×7.85/1e6 for plates.
-    D8 gets density=0.395 and linear-weight formula.
+    Profile weights are intentionally left for the category-aware handbook path.
     """
     df = df.copy()
 
@@ -213,15 +213,6 @@ def calculate(df: pd.DataFrame) -> pd.DataFrame:
             df.at[idx, "理单重"] = round(theo_unit, 3)
             if total_num is not None:
                 df.at[idx, "理总重"] = round(theo_unit * total_num, 2)
-
-        # D8: density and linear weight
-        if orig_type == "D8":
-            df.at[idx, "比重"] = D8_DENSITY
-            if len_num is not None:
-                d8_unit = D8_DENSITY * len_num / 1000
-                df.at[idx, "理单重"] = round(d8_unit, 3)
-                if total_num is not None:
-                    df.at[idx, "理总重"] = round(d8_unit * total_num, 2)
 
     # 表总重 = 总重 (web/normal), 0 (cover), None (D19/M20)
     df["表总重"] = None

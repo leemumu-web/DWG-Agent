@@ -1,95 +1,317 @@
-"""Specification string classification and dimension parsing.
-
-Shared by both the Tekla TSV pipeline and the initial table pipeline.
-Pure regex — zero project dependencies.
-"""
+"""Pure, material-aware classification and dimension parsing for Excel Final."""
 
 from __future__ import annotations
 
 import re
-
-# Special density for D8 rebar
-D8_DENSITY = 0.395  # kg/m
-
-# ── Regex patterns ───────────────────────────────────────────────
-
-# Two-number plate specs: PL10*143 or -15*3000
-_PLATE_RE = re.compile(r"^(?:PL|-)\s*([\d.]+)\s*\*\s*([\d.]+)", re.IGNORECASE)
-
-# Bare two-number specs: 10*143 (no prefix)
-_BARE_PLATE_RE = re.compile(r"^([\d.]+)\s*\*\s*([\d.]+)")
-
-# D8 rebar (exact match)
-_D8_RE = re.compile(r"^D8$", re.IGNORECASE)
-
-# D19/D22 studs (D15-D29 range)
-_DSTUD_RE = re.compile(r"^D(1[5-9]|2\d)$", re.IGNORECASE)
-
-# M20/M24/M30 bolts
-_MBOLT_RE = re.compile(r"^M\d+", re.IGNORECASE)
-
-# ── Public API ───────────────────────────────────────────────────
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 
 
-def classify_spec(spec: str) -> str:
-    """Classify a spec string into a profile type.
+class HandbookCategory(StrEnum):
+    FLAT_STEEL = "flat_steel"
+    ROUND_BAR = "round_bar"
+    REBAR = "rebar"
+    SQUARE_BAR = "square_bar"
+    I_BEAM = "i_beam"
+    H_BEAM = "h_beam"
+    T_BEAM = "t_beam"
+    CHANNEL = "channel"
+    ANGLE = "angle"
+    STEEL_PIPE = "steel_pipe"
+    SQUARE_TUBE = "square_tube"
+    HFW_PIPE = "hfw_pipe"
+    W_BEAM = "w_beam"
 
-    Returns one of:
-      'M20'   — bolt (M prefix + digits)
-      'D8'    — 8mm rebar
-      'D19'   — stud (D15-D29)
-      'BH'    — welded H-beam (BH/HA prefix)
-      'BOX'   — box section (BOX prefix)
-      'BT'    — T-beam (BT prefix)
-      'I'     — I-beam (I/HI prefix)
-      'PL'    — plate (PL/- prefix or bare <num>*<num>)
-      'UNKNOWN'
-    """
-    if not spec or not isinstance(spec, str):
-        return "UNKNOWN"
-    s = spec.strip().upper()
 
-    # Order matters: bolts before bare numbers
-    if _MBOLT_RE.match(s):
-        return "M20"  # canonical bolt type
-    if _D8_RE.match(s):
-        return "D8"
-    if _DSTUD_RE.match(s):
-        return "D19"  # canonical stud type
-    if s.startswith("BH") or s.startswith("HA"):
-        return "BH"
-    if s.startswith("BOX"):
-        return "BOX"
-    if s.startswith("BT"):
-        return "BT"
-    if s.startswith("I") or s.startswith("HI"):
+class LookupPolicy(StrEnum):
+    HANDBOOK = "handbook"
+    PLATE_CONSTANT = "plate_constant"
+    FLAT_THEN_PLATE = "flat_then_plate"
+    SKIP = "skip"
+    NOT_FOUND = "not_found"
+
+
+class SplitPolicy(StrEnum):
+    NONE = "none"
+    BH = "BH"
+    BOX = "BOX"
+    BT = "BT"
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationResult:
+    original_spec: str
+    normalized_type: str
+    normalized_spec: str
+    normalized_width: Decimal | None
+    handbook_category: HandbookCategory | None
+    lookup_policy: LookupPolicy
+    split_policy: SplitPolicy
+    reason: str | None = None
+
+
+_NUMBER = r"\d+(?:\.\d+)?"
+_EXPLICIT_PLATE_RE = re.compile(rf"^(?:PL|-)({_NUMBER})\*({_NUMBER})$", re.IGNORECASE)
+_BARE_DIMENSIONS_RE = re.compile(rf"^({_NUMBER})\*({_NUMBER})$")
+_EXPLICIT_FLAT_RE = re.compile(
+    rf"^(?:FB|FLAT|扁钢|扁铁)({_NUMBER})\*({_NUMBER})$",
+    re.IGNORECASE,
+)
+_D_BAR_RE = re.compile(rf"^D({_NUMBER})$", re.IGNORECASE)
+
+
+def _compact(value: object) -> str:
+    compact = str(value or "").replace(" ", "").replace("　", "")
+    return re.sub(r"(?<=\d)[xX×](?=\d)", "*", compact)
+
+
+def _number(value: str | Decimal | float | int) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"invalid numeric dimension: {value!r}") from exc
+
+
+def _number_text(value: str | Decimal | float | int) -> str:
+    number = _number(value)
+    rendered = format(number, "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
+    return rendered
+
+
+def _result(
+    original_spec: str,
+    *,
+    normalized_type: str,
+    normalized_spec: str,
+    normalized_width: Decimal | None = None,
+    category: HandbookCategory | None = None,
+    lookup: LookupPolicy,
+    split: SplitPolicy = SplitPolicy.NONE,
+    reason: str | None = None,
+) -> ClassificationResult:
+    return ClassificationResult(
+        original_spec=original_spec,
+        normalized_type=normalized_type,
+        normalized_spec=normalized_spec,
+        normalized_width=normalized_width,
+        handbook_category=category,
+        lookup_policy=lookup,
+        split_policy=split,
+        reason=reason,
+    )
+
+
+def _handbook_profile(
+    original_spec: str,
+    normalized_spec: str,
+    normalized_type: str,
+    category: HandbookCategory,
+) -> ClassificationResult:
+    return _result(
+        original_spec,
+        normalized_type=normalized_type,
+        normalized_spec=normalized_spec,
+        category=category,
+        lookup=LookupPolicy.HANDBOOK,
+    )
+
+
+def classify_normalized_spec(
+    spec: object,
+    *,
+    material: object = "",
+    width: str | Decimal | float | int | None = None,
+) -> ClassificationResult:
+    """Return one deterministic classification decision without querying the handbook."""
+    original_spec = str(spec or "")
+    compact = _compact(spec)
+    upper = compact.upper()
+    material_upper = _compact(material).upper()
+
+    if width is not None and re.fullmatch(_NUMBER, compact):
+        thickness = _number_text(compact)
+        width_text = _number_text(width)
+        if thickness == "6" and width_text == "30":
+            return _handbook_profile(
+                original_spec,
+                "6*30",
+                "扁钢",
+                HandbookCategory.FLAT_STEEL,
+            )
+        return _result(
+            original_spec,
+            normalized_type="板材",
+            normalized_spec=thickness,
+            normalized_width=_number(width),
+            lookup=LookupPolicy.PLATE_CONSTANT,
+        )
+
+    if upper.startswith("NUT") or upper.startswith("螺母"):
+        return _result(
+            original_spec,
+            normalized_type="螺母",
+            normalized_spec=upper,
+            lookup=LookupPolicy.SKIP,
+        )
+    if upper.startswith(("SLEEVE", "螺套", "套筒")):
+        return _result(
+            original_spec,
+            normalized_type="螺套",
+            normalized_spec=upper,
+            lookup=LookupPolicy.SKIP,
+        )
+    if upper.startswith("TT"):
+        return _result(
+            original_spec,
+            normalized_type="TT",
+            normalized_spec=upper,
+            lookup=LookupPolicy.SKIP,
+        )
+    if re.match(r"^(?:M\d|BOLT|螺栓|TS\d|HS\d)", upper):
+        return _result(
+            original_spec,
+            normalized_type="螺栓",
+            normalized_spec=upper,
+            lookup=LookupPolicy.SKIP,
+        )
+
+    match = _EXPLICIT_PLATE_RE.fullmatch(upper)
+    if match:
+        thickness = _number_text(match.group(1))
+        plate_width = _number_text(match.group(2))
+        if thickness == "6" and plate_width == "30":
+            return _handbook_profile(
+                original_spec,
+                "6*30",
+                "扁钢",
+                HandbookCategory.FLAT_STEEL,
+            )
+        return _result(
+            original_spec,
+            normalized_type="板材",
+            normalized_spec=thickness,
+            normalized_width=_number(plate_width),
+            lookup=LookupPolicy.PLATE_CONSTANT,
+        )
+
+    match = _EXPLICIT_FLAT_RE.fullmatch(upper)
+    if match:
+        normalized = f"{_number_text(match.group(1))}*{_number_text(match.group(2))}"
+        return _handbook_profile(
+            original_spec,
+            normalized,
+            "扁钢",
+            HandbookCategory.FLAT_STEEL,
+        )
+
+    match = _BARE_DIMENSIONS_RE.fullmatch(upper)
+    if match:
+        normalized = f"{_number_text(match.group(1))}*{_number_text(match.group(2))}"
+        return _result(
+            original_spec,
+            normalized_type="扁钢候选",
+            normalized_spec=normalized,
+            category=HandbookCategory.FLAT_STEEL,
+            lookup=LookupPolicy.FLAT_THEN_PLATE,
+        )
+
+    for prefix, split in (("BOX", SplitPolicy.BOX), ("BH", SplitPolicy.BH), ("BT", SplitPolicy.BT)):
+        if upper.startswith(prefix):
+            return _result(
+                original_spec,
+                normalized_type=prefix,
+                normalized_spec=upper,
+                lookup=LookupPolicy.PLATE_CONSTANT,
+                split=split,
+            )
+
+    if upper.startswith("HA"):
+        return _result(
+            original_spec,
+            normalized_type="未分类",
+            normalized_spec=upper,
+            lookup=LookupPolicy.NOT_FOUND,
+            reason="HA不在支持范围",
+        )
+
+    match = _D_BAR_RE.fullmatch(upper)
+    if match:
+        diameter = _number_text(match.group(1))
+        if material_upper.startswith("HRB"):
+            return _handbook_profile(
+                original_spec,
+                diameter,
+                "螺纹钢",
+                HandbookCategory.REBAR,
+            )
+        if material_upper.startswith("HPB") or material_upper.startswith("Q355B"):
+            return _handbook_profile(
+                original_spec,
+                diameter,
+                "圆钢",
+                HandbookCategory.ROUND_BAR,
+            )
+        return _result(
+            original_spec,
+            normalized_type="未分类",
+            normalized_spec=diameter,
+            lookup=LookupPolicy.NOT_FOUND,
+            reason="D系列材质不足",
+        )
+
+    if re.match(r"^(?:I|HI)\d", upper):
+        return _handbook_profile(original_spec, upper, "工字钢", HandbookCategory.I_BEAM)
+    if re.match(r"^(?:HN|HW|HM|HT|LH)\d", upper) or re.match(r"^H\d", upper):
+        return _handbook_profile(original_spec, upper, "H型钢", HandbookCategory.H_BEAM)
+    if re.match(r"^(?:TN|TW|TM|T)\d", upper):
+        return _handbook_profile(original_spec, upper, "T型钢", HandbookCategory.T_BEAM)
+    if re.match(r"^(?:C\d|\[)", upper):
+        return _handbook_profile(original_spec, upper, "槽钢", HandbookCategory.CHANNEL)
+    if re.match(r"^(?:L\d|∠)", upper):
+        return _handbook_profile(original_spec, upper, "角钢", HandbookCategory.ANGLE)
+    if upper.startswith(("方管", "矩形管", "□")):
+        return _handbook_profile(original_spec, upper, "方管", HandbookCategory.SQUARE_TUBE)
+    if re.match(r"^(?:PIP|IP|P|Φ|D)\d+(?:\.\d+)?\*", upper):
+        return _handbook_profile(original_spec, upper, "钢管", HandbookCategory.STEEL_PIPE)
+    if upper.startswith("方钢"):
+        return _handbook_profile(original_spec, upper, "方钢", HandbookCategory.SQUARE_BAR)
+    if upper.startswith("HFW"):
+        return _handbook_profile(original_spec, upper, "高频焊", HandbookCategory.HFW_PIPE)
+    if re.match(r"^W\d", upper):
+        return _handbook_profile(original_spec, upper, "W型钢", HandbookCategory.W_BEAM)
+
+    return _result(
+        original_spec,
+        normalized_type="未分类",
+        normalized_spec=upper,
+        lookup=LookupPolicy.NOT_FOUND,
+        reason="无法分类规格",
+    )
+
+
+def classify_spec(spec: str, material: str = "") -> str:
+    """Compatibility label for legacy callers while the canonical path migrates."""
+    result = classify_normalized_spec(spec, material=material)
+    if result.split_policy is not SplitPolicy.NONE:
+        return result.split_policy.value
+    if result.normalized_type == "工字钢":
         return "I"
-    if s.startswith("PL") or s.startswith("-"):
+    if result.normalized_type in {"板材", "扁钢", "扁钢候选"}:
         return "PL"
-    if _BARE_PLATE_RE.match(s):
-        return "PL"
-
+    if result.normalized_type in {"圆钢", "螺纹钢"}:
+        return "D"
+    if result.normalized_type == "螺栓":
+        return "M20"
     return "UNKNOWN"
 
 
 def parse_plate_dims(spec: str) -> tuple[float, float] | None:
-    """Parse a plate spec into (thickness, width), sorted smaller-first.
-
-    Handles: PL10*143, -15*3000, and bare 10*143.
-    Returns None if the spec doesn't match.
-    """
-    s = str(spec).strip()
-    # Try prefixed first
-    m = _PLATE_RE.match(s)
-    if not m:
-        m = _BARE_PLATE_RE.match(s)
-    if not m:
+    """Parse explicit or bare two-number dimensions in their written order."""
+    compact = _compact(spec).upper()
+    match = _EXPLICIT_PLATE_RE.fullmatch(compact) or _BARE_DIMENSIONS_RE.fullmatch(compact)
+    if match is None:
         return None
-    try:
-        a, b = float(m.group(1)), float(m.group(2))
-    except (ValueError, IndexError):
-        return None
-    # Sort: smaller = thickness, larger = width
-    if a > b:
-        return (b, a)
-    return (a, b)
+    return (float(match.group(1)), float(match.group(2)))
