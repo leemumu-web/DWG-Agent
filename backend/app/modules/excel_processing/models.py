@@ -9,11 +9,12 @@ Three tables mirror the Excel output sheets:
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import (
+    DECIMAL,
     JSON,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
     String,
@@ -24,6 +25,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.platform.database.base import Base, PKType
+
+PHYSICAL_VALUE_TYPE = DECIMAL(precision=24, scale=9)
 
 
 class ExcelFinalBatch(Base):
@@ -38,13 +41,20 @@ class ExcelFinalBatch(Base):
         PKType, ForeignKey("files.id", ondelete="SET NULL"), nullable=True, index=True
     )
     source_type: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="init_table", comment="init_table / tekla_tsv"
+        String(32),
+        nullable=False,
+        default="init",
+        comment="init / canonical / tsv",
     )
     source_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     component_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     part_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    total_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    total_gross_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_net_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    total_gross_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
     quality_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ok")
     warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     severe_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -74,36 +84,56 @@ class ExcelFinalPart(Base):
     import_part_no: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_batch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     team: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    original_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
+    original_qty: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
     component_no: Mapped[str | None] = mapped_column(String(512), nullable=True)
     component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     part_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     part_no: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     profile_spec: Mapped[str | None] = mapped_column(String(255), nullable=True)
     spec: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    width: Mapped[float | None] = mapped_column(Float, nullable=True)
-    length: Mapped[float | None] = mapped_column(Float, nullable=True)
-    left_inset: Mapped[float | None] = mapped_column(Float, nullable=True)
-    right_inset: Mapped[float | None] = mapped_column(Float, nullable=True)
-    cut_length: Mapped[float | None] = mapped_column(Float, nullable=True)
+    width: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    length: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    left_inset: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    right_inset: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    cut_length: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
     material: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    qty: Mapped[float | None] = mapped_column(Float, nullable=True)
-    total_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
-    total_length: Mapped[float | None] = mapped_column(Float, nullable=True)
-    density: Mapped[float | None] = mapped_column(Float, nullable=True)
+    qty: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    total_qty: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    total_length: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    density: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
     density_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    theo_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    theo_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    material_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    theo_unit_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    theo_total_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    material_utilization: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
     weight_validation: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    net_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    net_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    table_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    gross_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    gross_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    table_gross_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
-    surface_area: Mapped[float | None] = mapped_column(Float, nullable=True)
-    total_surface_area: Mapped[float | None] = mapped_column(Float, nullable=True)
+    net_unit_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    net_total_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    table_net_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    gross_unit_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    gross_total_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    table_gross_weight: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
+    surface_area: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
+    total_surface_area: Mapped[Decimal | None] = mapped_column(
+        PHYSICAL_VALUE_TYPE, nullable=True
+    )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -122,7 +152,7 @@ class ExcelFinalComponent(Base):
     )
     component_no: Mapped[str | None] = mapped_column(String(512), nullable=True)
     component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_weight: Mapped[Decimal | None] = mapped_column(PHYSICAL_VALUE_TYPE, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     batch: Mapped[ExcelFinalBatch] = relationship("ExcelFinalBatch", back_populates="components")

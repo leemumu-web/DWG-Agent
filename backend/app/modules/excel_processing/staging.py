@@ -40,14 +40,14 @@ def resolve_file_id(job: Job) -> int | None:
 
 
 def detect_source_format(filepath: Path) -> str:
-    """Detect the Stage's `init` workbook input versus Tekla `tsv` fallback."""
+    """Classify legacy init workbooks, canonical workbooks, and Tekla text."""
     if filepath.suffix.lower() in (".xlsx", ".xlsm"):
         try:
             workbook = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
         except Exception:
             # Malformed workbooks are handed to the Stage so its parser can
             # produce the canonical safe error mapping.
-            return "tsv"
+            return "canonical"
         try:
             if len(workbook.sheetnames) != 1:
                 raise ValueError("Excel Final input must contain exactly one worksheet")
@@ -65,6 +65,7 @@ def detect_source_format(filepath: Path) -> str:
             )
             if match_count >= 7:
                 return "init"
+            return "canonical"
         finally:
             workbook.close()
     return "tsv"

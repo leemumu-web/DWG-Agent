@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -169,6 +170,52 @@ def test_workbook_import_persists_quality_and_table_weight_totals(
     assert batch_summary(batch)["quality_status"] == "severe_warning"
     assert part_detail(first_part)["density_source"] == "plate_constant:7.85"
     assert part_detail(first_part)["weight_validation"] == "severe_warning"
+
+
+def test_workbook_import_sums_physical_weights_as_exact_decimals(
+    db: Session,
+    tmp_path: Path,
+):
+    job, source = _job(db)
+    output_path = tmp_path / "exact-weights.xlsx"
+    workbook = Workbook()
+    organized = workbook.active
+    organized.title = "整理表"
+    organized.append(
+        [
+            "序号",
+            "构件编号",
+            "零件号",
+            "规格",
+            "长度",
+            "材质",
+            "数量",
+            "表净重",
+            "表毛重",
+        ]
+    )
+    organized.append([1, "C-1", "P-1", 10, 1000, "Q355B", 1, 122000.5, 124800.88])
+    organized.append([2, "C-2", "P-2", 10, 1000, "Q355B", 1, 13.057, 31.001])
+    workbook.save(output_path)
+    workbook.close()
+
+    batch, stats = import_workbook_for_job(
+        db,
+        job_id=job.id,
+        file_id=source.id,
+        source_type="init_table",
+        source_name=source.original_name,
+        output_path=output_path,
+    )
+
+    assert batch.total_net_weight == Decimal("122013.557")
+    assert batch.total_gross_weight == Decimal("124831.881")
+    assert stats["total_net_weight"] == 122013.557
+    assert stats["total_gross_weight"] == 124831.881
+    projected = batch_summary(batch)
+    assert projected["total_net_weight"] == 122013.557
+    assert projected["total_gross_weight"] == 124831.881
+    assert isinstance(projected["total_gross_weight"], float)
 
 
 def test_workbook_quality_must_match_independent_stage_summary(

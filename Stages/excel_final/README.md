@@ -9,7 +9,7 @@ uv run python main.py /path/to/input.xlsx -o /path/to/output.xlsx
 uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tests
 ```
 
-`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的文本表格。规范结果始终新建为 `.xlsx`，不复制源宏。
+`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的文本表格。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
 
 五金手册配置不写在 Stage 中。平台通过隔离子进程注入只读 MySQL 配置；连接、schema 或查询故障均为致命错误。
 
@@ -24,9 +24,9 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 - `part`：固定 11 列下料投影，无标题行或合计行偏移。
 - `处理报告`：信息、警告、严重问题的逐来源行台账。
 
-`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
+长度存在时，`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存；长度缺失时公式与缓存均留空。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
 
-缺零件号、规格、长度、材质或数量，以及非正长度/数量/构件数、负重量/面积的来源行，不查询手册或拆板；它们保留在清洗表、整理表和处理报告并逐字段标红，但不进入 `part`。
+缺构件编号、零件号、规格、长度、材质或数量，以及非正长度/数量/构件数、负重量/面积或 NaN/Infinity 等非有限数值的来源行，不查询手册或拆板；它们保留在清洗表、整理表和处理报告并逐字段标红，但不进入 `part`。构件 summary 的数量、尺寸、重量或面积非法时隔离整个构件。
 
 ## 责任与边界
 

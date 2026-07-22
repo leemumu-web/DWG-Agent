@@ -43,7 +43,7 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
     assert _sha256(SOURCE) == baseline["sha256"]
     output = tmp_path / "ground-truth-canonical.xlsx"
 
-    result = run_excel_final_pipeline(PREPROCESSED, output, source_format="tsv")
+    result = run_excel_final_pipeline(PREPROCESSED, output, source_format="canonical")
 
     assert result.protocol_version == 1
     assert result.output_path == output.resolve()

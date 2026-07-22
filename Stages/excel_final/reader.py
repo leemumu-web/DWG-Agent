@@ -65,9 +65,12 @@ def _decimal(value: Any, *, field: str, source_row: int) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
-        return Decimal(str(value))
+        result = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
         raise ValueError(f"row {source_row} field {field} is not numeric: {value!r}") from exc
+    if not result.is_finite():
+        raise ValueError(f"row {source_row} field {field} must be finite")
+    return result
 
 
 def _has_part_payload(row: tuple[Any, ...], columns: Any) -> bool:
@@ -141,6 +144,7 @@ def _summarize_component_rows(
         subtotals = [row for row in group if row.kind == ComponentRowKind.SUBTOTAL]
         base = starts[0] if starts else group[0]
         values: dict[str, object | None] = {}
+        value_sources: dict[str, ComponentSourceRow | None] = {}
 
         for field in (*_COMPONENT_IDENTITY_FIELDS, *_COMPONENT_METRIC_FIELDS):
             preferred = (
@@ -151,6 +155,10 @@ def _summarize_component_rows(
             present = [getattr(row, field) for row in preferred if getattr(row, field) is not None]
             selected = present[0] if present else None
             values[field] = selected
+            value_sources[field] = next(
+                (row for row in preferred if getattr(row, field) == selected),
+                None,
+            ) if selected is not None else None
             conflicts = [value for value in present[1:] if value != selected]
             if conflicts:
                 conflict_row = next(
@@ -178,14 +186,56 @@ def _summarize_component_rows(
                     ),
                 ))
 
-        summaries.append(ComponentSourceRow(
+        summary = ComponentSourceRow(
             source_sheet=base.source_sheet,
             source_row=base.source_row,
             kind=ComponentRowKind.SUMMARY,
             component_no=component_no,
             subtotal_source_row=subtotals[0].source_row if subtotals else None,
             **values,
-        ))
+        )
+        summaries.append(summary)
+
+        physical_fields = (
+            ("component_qty", "构件数", ">0", True),
+            ("component_length", "构件长度", ">0", False),
+            ("component_width", "构件宽度", ">0", False),
+            ("component_height", "构件高度", ">0", False),
+            ("source_unit_net", "单净重", ">=0", False),
+            ("source_total_net", "总净重", ">=0", False),
+            ("source_unit_gross", "单毛重", ">=0", False),
+            ("source_total_gross", "总毛重", ">=0", False),
+            ("source_unit_area", "单表面积", ">=0", False),
+            ("source_total_area", "总表面积", ">=0", False),
+        )
+        for attribute, field, expected, required in physical_fields:
+            value = getattr(summary, attribute)
+            invalid = (
+                value is not None
+                and (not value.is_finite() or value < 0 or (expected == ">0" and value == 0))
+            )
+            if required and value is None:
+                invalid = True
+            if not invalid:
+                continue
+            source = value_sources.get(attribute) or base
+            issues.append(QualityIssue(
+                level=IssueLevel.SEVERE,
+                category="构件物理量非法",
+                source_sheet=source.source_sheet,
+                source_row=source.source_row,
+                component_no=component_no,
+                part_no=None,
+                spec=summary.original_spec,
+                field=field,
+                actual_value=value,
+                expected_value=expected,
+                absolute_error=None,
+                relative_error=None,
+                affects_part=True,
+                density_source=None,
+                description=f"构件 {component_no} 的{field}必须满足 {expected}",
+            ))
     return tuple(summaries), tuple(issues)
 
 
@@ -397,7 +447,7 @@ def _merge_split_headers(headers: list[str]) -> list[str]:
 
 def _space_text_workbook(input_file: Path) -> openpyxl.Workbook:
     """Adapt a recognized whitespace-delimited Tekla export to one raw sheet."""
-    log.info("Loading %s ...", input_file)
+    log.info("Loading %s ...", input_file.name)
 
     encodings = ["gbk", "gb2312", "gb18030", "utf-8", "latin-1"]
 

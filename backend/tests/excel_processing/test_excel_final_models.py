@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import JSON, BigInteger
+from sqlalchemy import DECIMAL, JSON, BigInteger
 
 from app.modules.excel_processing.models import (
     ExcelFinalBatch,
@@ -65,3 +65,37 @@ def test_excel_final_batch_persists_bounded_quality_summary_defaults():
     assert table.warning_count.default.arg == 0
     assert table.severe_warning_count.default.arg == 0
     assert isinstance(table.report_summary.type, JSON)
+
+
+def test_excel_final_physical_values_use_fixed_point_storage():
+    columns = (
+        ExcelFinalBatch.__table__.c.total_net_weight,
+        ExcelFinalBatch.__table__.c.total_gross_weight,
+        ExcelFinalPart.__table__.c.original_qty,
+        ExcelFinalPart.__table__.c.width,
+        ExcelFinalPart.__table__.c.length,
+        ExcelFinalPart.__table__.c.left_inset,
+        ExcelFinalPart.__table__.c.right_inset,
+        ExcelFinalPart.__table__.c.cut_length,
+        ExcelFinalPart.__table__.c.qty,
+        ExcelFinalPart.__table__.c.total_qty,
+        ExcelFinalPart.__table__.c.total_length,
+        ExcelFinalPart.__table__.c.density,
+        ExcelFinalPart.__table__.c.theo_unit_weight,
+        ExcelFinalPart.__table__.c.theo_total_weight,
+        ExcelFinalPart.__table__.c.material_utilization,
+        ExcelFinalPart.__table__.c.net_unit_weight,
+        ExcelFinalPart.__table__.c.net_total_weight,
+        ExcelFinalPart.__table__.c.table_net_weight,
+        ExcelFinalPart.__table__.c.gross_unit_weight,
+        ExcelFinalPart.__table__.c.gross_total_weight,
+        ExcelFinalPart.__table__.c.table_gross_weight,
+        ExcelFinalPart.__table__.c.surface_area,
+        ExcelFinalPart.__table__.c.total_surface_area,
+        ExcelFinalComponent.__table__.c.total_weight,
+    )
+
+    for column in columns:
+        assert isinstance(column.type, DECIMAL), column
+        assert column.type.precision == 24, column
+        assert column.type.scale == 9, column

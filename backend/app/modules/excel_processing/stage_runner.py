@@ -36,7 +36,11 @@ def _parse_args() -> argparse.Namespace:
 
     process_parser = subparsers.add_parser("process")
     process_parser.add_argument("--stage-root", required=True, type=Path)
-    process_parser.add_argument("--format", required=True, choices=("init", "tsv"))
+    process_parser.add_argument(
+        "--format",
+        required=True,
+        choices=("init", "canonical", "tsv"),
+    )
     process_parser.add_argument("--input", required=True, type=Path)
     process_parser.add_argument("--output", required=True, type=Path)
 

@@ -104,7 +104,12 @@ def _compact_working_text(value: str) -> str:
 
 
 def _decimal_or_none(value: float | None) -> Decimal | None:
-    return None if value is None else Decimal(str(value))
+    if value is None:
+        return None
+    result = Decimal(str(value))
+    if not result.is_finite():
+        raise ValueError("initial-table numeric value must be finite")
+    return result
 
 
 def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
@@ -126,6 +131,7 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
         invalid_fields = tuple(
             field
             for field, missing in (
+                ("构件编号", not component_no),
                 ("零件号", not part_no),
                 ("规格", not original_spec),
                 ("长度", length is None),

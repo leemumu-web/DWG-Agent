@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -152,6 +153,40 @@ def test_excel_final_parts_never_persists_negative_physical_values(
 
     assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
     assert [part.part_no for part in db.scalars(select(ExcelFinalPart))] == ["P-valid"]
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_excel_final_parts_rejects_nonfinite_numeric_values(
+    db: Session,
+    tmp_path: Path,
+    value: str,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "nonfinite-parts.xlsx"
+    _workbook(
+        output_path,
+        ["序号", "构件编号", "零件号", "规格", "长度", "材质", "数量"],
+        [[1, "C-1", "P-1", "PL10*100", value, "Q355B", 1]],
+    )
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        import_parts_to_db(db, batch.id, output_path)
+
+
+def test_excel_final_parts_skips_rows_without_component_identity(
+    db: Session,
+    tmp_path: Path,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "missing-component-identity.xlsx"
+    _workbook(
+        output_path,
+        ["序号", "构件编号", "零件号", "规格", "长度", "材质", "数量"],
+        [[1, None, "P-1", "PL10*100", 1000, "Q355B", 1]],
+    )
+
+    assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 0}
+    assert db.scalar(select(func.count()).select_from(ExcelFinalPart)) == 0
 
 
 def test_excel_final_parts_rejects_retired_intermediate_sheet(db: Session, tmp_path: Path):
@@ -333,6 +368,25 @@ def test_excel_final_components_never_persists_negative_physical_values(
     assert component.component_no == "C-valid"
 
 
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_excel_final_components_rejects_nonfinite_numeric_values(
+    db: Session,
+    tmp_path: Path,
+    value: str,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "nonfinite-components.xlsx"
+    _workbook(
+        output_path,
+        ["构件编号", "构件数", "总净重"],
+        [["C-1", 1, value]],
+        sheet_name="构件表",
+    )
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        import_components_to_db(db, batch.id, output_path)
+
+
 def test_excel_final_components_allows_missing_optional_columns(db: Session, tmp_path: Path):
     batch = _batch(db)
     output_path = tmp_path / "component-number-only.xlsx"
@@ -423,3 +477,8 @@ def test_excel_final_importers_never_use_random_cell_access(monkeypatch, tmp_pat
 
     assert import_parts_to_db(db, 1, output_path) == {"parts_imported": 1}
     assert import_components_to_db(db, 1, output_path) == {"components_imported": 1}
+
+
+def test_excel_final_number_parser_preserves_decimal_text_exactly():
+    assert importers._number(124831.881) == Decimal("124831.881")
+    assert importers._number("0.100000001") == Decimal("0.100000001")

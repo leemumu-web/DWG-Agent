@@ -118,6 +118,22 @@ def test_inconsistent_duplicate_component_id_creates_severe_issue(tmp_path: Path
     assert conflicts[0].component_no == "C1"
 
 
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+def test_canonical_reader_rejects_nonfinite_numeric_values(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    reader = _reader()
+    source = _standard_workbook(tmp_path / "nonfinite.xlsx")
+    workbook = load_workbook(source)
+    workbook.active["E4"] = value
+    workbook.save(source)
+    workbook.close()
+
+    with pytest.raises(ValueError, match="must be finite"):
+        reader.read_canonical_workbook(source)
+
+
 def test_initial_table_maps_unit_and_total_weight_to_gross_only(tmp_path: Path) -> None:
     reader_init = _reader_init()
     source = tmp_path / "initial.xlsx"

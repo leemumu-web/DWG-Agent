@@ -139,7 +139,9 @@ def _decimal_or_zero(value: object) -> Decimal:
     return Decimal(str(value))
 
 
-def _formula_cache_for_row(row: Mapping[str, object]) -> Decimal:
+def _formula_cache_for_row(row: Mapping[str, object]) -> Decimal | None:
+    if row.get("长度(mm)") in (None, ""):
+        return None
     return (
         _decimal_or_zero(row.get("长度(mm)"))
         - _decimal_or_zero(row.get("左进(mm)"))
@@ -160,15 +162,28 @@ def _write_organized_sheet(
     for row_number, item in enumerate(rows, start=2):
         cached_cut_length = _formula_cache_for_row(item)
         supplied = item.get("下料长度(mm)")
-        if supplied not in (None, "") and Decimal(str(supplied)) != cached_cut_length:
+        if cached_cut_length is None and supplied not in (None, ""):
+            raise ValueError(
+                f"整理表来源行 {item.get('_source_row')!r} 缺少长度但提供了下料长度"
+            )
+        if (
+            cached_cut_length is not None
+            and supplied not in (None, "")
+            and Decimal(str(supplied)) != cached_cut_length
+        ):
             raise ValueError(
                 f"整理表来源行 {item.get('_source_row')!r} 的下料长度与长度-左进-右进不一致"
             )
         values = [item.get(header) for header in ORGANIZED_HEADERS]
-        values[15] = f"=M{row_number}-N{row_number}-O{row_number}"
+        values[15] = (
+            f"=M{row_number}-N{row_number}-O{row_number}"
+            if cached_cut_length is not None
+            else None
+        )
         _canonical_row(ws, row_number, values)
-        coordinate = f"P{row_number}"
-        caches[coordinate] = FormulaCache(values[15], cached_cut_length)
+        if cached_cut_length is not None:
+            coordinate = f"P{row_number}"
+            caches[coordinate] = FormulaCache(values[15], cached_cut_length)
         for column in weight_columns:
             ws.cell(row=row_number, column=column).number_format = "0.000"
         ws.cell(row=row_number, column=32).number_format = "0.0000%"
@@ -218,6 +233,7 @@ def _apply_quality_styles(
         header: index for index, header in enumerate(ORGANIZED_HEADERS, start=1)
     }
     issue_field_to_headers = {
+        "构件编号": ("构件编号", "导入构件编号"),
         "零件号": ("零件号",),
         "规格": ("截面型材",),
         "长度": ("长度(mm)",),
@@ -264,6 +280,7 @@ def _apply_clean_quality_styles(
     }
     column_by_header = {header: index for index, header in enumerate(CLEAN_HEADERS, start=1)}
     issue_field_to_header = {
+        "构件编号": "构件编号",
         "零件号": "零件号",
         "规格": "原规格",
         "长度": "长度(mm)",
@@ -330,6 +347,8 @@ def write_canonical_workbook(
     output = Path(output_path).resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
+    if output.suffix.lower() != ".xlsx":
+        raise ValueError("Excel Final output must use the .xlsx extension")
     if source == output:
         raise ValueError("source_path and output_path must be different")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -383,6 +402,6 @@ def write_canonical_workbook(
 
     log.info(
         "规范输出: %d 清洗行, %d 构件行, %d 整理行, %d part 行 → %s",
-        len(cleaned), len(components), len(organized), len(parts), output,
+        len(cleaned), len(components), len(organized), len(parts), output.name,
     )
     return ledger.to_outcome(output)

@@ -264,6 +264,7 @@ def _validate_source_row(source: SourcePart) -> tuple[QualityIssue, ...]:
         ))
 
     required_values = {
+        "构件编号": source.component_no,
         "零件号": source.part_no,
         "规格": source.original_spec,
         "材质": source.material,
@@ -288,6 +289,16 @@ def _validate_source_row(source: SourcePart) -> tuple[QualityIssue, ...]:
     for field, value in positive_fields:
         if field in recorded:
             continue
+        if not value.is_finite():
+            issues.append(_source_issue(
+                source,
+                category="物理量非法",
+                field=field,
+                actual=value,
+                expected="有限数",
+                description=f"{field}必须为有限数；保留审计行但不进入 part",
+            ))
+            continue
         if value <= 0:
             issues.append(_source_issue(
                 source,
@@ -307,7 +318,16 @@ def _validate_source_row(source: SourcePart) -> tuple[QualityIssue, ...]:
         ("总表面积", source.source_total_area),
     )
     for field, value in nonnegative_fields:
-        if value is not None and value < 0:
+        if value is not None and not value.is_finite():
+            issues.append(_source_issue(
+                source,
+                category="物理量非法",
+                field=field,
+                actual=value,
+                expected="有限数",
+                description=f"{field}必须为有限数；保留审计行但不进入 part",
+            ))
+        elif value is not None and value < 0:
             issues.append(_source_issue(
                 source,
                 category="物理量非法",
@@ -325,8 +345,8 @@ def _invalid_organized_row(source: SourcePart) -> dict[str, object]:
     quantity = None if "数量" in missing else source.original_qty
     return {
         "序号": source.source_seq,
-        "构件编号": source.component_no,
-        "导入构件编号": source.component_no,
+        "构件编号": None if "构件编号" in missing else source.component_no,
+        "导入构件编号": None if "构件编号" in missing else source.component_no,
         "构件数": None if "构件数" in missing else source.component_qty,
         "类型": "未分类",
         "班组": "",
@@ -432,7 +452,7 @@ def _blocked_components(issues: Iterable[QualityIssue]) -> set[str]:
         issue.component_no
         for issue in issues
         if issue.level is IssueLevel.SEVERE
-        and issue.category == "构件编号冲突"
+        and issue.category in {"构件编号冲突", "构件物理量非法"}
         and issue.component_no is not None
     }
 
@@ -451,9 +471,16 @@ def _apply_final_issue_status(
         for issue in issues
         if issue.level is IssueLevel.WARNING
     }
+    severe_components = {
+        issue.component_no
+        for issue in issues
+        if issue.level is IssueLevel.SEVERE
+        and issue.category in {"构件编号冲突", "构件物理量非法"}
+        and issue.component_no is not None
+    }
     for row in rows:
         source_key = (row.get("_source_sheet"), row.get("_source_row"))
-        if source_key in severe_sources:
+        if source_key in severe_sources or row.get("构件编号") in severe_components:
             row["重量核验"] = "严重"
         elif source_key in warning_sources and row.get("重量核验") == "通过":
             row["重量核验"] = "警告"

@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_INPUT = BASE_DIR / "20260320-首都体育学院B7#地下部分-构件零件清单(毛净重)去gyb.xls"
 OUTPUT_DIR = BASE_DIR / "data/output"
 
 # Used only to recognize whitespace-delimited Tekla text candidates.

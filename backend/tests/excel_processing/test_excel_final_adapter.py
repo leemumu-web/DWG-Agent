@@ -153,6 +153,26 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     }
 
 
+def test_excel_final_pipeline_rejects_non_xlsx_output_before_stage(
+    monkeypatch, tmp_path: Path
+):
+    source_path = tmp_path / "source.xlsm"
+    output_path = tmp_path / "result.xlsm"
+    source_path.write_bytes(b"input")
+
+    def unexpected_run(*_args, **_kwargs):
+        pytest.fail("invalid output suffix must not start the Stage")
+
+    monkeypatch.setattr(excel_final.subprocess, "run", unexpected_run)
+
+    with pytest.raises(ValueError, match=r"\.xlsx"):
+        excel_final.run_excel_final_pipeline(
+            source_path,
+            output_path,
+            source_format="tsv",
+        )
+
+
 def test_excel_final_runner_is_importable_from_stage_working_directory():
     completed = subprocess.run(
         [
@@ -308,6 +328,15 @@ def test_excel_final_format_detection_accepts_single_initial_sheet(tmp_path: Pat
     workbook.save(source_path)
 
     assert detect_source_format(source_path) == "init"
+
+
+def test_excel_final_format_detection_classifies_canonical_workbook(tmp_path: Path):
+    source_path = tmp_path / "canonical.xlsx"
+    workbook = Workbook()
+    workbook.active.title = "原表"
+    workbook.save(source_path)
+
+    assert detect_source_format(source_path) == "canonical"
 
 
 def test_excel_final_staging_accepts_macro_enabled_workbook(

@@ -292,6 +292,42 @@ def test_excel_final_components_are_server_paginated(db: Session):
     }
 
 
+def test_excel_final_part_type_filter_uses_stable_english_enum(db: Session):
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    admin = db.scalar(select(User).where(User.username == "admin"))
+    assert admin is not None
+    _, _, batch = _seed_excel_batch(db, owner_id=admin.id, part_no="PLATE-1")
+    first = db.scalar(
+        select(ExcelFinalPart).where(ExcelFinalPart.batch_id == batch.id)
+    )
+    assert first is not None
+    first.part_type = "plate"
+    db.add(
+        ExcelFinalPart(
+            batch_id=batch.id,
+            seq=2,
+            part_no="FLAT-1",
+            material="Q355B",
+            part_type="flat_bar",
+        )
+    )
+    db.commit()
+
+    filtered = client.get(
+        f"/api/v1/excel-final/batches/{batch.id}/parts?part_type=plate",
+        headers=admin_headers,
+    )
+    invalid = client.get(
+        f"/api/v1/excel-final/batches/{batch.id}/parts?part_type=板材",
+        headers=admin_headers,
+    )
+
+    assert filtered.status_code == 200, filtered.text
+    assert [item["part_no"] for item in filtered.json()["data"]] == ["PLATE-1"]
+    assert invalid.status_code == 422, invalid.text
+
+
 def test_excel_final_cannot_process_another_users_upload(db: Session, monkeypatch):
     client = _client()
     admin_headers = _login(client, "admin", "SuperAdminPass1")

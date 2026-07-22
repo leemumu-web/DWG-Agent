@@ -306,25 +306,8 @@ def init_handbook(config: Mapping[str, object] | None = None) -> SteelHandbookRe
     return _repository
 
 
-def get_handbook() -> SteelHandbookRepository | None:
-    return _repository
-
-
 def close_handbook() -> None:
     global _repository
     if _repository is not None:
         _repository.close()
         _repository = None
-
-
-def lookup_steel_weight(
-    category: HandbookCategory | str,
-    normalized_spec: str,
-    *,
-    material: str | None = None,
-) -> tuple[float | None, str]:
-    if _repository is None:
-        raise HandbookInfrastructureError("handbook repository is not initialized")
-    result = _repository.lookup(category, normalized_spec, material=material)
-    value = float(result.value_kg_per_m) if result.value_kg_per_m is not None else None
-    return value, result.source

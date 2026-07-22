@@ -30,6 +30,17 @@ def test_format_detection_rejects_multi_sheet_before_sniffing(tmp_path: Path) ->
         main.detect_format(path)
 
 
+def test_cli_requires_explicit_input_without_sample_specific_fallback(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main.main([])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "用法" in captured.err
+    assert "20260320" not in captured.err
+
+
 def test_cli_database_failure_is_fatal_without_secret_or_traceback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -86,3 +97,5 @@ def test_cli_prints_quality_status_counts_and_actionable_lookup_warning(
     assert "严重=0" in captured.out
     assert "五金手册查无" in captured.out
     assert "处理报告" in captured.out
+    assert output.name in captured.out
+    assert str(tmp_path) not in captured.out

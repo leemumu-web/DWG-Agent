@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 
@@ -226,3 +228,46 @@ def test_writer_formula_cache_is_immediately_readable_data_only(tmp_path: Path) 
     finally:
         formulas.close()
         values.close()
+
+
+def test_canonical_writer_rejects_non_xlsx_output(tmp_path: Path) -> None:
+    writer = _writer()
+    source = tmp_path / "source.xlsx"
+    part, component_rows = _source(source)
+    output = tmp_path / "output.xlsm"
+
+    with pytest.raises(ValueError, match=r"\.xlsx"):
+        writer.write_canonical_workbook(
+            source,
+            output,
+            cleaned_parts=(part,),
+            component_rows=component_rows,
+            organized_rows=[_organized_row()],
+            part_rows=(),
+            issues=(),
+        )
+
+    assert not output.exists()
+
+
+def test_canonical_writer_log_does_not_disclose_absolute_path(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    writer = _writer()
+    source = tmp_path / "private-source.xlsx"
+    part, component_rows = _source(source)
+    output = tmp_path / "private-output.xlsx"
+
+    with caplog.at_level(logging.INFO, logger="writer_parts"):
+        writer.write_canonical_workbook(
+            source,
+            output,
+            cleaned_parts=(part,),
+            component_rows=component_rows,
+            organized_rows=[_organized_row()],
+            part_rows=(),
+            issues=(),
+        )
+
+    assert output.name in caplog.text
+    assert str(tmp_path) not in caplog.text

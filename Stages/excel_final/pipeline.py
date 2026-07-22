@@ -29,6 +29,13 @@ def _default_output(input_file: Path) -> Path:
     return OUTPUT_DIR / f"{input_file.stem}_处理后.xlsx"
 
 
+def _xlsx_output(output_file: str | Path) -> Path:
+    output_path = Path(output_file).resolve()
+    if output_path.suffix.lower() != ".xlsx":
+        raise ValueError("Excel Final output must use the .xlsx extension")
+    return output_path
+
+
 def _initial_component_rows(input_file: Path) -> tuple[ComponentSourceRow, ...]:
     component, _ = read_init_table(input_file)
     return (
@@ -138,10 +145,10 @@ def run_pipeline(
 ) -> PipelineOutcome:
     """Adapt one strict Tekla source and run the canonical engine."""
     input_path = Path(input_file).resolve()
-    output_path = (
-        _default_output(input_path) if output_file is None else Path(output_file).resolve()
+    output_path = _xlsx_output(
+        _default_output(input_path) if output_file is None else output_file
     )
-    log.info("规范 Tekla 流程: %s → %s", input_path, output_path)
+    log.info("规范 Tekla 流程: %s → %s", input_path.name, output_path.name)
     canonical_read = read_canonical_source(input_path)
     with _writer_source(input_path, output_path, canonical_read) as source_path:
         return _run_with_repository(
@@ -162,10 +169,10 @@ def run_init_pipeline(
 ) -> PipelineOutcome:
     """Adapt one strict initial-table workbook and run the same canonical engine."""
     input_path = Path(input_file).resolve()
-    output_path = (
-        _default_output(input_path) if output_file is None else Path(output_file).resolve()
+    output_path = _xlsx_output(
+        _default_output(input_path) if output_file is None else output_file
     )
-    log.info("规范初始表流程: %s → %s", input_path, output_path)
+    log.info("规范初始表流程: %s → %s", input_path.name, output_path.name)
     parts = read_init_canonical(input_path)
     component_rows = _initial_component_rows(input_path)
     return _run_with_repository(

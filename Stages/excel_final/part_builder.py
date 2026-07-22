@@ -122,7 +122,17 @@ def infer_plate_rect(
 ) -> RectDecision:
     source = parent.source
     if parent.normalized_type == "扁钢":
-        return _decision(parent, ["扁钢不推断RECT"], severe=False)
+        reasons = ["扁钢不推断RECT"]
+        if not identity_consistent:
+            reasons.append("构件或零件身份不一致")
+        return _decision(
+            parent,
+            reasons,
+            severe=(
+                not identity_consistent
+                or parent.weight_validation_status == "severe_warning"
+            ),
+        )
     reasons: list[str] = []
     if parent.normalized_type != "板材" or parent.normalized_width is None:
         reasons.append("仅普通板材可推断RECT")

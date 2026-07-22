@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import logging
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from handbook import HandbookLookupResult, LookupStatus
@@ -130,6 +132,49 @@ def test_both_input_adapters_share_the_canonical_engine(tmp_path: Path) -> None:
     assert not any(request[1] in {"NUT24", "TT25"} for request in tekla_handbook.requests)
 
 
+def test_macro_enabled_input_is_normalized_to_new_xlsx_output(tmp_path: Path) -> None:
+    source = tmp_path / "tekla.xlsm"
+    output = tmp_path / "normalized.xlsx"
+    _tekla_workbook(source)
+
+    outcome = run_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.output_path == output.resolve()
+    assert output.is_file()
+
+
+def test_pipeline_logs_only_file_names(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    source = tmp_path / "private-source.xlsx"
+    output = tmp_path / "private-output.xlsx"
+    _tekla_workbook(source)
+
+    with caplog.at_level(logging.INFO):
+        run_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert source.name in caplog.text
+    assert output.name in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+@pytest.mark.parametrize("adapter", ["tekla", "initial"])
+def test_pipeline_rejects_non_xlsx_output(tmp_path: Path, adapter: str) -> None:
+    source = tmp_path / "source.xlsx"
+    output = tmp_path / "result.xlsm"
+    if adapter == "tekla":
+        _tekla_workbook(source)
+        runner = run_pipeline
+    else:
+        _initial_workbook(source)
+        runner = run_init_pipeline
+
+    with pytest.raises(ValueError, match=r"\.xlsx"):
+        runner(source, output, handbook_repository=FakeHandbook())
+
+    assert not output.exists()
+
+
 def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path: Path) -> None:
     source = tmp_path / "source.xlsx"
     output = tmp_path / "output.xlsx"
@@ -235,10 +280,17 @@ def test_missing_required_fields_are_preserved_audited_and_excluded_from_part(
         assert all(row[1] == "关键字段缺失" and row[12] == "是" for row in report)
         assert result["整理表"]["H2"].value is None
         assert result["整理表"]["M4"].value is None
+        assert result["整理表"]["P4"].value is None
         assert result["整理表"]["H2"].fill.fill_type == "solid"
         assert result["整理表"]["M4"].fill.fill_type == "solid"
     finally:
         result.close()
+
+    formulas = load_workbook(output, data_only=False, read_only=True)
+    try:
+        assert formulas["整理表"]["P4"].value is None
+    finally:
+        formulas.close()
 
 
 def test_nonpositive_dimensions_counts_and_negative_source_values_are_isolated(
@@ -301,11 +353,110 @@ def test_initial_table_missing_length_uses_the_same_audited_isolation(
     try:
         assert result["清洗表"]["J2"].value is None
         assert result["整理表"]["M2"].value is None
+        assert result["整理表"]["P2"].value is None
         assert result["part"].max_row == 1
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
         assert len(report) == 1
         assert report[0][1] == "关键字段缺失"
         assert report[0][7] == "长度"
+    finally:
+        result.close()
+
+    formulas = load_workbook(output, data_only=False, read_only=True)
+    try:
+        assert formulas["整理表"]["P2"].value is None
+    finally:
+        formulas.close()
+
+
+def test_conflicting_component_identity_blocks_flat_steel_from_part(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "conflicting-flat.xlsx"
+    output = tmp_path / "conflicting-flat-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(["批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["B1", "C1", None, "H100", 1000, "Q355B", 1])
+    sheet.append([None, None, "flat", "PL6*30", 1000, "Q355B", 1])
+    sheet.append(["B1", "C1", "构件小计", None, None, None, 1])
+    sheet.append(["B1", "C1", None, "H100", 1000, "Q355B", 2])
+    workbook.save(source)
+    workbook.close()
+
+    outcome = run_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.quality_status == "severe_warning"
+    result = load_workbook(output, read_only=True, data_only=True)
+    try:
+        assert result["part"].max_row == 1
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        assert any(row[1] == "构件编号冲突" for row in report)
+    finally:
+        result.close()
+
+
+def test_invalid_component_summary_physics_blocks_every_component_part(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "invalid-component-summary.xlsx"
+    output = tmp_path / "invalid-component-summary-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append([
+        "批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)", "单毛重(kg)", "总毛重(kg)",
+        "单表面积(㎡)", "总表面积(㎡)", "长度(mm)", "宽度(mm)", "高度(mm)",
+    ])
+    sheet.append(["B1", "C1", None, "H100", 1000, "Q355B", 1])
+    sheet.append([None, None, "flat", "PL6*30", 1000, "Q355B", 1])
+    sheet.append([
+        "B1", "C1", "构件小计", None, None, None, 1,
+        1, -1, 1, 1, 1, 1, 1000, 0, 100,
+    ])
+    workbook.save(source)
+    workbook.close()
+
+    outcome = run_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.quality_status == "severe_warning"
+    result = load_workbook(output, read_only=True, data_only=True)
+    try:
+        assert result["part"].max_row == 1
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        component_issues = [row for row in report if row[1] == "构件物理量非法"]
+        assert {row[7] for row in component_issues} == {"总净重", "构件宽度"}
+        assert {row[3] for row in component_issues} == {4}
+    finally:
+        result.close()
+
+
+def test_initial_table_missing_component_number_is_audited_and_isolated(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "initial-missing-component.xlsx"
+    output = tmp_path / "initial-missing-component-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "初始表"
+    sheet.append(["材料表构件数量：1构件总重：0"])
+    sheet.append(["零件号", "截面型材", "长度", "材质", "数量", "单重", "总重", "总面积", "备注"])
+    sheet.append(["P1", "PL10*100", 1000, "Q355B", 1])
+    workbook.save(source)
+    workbook.close()
+
+    outcome = run_init_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.quality_status == "severe_warning"
+    result = load_workbook(output, read_only=True, data_only=True)
+    try:
+        assert result["清洗表"].max_row == 2
+        assert result["整理表"].max_row == 2
+        assert result["part"].max_row == 1
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        assert any(row[1] == "关键字段缺失" and row[7] == "构件编号" for row in report)
     finally:
         result.close()
 

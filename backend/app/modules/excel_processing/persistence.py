@@ -95,17 +95,21 @@ def import_workbook_for_job(
                 func.sum(ExcelFinalPart.table_gross_weight),
             ).where(ExcelFinalPart.batch_id == batch.id)
         ).one()
-        batch.total_net_weight = float(total_net) if total_net is not None else None
-        batch.total_gross_weight = (
-            float(total_gross) if total_gross is not None else None
-        )
+        batch.total_net_weight = total_net
+        batch.total_gross_weight = total_gross
     stats: BatchImportStats = {
         "batch_id": batch.id,
         **parts_stats,
         **components_stats,
         **quality_stats,
-        "total_net_weight": batch.total_net_weight,
-        "total_gross_weight": batch.total_gross_weight,
+        "total_net_weight": (
+            float(batch.total_net_weight) if batch.total_net_weight is not None else None
+        ),
+        "total_gross_weight": (
+            float(batch.total_gross_weight)
+            if batch.total_gross_weight is not None
+            else None
+        ),
     }
     return batch, stats
 

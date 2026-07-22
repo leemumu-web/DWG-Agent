@@ -19,7 +19,7 @@ from app.platform.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SourceFormat = Literal["init", "tsv"]
+SourceFormat = Literal["init", "canonical", "tsv"]
 _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
 _PROTOCOL_VERSION = 1
 _REQUIRED_STAGE_FILES = ("main.py", "pipeline.py", "handbook.py")
@@ -153,10 +153,12 @@ def run_excel_final_pipeline(
     source_format: SourceFormat,
 ) -> ExcelFinalProcessResult:
     """Run the canonical Stage and validate its versioned process result."""
-    if source_format not in ("init", "tsv"):
+    if source_format not in ("init", "canonical", "tsv"):
         raise ValueError(f"Unsupported Excel Final source format: {source_format}")
     if not source_path.is_file():
         raise ExcelFinalProcessError("Excel Final source file does not exist")
+    if output_path.suffix.lower() != ".xlsx":
+        raise ValueError("Excel Final output must use the .xlsx extension")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = _run_stage(

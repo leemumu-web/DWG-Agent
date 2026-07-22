@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -68,20 +69,20 @@ def _canonical_header(value: object) -> str:
     return re.split(r"[（(]", text, maxsplit=1)[0]
 
 
-def _number(value: object) -> float | None:
+def _number(value: object) -> Decimal | None:
     if value is None:
         return None
     try:
-        return float(value)
-    except (ValueError, TypeError):
+        result = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
         return None
+    if not result.is_finite():
+        raise ValueError("Excel Final output contains non-finite numeric value")
+    return result
 
 
 def _has_negative(record: dict[str, Any], fields: tuple[str, ...]) -> bool:
-    return any(
-        isinstance(record.get(field), (int, float)) and record[field] < 0
-        for field in fields
-    )
+    return any(record.get(field) is not None and record[field] < 0 for field in fields)
 
 
 def _text(value: object) -> str | None:
@@ -196,12 +197,17 @@ def import_parts_to_db(
             if all(value is None for value in row):
                 continue
             part_no = _text(_value(row, part_no_col))
+            component_no = _text(_value(row, component_no_col))
             summary_values = [
                 _text(_value(row, position))
                 for position in (component_no_col, part_no_col, profile_spec_col, spec_col)
                 if position is not None
             ]
-            if not part_no or any(value and value.startswith("合计") for value in summary_values):
+            if (
+                not part_no
+                or not component_no
+                or any(value and value.startswith("合计") for value in summary_values)
+            ):
                 continue
 
             seq = _number(_value(row, seq_col))
@@ -214,7 +220,7 @@ def import_parts_to_db(
                     "source_batch": _text(_value(row, source_batch_col)),
                     "team": _text(_value(row, team_col)),
                     "original_qty": _number(_value(row, original_qty_col)),
-                    "component_no": _text(_value(row, component_no_col)),
+                    "component_no": component_no,
                     "component_qty": (
                         int(component_qty) if component_qty is not None else None
                     ),

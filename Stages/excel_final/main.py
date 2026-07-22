@@ -10,7 +10,7 @@ from typing import Sequence
 
 import openpyxl
 
-from config import DEFAULT_INPUT, INIT_TABLE_SIGNATURE
+from config import INIT_TABLE_SIGNATURE
 from handbook import HandbookInfrastructureError
 from input_contract import InputContractError, InputKind, inspect_production_input
 from pipeline import run_init_pipeline, run_pipeline
@@ -64,7 +64,7 @@ def _parse_args(args: Sequence[str]) -> tuple[Path | None, Path | None]:
 
 
 def _print_outcome(outcome) -> None:
-    print(f"\n处理完成：{outcome.output_path}")
+    print(f"\n处理完成：{outcome.output_path.name}")
     print(
         f"质量状态={outcome.quality_status}；"
         f"警告={outcome.warning_count}；严重={outcome.severe_warning_count}"
@@ -82,12 +82,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     input_file, output_file = _parse_args(args)
     if input_file is None:
-        if DEFAULT_INPUT.exists():
-            input_file = DEFAULT_INPUT
-        else:
-            print(f"用法: python {__file__} <input.xls(x)> [-o output.xlsx]", file=sys.stderr)
-            print("未找到默认输入文件。", file=sys.stderr)
-            return 2
+        print(f"用法: python {Path(__file__).name} <input.xls(x)> [-o output.xlsx]", file=sys.stderr)
+        return 2
 
     try:
         source_format = detect_format(input_file)
