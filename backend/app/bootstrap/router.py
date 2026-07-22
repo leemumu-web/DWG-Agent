@@ -14,6 +14,12 @@ from app.modules.operations.control_plane.routes import router as control_plane_
 from app.modules.operations.data_catalog.system_routes import router as system_router
 from app.modules.operations.router import router as operations_router
 from app.modules.projects.routes.router import drawings_router, projects_router
+from app.modules.remnant_inventory.routes import (
+    import_items_router,
+    imports_router,
+    materials_router,
+    remnants_router,
+)
 from app.modules.workflows.routes.router import router as workflows_router
 
 api_router = APIRouter()
@@ -45,3 +51,13 @@ api_router.include_router(
     tags=["excel-final"],
 )
 api_router.include_router(workflows_router, prefix="/workflows")
+api_router.include_router(
+    materials_router, prefix="/remnant-materials", tags=["remnant-materials"]
+)
+api_router.include_router(
+    imports_router, prefix="/remnant-import-batches", tags=["remnant-imports"]
+)
+api_router.include_router(
+    import_items_router, prefix="/remnant-import-items", tags=["remnant-imports"]
+)
+api_router.include_router(remnants_router, prefix="/remnants", tags=["remnants"])

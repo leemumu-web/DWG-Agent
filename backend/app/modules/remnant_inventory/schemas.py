@@ -70,3 +70,14 @@ class ImportConfirmationResult(BaseModel):
     confirmed: list[ImportConfirmationEntry] = Field(default_factory=list)
     invalid: list[ImportConfirmationEntry] = Field(default_factory=list)
     already_confirmed: list[ImportConfirmationEntry] = Field(default_factory=list)
+
+
+class RemnantReserveRequest(BaseModel):
+    version: int = Field(ge=1)
+
+
+class RemnantUpdate(BaseModel):
+    thickness_mm: Decimal | None = None
+    material_id: int | None = None
+    project_no: str | None = Field(default=None, max_length=128)
+    parts: list[str] | None = Field(default=None, max_length=500)

@@ -270,11 +270,11 @@ def test_download_uses_actual_uploaded_source(service, reserved_by_actor, source
 - Routes: `/api/v1/remnant-materials`, `/api/v1/remnant-import-batches`, `/api/v1/remnants` plus static action routes before `/{id}`.
 - Uses platform success/page envelopes and stable error codes beginning `REMNANT_`.
 
-- [ ] **Step 1: Write API tests for all list/detail/mutation endpoints, multipart batch upload, 401/403/404/409/422 envelopes, pagination, request ID and traceback/path/stderr redaction.**
-- [ ] **Step 2: Run API tests; expect 404.**
-- [ ] **Step 3: Add thin FastAPI routes delegating to services; put `/search`, `/bulk-confirm` and other static routes before parameter routes; hide the entire router behind the feature flag with stable 404 when disabled.**
-- [ ] **Step 4: Run API and contract tests, then `make docs-generate && make docs-check`; expect generated docs clean.**
-- [ ] **Step 5: Commit `feat(remnants): expose inventory API`.**
+- [x] **Step 1: Write API tests for all list/detail/mutation endpoints, multipart batch upload, 401/403/404/409/422 envelopes, pagination, request ID and traceback/path/stderr redaction.**
+- [x] **Step 2: Run API tests; expect 404.**
+- [x] **Step 3: Add thin FastAPI routes delegating to services; put `/search`, `/bulk-confirm` and other static routes before parameter routes; hide the entire router behind the feature flag with stable 404 when disabled.**
+- [x] **Step 4: Run API and contract tests, then `make docs-generate && make docs-check`; expect generated docs clean.**
+- [x] **Step 5: Commit `feat(remnants): expose inventory API`.**
 
 ### Task 9: 构建前端余料检索和详情
 
