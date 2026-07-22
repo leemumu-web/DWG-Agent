@@ -241,7 +241,7 @@ def test_repeat_confirmation_returns_same_inventory_id(service, ready_item, acto
 - Produces atomic actions `reserve`, `release`, `mark_used`, `archive` and read-only future domain boundary `find_available_remnants`.
 - Produces `build_original_download(remnant_id, actor)` using `source_file_id`, never `dxf_file_id`.
 
-- [ ] **Step 1: Test required exact filters, family expansion, default statuses/order, history opt-in, importer edit rule, reserved/used locks, two-session atomic reservation, occupant visibility, preview-for-all, and original-download matrix.**
+- [x] **Step 1: Test required exact filters, family expansion, default statuses/order, history opt-in, importer edit rule, reserved/used locks, two-session atomic reservation, occupant visibility, preview-for-all, and original-download matrix.**
 
 ```python
 @pytest.mark.parametrize("source_ext", ["dwg", "dxf"])
@@ -252,10 +252,10 @@ def test_download_uses_actual_uploaded_source(service, reserved_by_actor, source
     assert download.file_id != reserved_by_actor.dxf_file_id or source_ext == "dxf"
 ```
 
-- [ ] **Step 2: Run inventory tests; expect missing service.**
-- [ ] **Step 3: Implement SQL-filtered pagination and conditional `UPDATE remnants SET ... WHERE id=:id AND status='available' AND version=:version`; enforce state/action permissions and write audit events for every mutation.**
-- [ ] **Step 4: Run inventory, audit, file and MySQL concurrency tests; expect one reservation success and one `REMNANT_ALREADY_RESERVED`.**
-- [ ] **Step 5: Commit `feat(remnants): add searchable inventory lifecycle`.**
+- [x] **Step 2: Run inventory tests; expect missing service.**
+- [x] **Step 3: Implement SQL-filtered pagination and conditional `UPDATE remnants SET ... WHERE id=:id AND status='available' AND version=:version`; enforce state/action permissions and write audit events for every mutation.**
+- [x] **Step 4: Run inventory, audit, file and MySQL concurrency tests; expect one reservation success and one `REMNANT_ALREADY_RESERVED`.**
+- [x] **Step 5: Commit `feat(remnants): add searchable inventory lifecycle`.**
 
 ### Task 8: 发布 API 路由和 OpenAPI 契约
 
