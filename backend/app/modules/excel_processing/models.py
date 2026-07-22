@@ -10,7 +10,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.platform.database.base import Base, PKType
@@ -35,6 +45,10 @@ class ExcelFinalBatch(Base):
     part_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_gross_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_status: Mapped[str] = mapped_column(String(32), nullable=False, default="ok")
+    warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    severe_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    report_summary: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     parts: Mapped[list[ExcelFinalPart]] = relationship(
@@ -56,6 +70,11 @@ class ExcelFinalPart(Base):
         index=True,
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    import_component_no: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    import_part_no: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_batch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    team: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    original_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
     component_no: Mapped[str | None] = mapped_column(String(512), nullable=True)
     component_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     part_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -72,8 +91,11 @@ class ExcelFinalPart(Base):
     total_qty: Mapped[float | None] = mapped_column(Float, nullable=True)
     total_length: Mapped[float | None] = mapped_column(Float, nullable=True)
     density: Mapped[float | None] = mapped_column(Float, nullable=True)
+    density_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
     theo_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     theo_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
+    material_utilization: Mapped[float | None] = mapped_column(Float, nullable=True)
+    weight_validation: Mapped[str | None] = mapped_column(String(32), nullable=True)
     net_unit_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     net_total_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     table_net_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
