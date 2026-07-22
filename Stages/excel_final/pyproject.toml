@@ -19,4 +19,13 @@ line-length = 100
 target-version = "py311"
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=8.2.0",
+    "ruff>=0.6.0",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "handbook_mysql: requires the live hardware_handbook MySQL database",
+    "live_data: requires the untracked real Excel ground-truth workbook",
+]
