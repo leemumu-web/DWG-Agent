@@ -40,6 +40,7 @@ class MaterialRead(BaseModel):
     code: str
     family_code: str
     enabled: bool
+    aliases: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

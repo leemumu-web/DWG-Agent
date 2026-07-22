@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import ezdxf
+import pytest
 
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
@@ -79,6 +80,36 @@ def test_current_parse_attempt_persists_candidates_and_pending_status(db) -> Non
     assert item.status == "pending_confirmation"
     assert item.parser_version == "0.1.0"
     assert item.material_candidates_json == [{"value": "Q235B", "evidence": []}]
+
+
+def test_parse_result_resolves_unique_material_code_or_alias(db) -> None:
+    from app.modules.remnant_inventory.execution import store_parse_result
+    from app.modules.remnant_inventory.models import RemnantMaterial, RemnantMaterialAlias
+
+    item = _item(db)
+    material = RemnantMaterial(code="Q235B", family_code="Q235", enabled=True)
+    db.add(material)
+    db.flush()
+    db.add(
+        RemnantMaterialAlias(
+            material_id=material.id,
+            alias="GB-Q235B",
+            normalized_alias="GB-Q235B",
+        )
+    )
+    db.flush()
+    result = _stage_result()
+    result.material_candidates = [SimpleNamespace(value="GB-Q235B", evidence=[])]
+    result.to_dict = lambda: {
+        "material_candidates": [{"value": "GB-Q235B", "evidence": []}],
+        "project_candidates": [{"value": "P-1", "evidence": []}],
+        "part_candidates": [{"value": "L-1", "evidence": []}],
+        "warnings": [],
+    }
+
+    assert store_parse_result(db, item.id, expected_attempt=1, result=result) is True
+    db.refresh(item)
+    assert item.corrected_material_id == material.id
 
 
 def test_stage_adapter_runs_isolated_cli_and_restores_typed_result(tmp_path: Path) -> None:
@@ -245,3 +276,130 @@ def test_run_parse_item_completes_job_and_keeps_item_attempt_fence(db, monkeypat
     assert current.status == "pending_confirmation"
     assert current.attempt == 2
     assert job.status == "succeeded"
+
+
+def test_converter_exception_terminalizes_item_and_both_jobs(db, monkeypatch) -> None:
+    from app.modules.remnant_inventory import execution
+    from app.modules.remnant_inventory.execution import prepare_import_execution
+
+    user = User(username="convert-crash", real_name="Crash", password_hash="x")
+    db.add(user)
+    db.flush()
+    source = StoredFile(
+        bucket="dwg-original",
+        storage_key="tests/convert-crash.dwg",
+        original_name="convert-crash.dwg",
+        file_ext=".dwg",
+        size_bytes=1024,
+        sha256="c" * 64,
+        status="available",
+    )
+    db.add(source)
+    db.flush()
+    batch = RemnantImportBatch(created_by=user.id, total_count=1)
+    db.add(batch)
+    db.flush()
+    item = RemnantImportItem(
+        batch_id=batch.id,
+        source_file_id=source.id,
+        source_sha256=source.sha256,
+        source_ext=".dwg",
+    )
+    db.add(item)
+    db.flush()
+    dispatch = prepare_import_execution(db, batch.id, actor_id=user.id)
+    db.commit()
+    def fake_stage(_source, target):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"AC1032")
+
+    monkeypatch.setattr(execution, "_stage_file", fake_stage)
+    monkeypatch.setattr(
+        execution, "convert_dwg_directory", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ODA crashed"))
+    )
+
+    execution.run_conversion_batch(batch.id, dispatch.convert_attempts)
+
+    db.expire_all()
+    current = db.get(RemnantImportItem, item.id)
+    assert current.status == "failed"
+    assert current.error_code == "REMNANT_CONVERSION_FAILED"
+    assert db.get(Job, current.conversion_job_id).status == "failed"
+    assert db.get(Job, current.parse_job_id).status == "failed"
+
+
+def test_broker_dispatch_failure_terminalizes_direct_dxf_item(db, monkeypatch) -> None:
+    from app.modules.remnant_inventory.execution import (
+        dispatch_import_execution,
+        prepare_import_execution,
+    )
+
+    item = _item(db, status="uploaded")
+    batch = db.get(RemnantImportBatch, item.batch_id)
+    dispatch = prepare_import_execution(db, batch.id, actor_id=batch.created_by)
+    db.commit()
+
+    def fail_delay(*_args, **_kwargs):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.tasks.parse_item_task.delay", fail_delay
+    )
+
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        dispatch_import_execution(dispatch)
+
+    db.expire_all()
+    current = db.get(RemnantImportItem, item.id)
+    assert current.status == "failed"
+    assert current.error_code == "REMNANT_DISPATCH_FAILED"
+    assert db.get(Job, current.parse_job_id).status == "failed"
+
+
+def test_conversion_dispatch_failure_terminalizes_undispatched_mixed_batch(
+    db, monkeypatch
+) -> None:
+    from app.modules.remnant_inventory.execution import (
+        dispatch_import_execution,
+        prepare_import_execution,
+    )
+
+    dxf_item = _item(db, status="uploaded")
+    batch = db.get(RemnantImportBatch, dxf_item.batch_id)
+    dwg = StoredFile(
+        bucket="dwg-original",
+        storage_key="tests/mixed-dispatch.dwg",
+        original_name="mixed-dispatch.dwg",
+        file_ext=".dwg",
+        size_bytes=1024,
+        sha256="d" * 64,
+        status="available",
+    )
+    db.add(dwg)
+    db.flush()
+    dwg_item = RemnantImportItem(
+        batch_id=batch.id,
+        source_file_id=dwg.id,
+        source_sha256=dwg.sha256,
+        source_ext=".dwg",
+        status="uploaded",
+    )
+    db.add(dwg_item)
+    db.flush()
+    dispatch = prepare_import_execution(db, batch.id, actor_id=batch.created_by)
+    db.commit()
+
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.tasks.convert_batch_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        dispatch_import_execution(dispatch)
+
+    db.expire_all()
+    for item_id in (dxf_item.id, dwg_item.id):
+        current = db.get(RemnantImportItem, item_id)
+        assert current.status == "failed"
+        assert current.error_code == "REMNANT_DISPATCH_FAILED"
+        assert db.get(Job, current.parse_job_id).status == "failed"

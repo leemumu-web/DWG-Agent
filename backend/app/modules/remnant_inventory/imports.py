@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.files.interface import StoredFile, soft_delete_file_in_transaction
 from app.modules.identity.interface import User, user_role_codes
+from app.modules.jobs.interface import Job, cancel_job
 from app.modules.remnant_inventory.execution import (
     ExecutionDispatch,
     prepare_import_execution,
@@ -167,6 +168,16 @@ def cancel_import_batch(
     for item in items:
         if item.status in {"confirmed", "cancelled"}:
             continue
+        for job_id in (item.conversion_job_id, item.parse_job_id):
+            job = db.get(Job, job_id) if job_id is not None else None
+            if job is not None and job.status in {
+                "pending",
+                "queued",
+                "running",
+                "validating",
+                "waiting_cad_worker",
+            }:
+                cancel_job(db, job)
         item.status = "cancelled"
         cancelled.append(item.id)
         file_ids.add(item.source_file_id)

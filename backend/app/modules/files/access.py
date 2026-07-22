@@ -130,7 +130,20 @@ def can_read_file(db: Session, current_user: User, stored: StoredFile) -> bool:
     )
 
 
-def require_file_read_access(db: Session, current_user: User, stored: StoredFile) -> None:
+def require_file_read_access(
+    db: Session, current_user: User, stored: StoredFile, *, purpose: str = "download"
+) -> None:
+    # Resolve lazily because remnant_inventory consumes files.interface. Files
+    # remain the byte outlet, while the owning domain decides shared access.
+    from app.modules.remnant_inventory.interface import remnant_file_access_decision
+
+    remnant_decision = remnant_file_access_decision(
+        db, file_id=stored.id, actor=current_user, purpose=purpose
+    )
+    if remnant_decision is True:
+        return
+    if remnant_decision is False:
+        raise forbidden("File access is restricted by remnant inventory state.")
     active_ids = file_project_ids(db, stored.id, include_deleted=False)
     all_ids = file_project_ids(db, stored.id, include_deleted=True)
     if not active_ids and all_ids:

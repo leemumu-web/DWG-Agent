@@ -6,6 +6,7 @@ interface Props {
   remnant?: Remnant;
   open: boolean;
   canDownload: boolean;
+  canManage: boolean;
   actionLoading: boolean;
   onClose: () => void;
   onPreview: () => void;
@@ -13,6 +14,8 @@ interface Props {
   onReserve: () => void;
   onRelease: () => void;
   onMarkUsed: () => void;
+  onEdit: () => void;
+  onArchive: () => void;
 }
 
 export function RemnantDetailDrawer(props: Props) {
@@ -44,9 +47,13 @@ export function RemnantDetailDrawer(props: Props) {
               onClick={props.onDownload}
             >下载原图 {remnant.source_ext.slice(1).toUpperCase()}</Button>
             {remnant.status === 'available' && (
-              <Popconfirm title="确认预占这张余料？" onConfirm={props.onReserve}>
-                <Button type="primary" loading={props.actionLoading}>预占余料</Button>
-              </Popconfirm>
+              <>
+                <Popconfirm title="确认预占这张余料？" onConfirm={props.onReserve}>
+                  <Button type="primary" loading={props.actionLoading}>预占余料</Button>
+                </Popconfirm>
+                {props.canManage && <Button onClick={props.onEdit}>编辑信息</Button>}
+                {props.canManage && <Popconfirm title="确认归档这张余料？" onConfirm={props.onArchive}><Button danger>归档</Button></Popconfirm>}
+              </>
             )}
             {remnant.status === 'reserved' && props.canDownload && (
               <>
@@ -77,4 +84,3 @@ export function StatusTag({ status }: { status: Remnant['status'] }) {
   } as const;
   return <Tag color={values[status][1]}>{values[status][0]}</Tag>;
 }
-

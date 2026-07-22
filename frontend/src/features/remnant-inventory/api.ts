@@ -9,9 +9,28 @@ import type {
   RemnantSearch,
 } from './types';
 
-export async function listRemnantMaterials(): Promise<RemnantMaterial[]> {
-  const response = await apiClient.get<ApiEnvelope<RemnantMaterial[]>>('/api/v1/remnant-materials');
+export async function listRemnantMaterials(enabledOnly = true): Promise<RemnantMaterial[]> {
+  const response = await apiClient.get<ApiEnvelope<RemnantMaterial[]>>('/api/v1/remnant-materials', {
+    params: enabledOnly ? undefined : { enabled_only: false },
+  });
   return response.data.data;
+}
+
+export async function createRemnantMaterial(payload: { code: string; family_code: string }): Promise<RemnantMaterial> {
+  const response = await apiClient.post<ApiEnvelope<RemnantMaterial>>('/api/v1/remnant-materials', payload);
+  return response.data.data;
+}
+
+export async function updateRemnantMaterial(
+  materialId: number,
+  payload: { family_code?: string; enabled?: boolean },
+): Promise<RemnantMaterial> {
+  const response = await apiClient.patch<ApiEnvelope<RemnantMaterial>>(`/api/v1/remnant-materials/${materialId}`, payload);
+  return response.data.data;
+}
+
+export async function replaceRemnantMaterialAliases(materialId: number, aliases: string[]): Promise<void> {
+  await apiClient.put(`/api/v1/remnant-materials/${materialId}/aliases`, { aliases });
 }
 
 export async function searchRemnants(search: RemnantSearch): Promise<PageEnvelope<Remnant>> {
@@ -49,6 +68,19 @@ export async function releaseRemnant(remnantId: number): Promise<Remnant> {
 
 export async function markRemnantUsed(remnantId: number): Promise<Remnant> {
   const response = await apiClient.post<ApiEnvelope<Remnant>>(`/api/v1/remnants/${remnantId}/mark-used`);
+  return response.data.data;
+}
+
+export async function updateRemnant(
+  remnantId: number,
+  payload: { thickness_mm: string; material_id: number; project_no: string; parts: string[] },
+): Promise<Remnant> {
+  const response = await apiClient.patch<ApiEnvelope<Remnant>>(`/api/v1/remnants/${remnantId}`, payload);
+  return response.data.data;
+}
+
+export async function archiveRemnant(remnantId: number): Promise<Remnant> {
+  const response = await apiClient.post<ApiEnvelope<Remnant>>(`/api/v1/remnants/${remnantId}/archive`);
   return response.data.data;
 }
 

@@ -5,6 +5,7 @@ export interface RemnantMaterial {
   code: string;
   family_code: string;
   enabled: boolean;
+  aliases: string[];
   created_at: string;
   updated_at: string;
 }

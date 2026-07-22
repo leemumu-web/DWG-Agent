@@ -49,7 +49,7 @@ DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
 COMPOSE_LIBRARY = SCRIPTS_DIR / "lib" / "compose.sh"
 
-EXPECTED_HEAD = "e2f4b8c6a130"
+EXPECTED_HEAD = "2b7e91d4c830"
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -152,8 +152,8 @@ class TestMigrationChain:
             chain[rev_match.group(1)] = down_match.group(1)  # None when 'None' matched
         return chain
 
-    def test_seventeen_migration_files_present(self):
-        assert len(list(VERSIONS_DIR.glob("*.py"))) == 17
+    def test_eighteen_migration_files_present(self):
+        assert len(list(VERSIONS_DIR.glob("*.py"))) == 18
 
     def test_exactly_one_base_revision(self):
         chain = self._parse_chain()
@@ -181,7 +181,7 @@ class TestMigrationChain:
             seen.append(cursor)
             cursor = chain[cursor]
         # Walking head -> base must visit every migration exactly once.
-        assert len(seen) == len(chain) == 17
+        assert len(seen) == len(chain) == 18
         assert seen[-1] == "40452ddd24e7"
 
 
@@ -194,9 +194,9 @@ class TestSeedIdempotency:
         init_db()  # second run must be a no-op, not raise
 
         db.expire_all()
-        assert db.scalar(select(func.count()).select_from(Role)) == len(ROLE_SEEDS) == 7
+        assert db.scalar(select(func.count()).select_from(Role)) == len(ROLE_SEEDS) == 8
         assert (
-            db.scalar(select(func.count()).select_from(Permission)) == len(PERMISSION_SEEDS) == 8
+            db.scalar(select(func.count()).select_from(Permission)) == len(PERMISSION_SEEDS) == 11
         )
         admins = db.scalars(
             select(User).where(User.username == settings.super_admin_username)

@@ -52,6 +52,18 @@ def _get(db: Session, remnant_id: int) -> Remnant:
     return row
 
 
+def _get_for_update(db: Session, remnant_id: int) -> Remnant:
+    row = db.scalar(
+        select(Remnant)
+        .where(Remnant.id == remnant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if row is None:
+        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "Remnant not found.")
+    return row
+
+
 def _is_admin(actor: User) -> bool:
     return bool(_ADMIN_ROLES & user_role_codes(actor))
 
@@ -131,9 +143,18 @@ def reserve_remnant(db: Session, remnant_id: int, *, actor: User, expected_versi
         )
         .execution_options(synchronize_session=False)
     ).rowcount
-    row = _get(db, remnant_id)
-    db.refresh(row)
     if changed != 1:
+        # MySQL's default REPEATABLE READ may keep a stale snapshot after a
+        # competing conditional UPDATE wins. A locking read is a current read,
+        # so it reports the committed reserver instead of a generic conflict.
+        row = db.scalar(
+            select(Remnant)
+            .where(Remnant.id == remnant_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            raise AppHTTPException(404, "REMNANT_NOT_FOUND", "Remnant not found.")
         if row.status == "reserved":
             raise AppHTTPException(
                 409,
@@ -142,6 +163,8 @@ def reserve_remnant(db: Session, remnant_id: int, *, actor: User, expected_versi
                 {"reserved_by": row.reserved_by},
             )
         raise AppHTTPException(409, "REMNANT_STATE_CONFLICT", "Remnant state changed.")
+    row = _get(db, remnant_id)
+    db.refresh(row)
     _audit(
         db,
         actor=actor,
@@ -155,7 +178,7 @@ def reserve_remnant(db: Session, remnant_id: int, *, actor: User, expected_versi
 
 def release_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     _require_user(actor)
-    row = _get(db, remnant_id)
+    row = _get_for_update(db, remnant_id)
     if row.status != "reserved":
         raise AppHTTPException(409, "REMNANT_NOT_RESERVED", "Remnant is not reserved.")
     if row.reserved_by != actor.id and not _is_admin(actor):
@@ -181,7 +204,7 @@ def release_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
 
 def mark_remnant_used(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     _require_user(actor)
-    row = _get(db, remnant_id)
+    row = _get_for_update(db, remnant_id)
     if row.status != "reserved":
         raise AppHTTPException(409, "REMNANT_NOT_RESERVED", "Remnant is not reserved.")
     if row.reserved_by != actor.id and not _is_admin(actor):
@@ -216,7 +239,7 @@ def update_remnant(
     parts: Sequence[str] | None = None,
 ) -> Remnant:
     _require_user(actor)
-    row = _get(db, remnant_id)
+    row = _get_for_update(db, remnant_id)
     if row.status != "available":
         raise AppHTTPException(409, "REMNANT_LOCKED", "Only available remnants are editable.")
     if row.imported_by != actor.id and not _is_admin(actor):
@@ -267,7 +290,7 @@ def update_remnant(
 
 def archive_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     _require_user(actor)
-    row = _get(db, remnant_id)
+    row = _get_for_update(db, remnant_id)
     if row.status != "available":
         raise AppHTTPException(409, "REMNANT_LOCKED", "Only available remnants can be archived.")
     if row.imported_by != actor.id and not _is_admin(actor):

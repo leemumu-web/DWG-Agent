@@ -6,4 +6,6 @@
 
 `test_real_fixture_regressions.py` 锁定离线样本工具的显式路径、144 份 AC1032 枚举能力、仅元数据输出和不复制源图边界；真实 ODA 转换结果仍必须在安装了平台对应 ODA File Converter 的验收环境复核。
 
+`test_inventory_mysql.py` 在设置 `MYSQL_INTEGRATION_DATABASE_URL` 时使用两个真实 MySQL session 同时预占同一余料，验证唯一胜者、占用人回报、预览/原图权限、释放、重新预占、使用和终态锁定；未设置外部数据库时明确跳过。
+
 测试边界：这里不得复制生产服务算法，也不能把 SQLite 单元测试当作 MySQL 并发或真实 ODA 验收。数据库迁移、Compose 和架构一致性分别由 `tests/infrastructure`、`tests/architecture` 以及最终真实样本门禁补充验证。

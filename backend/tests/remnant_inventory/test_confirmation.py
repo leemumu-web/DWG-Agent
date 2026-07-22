@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import Role, User
+from app.modules.jobs.interface import Job
 from app.modules.remnant_inventory.models import (
     Remnant,
     RemnantImportBatch,
@@ -167,3 +168,29 @@ def test_retry_increments_attempt_and_cancel_marks_unconfirmed_files_deleted(db)
     assert cancelled == [item.id]
     assert item.status == "cancelled"
     assert source.status == "deleted"
+    assert db.get(Job, item.parse_job_id).status == "cancelled"
+
+
+def test_cancel_after_partial_confirmation_is_terminal(db) -> None:
+    from app.modules.remnant_inventory.execution import recalculate_batch_counters
+    from app.modules.remnant_inventory.imports import cancel_import_batch
+
+    owner = _user(db, "partial-cancel-owner")
+    pending, _material = _ready_item(db, owner=owner, suffix="7")
+    confirmed, _ = _ready_item(db, owner=owner, suffix="8")
+    old_batch_id = confirmed.batch_id
+    confirmed.batch_id = pending.batch_id
+    confirmed.status = "confirmed"
+    db.flush()
+    db.query(RemnantImportBatch).filter(RemnantImportBatch.id == old_batch_id).delete()
+    recalculate_batch_counters(db, pending.batch_id)
+
+    cancelled = cancel_import_batch(
+        db, pending.batch_id, actor=owner, request_id="req-partial-cancel"
+    )
+
+    batch = db.get(RemnantImportBatch, pending.batch_id)
+    assert cancelled == [pending.id]
+    assert batch.confirmed_count == 1
+    assert batch.cancelled_count == 1
+    assert batch.status == "cancelled"

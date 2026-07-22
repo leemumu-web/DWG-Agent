@@ -218,6 +218,27 @@ def test_original_download_uses_actual_upload_and_only_reserver_or_admin(
         assert download.file_id != row.dxf_file_id
 
 
+def test_generic_file_outlets_honor_remnant_preview_and_original_download_matrix(db) -> None:
+    from app.modules.files.access import require_file_read_access
+    from app.modules.remnant_inventory.inventory import reserve_remnant
+
+    owner = _user(db, "outlet-owner")
+    reserver = _user(db, "outlet-reserver")
+    outsider = _user(db, "outlet-outsider")
+    row = _remnant(db, owner=owner, source_ext=".dwg", suffix="8")
+    source = db.get(StoredFile, row.source_file_id)
+    preview = db.get(StoredFile, row.dxf_file_id)
+
+    require_file_read_access(db, outsider, preview, purpose="preview")
+    with pytest.raises(HTTPException):
+        require_file_read_access(db, outsider, source, purpose="download")
+
+    reserve_remnant(db, row.id, actor=reserver, expected_version=1)
+    require_file_read_access(db, reserver, source, purpose="download")
+    with pytest.raises(HTTPException):
+        require_file_read_access(db, outsider, source, purpose="download")
+
+
 def test_every_lifecycle_mutation_writes_audit_record(db) -> None:
     from app.modules.operations.audit.models import AuditLog
     from app.modules.remnant_inventory.inventory import release_remnant, reserve_remnant

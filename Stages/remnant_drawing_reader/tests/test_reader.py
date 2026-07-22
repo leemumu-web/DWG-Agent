@@ -7,6 +7,7 @@ import ezdxf
 import pytest
 
 from remnant_drawing_reader import ParseError, parse_dxf
+from remnant_drawing_reader.text import normalize_text
 
 
 def _save_labelled_drawing(path: Path) -> None:
@@ -108,3 +109,71 @@ def test_cli_writes_utf8_versioned_json(tmp_path: Path) -> None:
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "1.0"
     assert payload["material_candidates"][0]["value"] == "Q235B-Z15"
+
+
+def test_gbk_mif_and_block_attributes_are_normalized_and_parsed(tmp_path: Path) -> None:
+    assert normalize_text(r"\M+5B2C4\M+5C1CF: Q235B") == "材料: Q235B"
+    document = ezdxf.new("R2018")
+    block = document.blocks.new("TITLE_ATTR")
+    block.add_attdef("MATERIAL", (0, 0))
+    insert = document.modelspace().add_blockref("TITLE_ATTR", (5, 6))
+    insert.add_attrib("MATERIAL", r"\M+5B2C4\M+5C1CF: Q355B", (5, 6))
+    source = tmp_path / "attrib.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [item.value for item in result.material_candidates] == ["Q355B"]
+    assert result.material_candidates[0].evidence[0].entity_type == "ATTRIB"
+
+
+def test_unrecognized_label_and_encoding_anomaly_emit_stable_warnings(tmp_path: Path) -> None:
+    document = ezdxf.new("R2018")
+    modelspace = document.modelspace()
+    modelspace.add_text("未知字段: ABC").set_placement((0, 0))
+    modelspace.add_text("备注: �").set_placement((0, 10))
+    source = tmp_path / "warnings.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert {warning.code for warning in result.warnings} == {
+        "ENCODING_ANOMALY",
+        "UNRECOGNIZED_LABEL",
+    }
+
+
+def test_unlabelled_text_emits_recoverable_warning(tmp_path: Path) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text("这是一段普通备注").set_placement((0, 0))
+    source = tmp_path / "plain-text.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [warning.code for warning in result.warnings] == ["UNRECOGNIZED_TEXT"]
+
+
+def test_single_malformed_entity_emits_structure_warning_and_keeps_other_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from remnant_drawing_reader import reader
+
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text("材质: Q235B").set_placement((0, 10))
+    document.modelspace().add_text("BROKEN").set_placement((0, 0))
+    source = tmp_path / "recoverable-structure.dxf"
+    document.saveas(source)
+    original = reader._evidence
+
+    def flaky_evidence(entity, block_path):
+        if entity.dxftype() == "TEXT" and str(entity.dxf.text) == "BROKEN":
+            raise ValueError("malformed entity")
+        return original(entity, block_path)
+
+    monkeypatch.setattr(reader, "_evidence", flaky_evidence)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == ["Q235B"]
+    assert [warning.code for warning in result.warnings] == ["STRUCTURE_ANOMALY"]

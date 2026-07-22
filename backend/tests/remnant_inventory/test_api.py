@@ -5,9 +5,11 @@ from io import StringIO
 import ezdxf
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.operations.audit.models import AuditLog
 from app.modules.remnant_inventory.models import RemnantImportItem
 from app.platform.config.settings import settings
 from tests.support.database import get_test_session_factory
@@ -64,6 +66,9 @@ def test_material_api_uses_envelope_auth_and_admin_permissions(client, admin_hea
     assert listed.status_code == 200
     assert listed.json()["data"][0]["code"] == "Q235B"
     assert listed.json()["meta"]["request_id"]
+    with get_test_session_factory()() as db:
+        actions = set(db.scalars(select(AuditLog.action)).all())
+    assert {"remnants.material.create", "remnants.material.aliases"} <= actions
 
 
 def test_multipart_import_edit_partial_confirm_and_inventory_lifecycle(
@@ -138,6 +143,14 @@ def test_multipart_import_edit_partial_confirm_and_inventory_lifecycle(
     assert download.json()["data"]["file_name"] == "actual-source.dxf"
     assert download.json()["data"]["file_ext"] == ".dxf"
     assert "traceback" not in download.text.lower()
+    with get_test_session_factory()() as db:
+        actions = set(db.scalars(select(AuditLog.action)).all())
+    assert {
+        "remnants.import",
+        "remnants.import.correct",
+        "remnants.import.confirm",
+        "remnants.reserve",
+    } <= actions
 
 
 def test_validation_and_missing_resources_keep_stable_error_envelopes(

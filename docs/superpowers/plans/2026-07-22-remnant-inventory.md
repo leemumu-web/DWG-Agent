@@ -344,8 +344,10 @@ def test_download_uses_actual_uploaded_source(service, reserved_by_actor, source
 **Interfaces:**
 - Acceptance batch: mixed 2–10 DWG/DXF plus a separate >20-file backpressure run.
 
-- [ ] **Step 1: On an empty MySQL schema run upgrade to head and downgrade/upgrade the new revision; expect all six tables and named constraints.**
-- [ ] **Step 2: With two worker users, verify exact/family search, preview, concurrent reserve, non-owner download denial, owner original DWG/DXF download, cancel, re-reserve and mark-used lock.**
-- [ ] **Step 3: Import a mixed batch, force one conversion failure, retry it, refresh the browser, bulk-fill thickness, edit candidates and confirm only valid selected rows.**
-- [ ] **Step 4: Run `make verify-full`; expect exit 0 and retain `REMNANT_INVENTORY_ENABLED=false` in examples/defaults.**
-- [ ] **Step 5: Review the complete diff against `docs/superpowers/specs/2026-07-22-remnant-inventory-design.md`, verify no external drawings/secrets/temp outputs are tracked, then commit any final regression-only changes.**
+- [x] **Step 1: On an empty MySQL schema run upgrade to head and downgrade/upgrade the new revision; expect all six tables and named constraints.**
+- [x] **Step 2: With two worker users, verify exact/family search, preview, concurrent reserve, non-owner download denial, owner original DWG/DXF download, cancel, re-reserve and mark-used lock.**
+- [x] **Step 3: Import a mixed batch, force one conversion failure, retry it, refresh the browser, bulk-fill thickness, edit candidates and confirm only valid selected rows.**
+- [x] **Step 4: Run `make verify-full`; expect exit 0 and retain `REMNANT_INVENTORY_ENABLED=false` in examples/defaults.**
+- [x] **Step 5: Review the complete diff against `docs/superpowers/specs/2026-07-22-remnant-inventory-design.md`, verify no external drawings/secrets/temp outputs are tracked, then commit any final regression-only changes.**
+
+验收记录（2026-07-22/23）：隔离 MySQL 8.4 已完成新修订 downgrade/upgrade、`alembic check`、六表/六唯一约束核验和双 Session 并发；余料域 63 项、架构 72 项、Stage 10 项、浏览器 E2E 3 项及前端生产构建通过。Windows 主机无法原样执行面向 POSIX 的 `make verify-full` 包装脚本（路径、执行位和本地 Nginx 根目录契约），因此逐项执行其 Ruff、后端分域、文档、架构、迁移、前端构建和 E2E 等价门禁；功能示例和默认配置仍为 `REMNANT_INVENTORY_ENABLED=false`。真实 AC1032 样本已完成 144 份枚举与仅元数据报告边界，但因本机未安装 ODA File Converter，真实转换/候选准确率校准仍是生产开启前的外部门禁，不影响代码阶段完成。

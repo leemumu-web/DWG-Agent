@@ -9,6 +9,7 @@ _PART_SPLIT = re.compile(r"[、,，;；\s]+")
 _MATERIAL_LABELS = {"材质", "材料", "牌号", "材料牌号"}
 _PROJECT_LABELS = {"项目编号", "项目号", "工程编号", "工程号"}
 _PART_LABELS = {"零件编号", "零件号", "件号", "构件编号"}
+_KNOWN_LABELS = _MATERIAL_LABELS | _PROJECT_LABELS | _PART_LABELS
 
 
 def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> None:
@@ -19,9 +20,15 @@ def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> Non
 
 def classify(items: list[Evidence]):
     materials: dict[str, Candidate] = {}; projects: dict[str, Candidate] = {}; parts: dict[str, Candidate] = {}
+    has_encoding_anomaly = False
+    has_unrecognized_label = False
+    has_unrecognized_text = False
     for evidence in items:
+        if "�" in evidence.raw_text or "�" in evidence.normalized_text or r"\M+" in evidence.normalized_text:
+            has_encoding_anomaly = True
         match = _LABEL_VALUE.match(evidence.normalized_text)
         if not match:
+            has_unrecognized_text = True
             continue
         label, value = match.groups()
         if label in _MATERIAL_LABELS:
@@ -31,7 +38,15 @@ def classify(items: list[Evidence]):
         elif label in _PART_LABELS:
             for part_no in _PART_SPLIT.split(value):
                 _append(parts, part_no, evidence)
+        elif label not in _KNOWN_LABELS:
+            has_unrecognized_label = True
     warnings: list[ParseWarning] = []
+    if has_encoding_anomaly:
+        warnings.append(ParseWarning("ENCODING_ANOMALY", "图纸文字存在无法完整解码的内容"))
+    if has_unrecognized_label:
+        warnings.append(ParseWarning("UNRECOGNIZED_LABEL", "图纸中存在未识别的字段标签"))
+    if has_unrecognized_text:
+        warnings.append(ParseWarning("UNRECOGNIZED_TEXT", "图纸中存在未识别的普通文字"))
     if len(materials) > 1:
         warnings.append(ParseWarning("MATERIAL_CANDIDATES_CONFLICT", "图纸中存在多个材质候选"))
     if len(projects) > 1:

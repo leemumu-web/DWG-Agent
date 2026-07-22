@@ -7,6 +7,7 @@ import { DxfPreviewModal } from '../files';
 import { useAuthStore } from '../../shared/auth';
 import {
   downloadOriginal,
+  archiveRemnant,
   getRemnant,
   listRemnantMaterials,
   markRemnantUsed,
@@ -19,6 +20,8 @@ import {
 import { RemnantBatchProgress } from './RemnantBatchProgress';
 import { RemnantConfirmationPanel } from './RemnantConfirmationPanel';
 import { RemnantImportPanel } from './RemnantImportPanel';
+import { RemnantMaterialCatalog } from './RemnantMaterialCatalog';
+import { RemnantEditModal } from './RemnantEditModal';
 import { RemnantDetailDrawer, StatusTag } from './RemnantDetailDrawer';
 import { RemnantSearchPanel } from './RemnantSearchPanel';
 import { useRemnantBatch } from './useRemnantBatch';
@@ -43,14 +46,23 @@ export function RemnantInventoryPage() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const search = useMemo(() => fromParams(params), [params]);
-  const activeTab = params.get('tab') === 'import' ? 'import' : 'search';
+  const activeTab = ['import', 'materials'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'search';
   const batchId = params.get('batch') ? Number(params.get('batch')) : undefined;
   const [selectedId, setSelectedId] = useState<number>();
   const [preview, setPreview] = useState<{ id: number; name: string }>();
+  const [editOpen, setEditOpen] = useState(false);
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.roles.some((role) => ['admin', 'super_admin'].includes(role.code)) ?? false;
 
-  const materials = useQuery({ queryKey: ['remnant-materials'], queryFn: listRemnantMaterials });
+  const materials = useQuery({
+    queryKey: ['remnant-materials'],
+    queryFn: () => listRemnantMaterials(),
+  });
+  const materialCatalog = useQuery({
+    queryKey: ['remnant-materials', 'all'],
+    queryFn: () => listRemnantMaterials(false),
+    enabled: isAdmin,
+  });
   const results = useQuery({
     queryKey: ['remnants', search],
     queryFn: () => searchRemnants(search),
@@ -78,9 +90,10 @@ export function RemnantInventoryPage() {
     if (row) queryClient.setQueryData(['remnant', row.id], row);
   };
   const action = useMutation({
-    mutationFn: async ({ kind, row }: { kind: 'reserve' | 'release' | 'used'; row: Remnant }) => {
+    mutationFn: async ({ kind, row }: { kind: 'reserve' | 'release' | 'used' | 'archive'; row: Remnant }) => {
       if (kind === 'reserve') return reserveRemnant(row);
       if (kind === 'release') return releaseRemnant(row.id);
+      if (kind === 'archive') return archiveRemnant(row.id);
       return markRemnantUsed(row.id);
     },
     onSuccess: async (row) => {
@@ -119,8 +132,9 @@ export function RemnantInventoryPage() {
         activeKey={activeTab}
         onChange={(tab) => {
           const target = new URLSearchParams(params);
-          if (tab === 'import') target.set('tab', 'import');
-          else { target.delete('tab'); target.delete('batch'); }
+          if (tab === 'search') target.delete('tab');
+          else target.set('tab', tab);
+          if (tab !== 'import') target.delete('batch');
           setParams(target);
         }}
         items={[
@@ -178,12 +192,14 @@ export function RemnantInventoryPage() {
               {batch.data.pending_count > 0 && <RemnantConfirmationPanel batch={batch.data} materials={materials.data ?? []} />}
             </>}
           </div> },
+          ...(isAdmin ? [{ key: 'materials', label: '材质管理', children: <RemnantMaterialCatalog materials={materialCatalog.data ?? []} loading={materialCatalog.isLoading} /> }] : []),
         ]}
       />
       <RemnantDetailDrawer
         open={selectedId !== undefined}
         remnant={detail.data}
         canDownload={canDownload}
+        canManage={Boolean(detail.data && detail.data.status === 'available' && (isAdmin || detail.data.imported_by === user?.id))}
         actionLoading={action.isPending}
         onClose={() => setSelectedId(undefined)}
         onPreview={() => detail.data && setPreview({ id: detail.data.dxf_file_id, name: detail.data.source_name })}
@@ -191,6 +207,15 @@ export function RemnantInventoryPage() {
         onReserve={() => detail.data && action.mutate({ kind: 'reserve', row: detail.data })}
         onRelease={() => detail.data && action.mutate({ kind: 'release', row: detail.data })}
         onMarkUsed={() => detail.data && action.mutate({ kind: 'used', row: detail.data })}
+        onEdit={() => setEditOpen(true)}
+        onArchive={() => detail.data && action.mutate({ kind: 'archive', row: detail.data })}
+      />
+      <RemnantEditModal
+        open={editOpen}
+        remnant={detail.data}
+        materials={materials.data ?? []}
+        onClose={() => setEditOpen(false)}
+        onSaved={(row) => { setEditOpen(false); void refresh(row); message.success('余料信息已更新'); }}
       />
       <DxfPreviewModal
         fileId={preview?.id ?? null}

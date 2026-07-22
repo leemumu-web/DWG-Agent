@@ -44,6 +44,7 @@ from app.modules.remnant_inventory.models import (
     RemnantImportBatch,
     RemnantImportItem,
     RemnantMaterial,
+    RemnantMaterialAlias,
     RemnantPart,
 )
 from app.modules.remnant_inventory.schemas import (
@@ -82,8 +83,16 @@ def _require_admin(actor: User) -> None:
         raise AppHTTPException(403, "REMNANT_ADMIN_REQUIRED", "Administrator access required.")
 
 
-def _material_data(row: RemnantMaterial) -> dict:
-    return MaterialRead.model_validate(row).model_dump(mode="json")
+def _material_data(db: Session, row: RemnantMaterial) -> dict:
+    data = MaterialRead.model_validate(row).model_dump(mode="json")
+    data["aliases"] = list(
+        db.scalars(
+            select(RemnantMaterialAlias.alias)
+            .where(RemnantMaterialAlias.material_id == row.id)
+            .order_by(RemnantMaterialAlias.id)
+        ).all()
+    )
+    return data
 
 
 def _item_data(db: Session, item: RemnantImportItem) -> dict:
@@ -186,7 +195,7 @@ def get_materials(
 ):
     _require_user(current_user)
     return ok(
-        [_material_data(row) for row in list_materials(db, enabled_only=enabled_only)],
+        [_material_data(db, row) for row in list_materials(db, enabled_only=enabled_only)],
         request.state.request_id,
     )
 
@@ -202,9 +211,18 @@ def post_material(
     row = create_material(
         db, code=payload.code, family_code=payload.family_code, actor_id=current_user.id
     )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.material.create",
+        resource_type="remnant_material",
+        resource_id=row.id,
+        after_json={"code": row.code, "family_code": row.family_code},
+        request=request,
+    )
     db.commit()
     db.refresh(row)
-    return ok(_material_data(row), request.state.request_id)
+    return ok(_material_data(db, row), request.state.request_id)
 
 
 @materials_router.patch("/{material_id}")
@@ -223,9 +241,18 @@ def patch_material(
         enabled=payload.enabled,
         actor_id=current_user.id,
     )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.material.update",
+        resource_type="remnant_material",
+        resource_id=row.id,
+        after_json={"family_code": row.family_code, "enabled": row.enabled},
+        request=request,
+    )
     db.commit()
     db.refresh(row)
-    return ok(_material_data(row), request.state.request_id)
+    return ok(_material_data(db, row), request.state.request_id)
 
 
 @materials_router.put("/{material_id}/aliases")
@@ -241,6 +268,15 @@ def put_material_aliases(
     if material is None:
         raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "Material not found.")
     rows = replace_aliases(db, material=material, aliases=payload.aliases, actor_id=current_user.id)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.material.aliases",
+        resource_type="remnant_material",
+        resource_id=material.id,
+        after_json={"aliases": [row.alias for row in rows]},
+        request=request,
+    )
     db.commit()
     return ok(
         [{"id": row.id, "alias": row.alias} for row in rows],
@@ -336,6 +372,15 @@ def post_bulk_thickness(
         thickness_mm=payload.thickness_mm,
         actor=current_user,
     )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.bulk_thickness",
+        resource_type="remnant_import_batch",
+        resource_id=batch_id,
+        after_json={"item_ids": changed, "thickness_mm": str(payload.thickness_mm)},
+        request=request,
+    )
     db.commit()
     return ok({"updated_item_ids": changed}, request.state.request_id)
 
@@ -353,6 +398,15 @@ def post_cancel_batch(
         actor=current_user,
         request_id=request.state.request_id,
     )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.cancel",
+        resource_type="remnant_import_batch",
+        resource_id=batch_id,
+        after_json={"item_ids": cancelled},
+        request=request,
+    )
     db.commit()
     return ok({"cancelled_item_ids": cancelled}, request.state.request_id)
 
@@ -365,6 +419,15 @@ def post_bulk_confirm(
     db: Session = Depends(get_db),
 ):
     result = confirm_import_items(db, payload.item_ids, actor=current_user)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.confirm",
+        resource_type="remnant_import_item",
+        resource_id=payload.item_ids[0] if payload.item_ids else 0,
+        after_json=result.model_dump(mode="json"),
+        request=request,
+    )
     db.commit()
     return ok(result.model_dump(mode="json"), request.state.request_id)
 
@@ -386,6 +449,20 @@ def patch_import_item(
         project_no=payload.project_no,
         parts=payload.parts,
     )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.correct",
+        resource_type="remnant_import_item",
+        resource_id=row.id,
+        after_json={
+            "material_id": row.corrected_material_id,
+            "project_no": row.corrected_project_no,
+            "parts": row.corrected_parts_json,
+            "thickness_mm": str(row.corrected_thickness_mm),
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(row)
     return ok(_item_data(db, row), request.state.request_id)
@@ -400,6 +477,15 @@ def post_retry_item(
 ):
     dispatch = retry_import_item(db, item_id, actor=current_user)
     item = db.get(RemnantImportItem, item_id)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.retry",
+        resource_type="remnant_import_item",
+        resource_id=item_id,
+        after_json={"attempt": item.attempt},
+        request=request,
+    )
     db.commit()
     dispatch_import_execution(dispatch)
     return ok(
@@ -506,7 +592,7 @@ def get_remnant_preview(
 ):
     file_id = preview_file_id(db, remnant_id, actor=current_user)
     return ok(
-        {"file_id": file_id, "preview_url": f"/api/v1/files/{file_id}/preview"},
+        {"file_id": file_id, "preview_url": f"/api/v1/files/{file_id}/dxf-preview"},
         request.state.request_id,
     )
 

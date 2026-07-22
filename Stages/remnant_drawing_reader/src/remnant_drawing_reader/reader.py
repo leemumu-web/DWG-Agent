@@ -44,32 +44,50 @@ def _evidence(entity: DXFEntity, block_path: tuple[str, ...]) -> Evidence | None
                     str(handle) if handle is not None else None)
 
 
-def _walk_insert(insert: Insert, parents: tuple[str, ...]) -> Iterator[Evidence]:
+def _walk_insert(
+    insert: Insert, parents: tuple[str, ...], anomalies: list[bool]
+) -> Iterator[Evidence]:
     path = (*parents, str(insert.dxf.name))
     for attribute in insert.attribs:
-        item = _evidence(attribute, path)
+        try:
+            item = _evidence(attribute, path)
+        except Exception:
+            anomalies[0] = True
+            continue
         if item:
             yield item
-    for entity in insert.virtual_entities():
-        if entity.dxftype() == "INSERT":
-            yield from _walk_insert(entity, path)  # type: ignore[arg-type]
-        else:
-            item = _evidence(entity, path)
-            if item:
-                yield item
+    try:
+        for entity in insert.virtual_entities():
+            try:
+                if entity.dxftype() == "INSERT":
+                    yield from _walk_insert(entity, path, anomalies)  # type: ignore[arg-type]
+                else:
+                    item = _evidence(entity, path)
+                    if item:
+                        yield item
+            except Exception:
+                anomalies[0] = True
+    except Exception:
+        anomalies[0] = True
 
 
-def read_evidence(path: Path) -> list[Evidence]:
+def read_evidence(path: Path) -> tuple[list[Evidence], bool]:
     document = _read_document(path)
     found: list[Evidence] = []
+    anomalies = [False]
     try:
         for entity in document.modelspace():
-            if entity.dxftype() == "INSERT":
-                found.extend(_walk_insert(entity, ()))  # type: ignore[arg-type]
-            else:
-                item = _evidence(entity, ())
-                if item:
-                    found.append(item)
+            try:
+                if entity.dxftype() == "INSERT":
+                    found.extend(_walk_insert(entity, (), anomalies))  # type: ignore[arg-type]
+                else:
+                    item = _evidence(entity, ())
+                    if item:
+                        found.append(item)
+            except Exception:
+                anomalies[0] = True
     except Exception as exc:
-        raise ParseError("REMNANT_DXF_UNREADABLE") from exc
-    return found
+        if not found:
+            raise ParseError("REMNANT_DXF_UNREADABLE") from exc
+        anomalies[0] = True
+    return found, anomalies[0]

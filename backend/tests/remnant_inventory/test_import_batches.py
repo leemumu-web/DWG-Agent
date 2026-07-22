@@ -87,6 +87,21 @@ def test_batch_enforces_non_empty_configured_file_limit(db, count: int) -> None:
     }
 
 
+def test_configured_limit_allows_backpressure_batch_larger_than_twenty(db) -> None:
+    from app.modules.remnant_inventory.imports import register_import_batch
+
+    actor = _user(db)
+    files = [
+        _file(db, name=f"backpressure-{index}.dxf", sha=f"{index + 100:064x}", ext=".dxf")
+        for index in range(21)
+    ]
+
+    batch = register_import_batch(db, actor_id=actor.id, source_files=files, max_files=100)
+
+    assert batch.total_count == 21
+    assert db.query(RemnantImportItem).filter_by(batch_id=batch.id).count() == 21
+
+
 def test_rejects_zip_even_if_it_is_already_in_file_registry(db) -> None:
     from app.modules.remnant_inventory.imports import register_import_batch
 

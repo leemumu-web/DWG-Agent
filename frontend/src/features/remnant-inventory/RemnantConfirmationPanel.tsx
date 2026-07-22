@@ -16,6 +16,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const [bulkThickness, setBulkThickness] = useState<number>();
   const [editing, setEditing] = useState<RemnantImportItem>();
   const [preview, setPreview] = useState<RemnantImportItem>();
+  const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
   const [form] = Form.useForm();
   const rows = useMemo(() => batch.items.filter((item) => ['pending_confirmation', 'confirmed'].includes(item.status)), [batch.items]);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['remnant-import-batch', batch.id] });
@@ -36,6 +37,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     onSuccess: async (result) => {
       await refresh();
       setSelected(result.invalid.map((item) => item.item_id));
+      setValidationErrors(Object.fromEntries(result.invalid.map((item) => [item.item_id, item.code])));
       if (result.invalid.length) message.warning(`已确认 ${result.confirmed.length} 张，${result.invalid.length} 张需补充字段`);
       else message.success(`已确认 ${result.confirmed.length + result.already_confirmed.length} 张余料`);
     },
@@ -70,6 +72,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
           { title: '材质候选', key: 'material', render: (_, row) => row.material_candidates.map((item) => item.value).join(' / ') || '—' },
           { title: '项目编号', key: 'project', render: (_, row) => row.project_no ?? row.project_candidates[0]?.value ?? '—' },
           { title: '零件数', key: 'parts', width: 90, render: (_, row) => row.parts.length || row.part_candidates.length },
+          { title: '校验结果', key: 'validation', width: 190, render: (_, row) => validationErrors[row.id] ? <Typography.Text type="danger">{validationErrors[row.id]}</Typography.Text> : (row.status === 'confirmed' ? <Tag color="success">已确认</Tag> : '—') },
           { title: '操作', key: 'actions', width: 160, render: (_, row) => <Space><Button type="link" icon={<EyeOutlined />} disabled={!row.dxf_file_id} onClick={() => setPreview(row)}>预览</Button><Button type="link" icon={<EditOutlined />} disabled={row.status === 'confirmed'} onClick={() => edit(row)}>编辑</Button></Space> },
         ]}
       />
@@ -98,4 +101,3 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     </Card>
   );
 }
-

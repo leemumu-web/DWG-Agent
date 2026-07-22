@@ -25,6 +25,7 @@ from app.modules.jobs.interface import (
     fail_job_attempt,
     make_event,
 )
+from app.modules.remnant_inventory.materials import resolve_material_candidate
 from app.modules.remnant_inventory.models import RemnantImportBatch, RemnantImportItem
 from app.modules.remnant_inventory.stage_adapter import parse_staged_dxf
 from app.platform.config.settings import settings
@@ -46,6 +47,13 @@ def _candidate_payload(result, name: str):
 
 
 def store_parse_result(db: Session, item_id: int, *, expected_attempt: int, result) -> bool:
+    resolved_material_ids = {
+        material.id
+        for candidate in result.material_candidates
+        if (material := resolve_material_candidate(db, candidate.value)) is not None
+    }
+    projects = list(dict.fromkeys(candidate.value.strip() for candidate in result.project_candidates if candidate.value.strip()))
+    parts = list(dict.fromkeys(candidate.value.strip() for candidate in result.part_candidates if candidate.value.strip()))
     statement = (
         update(RemnantImportItem)
         .where(
@@ -61,6 +69,11 @@ def store_parse_result(db: Session, item_id: int, *, expected_attempt: int, resu
             project_candidates_json=_candidate_payload(result, "project_candidates"),
             part_candidates_json=_candidate_payload(result, "part_candidates"),
             warnings_json=_candidate_payload(result, "warnings"),
+            corrected_material_id=(
+                next(iter(resolved_material_ids)) if len(resolved_material_ids) == 1 else None
+            ),
+            corrected_project_no=projects[0] if len(projects) == 1 else None,
+            corrected_parts_json=parts or None,
             error_code=None,
             error_message=None,
         )
@@ -85,10 +98,10 @@ def recalculate_batch_counters(db: Session, batch_id: int) -> RemnantImportBatch
     batch.confirmed_count = counts["confirmed"]
     batch.failed_count = counts["failed"]
     batch.cancelled_count = counts["cancelled"]
-    if batch.cancelled_count == batch.total_count:
-        batch.status = "cancelled"
-    elif batch.confirmed_count == batch.total_count:
+    if batch.confirmed_count == batch.total_count:
         batch.status = "confirmed"
+    elif batch.confirmed_count + batch.cancelled_count == batch.total_count:
+        batch.status = "cancelled"
     elif batch.failed_count + batch.pending_count + batch.confirmed_count == batch.total_count:
         batch.status = "awaiting_confirmation"
     else:
@@ -138,10 +151,19 @@ def prepare_import_execution(db: Session, batch_id: int, *, actor_id: int) -> Ex
 def dispatch_import_execution(dispatch: ExecutionDispatch) -> None:
     from app.modules.remnant_inventory.tasks import convert_batch_task, parse_item_task
 
+    all_attempts = {**dispatch.convert_attempts, **dispatch.parse_attempts}
     if dispatch.convert_attempts:
-        convert_batch_task.delay(dispatch.batch_id, dispatch.convert_attempts)
+        try:
+            convert_batch_task.delay(dispatch.batch_id, dispatch.convert_attempts)
+        except Exception:
+            _settle_dispatch_failure(all_attempts)
+            raise
     for item_id, attempt in dispatch.parse_attempts.items():
-        parse_item_task.delay(item_id, attempt)
+        try:
+            parse_item_task.delay(item_id, attempt)
+        except Exception:
+            _settle_dispatch_failure(dispatch.parse_attempts)
+            raise
 
 
 def _stage_file(file: StoredFile, target: Path) -> None:
@@ -164,6 +186,70 @@ def _mark_item_failed(db: Session, item: RemnantImportItem, attempt: int, code: 
         .execution_options(synchronize_session=False)
     )
     return result.rowcount == 1
+
+
+def _fail_active_job(db: Session, job_id: int | None, code: str, message: str) -> None:
+    if job_id is None:
+        return
+    job = db.get(Job, job_id, populate_existing=True)
+    if job is None:
+        return
+    if job.status == "queued":
+        claim_queued_job(
+            db,
+            job.id,
+            expected_attempt=job.attempt,
+            pipeline=job.pipeline,
+            progress=0,
+            message=message,
+        )
+        job = db.get(Job, job_id, populate_existing=True)
+    if job is not None and job.status == "running":
+        fail_job_attempt(
+            db,
+            job.id,
+            attempt=job.attempt,
+            error_code=code,
+            error_message=message,
+        )
+
+
+def _settle_dispatch_failure(expected_attempts: dict[int, int]) -> None:
+    db = SessionLocal()
+    try:
+        batch_ids: set[int] = set()
+        items = list(
+            db.scalars(
+                select(RemnantImportItem).where(
+                    RemnantImportItem.id.in_(expected_attempts)
+                )
+            ).all()
+        )
+        for item in items:
+            attempt = expected_attempts[item.id]
+            if _mark_item_failed(db, item, attempt, "REMNANT_DISPATCH_FAILED"):
+                batch_ids.add(item.batch_id)
+                _fail_active_job(
+                    db,
+                    item.conversion_job_id,
+                    "REMNANT_DISPATCH_FAILED",
+                    "Conversion task dispatch failed.",
+                )
+                _fail_active_job(
+                    db,
+                    item.parse_job_id,
+                    "REMNANT_DISPATCH_FAILED",
+                    "Parsing task dispatch failed.",
+                )
+        for batch_id in batch_ids:
+            recalculate_batch_counters(db, batch_id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to settle remnant dispatch failure")
+        raise
+    finally:
+        db.close()
 
 
 def run_conversion_batch(batch_id: int, expected_attempts: dict[int | str, int]) -> None:
@@ -213,12 +299,17 @@ def run_conversion_batch(batch_id: int, expected_attempts: dict[int | str, int])
                         _mark_item_failed(db, item, attempt, "REMNANT_CONVERSION_FAILED")
                         and item.conversion_job_id
                     ):
-                        fail_job_attempt(
+                        _fail_active_job(
                             db,
                             item.conversion_job_id,
-                            attempt=1,
-                            error_code="REMNANT_CONVERSION_FAILED",
-                            error_message="Drawing conversion failed.",
+                            "REMNANT_CONVERSION_FAILED",
+                            "Drawing conversion failed.",
+                        )
+                        _fail_active_job(
+                            db,
+                            item.parse_job_id,
+                            "REMNANT_CONVERSION_FAILED",
+                            "Parsing skipped because conversion failed.",
                         )
                     continue
                 stored = save_path_as_file(
@@ -257,13 +348,36 @@ def run_conversion_batch(batch_id: int, expected_attempts: dict[int | str, int])
     except Exception:
         db.rollback()
         logger.exception("Remnant conversion batch failed: %s", batch_id)
-        raise
+        items = list(
+            db.scalars(select(RemnantImportItem).where(RemnantImportItem.id.in_(expected))).all()
+        )
+        for item in items:
+            attempt = expected[item.id]
+            if _mark_item_failed(db, item, attempt, "REMNANT_CONVERSION_FAILED"):
+                _fail_active_job(
+                    db,
+                    item.conversion_job_id,
+                    "REMNANT_CONVERSION_FAILED",
+                    "Drawing conversion batch failed.",
+                )
+                _fail_active_job(
+                    db,
+                    item.parse_job_id,
+                    "REMNANT_CONVERSION_FAILED",
+                    "Parsing skipped because conversion failed.",
+                )
+        recalculate_batch_counters(db, batch_id)
+        db.commit()
     finally:
         db.close()
     from app.modules.remnant_inventory.tasks import parse_item_task
 
     for item_id, attempt in parse_dispatch:
-        parse_item_task.delay(item_id, attempt)
+        try:
+            parse_item_task.delay(item_id, attempt)
+        except Exception:
+            _settle_dispatch_failure({item_id: attempt})
+            logger.exception("Remnant parse dispatch failed: %s", item_id)
 
 
 def run_parse_item(item_id: int, expected_attempt: int) -> None:
