@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "e2f4b8c6a130"
+    "f3a7c9d2e6b1"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",

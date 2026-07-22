@@ -24,21 +24,32 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 - `part`：固定 11 列下料投影，无标题行或合计行偏移。
 - `处理报告`：信息、警告、严重问题的逐来源行台账。
 
-`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；它实现了 `os.PathLike` 以兼容现有平台调用。
+`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
+
+## 责任与边界
+
+本目录负责单个 Tekla/初始表输入的规范化、手册查询、物理核验、拆板、`part` 投影和六表输出。它不负责 Files/Job 权限、Celery 编排、对象存储或跨图纸最终汇总；这些能力由 backend 平台拥有。
 
 ## 主要模块
 
 | 模块 | 责任 |
 |---|---|
+| `config.py` | 平台注入的只读手册数据库配置 |
+| `domain.py` | 不可变规范记录与 `PipelineOutcome` |
 | `input_contract.py` | 单 sheet 输入合同和唯一题头检测 |
+| `preprocess.py` | 从复核多表工作簿中分离原始输入表 |
 | `reader.py` / `reader_init.py` | Tekla 与初始表适配为 `SourcePart` |
 | `spec_parser.py` | 材质感知、确定性的规格分类 |
 | `handbook.py` | 类别门控、只读 MySQL 查询 |
+| `quality.py` | 结构化问题台账与质量摘要 |
 | `weights.py` | 未舍入理论重与源重量物理核验 |
 | `splitter.py` | 仅 BH/BOX/BT 的规范拆板 |
 | `part_builder.py` | 严格 RECT 证明与逐构件 `part` 汇总 |
 | `canonical_pipeline.py` | 共享生产引擎 |
 | `writer_parts.py` / `ooxml_formula.py` | 固定六表、样式、报告和公式缓存 |
 | `pipeline.py` | 两个薄输入入口与数据库生命周期 |
+| `utils.py` | 安全的字符串与数值规范化小工具 |
+| `main.py` | 命令行入口与最终质量提示 |
+| `pyproject.toml` | Stage 依赖、测试 marker 与工具配置 |
 
 完整规则见 [PROCESS.md](PROCESS.md)。

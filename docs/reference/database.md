@@ -636,8 +636,9 @@ analysis_results ──< workflow_artifacts
 | `a9e4c7d2f610` | 新增 DXF 分类 run/item 账本，并为 Linux 流程插入独立分类阶段 | 2026-07-19 |
 | `c1e9a4b7d220` | 新增 Worker 活动、控制平面事件与管理员运维消息账本 | 2026-07-19 |
 | `e2f4b8c6a130` | 新增每日归档运行账本、冻结源清单与 ZIP/manifest 结果引用 | 2026-07-20 |
+| `f3a7c9d2e6b1` | 新增 Excel Final 导入身份、物理核验字段及批次质量摘要 | 2026-07-22 |
 
-线性迁移链以 `c1e9a4b7d220 → e2f4b8c6a130` 延伸；**`e2f4b8c6a130` 是当前 head。**
+线性迁移链以 `e2f4b8c6a130 → f3a7c9d2e6b1` 延伸；**`f3a7c9d2e6b1` 是当前 head。**
 
 ### 4.2 如何创建新迁移
 
