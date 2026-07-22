@@ -165,7 +165,7 @@ Cover:
 - duplicate `长度(mm)` columns resolve to part length vs component length/width/height by grouped header and data semantics;
 - all half-width/full-width spaces are removed from the working copy only;
 - `清洗表` candidates contain only part rows;
-- `构件表` source data has one component per row and retains source start/subtotal rows;
+- `构件表` has one typed summary per component, merges start/subtotal values, and retains both source row numbers;
 - inconsistent duplicate component IDs create severe issues;
 - initial-table `单重/总重` map to source gross fields while net fields stay empty;
 - Tekla text `.xls` remains a single-text-source adapter.

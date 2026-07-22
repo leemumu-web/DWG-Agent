@@ -57,9 +57,13 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
     try:
         assert formulas.sheetnames == ["原表", "清洗表", "构件表", "整理表", "part", "处理报告"]
         cleaned = _rows_by_headers(values["清洗表"])
+        components = _rows_by_headers(values["构件表"])
         organized = _rows_by_headers(values["整理表"])
         part = _rows_by_headers(values["part"])
         assert len(cleaned) == baseline["parent_parts"]
+        assert len(components) == baseline["components"]
+        assert len({row["构件编号"] for row in components}) == baseline["components"]
+        assert {row["行类型"] for row in components} == {"summary"}
         assert len(organized) == baseline["organized_rows"]
 
         source_types: dict[str, int] = {"PL": 0, "BOX": 0, "TT": 0, "D": 0, "NUT": 0}

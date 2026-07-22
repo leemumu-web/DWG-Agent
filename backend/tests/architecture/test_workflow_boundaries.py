@@ -242,6 +242,7 @@ def test_linux_production_contract_keeps_server_derived_dxf_and_honest_gaps() ->
     assert registration.classify_human_input_extension(".dwg") == "source_dwg"
     assert registration.classify_human_input_extension(".xls") == "source_excel"
     assert registration.classify_human_input_extension(".xlsx") == "source_excel"
+    assert registration.classify_human_input_extension(".xlsm") == "source_excel"
     with pytest.raises(AppHTTPException) as raised:
         registration.classify_human_input_extension(".dxf")
     assert raised.value.detail["code"] == "INPUT_DXF_NOT_ALLOWED"

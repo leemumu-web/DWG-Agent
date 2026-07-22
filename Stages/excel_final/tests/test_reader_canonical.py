@@ -58,7 +58,7 @@ def _standard_workbook(path: Path, *, duplicate_conflict: bool = False) -> Path:
     return path
 
 
-def test_canonical_reader_preserves_raw_and_separates_part_and_component_rows(
+def test_canonical_reader_preserves_raw_and_summarizes_each_component_once(
     tmp_path: Path,
 ) -> None:
     reader = _reader()
@@ -81,10 +81,19 @@ def test_canonical_reader_preserves_raw_and_separates_part_and_component_rows(
     assert part.source_unit_gross == Decimal("1.6")
     assert part.source_total_gross == Decimal("4.8")
 
-    assert [(row.kind.value, row.component_no) for row in result.component_rows] == [
-        ("start", "C1"),
-        ("subtotal", "C1"),
-    ]
+    assert len(result.component_rows) == 1
+    component = result.component_rows[0]
+    assert (component.kind.value, component.component_no) == ("summary", "C1")
+    assert component.batch == "BAT"
+    assert component.component_qty == Decimal("2")
+    assert component.original_spec == "BOX700*700*36*36"
+    assert component.material == "Q420B"
+    assert component.source_total_net == Decimal("3.0")
+    assert component.source_total_gross == Decimal("3.2")
+    assert component.component_length == Decimal("3704")
+    assert component.component_width == Decimal("700")
+    assert component.component_height == Decimal("700")
+    assert component.subtotal_source_row == 5
     assert result.working_values[2][0] == "BAT"
     assert result.working_values[4][2] == "构件小计"
 
@@ -155,7 +164,7 @@ def test_tekla_text_xls_adapts_to_the_same_canonical_records(tmp_path: Path) -> 
     assert result.header.row_number == 2
     assert len(result.parts) == 1
     assert result.parts[0].source_unit_gross == Decimal("1.6")
-    assert [row.kind.value for row in result.component_rows] == ["start", "subtotal"]
+    assert [row.kind.value for row in result.component_rows] == ["summary"]
 
 
 def test_tekla_text_never_falls_back_to_incomplete_row_six(tmp_path: Path) -> None:

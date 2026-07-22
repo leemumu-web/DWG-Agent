@@ -4,7 +4,11 @@ from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.modules.excel_processing.execution import _mark_job_failed, run_excel_final_processing
+from app.modules.excel_processing.execution import (
+    _exception_message,
+    _mark_job_failed,
+    run_excel_final_processing,
+)
 from app.modules.excel_processing.models import ExcelFinalBatch, ExcelFinalPart
 from app.modules.excel_processing.persistence import replace_batch_for_job
 from app.modules.excel_processing.presentation import process_status
@@ -191,7 +195,7 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
         service,
         "run_excel_final_pipeline",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            ExcelFinalProcessError("safe processing failure")
+            ExcelFinalProcessError("secret-host/private/path")
         ),
     )
 
@@ -214,11 +218,12 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
     )
     assert session_count == 1
     assert persisted.status == "failed"
-    assert persisted.error_message == "流水线处理失败: safe processing failure"
+    assert persisted.error_message == "流水线处理失败；请检查输入文件和处理报告"
     assert [(step.attempt, step.step_name, step.status) for step in steps] == [
         (2, "download_excel_source", "succeeded"),
         (2, "run_excel_final_pipeline", "failed"),
     ]
+    assert all("secret-host" not in (step.error_message or "") for step in steps)
     assert (
         db.scalar(
             select(func.count())
@@ -227,6 +232,85 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
         )
         == 0
     )
+
+
+def test_database_import_failure_never_discloses_connection_details(
+    db: Session,
+    monkeypatch,
+    tmp_path,
+    caplog,
+):
+    from app.modules.excel_processing import execution as service
+
+    source = StoredFile(
+        bucket="dwg-reports",
+        storage_key="uploads/import-failure.xlsx",
+        original_name="import-failure.xlsx",
+        file_ext=".xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size_bytes=10,
+        sha256="d" * 64,
+        status="available",
+    )
+    db.add(source)
+    db.flush()
+    job = Job(
+        task_type=TASK_EXCEL_FINAL,
+        precision_level="normal",
+        pipeline="excel_final",
+        status="queued",
+        attempt=1,
+        progress=0,
+        params_json={"file_id": source.id},
+    )
+    db.add(job)
+    db.commit()
+    source_path = tmp_path / "import-failure.xlsx"
+    source_path.write_bytes(b"source")
+
+    monkeypatch.setattr(
+        service,
+        "stage_excel_source",
+        lambda worker_db, file_id, _work_dir: (
+            source_path,
+            worker_db.get(StoredFile, file_id),
+        ),
+    )
+    monkeypatch.setattr(service, "detect_source_format", lambda _path: "tsv")
+
+    def fake_pipeline(_source_path, output_path, *, source_format):
+        assert source_format == "tsv"
+        output_path.write_bytes(b"result")
+        return ExcelFinalProcessResult(
+            protocol_version=1,
+            output_path=output_path.resolve(),
+            quality_status="ok",
+            warning_count=0,
+            severe_warning_count=0,
+            report_summary={
+                "info_count": 0,
+                "warning_count": 0,
+                "severe_warning_count": 0,
+                "category_counts": {},
+                "representative_messages": [],
+            },
+        )
+
+    monkeypatch.setattr(service, "run_excel_final_pipeline", fake_pipeline)
+    monkeypatch.setattr(
+        service,
+        "import_workbook_for_job",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("mysql://user:password@secret-db.internal/db")
+        ),
+    )
+
+    run_excel_final_processing(job.id, expected_attempt=1)
+
+    db.expire_all()
+    persisted = db.get(Job, job.id)
+    assert persisted.error_message == "MySQL 入库失败；请检查服务状态和处理报告"
+    assert "secret-db.internal" not in caplog.text
 
 
 def test_successful_warning_job_persists_and_broadcasts_quality(
@@ -355,6 +439,10 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
     assert analysis.result_json["report_summary"]["category_counts"] == {"手册查无": 1}
     run_step = next(step for step in steps if step.step_name == "run_excel_final_pipeline")
     assert run_step.output_json["quality_status"] == "warning"
+    assert run_step.output_json["output_name"] == "warning_处理后.xlsx"
+    assert str(tmp_path) not in repr(
+        [(step.input_json, step.output_json) for step in steps]
+    )
     assert persisted_job.progress_data["quality_status"] == "warning"
     assert persisted_job.progress_data["warning_count"] == 1
     assert persisted_job.progress_data["severe_warning_count"] == 0
@@ -366,3 +454,9 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
         result_file_id=analysis.result_file_id,
     )
     assert status_payload["batch"]["quality_status"] == "warning"
+
+
+def test_unknown_exception_message_never_echoes_internal_details():
+    message = _exception_message(RuntimeError("mysql://user:password@secret-host/db"))
+
+    assert message == "RuntimeError"

@@ -100,6 +100,19 @@ def test_type_priority_then_part_id_and_dimensions_is_stable() -> None:
     ]
 
 
+def test_dimension_sort_key_is_numeric_with_stable_text_fallback() -> None:
+    builder = _builder()
+    values = ["100", Decimal("2"), "profile-X", None, Decimal("10")]
+
+    assert sorted(values, key=builder._sort_value) == [
+        None,
+        Decimal("2"),
+        Decimal("10"),
+        "100",
+        "profile-X",
+    ]
+
+
 def test_same_component_and_part_id_with_conflicting_geometry_is_severe_and_excluded() -> None:
     builder = _builder()
     candidates = [

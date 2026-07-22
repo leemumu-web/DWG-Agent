@@ -13,6 +13,7 @@ from app.modules.files.interface import (
     sanitize_filename,
 )
 from app.modules.jobs.interface import Job
+from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.storage.base import StorageObjectNotFound
 
 _INIT_TABLE_SIGNATURE = [
@@ -78,7 +79,7 @@ def stage_excel_source(
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise FileNotFoundError(f"File {file_id} not found or deleted")
-    if stored.file_ext and stored.file_ext.lower() not in (".xlsx", ".xls"):
+    if stored.file_ext and stored.file_ext.lower() not in EXCEL_FILE_EXTENSIONS:
         raise ValueError(f"File {file_id} is not an Excel file (ext={stored.file_ext})")
 
     storage = get_storage_backend()

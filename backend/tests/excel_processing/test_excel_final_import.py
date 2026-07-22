@@ -129,6 +129,31 @@ def test_excel_final_parts_imports_sparse_rows_and_optional_fields(db: Session, 
     assert part.qty == 0
 
 
+def test_excel_final_parts_never_persists_negative_physical_values(
+    db: Session,
+    tmp_path: Path,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "negative-parts.xlsx"
+    _workbook(
+        output_path,
+        [
+            "序号", "构件编号", "零件号", "规格", "长度", "材质", "数量",
+            "表净重", "表毛重", "单表面积", "总表面积",
+        ],
+        [
+            [1, "C-1", "P-valid", "PL10*100", 1000, "Q355B", 1, 7, 8, 1, 1],
+            [2, "C-1", "P-length", "PL10*100", -1, "Q355B", 1, 7, 8, 1, 1],
+            [3, "C-1", "P-qty", "PL10*100", 1000, "Q355B", -1, 7, 8, 1, 1],
+            [4, "C-1", "P-weight", "PL10*100", 1000, "Q355B", 1, -1, -1, 1, 1],
+            [5, "C-1", "P-area", "PL10*100", 1000, "Q355B", 1, 7, 8, -1, -1],
+        ],
+    )
+
+    assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
+    assert [part.part_no for part in db.scalars(select(ExcelFinalPart))] == ["P-valid"]
+
+
 def test_excel_final_parts_rejects_retired_intermediate_sheet(db: Session, tmp_path: Path):
     batch = _batch(db)
     output_path = tmp_path / "intermediate.xlsx"
@@ -227,6 +252,27 @@ def test_excel_final_parts_rejects_unknown_part_type(db: Session, tmp_path: Path
         import_parts_to_db(db, batch.id, output_path)
 
 
+@pytest.mark.parametrize(
+    ("stage_type", "stored_type"),
+    [
+        ("H型钢", "h_beam"),
+        ("T型钢", "t_beam"),
+        ("槽钢", "channel"),
+        ("角钢", "angle"),
+        ("方管", "square_tube"),
+        ("钢管", "steel_pipe"),
+        ("方钢", "square_bar"),
+        ("高频焊", "hfw_pipe"),
+        ("W型钢", "w_beam"),
+    ],
+)
+def test_excel_final_part_type_projection_covers_every_handbook_profile(
+    stage_type: str,
+    stored_type: str,
+):
+    assert importers._part_type(stage_type) == stored_type
+
+
 def test_excel_final_parts_returns_error_when_sheet_is_absent(db: Session, tmp_path: Path):
     batch = _batch(db)
     output_path = tmp_path / "missing-sheet.xlsx"
@@ -266,6 +312,27 @@ def test_excel_final_components_imports_rows_and_preserves_zero_qty(
     ]
 
 
+def test_excel_final_components_never_persists_negative_physical_values(
+    db: Session,
+    tmp_path: Path,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "negative-components.xlsx"
+    _workbook(
+        output_path,
+        ["构件编号", "构件数", "总净重"],
+        [["C-valid", 1, 10], ["C-qty", -1, 10], ["C-weight", 1, -10]],
+        sheet_name="构件表",
+    )
+
+    assert import_components_to_db(db, batch.id, output_path) == {
+        "components_imported": 1
+    }
+    component = db.scalar(select(ExcelFinalComponent))
+    assert component is not None
+    assert component.component_no == "C-valid"
+
+
 def test_excel_final_components_allows_missing_optional_columns(db: Session, tmp_path: Path):
     batch = _batch(db)
     output_path = tmp_path / "component-number-only.xlsx"
@@ -300,6 +367,23 @@ def test_excel_final_components_rejects_missing_component_number(
     )
 
     with pytest.raises(ValueError, match="missing required column: 构件编号"):
+        import_components_to_db(db, batch.id, output_path)
+
+
+def test_excel_final_components_rejects_duplicate_component_identity(
+    db: Session,
+    tmp_path: Path,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "duplicate-components.xlsx"
+    _workbook(
+        output_path,
+        ["构件编号", "构件数", "总净重"],
+        [["C-1", 2, 123.5], ["C-1", 2, 123.5]],
+        sheet_name="构件表",
+    )
+
+    with pytest.raises(ValueError, match="duplicate component identity"):
         import_components_to_db(db, batch.id, output_path)
 
 

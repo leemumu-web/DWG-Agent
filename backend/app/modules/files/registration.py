@@ -23,6 +23,7 @@ from app.modules.files.validation import (
     validate_upload_mime,
     validate_upload_name,
 )
+from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage import factory as storage_factory
@@ -43,7 +44,7 @@ async def save_upload_file(
 ) -> StoredFile:
     original_name = sanitize_filename(upload.filename or "unnamed.dwg")
     file_ext = validate_upload_name(original_name)
-    is_excel = file_ext in (".xlsx", ".xls")
+    is_excel = file_ext in EXCEL_FILE_EXTENSIONS
     upload_content_type = validate_upload_mime(upload.content_type)
     bucket = (
         settings.minio_bucket_reports

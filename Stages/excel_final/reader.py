@@ -70,6 +70,16 @@ def _decimal(value: Any, *, field: str, source_row: int) -> Decimal | None:
         raise ValueError(f"row {source_row} field {field} is not numeric: {value!r}") from exc
 
 
+def _has_part_payload(row: tuple[Any, ...], columns: Any) -> bool:
+    return any(
+        _row_value(row, columns, field) not in (None, "")
+        for field in (
+            "规格", "零件长度", "材质", "数量", "单净重", "总净重",
+            "单毛重", "总毛重", "单表面积", "总表面积",
+        )
+    )
+
+
 def _component_source_row(
     row: tuple[Any, ...],
     columns: Any,
@@ -102,16 +112,81 @@ def _component_source_row(
     )
 
 
-def _component_identity(row: ComponentSourceRow) -> tuple[object, ...]:
-    return (
-        row.batch,
-        row.component_qty,
-        row.original_spec,
-        row.material,
-        row.component_length,
-        row.component_width,
-        row.component_height,
-    )
+_COMPONENT_IDENTITY_FIELDS = ("batch", "component_qty", "original_spec", "material")
+_COMPONENT_METRIC_FIELDS = (
+    "source_unit_net",
+    "source_total_net",
+    "source_unit_gross",
+    "source_total_gross",
+    "source_unit_area",
+    "source_total_area",
+    "component_length",
+    "component_width",
+    "component_height",
+)
+
+
+def _summarize_component_rows(
+    rows: list[ComponentSourceRow],
+) -> tuple[tuple[ComponentSourceRow, ...], tuple[QualityIssue, ...]]:
+    """Collapse Tekla start/subtotal records into one canonical component row."""
+    grouped: dict[str, list[ComponentSourceRow]] = {}
+    for row in rows:
+        grouped.setdefault(row.component_no, []).append(row)
+
+    summaries: list[ComponentSourceRow] = []
+    issues: list[QualityIssue] = []
+    for component_no, group in grouped.items():
+        starts = [row for row in group if row.kind == ComponentRowKind.START]
+        subtotals = [row for row in group if row.kind == ComponentRowKind.SUBTOTAL]
+        base = starts[0] if starts else group[0]
+        values: dict[str, object | None] = {}
+
+        for field in (*_COMPONENT_IDENTITY_FIELDS, *_COMPONENT_METRIC_FIELDS):
+            preferred = (
+                [*starts, *subtotals]
+                if field in _COMPONENT_IDENTITY_FIELDS
+                else [*subtotals, *starts]
+            )
+            present = [getattr(row, field) for row in preferred if getattr(row, field) is not None]
+            selected = present[0] if present else None
+            values[field] = selected
+            conflicts = [value for value in present[1:] if value != selected]
+            if conflicts:
+                conflict_row = next(
+                    row
+                    for row in preferred
+                    if getattr(row, field) is not None and getattr(row, field) != selected
+                )
+                issues.append(QualityIssue(
+                    level=IssueLevel.SEVERE,
+                    category="构件编号冲突",
+                    source_sheet=conflict_row.source_sheet,
+                    source_row=conflict_row.source_row,
+                    component_no=component_no,
+                    part_no=None,
+                    spec=base.original_spec,
+                    field=field,
+                    actual_value=getattr(conflict_row, field),
+                    expected_value=selected,
+                    absolute_error=None,
+                    relative_error=None,
+                    affects_part=True,
+                    density_source=None,
+                    description=(
+                        f"构件编号 {component_no} 的字段 {field} 在来源行中不一致"
+                    ),
+                ))
+
+        summaries.append(ComponentSourceRow(
+            source_sheet=base.source_sheet,
+            source_row=base.source_row,
+            kind=ComponentRowKind.SUMMARY,
+            component_no=component_no,
+            subtotal_source_row=subtotals[0].source_row if subtotals else None,
+            **values,
+        ))
+    return tuple(summaries), tuple(issues)
 
 
 def _canonicalize_values(
@@ -125,7 +200,6 @@ def _canonicalize_values(
     parts: list[SourcePart] = []
     component_rows: list[ComponentSourceRow] = []
     issues: list[QualityIssue] = []
-    starts: dict[str, ComponentSourceRow] = {}
     current: ComponentSourceRow | None = None
 
     for source_row, row in enumerate(working_values[header.row_number:], start=header.row_number + 1):
@@ -153,56 +227,42 @@ def _canonicalize_values(
                 source_row=source_row,
                 kind=ComponentRowKind.START,
             )
-            previous = starts.get(start.component_no)
-            if previous is not None and _component_identity(previous) != _component_identity(start):
-                issues.append(QualityIssue(
-                    level=IssueLevel.SEVERE,
-                    category="构件编号冲突",
-                    source_sheet=sheet_name,
-                    source_row=source_row,
-                    component_no=start.component_no,
-                    part_no=None,
-                    spec=start.original_spec,
-                    field="构件元数据",
-                    actual_value=_component_identity(start),
-                    expected_value=_component_identity(previous),
-                    absolute_error=None,
-                    relative_error=None,
-                    affects_part=True,
-                    density_source=None,
-                    description=(
-                        f"构件编号 {start.component_no} 在来源行 {previous.source_row} 与 "
-                        f"{source_row} 的元数据不一致"
-                    ),
-                ))
-            else:
-                starts[start.component_no] = start
             component_rows.append(start)
             current = start
             continue
-        if not part_no:
+        if not part_no and (current is None or not _has_part_payload(row, columns)):
             continue
         if current is None:
             raise ValueError(f"row {source_row} part {part_no!r} has no preceding component row")
 
         length = _decimal(_row_value(row, columns, "零件长度"), field="零件长度", source_row=source_row)
         quantity = _decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row)
-        if length is None or quantity is None or current.component_qty is None:
-            raise ValueError(
-                f"row {source_row} part {part_no!r} requires length, quantity, and component quantity"
+        original_spec = _text(_row_value(row, columns, "规格"))
+        material = _text(_row_value(row, columns, "材质"))
+        invalid_fields = tuple(
+            field
+            for field, missing in (
+                ("零件号", not part_no),
+                ("规格", not original_spec),
+                ("长度", length is None),
+                ("材质", not material),
+                ("数量", quantity is None),
+                ("构件数", current.component_qty is None),
             )
+            if missing
+        )
         parts.append(SourcePart(
             source_sheet=sheet_name,
             source_row=source_row,
             source_seq=source_row - header.row_number,
             batch=batch or current.batch,
             component_no=current.component_no,
-            component_qty=current.component_qty,
-            part_no=part_no,
-            original_spec=_text(_row_value(row, columns, "规格")) or "",
-            material=_text(_row_value(row, columns, "材质")) or "",
-            length=length,
-            original_qty=quantity,
+            component_qty=current.component_qty or Decimal("0"),
+            part_no=part_no or "",
+            original_spec=original_spec or "",
+            material=material or "",
+            length=length or Decimal("0"),
+            original_qty=quantity or Decimal("0"),
             source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
             source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
             source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
@@ -210,15 +270,18 @@ def _canonicalize_values(
             source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
             source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
             classification=None,
+            invalid_fields=invalid_fields,
         ))
 
+    component_summaries, component_issues = _summarize_component_rows(component_rows)
+    issues.extend(component_issues)
     return CanonicalWorkbookRead(
         source_path=source_path,
         sheet_name=sheet_name,
         header=header,
         working_values=working_values,
         parts=tuple(parts),
-        component_rows=tuple(component_rows),
+        component_rows=component_summaries,
         issues=tuple(issues),
     )
 

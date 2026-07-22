@@ -9,7 +9,7 @@ import pytest
 from openpyxl import Workbook
 
 from app.modules.excel_processing import stage_adapter as excel_final
-from app.modules.excel_processing.staging import detect_source_format
+from app.modules.excel_processing.staging import detect_source_format, stage_excel_source
 from tests.support.paths import BACKEND_ROOT
 
 
@@ -41,6 +41,33 @@ def test_excel_final_stage_root_resolves_tracked_standalone_layout():
     assert (stage_root / "main.py").is_file()
     assert (stage_root / "pipeline.py").is_file()
     assert (stage_root / "handbook.py").is_file()
+
+
+def test_excel_final_stage_root_failure_does_not_disclose_checked_paths(
+    monkeypatch,
+    tmp_path: Path,
+):
+    secret_root = tmp_path / "private-deployment-root"
+    monkeypatch.setattr(excel_final.settings, "excel_final_stage_root", secret_root)
+    monkeypatch.setattr(excel_final, "_REQUIRED_STAGE_FILES", ("never-present.codex",))
+
+    with pytest.raises(excel_final.ExcelFinalUnavailableError) as raised:
+        excel_final.get_excel_final_stage_root()
+
+    assert str(secret_root) not in str(raised.value)
+    assert "checked:" not in str(raised.value)
+
+
+def test_handbook_health_log_does_not_disclose_mysql_host(monkeypatch, caplog):
+    def fail_connect(**_kwargs):
+        raise excel_final.pymysql.OperationalError(
+            2003, "Can't connect to MySQL server on 'secret-db.internal'"
+        )
+
+    monkeypatch.setattr(excel_final.pymysql, "connect", fail_connect)
+
+    assert excel_final.handbook_database_available() is False
+    assert "secret-db.internal" not in caplog.text
 
 
 def test_excel_final_dependency_probe_includes_legacy_xls_reader(monkeypatch):
@@ -281,6 +308,48 @@ def test_excel_final_format_detection_accepts_single_initial_sheet(tmp_path: Pat
     workbook.save(source_path)
 
     assert detect_source_format(source_path) == "init"
+
+
+def test_excel_final_staging_accepts_macro_enabled_workbook(
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    from app.modules.files.interface import StoredFile
+
+    source = tmp_path / "stored-source.xlsm"
+    workbook = Workbook()
+    workbook.active.title = "原表"
+    workbook.save(source)
+    stored = StoredFile(
+        bucket="dwg-reports",
+        storage_key="uploads/stored-source.xlsm",
+        original_name="source.xlsm",
+        file_ext=".xlsm",
+        content_type="application/vnd.ms-excel.sheet.macroEnabled.12",
+        size_bytes=source.stat().st_size,
+        sha256="3" * 64,
+        status="available",
+    )
+    db.add(stored)
+    db.flush()
+
+    class LocalStorage:
+        def local_path(self, _bucket, _storage_key):
+            return source
+
+    monkeypatch.setattr(
+        "app.modules.excel_processing.staging.get_storage_backend",
+        lambda: LocalStorage(),
+    )
+
+    work_dir = tmp_path / "attempt"
+    work_dir.mkdir()
+    staged, returned = stage_excel_source(db, stored.id, work_dir)
+
+    assert returned.id == stored.id
+    assert staged.suffix == ".xlsm"
+    assert staged.is_file()
 
 
 def test_excel_final_completion_event_does_not_pass_duplicate_batch_id():

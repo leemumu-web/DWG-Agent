@@ -4,10 +4,10 @@
 
 ## 已实现链路
 
-1. `routes/processing.py` 复用 files 模块的 durable transfer saga，把 `.xls`/`.xlsx` 登记到 `files` 并写入配置的 Local/MinIO 存储；`.xlsx` 输入必须是单工作表，预处理负责从含人工结果的多表文件中分离原表。
+1. `routes/processing.py` 复用 files 模块的 durable transfer saga，把 `.xls`/`.xlsx`/`.xlsm` 登记到 `files` 并写入配置的 Local/MinIO 存储；`.xlsx`/`.xlsm` 输入必须是单工作表，预处理负责从含人工结果的多表文件中分离原表。规范结果固定为新 `.xlsx`，不复制源宏。
 2. `execution.py` 使用 jobs 模块的 attempt 状态机下载源文件、记录步骤、调用独立 Stage、登记结果文件与 `analysis_results`。
 3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。二者使用严格的 `protocol_version=1` JSON 结果，密码只通过子进程环境传递，child traceback 不进入公共错误或日志。
-4. `importers.py` 流式读取规范六表工作簿的“整理表”“构件表”“处理报告”，投影到 `excel_final_parts`、`excel_final_components` 和批次质量摘要；`persistence.py` 拥有批次替换、表净重/表毛重统计和清理。
+4. `importers.py` 流式读取规范六表工作簿的“整理表”“构件表”“处理报告”，投影到 `excel_final_parts`、`excel_final_components` 和批次质量摘要；重复构件 ID 拒绝，负长度/数量/重量/面积不进入关系投影；`persistence.py` 拥有批次替换、表净重/表毛重统计和清理。
 5. `routes/catalog.py` 只查询关系化投影；`routes/tools.py` 提供手册比重查询；`routes/health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
 
 ## 顶层源码分工
@@ -30,6 +30,7 @@
 - `整理表` 的中文类型在入库时显式转换为稳定英文枚举，例如 `板材 -> plate`、`BOX腹 -> box_web`、`圆钢 -> round_bar`；未知类型拒绝入库。
 - 批次净重和毛重仅汇总 `表净重` 与 `表毛重`，拆板翼行的空表重不重复计入，合法零值保持为零。
 - `warning` 和 `severe_warning` 不改变 Job 的成功状态；批次、process status、AnalysisResult、步骤和 done event 都返回质量状态、计数及有界摘要。
+- Job、步骤和日志只保存文件 basename、逻辑 ID、质量摘要与异常类型；临时绝对路径、MySQL 主机/DSN、口令和 traceback 不进入持久化或公共日志。
 - `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85，`skip` 返回空值，查无返回 `not_found`。
 
 ## 边界与依赖方向

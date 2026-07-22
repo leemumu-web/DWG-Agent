@@ -35,7 +35,7 @@ def _initial_component_rows(input_file: Path) -> tuple[ComponentSourceRow, ...]:
         ComponentSourceRow(
             source_sheet="初始表",
             source_row=1,
-            kind=ComponentRowKind.START,
+            kind=ComponentRowKind.SUMMARY,
             batch=None,
             component_no=component.component_no.replace(" ", "").replace("　", ""),
             component_qty=Decimal(str(component.component_qty)),

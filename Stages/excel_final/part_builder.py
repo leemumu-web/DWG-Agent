@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
 from domain import ParentPartEvidence, SplitPart
@@ -285,8 +285,13 @@ def _conflict_issue(candidates: list[PartCandidate]) -> QualityIssue:
     )
 
 
-def _sort_value(value: object) -> str:
-    return "" if value is None else str(value)
+def _sort_value(value: object) -> tuple[int, Decimal | str]:
+    if value is None:
+        return (0, "")
+    try:
+        return (1, Decimal(str(value)))
+    except (InvalidOperation, ValueError):
+        return (2, str(value))
 
 
 def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:

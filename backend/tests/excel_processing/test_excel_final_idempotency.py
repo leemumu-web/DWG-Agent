@@ -251,6 +251,39 @@ def test_process_rejects_non_excel_stored_file(
     assert db.scalar(select(func.count()).select_from(Job)) == 0
 
 
+def test_process_accepts_macro_enabled_excel_source(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client, headers, admin = _admin_client(db)
+    stored = StoredFile(
+        bucket="dwg-reports",
+        storage_key="tests/macro-source.xlsm",
+        original_name="macro-source.xlsm",
+        file_ext=".xlsm",
+        content_type="application/vnd.ms-excel.sheet.macroEnabled.12",
+        size_bytes=32,
+        sha256="2" * 64,
+        uploaded_by=admin.id,
+        status="available",
+    )
+    db.add(stored)
+    db.commit()
+    dispatched: list[int] = []
+    monkeypatch.setattr(
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
+        lambda _db, job: dispatched.append(job.id),
+    )
+
+    response = client.post(
+        f"/api/v1/excel-final/process?file_id={stored.id}",
+        headers={**headers, "Idempotency-Key": "accept-xlsm"},
+    )
+
+    assert response.status_code == 202, response.text
+    assert dispatched == [response.json()["data"]["job_id"]]
+
+
 def _ready_excel_final_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

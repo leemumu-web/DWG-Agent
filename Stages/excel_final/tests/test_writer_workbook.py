@@ -50,31 +50,12 @@ def _source(path: Path) -> tuple[SourcePart, tuple[ComponentSourceRow, ...]]:
         ComponentSourceRow(
             source_sheet="原表",
             source_row=7,
-            kind=ComponentRowKind.START,
+            kind=ComponentRowKind.SUMMARY,
             batch="B1",
             component_no="C1",
             component_qty=Decimal("2"),
             original_spec="BOX700*700*36*36",
             material="Q355B",
-            source_unit_net=None,
-            source_total_net=None,
-            source_unit_gross=None,
-            source_total_gross=None,
-            source_unit_area=None,
-            source_total_area=None,
-            component_length=None,
-            component_width=None,
-            component_height=None,
-        ),
-        ComponentSourceRow(
-            source_sheet="原表",
-            source_row=9,
-            kind=ComponentRowKind.SUBTOTAL,
-            batch="B1",
-            component_no="C1",
-            component_qty=Decimal("2"),
-            original_spec=None,
-            material=None,
             source_unit_net=Decimal("7.8"),
             source_total_net=Decimal("15.6"),
             source_unit_gross=Decimal("7.85"),
@@ -84,6 +65,7 @@ def _source(path: Path) -> tuple[SourcePart, tuple[ComponentSourceRow, ...]]:
             component_length=Decimal("1000"),
             component_width=Decimal("100"),
             component_height=Decimal("10"),
+            subtotal_source_row=9,
         ),
     )
     return part, rows
@@ -207,6 +189,9 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
         assert workbook["part"]["H2"].value is None
         assert workbook["part"]["I2"].value is None
         assert workbook["处理报告"].max_row == 3
+        assert workbook["构件表"].max_row == 2
+        assert workbook["构件表"]["C2"].value == "summary"
+        assert workbook["构件表"]["D2"].value == 9
     finally:
         workbook.close()
 

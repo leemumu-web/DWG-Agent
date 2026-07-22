@@ -223,6 +223,147 @@ def _status_label(status: str) -> str:
     return {"ok": "通过", "warning": "警告", "severe_warning": "严重"}[status]
 
 
+def _source_issue(
+    source: SourcePart,
+    *,
+    category: str,
+    field: str,
+    actual: object,
+    expected: object,
+    description: str,
+) -> QualityIssue:
+    return QualityIssue(
+        level=IssueLevel.SEVERE,
+        category=category,
+        source_sheet=source.source_sheet,
+        source_row=source.source_row,
+        component_no=source.component_no,
+        part_no=source.part_no or None,
+        spec=source.original_spec or None,
+        field=field,
+        actual_value=actual,
+        expected_value=expected,
+        absolute_error=None,
+        relative_error=None,
+        affects_part=True,
+        density_source=None,
+        description=description,
+    )
+
+
+def _validate_source_row(source: SourcePart) -> tuple[QualityIssue, ...]:
+    issues: list[QualityIssue] = []
+    for field in source.invalid_fields:
+        issues.append(_source_issue(
+            source,
+            category="关键字段缺失",
+            field=field,
+            actual=None,
+            expected="非空源值",
+            description=f"{field}缺失；保留审计行但不进入 part",
+        ))
+
+    required_values = {
+        "零件号": source.part_no,
+        "规格": source.original_spec,
+        "材质": source.material,
+    }
+    recorded = set(source.invalid_fields)
+    for field, value in required_values.items():
+        if not value and field not in recorded:
+            issues.append(_source_issue(
+                source,
+                category="关键字段缺失",
+                field=field,
+                actual=None,
+                expected="非空源值",
+                description=f"{field}缺失；保留审计行但不进入 part",
+            ))
+
+    positive_fields = (
+        ("长度", source.length),
+        ("数量", source.original_qty),
+        ("构件数", source.component_qty),
+    )
+    for field, value in positive_fields:
+        if field in recorded:
+            continue
+        if value <= 0:
+            issues.append(_source_issue(
+                source,
+                category="物理量非法",
+                field=field,
+                actual=value,
+                expected=">0",
+                description=f"{field}必须为正数；保留审计行但不进入 part",
+            ))
+
+    nonnegative_fields = (
+        ("单净重", source.source_unit_net),
+        ("总净重", source.source_total_net),
+        ("单毛重", source.source_unit_gross),
+        ("总毛重", source.source_total_gross),
+        ("单表面积", source.source_unit_area),
+        ("总表面积", source.source_total_area),
+    )
+    for field, value in nonnegative_fields:
+        if value is not None and value < 0:
+            issues.append(_source_issue(
+                source,
+                category="物理量非法",
+                field=field,
+                actual=value,
+                expected=">=0",
+                description=f"{field}不能为负数；保留审计行但不进入 part",
+            ))
+    return tuple(issues)
+
+
+def _invalid_organized_row(source: SourcePart) -> dict[str, object]:
+    missing = set(source.invalid_fields)
+    length = None if "长度" in missing else source.length
+    quantity = None if "数量" in missing else source.original_qty
+    return {
+        "序号": source.source_seq,
+        "构件编号": source.component_no,
+        "导入构件编号": source.component_no,
+        "构件数": None if "构件数" in missing else source.component_qty,
+        "类型": "未分类",
+        "班组": "",
+        "批次": source.batch,
+        "零件号": None if "零件号" in missing else source.part_no,
+        "导入零件号": None if "零件号" in missing else source.part_no,
+        "截面型材": None if "规格" in missing else source.original_spec,
+        "规格": None,
+        "宽度": None,
+        "长度(mm)": length,
+        "左进(mm)": None,
+        "右进(mm)": None,
+        "下料长度(mm)": length,
+        "材质": None if "材质" in missing else source.material,
+        "原数量": quantity,
+        "数量": quantity,
+        "总数": None,
+        "总长(mm)": None,
+        "比重": None,
+        "比重来源": None,
+        "理单重(kg)": None,
+        "理总重(kg)": None,
+        "单净重(kg)": source.source_unit_net,
+        "总净重(kg)": source.source_total_net,
+        "表净重(kg)": None,
+        "单毛重(kg)": source.source_unit_gross,
+        "总毛重(kg)": source.source_total_gross,
+        "表毛重(kg)": None,
+        "净材利用率": None,
+        "重量核验": "严重",
+        "单表面积(㎡)": source.source_unit_area,
+        "总表面积(㎡)": source.source_total_area,
+        "_source_sheet": source.source_sheet,
+        "_source_row": source.source_row,
+    }
+
+
 def _organized_row(
     resolved: _ResolvedParent,
     *,
@@ -331,13 +472,20 @@ def process_canonical_records(
     initial_issues = list(reader_issues)
     issues = list(initial_issues)
     blocked = _blocked_components(initial_issues)
-    resolved_parents: list[_ResolvedParent] = []
+    cleaned_parts: list[SourcePart] = []
     organized_rows: list[dict[str, object]] = []
     candidates: list[PartCandidate] = []
 
     for source in parts:
+        source_issues = _validate_source_row(source)
+        if source_issues:
+            issues.extend(source_issues)
+            invalid_source = replace(source, classification="无效")
+            cleaned_parts.append(invalid_source)
+            organized_rows.append(_invalid_organized_row(invalid_source))
+            continue
         resolved = _resolve_parent(source, handbook)
-        resolved_parents.append(resolved)
+        cleaned_parts.append(resolved.source)
         issues.extend(resolved.issues)
         identity_consistent = source.component_no not in blocked
         classification = resolved.classification
@@ -411,7 +559,7 @@ def process_canonical_records(
     return write_canonical_workbook(
         source_path,
         output_path,
-        cleaned_parts=(resolved.source for resolved in resolved_parents),
+        cleaned_parts=cleaned_parts,
         component_rows=component_rows,
         organized_rows=organized_rows,
         part_rows=part_result.rows,

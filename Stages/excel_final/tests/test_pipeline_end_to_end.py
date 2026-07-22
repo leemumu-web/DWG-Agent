@@ -201,6 +201,115 @@ def test_invalid_confirmed_split_is_reported_without_dropping_source_row(tmp_pat
         result.close()
 
 
+def test_missing_required_fields_are_preserved_audited_and_excluded_from_part(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "missing-fields.xlsx"
+    output = tmp_path / "missing-fields-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(["批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["B1", "C1", None, "PL10*100", 1000, "Q355B", 1])
+    sheet.append([None, None, None, "PL10*100", 1000, "Q355B", 1])
+    sheet.append([None, None, "missing-spec", None, 1000, "Q355B", 1])
+    sheet.append([None, None, "missing-length", "PL10*100", None, "Q355B", 1])
+    sheet.append([None, None, "missing-material", "PL10*100", 1000, None, 1])
+    sheet.append([None, None, "missing-qty", "PL10*100", 1000, "Q355B", None])
+    workbook.save(source)
+    workbook.close()
+    handbook = FakeHandbook()
+
+    outcome = run_pipeline(source, output, handbook_repository=handbook)
+
+    assert outcome.quality_status == "severe_warning"
+    assert outcome.severe_warning_count == 5
+    assert handbook.requests == []
+    result = load_workbook(output, data_only=True)
+    try:
+        assert result["清洗表"].max_row == 6
+        assert result["整理表"].max_row == 6
+        assert result["part"].max_row == 1
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        assert {row[7] for row in report} == {"零件号", "规格", "长度", "材质", "数量"}
+        assert all(row[1] == "关键字段缺失" and row[12] == "是" for row in report)
+        assert result["整理表"]["H2"].value is None
+        assert result["整理表"]["M4"].value is None
+        assert result["整理表"]["H2"].fill.fill_type == "solid"
+        assert result["整理表"]["M4"].fill.fill_type == "solid"
+    finally:
+        result.close()
+
+
+def test_nonpositive_dimensions_counts_and_negative_source_values_are_isolated(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "invalid-physics.xlsx"
+    output = tmp_path / "invalid-physics-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append([
+        "批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)", "单毛重(kg)", "总毛重(kg)",
+        "单表面积(㎡)", "总表面积(㎡)",
+    ])
+    sheet.append(["B1", "C1", None, "PL10*100", 1000, "Q355B", 1])
+    sheet.append([None, None, "negative-length", "PL10*100", -1, "Q355B", 1])
+    sheet.append([None, None, "zero-qty", "PL10*100", 1000, "Q355B", 0])
+    sheet.append([None, None, "negative-weight", "NUT24", 1000, "Q355B", 1,
+                  -1, -1, -1, -1, -1, -1])
+    workbook.save(source)
+    workbook.close()
+
+    outcome = run_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.quality_status == "severe_warning"
+    result = load_workbook(output, data_only=True, read_only=True)
+    try:
+        assert result["清洗表"].max_row == 4
+        assert result["整理表"].max_row == 4
+        assert result["part"].max_row == 1
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        fields = {row[7] for row in report if row[0] == "严重"}
+        assert {
+            "长度", "数量", "单净重", "总净重", "单毛重", "总毛重",
+            "单表面积", "总表面积",
+        }.issubset(fields)
+    finally:
+        result.close()
+
+
+def test_initial_table_missing_length_uses_the_same_audited_isolation(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "initial-missing.xlsx"
+    output = tmp_path / "initial-missing-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "初始表"
+    sheet.append(["C1材  料  表构件数量：1构件总重：0"])
+    sheet.append(["零件号", "截面型材", "长度", "材质", "数量", "单重", "总重", "总面积", "备注"])
+    sheet.append(["P1", "PL10*100", None, "Q355B", 1])
+    workbook.save(source)
+    workbook.close()
+
+    outcome = run_init_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.quality_status == "severe_warning"
+    result = load_workbook(output, data_only=True, read_only=True)
+    try:
+        assert result["清洗表"]["J2"].value is None
+        assert result["整理表"]["M2"].value is None
+        assert result["part"].max_row == 1
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        assert len(report) == 1
+        assert report[0][1] == "关键字段缺失"
+        assert report[0][7] == "长度"
+    finally:
+        result.close()
+
+
 def test_documentation_contract_rejects_legacy_production_rules() -> None:
     stage_root = Path(__file__).resolve().parents[1]
     readme = (stage_root / "README.md").read_text(encoding="utf-8")

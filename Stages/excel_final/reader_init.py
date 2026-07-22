@@ -78,7 +78,7 @@ def read_init_table(filepath: str | Path) -> tuple[ComponentInfo, list[PartRow]]
             break
 
         # Skip empty rows
-        if not part_no and not spec:
+        if not any(vals):
             continue
 
         seq += 1
@@ -120,10 +120,21 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
     for row in rows:
         length = _decimal_or_none(row.length)
         quantity = _decimal_or_none(row.qty)
-        if length is None or quantity is None:
-            raise ValueError(
-                f"initial-table part {row.part_no!r} requires length and quantity"
+        part_no = _compact_working_text(row.part_no)
+        original_spec = _compact_working_text(row.spec)
+        material = _compact_working_text(row.material)
+        invalid_fields = tuple(
+            field
+            for field, missing in (
+                ("零件号", not part_no),
+                ("规格", not original_spec),
+                ("长度", length is None),
+                ("材质", not material),
+                ("数量", quantity is None),
+                ("构件数", component_qty == 0),
             )
+            if missing
+        )
         result.append(SourcePart(
             source_sheet=inspected.sheet_name,
             source_row=row.original_seq + 2,
@@ -131,11 +142,11 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
             batch=None,
             component_no=component_no,
             component_qty=component_qty,
-            part_no=_compact_working_text(row.part_no),
-            original_spec=_compact_working_text(row.spec),
-            material=_compact_working_text(row.material),
-            length=length,
-            original_qty=quantity,
+            part_no=part_no,
+            original_spec=original_spec,
+            material=material,
+            length=length or Decimal("0"),
+            original_qty=quantity or Decimal("0"),
             source_unit_net=None,
             source_total_net=None,
             source_unit_gross=_decimal_or_none(row.unit_weight),
@@ -143,6 +154,7 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
             source_unit_area=None,
             source_total_area=_decimal_or_none(row.surface_area),
             classification=None,
+            invalid_fields=invalid_fields,
         ))
     return tuple(result)
 

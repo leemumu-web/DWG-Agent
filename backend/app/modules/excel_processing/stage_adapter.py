@@ -107,18 +107,16 @@ def get_excel_final_stage_root() -> Path:
         )
     )
 
-    checked: list[str] = []
+    checked: set[Path] = set()
     for candidate in candidates:
         resolved = candidate.resolve()
-        if str(resolved) in checked:
+        if resolved in checked:
             continue
-        checked.append(str(resolved))
+        checked.add(resolved)
         if all((resolved / filename).is_file() for filename in _REQUIRED_STAGE_FILES):
             return resolved
 
-    raise ExcelFinalUnavailableError(
-        "Excel Final Stage is unavailable; checked: " + ", ".join(checked)
-    )
+    raise ExcelFinalUnavailableError("Excel Final Stage is unavailable in configured locations")
 
 
 def excel_final_dependencies_available() -> bool:
@@ -138,7 +136,10 @@ def handbook_database_available() -> bool:
             cursor.execute("SELECT 1")
             return cursor.fetchone() == (1,)
     except pymysql.MySQLError as exc:
-        logger.warning("Hardware handbook database health check failed: %s", exc)
+        logger.warning(
+            "Hardware handbook database health check failed (error_type=%s)",
+            exc.__class__.__name__,
+        )
         return False
     finally:
         if connection is not None:
@@ -155,7 +156,7 @@ def run_excel_final_pipeline(
     if source_format not in ("init", "tsv"):
         raise ValueError(f"Unsupported Excel Final source format: {source_format}")
     if not source_path.is_file():
-        raise ExcelFinalProcessError(f"Excel Final source file does not exist: {source_path}")
+        raise ExcelFinalProcessError("Excel Final source file does not exist")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     completed = _run_stage(
@@ -442,7 +443,7 @@ def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
             f"Excel Final Stage exceeded {settings.excel_final_timeout_seconds} seconds"
         ) from exc
     except OSError as exc:
-        raise ExcelFinalUnavailableError(f"Unable to start Excel Final Stage: {exc}") from exc
+        raise ExcelFinalUnavailableError("Unable to start Excel Final Stage") from exc
 
 
 def _stage_environment() -> dict[str, str]:

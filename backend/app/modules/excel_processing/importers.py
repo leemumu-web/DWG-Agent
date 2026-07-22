@@ -33,6 +33,15 @@ _PART_TYPE_ALIASES = {
     "BT腹": ExcelFinalPartType.BT_WEB,
     "BT翼": ExcelFinalPartType.BT_FLANGE,
     "工字钢": ExcelFinalPartType.I_BEAM,
+    "H型钢": ExcelFinalPartType.H_BEAM,
+    "T型钢": ExcelFinalPartType.T_BEAM,
+    "槽钢": ExcelFinalPartType.CHANNEL,
+    "角钢": ExcelFinalPartType.ANGLE,
+    "方管": ExcelFinalPartType.SQUARE_TUBE,
+    "钢管": ExcelFinalPartType.STEEL_PIPE,
+    "方钢": ExcelFinalPartType.SQUARE_BAR,
+    "高频焊": ExcelFinalPartType.HFW_PIPE,
+    "W型钢": ExcelFinalPartType.W_BEAM,
     "圆钢": ExcelFinalPartType.ROUND_BAR,
     "螺纹钢": ExcelFinalPartType.REBAR,
     "螺栓": ExcelFinalPartType.BOLT,
@@ -66,6 +75,13 @@ def _number(value: object) -> float | None:
         return float(value)
     except (ValueError, TypeError):
         return None
+
+
+def _has_negative(record: dict[str, Any], fields: tuple[str, ...]) -> bool:
+    return any(
+        isinstance(record.get(field), (int, float)) and record[field] < 0
+        for field in fields
+    )
 
 
 def _text(value: object) -> str | None:
@@ -190,8 +206,7 @@ def import_parts_to_db(
 
             seq = _number(_value(row, seq_col))
             component_qty = _number(_value(row, component_qty_col))
-            parts.append(
-                {
+            record = {
                     "batch_id": batch_id,
                     "seq": int(seq or 0) if seq_col else row_number - 1,
                     "import_component_no": _text(_value(row, import_component_no_col)),
@@ -235,7 +250,35 @@ def import_parts_to_db(
                     "surface_area": _number(_value(row, surface_area_col)),
                     "total_surface_area": _number(_value(row, total_surface_area_col)),
                 }
-            )
+            if _has_negative(
+                record,
+                (
+                    "component_qty",
+                    "original_qty",
+                    "width",
+                    "length",
+                    "left_inset",
+                    "right_inset",
+                    "cut_length",
+                    "qty",
+                    "total_qty",
+                    "total_length",
+                    "density",
+                    "theo_unit_weight",
+                    "theo_total_weight",
+                    "material_utilization",
+                    "net_unit_weight",
+                    "net_total_weight",
+                    "table_net_weight",
+                    "gross_unit_weight",
+                    "gross_total_weight",
+                    "table_gross_weight",
+                    "surface_area",
+                    "total_surface_area",
+                ),
+            ):
+                continue
+            parts.append(record)
     finally:
         workbook.close()
 
@@ -343,12 +386,18 @@ def import_components_to_db(
             raise ValueError("Excel Final component sheet is missing required column: 构件编号")
 
         components: list[dict[str, Any]] = []
+        seen_component_numbers: set[str] = set()
         for values in rows:
             component_no = str(values[component_no_col] or "").strip()
             if not component_no or "合计" in component_no:
                 continue
             qty = _number(values[component_qty_col]) if component_qty_col is not None else None
             weight = _number(values[weight_col]) if weight_col is not None else None
+            if (qty is not None and qty < 0) or (weight is not None and weight < 0):
+                continue
+            if component_no in seen_component_numbers:
+                raise ValueError(f"duplicate component identity: {component_no}")
+            seen_component_numbers.add(component_no)
             components.append(
                 {
                     "batch_id": batch_id,

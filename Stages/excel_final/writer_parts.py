@@ -32,7 +32,7 @@ CLEAN_HEADERS = [
 ]
 
 COMPONENT_HEADERS = [
-    "来源sheet", "来源行", "行类型", "批次", "构件编号", "构件数", "原规格",
+    "来源sheet", "来源行", "行类型", "小计来源行", "批次", "构件编号", "构件数", "原规格",
     "材质", "单净重(kg)", "总净重(kg)", "单毛重(kg)", "总毛重(kg)",
     "单表面积(㎡)", "总表面积(㎡)", "构件长度(mm)", "构件宽度(mm)", "构件高度(mm)",
 ]
@@ -106,10 +106,15 @@ def _canonical_row(ws, row_number: int, values: Sequence[object]) -> None:
 def _write_clean_sheet(ws, parts: Iterable[SourcePart]) -> None:
     _canonical_headers(ws, CLEAN_HEADERS)
     for row_number, part in enumerate(parts, start=2):
+        missing = set(part.invalid_fields)
         _canonical_row(ws, row_number, [
             part.source_sheet, part.source_row, part.source_seq, part.batch,
-            part.component_no, part.component_qty, part.part_no, part.original_spec,
-            part.material, part.length, part.original_qty, part.source_unit_net,
+            part.component_no, None if "构件数" in missing else part.component_qty,
+            None if "零件号" in missing else part.part_no,
+            None if "规格" in missing else part.original_spec,
+            None if "材质" in missing else part.material,
+            None if "长度" in missing else part.length,
+            None if "数量" in missing else part.original_qty, part.source_unit_net,
             part.source_total_net, part.source_unit_gross, part.source_total_gross,
             part.source_unit_area, part.source_total_area, part.classification,
         ])
@@ -119,7 +124,8 @@ def _write_component_sheet(ws, rows: Iterable[ComponentSourceRow]) -> None:
     _canonical_headers(ws, COMPONENT_HEADERS)
     for row_number, item in enumerate(rows, start=2):
         _canonical_row(ws, row_number, [
-            item.source_sheet, item.source_row, item.kind, item.batch, item.component_no,
+            item.source_sheet, item.source_row, item.kind, item.subtotal_source_row,
+            item.batch, item.component_no,
             item.component_qty, item.original_spec, item.material, item.source_unit_net,
             item.source_total_net, item.source_unit_gross, item.source_total_gross,
             item.source_unit_area, item.source_total_area, item.component_length,
@@ -211,17 +217,25 @@ def _apply_quality_styles(
     column_by_header = {
         header: index for index, header in enumerate(ORGANIZED_HEADERS, start=1)
     }
-    issue_field_to_header = {
-        "比重": "比重",
-        "理单重": "理单重(kg)",
-        "理总重": "理总重(kg)",
-        "单净重": "单净重(kg)",
-        "总净重": "总净重(kg)",
-        "表净重": "表净重(kg)",
-        "单毛重": "单毛重(kg)",
-        "总毛重": "总毛重(kg)",
-        "表毛重": "表毛重(kg)",
-        "净材利用率": "净材利用率",
+    issue_field_to_headers = {
+        "零件号": ("零件号",),
+        "规格": ("截面型材",),
+        "长度": ("长度(mm)",),
+        "材质": ("材质",),
+        "数量": ("原数量", "数量"),
+        "构件数": ("构件数",),
+        "比重": ("比重",),
+        "理单重": ("理单重(kg)",),
+        "理总重": ("理总重(kg)",),
+        "单净重": ("单净重(kg)",),
+        "总净重": ("总净重(kg)",),
+        "表净重": ("表净重(kg)",),
+        "单毛重": ("单毛重(kg)",),
+        "总毛重": ("总毛重(kg)",),
+        "表毛重": ("表毛重(kg)",),
+        "净材利用率": ("净材利用率",),
+        "单表面积": ("单表面积(㎡)",),
+        "总表面积": ("总表面积(㎡)",),
     }
     for issue in issues:
         for output_row in output_rows_by_source.get(issue.source_row, []):
@@ -229,14 +243,50 @@ def _apply_quality_styles(
                 ws.cell(output_row, column_by_header["比重"]).font = _RED_FONT
             if issue.level is not IssueLevel.SEVERE:
                 continue
-            header = issue_field_to_header.get(issue.field or "")
-            if header is not None:
+            headers = issue_field_to_headers.get(issue.field or "", ())
+            for header in headers:
                 cell = ws.cell(output_row, column_by_header[header])
                 cell.fill = _LIGHT_RED_FILL
                 cell.font = _SEVERE_FONT
             status_cell = ws.cell(output_row, column_by_header["重量核验"])
             status_cell.fill = _LIGHT_RED_FILL
             status_cell.font = _SEVERE_FONT
+
+
+def _apply_clean_quality_styles(
+    ws,
+    parts: Sequence[SourcePart],
+    issues: Sequence[QualityIssue],
+) -> None:
+    output_rows_by_source = {
+        (part.source_sheet, part.source_row): output_row
+        for output_row, part in enumerate(parts, start=2)
+    }
+    column_by_header = {header: index for index, header in enumerate(CLEAN_HEADERS, start=1)}
+    issue_field_to_header = {
+        "零件号": "零件号",
+        "规格": "原规格",
+        "长度": "长度(mm)",
+        "材质": "材质",
+        "数量": "原数量",
+        "构件数": "构件数",
+        "单净重": "单净重(kg)",
+        "总净重": "总净重(kg)",
+        "单毛重": "单毛重(kg)",
+        "总毛重": "总毛重(kg)",
+        "单表面积": "单表面积(㎡)",
+        "总表面积": "总表面积(㎡)",
+    }
+    for issue in issues:
+        if issue.level is not IssueLevel.SEVERE:
+            continue
+        output_row = output_rows_by_source.get((issue.source_sheet, issue.source_row))
+        header = issue_field_to_header.get(issue.field or "")
+        if output_row is None or header is None:
+            continue
+        cell = ws.cell(output_row, column_by_header[header])
+        cell.fill = _LIGHT_RED_FILL
+        cell.font = _SEVERE_FONT
 
 
 def _format_canonical_workbook(workbook) -> None:
@@ -318,6 +368,7 @@ def write_canonical_workbook(
             formula_caches = _write_organized_sheet(organized_sheet, organized)
             _write_part_sheet(part_sheet, parts)
             _write_report_sheet(report_sheet, issue_list)
+            _apply_clean_quality_styles(clean_sheet, cleaned, issue_list)
             _apply_quality_styles(organized_sheet, organized, issue_list)
             _format_canonical_workbook(workbook)
             workbook.save(temp_path)

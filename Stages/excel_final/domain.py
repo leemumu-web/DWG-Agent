@@ -30,11 +30,13 @@ class SourcePart:
     source_unit_area: Decimal | None
     source_total_area: Decimal | None
     classification: str | None
+    invalid_fields: tuple[str, ...] = ()
 
 
 class ComponentRowKind(StrEnum):
     START = "start"
     SUBTOTAL = "subtotal"
+    SUMMARY = "summary"
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +58,7 @@ class ComponentSourceRow:
     component_length: Decimal | None
     component_width: Decimal | None
     component_height: Decimal | None
+    subtotal_source_row: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
