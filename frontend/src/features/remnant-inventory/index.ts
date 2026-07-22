@@ -1,0 +1,2 @@
+export { RemnantInventoryPage } from './RemnantInventoryPage';
+

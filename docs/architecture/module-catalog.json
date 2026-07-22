@@ -93,7 +93,7 @@
       "status": "partial",
       "architecture_nodes": ["API", "MYSQL", "WEB"],
       "backend_paths": ["backend/app/modules/remnant_inventory"],
-      "frontend_paths": [],
+      "frontend_paths": ["frontend/src/features/remnant-inventory"],
       "tables": [
         "remnant_import_batches",
         "remnant_import_items",

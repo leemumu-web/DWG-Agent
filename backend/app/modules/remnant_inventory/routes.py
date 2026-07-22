@@ -138,6 +138,7 @@ def _batch_data(db: Session, batch: RemnantImportBatch, *, include_items: bool =
 def _remnant_data(db: Session, row: Remnant) -> dict:
     source = db.get(StoredFile, row.source_file_id)
     material = db.get(RemnantMaterial, row.material_id)
+    reserver = db.get(User, row.reserved_by) if row.reserved_by else None
     parts = list(
         db.scalars(
             select(RemnantPart.part_no)
@@ -159,6 +160,7 @@ def _remnant_data(db: Session, row: Remnant) -> dict:
         "status": row.status,
         "imported_by": row.imported_by,
         "reserved_by": row.reserved_by,
+        "reserved_by_name": reserver.real_name if reserver else None,
         "reserved_at": row.reserved_at,
         "used_by": row.used_by,
         "used_at": row.used_at,

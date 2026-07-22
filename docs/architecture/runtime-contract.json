@@ -65,6 +65,7 @@
     "/login",
     "/profile",
     "/projects",
+    "/remnants",
     "/reviews",
     "/workflows"
   ],

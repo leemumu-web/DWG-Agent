@@ -21,6 +21,7 @@ const RolesPage = lazy(() => import('../features/identity').then((module) => ({ 
 const ProfilePage = lazy(() => import('../features/identity').then((module) => ({ default: module.ProfilePage })));
 const WorkflowsPage = lazy(() => import('../features/workflows').then((module) => ({ default: module.WorkflowsPage })));
 const InfrastructurePage = lazy(() => import('../features/operations').then((module) => ({ default: module.InfrastructurePage })));
+const RemnantInventoryPage = lazy(() => import('../features/remnant-inventory').then((module) => ({ default: module.RemnantInventoryPage })));
 
 export function AppRouter() {
   return (
@@ -46,6 +47,9 @@ export function AppRouter() {
             {/* /reviews/pending is "authenticated" per spec §1.9 — admins see all,
                 other users see pending reviews scoped to their projects. */}
             <Route path="/reviews" element={<ReviewsPage />} />
+            <Route element={<RequireRoles allowed={['admin', 'remnant_worker']} />}>
+              <Route path="/remnants" element={<RemnantInventoryPage />} />
+            </Route>
             <Route element={<RequireRoles allowed={['admin']} />}>
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />

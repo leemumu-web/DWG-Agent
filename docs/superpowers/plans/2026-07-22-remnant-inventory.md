@@ -289,11 +289,11 @@ def test_download_uses_actual_uploaded_source(service, reserved_by_actor, source
 - Exports only `RemnantInventoryPage` from feature `index.ts`.
 - Query key: `['remnants', {materialId, thicknessMm, includeFamily, statuses, page}]`.
 
-- [ ] **Step 1: In Playwright, mock material/search/detail/preview/download APIs and assert required material+thickness, same-series switch, available-first table, reserver display, history filter, reserve conflict refresh and download button permission.**
-- [ ] **Step 2: Run `cd frontend && npx playwright test tests/e2e/remnant-inventory/search.spec.ts`; expect missing route.**
-- [ ] **Step 3: Implement Ant Design page matching current shell, typed API client, URL-backed search filters, React Query invalidation, status tags, detail drawer, shared preview export, and source download label showing DWG or DXF.**
-- [ ] **Step 4: Add `/remnants` route/nav and architecture allow-list; run focused E2E, `npm run check:architecture`, and `npm run build`; expect PASS.**
-- [ ] **Step 5: Commit `feat(frontend): add remnant search experience`.**
+- [x] **Step 1: In Playwright, mock material/search/detail/preview/download APIs and assert required material+thickness, same-series switch, available-first table, reserver display, history filter, reserve conflict refresh and download button permission.**
+- [x] **Step 2: Run `cd frontend && npx playwright test tests/e2e/remnant-inventory/search.spec.ts`; expect missing route.**
+- [x] **Step 3: Implement Ant Design page matching current shell, typed API client, URL-backed search filters, React Query invalidation, status tags, detail drawer, shared preview export, and source download label showing DWG or DXF.**
+- [x] **Step 4: Add `/remnants` route/nav and architecture allow-list; run focused E2E, `npm run check:architecture`, and `npm run build`; expect PASS.**
+- [x] **Step 5: Commit `feat(frontend): add remnant search experience`.**
 
 ### Task 10: 构建批量导入、刷新恢复和解析确认界面
 
