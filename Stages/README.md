@@ -2,7 +2,7 @@
 
 ## 当前产品
 
-`dwg2dxf/` 与 `dxf2dwg/` 封装 ODA 双向格式转换；`dxf2excel/` 从 DXF 批次生成第一份材料工作簿；`steel_dxf_classifier_v1.1.0/` 负责预处理、分类分流和 JSON/CSV 报告；`excel_final/` 处理 Tekla/初始工作簿并输出关系化可导入的最终工作簿。每个 Stage 保持自己的版本、依赖、CLI、测试和 README。
+`dwg2dxf/` 与 `dxf2dwg/` 封装 ODA 双向格式转换；`dxf2excel/` 从 DXF 批次生成第一份材料工作簿；`steel_dxf_classifier_v1.1.0/` 负责预处理、分类分流和 JSON/CSV 报告；`remnant_drawing_reader/` 从单个 DXF 提取余料入库候选和证据；`excel_final/` 处理 Tekla/初始工作簿并输出关系化可导入的最终工作簿。每个 Stage 保持自己的版本、依赖、CLI、测试和 README。
 
 ## 平台调用链
 

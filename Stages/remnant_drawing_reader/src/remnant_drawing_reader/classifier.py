@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+import re
+
+from .models import Candidate, Evidence, ParseWarning
+
+_LABEL_VALUE = re.compile(r"^\s*([^:：]+?)\s*[:：]\s*(.*?)\s*$")
+_PART_SPLIT = re.compile(r"[、,，;；\s]+")
+_MATERIAL_LABELS = {"材质", "材料", "牌号", "材料牌号"}
+_PROJECT_LABELS = {"项目编号", "项目号", "工程编号", "工程号"}
+_PART_LABELS = {"零件编号", "零件号", "件号", "构件编号"}
+
+
+def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> None:
+    cleaned = value.strip()
+    if cleaned:
+        target.setdefault(cleaned, Candidate(value=cleaned)).evidence.append(evidence)
+
+
+def classify(items: list[Evidence]):
+    materials: dict[str, Candidate] = {}; projects: dict[str, Candidate] = {}; parts: dict[str, Candidate] = {}
+    for evidence in items:
+        match = _LABEL_VALUE.match(evidence.normalized_text)
+        if not match:
+            continue
+        label, value = match.groups()
+        if label in _MATERIAL_LABELS:
+            _append(materials, value.upper(), evidence)
+        elif label in _PROJECT_LABELS:
+            _append(projects, value, evidence)
+        elif label in _PART_LABELS:
+            for part_no in _PART_SPLIT.split(value):
+                _append(parts, part_no, evidence)
+    warnings: list[ParseWarning] = []
+    if len(materials) > 1:
+        warnings.append(ParseWarning("MATERIAL_CANDIDATES_CONFLICT", "图纸中存在多个材质候选"))
+    if len(projects) > 1:
+        warnings.append(ParseWarning("PROJECT_CANDIDATES_CONFLICT", "图纸中存在多个项目编号候选"))
+    return list(materials.values()), list(projects.values()), list(parts.values()), warnings

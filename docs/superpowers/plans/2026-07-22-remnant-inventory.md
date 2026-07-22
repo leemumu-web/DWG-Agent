@@ -51,7 +51,7 @@
 - Produces: `parse_dxf(path: Path) -> ParseResult` and CLI `python -m remnant_drawing_reader INPUT --output OUTPUT`.
 - Produces JSON keys: `schema_version`, `parser_version`, `source_sha256`, `material_candidates`, `project_candidates`, `part_candidates`, `warnings`.
 
-- [ ] **Step 1: Write contract-first failing tests**
+- [x] **Step 1: Write contract-first failing tests**
 
 ```python
 def test_nested_blocks_preserve_evidence(fixture_dir):
@@ -69,8 +69,8 @@ def test_broken_dxf_fails_with_stable_code(fixture_dir):
         parse_dxf(fixture_dir / "broken.dxf")
 ```
 
-- [ ] **Step 2: Run `cd Stages/remnant_drawing_reader && uv run pytest -q`; expect import/contract failures.**
-- [ ] **Step 3: Implement immutable Pydantic models, NFKC/whitespace/MIF normalization, recursive `INSERT` traversal, evidence capture (`entity_type`, `layer`, `block_path`, `x`, `y`, `handle`, `raw_text`) and conservative labelled-value classifiers.**
+- [x] **Step 2: Run `cd Stages/remnant_drawing_reader && uv run pytest -q`; expect import/contract failures.**
+- [x] **Step 3: Implement typed immutable result models, NFKC/whitespace/MIF normalization, recursive `INSERT` traversal, evidence capture (`entity_type`, `layer`, `block_path`, `x`, `y`, `handle`, `raw_text`) and conservative labelled-value classifiers.**
 
 ```python
 def parse_dxf(path: Path) -> ParseResult:
@@ -83,8 +83,8 @@ def parse_dxf(path: Path) -> ParseResult:
     return classify(evidence, source_sha256=hashlib.sha256(source).hexdigest())
 ```
 
-- [ ] **Step 4: Add CLI JSON serialization and README I/O example; run Stage tests and expect all PASS.**
-- [ ] **Step 5: Commit `feat(stage): add remnant drawing reader`.**
+- [x] **Step 4: Add CLI JSON serialization and README I/O example; run Stage tests and expect all PASS.**
+- [x] **Step 5: Commit `feat(stage): add remnant drawing reader`.**
 
 ### Task 2: 建立余料数据模型与空库迁移
 
