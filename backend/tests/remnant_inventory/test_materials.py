@@ -6,7 +6,6 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.modules.identity.interface import Role, User
-from app.modules.remnant_inventory.models import RemnantMaterial
 
 
 def test_material_token_normalization_preserves_full_grade_suffix() -> None:
@@ -72,6 +71,7 @@ def test_duplicate_normalized_alias_has_stable_conflict(db) -> None:
 
 def test_material_create_schema_rejects_blank_codes() -> None:
     from pydantic import ValidationError
+
     from app.modules.remnant_inventory.schemas import MaterialCreate
 
     with pytest.raises(ValidationError):
@@ -81,9 +81,18 @@ def test_material_create_schema_rejects_blank_codes() -> None:
 def test_worker_can_use_but_only_admin_can_manage_catalog() -> None:
     from app.modules.remnant_inventory.access import can_manage_materials, can_use_remnants
 
-    worker = User(username="w", real_name="W", password_hash="x", roles=[Role(code="remnant_worker", name="余料工人")])
-    admin = User(username="a", real_name="A", password_hash="x", roles=[Role(code="admin", name="管理员")])
-    viewer = User(username="v", real_name="V", password_hash="x", roles=[Role(code="viewer", name="只读")])
+    worker = User(
+        username="w",
+        real_name="W",
+        password_hash="x",
+        roles=[Role(code="remnant_worker", name="余料工人")],
+    )
+    admin = User(
+        username="a", real_name="A", password_hash="x", roles=[Role(code="admin", name="管理员")]
+    )
+    viewer = User(
+        username="v", real_name="V", password_hash="x", roles=[Role(code="viewer", name="只读")]
+    )
 
     assert can_use_remnants(worker) is True
     assert can_manage_materials(worker) is False

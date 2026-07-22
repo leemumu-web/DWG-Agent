@@ -93,9 +93,7 @@ def test_stage_adapter_runs_isolated_cli_and_restores_typed_result(tmp_path: Pat
 
     assert result.schema_version == "1.0"
     assert result.source_sha256
-    assert any(
-        candidate.value == "Q235B-Z15" for candidate in result.material_candidates
-    )
+    assert any(candidate.value == "Q235B-Z15" for candidate in result.material_candidates)
 
 
 def test_batch_counters_are_recalculated_from_item_truth(db) -> None:

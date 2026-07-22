@@ -17,7 +17,8 @@ from app.modules.remnant_inventory.models import (
 
 def _user(db) -> User:
     user = User(username="remnant-importer", real_name="余料工", password_hash="x")
-    db.add(user); db.flush()
+    db.add(user)
+    db.flush()
     return user
 
 
@@ -31,7 +32,8 @@ def _file(db, *, name: str, sha: str, ext: str) -> StoredFile:
         sha256=sha,
         status="available",
     )
-    db.add(row); db.flush()
+    db.add(row)
+    db.flush()
     return row
 
 
@@ -54,9 +56,16 @@ def test_registers_mixed_dwg_dxf_batch_with_independent_items(db) -> None:
 
     batch = register_import_batch(db, actor_id=actor.id, source_files=[dwg, dxf])
 
-    items = db.query(RemnantImportItem).filter_by(batch_id=batch.id).order_by(RemnantImportItem.id).all()
+    items = (
+        db.query(RemnantImportItem)
+        .filter_by(batch_id=batch.id)
+        .order_by(RemnantImportItem.id)
+        .all()
+    )
     assert batch.total_count == 2
-    assert [(item.source_file_id, item.source_ext, item.status, item.attempt) for item in items] == [
+    assert [
+        (item.source_file_id, item.source_ext, item.status, item.attempt) for item in items
+    ] == [
         (dwg.id, ".dwg", "uploaded", 1),
         (dxf.id, ".dxf", "uploaded", 1),
     ]
@@ -67,10 +76,15 @@ def test_batch_enforces_non_empty_configured_file_limit(db, count: int) -> None:
     from app.modules.remnant_inventory.imports import register_import_batch
 
     actor = _user(db)
-    files = [_file(db, name=f"{index}.dxf", sha=f"{index:064x}", ext=".dxf") for index in range(count)]
+    files = [
+        _file(db, name=f"{index}.dxf", sha=f"{index:064x}", ext=".dxf") for index in range(count)
+    ]
     with pytest.raises(HTTPException) as captured:
         register_import_batch(db, actor_id=actor.id, source_files=files, max_files=2)
-    assert captured.value.detail["code"] in {"REMNANT_IMPORT_EMPTY", "REMNANT_IMPORT_TOO_MANY_FILES"}
+    assert captured.value.detail["code"] in {
+        "REMNANT_IMPORT_EMPTY",
+        "REMNANT_IMPORT_TOO_MANY_FILES",
+    }
 
 
 def test_rejects_zip_even_if_it_is_already_in_file_registry(db) -> None:
@@ -102,19 +116,32 @@ def test_formal_inventory_sha_returns_existing_remnant_id(db) -> None:
     source = _file(db, name="existing.dxf", sha="e" * 64, ext=".dxf")
     material = RemnantMaterial(code="Q235B", family_code="Q235")
     old_batch = RemnantImportBatch(created_by=actor.id, total_count=1)
-    db.add_all([material, old_batch]); db.flush()
+    db.add_all([material, old_batch])
+    db.flush()
     old_item = RemnantImportItem(
-        batch_id=old_batch.id, source_file_id=source.id, dxf_file_id=source.id,
-        source_sha256=source.sha256, source_ext=".dxf", status="confirmed",
+        batch_id=old_batch.id,
+        source_file_id=source.id,
+        dxf_file_id=source.id,
+        source_sha256=source.sha256,
+        source_ext=".dxf",
+        status="confirmed",
     )
-    db.add(old_item); db.flush()
+    db.add(old_item)
+    db.flush()
     existing = Remnant(
-        import_item_id=old_item.id, source_file_id=source.id, dxf_file_id=source.id,
-        source_sha256=source.sha256, thickness_mm="10.000", material_id=material.id,
-        project_no="P1", imported_by=actor.id, confirmed_by=actor.id,
+        import_item_id=old_item.id,
+        source_file_id=source.id,
+        dxf_file_id=source.id,
+        source_sha256=source.sha256,
+        thickness_mm="10.000",
+        material_id=material.id,
+        project_no="P1",
+        imported_by=actor.id,
+        confirmed_by=actor.id,
         confirmed_at=datetime.now(UTC),
     )
-    db.add(existing); db.flush()
+    db.add(existing)
+    db.flush()
     duplicate_upload = _file(db, name="copy.dxf", sha=source.sha256, ext=".dxf")
 
     with pytest.raises(HTTPException) as captured:
@@ -129,6 +156,8 @@ def test_remnant_settings_are_safe_and_configurable() -> None:
     defaults = Settings(_env_file=None)
     assert defaults.remnant_inventory_enabled is False
     assert defaults.remnant_import_max_files == 100
-    configured = Settings(_env_file=None, remnant_import_max_files=25, remnant_inventory_enabled=True)
+    configured = Settings(
+        _env_file=None, remnant_import_max_files=25, remnant_inventory_enabled=True
+    )
     assert configured.remnant_import_max_files == 25
     assert configured.remnant_inventory_enabled is True

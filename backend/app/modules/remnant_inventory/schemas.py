@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -41,3 +42,31 @@ class MaterialRead(BaseModel):
     enabled: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ImportItemUpdate(BaseModel):
+    thickness_mm: Decimal | None = None
+    material_id: int | None = None
+    project_no: str | None = Field(default=None, max_length=128)
+    parts: list[str] | None = Field(default=None, max_length=500)
+
+
+class BulkThicknessUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=1000)
+    thickness_mm: Decimal
+
+
+class ImportConfirmRequest(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+class ImportConfirmationEntry(BaseModel):
+    item_id: int
+    remnant_id: int | None = None
+    code: str | None = None
+
+
+class ImportConfirmationResult(BaseModel):
+    confirmed: list[ImportConfirmationEntry] = Field(default_factory=list)
+    invalid: list[ImportConfirmationEntry] = Field(default_factory=list)
+    already_confirmed: list[ImportConfirmationEntry] = Field(default_factory=list)

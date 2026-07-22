@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
-from sqlalchemy import Numeric, UniqueConstraint, inspect
+from sqlalchemy import Numeric, UniqueConstraint
 
 
 def _models():
@@ -18,7 +16,14 @@ def _models():
         )
     except ModuleNotFoundError:
         pytest.fail("remnant_inventory model module is not implemented")
-    return RemnantMaterial, RemnantMaterialAlias, RemnantImportBatch, RemnantImportItem, Remnant, RemnantPart
+    return (
+        RemnantMaterial,
+        RemnantMaterialAlias,
+        RemnantImportBatch,
+        RemnantImportItem,
+        Remnant,
+        RemnantPart,
+    )
 
 
 def _unique_names(model) -> set[str]:
@@ -53,7 +58,10 @@ def test_business_uniqueness_is_enforced_by_named_constraints() -> None:
 
 def test_thickness_uses_fixed_three_decimal_precision() -> None:
     *_prefix, item, remnant, _part = _models()
-    for column in (item.corrected_thickness_mm.property.columns[0], remnant.thickness_mm.property.columns[0]):
+    for column in (
+        item.corrected_thickness_mm.property.columns[0],
+        remnant.thickness_mm.property.columns[0],
+    ):
         assert isinstance(column.type, Numeric)
         assert column.type.precision == 10
         assert column.type.scale == 3
@@ -63,7 +71,15 @@ def test_thickness_uses_fixed_three_decimal_precision() -> None:
 def test_status_attempt_counters_and_version_have_safe_defaults() -> None:
     _material, _alias, batch, item, remnant, _part = _models()
     assert batch.status.property.columns[0].default.arg == "uploaded"
-    for name in ("total_count", "converting_count", "parsing_count", "pending_count", "confirmed_count", "failed_count", "cancelled_count"):
+    for name in (
+        "total_count",
+        "converting_count",
+        "parsing_count",
+        "pending_count",
+        "confirmed_count",
+        "failed_count",
+        "cancelled_count",
+    ):
         assert getattr(batch, name).property.columns[0].default.arg == 0
     assert item.status.property.columns[0].default.arg == "uploaded"
     assert item.attempt.property.columns[0].default.arg == 1
@@ -77,13 +93,22 @@ def test_models_are_registered_in_application_metadata() -> None:
     from app.platform.database.base import Base
 
     load_models()
-    expected = {"remnant_materials", "remnant_material_aliases", "remnant_import_batches", "remnant_import_items", "remnants", "remnant_parts"}
+    expected = {
+        "remnant_materials",
+        "remnant_material_aliases",
+        "remnant_import_batches",
+        "remnant_import_items",
+        "remnants",
+        "remnant_parts",
+    }
     assert expected <= set(Base.metadata.tables)
 
 
 def test_expected_lookup_and_lifecycle_indexes_exist() -> None:
     material, _alias, _batch, item, remnant, _part = _models()
-    assert "ix_remnant_material_family_enabled" in {index.name for index in material.__table__.indexes}
+    assert "ix_remnant_material_family_enabled" in {
+        index.name for index in material.__table__.indexes
+    }
     assert "ix_remnant_import_item_batch_status" in {index.name for index in item.__table__.indexes}
     assert "ix_remnant_search" in {index.name for index in remnant.__table__.indexes}
     assert "ix_remnant_reserved_by_status" in {index.name for index in remnant.__table__.indexes}

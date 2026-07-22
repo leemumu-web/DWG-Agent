@@ -214,7 +214,7 @@ def test_old_parse_attempt_cannot_overwrite_retry(session, item, stage_result):
 - Produces `update_import_item`, `bulk_apply_thickness`, `retry_import_item`, `cancel_import_batch`, `confirm_import_items`.
 - Confirmation input: `item_ids: list[int]`; output lists `confirmed`, `invalid`, `already_confirmed` independently.
 
-- [ ] **Step 1: Test editable candidates, importer/admin ownership, positive 3-decimal thickness, enabled material, required project number, de-duplicated non-empty parts, selected-only partial success, repeated confirmation identity and cancellation cleanup request.**
+- [x] **Step 1: Test editable candidates, importer/admin ownership, positive 3-decimal thickness, enabled material, required project number, de-duplicated non-empty parts, selected-only partial success, repeated confirmation identity and cancellation cleanup request.**
 
 ```python
 def test_repeat_confirmation_returns_same_inventory_id(service, ready_item, actor):
@@ -223,10 +223,10 @@ def test_repeat_confirmation_returns_same_inventory_id(service, ready_item, acto
     assert first.confirmed[0].remnant_id == second.already_confirmed[0].remnant_id
 ```
 
-- [ ] **Step 2: Run confirmation tests; expect missing operations.**
-- [ ] **Step 3: Validate and normalize worker edits, persist corrections only on import items, create `Remnant` and `RemnantPart` transactionally, catch source-SHA races by re-reading the winner, and recalculate batch counters after every transition.**
-- [ ] **Step 4: Run all `backend/tests/remnant_inventory`; expect PASS.**
-- [ ] **Step 5: Commit `feat(remnants): confirm parsed drawings into inventory`.**
+- [x] **Step 2: Run confirmation tests; expect missing operations.**
+- [x] **Step 3: Validate and normalize worker edits, persist corrections only on import items, create `Remnant` and `RemnantPart` transactionally, catch source-SHA races by re-reading the winner, and recalculate batch counters after every transition.**
+- [x] **Step 4: Run all `backend/tests/remnant_inventory`; expect PASS.**
+- [x] **Step 5: Commit `feat(remnants): confirm parsed drawings into inventory`.**
 
 ### Task 7: 实现库存检索、生命周期和原图下载权限
 
