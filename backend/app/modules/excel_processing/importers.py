@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,47 @@ import openpyxl
 from sqlalchemy.orm import Session
 
 from app.modules.excel_processing.models import ExcelFinalComponent, ExcelFinalPart
-from app.modules.excel_processing.schemas import ComponentsImportStats, PartsImportStats
+from app.modules.excel_processing.schemas import (
+    ComponentsImportStats,
+    ExcelFinalPartType,
+    PartsImportStats,
+    QualityImportStats,
+    WeightValidationStatus,
+)
+
+_PART_TYPE_ALIASES = {
+    "零件": ExcelFinalPartType.PART,
+    "板材": ExcelFinalPartType.PLATE,
+    "扁钢": ExcelFinalPartType.FLAT_BAR,
+    "BH": ExcelFinalPartType.BH,
+    "BH腹": ExcelFinalPartType.BH_WEB,
+    "BH翼": ExcelFinalPartType.BH_FLANGE,
+    "BOX": ExcelFinalPartType.BOX,
+    "BOX腹": ExcelFinalPartType.BOX_WEB,
+    "BOX翼": ExcelFinalPartType.BOX_FLANGE,
+    "BT": ExcelFinalPartType.BT,
+    "BT腹": ExcelFinalPartType.BT_WEB,
+    "BT翼": ExcelFinalPartType.BT_FLANGE,
+    "工字钢": ExcelFinalPartType.I_BEAM,
+    "圆钢": ExcelFinalPartType.ROUND_BAR,
+    "螺纹钢": ExcelFinalPartType.REBAR,
+    "螺栓": ExcelFinalPartType.BOLT,
+    "螺母": ExcelFinalPartType.NUT,
+    "螺套": ExcelFinalPartType.THREADED_SLEEVE,
+    "TT": ExcelFinalPartType.TT,
+    "未分类": ExcelFinalPartType.UNCLASSIFIED,
+}
+_PART_TYPE_VALUES = {item.value for item in ExcelFinalPartType}
+_WEIGHT_STATUS_ALIASES = {
+    "通过": WeightValidationStatus.OK,
+    "警告": WeightValidationStatus.WARNING,
+    "严重": WeightValidationStatus.SEVERE_WARNING,
+}
+_WEIGHT_STATUS_VALUES = {item.value for item in WeightValidationStatus}
+_REPORT_LEVELS = {"信息", "警告", "严重", "致命"}
+_MAX_REPORT_CATEGORIES = 50
+_MAX_REPRESENTATIVE_MESSAGES = 10
+_MAX_REPRESENTATIVE_MESSAGE_LENGTH = 500
 
 
 def _canonical_header(value: object) -> str:
@@ -34,6 +75,30 @@ def _text(value: object) -> str | None:
     return normalized or None
 
 
+def _part_type(value: object) -> str | None:
+    normalized = _text(value)
+    if normalized is None:
+        return None
+    if normalized in _PART_TYPE_VALUES:
+        return normalized
+    mapped = _PART_TYPE_ALIASES.get(normalized)
+    if mapped is None:
+        raise ValueError(f"Excel Final output contains unknown part type: {normalized}")
+    return mapped.value
+
+
+def _weight_status(value: object) -> str | None:
+    normalized = _text(value)
+    if normalized is None:
+        return None
+    if normalized in _WEIGHT_STATUS_VALUES:
+        return normalized
+    mapped = _WEIGHT_STATUS_ALIASES.get(normalized)
+    if mapped is None:
+        raise ValueError(f"Excel Final output contains unknown weight status: {normalized}")
+    return mapped.value
+
+
 def _value(row: list[object], column: int | None) -> object:
     return row[column - 1] if column is not None and column <= len(row) else None
 
@@ -46,10 +111,7 @@ def import_parts_to_db(
     """Stream the canonical part-list sheet into `excel_final_parts`."""
     workbook = openpyxl.load_workbook(output_path, read_only=True, data_only=True)
     try:
-        sheet_name = next(
-            (name for name in ("整理表", "整理表_拆板后") if name in workbook.sheetnames),
-            None,
-        )
+        sheet_name = "整理表" if "整理表" in workbook.sheetnames else None
         if sheet_name is None:
             return {"parts_imported": 0, "error": "No 整理表 sheet found"}
 
@@ -63,9 +125,13 @@ def import_parts_to_db(
 
         seq_col = column("序号")
         component_no_col = column("构件编号")
+        import_component_no_col = column("导入构件编号")
         component_qty_col = column("构件数")
         part_type_col = column("类型")
+        team_col = column("班组")
+        source_batch_col = column("批次")
         part_no_col = column("零件号", "零件编号")
+        import_part_no_col = column("导入零件号")
         profile_spec_col = column("截面型材")
         spec_col = column("规格")
         width_col = column("宽度")
@@ -74,12 +140,16 @@ def import_parts_to_db(
         right_inset_col = column("右进")
         cut_length_col = column("下料长度")
         material_col = column("材质")
+        original_qty_col = column("原数量")
         qty_col = column("数量")
         total_qty_col = column("总数")
         total_length_col = column("总长")
         density_col = column("比重")
+        density_source_col = column("比重来源")
         theo_unit_weight_col = column("理单重")
         theo_total_weight_col = column("理总重")
+        material_utilization_col = column("净材利用率")
+        weight_validation_col = column("重量核验")
         net_unit_weight_col = column("单净重")
         net_total_weight_col = column("总净重")
         table_net_weight_col = column("表净重")
@@ -124,11 +194,16 @@ def import_parts_to_db(
                 {
                     "batch_id": batch_id,
                     "seq": int(seq or 0) if seq_col else row_number - 1,
+                    "import_component_no": _text(_value(row, import_component_no_col)),
+                    "import_part_no": _text(_value(row, import_part_no_col)),
+                    "source_batch": _text(_value(row, source_batch_col)),
+                    "team": _text(_value(row, team_col)),
+                    "original_qty": _number(_value(row, original_qty_col)),
                     "component_no": _text(_value(row, component_no_col)),
                     "component_qty": (
                         int(component_qty) if component_qty is not None else None
                     ),
-                    "part_type": _text(_value(row, part_type_col)),
+                    "part_type": _part_type(_value(row, part_type_col)),
                     "part_no": part_no,
                     "profile_spec": _text(_value(row, profile_spec_col)),
                     "spec": _text(_value(row, spec_col)),
@@ -142,8 +217,15 @@ def import_parts_to_db(
                     "total_qty": _number(_value(row, total_qty_col)),
                     "total_length": _number(_value(row, total_length_col)),
                     "density": _number(_value(row, density_col)),
+                    "density_source": _text(_value(row, density_source_col)),
                     "theo_unit_weight": _number(_value(row, theo_unit_weight_col)),
                     "theo_total_weight": _number(_value(row, theo_total_weight_col)),
+                    "material_utilization": _number(
+                        _value(row, material_utilization_col)
+                    ),
+                    "weight_validation": _weight_status(
+                        _value(row, weight_validation_col)
+                    ),
                     "net_unit_weight": _number(_value(row, net_unit_weight_col)),
                     "net_total_weight": _number(_value(row, net_total_weight_col)),
                     "table_net_weight": _number(_value(row, table_net_weight_col)),
@@ -161,6 +243,72 @@ def import_parts_to_db(
         db.bulk_insert_mappings(ExcelFinalPart, parts)
         db.flush()
     return {"parts_imported": len(parts)}
+
+
+def import_quality_report(output_path: Path) -> QualityImportStats:
+    """Read the canonical quality ledger and return a bounded aggregate."""
+    workbook = openpyxl.load_workbook(output_path, read_only=True, data_only=True)
+    try:
+        if "处理报告" not in workbook.sheetnames:
+            return {
+                "quality_status": "ok",
+                "warning_count": 0,
+                "severe_warning_count": 0,
+                "report_summary": None,
+            }
+        rows = workbook["处理报告"].iter_rows(values_only=True)
+        columns = {
+            _canonical_header(value): index
+            for index, value in enumerate(next(rows, ()))
+        }
+        missing = [name for name in ("级别", "类别", "说明") if name not in columns]
+        if missing:
+            raise ValueError(
+                "Excel Final quality report is missing required columns: "
+                + ", ".join(missing)
+            )
+
+        level_counts: Counter[str] = Counter()
+        category_counts: Counter[str] = Counter()
+        representative_messages: list[str] = []
+        for values in rows:
+            level = _text(values[columns["级别"]])
+            category = _text(values[columns["类别"]])
+            description = _text(values[columns["说明"]])
+            if level is None and category is None and description is None:
+                continue
+            if level not in _REPORT_LEVELS:
+                raise ValueError(f"Excel Final quality report has unknown level: {level}")
+            level_counts[level] += 1
+            category_counts[category or "未分类"] += 1
+            if description and len(representative_messages) < _MAX_REPRESENTATIVE_MESSAGES:
+                representative_messages.append(
+                    description[:_MAX_REPRESENTATIVE_MESSAGE_LENGTH]
+                )
+
+        warning_count = level_counts["警告"]
+        severe_warning_count = level_counts["严重"]
+        quality_status = "ok"
+        if severe_warning_count or level_counts["致命"]:
+            quality_status = "severe_warning"
+        elif warning_count:
+            quality_status = "warning"
+        return {
+            "quality_status": quality_status,
+            "warning_count": warning_count,
+            "severe_warning_count": severe_warning_count,
+            "report_summary": {
+                "info_count": level_counts["信息"],
+                "warning_count": warning_count,
+                "severe_warning_count": severe_warning_count,
+                "category_counts": dict(
+                    category_counts.most_common(_MAX_REPORT_CATEGORIES)
+                ),
+                "representative_messages": representative_messages,
+            },
+        }
+    finally:
+        workbook.close()
 
 
 def import_components_to_db(
@@ -218,4 +366,4 @@ def import_components_to_db(
     return {"components_imported": len(components)}
 
 
-__all__ = ["import_components_to_db", "import_parts_to_db"]
+__all__ = ["import_components_to_db", "import_parts_to_db", "import_quality_report"]

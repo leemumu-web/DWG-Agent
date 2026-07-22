@@ -129,7 +129,7 @@ def test_excel_final_parts_imports_sparse_rows_and_optional_fields(db: Session, 
     assert part.qty == 0
 
 
-def test_excel_final_parts_uses_intermediate_sheet_fallback(db: Session, tmp_path: Path):
+def test_excel_final_parts_rejects_retired_intermediate_sheet(db: Session, tmp_path: Path):
     batch = _batch(db)
     output_path = tmp_path / "intermediate.xlsx"
     _workbook(
@@ -139,7 +139,92 @@ def test_excel_final_parts_uses_intermediate_sheet_fallback(db: Session, tmp_pat
         sheet_name="整理表_拆板后",
     )
 
+    assert import_parts_to_db(db, batch.id, output_path) == {
+        "parts_imported": 0,
+        "error": "No 整理表 sheet found",
+    }
+
+
+def test_excel_final_parts_imports_canonical_provenance_and_quality_fields(
+    db: Session,
+    tmp_path: Path,
+):
+    batch = _batch(db)
+    output_path = tmp_path / "canonical.xlsx"
+    _workbook(
+        output_path,
+        [
+            "序号",
+            "构件编号",
+            "导入构件编号",
+            "构件数",
+            "类型",
+            "班组",
+            "批次",
+            "零件号",
+            "导入零件号",
+            "规格",
+            "长度(mm)",
+            "下料长度(mm)",
+            "材质",
+            "原数量",
+            "数量",
+            "比重",
+            "比重来源",
+            "净材利用率",
+            "重量核验",
+        ],
+        [
+            [
+                7,
+                "C-SPLIT",
+                "C-RAW",
+                3,
+                "BOX腹",
+                "",
+                "B-01",
+                "P-DISPLAY",
+                "P-RAW_腹",
+                8,
+                1200,
+                1180,
+                "Q355B",
+                2,
+                1,
+                7.85,
+                "plate_constant:7.85",
+                0.8125,
+                "警告",
+            ]
+        ],
+    )
+
     assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
+    part = db.scalar(select(ExcelFinalPart))
+    assert part is not None
+    assert part.import_component_no == "C-RAW"
+    assert part.import_part_no == "P-RAW_腹"
+    assert part.source_batch == "B-01"
+    assert part.team is None
+    assert part.original_qty == 2
+    assert part.cut_length == 1180
+    assert part.density_source == "plate_constant:7.85"
+    assert part.material_utilization == 0.8125
+    assert part.weight_validation == "warning"
+    assert part.part_type == "box_web"
+
+
+def test_excel_final_parts_rejects_unknown_part_type(db: Session, tmp_path: Path):
+    batch = _batch(db)
+    output_path = tmp_path / "unknown-type.xlsx"
+    _workbook(
+        output_path,
+        ["序号", "构件编号", "类型", "零件号", "规格", "长度", "材质", "数量"],
+        [[1, "C-1", "神秘型材", "P-1", "X10", 200, "Q355B", 1]],
+    )
+
+    with pytest.raises(ValueError, match="unknown part type"):
+        import_parts_to_db(db, batch.id, output_path)
 
 
 def test_excel_final_parts_returns_error_when_sheet_is_absent(db: Session, tmp_path: Path):
