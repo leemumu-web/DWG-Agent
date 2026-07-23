@@ -320,12 +320,29 @@ def import_quality_report(output_path: Path) -> QualityImportStats:
         level_counts: Counter[str] = Counter()
         category_counts: Counter[str] = Counter()
         representative_messages: list[str] = []
+        no_report_sentinel_seen = False
         for values in rows:
             level = _text(values[columns["级别"]])
             category = _text(values[columns["类别"]])
             description = _text(values[columns["说明"]])
             if level is None and category is None and description is None:
                 continue
+            if level == "无":
+                has_other_content = any(
+                    _text(value) is not None
+                    for index, value in enumerate(values)
+                    if index != columns["级别"]
+                )
+                if has_other_content or level_counts or no_report_sentinel_seen:
+                    raise ValueError(
+                        "Excel Final no-report sentinel must be the only report content"
+                    )
+                no_report_sentinel_seen = True
+                continue
+            if no_report_sentinel_seen:
+                raise ValueError(
+                    "Excel Final no-report sentinel cannot be mixed with report rows"
+                )
             if level not in _REPORT_LEVELS:
                 raise ValueError(f"Excel Final quality report has unknown level: {level}")
             level_counts[level] += 1

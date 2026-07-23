@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 
 STAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +53,7 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
     assert result.severe_warning_count == 0
     assert result.report_summary["info_count"] == 0
     assert _sha256(SOURCE) == baseline["sha256"]
-    formulas = load_workbook(output, read_only=True, data_only=False)
+    formulas = load_workbook(output, data_only=False)
     values = load_workbook(output, read_only=True, data_only=True)
     try:
         assert formulas.sheetnames == ["原表", "清洗表", "构件表", "整理表", "part", "处理报告"]
@@ -82,7 +83,17 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
         }
 
         assert all(row["文件"] is None for row in part)
-        assert _rows_by_headers(values["处理报告"]) == []
+        assert values["处理报告"]["A2"].value == "无"
+        assert values["处理报告"].max_row == 2
+        for sheet_name, headers in (
+            ("整理表", ("比重来源", "净材利用率", "重量核验")),
+            ("构件表", ("来源sheet", "行类型", "小计来源行")),
+        ):
+            worksheet = formulas[sheet_name]
+            header_values = [cell.value for cell in worksheet[1]]
+            for header in headers:
+                column = get_column_letter(header_values.index(header) + 1)
+                assert worksheet.column_dimensions[column].hidden is True
 
         d_rows = [row for row in organized if str(row["截面型材"]).startswith("D")]
         assert len(d_rows) == baseline["d"]

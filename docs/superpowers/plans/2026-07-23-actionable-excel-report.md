@@ -16,7 +16,7 @@
 - Modify: `Stages/excel_final/tests/test_domain_quality.py`
 - Modify: `Stages/excel_final/quality.py`
 
-- [ ] **Step 1: 添加过滤、合并和建议操作测试**
+- [x] **Step 1: 添加过滤、合并和建议操作测试**
 
 测试构造两个同来源、同类别但字段不同的严重问题，一个信息问题：
 
@@ -37,7 +37,7 @@ assert rows[0] == {
 
 并断言 `info_count == 0`、严重计数为合并后的 1。
 
-- [ ] **Step 2: 运行测试确认 RED**
+- [x] **Step 2: 运行测试确认 RED**
 
 ```bash
 cd Stages/excel_final
@@ -46,7 +46,7 @@ cd Stages/excel_final
 
 Expected: 旧 `report_rows()`仍返回15列逐问题记录，因此失败。
 
-- [ ] **Step 3: 实现唯一可操作投影**
+- [x] **Step 3: 实现唯一可操作投影**
 
 在 `quality.py` 中定义8列表头语义和类别到操作建议的映射。按以下键保持首次出现顺序分组：
 
@@ -63,7 +63,7 @@ Expected: 旧 `report_rows()`仍返回15列逐问题记录，因此失败。
 
 只处理 `WARNING/SEVERE/FATAL`，字段与说明去重后用中文分号连接。`QualityLedger.report_rows()`、警告/严重计数、类别统计和代表消息都使用合并后的结果；`quality_status`继续依据原始问题级别。
 
-- [ ] **Step 4: 运行测试确认 GREEN**
+- [x] **Step 4: 运行测试确认 GREEN**
 
 ```bash
 cd Stages/excel_final
@@ -78,7 +78,7 @@ Expected: 全部通过。
 - Modify: `Stages/excel_final/tests/test_writer_workbook.py`
 - Modify: `Stages/excel_final/writer_parts.py`
 
-- [ ] **Step 1: 添加8列、空报告和隐藏列失败测试**
+- [x] **Step 1: 添加8列、空报告和隐藏列失败测试**
 
 断言：
 
@@ -100,7 +100,7 @@ for header in ("来源sheet", "行类型", "小计来源行"):
 
 有问题时断言“建议操作”非空，同源同类问题只占一行。
 
-- [ ] **Step 2: 运行 writer 测试确认 RED**
+- [x] **Step 2: 运行 writer 测试确认 RED**
 
 ```bash
 cd Stages/excel_final
@@ -109,7 +109,7 @@ cd Stages/excel_final
 
 Expected: 旧报告仍有15列、空报告没有“无”、整理表列未隐藏。
 
-- [ ] **Step 3: 修改 writer**
+- [x] **Step 3: 修改 writer**
 
 `REPORT_HEADERS`改为8列，`_write_report_sheet`接收 `QualityLedger.report_rows()` 的字典。没有行时写：
 
@@ -119,7 +119,7 @@ ws["A2"] = "无"
 
 按报告行的“级别”设置警告/严重样式。写表后，把整理表的 `比重来源/净材利用率/重量核验` 和构件表的 `来源sheet/行类型/小计来源行` 对应列的 `hidden` 设为 `True`。
 
-- [ ] **Step 4: 运行 writer 与端到端测试确认 GREEN**
+- [x] **Step 4: 运行 writer 与端到端测试确认 GREEN**
 
 ```bash
 cd Stages/excel_final
@@ -135,7 +135,7 @@ Expected: 全部通过。
 - Modify: `backend/tests/excel_processing/test_excel_final_quality.py`
 - Modify: `backend/app/modules/excel_processing/importers.py`
 
-- [ ] **Step 1: 添加空报告 importer 失败测试**
+- [x] **Step 1: 添加空报告 importer 失败测试**
 
 构造8列表头且 `A2=无` 的工作簿，断言：
 
@@ -155,7 +155,7 @@ assert stats == {
 }
 ```
 
-- [ ] **Step 2: 运行后端测试确认 RED**
+- [x] **Step 2: 运行后端测试确认 RED**
 
 ```bash
 cd backend
@@ -166,11 +166,11 @@ cd backend
 
 Expected: importer 将“无”识别为未知级别并失败。
 
-- [ ] **Step 3: 实现哨兵解析与更新 fixture**
+- [x] **Step 3: 实现哨兵解析与更新 fixture**
 
 当一行只有“级别”列为 `无`、类别和说明为空时跳过；若“无”与其他内容混用则拒绝。测试 fixture 改用8列报告，同时保留一个旧15列表头兼容用例。
 
-- [ ] **Step 4: 运行后端聚焦测试确认 GREEN**
+- [x] **Step 4: 运行后端聚焦测试确认 GREEN**
 
 运行 Step 2 命令，Expected: 全部通过。
 
@@ -186,7 +186,7 @@ Expected: importer 将“无”识别为未知级别并失败。
 - Regenerate: `Stages/excel_final/data/reports/*.csv`
 - Regenerate: `Stages/excel_final/data/reports/*.md`
 
-- [ ] **Step 1: 更新真实回归合同**
+- [x] **Step 1: 更新真实回归合同**
 
 真实 GT 与后端下载测试断言：
 
@@ -199,15 +199,15 @@ for header in ("来源sheet", "行类型", "小计来源行"):
     assert component_hidden(header)
 ```
 
-- [ ] **Step 2: 更新当前生产文档**
+- [x] **Step 2: 更新当前生产文档**
 
 说明报告仅含可操作问题、8列合并规则、空报告“无”哨兵，以及整理表三个审计列默认隐藏。
 
-- [ ] **Step 3: 重生成真实结果和对比报告**
+- [x] **Step 3: 重生成真实结果和对比报告**
 
 使用后端 `.venv` 和 `source_format="canonical"` 调用真实 MySQL Stage；确认质量状态为 `ok`，报告 `A2=无`，478行 part 文件列为空，重量总数不变。
 
-- [ ] **Step 4: 执行完整回归**
+- [x] **Step 4: 执行完整回归**
 
 ```bash
 Stages/excel_final/.venv/bin/pytest -q -m "not handbook_mysql and not live_data" \
@@ -225,7 +225,7 @@ DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s \
 
 Expected: 所有启用测试通过，无迁移漂移。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -u

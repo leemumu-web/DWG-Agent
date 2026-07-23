@@ -120,10 +120,18 @@ def _canonical_workbook(path: Path) -> None:
     )
 
     report = workbook.create_sheet("处理报告")
-    report.append(["级别", "类别", "说明"])
-    report.append(["信息", "数据备注", "来源数据已记录"])
-    report.append(["警告", "手册查无", "规格 X10 在指定类别中查无"])
-    report.append(["严重", "重量矛盾", "表单重与理单重严重不一致"])
+    report.append([
+        "级别", "类别", "来源位置", "构件编号",
+        "零件号", "涉及字段", "说明", "建议操作",
+    ])
+    report.append([
+        "警告", "手册查无", "原表!8", "C-1",
+        "P-1", "比重", "规格 X10 在指定类别中查无", "补充手册数据",
+    ])
+    report.append([
+        "严重", "重量矛盾", "原表!8", "C-1",
+        "P-1", "表单重", "表单重与理单重严重不一致", "复核并修正源数据",
+    ])
     workbook.save(path)
 
 
@@ -151,12 +159,11 @@ def test_workbook_import_persists_quality_and_table_weight_totals(
     assert batch.warning_count == 1
     assert batch.severe_warning_count == 1
     assert batch.report_summary == {
-        "info_count": 1,
+        "info_count": 0,
         "warning_count": 1,
         "severe_warning_count": 1,
-        "category_counts": {"数据备注": 1, "手册查无": 1, "重量矛盾": 1},
+        "category_counts": {"手册查无": 1, "重量矛盾": 1},
         "representative_messages": [
-            "来源数据已记录",
             "规格 X10 在指定类别中查无",
             "表单重与理单重严重不一致",
         ],

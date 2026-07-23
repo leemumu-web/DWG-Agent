@@ -24,6 +24,28 @@ class QualityStatus(StrEnum):
     SEVERE_WARNING = "severe_warning"
 
 
+_ACTION_BY_CATEGORY = {
+    "五金手册查无": "补充对应手册数据，或确认该规格无需理论重后重新处理",
+    "手册查无": "补充对应手册数据，或确认该规格无需理论重后重新处理",
+    "源重量缺失": "补齐涉及的源重量后重新处理",
+    "关键字段缺失": "补齐涉及字段后重新处理",
+    "物理量非法": "将涉及字段修正为合法有限数后重新处理",
+    "构件物理量非法": "将涉及字段修正为合法有限数后重新处理",
+    "构件编号冲突": "统一冲突的构件身份和数据后重新处理",
+    "导入零件身份冲突": "统一冲突的零件身份和几何数据后重新处理",
+    "拆板几何异常": "修正 BH/BOX/BT 截面尺寸后重新处理",
+    "源重量链异常": "核对单重、总重、数量及净毛重关系后重新处理",
+    "净重大于毛重": "核对单重、总重、数量及净毛重关系后重新处理",
+    "几何理论重与毛重": "复核规格、材质、数量和源重量，修正后重新处理",
+    "手册理论重与毛重": "复核规格、材质、数量和源重量，修正后重新处理",
+    "净重大于理论重": "复核规格、材质、数量和源重量，修正后重新处理",
+}
+_DEFAULT_ACTION = "复核该问题并修正源数据后重新处理"
+_ACTIONABLE_LEVELS = frozenset(
+    {IssueLevel.WARNING, IssueLevel.SEVERE, IssueLevel.FATAL}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class QualityIssue:
     level: IssueLevel
@@ -49,26 +71,6 @@ class QualityIssue:
                 f"affects_part={self.affects_part!r} is inconsistent with level={self.level.value}"
             )
 
-    def as_report_row(self) -> dict[str, object]:
-        return {
-            "级别": self.level.value,
-            "类别": self.category,
-            "来源sheet": self.source_sheet,
-            "来源行": self.source_row,
-            "构件编号": self.component_no,
-            "零件号": self.part_no,
-            "规格": self.spec,
-            "字段": self.field,
-            "实际值": self.actual_value,
-            "期望值": self.expected_value,
-            "绝对误差": self.absolute_error,
-            "相对误差": self.relative_error,
-            "是否影响part": "是" if self.affects_part else "否",
-            "比重来源": self.density_source,
-            "说明": self.description,
-        }
-
-
 class QualityLedger:
     def __init__(self) -> None:
         self._issues: list[QualityIssue] = []
@@ -82,11 +84,11 @@ class QualityLedger:
 
     @property
     def warning_count(self) -> int:
-        return sum(issue.level is IssueLevel.WARNING for issue in self._issues)
+        return sum(row["级别"] == IssueLevel.WARNING.value for row in self.report_rows())
 
     @property
     def severe_warning_count(self) -> int:
-        return sum(issue.level is IssueLevel.SEVERE for issue in self._issues)
+        return sum(row["级别"] == IssueLevel.SEVERE.value for row in self.report_rows())
 
     @property
     def quality_status(self) -> QualityStatus:
@@ -97,17 +99,59 @@ class QualityLedger:
         return QualityStatus.OK
 
     def report_rows(self) -> list[dict[str, object]]:
-        return [issue.as_report_row() for issue in self._issues]
+        grouped: dict[tuple[object, ...], dict[str, object]] = {}
+        for issue in self._issues:
+            if issue.level not in _ACTIONABLE_LEVELS:
+                continue
+            key = (
+                issue.level,
+                issue.category,
+                issue.source_sheet,
+                issue.source_row,
+                issue.component_no,
+                issue.part_no,
+            )
+            row = grouped.setdefault(
+                key,
+                {
+                    "级别": issue.level.value,
+                    "类别": issue.category,
+                    "来源位置": f"{issue.source_sheet}!{issue.source_row}",
+                    "构件编号": issue.component_no,
+                    "零件号": issue.part_no,
+                    "涉及字段": [],
+                    "说明": [],
+                    "建议操作": _ACTION_BY_CATEGORY.get(
+                        issue.category,
+                        _DEFAULT_ACTION,
+                    ),
+                },
+            )
+            fields = row["涉及字段"]
+            descriptions = row["说明"]
+            if issue.field and issue.field not in fields:
+                fields.append(issue.field)
+            if issue.description and issue.description not in descriptions:
+                descriptions.append(issue.description)
+
+        rows: list[dict[str, object]] = []
+        for grouped_row in grouped.values():
+            row = dict(grouped_row)
+            row["涉及字段"] = "；".join(grouped_row["涉及字段"])
+            row["说明"] = "；".join(grouped_row["说明"])
+            rows.append(row)
+        return rows
 
     def to_outcome(self, output_path: Path) -> PipelineOutcome:
-        category_counts = Counter(issue.category for issue in self._issues)
+        report_rows = self.report_rows()
+        category_counts = Counter(str(row["类别"]) for row in report_rows)
         summary: dict[str, object] = {
-            "info_count": sum(issue.level is IssueLevel.INFO for issue in self._issues),
+            "info_count": 0,
             "warning_count": self.warning_count,
             "severe_warning_count": self.severe_warning_count,
             "category_counts": dict(category_counts),
             "representative_messages": [
-                issue.description for issue in self._issues[:10]
+                str(row["说明"]) for row in report_rows[:10]
             ],
         }
         return PipelineOutcome(

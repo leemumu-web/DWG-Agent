@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 
 from domain import ComponentRowKind, ComponentSourceRow, SourcePart
 from part_builder import PartRow
@@ -180,7 +181,19 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
         assert workbook["原表"]["B2"].value == " 保 留 空 格 "
         assert [cell.value for cell in workbook["整理表"][1]] == writer.ORGANIZED_HEADERS
         assert [cell.value for cell in workbook["part"][1]] == writer.PART_HEADERS
+        assert writer.REPORT_HEADERS == [
+            "级别",
+            "类别",
+            "来源位置",
+            "构件编号",
+            "零件号",
+            "涉及字段",
+            "说明",
+            "建议操作",
+        ]
         assert [cell.value for cell in workbook["处理报告"][1]] == writer.REPORT_HEADERS
+        assert workbook["处理报告"]["H2"].value
+        assert workbook["处理报告"]["H3"].value
         assert workbook["整理表"]["A2"].value == workbook["整理表"]["A3"].value == 7
         assert workbook["整理表"]["P2"].value == "=M2-N2-O2"
         assert workbook["整理表"]["X2"].number_format == "0.000"
@@ -195,6 +208,12 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
         assert workbook["构件表"].max_row == 2
         assert workbook["构件表"]["C2"].value == "summary"
         assert workbook["构件表"]["D2"].value == 9
+        for header in ("比重来源", "净材利用率", "重量核验"):
+            letter = get_column_letter(writer.ORGANIZED_HEADERS.index(header) + 1)
+            assert workbook["整理表"].column_dimensions[letter].hidden is True
+        for header in ("来源sheet", "行类型", "小计来源行"):
+            letter = get_column_letter(writer.COMPONENT_HEADERS.index(header) + 1)
+            assert workbook["构件表"].column_dimensions[letter].hidden is True
     finally:
         workbook.close()
 
@@ -226,6 +245,8 @@ def test_writer_formula_cache_is_immediately_readable_data_only(tmp_path: Path) 
     try:
         assert formulas["整理表"]["P2"].value == "=M2-N2-O2"
         assert values["整理表"]["P2"].value == 985
+        assert formulas["处理报告"]["A2"].value == "无"
+        assert formulas["处理报告"].max_row == 2
     finally:
         formulas.close()
         values.close()

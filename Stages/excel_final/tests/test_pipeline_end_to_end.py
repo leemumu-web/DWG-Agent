@@ -209,8 +209,8 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
     workbook = load_workbook(output, data_only=True, read_only=True)
     try:
         report_rows = list(workbook["处理报告"].iter_rows(min_row=2, values_only=True))
-        assert any(row[1] == "五金手册查无" and row[5] == "p-miss" for row in report_rows)
-        assert not any(row[1] == "五金手册查无" and row[5] in {"p-nut", "p-tt"} for row in report_rows)
+        assert any(row[1] == "五金手册查无" and row[4] == "p-miss" for row in report_rows)
+        assert not any(row[1] == "五金手册查无" and row[4] in {"p-nut", "p-tt"} for row in report_rows)
         file_cells = [
             row[10]
             for row in workbook["part"].iter_rows(min_row=2, values_only=True)
@@ -247,7 +247,7 @@ def test_invalid_confirmed_split_is_reported_without_dropping_source_row(tmp_pat
     try:
         assert result["part"].max_row == 1
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
-        assert any(row[1] == "拆板几何异常" and row[5] == "bad-box" for row in report)
+        assert any(row[1] == "拆板几何异常" and row[4] == "bad-box" for row in report)
     finally:
         result.close()
 
@@ -282,8 +282,8 @@ def test_missing_required_fields_are_preserved_audited_and_excluded_from_part(
         assert result["整理表"].max_row == 6
         assert result["part"].max_row == 1
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
-        assert {row[7] for row in report} == {"零件号", "规格", "长度", "材质", "数量"}
-        assert all(row[1] == "关键字段缺失" and row[12] == "是" for row in report)
+        assert {row[5] for row in report} == {"零件号", "规格", "长度", "材质", "数量"}
+        assert all(row[0] == "严重" and row[1] == "关键字段缺失" for row in report)
         assert result["整理表"]["H2"].value is None
         assert result["整理表"]["M4"].value is None
         assert result["整理表"]["P4"].value is None
@@ -329,7 +329,12 @@ def test_nonpositive_dimensions_counts_and_negative_source_values_are_isolated(
         assert result["整理表"].max_row == 4
         assert result["part"].max_row == 1
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
-        fields = {row[7] for row in report if row[0] == "严重"}
+        fields = {
+            field
+            for row in report
+            if row[0] == "严重"
+            for field in str(row[5]).split("；")
+        }
         assert {
             "长度", "数量", "单净重", "总净重", "单毛重", "总毛重",
             "单表面积", "总表面积",
@@ -364,7 +369,7 @@ def test_initial_table_missing_length_uses_the_same_audited_isolation(
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
         assert len(report) == 1
         assert report[0][1] == "关键字段缺失"
-        assert report[0][7] == "长度"
+        assert report[0][5] == "长度"
     finally:
         result.close()
 
@@ -433,8 +438,12 @@ def test_invalid_component_summary_physics_blocks_every_component_part(
         assert result["part"].max_row == 1
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
         component_issues = [row for row in report if row[1] == "构件物理量非法"]
-        assert {row[7] for row in component_issues} == {"总净重", "构件宽度"}
-        assert {row[3] for row in component_issues} == {4}
+        assert {
+            field
+            for row in component_issues
+            for field in str(row[5]).split("；")
+        } == {"总净重", "构件宽度"}
+        assert {row[2] for row in component_issues} == {"原表!4"}
     finally:
         result.close()
 
@@ -462,7 +471,7 @@ def test_initial_table_missing_component_number_is_audited_and_isolated(
         assert result["整理表"].max_row == 2
         assert result["part"].max_row == 1
         report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
-        assert any(row[1] == "关键字段缺失" and row[7] == "构件编号" for row in report)
+        assert any(row[1] == "关键字段缺失" and row[5] == "构件编号" for row in report)
     finally:
         result.close()
 

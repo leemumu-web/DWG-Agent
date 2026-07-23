@@ -185,20 +185,79 @@ def test_quality_ledger_counts_issue_details_and_serializes_report_rows() -> Non
     assert tuple(report_rows[0]) == (
         "级别",
         "类别",
-        "来源sheet",
-        "来源行",
+        "来源位置",
         "构件编号",
         "零件号",
-        "规格",
-        "字段",
-        "实际值",
-        "期望值",
-        "绝对误差",
-        "相对误差",
-        "是否影响part",
-        "比重来源",
+        "涉及字段",
         "说明",
+        "建议操作",
     )
+    assert all(row["建议操作"] for row in report_rows)
+
+
+def test_quality_report_filters_info_and_merges_same_source_category() -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    for field in ("长度", "材质"):
+        ledger.add(
+            quality.QualityIssue(
+                level=quality.IssueLevel.SEVERE,
+                category="关键字段缺失",
+                source_sheet="原表",
+                source_row=8,
+                component_no="C1",
+                part_no="P1",
+                spec="PL10*100",
+                field=field,
+                actual_value=None,
+                expected_value="非空源值",
+                absolute_error=None,
+                relative_error=None,
+                affects_part=True,
+                density_source=None,
+                description=f"{field}缺失",
+            )
+        )
+    ledger.add(
+        quality.QualityIssue(
+            level=quality.IssueLevel.INFO,
+            category="数据备注",
+            source_sheet="原表",
+            source_row=8,
+            component_no="C1",
+            part_no="P1",
+            spec="PL10*100",
+            field="备注",
+            actual_value=None,
+            expected_value=None,
+            absolute_error=None,
+            relative_error=None,
+            affects_part=False,
+            density_source=None,
+            description="无需人工处理",
+        )
+    )
+
+    assert ledger.report_rows() == [
+        {
+            "级别": "严重",
+            "类别": "关键字段缺失",
+            "来源位置": "原表!8",
+            "构件编号": "C1",
+            "零件号": "P1",
+            "涉及字段": "长度；材质",
+            "说明": "长度缺失；材质缺失",
+            "建议操作": "补齐涉及字段后重新处理",
+        }
+    ]
+    outcome = ledger.to_outcome(Path("result.xlsx"))
+    assert outcome.report_summary == {
+        "info_count": 0,
+        "warning_count": 0,
+        "severe_warning_count": 1,
+        "category_counts": {"关键字段缺失": 1},
+        "representative_messages": ["长度缺失；材质缺失"],
+    }
 
 
 @pytest.mark.parametrize(
@@ -288,10 +347,10 @@ def test_quality_ledger_builds_path_compatible_bounded_outcome(tmp_path: Path) -
     assert outcome.warning_count == 1
     assert outcome.severe_warning_count == 0
     assert outcome.report_summary["category_counts"] == {
-        "数据备注": 12,
         "手册查无": 1,
     }
-    assert len(outcome.report_summary["representative_messages"]) == 10
+    assert outcome.report_summary["info_count"] == 0
+    assert outcome.report_summary["representative_messages"] == ["角钢表未命中"]
     with pytest.raises(FrozenInstanceError):
         outcome.warning_count = 99
 

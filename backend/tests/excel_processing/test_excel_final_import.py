@@ -13,6 +13,7 @@ from app.modules.excel_processing import importers
 from app.modules.excel_processing.importers import (
     import_components_to_db,
     import_parts_to_db,
+    import_quality_report,
 )
 from app.modules.excel_processing.models import (
     ExcelFinalBatch,
@@ -73,6 +74,90 @@ def _workbook(
     for row in rows:
         sheet.append(row)
     workbook.save(path)
+
+
+def test_excel_final_quality_import_treats_no_report_sentinel_as_empty(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "no-report.xlsx"
+    _workbook(
+        output_path,
+        [
+            "级别",
+            "类别",
+            "来源位置",
+            "构件编号",
+            "零件号",
+            "涉及字段",
+            "说明",
+            "建议操作",
+        ],
+        [["无", None, None, None, None, None, None, None]],
+        sheet_name="处理报告",
+    )
+
+    assert import_quality_report(output_path) == {
+        "quality_status": "ok",
+        "warning_count": 0,
+        "severe_warning_count": 0,
+        "report_summary": {
+            "info_count": 0,
+            "warning_count": 0,
+            "severe_warning_count": 0,
+            "category_counts": {},
+            "representative_messages": [],
+        },
+    }
+
+
+def test_excel_final_quality_import_rejects_mixed_no_report_sentinel(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "mixed-no-report.xlsx"
+    _workbook(
+        output_path,
+        ["级别", "类别", "说明"],
+        [["无", "重量异常", "不能与无混用"]],
+        sheet_name="处理报告",
+    )
+
+    with pytest.raises(ValueError, match="sentinel"):
+        import_quality_report(output_path)
+
+
+def test_excel_final_quality_import_accepts_legacy_report_columns(
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "legacy-report.xlsx"
+    _workbook(
+        output_path,
+        [
+            "级别",
+            "类别",
+            "来源sheet",
+            "来源行",
+            "构件编号",
+            "零件号",
+            "规格",
+            "字段",
+            "实际值",
+            "期望值",
+            "绝对误差",
+            "相对误差",
+            "是否影响part",
+            "比重来源",
+            "说明",
+        ],
+        [["警告", "手册查无", "原表", 8, "C1", "P1", "L999", "比重",
+          "查无", "手册命中", None, None, "否", "angle:not_found", "规格查无"]],
+        sheet_name="处理报告",
+    )
+
+    stats = import_quality_report(output_path)
+
+    assert stats["quality_status"] == "warning"
+    assert stats["warning_count"] == 1
+    assert stats["report_summary"]["category_counts"] == {"手册查无": 1}
 
 
 def test_excel_final_import_skips_totals_row(db: Session, tmp_path: Path):

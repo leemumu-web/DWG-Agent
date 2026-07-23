@@ -31,7 +31,7 @@
 - 批次零件列表的 `part_type` 查询参数只接受 `schemas.ExcelFinalPartType` 的稳定英文值；中文标签或未知值返回 HTTP 422，不静默返回空结果。
 - 批次净重和毛重仅汇总 `表净重` 与 `表毛重`，拆板翼行的空表重不重复计入，合法零值保持为零。
 - 尺寸、数量、面积、比重、利用率和重量统一用 `DECIMAL(24,9)` 持久化并在库内精确汇总；只在 HTTP/Job JSON 边界转换为普通数字，避免 MySQL `FLOAT` 累计漂移。
-- `warning` 和 `severe_warning` 不改变 Job 的成功状态；批次、process status、AnalysisResult、步骤和 done event 都返回质量状态、计数及有界摘要。
+- `warning` 和 `severe_warning` 不改变 Job 的成功状态；批次、process status、AnalysisResult、步骤和 done event 都返回质量状态、计数及有界摘要。计数以最终人工处置报告的合并行口径为准；`A2=无`按零问题导入，旧15列报告仍可兼容读取。
 - Job、步骤和日志只保存文件 basename、逻辑 ID、质量摘要与异常类型；临时绝对路径、MySQL 主机/DSN、口令和 traceback 不进入持久化或公共日志。
 - `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85，`skip` 返回空值，查无返回 `not_found`。
 

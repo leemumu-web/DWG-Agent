@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -147,7 +148,7 @@ def test_live_upload_worker_catalog_and_download_flow(
     assert downloaded.content == b"".join(
         storage.iter_file(result_file.bucket, result_file.storage_key)
     )
-    workbook = load_workbook(BytesIO(downloaded.content), read_only=True, data_only=True)
+    workbook = load_workbook(BytesIO(downloaded.content), data_only=True)
     try:
         assert workbook.sheetnames == [
             "原表",
@@ -163,7 +164,17 @@ def test_live_upload_worker_catalog_and_download_flow(
             row[10] is None
             for row in workbook["part"].iter_rows(min_row=2, values_only=True)
         )
-        assert workbook["处理报告"].max_row == 1
+        assert workbook["处理报告"]["A2"].value == "无"
+        assert workbook["处理报告"].max_row == 2
+        for sheet_name, headers in (
+            ("整理表", ("比重来源", "净材利用率", "重量核验")),
+            ("构件表", ("来源sheet", "行类型", "小计来源行")),
+        ):
+            worksheet = workbook[sheet_name]
+            header_values = [cell.value for cell in worksheet[1]]
+            for header in headers:
+                column = get_column_letter(header_values.index(header) + 1)
+                assert worksheet.column_dimensions[column].hidden is True
     finally:
         workbook.close()
 

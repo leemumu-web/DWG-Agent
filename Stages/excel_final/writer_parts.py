@@ -52,8 +52,8 @@ PART_HEADERS = [
 ]
 
 REPORT_HEADERS = [
-    "级别", "类别", "来源sheet", "来源行", "构件编号", "零件号", "规格", "字段",
-    "实际值", "期望值", "绝对误差", "相对误差", "是否影响part", "比重来源", "说明",
+    "级别", "类别", "来源位置", "构件编号",
+    "零件号", "涉及字段", "说明", "建议操作",
 ]
 
 _CANONICAL_WIDTHS = {
@@ -62,7 +62,11 @@ _CANONICAL_WIDTHS = {
     "构件表": {1: 12, 2: 9, 3: 10, 5: 16, 7: 18},
     "整理表": {2: 16, 3: 16, 8: 14, 9: 18, 10: 18, 23: 24, 33: 16},
     "part": {1: 16, 2: 18, 5: 12, 6: 12, 10: 10, 11: 10},
-    "处理报告": {2: 20, 3: 12, 5: 16, 6: 14, 7: 18, 15: 48},
+    "处理报告": {1: 10, 2: 20, 3: 16, 4: 16, 5: 16, 6: 20, 7: 48, 8: 48},
+}
+_HIDDEN_COLUMNS = {
+    "构件表": ("来源sheet", "行类型", "小计来源行"),
+    "整理表": ("比重来源", "净材利用率", "重量核验"),
 }
 
 _LIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="F4CCCC")
@@ -204,16 +208,22 @@ def _write_part_sheet(ws, rows: Iterable[PartRow]) -> None:
         ])
 
 
-def _write_report_sheet(ws, issues: Sequence[QualityIssue]) -> None:
+def _write_report_sheet(
+    ws,
+    report_rows: Sequence[Mapping[str, object]],
+) -> None:
     _canonical_headers(ws, REPORT_HEADERS)
-    for row_number, issue in enumerate(issues, start=2):
-        report = issue.as_report_row()
+    if not report_rows:
+        ws["A2"] = "无"
+        ws["A2"].alignment = Alignment(horizontal="center", vertical="center")
+        return
+    for row_number, report in enumerate(report_rows, start=2):
         _canonical_row(ws, row_number, [report[header] for header in REPORT_HEADERS])
-        if issue.level is IssueLevel.SEVERE:
+        if report["级别"] in (IssueLevel.SEVERE.value, IssueLevel.FATAL.value):
             for cell in ws[row_number]:
                 cell.fill = _LIGHT_RED_FILL
                 cell.font = _SEVERE_FONT
-        elif issue.level is IssueLevel.WARNING:
+        elif report["级别"] == IssueLevel.WARNING.value:
             for cell in ws[row_number]:
                 cell.fill = _WARNING_FILL
 
@@ -311,6 +321,16 @@ def _format_canonical_workbook(workbook) -> None:
         ws = workbook[sheet_name]
         for column, width in widths.items():
             ws.column_dimensions[get_column_letter(column)].width = width
+    headers_by_sheet = {
+        "构件表": COMPONENT_HEADERS,
+        "整理表": ORGANIZED_HEADERS,
+    }
+    for sheet_name, hidden_headers in _HIDDEN_COLUMNS.items():
+        ws = workbook[sheet_name]
+        headers = headers_by_sheet[sheet_name]
+        for header in hidden_headers:
+            column = get_column_letter(headers.index(header) + 1)
+            ws.column_dimensions[column].hidden = True
 
 
 def _verify_formula_caches(
@@ -386,7 +406,7 @@ def write_canonical_workbook(
             _write_component_sheet(component_sheet, components)
             formula_caches = _write_organized_sheet(organized_sheet, organized)
             _write_part_sheet(part_sheet, parts)
-            _write_report_sheet(report_sheet, issue_list)
+            _write_report_sheet(report_sheet, ledger.report_rows())
             _apply_clean_quality_styles(clean_sheet, cleaned, issue_list)
             _apply_quality_styles(organized_sheet, organized, issue_list)
             _format_canonical_workbook(workbook)
