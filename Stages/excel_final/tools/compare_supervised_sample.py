@@ -27,6 +27,8 @@ ORGANIZED_DISCRIMINATORS = (
     ("零件号", 8),
     ("规格", 5),
     ("宽度", 5),
+    ("下料长度(mm)", 5),
+    ("长度(mm)", 4),
     ("材质", 4),
     ("截面型材", 3),
 )
@@ -149,6 +151,19 @@ def _identity_key(row: Mapping[str, object]) -> tuple[object, object]:
     return _normalized_text(component), normalized_part_no(row.get("导入零件号"))
 
 
+def _shared_part_identity(row: Mapping[str, object]) -> object:
+    return normalized_part_no(row.get("导入零件号"))
+
+
+def _components_are_compatible(
+    program: Mapping[str, object],
+    ground_truth: Mapping[str, object],
+) -> bool:
+    program_component, _ = _identity_key(program)
+    gt_component, _ = _identity_key(ground_truth)
+    return not (_nonempty(program_component) and _nonempty(gt_component))
+
+
 def _rows(sheet) -> list[dict[str, object]]:
     headers = [cell.value for cell in sheet[1]]
     if any(header is None for header in headers):
@@ -186,6 +201,7 @@ def _pair_group(
     *,
     match_kind: str,
     discriminators: Sequence[tuple[str, int]],
+    require_compatible_components: bool = False,
 ) -> tuple[list[RowMatch], list[dict[str, object]], list[dict[str, object]]]:
     remaining_program = list(program_rows)
     remaining_gt = list(ground_truth_rows)
@@ -201,7 +217,11 @@ def _pair_group(
             )
             for program in remaining_program
             for gt in remaining_gt
+            if not require_compatible_components
+            or _components_are_compatible(program, gt)
         ]
+        if not candidates:
+            break
         candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
         best = candidates[0]
         best_score = best[0]
@@ -270,6 +290,29 @@ def _match_rows(
             gt_by_identity[key],
             match_kind="身份消歧",
             discriminators=discriminators,
+        )
+        matches.extend(paired)
+        for match in paired:
+            remaining_program.remove(match.program)
+            remaining_gt.remove(match.ground_truth)
+
+    program_by_part: dict[object, list[dict[str, object]]] = defaultdict(list)
+    gt_by_part: dict[object, list[dict[str, object]]] = defaultdict(list)
+    for row in remaining_program:
+        part_identity = _shared_part_identity(row)
+        if _nonempty(part_identity):
+            program_by_part[part_identity].append(row)
+    for row in remaining_gt:
+        part_identity = _shared_part_identity(row)
+        if _nonempty(part_identity):
+            gt_by_part[part_identity].append(row)
+    for key in sorted(set(program_by_part) & set(gt_by_part), key=str):
+        paired, _, _ = _pair_group(
+            program_by_part[key],
+            gt_by_part[key],
+            match_kind="共享零件身份消歧",
+            discriminators=discriminators,
+            require_compatible_components=True,
         )
         matches.extend(paired)
         for match in paired:
