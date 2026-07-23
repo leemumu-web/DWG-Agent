@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import tempfile
 from typing import Iterable, Mapping, Sequence
+import unicodedata
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -56,14 +57,13 @@ REPORT_HEADERS = [
     "零件号", "涉及字段", "说明", "建议操作",
 ]
 
-_CANONICAL_WIDTHS = {
-    "原表": {},
-    "清洗表": {1: 12, 2: 9, 3: 8, 4: 10, 5: 16, 7: 14, 8: 18},
-    "构件表": {1: 12, 2: 9, 3: 10, 5: 16, 7: 18},
-    "整理表": {2: 16, 3: 16, 8: 14, 9: 18, 10: 18, 23: 24, 33: 16},
-    "part": {1: 16, 2: 18, 5: 12, 6: 12, 10: 10, 11: 10},
-    "处理报告": {1: 10, 2: 20, 3: 16, 4: 16, 5: 16, 6: 20, 7: 48, 8: 48},
+_AUTO_WIDTH_SHEETS = ("清洗表", "构件表", "整理表", "part", "处理报告")
+_DEFAULT_WIDTH_BOUNDS = (8, 32)
+_WIDTH_BOUNDS_BY_HEADER = {
+    ("处理报告", "说明"): (16, 48),
+    ("处理报告", "建议操作"): (16, 48),
 }
+_WRAPPED_REPORT_HEADERS = ("说明", "建议操作")
 _HIDDEN_COLUMNS = {
     "构件表": ("来源sheet", "行类型", "小计来源行"),
     "整理表": ("比重来源", "净材利用率", "重量核验"),
@@ -85,6 +85,21 @@ def _excel_value(value: object) -> object:
     if isinstance(value, Enum):
         return value.value
     return value
+
+
+def _display_width(value: object) -> int:
+    if value is None:
+        return 0
+    return max(
+        (
+            sum(
+                2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+                for character in line
+            )
+            for line in str(value).splitlines()
+        ),
+        default=0,
+    )
 
 
 def _canonical_headers(ws, headers: Sequence[str]) -> None:
@@ -317,10 +332,35 @@ def _apply_clean_quality_styles(
 
 
 def _format_canonical_workbook(workbook) -> None:
-    for sheet_name, widths in _CANONICAL_WIDTHS.items():
+    for sheet_name in _AUTO_WIDTH_SHEETS:
         ws = workbook[sheet_name]
-        for column, width in widths.items():
+        for column in range(1, ws.max_column + 1):
+            header = ws.cell(row=1, column=column).value
+            minimum, maximum = _WIDTH_BOUNDS_BY_HEADER.get(
+                (sheet_name, header),
+                _DEFAULT_WIDTH_BOUNDS,
+            )
+            content_width = max(
+                _display_width(ws.cell(row=row, column=column).value)
+                for row in range(1, ws.max_row + 1)
+            )
+            width = min(max(content_width + 2, minimum), maximum)
             ws.column_dimensions[get_column_letter(column)].width = width
+
+    report = workbook["处理报告"]
+    for header in _WRAPPED_REPORT_HEADERS:
+        column = REPORT_HEADERS.index(header) + 1
+        report.cell(row=1, column=column).alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
+        )
+        for row in range(2, report.max_row + 1):
+            report.cell(row=row, column=column).alignment = Alignment(
+                vertical="top",
+                wrap_text=True,
+            )
+
     headers_by_sheet = {
         "构件表": COMPONENT_HEADERS,
         "整理表": ORGANIZED_HEADERS,

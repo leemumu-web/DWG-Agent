@@ -26,6 +26,8 @@ def _source(path: Path) -> tuple[SourcePart, tuple[ComponentSourceRow, ...]]:
     sheet["A1"] = "原始标题"
     sheet["A1"].font = Font(bold=True, color="123456")
     sheet["B2"] = " 保 留 空 格 "
+    sheet.column_dimensions["A"].width = 27.5
+    sheet.column_dimensions["B"].width = 13.25
     workbook.save(path)
     workbook.close()
 
@@ -152,12 +154,39 @@ def _issues() -> tuple[QualityIssue, ...]:
     )
 
 
-def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, 0),
+        ("ABCD", 4),
+        ("构件编号", 8),
+        ("ＡB", 3),
+        ("a\n中文", 4),
+    ],
+)
+def test_display_width_counts_east_asian_characters_and_longest_line(
+    value: object,
+    expected: int,
+) -> None:
+    assert _writer()._display_width(value) == expected
+
+
+def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styles(
+    tmp_path: Path,
+) -> None:
     writer = _writer()
     source = tmp_path / "source.xlsx"
     part, component_rows = _source(source)
     output = tmp_path / "output.xlsx"
-    organized = [_organized_row(), _organized_row(类型="BOX翼", 序号=7, 导入零件号="p1-BOX翼")]
+    organized = [
+        _organized_row(),
+        _organized_row(
+            类型="BOX翼",
+            序号=7,
+            导入零件号="p1-BOX翼",
+            截面型材="PL" + "1" * 80,
+        ),
+    ]
     part_rows = (
         PartRow("C1", "p1", Decimal("10"), Decimal("100"), Decimal("1000"),
                 "Q355B", Decimal("6"), "", "", "板材"),
@@ -179,6 +208,8 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
         assert workbook["原表"]["A1"].value == "原始标题"
         assert workbook["原表"]["A1"].font.bold is True
         assert workbook["原表"]["B2"].value == " 保 留 空 格 "
+        assert workbook["原表"].column_dimensions["A"].width == 27.5
+        assert workbook["原表"].column_dimensions["B"].width == 13.25
         assert [cell.value for cell in workbook["整理表"][1]] == writer.ORGANIZED_HEADERS
         assert [cell.value for cell in workbook["part"][1]] == writer.PART_HEADERS
         assert writer.REPORT_HEADERS == [
@@ -208,6 +239,14 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
         assert workbook["构件表"].max_row == 2
         assert workbook["构件表"]["C2"].value == "summary"
         assert workbook["构件表"]["D2"].value == 9
+        assert workbook["整理表"].column_dimensions["B"].width == 10
+        assert workbook["整理表"].column_dimensions["J"].width == 32
+        assert workbook["part"].column_dimensions["A"].width == 14
+        assert 16 <= workbook["处理报告"].column_dimensions["G"].width <= 48
+        assert 16 <= workbook["处理报告"].column_dimensions["H"].width <= 48
+        for coordinate in ("G2", "H2", "G3", "H3"):
+            assert workbook["处理报告"][coordinate].alignment.wrap_text is True
+            assert workbook["处理报告"][coordinate].alignment.vertical == "top"
         for header in ("比重来源", "净材利用率", "重量核验"):
             letter = get_column_letter(writer.ORGANIZED_HEADERS.index(header) + 1)
             assert workbook["整理表"].column_dimensions[letter].hidden is True

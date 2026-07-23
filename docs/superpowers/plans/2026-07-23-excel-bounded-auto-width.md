@@ -55,7 +55,7 @@ Expected: 新增测试因显示宽度帮助函数和自适应宽度尚未实现�
 
 - [ ] **Step 4：运行 writer 与 Stage 聚焦测试**
 
-Run: `uv run pytest Stages/excel_final/tests/test_writer_workbook.py Stages/excel_final/tests/test_pipeline.py -q`
+Run: `uv run pytest Stages/excel_final/tests/test_writer_workbook.py Stages/excel_final/tests/test_pipeline_end_to_end.py -q`
 
 Expected: PASS
 
@@ -68,7 +68,7 @@ Commit message: `feat(excel-final): size generated columns to content`
 **Files:**
 
 - Modify: `Stages/excel_final/tests/test_ground_truth_regression.py`
-- Modify: `backend/tests/test_excel_final_live.py`
+- Modify: `backend/tests/excel_processing/test_excel_final_live_flow.py`
 - Modify: `Stages/excel_final/README.md`
 - Modify: `Stages/excel_final/PROCESS.md`
 
@@ -88,9 +88,9 @@ Commit message: `feat(excel-final): size generated columns to content`
 
 Run: `uv run pytest Stages/excel_final/tests/test_ground_truth_regression.py -q`
 
-Run: `backend/.venv/bin/pytest Stages/excel_final/tests/test_mysql_handbook.py -q`
+Run: `backend/.venv/bin/pytest Stages/excel_final/tests/test_handbook_mysql.py -q`
 
-Run: `backend/.venv/bin/pytest backend/tests/test_excel_final_live.py -q`
+Run: `backend/.venv/bin/pytest backend/tests/excel_processing/test_excel_final_live_flow.py -q`
 
 Expected: PASS
 
@@ -118,7 +118,7 @@ Commit message: `test(excel-final): verify adaptive widths end to end`
 
 Run: `uv run pytest Stages/excel_final/tests -q`
 
-Run: `backend/.venv/bin/pytest Stages/excel_final/tests/test_mysql_handbook.py -q`
+Run: `backend/.venv/bin/pytest Stages/excel_final/tests/test_handbook_mysql.py -q`
 
 Run: `backend/.venv/bin/pytest backend/tests -q`
 
