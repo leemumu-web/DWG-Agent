@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     daily_archive_preview_ttl_minutes: int = Field(default=10, ge=1, le=60)
     daily_archive_max_files: int = Field(default=5000, ge=1, le=50000)
     daily_archive_max_source_gb: int = Field(default=50, ge=1, le=500)
+    remnant_inventory_enabled: bool = False
+    remnant_import_max_files: int = Field(default=100, ge=1, le=1000)
+    remnant_parse_timeout_seconds: int = Field(default=120, ge=10, le=1800)
 
     jwt_secret_key: str = "change-me-in-dev-change-me-in-prod-32chars"
     jwt_algorithm: str = "HS256"

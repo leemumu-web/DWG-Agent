@@ -17,7 +17,11 @@ import {
   ReloadOutlined,
   ScanOutlined,
 } from '@ant-design/icons';
-import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
+import {
+  TransformComponent,
+  TransformWrapper,
+  type ReactZoomPanPinchRef,
+} from 'react-zoom-pan-pinch';
 
 import {
   downloadFile,
@@ -35,20 +39,6 @@ interface DxfPreviewModalProps {
   onClose: () => void;
 }
 
-function aciColor(index: number): string {
-  return ({
-    1: '#f87171',
-    2: '#facc15',
-    3: '#4ade80',
-    4: '#22d3ee',
-    5: '#60a5fa',
-    6: '#e879f9',
-    7: '#e5e7eb',
-    8: '#94a3b8',
-    9: '#cbd5e1',
-  } as Record<number, string>)[Math.abs(index)] ?? '#a7bacb';
-}
-
 export function DxfPreviewModal({
   fileId,
   fileName,
@@ -62,6 +52,26 @@ export function DxfPreviewModal({
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const objectUrlRef = useRef<string | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const transformRef = useRef<ReactZoomPanPinchRef | null>(null);
+  const imageSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
+
+  const fitScale = useCallback(() => {
+    const stage = stageRef.current;
+    const imageSize = imageSizeRef.current;
+    if (!stage || !imageSize?.width || !imageSize.height) return null;
+    return Math.min(
+      1,
+      stage.clientWidth / imageSize.width,
+      stage.clientHeight / imageSize.height,
+    ) * 0.96;
+  }, []);
+
+  const fitView = useCallback((animationTime = 0) => {
+    const scale = fitScale();
+    if (scale !== null) transformRef.current?.centerView(scale, animationTime);
+  }, [fitScale]);
 
   const revokeObjectUrl = useCallback(() => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -83,6 +93,7 @@ export function DxfPreviewModal({
     const controller = new AbortController();
     let active = true;
     releaseObjectUrl();
+    imageSizeRef.current = null;
     setData(null);
     setError(null);
     setLoading(true);
@@ -114,6 +125,24 @@ export function DxfPreviewModal({
   }, [fileId, open, reloadKey, releaseObjectUrl]);
 
   useEffect(() => revokeObjectUrl, [revokeObjectUrl]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!open || !objectUrl || !stage) return undefined;
+    const observer = new ResizeObserver(() => {
+      if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        fitView(0);
+      });
+    });
+    observer.observe(stage);
+    return () => {
+      observer.disconnect();
+      if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = null;
+    };
+  }, [fitView, objectUrl, open]);
 
   const handleDownload = useCallback(async () => {
     if (fileId === null) return;
@@ -179,16 +208,28 @@ export function DxfPreviewModal({
 
       {!loading && !error && data && objectUrl && (
         <div className="dxf-preview-shell">
-          <div className="dxf-preview-stage">
+          <div
+            className="dxf-preview-stage"
+            ref={stageRef}
+            onDoubleClick={(event) => {
+              if ((event.target as HTMLElement).closest('.dxf-preview-controls')) return;
+              event.preventDefault();
+              fitView(200);
+            }}
+          >
             <TransformWrapper
+              ref={transformRef}
               initialScale={1}
               minScale={0.08}
               maxScale={24}
+              limitToBounds={false}
               centerOnInit
+              centerZoomedOut
               wheel={{ step: 0.12 }}
-              doubleClick={{ mode: 'reset' }}
+              doubleClick={{ disabled: true }}
+              autoAlignment={{ disabled: true }}
             >
-              {({ zoomIn, zoomOut, resetTransform }) => (
+              {({ zoomIn, zoomOut }) => (
                 <>
                   <div className="dxf-preview-controls">
                     <Tooltip title="放大">
@@ -198,70 +239,31 @@ export function DxfPreviewModal({
                       <Button aria-label="缩小预览" icon={<MinusOutlined />} onClick={() => zoomOut()} />
                     </Tooltip>
                     <Tooltip title="适合窗口">
-                      <Button aria-label="重置预览" icon={<ScanOutlined />} onClick={() => resetTransform()} />
+                      <Button aria-label="适合窗口" icon={<ScanOutlined />} onClick={() => fitView(200)} />
                     </Tooltip>
                   </div>
                   <TransformComponent
                     wrapperClass="dxf-preview-canvas"
-                    contentStyle={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center' }}
+                    contentClass="dxf-preview-content"
                   >
-                    <img src={objectUrl} alt={`DXF 预览 ${fileName}`} width={1200} height={900} draggable={false} />
+                    <img
+                      src={objectUrl}
+                      alt={`DXF 预览 ${fileName}`}
+                      draggable={false}
+                      onLoad={(event) => {
+                        const image = event.currentTarget;
+                        imageSizeRef.current = {
+                          width: image.naturalWidth,
+                          height: image.naturalHeight,
+                        };
+                        fitView(0);
+                      }}
+                    />
                   </TransformComponent>
                 </>
               )}
             </TransformWrapper>
-            <div className="dxf-preview-status">
-              <span>SVG / AUTHENTICATED</span>
-              <span>{data.cached ? 'CACHE HIT' : 'NEW RENDER'}</span>
-            </div>
           </div>
-
-          <aside className="dxf-preview-sidebar" aria-label="DXF 图形信息">
-            <div className="dxf-preview-kicker">Drawing telemetry</div>
-            <div className="dxf-preview-metrics">
-              <div className="dxf-preview-metric">
-                <strong>{data.document_entities.toLocaleString('zh-CN')}</strong>
-                <span>文档实体</span>
-              </div>
-              <div className="dxf-preview-metric">
-                <strong>{data.modelspace_entities.toLocaleString('zh-CN')}</strong>
-                <span>模型空间</span>
-              </div>
-              <div className="dxf-preview-metric">
-                <strong>{data.layers.length.toLocaleString('zh-CN')}</strong>
-                <span>图层</span>
-              </div>
-            </div>
-
-            <section className="dxf-preview-section">
-              <div className="dxf-preview-section-title">
-                <span>实体构成</span><span>{Object.keys(data.entity_counts).length} 类</span>
-              </div>
-              <div className="dxf-preview-tags">
-                {Object.entries(data.entity_counts)
-                  .sort((left, right) => right[1] - left[1])
-                  .map(([type, count]) => <Tag key={type}>{type} · {count}</Tag>)}
-              </div>
-            </section>
-
-            <section className="dxf-preview-section">
-              <div className="dxf-preview-section-title">
-                <span>图层索引</span><span>ACI</span>
-              </div>
-              <div className="dxf-preview-layers">
-                {data.layers.slice(0, 50).map((layer) => {
-                  const color = data.layer_colors[layer] ?? 7;
-                  return (
-                    <div className="dxf-preview-layer" key={layer} title={layer}>
-                      <i style={{ background: aciColor(color) }} />
-                      <span>{layer}</span>
-                      <code>{color}</code>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </aside>
         </div>
       )}
     </Modal>

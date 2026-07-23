@@ -28,8 +28,9 @@ from app.platform.config.settings import settings
 
 @pytest.fixture(autouse=True)
 def _enable_dxf2dwg_pipeline(monkeypatch):
-    """所有测试默认开启 DXF→DWG 管线开关。"""
+    """开启被测管线以及版本解析辅助数据所需的 DWG→DXF 管线。"""
     monkeypatch.setattr(settings, "dxf2dwg_pipeline_enabled", True)
+    monkeypatch.setattr(settings, "dxf_pipeline_enabled", True)
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────

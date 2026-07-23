@@ -684,7 +684,13 @@ def test_excel_final_execution_rejects_non_excel_file(monkeypatch):
     uploaded = client.post(
         "/api/v1/files",
         headers=owner_headers,
-        files={"upload": ("drawing.dxf", b"0\nEOF\n", "image/vnd.dxf")},
+        files={
+            "upload": (
+                "drawing.dxf",
+                b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+                "image/vnd.dxf",
+            )
+        },
     )
     assert uploaded.status_code == 201, uploaded.text
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
@@ -720,7 +726,13 @@ def test_placeholder_execution_exposes_complete_contract():
     uploaded = client.post(
         "/api/v1/files",
         headers=owner_headers,
-        files={"upload": ("source.dxf", b"0\nEOF\n", "image/vnd.dxf")},
+        files={
+            "upload": (
+                "source.dxf",
+                b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+                "image/vnd.dxf",
+            )
+        },
     )
     file_id = uploaded.json()["data"]["id"]
     client.post(

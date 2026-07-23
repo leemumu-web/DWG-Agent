@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 BASE_PARTITIONS = [
@@ -17,6 +16,7 @@ BASE_PARTITIONS = [
     "Stages/dxf2dwg",
     "Stages/dxf2excel",
     "Stages/excel_final",
+    "Stages/remnant_drawing_reader",
     "Stages/steel_dxf_classifier_v1.1.0",
     "backend/app/bootstrap",
     "backend/app/integrations",
@@ -34,6 +34,7 @@ BASE_PARTITIONS = [
             "jobs",
             "operations",
             "projects",
+            "remnant_inventory",
             "workflows",
         )
     ],
@@ -64,6 +65,7 @@ BASE_PARTITIONS = [
             "jobs",
             "operations",
             "projects",
+            "remnant_inventory",
             "regression",
             "security",
             "support",

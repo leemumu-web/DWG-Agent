@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **114 个 path、135 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **133 个 path、156 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -211,6 +211,40 @@
 | `DELETE` | `/api/v1/workflows/{workflow_id}/input-batch/files/{item_id}` |
 | `POST` | `/api/v1/workflows/{workflow_id}/input-batch/conversion-requests` |
 | `POST` | `/api/v1/workflows/{workflow_id}/input-batch/freeze` |
+
+## 余料材质
+
+| Method | Path |
+|---|---|
+| `GET, POST` | `/api/v1/remnant-materials` |
+| `PATCH` | `/api/v1/remnant-materials/{material_id}` |
+| `PUT` | `/api/v1/remnant-materials/{material_id}/aliases` |
+
+## 余料导入
+
+| Method | Path |
+|---|---|
+| `POST` | `/api/v1/remnant-import-batches` |
+| `GET` | `/api/v1/remnant-import-batches/{batch_id}` |
+| `POST` | `/api/v1/remnant-import-batches/{batch_id}/bulk-thickness` |
+| `POST` | `/api/v1/remnant-import-batches/{batch_id}/cancel` |
+| `POST` | `/api/v1/remnant-import-items/bulk-confirm` |
+| `PATCH` | `/api/v1/remnant-import-items/{item_id}` |
+| `POST` | `/api/v1/remnant-import-items/{item_id}/retry` |
+
+## 余料库存
+
+| Method | Path |
+|---|---|
+| `GET` | `/api/v1/remnants/search` |
+| `GET` | `/api/v1/remnants` |
+| `GET, PATCH` | `/api/v1/remnants/{remnant_id}` |
+| `GET` | `/api/v1/remnants/{remnant_id}/preview` |
+| `GET` | `/api/v1/remnants/{remnant_id}/original-download` |
+| `POST` | `/api/v1/remnants/{remnant_id}/reserve` |
+| `POST` | `/api/v1/remnants/{remnant_id}/release` |
+| `POST` | `/api/v1/remnants/{remnant_id}/mark-used` |
+| `POST` | `/api/v1/remnants/{remnant_id}/archive` |
 
 
 ## CAD 转换生产契约

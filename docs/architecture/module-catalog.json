@@ -88,6 +88,40 @@
       "notes": "MySQL owns registry facts; Local or MinIO owns bytes; file_transfers records compensation."
     },
     {
+      "code": "remnant_inventory",
+      "title": "全厂共享余料库",
+      "status": "partial",
+      "architecture_nodes": ["API", "MYSQL", "WEB"],
+      "backend_paths": ["backend/app/modules/remnant_inventory"],
+      "frontend_paths": ["frontend/src/features/remnant-inventory"],
+      "tables": [
+        "remnant_import_batches",
+        "remnant_import_items",
+        "remnant_material_aliases",
+        "remnant_materials",
+        "remnant_parts",
+        "remnants"
+      ],
+      "http_prefixes": [
+        "/api/v1/remnant-import-batches",
+        "/api/v1/remnant-import-items",
+        "/api/v1/remnant-materials",
+        "/api/v1/remnants"
+      ],
+      "celery_tasks": [
+        "app.workers.tasks_remnant_convert.convert_batch",
+        "app.workers.tasks_remnant_parse.parse_item"
+      ],
+      "queues": ["remnant_convert", "remnant_parse"],
+      "stages": ["Stages/remnant_drawing_reader"],
+      "tests": ["backend/tests/remnant_inventory"],
+      "docs": [
+        "backend/app/modules/remnant_inventory/README.md",
+        "docs/superpowers/specs/2026-07-22-remnant-inventory-design.md"
+      ],
+      "notes": "余料领域已拥有材质、导入账本、正式库存模型、attempt-fenced 转换解析任务和功能开关保护的 HTTP API；Web 端按实施计划继续交付。"
+    },
+    {
       "code": "jobs",
       "title": "异步任务、结果与复核",
       "status": "implemented",

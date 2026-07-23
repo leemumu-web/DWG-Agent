@@ -42,6 +42,7 @@ COPY Stages/dwg2dxf ./Stages/dwg2dxf
 COPY Stages/dxf2dwg ./Stages/dxf2dwg
 COPY Stages/dxf2excel ./Stages/dxf2excel
 COPY Stages/steel_dxf_classifier_v1.1.0 ./Stages/steel_dxf_classifier_v1.1.0
+COPY Stages/remnant_drawing_reader ./Stages/remnant_drawing_reader
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend
@@ -54,6 +55,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/home/appuser
 ENV PATH="/app/.venv/bin:$PATH"
+# Containers do not expose /dev/fuse by default; extract AppImages per run.
+ENV APPIMAGE_EXTRACT_AND_RUN=1
 # ODA File Converter 定位（check_env.py 优先读 $ODA_HOME）。
 ENV ODA_HOME=/app/oda
 
@@ -65,15 +68,20 @@ WORKDIR /app
 
 # Runtime 系统依赖：
 #   curl, ca-certificates — 健康检查
-#   xvfb                  — xvfb-run 无头 X，ODA AppImage 需要 X server
+#   xvfb, xauth           — xvfb-run 无头 X 及其授权文件，ODA AppImage 需要 X server
 #   libfuse2              — AppImage FUSE 挂载解压（bookworm-slim 默认无）
+#   libfontconfig1        — ODA 解包后的 Qt 程序运行时字体依赖
+#   fonts-noto-cjk        — DXF 在线预览中文轮廓字体
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     curl \
     ca-certificates \
     xvfb \
-    libfuse2
+    xauth \
+    libfuse2 \
+    libfontconfig1 \
+    fonts-noto-cjk
 
 # Copy virtualenv from builder (single layer)
 COPY --from=builder /app/.venv /app/.venv

@@ -121,7 +121,13 @@ def test_registration_rejects_human_dxf_and_second_excel(monkeypatch, tmp_path):
     ).json()["data"]
     first_excel = _upload(client, owner_headers, "first.xlsx", _xlsx(), batch["id"])
     second_excel = _upload(client, owner_headers, "second.xlsx", _xlsx(), batch["id"])
-    dxf = _upload(client, owner_headers, "manual.dxf", b"0\nEOF\n", batch["id"])
+    dxf = _upload(
+        client,
+        owner_headers,
+        "manual.dxf",
+        b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+        batch["id"],
+    )
     assert (
         client.post(
             f"/api/v1/workflows/{workflow_id}/input-batch/files",

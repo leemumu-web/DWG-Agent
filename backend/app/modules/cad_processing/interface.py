@@ -3,6 +3,12 @@
 from app.modules.cad_processing.preview import MAX_DXF_SIZE_BYTES
 
 
+def convert_dwg_directory(inputs, output_dir):
+    from app.modules.cad_processing.remnant_conversion import convert_dwg_directory as convert
+
+    return convert(inputs, output_dir)
+
+
 def run_dwg_to_dxf_conversion(job_id: int, **kwargs) -> None:
     from app.modules.cad_processing.dwg_to_dxf.execution import run_dxf_conversion
 
@@ -89,6 +95,7 @@ def invalidate_dxf_previews_for_source(*args, **kwargs) -> None:
 
 __all__ = [
     "MAX_DXF_SIZE_BYTES",
+    "convert_dwg_directory",
     "enqueue_dwg_to_dxf_batch",
     "enqueue_dwg_to_dxf_job",
     "enqueue_dxf_to_dwg_batch",

@@ -1,0 +1,58 @@
+# 余料库上线与运行手册
+
+余料库默认关闭。生产环境只有在材质目录、真实样本校准、权限、备份和回滚检查全部完成后，才可设置 `REMNANT_INVENTORY_ENABLED=true`。原始 DWG/DXF 继续由现有文件存储管理；离线校准报告只包含哈希、候选、证据和告警，不包含图纸字节。
+
+## 上线前检查清单
+
+1. 以管理员身份建立标准材质代码、材质名称、系列和别名，禁用不再使用的材质；确认 `Q235B-Z15` 等后缀代码不会被截断。
+2. 为现场工人分配 `remnant_worker` 角色；仅 `admin`、`super_admin` 可维护材质目录或归档库存。
+3. 在隔离环境执行真实样本报告，复核转换率、解析率、候选误报、证据位置和告警。不得把生产 DWG/DXF 放入仓库。
+4. 验证 MySQL 迁移、对象存储备份、恢复演练和两个专用队列健康。
+5. 先在单一班组灰度开启功能，确认检索、预占、释放、使用、原图下载和审计记录，再扩大范围。
+
+真实样本报告命令：
+
+```powershell
+cd backend
+uv run python ..\scripts\remnant_inventory\report_corpus.py `
+  --input-dir "C:\外部样本目录" `
+  --output-dir "$env:TEMP\remnant-corpus-report"
+```
+
+报告目录只能出现 `report.json` 和 `candidates.csv`。`--manifest-only` 可在没有 ODA File Converter 的机器上只做枚举、版本和 SHA-256 校验，不能替代上线前的转换/解析验收。
+
+## 队列与故障处理
+
+`remnant_convert` 默认并发 2，每个批次只调用一次 ODA 目录转换；`remnant_parse` 默认并发 4，每张图在独立子进程中解析，默认超时 120 秒。可通过 Compose 日志和控制台运行状态确认 worker 已连接 broker；SQL transport 的 ready 只证明连接成功，仍需用测试批次验证 ODA 和 Stage 依赖。
+
+单图失败时在导入批次中重试，重试会递增 `attempt`，旧任务不能覆盖新结果。批次可取消；已进入正式库存的图纸不会因取消批次而删除。常见稳定错误包括：
+
+| 错误 | 处置 |
+|---|---|
+| `REMNANT_CONVERSION_FAILED` | 检查 ODA 可执行文件、许可证/显示环境、源 DWG 可读性后重试 |
+| `REMNANT_PARSE_TIMEOUT` | 检查异常复杂图纸；必要时经变更评审提高解析超时 |
+| `REMNANT_PARSE_FAILED` | 下载原图人工核验，保留日志中的 request ID，禁止向前端返回本机路径或 stderr |
+| `REMNANT_SOURCE_DUPLICATE` | 使用返回的现有余料 ID，不重复导入相同源文件 |
+
+## 权限和业务状态
+
+工人可查询余料、查看预览、导入图纸、校正候选、填写厚度、确认本人批次，并执行预占/释放/使用。管理员可处理任意导入批次、维护材质和归档余料。原图下载遵循文件权限矩阵，始终返回实际上传的 DWG 或 DXF；转换产生的 DXF 只用于解析和预览。
+
+库存状态按 `available → reserved → used` 流转；预占使用条件更新，同一余料并发请求只能有一个成功。只有预占人或管理员能释放/标记使用。历史记录必须显式勾选后查询。
+
+## 备份、回滚与关闭
+
+开启前备份 MySQL 和对象存储，并验证可以同时恢复数据库事实与源文件对象。迁移回滚会删除余料领域表，属于高风险操作，只能在确认数据不再需要或已完成可恢复备份后执行。
+
+应用级紧急关闭只需设置 `REMNANT_INVENTORY_ENABLED=false` 并滚动重启 API；这会让余料 API 返回稳定 404，不删除表、库存记录或源图。若新版本异常，先关闭功能，停止 `worker-remnant-convert` 和 `worker-remnant-parse` 接收新任务，再回滚应用镜像。不要在仍有运行中批次时直接降级数据库。
+
+## 最终启用条件
+
+- 真实样本数量与预期一致，报告目录无 DWG/DXF；
+- 转换、解析失败均已逐项解释并由业务负责人接受；
+- 标准材质和别名已由管理员复核；
+- `remnant_worker` 权限抽查通过；
+- MySQL upgrade、downgrade、upgrade 和备份恢复演练通过；
+- 两用户并发预占、混合批量导入、刷新恢复、部分确认、原图下载和审计验收通过；
+- 快速/完整验证门禁、Stage、后端、前端 E2E 与构建均通过。
+

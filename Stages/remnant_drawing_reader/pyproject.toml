@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "remnant-drawing-reader"
+version = "0.1.0"
+description = "Deterministic DXF metadata candidate reader for remnant inventory"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = ["ezdxf>=1.4.2,<1.5"]
+
+[project.scripts]
+remnant-drawing-read = "remnant_drawing_reader.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.3,<9"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/remnant_drawing_reader"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

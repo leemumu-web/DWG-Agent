@@ -20,6 +20,7 @@ from app.modules.files.validation import (
     MIN_DWG_SIZE_BYTES,
     sanitize_filename,
     validate_dwg_header,
+    validate_dxf_structure,
     validate_upload_mime,
     validate_upload_name,
 )
@@ -64,6 +65,8 @@ async def save_upload_file(
     max_size = settings.max_upload_size_mb * 1024 * 1024
 
     with SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode="w+b") as tmp:
+        dxf_prefix = bytearray()
+        dxf_tail = bytearray()
         try:
             first = True
             while chunk := await upload.read(1024 * 1024):
@@ -77,6 +80,12 @@ async def save_upload_file(
                 sha256.update(chunk)
                 md5.update(chunk)
                 tmp.write(chunk)
+                if file_ext == ".dxf":
+                    if len(dxf_prefix) < 65536:
+                        dxf_prefix.extend(chunk[: 65536 - len(dxf_prefix)])
+                    dxf_tail.extend(chunk)
+                    if len(dxf_tail) > 65536:
+                        del dxf_tail[:-65536]
             if first:
                 if file_ext == ".dwg":
                     validate_dwg_header(b"")
@@ -86,6 +95,8 @@ async def save_upload_file(
                     "EMPTY_FILE",
                     "Uploaded file is empty — content must be at least 1 byte.",
                 )
+            if file_ext == ".dxf":
+                validate_dxf_structure(bytes(dxf_prefix + dxf_tail))
         except AppHTTPException:
             raise
 

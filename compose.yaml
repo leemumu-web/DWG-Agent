@@ -141,6 +141,30 @@ services:
       DWG_WORKER_QUEUE: dxf_classification
       DWG_WORKER_CONCURRENCY: "1"
 
+  worker-remnant-convert:
+    <<: *worker
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q remnant_convert -n remnant-convert@%h --concurrency=${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      DWG_WORKER_QUEUE: remnant_convert
+      DWG_WORKER_CONCURRENCY: "${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}"
+
+  worker-remnant-parse:
+    <<: *worker
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q remnant_parse -n remnant-parse@%h --concurrency=${REMNANT_PARSE_WORKER_CONCURRENCY:-4}
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      DWG_WORKER_QUEUE: remnant_parse
+      DWG_WORKER_CONCURRENCY: "${REMNANT_PARSE_WORKER_CONCURRENCY:-4}"
+
   worker-excel-final:
     <<: *worker
     command: celery -A app.platform.messaging.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1

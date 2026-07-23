@@ -19,6 +19,7 @@ const EXPECTED_FEATURES = new Set([
   'jobs',
   'operations',
   'projects',
+  'remnant-inventory',
   'reviews',
   'workflows',
 ]);
@@ -40,6 +41,7 @@ const REQUIRED_FEATURE_FILES = [
   'files/styles.css',
   'identity/styles.css',
   'operations/styles.css',
+  'remnant-inventory/styles.css',
   'workflows/styles.css',
 ];
 const SOURCE_EXTENSIONS = ['.ts', '.tsx'];
@@ -50,6 +52,7 @@ const EXPECTED_E2E_WORKSPACES = new Set([
   'files',
   'jobs',
   'operations',
+  'remnant-inventory',
   'support',
   'workflows',
 ]);

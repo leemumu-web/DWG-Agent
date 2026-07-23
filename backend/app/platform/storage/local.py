@@ -18,6 +18,17 @@ from app.platform.storage.base import (
 from app.platform.storage.paths import ensure_within_root
 
 
+def _fsync_parent_directory(path: Path) -> None:
+    """Persist a directory entry where the operating system supports it."""
+    if os.name == "nt":
+        return
+    parent_fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(parent_fd)
+    finally:
+        os.close(parent_fd)
+
+
 class LocalFileStorage(AbstractStorageBackend):
     def __init__(self, root: Path):
         self.root = root
@@ -61,11 +72,7 @@ class LocalFileStorage(AbstractStorageBackend):
             tmp.close()
             os.replace(tmp.name, path)
             # Make the directory entry durable after rename.
-            parent_fd = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(parent_fd)
-            finally:
-                os.close(parent_fd)
+            _fsync_parent_directory(path.parent)
         except BaseException:
             tmp.close()
             Path(tmp.name).unlink(missing_ok=True)

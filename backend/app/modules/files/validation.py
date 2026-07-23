@@ -106,12 +106,21 @@ def validate_dwg_header(first_chunk: bytes) -> None:
         raise AppHTTPException(415, "FILE_NOT_DWG", "File does not have a valid DWG header.")
 
 
+def validate_dxf_structure(sample: bytes) -> None:
+    """Reject renamed/non-DXF bytes using the ASCII section and EOF sentinels."""
+    normalized = sample.replace(b"\r\n", b"\n").replace(b"\r", b"\n").upper()
+    stripped = normalized.lstrip(b"\xef\xbb\xbf\x00\t\n ")
+    if not stripped.startswith(b"0\n") or b"\nSECTION\n" not in normalized or b"\nEOF" not in normalized:
+        raise AppHTTPException(415, "FILE_NOT_DXF", "File does not have a valid DXF structure.")
+
+
 __all__ = [
     "ALLOWED_DWG_MIME_TYPES",
     "MIN_DWG_SIZE_BYTES",
     "SUPPORTED_DWG_HEADERS",
     "sanitize_filename",
     "validate_dwg_header",
+    "validate_dxf_structure",
     "validate_upload_mime",
     "validate_upload_name",
 ]

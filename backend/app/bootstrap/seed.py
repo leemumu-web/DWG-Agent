@@ -10,6 +10,7 @@ from app.platform.config.constants import (
     ROLE_AUDITOR,
     ROLE_ENGINEER,
     ROLE_OPERATOR,
+    ROLE_REMNANT_WORKER,
     ROLE_REVIEWER,
     ROLE_SUPER_ADMIN,
     ROLE_VIEWER,
@@ -26,6 +27,7 @@ ROLE_SEEDS = [
     (ROLE_OPERATOR, "操作员"),
     (ROLE_VIEWER, "只读用户"),
     (ROLE_AUDITOR, "审计员"),
+    (ROLE_REMNANT_WORKER, "余料工人"),
 ]
 
 PERMISSION_SEEDS = [
@@ -37,6 +39,9 @@ PERMISSION_SEEDS = [
     ("jobs:write", "jobs", "write", "创建/管理任务"),
     ("reviews:write", "reviews", "write", "提交复核"),
     ("audit_logs:read", "audit_logs", "read", "查看审计日志"),
+    ("remnants:read", "remnants", "read", "查询和预览余料"),
+    ("remnants:write", "remnants", "write", "导入和操作余料"),
+    ("remnant_materials:write", "remnant_materials", "write", "管理余料材质目录"),
 ]
 
 
@@ -68,6 +73,14 @@ def init_db() -> None:
         permissions = list(db.scalars(select(Permission)).all())
         if super_role:
             super_role.permissions = permissions
+
+        remnant_role = db.scalar(select(Role).where(Role.code == ROLE_REMNANT_WORKER))
+        if remnant_role:
+            remnant_role.permissions = [
+                permission
+                for permission in permissions
+                if permission.code in {"remnants:read", "remnants:write"}
+            ]
 
         admin = db.scalar(select(User).where(User.username == settings.super_admin_username))
         if not admin:

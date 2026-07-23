@@ -33,6 +33,10 @@ GROUP_NAMES = {
     "control-plane": "运行与通信控制平面",
     "excel-final": "Excel Final",
     "workflows": "生产流程",
+    "remnant-materials": "余料材质",
+    "remnant-import-batches": "余料导入",
+    "remnant-import-items": "余料导入",
+    "remnants": "余料库存",
 }
 
 

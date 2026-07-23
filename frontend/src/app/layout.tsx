@@ -17,6 +17,7 @@ import {
   MenuOutlined,
   ApartmentOutlined,
   DatabaseOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
@@ -41,6 +42,7 @@ const NAV: NavItem[] = [
   { key: '/drawings', label: '图纸', icon: <FileImageOutlined /> },
   { key: '/jobs', label: '任务', icon: <CloudOutlined /> },
   { key: '/reviews', label: '复核', icon: <AuditOutlined /> },
+  { key: '/remnants', label: '余料库', icon: <InboxOutlined />, roles: ['admin', 'remnant_worker'] },
   { key: '/admin/users', label: '用户管理', icon: <TeamOutlined />, roles: ['admin'] },
   { key: '/admin/roles', label: '角色权限', icon: <SafetyCertificateOutlined />, roles: ['admin'] },
   { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin', 'auditor'] },

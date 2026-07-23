@@ -1,0 +1,1 @@
+"""Remnant inventory business domain."""

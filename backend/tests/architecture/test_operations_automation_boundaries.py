@@ -64,6 +64,7 @@ REAL_TASK_MODULES = (
     "app.modules.operations.daily_archive.tasks",
     "app.modules.operations.storage_reconciliation.tasks",
     "app.modules.operations.control_plane.tasks",
+    "app.modules.remnant_inventory.tasks",
 )
 
 EXPECTED_OPERATION_FILES = {

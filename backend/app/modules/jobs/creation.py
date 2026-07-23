@@ -16,12 +16,16 @@ from app.platform.config.constants import (
     PIPELINE_DXF2DWG,
     PIPELINE_DXF2EXCEL,
     PIPELINE_EXCEL_FINAL,
+    PIPELINE_REMNANT_CONVERT,
+    PIPELINE_REMNANT_PARSE,
     PIPELINE_STEEL_DXF_CLASSIFIER,
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
     TASK_DXF_TO_EXCEL,
     TASK_EXCEL_FINAL,
+    TASK_REMNANT_CONVERT,
+    TASK_REMNANT_PARSE,
     TASK_STEEL_DXF_CLASSIFICATION,
 )
 from app.platform.http.exceptions import AppHTTPException
@@ -39,6 +43,10 @@ def _pipeline_for(task_type: str) -> str:
         return PIPELINE_EXCEL_FINAL
     if task_type == TASK_STEEL_DXF_CLASSIFICATION:
         return PIPELINE_STEEL_DXF_CLASSIFIER
+    if task_type == TASK_REMNANT_CONVERT:
+        return PIPELINE_REMNANT_CONVERT
+    if task_type == TASK_REMNANT_PARSE:
+        return PIPELINE_REMNANT_PARSE
     return PIPELINE_STUB
 
 

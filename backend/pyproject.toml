@@ -38,6 +38,7 @@ dependencies = [
     "dxf2excel>=0.1.0",
     # 冻结生产 DXF 的标题栏分类与命名分流（正式 1.1 I/O 契约）。
     "steel-dxf-classifier==1.1.0",
+    "remnant-drawing-reader==0.1.0",
 ]
 
 [dependency-groups]
@@ -66,6 +67,7 @@ dwg-converter = { path = "../Stages/dwg2dxf", editable = true }
 dxf-converter = { path = "../Stages/dxf2dwg", editable = true }
 dxf2excel = { path = "../Stages/dxf2excel", editable = true }
 steel-dxf-classifier = { path = "../Stages/steel_dxf_classifier_v1.1.0", editable = true }
+remnant-drawing-reader = { path = "../Stages/remnant_drawing_reader", editable = true }
 
 [tool.ruff]
 line-length = 100

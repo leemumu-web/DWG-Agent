@@ -30,16 +30,18 @@ APP_SERVICE_NAMES = (
     "worker-dxf2excel",
     "worker-excel-final",
     "worker-report",
+    "worker-remnant-convert",
+    "worker-remnant-parse",
 )
 
 
 def _load():
-    with open(COMPOSE_PATH) as f:
+    with open(COMPOSE_PATH, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def _load_dev():
-    with open(DEV_COMPOSE_PATH) as f:
+    with open(DEV_COMPOSE_PATH, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -122,6 +124,8 @@ class TestComposeYamlValid:
             "worker-dxf2excel",
             "worker-excel-final",
             "worker-report",
+            "worker-remnant-convert",
+            "worker-remnant-parse",
             "mysql",
             "minio",
         }
@@ -138,12 +142,12 @@ class TestComposeYamlValid:
         assert ":latest" not in services["minio"]["image"]
         assert "${HTTP_PORT:-80}:8080" in services["nginx"]["ports"]
 
-        nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text()
+        nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text(encoding="utf-8")
         assert "listen 8080;" in nginx_conf
         assert "listen 80;" not in nginx_conf
 
     def test_docker_nginx_conf_uses_unprivileged_runtime_paths(self):
-        nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text()
+        nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text(encoding="utf-8")
 
         assert "/var/log/nginx" not in nginx_conf
         assert "error_log /dev/stderr warn;" in nginx_conf
@@ -263,7 +267,7 @@ class TestClassifiedInfrastructureLayout:
 
     def test_rabbitmq_target_is_truthful_and_not_silently_deployed(self):
         data = _load()
-        readme = (REPO_ROOT / "infra/messaging/rabbitmq/README.md").read_text()
+        readme = (REPO_ROOT / "infra/messaging/rabbitmq/README.md").read_text(encoding="utf-8")
 
         assert "rabbitmq" not in data["services"]
         assert "Status: target contract, not deployed in current Compose." in readme
@@ -289,7 +293,7 @@ class TestDockerEnvironmentFiles:
     def _env_keys(self, path: Path) -> set[str]:
         return {
             line.split("=", 1)[0]
-            for line in path.read_text().splitlines()
+            for line in path.read_text(encoding="utf-8").splitlines()
             if line and not line.startswith("#") and "=" in line
         }
 
@@ -302,7 +306,7 @@ class TestDockerEnvironmentFiles:
         assert docker_keys == local_keys
 
     def test_docker_env_example_has_no_nested_compose_interpolation(self):
-        content = DOCKER_ENV_EXAMPLE_PATH.read_text()
+        content = DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8")
         assert "${" not in content, (
             "env_file values must not depend on shell/root .env interpolation"
         )
@@ -310,7 +314,7 @@ class TestDockerEnvironmentFiles:
         assert "http://minio:9000" in content
 
     def test_local_docker_env_is_gitignored(self):
-        content = GITIGNORE_PATH.read_text()
+        content = GITIGNORE_PATH.read_text(encoding="utf-8")
         assert ".env.docker" in content
 
 
@@ -322,46 +326,66 @@ class TestDockerfile:
         assert DOCKERFILE_PATH.exists(), "Dockerfile missing"
 
     def test_is_multi_stage(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
         stages = [line for line in content.splitlines() if line.startswith("FROM ")]
         assert len(stages) >= 2, "Dockerfile should use multi-stage build"
 
     def test_uses_buildable_python_uv_base_image(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         assert "FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder" in content
         assert "FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime" in content
         assert "FROM python:3.12-slim" not in content
 
     def test_does_not_copy_uv_from_latest_image(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         assert "ghcr.io/astral-sh/uv:latest" not in content
 
     def test_copies_packaging_readme_before_uv_sync(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         assert "COPY backend/pyproject.toml backend/uv.lock backend/README.md ./backend/" in content
 
     def test_has_non_root_user(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
         assert "USER appuser" in content, "Must run as non-root user (spec §17.5-4)"
         assert "useradd" in content or "adduser" in content, "Must create appuser"
         assert "ENV HOME=/home/appuser" in content
         assert "mkdir -p /app/var /home/appuser" in content
 
     def test_runtime_runs_alembic_before_gunicorn(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
         assert content.index("alembic upgrade head") < content.index("python -m app.bootstrap.seed")
         assert content.index("python -m app.bootstrap.seed") < content.index("exec gunicorn")
 
     def test_has_healthcheck(self):
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
         assert "HEALTHCHECK" in content, "Dockerfile should have HEALTHCHECK"
+
+    def test_runtime_installs_xauth_required_by_xvfb_run(self):
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        runtime = content.split(" AS runtime", 1)[1]
+
+        assert "xvfb" in runtime
+        assert "xauth" in runtime
+
+    def test_runtime_can_execute_oda_appimage_without_host_fuse(self):
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        runtime = content.split(" AS runtime", 1)[1]
+
+        assert "ENV APPIMAGE_EXTRACT_AND_RUN=1" in runtime
+        assert "libfontconfig1" in runtime
+
+    def test_runtime_installs_noto_cjk_font_package(self):
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        runtime = content.split(" AS runtime", 1)[1]
+
+        assert "fonts-noto-cjk" in runtime
 
     def test_does_not_copy_env_file(self):
         """Spec §17.5-3: .env must not be baked into image."""
-        content = DOCKERFILE_PATH.read_text()
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
         assert ".env" not in content, "Must not COPY .env into image"
 
 
@@ -370,20 +394,20 @@ class TestDockerignore:
         assert DOCKERIGNORE_PATH.exists(), ".dockerignore missing"
 
     def test_excludes_tests(self):
-        content = DOCKERIGNORE_PATH.read_text()
+        content = DOCKERIGNORE_PATH.read_text(encoding="utf-8")
         assert "tests/" in content, ".dockerignore should exclude tests/"
 
     def test_excludes_env(self):
-        content = DOCKERIGNORE_PATH.read_text()
+        content = DOCKERIGNORE_PATH.read_text(encoding="utf-8")
         assert ".env" in content, ".dockerignore should exclude .env"
 
     def test_excludes_venv_and_cache(self):
-        content = DOCKERIGNORE_PATH.read_text()
+        content = DOCKERIGNORE_PATH.read_text(encoding="utf-8")
         assert ".venv/" in content
         assert "__pycache__" in content
 
     def test_excludes_large_assets_not_used_by_backend_image(self):
-        content = DOCKERIGNORE_PATH.read_text()
+        content = DOCKERIGNORE_PATH.read_text(encoding="utf-8")
         for path in (
             "third_parts/",
             "Stages/dxf2excel/original_dxf/",

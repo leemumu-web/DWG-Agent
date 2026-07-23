@@ -63,7 +63,7 @@ def get_excel_preview(
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
-    require_file_read_access(db, current_user, stored)
+    require_file_read_access(db, current_user, stored, purpose="preview")
 
     if not stored.file_ext or stored.file_ext.lower() not in EXCEL_FILE_EXTENSIONS:
         raise AppHTTPException(
@@ -247,7 +247,7 @@ def get_dxf_preview(
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
-    require_file_read_access(db, current_user, stored)
+    require_file_read_access(db, current_user, stored, purpose="preview")
     if stored.file_ext.lower() != ".dxf":
         raise AppHTTPException(
             415,
@@ -310,7 +310,7 @@ def get_dxf_preview_content(
     source = db.get(StoredFile, file_id)
     if not source or source.status == "deleted":
         raise not_found("File")
-    require_file_read_access(db, current_user, source)
+    require_file_read_access(db, current_user, source, purpose="preview")
     preview = db.get(StoredFile, preview_file_id)
     if (
         preview is None

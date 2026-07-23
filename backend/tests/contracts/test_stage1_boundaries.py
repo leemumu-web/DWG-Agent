@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import sys
 from io import BytesIO
 
 from fastapi.testclient import TestClient
+
+from tests.support.paths import REPO_ROOT
+
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.architecture.snapshot_contracts import build_contract_snapshot
 
 from app.bootstrap.seed import init_db
 from app.main import app
@@ -75,3 +82,12 @@ def test_agent_boundary_is_explicitly_disabled_in_stage1():
     )
     assert response.status_code == 503, response.text
     assert response.json()["error"]["code"] == "AGENT_DISABLED"
+
+
+def test_remnant_worker_queues_and_default_concurrency_are_runtime_contracts():
+    snapshot = build_contract_snapshot()
+
+    assert snapshot["worker_queue_concurrency"] == {
+        "remnant_convert": 2,
+        "remnant_parse": 4,
+    }
