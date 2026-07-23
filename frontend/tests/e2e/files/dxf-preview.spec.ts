@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const now = '2026-07-23T10:00:00Z';
 const envelope = (data: unknown) => ({ data, meta: { request_id: 'dxf-preview-e2e', timestamp: now } });
-const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900"><path d="M40 40 L1160 860" stroke="#334155"/></svg>';
+const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400"><path d="M40 40 L1160 360" stroke="#334155"/></svg>';
 
 async function mockPreviewPage(page: Page, fileName: string, onPreview: () => void) {
   const admin = {
@@ -47,7 +47,7 @@ async function mockPreviewPage(page: Page, fileName: string, onPreview: () => vo
         content_url: '/api/v1/files/987/dxf-preview/content', content_type: 'image/svg+xml',
         document_entities: 3, modelspace_entities: 2,
         entity_counts: { LINE: 2, TEXT: 1 }, layers: ['0'], layer_colors: { 0: 7 },
-        bounds: { min_x: 0, min_y: 0, max_x: 1200, max_y: 900 }, cached: true,
+        bounds: { min_x: 0, min_y: 0, max_x: 1200, max_y: 400 }, cached: true,
       })),
     });
   });
@@ -75,7 +75,12 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
   await expect(dialog.getByLabel('DXF 图形信息')).toHaveCount(0);
   await expect(dialog.getByText('Drawing telemetry')).toHaveCount(0);
   await expect(dialog.getByText('SVG / AUTHENTICATED')).toHaveCount(0);
-  await expect(dialog.locator('img[alt^="DXF 预览"]')).toHaveAttribute('src', /^blob:/);
+  const image = dialog.locator('img[alt^="DXF 预览"]');
+  await expect(image).toHaveAttribute('src', /^blob:/);
+  await expect.poll(async () => {
+    const box = await image.boundingBox();
+    return box ? box.width / box.height : 0;
+  }).toBeCloseTo(3, 1);
 
   const shell = dialog.locator('.dxf-preview-shell');
   const stage = dialog.locator('.dxf-preview-stage');
@@ -91,13 +96,47 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
     const matrix = new DOMMatrixReadOnly(getComputedStyle(element).transform);
     return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
   });
-  await expect.poll(async () => (await position()).scale).toBeLessThanOrEqual(0.96);
+  const fitMetrics = async () => {
+    const currentStage = await stage.boundingBox();
+    const currentImage = await image.boundingBox();
+    const current = await position();
+    if (!currentStage || !currentImage) {
+      return {
+        scaleError: Number.POSITIVE_INFINITY,
+        xCenterRatio: Number.POSITIVE_INFINITY,
+        yCenterRatio: Number.POSITIVE_INFINITY,
+      };
+    }
+    const expectedScale = Math.min(1, currentStage.width / 1200, currentStage.height / 400) * 0.96;
+    const xCenterError = Math.abs(
+      currentImage.x + currentImage.width / 2 - (currentStage.x + currentStage.width / 2),
+    );
+    const yCenterError = Math.abs(
+      currentImage.y + currentImage.height / 2 - (currentStage.y + currentStage.height / 2),
+    );
+    return {
+      scaleError: Math.abs(current.scale - expectedScale),
+      xCenterRatio: xCenterError / currentStage.width,
+      yCenterRatio: yCenterError / currentStage.height,
+    };
+  };
+  const expectFitted = async () => {
+    await expect.poll(async () => (await fitMetrics()).scaleError).toBeLessThan(0.01);
+    await expect.poll(async () => (await fitMetrics()).xCenterRatio).toBeLessThan(0.015);
+    await expect.poll(async () => (await fitMetrics()).yCenterRatio).toBeLessThan(0.015);
+  };
+  await expectFitted();
+
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expectFitted();
   const fitted = await position();
   await dialog.getByRole('button', { name: '放大预览' }).click();
   await expect.poll(async () => (await position()).scale).toBeGreaterThan(fitted.scale + 0.1);
   const beforeDrag = await position();
-  const centerX = stageBox!.x + stageBox!.width / 2;
-  const centerY = stageBox!.y + stageBox!.height / 2;
+  const resizedStageBox = await stage.boundingBox();
+  expect(resizedStageBox).not.toBeNull();
+  const centerX = resizedStageBox!.x + resizedStageBox!.width / 2;
+  const centerY = resizedStageBox!.y + resizedStageBox!.height / 2;
   await page.mouse.move(centerX, centerY);
   await page.mouse.down();
   await page.mouse.move(centerX + 260, centerY + 180, { steps: 8 });
@@ -108,7 +147,14 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
   }).toBeGreaterThan(250);
 
   await dialog.getByRole('button', { name: '适合窗口' }).click();
-  await expect.poll(async () => (await position()).scale).toBeLessThanOrEqual(1);
+  await expectFitted();
+  await dialog.getByRole('button', { name: '放大预览' }).click();
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX - 180, centerY - 120, { steps: 6 });
+  await page.mouse.up();
+  await stage.dblclick({ position: { x: 80, y: 120 } });
+  await expectFitted();
   await dialog.getByRole('button', { name: '缩小预览' }).click();
   await expect(dialog.getByRole('button', { name: '重新加载' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: '下载源文件' })).toBeVisible();

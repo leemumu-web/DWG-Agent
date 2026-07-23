@@ -59,9 +59,9 @@ def test_missing_cjk_font_keeps_preview_renderable(monkeypatch) -> None:
 
 
 def test_preview_renderer_version_invalidates_old_cache_names() -> None:
-    assert rendering.PREVIEW_RENDERER_VERSION == "svg-v2-cjk"
+    assert rendering.PREVIEW_RENDERER_VERSION == "svg-v3-light-cjk"
     source = StoredFile(id=17, sha256="a" * 64)
-    assert "dxf-preview:svg-v2-cjk:17:" in service.preview_batch_name(source)
+    assert "dxf-preview:svg-v3-light-cjk:17:" in service.preview_batch_name(source)
 
 
 def test_render_dxf_returns_safe_svg_and_metadata() -> None:
@@ -77,6 +77,15 @@ def test_render_dxf_returns_safe_svg_and_metadata() -> None:
     assert rendered.bounds.max_x > rendered.bounds.min_x
     assert rendered.bounds.max_y > rendered.bounds.min_y
     assert not any(token in lower for token in rendering.FORBIDDEN_SVG_TOKENS)
+
+
+def test_render_dxf_uses_light_background_with_readable_default_lines() -> None:
+    rendered = rendering.render_dxf_to_svg(_dxf_bytes())
+
+    lower = rendered.payload.lower()
+    assert rendering.PREVIEW_BACKGROUND == "#f4f7fb"
+    assert b'fill="#f4f7fb"' in lower
+    assert b"stroke: #000000" in lower
 
 
 def test_document_entity_limit_counts_entities_outside_modelspace(monkeypatch) -> None:
