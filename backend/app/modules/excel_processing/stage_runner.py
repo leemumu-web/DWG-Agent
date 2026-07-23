@@ -36,11 +36,6 @@ def _parse_args() -> argparse.Namespace:
 
     process_parser = subparsers.add_parser("process")
     process_parser.add_argument("--stage-root", required=True, type=Path)
-    process_parser.add_argument(
-        "--format",
-        required=True,
-        choices=("init", "canonical", "tsv"),
-    )
     process_parser.add_argument("--input", required=True, type=Path)
     process_parser.add_argument("--output", required=True, type=Path)
     process_parser.add_argument("--internal-output", required=True, type=Path)
@@ -78,20 +73,13 @@ def _configure_stage(stage_root: Path) -> dict[str, Any]:
 
 def _process(args: argparse.Namespace) -> None:
     _configure_stage(args.stage_root)
-    from pipeline import run_init_pipeline, run_pipeline
+    from pipeline import run_auto_pipeline
 
-    if args.format == "init":
-        result = run_init_pipeline(
-            args.input.resolve(),
-            args.output.resolve(),
-            internal_output_file=args.internal_output.resolve(),
-        )
-    else:
-        result = run_pipeline(
-            args.input.resolve(),
-            args.output.resolve(),
-            internal_output_file=args.internal_output.resolve(),
-        )
+    result = run_auto_pipeline(
+        args.input.resolve(),
+        args.output.resolve(),
+        internal_output_file=args.internal_output.resolve(),
+    )
     if not Path(result).is_file():
         raise RuntimeError(f"Excel Final Stage did not create its output: {result}")
     summary = dict(result.report_summary)

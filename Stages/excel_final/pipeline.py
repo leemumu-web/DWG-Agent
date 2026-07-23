@@ -16,7 +16,7 @@ from canonical_pipeline import HandbookReader, process_canonical_records
 from config import OUTPUT_DIR
 from domain import PipelineOutcome
 from handbook import close_handbook, init_handbook
-from source_intake import SourceFormat, SourceIntakeResult, read_production_source
+from source_intake import SourceIntakeResult, read_production_source
 
 
 log = logging.getLogger(__name__)
@@ -151,44 +151,6 @@ def run_auto_pipeline(
     """Auto-detect one supported production source and run the canonical engine."""
     return _run_intake(
         read_production_source(input_file),
-        output_file,
-        handbook_repository=handbook_repository,
-        internal_output_file=internal_output_file,
-    )
-
-
-def run_pipeline(
-    input_file: str | Path,
-    output_file: str | Path | None = None,
-    *,
-    handbook_repository: HandbookReader | None = None,
-    internal_output_file: str | Path | None = None,
-) -> PipelineOutcome:
-    """Compatibility wrapper that requires a Tekla source."""
-    intake = read_production_source(input_file)
-    if intake.source_format is SourceFormat.INITIAL_WORKBOOK:
-        raise ValueError("Tekla pipeline received an initial-table workbook")
-    return _run_intake(
-        intake,
-        output_file,
-        handbook_repository=handbook_repository,
-        internal_output_file=internal_output_file,
-    )
-
-
-def run_init_pipeline(
-    input_file: str | Path,
-    output_file: str | Path | None = None,
-    *,
-    handbook_repository: HandbookReader | None = None,
-    internal_output_file: str | Path | None = None,
-) -> PipelineOutcome:
-    """Compatibility wrapper that requires an initial-table workbook."""
-    intake = read_production_source(input_file)
-    if intake.source_format is not SourceFormat.INITIAL_WORKBOOK:
-        raise ValueError("initial-table pipeline received a Tekla source")
-    return _run_intake(
-        intake,
         output_file,
         handbook_repository=handbook_repository,
         internal_output_file=internal_output_file,

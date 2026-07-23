@@ -190,7 +190,6 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
         return source_path, worker_db.get(StoredFile, file_id)
 
     monkeypatch.setattr(service, "stage_excel_source", fake_stage)
-    monkeypatch.setattr(service, "detect_source_format", lambda _path: "tsv")
     monkeypatch.setattr(
         service,
         "run_excel_final_pipeline",
@@ -276,10 +275,7 @@ def test_database_import_failure_never_discloses_connection_details(
             worker_db.get(StoredFile, file_id),
         ),
     )
-    monkeypatch.setattr(service, "detect_source_format", lambda _path: "tsv")
-
-    def fake_pipeline(_source_path, output_path, *, source_format):
-        assert source_format == "tsv"
+    def fake_pipeline(_source_path, output_path):
         output_path.write_bytes(b"result")
         return ExcelFinalProcessResult(
             protocol_version=1,
@@ -351,8 +347,7 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
     def fake_stage(worker_db: Session, file_id: int, _work_dir):
         return source_path, worker_db.get(StoredFile, file_id)
 
-    def fake_pipeline(_source_path, output_path, *, source_format):
-        assert source_format == "init"
+    def fake_pipeline(_source_path, output_path):
         workbook = Workbook()
         organized = workbook.active
         organized.title = "整理表"
@@ -412,7 +407,6 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
         return stored
 
     monkeypatch.setattr(service, "stage_excel_source", fake_stage)
-    monkeypatch.setattr(service, "detect_source_format", lambda _path: "init")
     monkeypatch.setattr(service, "run_excel_final_pipeline", fake_pipeline)
     monkeypatch.setattr(service, "save_bytes_as_file", fake_save)
 

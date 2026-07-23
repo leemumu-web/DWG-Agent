@@ -8,7 +8,6 @@ from openpyxl import Workbook
 import main
 from domain import PipelineOutcome
 from handbook import HandbookInfrastructureError
-from input_contract import InputContractError
 
 
 def _single_sheet(path: Path) -> None:
@@ -18,7 +17,10 @@ def _single_sheet(path: Path) -> None:
     workbook.close()
 
 
-def test_format_detection_rejects_multi_sheet_before_sniffing(tmp_path: Path) -> None:
+def test_cli_rejects_multi_sheet_through_source_intake(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     path = tmp_path / "multi.xlsx"
     workbook = Workbook()
     workbook.active.title = "原表"
@@ -26,8 +28,11 @@ def test_format_detection_rejects_multi_sheet_before_sniffing(tmp_path: Path) ->
     workbook.save(path)
     workbook.close()
 
-    with pytest.raises(InputContractError, match="exactly one worksheet"):
-        main.detect_format(path)
+    exit_code = main.main([str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "exactly one worksheet" in captured.err
 
 
 def test_cli_requires_explicit_input_without_sample_specific_fallback(
@@ -46,14 +51,13 @@ def test_cli_database_failure_is_fatal_without_secret_or_traceback(
 ) -> None:
     source = tmp_path / "source.xlsx"
     _single_sheet(source)
-    monkeypatch.setattr(main, "detect_format", lambda _path: "tsv")
 
     def fail(*_args, **_kwargs):
         raise HandbookInfrastructureError(
             "connect failed host=10.0.0.8 password=do-not-print dsn=mysql://secret"
         )
 
-    monkeypatch.setattr(main, "run_pipeline", fail)
+    monkeypatch.setattr(main, "run_auto_pipeline", fail)
 
     exit_code = main.main([str(source)])
     captured = capsys.readouterr()
@@ -72,10 +76,9 @@ def test_cli_prints_quality_status_counts_and_actionable_lookup_warning(
     source = tmp_path / "source.xlsx"
     output = tmp_path / "result.xlsx"
     _single_sheet(source)
-    monkeypatch.setattr(main, "detect_format", lambda _path: "tsv")
     monkeypatch.setattr(
         main,
-        "run_pipeline",
+        "run_auto_pipeline",
         lambda *_args, **_kwargs: PipelineOutcome(
             output_path=output,
             quality_status="warning",

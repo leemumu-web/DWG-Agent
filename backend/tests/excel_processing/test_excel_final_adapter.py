@@ -9,7 +9,7 @@ import pytest
 from openpyxl import Workbook
 
 from app.modules.excel_processing import stage_adapter as excel_final
-from app.modules.excel_processing.staging import detect_source_format, stage_excel_source
+from app.modules.excel_processing.staging import stage_excel_source
 from tests.support.paths import BACKEND_ROOT
 
 
@@ -139,7 +139,6 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     result = excel_final.run_excel_final_pipeline(
         source_path,
         output_path,
-        source_format="tsv",
     )
 
     command = captured["command"]
@@ -149,6 +148,7 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
         "app.modules.excel_processing.stage_runner",
     ]
     assert "not-on-command-line" not in command
+    assert "--format" not in command
     assert captured["cwd"] == excel_final.get_excel_final_stage_root()
     assert captured["env"]["DWG_HANDBOOK_MYSQL_PASSWORD"] == "not-on-command-line"
     assert result.output_path == output_path.resolve()
@@ -180,7 +180,6 @@ def test_excel_final_pipeline_rejects_non_xlsx_output_before_stage(
         excel_final.run_excel_final_pipeline(
             source_path,
             output_path,
-            source_format="tsv",
         )
 
 
@@ -227,7 +226,6 @@ def test_excel_final_pipeline_logs_internal_failure_but_raises_safe_message(
         excel_final.run_excel_final_pipeline(
             source_path,
             output_path,
-            source_format="init",
         )
 
     assert str(failure.value) == "Excel Final Stage failed while processing the input."
@@ -278,7 +276,6 @@ def test_excel_final_process_protocol_rejects_malformed_or_extra_fields(
         excel_final.run_excel_final_pipeline(
             source_path,
             output_path,
-            source_format="init",
         )
 
 
@@ -323,39 +320,6 @@ def test_excel_final_lookup_protocol_passes_category_spec_and_material(monkeypat
 
 def test_retired_post_output_repair_is_absent():
     assert not hasattr(excel_final, "normalize_excel_final_output")
-
-
-@pytest.mark.parametrize("suffix", [".xlsx", ".xlsm"])
-def test_excel_final_format_detection_rejects_multi_sheet_workbooks(
-    tmp_path: Path,
-    suffix: str,
-):
-    source_path = tmp_path / f"multi-sheet{suffix}"
-    workbook = Workbook()
-    workbook.active.title = "原始清单"
-    workbook.create_sheet("人工结果")
-    workbook.save(source_path)
-
-    with pytest.raises(ValueError, match="exactly one worksheet"):
-        detect_source_format(source_path)
-
-
-def test_excel_final_format_detection_accepts_single_initial_sheet(tmp_path: Path):
-    source_path = tmp_path / "single-sheet.xlsx"
-    workbook = Workbook()
-    workbook.active.title = "初始表"
-    workbook.save(source_path)
-
-    assert detect_source_format(source_path) == "init"
-
-
-def test_excel_final_format_detection_classifies_canonical_workbook(tmp_path: Path):
-    source_path = tmp_path / "canonical.xlsx"
-    workbook = Workbook()
-    workbook.active.title = "原表"
-    workbook.save(source_path)
-
-    assert detect_source_format(source_path) == "canonical"
 
 
 def test_excel_final_staging_accepts_macro_enabled_workbook(

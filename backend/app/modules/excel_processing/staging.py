@@ -1,10 +1,9 @@
-"""Source-file resolution, download and format detection for Excel Final."""
+"""Source-file resolution and download for Excel Final."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import openpyxl
 from sqlalchemy.orm import Session
 
 from app.modules.files.interface import (
@@ -16,18 +15,6 @@ from app.modules.jobs.interface import Job
 from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.storage.base import StorageObjectNotFound
 
-_INIT_TABLE_SIGNATURE = [
-    "零件号",
-    "截面型材",
-    "长度(mm)",
-    "材质",
-    "数量",
-    "单重(kg)",
-    "总重(kg)",
-    "总面积(m2)",
-    "备注",
-]
-
 
 def resolve_file_id(job: Job) -> int | None:
     """Read a positive file id from a Job's persisted parameters."""
@@ -37,38 +24,6 @@ def resolve_file_id(job: Job) -> int | None:
     if isinstance(raw, str) and raw.strip().isdigit():
         return int(raw.strip())
     return None
-
-
-def detect_source_format(filepath: Path) -> str:
-    """Classify legacy init workbooks, canonical workbooks, and Tekla text."""
-    if filepath.suffix.lower() in (".xlsx", ".xlsm"):
-        try:
-            workbook = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-        except Exception:
-            # Malformed workbooks are handed to the Stage so its parser can
-            # produce the canonical safe error mapping.
-            return "canonical"
-        try:
-            if len(workbook.sheetnames) != 1:
-                raise ValueError("Excel Final input must contain exactly one worksheet")
-            if "初始表" in workbook.sheetnames:
-                return "init"
-            worksheet = workbook.worksheets[0]
-            row2_cells = [
-                str(worksheet.cell(row=2, column=column).value or "")
-                for column in range(1, 10)
-            ]
-            match_count = sum(
-                1
-                for keyword in _INIT_TABLE_SIGNATURE
-                if any(keyword in cell for cell in row2_cells)
-            )
-            if match_count >= 7:
-                return "init"
-            return "canonical"
-        finally:
-            workbook.close()
-    return "tsv"
 
 
 def stage_excel_source(
@@ -97,4 +52,4 @@ def stage_excel_source(
     return destination, stored
 
 
-__all__ = ["detect_source_format", "resolve_file_id", "stage_excel_source"]
+__all__ = ["resolve_file_id", "stage_excel_source"]

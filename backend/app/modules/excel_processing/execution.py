@@ -26,7 +26,6 @@ from app.modules.excel_processing.stage_adapter import (
     run_excel_final_pipeline,
 )
 from app.modules.excel_processing.staging import (
-    detect_source_format,
     resolve_file_id,
     stage_excel_source,
 )
@@ -61,7 +60,6 @@ ERROR_CODE_NO_OUTPUT = "EXCEL_FINAL_NO_OUTPUT"
 ERROR_CODE_UNAVAILABLE = "EXCEL_FINAL_UNAVAILABLE"
 ERROR_CODE_STORAGE_FAILED = "EXCEL_FINAL_STORAGE_FAILED"
 ERROR_CODE_NOT_EXCEL = "EXCEL_FINAL_NOT_EXCEL"
-ERROR_CODE_INPUT_CONTRACT = "EXCEL_FINAL_INPUT_CONTRACT"
 ERROR_CODE_DB_IMPORT_FAILED = "EXCEL_FINAL_DB_IMPORT_FAILED"
 
 _EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -263,18 +261,11 @@ def run_excel_final_processing(
             if job is None:
                 return
 
-            try:
-                source_format = detect_source_format(source_path)
-            except ValueError as exc:
-                _mark_job_failed(
-                    db,
-                    job_id,
-                    attempt,
-                    AppError(str(exc)),
-                    error_code=ERROR_CODE_INPUT_CONTRACT,
-                )
-                return
-            logger.info("Detected format for file_id=%s: %s", file_id, source_format)
+            source_format = "auto"
+            logger.info(
+                "Delegating source detection to Excel Final Stage for file_id=%s",
+                file_id,
+            )
             output_basename = sanitize_filename(source_file.original_name.rsplit(".", 1)[0])
             output_path = work_dir / f"{output_basename}_处理后.xlsx"
             pipeline_started = datetime.now(UTC)
@@ -282,7 +273,6 @@ def run_excel_final_processing(
                 pipeline_result = run_excel_final_pipeline(
                     source_path,
                     output_path,
-                    source_format=source_format,
                 )
             except ExcelFinalUnavailableError:
                 _add_step(

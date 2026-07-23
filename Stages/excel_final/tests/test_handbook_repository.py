@@ -222,7 +222,7 @@ def test_stage_config_contains_no_default_database_secret_or_misc_weights() -> N
 
 def test_pipeline_does_not_swallow_handbook_initialization_failure() -> None:
     pipeline = importlib.import_module("pipeline")
-    source = inspect.getsource(pipeline.run_pipeline)
+    source = inspect.getsource(pipeline.run_auto_pipeline)
 
     assert "比重查找将仅使用公式" not in source
     assert "五金手册数据库初始化失败" not in source
