@@ -21,7 +21,7 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 - `清洗表`：不可变父零件记录及规范分类。
 - `构件表`：每个构件一个 `summary`，合并起始身份与小计重量/尺寸；来源 sheet、行类型和小计来源行默认隐藏。
 - `整理表`：父件或 BH/BOX/BT 子板，含身份、手册来源、重量链和核验状态；比重来源、净材利用率和重量核验默认隐藏。
-- `part`：固定 11 列下料投影，无标题行或合计行偏移。
+- `part`：固定 11 列未分班组下料投影；BH/BOX/BT 子板保留构件号，板材和扁钢清空构件号后按完整属性跨构件汇总。
 - `处理报告`：只列警告、严重和致命的人工处置项；同源同类问题合并并提供建议操作，无问题时显示“无”。
 
 长度存在时，`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存；长度缺失时公式与缓存均留空。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
@@ -46,7 +46,7 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 | `quality.py` | 结构化问题台账与质量摘要 |
 | `weights.py` | 未舍入理论重与源重量物理核验 |
 | `splitter.py` | 仅 BH/BOX/BT 的规范拆板 |
-| `part_builder.py` | `part` 准入、身份冲突检测与逐构件汇总 |
+| `part_builder.py` | `part` 准入、主零件身份冲突检测与按类型选择构件/全局范围汇总 |
 | `canonical_pipeline.py` | 共享生产引擎 |
 | `writer_parts.py` / `ooxml_formula.py` | 固定六表、样式、报告和公式缓存 |
 | `pipeline.py` | 两个薄输入入口与数据库生命周期 |

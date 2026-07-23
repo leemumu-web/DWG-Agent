@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: 按类型实现构件范围与全局范围分组
+## Task 1: 按类型实现构件范围与全局范围分组
 
 **Files:**
 - Modify: `Stages/excel_final/tests/test_part_builder.py`
@@ -203,7 +203,7 @@ git add Stages/excel_final/part_builder.py Stages/excel_final/tests/test_part_bu
 git commit -m "refactor(excel-final): scope part aggregation by type"
 ```
 
-### Task 2: 固化真实 GT 的 122 行合同
+## Task 2: 固化真实 GT 的 122 行合同
 
 **Files:**
 - Modify: `Stages/excel_final/tests/fixtures/ground_truth_baseline.json`
@@ -299,7 +299,7 @@ git add \
 git commit -m "test(excel-final): lock scoped part projection"
 ```
 
-### Task 3: 保持后端构件级目录并验证下载结果
+## Task 3: 保持后端构件级目录并验证下载结果
 
 **Files:**
 - Modify: `backend/tests/excel_processing/test_excel_final_live_flow.py`
@@ -359,7 +359,7 @@ git add backend/tests/excel_processing/test_excel_final_live_flow.py
 git commit -m "test(excel-final): verify scoped part download"
 ```
 
-### Task 4: 更新生产文档
+## Task 4: 更新生产文档
 
 **Files:**
 - Modify: `Stages/excel_final/PROCESS.md`
@@ -413,7 +413,7 @@ git add \
 git commit -m "docs(excel-final): document scoped part aggregation"
 ```
 
-### Task 5: 真实数据、MySQL、后端和全量验收
+## Task 5: 真实数据、MySQL、后端和全量验收
 
 **Files:**
 - Regenerate only: `Stages/excel_final/data/results/*.xlsx`
