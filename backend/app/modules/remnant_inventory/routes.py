@@ -3,8 +3,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.modules.files.interface import StoredFile, save_upload_file
 from app.modules.identity.interface import CurrentUser, User
@@ -14,6 +16,7 @@ from app.modules.remnant_inventory.execution import (
     dispatch_import_execution,
     prepare_import_execution,
 )
+from app.modules.remnant_inventory.export import EXCEL_CONTENT_TYPE, build_remnant_export
 from app.modules.remnant_inventory.imports import (
     _require_item_access,
     bulk_apply_thickness,
@@ -614,6 +617,36 @@ def get_all_remnants(
         result.page_size,
         result.total,
         request.state.request_id,
+    )
+
+
+@remnants_router.get("/export.xlsx")
+def get_remnants_export(
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    _require_user(current_user)
+    prepared = build_remnant_export(db)
+    try:
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="remnants.export",
+            resource_type="remnant_export",
+            resource_id=0,
+            after_json={"row_count": prepared.row_count, "file_name": prepared.filename},
+            request=request,
+        )
+        db.commit()
+    except BaseException:
+        prepared.path.unlink(missing_ok=True)
+        raise
+    return FileResponse(
+        prepared.path,
+        media_type=EXCEL_CONTENT_TYPE,
+        filename=prepared.filename,
+        background=BackgroundTask(prepared.path.unlink, missing_ok=True),
     )
 
 
