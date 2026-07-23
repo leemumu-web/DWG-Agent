@@ -149,3 +149,59 @@ def test_header_detection_rejects_incomplete_row_six_without_fallback(tmp_path: 
     assert "数量" in message
     assert "row=6" in message
     assert "first 15 candidate scores" in message
+
+
+def test_header_detection_accepts_common_aliases_without_batch(tmp_path: Path) -> None:
+    contract = _contract()
+    source = tmp_path / "aliases-without-batch.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["构件号", "零件编号", "截面型材", "长度(mm)", "材质", "数量"])
+    workbook.save(source)
+    workbook.close()
+
+    loaded = load_workbook(source, read_only=True, data_only=False)
+    try:
+        detection = contract.detect_canonical_header(loaded.active)
+    finally:
+        loaded.close()
+
+    assert detection.row_number == 1
+    assert detection.columns == {
+        "构件编号": 1,
+        "零件号": 2,
+        "规格": 3,
+        "零件长度": 4,
+        "材质": 5,
+        "数量": 6,
+    }
+
+
+def test_header_detection_rejects_duplicate_alias_for_core_field(tmp_path: Path) -> None:
+    contract = _contract()
+    source = tmp_path / "duplicate-part-number.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "构件编号",
+        "零件号",
+        "零件编号",
+        "规格",
+        "长度(mm)",
+        "材质",
+        "数量",
+    ])
+    workbook.save(source)
+    workbook.close()
+
+    loaded = load_workbook(source, read_only=True, data_only=False)
+    try:
+        with pytest.raises(contract.InputContractError) as caught:
+            contract.detect_canonical_header(loaded.active)
+    finally:
+        loaded.close()
+
+    message = str(caught.value)
+    assert "conflicting header aliases" in message
+    assert "零件号" in message
+    assert "columns=[2, 3]" in message
