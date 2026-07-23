@@ -59,6 +59,39 @@ def test_live_round_bar_uses_round_column_only(
     assert result.source == "round_square_bar:round_bar"
 
 
+def test_live_q235b_d8_uses_round_bar(live_handbook_repository) -> None:
+    handbook, repository = live_handbook_repository
+
+    result = repository.lookup("round_bar", "8", material="Q235B")
+
+    assert result.status is handbook.LookupStatus.HIT
+    assert result.value_kg_per_m == Decimal("0.395")
+    assert result.source == "round_square_bar:round_bar"
+
+
+@pytest.mark.parametrize(
+    ("category", "source_spec", "expected"),
+    [
+        ("h_beam", "HN450*200*9*14", Decimal("74.9")),
+        ("h_beam", "HW200*200*8*12", Decimal("49.9")),
+        ("channel", "C14A", Decimal("14.535")),
+    ],
+)
+def test_live_drawing_aliases_match_existing_handbook_keys(
+    live_handbook_repository,
+    category: str,
+    source_spec: str,
+    expected: Decimal,
+) -> None:
+    handbook, repository = live_handbook_repository
+
+    result = repository.lookup(category, source_spec)
+
+    assert result.status is handbook.LookupStatus.HIT
+    assert result.normalized_spec == source_spec
+    assert result.value_kg_per_m == expected
+
+
 @pytest.mark.parametrize("diameter", ["24", "30"])
 def test_live_rebar_does_not_cross_fallback_to_round_bar(
     live_handbook_repository,

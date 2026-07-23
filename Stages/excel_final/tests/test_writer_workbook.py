@@ -143,12 +143,12 @@ def _issues() -> tuple[QualityIssue, ...]:
         ),
         QualityIssue(
             level=IssueLevel.SEVERE,
-            category="几何理论重与毛重",
+            category="源重量链异常",
             field="单毛重",
             actual_value=Decimal("8.5"),
             expected_value=Decimal("7.85"),
             affects_part=True,
-            description="单毛重偏差严重",
+            description="单毛重与总毛重链异常",
             **common,
         ),
     )
@@ -189,8 +189,18 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         ),
     ]
     part_rows = (
-        PartRow("", "p1", Decimal("10"), Decimal("100"), Decimal("1000"),
-                "Q355B", Decimal("6"), "", "", "板材"),
+        PartRow(
+            "",
+            "p1",
+            Decimal("10"),
+            Decimal("100"),
+            Decimal("1000"),
+            "Q355B",
+            Decimal("6"),
+            "",
+            "",
+            "板材",
+        ),
     )
 
     outcome = writer.write_canonical_workbook(
@@ -269,10 +279,7 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         for coordinate in ("G2", "H2", "G3", "H3"):
             assert workbook["处理报告"][coordinate].alignment.wrap_text is True
             assert workbook["处理报告"][coordinate].alignment.vertical == "top"
-        assert not (
-            {"类型", "比重来源", "净材利用率", "重量核验"}
-            & set(organized_headers)
-        )
+        assert not ({"类型", "比重来源", "净材利用率", "重量核验"} & set(organized_headers))
         component_headers = [cell.value for cell in workbook["构件表"][1]]
         assert not ({"来源sheet", "行类型", "小计来源行"} & set(component_headers))
         assert "类型" not in [cell.value for cell in workbook["part"][1]]
@@ -281,12 +288,8 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
 
     internal_workbook = load_workbook(internal_output, data_only=False)
     try:
-        assert [cell.value for cell in internal_workbook["整理表"][1]] == (
-            writer.ORGANIZED_HEADERS
-        )
-        assert [cell.value for cell in internal_workbook["构件表"][1]] == (
-            writer.COMPONENT_HEADERS
-        )
+        assert [cell.value for cell in internal_workbook["整理表"][1]] == (writer.ORGANIZED_HEADERS)
+        assert [cell.value for cell in internal_workbook["构件表"][1]] == (writer.COMPONENT_HEADERS)
         assert internal_workbook["整理表"]["P2"].value == "=M2-N2-O2"
     finally:
         internal_workbook.close()
@@ -308,14 +311,18 @@ def test_writer_formula_cache_is_immediately_readable_data_only(tmp_path: Path) 
         output,
         cleaned_parts=(part,),
         component_rows=component_rows,
-        organized_rows=[_organized_row(**{
-            "左进(mm)": Decimal("10"),
-            "右进(mm)": Decimal("5"),
-            "下料长度(mm)": Decimal("985"),
-            "比重": Decimal("7.85"),
-            "比重来源": "plate_constant:7.85",
-            "重量核验": "通过",
-        })],
+        organized_rows=[
+            _organized_row(
+                **{
+                    "左进(mm)": Decimal("10"),
+                    "右进(mm)": Decimal("5"),
+                    "下料长度(mm)": Decimal("985"),
+                    "比重": Decimal("7.85"),
+                    "比重来源": "plate_constant:7.85",
+                    "重量核验": "通过",
+                }
+            )
+        ],
         part_rows=(
             PartRow(
                 "",
@@ -340,9 +347,7 @@ def test_writer_formula_cache_is_immediately_readable_data_only(tmp_path: Path) 
         assert formulas["整理表"]["S2"].value == "=D2*R2"
         assert formulas["整理表"]["T2"].value == "=L2*S2"
         assert formulas["整理表"]["V2"].value == "=ROUND(J2*K2*L2*U2/1000000,3)"
-        assert formulas["整理表"]["W2"].value == (
-            "=ROUND(J2*K2*L2*U2/1000000*S2,3)"
-        )
+        assert formulas["整理表"]["W2"].value == ("=ROUND(J2*K2*L2*U2/1000000*S2,3)")
         assert formulas["整理表"]["Z2"].value == "=ROUND(Y2*D2,3)"
         assert formulas["整理表"]["AC2"].value == "=ROUND(AB2*D2,3)"
         assert formulas["part"]["G2"].value == "=SUM('整理表'!S2)"

@@ -127,6 +127,7 @@ def test_ordinary_i_is_handbook_profile_and_ha_is_unsupported() -> None:
     ("material", "normalized_type", "category", "policy"),
     [
         ("HPB300", "圆钢", "ROUND_BAR", "HANDBOOK"),
+        ("Q235B", "圆钢", "ROUND_BAR", "HANDBOOK"),
         ("Q355B", "圆钢", "ROUND_BAR", "HANDBOOK"),
         ("HRB400", "螺纹钢", "REBAR", "HANDBOOK"),
         ("Q420B", "未分类", None, "NOT_FOUND"),

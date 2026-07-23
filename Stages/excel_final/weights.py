@@ -72,12 +72,7 @@ def fabricated_parent_unit_weight(
         web_thickness,
         flange_thickness,
     )
-    return (
-        fabricated.cross_section_area
-        * length
-        * density
-        / Decimal("1000000")
-    )
+    return fabricated.cross_section_area * length * density / Decimal("1000000")
 
 
 def rectangular_surface_area(
@@ -87,9 +82,11 @@ def rectangular_surface_area(
 ) -> Decimal:
     if min(thickness, width, length) <= 0:
         raise ValueError("rectangular dimensions must be positive")
-    return Decimal("2") * (
-        thickness * width + thickness * length + width * length
-    ) / Decimal("1000000")
+    return (
+        Decimal("2")
+        * (thickness * width + thickness * length + width * length)
+        / Decimal("1000000")
+    )
 
 
 def round_weight_for_output(value: Decimal) -> Decimal:
@@ -103,17 +100,12 @@ def round_area_for_output(value: Decimal) -> Decimal:
 def assess_theory_against_gross(
     theoretical: Decimal,
     source_gross: Decimal,
+    *,
+    absolute_tolerance: Decimal = ABSOLUTE_THEORY_TOLERANCE,
 ) -> DeviationAssessment:
     absolute_error = abs(source_gross - theoretical)
-    relative_error = (
-        absolute_error / abs(theoretical)
-        if theoretical != 0
-        else Decimal("Infinity")
-    )
-    if (
-        absolute_error <= ABSOLUTE_THEORY_TOLERANCE
-        or relative_error <= PASS_RELATIVE_TOLERANCE
-    ):
+    relative_error = absolute_error / abs(theoretical) if theoretical != 0 else Decimal("Infinity")
+    if absolute_error <= absolute_tolerance or relative_error <= PASS_RELATIVE_TOLERANCE:
         level = AssessmentLevel.PASS
     elif relative_error <= WARNING_RELATIVE_TOLERANCE:
         level = AssessmentLevel.WARNING
@@ -130,7 +122,7 @@ def assess_net_against_theory(
     if excess <= 0:
         return DeviationAssessment(AssessmentLevel.PASS, abs(excess), Decimal("0"))
     relative_error = excess / abs(theoretical) if theoretical != 0 else Decimal("Infinity")
-    if relative_error <= PASS_RELATIVE_TOLERANCE:
+    if excess <= ABSOLUTE_THEORY_TOLERANCE or relative_error <= PASS_RELATIVE_TOLERANCE:
         level = AssessmentLevel.PASS
     elif relative_error <= WARNING_RELATIVE_TOLERANCE:
         level = AssessmentLevel.WARNING
@@ -141,6 +133,15 @@ def assess_net_against_theory(
 
 def _issue_level(level: AssessmentLevel) -> IssueLevel:
     return IssueLevel.WARNING if level is AssessmentLevel.WARNING else IssueLevel.SEVERE
+
+
+def _theory_to_gross_issue_level(
+    level: AssessmentLevel,
+    basis: TheoryBasis,
+) -> IssueLevel:
+    if basis is TheoryBasis.GEOMETRY:
+        return IssueLevel.WARNING
+    return _issue_level(level)
 
 
 def _quality_issue(
@@ -196,18 +197,20 @@ def validate_parent_weights(
     )
     for field, value in source_fields:
         if value is None and report_missing_source_weights:
-            issues.append(_quality_issue(
-                source,
-                level=IssueLevel.WARNING,
-                category="源重量缺失",
-                field=field,
-                actual=None,
-                expected="非空源值",
-                absolute_error=None,
-                relative_error=None,
-                density_source=density_source,
-                description=f"{field}缺失，未用理论值回填",
-            ))
+            issues.append(
+                _quality_issue(
+                    source,
+                    level=IssueLevel.WARNING,
+                    category="源重量缺失",
+                    field=field,
+                    actual=None,
+                    expected="非空源值",
+                    absolute_error=None,
+                    relative_error=None,
+                    density_source=density_source,
+                    description=f"{field}缺失，未用理论值回填",
+                )
+            )
 
     chains = (
         ("总净重", source.source_unit_net, source.source_total_net),
@@ -219,18 +222,20 @@ def validate_parent_weights(
         expected = unit_value * source.original_qty
         absolute_error = abs(total_value - expected)
         if absolute_error > SOURCE_CHAIN_TOLERANCE:
-            issues.append(_quality_issue(
-                source,
-                level=IssueLevel.SEVERE,
-                category="源重量链异常",
-                field=field,
-                actual=total_value,
-                expected=expected,
-                absolute_error=absolute_error,
-                relative_error=absolute_error / abs(expected) if expected else None,
-                density_source=density_source,
-                description=f"{field}不等于对应单重乘原数量",
-            ))
+            issues.append(
+                _quality_issue(
+                    source,
+                    level=IssueLevel.SEVERE,
+                    category="源重量链异常",
+                    field=field,
+                    actual=total_value,
+                    expected=expected,
+                    absolute_error=absolute_error,
+                    relative_error=absolute_error / abs(expected) if expected else None,
+                    density_source=density_source,
+                    description=f"{field}不等于对应单重乘原数量",
+                )
+            )
 
     net_gross_pairs = (
         ("单净重", source.source_unit_net, source.source_unit_gross),
@@ -241,48 +246,64 @@ def validate_parent_weights(
             continue
         excess = net_value - gross_value
         if excess > SOURCE_CHAIN_TOLERANCE:
-            issues.append(_quality_issue(
-                source,
-                level=IssueLevel.SEVERE,
-                category="净重大于毛重",
-                field=field,
-                actual=net_value,
-                expected=f"<={gross_value}",
-                absolute_error=excess,
-                relative_error=excess / abs(gross_value) if gross_value else None,
-                density_source=density_source,
-                description=f"{field}显著大于对应毛重",
-            ))
+            issues.append(
+                _quality_issue(
+                    source,
+                    level=IssueLevel.SEVERE,
+                    category="净重大于毛重",
+                    field=field,
+                    actual=net_value,
+                    expected=f"<={gross_value}",
+                    absolute_error=excess,
+                    relative_error=excess / abs(gross_value) if gross_value else None,
+                    density_source=density_source,
+                    description=f"{field}显著大于对应毛重",
+                )
+            )
 
     if theoretical_unit_weight is not None:
         theory_category = (
-            "几何理论重与毛重"
-            if theory_basis is TheoryBasis.GEOMETRY
-            else "手册理论重与毛重"
+            "几何理论重与毛重" if theory_basis is TheoryBasis.GEOMETRY else "手册理论重与毛重"
         )
         theory_source_total = theoretical_unit_weight * source.original_qty
         gross_comparisons = (
-            ("单毛重", theoretical_unit_weight, source.source_unit_gross),
-            ("总毛重", theory_source_total, source.source_total_gross),
+            (
+                "单毛重",
+                theoretical_unit_weight,
+                source.source_unit_gross,
+                ABSOLUTE_THEORY_TOLERANCE,
+            ),
+            (
+                "总毛重",
+                theory_source_total,
+                source.source_total_gross,
+                ABSOLUTE_THEORY_TOLERANCE * source.original_qty,
+            ),
         )
-        for field, theoretical, gross in gross_comparisons:
+        for field, theoretical, gross, absolute_tolerance in gross_comparisons:
             if gross is None:
                 continue
-            assessment = assess_theory_against_gross(theoretical, gross)
+            assessment = assess_theory_against_gross(
+                theoretical,
+                gross,
+                absolute_tolerance=absolute_tolerance,
+            )
             if assessment.level is AssessmentLevel.PASS:
                 continue
-            issues.append(_quality_issue(
-                source,
-                level=_issue_level(assessment.level),
-                category=theory_category,
-                field=field,
-                actual=gross,
-                expected=theoretical,
-                absolute_error=assessment.absolute_error,
-                relative_error=assessment.relative_error,
-                density_source=density_source,
-                description=f"{field}与父理论重量偏差超限",
-            ))
+            issues.append(
+                _quality_issue(
+                    source,
+                    level=_theory_to_gross_issue_level(assessment.level, theory_basis),
+                    category=theory_category,
+                    field=field,
+                    actual=gross,
+                    expected=theoretical,
+                    absolute_error=assessment.absolute_error,
+                    relative_error=assessment.relative_error,
+                    density_source=density_source,
+                    description=f"{field}与父理论重量偏差超限",
+                )
+            )
 
     utilization: Decimal | None = None
     if (
@@ -296,18 +317,20 @@ def validate_parent_weights(
             theoretical_unit_weight,
         )
         if assessment.level is not AssessmentLevel.PASS:
-            issues.append(_quality_issue(
-                source,
-                level=_issue_level(assessment.level),
-                category="净重大于理论重",
-                field="单净重",
-                actual=source.source_unit_net,
-                expected=f"<={theoretical_unit_weight}",
-                absolute_error=assessment.absolute_error,
-                relative_error=assessment.relative_error,
-                density_source=density_source,
-                description="单净重超过父理论毛坯重",
-            ))
+            issues.append(
+                _quality_issue(
+                    source,
+                    level=IssueLevel.WARNING,
+                    category="净重大于理论重",
+                    field="单净重",
+                    actual=source.source_unit_net,
+                    expected=f"<={theoretical_unit_weight}",
+                    absolute_error=assessment.absolute_error,
+                    relative_error=assessment.relative_error,
+                    density_source=density_source,
+                    description="单净重超过父理论毛坯重",
+                )
+            )
 
     if any(issue.level is IssueLevel.SEVERE for issue in issues):
         status = "severe_warning"

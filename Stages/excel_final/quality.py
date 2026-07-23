@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
 
@@ -36,13 +36,18 @@ _ACTION_BY_CATEGORY = {
     "拆板几何异常": "修正 BH/BOX/BT 截面尺寸后重新处理",
     "源重量链异常": "核对单重、总重、数量及净毛重关系后重新处理",
     "净重大于毛重": "核对单重、总重、数量及净毛重关系后重新处理",
-    "几何理论重与毛重": "复核规格、材质、数量和源重量，修正后重新处理",
-    "手册理论重与毛重": "复核规格、材质、数量和源重量，修正后重新处理",
-    "净重大于理论重": "复核规格、材质、数量和源重量，修正后重新处理",
+    "几何理论重与毛重": "抽查轮廓、切割和毛坯口径；仅在源毛重用于下料或采购时人工确认",
+    "手册理论重与毛重": "确认项目采用的型材标准版本；需要时补充版本映射后重新处理",
+    "净重大于理论重": "确认模型轮廓、圆角和手册版本；源净重未超过毛重时可保留",
 }
 _DEFAULT_ACTION = "复核该问题并修正源数据后重新处理"
-_ACTIONABLE_LEVELS = frozenset(
-    {IssueLevel.WARNING, IssueLevel.SEVERE, IssueLevel.FATAL}
+_ACTIONABLE_LEVELS = frozenset({IssueLevel.WARNING, IssueLevel.SEVERE, IssueLevel.FATAL})
+_SECONDARY_WEIGHT_REVIEW_CATEGORIES = frozenset(
+    {
+        "几何理论重与毛重",
+        "手册理论重与毛重",
+        "净重大于理论重",
+    }
 )
 _REPRESENTATIVE_LIMIT = 3
 
@@ -72,6 +77,7 @@ class QualityIssue:
                 f"affects_part={self.affects_part!r} is inconsistent with level={self.level.value}"
             )
 
+
 class QualityLedger:
     def __init__(self) -> None:
         self._issues: list[QualityIssue] = []
@@ -100,59 +106,79 @@ class QualityLedger:
         return QualityStatus.OK
 
     def report_rows(self) -> list[dict[str, object]]:
+        actionable = [issue for issue in self._issues if issue.level in _ACTIONABLE_LEVELS]
+        severe_locations = {
+            (issue.source_sheet, issue.source_row)
+            for issue in actionable
+            if issue.level in (IssueLevel.SEVERE, IssueLevel.FATAL)
+        }
         grouped: dict[tuple[object, ...], list[QualityIssue]] = {}
-        for issue in self._issues:
-            if issue.level not in _ACTIONABLE_LEVELS:
+        for issue in actionable:
+            if (
+                issue.level is IssueLevel.WARNING
+                and issue.category in _SECONDARY_WEIGHT_REVIEW_CATEGORIES
+                and (issue.source_sheet, issue.source_row) in severe_locations
+            ):
                 continue
             action = _ACTION_BY_CATEGORY.get(issue.category, _DEFAULT_ACTION)
-            key = (
-                issue.level,
-                issue.category,
-                issue.source_sheet,
-                issue.spec,
-                issue.density_source,
-                action,
-            )
+            if issue.category == "几何理论重与毛重":
+                key = (
+                    issue.level,
+                    issue.category,
+                    issue.source_sheet,
+                    _comparison_direction(issue),
+                    action,
+                )
+            else:
+                key = (
+                    issue.level,
+                    issue.category,
+                    issue.source_sheet,
+                    issue.spec,
+                    issue.density_source,
+                    action,
+                )
             grouped.setdefault(key, []).append(issue)
 
         rows: list[dict[str, object]] = []
         for issues in grouped.values():
             first = issues[0]
-            source_rows = _unique(
-                (issue.source_sheet, issue.source_row)
-                for issue in issues
+            source_rows = _unique((issue.source_sheet, issue.source_row) for issue in issues)
+            if first.category == "几何理论重与毛重":
+                direction = _comparison_direction(first)
+                description = f"源毛重{direction}几何理论重"
+                relative_errors = [
+                    issue.relative_error
+                    for issue in issues
+                    if issue.relative_error is not None and issue.relative_error.is_finite()
+                ]
+                if relative_errors:
+                    maximum = max(relative_errors) * Decimal("100")
+                    description += f"；最大相对偏差 {maximum:.2f}%"
+                if len(source_rows) > 1:
+                    description = f"影响 {len(source_rows)} 行；{description}"
+            else:
+                descriptions = _unique(issue.description for issue in issues if issue.description)
+                description = "；".join(descriptions[:_REPRESENTATIVE_LIMIT])
+                if len(descriptions) > _REPRESENTATIVE_LIMIT:
+                    description += f"；另有 {len(descriptions) - _REPRESENTATIVE_LIMIT} 种说明"
+                if len(source_rows) > 1:
+                    description = f"影响 {len(source_rows)} 行；{description}"
+            rows.append(
+                {
+                    "级别": first.level.value,
+                    "类别": first.category,
+                    "来源位置": _source_representatives(source_rows),
+                    "构件编号": _value_representatives(issue.component_no for issue in issues),
+                    "零件号": _value_representatives(issue.part_no for issue in issues),
+                    "涉及字段": "；".join(_unique(issue.field for issue in issues if issue.field)),
+                    "说明": description,
+                    "建议操作": _ACTION_BY_CATEGORY.get(
+                        first.category,
+                        _DEFAULT_ACTION,
+                    ),
+                }
             )
-            descriptions = _unique(
-                issue.description
-                for issue in issues
-                if issue.description
-            )
-            description = "；".join(
-                descriptions[:_REPRESENTATIVE_LIMIT]
-            )
-            if len(descriptions) > _REPRESENTATIVE_LIMIT:
-                description += f"；另有 {len(descriptions) - _REPRESENTATIVE_LIMIT} 种说明"
-            if len(source_rows) > 1:
-                description = f"影响 {len(source_rows)} 行；{description}"
-            rows.append({
-                "级别": first.level.value,
-                "类别": first.category,
-                "来源位置": _source_representatives(source_rows),
-                "构件编号": _value_representatives(
-                    issue.component_no for issue in issues
-                ),
-                "零件号": _value_representatives(
-                    issue.part_no for issue in issues
-                ),
-                "涉及字段": "；".join(_unique(
-                    issue.field for issue in issues if issue.field
-                )),
-                "说明": description,
-                "建议操作": _ACTION_BY_CATEGORY.get(
-                    first.category,
-                    _DEFAULT_ACTION,
-                ),
-            })
         return rows
 
     def to_outcome(self, output_path: Path) -> PipelineOutcome:
@@ -163,9 +189,7 @@ class QualityLedger:
             "warning_count": self.warning_count,
             "severe_warning_count": self.severe_warning_count,
             "category_counts": dict(category_counts),
-            "representative_messages": [
-                str(row["说明"]) for row in report_rows[:10]
-            ],
+            "representative_messages": [str(row["说明"]) for row in report_rows[:10]],
         }
         return PipelineOutcome(
             output_path=output_path,
@@ -184,20 +208,29 @@ def _unique(values):
     return result
 
 
+def _comparison_direction(issue: QualityIssue) -> str:
+    try:
+        actual = Decimal(str(issue.actual_value))
+        expected = Decimal(str(issue.expected_value))
+    except (InvalidOperation, TypeError, ValueError):
+        return "偏离"
+    if actual > expected:
+        return "高于"
+    if actual < expected:
+        return "低于"
+    return "等于"
+
+
 def _source_representatives(
     source_rows: list[tuple[str, int]],
 ) -> str:
     sheets = _unique(sheet for sheet, _ in source_rows)
     if len(sheets) == 1:
         result = f"{sheets[0]}!" + "、".join(
-            str(row)
-            for _, row in source_rows[:_REPRESENTATIVE_LIMIT]
+            str(row) for _, row in source_rows[:_REPRESENTATIVE_LIMIT]
         )
     else:
-        result = "、".join(
-            f"{sheet}!{row}"
-            for sheet, row in source_rows[:_REPRESENTATIVE_LIMIT]
-        )
+        result = "、".join(f"{sheet}!{row}" for sheet, row in source_rows[:_REPRESENTATIVE_LIMIT])
     if len(source_rows) > _REPRESENTATIVE_LIMIT:
         result += f" 等 {len(source_rows)} 行"
     return result

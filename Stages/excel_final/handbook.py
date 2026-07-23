@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
@@ -96,8 +97,7 @@ _QUERIES: Mapping[str, _QueryDefinition] = {
     ),
     HandbookCategory.W_BEAM.value: _QueryDefinition(
         "w_beam",
-        "SELECT weight FROM `w_beam` "
-        "WHERE us_spec1 = %s OR us_spec2 = %s OR cn_spec = %s LIMIT 1",
+        "SELECT weight FROM `w_beam` WHERE us_spec1 = %s OR us_spec2 = %s OR cn_spec = %s LIMIT 1",
     ),
 }
 
@@ -132,9 +132,25 @@ def _material_class(material: str | None) -> str | None:
         return "HRB"
     if normalized.startswith("HPB"):
         return "HPB"
+    if normalized.startswith("Q235B"):
+        return "Q235B"
     if normalized.startswith("Q355B"):
         return "Q355B"
     return None
+
+
+def _database_spec(category: str, source_spec: str) -> str:
+    """Translate supported drawing aliases to the handbook's stored key only."""
+    upper = source_spec.upper()
+    if category == HandbookCategory.H_BEAM.value:
+        match = re.fullmatch(r"(?:HN|HW|HM)(\d.*)", upper)
+        if match is not None:
+            return f"H{match.group(1)}"
+    if category == HandbookCategory.CHANNEL.value:
+        match = re.fullmatch(r"C(\d+(?:\.\d+)?[A-Z]?)", upper)
+        if match is not None:
+            return f"[{match.group(1)}"
+    return source_spec
 
 
 def _decimal_weight(value: object) -> Decimal:
@@ -205,7 +221,7 @@ class SteelHandbookRepository:
         if category_value == HandbookCategory.ROUND_BAR.value:
             if material_class is None:
                 raise HandbookRequestError("round_bar material is required")
-            if material_class not in {"HPB", "Q355B"}:
+            if material_class not in {"HPB", "Q235B", "Q355B"}:
                 raise HandbookRequestError("round_bar category conflicts with material")
         elif category_value == HandbookCategory.REBAR.value:
             if material_class is None:
@@ -242,11 +258,12 @@ class SteelHandbookRepository:
             return result
 
         definition = _QUERIES[category_value]
+        database_spec = _database_spec(category_value, spec)
         params: tuple[object, ...]
         if category_value == HandbookCategory.W_BEAM.value:
-            params = (spec, spec, spec)
+            params = (database_spec, database_spec, database_spec)
         else:
-            params = (spec,)
+            params = (database_spec,)
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute(definition.sql, params)

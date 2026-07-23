@@ -258,7 +258,7 @@ def classify_normalized_spec(
                 "螺纹钢",
                 HandbookCategory.REBAR,
             )
-        if material_upper.startswith("HPB") or material_upper.startswith("Q355B"):
+        if material_upper.startswith(("HPB", "Q235B", "Q355B")):
             return _handbook_profile(
                 original_spec,
                 diameter,

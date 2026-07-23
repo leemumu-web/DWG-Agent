@@ -93,11 +93,13 @@ def test_lookup_requires_category_spec_and_material_for_d_categories() -> None:
 
 
 def test_each_category_executes_only_its_owned_table_query() -> None:
-    connection = FakeConnection({
-        ("flat_steel", "6*30"): (Decimal("1.413"),),
-        ("round_square_bar", "24"): (Decimal("3.55"),),
-        ("rebar", "24"): (Decimal("2.47"),),
-    })
+    connection = FakeConnection(
+        {
+            ("flat_steel", "6*30"): (Decimal("1.413"),),
+            ("round_square_bar", "24"): (Decimal("3.55"),),
+            ("rebar", "24"): (Decimal("2.47"),),
+        }
+    )
     repository = _repository(connection)
 
     flat = repository.lookup("flat_steel", "6*30")
@@ -116,11 +118,53 @@ def test_each_category_executes_only_its_owned_table_query() -> None:
     assert all("material_lookup" not in sql for sql, _ in lookup_sql)
 
 
+@pytest.mark.parametrize(
+    ("category", "source_spec", "database_spec", "table", "weight"),
+    [
+        ("h_beam", "HN450*200*9*14", "H450*200*9*14", "h_beam", "74.9"),
+        ("h_beam", "HW200*200*8*12", "H200*200*8*12", "h_beam", "49.9"),
+        ("channel", "C14A", "[14A", "channel", "14.535"),
+    ],
+)
+def test_profile_aliases_query_the_existing_database_key(
+    category: str,
+    source_spec: str,
+    database_spec: str,
+    table: str,
+    weight: str,
+) -> None:
+    connection = FakeConnection({(table, database_spec): (Decimal(weight),)})
+    repository = _repository(connection)
+
+    result = repository.lookup(category, source_spec)
+
+    assert result.status is _handbook().LookupStatus.HIT
+    assert result.normalized_spec == source_spec
+    assert result.value_kg_per_m == Decimal(weight)
+    assert [params for _sql, params in _lookup_sql(connection)] == [(database_spec,)]
+
+
+def test_q235b_is_an_allowed_round_bar_material_class() -> None:
+    connection = FakeConnection(
+        {
+            ("round_square_bar", "8"): (Decimal("0.395"),),
+        }
+    )
+    repository = _repository(connection)
+
+    result = repository.lookup("round_bar", "8", material="Q235B")
+
+    assert result.status is _handbook().LookupStatus.HIT
+    assert result.value_kg_per_m == Decimal("0.395")
+
+
 def test_cache_key_includes_category_spec_and_d_material_class() -> None:
-    connection = FakeConnection({
-        ("round_square_bar", "24"): (Decimal("3.55"),),
-        ("rebar", "24"): (Decimal("2.47"),),
-    })
+    connection = FakeConnection(
+        {
+            ("round_square_bar", "24"): (Decimal("3.55"),),
+            ("rebar", "24"): (Decimal("2.47"),),
+        }
+    )
     repository = _repository(connection)
 
     repository.lookup("round_bar", "24", material="Q355B")
