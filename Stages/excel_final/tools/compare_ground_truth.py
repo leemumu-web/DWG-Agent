@@ -144,26 +144,12 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
             "不输出缺失导入构件号/零件号的part记录",
         )
 
-        strict_pl_rect = sum(
-            row.get("类型") == "板材" and row.get("文件") == "RECT" for row in part
-        )
-        unproven_pl = sum(
-            row.get("类型") == "板材" and row.get("文件") is None for row in part
-        )
+        blank_files = sum(row.get("文件") is None for row in part)
         _record(
-            results, "普通板RECT严格证明", "GT未形成可审计规则",
-            f"RECT={strict_pl_rect}, 未证明={unproven_pl}",
-            "INTENDED_DIFFERENCE" if strict_pl_rect == baseline["strict_pl_rect"] else "FAIL",
-            "仅196条满足净毛重、理论重、六面面积、长度和身份全部证据",
-        )
-        split_rect = sum(
-            str(row.get("类型") or "").startswith("BOX") and row.get("文件") == "RECT"
-            for row in part
-        )
-        _record(
-            results, "BOX子板RECT", "GT=84", split_rect,
-            "PASS" if split_rect == 84 else "FAIL",
-            "42个父BOX的腹/翼子板均由父证据证明",
+            results, "part文件列固定留空", "GT混用标记与空值",
+            f"空={blank_files}/{len(part)}",
+            "PASS" if blank_files == len(part) else "FAIL",
+            "文件列仅为兼容保留列，不再承载业务标记",
         )
 
         d_rows = [row for row in organized if str(row.get("截面型材") or "").startswith("D")]
@@ -240,8 +226,8 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
         _record(
             results, "质量报告", "GT无结构化质量台账",
             f"查无={lookup_misses}, 警告={warnings}, 严重行={severe}, 信息={info}",
-            "PASS" if lookup_misses == warnings == severe == 0 and info == 198 else "REVIEW",
-            "198条仅说明RECT证据不足，不影响处理质量状态",
+            "PASS" if lookup_misses == warnings == severe == info == 0 else "REVIEW",
+            "当前样本没有需记录的质量问题",
         )
 
         formulas = canonical_formulas["整理表"]

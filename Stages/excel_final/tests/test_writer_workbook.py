@@ -159,7 +159,7 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
     organized = [_organized_row(), _organized_row(类型="BOX翼", 序号=7, 导入零件号="p1-BOX翼")]
     part_rows = (
         PartRow("C1", "p1", Decimal("10"), Decimal("100"), Decimal("1000"),
-                "Q355B", Decimal("6"), "", "", "板材", "RECT"),
+                "Q355B", Decimal("6"), "", "", "板材"),
     )
 
     outcome = writer.write_canonical_workbook(
@@ -190,6 +190,7 @@ def test_canonical_writer_emits_fixed_six_sheets_and_audited_styles(tmp_path: Pa
         assert workbook["part"].max_row == 2
         assert workbook["part"]["H2"].value is None
         assert workbook["part"]["I2"].value is None
+        assert workbook["part"]["K2"].value is None
         assert workbook["处理报告"].max_row == 3
         assert workbook["构件表"].max_row == 2
         assert workbook["构件表"]["C2"].value == "summary"

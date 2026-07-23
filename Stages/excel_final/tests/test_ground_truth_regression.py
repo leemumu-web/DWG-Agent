@@ -50,7 +50,7 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
     assert result.quality_status == "ok"
     assert result.warning_count == 0
     assert result.severe_warning_count == 0
-    assert result.report_summary["info_count"] == 198
+    assert result.report_summary["info_count"] == 0
     assert _sha256(SOURCE) == baseline["sha256"]
     formulas = load_workbook(output, read_only=True, data_only=False)
     values = load_workbook(output, read_only=True, data_only=True)
@@ -81,8 +81,8 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             "NUT": baseline["nut"],
         }
 
-        strict_pl_rect = sum(row["类型"] == "板材" and row["文件"] == "RECT" for row in part)
-        assert strict_pl_rect == baseline["strict_pl_rect"]
+        assert all(row["文件"] is None for row in part)
+        assert _rows_by_headers(values["处理报告"]) == []
 
         d_rows = [row for row in organized if str(row["截面型材"]).startswith("D")]
         assert len(d_rows) == baseline["d"]

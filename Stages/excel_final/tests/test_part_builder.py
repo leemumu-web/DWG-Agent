@@ -29,7 +29,6 @@ def _candidate(builder, **overrides: object):
         "part_type": "板材",
         "team": "",
         "graphic": "",
-        "file_value": "RECT",
         "excluded": False,
     }
     values.update(overrides)

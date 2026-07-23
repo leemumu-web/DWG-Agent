@@ -200,7 +200,7 @@ def _write_part_sheet(ws, rows: Iterable[PartRow]) -> None:
         _canonical_row(ws, row_number, [
             item.import_component_no, item.import_part_no, item.spec, item.width,
             item.cut_length, item.material, item.summary, item.team, item.graphic,
-            item.part_type, item.file_value,
+            item.part_type, None,
         ])
 
 

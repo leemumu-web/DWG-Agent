@@ -121,7 +121,7 @@ def _canonical_workbook(path: Path) -> None:
 
     report = workbook.create_sheet("处理报告")
     report.append(["级别", "类别", "说明"])
-    report.append(["信息", "RECT未证明", "仅保留候选，不填写文件"])
+    report.append(["信息", "数据备注", "来源数据已记录"])
     report.append(["警告", "手册查无", "规格 X10 在指定类别中查无"])
     report.append(["严重", "重量矛盾", "表单重与理单重严重不一致"])
     workbook.save(path)
@@ -154,9 +154,9 @@ def test_workbook_import_persists_quality_and_table_weight_totals(
         "info_count": 1,
         "warning_count": 1,
         "severe_warning_count": 1,
-        "category_counts": {"RECT未证明": 1, "手册查无": 1, "重量矛盾": 1},
+        "category_counts": {"数据备注": 1, "手册查无": 1, "重量矛盾": 1},
         "representative_messages": [
-            "仅保留候选，不填写文件",
+            "来源数据已记录",
             "规格 X10 在指定类别中查无",
             "表单重与理单重严重不一致",
         ],

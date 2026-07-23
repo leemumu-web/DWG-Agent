@@ -46,7 +46,7 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 | `quality.py` | 结构化问题台账与质量摘要 |
 | `weights.py` | 未舍入理论重与源重量物理核验 |
 | `splitter.py` | 仅 BH/BOX/BT 的规范拆板 |
-| `part_builder.py` | 严格 RECT 证明与逐构件 `part` 汇总 |
+| `part_builder.py` | `part` 准入、身份冲突检测与逐构件汇总 |
 | `canonical_pipeline.py` | 共享生产引擎 |
 | `writer_parts.py` / `ooxml_formula.py` | 固定六表、样式、报告和公式缓存 |
 | `pipeline.py` | 两个薄输入入口与数据库生命周期 |

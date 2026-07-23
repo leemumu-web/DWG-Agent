@@ -159,6 +159,11 @@ def test_live_upload_worker_catalog_and_download_flow(
         ]
         assert workbook["整理表"].max_row == 528
         assert workbook["part"].max_row == 479
+        assert all(
+            row[10] is None
+            for row in workbook["part"].iter_rows(min_row=2, values_only=True)
+        )
+        assert workbook["处理报告"].max_row == 1
     finally:
         workbook.close()
 

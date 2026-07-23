@@ -29,7 +29,7 @@ def _process_payload(output_path: Path) -> dict[str, object]:
             "info_count": 2,
             "warning_count": 1,
             "severe_warning_count": 0,
-            "category_counts": {"RECT未证明": 2, "手册查无": 1},
+            "category_counts": {"数据备注": 2, "手册查无": 1},
             "representative_messages": ["规格查无"],
         },
     }
@@ -148,7 +148,7 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     assert result.quality_status == "warning"
     assert result.warning_count == 1
     assert result.report_summary["category_counts"] == {
-        "RECT未证明": 2,
+        "数据备注": 2,
         "手册查无": 1,
     }
 

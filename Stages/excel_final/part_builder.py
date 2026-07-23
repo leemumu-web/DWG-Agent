@@ -1,4 +1,4 @@
-"""Strict RECT inference and per-component part-list projection."""
+"""Per-component part eligibility, conflict detection, and projection."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from typing import Iterable
 
 from domain import ParentPartEvidence, SplitPart
 from quality import IssueLevel, QualityIssue
-from weights import rectangular_surface_area, round_area_for_output, round_weight_for_output
 
 TYPE_PRIORITY = {
     "BH腹": 0,
@@ -20,15 +19,6 @@ TYPE_PRIORITY = {
     "扁钢": 6,
     "板材": 7,
 }
-
-
-@dataclass(frozen=True, slots=True)
-class RectDecision:
-    proven: bool
-    file_value: str | None
-    reasons: tuple[str, ...]
-    exclude_from_part: bool
-    issues: tuple[QualityIssue, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +37,6 @@ class PartCandidate:
     part_type: str
     team: str
     graphic: str
-    file_value: str | None
     excluded: bool
 
 
@@ -63,7 +52,6 @@ class PartRow:
     team: str
     graphic: str
     part_type: str
-    file_value: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,145 +60,11 @@ class PartBuildResult:
     issues: tuple[QualityIssue, ...]
 
 
-def _rect_issue(
-    parent: ParentPartEvidence,
-    *,
-    level: IssueLevel,
-    category: str,
-    reasons: tuple[str, ...],
-) -> QualityIssue:
-    source = parent.source
-    return QualityIssue(
-        level=level,
-        category=category,
-        source_sheet=source.source_sheet,
-        source_row=source.source_row,
-        component_no=source.component_no,
-        part_no=source.part_no,
-        spec=source.original_spec,
-        field="文件",
-        actual_value="; ".join(reasons),
-        expected_value="RECT 证据完整",
-        absolute_error=None,
-        relative_error=None,
-        affects_part=level is IssueLevel.SEVERE,
-        density_source=parent.density_source,
-        description="; ".join(reasons),
-    )
-
-
-def _decision(
-    parent: ParentPartEvidence,
-    reasons: list[str],
-    *,
-    severe: bool,
-) -> RectDecision:
-    if not reasons:
-        return RectDecision(True, "RECT", (), False, ())
-    reasons_tuple = tuple(reasons)
-    level = IssueLevel.SEVERE if severe else IssueLevel.INFO
-    category = "RECT证据冲突" if severe else "RECT未证明"
-    issue = _rect_issue(parent, level=level, category=category, reasons=reasons_tuple)
-    return RectDecision(False, None, reasons_tuple, severe, (issue,))
-
-
-def infer_plate_rect(
-    parent: ParentPartEvidence,
-    *,
-    cut_length: Decimal,
-    identity_consistent: bool,
-) -> RectDecision:
-    source = parent.source
-    if parent.normalized_type == "扁钢":
-        reasons = ["扁钢不推断RECT"]
-        if not identity_consistent:
-            reasons.append("构件或零件身份不一致")
-        return _decision(
-            parent,
-            reasons,
-            severe=(
-                not identity_consistent
-                or parent.weight_validation_status == "severe_warning"
-            ),
-        )
-    reasons: list[str] = []
-    if parent.normalized_type != "板材" or parent.normalized_width is None:
-        reasons.append("仅普通板材可推断RECT")
-    if source.source_unit_net != source.source_unit_gross:
-        reasons.append("未证明单净重=单毛重")
-    if source.source_total_net != source.source_total_gross:
-        reasons.append("未证明总净重=总毛重")
-
-    theory = parent.theoretical_unit_weight_unrounded
-    if theory is None or source.source_unit_gross != round_weight_for_output(theory):
-        reasons.append("未证明单毛重=三位理论重")
-    expected_total = theory * source.original_qty if theory is not None else None
-    if expected_total is None or source.source_total_gross != round_weight_for_output(expected_total):
-        reasons.append("未证明总毛重=三位理论总重")
-
-    if parent.normalized_width is not None:
-        try:
-            thickness = Decimal(parent.normalized_spec)
-            area = rectangular_surface_area(thickness, parent.normalized_width, source.length)
-        except (ValueError, ArithmeticError):
-            area = None
-    else:
-        area = None
-    if area is None or source.source_unit_area != round_area_for_output(area):
-        reasons.append("未证明单表面积=两位六面面积")
-    expected_area_total = area * source.original_qty if area is not None else None
-    if (
-        expected_area_total is None
-        or source.source_total_area != round_area_for_output(expected_area_total)
-    ):
-        reasons.append("未证明总表面积=两位六面总面积")
-    if cut_length != source.length:
-        reasons.append("下料长度与理论计算长度不一致")
-    if not identity_consistent:
-        reasons.append("构件或零件身份不一致")
-    severe = not identity_consistent or parent.weight_validation_status == "severe_warning"
-    return _decision(parent, reasons, severe=severe)
-
-
-def infer_split_rect(
-    parent: ParentPartEvidence,
-    children: tuple[object, ...],
-    *,
-    cut_length: Decimal,
-    identity_consistent: bool,
-    geometry_valid: bool,
-) -> RectDecision:
-    source = parent.source
-    theory = parent.theoretical_unit_weight_unrounded
-    reasons: list[str] = []
-    if source.source_unit_net != source.source_unit_gross:
-        reasons.append("未证明父单净重=单毛重")
-    if source.source_total_net != source.source_total_gross:
-        reasons.append("未证明父总净重=总毛重")
-    if theory is None or source.source_unit_gross != round_weight_for_output(theory):
-        reasons.append("未证明父单毛重=组合理论重")
-    expected_total = theory * source.original_qty if theory is not None else None
-    if expected_total is None or source.source_total_gross != round_weight_for_output(expected_total):
-        reasons.append("未证明父总毛重=组合理论总重")
-    if not geometry_valid or not children:
-        reasons.append("拆板几何无效")
-    if cut_length != source.length:
-        reasons.append("下料长度存在进刀修正")
-    if not identity_consistent:
-        reasons.append("构件或零件身份不一致")
-    severe = (
-        not geometry_valid
-        or not identity_consistent
-        or parent.weight_validation_status == "severe_warning"
-    )
-    return _decision(parent, reasons, severe=severe)
-
-
 def candidate_from_parent(
     parent: ParentPartEvidence,
-    rect: RectDecision,
     *,
     cut_length: Decimal,
+    identity_consistent: bool,
     team: str = "",
 ) -> PartCandidate:
     source = parent.source
@@ -234,16 +88,18 @@ def candidate_from_parent(
         part_type=parent.normalized_type,
         team=team,
         graphic="",
-        file_value=rect.file_value,
-        excluded=rect.exclude_from_part or parent.weight_validation_status == "severe_warning",
+        excluded=(
+            not identity_consistent
+            or parent.weight_validation_status == "severe_warning"
+        ),
     )
 
 
 def candidate_from_split(
     child: SplitPart,
-    rect: RectDecision,
     *,
     cut_length: Decimal,
+    identity_consistent: bool,
     team: str = "",
 ) -> PartCandidate:
     source = child.parent.source
@@ -262,8 +118,10 @@ def candidate_from_split(
         part_type=child.part_type,
         team=team,
         graphic="",
-        file_value=rect.file_value,
-        excluded=rect.exclude_from_part or child.parent.weight_validation_status == "severe_warning",
+        excluded=(
+            not identity_consistent
+            or child.parent.weight_validation_status == "severe_warning"
+        ),
     )
 
 
@@ -366,7 +224,6 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
                 team=candidate.team,
                 graphic=candidate.graphic,
                 part_type=candidate.part_type,
-                file_value=candidate.file_value,
             )
         else:
             grouped[key] = replace(current, summary=current.summary + contribution)

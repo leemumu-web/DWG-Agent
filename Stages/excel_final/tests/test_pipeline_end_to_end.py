@@ -211,6 +211,12 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
         report_rows = list(workbook["处理报告"].iter_rows(min_row=2, values_only=True))
         assert any(row[1] == "五金手册查无" and row[5] == "p-miss" for row in report_rows)
         assert not any(row[1] == "五金手册查无" and row[5] in {"p-nut", "p-tt"} for row in report_rows)
+        file_cells = [
+            row[10]
+            for row in workbook["part"].iter_rows(min_row=2, values_only=True)
+        ]
+        assert file_cells
+        assert all(value is None for value in file_cells)
     finally:
         workbook.close()
 

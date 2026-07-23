@@ -15,8 +15,6 @@ from part_builder import (
     build_part_rows,
     candidate_from_parent,
     candidate_from_split,
-    infer_plate_rect,
-    infer_split_rect,
 )
 from quality import IssueLevel, QualityIssue
 from spec_parser import (
@@ -521,14 +519,6 @@ def process_canonical_records(
         if classification.split_policy is not SplitPolicy.NONE:
             split = split_parent(evidence, classification)
             issues.extend(split.issues)
-            rect = infer_split_rect(
-                evidence,
-                split.children,
-                cut_length=source.length,
-                identity_consistent=identity_consistent,
-                geometry_valid=bool(split.children),
-            )
-            issues.extend(rect.issues)
             if not split.children:
                 organized_rows.append(_organized_row(
                     resolved,
@@ -553,8 +543,8 @@ def process_canonical_records(
                 ))
                 candidates.append(candidate_from_split(
                     child,
-                    rect,
                     cut_length=source.length,
+                    identity_consistent=identity_consistent,
                 ))
             continue
 
@@ -568,16 +558,10 @@ def process_canonical_records(
             display_parent=True,
         ))
         if classification.normalized_type in {"板材", "扁钢"}:
-            rect = infer_plate_rect(
+            candidates.append(candidate_from_parent(
                 evidence,
                 cut_length=source.length,
                 identity_consistent=identity_consistent,
-            )
-            issues.extend(rect.issues)
-            candidates.append(candidate_from_parent(
-                evidence,
-                rect,
-                cut_length=source.length,
             ))
 
     part_result = build_part_rows(candidates)

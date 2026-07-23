@@ -243,20 +243,20 @@ def test_quality_ledger_builds_path_compatible_bounded_outcome(tmp_path: Path) -
         ledger.add(
             quality.QualityIssue(
                 level=quality.IssueLevel.INFO,
-                category="轮廓未证明",
+                category="数据备注",
                 source_sheet="原表",
                 source_row=index + 2,
                 component_no="C-1",
                 part_no=f"P-{index}",
                 spec="PL10*100",
-                field="文件",
+                field="备注",
                 actual_value=None,
-                expected_value="RECT 证据完整",
+                expected_value="已复核",
                 absolute_error=None,
                 relative_error=None,
                 affects_part=False,
                 density_source="板材常量:7.85",
-                description=f"第 {index + 1} 条轮廓未证明",
+                description=f"第 {index + 1} 条数据备注",
             )
         )
     ledger.add(
@@ -288,7 +288,7 @@ def test_quality_ledger_builds_path_compatible_bounded_outcome(tmp_path: Path) -
     assert outcome.warning_count == 1
     assert outcome.severe_warning_count == 0
     assert outcome.report_summary["category_counts"] == {
-        "轮廓未证明": 12,
+        "数据备注": 12,
         "手册查无": 1,
     }
     assert len(outcome.report_summary["representative_messages"]) == 10
