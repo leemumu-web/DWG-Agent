@@ -236,19 +236,20 @@ test('无候选材质时工人可以填写完整牌号并创建使用', async ({
 
 test('窄屏下解析确认操作列保持在显示范围内', async ({ page }) => {
   await mockImport(page);
+  await page.setViewportSize({ width: 640, height: 900 });
   await page.goto('/remnants?tab=import&batch=77');
   const confirmation = page.locator('.remnant-confirm-card');
-  await confirmation.evaluate((element) => { (element as HTMLElement).style.width = '640px'; });
 
   const scrollArea = confirmation.locator('.ant-table-content');
   const actionHeader = confirmation.getByRole('columnheader', { name: '操作' });
+  const editButton = confirmation.getByRole('button', { name: '编辑' }).first();
   await expect(actionHeader).toHaveCSS('position', 'sticky');
   expect(await scrollArea.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  const scrollBox = await scrollArea.boundingBox();
-  const editBox = await confirmation.getByRole('button', { name: '编辑' }).first().boundingBox();
-  expect(scrollBox).not.toBeNull();
+  const editBox = await editButton.boundingBox();
   expect(editBox).not.toBeNull();
-  expect(editBox!.x + editBox!.width).toBeLessThanOrEqual(scrollBox!.x + scrollBox!.width + 1);
+  expect(editBox!.x + editBox!.width).toBeLessThanOrEqual(640);
+  await editButton.click();
+  await expect(page.getByRole('dialog', { name: '确认 现场余料-A.dwg' })).toBeVisible();
 });
 
 test('late material creation response does not overwrite another item', async ({ page }) => {
@@ -266,4 +267,27 @@ test('late material creation response does not overwrite another item', async ({
 
   const secondEditor = page.getByRole('dialog', { name: '确认 现场余料-B.dxf' });
   await expect(secondEditor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q235B');
+});
+
+test('late material creation response does not overwrite a reopened item choice', async ({ page }) => {
+  const state = await mockImport(page, { delayMaterialCreate: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const firstEditor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+  await firstEditor.getByRole('button', { name: '新建并使用 Q355B' }).click();
+  await expect.poll(state.materialRequestWaiting).toBe(true);
+  await firstEditor.getByRole('button', { name: '取 消' }).click();
+
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const reopenedEditor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+  const materialSelect = reopenedEditor.locator('.ant-form-item').filter({ hasText: '标准材质' });
+  const materialCombobox = materialSelect.getByRole('combobox');
+  await materialCombobox.fill('Q235B');
+  await materialCombobox.press('Enter');
+  await expect(materialSelect).toContainText('Q235B');
+
+  state.releaseMaterialCreate();
+  await expect.poll(state.materialCreateCalls).toBe(1);
+  await expect(materialSelect).toContainText('Q235B');
 });

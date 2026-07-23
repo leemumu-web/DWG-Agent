@@ -31,6 +31,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const [bulkThickness, setBulkThickness] = useState<number>();
   const [editing, setEditing] = useState<RemnantImportItem>();
   const editingItemIdRef = useRef<number | undefined>(undefined);
+  const editorGenerationRef = useRef(0);
   const materialCodeRef = useRef('');
   const [materialCode, setMaterialCode] = useState('');
   const [preview, setPreview] = useState<RemnantImportItem>();
@@ -62,7 +63,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     onSuccess: async () => { editingItemIdRef.current = undefined; setEditing(undefined); await refresh(); message.success('图纸信息已保存'); },
   });
   const createDetectedMaterial = useMutation({
-    mutationFn: ({ code }: { itemId: number; code: string }) => resolveOrCreateRemnantMaterial(code),
+    mutationFn: ({ code }: { itemId: number; code: string; generation: number }) => resolveOrCreateRemnantMaterial(code),
     onSuccess: (result, variables) => {
       queryClient.setQueryData<RemnantMaterial[]>(['remnant-materials'], (current = []) =>
         current.some((row) => row.id === result.material.id)
@@ -70,7 +71,8 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
           : [...current, result.material],
       );
       if (
-        editingItemIdRef.current === variables.itemId
+        editorGenerationRef.current === variables.generation
+        && editingItemIdRef.current === variables.itemId
         && normalizeMaterialCode(materialCodeRef.current) === variables.code
       ) {
         form.setFieldValue('material_id', result.material.id);
@@ -93,6 +95,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   });
 
   const edit = (item: RemnantImportItem) => {
+    editorGenerationRef.current += 1;
     const detectedCode = uniqueMaterialCandidate(item);
     const detectedMaterial = detectedCode
       ? materials.find((material) => normalizeMaterialCode(material.code) === detectedCode)
@@ -119,6 +122,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     });
   };
   const closeEditor = () => {
+    editorGenerationRef.current += 1;
     editingItemIdRef.current = undefined;
     materialCodeRef.current = '';
     setMaterialCode('');
@@ -187,7 +191,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
                     const code = normalizeMaterialCode(materialCode);
                     materialCodeRef.current = code;
                     setMaterialCode(code);
-                    createDetectedMaterial.mutate({ itemId: editing.id, code });
+                    createDetectedMaterial.mutate({ itemId: editing.id, code, generation: editorGenerationRef.current });
                   }}
                 >{materialCode ? `新建并使用 ${normalizeMaterialCode(materialCode)}` : '新建并使用材质'}</Button>
               </Space.Compact>}
