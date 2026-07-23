@@ -68,15 +68,18 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
         form={form}
         layout="vertical"
         initialValues={{ statuses: activeStatuses, sort: 'created_desc' }}
-        onFinish={(values) => setSearch({
-          materialId: values.materialId,
-          thicknessMm: values.thicknessMm ? String(values.thicknessMm) : undefined,
-          statuses: values.statuses?.length ? values.statuses : (showHistory ? allStatuses : activeStatuses),
-          project: values.project?.trim() || undefined,
-          part: values.part?.trim() || undefined,
-          sort: values.sort,
-          page: 1,
-        })}
+        onFinish={(values) => {
+          setSelectedIds([]);
+          setSearch({
+            materialId: values.materialId,
+            thicknessMm: values.thicknessMm ? String(values.thicknessMm) : undefined,
+            statuses: values.statuses?.length ? values.statuses : (showHistory ? allStatuses : activeStatuses),
+            project: values.project?.trim() || undefined,
+            part: values.part?.trim() || undefined,
+            sort: values.sort,
+            page: 1,
+          });
+        }}
       >
         <div className="remnant-global-search-grid">
           <Form.Item name="materialId" label="材质"><Select allowClear showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
@@ -104,6 +107,7 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
               onChange={(checked) => {
                 const statuses = checked ? allStatuses : activeStatuses;
                 setShowHistory(checked);
+                setSelectedIds([]);
                 form.setFieldValue('statuses', statuses);
                 setSearch((current) => ({ ...current, statuses, page: 1 }));
               }}

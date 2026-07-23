@@ -44,6 +44,7 @@ async function mockGlobal(page: Page) {
     const body = route.request().postDataJSON() as { remnant_ids: number[] };
     bulkRequests.push(body.remnant_ids);
     rows.find((row) => row.id === 1)!.status = 'archived';
+    rows.find((row) => row.id === 5)!.status = 'reserved';
     await json(route, envelope({
       archived: [1],
       failed: [{ remnant_id: 5, code: 'REMNANT_LOCKED', message: '只有状态为“可用”的余料才能归档。' }],
@@ -118,6 +119,27 @@ test('workers reveal history and keep only failed rows selected after partial ba
   await expect(page.getByText('余料 #5：只有状态为“可用”的余料才能归档。')).toBeVisible();
   await expect(page.getByRole('checkbox', { name: '选择余料 1' })).not.toBeChecked();
   await expect(page.getByRole('checkbox', { name: '选择余料 5' })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: '选择余料 5' })).toBeDisabled();
   await page.getByRole('button', { name: 'Close' }).click();
   await expect(page.getByText('已归档 1 张，1 张未处理')).toHaveCount(0);
+});
+
+test('changing filters or history visibility clears selected remnants', async ({ page }) => {
+  await mockGlobal(page);
+
+  await page.goto('/remnants?tab=global');
+  const first = page.getByRole('checkbox', { name: '选择余料 1' });
+  const archiveButton = page.getByRole('button', { name: '批量归档' });
+
+  await first.check();
+  await expect(archiveButton).toBeEnabled();
+  await page.getByLabel('项目编号筛选').fill('精武路');
+  await page.getByRole('button', { name: '查询全部余料' }).click();
+  await expect(first).not.toBeChecked();
+  await expect(archiveButton).toBeDisabled();
+
+  await first.check();
+  await page.getByRole('switch', { name: '显示历史余料' }).click();
+  await expect(first).not.toBeChecked();
+  await expect(archiveButton).toBeDisabled();
 });
