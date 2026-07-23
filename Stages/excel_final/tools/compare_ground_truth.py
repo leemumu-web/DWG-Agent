@@ -404,8 +404,8 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
             "下料长度(mm)": 527,
             "总数": 527,
             "总长(mm)": 527,
-            "理单重(kg)": 440,
-            "理总重(kg)": 440,
+            "理单重(kg)": 482,
+            "理总重(kg)": 482,
             "表净重(kg)": 485,
             "表毛重(kg)": 485,
         }

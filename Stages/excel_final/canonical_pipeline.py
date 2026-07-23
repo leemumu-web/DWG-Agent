@@ -23,7 +23,7 @@ from spec_parser import (
     SplitPolicy,
     classify_normalized_spec,
 )
-from splitter import parent_display_values, split_parent
+from splitter import split_parent
 from weights import (
     STEEL_DENSITY,
     TheoryBasis,
@@ -51,15 +51,39 @@ class _ResolvedParent:
     source: SourcePart
     classification: ClassificationResult
     evidence: ParentPartEvidence
-    lookup_missing: bool
+    lookup_problem: LookupStatus | None
     issues: tuple[QualityIssue, ...]
 
 
 def _lookup_issue(
     source: SourcePart,
     classification: ClassificationResult,
+    status: LookupStatus,
     density_source: str,
+    source_refs: tuple[str, ...] = (),
 ) -> QualityIssue:
+    if status is LookupStatus.CONFLICT:
+        references = "、".join(source_refs) or "唯一源手册对应行"
+        return QualityIssue(
+            level=IssueLevel.WARNING,
+            category="五金手册数据冲突",
+            source_sheet=source.source_sheet,
+            source_row=source.source_row,
+            component_no=source.component_no,
+            part_no=source.part_no,
+            spec=source.original_spec,
+            field="比重",
+            actual_value="冲突",
+            expected_value="同一规格只有一个重量",
+            absolute_error=None,
+            relative_error=None,
+            affects_part=False,
+            density_source=density_source,
+            description=(
+                f"{source.original_spec}: 唯一源手册 {references} "
+                "存在多个重量，不得自动选取"
+            ),
+        )
     reason = classification.reason or "指定类别的五金手册没有该规格"
     return QualityIssue(
         level=IssueLevel.WARNING,
@@ -122,11 +146,13 @@ def _resolve_parent(source: SourcePart, handbook: HandbookReader) -> _ResolvedPa
     classification = classify_normalized_spec(
         source.original_spec,
         material=source.material,
+        part_no=source.part_no,
     )
     density_value: Decimal | None = None
     density_source = ""
     theoretical: Decimal | None = None
-    lookup_missing = False
+    lookup_problem: LookupStatus | None = None
+    precomputed_lookup: HandbookLookupResult | None = None
     issues: list[QualityIssue] = []
     theory_basis = TheoryBasis.HANDBOOK
 
@@ -145,8 +171,15 @@ def _resolve_parent(source: SourcePart, handbook: HandbookReader) -> _ResolvedPa
             density_value = lookup.value_kg_per_m
             density_source = lookup.source
             theoretical = profile_unit_weight(density_value, source.length)
-        else:
+        elif lookup.status is LookupStatus.NOT_FOUND:
             classification = _fallback_bare_plate(classification)
+        else:
+            classification = replace(
+                classification,
+                normalized_type="扁钢",
+                lookup_policy=LookupPolicy.HANDBOOK,
+            )
+            precomputed_lookup = lookup
 
     if classification.lookup_policy is LookupPolicy.PLATE_CONSTANT:
         density_value = STEEL_DENSITY
@@ -161,7 +194,7 @@ def _resolve_parent(source: SourcePart, handbook: HandbookReader) -> _ResolvedPa
                 source.length,
             )
     elif classification.lookup_policy is LookupPolicy.HANDBOOK and theoretical is None:
-        lookup = handbook.lookup(
+        lookup = precomputed_lookup or handbook.lookup(
             classification.handbook_category,
             classification.normalized_spec,
             material=source.material,
@@ -171,14 +204,29 @@ def _resolve_parent(source: SourcePart, handbook: HandbookReader) -> _ResolvedPa
         if lookup.status is LookupStatus.HIT and density_value is not None:
             theoretical = profile_unit_weight(density_value, source.length)
         else:
-            lookup_missing = True
-            issues.append(_lookup_issue(source, classification, density_source))
+            lookup_problem = lookup.status
+            issues.append(
+                _lookup_issue(
+                    source,
+                    classification,
+                    lookup.status,
+                    density_source,
+                    lookup.source_refs,
+                )
+            )
     elif classification.lookup_policy is LookupPolicy.SKIP:
         density_source = "explicit_skip"
     elif classification.lookup_policy is LookupPolicy.NOT_FOUND:
         density_source = "classification:not_found"
-        lookup_missing = True
-        issues.append(_lookup_issue(source, classification, density_source))
+        lookup_problem = LookupStatus.NOT_FOUND
+        issues.append(
+            _lookup_issue(
+                source,
+                classification,
+                LookupStatus.NOT_FOUND,
+                density_source,
+            )
+        )
 
     classified_source = replace(source, classification=classification.normalized_type)
     validation = validate_parent_weights(
@@ -197,7 +245,7 @@ def _resolve_parent(source: SourcePart, handbook: HandbookReader) -> _ResolvedPa
         source=classified_source,
         classification=classification,
         evidence=validation.evidence,
-        lookup_missing=lookup_missing,
+        lookup_problem=lookup_problem,
         issues=tuple(issues),
     )
 
@@ -251,7 +299,17 @@ def _source_issue(
 
 def _validate_source_row(source: SourcePart) -> tuple[QualityIssue, ...]:
     issues: list[QualityIssue] = []
+    blank_spec_is_explicit_skip = (
+        not source.original_spec.strip()
+        and classify_normalized_spec(
+            source.original_spec,
+            material=source.material,
+            part_no=source.part_no,
+        ).lookup_policy is LookupPolicy.SKIP
+    )
     for field in source.invalid_fields:
+        if field == "规格" and blank_spec_is_explicit_skip:
+            continue
         issues.append(_source_issue(
             source,
             category="关键字段缺失",
@@ -391,15 +449,37 @@ def _organized_row(
     width: Decimal | None,
     quantity: Decimal,
     display_parent: bool,
+    split_theoretical_unit: Decimal | None = None,
 ) -> dict[str, object]:
     source = resolved.source
     evidence = resolved.evidence
     total_count = quantity * source.component_qty
     density: object = None
-    if display_parent:
-        density = "查无" if resolved.lookup_missing else evidence.density_value
-    theory_unit = evidence.theoretical_unit_weight_unrounded if display_parent else None
-    theory_total = evidence.theoretical_total_weight_unrounded if display_parent else None
+    density_source: str | None = None
+    material_utilization: Decimal | None = None
+    material_utilization_theory_unit: Decimal | None = None
+    if split_theoretical_unit is not None:
+        density = STEEL_DENSITY
+        density_source = "plate_constant:7.85"
+        theory_unit = split_theoretical_unit
+        theory_total = split_theoretical_unit * total_count
+        if display_parent:
+            material_utilization = evidence.material_utilization
+            material_utilization_theory_unit = (
+                evidence.theoretical_unit_weight_unrounded
+            )
+    else:
+        if display_parent:
+            if resolved.lookup_problem is LookupStatus.NOT_FOUND:
+                density = "查无"
+            elif resolved.lookup_problem is LookupStatus.CONFLICT:
+                density = "冲突"
+            else:
+                density = evidence.density_value
+            density_source = evidence.density_source
+            material_utilization = evidence.material_utilization
+        theory_unit = evidence.theoretical_unit_weight_unrounded if display_parent else None
+        theory_total = evidence.theoretical_total_weight_unrounded if display_parent else None
     unit_net = source.source_unit_net if display_parent else None
     total_net = source.source_total_net if display_parent else None
     unit_gross = source.source_unit_gross if display_parent else None
@@ -427,7 +507,7 @@ def _organized_row(
         "总数": total_count,
         "总长(mm)": source.length * total_count,
         "比重": density,
-        "比重来源": evidence.density_source if display_parent else None,
+        "比重来源": density_source,
         "理单重(kg)": _rounded(theory_unit),
         "理总重(kg)": _rounded(theory_total),
         "单净重(kg)": unit_net,
@@ -436,10 +516,11 @@ def _organized_row(
         "单毛重(kg)": unit_gross,
         "总毛重(kg)": total_gross,
         "表毛重(kg)": _table_weight(total_gross, source.component_qty),
-        "净材利用率": evidence.material_utilization if display_parent else None,
+        "净材利用率": material_utilization,
         "重量核验": _status_label(evidence.weight_validation_status) if display_parent else None,
         "单表面积(㎡)": source.source_unit_area if display_parent else None,
         "总表面积(㎡)": source.source_total_area if display_parent else None,
+        "_material_utilization_theory_unit": material_utilization_theory_unit,
         "_source_sheet": source.source_sheet,
         "_source_row": source.source_row,
     }
@@ -532,7 +613,6 @@ def process_canonical_records(
                 ))
                 continue
             for child in split.children:
-                display = parent_display_values(child)
                 organized_rows.append(_organized_row(
                     resolved,
                     part_type=child.part_type,
@@ -540,7 +620,8 @@ def process_canonical_records(
                     spec=child.spec,
                     width=child.width,
                     quantity=child.quantity,
-                    display_parent=display["density_source"] is not None,
+                    display_parent=child.is_main,
+                    split_theoretical_unit=child.theoretical_unit_weight_unrounded,
                 ))
                 candidates.append(candidate_from_split(
                     child,

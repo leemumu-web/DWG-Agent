@@ -785,7 +785,7 @@ bash scripts/db.sh init
 |---|---|---|
 | MySQL `dwg_agent` | 42 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
-| `hardware_handbook` | schema/data 或独立管理的权威源 | Excel Final 重量查找可能变化或失败 |
+| `hardware_handbook` | 唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 的确定性生成物；每条语义记录可追溯到源 Sheet/行 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |
 | 证据 | revision、migration head、timestamp、checksum、恢复结果 | 未测试 dump 不是备份保证 |
 

@@ -86,6 +86,7 @@ class SplitPart:
     width: Decimal | None
     quantity: Decimal
     is_main: bool
+    theoretical_unit_weight_unrounded: Decimal
     theoretical_contribution_unrounded: Decimal
 
 

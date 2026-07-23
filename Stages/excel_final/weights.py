@@ -75,26 +75,8 @@ def fabricated_parent_unit_weight(
     return fabricated.cross_section_area * length * density / Decimal("1000000")
 
 
-def rectangular_surface_area(
-    thickness: Decimal,
-    width: Decimal,
-    length: Decimal,
-) -> Decimal:
-    if min(thickness, width, length) <= 0:
-        raise ValueError("rectangular dimensions must be positive")
-    return (
-        Decimal("2")
-        * (thickness * width + thickness * length + width * length)
-        / Decimal("1000000")
-    )
-
-
 def round_weight_for_output(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-
-
-def round_area_for_output(value: Decimal) -> Decimal:
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def assess_theory_against_gross(

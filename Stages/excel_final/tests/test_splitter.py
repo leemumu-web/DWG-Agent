@@ -143,7 +143,7 @@ def test_split_children_keep_parent_identity_but_have_distinct_counts_and_import
     assert web.quantity * parent.source.component_qty == Decimal("12")
 
 
-def test_only_main_row_displays_parent_evidence_while_flange_keeps_internal_contribution() -> None:
+def test_split_children_retain_parent_reference_and_main_role() -> None:
     splitter = _splitter()
     parent = _parent("BH700*300*16*30")
 
@@ -153,16 +153,10 @@ def test_only_main_row_displays_parent_evidence_while_flange_keeps_internal_cont
     )
     web, flange = result.children
 
-    web_display = splitter.parent_display_values(web)
-    flange_display = splitter.parent_display_values(flange)
     assert web.is_main is True
-    assert web_display["source_unit_gross"] == parent.source.source_unit_gross
-    assert web_display["source_total_area"] == parent.source.source_total_area
-    assert web_display["density_value"] == Decimal("7.85")
-    assert web_display["theoretical_unit_weight"] == parent.theoretical_unit_weight_unrounded
-    assert web_display["weight_validation_status"] == "ok"
+    assert web.parent is parent
     assert flange.is_main is False
-    assert all(value is None for value in flange_display.values())
+    assert flange.parent is parent
     assert flange.theoretical_contribution_unrounded > 0
 
 

@@ -243,7 +243,7 @@ def test_live_upload_worker_catalog_and_download_flow(
             for cell in formula_workbook["part"]["G"][1:]
             if isinstance(cell.value, str) and cell.value.startswith("=")
         ]
-        assert len(organized_formulas) == 3431
+        assert len(organized_formulas) == 3515
         assert formula_workbook["整理表"]["O2"].value == "=L2-M2-N2"
         assert formula_workbook["整理表"]["S2"].value == "=D2*R2"
         assert formula_workbook["整理表"]["V2"].value == (

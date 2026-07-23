@@ -43,7 +43,7 @@ children = split_fabricated_geometry(
 
 ## 修改约束
 
-1. 修改 `split_fabricated_geometry` 时，必须同时通过 `tests/test_splitter.py`、`tests/test_weights.py`、`tests/test_rect.py` 和 `multi_split/tests`。
+1. 修改 `split_fabricated_geometry` 时，必须同时通过 `tests/test_splitter.py`、`tests/test_weights.py` 和 `multi_split/tests`。
 2. 兼容 API 的变化不得改变规范分类结果。
 3. 不在本包中连接 MySQL、计算父源重量、生成 `part` 或写质量报告。
 4. 不把兼容默认模式描述成生产默认规则。

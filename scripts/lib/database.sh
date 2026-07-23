@@ -312,6 +312,76 @@ print(f"mysql+pymysql://{user}:{quote(password, safe='')}@{host}:{port}/{databas
 PY
 }
 
+cleanup_migration_test_database() {
+    local database="$1"
+    if [[ ! "$database" =~ ^dwg_agent_migration_test_[0-9]+$ ]]; then
+        err "拒绝清理非迁移测试库: $database"
+        return 2
+    fi
+    if [[ ! "${DB_USER:-}" =~ ^[A-Za-z0-9_]+$ ]]; then
+        err "迁移测试清理所需的数据库用户名不安全: ${DB_USER:-empty}"
+        return 2
+    fi
+
+    local failed=0 host
+    sudo mariadb -e "DROP DATABASE IF EXISTS \`$database\`;" >/dev/null 2>&1 || failed=1
+    while read -r host; do
+        case "$host" in
+            "127.0.0.1"|"localhost") ;;
+            *)
+                err "发现未受控的迁移测试授权主机，未自动撤销: $DB_USER@$host/$database"
+                failed=1
+                continue
+                ;;
+        esac
+        sudo mariadb -e \
+            "REVOKE ALL PRIVILEGES ON \`$database\`.* FROM '$DB_USER'@'$host';" \
+            >/dev/null 2>&1 || failed=1
+    done < <(
+        sudo mariadb -N -B -e \
+            "SELECT DISTINCT Host FROM mysql.db WHERE Db = '$database' AND User = '$DB_USER';" \
+            2>/dev/null
+    )
+    sudo mariadb -e "FLUSH PRIVILEGES;" >/dev/null 2>&1 || failed=1
+    return "$failed"
+}
+
+cleanup_orphaned_migration_tests() {
+    if [[ ! "${DB_USER:-}" =~ ^[A-Za-z0-9_]+$ ]]; then
+        err "迁移测试清理所需的数据库用户名不安全: ${DB_USER:-empty}"
+        return 2
+    fi
+
+    local candidate
+    declare -A candidates=()
+    while read -r candidate; do
+        [[ "$candidate" =~ ^dwg_agent_migration_test_[0-9]+$ ]] || continue
+        candidates["$candidate"]=1
+    done < <(
+        sudo mariadb -N -B -e \
+            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME REGEXP '^dwg_agent_migration_test_[0-9]+$';" \
+            2>/dev/null
+    )
+    while read -r candidate; do
+        [[ "$candidate" =~ ^dwg_agent_migration_test_[0-9]+$ ]] || continue
+        candidates["$candidate"]=1
+    done < <(
+        sudo mariadb -N -B -e \
+            "SELECT DISTINCT Db FROM mysql.db WHERE User = '$DB_USER' AND Db REGEXP '^dwg_agent_migration_test_[0-9]+$';" \
+            2>/dev/null
+    )
+
+    if [ "${#candidates[@]}" -eq 0 ]; then
+        ok "无残留迁移测试库或授权"
+        return 0
+    fi
+    while read -r candidate; do
+        [ -n "$candidate" ] || continue
+        warn "清理残留迁移测试库及授权: $candidate"
+        cleanup_migration_test_database "$candidate" || return 1
+    done < <(printf '%s\n' "${!candidates[@]}" | sort)
+}
+
 migration_test_cmd() {
     start_cmd
     ensure_sudo || return 2
@@ -323,18 +393,14 @@ migration_test_cmd() {
 
     # Drop any orphaned migration-test databases from previous crashed runs
     # before creating a new one (SIGKILL, power loss, etc. can skip the EXIT trap).
-    sudo mariadb -N -e "SHOW DATABASES LIKE 'dwg_agent_migration_test_%';" 2>/dev/null | while read -r orphan; do
-        [[ "$orphan" =~ ^dwg_agent_migration_test_[0-9]+$ ]] || continue
-        warn "清理残留迁移测试库: $orphan"
-        sudo mariadb -e "DROP DATABASE IF EXISTS \`$orphan\`;" >/dev/null 2>&1 || true
-    done
+    cleanup_orphaned_migration_tests || return 2
 
     cleanup_migration_test() {
-        if [[ "${MIGRATION_TEST_DB:-}" =~ ^[A-Za-z0-9_]+$ ]]; then
-            sudo mariadb -e "DROP DATABASE IF EXISTS $MIGRATION_TEST_DB;" >/dev/null 2>&1 || true
+        if [[ "${MIGRATION_TEST_DB:-}" =~ ^dwg_agent_migration_test_[0-9]+$ ]]; then
+            cleanup_migration_test_database "$MIGRATION_TEST_DB"
         fi
     }
-    trap cleanup_migration_test EXIT
+    trap 'cleanup_migration_test || true' EXIT
 
     info "创建临时 MySQL schema: $MIGRATION_TEST_DB"
     sudo mariadb <<SQL
@@ -350,6 +416,8 @@ SQL
     (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run alembic upgrade head)
     info "验证临时 schema 表结构..."
     (cd "$PROJECT_ROOT/backend" && DATABASE_URL="$test_database_url" uv run python - <<'PY'
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from app.platform.config.settings import settings
@@ -376,6 +444,12 @@ expected_tables = {
     "project_members",
     "platform_messages",
     "projects",
+    "remnant_import_batches",
+    "remnant_import_items",
+    "remnant_material_aliases",
+    "remnant_materials",
+    "remnant_parts",
+    "remnants",
     "review_records",
     "sys_permissions",
     "sys_role_permissions",
@@ -412,6 +486,10 @@ expected_bigint_columns = {
 }
 
 engine = create_engine(settings.sqlalchemy_database_url)
+heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+if len(heads) != 1:
+    raise SystemExit(f"repository must have exactly one Alembic head: {heads}")
+expected_head = heads[0]
 with engine.connect() as conn:
     inspector = inspect(conn)
     tables = set(inspector.get_table_names())
@@ -419,8 +497,10 @@ with engine.connect() as conn:
     missing = sorted(expected_tables - tables)
     if missing:
         raise SystemExit(f"missing tables: {missing}")
-    if version != "e2f4b8c6a130":
-        raise SystemExit(f"unexpected Alembic head: {version}")
+    if version != expected_head:
+        raise SystemExit(
+            f"unexpected Alembic head: database={version}, repository={expected_head}"
+        )
     for table in timestamp_tables:
         columns = {column["name"] for column in inspector.get_columns(table)}
         missing_columns = {"created_at", "updated_at"} - columns
@@ -637,13 +717,10 @@ logs_cmd() {
 
 clean_cmd() {
     pick_mysql_client
+    load_db_config || return 2
     info "清理残留迁移测试数据库..."
     if ensure_sudo; then
-        sudo mariadb -N -e "SHOW DATABASES LIKE 'dwg_agent_migration_test_%';" 2>/dev/null | while read -r orphan; do
-            [[ "$orphan" =~ ^dwg_agent_migration_test_[0-9]+$ ]] || continue
-            warn "清理: $orphan"
-            sudo mariadb -e "DROP DATABASE IF EXISTS \`$orphan\`;" >/dev/null 2>&1 || true
-        done
+        cleanup_orphaned_migration_tests || return 2
     else
         warn "跳过迁移测试库清理（sudo 不可用）"
     fi

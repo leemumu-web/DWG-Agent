@@ -103,12 +103,14 @@ def test_parent_evidence_and_split_part_share_one_weight_source() -> None:
         width=Decimal("628"),
         quantity=Decimal("2"),
         is_main=True,
+        theoretical_unit_weight_unrounded=Decimal("646.000992"),
         theoretical_contribution_unrounded=Decimal("1292.001984"),
     )
 
     assert web.parent is evidence
     assert web.parent.source.original_qty == Decimal("1")
     assert web.parent.theoretical_unit_weight_unrounded == Decimal("2732.131584")
+    assert web.theoretical_unit_weight_unrounded == Decimal("646.000992")
     assert web.theoretical_contribution_unrounded == Decimal("1292.001984")
     with pytest.raises(FrozenInstanceError):
         evidence.density_source = "changed"

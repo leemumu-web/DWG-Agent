@@ -318,6 +318,38 @@ def test_excel_final_lookup_protocol_passes_category_spec_and_material(monkeypat
     assert command[command.index("--material") + 1] == "Q355B"
 
 
+def test_excel_final_lookup_protocol_preserves_authoritative_source_conflict(monkeypatch):
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=_protocol_line(
+                {
+                    "protocol_version": 1,
+                    "operation": "lookup",
+                    "category": "hfw_pipe",
+                    "normalized_spec": "LH200*100*3.2*6",
+                    "material": None,
+                    "weight_kg_per_m": None,
+                    "source": "hfw_pipe:conflict",
+                    "status": "conflict",
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(excel_final.subprocess, "run", fake_run)
+
+    result = excel_final.lookup_excel_final_weight(
+        category="hfw_pipe",
+        spec="LH200*100*3.2*6",
+    )
+
+    assert result.status == "conflict"
+    assert result.weight_kg_per_m is None
+    assert result.source == "hfw_pipe:conflict"
+
+
 def test_retired_post_output_repair_is_absent():
     assert not hasattr(excel_final, "normalize_excel_final_output")
 

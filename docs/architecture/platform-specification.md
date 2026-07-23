@@ -240,7 +240,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - `audit_logs` 通过应用 service 追加写入，API 没有更新/删除端点；但数据库没有 append-only trigger、WORM 存储、签名链或独立审计账号。因此它是**应用层追加约定**，不是防 DBA 篡改的不可变审计系统。
 - MySQL 和对象存储必须形成一致恢复点；只恢复数据库会留下缺失对象，只恢复对象会留下孤儿。
 - `scripts/docker.sh backup/restore` 提供 MySQL + MinIO 的手工单机基线；它不是跨系统原子快照，也没有调度、保留、加密、PITR 或 RPO/RTO 证据。执行环境必须补齐这些能力。
-- `hardware_handbook` 应使用只读账号；Compose 初始化给应用用户授予该库 `SELECT`。
+- `hardware_handbook` 只允许由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并通过逐值审计；运行时应使用只读账号，Compose 初始化只给应用用户授予该库 `SELECT`。
 
 ## 18. 测试与验收
 

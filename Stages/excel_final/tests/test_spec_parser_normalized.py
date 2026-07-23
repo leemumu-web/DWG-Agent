@@ -178,17 +178,42 @@ def test_fasteners_sleeves_and_tt_are_explicitly_skipped(
     assert result.split_policy is parser.SplitPolicy.NONE
 
 
+def test_blank_spec_uses_explicit_fastener_part_number_only() -> None:
+    parser = _parser()
+
+    bolt = parser.classify_normalized_spec(
+        "",
+        material="TS10.9",
+        part_no="M22",
+    )
+    ambiguous = parser.classify_normalized_spec(
+        "",
+        material="",
+        part_no="D19",
+    )
+
+    assert bolt.normalized_type == "螺栓"
+    assert bolt.normalized_spec == "M22"
+    assert bolt.lookup_policy is parser.LookupPolicy.SKIP
+    assert ambiguous.normalized_type == "未分类"
+    assert ambiguous.lookup_policy is parser.LookupPolicy.NOT_FOUND
+
+
 @pytest.mark.parametrize(
     ("spec", "category"),
     [
         ("HN300*150*6.5*9", "H_BEAM"),
         ("HW300*300*10*15", "H_BEAM"),
         ("HM300*200*8*12", "H_BEAM"),
+        ("HT300*150*6.5*9", "H_BEAM"),
         ("C20a", "CHANNEL"),
         ("L50*5", "ANGLE"),
         ("方管100*100*5", "SQUARE_TUBE"),
         ("PIP60*3.5", "STEEL_PIPE"),
         ("TN100*100*6*8", "T_BEAM"),
+        ("LH100*50*2.3*3.2", "HFW_PIPE"),
+        ("HFW100*50*2.3*3.2", "HFW_PIPE"),
+        ("W4X13", "W_BEAM"),
     ],
 )
 def test_other_known_profiles_map_to_exactly_one_handbook_category(

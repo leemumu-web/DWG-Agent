@@ -334,10 +334,19 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "workflow_input_items",
         "workflow_runs",
         "workflow_stage_runs",
+        "remnant_import_batches",
+        "remnant_import_items",
+        "remnant_material_aliases",
+        "remnant_materials",
+        "remnant_parts",
+        "remnants",
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "e2f4b8c6a130"' in source
+    assert "ScriptDirectory.from_config" in source
+    assert "repository must have exactly one Alembic head" in source
+    assert "version != expected_head" in source
+    assert 'version != "e2f4b8c6a130"' not in source
     assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
     assert '"uq_jobs_actor_task_request_key"' in source

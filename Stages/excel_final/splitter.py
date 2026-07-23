@@ -10,23 +10,6 @@ from quality import IssueLevel, QualityIssue
 from spec_parser import ClassificationResult, SplitPolicy
 from weights import plate_unit_weight
 
-_DISPLAY_FIELDS = (
-    "source_unit_net",
-    "source_total_net",
-    "source_unit_gross",
-    "source_total_gross",
-    "source_unit_area",
-    "source_total_area",
-    "density_value",
-    "density_source",
-    "theoretical_unit_weight",
-    "theoretical_total_weight",
-    "material_utilization",
-    "weight_validation_status",
-    "weight_validation_details",
-)
-
-
 @dataclass(frozen=True, slots=True)
 class CanonicalSplitResult:
     children: tuple[SplitPart, ...]
@@ -91,6 +74,11 @@ def split_parent(
             width=child.width,
             quantity=source.original_qty * child.quantity_multiplier,
             is_main=child.is_main,
+            theoretical_unit_weight_unrounded=plate_unit_weight(
+                child.thickness,
+                child.width,
+                source.length,
+            ),
             theoretical_contribution_unrounded=(
                 plate_unit_weight(child.thickness, child.width, source.length)
                 * child.quantity_multiplier
@@ -99,26 +87,3 @@ def split_parent(
         for child in geometry
     )
     return CanonicalSplitResult(children, ())
-
-
-def parent_display_values(child: SplitPart) -> dict[str, object]:
-    """Return parent evidence only for the main/web output row."""
-    if not child.is_main:
-        return {field: None for field in _DISPLAY_FIELDS}
-    parent = child.parent
-    source = parent.source
-    return {
-        "source_unit_net": source.source_unit_net,
-        "source_total_net": source.source_total_net,
-        "source_unit_gross": source.source_unit_gross,
-        "source_total_gross": source.source_total_gross,
-        "source_unit_area": source.source_unit_area,
-        "source_total_area": source.source_total_area,
-        "density_value": parent.density_value,
-        "density_source": parent.density_source,
-        "theoretical_unit_weight": parent.theoretical_unit_weight_unrounded,
-        "theoretical_total_weight": parent.theoretical_total_weight_unrounded,
-        "material_utilization": parent.material_utilization,
-        "weight_validation_status": parent.weight_validation_status,
-        "weight_validation_details": parent.weight_validation_details,
-    }

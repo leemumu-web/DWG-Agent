@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -37,6 +38,13 @@ def _rows_by_headers(sheet) -> list[dict[str, object]]:
 def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
     if not SOURCE.is_file() or not PREPROCESSED.is_file():
         pytest.skip("real ground-truth source or reviewed single-sheet input is absent")
+    backend_root = STAGE_ROOT.parents[1] / "backend"
+    if str(backend_root) not in sys.path:
+        sys.path.insert(0, str(backend_root))
+    pytest.importorskip(
+        "pydantic",
+        reason="live platform adapter requires the backend dependency environment",
+    )
     from app.modules.excel_processing.stage_adapter import run_excel_final_pipeline
 
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
@@ -138,7 +146,8 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
         assert all(len(rows) == 2 for rows in box_rows.values())
         assert all(
             sum(row["单毛重(kg)"] is not None for row in rows) == 1
-            and sum(row["理总重(kg)"] is not None for row in rows) == 1
+            and sum(row["理总重(kg)"] is not None for row in rows) == 2
+            and sum(row["比重"] == 7.85 for row in rows) == 2
             for rows in box_rows.values()
         )
 
@@ -154,8 +163,8 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             "O": 527,
             "S": 527,
             "T": 527,
-            "V": 440,
-            "W": 440,
+            "V": 482,
+            "W": 482,
             "Z": 485,
             "AC": 485,
         }

@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **133 个 path、156 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **137 个 path、160 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -217,6 +217,7 @@
 | Method | Path |
 |---|---|
 | `GET, POST` | `/api/v1/remnant-materials` |
+| `POST` | `/api/v1/remnant-materials/resolve-or-create` |
 | `PATCH` | `/api/v1/remnant-materials/{material_id}` |
 | `PUT` | `/api/v1/remnant-materials/{material_id}/aliases` |
 
@@ -238,6 +239,9 @@
 |---|---|
 | `GET` | `/api/v1/remnants/search` |
 | `GET` | `/api/v1/remnants` |
+| `GET` | `/api/v1/remnants/all` |
+| `GET` | `/api/v1/remnants/export.xlsx` |
+| `POST` | `/api/v1/remnants/bulk-archive` |
 | `GET, PATCH` | `/api/v1/remnants/{remnant_id}` |
 | `GET` | `/api/v1/remnants/{remnant_id}/preview` |
 | `GET` | `/api/v1/remnants/{remnant_id}/original-download` |

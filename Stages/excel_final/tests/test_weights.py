@@ -51,29 +51,9 @@ def test_fabricated_parent_theory_includes_every_child_contribution(
     assert result == expected
 
 
-def test_rectangular_six_face_area_uses_all_three_dimension_pairs() -> None:
-    weights = _weights()
-
-    result = weights.rectangular_surface_area(
-        Decimal("10"),
-        Decimal("135"),
-        Decimal("250"),
-    )
-
-    expected = Decimal("2") * (
-        Decimal("10") * Decimal("135")
-        + Decimal("10") * Decimal("250")
-        + Decimal("135") * Decimal("250")
-    ) / Decimal("1000000")
-    assert result == expected
-
-
 def test_writer_rounding_does_not_change_internal_values() -> None:
     weights = _weights()
     weight = Decimal("1.23456")
-    area = Decimal("0.125")
 
     assert weights.round_weight_for_output(weight) == Decimal("1.235")
-    assert weights.round_area_for_output(area) == Decimal("0.13")
     assert weight == Decimal("1.23456")
-    assert area == Decimal("0.125")

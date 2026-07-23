@@ -23,7 +23,7 @@ _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
 _PROTOCOL_VERSION = 1
 _REQUIRED_STAGE_FILES = ("main.py", "pipeline.py", "handbook.py")
 _QUALITY_STATUSES = {"ok", "warning", "severe_warning"}
-_LOOKUP_STATUSES = {"hit", "not_found", "skipped"}
+_LOOKUP_STATUSES = {"hit", "not_found", "skipped", "conflict"}
 _LOOKUP_CATEGORIES = {item.value for item in HandbookCategory}
 _PROCESS_RESULT_FIELDS = {
     "protocol_version",

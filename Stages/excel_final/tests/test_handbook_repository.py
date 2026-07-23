@@ -38,6 +38,13 @@ class FakeCursor:
     def fetchone(self) -> tuple[Any, ...] | None:
         return self.row
 
+    def fetchall(self) -> tuple[tuple[Any, ...], ...]:
+        if self.row is None:
+            return ()
+        if self.row and isinstance(self.row[0], tuple):
+            return self.row
+        return (self.row,)
+
 
 class FakeConnection:
     def __init__(
@@ -121,9 +128,19 @@ def test_each_category_executes_only_its_owned_table_query() -> None:
 @pytest.mark.parametrize(
     ("category", "source_spec", "database_spec", "table", "weight"),
     [
+        ("i_beam", "HI14", "I14", "i_beam", "16.89"),
         ("h_beam", "HN450*200*9*14", "H450*200*9*14", "h_beam", "74.9"),
         ("h_beam", "HW200*200*8*12", "H200*200*8*12", "h_beam", "49.9"),
+        ("h_beam", "HT300*150*6.5*9", "H300*150*6.5*9", "h_beam", "36.7"),
+        ("t_beam", "TN50*100*6*8", "T50*100*6*8", "t_beam", "8.47"),
         ("channel", "C14A", "[14A", "channel", "14.535"),
+        ("steel_pipe", "PIP60*14", "φ60*14", "steel_pipe", "15.884"),
+        ("square_tube", "方管100*100*5", "□100*5", "square_tube", "14.915"),
+        ("square_tube", "矩形管100*50*4", "□100*50*4", "square_tube", "8.9176"),
+        ("square_bar", "方钢20", "20", "round_square_bar", "3.14"),
+        ("hfw_pipe", "HFW100*50*2.3*3.2", "LH100*50*2.3*3.2", "hfw_pipe", "4.2"),
+        ("hfw_pipe", "LH100*50*2.3*3.2", "LH100*50*2.3*3.2", "hfw_pipe", "4.2"),
+        ("w_beam", "W4*13", "W4*13", "w_beam", "19.157454"),
     ],
 )
 def test_profile_aliases_query_the_existing_database_key(
@@ -141,7 +158,12 @@ def test_profile_aliases_query_the_existing_database_key(
     assert result.status is _handbook().LookupStatus.HIT
     assert result.normalized_spec == source_spec
     assert result.value_kg_per_m == Decimal(weight)
-    assert [params for _sql, params in _lookup_sql(connection)] == [(database_spec,)]
+    expected_params = (
+        (database_spec, database_spec)
+        if category == "w_beam"
+        else (database_spec,)
+    )
+    assert [params for _sql, params in _lookup_sql(connection)] == [expected_params]
 
 
 def test_q235b_is_an_allowed_round_bar_material_class() -> None:
@@ -185,6 +207,43 @@ def test_successful_select_without_row_is_not_found_without_formula_fallback() -
     assert result.value_kg_per_m is None
     assert result.source == "flat_steel:not_found"
     assert len(_lookup_sql(connection)) == 1
+
+
+def test_duplicate_source_rows_with_the_same_weight_are_one_lookup_hit() -> None:
+    connection = FakeConnection(
+        {
+            ("flat_steel", "6*60"): (
+                (Decimal("2.826"), "扁钢", 11),
+                (Decimal("2.826"), "扁钢", 17),
+            ),
+        }
+    )
+    repository = _repository(connection)
+
+    result = repository.lookup("flat_steel", "6*60")
+
+    assert result.status is _handbook().LookupStatus.HIT
+    assert result.value_kg_per_m == Decimal("2.826")
+    assert result.source_refs == ("扁钢!11", "扁钢!17")
+
+
+def test_duplicate_source_rows_with_conflicting_weights_are_not_arbitrarily_selected() -> None:
+    connection = FakeConnection(
+        {
+            ("hfw_pipe", "LH200*100*3.2*6"): (
+                (Decimal("11.86"), "高频焊", 26),
+                (Decimal("14.15"), "高频焊", 27),
+            ),
+        }
+    )
+    repository = _repository(connection)
+
+    result = repository.lookup("hfw_pipe", "LH200*100*3.2*6")
+
+    assert result.status is _handbook().LookupStatus.CONFLICT
+    assert result.value_kg_per_m is None
+    assert result.source == "hfw_pipe:conflict"
+    assert result.source_refs == ("高频焊!26", "高频焊!27")
 
 
 def test_connection_failure_is_fatal_infrastructure_error() -> None:

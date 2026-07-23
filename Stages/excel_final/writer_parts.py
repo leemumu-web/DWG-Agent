@@ -18,7 +18,6 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from domain import ComponentSourceRow, PipelineOutcome, SourcePart
-from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
 from ooxml_formula import FormulaCache, patch_formula_caches
 from part_builder import PartRow
 from quality import IssueLevel, QualityIssue, QualityLedger
@@ -210,7 +209,7 @@ def _write_organized_sheet(
         ws.cell(row=row_number, column=32).number_format = "0.0000%"
         ws.cell(row=row_number, column=34).number_format = "0.00"
         ws.cell(row=row_number, column=35).number_format = "0.00"
-        if item.get("比重") == "查无":
+        if item.get("比重") in {"查无", "冲突"}:
             ws.cell(row=row_number, column=22).font = _RED_FONT
 
 
@@ -228,17 +227,7 @@ def _theory_basis_formula(
         return None
     length = f"{columns['长度(mm)']}{row_number}"
     density = f"{columns['比重']}{row_number}"
-    part_type = str(item.get("类型") or "")
     source = str(item.get("比重来源") or "")
-    if part_type in _COMPONENT_SCOPED_TYPES:
-        try:
-            fabricated = parse_fabricated_profile(item.get("截面型材"))
-        except FabricatedProfileError:
-            return None
-        if fabricated is None:
-            return None
-        area = fabricated.cross_section_area
-        return f"{_formula_number(area)}*{length}*{density}/1000000"
     if source == "plate_constant:7.85":
         spec = f"{columns['规格']}{row_number}"
         width = f"{columns['宽度']}{row_number}"
@@ -308,9 +297,17 @@ def _apply_organized_formulas(
                 and item.get("净材利用率") not in (None, "")
             ):
                 unit_net = f"{columns['单净重(kg)']}{row_number}"
+                utilization_basis = theory_basis
+                parent_theory_unit = item.get(
+                    "_material_utilization_theory_unit"
+                )
+                if parent_theory_unit not in (None, ""):
+                    utilization_basis = _formula_number(
+                        Decimal(str(parent_theory_unit))
+                    )
                 formula_specs.append((
                     "净材利用率",
-                    f"={unit_net}/({theory_basis})",
+                    f"={unit_net}/({utilization_basis})",
                     item["净材利用率"],
                 ))
 

@@ -23,6 +23,7 @@
 - `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。
 - `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
 - `stage_adapter.py` / `stage_runner.py` 隔离父进程与 Stage；`interface.py` 是跨域唯一入口。
+- `handbook_catalog_source.py` 把唯一可信 `五金手册.xls` 逐行映射为可追溯的关系表、生成确定性 SQL，并提供源表与已部署手册库的逐值审计。
 
 ## 规范结果与质量语义
 
@@ -55,4 +56,4 @@ DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s tests/excel_processing/test_ex
 
 ## 范围边界
 
-这里实现的是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。跨图纸数据库屏障、左右进结果合并、自动汇总触发和生产输入 schema 的最终验收仍是待实现能力；外部 `hardware_handbook` 数据库也是部署依赖。代码移动和健康检查不能被解释为这些能力已经完成。
+这里实现的是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。跨图纸数据库屏障、左右进结果合并、自动汇总触发和生产输入 schema 的最终验收仍是待实现能力；由唯一可信 `五金手册.xls` 生成并审计的 `hardware_handbook` 数据库也是部署依赖。代码移动和健康检查不能被解释为这些能力已经完成。

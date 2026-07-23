@@ -126,10 +126,19 @@ def classify_normalized_spec(
     *,
     material: object = "",
     width: str | Decimal | float | int | None = None,
+    part_no: object = "",
 ) -> ClassificationResult:
     """Return one deterministic classification decision without querying the handbook."""
     original_spec = str(spec or "")
     compact = _compact(spec)
+    part_key = _compact(part_no)
+    if not compact and (
+        part_key.startswith(
+            ("NUT", "螺母", "SLEEVE", "螺套", "套筒", "TT", "BOLT", "螺栓")
+        )
+        or re.match(r"^M\d", part_key)
+    ):
+        compact = part_key
     upper = compact.upper()
     material_upper = _compact(material).upper()
 
@@ -275,7 +284,9 @@ def classify_normalized_spec(
 
     if re.match(r"^(?:I|HI)\d", upper):
         return _handbook_profile(original_spec, upper, "工字钢", HandbookCategory.I_BEAM)
-    if re.match(r"^(?:HN|HW|HM|HT|LH)\d", upper) or re.match(r"^H\d", upper):
+    if re.match(r"^(?:LH|HFW)\d", upper):
+        return _handbook_profile(original_spec, upper, "高频焊", HandbookCategory.HFW_PIPE)
+    if re.match(r"^(?:HN|HW|HM|HT)\d", upper) or re.match(r"^H\d", upper):
         return _handbook_profile(original_spec, upper, "H型钢", HandbookCategory.H_BEAM)
     if re.match(r"^(?:TN|TW|TM|T)\d", upper):
         return _handbook_profile(original_spec, upper, "T型钢", HandbookCategory.T_BEAM)
@@ -289,8 +300,6 @@ def classify_normalized_spec(
         return _handbook_profile(original_spec, upper, "钢管", HandbookCategory.STEEL_PIPE)
     if upper.startswith("方钢"):
         return _handbook_profile(original_spec, upper, "方钢", HandbookCategory.SQUARE_BAR)
-    if upper.startswith("HFW"):
-        return _handbook_profile(original_spec, upper, "高频焊", HandbookCategory.HFW_PIPE)
     if re.match(r"^W\d", upper):
         return _handbook_profile(original_spec, upper, "W型钢", HandbookCategory.W_BEAM)
 

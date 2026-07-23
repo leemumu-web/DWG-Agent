@@ -1,6 +1,6 @@
 # Alembic 迁移
 
-Alembic 当前管理 36 张应用模型表，head 为 `e2f4b8c6a130`。它有意排除 Celery/Kombu 按需创建的 8 张 broker/result runtime 表，也不管理 `hardware_handbook` 参考数据。
+Alembic 当前管理 42 张应用模型表，唯一 head 为 `7c4d9e2a1b60`。它有意排除 Celery/Kombu 按需创建的 8 张 broker/result runtime 表，也不管理 `hardware_handbook` 参考数据；该库只由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并单独审计。
 
 ```bash
 # 仓库根目录：初始化和空 MySQL 迁移验证

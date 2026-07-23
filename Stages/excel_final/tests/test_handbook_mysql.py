@@ -118,3 +118,46 @@ def test_same_spec_isolated_by_requested_category(
 
     assert round_result.status is handbook.LookupStatus.HIT
     assert rebar_result.status is handbook.LookupStatus.NOT_FOUND
+
+
+def test_live_conflicting_source_rows_are_reported_for_manual_review(
+    live_handbook_repository,
+) -> None:
+    handbook, repository = live_handbook_repository
+
+    result = repository.lookup("hfw_pipe", "LH200*100*3.2*6")
+
+    assert result.status is handbook.LookupStatus.CONFLICT
+    assert result.value_kg_per_m is None
+    assert result.source == "hfw_pipe:conflict"
+    assert result.source_refs == ("高频焊!26", "高频焊!27")
+
+
+@pytest.mark.parametrize(
+    ("category", "source_spec", "expected"),
+    [
+        ("i_beam", "HI14", Decimal("16.89")),
+        ("h_beam", "HT300*150*6.5*9", Decimal("36.7")),
+        ("t_beam", "TN50*100*6*8", Decimal("8.47")),
+        ("steel_pipe", "PIP60*14", Decimal("15.884")),
+        ("square_tube", "方管100*100*5", Decimal("14.915")),
+        ("square_tube", "矩形管100*50*4", Decimal("8.9176")),
+        ("square_bar", "方钢20", Decimal("3.14")),
+        ("hfw_pipe", "HFW100*50*2.3*3.2", Decimal("4.2")),
+        ("hfw_pipe", "LH100*50*2.3*3.2", Decimal("4.2")),
+        ("w_beam", "W4*13", Decimal("19.157454")),
+        ("w_beam", "W100*19.3", Decimal("19.157454")),
+    ],
+)
+def test_live_drawing_vocabulary_maps_to_source_workbook_keys(
+    live_handbook_repository,
+    category: str,
+    source_spec: str,
+    expected: Decimal,
+) -> None:
+    _handbook, repository = live_handbook_repository
+
+    result = repository.lookup(category, source_spec)
+
+    assert result.status is _handbook.LookupStatus.HIT
+    assert result.value_kg_per_m == expected

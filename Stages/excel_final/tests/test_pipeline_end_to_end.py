@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
 from handbook import HandbookLookupResult, LookupStatus
 from pipeline import run_auto_pipeline
@@ -36,6 +37,25 @@ class FakeHandbook:
 
     def log_stats(self) -> None:
         return None
+
+
+class ConflictHandbook(FakeHandbook):
+    def lookup(self, category, normalized_spec: str, *, material: str | None = None):
+        category_value = getattr(category, "value", str(category))
+        if (category_value, normalized_spec) in {
+            ("flat_steel", "9*91"),
+            ("i_beam", "I999"),
+        }:
+            self.requests.append((category_value, normalized_spec, material))
+            return HandbookLookupResult(
+                category_value,
+                normalized_spec,
+                None,
+                f"{category_value}:conflict",
+                LookupStatus.CONFLICT,
+                ("测试源!10", "测试源!11"),
+            )
+        return super().lookup(category, normalized_spec, material=material)
 
 
 PARTS = (
@@ -175,6 +195,70 @@ def test_both_input_adapters_share_the_canonical_engine(tmp_path: Path) -> None:
     assert not any(request[1] in {"NUT24", "TT25"} for request in tekla_handbook.requests)
 
 
+def test_split_parent_utilization_remains_a_parent_formula_in_internal_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "box-with-source-weights.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append([
+        "批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)", "单毛重(kg)", "总毛重(kg)",
+        "单表面积(㎡)", "总表面积(㎡)", "长度(mm)", "宽度(mm)",
+        "高度(mm)", "版本",
+    ])
+    sheet.append([
+        "B1", "C1", None, "BOX100*100*10*10", 1000, "Q355B", 1,
+    ])
+    sheet.append([
+        None, None, "p-box", "BOX100*100*10*10", 1000, "Q355B", 1,
+        28, 28, 28.26, 28.26,
+    ])
+    sheet.append(["B1", "C1", "构件小计", None, None, None, 1])
+    workbook.save(source)
+    workbook.close()
+
+    output = tmp_path / "box-output.xlsx"
+    internal = tmp_path / "box-internal.xlsx"
+    run_auto_pipeline(
+        source,
+        output,
+        handbook_repository=FakeHandbook(),
+        internal_output_file=internal,
+    )
+
+    formulas = load_workbook(internal, data_only=False)
+    values = load_workbook(internal, data_only=True)
+    try:
+        formula_sheet = formulas["整理表"]
+        value_sheet = values["整理表"]
+        headers = [cell.value for cell in formula_sheet[1]]
+        columns = {header: index + 1 for index, header in enumerate(headers)}
+        split_rows = {
+            formula_sheet.cell(row, columns["类型"]).value: row
+            for row in range(2, formula_sheet.max_row + 1)
+        }
+        web_row = split_rows["BOX腹"]
+        flange_row = split_rows["BOX翼"]
+        utilization_column = columns["净材利用率"]
+        theory_column = get_column_letter(columns["理单重(kg)"])
+        unit_net_column = get_column_letter(columns["单净重(kg)"])
+        formula = formula_sheet.cell(web_row, utilization_column).value
+
+        assert value_sheet.cell(web_row, columns["单净重(kg)"]).value == 28
+        assert value_sheet.cell(flange_row, columns["单净重(kg)"]).value is None
+        assert formula.startswith(f"={unit_net_column}{web_row}/(")
+        assert f"{theory_column}{web_row}" not in formula
+        assert value_sheet.cell(web_row, utilization_column).value == pytest.approx(
+            28 / 28.26
+        )
+        assert formula_sheet.cell(flange_row, utilization_column).value is None
+    finally:
+        formulas.close()
+        values.close()
+
+
 def test_auto_pipeline_selects_standard_and_initial_sources(tmp_path: Path) -> None:
     tekla = tmp_path / "auto-tekla.xlsx"
     initial = tmp_path / "auto-initial.xlsx"
@@ -261,11 +345,12 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
         "p-box-BOX腹", "p-box-BOX翼",
     ]
     assert by_part["p-box"][0]["序号"] == by_part["p-box"][1]["序号"]
-    assert by_part["p-box"][0]["理单重(kg)"] == 28.26
-    assert by_part["p-box"][0]["理总重(kg)"] == 56.52
-    assert by_part["p-box"][1]["理单重(kg)"] is None
-    assert by_part["p-box"][1]["理总重(kg)"] is None
-    assert by_part["p-box"][1]["比重"] is None
+    assert by_part["p-box"][0]["理单重(kg)"] == 6.28
+    assert by_part["p-box"][0]["理总重(kg)"] == 25.12
+    assert by_part["p-box"][1]["理单重(kg)"] == 7.85
+    assert by_part["p-box"][1]["理总重(kg)"] == 31.4
+    assert by_part["p-box"][1]["比重"] == 7.85
+    assert sum(row["理总重(kg)"] for row in by_part["p-box"]) == pytest.approx(56.52)
     assert by_part["p-nut"][0]["比重"] is None
     assert by_part["p-nut"][0]["理单重(kg)"] is None
     assert by_part["p-tt"][0]["比重"] is None
@@ -284,6 +369,57 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
         )]
         assert file_cells
         assert all(value is None for value in file_cells)
+    finally:
+        workbook.close()
+
+
+def test_handbook_conflict_is_not_downgraded_to_not_found_or_plate_fallback(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "conflicting-handbook.xlsx"
+    output = tmp_path / "conflicting-handbook-output.xlsx"
+    _tekla_workbook(source)
+
+    run_auto_pipeline(
+        source,
+        output,
+        handbook_repository=ConflictHandbook(),
+    )
+
+    rows = _organized(output)
+    by_part = {str(row["零件号"]): row for row in rows}
+    assert by_part["p-bare"]["比重"] == "冲突"
+    assert by_part["p-bare"]["规格"] == "9*91"
+    assert by_part["p-miss"]["比重"] == "冲突"
+
+    workbook = load_workbook(output, data_only=True, read_only=False)
+    try:
+        organized_sheet = workbook["整理表"]
+        organized_headers = [cell.value for cell in organized_sheet[1]]
+        organized_columns = {
+            header: index + 1 for index, header in enumerate(organized_headers)
+        }
+        bare_row = next(
+            row
+            for row in range(2, organized_sheet.max_row + 1)
+            if organized_sheet.cell(
+                row, organized_columns["零件号"]
+            ).value == "p-bare"
+        )
+        density_font = organized_sheet.cell(
+            bare_row,
+            organized_columns["比重"],
+        ).font.color
+        assert density_font is not None
+        assert density_font.rgb.endswith("FF0000")
+        report_rows = list(
+            workbook["处理报告"].iter_rows(min_row=2, values_only=True)
+        )
+        conflict_rows = [
+            row for row in report_rows if row[1] == "五金手册数据冲突"
+        ]
+        assert {row[4] for row in conflict_rows} == {"p-bare", "p-miss"}
+        assert all("不得自动选取" in str(row[6]) for row in conflict_rows)
     finally:
         workbook.close()
 
@@ -376,8 +512,11 @@ def test_box_three_dimension_shorthand_is_consistent_end_to_end(tmp_path: Path) 
             for row in values["整理表"].iter_rows(min_row=2, values_only=True)
         ]
         assert len(organized_rows) == 2
-        main = next(row for row in organized_rows if row["理单重(kg)"] is not None)
-        assert main["理单重(kg)"] == pytest.approx(25.12)
+        assert [row["理单重(kg)"] for row in organized_rows] == [
+            pytest.approx(6.28),
+            pytest.approx(6.28),
+        ]
+        assert sum(row["理总重(kg)"] for row in organized_rows) == pytest.approx(25.12)
         part_rows = list(values["part"].iter_rows(min_row=2, values_only=True))
         assert len(part_rows) == 2
         formula_headers = [cell.value for cell in formulas["整理表"][1]]
@@ -386,9 +525,11 @@ def test_box_three_dimension_shorthand_is_consistent_end_to_end(tmp_path: Path) 
             formulas["整理表"].cell(row, theory_column).value
             for row in range(2, formulas["整理表"].max_row + 1)
         ]
-        assert any(
+        assert len(theory_formulas) == 2
+        assert all(
             isinstance(formula, str)
-            and "3200*" in formula
+            and "3200*" not in formula
+            and "*L" in formula
             for formula in theory_formulas
         )
     finally:
@@ -528,6 +669,41 @@ def test_initial_table_missing_length_uses_the_same_audited_isolation(
         assert _cell_by_header(formulas["整理表"], 2, "下料长度(mm)").value is None
     finally:
         formulas.close()
+
+
+def test_blank_spec_m_series_part_is_an_explicit_skipped_bolt(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "blank-spec-bolt.xlsx"
+    output = tmp_path / "blank-spec-bolt-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append([
+        "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)",
+    ])
+    sheet.append(["C1", None, "H100", 1000, "Q355B", 1])
+    sheet.append([None, "M22", None, 60, "TS10.9", 10, Decimal("0.3"), Decimal("3.0")])
+    workbook.save(source)
+    workbook.close()
+
+    handbook = FakeHandbook()
+    outcome = run_auto_pipeline(source, output, handbook_repository=handbook)
+
+    assert outcome.quality_status == "ok"
+    assert not handbook.requests
+    values = load_workbook(output, data_only=True, read_only=True)
+    try:
+        row = _organized(output)[0]
+        assert row["截面型材"] is None
+        assert row["规格"] == "M22"
+        assert row["比重"] is None
+        assert row["理单重(kg)"] is None
+        assert values["part"].max_row == 1
+        assert values["处理报告"]["A2"].value == "无"
+    finally:
+        values.close()
 
 
 def test_conflicting_component_identity_blocks_flat_steel_from_part(

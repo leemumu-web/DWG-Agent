@@ -99,6 +99,13 @@ def test_database_script_exposes_isolated_mysql_migration_test():
     assert "CREATE DATABASE" in content
     assert "DROP DATABASE IF EXISTS" in content
     assert "uv run alembic upgrade head" in content
+    assert "ScriptDirectory.from_config" in content
+    assert "repository must have exactly one Alembic head" in content
+    assert 'version != "e2f4b8c6a130"' not in content
+    assert "cleanup_migration_test_database" in content
+    assert "information_schema.SCHEMATA" in content
+    assert "FROM mysql.db" in content
+    assert "REVOKE ALL PRIVILEGES ON" in content
 
 
 def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
