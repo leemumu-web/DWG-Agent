@@ -159,11 +159,27 @@ def test_live_upload_worker_catalog_and_download_flow(
             "处理报告",
         ]
         assert workbook["整理表"].max_row == 528
-        assert workbook["part"].max_row == 479
-        assert all(
-            row[10] is None
-            for row in workbook["part"].iter_rows(min_row=2, values_only=True)
-        )
+        part_headers = [cell.value for cell in workbook["part"][1]]
+        part_rows = [
+            dict(zip(part_headers, values, strict=True))
+            for values in workbook["part"].iter_rows(min_row=2, values_only=True)
+        ]
+        component_types = {
+            "BH腹", "BH翼", "BOX腹", "BOX翼", "BT腹", "BT翼",
+        }
+        component_scoped = [
+            row for row in part_rows if row["类型"] in component_types
+        ]
+        global_scoped = [
+            row for row in part_rows if row["类型"] not in component_types
+        ]
+        assert len(part_rows) == 122
+        assert len(component_scoped) == 84
+        assert len(global_scoped) == 38
+        assert all(row["导入构件编号"] for row in component_scoped)
+        assert all(row["导入构件编号"] is None for row in global_scoped)
+        assert sum(row["汇总"] for row in global_scoped) == 1216
+        assert all(row["文件"] is None for row in part_rows)
         assert workbook["处理报告"]["A2"].value == "无"
         assert workbook["处理报告"].max_row == 2
         for sheet_name, headers in (
