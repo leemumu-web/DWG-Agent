@@ -21,6 +21,17 @@ export async function createRemnantMaterial(payload: { code: string; family_code
   return response.data.data;
 }
 
+export async function resolveOrCreateRemnantMaterial(code: string): Promise<{
+  material: RemnantMaterial;
+  created: boolean;
+}> {
+  const response = await apiClient.post<ApiEnvelope<{
+    material: RemnantMaterial;
+    created: boolean;
+  }>>('/api/v1/remnant-materials/resolve-or-create', { code });
+  return response.data.data;
+}
+
 export async function updateRemnantMaterial(
   materialId: number,
   payload: { family_code?: string; enabled?: boolean },

@@ -3,10 +3,20 @@ import { Alert, App, Button, Card, Descriptions, Form, Input, InputNumber, Modal
 import { CheckOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DxfPreviewModal } from '../files';
-import { bulkApplyThickness, confirmRemnantImportItems, updateRemnantImportItem } from './api';
+import { describeApiError } from '../../shared/api';
+import { bulkApplyThickness, confirmRemnantImportItems, resolveOrCreateRemnantMaterial, updateRemnantImportItem } from './api';
 import type { RemnantImportBatch, RemnantImportItem, RemnantMaterial } from './types';
 
 interface Props { batch: RemnantImportBatch; materials: RemnantMaterial[] }
+
+function normalizeMaterialCode(value: string): string {
+  return value.normalize('NFKC').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+function uniqueMaterialCandidate(item: RemnantImportItem): string | undefined {
+  const candidates = [...new Set(item.material_candidates.map((candidate) => normalizeMaterialCode(candidate.value)).filter(Boolean))];
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
 
 export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const { message } = App.useApp();
@@ -20,6 +30,14 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const [form] = Form.useForm();
   const rows = useMemo(() => batch.items.filter((item) => ['pending_confirmation', 'confirmed'].includes(item.status)), [batch.items]);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['remnant-import-batch', batch.id] });
+  const unmatchedMaterialCode = useMemo(() => {
+    if (!editing) return undefined;
+    const candidate = uniqueMaterialCandidate(editing);
+    if (!candidate) return undefined;
+    return materials.some((material) => normalizeMaterialCode(material.code) === candidate)
+      ? undefined
+      : candidate;
+  }, [editing, materials]);
 
   const bulk = useMutation({
     mutationFn: () => bulkApplyThickness(batch.id, selected.map(Number), String(bulkThickness)),
@@ -31,6 +49,19 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       project_no: values.project_no, parts: values.partsText.split(/[、,，\n]/).map((value) => value.trim()).filter(Boolean),
     }),
     onSuccess: async () => { setEditing(undefined); await refresh(); message.success('图纸信息已保存'); },
+  });
+  const createDetectedMaterial = useMutation({
+    mutationFn: (code: string) => resolveOrCreateRemnantMaterial(code),
+    onSuccess: (result) => {
+      queryClient.setQueryData<RemnantMaterial[]>(['remnant-materials'], (current = []) =>
+        current.some((row) => row.id === result.material.id)
+          ? current
+          : [...current, result.material],
+      );
+      form.setFieldValue('material_id', result.material.id);
+      message.success(result.created ? '材质已创建并选中' : '已选中现有材质');
+    },
+    onError: (error) => message.error(describeApiError(error, '材质创建失败')),
   });
   const confirm = useMutation({
     mutationFn: () => confirmRemnantImportItems(selected.map(Number)),
@@ -44,10 +75,14 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   });
 
   const edit = (item: RemnantImportItem) => {
+    const detectedCode = uniqueMaterialCandidate(item);
+    const detectedMaterial = detectedCode
+      ? materials.find((material) => normalizeMaterialCode(material.code) === detectedCode)
+      : undefined;
     setEditing(item);
     form.setFieldsValue({
       thickness_mm: item.thickness_mm ? Number(item.thickness_mm) : undefined,
-      material_id: item.material_id ?? undefined,
+      material_id: item.material_id ?? detectedMaterial?.id,
       project_no: item.project_no ?? item.project_candidates[0]?.value,
       partsText: (item.parts.length ? item.parts : item.part_candidates.map((candidate) => candidate.value)).join('、'),
     });
@@ -91,6 +126,16 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
           </div>
           <Form form={form} layout="vertical" onFinish={(values) => save.mutate(values)}>
             <Form.Item name="thickness_mm" label="厚度（mm）" rules={[{ required: true }]}><InputNumber min={0.001} precision={3} style={{ width: '100%' }} /></Form.Item>
+            {unmatchedMaterialCode && <Alert
+              type="info"
+              showIcon
+              title={`检测到未建档材质 ${unmatchedMaterialCode}`}
+              action={<Button
+                loading={createDetectedMaterial.isPending}
+                onClick={() => createDetectedMaterial.mutate(unmatchedMaterialCode)}
+              >新建并使用 {unmatchedMaterialCode}</Button>}
+              style={{ marginBottom: 16 }}
+            />}
             <Form.Item name="material_id" label="标准材质" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
             <Form.Item name="project_no" label="项目编号" rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="partsText" label="零件编号（逗号、顿号或换行分隔）" rules={[{ required: true }]}><Input.TextArea rows={4} /></Form.Item>

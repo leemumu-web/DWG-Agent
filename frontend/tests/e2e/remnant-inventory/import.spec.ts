@@ -21,8 +21,10 @@ async function json(route: Route, data: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(envelope(data)) });
 }
 
-async function mockImport(page: Page) {
+async function mockImport(page: Page, options: { failMaterialCreate?: boolean } = {}) {
   const items = [item(1, '现场余料-A.dwg', 'pending_confirmation'), item(2, '现场余料-B.dxf', 'pending_confirmation'), item(3, '待重试.dwg', 'failed')];
+  items[0].material_candidates = [{ value: 'Q355B', evidence: [{ raw_text: 'Q355B', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
+  items[0].project_candidates = [{ value: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', evidence: [{ raw_text: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   let retryCalls = 0;
   let patchCalls = 0;
   const batch = () => ({
@@ -33,6 +35,10 @@ async function mockImport(page: Page) {
   });
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
   await page.route('**/api/v1/remnant-materials', (route) => json(route, [{ id: 1, code: 'Q235B', family_code: 'Q235', enabled: true, created_at: now, updated_at: now }]));
+  await page.route('**/api/v1/remnant-materials/resolve-or-create', (route) => {
+    if (options.failMaterialCreate) return json(route, { message: 'create failed' }, 500);
+    return json(route, { material: { id: 2, code: 'Q355B', family_code: 'Q355B', enabled: true, aliases: [], created_at: now, updated_at: now }, created: true }, 201);
+  });
   await page.route('**/api/v1/remnant-import-batches', async (route) => {
     expect(route.request().method()).toBe('POST');
     expect((await route.request().postDataBuffer())?.length).toBeGreaterThan(0);
@@ -91,10 +97,11 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await confirmation.getByRole('button', { name: '编辑' }).first().click();
   const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
   await expect(editor.getByText('MATERIAL_CANDIDATES_CONFLICT')).toBeVisible();
-  await expect(editor.getByText(/TITLE: 材质: Q235B/)).toBeVisible();
+  await expect(editor.getByText(/TITLE: Q355B/)).toBeVisible();
+  await expect(editor.getByLabel('项目编号')).toHaveValue('北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03');
   await editor.getByLabel('厚度（mm）').fill('10');
-  await editor.getByLabel('标准材质').click();
-  await page.getByText('Q235B', { exact: true }).last().click();
+  await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
+  await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q355B');
   await editor.getByLabel('项目编号').fill('PJ-CONFIRMED');
   await editor.getByLabel('零件编号（逗号、顿号或换行分隔）').fill('L-1、L-2');
   await editor.getByRole('button', { name: '确 定' }).click({ force: true });
@@ -102,4 +109,32 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
 
   await confirmation.getByRole('button', { name: '确认选中项' }).click();
   await expect(page.getByText('已确认 1 张，1 张需补充字段')).toBeVisible();
+});
+
+test('failed material creation preserves confirmation fields', async ({ page }) => {
+  await mockImport(page, { failMaterialCreate: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+  await editor.getByLabel('厚度（mm）').fill('10');
+  const expectedProject = await editor.getByLabel('项目编号').inputValue();
+  const expectedParts = await editor.getByLabel('零件编号（逗号、顿号或换行分隔）').inputValue();
+
+  await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
+
+  await expect(editor.getByLabel('厚度（mm）')).toHaveAttribute('aria-valuenow', '10');
+  await expect(editor.getByLabel('项目编号')).toHaveValue(expectedProject);
+  await expect(editor.getByLabel('零件编号（逗号、顿号或换行分隔）')).toHaveValue(expectedParts);
+});
+
+test('existing detected material is automatically selected', async ({ page }) => {
+  await mockImport(page);
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+
+  await confirmation.getByRole('button', { name: '编辑' }).nth(1).click();
+
+  const editor = page.getByRole('dialog', { name: '确认 现场余料-B.dxf' });
+  await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q235B');
 });
