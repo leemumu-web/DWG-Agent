@@ -1,5 +1,6 @@
 import { apiClient, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
 import type {
+  BulkArchiveResult,
   ImportConfirmationResult,
   OriginalDownload,
   Remnant,
@@ -9,6 +10,14 @@ import type {
   RemnantMaterial,
   RemnantSearch,
 } from './types';
+
+export async function bulkArchiveRemnants(remnantIds: number[]): Promise<BulkArchiveResult> {
+  const response = await apiClient.post<ApiEnvelope<BulkArchiveResult>>(
+    '/api/v1/remnants/bulk-archive',
+    { remnant_ids: remnantIds },
+  );
+  return response.data.data;
+}
 
 export async function listRemnantMaterials(enabledOnly = true): Promise<RemnantMaterial[]> {
   const response = await apiClient.get<ApiEnvelope<RemnantMaterial[]>>('/api/v1/remnant-materials', {

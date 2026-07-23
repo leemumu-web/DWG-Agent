@@ -178,7 +178,7 @@ export function RemnantInventoryPage() {
         />
       </Card>
           </div> },
-          { key: 'global', label: '全部余料', children: <RemnantGlobalPanel materials={materials.data ?? []} onOpenDetail={setSelectedId} /> },
+          { key: 'global', label: '全部余料', children: <RemnantGlobalPanel materials={materials.data ?? []} currentUserId={user?.id} isAdmin={isAdmin} onOpenDetail={setSelectedId} /> },
           { key: 'import', label: '批量导入', children: <div className="remnant-tab-stack">
             <RemnantImportPanel onCreated={(created) => {
               const target = new URLSearchParams(params);

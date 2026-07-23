@@ -53,6 +53,15 @@ export interface RemnantGlobalSearch {
   page: number;
 }
 
+export interface BulkArchiveResult {
+  archived: number[];
+  failed: Array<{
+    remnant_id: number;
+    code: string;
+    message: string;
+  }>;
+}
+
 export interface OriginalDownload {
   file_id: number;
   file_name: string;

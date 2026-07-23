@@ -1,17 +1,20 @@
 import { useState } from 'react';
-import { DownloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
-import { App, Button, Card, Form, Input, InputNumber, Select, Space, Table, Typography } from 'antd';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { DeleteOutlined, DownloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Typography } from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeApiError } from '../../shared/api';
-import { exportAllRemnants, listAllRemnants } from './api';
+import { bulkArchiveRemnants, exportAllRemnants, listAllRemnants } from './api';
 import { StatusTag } from './RemnantDetailDrawer';
-import type { Remnant, RemnantGlobalSearch, RemnantMaterial, RemnantStatus } from './types';
+import type { BulkArchiveResult, Remnant, RemnantGlobalSearch, RemnantMaterial, RemnantStatus } from './types';
 
 interface Props {
   materials: RemnantMaterial[];
+  currentUserId?: number;
+  isAdmin: boolean;
   onOpenDetail: (id: number) => void;
 }
 
+const activeStatuses: RemnantStatus[] = ['available', 'reserved'];
 const allStatuses: RemnantStatus[] = ['available', 'reserved', 'used', 'archived'];
 const statusOptions = [
   { label: '可用', value: 'available' },
@@ -27,14 +30,19 @@ const sortOptions = [
   { label: '库存状态', value: 'status' },
 ];
 const initialSearch: RemnantGlobalSearch = {
-  statuses: allStatuses,
+  statuses: activeStatuses,
   sort: 'created_desc',
   page: 1,
 };
 
-export function RemnantGlobalPanel({ materials, onOpenDetail }: Props) {
+export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDetail }: Props) {
   const { message } = App.useApp();
+  const queryClient = useQueryClient();
+  const [form] = Form.useForm();
   const [search, setSearch] = useState<RemnantGlobalSearch>(initialSearch);
+  const [showHistory, setShowHistory] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [archiveResult, setArchiveResult] = useState<BulkArchiveResult>();
   const results = useQuery({
     queryKey: ['remnants', 'all', search],
     queryFn: () => listAllRemnants(search),
@@ -44,16 +52,26 @@ export function RemnantGlobalPanel({ materials, onOpenDetail }: Props) {
     onSuccess: () => message.success('全部余料已导出'),
     onError: (error) => message.error(describeApiError(error, '余料导出失败')),
   });
+  const archiving = useMutation({
+    mutationFn: bulkArchiveRemnants,
+    onSuccess: async (result) => {
+      setArchiveResult(result);
+      setSelectedIds(result.failed.map((item) => item.remnant_id));
+      await queryClient.invalidateQueries({ queryKey: ['remnants', 'all'] });
+    },
+    onError: (error) => message.error(describeApiError(error, '批量归档失败')),
+  });
 
   return <div className="remnant-tab-stack">
     <Card bordered={false} className="remnant-search-card">
       <Form
+        form={form}
         layout="vertical"
-        initialValues={{ statuses: allStatuses, sort: 'created_desc' }}
+        initialValues={{ statuses: activeStatuses, sort: 'created_desc' }}
         onFinish={(values) => setSearch({
           materialId: values.materialId,
           thicknessMm: values.thicknessMm ? String(values.thicknessMm) : undefined,
-          statuses: values.statuses?.length ? values.statuses : allStatuses,
+          statuses: values.statuses?.length ? values.statuses : (showHistory ? allStatuses : activeStatuses),
           project: values.project?.trim() || undefined,
           part: values.part?.trim() || undefined,
           sort: values.sort,
@@ -63,7 +81,7 @@ export function RemnantGlobalPanel({ materials, onOpenDetail }: Props) {
         <div className="remnant-global-search-grid">
           <Form.Item name="materialId" label="材质"><Select allowClear showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
           <Form.Item name="thicknessMm" label="厚度（mm）"><InputNumber min={0.001} precision={3} style={{ width: '100%' }} /></Form.Item>
-          <Form.Item name="statuses" label="库存状态"><Select mode="multiple" options={statusOptions} maxTagCount="responsive" /></Form.Item>
+          <Form.Item name="statuses" label="库存状态"><Select mode="multiple" options={showHistory ? statusOptions : statusOptions.slice(0, 2)} maxTagCount="responsive" /></Form.Item>
           <Form.Item name="project" label="项目编号"><Input aria-label="项目编号筛选" allowClear /></Form.Item>
           <Form.Item name="part" label="零件编号"><Input aria-label="零件编号筛选" allowClear /></Form.Item>
           <Form.Item name="sort" label="排序"><Select options={sortOptions} /></Form.Item>
@@ -75,14 +93,54 @@ export function RemnantGlobalPanel({ materials, onOpenDetail }: Props) {
       <div className="remnant-section-heading">
         <div>
           <Typography.Title level={4}>全部余料</Typography.Title>
-          <Typography.Text type="secondary">共 {results.data?.pagination.total ?? 0} 张，包含全部库存状态</Typography.Text>
+          <Typography.Text type="secondary">共 {results.data?.pagination.total ?? 0} 张，{showHistory ? '包含全部库存状态' : '默认隐藏已使用和已归档余料'}</Typography.Text>
         </div>
-        <Button icon={<DownloadOutlined />} loading={exporting.isPending} onClick={() => exporting.mutate()}>导出全部余料</Button>
+        <Space wrap>
+          <Space>
+            <Typography.Text>显示历史余料</Typography.Text>
+            <Switch
+              aria-label="显示历史余料"
+              checked={showHistory}
+              onChange={(checked) => {
+                const statuses = checked ? allStatuses : activeStatuses;
+                setShowHistory(checked);
+                form.setFieldValue('statuses', statuses);
+                setSearch((current) => ({ ...current, statuses, page: 1 }));
+              }}
+            />
+          </Space>
+          <Popconfirm
+            title={`确认归档选中的 ${selectedIds.length} 张余料？`}
+            description="符合权限和库存状态的余料会被归档，其余余料会保留并显示原因。"
+            onConfirm={() => archiving.mutate(selectedIds)}
+          >
+            <Button danger icon={<DeleteOutlined />} disabled={!selectedIds.length} loading={archiving.isPending}>批量归档</Button>
+          </Popconfirm>
+          <Button icon={<DownloadOutlined />} loading={exporting.isPending} onClick={() => exporting.mutate()}>导出全部余料</Button>
+        </Space>
       </div>
+      {archiveResult && <Alert
+        closable
+        showIcon
+        type={archiveResult.failed.length ? 'warning' : 'success'}
+        message={`已归档 ${archiveResult.archived.length} 张，${archiveResult.failed.length} 张未处理`}
+        description={archiveResult.failed.map((item) => <div key={item.remnant_id}>余料 #{item.remnant_id}：{item.message}</div>)}
+        onClose={() => setArchiveResult(undefined)}
+        style={{ marginBottom: 16 }}
+      />}
       <Table<Remnant>
         rowKey="id"
         loading={results.isFetching}
         dataSource={results.data?.data ?? []}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          preserveSelectedRowKeys: true,
+          onChange: (keys) => setSelectedIds(keys.map(Number)),
+          getCheckboxProps: (row) => ({
+            disabled: row.status !== 'available' || (!isAdmin && row.imported_by !== currentUserId),
+            'aria-label': `选择余料 ${row.id}`,
+          }),
+        }}
         pagination={{
           current: search.page,
           pageSize: 20,
