@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from enum import StrEnum
 
 from domain import ParentPartEvidence, SourcePart
-from multi_split.profile import split_fabricated_geometry
+from fabricated_profile import FabricatedProfile
 from quality import IssueLevel, QualityIssue
 
 STEEL_DENSITY = Decimal("7.85")
@@ -65,18 +65,19 @@ def fabricated_parent_unit_weight(
 ) -> Decimal:
     if length <= 0:
         raise ValueError(f"fabricated profile has non-positive geometry: {profile}")
-    children = split_fabricated_geometry(
+    fabricated = FabricatedProfile(
         profile,
         height,
         width,
         web_thickness,
         flange_thickness,
     )
-    cross_section_area = sum(
-        child.thickness * child.width * child.quantity_multiplier
-        for child in children
+    return (
+        fabricated.cross_section_area
+        * length
+        * density
+        / Decimal("1000000")
     )
-    return cross_section_area * length * density / Decimal("1000000")
 
 
 def rectangular_surface_area(

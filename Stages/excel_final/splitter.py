@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
-from decimal import Decimal
 
 from domain import ParentPartEvidence, SplitPart
-from multi_split.profile import split_fabricated_geometry
+from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
 from quality import IssueLevel, QualityIssue
 from spec_parser import ClassificationResult, SplitPolicy
 from weights import plate_unit_weight
-
-_FABRICATED_SPEC = re.compile(
-    r"^(BH|BOX|BT)([0-9]+(?:\.[0-9]+)?)\*([0-9]+(?:\.[0-9]+)?)"
-    r"\*([0-9]+(?:\.[0-9]+)?)\*([0-9]+(?:\.[0-9]+)?)$"
-)
 
 _DISPLAY_FIELDS = (
     "source_unit_net",
@@ -70,24 +63,21 @@ def split_parent(
         raise ValueError(
             f"{classification.original_spec!r} is not a canonical split candidate"
         )
-    match = _FABRICATED_SPEC.fullmatch(classification.normalized_spec)
-    if match is None or match.group(1) != classification.split_policy.value:
+    try:
+        fabricated = parse_fabricated_profile(classification.normalized_spec)
+    except FabricatedProfileError as exc:
+        issue = _geometry_issue(parent, str(exc))
+        return CanonicalSplitResult((), (issue,))
+    if (
+        fabricated is None
+        or fabricated.kind != classification.split_policy.value
+    ):
         issue = _geometry_issue(parent, "已确认拆板类别与截面规格不一致")
         return CanonicalSplitResult((), (issue,))
 
-    profile = match.group(1)
-    height, width, web, flange = (
-        Decimal(value) for value in match.groups()[1:]
-    )
     try:
-        geometry = split_fabricated_geometry(
-            profile,
-            height,
-            width,
-            web,
-            flange,
-        )
-    except ValueError as exc:
+        geometry = fabricated.children()
+    except FabricatedProfileError as exc:
         return CanonicalSplitResult((), (_geometry_issue(parent, str(exc)),))
 
     source = parent.source

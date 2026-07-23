@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-import re
 from typing import Iterable, Protocol
 
 from domain import ComponentSourceRow, ParentPartEvidence, PipelineOutcome, SourcePart
+from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
 from handbook import HandbookLookupResult, LookupStatus
 from part_builder import (
     PartCandidate,
@@ -34,12 +34,6 @@ from weights import (
     validate_parent_weights,
 )
 from writer_parts import write_canonical_workbook
-
-
-_FABRICATED_SPEC = re.compile(
-    r"^(BH|BOX|BT)([0-9]+(?:\.[0-9]+)?)\*([0-9]+(?:\.[0-9]+)?)"
-    r"\*([0-9]+(?:\.[0-9]+)?)\*([0-9]+(?:\.[0-9]+)?)$"
-)
 
 
 class HandbookReader(Protocol):
@@ -90,14 +84,20 @@ def _fabricated_theory(
     classification: ClassificationResult,
     length: Decimal,
 ) -> Decimal | None:
-    match = _FABRICATED_SPEC.fullmatch(classification.normalized_spec)
-    if match is None:
+    try:
+        fabricated = parse_fabricated_profile(classification.normalized_spec)
+    except FabricatedProfileError:
         return None
-    profile = match.group(1)
-    height, width, web, flange = (Decimal(value) for value in match.groups()[1:])
+    if fabricated is None:
+        return None
     try:
         return fabricated_parent_unit_weight(
-            profile, height, width, web, flange, length
+            fabricated.kind,
+            fabricated.height,
+            fabricated.width,
+            fabricated.web_thickness,
+            fabricated.flange_thickness,
+            length,
         )
     except ValueError:
         return None

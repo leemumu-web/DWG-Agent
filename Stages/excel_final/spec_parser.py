@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
+from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
+
 
 class HandbookCategory(StrEnum):
     FLAT_STEEL = "flat_steel"
@@ -220,12 +222,21 @@ def classify_normalized_spec(
 
     for prefix, split in (("BOX", SplitPolicy.BOX), ("BH", SplitPolicy.BH), ("BT", SplitPolicy.BT)):
         if upper.startswith(prefix):
+            try:
+                fabricated = parse_fabricated_profile(upper)
+            except FabricatedProfileError as exc:
+                normalized = upper
+                reason = str(exc)
+            else:
+                normalized = fabricated.normalized_spec if fabricated is not None else upper
+                reason = None
             return _result(
                 original_spec,
                 normalized_type=prefix,
-                normalized_spec=upper,
+                normalized_spec=normalized,
                 lookup=LookupPolicy.PLATE_CONSTANT,
                 split=split,
+                reason=reason,
             )
 
     if upper.startswith("HA"):
