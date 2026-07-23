@@ -60,6 +60,8 @@ def test_missing_cjk_font_keeps_preview_renderable(monkeypatch) -> None:
 
 def test_preview_renderer_version_invalidates_old_cache_names() -> None:
     assert rendering.PREVIEW_RENDERER_VERSION == "svg-v2-cjk"
+    source = StoredFile(id=17, sha256="a" * 64)
+    assert "dxf-preview:svg-v2-cjk:17:" in service.preview_batch_name(source)
 
 
 def test_render_dxf_returns_safe_svg_and_metadata() -> None:

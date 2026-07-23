@@ -21,12 +21,21 @@ async function json(route: Route, data: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(envelope(data)) });
 }
 
-async function mockImport(page: Page, options: { failMaterialCreate?: boolean } = {}) {
+async function mockImport(page: Page, options: {
+  conflictProject?: boolean;
+  delayMaterialCreate?: boolean;
+  failMaterialCreate?: boolean;
+  multipleMaterials?: boolean;
+} = {}) {
   const items = [item(1, '现场余料-A.dwg', 'pending_confirmation'), item(2, '现场余料-B.dxf', 'pending_confirmation'), item(3, '待重试.dwg', 'failed')];
   items[0].material_candidates = [{ value: 'Q355B', evidence: [{ raw_text: 'Q355B', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   items[0].project_candidates = [{ value: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', evidence: [{ raw_text: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
+  if (options.multipleMaterials) items[0].material_candidates.push({ value: 'Q390B', evidence: [] });
+  if (options.conflictProject) items[1].project_candidates.push({ value: '南京北站017计划冲突标题', evidence: [] });
   let retryCalls = 0;
   let patchCalls = 0;
+  let materialCreateCalls = 0;
+  let releaseMaterialRequest: (() => void) | undefined;
   const batch = () => ({
     id: 77, created_by: 8, status: 'awaiting_confirmation', total_count: 3,
     converting_count: 0, parsing_count: 0, pending_count: items.filter((row) => row.status === 'pending_confirmation').length,
@@ -35,9 +44,12 @@ async function mockImport(page: Page, options: { failMaterialCreate?: boolean } 
   });
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
   await page.route('**/api/v1/remnant-materials', (route) => json(route, [{ id: 1, code: 'Q235B', family_code: 'Q235', enabled: true, created_at: now, updated_at: now }]));
-  await page.route('**/api/v1/remnant-materials/resolve-or-create', (route) => {
+  await page.route('**/api/v1/remnant-materials/resolve-or-create', async (route) => {
     if (options.failMaterialCreate) return json(route, { message: 'create failed' }, 500);
-    return json(route, { material: { id: 2, code: 'Q355B', family_code: 'Q355B', enabled: true, aliases: [], created_at: now, updated_at: now }, created: true }, 201);
+    if (options.delayMaterialCreate) await new Promise<void>((resolve) => { releaseMaterialRequest = resolve; });
+    const code = route.request().postDataJSON().code.toUpperCase();
+    await json(route, { material: { id: code === 'Q355B' ? 2 : 3, code, family_code: code, enabled: true, aliases: [], created_at: now, updated_at: now }, created: true }, 201);
+    materialCreateCalls += 1;
   });
   await page.route('**/api/v1/remnant-import-batches', async (route) => {
     expect(route.request().method()).toBe('POST');
@@ -62,7 +74,13 @@ async function mockImport(page: Page, options: { failMaterialCreate?: boolean } 
     items[0].status = 'confirmed';
     await json(route, { confirmed: [{ item_id: 1, remnant_id: 901 }], invalid: [{ item_id: 2, code: 'REMNANT_PROJECT_REQUIRED' }], already_confirmed: [] });
   });
-  return { retryCalls: () => retryCalls, patchCalls: () => patchCalls };
+  return {
+    retryCalls: () => retryCalls,
+    patchCalls: () => patchCalls,
+    materialRequestWaiting: () => Boolean(releaseMaterialRequest),
+    materialCreateCalls: () => materialCreateCalls,
+    releaseMaterialCreate: () => releaseMaterialRequest?.(),
+  };
 }
 
 test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and partial confirmation', async ({ page }) => {
@@ -137,4 +155,45 @@ test('existing detected material is automatically selected', async ({ page }) =>
 
   const editor = page.getByRole('dialog', { name: '确认 现场余料-B.dxf' });
   await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q235B');
+});
+
+test('conflicting project candidates stay blank for worker confirmation', async ({ page }) => {
+  await mockImport(page, { conflictProject: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+
+  await confirmation.getByRole('button', { name: '编辑' }).nth(1).click();
+
+  const editor = page.getByRole('dialog', { name: '确认 现场余料-B.dxf' });
+  await expect(editor.getByLabel('项目编号')).toHaveValue('');
+});
+
+test('worker chooses one of multiple missing grades and creates it', async ({ page }) => {
+  await mockImport(page, { multipleMaterials: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+
+  await editor.getByLabel('新材质完整牌号').fill('Q390B');
+  await editor.getByRole('button', { name: '新建并使用 Q390B' }).click();
+
+  await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q390B');
+});
+
+test('late material creation response does not overwrite another item', async ({ page }) => {
+  const state = await mockImport(page, { delayMaterialCreate: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const firstEditor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+  await firstEditor.getByRole('button', { name: '新建并使用 Q355B' }).click();
+  await expect.poll(state.materialRequestWaiting).toBe(true);
+  await firstEditor.getByRole('button', { name: '取 消' }).click();
+  await confirmation.getByRole('button', { name: '编辑' }).nth(1).click();
+  state.releaseMaterialCreate();
+  await expect.poll(state.materialCreateCalls).toBe(1);
+
+  const secondEditor = page.getByRole('dialog', { name: '确认 现场余料-B.dxf' });
+  await expect(secondEditor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q235B');
 });

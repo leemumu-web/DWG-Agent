@@ -237,6 +237,20 @@ def test_oversized_project_title_is_not_persistable_candidate(tmp_path: Path) ->
     assert "PROJECT_TITLE_TOO_LONG" in [warning.code for warning in result.warnings]
 
 
+def test_project_title_at_128_character_boundary_is_accepted(tmp_path: Path) -> None:
+    prefix = "南京北站001计划"
+    title = prefix + "边" * (128 - len(prefix))
+    source = tmp_path / "boundary-title.dxf"
+    document = ezdxf.new("R2013")
+    document.modelspace().add_text(title).set_placement((0, 0))
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [item.value for item in result.project_candidates] == [title]
+    assert "PROJECT_TITLE_TOO_LONG" not in [warning.code for warning in result.warnings]
+
+
 @pytest.mark.parametrize(
     "metadata",
     ["REV-2026-07", "DATE-2026-07", "ISO-9001-2015", "REV-123-1", "DWG-99-1"],
