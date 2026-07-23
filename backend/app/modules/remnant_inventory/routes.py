@@ -81,18 +81,18 @@ def ensure_remnant_inventory_enabled() -> None:
         raise AppHTTPException(
             404,
             "REMNANT_INVENTORY_DISABLED",
-            "Remnant inventory is not enabled.",
+            "余料库功能尚未启用。",
         )
 
 
 def _require_user(actor: User) -> None:
     if not can_use_remnants(actor):
-        raise AppHTTPException(403, "REMNANT_FORBIDDEN", "Remnant inventory access denied.")
+        raise AppHTTPException(403, "REMNANT_FORBIDDEN", "当前账号无权使用余料库。")
 
 
 def _require_admin(actor: User) -> None:
     if not can_manage_materials(actor):
-        raise AppHTTPException(403, "REMNANT_ADMIN_REQUIRED", "Administrator access required.")
+        raise AppHTTPException(403, "REMNANT_ADMIN_REQUIRED", "该操作需要管理员权限。")
 
 
 def _material_data(db: Session, row: RemnantMaterial) -> dict:
@@ -309,7 +309,7 @@ def put_material_aliases(
     _require_admin(current_user)
     material = db.get(RemnantMaterial, material_id)
     if material is None:
-        raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "Material not found.")
+        raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "材质不存在或已被删除。")
     rows = replace_aliases(db, material=material, aliases=payload.aliases, actor_id=current_user.id)
     write_audit_log(
         db,
@@ -339,7 +339,7 @@ async def post_import_batch(
         raise AppHTTPException(
             422,
             "REMNANT_IMPORT_FILE_COUNT_INVALID",
-            "Import file count is invalid.",
+            "导入图纸数量不正确。",
             {"max_files": settings.remnant_import_max_files},
         )
     stored_files: list[StoredFile] = []
@@ -378,7 +378,7 @@ async def post_import_batch(
 def _batch_with_access(db: Session, batch_id: int, actor: User) -> RemnantImportBatch:
     batch = db.get(RemnantImportBatch, batch_id)
     if batch is None:
-        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "Import batch not found.")
+        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "导入批次不存在或已被删除。")
     item = db.scalar(
         select(RemnantImportItem).where(RemnantImportItem.batch_id == batch.id).limit(1)
     )
@@ -688,7 +688,7 @@ def get_remnant(
     _require_user(current_user)
     row = db.get(Remnant, remnant_id)
     if row is None:
-        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "Remnant not found.")
+        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "余料不存在或已被删除。")
     return ok(_remnant_data(db, row), request.state.request_id)
 
 

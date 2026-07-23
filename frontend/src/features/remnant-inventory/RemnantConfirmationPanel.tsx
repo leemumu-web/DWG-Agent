@@ -3,8 +3,8 @@ import { Alert, App, AutoComplete, Button, Card, Descriptions, Form, Input, Inpu
 import { CheckOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DxfPreviewModal } from '../files';
-import { describeApiError } from '../../shared/api';
 import { bulkApplyThickness, confirmRemnantImportItems, resolveOrCreateRemnantMaterial, updateRemnantImportItem } from './api';
+import { describeRemnantCode, describeRemnantError, warningTitle } from './errors';
 import type { RemnantImportBatch, RemnantImportItem, RemnantMaterial } from './types';
 
 interface Props { batch: RemnantImportBatch; materials: RemnantMaterial[] }
@@ -53,6 +53,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const bulk = useMutation({
     mutationFn: () => bulkApplyThickness(batch.id, selected.map(Number), String(bulkThickness)),
     onSuccess: async () => { setBulkOpen(false); await refresh(); message.success('已批量填写厚度'); },
+    onError: (error) => message.error(describeRemnantError(error, '批量填写厚度失败')),
   });
   const save = useMutation({
     mutationFn: (values: { thickness_mm: number; material_id: number; project_no: string; parts: string[] }) => updateRemnantImportItem(editing!.id, {
@@ -61,6 +62,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       parts: [...new Set(values.parts.map((value) => value.trim()).filter(Boolean))],
     }),
     onSuccess: async () => { editingItemIdRef.current = undefined; setEditing(undefined); await refresh(); message.success('图纸信息已保存'); },
+    onError: (error) => message.error(describeRemnantError(error, '图纸信息保存失败')),
   });
   const createDetectedMaterial = useMutation({
     mutationFn: ({ code }: { itemId: number; code: string; generation: number }) => resolveOrCreateRemnantMaterial(code),
@@ -81,7 +83,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
         message.success(result.created ? '材质已创建' : '材质已存在');
       }
     },
-    onError: (error) => message.error(describeApiError(error, '材质创建失败')),
+    onError: (error) => message.error(describeRemnantError(error, '材质创建失败')),
   });
   const confirm = useMutation({
     mutationFn: () => confirmRemnantImportItems(selected.map(Number)),
@@ -92,6 +94,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       if (result.invalid.length) message.warning(`已确认 ${result.confirmed.length} 张，${result.invalid.length} 张需补充字段`);
       else message.success(`已确认 ${result.confirmed.length + result.already_confirmed.length} 张余料`);
     },
+    onError: (error) => message.error(describeRemnantError(error, '图纸确认失败')),
   });
 
   const edit = (item: RemnantImportItem) => {
@@ -149,7 +152,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
           { title: '材质候选', key: 'material', width: 200, render: (_, row) => row.material_candidates.map((item) => item.value).join(' / ') || '—' },
           { title: '项目编号', key: 'project', width: 220, render: (_, row) => row.project_no ?? row.project_candidates[0]?.value ?? '—' },
           { title: '零件数', key: 'parts', width: 90, render: (_, row) => row.parts.length || row.part_candidates.length },
-          { title: '校验结果', key: 'validation', width: 190, render: (_, row) => validationErrors[row.id] ? <Typography.Text type="danger">{validationErrors[row.id]}</Typography.Text> : (row.status === 'confirmed' ? <Tag color="success">已确认</Tag> : '—') },
+          { title: '校验结果', key: 'validation', width: 190, render: (_, row) => validationErrors[row.id] ? <Typography.Text type="danger">{describeRemnantCode(validationErrors[row.id])}</Typography.Text> : (row.status === 'confirmed' ? <Tag color="success">已确认</Tag> : '—') },
           { title: '操作', key: 'actions', width: 220, fixed: 'right', render: (_, row) => <Space><Button type="link" icon={<EyeOutlined />} disabled={!row.dxf_file_id} onClick={() => setPreview(row)}>预览</Button><Button type="link" icon={<EditOutlined />} disabled={row.status === 'confirmed'} onClick={() => edit(row)}>编辑</Button></Space> },
         ]}
       />
@@ -160,14 +163,14 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
         {editing && <div className="remnant-confirm-editor">
           <div>
             <Button icon={<EyeOutlined />} disabled={!editing.dxf_file_id} onClick={() => setPreview(editing)}>打开图形预览</Button>
-            {editing.warnings.map((warning) => <Alert key={warning.code} type="warning" showIcon title={warning.code} description={warning.message} style={{ marginTop: 12 }} />)}
+            {editing.warnings.map((warning) => <Alert key={warning.code} type="warning" showIcon title={warningTitle(warning.code)} description={warning.message} style={{ marginTop: 12 }} />)}
             <Descriptions size="small" column={1} style={{ marginTop: 16 }} items={[
               { key: 'material', label: '材质证据', children: editing.material_candidates.flatMap((item) => item.evidence).map((item) => `${item.layer}: ${item.raw_text}`).join('；') || '无' },
               { key: 'project', label: '项目证据', children: editing.project_candidates.flatMap((item) => item.evidence).map((item) => item.raw_text).join('；') || '无' },
             ]} />
           </div>
           <Form form={form} layout="vertical" onFinish={(values) => save.mutate(values)}>
-            <Form.Item name="thickness_mm" label="厚度（mm）" rules={[{ required: true }]}><InputNumber min={0.001} precision={3} style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="thickness_mm" label="厚度（mm）" rules={[{ required: true, message: '请填写余料厚度' }]}><InputNumber min={0.001} precision={3} style={{ width: '100%' }} /></Form.Item>
             {(!selectedMaterialId || unmatchedMaterialCodes.length > 0) && <Alert
               type="info"
               showIcon
@@ -197,8 +200,8 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
               </Space.Compact>}
               style={{ marginBottom: 16 }}
             />}
-            <Form.Item name="material_id" label="标准材质" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
-            <Form.Item name="project_no" label="项目编号" rules={[{ required: true }]}><AutoComplete
+            <Form.Item name="material_id" label="标准材质" rules={[{ required: true, message: '请选择或新建材质' }]}><Select showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
+            <Form.Item name="project_no" label="项目编号" rules={[{ required: true, message: '请填写项目编号' }]}><AutoComplete
               options={editing.project_candidates.map((candidate) => ({ value: candidate.value }))}
               allowClear
               placeholder="选择识别候选或手动填写"

@@ -333,6 +333,26 @@ def test_validation_and_missing_resources_keep_stable_error_envelopes(
     missing = client.get("/api/v1/remnants/999999", headers=admin_headers)
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "REMNANT_NOT_FOUND"
+    assert missing.json()["error"]["message"] == "余料不存在或已被删除。"
+
+
+def test_remnant_api_business_errors_are_chinese(client, admin_headers) -> None:
+    invalid_page = client.get(
+        "/api/v1/remnants/all",
+        headers=admin_headers,
+        params={"statuses": "unknown"},
+    )
+    assert invalid_page.status_code == 422
+    assert invalid_page.json()["error"]["message"] == "余料状态不正确。"
+
+    missing_material = client.patch(
+        "/api/v1/remnant-materials/999999",
+        headers=admin_headers,
+        json={"enabled": False},
+    )
+    assert missing_material.status_code == 404
+    assert missing_material.json()["error"]["code"] == "REMNANT_MATERIAL_NOT_FOUND"
+    assert missing_material.json()["error"]["message"] == "材质不存在或已被删除。"
 
 
 def test_worker_can_page_filter_and_sort_the_global_inventory(

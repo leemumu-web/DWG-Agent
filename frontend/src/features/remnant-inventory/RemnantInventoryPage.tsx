@@ -27,6 +27,7 @@ import { RemnantDetailDrawer, StatusTag } from './RemnantDetailDrawer';
 import { RemnantSearchPanel } from './RemnantSearchPanel';
 import { useRemnantBatch } from './useRemnantBatch';
 import type { Remnant, RemnantSearch, RemnantStatus } from './types';
+import { describeRemnantError } from './errors';
 import './styles.css';
 
 const activeStatuses: RemnantStatus[] = ['available', 'reserved'];
@@ -84,6 +85,7 @@ export function RemnantInventoryPage() {
       await queryClient.invalidateQueries({ queryKey: ['remnant-import-batch', batchId] });
       message.success('批次状态已更新');
     },
+    onError: (error) => message.error(describeRemnantError(error, '批次操作失败')),
   });
 
   const refresh = async (row?: Remnant) => {
@@ -101,9 +103,9 @@ export function RemnantInventoryPage() {
       await refresh(row);
       message.success('库存状态已更新');
     },
-    onError: async () => {
+    onError: async (error) => {
       await refresh();
-      message.error('操作未完成，库存可能已被其他工人更新');
+      message.error(describeRemnantError(error, '操作未完成，库存可能已被其他工人更新'));
     },
   });
 

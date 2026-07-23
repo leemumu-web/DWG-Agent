@@ -149,7 +149,8 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
 
   await confirmation.getByRole('button', { name: '编辑' }).first().click();
   const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
-  await expect(editor.getByText('MATERIAL_CANDIDATES_CONFLICT')).toBeVisible();
+  await expect(editor.getByText('材质候选需要确认')).toBeVisible();
+  await expect(editor.getByText('MATERIAL_CANDIDATES_CONFLICT')).toHaveCount(0);
   await expect(editor.getByText(/TITLE: Q355B/)).toBeVisible();
   await expect(editor.getByLabel('项目编号')).toHaveValue('北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03');
   await editor.getByLabel('厚度（mm）').fill('10');
@@ -166,6 +167,22 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
 
   await confirmation.getByRole('button', { name: '确认选中项' }).click();
   await expect(page.getByText('已确认 1 张，1 张需补充字段')).toBeVisible();
+  await expect(confirmation.getByText('请填写项目编号')).toBeVisible();
+  await expect(confirmation.getByText('REMNANT_PROJECT_REQUIRED')).toHaveCount(0);
+});
+
+test('未填写厚度时只显示中文校验错误', async ({ page }) => {
+  await mockImport(page);
+  await page.route('**/api/v1/remnant-import-items/bulk-confirm', (route) => json(route, {
+    confirmed: [], already_confirmed: [],
+    invalid: [{ item_id: 1, code: 'REMNANT_THICKNESS_REQUIRED' }],
+  }));
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('checkbox', { name: 'Select row 1' }).check();
+  await confirmation.getByRole('button', { name: '确认选中项' }).click();
+  await expect(confirmation.getByText('请填写余料厚度')).toBeVisible();
+  await expect(confirmation.getByText('REMNANT_THICKNESS_REQUIRED')).toHaveCount(0);
 });
 
 test('failed material creation preserves confirmation fields', async ({ page }) => {

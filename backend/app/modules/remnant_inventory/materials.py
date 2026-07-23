@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.remnant_inventory.models import RemnantMaterial, RemnantMaterialAlias
-from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.http.exceptions import AppHTTPException
 
 
 def normalize_material_token(value: str) -> str:
@@ -21,9 +21,9 @@ def create_material(
     normalized_code = normalize_material_token(code)
     normalized_family = normalize_material_token(family_code)
     if not normalized_code or not normalized_family:
-        raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "Material code and family are required.")
+        raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "请填写完整的材质牌号和材质系列。")
     if db.scalar(select(RemnantMaterial.id).where(RemnantMaterial.code == normalized_code)):
-        raise AppHTTPException(409, "REMNANT_MATERIAL_EXISTS", "Material code already exists.")
+        raise AppHTTPException(409, "REMNANT_MATERIAL_EXISTS", "该材质牌号已存在。")
     material = RemnantMaterial(
         code=normalized_code,
         family_code=normalized_family,
@@ -41,7 +41,7 @@ def resolve_or_create_material(
 ) -> tuple[RemnantMaterial, bool]:
     normalized = normalize_material_token(code)
     if not normalized:
-        raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "Material code is required.")
+        raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "请填写完整的材质牌号。")
 
     existing = db.scalar(select(RemnantMaterial).where(RemnantMaterial.code == normalized))
     if existing is not None:
@@ -49,7 +49,7 @@ def resolve_or_create_material(
             raise AppHTTPException(
                 409,
                 "REMNANT_MATERIAL_DISABLED",
-                "Material is disabled; contact an administrator to enable it.",
+                "该材质已停用，请联系管理员重新启用。",
             )
         return existing, False
 
@@ -76,7 +76,7 @@ def resolve_or_create_material(
             raise AppHTTPException(
                 409,
                 "REMNANT_MATERIAL_DISABLED",
-                "Material is disabled; contact an administrator to enable it.",
+                "该材质已停用，请联系管理员重新启用。",
             ) from None
         return existing, False
     return material, True
@@ -92,11 +92,11 @@ def update_material(
 ) -> RemnantMaterial:
     material = db.get(RemnantMaterial, material_id)
     if material is None:
-        raise not_found("RemnantMaterial")
+        raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "材质不存在或已被删除。")
     if family_code is not None:
         normalized = normalize_material_token(family_code)
         if not normalized:
-            raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "Material family is required.")
+            raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "请填写材质系列。")
         material.family_code = normalized
     if enabled is not None:
         material.enabled = enabled
@@ -126,7 +126,7 @@ def replace_aliases(
             raise AppHTTPException(
                 409,
                 "REMNANT_MATERIAL_ALIAS_EXISTS",
-                "Material alias already belongs to another material.",
+                "该材质别名已归属其他材质。",
             )
     db.execute(delete(RemnantMaterialAlias).where(RemnantMaterialAlias.material_id == material.id))
     rows: list[RemnantMaterialAlias] = []
@@ -172,7 +172,7 @@ def material_ids_for_search(
 ) -> list[int]:
     selected = db.get(RemnantMaterial, material_id)
     if selected is None or not selected.enabled:
-        raise not_found("RemnantMaterial")
+        raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "材质不存在、已删除或已停用。")
     if not include_family:
         return [selected.id]
     return list(

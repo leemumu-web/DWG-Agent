@@ -85,7 +85,7 @@ def store_parse_result(db: Session, item_id: int, *, expected_attempt: int, resu
 def recalculate_batch_counters(db: Session, batch_id: int) -> RemnantImportBatch:
     batch = db.get(RemnantImportBatch, batch_id)
     if batch is None:
-        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "Import batch not found.")
+        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "导入批次不存在或已被删除。")
     counts = Counter(
         db.scalars(
             select(RemnantImportItem.status).where(RemnantImportItem.batch_id == batch_id)
@@ -119,7 +119,7 @@ def prepare_import_execution(db: Session, batch_id: int, *, actor_id: int) -> Ex
         ).all()
     )
     if not items:
-        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "Import batch not found.")
+        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "导入批次不存在或已被删除。")
     converts: dict[int, int] = {}
     parses: dict[int, int] = {}
     for item in items:
@@ -182,7 +182,7 @@ def _mark_item_failed(db: Session, item: RemnantImportItem, attempt: int, code: 
             RemnantImportItem.attempt == attempt,
             RemnantImportItem.status.in_(("converting", "parsing")),
         )
-        .values(status="failed", error_code=code, error_message="Drawing processing failed.")
+        .values(status="failed", error_code=code, error_message="图纸处理失败，请重试或联系管理员。")
         .execution_options(synchronize_session=False)
     )
     return result.rowcount == 1
@@ -233,13 +233,13 @@ def _settle_dispatch_failure(expected_attempts: dict[int, int]) -> None:
                     db,
                     item.conversion_job_id,
                     "REMNANT_DISPATCH_FAILED",
-                    "Conversion task dispatch failed.",
+                    "图纸转换任务提交失败。",
                 )
                 _fail_active_job(
                     db,
                     item.parse_job_id,
                     "REMNANT_DISPATCH_FAILED",
-                    "Parsing task dispatch failed.",
+                    "图纸解析任务提交失败。",
                 )
         for batch_id in batch_ids:
             recalculate_batch_counters(db, batch_id)
@@ -303,13 +303,13 @@ def run_conversion_batch(batch_id: int, expected_attempts: dict[int | str, int])
                             db,
                             item.conversion_job_id,
                             "REMNANT_CONVERSION_FAILED",
-                            "Drawing conversion failed.",
+                            "DWG 图纸转换失败，请重试或联系管理员。",
                         )
                         _fail_active_job(
                             db,
                             item.parse_job_id,
                             "REMNANT_CONVERSION_FAILED",
-                            "Parsing skipped because conversion failed.",
+                            "因图纸转换失败，未执行解析。",
                         )
                     continue
                 stored = save_path_as_file(
@@ -358,13 +358,13 @@ def run_conversion_batch(batch_id: int, expected_attempts: dict[int | str, int])
                     db,
                     item.conversion_job_id,
                     "REMNANT_CONVERSION_FAILED",
-                    "Drawing conversion batch failed.",
+                    "DWG 图纸批量转换失败，请重试或联系管理员。",
                 )
                 _fail_active_job(
                     db,
                     item.parse_job_id,
                     "REMNANT_CONVERSION_FAILED",
-                    "Parsing skipped because conversion failed.",
+                    "因图纸转换失败，未执行解析。",
                 )
         recalculate_batch_counters(db, batch_id)
         db.commit()
@@ -435,7 +435,7 @@ def run_parse_item(item_id: int, expected_attempt: int) -> None:
                         item.parse_job_id,
                         attempt=1,
                         error_code="REMNANT_PARSE_FAILED",
-                        error_message="Drawing parsing failed.",
+                        error_message="图纸解析失败，请重试或联系管理员。",
                     )
             recalculate_batch_counters(db, item.batch_id)
             db.commit()

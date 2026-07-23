@@ -64,7 +64,7 @@ class BulkArchiveResult:
 
 def _require_user(actor: User) -> None:
     if not can_use_remnants(actor):
-        raise AppHTTPException(403, "REMNANT_FORBIDDEN", "Remnant inventory access denied.")
+        raise AppHTTPException(403, "REMNANT_FORBIDDEN", "当前账号无权使用余料库。")
 
 
 def _get(db: Session, remnant_id: int) -> Remnant:
@@ -101,10 +101,10 @@ def search_remnants(
     page_size: int = 50,
 ) -> RemnantPage:
     if page < 1 or page_size < 1 or page_size > 200:
-        raise AppHTTPException(422, "REMNANT_PAGE_INVALID", "Pagination is invalid.")
+        raise AppHTTPException(422, "REMNANT_PAGE_INVALID", "分页参数不正确。")
     selected_statuses = tuple(dict.fromkeys(statuses or ACTIVE_STATUSES))
     if not selected_statuses or not set(selected_statuses) <= ALL_STATUSES:
-        raise AppHTTPException(422, "REMNANT_STATUS_INVALID", "Remnant status is invalid.")
+        raise AppHTTPException(422, "REMNANT_STATUS_INVALID", "余料状态不正确。")
     material_ids = material_ids_for_search(db, material_id, include_family=include_family)
     thickness = _thickness(thickness_mm)
     filters = (
@@ -141,12 +141,12 @@ def list_all_remnants(
     page_size: int = 50,
 ) -> RemnantPage:
     if page < 1 or page_size < 1 or page_size > 200:
-        raise AppHTTPException(422, "REMNANT_PAGE_INVALID", "Pagination is invalid.")
+        raise AppHTTPException(422, "REMNANT_PAGE_INVALID", "分页参数不正确。")
     selected_statuses = tuple(dict.fromkeys(statuses or ALL_STATUS_ORDER))
     if not selected_statuses or not set(selected_statuses) <= ALL_STATUSES:
-        raise AppHTTPException(422, "REMNANT_STATUS_INVALID", "Remnant status is invalid.")
+        raise AppHTTPException(422, "REMNANT_STATUS_INVALID", "余料状态不正确。")
     if sort not in GLOBAL_SORTS:
-        raise AppHTTPException(422, "REMNANT_SORT_INVALID", "Remnant sort is invalid.")
+        raise AppHTTPException(422, "REMNANT_SORT_INVALID", "余料排序方式不正确。")
 
     filters = [Remnant.status.in_(selected_statuses)]
     if material_id is not None:
@@ -238,15 +238,15 @@ def reserve_remnant(db: Session, remnant_id: int, *, actor: User, expected_versi
             .execution_options(populate_existing=True)
         )
         if row is None:
-            raise AppHTTPException(404, "REMNANT_NOT_FOUND", "Remnant not found.")
+            raise AppHTTPException(404, "REMNANT_NOT_FOUND", "余料不存在或已被删除。")
         if row.status == "reserved":
             raise AppHTTPException(
                 409,
                 "REMNANT_ALREADY_RESERVED",
-                "Remnant is already reserved.",
+                "该余料已被预留。",
                 {"reserved_by": row.reserved_by},
             )
-        raise AppHTTPException(409, "REMNANT_STATE_CONFLICT", "Remnant state changed.")
+        raise AppHTTPException(409, "REMNANT_STATE_CONFLICT", "余料状态已变更，请刷新后重试。")
     row = _get(db, remnant_id)
     db.refresh(row)
     _audit(
@@ -264,10 +264,10 @@ def release_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     _require_user(actor)
     row = _get_for_update(db, remnant_id)
     if row.status != "reserved":
-        raise AppHTTPException(409, "REMNANT_NOT_RESERVED", "Remnant is not reserved.")
+        raise AppHTTPException(409, "REMNANT_NOT_RESERVED", "该余料当前未被预留。")
     if row.reserved_by != actor.id and not _is_admin(actor):
         raise AppHTTPException(
-            403, "REMNANT_RESERVATION_FORBIDDEN", "Reservation belongs to another user."
+            403, "REMNANT_RESERVATION_FORBIDDEN", "该余料由其他工人预留，无权操作。"
         )
     before = {"status": row.status, "reserved_by": row.reserved_by, "version": row.version}
     row.status = "available"
@@ -290,10 +290,10 @@ def mark_remnant_used(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     _require_user(actor)
     row = _get_for_update(db, remnant_id)
     if row.status != "reserved":
-        raise AppHTTPException(409, "REMNANT_NOT_RESERVED", "Remnant is not reserved.")
+        raise AppHTTPException(409, "REMNANT_NOT_RESERVED", "该余料当前未被预留。")
     if row.reserved_by != actor.id and not _is_admin(actor):
         raise AppHTTPException(
-            403, "REMNANT_RESERVATION_FORBIDDEN", "Reservation belongs to another user."
+            403, "REMNANT_RESERVATION_FORBIDDEN", "该余料由其他工人预留，无权操作。"
         )
     before = {"status": row.status, "reserved_by": row.reserved_by, "version": row.version}
     row.status = "used"
@@ -325,10 +325,10 @@ def update_remnant(
     _require_user(actor)
     row = _get_for_update(db, remnant_id)
     if row.status != "available":
-        raise AppHTTPException(409, "REMNANT_LOCKED", "Only available remnants are editable.")
+        raise AppHTTPException(409, "REMNANT_LOCKED", "只有状态为“可用”的余料才能编辑。")
     if row.imported_by != actor.id and not _is_admin(actor):
         raise AppHTTPException(
-            403, "REMNANT_EDIT_FORBIDDEN", "Only importer or administrator can edit."
+            403, "REMNANT_EDIT_FORBIDDEN", "只能编辑自己导入的余料。"
         )
     before = {
         "thickness_mm": str(row.thickness_mm),
@@ -341,17 +341,17 @@ def update_remnant(
     if material_id is not None:
         material = db.get(RemnantMaterial, material_id)
         if material is None or not material.enabled:
-            raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "Material is not enabled.")
+            raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "请选择已启用的材质。")
         row.material_id = material.id
     if project_no is not None:
         normalized = project_no.strip()
         if not normalized:
-            raise AppHTTPException(422, "REMNANT_PROJECT_REQUIRED", "Project number is required.")
+            raise AppHTTPException(422, "REMNANT_PROJECT_REQUIRED", "请填写项目编号。")
         row.project_no = normalized
     if parts is not None:
         normalized_parts = _parts(parts)
         if not normalized_parts:
-            raise AppHTTPException(422, "REMNANT_PARTS_REQUIRED", "At least one part is required.")
+            raise AppHTTPException(422, "REMNANT_PARTS_REQUIRED", "至少填写一个零件编号。")
         db.query(RemnantPart).filter(RemnantPart.remnant_id == row.id).delete()
         db.add_all([RemnantPart(remnant_id=row.id, part_no=value) for value in normalized_parts])
     row.version += 1
@@ -439,11 +439,11 @@ def build_original_download(db: Session, remnant_id: int, *, actor: User) -> Ori
     row = _get(db, remnant_id)
     if row.status != "reserved" or (row.reserved_by != actor.id and not _is_admin(actor)):
         raise AppHTTPException(
-            403, "REMNANT_DOWNLOAD_FORBIDDEN", "Original drawing download denied."
+            403, "REMNANT_DOWNLOAD_FORBIDDEN", "只有当前预留人或管理员可以下载原图。"
         )
     source = db.get(StoredFile, row.source_file_id)
     if source is None or source.status == "deleted":
-        raise AppHTTPException(404, "REMNANT_SOURCE_NOT_FOUND", "Original drawing not found.")
+        raise AppHTTPException(404, "REMNANT_SOURCE_NOT_FOUND", "原始图纸不存在或已被删除。")
     signed = build_signed_download_url(source.id)
     return OriginalDownload(
         file_id=source.id,

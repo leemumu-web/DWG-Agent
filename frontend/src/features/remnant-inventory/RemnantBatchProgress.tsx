@@ -1,6 +1,7 @@
 import { Button, Card, Popconfirm, Progress, Space, Statistic, Table, Tag, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { RemnantImportBatch, RemnantImportItem } from './types';
+import { describeRemnantCode } from './errors';
 
 interface Props {
   batch: RemnantImportBatch;
@@ -48,7 +49,10 @@ export function RemnantBatchProgress({ batch, loading, onRetry, onCancel }: Prop
           { title: '格式', dataIndex: 'source_ext', width: 80, render: (ext) => ext.slice(1).toUpperCase() },
           { title: '状态', dataIndex: 'status', width: 110, render: (status) => <Tag color={labels[status as RemnantImportItem['status']][1]}>{labels[status as RemnantImportItem['status']][0]}</Tag> },
           { title: '次数', dataIndex: 'attempt', width: 70 },
-          { title: '说明', key: 'error', render: (_, row) => row.error_message ?? row.error_code ?? '—' },
+          { title: '说明', key: 'error', render: (_, row) => {
+            if (row.error_code) return describeRemnantCode(row.error_code, row.error_message && !/[A-Za-z]{4,}/.test(row.error_message) ? row.error_message : '图纸处理失败，请重试或联系管理员');
+            return row.error_message && !/[A-Za-z]{4,}/.test(row.error_message) ? row.error_message : '—';
+          } },
           {
             title: '操作', key: 'action', width: 90,
             render: (_, row) => row.status === 'failed' ? <Button type="link" icon={<ReloadOutlined />} onClick={() => onRetry(row)}>重试</Button> : <Space />,
@@ -58,4 +62,3 @@ export function RemnantBatchProgress({ batch, loading, onRetry, onCancel }: Prop
     </Card>
   );
 }
-

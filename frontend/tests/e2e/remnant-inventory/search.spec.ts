@@ -76,7 +76,7 @@ test('required exact filters, family expansion, active ordering and download per
   await rows.nth(0).getByRole('button', { name: '详情' }).click();
   await page.getByRole('button', { name: '预占余料' }).click();
   await page.getByRole('button', { name: '确 定' }).click();
-  await expect(page.getByText('操作未完成，库存可能已被其他工人更新')).toBeVisible();
+  await expect(page.getByText('已被其他工人预占')).toBeVisible();
   await expect.poll(state.searchCalls).toBeGreaterThan(1);
   await page.getByRole('button', { name: '关闭' }).click();
 
