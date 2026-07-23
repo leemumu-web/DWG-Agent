@@ -20,6 +20,7 @@ from app.modules.excel_processing.presentation import (
     part_detail,
     part_search_item,
 )
+from app.modules.excel_processing.schemas import ExcelFinalPartType
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.interface import Job, job_read_filter
 from app.modules.projects.interface import has_global_project_access
@@ -184,7 +185,10 @@ def list_batch_parts(
     spec: str = Query("", description="按规格筛选"),
     material: str = Query("", description="按材质筛选"),
     part_no: str = Query("", description="按零件号筛选"),
-    part_type: str = Query("", description="按类型筛选 (e.g. 零件, BH腹, BH翼)"),
+    part_type: ExcelFinalPartType | None = Query(
+        None,
+        description="按稳定英文类型筛选 (e.g. plate, bh_web, bh_flange)",
+    ),
     db: Session = Depends(get_db),
 ):
     """批次下零件列表（服务端分页与筛选）。"""
@@ -196,8 +200,8 @@ def list_batch_parts(
         statement = statement.where(ExcelFinalPart.material == material.strip())
     if part_no.strip():
         statement = statement.where(ExcelFinalPart.part_no.contains(part_no.strip()))
-    if part_type.strip():
-        statement = statement.where(ExcelFinalPart.part_type == part_type.strip())
+    if part_type is not None:
+        statement = statement.where(ExcelFinalPart.part_type == part_type.value)
     statement = statement.order_by(ExcelFinalPart.seq)
     parts, total = paginate_scalars(db, statement, page_no=page, page_size=page_size)
     return page_response(

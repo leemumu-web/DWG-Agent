@@ -25,7 +25,7 @@ from app.modules.jobs.interface import (
     dispatch_committed_job,
 )
 from app.modules.operations.audit.interface import write_audit_log
-from app.platform.config.constants import TASK_EXCEL_FINAL
+from app.platform.config.constants import EXCEL_FILE_EXTENSIONS, TASK_EXCEL_FINAL
 from app.platform.database.session import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import AppHTTPException, not_found
@@ -85,8 +85,10 @@ def process_file(
     if not stored or stored.status == "deleted":
         raise not_found("File")
     require_input_file_access(current_user, stored)
-    if (stored.file_ext or "").lower() not in {".xls", ".xlsx"}:
-        raise AppHTTPException(415, "NOT_EXCEL", "Only .xls or .xlsx files can be processed.")
+    if (stored.file_ext or "").lower() not in EXCEL_FILE_EXTENSIONS:
+        raise AppHTTPException(
+            415, "NOT_EXCEL", "Only .xls, .xlsx or .xlsm files can be processed."
+        )
 
     job, reused = create_or_reuse_job(
         db,

@@ -15,6 +15,7 @@ from app.modules.workflows.models import WorkflowRun
 from app.modules.workflows.schemas import WorkflowStageExecutionCreate
 from app.modules.workflows.templates import require_stage_execution
 from app.platform.config.constants import (
+    EXCEL_FILE_EXTENSIONS,
     TASK_DXF_TO_EXCEL,
     TASK_EXCEL_FINAL,
     TASK_STEEL_DXF_CLASSIFICATION,
@@ -145,8 +146,10 @@ def _prepare_excel_final(
     if stored is None or stored.status == "deleted":
         raise not_found("File")
     require_file_read_access(db, current_user, stored)
-    if stored.file_ext.lower() not in {".xls", ".xlsx"}:
-        raise AppHTTPException(415, "NOT_EXCEL", "Only .xls or .xlsx files can be processed.")
+    if stored.file_ext.lower() not in EXCEL_FILE_EXTENSIONS:
+        raise AppHTTPException(
+            415, "NOT_EXCEL", "Only .xls, .xlsx or .xlsm files can be processed."
+        )
     return TASK_EXCEL_FINAL, {"file_id": stored.id}
 
 

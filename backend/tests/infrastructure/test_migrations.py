@@ -21,6 +21,11 @@ DXF_CLASSIFICATION_REVISION = VERSIONS_DIR / "a9e4c7d2f610_add_dxf_classificatio
 CONTROL_PLANE_REVISION = VERSIONS_DIR / "c1e9a4b7d220_add_control_plane_framework.py"
 DAILY_ARCHIVE_REVISION = VERSIONS_DIR / "e2f4b8c6a130_add_daily_archive_runs.py"
 REMNANT_INVENTORY_REVISION = VERSIONS_DIR / "2b7e91d4c830_add_remnant_inventory.py"
+EXCEL_FINAL_QUALITY_REVISION = VERSIONS_DIR / "f3a7c9d2e6b1_add_excel_final_quality_fields.py"
+EXCEL_FINAL_DECIMAL_REVISION = (
+    VERSIONS_DIR / "2f6b8c1d4e90_use_decimal_for_excel_final_physical_values.py"
+)
+MERGE_REVISION = VERSIONS_DIR / "7c4d9e2a1b60_merge_excel_final_and_remnant_heads.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -242,6 +247,54 @@ def test_remnant_inventory_migration_extends_head_and_is_reversible():
         "uq_remnant_part_number",
     ):
         assert f'"{constraint}"' in source
+
+
+def test_excel_final_quality_migration_extends_current_head_and_is_reversible():
+    source = EXCEL_FINAL_QUALITY_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "f3a7c9d2e6b1"' in source
+    assert 'down_revision: str | None = "e2f4b8c6a130"' in source
+    part_columns = (
+        "import_component_no",
+        "import_part_no",
+        "source_batch",
+        "team",
+        "original_qty",
+        "density_source",
+        "material_utilization",
+        "weight_validation",
+    )
+    batch_columns = (
+        "quality_status",
+        "warning_count",
+        "severe_warning_count",
+        "report_summary",
+    )
+    for column in part_columns:
+        assert f'"{column}"' in source
+        assert f'op.drop_column("excel_final_parts", "{column}")' in source
+    for column in batch_columns:
+        assert f'"{column}"' in source
+        assert f'op.drop_column("excel_final_batches", "{column}")' in source
+    assert "sa.JSON()" in source
+
+
+def test_excel_final_decimal_migration_extends_quality_revision():
+    source = EXCEL_FINAL_DECIMAL_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "2f6b8c1d4e90"' in source
+    assert 'down_revision: str | None = "f3a7c9d2e6b1"' in source
+    assert "sa.DECIMAL(precision=24, scale=9)" in source
+
+
+def test_merge_revision_joins_excel_final_and_remnant_heads_without_ddl():
+    source = MERGE_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "7c4d9e2a1b60"' in source
+    assert 'down_revision: tuple[str, str] = ("2f6b8c1d4e90", "2b7e91d4c830")' in source
+    assert "def upgrade() -> None:\n    pass" in source
+    assert "def downgrade() -> None:\n    pass" in source
+    assert "op." not in source
 
 
 def test_alembic_autogenerate_excludes_celery_owned_tables():

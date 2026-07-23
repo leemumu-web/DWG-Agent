@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`generate_api.py` 从当前 `app.main:app` 确定性生成 `docs/reference/api.md`；`check.py` 检查权威文档集合、相对链接、Markdown hygiene、端口、设置默认值、36 表/17 revisions、生成 API 与能力声明；`__init__.py` 供测试导入。
+`generate_api.py` 从当前 `app.main:app` 确定性生成 `docs/reference/api.md`；`check.py` 检查权威文档集合、相对链接、Markdown hygiene、端口、设置默认值、36 表/18 revisions、生成 API 与能力声明；`__init__.py` 供测试导入。
 
 ## 输入、输出与边界
 

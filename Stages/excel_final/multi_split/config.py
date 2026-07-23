@@ -5,7 +5,6 @@ Loads YAML config with sensible defaults for Chinese steel fabrication.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from .models import ColumnMapping
 

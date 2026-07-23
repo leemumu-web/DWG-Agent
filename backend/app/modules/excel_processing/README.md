@@ -4,10 +4,10 @@
 
 ## 已实现链路
 
-1. `routes/processing.py` 复用 files 模块的 durable transfer saga，把 `.xls`/`.xlsx` 登记到 `files` 并写入配置的 Local/MinIO 存储。
+1. `routes/processing.py` 复用 files 模块的 durable transfer saga，把 `.xls`/`.xlsx`/`.xlsm` 登记到 `files` 并写入配置的 Local/MinIO 存储；`.xlsx`/`.xlsm` 输入必须是单工作表，预处理负责从含人工结果的多表文件中分离原表。规范结果固定为新 `.xlsx`，不复制源宏。
 2. `execution.py` 使用 jobs 模块的 attempt 状态机下载源文件、记录步骤、调用独立 Stage、登记结果文件与 `analysis_results`。
-3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。密码只通过子进程环境传递。
-4. `importers.py` 把输出工作簿的“整理表”和“构件表”投影到 `excel_final_parts` 与 `excel_final_components`；`persistence.py` 拥有批次替换、统计和清理。
+3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。二者使用严格的 `protocol_version=1` JSON 结果，密码只通过子进程环境传递，child traceback 不进入公共错误或日志。子进程同时生成任务临时目录中的完整内部导入工作簿和删列后的最终工作簿；数据库只读前者，对象存储和下载只使用后者。
+4. `importers.py` 流式读取规范六表工作簿的“整理表”“构件表”“处理报告”，投影到 `excel_final_parts`、`excel_final_components` 和批次质量摘要；缺构件身份的 part 行跳过，重复构件 ID、负长度/数量/重量/面积及 NaN/Infinity 等非有限数值拒绝；`persistence.py` 拥有批次替换、表净重/表毛重统计和清理。
 5. `routes/catalog.py` 只查询关系化投影；`routes/tools.py` 提供手册比重查询；`routes/health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
 
 ## 顶层源码分工
@@ -16,13 +16,25 @@
 - `availability.py` 只执行 Excel Final feature flag 门禁，不把依赖健康误当成开关状态。
 - `idempotency.py` 规范并作用域化请求幂等键，防止不同 operation 误复用同一个 key。
 - `models.py` 定义 `ExcelFinalBatch`、`ExcelFinalPart`、`ExcelFinalComponent` 三张关系投影表。
-- `schemas.py` 定义导入过程的 typed statistics；HTTP DTO 由 route/presentation 保持稳定。
-- `staging.py` 解析 file ID、下载登记对象并识别源格式；不直接写业务终态。
+- `schemas.py` 定义导入统计、五金手册类别、零件类别和重量状态等稳定英文枚举；HTTP DTO 由 route/presentation 保持稳定。
+- `staging.py` 解析 file ID、下载登记对象并识别源格式；`init`、`canonical`、`tsv` 分别表示旧初始表、规范工作簿和 Tekla 文本，不直接写业务终态。
 - `uploads.py` 复用 files transfer saga 保存上传对象，避免另建一套对象补偿逻辑。
 - `importers.py` 流式读取结果工作簿，`persistence.py` 写入/替换关系投影。
 - `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。
 - `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
 - `stage_adapter.py` / `stage_runner.py` 隔离父进程与 Stage；`interface.py` 是跨域唯一入口。
+
+## 规范结果与质量语义
+
+- Stage 只生成 `原表、清洗表、构件表、整理表、part、处理报告` 六张表；后端不再修补或重写 Stage 输出。
+- 后端数据库继续从构件级 `整理表`导入零件关系，下载工作簿中的 `part`是独立的未分班组下料汇总；`part`清空普通零件构件号并跨构件合并，不覆盖数据库中的构件身份。
+- `整理表` 的中文类型在入库时显式转换为稳定英文枚举，例如 `板材 -> plate`、`BOX腹 -> box_web`、`圆钢 -> round_bar`；未知类型拒绝入库。
+- 批次零件列表的 `part_type` 查询参数只接受 `schemas.ExcelFinalPartType` 的稳定英文值；中文标签或未知值返回 HTTP 422，不静默返回空结果。
+- 批次净重和毛重仅汇总 `表净重` 与 `表毛重`，拆板翼行的空表重不重复计入，合法零值保持为零。
+- 尺寸、数量、面积、比重、利用率和重量统一用 `DECIMAL(24,9)` 持久化并在库内精确汇总；只在 HTTP/Job JSON 边界转换为普通数字，避免 MySQL `FLOAT` 累计漂移。
+- `warning` 和 `severe_warning` 不改变 Job 的成功状态；批次、process status、AnalysisResult、步骤和 done event 都返回质量状态、计数及有界摘要。计数以最终人工处置报告的合并行口径为准；`A2=无`按零问题导入，旧15列报告仍可兼容读取。
+- Job、步骤和日志只保存文件 basename、逻辑 ID、质量摘要与异常类型；临时绝对路径、MySQL 主机/DSN、口令和 traceback 不进入持久化或公共日志。
+- `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85，`skip` 返回空值，查无返回 `not_found`。
 
 ## 边界与依赖方向
 
@@ -31,6 +43,16 @@
 - bootstrap 可以直接装配本模块的 route、model 和 task 入口。
 - `Stages/excel_final` 保持独立产品目录、算法实现和测试，本模块不复制其核心算法。
 
-## 当前真实缺口
+## 真实链路回归
+
+常规后端测试默认跳过外部五金手册依赖。需要验证真实预处理输入、Stage 子进程、MySQL 五金手册、上传与任务状态机、关系化入库、结果登记及签名下载的完整链路时，在 `backend` 目录执行：
+
+```bash
+DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s tests/excel_processing/test_excel_final_live_flow.py
+```
+
+该测试使用隔离的 SQLite 业务库和临时本地对象存储，不写入部署业务数据；五金手册查询使用当前配置的只读 MySQL。
+
+## 范围边界
 
 这里实现的是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。跨图纸数据库屏障、左右进结果合并、自动汇总触发和生产输入 schema 的最终验收仍是待实现能力；外部 `hardware_handbook` 数据库也是部署依赖。代码移动和健康检查不能被解释为这些能力已经完成。

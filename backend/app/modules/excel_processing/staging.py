@@ -13,6 +13,7 @@ from app.modules.files.interface import (
     sanitize_filename,
 )
 from app.modules.jobs.interface import Job
+from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.storage.base import StorageObjectNotFound
 
 _INIT_TABLE_SIGNATURE = [
@@ -39,12 +40,18 @@ def resolve_file_id(job: Job) -> int | None:
 
 
 def detect_source_format(filepath: Path) -> str:
-    """Detect the Stage's `init` workbook input versus Tekla `tsv` fallback."""
+    """Classify legacy init workbooks, canonical workbooks, and Tekla text."""
     if filepath.suffix.lower() in (".xlsx", ".xlsm"):
         try:
             workbook = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        except Exception:
+            # Malformed workbooks are handed to the Stage so its parser can
+            # produce the canonical safe error mapping.
+            return "canonical"
+        try:
+            if len(workbook.sheetnames) != 1:
+                raise ValueError("Excel Final input must contain exactly one worksheet")
             if "初始表" in workbook.sheetnames:
-                workbook.close()
                 return "init"
             worksheet = workbook.worksheets[0]
             row2_cells = [
@@ -56,14 +63,11 @@ def detect_source_format(filepath: Path) -> str:
                 for keyword in _INIT_TABLE_SIGNATURE
                 if any(keyword in cell for cell in row2_cells)
             )
-            workbook.close()
             if match_count >= 7:
                 return "init"
-        except Exception:
-            # Binary/legacy inputs and malformed workbooks are intentionally
-            # handed to the Stage's broader text/Excel reader for canonical
-            # error mapping.
-            pass
+            return "canonical"
+        finally:
+            workbook.close()
     return "tsv"
 
 
@@ -76,7 +80,7 @@ def stage_excel_source(
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise FileNotFoundError(f"File {file_id} not found or deleted")
-    if stored.file_ext and stored.file_ext.lower() not in (".xlsx", ".xls"):
+    if stored.file_ext and stored.file_ext.lower() not in EXCEL_FILE_EXTENSIONS:
         raise ValueError(f"File {file_id} is not an Excel file (ext={stored.file_ext})")
 
     storage = get_storage_backend()
