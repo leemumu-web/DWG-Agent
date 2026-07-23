@@ -192,6 +192,64 @@ def test_only_importer_or_admin_can_edit_or_archive_available_remnant(db) -> Non
     assert archive_remnant(db, row.id, actor=admin).status == "archived"
 
 
+def test_bulk_archive_partially_succeeds_and_preserves_first_input_order(db) -> None:
+    from app.modules.operations.audit.models import AuditLog
+    from app.modules.remnant_inventory.inventory import bulk_archive_remnants
+
+    owner = _user(db, "bulk-archive-owner")
+    outsider = _user(db, "bulk-archive-outsider")
+    own = _remnant(db, owner=owner, suffix="e")
+    foreign = _remnant(db, owner=outsider, suffix="f")
+    reserved = _remnant(db, owner=owner, suffix="g", status="reserved")
+
+    result = bulk_archive_remnants(
+        db,
+        [own.id, foreign.id, reserved.id, own.id, 999999],
+        actor=owner,
+    )
+
+    assert result.archived == [own.id]
+    assert [
+        (item.remnant_id, item.code, item.message) for item in result.failed
+    ] == [
+        (foreign.id, "REMNANT_ARCHIVE_FORBIDDEN", "只能归档自己导入的余料。"),
+        (reserved.id, "REMNANT_LOCKED", "只有状态为“可用”的余料才能归档。"),
+        (999999, "REMNANT_NOT_FOUND", "余料不存在或已被删除。"),
+    ]
+    audit_rows = list(
+        db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.archive",
+                AuditLog.resource_id == own.id,
+            )
+        ).all()
+    )
+    assert len(audit_rows) == 1
+
+
+def test_bulk_archive_allows_admin_to_archive_foreign_remnants(db) -> None:
+    from app.modules.operations.audit.models import AuditLog
+    from app.modules.remnant_inventory.inventory import bulk_archive_remnants
+
+    owner = _user(db, "bulk-archive-foreign-owner")
+    admin = _user(db, "bulk-archive-admin", "admin")
+    first = _remnant(db, owner=owner, suffix="h")
+    second = _remnant(db, owner=owner, suffix="i")
+
+    result = bulk_archive_remnants(db, [second.id, first.id], actor=admin)
+
+    assert result.archived == [second.id, first.id]
+    assert result.failed == []
+    audit_ids = list(
+        db.scalars(
+            select(AuditLog.resource_id)
+            .where(AuditLog.action == "remnants.archive")
+            .order_by(AuditLog.id)
+        ).all()
+    )
+    assert audit_ids == [second.id, first.id]
+
+
 @pytest.mark.parametrize("source_ext", [".dwg", ".dxf"])
 def test_original_download_uses_actual_upload_and_only_reserver_or_admin(
     db, source_ext: str

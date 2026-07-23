@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
@@ -48,6 +49,19 @@ class OriginalDownload:
     expires_in: int
 
 
+@dataclass(frozen=True)
+class BulkArchiveFailure:
+    remnant_id: int
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class BulkArchiveResult:
+    archived: list[int]
+    failed: list[BulkArchiveFailure]
+
+
 def _require_user(actor: User) -> None:
     if not can_use_remnants(actor):
         raise AppHTTPException(403, "REMNANT_FORBIDDEN", "Remnant inventory access denied.")
@@ -56,7 +70,7 @@ def _require_user(actor: User) -> None:
 def _get(db: Session, remnant_id: int) -> Remnant:
     row = db.get(Remnant, remnant_id)
     if row is None:
-        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "Remnant not found.")
+        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "余料不存在或已被删除。")
     return row
 
 
@@ -68,7 +82,7 @@ def _get_for_update(db: Session, remnant_id: int) -> Remnant:
         .execution_options(populate_existing=True)
     )
     if row is None:
-        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "Remnant not found.")
+        raise AppHTTPException(404, "REMNANT_NOT_FOUND", "余料不存在或已被删除。")
     return row
 
 
@@ -362,10 +376,16 @@ def archive_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     _require_user(actor)
     row = _get_for_update(db, remnant_id)
     if row.status != "available":
-        raise AppHTTPException(409, "REMNANT_LOCKED", "Only available remnants can be archived.")
+        raise AppHTTPException(
+            409,
+            "REMNANT_LOCKED",
+            "只有状态为“可用”的余料才能归档。",
+        )
     if row.imported_by != actor.id and not _is_admin(actor):
         raise AppHTTPException(
-            403, "REMNANT_ARCHIVE_FORBIDDEN", "Only importer or administrator can archive."
+            403,
+            "REMNANT_ARCHIVE_FORBIDDEN",
+            "只能归档自己导入的余料。",
         )
     before = {"status": row.status, "version": row.version}
     row.status = "archived"
@@ -382,6 +402,31 @@ def archive_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
         after={"status": row.status, "version": row.version},
     )
     return row
+
+
+def bulk_archive_remnants(
+    db: Session,
+    remnant_ids: Sequence[int],
+    *,
+    actor: User,
+) -> BulkArchiveResult:
+    _require_user(actor)
+    result = BulkArchiveResult(archived=[], failed=[])
+    for remnant_id in dict.fromkeys(remnant_ids):
+        try:
+            with db.begin_nested():
+                archive_remnant(db, remnant_id, actor=actor)
+            result.archived.append(remnant_id)
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            result.failed.append(
+                BulkArchiveFailure(
+                    remnant_id=remnant_id,
+                    code=str(detail.get("code", "REMNANT_ARCHIVE_FAILED")),
+                    message=str(detail.get("message", "余料归档失败。")),
+                )
+            )
+    return result
 
 
 def preview_file_id(db: Session, remnant_id: int, *, actor: User) -> int:
