@@ -15,6 +15,14 @@ from openpyxl import load_workbook
 
 
 EXPECTED_SHEETS = ["原表", "清洗表", "构件表", "整理表", "part", "处理报告"]
+COMPONENT_SCOPED_TYPES = frozenset({
+    "BH腹",
+    "BH翼",
+    "BOX腹",
+    "BOX翼",
+    "BT腹",
+    "BT翼",
+})
 
 
 def _sha256(path: Path) -> str:
@@ -42,6 +50,45 @@ def _sum(rows: Iterable[dict[object, object]], field: str) -> Decimal:
         (_decimal(row[field]) for row in rows if row.get(field) is not None),
         Decimal("0"),
     )
+
+
+def _normalized_part_type(value: object) -> str:
+    return "板材" if value is None else str(value).replace("BOX盖", "BOX翼")
+
+
+def _part_comparison_key(row: dict[object, object]) -> tuple[object, ...]:
+    part_type = _normalized_part_type(row.get("类型"))
+    component_no = (
+        row.get("导入构件编号") or row.get("构件编号")
+        if part_type in COMPONENT_SCOPED_TYPES
+        else None
+    )
+    part_no = row.get("导入零件号")
+    if isinstance(part_no, str):
+        part_no = part_no.replace("BOX盖", "BOX翼")
+    return (
+        component_no,
+        part_no,
+        row.get("规格"),
+        row.get("宽度"),
+        row.get("下料长度"),
+        row.get("材质"),
+        part_type,
+    )
+
+
+def _collapse_part_rows(
+    rows: Iterable[dict[object, object]],
+    *,
+    quantity_field: str = "汇总",
+) -> dict[tuple[object, ...], Decimal]:
+    collapsed: dict[tuple[object, ...], Decimal] = {}
+    for row in rows:
+        key = _part_comparison_key(row)
+        collapsed[key] = collapsed.get(key, Decimal("0")) + _decimal(
+            row.get(quantity_field) or 0
+        )
+    return collapsed
 
 
 def _record(
@@ -132,16 +179,103 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
         canonical_part_data = len(part)
         _record(
             results, "part数据行范围", gt_part_data, canonical_part_data,
-            "INTENDED_DIFFERENCE" if canonical_part_data == 478 else "REVIEW",
-            "GT仅含84条BOX子板和117条不完整板行；规范输出84+394条合法下料候选",
+            "INTENDED_DIFFERENCE"
+            if canonical_part_data == baseline["part_rows"]
+            else "REVIEW",
+            "GT含84条构件范围子板和117条按人工班组拆分的普通板；"
+            "规范输出84条构件范围子板和38条全局汇总板材",
         )
         gt_blank_part_component = sum(row.get("导入构件编号") is None for row in gt_part)
-        output_blank_part_component = sum(row.get("导入构件编号") is None for row in part)
+        component_scoped = [
+            row
+            for row in part
+            if _normalized_part_type(row.get("类型")) in COMPONENT_SCOPED_TYPES
+        ]
+        global_scoped = [
+            row
+            for row in part
+            if _normalized_part_type(row.get("类型")) not in COMPONENT_SCOPED_TYPES
+        ]
+        output_blank_main = sum(
+            row.get("导入构件编号") is None for row in component_scoped
+        )
+        output_blank_global = sum(
+            row.get("导入构件编号") is None for row in global_scoped
+        )
         _record(
-            results, "part身份完整性",
-            f"GT空={gt_blank_part_component}", f"规范空={output_blank_part_component}",
-            "INTENDED_DIFFERENCE" if output_blank_part_component == 0 else "FAIL",
-            "不输出缺失导入构件号/零件号的part记录",
+            results,
+            "part构件号范围",
+            f"GT空={gt_blank_part_component}",
+            f"主零件空={output_blank_main}, 全局零件空={output_blank_global}",
+            "PASS"
+            if output_blank_main == 0
+            and output_blank_global == baseline["part_global_scoped"]
+            else "FAIL",
+            "BH/BOX/BT保留构件号；板材和扁钢清空构件号后跨构件汇总",
+        )
+
+        canonical_collapsed = _collapse_part_rows(part)
+        gt_part_collapsed = _collapse_part_rows(gt_part)
+        canonical_main = {
+            key: value
+            for key, value in canonical_collapsed.items()
+            if key[-1] in COMPONENT_SCOPED_TYPES
+        }
+        gt_main = {
+            key: value
+            for key, value in gt_part_collapsed.items()
+            if key[-1] in COMPONENT_SCOPED_TYPES
+        }
+        _record(
+            results,
+            "part主零件逐键对应",
+            f"GT={len(gt_main)}",
+            f"规范={len(canonical_main)}",
+            "PASS" if canonical_main == gt_main else "FAIL",
+            "BOX盖规范为BOX翼后，构件号、完整属性和汇总数量全部一致",
+        )
+
+        canonical_global = {
+            key: value
+            for key, value in canonical_collapsed.items()
+            if key[-1] not in COMPONENT_SCOPED_TYPES
+        }
+        gt_part_global = {
+            key: value
+            for key, value in gt_part_collapsed.items()
+            if key[-1] not in COMPONENT_SCOPED_TYPES
+        }
+        _record(
+            results,
+            "part全局属性键",
+            f"GT 117行折叠={len(gt_part_global)}",
+            f"规范={len(canonical_global)}",
+            "PASS"
+            if set(canonical_global) == set(gt_part_global)
+            and len(canonical_global) == baseline["part_global_scoped"]
+            else "FAIL",
+            "去除没有来源的人工班组后，普通板材完整属性键集合一致",
+        )
+
+        gt_organized_global = _collapse_part_rows(
+            (
+                row
+                for row in gt_organized
+                if _part_comparison_key(row) in canonical_global
+            ),
+            quantity_field="总数",
+        )
+        _record(
+            results,
+            "part全局汇总数量",
+            f"GT整理={sum(gt_organized_global.values(), Decimal('0'))}",
+            f"规范={sum(canonical_global.values(), Decimal('0'))}",
+            "PASS"
+            if canonical_global == gt_organized_global
+            and sum(canonical_global.values(), Decimal("0"))
+            == baseline["part_global_summary"]
+            else "FAIL",
+            "GT part四条漏乘构件数不作为基准；按GT整理的构件级总数对账",
         )
 
         blank_files = sum(row.get("文件") is None for row in part)

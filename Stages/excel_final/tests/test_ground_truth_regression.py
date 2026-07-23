@@ -16,6 +16,9 @@ PREPROCESSED = (
     / "data/preprocessed/20260320-首都体育学院B7#地下部分-构件零件清单(毛净重)去gyb(3)_原表.xlsx"
 )
 BASELINE_PATH = Path(__file__).parent / "fixtures/ground_truth_baseline.json"
+COMPONENT_SCOPED_TYPES = {
+    "BH腹", "BH翼", "BOX腹", "BOX翼", "BT腹", "BT翼",
+}
 
 
 def _sha256(path: Path) -> str:
@@ -82,6 +85,18 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             "NUT": baseline["nut"],
         }
 
+        component_scoped = [
+            row for row in part if row["类型"] in COMPONENT_SCOPED_TYPES
+        ]
+        global_scoped = [
+            row for row in part if row["类型"] not in COMPONENT_SCOPED_TYPES
+        ]
+        assert len(part) == baseline["part_rows"]
+        assert len(component_scoped) == baseline["part_component_scoped"]
+        assert len(global_scoped) == baseline["part_global_scoped"]
+        assert all(row["导入构件编号"] for row in component_scoped)
+        assert all(row["导入构件编号"] is None for row in global_scoped)
+        assert sum(row["汇总"] for row in global_scoped) == baseline["part_global_summary"]
         assert all(row["文件"] is None for row in part)
         assert values["处理报告"]["A2"].value == "无"
         assert values["处理报告"].max_row == 2

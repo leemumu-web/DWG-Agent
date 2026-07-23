@@ -7,5 +7,9 @@
   "tt": 41,
   "d": 4,
   "nut": 4,
-  "organized_rows": 527
+  "organized_rows": 527,
+  "part_rows": 122,
+  "part_component_scoped": 84,
+  "part_global_scoped": 38,
+  "part_global_summary": 1216
 }

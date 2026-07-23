@@ -83,6 +83,34 @@ def _initial_workbook(path: Path) -> None:
     workbook.close()
 
 
+def _two_component_shared_part_workbook(path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append([
+        "批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)", "单毛重(kg)", "总毛重(kg)",
+        "单表面积(㎡)", "总表面积(㎡)", "长度(mm)", "宽度(mm)",
+        "高度(mm)", "版本",
+    ])
+    for component_no, component_qty in (("C1", 2), ("C2", 3)):
+        sheet.append([
+            "B1", component_no, None, "BOX100*100*10*10", 1000, "Q355B",
+            component_qty,
+        ])
+        sheet.append([
+            None, None, "p-box", "BOX100*100*10*10", 1000, "Q355B", 1,
+        ])
+        sheet.append([
+            None, None, "p-shared", "PL10*100", 1000, "Q355B", 1,
+        ])
+        sheet.append([
+            "B1", component_no, "构件小计", None, None, None, component_qty,
+        ])
+    workbook.save(path)
+    workbook.close()
+
+
 def _organized(path: Path) -> list[dict[str, object]]:
     workbook = load_workbook(path, data_only=True, read_only=True)
     try:
@@ -217,6 +245,34 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
         ]
         assert file_cells
         assert all(value is None for value in file_cells)
+    finally:
+        workbook.close()
+
+
+def test_part_projection_keeps_main_component_and_globally_merges_other_parts(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "two-components.xlsx"
+    output = tmp_path / "two-components-output.xlsx"
+    _two_component_shared_part_workbook(source)
+
+    run_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    workbook = load_workbook(output, data_only=True, read_only=True)
+    try:
+        headers = [cell.value for cell in workbook["part"][1]]
+        rows = [
+            dict(zip(headers, values, strict=True))
+            for values in workbook["part"].iter_rows(min_row=2, values_only=True)
+        ]
+        main_rows = [row for row in rows if str(row["类型"]).startswith("BOX")]
+        global_rows = [row for row in rows if row["类型"] == "板材"]
+
+        assert len(main_rows) == 4
+        assert {row["导入构件编号"] for row in main_rows} == {"C1", "C2"}
+        assert len(global_rows) == 1
+        assert global_rows[0]["导入构件编号"] is None
+        assert global_rows[0]["汇总"] == 5
     finally:
         workbook.close()
 
