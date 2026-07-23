@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,7 @@ from app.modules.remnant_inventory.materials import (
     create_material,
     list_materials,
     replace_aliases,
+    resolve_or_create_material,
     update_material,
 )
 from app.modules.remnant_inventory.models import (
@@ -54,6 +55,7 @@ from app.modules.remnant_inventory.schemas import (
     MaterialAliasReplace,
     MaterialCreate,
     MaterialRead,
+    MaterialResolveCreate,
     MaterialUpdate,
     RemnantReserveRequest,
     RemnantUpdate,
@@ -223,6 +225,37 @@ def post_material(
     db.commit()
     db.refresh(row)
     return ok(_material_data(db, row), request.state.request_id)
+
+
+@materials_router.post("/resolve-or-create")
+def post_resolve_or_create_material(
+    payload: MaterialResolveCreate,
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    _require_user(current_user)
+    row, created = resolve_or_create_material(
+        db, code=payload.code, actor_id=current_user.id
+    )
+    if created:
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="remnants.material.create",
+            resource_type="remnant_material",
+            resource_id=row.id,
+            after_json={"code": row.code, "family_code": row.family_code},
+            request=request,
+        )
+        response.status_code = status.HTTP_201_CREATED
+    db.commit()
+    db.refresh(row)
+    return ok(
+        {"material": _material_data(db, row), "created": created},
+        request.state.request_id,
+    )
 
 
 @materials_router.patch("/{material_id}")

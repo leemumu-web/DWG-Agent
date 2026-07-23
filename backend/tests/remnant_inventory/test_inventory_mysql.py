@@ -7,7 +7,7 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.modules.files.interface import StoredFile
@@ -22,6 +22,7 @@ from app.modules.remnant_inventory.inventory import (
     search_remnants,
     update_remnant,
 )
+from app.modules.remnant_inventory.materials import resolve_or_create_material
 from app.modules.remnant_inventory.models import (
     Remnant,
     RemnantImportBatch,
@@ -36,6 +37,41 @@ pytestmark = pytest.mark.skipif(
     not MYSQL_URL,
     reason="Set MYSQL_INTEGRATION_DATABASE_URL to run live MySQL remnant concurrency tests.",
 )
+
+
+def test_two_workers_resolve_one_material_row() -> None:
+    assert MYSQL_URL is not None
+    engine = create_engine(MYSQL_URL, pool_pre_ping=True)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    code = f"RACE-{uuid4().hex[:12]}".upper()
+    barrier = Barrier(2)
+
+    def create_from_worker(_worker_slot: int) -> tuple[int, bool]:
+        with factory() as session:
+            barrier.wait(timeout=10)
+            material, created = resolve_or_create_material(
+                session, code=code, actor_id=None
+            )
+            session.commit()
+            return material.id, created
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(create_from_worker, (1, 2)))
+        assert len({material_id for material_id, _created in results}) == 1
+        assert sum(created for _material_id, created in results) == 1
+        with factory() as check:
+            count = check.scalar(
+                select(func.count()).select_from(RemnantMaterial).where(
+                    RemnantMaterial.code == code
+                )
+            )
+            assert count == 1
+    finally:
+        with factory() as cleanup:
+            cleanup.execute(delete(RemnantMaterial).where(RemnantMaterial.code == code))
+            cleanup.commit()
+        engine.dispose()
 
 
 def test_two_workers_get_one_reservation_and_lifecycle_remains_consistent() -> None:

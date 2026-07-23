@@ -4,6 +4,7 @@ import unicodedata
 from collections.abc import Sequence
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.remnant_inventory.models import RemnantMaterial, RemnantMaterialAlias
@@ -33,6 +34,52 @@ def create_material(
     db.add(material)
     db.flush()
     return material
+
+
+def resolve_or_create_material(
+    db: Session, *, code: str, actor_id: int | None
+) -> tuple[RemnantMaterial, bool]:
+    normalized = normalize_material_token(code)
+    if not normalized:
+        raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "Material code is required.")
+
+    existing = db.scalar(select(RemnantMaterial).where(RemnantMaterial.code == normalized))
+    if existing is not None:
+        if not existing.enabled:
+            raise AppHTTPException(
+                409,
+                "REMNANT_MATERIAL_DISABLED",
+                "Material is disabled; contact an administrator to enable it.",
+            )
+        return existing, False
+
+    material = RemnantMaterial(
+        code=normalized,
+        family_code=normalized,
+        enabled=True,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    try:
+        with db.begin_nested():
+            db.add(material)
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(
+            select(RemnantMaterial)
+            .where(RemnantMaterial.code == normalized)
+            .with_for_update()
+        )
+        if existing is None:
+            raise
+        if not existing.enabled:
+            raise AppHTTPException(
+                409,
+                "REMNANT_MATERIAL_DISABLED",
+                "Material is disabled; contact an administrator to enable it.",
+            )
+        return existing, False
+    return material, True
 
 
 def update_material(

@@ -45,6 +45,22 @@ class MaterialRead(BaseModel):
     updated_at: datetime
 
 
+class MaterialResolveCreate(BaseModel):
+    code: str = Field(max_length=64)
+
+    @field_validator("code")
+    @classmethod
+    def require_non_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
+
+
+class MaterialResolveCreateResult(BaseModel):
+    material: MaterialRead
+    created: bool
+
+
 class ImportItemUpdate(BaseModel):
     thickness_mm: Decimal | None = None
     material_id: int | None = None

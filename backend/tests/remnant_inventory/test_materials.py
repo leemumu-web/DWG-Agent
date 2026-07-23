@@ -40,6 +40,41 @@ def test_disabled_material_is_not_resolved(db) -> None:
     assert resolve_material_candidate(db, "Q235D") is None
 
 
+def test_resolve_or_create_uses_full_code_as_family(db) -> None:
+    from app.modules.remnant_inventory.materials import resolve_or_create_material
+
+    material, created = resolve_or_create_material(db, code=" q355b ", actor_id=None)
+
+    assert created is True
+    assert (material.code, material.family_code, material.enabled) == ("Q355B", "Q355B", True)
+
+
+def test_resolve_or_create_returns_existing_material(db) -> None:
+    from app.modules.remnant_inventory.materials import resolve_or_create_material
+
+    first, _created = resolve_or_create_material(db, code="Q355B", actor_id=None)
+    second, created = resolve_or_create_material(db, code="q355b", actor_id=None)
+
+    assert (second.id, created) == (first.id, False)
+
+
+def test_resolve_or_create_does_not_reenable_disabled_material(db) -> None:
+    from app.modules.remnant_inventory.materials import (
+        create_material,
+        resolve_or_create_material,
+    )
+
+    material = create_material(db, code="Q355B", family_code="Q355B", actor_id=None)
+    material.enabled = False
+    db.flush()
+
+    with pytest.raises(HTTPException) as captured:
+        resolve_or_create_material(db, code="q355b", actor_id=None)
+
+    assert captured.value.status_code == 409
+    assert captured.value.detail["code"] == "REMNANT_MATERIAL_DISABLED"
+
+
 def test_family_search_expands_only_enabled_family_members(db) -> None:
     from app.modules.remnant_inventory.materials import create_material, material_ids_for_search
 

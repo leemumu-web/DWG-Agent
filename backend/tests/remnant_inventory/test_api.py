@@ -10,8 +10,10 @@ from sqlalchemy import select
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.operations.audit.models import AuditLog
+from app.modules.identity.interface import Role, User
 from app.modules.remnant_inventory.models import RemnantImportItem
 from app.platform.config.settings import settings
+from app.platform.security.tokens import hash_password
 from tests.support.database import get_test_session_factory
 
 
@@ -27,6 +29,27 @@ def admin_headers(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/sessions",
         json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    assert response.status_code == 201, response.text
+    return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
+
+
+@pytest.fixture
+def worker_headers(client: TestClient) -> dict[str, str]:
+    with get_test_session_factory()() as db:
+        role = db.scalar(select(Role).where(Role.code == "remnant_worker"))
+        assert role is not None
+        user = User(
+            username="material-worker",
+            real_name="材质工人",
+            password_hash=hash_password("WorkerPass123"),
+            roles=[role],
+        )
+        db.add(user)
+        db.commit()
+    response = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "material-worker", "password": "WorkerPass123"},
     )
     assert response.status_code == 201, response.text
     return {"Authorization": f"Bearer {response.json()['data']['access_token']}"}
@@ -69,6 +92,48 @@ def test_material_api_uses_envelope_auth_and_admin_permissions(client, admin_hea
     with get_test_session_factory()() as db:
         actions = set(db.scalars(select(AuditLog.action)).all())
     assert {"remnants.material.create", "remnants.material.aliases"} <= actions
+
+
+def test_worker_resolves_or_creates_material_but_cannot_administer_it(
+    client, worker_headers
+) -> None:
+    created = client.post(
+        "/api/v1/remnant-materials/resolve-or-create",
+        headers=worker_headers,
+        json={"code": "q355b"},
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()["data"]
+    assert payload["created"] is True
+    assert payload["material"]["code"] == payload["material"]["family_code"] == "Q355B"
+
+    repeated = client.post(
+        "/api/v1/remnant-materials/resolve-or-create",
+        headers=worker_headers,
+        json={"code": "Q355B"},
+    )
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["data"]["created"] is False
+
+    material_id = payload["material"]["id"]
+    assert client.patch(
+        f"/api/v1/remnant-materials/{material_id}",
+        headers=worker_headers,
+        json={"enabled": False},
+    ).status_code == 403
+    assert client.put(
+        f"/api/v1/remnant-materials/{material_id}/aliases",
+        headers=worker_headers,
+        json={"aliases": ["Q355-B"]},
+    ).status_code == 403
+
+    with get_test_session_factory()() as db:
+        audits = list(
+            db.scalars(
+                select(AuditLog).where(AuditLog.action == "remnants.material.create")
+            ).all()
+        )
+    assert len(audits) == 1
 
 
 def test_multipart_import_edit_partial_confirm_and_inventory_lifecycle(
