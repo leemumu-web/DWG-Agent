@@ -83,17 +83,21 @@ def test_excel_final_dependency_probe_includes_legacy_xls_reader(monkeypatch):
     assert "xlrd" in checked
 
 
-def test_excel_final_text_probe_falls_through_after_parser_error():
+def test_excel_final_fixed_width_probe_rejects_unrecognized_text():
     script = """
 from pathlib import Path
-import pandas as pd
+from tempfile import TemporaryDirectory
 import reader
 
-def fail_parse(*args, **kwargs):
-    raise pd.errors.ParserError('not delimited text')
-
-reader.pd.read_csv = fail_parse
-assert reader._try_read(Path('binary.xls'), '\\t', 'latin-1') is None
+with TemporaryDirectory() as directory:
+    source = Path(directory) / 'not-tekla.xls'
+    source.write_text('ordinary text without a production header', encoding='utf-8')
+    try:
+        reader._decode_fixed_text(source)
+    except ValueError as exc:
+        assert 'Cannot decode fixed-width Tekla text' in str(exc)
+    else:
+        raise AssertionError('unrecognized text was accepted as fixed-width Tekla')
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],

@@ -44,6 +44,7 @@ _DEFAULT_ACTION = "复核该问题并修正源数据后重新处理"
 _ACTIONABLE_LEVELS = frozenset(
     {IssueLevel.WARNING, IssueLevel.SEVERE, IssueLevel.FATAL}
 )
+_REPRESENTATIVE_LIMIT = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,47 +100,59 @@ class QualityLedger:
         return QualityStatus.OK
 
     def report_rows(self) -> list[dict[str, object]]:
-        grouped: dict[tuple[object, ...], dict[str, object]] = {}
+        grouped: dict[tuple[object, ...], list[QualityIssue]] = {}
         for issue in self._issues:
             if issue.level not in _ACTIONABLE_LEVELS:
                 continue
+            action = _ACTION_BY_CATEGORY.get(issue.category, _DEFAULT_ACTION)
             key = (
                 issue.level,
                 issue.category,
                 issue.source_sheet,
-                issue.source_row,
-                issue.component_no,
-                issue.part_no,
+                issue.spec,
+                issue.density_source,
+                action,
             )
-            row = grouped.setdefault(
-                key,
-                {
-                    "级别": issue.level.value,
-                    "类别": issue.category,
-                    "来源位置": f"{issue.source_sheet}!{issue.source_row}",
-                    "构件编号": issue.component_no,
-                    "零件号": issue.part_no,
-                    "涉及字段": [],
-                    "说明": [],
-                    "建议操作": _ACTION_BY_CATEGORY.get(
-                        issue.category,
-                        _DEFAULT_ACTION,
-                    ),
-                },
-            )
-            fields = row["涉及字段"]
-            descriptions = row["说明"]
-            if issue.field and issue.field not in fields:
-                fields.append(issue.field)
-            if issue.description and issue.description not in descriptions:
-                descriptions.append(issue.description)
+            grouped.setdefault(key, []).append(issue)
 
         rows: list[dict[str, object]] = []
-        for grouped_row in grouped.values():
-            row = dict(grouped_row)
-            row["涉及字段"] = "；".join(grouped_row["涉及字段"])
-            row["说明"] = "；".join(grouped_row["说明"])
-            rows.append(row)
+        for issues in grouped.values():
+            first = issues[0]
+            source_rows = _unique(
+                (issue.source_sheet, issue.source_row)
+                for issue in issues
+            )
+            descriptions = _unique(
+                issue.description
+                for issue in issues
+                if issue.description
+            )
+            description = "；".join(
+                descriptions[:_REPRESENTATIVE_LIMIT]
+            )
+            if len(descriptions) > _REPRESENTATIVE_LIMIT:
+                description += f"；另有 {len(descriptions) - _REPRESENTATIVE_LIMIT} 种说明"
+            if len(source_rows) > 1:
+                description = f"影响 {len(source_rows)} 行；{description}"
+            rows.append({
+                "级别": first.level.value,
+                "类别": first.category,
+                "来源位置": _source_representatives(source_rows),
+                "构件编号": _value_representatives(
+                    issue.component_no for issue in issues
+                ),
+                "零件号": _value_representatives(
+                    issue.part_no for issue in issues
+                ),
+                "涉及字段": "；".join(_unique(
+                    issue.field for issue in issues if issue.field
+                )),
+                "说明": description,
+                "建议操作": _ACTION_BY_CATEGORY.get(
+                    first.category,
+                    _DEFAULT_ACTION,
+                ),
+            })
         return rows
 
     def to_outcome(self, output_path: Path) -> PipelineOutcome:
@@ -161,3 +174,40 @@ class QualityLedger:
             severe_warning_count=self.severe_warning_count,
             report_summary=summary,
         )
+
+
+def _unique(values):
+    result = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return result
+
+
+def _source_representatives(
+    source_rows: list[tuple[str, int]],
+) -> str:
+    sheets = _unique(sheet for sheet, _ in source_rows)
+    if len(sheets) == 1:
+        result = f"{sheets[0]}!" + "、".join(
+            str(row)
+            for _, row in source_rows[:_REPRESENTATIVE_LIMIT]
+        )
+    else:
+        result = "、".join(
+            f"{sheet}!{row}"
+            for sheet, row in source_rows[:_REPRESENTATIVE_LIMIT]
+        )
+    if len(source_rows) > _REPRESENTATIVE_LIMIT:
+        result += f" 等 {len(source_rows)} 行"
+    return result
+
+
+def _value_representatives(values) -> str | None:
+    unique = _unique(str(value) for value in values if value not in (None, ""))
+    if not unique:
+        return None
+    result = "、".join(unique[:_REPRESENTATIVE_LIMIT])
+    if len(unique) > _REPRESENTATIVE_LIMIT:
+        result += f" 等 {len(unique)} 个"
+    return result

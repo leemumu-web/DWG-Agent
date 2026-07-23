@@ -260,6 +260,61 @@ def test_quality_report_filters_info_and_merges_same_source_category() -> None:
     }
 
 
+def test_quality_report_groups_repeated_action_across_source_rows() -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    for source_row in (10, 11):
+        ledger.add(
+            quality.QualityIssue(
+                level=quality.IssueLevel.WARNING,
+                category="五金手册查无",
+                source_sheet="原表",
+                source_row=source_row,
+                component_no=f"C{source_row}",
+                part_no=f"P{source_row}",
+                spec="D8",
+                field="比重",
+                actual_value="查无",
+                expected_value="指定类别手册命中",
+                absolute_error=None,
+                relative_error=None,
+                affects_part=False,
+                density_source="unsupported:not_found",
+                description="D8: D系列材质不足",
+            )
+        )
+    ledger.add(
+        quality.QualityIssue(
+            level=quality.IssueLevel.WARNING,
+            category="五金手册查无",
+            source_sheet="原表",
+            source_row=12,
+            component_no="C12",
+            part_no="P12",
+            spec="D12",
+            field="比重",
+            actual_value="查无",
+            expected_value="指定类别手册命中",
+            absolute_error=None,
+            relative_error=None,
+            affects_part=False,
+            density_source="unsupported:not_found",
+            description="D12: D系列材质不足",
+        )
+    )
+
+    rows = ledger.report_rows()
+
+    assert len(rows) == 2
+    d8 = next(row for row in rows if "D8" in str(row["说明"]))
+    assert d8["来源位置"] == "原表!10、11"
+    assert d8["构件编号"] == "C10、C11"
+    assert d8["零件号"] == "P10、P11"
+    assert d8["涉及字段"] == "比重"
+    assert d8["说明"] == "影响 2 行；D8: D系列材质不足"
+    assert ledger.warning_count == 2
+
+
 @pytest.mark.parametrize(
     ("level_name", "affects_part"),
     [
