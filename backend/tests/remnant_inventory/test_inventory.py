@@ -204,11 +204,14 @@ def test_bulk_archive_partially_succeeds_and_preserves_first_input_order(db) -> 
 
     result = bulk_archive_remnants(
         db,
-        [own.id, foreign.id, reserved.id, own.id, 999999],
+        [foreign.id, reserved.id, own.id, own.id, 999999],
         actor=owner,
     )
+    db.commit()
+    db.expire_all()
 
     assert result.archived == [own.id]
+    assert db.get(Remnant, own.id).status == "archived"
     assert [
         (item.remnant_id, item.code, item.message) for item in result.failed
     ] == [
