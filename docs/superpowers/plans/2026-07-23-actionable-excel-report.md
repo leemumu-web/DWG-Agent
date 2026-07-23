@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 将 `处理报告`收缩为可执行的人工处置清单，无问题时显示“无”，并默认隐藏整理表的三个审计列。
+**Goal:** 将 `处理报告`收缩为可执行的人工处置清单，无问题时显示“无”，并默认隐藏整理表和构件表的审计列。
 
 **Architecture:** `quality.py`继续保存原始问题，但新增唯一的可操作报告投影，负责过滤信息、同源同类合并和生成操作建议；writer 与 `PipelineOutcome`共同使用该投影，避免统计口径分裂。后端 importer 识别“无”哨兵并继续兼容按表头读取的旧报告。
 
@@ -92,6 +92,10 @@ for header in ("比重来源", "净材利用率", "重量核验"):
     index = ORGANIZED_HEADERS.index(header) + 1
     letter = get_column_letter(index)
     assert workbook["整理表"].column_dimensions[letter].hidden is True
+for header in ("来源sheet", "行类型", "小计来源行"):
+    index = COMPONENT_HEADERS.index(header) + 1
+    letter = get_column_letter(index)
+    assert workbook["构件表"].column_dimensions[letter].hidden is True
 ```
 
 有问题时断言“建议操作”非空，同源同类问题只占一行。
@@ -113,7 +117,7 @@ Expected: 旧报告仍有15列、空报告没有“无”、整理表列未隐�
 ws["A2"] = "无"
 ```
 
-按报告行的“级别”设置警告/严重样式。写完整理表后，把 `比重来源/净材利用率/重量核验` 对应列的 `hidden` 设为 `True`。
+按报告行的“级别”设置警告/严重样式。写表后，把整理表的 `比重来源/净材利用率/重量核验` 和构件表的 `来源sheet/行类型/小计来源行` 对应列的 `hidden` 设为 `True`。
 
 - [ ] **Step 4: 运行 writer 与端到端测试确认 GREEN**
 
@@ -191,6 +195,8 @@ assert workbook["处理报告"]["A2"].value == "无"
 assert workbook["处理报告"].max_row == 2
 for header in ("比重来源", "净材利用率", "重量核验"):
     assert hidden(header)
+for header in ("来源sheet", "行类型", "小计来源行"):
+    assert component_hidden(header)
 ```
 
 - [ ] **Step 2: 更新当前生产文档**
@@ -225,4 +231,3 @@ Expected: 所有启用测试通过，无迁移漂移。
 git add -u
 git commit -m "refactor(excel-final): emit actionable reports"
 ```
-
