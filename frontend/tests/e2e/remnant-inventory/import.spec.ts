@@ -154,10 +154,12 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await editor.getByLabel('厚度（mm）').fill('10');
   await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
   await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q355B');
+  await expect(page.getByText('材质已创建并选中')).toBeVisible();
   await editor.getByLabel('项目编号').fill('PJ-CONFIRMED');
   const parts = editor.locator('.ant-form-item').filter({ hasText: '零件编号' });
-  await parts.getByRole('combobox').fill('L-2');
-  await parts.getByRole('combobox').press('Enter');
+  await parts.getByRole('combobox').fill('L-2,');
+  await parts.getByRole('combobox').press('Tab');
+  await expect(parts.locator('.ant-select-selection-item')).toHaveCount(2);
   await editor.getByRole('button', { name: '确 定' }).click({ force: true });
   await expect.poll(state.patchCalls).toBe(1);
 

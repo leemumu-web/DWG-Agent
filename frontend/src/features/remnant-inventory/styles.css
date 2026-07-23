@@ -7,9 +7,13 @@
 .remnant-import-card, .remnant-progress-card, .remnant-confirm-card { border-radius: 14px; box-shadow: 0 8px 28px rgb(15 23 42 / 5%); }
 .remnant-section-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .remnant-search-grid { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(150px, .8fr) minmax(220px, 1.3fr) minmax(150px, .7fr); gap: 16px; align-items: end; }
+.remnant-global-search-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 0 16px; align-items: end; }
+.remnant-global-search-action { align-self: end; }
 .remnant-detail-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .remnant-stat-grid { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); gap: 12px; margin-bottom: 12px; }
 .remnant-confirm-editor { display: grid; grid-template-columns: .9fr 1.1fr; gap: 24px; }
 @media (max-width: 900px) { .remnant-search-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) { .remnant-global-search-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) { .remnant-stat-grid { grid-template-columns: 1fr 1fr; } .remnant-confirm-editor { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .remnant-search-grid { grid-template-columns: 1fr; } .remnant-page-header { align-items: flex-start; } }
+@media (max-width: 560px) { .remnant-global-search-grid { grid-template-columns: 1fr; } }

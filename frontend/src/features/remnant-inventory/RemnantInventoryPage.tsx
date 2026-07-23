@@ -20,6 +20,7 @@ import {
 import { RemnantBatchProgress } from './RemnantBatchProgress';
 import { RemnantConfirmationPanel } from './RemnantConfirmationPanel';
 import { RemnantImportPanel } from './RemnantImportPanel';
+import { RemnantGlobalPanel } from './RemnantGlobalPanel';
 import { RemnantMaterialCatalog } from './RemnantMaterialCatalog';
 import { RemnantEditModal } from './RemnantEditModal';
 import { RemnantDetailDrawer, StatusTag } from './RemnantDetailDrawer';
@@ -46,7 +47,7 @@ export function RemnantInventoryPage() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const search = useMemo(() => fromParams(params), [params]);
-  const activeTab = ['import', 'materials'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'search';
+  const activeTab = ['global', 'import', 'materials'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'search';
   const batchId = params.get('batch') ? Number(params.get('batch')) : undefined;
   const [selectedId, setSelectedId] = useState<number>();
   const [preview, setPreview] = useState<{ id: number; name: string }>();
@@ -177,6 +178,7 @@ export function RemnantInventoryPage() {
         />
       </Card>
           </div> },
+          { key: 'global', label: '全部余料', children: <RemnantGlobalPanel materials={materials.data ?? []} onOpenDetail={setSelectedId} /> },
           { key: 'import', label: '批量导入', children: <div className="remnant-tab-stack">
             <RemnantImportPanel onCreated={(created) => {
               const target = new URLSearchParams(params);

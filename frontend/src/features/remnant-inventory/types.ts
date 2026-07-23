@@ -41,6 +41,18 @@ export interface RemnantSearch {
   page: number;
 }
 
+export type RemnantGlobalSort = 'created_desc' | 'created_asc' | 'thickness_asc' | 'thickness_desc' | 'status';
+
+export interface RemnantGlobalSearch {
+  materialId?: number;
+  thicknessMm?: string;
+  statuses: RemnantStatus[];
+  project?: string;
+  part?: string;
+  sort: RemnantGlobalSort;
+  page: number;
+}
+
 export interface OriginalDownload {
   file_id: number;
   file_name: string;

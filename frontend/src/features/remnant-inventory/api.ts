@@ -3,6 +3,7 @@ import type {
   ImportConfirmationResult,
   OriginalDownload,
   Remnant,
+  RemnantGlobalSearch,
   RemnantImportBatch,
   RemnantImportItem,
   RemnantMaterial,
@@ -57,6 +58,38 @@ export async function searchRemnants(search: RemnantSearch): Promise<PageEnvelop
     paramsSerializer: { indexes: null },
   });
   return response.data;
+}
+
+export async function listAllRemnants(search: RemnantGlobalSearch): Promise<PageEnvelope<Remnant>> {
+  const response = await apiClient.get<PageEnvelope<Remnant>>('/api/v1/remnants/all', {
+    params: {
+      material_id: search.materialId,
+      thickness_mm: search.thicknessMm,
+      statuses: search.statuses,
+      project: search.project,
+      part: search.part,
+      sort: search.sort,
+      page: search.page,
+      page_size: 20,
+    },
+    paramsSerializer: { indexes: null },
+  });
+  return response.data;
+}
+
+export async function exportAllRemnants(): Promise<void> {
+  const response = await apiClient.get<Blob>('/api/v1/remnants/export.xlsx', { responseType: 'blob' });
+  const disposition = String(response.headers['content-disposition'] ?? '');
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const fileName = encodedName ? decodeURIComponent(encodedName) : '余料库.xlsx';
+  const href = URL.createObjectURL(response.data);
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(href);
 }
 
 export async function getRemnant(remnantId: number): Promise<Remnant> {
