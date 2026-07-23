@@ -12,7 +12,6 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 import ezdxf
-from ezdxf.fonts import fonts
 from ezdxf.addons.drawing import Frontend, RenderContext, layout
 from ezdxf.addons.drawing.config import (
     BackgroundPolicy,
@@ -21,6 +20,7 @@ from ezdxf.addons.drawing.config import (
     ImagePolicy,
 )
 from ezdxf.addons.drawing.svg import SVGBackend
+from ezdxf.fonts import fonts
 
 from app.platform.http.exceptions import AppHTTPException
 
