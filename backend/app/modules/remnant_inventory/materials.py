@@ -77,7 +77,7 @@ def resolve_or_create_material(
                 409,
                 "REMNANT_MATERIAL_DISABLED",
                 "Material is disabled; contact an administrator to enable it.",
-            )
+            ) from None
         return existing, False
     return material, True
 
