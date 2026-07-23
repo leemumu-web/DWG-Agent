@@ -348,6 +348,33 @@ def test_metadata_tokens_are_removed_before_project_candidate_classification(
     ]
 
 
+def test_project_words_matching_metadata_labels_are_preserved(tmp_path: Path) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text("Q355B 精武路材料项目").set_placement((0, 0))
+    source = tmp_path / "project-with-metadata-word.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == ["Q355B"]
+    assert [candidate.value for candidate in result.project_candidates] == [
+        "精武路材料项目"
+    ]
+
+
+def test_only_caption_adjacent_to_metadata_token_is_removed(tmp_path: Path) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text("材质 Q355B 精武路材料项目").set_placement((0, 0))
+    source = tmp_path / "caption-and-project.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.project_candidates] == [
+        "精武路材料项目"
+    ]
+
+
 def test_extracts_structurally_similar_part_numbers_in_first_seen_order(
     tmp_path: Path,
 ) -> None:

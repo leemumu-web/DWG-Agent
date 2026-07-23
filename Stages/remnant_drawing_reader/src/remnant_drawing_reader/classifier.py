@@ -23,6 +23,7 @@ _NON_PART_PREFIXES = {"DATE", "DWG", "ISO", "REV"}
 _CHINESE_TEXT = re.compile(r"[\u3400-\u9fff]")
 _SHORT_CHINESE_ANNOTATION = re.compile(r"^[\u3400-\u9fff]{2,3}$")
 _MAX_PROJECT_LENGTH = 128
+_METADATA_SEPARATORS = " \t:：,，;；()（）[]【】"
 
 
 def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> None:
@@ -71,13 +72,16 @@ def _metadata_remainder(
     part_matches: list[re.Match[str]],
 ) -> str:
     characters = list(text)
-    for start, end in [match.span() for match in material_matches + part_matches]:
+    metadata_spans = [match.span() for match in material_matches + part_matches]
+    for start, end in metadata_spans:
         characters[start:end] = " " * (end - start)
-    remainder = "".join(characters)
-    if material_matches or part_matches:
+        prefix_end = len(text[:start].rstrip(_METADATA_SEPARATORS))
         for label in sorted(_KNOWN_LABELS, key=len, reverse=True):
-            remainder = remainder.replace(label, " ")
-    return remainder.strip(" \t:：,，;；()（）[]【】")
+            label_start = prefix_end - len(label)
+            if label_start >= 0 and text[label_start:prefix_end] == label:
+                characters[label_start:prefix_end] = " " * len(label)
+                break
+    return "".join(characters).strip(_METADATA_SEPARATORS)
 
 
 def classify(items: list[Evidence]):
@@ -100,7 +104,11 @@ def classify(items: list[Evidence]):
             for part_match in part_matches:
                 _append(parts, part_match.group(0), evidence)
             project_text = _metadata_remainder(text, material_matches, part_matches)
-            if not project_text or _SHORT_CHINESE_ANNOTATION.fullmatch(project_text):
+            if (
+                not project_text
+                or project_text in _KNOWN_LABELS
+                or _SHORT_CHINESE_ANNOTATION.fullmatch(project_text)
+            ):
                 continue
             if _CHINESE_TEXT.search(project_text):
                 if not _append_project(projects, project_text, evidence):
