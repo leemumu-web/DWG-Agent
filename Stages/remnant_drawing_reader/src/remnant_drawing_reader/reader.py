@@ -9,14 +9,12 @@ from ezdxf.entities import DXFEntity, Insert
 from .models import Evidence, ParseError
 from .text import normalize_text
 
-_CHINESE_CODEPAGES = {"GB2312": "gbk", "ANSI_936": "gbk"}
-
-
 def _read_document(path: Path):
     try:
-        document = ezdxf.readfile(path)
-        encoding = _CHINESE_CODEPAGES.get(str(document.header.get("$DWGCODEPAGE", "")).upper())
-        return ezdxf.readfile(path, encoding=encoding) if encoding else document
+        # ezdxf already applies the DXF-version encoding rules.  In particular,
+        # R2007+ files store strings as UTF-8 even when a converter preserves an
+        # old ANSI_936 header.  Forcing GBK here corrupts otherwise valid Chinese.
+        return ezdxf.readfile(path)
     except Exception as exc:
         raise ParseError("REMNANT_DXF_UNREADABLE") from exc
 
@@ -31,8 +29,10 @@ def _entity_text(entity: DXFEntity) -> str | None:
 
 def _evidence(entity: DXFEntity, block_path: tuple[str, ...]) -> Evidence | None:
     raw = _entity_text(entity)
+    if raw is None:
+        return None
     insert = entity.dxf.get("insert")
-    if raw is None or insert is None:
+    if insert is None:
         return None
     normalized = normalize_text(raw)
     if not normalized:

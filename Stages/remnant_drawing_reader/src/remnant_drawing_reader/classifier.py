@@ -10,6 +10,11 @@ _MATERIAL_LABELS = {"材质", "材料", "牌号", "材料牌号"}
 _PROJECT_LABELS = {"项目编号", "项目号", "工程编号", "工程号"}
 _PART_LABELS = {"零件编号", "零件号", "件号", "构件编号"}
 _KNOWN_LABELS = _MATERIAL_LABELS | _PROJECT_LABELS | _PART_LABELS
+_UNLABELLED_MATERIAL = re.compile(r"^Q\d{3}[A-Z](?:[-+][A-Z0-9]+)*$", re.IGNORECASE)
+# Conservative fallback for prefixes verified in production drawings.  More
+# varied identifiers remain supported when an explicit part label exists.
+_UNLABELLED_PART = re.compile(r"^(?:NJBZ?|NYDL)-\d{2,3}-\d{1,2}$", re.IGNORECASE)
+_PLAN_NO = re.compile(r"(?<!\d)(\d{3})\s*计划")
 
 
 def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> None:
@@ -28,7 +33,15 @@ def classify(items: list[Evidence]):
             has_encoding_anomaly = True
         match = _LABEL_VALUE.match(evidence.normalized_text)
         if not match:
-            has_unrecognized_text = True
+            text = evidence.normalized_text
+            if _UNLABELLED_MATERIAL.fullmatch(text):
+                _append(materials, text.upper(), evidence)
+            elif _UNLABELLED_PART.fullmatch(text):
+                _append(parts, text, evidence)
+            elif plan := _PLAN_NO.search(text):
+                _append(projects, plan.group(1), evidence)
+            else:
+                has_unrecognized_text = True
             continue
         label, value = match.groups()
         if label in _MATERIAL_LABELS:

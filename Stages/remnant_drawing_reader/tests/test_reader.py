@@ -154,6 +154,72 @@ def test_unlabelled_text_emits_recoverable_warning(tmp_path: Path) -> None:
     assert [warning.code for warning in result.warnings] == ["UNRECOGNIZED_TEXT"]
 
 
+def test_r2013_ansi_936_header_keeps_utf8_chinese_text(tmp_path: Path) -> None:
+    document = ezdxf.new("R2013")
+    document.header["$DWGCODEPAGE"] = "ANSI_936"
+    document.modelspace().add_text("南京北站016计划").set_placement((0, 0))
+    source = tmp_path / "modern-ansi-936-header.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.project_candidates] == ["016"]
+    evidence = result.project_candidates[0].evidence[0]
+    assert evidence.raw_text == "南京北站016计划"
+    assert evidence.normalized_text == "南京北站016计划"
+    assert not any(warning.code in {"ENCODING_ANOMALY", "STRUCTURE_ANOMALY"} for warning in result.warnings)
+
+
+def test_classifies_unlabelled_production_drawing_values(tmp_path: Path) -> None:
+    document = ezdxf.new("R2013")
+    modelspace = document.modelspace()
+    modelspace.add_text("NJB-99-1").set_placement((0, 20))
+    modelspace.add_text("南京北站016计划桁架箱型梁火焰零件2026/7/6").set_placement((0, 10))
+    modelspace.add_text("Q355B").set_placement((0, 0))
+    source = tmp_path / "production-values.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == ["Q355B"]
+    assert [candidate.value for candidate in result.project_candidates] == ["016"]
+    assert [candidate.value for candidate in result.part_candidates] == ["NJB-99-1"]
+    assert result.warnings == []
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    ["REV-2026-07", "DATE-2026-07", "ISO-9001-2015", "REV-123-1", "DWG-99-1"],
+)
+def test_unlabelled_hyphenated_metadata_is_not_a_part_number(
+    tmp_path: Path, metadata: str
+) -> None:
+    document = ezdxf.new("R2013")
+    document.modelspace().add_text(metadata).set_placement((0, 0))
+    source = tmp_path / "metadata.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.part_candidates == []
+    assert [warning.code for warning in result.warnings] == ["UNRECOGNIZED_TEXT"]
+
+
+def test_normal_non_text_geometry_does_not_emit_structure_warning(tmp_path: Path) -> None:
+    document = ezdxf.new("R2013")
+    modelspace = document.modelspace()
+    modelspace.add_lwpolyline([(0, 0), (10, 0), (10, 10)], close=True)
+    modelspace.add_line((0, 0), (10, 10))
+    modelspace.add_text("Q355B").set_placement((0, 0))
+    source = tmp_path / "geometry-and-text.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == ["Q355B"]
+    assert not any(warning.code == "STRUCTURE_ANOMALY" for warning in result.warnings)
+
+
 def test_single_malformed_entity_emits_structure_warning_and_keeps_other_evidence(
     tmp_path: Path, monkeypatch
 ) -> None:
