@@ -52,6 +52,10 @@ Steel DXF Classifier 1.1.0 对冻结 DXF 集合的一次版本化执行，包含
 
 对业务 Excel 进行规范化、拆分、手册查询和最终工作簿生成的独立处理阶段。它拥有关系化批次、零件和构件查询模型，但不拥有文件权限或 Job 状态机。
 
+### Excel Final 输入接入（Excel Final Source Intake）
+
+Excel Final 内部把工作簿或 Tekla 文本可靠转换为统一 `SourcePart`、`ComponentSourceRow` 和输入诊断的 Module。它在同一个 Interface 后选择标准工作簿、初始表、制表符文本或固定宽度文本 Adapter；格式或表头无法唯一判断时拒绝整份输入，已识别输入中的行级问题交给质量流程保留并隔离。
+
 ### 每日归档（Daily Archive）
 
 按 `Asia/Shanghai` 业务日冻结已登记对象，非破坏性生成 ZIP 与独立 JSON 清单，并将产物重新登记到 MySQL 和配置的对象存储。它不是 MySQL/MinIO 灾难备份。
@@ -98,4 +102,3 @@ Steel DXF Classifier 1.1.0 对冻结 DXF 集合的一次版本化执行，包含
 - **Adapter**：在 seam 上满足 interface 的具体实现，例如 Local 与 MinIO adapter。
 - **Depth**：一个较小 interface 隐藏较多可靠行为所形成的杠杆。
 - **Locality**：同一业务变化、诊断和测试集中在同一 module 的程度。
-
