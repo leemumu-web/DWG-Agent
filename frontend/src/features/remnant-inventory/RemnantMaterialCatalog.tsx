@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Switch, Table, Tag, Typography } from 'antd';
+import { App, Button, Card, Form, Input, Modal, Space, Switch, Table, Tag, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createRemnantMaterial, replaceRemnantMaterialAliases, updateRemnantMaterial } from './api';
+import { describeRemnantError } from './errors';
 import type { RemnantMaterial } from './types';
 
 interface Props { materials: RemnantMaterial[]; loading: boolean }
@@ -12,6 +13,7 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<RemnantMaterial | null>();
+  const [pendingToggle, setPendingToggle] = useState<RemnantMaterial>();
   const [form] = Form.useForm<Values>();
   const save = useMutation({
     mutationFn: async (values: Values) => {
@@ -29,7 +31,18 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
   });
   const toggle = useMutation({
     mutationFn: (row: RemnantMaterial) => updateRemnantMaterial(row.id, { enabled: !row.enabled }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['remnant-materials'] }),
+    onSuccess: async () => {
+      setPendingToggle(undefined);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['remnant-materials'], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ['remnant-materials', 'all'], exact: true }),
+      ]);
+      message.success('材质启用状态已更新');
+    },
+    onError: (error) => {
+      setPendingToggle(undefined);
+      message.error(describeRemnantError(error, '材质启用状态更新失败'));
+    },
   });
   const open = (row: RemnantMaterial | null) => {
     setEditing(row);
@@ -48,9 +61,23 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
       { title: '标准牌号', dataIndex: 'code', width: 180 },
       { title: '同系列标识', dataIndex: 'family_code', width: 180 },
       { title: '解析别名', dataIndex: 'aliases', render: (values: string[]) => <Space wrap>{values.length ? values.map((value) => <Tag key={value}>{value}</Tag>) : '—'}</Space> },
-      { title: '启用', dataIndex: 'enabled', width: 90, render: (enabled) => <Switch checked={enabled} disabled /> },
-      { title: '操作', key: 'actions', width: 180, render: (_, row) => <Space><Button type="link" onClick={() => open(row)}>编辑</Button><Popconfirm title={row.enabled ? '停用该材质？' : '重新启用该材质？'} onConfirm={() => toggle.mutate(row)}><Button type="link" danger={row.enabled}>{row.enabled ? '停用' : '启用'}</Button></Popconfirm></Space> },
+      { title: '启用', dataIndex: 'enabled', width: 90, render: (enabled, row) => <Switch aria-label={`${row.code} 启用状态`} checked={enabled} loading={toggle.isPending && pendingToggle?.id === row.id} onChange={() => setPendingToggle(row)} /> },
+      { title: '操作', key: 'actions', width: 100, render: (_, row) => <Button type="link" onClick={() => open(row)}>编辑</Button> },
     ]} />
+    <Modal
+      title={pendingToggle ? `${pendingToggle.enabled ? '停用' : '重新启用'} ${pendingToggle.code}？` : '修改材质启用状态'}
+      open={Boolean(pendingToggle)}
+      onCancel={() => setPendingToggle(undefined)}
+      onOk={() => pendingToggle && toggle.mutate(pendingToggle)}
+      confirmLoading={toggle.isPending}
+      cancelButtonProps={{ disabled: toggle.isPending }}
+      closable={!toggle.isPending}
+      maskClosable={!toggle.isPending}
+    >
+      <Typography.Text>
+        {pendingToggle?.enabled ? '停用后，导入余料时将不能继续选择该材质。' : '启用后，该材质将立即恢复为可选状态。'}
+      </Typography.Text>
+    </Modal>
     <Modal title={editing ? `编辑 ${editing.code}` : '新增标准材质'} open={editing !== undefined} onCancel={() => setEditing(undefined)} onOk={() => form.submit()} confirmLoading={save.isPending}>
       <Form form={form} layout="vertical" onFinish={(values) => save.mutate(values)}>
         <Form.Item name="code" label="标准完整牌号" rules={[{ required: true }]}><Input disabled={Boolean(editing)} placeholder="例如 Q235B-Z15" /></Form.Item>
