@@ -377,6 +377,12 @@ class TestDockerfile:
         assert "ENV APPIMAGE_EXTRACT_AND_RUN=1" in runtime
         assert "libfontconfig1" in runtime
 
+    def test_runtime_installs_noto_cjk_font_package(self):
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        runtime = content.split(" AS runtime", 1)[1]
+
+        assert "fonts-noto-cjk" in runtime
+
     def test_does_not_copy_env_file(self):
         """Spec §17.5-3: .env must not be baked into image."""
         content = DOCKERFILE_PATH.read_text(encoding="utf-8")

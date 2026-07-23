@@ -30,6 +30,38 @@ def _dxf_bytes(*, block_lines: int = 0) -> bytes:
     return stream.getvalue().encode(doc.output_encoding, errors="replace")
 
 
+def _dxf_bytes_with_text(value: str) -> bytes:
+    document = ezdxf.new("R2013")
+    document.modelspace().add_text(value).set_placement((0, 0))
+    stream = StringIO()
+    document.write(stream)
+    return stream.getvalue().encode(document.output_encoding, errors="replace")
+
+
+def test_cjk_preview_style_is_applied_only_to_chinese_text(monkeypatch) -> None:
+    document = ezdxf.new("R2013")
+    chinese = document.modelspace().add_text("南京北站017计划")
+    latin = document.modelspace().add_text("NJB-47-1")
+    monkeypatch.setattr(rendering, "_find_cjk_font", lambda: rendering.Path("NotoSansCJK-Regular.ttc"))
+    monkeypatch.setattr(rendering, "_register_cjk_font", lambda _path: None)
+
+    assert rendering._prepare_cjk_preview_style(document) is True
+    assert chinese.dxf.style == rendering.CJK_PREVIEW_STYLE
+    assert latin.dxf.style == "Standard"
+
+
+def test_missing_cjk_font_keeps_preview_renderable(monkeypatch) -> None:
+    monkeypatch.setattr(rendering, "_find_cjk_font", lambda: None)
+
+    rendered = rendering.render_dxf_to_svg(_dxf_bytes_with_text("南京北站017计划"))
+
+    assert b"<svg" in rendered.payload.lower()
+
+
+def test_preview_renderer_version_invalidates_old_cache_names() -> None:
+    assert rendering.PREVIEW_RENDERER_VERSION == "svg-v2-cjk"
+
+
 def test_render_dxf_returns_safe_svg_and_metadata() -> None:
     rendered = rendering.render_dxf_to_svg(_dxf_bytes(block_lines=3))
 

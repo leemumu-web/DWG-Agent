@@ -71,6 +71,7 @@ WORKDIR /app
 #   xvfb, xauth           — xvfb-run 无头 X 及其授权文件，ODA AppImage 需要 X server
 #   libfuse2              — AppImage FUSE 挂载解压（bookworm-slim 默认无）
 #   libfontconfig1        — ODA 解包后的 Qt 程序运行时字体依赖
+#   fonts-noto-cjk        — DXF 在线预览中文轮廓字体
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
@@ -79,7 +80,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     xvfb \
     xauth \
     libfuse2 \
-    libfontconfig1
+    libfontconfig1 \
+    fonts-noto-cjk
 
 # Copy virtualenv from builder (single layer)
 COPY --from=builder /app/.venv /app/.venv
