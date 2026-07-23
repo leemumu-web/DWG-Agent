@@ -28,11 +28,11 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
       await queryClient.invalidateQueries({ queryKey: ['remnant-materials'] });
       message.success('材质目录已保存');
     },
+    onError: (error) => message.error(describeRemnantError(error, '材质目录保存失败')),
   });
   const toggle = useMutation({
     mutationFn: (row: RemnantMaterial) => updateRemnantMaterial(row.id, { enabled: !row.enabled }),
     onSuccess: async () => {
-      setPendingToggle(undefined);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['remnant-materials'], exact: true }),
         queryClient.invalidateQueries({ queryKey: ['remnant-materials', 'all'], exact: true }),
@@ -40,9 +40,9 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
       message.success('材质启用状态已更新');
     },
     onError: (error) => {
-      setPendingToggle(undefined);
       message.error(describeRemnantError(error, '材质启用状态更新失败'));
     },
+    onSettled: () => setPendingToggle(undefined),
   });
   const open = (row: RemnantMaterial | null) => {
     setEditing(row);

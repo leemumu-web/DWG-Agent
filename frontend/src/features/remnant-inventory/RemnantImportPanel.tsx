@@ -4,6 +4,7 @@ import { CloudUploadOutlined, InboxOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd';
 import { useMutation } from '@tanstack/react-query';
 import { createRemnantImportBatch } from './api';
+import { describeRemnantError } from './errors';
 import type { RemnantImportBatch } from './types';
 
 interface Props { onCreated: (batch: RemnantImportBatch) => void }
@@ -18,7 +19,7 @@ export function RemnantImportPanel({ onCreated }: Props) {
       setFileList([]);
       onCreated(batch);
     },
-    onError: () => message.error('批量导入登记失败，请检查图纸格式'),
+    onError: (error) => message.error(describeRemnantError(error, '批量导入登记失败，请检查图纸格式')),
   });
   return (
     <Card bordered={false} className="remnant-import-card">
@@ -52,4 +53,3 @@ export function RemnantImportPanel({ onCreated }: Props) {
     </Card>
   );
 }
-

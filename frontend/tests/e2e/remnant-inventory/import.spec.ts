@@ -28,11 +28,16 @@ async function mockImport(page: Page, options: {
   multipleMaterials?: boolean;
   multipleParts?: boolean;
   noMaterialCandidates?: boolean;
+  englishErrorWithoutCode?: boolean;
 } = {}) {
   const items = [item(1, '现场余料-A.dwg', 'pending_confirmation'), item(2, '现场余料-B.dxf', 'pending_confirmation'), item(3, '待重试.dwg', 'failed')];
   items[0].material_candidates = [{ value: 'Q355B', evidence: [{ raw_text: 'Q355B', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   items[0].project_candidates = [{ value: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', evidence: [{ raw_text: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   if (options.noMaterialCandidates) items[0].material_candidates = [];
+  if (options.englishErrorWithoutCode) {
+    items[2].error_code = null;
+    items[2].error_message = 'Drawing parsing failed.';
+  }
   if (options.multipleMaterials) items[0].material_candidates.push({ value: 'Q390B', evidence: [] });
   if (options.multipleParts) items[0].part_candidates = [
     { value: 'JWL-1014-B-4', evidence: [] },
@@ -183,6 +188,13 @@ test('未填写厚度时只显示中文校验错误', async ({ page }) => {
   await confirmation.getByRole('button', { name: '确认选中项' }).click();
   await expect(confirmation.getByText('请填写余料厚度')).toBeVisible();
   await expect(confirmation.getByText('REMNANT_THICKNESS_REQUIRED')).toHaveCount(0);
+});
+
+test('failed drawing without an error code hides an English persisted message', async ({ page }) => {
+  await mockImport(page, { englishErrorWithoutCode: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  await expect(page.getByText('图纸处理失败，请重试或联系管理员')).toBeVisible();
+  await expect(page.getByText('Drawing parsing failed.')).toHaveCount(0);
 });
 
 test('failed material creation preserves confirmation fields', async ({ page }) => {

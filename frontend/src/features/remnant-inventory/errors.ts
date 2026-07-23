@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { describeApiError } from '../../shared/api';
+import { describeApiError, describeApiErrorAsync } from '../../shared/api';
 
 const REMNANT_MESSAGES: Record<string, string> = {
   REMNANT_THICKNESS_REQUIRED: '请填写余料厚度',
@@ -53,7 +53,15 @@ function validationDetails(error: unknown): string | undefined {
 export function describeRemnantError(error: unknown, fallback: string): string {
   const validation = validationDetails(error);
   if (validation) return validation;
-  const message = describeApiError(error, fallback)
-    .replace(/\s*\[REMNANT_[A-Z0-9_]+\]/g, '');
-  return /REMNANT_[A-Z0-9_]+/.test(message) ? fallback : message;
+  return sanitizeMessage(describeApiError(error, fallback), fallback);
+}
+
+function sanitizeMessage(message: string, fallback: string): string {
+  const sanitized = message.replace(/\s*\[REMNANT_[A-Z0-9_]+\]/g, '');
+  if (/REMNANT_[A-Z0-9_]+/.test(sanitized)) return fallback;
+  return /[\u3400-\u9fff]/.test(sanitized) ? sanitized : fallback;
+}
+
+export async function describeRemnantErrorAsync(error: unknown, fallback: string): Promise<string> {
+  return sanitizeMessage(await describeApiErrorAsync(error, fallback), fallback);
 }

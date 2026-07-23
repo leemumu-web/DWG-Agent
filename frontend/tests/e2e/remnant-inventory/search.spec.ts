@@ -86,8 +86,12 @@ test('required exact filters, family expansion, active ordering and download per
   await expect(page.getByText('仍可在线预览，但不能下载原图或再次预占')).toBeVisible();
   await page.getByRole('button', { name: '关闭' }).click();
 
-  await page.locator('.remnant-search-card .ant-select').nth(1).click();
-  await page.locator('.ant-select-dropdown:visible').getByText('已使用（历史）', { exact: true }).click({ force: true });
+  const statusSelect = page.locator('.remnant-search-card .ant-select').nth(1).getByRole('combobox');
+  await statusSelect.click();
+  await statusSelect.press('ArrowDown');
+  await statusSelect.press('ArrowDown');
+  await statusSelect.press('Enter');
+  await expect(page.locator('.remnant-search-card').getByText('已使用（历史）', { exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '查询余料' }).click();
   await expect(page.locator('.ant-table-tbody tr')).toHaveCount(1);

@@ -51,7 +51,8 @@ export function RemnantBatchProgress({ batch, loading, onRetry, onCancel }: Prop
           { title: '次数', dataIndex: 'attempt', width: 70 },
           { title: '说明', key: 'error', render: (_, row) => {
             if (row.error_code) return describeRemnantCode(row.error_code, row.error_message && !/[A-Za-z]{4,}/.test(row.error_message) ? row.error_message : '图纸处理失败，请重试或联系管理员');
-            return row.error_message && !/[A-Za-z]{4,}/.test(row.error_message) ? row.error_message : '—';
+            if (!row.error_message) return '—';
+            return !/[A-Za-z]{4,}/.test(row.error_message) ? row.error_message : '图纸处理失败，请重试或联系管理员';
           } },
           {
             title: '操作', key: 'action', width: 90,

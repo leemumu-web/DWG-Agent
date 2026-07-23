@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeApiError } from '../../shared/api';
 import { bulkArchiveRemnants, exportAllRemnants, listAllRemnants } from './api';
+import { describeRemnantError, describeRemnantErrorAsync } from './errors';
 import { StatusTag } from './RemnantDetailDrawer';
 import type { BulkArchiveResult, Remnant, RemnantGlobalSearch, RemnantMaterial, RemnantStatus } from './types';
 
@@ -50,7 +50,7 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
   const exporting = useMutation({
     mutationFn: exportAllRemnants,
     onSuccess: () => message.success('全部余料已导出'),
-    onError: (error) => message.error(describeApiError(error, '余料导出失败')),
+    onError: async (error) => message.error(await describeRemnantErrorAsync(error, '余料导出失败')),
   });
   const archiving = useMutation({
     mutationFn: bulkArchiveRemnants,
@@ -59,7 +59,7 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
       setSelectedIds(result.failed.map((item) => item.remnant_id));
       await queryClient.invalidateQueries({ queryKey: ['remnants', 'all'] });
     },
-    onError: (error) => message.error(describeApiError(error, '批量归档失败')),
+    onError: (error) => message.error(describeRemnantError(error, '批量归档失败')),
   });
 
   return <div className="remnant-tab-stack">

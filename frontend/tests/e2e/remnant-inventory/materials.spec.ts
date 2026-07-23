@@ -11,6 +11,7 @@ const disabled = {
   id: 2, code: 'Q355D', family_code: 'Q355', enabled: false, aliases: ['旧-Q355D'],
   created_at: now, updated_at: now,
 };
+const enabledMaterial = { ...disabled, id: 3, code: 'Q235B', family_code: 'Q235', enabled: true, aliases: [] };
 
 async function json(route: Route, data: unknown, status = 200) {
   await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(envelope(data)) });
@@ -69,4 +70,36 @@ test('material status switch restores its value and shows a Chinese error on fai
   await page.getByRole('button', { name: '确 定' }).click();
   await expect(page.getByText('该材质当前无法启用。')).toBeVisible();
   await expect(statusSwitch).not.toBeChecked();
+});
+
+test('only the submitted material stays loading until both catalogs refresh', async ({ page }) => {
+  let enabled = false;
+  const releaseRefresh: Array<() => void> = [];
+  let refreshing = false;
+  const waitForRefresh = () => refreshing ? new Promise<void>((resolve) => { releaseRefresh.push(resolve); }) : Promise.resolve();
+  await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user: admin }, 201));
+  await page.route('**/api/v1/remnant-materials', async (route) => {
+    await waitForRefresh();
+    return json(route, [enabledMaterial, ...(enabled ? [{ ...disabled, enabled }] : [])]);
+  });
+  await page.route('**/api/v1/remnant-materials?enabled_only=false', async (route) => {
+    await waitForRefresh();
+    return json(route, [enabledMaterial, { ...disabled, enabled }]);
+  });
+  await page.route('**/api/v1/remnant-materials/2', async (route) => {
+    enabled = true;
+    refreshing = true;
+    await json(route, { ...disabled, enabled: true });
+  });
+
+  await page.goto('/remnants?tab=materials');
+  const submitted = page.getByRole('switch', { name: 'Q355D 启用状态' });
+  const other = page.getByRole('switch', { name: 'Q235B 启用状态' });
+  await submitted.click();
+  await page.getByRole('button', { name: '确 定' }).click();
+  await expect(submitted).toHaveClass(/ant-switch-loading/);
+  await expect(other).not.toHaveClass(/ant-switch-loading/);
+  await expect.poll(() => releaseRefresh.length).toBe(2);
+  releaseRefresh.forEach((release) => release());
+  await expect(submitted).not.toHaveClass(/ant-switch-loading/);
 });

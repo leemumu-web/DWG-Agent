@@ -19,7 +19,7 @@ function remnant(id: number, status: string, importedBy = 8) {
   };
 }
 
-async function mockGlobal(page: Page) {
+async function mockGlobal(page: Page, options: { bulkValidationError?: boolean } = {}) {
   const requestUrls: string[] = [];
   const bulkRequests: number[][] = [];
   const rows = [
@@ -43,6 +43,19 @@ async function mockGlobal(page: Page) {
   await page.route('**/api/v1/remnants/bulk-archive', async (route) => {
     const body = route.request().postDataJSON() as { remnant_ids: number[] };
     bulkRequests.push(body.remnant_ids);
+    if (options.bulkValidationError) {
+      return route.fulfill({
+        status: 422,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'VALIDATION_ERROR', message: 'Request validation failed.',
+            details: { errors: [{ type: 'too_long', loc: ['body', 'remnant_ids'], msg: 'List should have at most 200 items' }] },
+          },
+          meta: envelope(null).meta,
+        }),
+      });
+    }
     rows.find((row) => row.id === 1)!.status = 'archived';
     rows.find((row) => row.id === 5)!.status = 'reserved';
     await json(route, envelope({
@@ -95,6 +108,18 @@ test('workers browse filter page and export the complete remnant inventory', asy
   await page.getByRole('button', { name: '导出全部余料' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('余料库_20260723.xlsx');
+});
+
+test('bulk archive validation errors show only Chinese field and reason', async ({ page }) => {
+  await mockGlobal(page, { bulkValidationError: true });
+  await page.goto('/remnants?tab=global');
+  await page.getByRole('checkbox', { name: '选择余料 1' }).check();
+  await page.getByRole('button', { name: '批量归档' }).click();
+  await page.getByRole('button', { name: '确 定' }).click();
+
+  await expect(page.getByText('请求参数错误：余料数量超过限制')).toBeVisible();
+  await expect(page.getByText('List should have at most 200 items')).toHaveCount(0);
+  await expect(page.getByText('VALIDATION_ERROR')).toHaveCount(0);
 });
 
 test('workers reveal history and keep only failed rows selected after partial batch archive', async ({ page }) => {
