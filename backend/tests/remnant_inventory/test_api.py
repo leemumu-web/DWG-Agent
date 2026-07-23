@@ -140,6 +140,31 @@ def _seed_global_remnants() -> tuple[int, int]:
         return materials[0].id, materials[1].id
 
 
+def _seed_bulk_archive_rows() -> tuple[int, int]:
+    _seed_global_remnants()
+    with get_test_session_factory()() as db:
+        worker = db.scalar(select(User).where(User.username == "material-worker"))
+        role = db.scalar(select(Role).where(Role.code == "remnant_worker"))
+        assert worker is not None
+        assert role is not None
+        outsider = User(
+            username="bulk-archive-outsider",
+            real_name="其他余料工人",
+            password_hash=hash_password("WorkerPass123"),
+            roles=[role],
+        )
+        db.add(outsider)
+        db.flush()
+        own = db.scalar(select(Remnant).where(Remnant.status == "available"))
+        foreign = db.scalar(select(Remnant).where(Remnant.status == "reserved"))
+        assert own is not None
+        assert foreign is not None
+        foreign.status = "available"
+        foreign.imported_by = outsider.id
+        db.commit()
+        return own.id, foreign.id
+
+
 def test_feature_disabled_returns_stable_not_found(client, admin_headers, monkeypatch) -> None:
     monkeypatch.setattr(settings, "remnant_inventory_enabled", False)
     response = client.get("/api/v1/remnant-materials", headers=admin_headers)
@@ -346,3 +371,77 @@ def test_worker_can_page_filter_and_sort_the_global_inventory(
     assert filtered.status_code == 200, filtered.text
     assert filtered.json()["pagination"]["total"] == 1
     assert filtered.json()["data"][0]["parts"] == ["JWL-1014-B-4"]
+
+
+def test_worker_bulk_archive_returns_success_and_chinese_failure_details(
+    client, worker_headers
+) -> None:
+    own_id, foreign_id = _seed_bulk_archive_rows()
+
+    response = client.post(
+        "/api/v1/remnants/bulk-archive",
+        headers=worker_headers,
+        json={"remnant_ids": [own_id, foreign_id, own_id]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {
+        "archived": [own_id],
+        "failed": [
+            {
+                "remnant_id": foreign_id,
+                "code": "REMNANT_ARCHIVE_FORBIDDEN",
+                "message": "只能归档自己导入的余料。",
+            }
+        ],
+    }
+    with get_test_session_factory()() as db:
+        audits = list(
+            db.scalars(
+                select(AuditLog).where(AuditLog.action == "remnants.archive")
+            ).all()
+        )
+    assert [row.resource_id for row in audits] == [own_id]
+
+
+def test_admin_bulk_archive_can_archive_another_workers_remnant(
+    client, admin_headers, worker_headers
+) -> None:
+    _own_id, foreign_id = _seed_bulk_archive_rows()
+
+    response = client.post(
+        "/api/v1/remnants/bulk-archive",
+        headers=admin_headers,
+        json={"remnant_ids": [foreign_id]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == {"archived": [foreign_id], "failed": []}
+
+
+@pytest.mark.parametrize("count", [1, 200])
+def test_bulk_archive_accepts_one_to_two_hundred_ids(
+    client, worker_headers, count: int
+) -> None:
+    response = client.post(
+        "/api/v1/remnants/bulk-archive",
+        headers=worker_headers,
+        json={"remnant_ids": list(range(1, count + 1))},
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(response.json()["data"]["failed"]) == count
+
+
+@pytest.mark.parametrize("remnant_ids", [[], list(range(1, 202))])
+def test_bulk_archive_rejects_empty_or_more_than_two_hundred_ids(
+    client, worker_headers, remnant_ids: list[int]
+) -> None:
+    response = client.post(
+        "/api/v1/remnants/bulk-archive",
+        headers=worker_headers,
+        json={"remnant_ids": remnant_ids},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"

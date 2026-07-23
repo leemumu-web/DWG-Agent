@@ -31,6 +31,7 @@ from app.modules.remnant_inventory.imports import (
 from app.modules.remnant_inventory.inventory import (
     archive_remnant,
     build_original_download,
+    bulk_archive_remnants,
     list_all_remnants,
     mark_remnant_used,
     preview_file_id,
@@ -63,6 +64,9 @@ from app.modules.remnant_inventory.schemas import (
     MaterialRead,
     MaterialResolveCreate,
     MaterialUpdate,
+    RemnantBulkArchiveFailure,
+    RemnantBulkArchiveRequest,
+    RemnantBulkArchiveResult,
     RemnantReserveRequest,
     RemnantUpdate,
 )
@@ -649,6 +653,29 @@ def get_remnants_export(
         media_type=EXCEL_CONTENT_TYPE,
         filename=prepared.filename,
     )
+
+
+@remnants_router.post("/bulk-archive")
+def post_bulk_archive(
+    payload: RemnantBulkArchiveRequest,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    result = bulk_archive_remnants(db, payload.remnant_ids, actor=current_user)
+    db.commit()
+    response = RemnantBulkArchiveResult(
+        archived=result.archived,
+        failed=[
+            RemnantBulkArchiveFailure(
+                remnant_id=item.remnant_id,
+                code=item.code,
+                message=item.message,
+            )
+            for item in result.failed
+        ],
+    )
+    return ok(response.model_dump(), request.state.request_id)
 
 
 @remnants_router.get("/{remnant_id}")

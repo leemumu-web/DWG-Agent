@@ -98,3 +98,18 @@ class RemnantUpdate(BaseModel):
     material_id: int | None = None
     project_no: str | None = Field(default=None, max_length=128)
     parts: list[str] | None = Field(default=None, max_length=500)
+
+
+class RemnantBulkArchiveRequest(BaseModel):
+    remnant_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class RemnantBulkArchiveFailure(BaseModel):
+    remnant_id: int
+    code: str
+    message: str
+
+
+class RemnantBulkArchiveResult(BaseModel):
+    archived: list[int]
+    failed: list[RemnantBulkArchiveFailure]
