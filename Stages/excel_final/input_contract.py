@@ -151,6 +151,10 @@ def detect_canonical_header(worksheet: Any) -> HeaderDetection:
             raise InputContractError(
                 f"conflicting header aliases: {list(best.conflicts)}; {diagnostics}"
             )
+        if best.missing == ("零件号",):
+            raise InputContractError(
+                "输入只有构件汇总，没有零件明细，不能生成 Excel Final part"
+            )
         raise InputContractError(
             f"missing required fields: {list(best.missing)}; {diagnostics}"
         )

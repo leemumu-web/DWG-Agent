@@ -20,7 +20,13 @@ from typing import Any
 import openpyxl
 
 from domain import ComponentRowKind, ComponentSourceRow, SourcePart
-from input_contract import HeaderDetection, InputKind, detect_canonical_header, inspect_production_input
+from input_contract import (
+    HeaderDetection,
+    InputContractError,
+    InputKind,
+    detect_canonical_header,
+    inspect_production_input,
+)
 from quality import IssueLevel, QualityIssue
 
 log = logging.getLogger(__name__)
@@ -538,9 +544,28 @@ def _decode_fixed_text(input_file: Path) -> tuple[list[str], str]:
     raise ValueError(f"Cannot decode fixed-width Tekla text: {input_file}")
 
 
+def _has_component_only_header(lines: list[str]) -> bool:
+    for line in lines[:100]:
+        compact = "".join(line.split())
+        has_component = "构件编号" in compact or "构件号" in compact
+        has_spec = "截面型材" in compact or "规格" in compact
+        has_core_metrics = all(
+            field in compact
+            for field in ("材质", "长度", "数量")
+        )
+        has_part = "零件编号" in compact or "零件号" in compact
+        if has_component and has_spec and has_core_metrics and not has_part:
+            return True
+    return False
+
+
 def _space_text_workbook(input_file: Path) -> openpyxl.Workbook:
     """Adapt a fixed-width Tekla export without collapsing blank columns."""
     lines, encoding = _decode_fixed_text(input_file)
+    if _has_component_only_header(lines):
+        raise InputContractError(
+            "输入只有构件汇总，没有零件明细，不能生成 Excel Final part"
+        )
     candidates: list[tuple[int, tuple[tuple[str, int, int | None], ...]]] = []
     for index, line in enumerate(lines[:100]):
         try:
