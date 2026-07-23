@@ -28,21 +28,25 @@ def test_numeric_comparison_uses_display_precision_without_hiding_real_differenc
 
 
 def test_part_complete_key_keeps_different_dimensions_separate() -> None:
-    assert part_key({
-        "导入构件编号": None,
-        "导入零件号": "P1",
-        "规格": 10,
-        "宽度": 100,
-        "下料长度": 1000,
-        "材质": "Q355B",
-    }) != part_key({
-        "导入构件编号": None,
-        "导入零件号": "P1",
-        "规格": 10,
-        "宽度": 120,
-        "下料长度": 1000,
-        "材质": "Q355B",
-    })
+    assert part_key(
+        {
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 10,
+            "宽度": 100,
+            "下料长度": 1000,
+            "材质": "Q355B",
+        }
+    ) != part_key(
+        {
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 10,
+            "宽度": 120,
+            "下料长度": 1000,
+            "材质": "Q355B",
+        }
+    )
 
 
 def test_box_cover_identity_normalizes_to_box_flange() -> None:
@@ -72,24 +76,28 @@ def test_part_complete_key_normalizes_integer_like_numbers() -> None:
 
 
 def test_organized_matching_uses_shared_part_identity_when_gt_component_is_blank() -> None:
-    program = [{
-        "__row__": 2,
-        "导入构件编号": "C1",
-        "导入零件号": "P1",
-        "规格": 10,
-        "宽度": 100,
-        "下料长度(mm)": 1000,
-        "材质": "Q355B",
-    }]
-    ground_truth = [{
-        "__row__": 2,
-        "导入构件编号": None,
-        "导入零件号": "P1",
-        "规格": 10,
-        "宽度": 100,
-        "下料长度(mm)": 1000,
-        "材质": "Q355B",
-    }]
+    program = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 10,
+            "宽度": 100,
+            "下料长度(mm)": 1000,
+            "材质": "Q355B",
+        }
+    ]
+    ground_truth = [
+        {
+            "__row__": 2,
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 10,
+            "宽度": 100,
+            "下料长度(mm)": 1000,
+            "材质": "Q355B",
+        }
+    ]
 
     matches, unmatched_program, unmatched_gt = _match_rows(
         "整理表",
@@ -104,24 +112,28 @@ def test_organized_matching_uses_shared_part_identity_when_gt_component_is_blank
 
 
 def test_organized_matching_does_not_cross_conflicting_nonempty_components() -> None:
-    program = [{
-        "__row__": 2,
-        "导入构件编号": "C1",
-        "导入零件号": "P1",
-        "规格": 10,
-        "宽度": 100,
-        "下料长度(mm)": 1000,
-        "材质": "Q355B",
-    }]
-    ground_truth = [{
-        "__row__": 2,
-        "导入构件编号": "C2",
-        "导入零件号": "P1",
-        "规格": 10,
-        "宽度": 100,
-        "下料长度(mm)": 1000,
-        "材质": "Q355B",
-    }]
+    program = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 10,
+            "宽度": 100,
+            "下料长度(mm)": 1000,
+            "材质": "Q355B",
+        }
+    ]
+    ground_truth = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C2",
+            "导入零件号": "P1",
+            "规格": 10,
+            "宽度": 100,
+            "下料长度(mm)": 1000,
+            "材质": "Q355B",
+        }
+    ]
 
     matches, unmatched_program, unmatched_gt = _match_rows(
         "整理表",
@@ -190,5 +202,175 @@ def test_organized_shared_identity_uses_cut_length_to_disambiguate_duplicates() 
         for match in matches
     } == {(1000, 1000), (1001, 1001)}
     assert not any(match.ambiguous for match in matches)
+    assert unmatched_program == []
+    assert unmatched_gt == []
+
+
+def test_organized_partial_geometry_overlap_marks_the_whole_group_ambiguous() -> None:
+    program = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 40,
+            "宽度": 300,
+            "长度(mm)": 400,
+            "下料长度(mm)": 400,
+            "材质": "Q355B",
+        },
+        {
+            "__row__": 3,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 40,
+            "宽度": 300,
+            "长度(mm)": 401,
+            "下料长度(mm)": 401,
+            "材质": "Q355B",
+        },
+    ]
+    ground_truth = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 40,
+            "宽度": 300,
+            "长度(mm)": 399,
+            "下料长度(mm)": 399,
+            "材质": "Q355B",
+        },
+        {
+            "__row__": 3,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 40,
+            "宽度": 300,
+            "长度(mm)": 400,
+            "下料长度(mm)": 400,
+            "材质": "Q355B",
+        },
+    ]
+
+    matches, unmatched_program, unmatched_gt = _match_rows(
+        "整理表",
+        program,
+        ground_truth,
+    )
+
+    assert len(matches) == 2
+    assert all(match.ambiguous for match in matches)
+    assert unmatched_program == []
+    assert unmatched_gt == []
+
+
+def test_organized_distinct_widths_keep_shifted_lengths_unambiguous() -> None:
+    program = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 6,
+            "宽度": 93,
+            "长度(mm)": 240,
+            "下料长度(mm)": 240,
+            "材质": "Q355B",
+        },
+        {
+            "__row__": 3,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 6,
+            "宽度": 94,
+            "长度(mm)": 240,
+            "下料长度(mm)": 240,
+            "材质": "Q355B",
+        },
+    ]
+    ground_truth = [
+        {
+            "__row__": 2,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 6,
+            "宽度": 93,
+            "长度(mm)": 239,
+            "下料长度(mm)": 239,
+            "材质": "Q355B",
+        },
+        {
+            "__row__": 3,
+            "导入构件编号": "C1",
+            "导入零件号": "P1",
+            "规格": 6,
+            "宽度": 94,
+            "长度(mm)": 240,
+            "下料长度(mm)": 240,
+            "材质": "Q355B",
+        },
+    ]
+
+    matches, unmatched_program, unmatched_gt = _match_rows(
+        "整理表",
+        program,
+        ground_truth,
+    )
+
+    assert len(matches) == 2
+    assert not any(match.ambiguous for match in matches)
+    assert unmatched_program == []
+    assert unmatched_gt == []
+
+
+def test_part_partial_cut_length_overlap_marks_the_whole_group_ambiguous() -> None:
+    program = [
+        {
+            "__row__": 2,
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 16,
+            "宽度": 500,
+            "下料长度": 6684,
+            "材质": "Q355B",
+        },
+        {
+            "__row__": 3,
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 16,
+            "宽度": 500,
+            "下料长度": 6685,
+            "材质": "Q355B",
+        },
+    ]
+    ground_truth = [
+        {
+            "__row__": 2,
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 16,
+            "宽度": 500,
+            "下料长度": 6683,
+            "材质": "Q355B",
+        },
+        {
+            "__row__": 3,
+            "导入构件编号": None,
+            "导入零件号": "P1",
+            "规格": 16,
+            "宽度": 500,
+            "下料长度": 6684,
+            "材质": "Q355B",
+        },
+    ]
+
+    matches, unmatched_program, unmatched_gt = _match_rows(
+        "part",
+        program,
+        ground_truth,
+    )
+
+    assert len(matches) == 2
+    assert all(match.ambiguous for match in matches)
     assert unmatched_program == []
     assert unmatched_gt == []

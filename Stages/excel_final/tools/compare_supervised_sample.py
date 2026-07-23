@@ -38,6 +38,8 @@ PART_DISCRIMINATORS = (
     ("下料长度", 4),
     ("材质", 4),
 )
+STABLE_GEOMETRY_FIELDS = {"规格", "宽度", "截面型材"}
+VARIABLE_GEOMETRY_FIELDS = {"长度(mm)", "下料长度(mm)", "下料长度"}
 
 
 @dataclass(frozen=True)
@@ -195,6 +197,46 @@ def _row_score(
     return score
 
 
+def _geometry_signature(
+    row: Mapping[str, object],
+    fields: Sequence[str],
+) -> tuple[object, ...]:
+    return tuple(_normalized_text(row.get(field)) for field in fields)
+
+
+def _partial_geometry_overlap_keys(
+    program_rows: Sequence[dict[str, object]],
+    ground_truth_rows: Sequence[dict[str, object]],
+    discriminators: Sequence[tuple[str, int]],
+) -> set[tuple[object, ...]]:
+    if len(program_rows) < 2 or len(ground_truth_rows) < 2:
+        return set()
+    stable_fields = [field for field, _ in discriminators if field in STABLE_GEOMETRY_FIELDS]
+    variable_fields = [field for field, _ in discriminators if field in VARIABLE_GEOMETRY_FIELDS]
+    program_by_stable: dict[tuple[object, ...], list[dict[str, object]]] = defaultdict(list)
+    gt_by_stable: dict[tuple[object, ...], list[dict[str, object]]] = defaultdict(list)
+    for row in program_rows:
+        program_by_stable[_geometry_signature(row, stable_fields)].append(row)
+    for row in ground_truth_rows:
+        gt_by_stable[_geometry_signature(row, stable_fields)].append(row)
+
+    ambiguous_keys: set[tuple[object, ...]] = set()
+    for key in set(program_by_stable) & set(gt_by_stable):
+        program_group = program_by_stable[key]
+        gt_group = gt_by_stable[key]
+        if len(program_group) < 2 or len(gt_group) < 2:
+            continue
+        program_signatures = Counter(
+            _geometry_signature(row, variable_fields) for row in program_group
+        )
+        gt_signatures = Counter(_geometry_signature(row, variable_fields) for row in gt_group)
+        if program_signatures != gt_signatures and bool(
+            program_signatures.keys() & gt_signatures.keys()
+        ):
+            ambiguous_keys.add(key)
+    return ambiguous_keys
+
+
 def _pair_group(
     program_rows: Sequence[dict[str, object]],
     ground_truth_rows: Sequence[dict[str, object]],
@@ -202,10 +244,22 @@ def _pair_group(
     match_kind: str,
     discriminators: Sequence[tuple[str, int]],
     require_compatible_components: bool = False,
+    inherited_ambiguous_geometry_keys: set[tuple[object, ...]] | None = None,
 ) -> tuple[list[RowMatch], list[dict[str, object]], list[dict[str, object]]]:
     remaining_program = list(program_rows)
     remaining_gt = list(ground_truth_rows)
     matches: list[RowMatch] = []
+    ambiguous_geometry_keys = set(inherited_ambiguous_geometry_keys or ())
+    ambiguous_geometry_keys.update(
+        _partial_geometry_overlap_keys(
+            program_rows,
+            ground_truth_rows,
+            discriminators,
+        )
+    )
+    stable_geometry_fields = [
+        field for field, _ in discriminators if field in STABLE_GEOMETRY_FIELDS
+    ]
     while remaining_program and remaining_gt:
         candidates = [
             (
@@ -217,8 +271,7 @@ def _pair_group(
             )
             for program in remaining_program
             for gt in remaining_gt
-            if not require_compatible_components
-            or _components_are_compatible(program, gt)
+            if not require_compatible_components or _components_are_compatible(program, gt)
         ]
         if not candidates:
             break
@@ -226,19 +279,26 @@ def _pair_group(
         best = candidates[0]
         best_score = best[0]
         tied_for_program = sum(
-            score == best_score and program is best[3]
-            for score, _, _, program, _ in candidates
+            score == best_score and program is best[3] for score, _, _, program, _ in candidates
         )
         tied_for_gt = sum(
-            score == best_score and gt is best[4]
-            for score, _, _, _, gt in candidates
+            score == best_score and gt is best[4] for score, _, _, _, gt in candidates
         )
         matches.append(
             RowMatch(
                 program=best[3],
                 ground_truth=best[4],
                 match_kind=match_kind,
-                ambiguous=tied_for_program > 1 or tied_for_gt > 1,
+                ambiguous=(
+                    (
+                        _geometry_signature(best[3], stable_geometry_fields)
+                        == _geometry_signature(best[4], stable_geometry_fields)
+                        and _geometry_signature(best[3], stable_geometry_fields)
+                        in ambiguous_geometry_keys
+                    )
+                    or tied_for_program > 1
+                    or tied_for_gt > 1
+                ),
             )
         )
         remaining_program.remove(best[3])
@@ -254,8 +314,32 @@ def _match_rows(
     matches: list[RowMatch] = []
     remaining_program = list(program_rows)
     remaining_gt = list(ground_truth_rows)
+    discriminators = ORGANIZED_DISCRIMINATORS if sheet_name == "整理表" else PART_DISCRIMINATORS
+    inherited_ambiguity_by_identity: dict[
+        tuple[object, object],
+        set[tuple[object, ...]],
+    ] = {}
 
     if sheet_name == "part":
+        original_program_by_identity: dict[
+            tuple[object, object],
+            list[dict[str, object]],
+        ] = defaultdict(list)
+        original_gt_by_identity: dict[
+            tuple[object, object],
+            list[dict[str, object]],
+        ] = defaultdict(list)
+        for row in remaining_program:
+            original_program_by_identity[_identity_key(row)].append(row)
+        for row in remaining_gt:
+            original_gt_by_identity[_identity_key(row)].append(row)
+        for identity in set(original_program_by_identity) & set(original_gt_by_identity):
+            inherited_ambiguity_by_identity[identity] = _partial_geometry_overlap_keys(
+                original_program_by_identity[identity],
+                original_gt_by_identity[identity],
+                discriminators,
+            )
+
         program_by_key: dict[tuple[object, ...], list[dict[str, object]]] = defaultdict(list)
         gt_by_key: dict[tuple[object, ...], list[dict[str, object]]] = defaultdict(list)
         for row in remaining_program:
@@ -268,6 +352,9 @@ def _match_rows(
                 gt_by_key[key],
                 match_kind="完整参数键",
                 discriminators=PART_DISCRIMINATORS,
+                inherited_ambiguous_geometry_keys=inherited_ambiguity_by_identity.get(
+                    (key[0], key[1])
+                ),
             )
             matches.extend(paired)
             for match in paired:
@@ -281,15 +368,13 @@ def _match_rows(
     for row in remaining_gt:
         gt_by_identity[_identity_key(row)].append(row)
 
-    discriminators = (
-        ORGANIZED_DISCRIMINATORS if sheet_name == "整理表" else PART_DISCRIMINATORS
-    )
     for key in sorted(set(program_by_identity) & set(gt_by_identity), key=str):
         paired, _, _ = _pair_group(
             program_by_identity[key],
             gt_by_identity[key],
             match_kind="身份消歧",
             discriminators=discriminators,
+            inherited_ambiguous_geometry_keys=inherited_ambiguity_by_identity.get(key),
         )
         matches.extend(paired)
         for match in paired:
@@ -364,41 +449,47 @@ def compare_workbooks(
                     if status == "DIFFERENT":
                         different_cells += 1
                         differences_by_field[field] += 1
-                    details.append({
-                        "sheet": sheet_name,
-                        "program_row": match.program["__row__"],
-                        "ground_truth_row": match.ground_truth["__row__"],
-                        "match_kind": match.match_kind,
-                        "ambiguous": match.ambiguous,
-                        "field": field,
-                        "program_value": program_value,
-                        "ground_truth_value": gt_value,
-                        "status": status,
-                    })
+                    details.append(
+                        {
+                            "sheet": sheet_name,
+                            "program_row": match.program["__row__"],
+                            "ground_truth_row": match.ground_truth["__row__"],
+                            "match_kind": match.match_kind,
+                            "ambiguous": match.ambiguous,
+                            "field": field,
+                            "program_value": program_value,
+                            "ground_truth_value": gt_value,
+                            "status": status,
+                        }
+                    )
             for row in unmatched_program:
-                details.append({
-                    "sheet": sheet_name,
-                    "program_row": row["__row__"],
-                    "ground_truth_row": None,
-                    "match_kind": "未匹配",
-                    "ambiguous": False,
-                    "field": None,
-                    "program_value": _identity_key(row),
-                    "ground_truth_value": None,
-                    "status": "UNMATCHED_PROGRAM",
-                })
+                details.append(
+                    {
+                        "sheet": sheet_name,
+                        "program_row": row["__row__"],
+                        "ground_truth_row": None,
+                        "match_kind": "未匹配",
+                        "ambiguous": False,
+                        "field": None,
+                        "program_value": _identity_key(row),
+                        "ground_truth_value": None,
+                        "status": "UNMATCHED_PROGRAM",
+                    }
+                )
             for row in unmatched_gt:
-                details.append({
-                    "sheet": sheet_name,
-                    "program_row": None,
-                    "ground_truth_row": row["__row__"],
-                    "match_kind": "未匹配",
-                    "ambiguous": False,
-                    "field": None,
-                    "program_value": None,
-                    "ground_truth_value": _identity_key(row),
-                    "status": "UNMATCHED_GT",
-                })
+                details.append(
+                    {
+                        "sheet": sheet_name,
+                        "program_row": None,
+                        "ground_truth_row": row["__row__"],
+                        "match_kind": "未匹配",
+                        "ambiguous": False,
+                        "field": None,
+                        "program_value": None,
+                        "ground_truth_value": _identity_key(row),
+                        "status": "UNMATCHED_GT",
+                    }
+                )
             sheet_summaries[sheet_name] = {
                 "program_rows": len(program_rows),
                 "ground_truth_rows": len(gt_rows),
