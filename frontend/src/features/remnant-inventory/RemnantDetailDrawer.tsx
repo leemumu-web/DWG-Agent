@@ -1,4 +1,4 @@
-import { Button, Descriptions, Divider, Drawer, Empty, Popconfirm, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Descriptions, Divider, Drawer, Empty, Popconfirm, Space, Tag, Typography } from 'antd';
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons';
 import type { Remnant } from './types';
 
@@ -8,6 +8,8 @@ interface Props {
   canDownload: boolean;
   canManage: boolean;
   actionLoading: boolean;
+  downloadLoading: boolean;
+  downloadError?: string;
   onClose: () => void;
   onPreview: () => void;
   onDownload: () => void;
@@ -39,11 +41,15 @@ export function RemnantDetailDrawer(props: Props) {
             { key: 'created', label: '入库时间', children: new Date(remnant.created_at).toLocaleString() },
           ]} />
           <Divider />
+          {props.downloadError && (
+            <Alert type="error" showIcon message={props.downloadError} style={{ marginBottom: 16 }} />
+          )}
           <Space wrap>
             <Button icon={<EyeOutlined />} onClick={props.onPreview}>在线预览</Button>
             <Button
               icon={<DownloadOutlined />}
               disabled={!props.canDownload}
+              loading={props.downloadLoading}
               onClick={props.onDownload}
             >下载原图 {remnant.source_ext.slice(1).toUpperCase()}</Button>
             {remnant.status === 'available' && (

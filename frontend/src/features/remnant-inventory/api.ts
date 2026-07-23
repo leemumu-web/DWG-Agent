@@ -146,7 +146,11 @@ export async function getOriginalDownload(remnantId: number): Promise<OriginalDo
 
 export async function downloadOriginal(remnantId: number): Promise<void> {
   const prepared = await getOriginalDownload(remnantId);
-  const response = await apiClient.get<Blob>(prepared.url, { responseType: 'blob' });
+  const response = await apiClient.get<Blob>(prepared.url, {
+    responseType: 'blob',
+    validateStatus: () => true,
+  });
+  if (response.status < 200 || response.status >= 300) throw new Error('原图下载失败');
   const href = URL.createObjectURL(response.data);
   const anchor = document.createElement('a');
   anchor.href = href;

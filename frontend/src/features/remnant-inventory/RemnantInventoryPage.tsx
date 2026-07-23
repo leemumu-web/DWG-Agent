@@ -27,7 +27,7 @@ import { RemnantDetailDrawer, StatusTag } from './RemnantDetailDrawer';
 import { RemnantSearchPanel } from './RemnantSearchPanel';
 import { useRemnantBatch } from './useRemnantBatch';
 import type { Remnant, RemnantSearch, RemnantStatus } from './types';
-import { describeRemnantError } from './errors';
+import { describeRemnantError, describeRemnantErrorAsync } from './errors';
 import './styles.css';
 
 const activeStatuses: RemnantStatus[] = ['available', 'reserved'];
@@ -53,6 +53,7 @@ export function RemnantInventoryPage() {
   const [selectedId, setSelectedId] = useState<number>();
   const [preview, setPreview] = useState<{ id: number; name: string }>();
   const [editOpen, setEditOpen] = useState(false);
+  const [downloadError, setDownloadError] = useState<string>();
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.roles.some((role) => ['admin', 'super_admin'].includes(role.code)) ?? false;
 
@@ -108,6 +109,20 @@ export function RemnantInventoryPage() {
       message.error(describeRemnantError(error, '操作未完成，库存可能已被其他工人更新'));
     },
   });
+  const originalDownload = useMutation({
+    mutationFn: downloadOriginal,
+  });
+  const handleOriginalDownload = async () => {
+    if (!detail.data) return;
+    setDownloadError(undefined);
+    try {
+      await originalDownload.mutateAsync(detail.data.id);
+    } catch (error) {
+      const description = await describeRemnantErrorAsync(error, '原图下载失败');
+      setDownloadError(description);
+      message.error(description);
+    }
+  };
 
   const canDownload = Boolean(detail.data && detail.data.status === 'reserved'
     && (isAdmin || detail.data.reserved_by === user?.id));
@@ -205,9 +220,11 @@ export function RemnantInventoryPage() {
         canDownload={canDownload}
         canManage={Boolean(detail.data && detail.data.status === 'available' && (isAdmin || detail.data.imported_by === user?.id))}
         actionLoading={action.isPending}
-        onClose={() => setSelectedId(undefined)}
+        downloadLoading={originalDownload.isPending}
+        downloadError={downloadError}
+        onClose={() => { setSelectedId(undefined); setDownloadError(undefined); }}
         onPreview={() => detail.data && setPreview({ id: detail.data.dxf_file_id, name: detail.data.source_name })}
-        onDownload={() => detail.data && void downloadOriginal(detail.data.id)}
+        onDownload={() => void handleOriginalDownload()}
         onReserve={() => detail.data && action.mutate({ kind: 'reserve', row: detail.data })}
         onRelease={() => detail.data && action.mutate({ kind: 'release', row: detail.data })}
         onMarkUsed={() => detail.data && action.mutate({ kind: 'used', row: detail.data })}

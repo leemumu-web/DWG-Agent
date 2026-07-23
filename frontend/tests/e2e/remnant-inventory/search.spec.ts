@@ -98,3 +98,51 @@ test('required exact filters, family expansion, active ordering and download per
   await expect(page.locator('.ant-table-tbody tr')).toHaveCount(1);
   await expect(page.locator('.ant-table-tbody tr').first()).toContainText('已使用');
 });
+
+test('original download failures show a Chinese worker-facing error', async ({ page }) => {
+  await mockSearch(page);
+  let downloadCalls = 0;
+  const mine = {
+    ...available,
+    status: 'reserved',
+    reserved_by: user.id,
+    reserved_by_name: user.real_name,
+    reserved_at: now,
+  };
+  await page.route('**/api/v1/remnants/101', (route) => json(route, mine));
+  await page.route('**/api/v1/remnants/101/original-download', async (route) => {
+    downloadCalls += 1;
+    await json(route, {
+      url: '/api/v1/remnants/101/source-file',
+      file_name: '可用余料.dwg',
+    });
+  });
+  await page.route('**/api/v1/remnants/101/source-file', async (route) => {
+    await route.fulfill({
+      status: 403,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'REMNANT_DOWNLOAD_FORBIDDEN', message: 'Forbidden' },
+        meta: envelope(null).meta,
+      }),
+    });
+  });
+
+  await page.goto('/remnants');
+  await page.getByLabel('标准材质').click();
+  await page.getByText('Q235B', { exact: true }).click();
+  await page.getByLabel('厚度（mm）').fill('10');
+  await page.getByRole('switch').click();
+  await page.getByRole('button', { name: '查询余料' }).click();
+  await page.locator('.ant-table-tbody tr').first().getByRole('button', { name: '详情' }).click();
+  const failedDownload = page.waitForResponse('**/api/v1/remnants/101/source-file');
+  await page.getByRole('button', { name: '下载原图 DWG' }).click();
+
+  const response = await failedDownload;
+  expect(response.status()).toBe(403);
+  await response.finished();
+  await expect.poll(() => downloadCalls).toBe(1);
+  await expect(page.getByRole('dialog', { name: '余料详情' }).getByText('原图下载失败')).toBeVisible();
+  await expect(page.getByText('Forbidden')).toHaveCount(0);
+  await expect(page.getByText('REMNANT_DOWNLOAD_FORBIDDEN')).toHaveCount(0);
+});
