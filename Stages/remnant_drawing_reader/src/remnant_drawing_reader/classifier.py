@@ -50,21 +50,40 @@ def _overlaps(span: tuple[int, int], occupied: list[tuple[int, int]]) -> bool:
     return any(start < occupied_end and occupied_start < end for occupied_start, occupied_end in occupied)
 
 
-def _part_values(text: str, material_matches: list[re.Match[str]]) -> list[str]:
+def _part_matches(
+    text: str, material_matches: list[re.Match[str]]
+) -> list[re.Match[str]]:
     occupied = [match.span() for match in material_matches]
-    values: list[str] = []
+    matches: list[re.Match[str]] = []
     for match in _PART_TOKEN.finditer(text):
         if _overlaps(match.span(), occupied):
             continue
         value = match.group(0)
         if value.split("-", 1)[0].upper() in _NON_PART_PREFIXES:
             continue
-        values.append(value)
-    return values
+        matches.append(match)
+    return matches
+
+
+def _metadata_remainder(
+    text: str,
+    material_matches: list[re.Match[str]],
+    part_matches: list[re.Match[str]],
+) -> str:
+    characters = list(text)
+    for start, end in [match.span() for match in material_matches + part_matches]:
+        characters[start:end] = " " * (end - start)
+    remainder = "".join(characters)
+    if material_matches or part_matches:
+        for label in sorted(_KNOWN_LABELS, key=len, reverse=True):
+            remainder = remainder.replace(label, " ")
+    return remainder.strip(" \t:：,，;；()（）[]【】")
 
 
 def classify(items: list[Evidence]):
-    materials: dict[str, Candidate] = {}; projects: dict[str, Candidate] = {}; parts: dict[str, Candidate] = {}
+    materials: dict[str, Candidate] = {}
+    projects: dict[str, Candidate] = {}
+    parts: dict[str, Candidate] = {}
     has_encoding_anomaly = False
     has_unrecognized_label = False
     has_oversized_project_title = False
@@ -77,12 +96,14 @@ def classify(items: list[Evidence]):
             material_matches = _material_matches(text)
             for material_match in material_matches:
                 _append(materials, material_match.group(0).upper(), evidence)
-            for part in _part_values(text, material_matches):
-                _append(parts, part, evidence)
-            if _SHORT_CHINESE_ANNOTATION.fullmatch(text):
+            part_matches = _part_matches(text, material_matches)
+            for part_match in part_matches:
+                _append(parts, part_match.group(0), evidence)
+            project_text = _metadata_remainder(text, material_matches, part_matches)
+            if not project_text or _SHORT_CHINESE_ANNOTATION.fullmatch(project_text):
                 continue
-            if _CHINESE_TEXT.search(text):
-                if not _append_project(projects, text, evidence):
+            if _CHINESE_TEXT.search(project_text):
+                if not _append_project(projects, project_text, evidence):
                     has_oversized_project_title = True
             continue
         label, value = match.groups()

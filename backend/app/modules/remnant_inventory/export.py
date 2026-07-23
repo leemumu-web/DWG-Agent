@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
 
+from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -54,6 +55,16 @@ class PreparedRemnantExport:
     row_count: int
 
 
+class CleanupFileResponse(FileResponse):
+    """File response that removes its temporary export on every exit path."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
+
+
 def _excel_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -76,13 +87,21 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
         for user_id in (row.imported_by, row.reserved_by, row.used_by)
         if user_id is not None
     }
-    materials = _indexed(
-        db.scalars(select(RemnantMaterial).where(RemnantMaterial.id.in_(material_ids))).all()
-    ) if material_ids else {}
-    files = _indexed(
-        db.scalars(select(StoredFile).where(StoredFile.id.in_(file_ids))).all()
-    ) if file_ids else {}
-    users = _indexed(db.scalars(select(User).where(User.id.in_(user_ids))).all()) if user_ids else {}
+    materials = (
+        _indexed(
+            db.scalars(select(RemnantMaterial).where(RemnantMaterial.id.in_(material_ids))).all()
+        )
+        if material_ids
+        else {}
+    )
+    files = (
+        _indexed(db.scalars(select(StoredFile).where(StoredFile.id.in_(file_ids))).all())
+        if file_ids
+        else {}
+    )
+    users = (
+        _indexed(db.scalars(select(User).where(User.id.in_(user_ids))).all()) if user_ids else {}
+    )
     parts: dict[int, list[str]] = {remnant_id: [] for remnant_id in remnant_ids}
     if remnant_ids:
         for remnant_id, part_no in db.execute(
@@ -103,7 +122,7 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
         cell = WriteOnlyCell(sheet, value=value)
         cell.font = Font(color="FFFFFF", bold=True)
         cell.fill = PatternFill("solid", fgColor="1F4E78")
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         header_cells.append(cell)
     sheet.append(header_cells)
 
@@ -113,24 +132,30 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
         importer = users.get(row.imported_by)
         reserver = users.get(row.reserved_by) if row.status == "reserved" else None
         used_by = users.get(row.used_by)
-        sheet.append(
-            [
-                row.id,
-                material.code if material else None,
-                float(row.thickness_mm),
-                row.project_no,
-                "、".join(parts[row.id]),
-                STATUS_LABELS.get(row.status, row.status),
-                source.original_name if source else None,
-                importer.real_name if importer else None,
-                _excel_datetime(row.confirmed_at),
-                reserver.real_name if reserver else None,
-                _excel_datetime(row.reserved_at) if reserver else None,
-                used_by.real_name if used_by else None,
-                _excel_datetime(row.used_at),
-                _excel_datetime(row.updated_at),
-            ]
-        )
+        values = [
+            row.id,
+            material.code if material else None,
+            float(row.thickness_mm),
+            row.project_no,
+            "、".join(parts[row.id]),
+            STATUS_LABELS.get(row.status, row.status),
+            source.original_name if source else None,
+            importer.real_name if importer else None,
+            _excel_datetime(row.confirmed_at),
+            reserver.real_name if reserver else None,
+            _excel_datetime(row.reserved_at) if reserver else None,
+            used_by.real_name if used_by else None,
+            _excel_datetime(row.used_at),
+            _excel_datetime(row.updated_at),
+        ]
+        cells = []
+        for index, value in enumerate(values):
+            cell = WriteOnlyCell(sheet, value=value)
+            cell.alignment = Alignment(vertical="top", wrap_text=index in (3, 4))
+            if isinstance(value, datetime):
+                cell.number_format = "yyyy-mm-dd hh:mm:ss"
+            cells.append(cell)
+        sheet.append(cells)
 
     temporary = NamedTemporaryFile(suffix=".xlsx", delete=False)
     path = Path(temporary.name)

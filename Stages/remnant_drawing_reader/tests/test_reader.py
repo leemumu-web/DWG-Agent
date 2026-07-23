@@ -36,7 +36,7 @@ def test_extracts_labelled_candidates_and_preserves_material_suffix(tmp_path: Pa
     result = parse_dxf(source)
 
     assert result.schema_version == "1.0"
-    assert result.parser_version == "0.2.0"
+    assert result.parser_version == "0.3.0"
     assert len(result.source_sha256) == 64
     assert [candidate.value for candidate in result.material_candidates] == ["Q235B-Z15"]
     assert [candidate.value for candidate in result.project_candidates] == ["PJ-2026-001"]
@@ -305,6 +305,47 @@ def test_extracts_material_and_part_from_composite_text(tmp_path: Path) -> None:
     assert [candidate.value for candidate in result.material_candidates] == ["Q345GJC-Z15"]
     assert [candidate.value for candidate in result.part_candidates] == ["JWL-36-01"]
     assert result.warnings == []
+
+
+@pytest.mark.parametrize(
+    ("text", "materials", "parts"),
+    [
+        ("材质 Q345GJC-Z15", ["Q345GJC-Z15"], []),
+        ("材料牌号 Q460GJB-Z25", ["Q460GJB-Z25"], []),
+        ("零件编号 JWL-1014-B-4", [], ["JWL-1014-B-4"]),
+    ],
+)
+def test_metadata_caption_without_colon_is_not_a_project_candidate(
+    tmp_path: Path, text: str, materials: list[str], parts: list[str]
+) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text(text).set_placement((0, 0))
+    source = tmp_path / "caption-without-colon.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == materials
+    assert [candidate.value for candidate in result.part_candidates] == parts
+    assert result.project_candidates == []
+
+
+def test_metadata_tokens_are_removed_before_project_candidate_classification(
+    tmp_path: Path,
+) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text(
+        "Q345GJC-Z15 精武路外框项目2022-8-15"
+    ).set_placement((0, 0))
+    source = tmp_path / "mixed-project-metadata.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == ["Q345GJC-Z15"]
+    assert [candidate.value for candidate in result.project_candidates] == [
+        "精武路外框项目2022-8-15"
+    ]
 
 
 def test_extracts_structurally_similar_part_numbers_in_first_seen_order(

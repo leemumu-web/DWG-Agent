@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from io import BytesIO
+from pathlib import Path
 
 import openpyxl
 import pytest
@@ -13,6 +15,7 @@ from app.main import app
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import Role, User
 from app.modules.operations.audit.models import AuditLog
+from app.modules.remnant_inventory.export import CleanupFileResponse
 from app.modules.remnant_inventory.models import (
     Remnant,
     RemnantImportBatch,
@@ -135,9 +138,7 @@ def _seed_remnant() -> int:
         return remnant.id
 
 
-def test_worker_exports_all_remnants_as_one_styled_row_per_remnant(
-    client, worker_headers
-) -> None:
+def test_worker_exports_all_remnants_as_one_styled_row_per_remnant(client, worker_headers) -> None:
     remnant_id = _seed_remnant()
 
     response = client.get("/api/v1/remnants/export.xlsx", headers=worker_headers)
@@ -152,7 +153,12 @@ def test_worker_exports_all_remnants_as_one_styled_row_per_remnant(
     assert workbook.sheetnames == ["全部余料"]
     sheet = workbook["全部余料"]
     assert sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref == "A1:N2"
     assert [cell.value for cell in sheet[1]] == HEADERS
+    assert sheet["A1"].font.bold is True
+    assert sheet["A1"].fill.fgColor.rgb == "001F4E78"
+    assert sheet["A1"].alignment.wrap_text is True
+    assert sheet.column_dimensions["E"].width == 42
     values = [cell.value for cell in sheet[2]]
     assert values[:8] == [
         remnant_id,
@@ -164,14 +170,14 @@ def test_worker_exports_all_remnants_as_one_styled_row_per_remnant(
         "精武路余料图.dxf",
         "导出工人",
     ]
-    assert isinstance(values[8], datetime)
+    assert values[8] == datetime(2026, 7, 23, 9, 2, 3)
     assert values[9:12] == [None, None, "导出工人"]
-    assert isinstance(values[12], datetime)
+    assert values[12] == datetime(2026, 7, 23, 9, 2, 3)
     assert isinstance(values[13], datetime)
+    assert sheet["D2"].alignment.wrap_text is True
+    assert sheet["E2"].alignment.wrap_text is True
     with get_test_session_factory()() as db:
-        assert db.scalar(
-            select(AuditLog).where(AuditLog.action == "remnants.export")
-        ) is not None
+        assert db.scalar(select(AuditLog).where(AuditLog.action == "remnants.export")) is not None
 
 
 def test_empty_inventory_export_still_contains_the_header(client, worker_headers) -> None:
@@ -182,3 +188,55 @@ def test_empty_inventory_export_still_contains_the_header(client, worker_headers
     sheet = workbook["全部余料"]
     assert sheet.max_row == 1
     assert [cell.value for cell in sheet[1]] == HEADERS
+
+
+def test_export_requires_authentication(client) -> None:
+    response = client.get("/api/v1/remnants/export.xlsx")
+
+    assert response.status_code == 401
+
+
+def _run_file_response(response: CleanupFileResponse, range_header: bytes | None = None) -> None:
+    headers = [] if range_header is None else [(b"range", range_header)]
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/export.xlsx",
+        "headers": headers,
+    }
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(_message):
+        return None
+
+    asyncio.run(response(scope, receive, send))
+
+
+def test_export_temp_file_is_removed_after_invalid_range(tmp_path: Path) -> None:
+    export_path = tmp_path / "invalid-range.xlsx"
+    export_path.write_bytes(b"xlsx")
+
+    response = CleanupFileResponse(export_path, filename="余料库.xlsx")
+    _run_file_response(response, b"not-a-valid-range")
+
+    assert not export_path.exists()
+
+
+def test_export_temp_file_is_removed_when_sending_fails(tmp_path: Path) -> None:
+    export_path = tmp_path / "send-failure.xlsx"
+    export_path.write_bytes(b"xlsx")
+    response = CleanupFileResponse(export_path, filename="余料库.xlsx")
+    scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def failing_send(_message):
+        raise OSError("client disconnected")
+
+    with pytest.raises(OSError, match="client disconnected"):
+        asyncio.run(response(scope, receive, failing_send))
+
+    assert not export_path.exists()
