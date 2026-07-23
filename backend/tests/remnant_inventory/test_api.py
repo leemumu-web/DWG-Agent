@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
 from io import StringIO
 
 import ezdxf
@@ -9,9 +11,16 @@ from sqlalchemy import select
 
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.modules.operations.audit.models import AuditLog
+from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import Role, User
-from app.modules.remnant_inventory.models import RemnantImportItem
+from app.modules.operations.audit.models import AuditLog
+from app.modules.remnant_inventory.models import (
+    Remnant,
+    RemnantImportBatch,
+    RemnantImportItem,
+    RemnantMaterial,
+    RemnantPart,
+)
 from app.platform.config.settings import settings
 from app.platform.security.tokens import hash_password
 from tests.support.database import get_test_session_factory
@@ -61,6 +70,74 @@ def _dxf_bytes() -> bytes:
     document.modelspace().add_text("材质: Q235B")
     document.write(stream)
     return stream.getvalue().encode("utf-8")
+
+
+def _seed_global_remnants() -> tuple[int, int]:
+    with get_test_session_factory()() as db:
+        worker = db.scalar(select(User).where(User.username == "material-worker"))
+        assert worker is not None
+        materials = [
+            RemnantMaterial(code="Q235B", family_code="Q235", enabled=True),
+            RemnantMaterial(code="Q355B", family_code="Q355", enabled=True),
+        ]
+        db.add_all(materials)
+        db.flush()
+        batch = RemnantImportBatch(
+            created_by=worker.id,
+            status="confirmed",
+            total_count=4,
+            confirmed_count=4,
+        )
+        db.add(batch)
+        db.flush()
+        rows = [
+            ("available", materials[0], Decimal("10"), "精武路项目A", ["JWL-1014-B-4"]),
+            ("reserved", materials[1], Decimal("20"), "南京北站项目B", ["ND-1053-3"]),
+            ("used", materials[0], Decimal("30"), "精武路项目C", ["DS-481-4"]),
+            ("archived", materials[1], Decimal("40"), "其他项目D", ["3CB-3D-1"]),
+        ]
+        for index, (status, material, thickness, project, parts) in enumerate(rows, 1):
+            digest = f"{index:064x}"
+            source = StoredFile(
+                bucket="test",
+                storage_key=f"remnants/{index}.dxf",
+                original_name=f"余料-{index}.dxf",
+                file_ext=".dxf",
+                content_type="application/dxf",
+                size_bytes=100,
+                sha256=digest,
+                uploaded_by=worker.id,
+            )
+            db.add(source)
+            db.flush()
+            item = RemnantImportItem(
+                batch_id=batch.id,
+                source_file_id=source.id,
+                dxf_file_id=source.id,
+                source_sha256=digest,
+                source_ext=".dxf",
+                status="confirmed",
+            )
+            db.add(item)
+            db.flush()
+            remnant = Remnant(
+                import_item_id=item.id,
+                source_file_id=source.id,
+                dxf_file_id=source.id,
+                source_sha256=digest,
+                thickness_mm=thickness,
+                material_id=material.id,
+                project_no=project,
+                status=status,
+                imported_by=worker.id,
+                confirmed_by=worker.id,
+                confirmed_at=datetime.now(UTC),
+            )
+            db.add(remnant)
+            db.flush()
+            db.add_all([RemnantPart(remnant_id=remnant.id, part_no=part) for part in parts])
+        db.commit()
+        return materials[0].id, materials[1].id
 
 
 def test_feature_disabled_returns_stable_not_found(client, admin_headers, monkeypatch) -> None:
@@ -231,3 +308,41 @@ def test_validation_and_missing_resources_keep_stable_error_envelopes(
     missing = client.get("/api/v1/remnants/999999", headers=admin_headers)
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "REMNANT_NOT_FOUND"
+
+
+def test_worker_can_page_filter_and_sort_the_global_inventory(
+    client, worker_headers
+) -> None:
+    q235_id, _q355_id = _seed_global_remnants()
+
+    first_page = client.get(
+        "/api/v1/remnants/all",
+        headers=worker_headers,
+        params={"page": 1, "page_size": 2, "sort": "thickness_desc"},
+    )
+
+    assert first_page.status_code == 200, first_page.text
+    assert first_page.json()["pagination"] == {
+        "page": 1,
+        "page_size": 2,
+        "total": 4,
+        "total_pages": 2,
+    }
+    assert [row["status"] for row in first_page.json()["data"]] == ["archived", "used"]
+    assert [row["thickness_mm"] for row in first_page.json()["data"]] == ["40.000", "30.000"]
+
+    filtered = client.get(
+        "/api/v1/remnants/all",
+        headers=worker_headers,
+        params={
+            "material_id": q235_id,
+            "thickness_mm": "10",
+            "statuses": "available",
+            "project": "精武路",
+            "part": "JWL-1014",
+        },
+    )
+
+    assert filtered.status_code == 200, filtered.text
+    assert filtered.json()["pagination"]["total"] == 1
+    assert filtered.json()["data"][0]["parts"] == ["JWL-1014-B-4"]

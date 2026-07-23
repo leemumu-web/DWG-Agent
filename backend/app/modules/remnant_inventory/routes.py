@@ -26,6 +26,7 @@ from app.modules.remnant_inventory.imports import (
 from app.modules.remnant_inventory.inventory import (
     archive_remnant,
     build_original_download,
+    list_all_remnants,
     mark_remnant_used,
     preview_file_id,
     release_remnant,
@@ -578,6 +579,41 @@ def get_remnants(
         statuses=statuses,
         page_no=page_no,
         page_size=page_size,
+    )
+
+
+@remnants_router.get("/all")
+def get_all_remnants(
+    request: Request,
+    current_user: CurrentUser,
+    material_id: int | None = Query(default=None, ge=1),
+    thickness_mm: Decimal | None = Query(default=None, gt=0),
+    statuses: list[str] | None = Query(default=None),
+    project: str | None = Query(default=None, max_length=128),
+    part: str | None = Query(default=None, max_length=128),
+    sort: str = Query(default="created_desc"),
+    page_no: int = Query(default=1, alias="page", ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    _require_user(current_user)
+    result = list_all_remnants(
+        db,
+        material_id=material_id,
+        thickness_mm=thickness_mm,
+        statuses=statuses,
+        project=project,
+        part=part,
+        sort=sort,
+        page=page_no,
+        page_size=page_size,
+    )
+    return page(
+        [_remnant_data(db, row) for row in result.items],
+        result.page,
+        result.page_size,
+        result.total,
+        request.state.request_id,
     )
 
 

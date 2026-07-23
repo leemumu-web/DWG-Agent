@@ -20,6 +20,14 @@ from app.platform.http.exceptions import AppHTTPException
 
 ACTIVE_STATUSES = ("available", "reserved")
 ALL_STATUSES = {"available", "reserved", "used", "archived"}
+ALL_STATUS_ORDER = ("available", "reserved", "used", "archived")
+GLOBAL_SORTS = {
+    "created_asc",
+    "created_desc",
+    "status",
+    "thickness_asc",
+    "thickness_desc",
+}
 _ADMIN_ROLES = {ROLE_ADMIN, ROLE_SUPER_ADMIN}
 
 
@@ -99,6 +107,68 @@ def search_remnants(
             select(Remnant)
             .where(*filters)
             .order_by(status_order, Remnant.created_at.desc(), Remnant.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+    )
+    return RemnantPage(rows, int(total), page, page_size)
+
+
+def list_all_remnants(
+    db: Session,
+    *,
+    material_id: int | None = None,
+    thickness_mm: Decimal | str | int | float | None = None,
+    statuses: Sequence[str] | None = None,
+    project: str | None = None,
+    part: str | None = None,
+    sort: str = "created_desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> RemnantPage:
+    if page < 1 or page_size < 1 or page_size > 200:
+        raise AppHTTPException(422, "REMNANT_PAGE_INVALID", "Pagination is invalid.")
+    selected_statuses = tuple(dict.fromkeys(statuses or ALL_STATUS_ORDER))
+    if not selected_statuses or not set(selected_statuses) <= ALL_STATUSES:
+        raise AppHTTPException(422, "REMNANT_STATUS_INVALID", "Remnant status is invalid.")
+    if sort not in GLOBAL_SORTS:
+        raise AppHTTPException(422, "REMNANT_SORT_INVALID", "Remnant sort is invalid.")
+
+    filters = [Remnant.status.in_(selected_statuses)]
+    if material_id is not None:
+        filters.append(Remnant.material_id == material_id)
+    if thickness_mm is not None:
+        filters.append(Remnant.thickness_mm == _thickness(thickness_mm))
+    if normalized_project := (project or "").strip():
+        filters.append(Remnant.project_no.ilike(f"%{normalized_project}%"))
+    if normalized_part := (part or "").strip():
+        filters.append(
+            Remnant.id.in_(
+                select(RemnantPart.remnant_id).where(
+                    RemnantPart.part_no.ilike(f"%{normalized_part}%")
+                )
+            )
+        )
+
+    status_order = case(
+        (Remnant.status == "available", 0),
+        (Remnant.status == "reserved", 1),
+        (Remnant.status == "used", 2),
+        else_=3,
+    )
+    ordering = {
+        "created_asc": (Remnant.created_at.asc(), Remnant.id.asc()),
+        "created_desc": (Remnant.created_at.desc(), Remnant.id.desc()),
+        "status": (status_order, Remnant.created_at.desc(), Remnant.id.desc()),
+        "thickness_asc": (Remnant.thickness_mm.asc(), Remnant.id.asc()),
+        "thickness_desc": (Remnant.thickness_mm.desc(), Remnant.id.desc()),
+    }[sort]
+    total = db.scalar(select(func.count(Remnant.id)).where(*filters)) or 0
+    rows = list(
+        db.scalars(
+            select(Remnant)
+            .where(*filters)
+            .order_by(*ordering)
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
