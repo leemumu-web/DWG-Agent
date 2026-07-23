@@ -118,6 +118,10 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
         workbook = Workbook()
         workbook.active.title = "整理表"
         workbook.save(output_path)
+        internal_output_path = Path(
+            command[command.index("--internal-output") + 1]
+        )
+        workbook.save(internal_output_path)
         return subprocess.CompletedProcess(
             command,
             0,
@@ -144,6 +148,10 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     assert captured["cwd"] == excel_final.get_excel_final_stage_root()
     assert captured["env"]["DWG_HANDBOOK_MYSQL_PASSWORD"] == "not-on-command-line"
     assert result.output_path == output_path.resolve()
+    assert result.internal_output_path == (
+        output_path.with_name(f".{output_path.stem}.internal.xlsx").resolve()
+    )
+    assert result.internal_output_path.is_file()
     assert result.protocol_version == 1
     assert result.quality_status == "warning"
     assert result.warning_count == 1
@@ -199,8 +207,14 @@ def test_excel_final_pipeline_logs_internal_failure_but_raises_safe_message(
     source_path = tmp_path / "source.xls"
     output_path = tmp_path / "result.xlsx"
     source_path.write_bytes(b"input")
+    internal_output_path: Path | None = None
 
     def fake_run(command, **kwargs):
+        nonlocal internal_output_path
+        internal_output_path = Path(
+            command[command.index("--internal-output") + 1]
+        )
+        internal_output_path.touch()
         return subprocess.CompletedProcess(command, 1, stdout="", stderr="pipeline exploded")
 
     monkeypatch.setattr(excel_final.subprocess, "run", fake_run)
@@ -216,6 +230,8 @@ def test_excel_final_pipeline_logs_internal_failure_but_raises_safe_message(
     assert "pipeline exploded" not in str(failure.value)
     assert "pipeline exploded" not in caplog.text
     assert "processing failure" in caplog.text
+    assert internal_output_path is not None
+    assert not internal_output_path.exists()
 
 
 @pytest.mark.parametrize(

@@ -119,6 +119,7 @@ def _run_with_repository(
     component_rows,
     reader_issues,
     handbook_repository: HandbookReader | None,
+    internal_output_file: str | Path | None,
 ) -> PipelineOutcome:
     owned_repository = handbook_repository is None
     repository = handbook_repository or init_handbook(cfg.DB_CONFIG)
@@ -130,6 +131,7 @@ def _run_with_repository(
             component_rows=component_rows,
             reader_issues=reader_issues,
             handbook=repository,
+            internal_output_path=internal_output_file,
         )
     finally:
         repository.log_stats()
@@ -142,6 +144,7 @@ def run_pipeline(
     output_file: str | Path | None = None,
     *,
     handbook_repository: HandbookReader | None = None,
+    internal_output_file: str | Path | None = None,
 ) -> PipelineOutcome:
     """Adapt one strict Tekla source and run the canonical engine."""
     input_path = Path(input_file).resolve()
@@ -158,6 +161,7 @@ def run_pipeline(
             component_rows=canonical_read.component_rows,
             reader_issues=canonical_read.issues,
             handbook_repository=handbook_repository,
+            internal_output_file=internal_output_file,
         )
 
 
@@ -166,6 +170,7 @@ def run_init_pipeline(
     output_file: str | Path | None = None,
     *,
     handbook_repository: HandbookReader | None = None,
+    internal_output_file: str | Path | None = None,
 ) -> PipelineOutcome:
     """Adapt one strict initial-table workbook and run the same canonical engine."""
     input_path = Path(input_file).resolve()
@@ -182,4 +187,5 @@ def run_init_pipeline(
         component_rows=component_rows,
         reader_issues=(),
         handbook_repository=handbook_repository,
+        internal_output_file=internal_output_file,
     )

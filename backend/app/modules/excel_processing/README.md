@@ -6,7 +6,7 @@
 
 1. `routes/processing.py` 复用 files 模块的 durable transfer saga，把 `.xls`/`.xlsx`/`.xlsm` 登记到 `files` 并写入配置的 Local/MinIO 存储；`.xlsx`/`.xlsm` 输入必须是单工作表，预处理负责从含人工结果的多表文件中分离原表。规范结果固定为新 `.xlsx`，不复制源宏。
 2. `execution.py` 使用 jobs 模块的 attempt 状态机下载源文件、记录步骤、调用独立 Stage、登记结果文件与 `analysis_results`。
-3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。二者使用严格的 `protocol_version=1` JSON 结果，密码只通过子进程环境传递，child traceback 不进入公共错误或日志。
+3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。二者使用严格的 `protocol_version=1` JSON 结果，密码只通过子进程环境传递，child traceback 不进入公共错误或日志。子进程同时生成任务临时目录中的完整内部导入工作簿和删列后的最终工作簿；数据库只读前者，对象存储和下载只使用后者。
 4. `importers.py` 流式读取规范六表工作簿的“整理表”“构件表”“处理报告”，投影到 `excel_final_parts`、`excel_final_components` 和批次质量摘要；缺构件身份的 part 行跳过，重复构件 ID、负长度/数量/重量/面积及 NaN/Infinity 等非有限数值拒绝；`persistence.py` 拥有批次替换、表净重/表毛重统计和清理。
 5. `routes/catalog.py` 只查询关系化投影；`routes/tools.py` 提供手册比重查询；`routes/health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
 

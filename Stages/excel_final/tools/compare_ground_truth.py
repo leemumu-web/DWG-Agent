@@ -287,14 +287,16 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
         )
 
         d_rows = [row for row in organized if str(row.get("截面型材") or "").startswith("D")]
-        round_sources = sum(
-            str(row.get("比重来源") or "").startswith("round_square_bar:round_bar")
+        expected_d_density = {24: Decimal("3.55"), 30: Decimal("5.55")}
+        d_values_ok = sum(
+            _decimal(row["比重"]) == expected_d_density.get(int(row["规格"]))
+            and row.get("理单重(kg)") is not None
             for row in d_rows
         )
         _record(
-            results, "D系列材质路由", "GT未记录查询表", f"圆钢来源={round_sources}/{len(d_rows)}",
-            "PASS" if round_sources == baseline["d"] else "FAIL",
-            "Q355B D24/D30按圆钢表查询；英文类别代码稳定保存",
+            results, "D系列手册结果", "GT未记录查询表", f"手册值有效={d_values_ok}/{len(d_rows)}",
+            "PASS" if d_values_ok == baseline["d"] else "FAIL",
+            "Q355B D24/D30得到圆钢手册值和理论重；具体路由由MySQL专项测试保证",
         )
         skipped = [
             row for row in organized
@@ -354,12 +356,12 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
         )
 
         lookup_misses = sum(row.get("比重") == "查无" for row in organized)
-        severe = sum(row.get("重量核验") == "严重" for row in organized)
         warnings = sum(row.get("级别") == "警告" for row in report)
+        severe = sum(row.get("级别") in {"严重", "致命"} for row in report)
         info = sum(row.get("级别") == "信息" for row in report)
         _record(
             results, "质量报告", "GT无结构化质量台账",
-            f"查无={lookup_misses}, 警告={warnings}, 严重行={severe}, 信息={info}",
+            f"查无={lookup_misses}, 警告={warnings}, 严重={severe}, 信息={info}",
             "PASS" if lookup_misses == warnings == severe == info == 0 else "REVIEW",
             "当前样本没有需记录的质量问题",
         )

@@ -375,6 +375,9 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
         report = workbook.create_sheet("处理报告")
         report.append(["级别", "类别", "说明"])
         report.append(["警告", "手册查无", "规格 X10 在指定类别中查无"])
+        internal_output_path = output_path.with_name(".warning.internal.xlsx")
+        workbook.save(internal_output_path)
+        organized.delete_cols(11)
         workbook.save(output_path)
         return ExcelFinalProcessResult(
             protocol_version=1,
@@ -389,6 +392,7 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
                 "category_counts": {"手册查无": 1},
                 "representative_messages": ["规格 X10 在指定类别中查无"],
             },
+            internal_output_path=internal_output_path,
         )
 
     def fake_save(worker_db: Session, **kwargs):
@@ -434,6 +438,11 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
     assert batch.quality_status == "warning"
     assert batch.warning_count == 1
     assert batch.severe_warning_count == 0
+    imported_part = db.scalar(
+        select(ExcelFinalPart).where(ExcelFinalPart.batch_id == batch.id)
+    )
+    assert imported_part is not None
+    assert imported_part.weight_validation == "warning"
     assert analysis is not None
     assert analysis.result_json["quality_status"] == "warning"
     assert analysis.result_json["report_summary"]["category_counts"] == {"手册查无": 1}

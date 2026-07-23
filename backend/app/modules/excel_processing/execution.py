@@ -375,13 +375,16 @@ def run_excel_final_processing(
 
             import_started = datetime.now(UTC)
             try:
+                database_import_path = (
+                    pipeline_result.internal_output_path or output_path
+                )
                 batch, database_stats = import_workbook_for_job(
                     db,
                     job_id=job.id,
                     file_id=file_id,
                     source_type=source_format,
                     source_name=source_file.original_name,
-                    output_path=output_path,
+                    output_path=database_import_path,
                     expected_quality=pipeline_result.quality_expectation(),
                 )
             except Exception as exc:

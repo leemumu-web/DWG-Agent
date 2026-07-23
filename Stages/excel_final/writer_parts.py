@@ -64,7 +64,7 @@ _WIDTH_BOUNDS_BY_HEADER = {
     ("处理报告", "建议操作"): (16, 48),
 }
 _WRAPPED_REPORT_HEADERS = ("说明", "建议操作")
-_HIDDEN_COLUMNS = {
+_REMOVED_OUTPUT_COLUMNS = {
     "构件表": ("来源sheet", "行类型", "小计来源行"),
     "整理表": ("比重来源", "净材利用率", "重量核验"),
 }
@@ -332,6 +332,17 @@ def _apply_clean_quality_styles(
 
 
 def _format_canonical_workbook(workbook) -> None:
+    for sheet_name, removed_headers in _REMOVED_OUTPUT_COLUMNS.items():
+        ws = workbook[sheet_name]
+        headers = [cell.value for cell in ws[1]]
+        columns = sorted(
+            (headers.index(header) + 1 for header in removed_headers),
+            reverse=True,
+        )
+        for column in columns:
+            ws.delete_cols(column)
+        ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}1"
+
     for sheet_name in _AUTO_WIDTH_SHEETS:
         ws = workbook[sheet_name]
         for column in range(1, ws.max_column + 1):
@@ -360,17 +371,6 @@ def _format_canonical_workbook(workbook) -> None:
                 vertical="top",
                 wrap_text=True,
             )
-
-    headers_by_sheet = {
-        "构件表": COMPONENT_HEADERS,
-        "整理表": ORGANIZED_HEADERS,
-    }
-    for sheet_name, hidden_headers in _HIDDEN_COLUMNS.items():
-        ws = workbook[sheet_name]
-        headers = headers_by_sheet[sheet_name]
-        for header in hidden_headers:
-            column = get_column_letter(headers.index(header) + 1)
-            ws.column_dimensions[column].hidden = True
 
 
 def _verify_formula_caches(
@@ -401,16 +401,28 @@ def write_canonical_workbook(
     organized_rows: Iterable[Mapping[str, object]],
     part_rows: Iterable[PartRow],
     issues: Iterable[QualityIssue],
+    internal_output_path: str | Path | None = None,
 ) -> PipelineOutcome:
     """Write and verify the fixed six-sheet normalized workbook atomically."""
     source = Path(source_path).resolve()
     output = Path(output_path).resolve()
+    internal_output = (
+        Path(internal_output_path).resolve()
+        if internal_output_path is not None
+        else None
+    )
     if not source.is_file():
         raise FileNotFoundError(source)
     if output.suffix.lower() != ".xlsx":
         raise ValueError("Excel Final output must use the .xlsx extension")
     if source == output:
         raise ValueError("source_path and output_path must be different")
+    if internal_output is not None:
+        if internal_output.suffix.lower() != ".xlsx":
+            raise ValueError("Excel Final internal output must use the .xlsx extension")
+        if internal_output in {source, output}:
+            raise ValueError("internal_output_path must differ from source and output")
+        internal_output.parent.mkdir(parents=True, exist_ok=True)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     cleaned = tuple(cleaned_parts)
@@ -427,6 +439,15 @@ def write_canonical_workbook(
     )
     os.close(temp_fd)
     temp_path = Path(temp_name)
+    internal_temp_path: Path | None = None
+    if internal_output is not None:
+        internal_fd, internal_temp_name = tempfile.mkstemp(
+            prefix=f".{internal_output.stem}.",
+            suffix=internal_output.suffix,
+            dir=internal_output.parent,
+        )
+        os.close(internal_fd)
+        internal_temp_path = Path(internal_temp_name)
     try:
         shutil.copy2(source, temp_path)
         workbook = load_workbook(temp_path)
@@ -449,16 +470,25 @@ def write_canonical_workbook(
             _write_report_sheet(report_sheet, ledger.report_rows())
             _apply_clean_quality_styles(clean_sheet, cleaned, issue_list)
             _apply_quality_styles(organized_sheet, organized, issue_list)
+            if internal_temp_path is not None:
+                workbook.save(internal_temp_path)
             _format_canonical_workbook(workbook)
             workbook.save(temp_path)
         finally:
             workbook.close()
 
+        if internal_temp_path is not None:
+            patch_formula_caches(internal_temp_path, "整理表", formula_caches)
+            _verify_formula_caches(internal_temp_path, formula_caches)
         patch_formula_caches(temp_path, "整理表", formula_caches)
         _verify_formula_caches(temp_path, formula_caches)
         os.replace(temp_path, output)
+        if internal_temp_path is not None and internal_output is not None:
+            os.replace(internal_temp_path, internal_output)
     finally:
         temp_path.unlink(missing_ok=True)
+        if internal_temp_path is not None:
+            internal_temp_path.unlink(missing_ok=True)
 
     log.info(
         "规范输出: %d 清洗行, %d 构件行, %d 整理行, %d part 行 → %s",

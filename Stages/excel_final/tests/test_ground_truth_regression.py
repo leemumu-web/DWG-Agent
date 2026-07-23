@@ -67,7 +67,6 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
         assert len(cleaned) == baseline["parent_parts"]
         assert len(components) == baseline["components"]
         assert len({row["构件编号"] for row in components}) == baseline["components"]
-        assert {row["行类型"] for row in components} == {"summary"}
         assert len(organized) == baseline["organized_rows"]
 
         source_types: dict[str, int] = {"PL": 0, "BOX": 0, "TT": 0, "D": 0, "NUT": 0}
@@ -100,20 +99,33 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
         assert all(row["文件"] is None for row in part)
         assert values["处理报告"]["A2"].value == "无"
         assert values["处理报告"].max_row == 2
-        for sheet_name, headers in (
+        for sheet_name in ("清洗表", "构件表", "整理表", "part", "处理报告"):
+            worksheet = formulas[sheet_name]
+            for column in range(1, worksheet.max_column + 1):
+                letter = get_column_letter(column)
+                width = worksheet.column_dimensions[letter].width
+                if sheet_name == "处理报告" and column in (7, 8):
+                    assert 16 <= width <= 48
+                else:
+                    assert 8 <= width <= 32
+        for coordinate in ("G2", "H2"):
+            assert formulas["处理报告"][coordinate].alignment.wrap_text is True
+            assert formulas["处理报告"][coordinate].alignment.vertical == "top"
+        assert formulas["构件表"].auto_filter.ref == "A1:O1"
+        assert formulas["整理表"].auto_filter.ref == "A1:AF1"
+        for sheet_name, removed_headers in (
             ("整理表", ("比重来源", "净材利用率", "重量核验")),
             ("构件表", ("来源sheet", "行类型", "小计来源行")),
         ):
             worksheet = formulas[sheet_name]
-            header_values = [cell.value for cell in worksheet[1]]
-            for header in headers:
-                column = get_column_letter(header_values.index(header) + 1)
-                assert worksheet.column_dimensions[column].hidden is True
+            header_values = {cell.value for cell in worksheet[1]}
+            assert not (set(removed_headers) & header_values)
 
         d_rows = [row for row in organized if str(row["截面型材"]).startswith("D")]
         assert len(d_rows) == baseline["d"]
         assert {row["规格"] for row in d_rows} == {24, 30}
-        assert all(str(row["比重来源"]).startswith("round_square_bar:") for row in d_rows)
+        assert {row["比重"] for row in d_rows} == {3.55, 5.55}
+        assert all(row["理单重(kg)"] is not None for row in d_rows)
 
         skipped = [
             row for row in organized

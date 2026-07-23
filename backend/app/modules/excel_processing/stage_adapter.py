@@ -62,6 +62,7 @@ class ExcelFinalProcessResult:
     warning_count: int
     severe_warning_count: int
     report_summary: dict[str, object]
+    internal_output_path: Path | None = None
 
     def quality_expectation(self) -> dict[str, int | str]:
         return {
@@ -161,21 +162,45 @@ def run_excel_final_pipeline(
         raise ValueError("Excel Final output must use the .xlsx extension")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    completed = _run_stage(
-        "process",
-        "--format",
-        source_format,
-        "--input",
-        str(source_path.resolve()),
-        "--output",
-        str(output_path.resolve()),
+    internal_output_path = output_path.with_name(
+        f".{output_path.stem}.internal.xlsx"
+    ).resolve()
+    internal_output_path.unlink(missing_ok=True)
+    try:
+        completed = _run_stage(
+            "process",
+            "--format",
+            source_format,
+            "--input",
+            str(source_path.resolve()),
+            "--output",
+            str(output_path.resolve()),
+            "--internal-output",
+            str(internal_output_path),
+        )
+        _raise_for_failed_stage(completed)
+        payload = _result_payload(completed, operation="process")
+        result = _process_result(payload, expected_output=output_path)
+        if not output_path.is_file():
+            raise ExcelFinalProcessError(
+                "Excel Final Stage exited successfully without an output file"
+            )
+        if not internal_output_path.is_file():
+            raise ExcelFinalProcessError(
+                "Excel Final Stage exited successfully without its internal import file"
+            )
+    except Exception:
+        internal_output_path.unlink(missing_ok=True)
+        raise
+    return ExcelFinalProcessResult(
+        protocol_version=result.protocol_version,
+        output_path=result.output_path,
+        quality_status=result.quality_status,
+        warning_count=result.warning_count,
+        severe_warning_count=result.severe_warning_count,
+        report_summary=result.report_summary,
+        internal_output_path=internal_output_path,
     )
-    _raise_for_failed_stage(completed)
-    payload = _result_payload(completed, operation="process")
-    result = _process_result(payload, expected_output=output_path)
-    if not output_path.is_file():
-        raise ExcelFinalProcessError("Excel Final Stage exited successfully without an output file")
-    return result
 
 
 def lookup_excel_final_weight(

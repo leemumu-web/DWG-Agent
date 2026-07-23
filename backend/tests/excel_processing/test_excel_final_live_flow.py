@@ -123,6 +123,30 @@ def test_live_upload_worker_catalog_and_download_flow(
             ExcelFinalComponent.batch_id == batch.id
         )
     ) == 46
+    for field in (
+        ExcelFinalPart.density_source,
+        ExcelFinalPart.material_utilization,
+        ExcelFinalPart.weight_validation,
+    ):
+        assert db.scalar(
+            select(func.count()).select_from(ExcelFinalPart).where(
+                ExcelFinalPart.batch_id == batch.id,
+                field.is_not(None),
+            )
+        ) > 0
+    d_parts = list(
+        db.scalars(
+            select(ExcelFinalPart).where(
+                ExcelFinalPart.batch_id == batch.id,
+                ExcelFinalPart.profile_spec.in_(("D24", "D30")),
+            )
+        )
+    )
+    assert len(d_parts) == 4
+    assert all(
+        part.density_source == "round_square_bar:round_bar"
+        for part in d_parts
+    )
     plate_catalog = client.get(
         f"/api/v1/excel-final/batches/{batch.id}/parts?part_type=plate&page_size=500",
         headers=headers,
@@ -182,15 +206,27 @@ def test_live_upload_worker_catalog_and_download_flow(
         assert all(row["文件"] is None for row in part_rows)
         assert workbook["处理报告"]["A2"].value == "无"
         assert workbook["处理报告"].max_row == 2
-        for sheet_name, headers in (
+        for sheet_name in ("清洗表", "构件表", "整理表", "part", "处理报告"):
+            worksheet = workbook[sheet_name]
+            for column in range(1, worksheet.max_column + 1):
+                letter = get_column_letter(column)
+                width = worksheet.column_dimensions[letter].width
+                if sheet_name == "处理报告" and column in (7, 8):
+                    assert 16 <= width <= 48
+                else:
+                    assert 8 <= width <= 32
+        for coordinate in ("G2", "H2"):
+            assert workbook["处理报告"][coordinate].alignment.wrap_text is True
+            assert workbook["处理报告"][coordinate].alignment.vertical == "top"
+        assert workbook["构件表"].auto_filter.ref == "A1:O1"
+        assert workbook["整理表"].auto_filter.ref == "A1:AF1"
+        for sheet_name, removed_headers in (
             ("整理表", ("比重来源", "净材利用率", "重量核验")),
             ("构件表", ("来源sheet", "行类型", "小计来源行")),
         ):
             worksheet = workbook[sheet_name]
-            header_values = [cell.value for cell in worksheet[1]]
-            for header in headers:
-                column = get_column_letter(header_values.index(header) + 1)
-                assert worksheet.column_dimensions[column].hidden is True
+            header_values = {cell.value for cell in worksheet[1]}
+            assert not (set(removed_headers) & header_values)
     finally:
         workbook.close()
 

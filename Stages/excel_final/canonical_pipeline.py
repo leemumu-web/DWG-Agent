@@ -492,6 +492,7 @@ def process_canonical_records(
     component_rows: Iterable[ComponentSourceRow],
     reader_issues: Iterable[QualityIssue],
     handbook: HandbookReader,
+    internal_output_path: str | Path | None = None,
 ) -> PipelineOutcome:
     """Process canonical records and atomically emit the six-sheet workbook."""
     initial_issues = list(reader_issues)
@@ -575,4 +576,5 @@ def process_canonical_records(
         organized_rows=organized_rows,
         part_rows=part_result.rows,
         issues=issues,
+        internal_output_path=internal_output_path,
     )

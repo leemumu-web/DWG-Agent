@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Superseded display detail:** 本计划记录首次实现时的“隐藏审计列”方案。后续确认改为仅在最终 Excel 物理删除这些列，内部计算、核验和报告功能保留；现行合同以 `2026-07-23-excel-bounded-auto-width-design.md` 和 `Stages/excel_final/PROCESS.md` 为准。
+
 **Goal:** 将 `处理报告`收缩为可执行的人工处置清单，无问题时显示“无”，并默认隐藏整理表和构件表的审计列。
 
 **Architecture:** `quality.py`继续保存原始问题，但新增唯一的可操作报告投影，负责过滤信息、同源同类合并和生成操作建议；writer 与 `PipelineOutcome`共同使用该投影，避免统计口径分裂。后端 importer 识别“无”哨兵并继续兼容按表头读取的旧报告。

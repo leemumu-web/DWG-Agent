@@ -125,7 +125,7 @@ def _semantic_rows(path: Path) -> list[tuple[object, ...]]:
     return [
         (
             row["零件号"], row["类型"], row["规格"], row["宽度"],
-            row["比重"], row["比重来源"], row["导入零件号"],
+            row["比重"], row["理单重(kg)"], row["理总重(kg)"], row["导入零件号"],
         )
         for row in _organized(path)
     ]
@@ -138,17 +138,27 @@ def test_both_input_adapters_share_the_canonical_engine(tmp_path: Path) -> None:
     _initial_workbook(initial)
     tekla_output = tmp_path / "tekla-output.xlsx"
     initial_output = tmp_path / "initial-output.xlsx"
+    tekla_internal_output = tmp_path / "tekla-internal-output.xlsx"
     tekla_handbook = FakeHandbook()
     initial_handbook = FakeHandbook()
 
     tekla_outcome = run_pipeline(
-        tekla, tekla_output, handbook_repository=tekla_handbook
+        tekla,
+        tekla_output,
+        handbook_repository=tekla_handbook,
+        internal_output_file=tekla_internal_output,
     )
     initial_outcome = run_init_pipeline(
         initial, initial_output, handbook_repository=initial_handbook
     )
 
     assert _semantic_rows(tekla_output) == _semantic_rows(initial_output)
+    internal_workbook = load_workbook(tekla_internal_output, read_only=True)
+    try:
+        internal_headers = [cell.value for cell in internal_workbook["整理表"][1]]
+        assert {"比重来源", "净材利用率", "重量核验"} <= set(internal_headers)
+    finally:
+        internal_workbook.close()
     assert tekla_outcome.output_path == tekla_output.resolve()
     assert initial_outcome.output_path == initial_output.resolve()
     assert Path(tekla_outcome) == tekla_output.resolve()
@@ -297,7 +307,6 @@ def test_invalid_confirmed_split_is_reported_without_dropping_source_row(tmp_pat
     assert len(rows) == 1
     assert rows[0]["零件号"] == "bad-box"
     assert rows[0]["类型"] == "BOX"
-    assert rows[0]["重量核验"] == "严重"
     assert outcome.quality_status == "severe_warning"
     result = load_workbook(output, read_only=True, data_only=True)
     try:

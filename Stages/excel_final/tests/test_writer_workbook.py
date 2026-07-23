@@ -178,6 +178,7 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
     source = tmp_path / "source.xlsx"
     part, component_rows = _source(source)
     output = tmp_path / "output.xlsx"
+    internal_output = tmp_path / "internal-output.xlsx"
     organized = [
         _organized_row(),
         _organized_row(
@@ -200,6 +201,7 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         organized_rows=organized,
         part_rows=part_rows,
         issues=_issues(),
+        internal_output_path=internal_output,
     )
 
     workbook = load_workbook(output, data_only=False)
@@ -210,7 +212,16 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         assert workbook["原表"]["B2"].value == " 保 留 空 格 "
         assert workbook["原表"].column_dimensions["A"].width == 27.5
         assert workbook["原表"].column_dimensions["B"].width == 13.25
-        assert [cell.value for cell in workbook["整理表"][1]] == writer.ORGANIZED_HEADERS
+        assert [cell.value for cell in workbook["整理表"][1]] == [
+            header
+            for header in writer.ORGANIZED_HEADERS
+            if header not in {"比重来源", "净材利用率", "重量核验"}
+        ]
+        assert [cell.value for cell in workbook["构件表"][1]] == [
+            header
+            for header in writer.COMPONENT_HEADERS
+            if header not in {"来源sheet", "行类型", "小计来源行"}
+        ]
         assert [cell.value for cell in workbook["part"][1]] == writer.PART_HEADERS
         assert writer.REPORT_HEADERS == [
             "级别",
@@ -227,18 +238,25 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         assert workbook["处理报告"]["H3"].value
         assert workbook["整理表"]["A2"].value == workbook["整理表"]["A3"].value == 7
         assert workbook["整理表"]["P2"].value == "=M2-N2-O2"
-        assert workbook["整理表"]["X2"].number_format == "0.000"
+        organized_headers = [cell.value for cell in workbook["整理表"][1]]
+        theo_unit_column = get_column_letter(organized_headers.index("理单重(kg)") + 1)
+        gross_unit_column = get_column_letter(organized_headers.index("单毛重(kg)") + 1)
+        density_column = get_column_letter(organized_headers.index("比重") + 1)
+        assert workbook["整理表"][f"{theo_unit_column}2"].number_format == "0.000"
         assert workbook["整理表"]["V2"].font.color.rgb.endswith("FF0000")
-        assert workbook["整理表"]["AC2"].fill.fill_type == "solid"
-        assert workbook["整理表"]["AG2"].fill.fill_type == "solid"
+        assert workbook["整理表"][f"{density_column}2"].font.color.rgb.endswith("FF0000")
+        assert workbook["整理表"][f"{gross_unit_column}2"].fill.fill_type == "solid"
         assert workbook["part"].max_row == 2
         assert workbook["part"]["H2"].value is None
         assert workbook["part"]["I2"].value is None
         assert workbook["part"]["K2"].value is None
         assert workbook["处理报告"].max_row == 3
         assert workbook["构件表"].max_row == 2
-        assert workbook["构件表"]["C2"].value == "summary"
-        assert workbook["构件表"]["D2"].value == 9
+        assert workbook["构件表"]["A2"].value == 7
+        assert workbook["构件表"]["B2"].value == "B1"
+        assert workbook["构件表"]["C2"].value == "C1"
+        assert workbook["构件表"].auto_filter.ref == "A1:O1"
+        assert workbook["整理表"].auto_filter.ref == "A1:AF1"
         assert workbook["整理表"].column_dimensions["B"].width == 10
         assert workbook["整理表"].column_dimensions["J"].width == 32
         assert workbook["part"].column_dimensions["A"].width == 14
@@ -247,14 +265,23 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         for coordinate in ("G2", "H2", "G3", "H3"):
             assert workbook["处理报告"][coordinate].alignment.wrap_text is True
             assert workbook["处理报告"][coordinate].alignment.vertical == "top"
-        for header in ("比重来源", "净材利用率", "重量核验"):
-            letter = get_column_letter(writer.ORGANIZED_HEADERS.index(header) + 1)
-            assert workbook["整理表"].column_dimensions[letter].hidden is True
-        for header in ("来源sheet", "行类型", "小计来源行"):
-            letter = get_column_letter(writer.COMPONENT_HEADERS.index(header) + 1)
-            assert workbook["构件表"].column_dimensions[letter].hidden is True
+        assert not ({"比重来源", "净材利用率", "重量核验"} & set(organized_headers))
+        component_headers = [cell.value for cell in workbook["构件表"][1]]
+        assert not ({"来源sheet", "行类型", "小计来源行"} & set(component_headers))
     finally:
         workbook.close()
+
+    internal_workbook = load_workbook(internal_output, data_only=False)
+    try:
+        assert [cell.value for cell in internal_workbook["整理表"][1]] == (
+            writer.ORGANIZED_HEADERS
+        )
+        assert [cell.value for cell in internal_workbook["构件表"][1]] == (
+            writer.COMPONENT_HEADERS
+        )
+        assert internal_workbook["整理表"]["P2"].value == "=M2-N2-O2"
+    finally:
+        internal_workbook.close()
 
     assert outcome.output_path == output.resolve()
     assert outcome.warning_count == 1
