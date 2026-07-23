@@ -26,15 +26,22 @@ async function mockImport(page: Page, options: {
   delayMaterialCreate?: boolean;
   failMaterialCreate?: boolean;
   multipleMaterials?: boolean;
+  multipleParts?: boolean;
 } = {}) {
   const items = [item(1, '现场余料-A.dwg', 'pending_confirmation'), item(2, '现场余料-B.dxf', 'pending_confirmation'), item(3, '待重试.dwg', 'failed')];
   items[0].material_candidates = [{ value: 'Q355B', evidence: [{ raw_text: 'Q355B', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   items[0].project_candidates = [{ value: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', evidence: [{ raw_text: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   if (options.multipleMaterials) items[0].material_candidates.push({ value: 'Q390B', evidence: [] });
+  if (options.multipleParts) items[0].part_candidates = [
+    { value: 'JWL-1014-B-4', evidence: [] },
+    { value: 'ND-1053-3', evidence: [] },
+    { value: 'DS-481-4', evidence: [] },
+  ];
   if (options.conflictProject) items[1].project_candidates.push({ value: '南京北站017计划冲突标题', evidence: [] });
   let retryCalls = 0;
   let patchCalls = 0;
   let materialCreateCalls = 0;
+  let lastPatchedParts: string[] = [];
   let releaseMaterialRequest: (() => void) | undefined;
   const batch = () => ({
     id: 77, created_by: 8, status: 'awaiting_confirmation', total_count: 3,
@@ -66,6 +73,7 @@ async function mockImport(page: Page, options: {
   await page.route('**/api/v1/remnant-import-items/1', async (route) => {
     patchCalls += 1;
     const payload = route.request().postDataJSON();
+    lastPatchedParts = payload.parts;
     Object.assign(items[0], { thickness_mm: payload.thickness_mm, material_id: payload.material_id, project_no: payload.project_no, parts: payload.parts });
     await json(route, items[0]);
   });
@@ -79,9 +87,35 @@ async function mockImport(page: Page, options: {
     patchCalls: () => patchCalls,
     materialRequestWaiting: () => Boolean(releaseMaterialRequest),
     materialCreateCalls: () => materialCreateCalls,
+    lastPatchedParts: () => lastPatchedParts,
     releaseMaterialCreate: () => releaseMaterialRequest?.(),
   };
 }
+
+test('all detected part candidates are selected and remain worker-editable', async ({ page }) => {
+  const state = await mockImport(page, { multipleParts: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+  const parts = editor.locator('.ant-form-item').filter({ hasText: '零件编号' });
+
+  await expect(parts.locator('.ant-select-selection-item')).toHaveCount(3);
+  await parts.locator('.ant-select-selection-item').filter({ hasText: 'ND-1053-3' })
+    .locator('.ant-select-selection-item-remove').click();
+  await parts.getByRole('combobox').fill('MANUAL-9-1');
+  await parts.getByRole('combobox').press('Enter');
+  await editor.getByLabel('厚度（mm）').fill('28');
+  await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
+  await expect(page.getByText('材质已创建并选中')).toBeVisible();
+  await editor.getByRole('button', { name: '确 定' }).click({ force: true });
+
+  await expect.poll(state.lastPatchedParts).toEqual([
+    'JWL-1014-B-4',
+    'DS-481-4',
+    'MANUAL-9-1',
+  ]);
+});
 
 test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and partial confirmation', async ({ page }) => {
   const state = await mockImport(page);
@@ -121,7 +155,9 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
   await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q355B');
   await editor.getByLabel('项目编号').fill('PJ-CONFIRMED');
-  await editor.getByLabel('零件编号（逗号、顿号或换行分隔）').fill('L-1、L-2');
+  const parts = editor.locator('.ant-form-item').filter({ hasText: '零件编号' });
+  await parts.getByRole('combobox').fill('L-2');
+  await parts.getByRole('combobox').press('Enter');
   await editor.getByRole('button', { name: '确 定' }).click({ force: true });
   await expect.poll(state.patchCalls).toBe(1);
 
@@ -137,13 +173,14 @@ test('failed material creation preserves confirmation fields', async ({ page }) 
   const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
   await editor.getByLabel('厚度（mm）').fill('10');
   const expectedProject = await editor.getByLabel('项目编号').inputValue();
-  const expectedParts = await editor.getByLabel('零件编号（逗号、顿号或换行分隔）').inputValue();
+  const parts = editor.locator('.ant-form-item').filter({ hasText: '零件编号' });
+  const expectedParts = await parts.locator('.ant-select-selection-item').allTextContents();
 
   await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
 
   await expect(editor.getByLabel('厚度（mm）')).toHaveAttribute('aria-valuenow', '10');
   await expect(editor.getByLabel('项目编号')).toHaveValue(expectedProject);
-  await expect(editor.getByLabel('零件编号（逗号、顿号或换行分隔）')).toHaveValue(expectedParts);
+  await expect(parts.locator('.ant-select-selection-item')).toHaveText(expectedParts);
 });
 
 test('existing detected material is automatically selected', async ({ page }) => {

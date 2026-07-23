@@ -53,9 +53,10 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     onSuccess: async () => { setBulkOpen(false); await refresh(); message.success('已批量填写厚度'); },
   });
   const save = useMutation({
-    mutationFn: (values: { thickness_mm: number; material_id: number; project_no: string; partsText: string }) => updateRemnantImportItem(editing!.id, {
+    mutationFn: (values: { thickness_mm: number; material_id: number; project_no: string; parts: string[] }) => updateRemnantImportItem(editing!.id, {
       thickness_mm: String(values.thickness_mm), material_id: values.material_id,
-      project_no: values.project_no, parts: values.partsText.split(/[、,，\n]/).map((value) => value.trim()).filter(Boolean),
+      project_no: values.project_no,
+      parts: [...new Set(values.parts.map((value) => value.trim()).filter(Boolean))],
     }),
     onSuccess: async () => { editingItemIdRef.current = undefined; setEditing(undefined); await refresh(); message.success('图纸信息已保存'); },
   });
@@ -109,7 +110,11 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       thickness_mm: item.thickness_mm ? Number(item.thickness_mm) : undefined,
       material_id: item.material_id ?? detectedMaterial?.id,
       project_no: item.project_no ?? uniqueProjectCandidate(item),
-      partsText: (item.parts.length ? item.parts : item.part_candidates.map((candidate) => candidate.value)).join('、'),
+      parts: [...new Set(
+        (item.parts.length ? item.parts : item.part_candidates.map((candidate) => candidate.value))
+          .map((value) => value.trim())
+          .filter(Boolean),
+      )],
     });
   };
   const closeEditor = () => {
@@ -187,8 +192,17 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
               style={{ marginBottom: 16 }}
             />}
             <Form.Item name="material_id" label="标准材质" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
-            <Form.Item name="project_no" label="项目编号" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="partsText" label="零件编号（逗号、顿号或换行分隔）" rules={[{ required: true }]}><Input.TextArea rows={4} /></Form.Item>
+            <Form.Item name="project_no" label="项目编号" rules={[{ required: true }]}><AutoComplete
+              options={editing.project_candidates.map((candidate) => ({ value: candidate.value }))}
+              allowClear
+              placeholder="选择识别候选或手动填写"
+            /></Form.Item>
+            <Form.Item name="parts" label="零件编号" rules={[{ required: true, type: 'array', min: 1, message: '至少保留一个零件编号' }]}><Select
+              mode="tags"
+              tokenSeparators={['、', ',', '，', '\n']}
+              options={editing.part_candidates.map((candidate) => ({ value: candidate.value, label: candidate.value }))}
+              placeholder="默认全选识别结果，可取消或手动补充"
+            /></Form.Item>
           </Form>
         </div>}
       </Modal>
