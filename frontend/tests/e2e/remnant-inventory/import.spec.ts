@@ -27,10 +27,12 @@ async function mockImport(page: Page, options: {
   failMaterialCreate?: boolean;
   multipleMaterials?: boolean;
   multipleParts?: boolean;
+  noMaterialCandidates?: boolean;
 } = {}) {
   const items = [item(1, '现场余料-A.dwg', 'pending_confirmation'), item(2, '现场余料-B.dxf', 'pending_confirmation'), item(3, '待重试.dwg', 'failed')];
   items[0].material_candidates = [{ value: 'Q355B', evidence: [{ raw_text: 'Q355B', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
   items[0].project_candidates = [{ value: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', evidence: [{ raw_text: '北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }];
+  if (options.noMaterialCandidates) items[0].material_candidates = [];
   if (options.multipleMaterials) items[0].material_candidates.push({ value: 'Q390B', evidence: [] });
   if (options.multipleParts) items[0].part_candidates = [
     { value: 'JWL-1014-B-4', evidence: [] },
@@ -138,9 +140,8 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await expect.poll(state.retryCalls).toBe(1);
 
   const confirmation = page.locator('.remnant-confirm-card');
-  const checkboxes = confirmation.locator('.ant-checkbox-input');
-  await checkboxes.nth(1).check();
-  await checkboxes.nth(2).check();
+  await confirmation.getByRole('checkbox', { name: 'Select row 1' }).check();
+  await confirmation.getByRole('checkbox', { name: 'Select row 2' }).check();
   await confirmation.getByRole('button', { name: '批量填写厚度' }).click();
   await page.getByLabel('批量厚度').fill('10');
   await page.getByRole('dialog', { name: '批量填写厚度' }).getByRole('button', { name: '确 定' }).click({ force: true });
@@ -218,6 +219,36 @@ test('worker chooses one of multiple missing grades and creates it', async ({ pa
   await editor.getByRole('button', { name: '新建并使用 Q390B' }).click();
 
   await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q390B');
+});
+
+test('无候选材质时工人可以填写完整牌号并创建使用', async ({ page }) => {
+  await mockImport(page, { noMaterialCandidates: true });
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.getByRole('button', { name: '编辑' }).first().click();
+  const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
+
+  await editor.getByLabel('新材质完整牌号').fill('Q500XYZ');
+  await editor.getByRole('button', { name: '新建并使用 Q500XYZ' }).click();
+
+  await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q500XYZ');
+});
+
+test('窄屏下解析确认操作列保持在显示范围内', async ({ page }) => {
+  await mockImport(page);
+  await page.goto('/remnants?tab=import&batch=77');
+  const confirmation = page.locator('.remnant-confirm-card');
+  await confirmation.evaluate((element) => { (element as HTMLElement).style.width = '640px'; });
+
+  const scrollArea = confirmation.locator('.ant-table-content');
+  const actionHeader = confirmation.getByRole('columnheader', { name: '操作' });
+  await expect(actionHeader).toHaveCSS('position', 'sticky');
+  expect(await scrollArea.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  const scrollBox = await scrollArea.boundingBox();
+  const editBox = await confirmation.getByRole('button', { name: '编辑' }).first().boundingBox();
+  expect(scrollBox).not.toBeNull();
+  expect(editBox).not.toBeNull();
+  expect(editBox!.x + editBox!.width).toBeLessThanOrEqual(scrollBox!.x + scrollBox!.width + 1);
 });
 
 test('late material creation response does not overwrite another item', async ({ page }) => {

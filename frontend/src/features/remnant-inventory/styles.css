@@ -5,6 +5,7 @@
 .remnant-page-icon { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; color: #1677ff; font-size: 23px; background: linear-gradient(145deg, #e6f4ff, #f0f7ff); border: 1px solid #bae0ff; }
 .remnant-search-card, .remnant-results-card { border-radius: 14px; box-shadow: 0 8px 28px rgb(15 23 42 / 5%); }
 .remnant-import-card, .remnant-progress-card, .remnant-confirm-card { border-radius: 14px; box-shadow: 0 8px 28px rgb(15 23 42 / 5%); }
+.remnant-confirm-card .ant-table-wrapper { min-width: 0; }
 .remnant-section-heading { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .remnant-search-grid { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(150px, .8fr) minmax(220px, 1.3fr) minmax(150px, .7fr); gap: 16px; align-items: end; }
 .remnant-global-search-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 0 16px; align-items: end; }

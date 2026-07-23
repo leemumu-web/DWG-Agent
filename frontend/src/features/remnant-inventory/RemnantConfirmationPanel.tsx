@@ -36,6 +36,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const [preview, setPreview] = useState<RemnantImportItem>();
   const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
   const [form] = Form.useForm();
+  const selectedMaterialId = Form.useWatch('material_id', form);
   const rows = useMemo(() => batch.items.filter((item) => ['pending_confirmation', 'confirmed'].includes(item.status)), [batch.items]);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['remnant-import-batch', batch.id] });
   const unmatchedMaterialCodes = useMemo(() => {
@@ -136,15 +137,16 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
         rowKey="id"
         dataSource={rows}
         pagination={false}
-        rowSelection={{ selectedRowKeys: selected, onChange: setSelected, getCheckboxProps: (row) => ({ disabled: row.status === 'confirmed' }) }}
+        scroll={{ x: 1260 }}
+        rowSelection={{ fixed: true, selectedRowKeys: selected, onChange: setSelected, getCheckboxProps: (row) => ({ disabled: row.status === 'confirmed' }) }}
         columns={[
-          { title: '原始文件', dataIndex: 'original_name', ellipsis: true },
+          { title: '原始文件', dataIndex: 'original_name', width: 240, ellipsis: true },
           { title: '厚度', dataIndex: 'thickness_mm', width: 100, render: (value) => value ? `${value} mm` : <Tag color="error">待填写</Tag> },
-          { title: '材质候选', key: 'material', render: (_, row) => row.material_candidates.map((item) => item.value).join(' / ') || '—' },
-          { title: '项目编号', key: 'project', render: (_, row) => row.project_no ?? row.project_candidates[0]?.value ?? '—' },
+          { title: '材质候选', key: 'material', width: 200, render: (_, row) => row.material_candidates.map((item) => item.value).join(' / ') || '—' },
+          { title: '项目编号', key: 'project', width: 220, render: (_, row) => row.project_no ?? row.project_candidates[0]?.value ?? '—' },
           { title: '零件数', key: 'parts', width: 90, render: (_, row) => row.parts.length || row.part_candidates.length },
           { title: '校验结果', key: 'validation', width: 190, render: (_, row) => validationErrors[row.id] ? <Typography.Text type="danger">{validationErrors[row.id]}</Typography.Text> : (row.status === 'confirmed' ? <Tag color="success">已确认</Tag> : '—') },
-          { title: '操作', key: 'actions', width: 160, render: (_, row) => <Space><Button type="link" icon={<EyeOutlined />} disabled={!row.dxf_file_id} onClick={() => setPreview(row)}>预览</Button><Button type="link" icon={<EditOutlined />} disabled={row.status === 'confirmed'} onClick={() => edit(row)}>编辑</Button></Space> },
+          { title: '操作', key: 'actions', width: 220, fixed: 'right', render: (_, row) => <Space><Button type="link" icon={<EyeOutlined />} disabled={!row.dxf_file_id} onClick={() => setPreview(row)}>预览</Button><Button type="link" icon={<EditOutlined />} disabled={row.status === 'confirmed'} onClick={() => edit(row)}>编辑</Button></Space> },
         ]}
       />
       <Modal title="批量填写厚度" open={bulkOpen} onCancel={() => setBulkOpen(false)} onOk={() => bulk.mutate()} okButtonProps={{ disabled: !bulkThickness }} confirmLoading={bulk.isPending}>
@@ -162,10 +164,10 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
           </div>
           <Form form={form} layout="vertical" onFinish={(values) => save.mutate(values)}>
             <Form.Item name="thickness_mm" label="厚度（mm）" rules={[{ required: true }]}><InputNumber min={0.001} precision={3} style={{ width: '100%' }} /></Form.Item>
-            {unmatchedMaterialCodes.length > 0 && <Alert
+            {(!selectedMaterialId || unmatchedMaterialCodes.length > 0) && <Alert
               type="info"
               showIcon
-              title={`检测到未建档材质 ${unmatchedMaterialCodes.join(' / ')}`}
+              title={unmatchedMaterialCodes.length > 0 ? `检测到未建档材质 ${unmatchedMaterialCodes.join(' / ')}` : '未检测到已建档材质，请填写完整牌号'}
               description={<Space.Compact style={{ width: '100%', marginTop: 8 }}>
                 <AutoComplete
                   aria-label="新材质完整牌号"
