@@ -35,20 +35,6 @@ interface DxfPreviewModalProps {
   onClose: () => void;
 }
 
-function aciColor(index: number): string {
-  return ({
-    1: '#f87171',
-    2: '#facc15',
-    3: '#4ade80',
-    4: '#22d3ee',
-    5: '#60a5fa',
-    6: '#e879f9',
-    7: '#e5e7eb',
-    8: '#94a3b8',
-    9: '#cbd5e1',
-  } as Record<number, string>)[Math.abs(index)] ?? '#a7bacb';
-}
-
 export function DxfPreviewModal({
   fileId,
   fileName,
@@ -62,6 +48,13 @@ export function DxfPreviewModal({
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const objectUrlRef = useRef<string | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const fitScale = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage) return 1;
+    return Math.min(1, stage.clientWidth / 1200, stage.clientHeight / 900) * 0.96;
+  }, []);
 
   const revokeObjectUrl = useCallback(() => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -179,16 +172,20 @@ export function DxfPreviewModal({
 
       {!loading && !error && data && objectUrl && (
         <div className="dxf-preview-shell">
-          <div className="dxf-preview-stage">
+          <div className="dxf-preview-stage" ref={stageRef}>
             <TransformWrapper
               initialScale={1}
               minScale={0.08}
               maxScale={24}
+              limitToBounds={false}
               centerOnInit
+              centerZoomedOut
               wheel={{ step: 0.12 }}
               doubleClick={{ mode: 'reset' }}
+              autoAlignment={{ disabled: true }}
+              onInit={({ centerView }) => requestAnimationFrame(() => centerView(fitScale(), 0))}
             >
-              {({ zoomIn, zoomOut, resetTransform }) => (
+              {({ zoomIn, zoomOut, centerView }) => (
                 <>
                   <div className="dxf-preview-controls">
                     <Tooltip title="放大">
@@ -198,7 +195,7 @@ export function DxfPreviewModal({
                       <Button aria-label="缩小预览" icon={<MinusOutlined />} onClick={() => zoomOut()} />
                     </Tooltip>
                     <Tooltip title="适合窗口">
-                      <Button aria-label="重置预览" icon={<ScanOutlined />} onClick={() => resetTransform()} />
+                      <Button aria-label="适合窗口" icon={<ScanOutlined />} onClick={() => centerView(fitScale())} />
                     </Tooltip>
                   </div>
                   <TransformComponent
@@ -210,58 +207,7 @@ export function DxfPreviewModal({
                 </>
               )}
             </TransformWrapper>
-            <div className="dxf-preview-status">
-              <span>SVG / AUTHENTICATED</span>
-              <span>{data.cached ? 'CACHE HIT' : 'NEW RENDER'}</span>
-            </div>
           </div>
-
-          <aside className="dxf-preview-sidebar" aria-label="DXF 图形信息">
-            <div className="dxf-preview-kicker">Drawing telemetry</div>
-            <div className="dxf-preview-metrics">
-              <div className="dxf-preview-metric">
-                <strong>{data.document_entities.toLocaleString('zh-CN')}</strong>
-                <span>文档实体</span>
-              </div>
-              <div className="dxf-preview-metric">
-                <strong>{data.modelspace_entities.toLocaleString('zh-CN')}</strong>
-                <span>模型空间</span>
-              </div>
-              <div className="dxf-preview-metric">
-                <strong>{data.layers.length.toLocaleString('zh-CN')}</strong>
-                <span>图层</span>
-              </div>
-            </div>
-
-            <section className="dxf-preview-section">
-              <div className="dxf-preview-section-title">
-                <span>实体构成</span><span>{Object.keys(data.entity_counts).length} 类</span>
-              </div>
-              <div className="dxf-preview-tags">
-                {Object.entries(data.entity_counts)
-                  .sort((left, right) => right[1] - left[1])
-                  .map(([type, count]) => <Tag key={type}>{type} · {count}</Tag>)}
-              </div>
-            </section>
-
-            <section className="dxf-preview-section">
-              <div className="dxf-preview-section-title">
-                <span>图层索引</span><span>ACI</span>
-              </div>
-              <div className="dxf-preview-layers">
-                {data.layers.slice(0, 50).map((layer) => {
-                  const color = data.layer_colors[layer] ?? 7;
-                  return (
-                    <div className="dxf-preview-layer" key={layer} title={layer}>
-                      <i style={{ background: aciColor(color) }} />
-                      <span>{layer}</span>
-                      <code>{color}</code>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </aside>
         </div>
       )}
     </Modal>
