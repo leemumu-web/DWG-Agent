@@ -11,11 +11,13 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping
 
 import openpyxl
 
 from domain import SourcePart
-from input_contract import InputKind, inspect_production_input
+from input_contract import InputContractError, InputKind, inspect_production_input
 from utils import safe_float, safe_str
 
 # ── Dataclasses ──────────────────────────────────────────────────
@@ -28,6 +30,7 @@ class ComponentInfo:
     component_qty: int      # e.g. 1
     total_weight: float     # e.g. 1739.26
     raw_text: str           # full Row 1 text
+    source_row: int = 1
 
 
 @dataclass
@@ -43,6 +46,33 @@ class PartRow:
     surface_area: float | None  # 总面积(m2)
     note: str               # 备注
     original_seq: int       # 1-based position in data rows
+    source_row: int
+
+
+@dataclass(frozen=True, slots=True)
+class InitialLayout:
+    metadata_row: int
+    header_row: int
+    columns: Mapping[str, int]
+
+
+_INITIAL_HEADER_ALIASES = {
+    "part_no": frozenset({"零件号", "零件编号"}),
+    "spec": frozenset({"截面型材", "型材", "规格"}),
+    "length": frozenset({"长度"}),
+    "material": frozenset({"材质"}),
+    "qty": frozenset({"数量"}),
+    "unit_weight": frozenset({"单重", "单毛重"}),
+    "total_weight": frozenset({"总重", "总毛重"}),
+    "surface_area": frozenset({"总面积", "总表面积"}),
+    "note": frozenset({"备注"}),
+}
+_INITIAL_ALIAS_TO_FIELD = {
+    alias: field
+    for field, aliases in _INITIAL_HEADER_ALIASES.items()
+    for alias in aliases
+}
+_INITIAL_REQUIRED_FIELDS = frozenset({"part_no", "spec", "length", "material", "qty"})
 
 # ── Public API ───────────────────────────────────────────────────
 
@@ -61,38 +91,49 @@ def read_init_table(filepath: str | Path) -> tuple[ComponentInfo, list[PartRow]]
     else:
         ws = wb.worksheets[0]
 
-    # Parse Row 1: component info
-    row1_text = _join_row(ws, 1)
-    comp_info = parse_component_info(row1_text)
+    layout = detect_initial_layout(ws)
+    metadata_text = _join_row(ws, layout.metadata_row)
+    parsed = parse_component_info(metadata_text)
+    comp_info = ComponentInfo(
+        component_no=parsed.component_no,
+        component_qty=parsed.component_qty,
+        total_weight=parsed.total_weight,
+        raw_text=parsed.raw_text,
+        source_row=layout.metadata_row,
+    )
 
-    # Read data rows from Row 3 until 合计
+    # Read data rows after the detected header until 合计.
     parts: list[PartRow] = []
     seq = 0
-    for row_idx in range(3, ws.max_row + 1):
-        vals = [_cell_str(ws, row_idx, c) for c in range(1, 10)]
-        part_no = vals[0]
-        spec = vals[1]
+    for row_idx in range(layout.header_row + 1, ws.max_row + 1):
+        values = {
+            field: _cell_str(ws, row_idx, column)
+            for field, column in layout.columns.items()
+        }
+        part_no = values.get("part_no", "")
+        spec = values.get("spec", "")
 
         # Stop at 合计 row
         if "合计" in part_no or "合计" in spec:
             break
 
         # Skip empty rows
-        if not any(vals):
+        if not any(values.values()):
             continue
 
         seq += 1
         parts.append(PartRow(
             part_no=part_no,
             spec=spec,
-            length=safe_float(ws.cell(row=row_idx, column=3).value),
-            material=vals[3],
-            qty=safe_float(ws.cell(row=row_idx, column=5).value),
-            unit_weight=safe_float(ws.cell(row=row_idx, column=6).value),
-            total_weight=safe_float(ws.cell(row=row_idx, column=7).value),
-            surface_area=safe_float(ws.cell(row=row_idx, column=8).value),
-            note=vals[8],
+            length=_layout_float(ws, row_idx, layout, "length"),
+            material=values.get("material", ""),
+            qty=_layout_float(ws, row_idx, layout, "qty"),
+            unit_weight=_layout_float(ws, row_idx, layout, "unit_weight"),
+            total_weight=_layout_float(ws, row_idx, layout, "total_weight"),
+            surface_area=_layout_float(ws, row_idx, layout, "surface_area"),
+            note=values.get("note", ""),
             original_seq=seq,
+            source_row=row_idx,
         ))
 
     wb.close()
@@ -143,7 +184,7 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
         )
         result.append(SourcePart(
             source_sheet=inspected.sheet_name,
-            source_row=row.original_seq + 2,
+            source_row=row.source_row,
             source_seq=row.original_seq,
             batch=None,
             component_no=component_no,
@@ -163,6 +204,72 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
             invalid_fields=invalid_fields,
         ))
     return tuple(result)
+
+
+def _normalized_initial_header(value: Any) -> str:
+    compact = "".join(str(value or "").split())
+    return re.sub(r"[（(][^）)]*[）)]", "", compact)
+
+
+def _initial_columns(values: tuple[Any, ...]) -> tuple[dict[str, int], tuple[str, ...]]:
+    matches: dict[str, list[int]] = {}
+    for index, value in enumerate(values, start=1):
+        field = _INITIAL_ALIAS_TO_FIELD.get(_normalized_initial_header(value))
+        if field is not None:
+            matches.setdefault(field, []).append(index)
+    conflicts = tuple(
+        f"{field} columns={indexes}"
+        for field, indexes in matches.items()
+        if len(indexes) > 1
+    )
+    return {field: indexes[0] for field, indexes in matches.items()}, conflicts
+
+
+def detect_initial_layout(worksheet: Any) -> InitialLayout:
+    candidates: list[tuple[int, dict[str, int], tuple[str, ...]]] = []
+    for row_number, values in enumerate(
+        worksheet.iter_rows(
+            min_row=1,
+            max_row=min(worksheet.max_row, 100),
+            values_only=True,
+        ),
+        start=1,
+    ):
+        columns, conflicts = _initial_columns(values)
+        if _INITIAL_REQUIRED_FIELDS <= columns.keys():
+            candidates.append((row_number, columns, conflicts))
+    valid = [candidate for candidate in candidates if not candidate[2]]
+    if not valid:
+        if candidates:
+            raise InputContractError(
+                f"conflicting initial-table header aliases: {list(candidates[0][2])}"
+            )
+        raise InputContractError("initial-table header is missing required fields")
+    best_score = max(len(columns) for _, columns, _ in valid)
+    winners = [
+        (row_number, columns)
+        for row_number, columns, _ in valid
+        if len(columns) == best_score
+    ]
+    if len(winners) != 1:
+        raise InputContractError(
+            f"ambiguous initial-table header at rows {[row for row, _ in winners]}"
+        )
+    header_row, columns = winners[0]
+    metadata_rows = [
+        row_number
+        for row_number in range(1, header_row)
+        if "构件数量" in _join_row(worksheet, row_number)
+    ]
+    if len(metadata_rows) != 1:
+        raise InputContractError(
+            f"initial-table component metadata is not unique: rows={metadata_rows}"
+        )
+    return InitialLayout(
+        metadata_row=metadata_rows[0],
+        header_row=header_row,
+        columns=MappingProxyType(columns),
+    )
 
 
 def parse_component_info(text: str) -> ComponentInfo:
@@ -207,6 +314,18 @@ def parse_component_info(text: str) -> ComponentInfo:
 def _cell_str(ws, row: int, col: int) -> str:
     """Get a cell value as a cleaned string."""
     return safe_str(ws.cell(row=row, column=col).value)
+
+
+def _layout_float(
+    worksheet: Any,
+    row: int,
+    layout: InitialLayout,
+    field: str,
+) -> float | None:
+    column = layout.columns.get(field)
+    if column is None:
+        return None
+    return safe_float(worksheet.cell(row=row, column=column).value)
 
 
 def _join_row(ws, row: int) -> str:

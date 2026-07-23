@@ -20,7 +20,7 @@ from input_contract import (
 )
 from quality import QualityIssue
 from reader import CanonicalWorkbookRead, read_canonical_source, read_canonical_workbook
-from reader_init import read_init_canonical, read_init_table
+from reader_init import detect_initial_layout, read_init_canonical, read_init_table
 
 
 class SourceFormat(StrEnum):
@@ -40,51 +40,6 @@ class SourceIntakeResult:
     component_rows: tuple[ComponentSourceRow, ...]
     issues: tuple[QualityIssue, ...]
     diagnostics: Mapping[str, object]
-
-
-_INITIAL_REQUIRED_HEADERS = frozenset({
-    "零件号",
-    "截面型材",
-    "长度",
-    "材质",
-    "数量",
-    "单重",
-    "总重",
-    "总面积",
-    "备注",
-})
-
-
-def _normalized_header(value: object) -> str:
-    compact = "".join(str(value or "").split())
-    for suffix in ("(kg)", "(m2)", "(㎡)", "(mm)"):
-        compact = compact.replace(suffix, "")
-    return compact
-
-
-def _initial_header_row(worksheet: Any) -> int | None:
-    winners: list[tuple[int, int]] = []
-    for row_number, values in enumerate(
-        worksheet.iter_rows(
-            min_row=1,
-            max_row=min(worksheet.max_row, 100),
-            values_only=True,
-        ),
-        start=1,
-    ):
-        normalized = {_normalized_header(value) for value in values if value is not None}
-        score = len(_INITIAL_REQUIRED_HEADERS & normalized)
-        if score >= 7:
-            winners.append((row_number, score))
-    if not winners:
-        return None
-    best_score = max(score for _, score in winners)
-    best_rows = [row for row, score in winners if score == best_score]
-    if len(best_rows) != 1:
-        raise InputContractError(
-            f"ambiguous initial-table header at rows {best_rows}"
-        )
-    return best_rows[0]
 
 
 def _workbook_values(worksheet: Any) -> tuple[tuple[Any, ...], ...]:
@@ -116,7 +71,7 @@ def _initial_component_row(path: Path, sheet_name: str) -> ComponentSourceRow:
     component_no = component.component_no.replace(" ", "").replace("　", "")
     return ComponentSourceRow(
         source_sheet=sheet_name,
-        source_row=1,
+        source_row=component.source_row,
         kind=ComponentRowKind.SUMMARY,
         batch=None,
         component_no=component_no,
@@ -163,14 +118,17 @@ def _read_workbook(path: Path, sheet_name: str) -> SourceIntakeResult:
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
     try:
         worksheet = workbook[sheet_name]
-        initial_header = _initial_header_row(worksheet)
+        try:
+            initial_layout = detect_initial_layout(worksheet)
+        except InputContractError:
+            initial_layout = None
         try:
             detect_canonical_header(worksheet)
         except InputContractError as canonical_error:
-            if initial_header is None:
+            if initial_layout is None:
                 raise canonical_error
         else:
-            if initial_header is not None:
+            if initial_layout is not None:
                 raise InputContractError(
                     "workbook matches both canonical and initial-table schemas"
                 )
@@ -180,9 +138,9 @@ def _read_workbook(path: Path, sheet_name: str) -> SourceIntakeResult:
             )
     finally:
         workbook.close()
-    if initial_header is None:
+    if initial_layout is None:
         raise InputContractError("workbook format could not be detected")
-    return _read_initial(path, sheet_name, initial_header)
+    return _read_initial(path, sheet_name, initial_layout.header_row)
 
 
 def _text_format(path: Path) -> SourceFormat:
