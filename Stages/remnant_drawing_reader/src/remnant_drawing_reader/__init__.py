@@ -7,7 +7,7 @@ from .classifier import classify
 from .models import Candidate, Evidence, ParseError, ParseResult, ParseWarning
 from .reader import read_evidence
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def parse_dxf(path: str | Path) -> ParseResult:

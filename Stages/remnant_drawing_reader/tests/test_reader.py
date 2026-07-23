@@ -36,7 +36,7 @@ def test_extracts_labelled_candidates_and_preserves_material_suffix(tmp_path: Pa
     result = parse_dxf(source)
 
     assert result.schema_version == "1.0"
-    assert result.parser_version == "0.1.0"
+    assert result.parser_version == "0.2.0"
     assert len(result.source_sha256) == 64
     assert [candidate.value for candidate in result.material_candidates] == ["Q235B-Z15"]
     assert [candidate.value for candidate in result.project_candidates] == ["PJ-2026-001"]
@@ -163,7 +163,7 @@ def test_r2013_ansi_936_header_keeps_utf8_chinese_text(tmp_path: Path) -> None:
 
     result = parse_dxf(source)
 
-    assert [candidate.value for candidate in result.project_candidates] == ["016"]
+    assert [candidate.value for candidate in result.project_candidates] == ["南京北站016计划"]
     evidence = result.project_candidates[0].evidence[0]
     assert evidence.raw_text == "南京北站016计划"
     assert evidence.normalized_text == "南京北站016计划"
@@ -182,9 +182,59 @@ def test_classifies_unlabelled_production_drawing_values(tmp_path: Path) -> None
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.material_candidates] == ["Q355B"]
-    assert [candidate.value for candidate in result.project_candidates] == ["016"]
+    assert [candidate.value for candidate in result.project_candidates] == [
+        "南京北站016计划桁架箱型梁火焰零件2026/7/6"
+    ]
     assert [candidate.value for candidate in result.part_candidates] == ["NJB-99-1"]
     assert result.warnings == []
+
+
+def test_unlabelled_project_candidate_keeps_complete_drawing_title(tmp_path: Path) -> None:
+    title = "北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03"
+    source = tmp_path / "arbitrary-file-name.dxf"
+    document = ezdxf.new("R2013")
+    document.modelspace().add_text(title).set_placement((0, 0))
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [item.value for item in result.project_candidates] == [title]
+
+
+def test_plain_filename_is_never_used_as_project_candidate(tmp_path: Path) -> None:
+    source = tmp_path / "南京北站999计划.dxf"
+    document = ezdxf.new("R2013")
+    document.modelspace().add_text("Q355B").set_placement((0, 0))
+    document.saveas(source)
+
+    assert parse_dxf(source).project_candidates == []
+
+
+def test_multiple_complete_titles_emit_project_conflict(tmp_path: Path) -> None:
+    titles = ["南京北站016计划桁架零件", "南京北站017计划天窗零件"]
+    source = tmp_path / "conflicting-titles.dxf"
+    document = ezdxf.new("R2013")
+    for index, title in enumerate(titles):
+        document.modelspace().add_text(title).set_placement((0, index * 10))
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [item.value for item in result.project_candidates] == titles
+    assert "PROJECT_CANDIDATES_CONFLICT" in [warning.code for warning in result.warnings]
+
+
+def test_oversized_project_title_is_not_persistable_candidate(tmp_path: Path) -> None:
+    title = "南京北站001计划" + "超" * 128
+    source = tmp_path / "oversized-title.dxf"
+    document = ezdxf.new("R2013")
+    document.modelspace().add_text(title).set_placement((0, 0))
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.project_candidates == []
+    assert "PROJECT_TITLE_TOO_LONG" in [warning.code for warning in result.warnings]
 
 
 @pytest.mark.parametrize(

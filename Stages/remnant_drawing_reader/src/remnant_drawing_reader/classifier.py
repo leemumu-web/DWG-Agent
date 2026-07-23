@@ -14,7 +14,8 @@ _UNLABELLED_MATERIAL = re.compile(r"^Q\d{3}[A-Z](?:[-+][A-Z0-9]+)*$", re.IGNOREC
 # Conservative fallback for prefixes verified in production drawings.  More
 # varied identifiers remain supported when an explicit part label exists.
 _UNLABELLED_PART = re.compile(r"^(?:NJBZ?|NYDL)-\d{2,3}-\d{1,2}$", re.IGNORECASE)
-_PLAN_NO = re.compile(r"(?<!\d)(\d{3})\s*计划")
+_PROJECT_TITLE = re.compile(r"^(?=.*[\u3400-\u9fff]).*(?<!\d)\d{3}\s*计划.*$")
+_MAX_PROJECT_LENGTH = 128
 
 
 def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> None:
@@ -23,11 +24,22 @@ def _append(target: dict[str, Candidate], value: str, evidence: Evidence) -> Non
         target.setdefault(cleaned, Candidate(value=cleaned)).evidence.append(evidence)
 
 
+def _append_project(
+    target: dict[str, Candidate], value: str, evidence: Evidence
+) -> bool:
+    cleaned = value.strip()
+    if len(cleaned) > _MAX_PROJECT_LENGTH:
+        return False
+    _append(target, cleaned, evidence)
+    return True
+
+
 def classify(items: list[Evidence]):
     materials: dict[str, Candidate] = {}; projects: dict[str, Candidate] = {}; parts: dict[str, Candidate] = {}
     has_encoding_anomaly = False
     has_unrecognized_label = False
     has_unrecognized_text = False
+    has_oversized_project_title = False
     for evidence in items:
         if "�" in evidence.raw_text or "�" in evidence.normalized_text or r"\M+" in evidence.normalized_text:
             has_encoding_anomaly = True
@@ -38,8 +50,9 @@ def classify(items: list[Evidence]):
                 _append(materials, text.upper(), evidence)
             elif _UNLABELLED_PART.fullmatch(text):
                 _append(parts, text, evidence)
-            elif plan := _PLAN_NO.search(text):
-                _append(projects, plan.group(1), evidence)
+            elif _PROJECT_TITLE.fullmatch(text):
+                if not _append_project(projects, text, evidence):
+                    has_oversized_project_title = True
             else:
                 has_unrecognized_text = True
             continue
@@ -47,7 +60,8 @@ def classify(items: list[Evidence]):
         if label in _MATERIAL_LABELS:
             _append(materials, value.upper(), evidence)
         elif label in _PROJECT_LABELS:
-            _append(projects, value, evidence)
+            if not _append_project(projects, value, evidence):
+                has_oversized_project_title = True
         elif label in _PART_LABELS:
             for part_no in _PART_SPLIT.split(value):
                 _append(parts, part_no, evidence)
@@ -60,6 +74,13 @@ def classify(items: list[Evidence]):
         warnings.append(ParseWarning("UNRECOGNIZED_LABEL", "图纸中存在未识别的字段标签"))
     if has_unrecognized_text:
         warnings.append(ParseWarning("UNRECOGNIZED_TEXT", "图纸中存在未识别的普通文字"))
+    if has_oversized_project_title:
+        warnings.append(
+            ParseWarning(
+                "PROJECT_TITLE_TOO_LONG",
+                "图纸项目标题超过 128 个字符，请人工填写",
+            )
+        )
     if len(materials) > 1:
         warnings.append(ParseWarning("MATERIAL_CANDIDATES_CONFLICT", "图纸中存在多个材质候选"))
     if len(projects) > 1:
