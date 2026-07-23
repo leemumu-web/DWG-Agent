@@ -474,6 +474,9 @@ class TestStorageServiceValidation:
         result = validate_upload_name("test.dwg")
         assert result.endswith(".dwg")
 
+    def test_validate_upload_name_accepts_macro_enabled_excel(self):
+        assert validate_upload_name("source.xlsm") == ".xlsm"
+
     def test_validate_upload_name_rejects_exe(self):
         from app.platform.http.exceptions import AppHTTPException
 

@@ -5,7 +5,6 @@ Uses openpyxl under the hood -- no Excel installation required.
 """
 
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 from openpyxl.styles import Font

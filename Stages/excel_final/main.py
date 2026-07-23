@@ -1,90 +1,110 @@
 #!/usr/bin/env python3
-"""钢结构零件清单处理 — CLI 入口.
-
-自适应处理 Tekla TSV 格式和 初始表 格式。
-
-Usage:
-    python main.py [input.xls(x)] [-o output.xlsx]
-"""
+"""Excel Final command-line entry point."""
 
 from __future__ import annotations
 
-import sys
 import logging
 from pathlib import Path
+import sys
+from typing import Sequence
 
 import openpyxl
 
-# Ensure the project root is on sys.path so `import config` etc. work
-_here = Path(__file__).resolve().parent
-if str(_here) not in sys.path:
-    sys.path.insert(0, str(_here))
+from config import INIT_TABLE_SIGNATURE
+from handbook import HandbookInfrastructureError
+from input_contract import InputContractError, InputKind, inspect_production_input
+from pipeline import run_init_pipeline, run_pipeline
 
-from pipeline import run_pipeline, run_init_pipeline
-from config import DEFAULT_INPUT, INIT_TABLE_SIGNATURE
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 def detect_format(filepath: Path) -> str:
-    """Auto-detect input format: 'init' for 初始表, 'tsv' for Tekla TSV."""
-    if filepath.suffix.lower() in (".xlsx", ".xlsm"):
-        try:
-            wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-            # Check for 初始表 sheet
-            if "初始表" in wb.sheetnames:
-                wb.close()
-                return "init"
-            # Check first sheet's Row 2 for 初始表 signature
-            ws = wb.worksheets[0]
-            row2_cells = [str(ws.cell(row=2, column=c).value or "") for c in range(1, 10)]
-            match_count = sum(
-                1 for kw in INIT_TABLE_SIGNATURE
-                if any(kw in cell for cell in row2_cells)
-            )
-            wb.close()
-            if match_count >= 7:
-                return "init"
-        except Exception:
-            pass
-    return "tsv"
+    """Validate the production input first, then distinguish init from Tekla."""
+    inspected = inspect_production_input(filepath)
+    if inspected.kind is InputKind.TEKLA_TEXT:
+        return "tsv"
+    if inspected.sheet_name is None:
+        raise InputContractError("validated workbook has no worksheet")
+
+    workbook = openpyxl.load_workbook(
+        inspected.path,
+        read_only=True,
+        data_only=True,
+    )
+    try:
+        sheet = workbook[inspected.sheet_name]
+        if sheet.title == "初始表":
+            return "init"
+        row2_cells = [str(sheet.cell(row=2, column=column).value or "") for column in range(1, 10)]
+        matches = sum(
+            1
+            for keyword in INIT_TABLE_SIGNATURE
+            if any(keyword in cell for cell in row2_cells)
+        )
+        return "init" if matches >= 7 else "tsv"
+    finally:
+        workbook.close()
 
 
-def main():
-    args = sys.argv[1:]
-
-    input_file = None
-    output_file = None
-    i = 0
-    while i < len(args):
-        if args[i] == "-o" and i + 1 < len(args):
-            output_file = Path(args[i + 1])
-            i += 2
-        elif not args[i].startswith("-") and input_file is None:
-            input_file = Path(args[i])
-            i += 1
+def _parse_args(args: Sequence[str]) -> tuple[Path | None, Path | None]:
+    input_file: Path | None = None
+    output_file: Path | None = None
+    index = 0
+    while index < len(args):
+        if args[index] == "-o" and index + 1 < len(args):
+            output_file = Path(args[index + 1])
+            index += 2
+        elif not args[index].startswith("-") and input_file is None:
+            input_file = Path(args[index])
+            index += 1
         else:
-            i += 1
+            index += 1
+    return input_file, output_file
 
+
+def _print_outcome(outcome) -> None:
+    print(f"\n处理完成：{outcome.output_path.name}")
+    print(
+        f"质量状态={outcome.quality_status}；"
+        f"警告={outcome.warning_count}；严重={outcome.severe_warning_count}"
+    )
+    category_counts = outcome.report_summary.get("category_counts", {})
+    lookup_misses = category_counts.get("五金手册查无", 0)
+    if lookup_misses:
+        print(
+            f"提示：有 {lookup_misses} 条五金手册查无，已在整理表标红；"
+            "请查看输出工作簿的处理报告。"
+        )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = list(sys.argv[1:] if argv is None else argv)
+    input_file, output_file = _parse_args(args)
     if input_file is None:
-        if DEFAULT_INPUT.exists():
-            input_file = DEFAULT_INPUT
+        print(f"用法: python {Path(__file__).name} <input.xls(x)> [-o output.xlsx]", file=sys.stderr)
+        return 2
+
+    try:
+        source_format = detect_format(input_file)
+        logging.info("检测格式: %s", source_format)
+        if source_format == "init":
+            outcome = run_init_pipeline(input_file, output_file)
         else:
-            print(f"Usage: python {__file__} <input.xls(x)> [-o output.xlsx]")
-            print(f"Default input not found: {DEFAULT_INPUT}")
-            sys.exit(1)
+            outcome = run_pipeline(input_file, output_file)
+    except HandbookInfrastructureError:
+        print(
+            "处理失败：五金手册数据库不可用，请检查服务、配置和表结构。",
+            file=sys.stderr,
+        )
+        return 2
+    except (InputContractError, FileNotFoundError, ValueError) as exc:
+        print(f"处理失败：{exc}", file=sys.stderr)
+        return 2
 
-    # Auto-detect format and route to appropriate pipeline
-    fmt = detect_format(input_file)
-    logging.info("Detected format: %s", fmt)
-
-    if fmt == "init":
-        output_path = run_init_pipeline(input_file, output_file)
-    else:
-        output_path = run_pipeline(input_file, output_file)
-
-    print(f"\nDone. Output: {output_path}")
+    _print_outcome(outcome)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

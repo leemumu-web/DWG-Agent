@@ -21,6 +21,7 @@ skipped with ``@pytest.mark.skipif(not _mysql_available(), ...)`` when absent.
 
 from __future__ import annotations
 
+import ast
 import gzip
 import importlib
 import os
@@ -49,7 +50,7 @@ DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
 COMPOSE_LIBRARY = SCRIPTS_DIR / "lib" / "compose.sh"
 
-EXPECTED_HEAD = "2b7e91d4c830"
+EXPECTED_HEAD = "7c4d9e2a1b60"
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -136,53 +137,78 @@ def reaper(db, monkeypatch):
 
 class TestMigrationChain:
     @staticmethod
-    def _parse_chain() -> dict[str, str | None]:
-        """Return {revision: down_revision} parsed from every version file."""
-        rev_re = re.compile(r"""^revision:\s*str\s*=\s*['"]([0-9a-f]+)['"]""", re.M)
-        down_re = re.compile(
-            r"""^down_revision(?::[^=]+)?\s*=\s*(?:['"]([0-9a-f]+)['"]|None)""", re.M
-        )
-        chain: dict[str, str | None] = {}
+    def _parse_chain() -> dict[str, tuple[str, ...]]:
+        """Return every revision and its parent revisions from Alembic source files."""
+        chain: dict[str, tuple[str, ...]] = {}
         for path in VERSIONS_DIR.glob("*.py"):
-            source = path.read_text(encoding="utf-8")
-            rev_match = rev_re.search(source)
-            down_match = down_re.search(source)
-            assert rev_match, f"{path.name} has no parseable revision identifier"
-            assert down_match, f"{path.name} has no parseable down_revision identifier"
-            chain[rev_match.group(1)] = down_match.group(1)  # None when 'None' matched
+            assignments: dict[str, object] = {}
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in tree.body:
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                    if node.target.id in {"revision", "down_revision"} and node.value is not None:
+                        assignments[node.target.id] = ast.literal_eval(node.value)
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and target.id in {
+                            "revision",
+                            "down_revision",
+                        }:
+                            assignments[target.id] = ast.literal_eval(node.value)
+
+            revision = assignments.get("revision")
+            down_revision = assignments.get("down_revision")
+            assert isinstance(revision, str), f"{path.name} has no parseable revision identifier"
+            if down_revision is None:
+                parents: tuple[str, ...] = ()
+            elif isinstance(down_revision, str):
+                parents = (down_revision,)
+            else:
+                assert isinstance(down_revision, (tuple, list)), (
+                    f"{path.name} has an unsupported down_revision value"
+                )
+                assert all(isinstance(parent, str) for parent in down_revision)
+                parents = tuple(down_revision)
+            chain[revision] = parents
         return chain
 
-    def test_eighteen_migration_files_present(self):
-        assert len(list(VERSIONS_DIR.glob("*.py"))) == 18
+    def test_twenty_one_migration_files_present(self):
+        assert len(list(VERSIONS_DIR.glob("*.py"))) == 21
 
     def test_exactly_one_base_revision(self):
         chain = self._parse_chain()
-        bases = [rev for rev, down in chain.items() if down is None]
+        bases = [rev for rev, parents in chain.items() if not parents]
         assert bases == ["40452ddd24e7"], f"expected single base, got {bases}"
 
     def test_head_is_expected_revision(self):
         chain = self._parse_chain()
-        referenced = {down for down in chain.values() if down is not None}
+        referenced = {parent for parents in chain.values() for parent in parents}
         heads = [rev for rev in chain if rev not in referenced]
         assert heads == [EXPECTED_HEAD], f"expected single head {EXPECTED_HEAD}, got {heads}"
 
     def test_every_down_revision_points_at_a_real_revision(self):
         chain = self._parse_chain()
-        for rev, down in chain.items():
-            if down is not None:
-                assert down in chain, f"{rev} points at unknown down_revision {down}"
+        for rev, parents in chain.items():
+            for parent in parents:
+                assert parent in chain, f"{rev} points at unknown down_revision {parent}"
 
-    def test_chain_is_linear_and_acyclic_from_head_to_base(self):
+    def test_dag_is_acyclic_and_every_revision_is_reachable_from_head(self):
         chain = self._parse_chain()
-        seen: list[str] = []
-        cursor: str | None = EXPECTED_HEAD
-        while cursor is not None:
-            assert cursor not in seen, f"cycle detected at revision {cursor}"
-            seen.append(cursor)
-            cursor = chain[cursor]
-        # Walking head -> base must visit every migration exactly once.
-        assert len(seen) == len(chain) == 18
-        assert seen[-1] == "40452ddd24e7"
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(revision: str) -> None:
+            assert revision not in visiting, f"cycle detected at revision {revision}"
+            if revision in visited:
+                return
+            visiting.add(revision)
+            for parent in chain[revision]:
+                visit(parent)
+            visiting.remove(revision)
+            visited.add(revision)
+
+        visit(EXPECTED_HEAD)
+        assert len(visited) == len(chain) == 21
+        assert "40452ddd24e7" in visited
 
 
 # ── requirement 2: seed-data idempotency ─────────────────────────────────────

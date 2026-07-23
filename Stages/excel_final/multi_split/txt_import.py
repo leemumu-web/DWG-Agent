@@ -15,9 +15,7 @@ The TXT files from SELX are GBK-encoded, tab+space delimited.
 """
 
 from pathlib import Path
-from typing import Any
 
-import numpy as np
 import pandas as pd
 
 

@@ -24,7 +24,7 @@ import pandas as pd
 
 from .config import SunFireConfig
 from .models import ColumnMapping
-from .utils import resolve_column, resolve_columns, strip_newlines
+from .utils import resolve_columns, strip_newlines
 
 logger = logging.getLogger(__name__)
 
@@ -261,7 +261,7 @@ def _build_attachment_string(
         pno = _safe_str(row.get(col_part_no))
         sp = _safe_str(row.get(col_spec))
         w = _safe_str(row.get(col_width))
-        l = _safe_str(row.get(col_length))
+        length_text = _safe_str(row.get(col_length))
 
         # VBA: If Not IsEmpty check — skip rows missing key fields
         if not pno or not sp:
@@ -284,7 +284,7 @@ def _build_attachment_string(
         except (ValueError, TypeError):
             ratio_str = "0"
 
-        fj_str = f"{pno}:{sp}*{w}*{l}={ratio_str}"
+        fj_str = f"{pno}:{sp}*{w}*{length_text}={ratio_str}"
         fj_parts.append(fj_str)
 
     return ",".join(fj_parts)

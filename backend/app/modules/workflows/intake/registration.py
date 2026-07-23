@@ -23,6 +23,7 @@ from app.modules.files.interface import (
 )
 from app.modules.jobs.interface import Job, cancel_job
 from app.modules.workflows.models import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
+from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError, StorageObjectNotFound
@@ -56,7 +57,7 @@ def classify_human_input_extension(file_ext: str) -> str:
         )
     if normalized == ".dwg":
         return "source_dwg"
-    if normalized in {".xls", ".xlsx"}:
+    if normalized in EXCEL_FILE_EXTENSIONS:
         return "source_excel"
     raise AppHTTPException(
         422,

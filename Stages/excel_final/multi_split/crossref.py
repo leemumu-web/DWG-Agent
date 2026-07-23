@@ -12,10 +12,9 @@ Algorithm (from VBA frmDZB.ok_Click):
   7. Output to a new DataFrame
 """
 
-import numpy as np
 import pandas as pd
 
-from .utils import resolve_column, resolve_columns, strip_newlines
+from .utils import resolve_columns, strip_newlines
 
 
 def mddzb(

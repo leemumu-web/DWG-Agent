@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 import openpyxl
 
+from domain import SourcePart
+from input_contract import InputKind, inspect_production_input
 from utils import safe_float, safe_str
 
 # ── Dataclasses ──────────────────────────────────────────────────
@@ -75,7 +78,7 @@ def read_init_table(filepath: str | Path) -> tuple[ComponentInfo, list[PartRow]]
             break
 
         # Skip empty rows
-        if not part_no and not spec:
+        if not any(vals):
             continue
 
         seq += 1
@@ -94,6 +97,72 @@ def read_init_table(filepath: str | Path) -> tuple[ComponentInfo, list[PartRow]]
 
     wb.close()
     return comp_info, parts
+
+
+def _compact_working_text(value: str) -> str:
+    return value.replace(" ", "").replace("　", "")
+
+
+def _decimal_or_none(value: float | None) -> Decimal | None:
+    if value is None:
+        return None
+    result = Decimal(str(value))
+    if not result.is_finite():
+        raise ValueError("initial-table numeric value must be finite")
+    return result
+
+
+def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
+    """Adapt a one-sheet initial table to canonical parts without changing source data."""
+    inspected = inspect_production_input(Path(filepath))
+    if inspected.kind is not InputKind.WORKBOOK or inspected.sheet_name is None:
+        raise ValueError("initial-table canonical reader requires a one-sheet .xlsx/.xlsm source")
+
+    component, rows = read_init_table(inspected.path)
+    component_no = _compact_working_text(component.component_no)
+    component_qty = Decimal(str(component.component_qty))
+    result: list[SourcePart] = []
+    for row in rows:
+        length = _decimal_or_none(row.length)
+        quantity = _decimal_or_none(row.qty)
+        part_no = _compact_working_text(row.part_no)
+        original_spec = _compact_working_text(row.spec)
+        material = _compact_working_text(row.material)
+        invalid_fields = tuple(
+            field
+            for field, missing in (
+                ("构件编号", not component_no),
+                ("零件号", not part_no),
+                ("规格", not original_spec),
+                ("长度", length is None),
+                ("材质", not material),
+                ("数量", quantity is None),
+                ("构件数", component_qty == 0),
+            )
+            if missing
+        )
+        result.append(SourcePart(
+            source_sheet=inspected.sheet_name,
+            source_row=row.original_seq + 2,
+            source_seq=row.original_seq,
+            batch=None,
+            component_no=component_no,
+            component_qty=component_qty,
+            part_no=part_no,
+            original_spec=original_spec,
+            material=material,
+            length=length or Decimal("0"),
+            original_qty=quantity or Decimal("0"),
+            source_unit_net=None,
+            source_total_net=None,
+            source_unit_gross=_decimal_or_none(row.unit_weight),
+            source_total_gross=_decimal_or_none(row.total_weight),
+            source_unit_area=None,
+            source_total_area=_decimal_or_none(row.surface_area),
+            classification=None,
+            invalid_fields=invalid_fields,
+        ))
+    return tuple(result)
 
 
 def parse_component_info(text: str) -> ComponentInfo:

@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "2b7e91d4c830"
+    "7c4d9e2a1b60"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -138,6 +138,8 @@
     "GET /api/v1/remnant-import-batches/{batch_id} get_import_batch_api_v1_remnant_import_batches__batch_id__get",
     "GET /api/v1/remnant-materials get_materials_api_v1_remnant_materials_get",
     "GET /api/v1/remnants get_remnants_api_v1_remnants_get",
+    "GET /api/v1/remnants/all get_all_remnants_api_v1_remnants_all_get",
+    "GET /api/v1/remnants/export.xlsx get_remnants_export_api_v1_remnants_export_xlsx_get",
     "GET /api/v1/remnants/search get_remnants_api_v1_remnants_search_get",
     "GET /api/v1/remnants/{remnant_id} get_remnant_api_v1_remnants__remnant_id__get",
     "GET /api/v1/remnants/{remnant_id}/original-download get_original_download_api_v1_remnants__remnant_id__original_download_get",
@@ -203,6 +205,8 @@
     "POST /api/v1/remnant-import-items/bulk-confirm post_bulk_confirm_api_v1_remnant_import_items_bulk_confirm_post",
     "POST /api/v1/remnant-import-items/{item_id}/retry post_retry_item_api_v1_remnant_import_items__item_id__retry_post",
     "POST /api/v1/remnant-materials post_material_api_v1_remnant_materials_post",
+    "POST /api/v1/remnant-materials/resolve-or-create post_resolve_or_create_material_api_v1_remnant_materials_resolve_or_create_post",
+    "POST /api/v1/remnants/bulk-archive post_bulk_archive_api_v1_remnants_bulk_archive_post",
     "POST /api/v1/remnants/{remnant_id}/archive post_archive_api_v1_remnants__remnant_id__archive_post",
     "POST /api/v1/remnants/{remnant_id}/mark-used post_mark_used_api_v1_remnants__remnant_id__mark_used_post",
     "POST /api/v1/remnants/{remnant_id}/release post_release_api_v1_remnants__remnant_id__release_post",
@@ -317,9 +321,13 @@
     "/api/v1/remnant-import-items/{item_id}",
     "/api/v1/remnant-import-items/{item_id}/retry",
     "/api/v1/remnant-materials",
+    "/api/v1/remnant-materials/resolve-or-create",
     "/api/v1/remnant-materials/{material_id}",
     "/api/v1/remnant-materials/{material_id}/aliases",
     "/api/v1/remnants",
+    "/api/v1/remnants/all",
+    "/api/v1/remnants/bulk-archive",
+    "/api/v1/remnants/export.xlsx",
     "/api/v1/remnants/search",
     "/api/v1/remnants/{remnant_id}",
     "/api/v1/remnants/{remnant_id}/archive",

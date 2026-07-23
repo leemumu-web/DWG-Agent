@@ -1,47 +1,61 @@
-# Excel Final 处理阶段
+# Excel Final
 
-这是独立 Python 3.11+ 钢结构零件清单处理器。它接受受支持的 Tekla 文本导出或包含必要初始表 schema 的真实工作簿，并生成规范化多 sheet `.xlsx`；[PROCESS.md](PROCESS.md) 是逐步算法手册。
+Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。两个输入入口只负责适配，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
 
-平台不把此目录作为 backend package 导入。`backend/app/modules/excel_processing/stage_adapter.py` 是父进程唯一入口，`stage_runner.py` 在隔离子进程执行本目录 `main.py`，并设置有界 timeout 和结构化 JSON adapter。Celery、MySQL、存储、权限和 attempt 仍由 backend 管理。
-
-支持输入边界：
-
-- 文本 `.xls`：Tekla tab/whitespace 导出，不一定是二进制 workbook；
-- 二进制 `.xls`：文本探测失败后由锁定 `xlrd` 解析；
-- `.xlsx`/`.xlsm`：必须包含必要初始表 signature，扩展名本身不够；
-- `hardware_handbook`：型材重量的只读 MySQL 参考数据。
+## 运行
 
 ```bash
-uv sync --locked
-uv run python main.py /path/to/input.xls -o /path/to/output.xlsx
-uv run pytest -q multi_split/tests
+uv run python main.py /path/to/input.xlsx -o /path/to/output.xlsx
+uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tests
 ```
 
-Stage 测试重点覆盖型材拆分和 VBA parity；平台 adapter/import/retry/error 测试位于 `backend/tests`。两者都不能证明支持每份企业工作簿，验收需要代表性正反样本和输出复核。
+`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的文本表格。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
 
-## 顶层源码分工
+五金手册配置不写在 Stage 中。平台通过隔离子进程注入只读 MySQL 配置；连接、schema 或查询故障均为致命错误。
 
-| 文件 | 实际责任 |
+## 固定六表
+
+输出顺序恒定为：`原表`、`清洗表`、`构件表`、`整理表`、`part`、`处理报告`。
+
+- `原表`：保留生产输入的值、样式和原始空格。
+- `清洗表`：不可变父零件记录及规范分类。
+- `构件表`：每个构件一行，合并起始身份与小计重量/尺寸；内部使用的来源 sheet、行类型和小计来源行不写入最终 Excel。
+- `整理表`：父件或 BH/BOX/BT 子板，展示身份、重量链和业务结果；内部使用的比重来源、净材利用率和重量核验不写入最终 Excel。
+- `part`：固定 11 列未分班组下料投影；BH/BOX/BT 子板保留构件号，板材和扁钢清空构件号后按完整属性跨构件汇总。
+- `处理报告`：只列警告、严重和致命的人工处置项；同源同类问题合并并提供建议操作，无问题时显示“无”。
+
+五张生成表按表头和内容自适应列宽：普通列限制为 8–32，处理报告的“说明”和“建议操作”限制为 16–48 并自动换行。`原表`的原有列宽不调整。上述内部字段仍参与计算、核验和报告生成，只在最终 Excel 写出阶段删除。
+
+平台执行时，writer 在任务临时目录额外生成一份保留内部字段的完整工作簿，仅供后端数据库导入；对象存储和下载只使用删列后的最终工作簿。独立 Stage/CLI 未提供内部路径时只生成最终工作簿。
+
+长度存在时，`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存；长度缺失时公式与缓存均留空。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
+
+缺构件编号、零件号、规格、长度、材质或数量，以及非正长度/数量/构件数、负重量/面积或 NaN/Infinity 等非有限数值的来源行，不查询手册或拆板；它们保留在清洗表、整理表和处理报告并逐字段标红，但不进入 `part`。构件 summary 的数量、尺寸、重量或面积非法时隔离整个构件。
+
+## 责任与边界
+
+本目录负责单个 Tekla/初始表输入的规范化、手册查询、物理核验、拆板、`part` 投影和六表输出。它不负责 Files/Job 权限、Celery 编排、对象存储或跨图纸最终汇总；这些能力由 backend 平台拥有。
+
+## 主要模块
+
+| 模块 | 责任 |
 |---|---|
-| `reader.py` | 读取 Tekla 文本/旧 XLS，识别编码、分隔形式和表头，形成清洗后的原表。 |
-| `reader_init.py` | 读取九列“初始表”，建立构件与零件行的结构化输入。 |
-| `parser.py` | 判定构件起止行、合计行等行类型。 |
-| `spec_parser.py` | 分类规格字符串并解析板件尺寸，不负责数据库查重。 |
-| `transformer.py` | 执行传统输入的第 2–9 步列设置、sheet 拆分与整理表变换。 |
-| `transform_init.py` | 把“初始表”转换为拆板后整理表所需的 DataFrame，并完成拆分、排序、计算与编号。 |
-| `multi_split_bridge.py` | 第 10 步调用 vendored `multi_split` 框架，是两套输入流共用的拆分接缝。 |
-| `post_split.py` | 执行第 11–14 步拆分后修正。 |
-| `calculator.py` | 执行第 15–19 步计算列与重量计算。 |
-| `prorate.py` | 对 BH/I/BT 等拆分行进行重量分摊。 |
-| `finalize.py` | 执行第 20–24 步输出整理与正确性检查。 |
-| `writer_parts.py` | 写入初始表链路的规范 sheet 和零件 sheet。 |
-| `handbook.py` | 以只读 MySQL 查询型钢理论重量；连接生命周期与查询失败保持显式。 |
-| `pipeline.py` | 编排传统 25 步链路和初始表链路，保持步骤顺序的唯一入口。 |
-| `config.py` | 保存列关键词、路径和手册数据库配置；秘密值只从环境读取。 |
-| `utils.py` | 提供单元格安全转换、列查找/增删、去空格和序号等纯工具。 |
-| `pyproject.toml` | 定义独立 Stage 的 Python 版本、运行依赖和测试配置。 |
+| `config.py` | 平台注入的只读手册数据库配置 |
+| `domain.py` | 不可变规范记录与 `PipelineOutcome` |
+| `input_contract.py` | 单 sheet 输入合同和唯一题头检测 |
+| `preprocess.py` | 从复核多表工作簿中分离原始输入表 |
+| `reader.py` / `reader_init.py` | Tekla 与初始表适配为 `SourcePart` |
+| `spec_parser.py` | 材质感知、确定性的规格分类 |
+| `handbook.py` | 类别门控、只读 MySQL 查询 |
+| `quality.py` | 结构化问题台账与质量摘要 |
+| `weights.py` | 未舍入理论重与源重量物理核验 |
+| `splitter.py` | 仅 BH/BOX/BT 的规范拆板 |
+| `part_builder.py` | `part` 准入、主零件身份冲突检测与按类型选择构件/全局范围汇总 |
+| `canonical_pipeline.py` | 共享生产引擎 |
+| `writer_parts.py` / `ooxml_formula.py` | 固定六表、有界自适应列宽、样式、报告和公式缓存 |
+| `pipeline.py` | 两个薄输入入口与数据库生命周期 |
+| `utils.py` | 安全的字符串与数值规范化小工具 |
+| `main.py` | 命令行入口与最终质量提示 |
+| `pyproject.toml` | Stage 依赖、测试 marker 与工具配置 |
 
-`main.py` 仍是 CLI，`pipeline.py` 才是算法编排入口；平台不得绕过 adapter 直接把这些模块
-当作长驻服务导入。文件分工不表示每个步骤都已通过企业全部工作簿验收。
-
-源输入字节保留在平台存储；输出工作簿的 `原表` 是去除半角/全角空格后的处理基线，不是逐字节备份。禁止把手册密码、child traceback、DSN 或 host path 写入公共 Job 错误。
+完整规则见 [PROCESS.md](PROCESS.md)。

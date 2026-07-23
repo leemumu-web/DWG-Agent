@@ -73,4 +73,5 @@ STEP_PERSIST_EXCEL_FINAL = "persist_excel_final_result"
 # Short-lived HttpOnly access-token cookie used only by the EventSource endpoint.
 JOB_EVENTS_COOKIE_NAME = "dwg_sse_token"
 
-ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip", ".xlsx", ".xls"}
+EXCEL_FILE_EXTENSIONS = frozenset({".xls", ".xlsx", ".xlsm"})
+ALLOWED_UPLOAD_EXTENSIONS = {".dwg", ".dxf", ".zip", *EXCEL_FILE_EXTENSIONS}

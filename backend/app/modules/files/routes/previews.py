@@ -24,6 +24,7 @@ from app.modules.files.storage_transactions import (
 )
 from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
+from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import AppHTTPException, not_found
@@ -64,11 +65,11 @@ def get_excel_preview(
         raise not_found("File")
     require_file_read_access(db, current_user, stored, purpose="preview")
 
-    if not stored.file_ext or stored.file_ext.lower() not in (".xlsx", ".xls"):
+    if not stored.file_ext or stored.file_ext.lower() not in EXCEL_FILE_EXTENSIONS:
         raise AppHTTPException(
             415,
             "NOT_EXCEL",
-            "Only .xlsx / .xls files can be previewed.",
+            "Only .xls / .xlsx / .xlsm files can be previewed.",
         )
 
     # Read Excel bytes from storage
