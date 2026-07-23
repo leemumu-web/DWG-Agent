@@ -4,7 +4,7 @@
 
 > **Superseded display detail:** 本计划记录首次实现时的“隐藏审计列”方案。后续确认改为仅在最终 Excel 物理删除这些列，内部计算、核验和报告功能保留；现行合同以 `2026-07-23-excel-bounded-auto-width-design.md` 和 `Stages/excel_final/PROCESS.md` 为准。
 
-**Goal:** 将 `处理报告`收缩为可执行的人工处置清单，无问题时显示“无”，并默认隐藏整理表和构件表的审计列。
+**Goal:** 将`处理报告`收缩为可执行的人工处置清单，无问题时显示“无”。本计划原先的“隐藏审计列”步骤已被后续最终删列方案覆盖：最终工作簿不含这些列，内部导入副本保留。
 
 **Architecture:** `quality.py`继续保存原始问题，但新增唯一的可操作报告投影，负责过滤信息、同源同类合并和生成操作建议；writer 与 `PipelineOutcome`共同使用该投影，避免统计口径分裂。后端 importer 识别“无”哨兵并继续兼容按表头读取的旧报告。
 
@@ -93,11 +93,11 @@ assert workbook["处理报告"]["A2"].value == "无"
 for header in ("比重来源", "净材利用率", "重量核验"):
     index = ORGANIZED_HEADERS.index(header) + 1
     letter = get_column_letter(index)
-    assert workbook["整理表"].column_dimensions[letter].hidden is True
+    assert header not in [cell.value for cell in workbook["整理表"][1]]
 for header in ("来源sheet", "行类型", "小计来源行"):
     index = COMPONENT_HEADERS.index(header) + 1
     letter = get_column_letter(index)
-    assert workbook["构件表"].column_dimensions[letter].hidden is True
+    assert header not in [cell.value for cell in workbook["构件表"][1]]
 ```
 
 有问题时断言“建议操作”非空，同源同类问题只占一行。
@@ -119,7 +119,7 @@ Expected: 旧报告仍有15列、空报告没有“无”、整理表列未隐�
 ws["A2"] = "无"
 ```
 
-按报告行的“级别”设置警告/严重样式。写表后，把整理表的 `比重来源/净材利用率/重量核验` 和构件表的 `来源sheet/行类型/小计来源行` 对应列的 `hidden` 设为 `True`。
+按报告行的“级别”设置警告/严重样式。后续最终方案按表头删除整理表的`比重来源/净材利用率/重量核验`和构件表的`来源sheet/行类型/小计来源行`；完整内部导入副本在删列前保存。
 
 - [x] **Step 4: 运行 writer 与端到端测试确认 GREEN**
 
@@ -203,7 +203,7 @@ for header in ("来源sheet", "行类型", "小计来源行"):
 
 - [x] **Step 2: 更新当前生产文档**
 
-说明报告仅含可操作问题、8列合并规则、空报告“无”哨兵，以及整理表三个审计列默认隐藏。
+说明报告仅含可操作问题、8列合并规则、空报告“无”哨兵，以及最终删列与内部副本保留的边界。
 
 - [x] **Step 3: 重生成真实结果和对比报告**
 

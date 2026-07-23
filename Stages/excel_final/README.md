@@ -1,6 +1,6 @@
 # Excel Final
 
-Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。两个输入入口只负责适配，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
+Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。唯一生产入口自动选择标准工作簿、初始表工作簿、制表符 Tekla 文本或固定宽度 Tekla 文本 Adapter，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
 
 ## 运行
 
@@ -9,7 +9,7 @@ uv run python main.py /path/to/input.xlsx -o /path/to/output.xlsx
 uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tests
 ```
 
-`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的文本表格。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
+`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的制表符或固定宽度文本表格。固定宽度 Adapter 按中文双宽显示列恢复空字段，不按空白压缩；没有批次列不影响合法清单进入。只有构件汇总而没有零件明细的输入明确拒绝。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
 
 五金手册配置不写在 Stage 中。平台通过隔离子进程注入只读 MySQL 配置；连接、schema 或查询故障均为致命错误。
 
@@ -20,15 +20,15 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 - `原表`：保留生产输入的值、样式和原始空格。
 - `清洗表`：不可变父零件记录及规范分类。
 - `构件表`：每个构件一行，合并起始身份与小计重量/尺寸；内部使用的来源 sheet、行类型和小计来源行不写入最终 Excel。
-- `整理表`：父件或 BH/BOX/BT 子板，展示身份、重量链和业务结果；内部使用的比重来源、净材利用率和重量核验不写入最终 Excel。
-- `part`：固定 11 列未分班组下料投影；BH/BOX/BT 子板保留构件号，板材和扁钢清空构件号后按完整属性跨构件汇总。
-- `处理报告`：只列警告、严重和致命的人工处置项；同源同类问题合并并提供建议操作，无问题时显示“无”。
+- `整理表`：父件或 BH/BOX/BT 子板，展示身份、重量链和可复算公式；最终不展示类型、比重来源、净材利用率和重量核验列。
+- `part`：固定 11 列未分班组下料投影；BH/BOX/BT 子板保留构件号，板材和扁钢清空构件号后按完整属性跨构件汇总；最终不展示类型列，J列“备注”和K列“文件”预留为空。
+- `处理报告`：只列警告、严重和致命的人工处置项；相同级别、类别、规格/查找对象和建议操作跨来源行聚合，说明影响行数并最多展示三个代表来源，无问题时显示“无”。
 
-五张生成表按表头和内容自适应列宽：普通列限制为 8–32，处理报告的“说明”和“建议操作”限制为 16–48 并自动换行。`原表`的原有列宽不调整。上述内部字段仍参与计算、核验和报告生成，只在最终 Excel 写出阶段删除。
+五张生成表按表头和内容自适应列宽：普通列限制为 8–32，处理报告的“说明”和“建议操作”限制为 16–48 并自动换行。`原表`的原有列宽不调整。最终 Excel 保留可见计算结果的公式，只删除整理表的类型、比重来源、净材利用率、重量核验列和 part 的类型列；内部导入副本仍保留完整字段及功能。
 
 平台执行时，writer 在任务临时目录额外生成一份保留内部字段的完整工作簿，仅供后端数据库导入；对象存储和下载只使用删列后的最终工作簿。独立 Stage/CLI 未提供内部路径时只生成最终工作簿。
 
-长度存在时，`下料长度`保留 Excel 公式，同时写入可被 `data_only=True` 立即读取的公式缓存；长度缺失时公式与缓存均留空。处理结果返回 `PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
+内部整理表把程序计算得到的`下料长度、总数、总长、理单重、理总重、表净重、表毛重、净材利用率`写成Excel公式；最终整理表删除利用率列后，剩余7类计算字段继续保留公式。没有计算依据的单元格保持空白。`part.汇总`不是静态数值，而是精确求和其对应整理表贡献行。每个公式同时写入可被`data_only=True`立即读取的缓存，公式文本或缓存任一回读不一致都会使整次输出失败。处理结果返回`PipelineOutcome`，其中包含输出路径、质量状态、警告计数、严重计数和报告摘要；平台通过版本化协议读取这些字段，不再对输出工作簿做二次修补。
 
 缺构件编号、零件号、规格、长度、材质或数量，以及非正长度/数量/构件数、负重量/面积或 NaN/Infinity 等非有限数值的来源行，不查询手册或拆板；它们保留在清洗表、整理表和处理报告并逐字段标红，但不进入 `part`。构件 summary 的数量、尺寸、重量或面积非法时隔离整个构件。
 
@@ -42,10 +42,12 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 |---|---|
 | `config.py` | 平台注入的只读手册数据库配置 |
 | `domain.py` | 不可变规范记录与 `PipelineOutcome` |
-| `input_contract.py` | 单 sheet 输入合同和唯一题头检测 |
+| `input_contract.py` | 单 sheet 输入合同、集中表头别名和唯一题头检测 |
+| `source_intake.py` | 唯一生产输入 Interface 与四类 Adapter 选择 |
 | `preprocess.py` | 从复核多表工作簿中分离原始输入表 |
 | `reader.py` / `reader_init.py` | Tekla 与初始表适配为 `SourcePart` |
 | `spec_parser.py` | 材质感知、确定性的规格分类 |
+| `fabricated_profile.py` | BH/BOX/BT 的唯一规格与几何解释 |
 | `handbook.py` | 类别门控、只读 MySQL 查询 |
 | `quality.py` | 结构化问题台账与质量摘要 |
 | `weights.py` | 未舍入理论重与源重量物理核验 |
@@ -53,7 +55,7 @@ uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tes
 | `part_builder.py` | `part` 准入、主零件身份冲突检测与按类型选择构件/全局范围汇总 |
 | `canonical_pipeline.py` | 共享生产引擎 |
 | `writer_parts.py` / `ooxml_formula.py` | 固定六表、有界自适应列宽、样式、报告和公式缓存 |
-| `pipeline.py` | 两个薄输入入口与数据库生命周期 |
+| `pipeline.py` | 自动输入入口与数据库生命周期 |
 | `utils.py` | 安全的字符串与数值规范化小工具 |
 | `main.py` | 命令行入口与最终质量提示 |
 | `pyproject.toml` | Stage 依赖、测试 marker 与工具配置 |

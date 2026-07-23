@@ -180,7 +180,7 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
     output = tmp_path / "output.xlsx"
     internal_output = tmp_path / "internal-output.xlsx"
     organized = [
-        _organized_row(),
+        _organized_row(**{"重量核验": "通过"}),
         _organized_row(
             类型="BOX翼",
             序号=7,
@@ -189,7 +189,7 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         ),
     ]
     part_rows = (
-        PartRow("C1", "p1", Decimal("10"), Decimal("100"), Decimal("1000"),
+        PartRow("", "p1", Decimal("10"), Decimal("100"), Decimal("1000"),
                 "Q355B", Decimal("6"), "", "", "板材"),
     )
 
@@ -215,14 +215,18 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         assert [cell.value for cell in workbook["整理表"][1]] == [
             header
             for header in writer.ORGANIZED_HEADERS
-            if header not in {"比重来源", "净材利用率", "重量核验"}
+            if header not in {"类型", "比重来源", "净材利用率", "重量核验"}
         ]
         assert [cell.value for cell in workbook["构件表"][1]] == [
             header
             for header in writer.COMPONENT_HEADERS
             if header not in {"来源sheet", "行类型", "小计来源行"}
         ]
-        assert [cell.value for cell in workbook["part"][1]] == writer.PART_HEADERS
+        assert [cell.value for cell in workbook["part"][1]] == [
+            header for header in writer.PART_HEADERS if header != "类型"
+        ]
+        assert workbook["part"]["J1"].value == "备注"
+        assert workbook["part"]["K1"].value == "文件"
         assert writer.REPORT_HEADERS == [
             "级别",
             "类别",
@@ -237,18 +241,18 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         assert workbook["处理报告"]["H2"].value
         assert workbook["处理报告"]["H3"].value
         assert workbook["整理表"]["A2"].value == workbook["整理表"]["A3"].value == 7
-        assert workbook["整理表"]["P2"].value == "=M2-N2-O2"
+        assert workbook["整理表"]["O2"].value == "=L2-M2-N2"
         organized_headers = [cell.value for cell in workbook["整理表"][1]]
         theo_unit_column = get_column_letter(organized_headers.index("理单重(kg)") + 1)
         gross_unit_column = get_column_letter(organized_headers.index("单毛重(kg)") + 1)
         density_column = get_column_letter(organized_headers.index("比重") + 1)
         assert workbook["整理表"][f"{theo_unit_column}2"].number_format == "0.000"
-        assert workbook["整理表"]["V2"].font.color.rgb.endswith("FF0000")
         assert workbook["整理表"][f"{density_column}2"].font.color.rgb.endswith("FF0000")
         assert workbook["整理表"][f"{gross_unit_column}2"].fill.fill_type == "solid"
         assert workbook["part"].max_row == 2
         assert workbook["part"]["H2"].value is None
         assert workbook["part"]["I2"].value is None
+        assert workbook["part"]["J2"].value is None
         assert workbook["part"]["K2"].value is None
         assert workbook["处理报告"].max_row == 3
         assert workbook["构件表"].max_row == 2
@@ -256,18 +260,22 @@ def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styl
         assert workbook["构件表"]["B2"].value == "B1"
         assert workbook["构件表"]["C2"].value == "C1"
         assert workbook["构件表"].auto_filter.ref == "A1:O1"
-        assert workbook["整理表"].auto_filter.ref == "A1:AF1"
+        assert workbook["整理表"].auto_filter.ref == "A1:AE1"
         assert workbook["整理表"].column_dimensions["B"].width == 10
-        assert workbook["整理表"].column_dimensions["J"].width == 32
+        assert workbook["整理表"].column_dimensions["I"].width == 32
         assert workbook["part"].column_dimensions["A"].width == 14
         assert 16 <= workbook["处理报告"].column_dimensions["G"].width <= 48
         assert 16 <= workbook["处理报告"].column_dimensions["H"].width <= 48
         for coordinate in ("G2", "H2", "G3", "H3"):
             assert workbook["处理报告"][coordinate].alignment.wrap_text is True
             assert workbook["处理报告"][coordinate].alignment.vertical == "top"
-        assert not ({"比重来源", "净材利用率", "重量核验"} & set(organized_headers))
+        assert not (
+            {"类型", "比重来源", "净材利用率", "重量核验"}
+            & set(organized_headers)
+        )
         component_headers = [cell.value for cell in workbook["构件表"][1]]
         assert not ({"来源sheet", "行类型", "小计来源行"} & set(component_headers))
+        assert "类型" not in [cell.value for cell in workbook["part"][1]]
     finally:
         workbook.close()
 
@@ -300,17 +308,52 @@ def test_writer_formula_cache_is_immediately_readable_data_only(tmp_path: Path) 
         output,
         cleaned_parts=(part,),
         component_rows=component_rows,
-        organized_rows=[_organized_row(**{"左进(mm)": Decimal("10"), "右进(mm)": Decimal("5"),
-                                          "下料长度(mm)": Decimal("985")})],
-        part_rows=(),
+        organized_rows=[_organized_row(**{
+            "左进(mm)": Decimal("10"),
+            "右进(mm)": Decimal("5"),
+            "下料长度(mm)": Decimal("985"),
+            "比重": Decimal("7.85"),
+            "比重来源": "plate_constant:7.85",
+            "重量核验": "通过",
+        })],
+        part_rows=(
+            PartRow(
+                "",
+                "p1",
+                Decimal("10"),
+                Decimal("100"),
+                Decimal("985"),
+                "Q355B",
+                Decimal("6"),
+                "",
+                "",
+                "板材",
+            ),
+        ),
         issues=(),
     )
 
     formulas = load_workbook(output, data_only=False, read_only=True)
     values = load_workbook(output, data_only=True, read_only=True)
     try:
-        assert formulas["整理表"]["P2"].value == "=M2-N2-O2"
-        assert values["整理表"]["P2"].value == 985
+        assert formulas["整理表"]["O2"].value == "=L2-M2-N2"
+        assert formulas["整理表"]["S2"].value == "=D2*R2"
+        assert formulas["整理表"]["T2"].value == "=L2*S2"
+        assert formulas["整理表"]["V2"].value == "=ROUND(J2*K2*L2*U2/1000000,3)"
+        assert formulas["整理表"]["W2"].value == (
+            "=ROUND(J2*K2*L2*U2/1000000*S2,3)"
+        )
+        assert formulas["整理表"]["Z2"].value == "=ROUND(Y2*D2,3)"
+        assert formulas["整理表"]["AC2"].value == "=ROUND(AB2*D2,3)"
+        assert formulas["part"]["G2"].value == "=SUM('整理表'!S2)"
+        assert values["整理表"]["O2"].value == 985
+        assert values["整理表"]["S2"].value == 6
+        assert values["整理表"]["T2"].value == 6000
+        assert values["整理表"]["V2"].value == 7.85
+        assert values["整理表"]["W2"].value == 47.1
+        assert values["整理表"]["Z2"].value == 46.8
+        assert values["整理表"]["AC2"].value == 47.1
+        assert values["part"]["G2"].value == 6
         assert formulas["处理报告"]["A2"].value == "无"
         assert formulas["处理报告"].max_row == 2
     finally:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from enum import Enum
 import logging
+import math
 import os
 from pathlib import Path
 import shutil
@@ -17,6 +18,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from domain import ComponentSourceRow, PipelineOutcome, SourcePart
+from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
 from ooxml_formula import FormulaCache, patch_formula_caches
 from part_builder import PartRow
 from quality import IssueLevel, QualityIssue, QualityLedger
@@ -49,7 +51,7 @@ ORGANIZED_HEADERS = [
 
 PART_HEADERS = [
     "导入构件编号", "导入零件号", "规格", "宽度", "下料长度", "材质",
-    "汇总", "班组", "图形", "类型", "文件",
+    "汇总", "班组", "图形", "类型", "备注", "文件",
 ]
 
 REPORT_HEADERS = [
@@ -66,7 +68,8 @@ _WIDTH_BOUNDS_BY_HEADER = {
 _WRAPPED_REPORT_HEADERS = ("说明", "建议操作")
 _REMOVED_OUTPUT_COLUMNS = {
     "构件表": ("来源sheet", "行类型", "小计来源行"),
-    "整理表": ("比重来源", "净材利用率", "重量核验"),
+    "整理表": ("类型", "比重来源", "净材利用率", "重量核验"),
+    "part": ("类型",),
 }
 
 _LIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="F4CCCC")
@@ -74,6 +77,14 @@ _WARNING_FILL = PatternFill(fill_type="solid", fgColor="FFF2CC")
 _RED_FONT = Font(color="FF0000")
 _SEVERE_FONT = Font(color="9C0006")
 _HEADER_FILL = PatternFill(fill_type="solid", fgColor="D9EAF7")
+_COMPONENT_SCOPED_TYPES = frozenset({
+    "BH腹",
+    "BH翼",
+    "BOX腹",
+    "BOX翼",
+    "BT腹",
+    "BT翼",
+})
 
 
 def _thin_border() -> Border:
@@ -171,9 +182,8 @@ def _formula_cache_for_row(row: Mapping[str, object]) -> Decimal | None:
 def _write_organized_sheet(
     ws,
     rows: Sequence[Mapping[str, object]],
-) -> dict[str, FormulaCache]:
+) -> None:
     _canonical_headers(ws, ORGANIZED_HEADERS)
-    caches: dict[str, FormulaCache] = {}
     weight_columns = {
         index for index, header in enumerate(ORGANIZED_HEADERS, start=1)
         if "重(kg)" in header
@@ -194,15 +204,7 @@ def _write_organized_sheet(
                 f"整理表来源行 {item.get('_source_row')!r} 的下料长度与长度-左进-右进不一致"
             )
         values = [item.get(header) for header in ORGANIZED_HEADERS]
-        values[15] = (
-            f"=M{row_number}-N{row_number}-O{row_number}"
-            if cached_cut_length is not None
-            else None
-        )
         _canonical_row(ws, row_number, values)
-        if cached_cut_length is not None:
-            coordinate = f"P{row_number}"
-            caches[coordinate] = FormulaCache(values[15], cached_cut_length)
         for column in weight_columns:
             ws.cell(row=row_number, column=column).number_format = "0.000"
         ws.cell(row=row_number, column=32).number_format = "0.0000%"
@@ -210,6 +212,187 @@ def _write_organized_sheet(
         ws.cell(row=row_number, column=35).number_format = "0.00"
         if item.get("比重") == "查无":
             ws.cell(row=row_number, column=22).font = _RED_FONT
+
+
+def _formula_number(value: Decimal) -> str:
+    return format(value, "f")
+
+
+def _theory_basis_formula(
+    item: Mapping[str, object],
+    *,
+    row_number: int,
+    columns: Mapping[str, str],
+) -> str | None:
+    if item.get("理单重(kg)") in (None, ""):
+        return None
+    length = f"{columns['长度(mm)']}{row_number}"
+    density = f"{columns['比重']}{row_number}"
+    part_type = str(item.get("类型") or "")
+    source = str(item.get("比重来源") or "")
+    if part_type in _COMPONENT_SCOPED_TYPES:
+        try:
+            fabricated = parse_fabricated_profile(item.get("截面型材"))
+        except FabricatedProfileError:
+            return None
+        if fabricated is None:
+            return None
+        area = fabricated.cross_section_area
+        return f"{_formula_number(area)}*{length}*{density}/1000000"
+    if source == "plate_constant:7.85":
+        spec = f"{columns['规格']}{row_number}"
+        width = f"{columns['宽度']}{row_number}"
+        return f"{spec}*{width}*{length}*{density}/1000000"
+    return f"{density}*{length}/1000"
+
+
+def _apply_organized_formulas(
+    ws,
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, FormulaCache]:
+    columns = {
+        cell.value: get_column_letter(cell.column)
+        for cell in ws[1]
+    }
+    length = columns["长度(mm)"]
+    left_inset = columns["左进(mm)"]
+    right_inset = columns["右进(mm)"]
+    cut_length = columns["下料长度(mm)"]
+    caches: dict[str, FormulaCache] = {}
+    for row_number, item in enumerate(rows, start=2):
+        values = {
+            "长度(mm)": ws[f"{length}{row_number}"].value,
+            "左进(mm)": ws[f"{left_inset}{row_number}"].value,
+            "右进(mm)": ws[f"{right_inset}{row_number}"].value,
+        }
+        cached_value = _formula_cache_for_row(values)
+        cell = ws[f"{cut_length}{row_number}"]
+        if cached_value is None:
+            cell.value = None
+            continue
+        formula = f"={length}{row_number}-{left_inset}{row_number}-{right_inset}{row_number}"
+        cell.value = formula
+        caches[cell.coordinate] = FormulaCache(formula, cached_value)
+
+        formula_specs: list[tuple[str, str, object]] = []
+        component_qty = f"{columns['构件数']}{row_number}"
+        quantity = f"{columns['数量']}{row_number}"
+        total_count = f"{columns['总数']}{row_number}"
+        if item.get("总数") not in (None, ""):
+            formula_specs.append(("总数", f"={component_qty}*{quantity}", item["总数"]))
+        if item.get("总长(mm)") not in (None, ""):
+            formula_specs.append((
+                "总长(mm)",
+                f"={length}{row_number}*{total_count}",
+                item["总长(mm)"],
+            ))
+
+        theory_basis = _theory_basis_formula(
+            item,
+            row_number=row_number,
+            columns=columns,
+        )
+        if theory_basis is not None:
+            formula_specs.append((
+                "理单重(kg)",
+                f"=ROUND({theory_basis},3)",
+                item["理单重(kg)"],
+            ))
+            formula_specs.append((
+                "理总重(kg)",
+                f"=ROUND({theory_basis}*{total_count},3)",
+                item["理总重(kg)"],
+            ))
+            if (
+                "净材利用率" in columns
+                and item.get("净材利用率") not in (None, "")
+            ):
+                unit_net = f"{columns['单净重(kg)']}{row_number}"
+                formula_specs.append((
+                    "净材利用率",
+                    f"={unit_net}/({theory_basis})",
+                    item["净材利用率"],
+                ))
+
+        for target, source_total in (
+            ("表净重(kg)", "总净重(kg)"),
+            ("表毛重(kg)", "总毛重(kg)"),
+        ):
+            if item.get(target) not in (None, ""):
+                source_cell = f"{columns[source_total]}{row_number}"
+                formula_specs.append((
+                    target,
+                    f"=ROUND({source_cell}*{component_qty},3)",
+                    item[target],
+                ))
+
+        for header, formula, value in formula_specs:
+            coordinate = f"{columns[header]}{row_number}"
+            ws[coordinate] = formula
+            caches[coordinate] = FormulaCache(formula, value)
+    return caches
+
+
+def _part_matches_organized(part: PartRow, item: Mapping[str, object]) -> bool:
+    if item.get("重量核验") == "严重" or item.get("类型") != part.part_type:
+        return False
+    if item.get("导入零件号") != part.import_part_no:
+        return False
+    if (
+        item.get("规格") != part.spec
+        or item.get("宽度") != part.width
+        or item.get("下料长度(mm)") != part.cut_length
+        or item.get("材质") != part.material
+        or (item.get("班组") or "") != part.team
+    ):
+        return False
+    if part.part_type in _COMPONENT_SCOPED_TYPES:
+        return item.get("导入构件编号") == part.import_component_no
+    return not part.import_component_no
+
+
+def _apply_part_formulas(
+    ws,
+    parts: Sequence[PartRow],
+    organized_rows: Sequence[Mapping[str, object]],
+    organized_ws,
+) -> dict[str, FormulaCache]:
+    part_columns = {
+        cell.value: get_column_letter(cell.column)
+        for cell in ws[1]
+    }
+    organized_columns = {
+        cell.value: get_column_letter(cell.column)
+        for cell in organized_ws[1]
+    }
+    total_count_column = organized_columns["总数"]
+    caches: dict[str, FormulaCache] = {}
+    for part_row_number, part in enumerate(parts, start=2):
+        source_rows = [
+            source_row_number
+            for source_row_number, item in enumerate(organized_rows, start=2)
+            if _part_matches_organized(part, item)
+        ]
+        contribution = sum(
+            (
+                _decimal_or_zero(organized_rows[source_row_number - 2].get("总数"))
+                for source_row_number in source_rows
+            ),
+            Decimal("0"),
+        )
+        if contribution != part.summary:
+            raise ValueError(
+                f"part {part.import_part_no!r} 的汇总无法与整理表贡献行核对: "
+                f"{contribution} != {part.summary}"
+            )
+        references = ",".join(
+            f"'整理表'!{total_count_column}{source_row_number}"
+            for source_row_number in source_rows
+        )
+        formula = f"=SUM({references})"
+        coordinate = f"{part_columns['汇总']}{part_row_number}"
+        ws[coordinate] = formula
+        caches[coordinate] = FormulaCache(formula, part.summary)
     return caches
 
 
@@ -219,7 +402,7 @@ def _write_part_sheet(ws, rows: Iterable[PartRow]) -> None:
         _canonical_row(ws, row_number, [
             item.import_component_no, item.import_part_no, item.spec, item.width,
             item.cut_length, item.material, item.summary, item.team, item.graphic,
-            item.part_type, None,
+            item.part_type, None, None,
         ])
 
 
@@ -375,17 +558,25 @@ def _format_canonical_workbook(workbook) -> None:
 
 def _verify_formula_caches(
     workbook_path: Path,
+    sheet_name: str,
     caches: Mapping[str, FormulaCache],
 ) -> None:
-    formulas = load_workbook(workbook_path, data_only=False, read_only=True)
-    values = load_workbook(workbook_path, data_only=True, read_only=True)
+    # Normal mode indexes cells in memory. Read-only random access reparses the
+    # sheet for every coordinate and becomes quadratic for thousands of caches.
+    formulas = load_workbook(workbook_path, data_only=False, read_only=False)
+    values = load_workbook(workbook_path, data_only=True, read_only=False)
     try:
         for coordinate, cache in caches.items():
-            formula = formulas["整理表"][coordinate].value
-            cached_value = values["整理表"][coordinate].value
+            formula = formulas[sheet_name][coordinate].value
+            cached_value = values[sheet_name][coordinate].value
             if formula != cache.formula:
                 raise ValueError(f"公式回读失败: {coordinate}={formula!r}")
-            if cached_value is None or Decimal(str(cached_value)) != Decimal(str(cache.value)):
+            if cached_value is None or not math.isclose(
+                float(cached_value),
+                float(cache.value),
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            ):
                 raise ValueError(f"公式缓存回读失败: {coordinate}={cached_value!r}")
     finally:
         formulas.close()
@@ -465,23 +656,59 @@ def write_canonical_workbook(
 
             _write_clean_sheet(clean_sheet, cleaned)
             _write_component_sheet(component_sheet, components)
-            formula_caches = _write_organized_sheet(organized_sheet, organized)
+            _write_organized_sheet(organized_sheet, organized)
             _write_part_sheet(part_sheet, parts)
             _write_report_sheet(report_sheet, ledger.report_rows())
             _apply_clean_quality_styles(clean_sheet, cleaned, issue_list)
             _apply_quality_styles(organized_sheet, organized, issue_list)
+            internal_organized_caches = _apply_organized_formulas(
+                organized_sheet,
+                organized,
+            )
+            internal_part_caches = _apply_part_formulas(
+                part_sheet,
+                parts,
+                organized,
+                organized_sheet,
+            )
             if internal_temp_path is not None:
                 workbook.save(internal_temp_path)
             _format_canonical_workbook(workbook)
+            final_organized_caches = _apply_organized_formulas(
+                workbook["整理表"],
+                organized,
+            )
+            final_part_caches = _apply_part_formulas(
+                workbook["part"],
+                parts,
+                organized,
+                workbook["整理表"],
+            )
             workbook.save(temp_path)
         finally:
             workbook.close()
 
         if internal_temp_path is not None:
-            patch_formula_caches(internal_temp_path, "整理表", formula_caches)
-            _verify_formula_caches(internal_temp_path, formula_caches)
-        patch_formula_caches(temp_path, "整理表", formula_caches)
-        _verify_formula_caches(temp_path, formula_caches)
+            patch_formula_caches(
+                internal_temp_path,
+                "整理表",
+                internal_organized_caches,
+            )
+            patch_formula_caches(internal_temp_path, "part", internal_part_caches)
+            _verify_formula_caches(
+                internal_temp_path,
+                "整理表",
+                internal_organized_caches,
+            )
+            _verify_formula_caches(
+                internal_temp_path,
+                "part",
+                internal_part_caches,
+            )
+        patch_formula_caches(temp_path, "整理表", final_organized_caches)
+        patch_formula_caches(temp_path, "part", final_part_caches)
+        _verify_formula_caches(temp_path, "整理表", final_organized_caches)
+        _verify_formula_caches(temp_path, "part", final_part_caches)
         os.replace(temp_path, output)
         if internal_temp_path is not None and internal_output is not None:
             os.replace(internal_temp_path, internal_output)

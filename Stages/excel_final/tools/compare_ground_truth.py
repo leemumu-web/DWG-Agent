@@ -10,8 +10,10 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Iterable
+from collections.abc import Mapping
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 
 EXPECTED_SHEETS = ["原表", "清洗表", "构件表", "整理表", "part", "处理报告"]
@@ -53,11 +55,20 @@ def _sum(rows: Iterable[dict[object, object]], field: str) -> Decimal:
 
 
 def _normalized_part_type(value: object) -> str:
+    if isinstance(value, Mapping):
+        explicit = value.get("类型")
+        if explicit is not None:
+            return _normalized_part_type(explicit)
+        import_part_no = str(value.get("导入零件号") or "").replace("BOX盖", "BOX翼")
+        for part_type in COMPONENT_SCOPED_TYPES:
+            if import_part_no.endswith(part_type):
+                return part_type
+        return "板材"
     return "板材" if value is None else str(value).replace("BOX盖", "BOX翼")
 
 
 def _part_comparison_key(row: dict[object, object]) -> tuple[object, ...]:
-    part_type = _normalized_part_type(row.get("类型"))
+    part_type = _normalized_part_type(row)
     component_no = (
         row.get("导入构件编号") or row.get("构件编号")
         if part_type in COMPONENT_SCOPED_TYPES
@@ -114,8 +125,10 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
     source_hash = _sha256(source)
 
     ground_truth = load_workbook(source, read_only=True, data_only=True)
-    canonical_values = load_workbook(output, read_only=True, data_only=True)
-    canonical_formulas = load_workbook(output, read_only=True, data_only=False)
+    # Formula validation performs thousands of random cell lookups. Normal mode
+    # indexes those cells once; read-only mode would reparse the sheet per lookup.
+    canonical_values = load_workbook(output, read_only=False, data_only=True)
+    canonical_formulas = load_workbook(output, read_only=False, data_only=False)
     preprocessed_book = load_workbook(preprocessed, read_only=True, data_only=False)
     try:
         gt_organized = _rows(ground_truth["整理"])
@@ -153,13 +166,19 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
         )
 
         gt_box_cover = sum(row.get("类型") == "BOX盖" for row in gt_organized)
-        output_box_flange = sum(row.get("类型") == "BOX翼" for row in organized)
+        output_box_flange = sum(
+            str(row.get("导入零件号") or "").endswith("BOX翼")
+            for row in organized
+        )
         _record(
             results, "BOX子板命名", f"BOX盖={gt_box_cover}", f"BOX翼={output_box_flange}",
             "INTENDED_DIFFERENCE" if output_box_flange == baseline["box"] else "FAIL",
             "统一BH/BOX/BT为腹/翼术语，不再使用BOX盖",
         )
-        output_bh = sum(str(row.get("类型") or "").startswith("BH") for row in organized)
+        output_bh = sum(
+            str(row.get("导入零件号") or "").endswith(("BH腹", "BH翼"))
+            for row in organized
+        )
         _record(
             results, "禁止BOX回退BH", "GT规则不明确", f"BH输出行={output_bh}",
             "PASS" if output_bh == 0 else "FAIL",
@@ -189,12 +208,12 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
         component_scoped = [
             row
             for row in part
-            if _normalized_part_type(row.get("类型")) in COMPONENT_SCOPED_TYPES
+            if _normalized_part_type(row) in COMPONENT_SCOPED_TYPES
         ]
         global_scoped = [
             row
             for row in part
-            if _normalized_part_type(row.get("类型")) not in COMPONENT_SCOPED_TYPES
+            if _normalized_part_type(row) not in COMPONENT_SCOPED_TYPES
         ]
         output_blank_main = sum(
             row.get("导入构件编号") is None for row in component_scoped
@@ -368,15 +387,71 @@ def compare(source: Path, preprocessed: Path, output: Path) -> list[dict[str, ob
 
         formulas = canonical_formulas["整理表"]
         values = canonical_values["整理表"]
-        formula_ok = all(
-            formulas.cell(row=row, column=16).value == f"=M{row}-N{row}-O{row}"
-            and values.cell(row=row, column=16).value is not None
+        formula_columns = {
+            cell.value: cell.column for cell in formulas[1]
+        }
+        length_column = get_column_letter(formula_columns["长度(mm)"])
+        left_inset_column = get_column_letter(formula_columns["左进(mm)"])
+        right_inset_column = get_column_letter(formula_columns["右进(mm)"])
+        cut_length_column = formula_columns["下料长度(mm)"]
+        cut_length_ok = all(
+            formulas.cell(row=row, column=cut_length_column).value
+            == f"={length_column}{row}-{left_inset_column}{row}-{right_inset_column}{row}"
+            and values.cell(row=row, column=cut_length_column).value is not None
             for row in range(2, formulas.max_row + 1)
         )
+        expected_formula_counts = {
+            "下料长度(mm)": 527,
+            "总数": 527,
+            "总长(mm)": 527,
+            "理单重(kg)": 440,
+            "理总重(kg)": 440,
+            "表净重(kg)": 485,
+            "表毛重(kg)": 485,
+        }
+        actual_formula_counts: dict[str, int] = {}
+        all_formula_caches_present = True
+        for header, column in formula_columns.items():
+            count = 0
+            for row in range(2, formulas.max_row + 1):
+                formula = formulas.cell(row=row, column=column).value
+                if isinstance(formula, str) and formula.startswith("="):
+                    count += 1
+                    if values.cell(row=row, column=column).value is None:
+                        all_formula_caches_present = False
+            if count:
+                actual_formula_counts[str(header)] = count
+        part_formula_count = 0
+        part_formula_caches_present = True
+        part_formula_sheet = canonical_formulas["part"]
+        part_value_sheet = canonical_values["part"]
+        part_headers = {
+            cell.value: cell.column for cell in part_formula_sheet[1]
+        }
+        summary_column = part_headers["汇总"]
+        for row in range(2, part_formula_sheet.max_row + 1):
+            formula = part_formula_sheet.cell(row=row, column=summary_column).value
+            if isinstance(formula, str) and formula.startswith("=SUM('整理表'!"):
+                part_formula_count += 1
+                if part_value_sheet.cell(row=row, column=summary_column).value is None:
+                    part_formula_caches_present = False
+        formula_ok = (
+            cut_length_ok
+            and actual_formula_counts == expected_formula_counts
+            and all_formula_caches_present
+            and part_formula_count == 122
+            and part_formula_caches_present
+        )
         _record(
-            results, "下料长度公式及缓存", "GT公式缓存不完整", f"527行全部有效={formula_ok}",
+            results,
+            "计算公式及缓存",
+            "GT仅部分整理字段含公式且缓存不完整",
+            (
+                f"整理表={sum(actual_formula_counts.values())}, "
+                f"part={part_formula_count}, 全部有效={formula_ok}"
+            ),
             "PASS" if formula_ok else "FAIL",
-            "公式模式保留计算式，data_only模式立即读到数值",
+            "最终可见算术结果和part汇总保留公式，data_only模式立即读到数值",
         )
         teams_blank = sum(row.get("班组") is None for row in part)
         _record(

@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Centralize the input schema
+## Task 1: Centralize the input schema
 
 **Files:**
 - Modify: `Stages/excel_final/input_contract.py`
@@ -89,7 +89,7 @@ git add Stages/excel_final/input_contract.py Stages/excel_final/tests/test_input
 git commit -m "feat(excel-final): generalize source header schema"
 ```
 
-### Task 2: Add the single Source Intake interface
+## Task 2: Add the single Source Intake interface
 
 **Files:**
 - Create: `Stages/excel_final/source_intake.py`
@@ -184,7 +184,7 @@ git add Stages/excel_final/source_intake.py Stages/excel_final/reader.py \
 git commit -m "feat(excel-final): add unified production source intake"
 ```
 
-### Task 3: Make initial and text adapters structure-aware
+## Task 3: Make initial and text adapters structure-aware
 
 **Files:**
 - Modify: `Stages/excel_final/reader_init.py`
@@ -282,7 +282,7 @@ git add Stages/excel_final/reader_init.py Stages/excel_final/source_intake.py \
 git commit -m "feat(excel-final): adapt dynamic and fixed-width sources"
 ```
 
-### Task 4: Centralize fabricated-profile geometry
+## Task 4: Centralize fabricated-profile geometry
 
 **Files:**
 - Create: `Stages/excel_final/fabricated_profile.py`
@@ -382,7 +382,7 @@ git add Stages/excel_final/fabricated_profile.py Stages/excel_final/spec_parser.
 git commit -m "refactor(excel-final): centralize fabricated profile geometry"
 ```
 
-### Task 5: Aggregate the actionable report without losing row evidence
+## Task 5: Aggregate the actionable report without losing row evidence
 
 **Files:**
 - Modify: `Stages/excel_final/quality.py`
@@ -459,7 +459,7 @@ git add Stages/excel_final/quality.py Stages/excel_final/writer_parts.py \
 git commit -m "feat(excel-final): condense actionable quality reports"
 ```
 
-### Task 6: Remove duplicate entry-point detection
+## Task 6: Remove duplicate entry-point detection
 
 **Files:**
 - Modify: `Stages/excel_final/main.py`
@@ -532,7 +532,7 @@ git add Stages/excel_final/main.py backend/app/modules/excel_processing \
 git commit -m "refactor(excel-final): make stage own source detection"
 ```
 
-### Task 7: Real-corpus and end-to-end acceptance
+## Task 7: Real-corpus and end-to-end acceptance
 
 **Files:**
 - Create: `Stages/excel_final/tests/test_source_corpus.py`
