@@ -80,16 +80,34 @@ def test_global_types_clear_component_and_merge_across_components() -> None:
     assert result.rows[0].summary == Decimal("12")
 
 
-def test_global_same_part_number_with_different_attributes_stays_separate() -> None:
+@pytest.mark.parametrize(
+    ("field", "different_value"),
+    [
+        ("import_part_no", "p2"),
+        ("spec", Decimal("11")),
+        ("width", Decimal("101")),
+        ("cut_length", Decimal("1001")),
+        ("material", "Q420B"),
+        ("part_type", "扁钢"),
+        ("team", "A"),
+    ],
+)
+def test_global_parts_with_any_different_grouping_parameter_stay_separate(
+    field: str,
+    different_value: object,
+) -> None:
     builder = _builder()
     result = builder.build_part_rows([
-        _candidate(builder, import_component_no="C1", width=Decimal("100")),
-        _candidate(builder, import_component_no="C2", width=Decimal("101")),
+        _candidate(builder, import_component_no="C1"),
+        _candidate(
+            builder,
+            import_component_no="C2",
+            **{field: different_value},
+        ),
     ])
 
     assert result.issues == ()
     assert len(result.rows) == 2
-    assert {row.width for row in result.rows} == {Decimal("100"), Decimal("101")}
     assert {row.import_component_no for row in result.rows} == {""}
 
 
