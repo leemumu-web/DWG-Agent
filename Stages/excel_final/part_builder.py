@@ -19,6 +19,15 @@ TYPE_PRIORITY = {
     "扁钢": 6,
     "板材": 7,
 }
+COMPONENT_SCOPED_TYPES = frozenset({
+    "BH腹",
+    "BH翼",
+    "BOX腹",
+    "BOX翼",
+    "BT腹",
+    "BT翼",
+})
+GLOBAL_SCOPED_TYPES = frozenset({"扁钢", "板材"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +171,14 @@ def _sort_value(value: object) -> tuple[int, Decimal | str]:
         return (2, str(value))
 
 
+def _is_component_scoped(part_type: str) -> bool:
+    if part_type in COMPONENT_SCOPED_TYPES:
+        return True
+    if part_type in GLOBAL_SCOPED_TYPES:
+        return False
+    raise ValueError(f"part type has no aggregation scope: {part_type}")
+
+
 def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
     source_candidates = [
         candidate
@@ -174,10 +191,11 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
 
     by_identity: dict[tuple[str, str], list[PartCandidate]] = {}
     for candidate in source_candidates:
-        by_identity.setdefault(
-            (candidate.import_component_no, candidate.import_part_no),
-            [],
-        ).append(candidate)
+        if _is_component_scoped(candidate.part_type):
+            by_identity.setdefault(
+                (candidate.import_component_no, candidate.import_part_no),
+                [],
+            ).append(candidate)
     conflicts: set[tuple[str, str]] = set()
     issues: list[QualityIssue] = []
     for identity, identity_candidates in by_identity.items():
@@ -200,8 +218,13 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
         identity = (candidate.import_component_no, candidate.import_part_no)
         if identity in conflicts:
             continue
+        output_component_no = (
+            candidate.import_component_no
+            if _is_component_scoped(candidate.part_type)
+            else ""
+        )
         key = (
-            candidate.import_component_no,
+            output_component_no,
             candidate.import_part_no,
             candidate.spec,
             candidate.width,
@@ -214,7 +237,7 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
         current = grouped.get(key)
         if current is None:
             grouped[key] = PartRow(
-                import_component_no=candidate.import_component_no,
+                import_component_no=output_component_no,
                 import_part_no=candidate.import_part_no,
                 spec=candidate.spec,
                 width=candidate.width,
@@ -231,7 +254,8 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
     rows = sorted(
         grouped.values(),
         key=lambda row: (
-            component_order[row.import_component_no],
+            0 if _is_component_scoped(row.part_type) else 1,
+            component_order.get(row.import_component_no, len(component_order)),
             TYPE_PRIORITY[row.part_type],
             row.import_part_no,
             _sort_value(row.spec),

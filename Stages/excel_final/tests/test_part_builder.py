@@ -48,30 +48,60 @@ def test_part_projection_keeps_only_cuttable_types_and_populates_ids() -> None:
     result = builder.build_part_rows(candidates)
 
     assert {row.import_part_no for row in result.rows} == {"p-board", "p-flat", "p-box-web"}
-    assert all(row.import_component_no for row in result.rows)
+    component_scoped = [row for row in result.rows if row.part_type == "BOX腹"]
+    global_scoped = [row for row in result.rows if row.part_type in {"板材", "扁钢"}]
+    assert all(row.import_component_no for row in component_scoped)
+    assert all(row.import_component_no == "" for row in global_scoped)
     assert all(row.import_part_no for row in result.rows)
 
 
-def test_grouping_uses_full_key_and_never_crosses_component_or_team() -> None:
+def test_component_scoped_types_keep_component_and_never_cross_components() -> None:
     builder = _builder()
-    candidates = [
-        _candidate(builder, source_row=8),
-        _candidate(builder, source_row=9),
-        _candidate(builder, source_row=10, import_component_no="C2"),
-        _candidate(builder, source_row=11, team="A"),
-        _candidate(builder, source_row=12, import_part_no="p-material", material="Q420B"),
-    ]
+    result = builder.build_part_rows([
+        _candidate(builder, import_component_no="C1", part_type="BOX腹"),
+        _candidate(builder, import_component_no="C2", part_type="BOX腹"),
+    ])
 
-    result = builder.build_part_rows(candidates)
-
-    assert len(result.rows) == 4
-    c1_default = next(
-        row for row in result.rows
-        if row.import_component_no == "C1" and row.team == "" and row.material == "Q355B"
-    )
-    assert c1_default.summary == Decimal("12")
+    assert len(result.rows) == 2
     assert {row.import_component_no for row in result.rows} == {"C1", "C2"}
-    assert {row.team for row in result.rows} == {"", "A"}
+    assert {row.summary for row in result.rows} == {Decimal("6")}
+
+
+def test_global_types_clear_component_and_merge_across_components() -> None:
+    builder = _builder()
+    result = builder.build_part_rows([
+        _candidate(builder, source_row=8, import_component_no="C1"),
+        _candidate(builder, source_row=9, import_component_no="C2"),
+    ])
+
+    assert result.issues == ()
+    assert len(result.rows) == 1
+    assert result.rows[0].import_component_no == ""
+    assert result.rows[0].summary == Decimal("12")
+
+
+def test_global_same_part_number_with_different_attributes_stays_separate() -> None:
+    builder = _builder()
+    result = builder.build_part_rows([
+        _candidate(builder, import_component_no="C1", width=Decimal("100")),
+        _candidate(builder, import_component_no="C2", width=Decimal("101")),
+    ])
+
+    assert result.issues == ()
+    assert len(result.rows) == 2
+    assert {row.width for row in result.rows} == {Decimal("100"), Decimal("101")}
+    assert {row.import_component_no for row in result.rows} == {""}
+
+
+def test_global_grouping_keeps_team_boundary() -> None:
+    builder = _builder()
+    result = builder.build_part_rows([
+        _candidate(builder, import_component_no="C1", team="A"),
+        _candidate(builder, import_component_no="C2", team="B"),
+    ])
+
+    assert len(result.rows) == 2
+    assert {row.team for row in result.rows} == {"A", "B"}
 
 
 def test_summary_preserves_zero_instead_of_defaulting_to_one() -> None:
@@ -115,9 +145,24 @@ def test_dimension_sort_key_is_numeric_with_stable_text_fallback() -> None:
 def test_same_component_and_part_id_with_conflicting_geometry_is_severe_and_excluded() -> None:
     builder = _builder()
     candidates = [
-        _candidate(builder, source_row=8, width=Decimal("100")),
-        _candidate(builder, source_row=9, width=Decimal("101")),
-        _candidate(builder, source_row=10, import_part_no="safe"),
+        _candidate(
+            builder,
+            source_row=8,
+            width=Decimal("100"),
+            part_type="BOX腹",
+        ),
+        _candidate(
+            builder,
+            source_row=9,
+            width=Decimal("101"),
+            part_type="BOX腹",
+        ),
+        _candidate(
+            builder,
+            source_row=10,
+            import_part_no="safe",
+            part_type="BOX腹",
+        ),
     ]
 
     result = builder.build_part_rows(candidates)
