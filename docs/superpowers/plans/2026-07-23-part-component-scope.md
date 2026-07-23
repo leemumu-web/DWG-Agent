@@ -16,7 +16,7 @@
 - Modify: `Stages/excel_final/tests/test_part_builder.py`
 - Modify: `Stages/excel_final/part_builder.py`
 
-- [ ] **Step 1: 添加构件范围和全局范围失败测试**
+- [x] **Step 1: 添加构件范围和全局范围失败测试**
 
 在 `test_part_builder.py` 中把旧的“不跨构件”测试拆成以下合同：
 
@@ -105,7 +105,7 @@ def test_same_component_and_part_id_with_conflicting_geometry_is_severe_and_excl
     assert result.issues[0].category == "导入零件身份冲突"
 ```
 
-- [ ] **Step 2: 运行单元测试确认 RED**
+- [x] **Step 2: 运行单元测试确认 RED**
 
 ```bash
 cd Stages/excel_final
@@ -114,7 +114,7 @@ cd Stages/excel_final
 
 Expected: 全局类型仍按构件分组、构件号非空，新增测试失败。
 
-- [ ] **Step 3: 实现显式范围类型和分组策略**
+- [x] **Step 3: 实现显式范围类型和分组策略**
 
 在 `part_builder.py` 中增加：
 
@@ -187,7 +187,7 @@ rows = sorted(
 )
 ```
 
-- [ ] **Step 4: 运行单元测试确认 GREEN**
+- [x] **Step 4: 运行单元测试确认 GREEN**
 
 ```bash
 cd Stages/excel_final
@@ -196,7 +196,7 @@ cd Stages/excel_final
 
 Expected: 全部通过。
 
-- [ ] **Step 5: 提交算法与单元测试**
+- [x] **Step 5: 提交算法与单元测试**
 
 ```bash
 git add Stages/excel_final/part_builder.py Stages/excel_final/tests/test_part_builder.py
@@ -211,7 +211,7 @@ git commit -m "refactor(excel-final): scope part aggregation by type"
 - Modify: `Stages/excel_final/tools/compare_ground_truth.py`
 - Modify: `Stages/excel_final/tests/test_pipeline_end_to_end.py`
 
-- [ ] **Step 1: 添加真实样本失败断言**
+- [x] **Step 1: 添加真实样本失败断言**
 
 在 baseline 中加入：
 
@@ -241,7 +241,7 @@ assert sum(row["汇总"] for row in global_scoped) == baseline["part_global_summ
 
 在端到端测试中新增两个构件、相同板材候选，断言只输出一条构件号为空、汇总为两构件贡献之和的 `part` 行，同时 BOX 子板继续保留构件号。
 
-- [ ] **Step 2: 更新 GT 对比工具合同**
+- [x] **Step 2: 更新 GT 对比工具合同**
 
 在 `compare_ground_truth.py` 中定义：
 
@@ -276,7 +276,7 @@ def _part_signature(row: dict[object, object]) -> tuple[object, ...]:
 - 使用 GT `整理` 的 `总数`对账后，38 个全局汇总全部一致且合计 1216；
 - GT `part`四条漏乘构件数继续标记为不成熟 GT 已知差异，而不是规范结果失败。
 
-- [ ] **Step 3: 运行离线聚焦测试**
+- [x] **Step 3: 运行离线聚焦测试**
 
 ```bash
 cd Stages/excel_final
@@ -288,7 +288,7 @@ cd Stages/excel_final
 
 Expected: 全部通过。
 
-- [ ] **Step 4: 提交真实合同和对比逻辑**
+- [x] **Step 4: 提交真实合同和对比逻辑**
 
 ```bash
 git add \
@@ -304,7 +304,7 @@ git commit -m "test(excel-final): lock scoped part projection"
 **Files:**
 - Modify: `backend/tests/excel_processing/test_excel_final_live_flow.py`
 
-- [ ] **Step 1: 更新后端真实链路断言**
+- [x] **Step 1: 更新后端真实链路断言**
 
 保留：
 
@@ -338,7 +338,7 @@ assert all(row["文件"] is None for row in part_rows)
 
 不修改 `backend/app/modules/excel_processing/importers.py`，因为数据库仍从 `整理表`导入。
 
-- [ ] **Step 2: 运行后端聚焦非实时测试**
+- [x] **Step 2: 运行后端聚焦非实时测试**
 
 ```bash
 cd backend
@@ -352,7 +352,7 @@ cd backend
 
 Expected: Ruff 和测试全部通过，旧格式缺失构件身份仍被跳过。
 
-- [ ] **Step 3: 提交后端下载合同**
+- [x] **Step 3: 提交后端下载合同**
 
 ```bash
 git add backend/tests/excel_processing/test_excel_final_live_flow.py
@@ -366,7 +366,7 @@ git commit -m "test(excel-final): verify scoped part download"
 - Modify: `Stages/excel_final/README.md`
 - Modify: `backend/app/modules/excel_processing/README.md`
 
-- [ ] **Step 1: 更新 part 业务规则**
+- [x] **Step 1: 更新 part 业务规则**
 
 在 Stage 文档中明确：
 
@@ -392,7 +392,7 @@ GT 的 201 行包含没有来源的人工班组维度。
 part 是下载工作簿中的下料汇总投影，不覆盖数据库构件身份。
 ```
 
-- [ ] **Step 2: 运行文档和差异检查**
+- [x] **Step 2: 运行文档和差异检查**
 
 ```bash
 cd backend
@@ -403,7 +403,7 @@ git diff --check
 
 Expected: 文档检查与差异检查通过。
 
-- [ ] **Step 3: 提交文档**
+- [x] **Step 3: 提交文档**
 
 ```bash
 git add \
@@ -421,7 +421,7 @@ git commit -m "docs(excel-final): document scoped part aggregation"
 - Regenerate only: `Stages/excel_final/data/reports/*.md`
 - Modify: `docs/superpowers/plans/2026-07-23-part-component-scope.md`
 
-- [ ] **Step 1: 运行 Stage 离线全量测试**
+- [x] **Step 1: 运行 Stage 离线全量测试**
 
 ```bash
 cd Stages/excel_final
@@ -431,26 +431,24 @@ cd Stages/excel_final
 
 Expected: 全部启用测试通过。
 
-- [ ] **Step 2: 运行真实 MySQL 手册测试**
+- [x] **Step 2: 运行真实 MySQL 手册测试**
 
 ```bash
-cd Stages/excel_final
-.venv/bin/pytest -q -m handbook_mysql
+backend/.venv/bin/pytest -q -m handbook_mysql Stages/excel_final/tests
 ```
 
 Expected: 全部通过，板材常量、扁钢、D 系列材质路由及跳过类别行为不变。
 
-- [ ] **Step 3: 运行真实 ground truth 测试**
+- [x] **Step 3: 运行真实 ground truth 测试**
 
 ```bash
-cd Stages/excel_final
-DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s \
-  tests/test_ground_truth_regression.py
+DWG_RUN_LIVE_EXCEL_FINAL=1 backend/.venv/bin/pytest -q -s \
+  Stages/excel_final/tests/test_ground_truth_regression.py
 ```
 
 Expected: 真实结果为 122 条 part，84 条构件范围、38 条全局范围、全局汇总 1216，质量状态 `ok`。
 
-- [ ] **Step 4: 重生成规范结果和对比报告**
+- [x] **Step 4: 重生成规范结果和对比报告**
 
 使用后端 `.venv`、真实 MySQL 和 `source_format="canonical"` 重生成：
 
@@ -473,7 +471,7 @@ assert all(row["文件"] is None for row in part_rows)
 assert workbook["处理报告"]["A2"].value == "无"
 ```
 
-- [ ] **Step 5: 运行后端真实上传处理入库下载测试**
+- [x] **Step 5: 运行后端真实上传处理入库下载测试**
 
 ```bash
 cd backend
@@ -483,7 +481,7 @@ DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s \
 
 Expected: 上传、worker、构件级入库、目录、下载全部通过；plate API 为 394，下载 part 为 122。
 
-- [ ] **Step 6: 运行后端全量门禁**
+- [x] **Step 6: 运行后端全量门禁**
 
 ```bash
 cd backend
@@ -495,7 +493,7 @@ cd backend
 
 Expected: Ruff、全量测试、迁移一致性和文档检查全部通过。
 
-- [ ] **Step 7: 清理缓存并检查工作区**
+- [x] **Step 7: 清理缓存并检查工作区**
 
 仅清理 Stage 和 Excel Processing 模块中的测试缓存，不删除 `data/`：
 
@@ -508,7 +506,7 @@ git status --short
 
 Expected: 没有未提交的跟踪文件；`Stages/excel_final/data/`继续保持未跟踪。
 
-- [ ] **Step 8: 完成交付审查**
+- [x] **Step 8: 完成交付审查**
 
 核对：
 
