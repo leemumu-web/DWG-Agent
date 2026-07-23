@@ -143,7 +143,7 @@ def test_unrecognized_label_and_encoding_anomaly_emit_stable_warnings(tmp_path: 
     }
 
 
-def test_unlabelled_text_emits_recoverable_warning(tmp_path: Path) -> None:
+def test_unlabelled_chinese_text_becomes_project_candidate(tmp_path: Path) -> None:
     document = ezdxf.new("R2018")
     document.modelspace().add_text("这是一段普通备注").set_placement((0, 0))
     source = tmp_path / "plain-text.dxf"
@@ -151,7 +151,8 @@ def test_unlabelled_text_emits_recoverable_warning(tmp_path: Path) -> None:
 
     result = parse_dxf(source)
 
-    assert [warning.code for warning in result.warnings] == ["UNRECOGNIZED_TEXT"]
+    assert [candidate.value for candidate in result.project_candidates] == ["这是一段普通备注"]
+    assert result.warnings == []
 
 
 def test_r2013_ansi_936_header_keeps_utf8_chinese_text(tmp_path: Path) -> None:
@@ -266,7 +267,121 @@ def test_unlabelled_hyphenated_metadata_is_not_a_part_number(
     result = parse_dxf(source)
 
     assert result.part_candidates == []
-    assert [warning.code for warning in result.warnings] == ["UNRECOGNIZED_TEXT"]
+    assert result.warnings == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Q345GJC", "Q345GJC"),
+        ("(Q345GJC-Z15)", "Q345GJC-Z15"),
+        ("Q390GJC-Z15", "Q390GJC-Z15"),
+        ("Q460GJB-Z25", "Q460GJB-Z25"),
+        ("(Q420GJC-Z25)", "Q420GJC-Z25"),
+    ],
+)
+def test_extracts_expanded_unlabelled_material_grades(
+    tmp_path: Path, raw: str, expected: str
+) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text(raw).set_placement((0, 0))
+    source = tmp_path / "material.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == [expected]
+    assert result.warnings == []
+
+
+def test_extracts_material_and_part_from_composite_text(tmp_path: Path) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text("Q345GJC-Z15 JWL-36-01").set_placement((0, 0))
+    source = tmp_path / "composite.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.material_candidates] == ["Q345GJC-Z15"]
+    assert [candidate.value for candidate in result.part_candidates] == ["JWL-36-01"]
+    assert result.warnings == []
+
+
+def test_extracts_structurally_similar_part_numbers_in_first_seen_order(
+    tmp_path: Path,
+) -> None:
+    values = [
+        "JWL-1014-B-4",
+        "ND-1053-3",
+        "DS-481-4",
+        "SZKJ-07-2",
+        "AYWT-6-1",
+        "YM-42-2",
+        "YL42-2",
+        "YZ-18-1",
+        "LYTL-05",
+        "3CB-3D-1",
+    ]
+    document = ezdxf.new("R2018")
+    for index, value in enumerate(values):
+        document.modelspace().add_text(value).set_placement((0, index * 10))
+    source = tmp_path / "parts.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.part_candidates] == values
+    assert result.warnings == []
+
+
+@pytest.mark.parametrize("annotation", ["余料", "未到料", "返修件"])
+def test_ignores_standalone_two_or_three_chinese_character_annotations(
+    tmp_path: Path, annotation: str
+) -> None:
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text(annotation).set_placement((0, 0))
+    source = tmp_path / "short-annotation.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.material_candidates == []
+    assert result.project_candidates == []
+    assert result.part_candidates == []
+    assert result.warnings == []
+
+
+def test_all_longer_chinese_texts_become_project_candidates(tmp_path: Path) -> None:
+    titles = [
+        "精武路46-47核心筒阚零件2022-3-22",
+        "外框F62~F63层主板2022-12-01下发",
+        "精武路三层梁主板余料11.16",
+    ]
+    document = ezdxf.new("R2018")
+    for index, title in enumerate(titles):
+        document.modelspace().add_text(title).set_placement((0, index * 10))
+    source = tmp_path / "projects.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert [candidate.value for candidate in result.project_candidates] == titles
+    assert [warning.code for warning in result.warnings] == ["PROJECT_CANDIDATES_CONFLICT"]
+
+
+def test_ignores_unclassified_dimensions_dates_and_plain_ascii(tmp_path: Path) -> None:
+    document = ezdxf.new("R2018")
+    for index, text in enumerate(["630", "2022-8-15", "PLAIN NOTE"]):
+        document.modelspace().add_text(text).set_placement((0, index * 10))
+    source = tmp_path / "ordinary-text.dxf"
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.material_candidates == []
+    assert result.project_candidates == []
+    assert result.part_candidates == []
+    assert result.warnings == []
 
 
 def test_normal_non_text_geometry_does_not_emit_structure_warning(tmp_path: Path) -> None:
