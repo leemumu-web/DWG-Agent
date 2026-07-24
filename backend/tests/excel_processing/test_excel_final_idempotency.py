@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from io import BytesIO
 from pathlib import Path
 
@@ -103,12 +104,20 @@ def _excel_file(db: Session, *, owner_id: int, suffix: str) -> StoredFile:
     return stored
 
 
+def _allow_registered_file_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.modules.excel_processing.routes.processing.preflight_stored_excel",
+        lambda _stored: None,
+    )
+
+
 def test_process_replay_returns_same_job(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
 ):
     client, headers, admin = _admin_client(db)
     stored = _excel_file(db, owner_id=admin.id, suffix="replay")
+    _allow_registered_file_preflight(monkeypatch)
     dispatched: list[int] = []
     monkeypatch.setattr(
         "app.modules.excel_processing.routes.processing.dispatch_committed_job",
@@ -138,6 +147,7 @@ def test_process_rejects_same_key_for_different_file(
     client, headers, admin = _admin_client(db)
     first_file = _excel_file(db, owner_id=admin.id, suffix="first")
     second_file = _excel_file(db, owner_id=admin.id, suffix="second")
+    _allow_registered_file_preflight(monkeypatch)
     monkeypatch.setattr(
         "app.modules.excel_processing.routes.processing.dispatch_committed_job",
         lambda _db, _job: None,
@@ -160,9 +170,24 @@ def _workbook_bytes() -> bytes:
     stream = BytesIO()
     book = Workbook()
     sheet = book.active
-    sheet.append(["零件号", "规格", "材质"])
-    sheet.append(["P-1", "L50x5", "Q235"])
+    sheet.title = "原表"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P-1", "L50x5", 100, "Q235B", 1])
     book.save(stream)
+    book.close()
+    return stream.getvalue()
+
+
+def _invalid_workbook_bytes() -> bytes:
+    stream = BytesIO()
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "构件汇总"
+    sheet.append(["构件编号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", "BH500*300*12*20", 1000, "Q355B", 1])
+    book.save(stream)
+    book.close()
     return stream.getvalue()
 
 
@@ -218,6 +243,113 @@ def test_upload_and_process_replay_reuses_file_and_job(
     assert storage.bucket_object_counts(["dwg-reports"])["dwg-reports"] == 1
 
 
+def test_upload_and_process_rejects_invalid_table_before_file_or_job_persistence(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.platform.storage.factory.get_storage_backend",
+        lambda: storage,
+    )
+    client, headers, _admin = _admin_client(db)
+
+    response = _post_workbook(client, headers, _invalid_workbook_bytes())
+
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "EXCEL_INPUT_COMPONENT_ONLY"
+    assert error["message"] == "输入只有构件汇总，没有零件明细。"
+    failure = error["details"]["failure"]
+    assert failure["code"] == error["code"]
+    assert "包含零件号" in failure["action"]
+    assert failure["contract_version"] == 1
+    assert response.json()["meta"]["request_id"]
+    assert db.scalar(select(func.count()).select_from(StoredFile)) == 0
+    assert db.scalar(select(func.count()).select_from(FileTransfer)) == 0
+    assert db.scalar(select(func.count()).select_from(Job)) == 0
+    assert storage.bucket_object_counts(["dwg-reports"])["dwg-reports"] == 0
+
+
+def test_upload_only_rejects_invalid_table_with_same_failure_contract(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.platform.storage.factory.get_storage_backend",
+        lambda: storage,
+    )
+    client, headers, _admin = _admin_client(db)
+
+    response = client.post(
+        "/api/v1/excel-final/upload",
+        headers=headers,
+        files={
+            "upload": (
+                "component-only.xlsx",
+                _invalid_workbook_bytes(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert response.status_code == 422, response.text
+    failure = response.json()["error"]["details"]["failure"]
+    assert failure["code"] == "EXCEL_INPUT_COMPONENT_ONLY"
+    assert failure["action"]
+    assert db.scalar(select(func.count()).select_from(StoredFile)) == 0
+    assert db.scalar(select(func.count()).select_from(FileTransfer)) == 0
+
+
+def test_process_rejects_registered_object_with_changed_checksum_before_job(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.platform.storage.factory.get_storage_backend",
+        lambda: storage,
+    )
+    client, headers, admin = _admin_client(db)
+    payload = _workbook_bytes()
+    storage.put_fileobj(
+        "dwg-reports",
+        "tests/changed.xlsx",
+        BytesIO(payload),
+        length=len(payload),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    stored = StoredFile(
+        bucket="dwg-reports",
+        storage_key="tests/changed.xlsx",
+        original_name="changed.xlsx",
+        file_ext=".xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size_bytes=len(payload),
+        sha256=hashlib.sha256(b"previous bytes").hexdigest(),
+        uploaded_by=admin.id,
+        status="available",
+    )
+    db.add(stored)
+    db.commit()
+
+    response = client.post(
+        f"/api/v1/excel-final/process?file_id={stored.id}",
+        headers={**headers, "Idempotency-Key": "changed-object"},
+    )
+
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "EXCEL_INPUT_OBJECT_CHANGED"
+    assert error["details"]["failure"]["code"] == error["code"]
+    assert "重新上传" in error["details"]["failure"]["action"]
+    assert db.scalar(select(func.count()).select_from(Job)) == 0
+
+
 def test_process_rejects_non_excel_stored_file(
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -269,6 +401,7 @@ def test_process_accepts_macro_enabled_excel_source(
     )
     db.add(stored)
     db.commit()
+    _allow_registered_file_preflight(monkeypatch)
     dispatched: list[int] = []
     monkeypatch.setattr(
         "app.modules.excel_processing.routes.processing.dispatch_committed_job",

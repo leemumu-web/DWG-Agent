@@ -57,6 +57,10 @@ def process_status(
     batch: ExcelFinalBatch | None,
     result_file_id: int | None,
 ) -> dict[str, object]:
+    progress_data = job.progress_data if isinstance(job.progress_data, dict) else {}
+    failure = progress_data.get("failure")
+    if not isinstance(failure, dict):
+        failure = None
     return {
         "job_id": job.id,
         "status": job.status,
@@ -64,6 +68,7 @@ def process_status(
         "pipeline": job.pipeline,
         "error_code": job.error_code,
         "error_message": job.error_message,
+        "failure": failure,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,

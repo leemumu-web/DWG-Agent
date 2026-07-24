@@ -15,6 +15,10 @@ from app.modules.excel_processing.idempotency import scoped_request_key
 from app.modules.excel_processing.models import ExcelFinalBatch
 from app.modules.excel_processing.presentation import process_status
 from app.modules.excel_processing.uploads import store_excel_upload
+from app.modules.excel_processing.validation import (
+    preflight_excel_upload,
+    preflight_stored_excel,
+)
 from app.modules.files.interface import StoredFile, build_signed_download_url
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.interface import (
@@ -43,6 +47,7 @@ async def upload_excel(
 ):
     """上传 .xlsx/.xls 文件并使用 files 事务流水登记对象。"""
     ensure_pipeline_enabled()
+    await preflight_excel_upload(upload)
     stored, _reused = await store_excel_upload(
         db,
         upload,
@@ -89,6 +94,7 @@ def process_file(
         raise AppHTTPException(
             415, "NOT_EXCEL", "Only .xls, .xlsx or .xlsm files can be processed."
         )
+    preflight_stored_excel(stored)
 
     job, reused = create_or_reuse_job(
         db,
@@ -165,6 +171,7 @@ async def upload_and_process(
                 request.state.request_id,
             )
 
+    await preflight_excel_upload(upload)
     stored, _upload_reused = await store_excel_upload(
         db,
         upload,
