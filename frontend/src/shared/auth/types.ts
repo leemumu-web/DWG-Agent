@@ -4,6 +4,7 @@ export interface Role {
   name: string;
   description?: string | null;
   is_system: boolean;
+  permissions?: Permission[];
 }
 
 export interface Permission {

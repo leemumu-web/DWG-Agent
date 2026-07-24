@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { Space, Tabs, Tag, Typography } from 'antd';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Button, Space, Tabs, Tag, Typography } from 'antd';
 import {
   ApiOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   FileSearchOutlined,
   FileZipOutlined,
+  ProfileOutlined,
   ScanOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
@@ -33,6 +34,22 @@ export function InfrastructurePage() {
     { key: 'daily-archive', label: '每日归档', icon: <FileZipOutlined />, children: <DailyArchivePanel /> },
     { key: 'consistency', label: '一致性', icon: <ScanOutlined />, children: <ConsistencyPanel latestScanId={overview.data?.latest_scan?.id} /> },
     { key: 'runtime', label: '运行与通信', icon: <ApiOutlined />, children: <RuntimeCommunicationPanel /> },
+    {
+      key: 'audit',
+      label: '审计日志',
+      icon: <ProfileOutlined />,
+      children: (
+        <div style={{ textAlign: 'center', padding: '60px 0' }}>
+          <ProfileOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />
+          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>
+            审计日志记录所有操作的历史轨迹，可在独立页面查看完整记录。
+          </Typography.Paragraph>
+          <Link to="/admin/audit-logs">
+            <Button type="primary" icon={<ProfileOutlined />}>打开审计日志</Button>
+          </Link>
+        </div>
+      ),
+    },
   ];
   return <div className="data-console">
     <section className="data-console-hero">

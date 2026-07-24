@@ -16,10 +16,10 @@ from app.platform.database.session import SessionLocal
 from app.platform.security.tokens import hash_password
 
 ROLE_SEEDS = [
-    (ROLE_SUPER_ADMIN, "超级管理员"),
-    (ROLE_ADMIN, "管理员"),
-    (ROLE_OPERATOR, "操作员"),
-    (ROLE_VIEWER, "只读用户"),
+    (ROLE_SUPER_ADMIN, "超级管理员", "全部管理权限：用户、角色、系统配置、审计日志、生产流程"),
+    (ROLE_ADMIN, "管理员", "全部管理权限：用户、角色、系统配置、审计日志、生产流程"),
+    (ROLE_OPERATOR, "操作员", "生产操作：工作流、文件、任务、复核、余料读写；不可管理用户和角色"),
+    (ROLE_VIEWER, "只读用户", "只读查看：审计日志、余料预览；不可执行任何写入操作"),
 ]
 
 # Three-tier permission model matching the three effective access levels:
@@ -44,10 +44,10 @@ def init_db() -> None:
     """
     db = SessionLocal()
     try:
-        for code, name in ROLE_SEEDS:
+        for code, name, description in ROLE_SEEDS:
             role = db.scalar(select(Role).where(Role.code == code))
             if not role:
-                role = Role(code=code, name=name, is_system=True)
+                role = Role(code=code, name=name, description=description, is_system=True)
                 db.add(role)
         db.flush()
 
