@@ -295,6 +295,15 @@ export function WorkflowDetailPage() {
         <Progress percent={detail.progress} />
       </div>
 
+      {detail.workflow_type === 'linux_production' && (
+        <Alert
+          type="info"
+          showIcon
+          message="图纸主格式：DXF"
+          description="DWG 只在输入阶段留档；服务器转换并冻结后，后续图纸产物必须是 DXF。Excel、报告和清单保持各自格式。"
+        />
+      )}
+
       <div className="workflow-detail-grid">
         <StageRail
           stages={detail.stages}
@@ -315,6 +324,17 @@ export function WorkflowDetailPage() {
                   <Tag>{stageStateLabel(currentStage)}</Tag>
                 </Space>
               </section>
+
+              <Alert
+                type="info"
+                showIcon
+                message="阶段数据合同"
+                description={[
+                  `所需输入：${currentCapability.required_inputs.join('、') || '无'}`,
+                  `允许产物：${currentCapability.artifact_types.join('、') || '无'}`,
+                  `完成必需产物：${currentCapability.required_outputs.join('、') || '无'}`,
+                ].join('；')}
+              />
 
               {currentStage.error_message && (
                 <Alert
@@ -388,7 +408,7 @@ export function WorkflowDetailPage() {
                   message={currentCapability.implementation_status === 'external'
                     ? '该阶段由外部生产节点完成'
                     : '该阶段接口已定义，执行能力尚未实现'}
-                  description={`所需输入：${currentCapability.required_inputs.join('、') || '尚未定义'}；预期产物：${currentCapability.artifact_types.join('、') || '尚未定义'}。当前不会提交虚假任务。`}
+                  description="当前不会提交虚假任务；请按阶段数据合同绑定真实产物后人工确认。"
                 />
               )}
               {manualConfirmation && (

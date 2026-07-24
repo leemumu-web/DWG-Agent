@@ -401,6 +401,36 @@ def _production_docs_contract(errors: list[str]) -> None:
             )
 
 
+def _workflow_dxf_contract(errors: list[str]) -> None:
+    path = DOCS / "architecture/workflow.md"
+    content = _read_required(path, errors)
+    for marker in (
+        "source_dwg",
+        "canonical_dxf",
+        "classified_dxf",
+        "processed_dxf",
+        "cam_input_dxf",
+        "cam_output_dxf",
+        "accepted_dxf",
+        "delivery_dxf",
+        "definition_revision 3",
+    ):
+        if marker not in content:
+            errors.append(f"{path.relative_to(ROOT)} omits workflow contract {marker}")
+    for obsolete in (
+        "source_file/derived_dxf",
+        "drawing_files",
+        "processed_drawing",
+        "processed_drawings",
+        "cam_result",
+        "delivery_file",
+    ):
+        if obsolete in content:
+            errors.append(
+                f"{path.relative_to(ROOT)} contains obsolete workflow contract {obsolete}"
+            )
+
+
 def check_docs() -> list[str]:
     errors: list[str] = []
     _documentation_set(errors)
@@ -412,6 +442,7 @@ def check_docs() -> list[str]:
     _repository_boundaries(errors)
     _component_document_contract(errors)
     _production_docs_contract(errors)
+    _workflow_dxf_contract(errors)
     return errors
 
 

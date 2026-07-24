@@ -157,9 +157,9 @@ def freeze_input_batch(
         db.flush()
         version = DrawingVersion(
             drawing_id=drawing.id,
-            file_id=source.id,
+            file_id=derived.id,
             version_no=1,
-            source="workflow_input_dwg",
+            source="workflow_input_dxf",
             created_by=batch.created_by,
         )
         db.add(version)
@@ -178,7 +178,7 @@ def freeze_input_batch(
             db,
             workflow,
             stage_code="source_intake",
-            artifact_type="source_file",
+            artifact_type="source_dwg",
             file_id=source.id,
             metadata={"batch_id": batch.id, "drawing_id": drawing.id},
         )
@@ -186,9 +186,13 @@ def freeze_input_batch(
             db,
             workflow,
             stage_code="source_intake",
-            artifact_type="derived_dxf",
+            artifact_type="canonical_dxf",
             file_id=derived.id,
-            metadata={"batch_id": batch.id, "drawing_id": drawing.id},
+            metadata={
+                "batch_id": batch.id,
+                "drawing_id": drawing.id,
+                "source_dwg_file_id": source.id,
+            },
         )
 
     excel_item = excel_items[0]
@@ -222,6 +226,6 @@ def freeze_input_batch(
         item.status = "frozen"
         item.error_code = None
         item.error_message = None
-    complete_manual_stage(workflow, "source_intake")
+    complete_manual_stage(db, workflow, "source_intake")
     db.flush()
     return batch

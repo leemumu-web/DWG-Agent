@@ -115,6 +115,24 @@ def _invalid_xlsx_bytes() -> bytes:
     return output.getvalue()
 
 
+def _conversion_result(
+    job: Job,
+    *,
+    source_file_id: int,
+    dxf_file_id: int,
+) -> AnalysisResult:
+    return AnalysisResult(
+        job_id=job.id,
+        result_type="convert_dwg_to_dxf",
+        result_json={
+            "source_file_id": source_file_id,
+            "dxf_file_id": dxf_file_id,
+        },
+        result_file_id=dxf_file_id,
+        status="succeeded",
+    )
+
+
 def test_input_batch_model_has_one_batch_per_workflow_and_ordered_items(db):
     user, project, workflow = _workflow(db)
     first_dwg = _file(db, "B.dwg")
@@ -398,11 +416,12 @@ def test_sync_pairs_only_successful_server_derived_dxf(db, tmp_path, monkeypatch
         b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
     )
     db.add(
-        AnalysisResult(
-            job_id=job.id,
-            result_type="convert_dwg_to_dxf",
-            result_file_id=derived.id,
-            status="succeeded",
+        _conversion_result(
+            job,
+            source_file_id=next(
+                item.file_id for item in batch.items if item.role == "source_dwg"
+            ),
+            dxf_file_id=derived.id,
         )
     )
     job.status = "succeeded"
@@ -425,11 +444,12 @@ def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
     job = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id).jobs[0]
     derived = _stored_object(db, storage, "other.dxf", b"0\nEOF\n")
     db.add(
-        AnalysisResult(
-            job_id=job.id,
-            result_type="convert_dwg_to_dxf",
-            result_file_id=derived.id,
-            status="succeeded",
+        _conversion_result(
+            job,
+            source_file_id=next(
+                item.file_id for item in batch.items if item.role == "source_dwg"
+            ),
+            dxf_file_id=derived.id,
         )
     )
     job.status = "succeeded"
@@ -440,6 +460,37 @@ def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
     item = next(item for item in batch.items if item.role == "source_dwg")
     assert item.status == "conversion_failed"
     assert item.error_code == "INPUT_DXF_NAME_MISMATCH"
+    assert batch.status == "needs_attention"
+
+
+def test_sync_rejects_dxf_result_bound_to_another_source_dwg(db, tmp_path, monkeypatch):
+    user, _, _, batch, storage = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=("source.dwg",)
+    )
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    job = workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id).jobs[0]
+    derived = _stored_object(
+        db,
+        storage,
+        "source.dxf",
+        b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+    )
+    unrelated_source = _file(db, "unrelated.dwg")
+    db.add(
+        _conversion_result(
+            job,
+            source_file_id=unrelated_source.id,
+            dxf_file_id=derived.id,
+        )
+    )
+    job.status = "succeeded"
+    db.flush()
+
+    workflow_input_conversion.sync_input_batch(db, batch)
+
+    item = next(item for item in batch.items if item.role == "source_dwg")
+    assert item.status == "conversion_failed"
+    assert item.error_code == "INPUT_DXF_SOURCE_MISMATCH"
     assert batch.status == "needs_attention"
 
 
@@ -462,11 +513,10 @@ def _ready_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
             b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
         )
         db.add(
-            AnalysisResult(
-                job_id=job.id,
-                result_type="convert_dwg_to_dxf",
-                result_file_id=derived.id,
-                status="succeeded",
+            _conversion_result(
+                job,
+                source_file_id=item.file_id,
+                dxf_file_id=derived.id,
             )
         )
         job.status = "succeeded"
@@ -496,11 +546,20 @@ def test_freeze_creates_drawings_manifest_artifacts_and_completes_source_intake(
     assert len(versions) == 2
     assert all(item.status == "frozen" for item in batch.items)
     assert all(item.drawing_id is not None for item in batch.items if item.role == "source_dwg")
+    drawing_items = {
+        item.drawing_id: item for item in batch.items if item.role == "source_dwg"
+    }
+    for drawing in drawings:
+        item = drawing_items[drawing.id]
+        version = next(value for value in versions if value.id == drawing.current_version_id)
+        assert version.file_id == item.derived_dxf_file_id
+        assert version.file_id != item.file_id
+        assert version.source == "workflow_input_dxf"
     assert workflow.current_stage == "dxf_classification"
     assert {artifact.artifact_type for artifact in workflow.artifacts} == {
-        "source_file",
+        "source_dwg",
         "source_excel",
-        "derived_dxf",
+        "canonical_dxf",
     }
 
 
@@ -579,11 +638,11 @@ def test_source_intake_cannot_be_manually_completed_before_batch_freeze(db, tmp_
         db,
         workflow,
         stage_code="source_intake",
-        artifact_type="source_file",
+        artifact_type="source_dwg",
         file_id=source.file_id,
     )
 
     with pytest.raises(AppHTTPException) as error:
-        workflow_service.complete_manual_stage(workflow, "source_intake")
+        workflow_service.complete_manual_stage(db, workflow, "source_intake")
 
     assert error.value.detail["code"] == "WORKFLOW_INPUT_BATCH_NOT_FROZEN"

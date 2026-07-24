@@ -7,6 +7,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.workflows.contracts import (
+    require_stage_inputs,
+    require_stage_outputs,
+    verify_required_dxf_objects,
+)
 from app.modules.workflows.models import WorkflowRun, WorkflowStageRun
 from app.modules.workflows.schemas import WorkflowCreate
 from app.modules.workflows.templates import WORKFLOW_DEFINITIONS, get_stage_capability
@@ -20,7 +25,7 @@ STAGE_ACTIVE = {"queued", "running"}
 def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) -> WorkflowRun:
     config = dict(payload.config)
     if payload.workflow_type == "linux_production":
-        config["definition_revision"] = 2
+        config["definition_revision"] = 3
     workflow = WorkflowRun(
         project_id=payload.project_id,
         created_by=created_by,
@@ -69,7 +74,11 @@ def start_workflow(db: Session, workflow: WorkflowRun) -> WorkflowRun:
     return workflow
 
 
-def complete_manual_stage(workflow: WorkflowRun, stage_code: str) -> WorkflowRun:
+def complete_manual_stage(
+    db: Session,
+    workflow: WorkflowRun,
+    stage_code: str,
+) -> WorkflowRun:
     stage = next((item for item in workflow.stages if item.stage_code == stage_code), None)
     if stage is None:
         raise AppHTTPException(422, "WORKFLOW_STAGE_UNKNOWN", "Unknown workflow stage.")
@@ -96,12 +105,10 @@ def complete_manual_stage(workflow: WorkflowRun, stage_code: str) -> WorkflowRun
             "WORKFLOW_INPUT_BATCH_NOT_FROZEN",
             "The production input batch must be validated and frozen through its dedicated endpoint.",
         )
-    if capability.execution_mode in {"placeholder", "external"} and not stage.artifacts:
-        raise AppHTTPException(
-            409,
-            "WORKFLOW_HANDOFF_ARTIFACT_REQUIRED",
-            "At least one handoff artifact must be bound before confirming this stage.",
-        )
+    require_stage_inputs(workflow, stage_code)
+    require_stage_outputs(workflow, stage_code)
+    if workflow.workflow_type == "linux_production" and stage_code != "source_intake":
+        verify_required_dxf_objects(db, workflow, stage_code)
     now = datetime.now(UTC)
     stage.status = "succeeded"
     stage.progress = 100

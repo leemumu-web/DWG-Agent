@@ -59,12 +59,12 @@ def test_manual_workflow_stages_advance_and_finish(db):
     assert workflow.status == "waiting_input"
     assert workflow.current_stage == "source_upload"
 
-    complete_manual_stage(workflow, "source_upload")
+    complete_manual_stage(db, workflow, "source_upload")
     assert workflow.current_stage == "quality_review"
     assert workflow.status == "waiting_input"
 
-    complete_manual_stage(workflow, "quality_review")
-    complete_manual_stage(workflow, "delivery")
+    complete_manual_stage(db, workflow, "quality_review")
+    complete_manual_stage(db, workflow, "delivery")
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
     assert workflow.finished_at is not None

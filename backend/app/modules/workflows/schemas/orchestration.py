@@ -19,6 +19,7 @@ class WorkflowStageCapability(BaseModel):
     execution_kind: str | None = None
     required_inputs: list[str] = Field(default_factory=list)
     artifact_types: list[str] = Field(default_factory=list)
+    required_outputs: list[str] = Field(default_factory=list)
 
 
 class WorkflowTemplateRead(BaseModel):

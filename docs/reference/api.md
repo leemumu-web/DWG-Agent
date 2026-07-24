@@ -399,7 +399,7 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 
 `GET .../input-batch` 返回每个 DWG 的上传、Job、attempt、进度、派生 DXF、配对和错误建议。批次创建以 savepoint 处理唯一键竞态；文件登记/移除/转换以批次行锁串行化，避免并发产生两个 Excel。明确的 broker 投递失败以 status + attempt 条件把仍 queued 的 Job 标为 `JOB_ENQUEUE_FAILED`，重放可进入 retry；已领取 Job 不被覆盖。
 
-`POST .../input-batch/freeze` 在行锁内重新读取所有源对象，核对大小、SHA-256、真实格式、唯一 Excel 和规范化文件名，然后为每个 DWG 创建 Drawing/Version、挂接 `source_file`/`derived_dxf`/`source_excel` artifact、计算规范 JSON 清单 SHA-256，并原子完成 `source_intake`。冻结后所有增删和转换请求被拒绝；通用 `/files` 删除同样拒绝冻结清单中的 DWG、Excel 和派生 DXF，返回 `409 FILE_REFERENCED_BY_FROZEN_INPUT`。
+`POST .../input-batch/freeze` 在行锁内重新读取所有源对象，核对大小、SHA-256、真实格式、唯一 Excel 和规范化文件名，然后为每个 DWG 创建指向规范 DXF 的 Drawing/Version、挂接 `source_dwg`/`canonical_dxf`/`source_excel` artifact、计算规范 JSON 清单 SHA-256，并原子完成 `source_intake`。冻结后所有增删和转换请求被拒绝；通用 `/files` 删除同样拒绝冻结清单中的 DWG、Excel 和派生 DXF，返回 `409 FILE_REFERENCED_BY_FROZEN_INPUT`。模板同时公开 `required_outputs`，阶段只有在全部必需产物存在时才能成功。
 
 `linux_production` 对每阶段强制执行模板声明的 artifact type 白名单；不匹配返回 `422 WORKFLOW_ARTIFACT_TYPE_INVALID`。因此 placeholder/external 阶段必须提交约定类型的真实交接产物，不能用任意文件满足 completion。旧模板未声明白名单，保持兼容。
 

@@ -128,7 +128,7 @@ def complete_stage_api(
 ):
     workflow = load_workflow_detail(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
-    complete_manual_stage(workflow, stage_code)
+    complete_manual_stage(db, workflow, stage_code)
     write_audit_log(
         db,
         actor_user_id=current_user.id,

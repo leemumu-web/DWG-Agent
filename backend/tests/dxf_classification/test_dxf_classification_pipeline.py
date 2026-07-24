@@ -12,6 +12,7 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.dxf_classification import execution as dxf_classification_service
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
+from app.modules.dxf_classification.persistence import classification_request_id
 from app.modules.files.interface import StoredFile, get_storage_backend
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
@@ -19,6 +20,43 @@ from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.interface import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
 from app.modules.workflows.schemas import WorkflowCreate
+
+
+def _attach_source_artifacts(db, workflow: WorkflowRun, canonical_dxf: StoredFile) -> None:
+    source_dwg = StoredFile(
+        bucket="dxf-derived",
+        storage_key=f"tests/{uuid4().hex}.dwg",
+        original_name="A001.dwg",
+        file_ext=".dwg",
+        content_type="application/acad",
+        size_bytes=2048,
+        sha256=uuid4().hex + uuid4().hex,
+        status="available",
+    )
+    source_excel = StoredFile(
+        bucket="dxf-derived",
+        storage_key=f"tests/{uuid4().hex}.xlsx",
+        original_name="source.xlsx",
+        file_ext=".xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size_bytes=2048,
+        sha256=uuid4().hex + uuid4().hex,
+        status="available",
+    )
+    db.add_all([source_dwg, source_excel])
+    db.flush()
+    for artifact_type, stored in (
+        ("source_dwg", source_dwg),
+        ("source_excel", source_excel),
+        ("canonical_dxf", canonical_dxf),
+    ):
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code="source_intake",
+            artifact_type=artifact_type,
+            file_id=stored.id,
+        )
 
 
 def _frozen_classification_job(db, tmp_path: Path):
@@ -91,7 +129,8 @@ def _frozen_classification_job(db, tmp_path: Path):
             derived_dxf_file_id=stored.id,
         )
     )
-    workflow_service.complete_manual_stage(workflow, "source_intake")
+    _attach_source_artifacts(db, workflow, stored)
+    workflow_service.complete_manual_stage(db, workflow, "source_intake")
     job = Job(
         project_id=project.id,
         created_by=user.id,
@@ -198,6 +237,32 @@ def test_classifier_naming_contract_uses_project_code_and_workflow_id():
     assert dxf_classification_service.classifier_project_name("PRJ_01", 42) == "PRJ_01-workflow-42"
 
 
+def test_classification_transfer_request_id_is_bounded_stable_and_path_sensitive():
+    long_path = (
+        "DXFREAL-1784893851-workflow-5_待确认_dxf/"
+        "15C-114 - 板零件图_拆板前.dxf"
+    )
+
+    request_id = classification_request_id(
+        job_id=1652,
+        attempt=1,
+        relative_path=long_path,
+    )
+
+    assert request_id == classification_request_id(
+        job_id=1652,
+        attempt=1,
+        relative_path=long_path,
+    )
+    assert len(request_id) <= 64
+    assert request_id.startswith("dxf-classification:")
+    assert request_id != classification_request_id(
+        job_id=1652,
+        attempt=1,
+        relative_path=f"{long_path}.other",
+    )
+
+
 def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatch):
     from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
@@ -260,7 +325,8 @@ def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatc
             derived_dxf_file_id=source.id,
         )
     )
-    workflow_service.complete_manual_stage(workflow, "source_intake")
+    _attach_source_artifacts(db, workflow, source)
+    workflow_service.complete_manual_stage(db, workflow, "source_intake")
     db.commit()
 
     monkeypatch.setattr(settings, "dxf_classification_pipeline_enabled", True)

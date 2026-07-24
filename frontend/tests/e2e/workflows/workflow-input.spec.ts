@@ -46,12 +46,16 @@ async function mockWorkflow(page: Page) {
       code: 'source_intake', name: stages[0].name,
       description: '上传多个 DWG 和一个 Excel，由服务器生成 DXF',
       execution_mode: 'manual', implementation_status: 'implemented', execution_kind: null,
-      required_inputs: ['dwg_files', 'excel_file'], artifact_types: ['source_file', 'source_excel', 'derived_dxf'],
+      required_inputs: ['dwg_files', 'excel_file'],
+      artifact_types: ['source_dwg', 'source_excel', 'canonical_dxf'],
+      required_outputs: ['source_dwg', 'source_excel', 'canonical_dxf'],
     }, {
       code: 'dxf_classification', name: 'DXF 分类与分流',
       description: '调用 Steel DXF Classifier 1.1.0 预处理并按零件类型分流冻结 DXF',
       execution_mode: 'automated', implementation_status: 'implemented', execution_kind: 'steel_dxf_classification',
-      required_inputs: ['frozen_derived_dxf'], artifact_types: ['classified_dxf', 'classification_report', 'classification_manifest'],
+      required_inputs: ['canonical_dxf'],
+      artifact_types: ['classified_dxf', 'classification_report', 'classification_manifest'],
+      required_outputs: ['classified_dxf', 'classification_report', 'classification_manifest'],
     }],
   };
   let items: Array<Record<string, unknown>> = [];
@@ -72,7 +76,7 @@ async function mockWorkflow(page: Page) {
   });
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
-  await page.route('**/api/v1/projects?**', (route) => route.fulfill({
+  await page.route('**/api/v1/workflows/projects', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -176,6 +180,8 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await expect(submission.getByText('创建并启动后将进入独立详情页继续上传。')).toBeVisible();
   await submission.getByRole('button', { name: '创建并进入资料上传' }).click();
   await expect(page).toHaveURL(/\/workflows\/41$/);
+  await expect(page.getByText('图纸主格式：DXF')).toBeVisible();
+  await expect(page.getByText(/DWG 只在输入阶段留档/)).toBeVisible();
   await expect(page.getByRole('button', { name: /上传 DWG/ })).toBeVisible();
   await expect(page.getByRole('button', { name: '上传 Excel' })).toBeVisible();
   await expect(page.getByText('只需上传多个 DWG 和一个 Excel')).toBeVisible();

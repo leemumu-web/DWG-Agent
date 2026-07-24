@@ -29,7 +29,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、140 个 OpenAPI path 和 160 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、143 个 OpenAPI path 和 167 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 42 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 43 张表；Celery runtime 全部初始化后最多 51 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
@@ -95,7 +95,7 @@ Celery workers（无入站监听端口）
 
 ### 工作流边界
 
-工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` 覆盖输入冻结、图纸交接、唯一 Excel 第一阶段、CAM/Windows 交接、结果接纳和归档；`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`。DXF→Excel 只作为 `/files/dxf2excel` 独立工具保留，不参与主流程。
+工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` revision 3 接收多个 DWG 与唯一 Excel，源 DWG 全部留档并转换为 canonical DXF；冻结后图纸只按 classified/processed/CAM/accepted/delivery DXF 流通。`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`。报告、清单和 Excel 保持各自格式；DXF→Excel 只作为独立工具保留。
 
 这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
 

@@ -10,6 +10,7 @@ from app.modules.excel_processing.interface import ExcelFinalInputError
 from app.modules.files.interface import StoredFile, require_file_read_access
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job, JobCreate, create_or_reuse_job, retry_job
+from app.modules.workflows.contracts import require_stage_inputs
 from app.modules.workflows.intake import registration
 from app.modules.workflows.job_sync import bind_stage_job
 from app.modules.workflows.models import WorkflowRun
@@ -61,6 +62,7 @@ def prepare_stage_execution(
                 "artifact_types": capability.artifact_types,
             },
         )
+    require_stage_inputs(workflow, stage_code)
 
     if payload.execution_kind == "excel_stage1":
         task_type, params = _prepare_excel_stage1(db, workflow, current_user)

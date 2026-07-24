@@ -1,7 +1,7 @@
 # Workflow DXF Canonical Flow Design
 
-**日期：** 2026-07-24  
-**范围：** `/api/v1/workflows` 的 `linux_production` 输入接收、DWG→DXF、阶段产物和迁移  
+**日期：** 2026-07-24
+**范围：** `/api/v1/workflows` 的 `linux_production` 输入接收、DWG→DXF、阶段产物和迁移
 **目标：** 操作员只提交一个 Excel 与一组 DWG；DWG 全部登记并转换后，图纸主链只允许 DXF，Excel、报告和清单继续使用各自业务格式。
 
 ## 1. 现状与问题

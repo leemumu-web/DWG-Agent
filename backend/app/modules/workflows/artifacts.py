@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.workflows.contracts import validate_artifact_reference
 from app.modules.workflows.models import WorkflowArtifact, WorkflowRun
 from app.modules.workflows.templates import get_stage_capability
 from app.platform.http.exceptions import AppHTTPException
@@ -41,6 +42,13 @@ def attach_artifact(
                 "allowed_artifact_types": capability.artifact_types,
             },
         )
+    validate_artifact_reference(
+        db,
+        workflow,
+        artifact_type=artifact_type,
+        file_id=file_id,
+        result_id=result_id,
+    )
     existing = db.scalar(
         select(WorkflowArtifact).where(
             WorkflowArtifact.workflow_run_id == workflow.id,

@@ -185,28 +185,28 @@ def test_cannot_complete_running_stage(db: Session):
     bind_stage_job(db, workflow, stage_code=workflow.stages[0].stage_code, job=job)
     db.commit()
     with pytest.raises(AppHTTPException, match="not awaiting input"):
-        complete_manual_stage(workflow, workflow.stages[0].stage_code)
+        complete_manual_stage(db, workflow, workflow.stages[0].stage_code)
 
 
 def test_cannot_complete_unknown_stage_code(db: Session):
     _, _, workflow = _make_draft(db)
     start_workflow(db, workflow)
     with pytest.raises(AppHTTPException, match="Unknown workflow stage"):
-        complete_manual_stage(workflow, "nonexistent")
+        complete_manual_stage(db, workflow, "nonexistent")
 
 
 def test_cannot_complete_already_succeeded_stage(db: Session):
     _, _, workflow = _make_draft(db)
     start_workflow(db, workflow)
-    complete_manual_stage(workflow, workflow.stages[0].stage_code)
+    complete_manual_stage(db, workflow, workflow.stages[0].stage_code)
     with pytest.raises(AppHTTPException, match="not awaiting input"):
-        complete_manual_stage(workflow, workflow.stages[0].stage_code)
+        complete_manual_stage(db, workflow, workflow.stages[0].stage_code)
 
 
 def test_complete_manual_stage_advances_to_next(db: Session):
     _, _, workflow = _make_draft(db)
     start_workflow(db, workflow)
-    complete_manual_stage(workflow, "source_upload")
+    complete_manual_stage(db, workflow, "source_upload")
     assert workflow.stages[0].status == "succeeded"
     assert workflow.stages[0].progress == 100
     assert workflow.stages[0].finished_at is not None
@@ -218,12 +218,12 @@ def test_full_file_delivery_lifecycle(db: Session):
     _, _, workflow = _make_draft(db, "file_delivery")
     start_workflow(db, workflow)
     assert workflow.status == "waiting_input"
-    complete_manual_stage(workflow, "source_upload")
+    complete_manual_stage(db, workflow, "source_upload")
     assert workflow.status == "waiting_input"
     assert workflow.current_stage == "quality_review"
-    complete_manual_stage(workflow, "quality_review")
+    complete_manual_stage(db, workflow, "quality_review")
     assert workflow.current_stage == "delivery"
-    complete_manual_stage(workflow, "delivery")
+    complete_manual_stage(db, workflow, "delivery")
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
     assert workflow.finished_at is not None
@@ -233,13 +233,13 @@ def test_full_excel_delivery_lifecycle(db: Session):
     _, _, workflow = _make_draft(db, "excel_delivery")
     start_workflow(db, workflow)
     assert workflow.status == "waiting_input"
-    complete_manual_stage(workflow, "source_upload")
+    complete_manual_stage(db, workflow, "source_upload")
     assert workflow.current_stage == "excel_process"
-    complete_manual_stage(workflow, "excel_process")
+    complete_manual_stage(db, workflow, "excel_process")
     assert workflow.current_stage == "quality_review"
-    complete_manual_stage(workflow, "quality_review")
+    complete_manual_stage(db, workflow, "quality_review")
     assert workflow.current_stage == "delivery"
-    complete_manual_stage(workflow, "delivery")
+    complete_manual_stage(db, workflow, "delivery")
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
 
@@ -260,7 +260,7 @@ def test_cannot_cancel_succeeded_workflow(db: Session):
     _, _, workflow = _make_draft(db, "file_delivery")
     start_workflow(db, workflow)
     for stage in workflow.stages:
-        complete_manual_stage(workflow, stage.stage_code)
+        complete_manual_stage(db, workflow, stage.stage_code)
     assert workflow.status == "succeeded"
     with pytest.raises(AppHTTPException, match="already terminal"):
         cancel_workflow(workflow)
@@ -269,7 +269,7 @@ def test_cannot_cancel_succeeded_workflow(db: Session):
 def test_cancelling_partial_workflow_cancels_remaining_stages(db: Session):
     _, _, workflow = _make_draft(db, "file_delivery")
     start_workflow(db, workflow)
-    complete_manual_stage(workflow, "source_upload")
+    complete_manual_stage(db, workflow, "source_upload")
     cancel_workflow(workflow)
     assert workflow.status == "cancelled"
     assert workflow.stages[0].status == "succeeded"
@@ -402,7 +402,7 @@ def test_bind_job_to_terminal_workflow_rejected(db: Session):
     _, _, workflow = _make_draft(db, "file_delivery")
     start_workflow(db, workflow)
     for stage in workflow.stages:
-        complete_manual_stage(workflow, stage.stage_code)
+        complete_manual_stage(db, workflow, stage.stage_code)
     assert workflow.status == "succeeded"
     job = Job(
         task_type="framework_smoke_test",

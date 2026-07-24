@@ -17,6 +17,7 @@ def _stage(
     execution_kind: str | None = None,
     required_inputs: tuple[str, ...] = (),
     artifact_types: tuple[str, ...] = (),
+    required_outputs: tuple[str, ...] = (),
 ) -> WorkflowStageCapability:
     return WorkflowStageCapability(
         code=code,
@@ -27,6 +28,7 @@ def _stage(
         execution_kind=execution_kind,
         required_inputs=list(required_inputs),
         artifact_types=list(artifact_types),
+        required_outputs=list(required_outputs),
     )
 
 
@@ -60,9 +62,10 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "source_intake",
                 "文件接收与输入冻结",
-                "登记多个 DWG 与一个 Excel，由服务器生成配对 DXF 后冻结输入。",
+                "登记多个 DWG 与一个 Excel；DWG 只作源文件留档，服务器生成规范 DXF 后冻结输入。",
                 required_inputs=("dwg_files", "excel_file"),
-                artifact_types=("source_file", "source_excel", "derived_dxf"),
+                artifact_types=("source_dwg", "source_excel", "canonical_dxf"),
+                required_outputs=("source_dwg", "source_excel", "canonical_dxf"),
             ),
             _stage(
                 "dxf_classification",
@@ -70,8 +73,13 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 "调用 Steel DXF Classifier 1.1.0 预处理并按零件类型分流冻结 DXF。",
                 execution_mode="automated",
                 execution_kind="steel_dxf_classification",
-                required_inputs=("frozen_derived_dxf",),
+                required_inputs=("canonical_dxf",),
                 artifact_types=(
+                    "classified_dxf",
+                    "classification_report",
+                    "classification_manifest",
+                ),
+                required_outputs=(
                     "classified_dxf",
                     "classification_report",
                     "classification_manifest",
@@ -84,8 +92,9 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 execution_mode="placeholder",
                 implementation_status="placeholder",
                 execution_kind="drawing_processing",
-                required_inputs=("drawing_files",),
-                artifact_types=("processed_drawing", "validation_report"),
+                required_inputs=("classified_dxf",),
+                artifact_types=("processed_dxf", "validation_report"),
+                required_outputs=("processed_dxf", "validation_report"),
             ),
             _stage(
                 "excel_stage1",
@@ -93,14 +102,17 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 "处理冻结的原始 Tekla Excel，生成整理表和 part。",
                 execution_mode="automated",
                 execution_kind="excel_stage1",
-                required_inputs=("frozen_source_excel",),
+                required_inputs=("source_excel",),
                 artifact_types=("stage1_excel",),
+                required_outputs=("stage1_excel",),
             ),
             _stage(
                 "design_barrier",
                 "深化设计完整性屏障",
                 "人工确认图纸与基础 Excel 已具备最终合并条件。",
+                required_inputs=("processed_dxf", "stage1_excel"),
                 artifact_types=("review_record",),
+                required_outputs=("review_record",),
             ),
             _stage(
                 "cam_packaging",
@@ -109,8 +121,9 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 execution_mode="placeholder",
                 implementation_status="placeholder",
                 execution_kind="cam_packaging",
-                required_inputs=("stage1_excel", "processed_drawings"),
-                artifact_types=("cam_package",),
+                required_inputs=("processed_dxf", "stage1_excel", "review_record"),
+                artifact_types=("cam_input_dxf", "cam_package_manifest"),
+                required_outputs=("cam_input_dxf", "cam_package_manifest"),
             ),
             _stage(
                 "windows_cam",
@@ -119,8 +132,9 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 execution_mode="external",
                 implementation_status="external",
                 execution_kind="windows_cam",
-                required_inputs=("cam_package",),
-                artifact_types=("cam_result", "runner_diagnostics"),
+                required_inputs=("cam_input_dxf", "cam_package_manifest"),
+                artifact_types=("cam_output_dxf", "runner_diagnostics"),
+                required_outputs=("cam_output_dxf",),
             ),
             _stage(
                 "result_acceptance",
@@ -129,14 +143,17 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 execution_mode="placeholder",
                 implementation_status="placeholder",
                 execution_kind="result_acceptance",
-                required_inputs=("cam_result",),
-                artifact_types=("acceptance_report",),
+                required_inputs=("cam_output_dxf",),
+                artifact_types=("accepted_dxf", "acceptance_report"),
+                required_outputs=("accepted_dxf", "acceptance_report"),
             ),
             _stage(
                 "delivery_archive",
                 "交付与归档",
                 "确认正式产物可下载并完成生产流程。",
-                artifact_types=("delivery_file",),
+                required_inputs=("accepted_dxf", "stage1_excel", "acceptance_report"),
+                artifact_types=("delivery_dxf", "delivery_excel", "archive_manifest"),
+                required_outputs=("delivery_dxf", "delivery_excel", "archive_manifest"),
             ),
         ],
     ),

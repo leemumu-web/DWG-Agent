@@ -6,7 +6,7 @@
 
 ## 历史审计说明
 
-> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 2 九阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结、Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通；DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端列表与独立批次详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
+> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 3 九阶段框架：多个 DWG + 单 Excel 上传后，DWG 留档并转换为 canonical DXF，冻结的 DrawingVersion 指向 DXF，后续图纸仅按 DXF 类型流通；Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通。DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端列表与独立批次详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`
@@ -205,7 +205,7 @@ Celery workers
 | 服务器派生 DXF 与 DWG 一一配对 | 已实现当前输入切片 | 每个 `source_dwg` 条目幂等绑定当前 attempt 的 `convert_dwg_to_dxf` Job 和唯一 `derived_dxf_file_id`；同名、可读性和对象摘要在冻结前复核 |
 | 缺失、重复、冲突诊断 | 已实现当前输入切片 | 转换状态、`error_code/error_message`、冻结时 issues 和规范化名称冲突均返回前端；当前通过同一批次内修改/重试修复，没有独立“待修复工单”模型 |
 | 冻结输入清单和清单哈希 | 已实现 | `freeze.py` 重新读取全部对象，按稳定顺序生成 canonical JSON，保存 `manifest_sha256`、`frozen_at` 和版本，并通过 Files 删除保护禁止旁路删除 |
-| 图纸处理单元 | 部分实现 | 每个冻结 DWG 创建内部 `Drawing`/`DrawingVersion`，输入条目保存 `drawing_id` 并关联源 DWG、派生 DXF；自动/人工拆板状态、零件号和最终结果仍待后续领域模型补齐 |
+| 图纸处理单元 | 部分实现 | 每个冻结 DWG 创建内部 `Drawing`，当前 `DrawingVersion` 指向服务器派生 DXF；输入条目仍关联源 DWG 与派生 DXF 以便追溯，自动/人工拆板状态、零件号和最终结果仍待后续领域模型补齐 |
 
 **评价：** 当前确定范围内的输入接收、服务器转换、诊断、冻结与文件保护已经形成可执行纵向切片；下一步不是重做上传，而是扩展图纸处理单元的拆板/人工回流状态。
 

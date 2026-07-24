@@ -95,7 +95,7 @@ Each execution generation is identified by `(job_id, attempt)`. A retry incremen
 
 ### Workflow Boundary
 
-The `linux_production` workflow uses `workflow_runs → workflow_stage_runs → workflow_artifacts` plus input-batch/drawing-unit rows. Operators upload multiple DWGs and exactly one Excel file; the server creates DWG→DXF Jobs, validates and pairs derived DXFs, freezes an immutable manifest, and can run Classifier 1.1.0 plus the wired Excel stages. Public routes bind the current Job attempt, synchronize authoritative state, and attach registered File/AnalysisResult artifacts.
+The revision-3 `linux_production` workflow uses `workflow_runs → workflow_stage_runs → workflow_artifacts` plus input-batch/drawing-unit rows. Operators upload multiple DWGs and exactly one Excel file; every DWG is retained as source evidence and converted to a canonical DXF. The frozen DrawingVersion and all later drawing artifacts use DXF, while Excel, reports, and manifests retain their own formats. Public routes bind the current Job attempt, synchronize authoritative state, and attach registered File/AnalysisResult artifacts.
 
 Plate splitting, CAM packaging, Windows/SinoCAM execution, and deterministic result acceptance remain placeholder/external stages. They expose handoff contracts and explicit not-implemented errors rather than fake success. See the [Linux production workflow](docs/architecture/workflow.md).
 

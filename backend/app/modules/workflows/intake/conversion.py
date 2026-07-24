@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.files.interface import StoredFile
+from app.modules.files.interface import StoredFile, validate_dxf_structure
 from app.modules.jobs.interface import (
     AnalysisResult,
     Job,
@@ -151,6 +151,21 @@ def sync_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBat
                 "The successful conversion has no registered DXF result.",
             )
             continue
+        result_json = result.result_json if isinstance(result.result_json, dict) else {}
+        if result_json.get("source_file_id") != item.file_id:
+            _mark_item_error(
+                item,
+                "INPUT_DXF_SOURCE_MISMATCH",
+                "The conversion result is not bound to this source DWG.",
+            )
+            continue
+        if result_json.get("dxf_file_id") != result.result_file_id:
+            _mark_item_error(
+                item,
+                "INPUT_DXF_RESULT_MISMATCH",
+                "The conversion result metadata does not match its registered DXF file.",
+            )
+            continue
         derived = db.get(StoredFile, result.result_file_id)
         if derived is None or derived.status == "deleted" or derived.file_ext.lower() != ".dxf":
             _mark_item_error(
@@ -167,7 +182,9 @@ def sync_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBat
             )
             continue
         payload = registration.read_verified_input_object(derived)
-        if b"SECTION" not in payload[:4096] or b"EOF" not in payload[-4096:]:
+        try:
+            validate_dxf_structure(payload)
+        except AppHTTPException:
             _mark_item_error(
                 item,
                 "INPUT_DXF_UNREADABLE",

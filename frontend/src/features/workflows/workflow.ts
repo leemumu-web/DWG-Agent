@@ -61,6 +61,7 @@ export interface WorkflowStageCapability {
   execution_kind?: string | null;
   required_inputs: string[];
   artifact_types: string[];
+  required_outputs: string[];
 }
 
 export interface WorkflowTemplate {

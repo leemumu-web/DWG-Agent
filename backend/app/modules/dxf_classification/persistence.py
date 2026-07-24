@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -21,11 +22,23 @@ from app.modules.dxf_classification.models import (
     DxfClassificationItem,
     DxfClassificationRun,
 )
-from app.modules.files.interface import StoredFile, save_bytes_as_file
+from app.modules.files.interface import (
+    StoredFile,
+    complete_transfer_in_transaction,
+    prepare_generated_file_transfer,
+    save_bytes_as_file,
+)
 from app.modules.jobs.interface import AnalysisResult, Job, fail_job_attempt
 from app.modules.workflows.interface import WorkflowInputItem, WorkflowRun
 from app.platform.config.constants import TASK_STEEL_DXF_CLASSIFICATION
 from app.platform.config.settings import settings
+
+
+def classification_request_id(*, job_id: int, attempt: int, relative_path: str) -> str:
+    """Build a deterministic transfer request ID within the 64-character DB contract."""
+    semantic_key = f"{job_id}:{attempt}:{relative_path}".encode()
+    digest = hashlib.sha256(semantic_key).hexdigest()[:44]
+    return f"dxf-classification:{digest}"
 
 
 def classification_sources(
@@ -108,24 +121,52 @@ def persist_output(
     content_type: str,
 ) -> StoredFile:
     """Store and register one routed DXF or classifier report."""
-    return save_bytes_as_file(
+    payload = path.read_bytes()
+    bucket = (
+        settings.minio_bucket_dxf_derived
+        if path.suffix.lower() == ".dxf"
+        else settings.minio_bucket_reports
+    )
+    storage_key = (
+        f"workflows/{workflow_id}/dxf-classification/attempt-{attempt}/{relative_path}"
+    )
+    request_id = classification_request_id(
+        job_id=job.id,
+        attempt=attempt,
+        relative_path=relative_path,
+    )
+    transfer_uid = prepare_generated_file_transfer(
         db,
-        bucket=(
-            settings.minio_bucket_dxf_derived
-            if path.suffix.lower() == ".dxf"
-            else settings.minio_bucket_reports
-        ),
-        storage_key=(
-            f"workflows/{workflow_id}/dxf-classification/attempt-{attempt}/{relative_path}"
-        ),
+        actor_user_id=job.created_by,
+        request_id=request_id,
+        batch_ref=batch_name,
+        bucket=bucket,
+        storage_key=storage_key,
+        original_name=path.name,
+        expected_bytes=len(payload),
+    )
+    stored = save_bytes_as_file(
+        db,
+        bucket=bucket,
+        storage_key=storage_key,
         original_name=path.name,
         file_ext=path.suffix.lower(),
         content_type=content_type,
-        payload=path.read_bytes(),
+        payload=payload,
         uploaded_by=job.created_by,
         batch_name=batch_name,
-        request_id=f"dxf-classification:{job.id}:{attempt}:{relative_path}",
+        transfer_uid=transfer_uid,
     )
+    complete_transfer_in_transaction(
+        db,
+        transfer_uid,
+        file_id=stored.id,
+        bucket=stored.bucket,
+        storage_key=stored.storage_key,
+        original_name=stored.original_name,
+        transferred_bytes=stored.size_bytes,
+    )
+    return stored
 
 
 def record_classification_item(

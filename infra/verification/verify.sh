@@ -412,11 +412,13 @@ if $MYSQL_AVAILABLE; then
     done
 
     # 4.3 角色种子
-    ROLE_COUNT=$($MYSQL_CMD -N -e "SELECT COUNT(*) FROM dwg_agent.sys_roles" 2>/dev/null)
-    if [ "${ROLE_COUNT:-0}" -ge 7 ]; then
-        pass "MySQL: 7+ 角色已种子 ($ROLE_COUNT)"
+    ROLE_COUNT=$($MYSQL_CMD -N -e \
+        "SELECT COUNT(*) FROM dwg_agent.sys_roles WHERE code IN ('super_admin','admin','operator','viewer')" \
+        2>/dev/null)
+    if [ "${ROLE_COUNT:-0}" -eq 4 ]; then
+        pass "MySQL: 四个有效全局角色已种子"
     else
-        fail "MySQL" "角色数不足: $ROLE_COUNT (期望 ≥7)"
+        fail "MySQL" "有效全局角色不完整: $ROLE_COUNT / 4"
     fi
 
     # 4.4 admin 用户

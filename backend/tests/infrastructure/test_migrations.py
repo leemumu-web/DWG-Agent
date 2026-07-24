@@ -38,6 +38,9 @@ LINUX_EXCEL_STAGE_REVISION = (
 REMNANT_EXCEL_WORKFLOW_MERGE_REVISION = (
     VERSIONS_DIR / "8a6c1f4e2b90_merge_remnant_and_excel_workflow_heads.py"
 )
+WORKFLOW_DXF_CANONICAL_REVISION = (
+    VERSIONS_DIR / "c7b2d4e9f601_canonicalize_workflow_dxf_flow.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -372,6 +375,20 @@ def test_remnant_excel_workflow_merge_revision_joins_heads_without_ddl():
     assert "def upgrade() -> None:\n    pass" in source
     assert "def downgrade() -> None:\n    pass" in source
     assert "op." not in source
+
+
+def test_workflow_dxf_canonical_revision_is_fail_closed_and_reversible():
+    source = WORKFLOW_DXF_CANONICAL_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "c7b2d4e9f601"' in source
+    assert 'down_revision: str | None = "8a6c1f4e2b90"' in source
+    assert "def _upgrade_linux_workflows(" in source
+    assert "def _downgrade_linux_workflows(" in source
+    assert "cannot infer revision 3 artifact" in source
+    assert "cannot be represented by revision 2" in source
+    assert "workflow_input_dwg" in source
+    assert "workflow_input_dxf" in source
+    assert "definition_revision" in source
 
 
 def test_alembic_autogenerate_excludes_celery_owned_tables():

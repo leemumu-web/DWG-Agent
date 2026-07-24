@@ -10,8 +10,9 @@
 重新读取 Local/MinIO 对象，核对 SQL 登记的大小与 SHA-256，并通过 Excel Final 阶段一的
 版本化输入规则检查表格；`intake/conversion.py` 为每个 DWG 幂等建立 `convert_dwg_to_dxf`
 Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/freeze.py` 再次校验对象和
-配对，建立 Drawing、artifact 与 canonical manifest SHA-256。冻结后 DWG、Excel 和派生 DXF
-均不能从 `/files` 旁路删除。
+配对，建立 Drawing、artifact 与 canonical manifest SHA-256。冻结后的 `DrawingVersion`
+指向服务器生成的 `canonical_dxf`；源 DWG 只作为 `source_dwg` 留档。冻结后 DWG、Excel
+和派生 DXF 均不能从 `/files` 旁路删除。
 
 结构图中早期的“DXF + DWG + Excel 上传”文字已被用户随后确认的上述规则取代。代码、API
 描述和测试均以服务器派生 DXF 为准；保留旧文字不构成允许人工 DXF 的兼容承诺。
@@ -21,6 +22,7 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 - `models/orchestration.py`：`workflow_runs`、`workflow_stage_runs`、`workflow_artifacts`。
 - `models/intake.py`：`workflow_input_batches`、`workflow_input_items`。
 - `templates.py`：三个模板和阶段能力的唯一事实源；未实现阶段保持 placeholder/external。
+- `contracts.py`：阶段输入/输出类型、文件归属和 DXF 对象结构的统一门禁。
 - `lifecycle.py`：创建、启动、人工交接、取消和整体状态重算。
 - `artifacts.py`：阶段类型白名单和 file/result 引用幂等绑定。
 - `job_sync.py`：`job_id + attempt` 绑定、Result 投影和阶段推进。
@@ -46,7 +48,10 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 `source_intake`、`dxf_classification` 和 `excel_stage1` 已接入现有服务器实现；`excel_stage1`
 从冻结清单解析唯一 `source_excel`，不接收浏览器提供的文件 ID 或 DXF 批次名，底层复用现有
 Excel Job。DXF→Excel 仅保留为独立工具，不属于生产主流程。上述阶段仍受 feature flag、worker、
-Stage、MySQL、对象存储和真实样本约束。`drawing_processing`、`cam_packaging`、`windows_cam`
+Stage、MySQL、对象存储和真实样本约束。当前 `definition_revision 3` 图纸链固定为
+`source_dwg → canonical_dxf → classified_dxf → processed_dxf → cam_input_dxf →
+cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保持各自格式。
+`drawing_processing`、`cam_packaging`、`windows_cam`
 与 `result_acceptance` 只有稳定输入、产物和 501/人工交接契约；自动拆板、CAM 打包、Windows
 Node Agent/SinoCAM 和结果接纳算法尚未实现。目录整理不能被解释为生产闭环已经完成。
 

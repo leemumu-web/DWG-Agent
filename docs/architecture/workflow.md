@@ -26,21 +26,29 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 
 ## 2. 模板与阶段能力
 
-`GET /api/v1/workflows/templates` 是模板元数据的权威入口。前端根据返回的 `execution_mode`、`implementation_status`、`execution_kind`、`required_inputs` 和 `artifact_types` 渲染操作，不在浏览器中猜测后端能力。
+`GET /api/v1/workflows/templates` 是模板元数据的权威入口。前端根据返回的 `execution_mode`、`implementation_status`、`execution_kind`、`required_inputs`、`artifact_types` 和 `required_outputs` 渲染操作，不在浏览器中猜测后端能力。当前 `linux_production` 使用 `definition_revision 3`。
+
+图纸主链是：
+
+`source_dwg → canonical_dxf → classified_dxf → processed_dxf → cam_input_dxf → cam_output_dxf → accepted_dxf → delivery_dxf`
+
+操作员提交一个 Excel 和多个 DWG；所有源对象先登记，每个 DWG 转换并核验为
+`canonical_dxf`，冻结 manifest 和指向 DXF 的 `DrawingVersion` 后，所有后续图纸工件都必须
+是 DXF。Excel、报告和 manifest 保持各自格式。
 
 兼容模板 `excel_delivery` 和 `file_delivery` 保持原有人工阶段顺序。新增完整服务器框架 `linux_production`：
 
 | 顺序 | stage code | 执行方式 | 当前实现与产物 |
 |---:|---|---|---|
-| 1 | `source_intake` | guarded | 人工上传多个 DWG 和唯一 Excel；服务器生成并校验同名 DXF，创建 Drawing 后冻结输入清单 |
-| 2 | `dxf_classification` | automated | 真实创建 `classify_steel_dxf` Job；按 1.1.0 契约预处理和分类分流；产物为逐图 DXF、JSON 报告和 CSV 清单 |
-| 3 | `drawing_processing` | placeholder | 自动/人工拆板与独立校验接口留白；分类已在上一阶段完成 |
+| 1 | `source_intake` | guarded | 登记 `source_dwg` 与 `source_excel`；服务器生成 `canonical_dxf`，创建指向 DXF 的 DrawingVersion 后冻结输入清单 |
+| 2 | `dxf_classification` | automated | 消费 `canonical_dxf`；产出 `classified_dxf`、JSON 报告和清单 |
+| 3 | `drawing_processing` | placeholder | 消费 `classified_dxf`；合同要求 `processed_dxf` 与校验报告，核心拆板仍留白 |
 | 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
 | 5 | `design_barrier` | manual | 人工确认图纸和基础 Excel 已满足最终合并条件 |
-| 6 | `cam_packaging` | placeholder | 生产规则分组、清单冻结和 CAM 工作包接口留白 |
-| 7 | `windows_cam` | external | Node Agent、租约、fencing token、SinoCAM Runner 外部接口留白 |
-| 8 | `result_acceptance` | placeholder | 结果摘要、文件稳定性和正式接纳接口留白 |
-| 9 | `delivery_archive` | manual | 确认已登记产物并结束流程 |
+| 6 | `cam_packaging` | placeholder | 合同要求 `cam_input_dxf` 与 CAM 清单；生成算法留白 |
+| 7 | `windows_cam` | external | 合同要求 `cam_output_dxf`；Node Agent、租约、fencing token、SinoCAM Runner 留白 |
+| 8 | `result_acceptance` | placeholder | 合同要求 `accepted_dxf` 与接纳报告；正式接纳算法留白 |
+| 9 | `delivery_archive` | manual | 合同要求 `delivery_dxf`、交付 Excel 和归档清单 |
 
 `implemented` 表示服务器代码存在，仍受 feature flag、Stage、有效输入、数据库、worker 和存储约束；不表示默认可用。`placeholder` / `external` 表示接口与产物契约存在但核心执行器不存在。
 
@@ -89,7 +97,10 @@ completion API 只接受当前可操作阶段：
 
 转换请求为每个 DWG 建立稳定的 `convert_dwg_to_dxf` Job：活动/成功 Job 幂等复用，失败或取消 Job 通过现有 retry 递增 attempt。API 先提交数据库再投递 worker；明确的 broker 投递失败会以 status + attempt 条件把仍 queued 的 Job 标为 `JOB_ENQUEUE_FAILED`，下一次请求可递增 attempt 重投，已被 worker 领取的状态不会被覆盖。状态查询只接纳条目绑定 attempt 的成功 Result，并验证派生对象、DXF 结构和规范化同名配对。
 
-冻结在事务和行锁内再次校验全部源对象及配对；随后按 DWG 创建 `Drawing` 与 DWG `DrawingVersion`，挂接 `source_file`、`derived_dxf` 和批次级 `source_excel` artifact，计算 canonical JSON 清单 SHA-256，并原子完成 `source_intake`。冻结后批次只读，不能增删文件或重投转换；通用 `/files` 单文件、批量和批次删除也会锁定并拒绝冻结清单引用，防止 DWG、Excel 或派生 DXF 被旁路软删除。
+冻结在事务和行锁内再次校验全部源对象及配对；随后按 DWG 创建 `Drawing` 与指向
+`canonical_dxf` 的 `DrawingVersion`，挂接 `source_dwg`、`canonical_dxf` 和批次级
+`source_excel` artifact，计算 canonical JSON 清单 SHA-256，并原子完成 `source_intake`。
+冻结后批次只读，不能增删文件或重投转换；通用 `/files` 删除也拒绝冻结清单引用。
 
 ### 4.3 自动执行
 

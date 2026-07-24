@@ -8,7 +8,12 @@
 
 ## 业务流
 
-新建批次后进入 `/workflows/{id}` 上传，files 登记源文件，服务器创建 DWG→DXF Job；全部配对无冲突后冻结输入并进入 DXF 分类。Excel 第一阶段从冻结清单解析唯一源 Excel，浏览器只发送 execution kind。输出是 workflow/stage 状态、drawing unit、分流文件和阶段 Excel 产物。
+新建批次后进入 `/workflows/{id}` 上传，files 登记全部源 DWG 和唯一 Excel，服务器创建
+DWG→DXF Job；全部配对无冲突后冻结 `canonical_dxf` 并进入 DXF 分类。DWG 只在输入阶段
+留档，后续图纸按 `classified_dxf → processed_dxf → cam_input_dxf → cam_output_dxf →
+accepted_dxf → delivery_dxf` 流通。Excel 第一阶段从冻结清单解析唯一源 Excel，报告、清单
+和 Excel 保持各自格式。页面直接展示服务端 `required_inputs`、`artifact_types` 和
+`required_outputs`。
 
 ## 边界
 

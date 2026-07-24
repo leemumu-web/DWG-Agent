@@ -1,5 +1,28 @@
 # 全栈工作流验证
 
+## 2026-07-24 Linux 生产图纸 DXF 规范流验收
+
+本轮将 `linux_production` 固定为一个 Excel 加多份 DWG 的输入合同。源 DWG 只在
+`source_intake` 入库；每份 DWG 转换并验证为 `canonical_dxf` 后，DrawingVersion、分类、
+图纸处理、CAM、接纳和交付阶段的图纸主格式全部为 DXF。revision 3 迁移对无法证明格式正确
+的历史 artifact 失败关闭，不静默改名。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| 真实 HTTP/Celery/MySQL 链路 | **pass** | 工作流 `5`、项目 `11` 上传 1 个 XLSX 和 2 个真实 DWG；转换 Job `1650/1651` 生成 File `1112/1113`，冻结清单 SHA-256 为 `41ebd94501fecddfaba0d00ff26d15411cac50c4798ccaabb569403846235dd4`。 |
+| DXF 分类 | **pass with review** | Job `1652` attempt `3`、run `3` 完成；2 个输入均为 DXF，2 个输出因 `TITLE_FIELD_MISSING` 明确进入 `review_required`，JSON 报告 File `1117`、CSV 清单 File `1118` 已登记。 |
+| 数据库格式不变量 | **pass** | 2 个 DrawingVersion 均为 `source=workflow_input_dxf` 且引用 `.dxf`；除 `source_intake/source_dwg` 外的 DWG artifact 数为 0；分类输出与各自 canonical DXF 的 SHA-256 完全一致。 |
+| 长路径与事务回归 | **pass** | 分类 transfer request ID 使用 63 字符稳定摘要，不再把中文相对路径直接写入 64 字符列；生成文件沿用显式持久 transfer 边界，避免 MySQL error 1020。 |
+| Backend 全量 | **1365 passed，10 skipped** | 工作流格式/必需产物门禁、迁移失败关闭、分类持久化和全部既有回归通过。 |
+| Frontend 全量 | **118 passed，1 skipped** | 工作流 DXF 主格式提示、九阶段产物合同及全部浏览器回归通过。 |
+| 独立 Stage | **30 + 30 + 17 + 52 + 239 passed，24 skipped** | DWG→DXF、DXF→DWG、DXF→Excel、Steel DXF Classifier 和 Excel Final 通过。 |
+| 迁移/基础设施 | **pass** | 空 MySQL schema 升级至唯一 head `c7b2d4e9f601`，42 张业务表和种子验证后清理；活动基础设施 **122 / 122**。 |
+| 静态/架构/文档/构建 | **pass** | Ruff、141 个分区文档、42 表/167 operation/13 task 运行时快照、文档生成检查、前端 production build 和 `git diff --check` 均通过。 |
+
+真实样本只覆盖本次两份板零件图。分类器没有从缺失标题栏中猜测零件类型，后续需复核状态属于
+正确业务结果；尚未实现的图纸处理、CAM、Windows 和结果接纳仍保持 placeholder/external，
+本次只收紧其输入输出格式和必需产物门禁。
+
 ## 2026-07-24 Excel Final 与生产流程接入发布证据
 
 本轮把 Excel Final 收敛为独立工作中心，并作为 `linux_production` 冻结输入后的

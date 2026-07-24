@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.workflows.artifacts import attach_artifact
+from app.modules.workflows.contracts import require_stage_outputs
 from app.modules.workflows.lifecycle import WORKFLOW_TERMINAL, recompute_workflow
 from app.modules.workflows.models import WorkflowRun
 from app.modules.workflows.templates import get_stage_capability
@@ -88,6 +89,19 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                     result_id=result.id,
                     metadata={"job_id": job.id, "job_attempt": job.attempt},
                 )
+            try:
+                require_stage_outputs(workflow, stage.stage_code)
+            except AppHTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                stage.status = "failed"
+                stage.error_code = str(
+                    detail.get("code") or "WORKFLOW_STAGE_OUTPUT_INCOMPLETE"
+                )
+                stage.error_message = str(
+                    detail.get("message") or "Required workflow output is missing."
+                )
+                stage.finished_at = now
+                continue
             next_stage = _next_stage(workflow, stage.sequence)
             if next_stage is not None and next_stage.status == "pending":
                 next_stage.status = (

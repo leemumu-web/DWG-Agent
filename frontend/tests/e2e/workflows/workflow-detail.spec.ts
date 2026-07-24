@@ -62,7 +62,7 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
     status: 'waiting_input',
     current_stage: 'excel_stage1',
     progress: 33,
-    config_json: { definition_revision: 2 },
+    config_json: { definition_revision: 3 },
     error_code: null,
     error_message: null,
     started_at: now,
@@ -95,8 +95,9 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
       execution_mode: mode,
       implementation_status: status,
       execution_kind: kind,
-      required_inputs: code === 'excel_stage1' ? ['frozen_source_excel'] : [],
+      required_inputs: code === 'excel_stage1' ? ['source_excel'] : [],
       artifact_types: code === 'excel_stage1' ? ['stage1_excel'] : [],
+      required_outputs: code === 'excel_stage1' ? ['stage1_excel'] : [],
     })),
   };
   let executionBody: unknown;
@@ -105,7 +106,7 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
     access_token: 'e2e-token',
     user,
   }, 201));
-  await page.route('**/api/v1/projects?**', (route) => route.fulfill({
+  await page.route('**/api/v1/workflows/projects?**', (route) => route.fulfill({
     json: {
       ...envelope([{ id: 7, code: 'CAP', name: '首都体育学院' }]),
       pagination: { page: 1, page_size: 200, total: 1, total_pages: 1 },
@@ -154,13 +155,14 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
   await page.goto('/workflows/41');
 
   await expect(page.getByRole('heading', { name: '生产批次 #41' })).toBeVisible();
+  await expect(page.getByText('图纸主格式：DXF')).toBeVisible();
+  await expect(page.getByText(/完成必需产物：stage1_excel/)).toBeVisible();
   await expect(page.getByText('体育馆钢构生产批次')).toBeVisible();
   await expect(page.getByText('文件接收与输入冻结')).toBeVisible();
   await expect(page.getByText('交付与归档')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Excel 第一阶段处理' })).toBeVisible();
   await expect(page.getByText(/冻结输入中的 Excel/)).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Excel 输入文件' })).toHaveCount(0);
-  await expect(page.getByText(/DXF.?Excel/i)).toHaveCount(0);
 
   await page.getByRole('button', { name: '运行 Excel 第一阶段' }).click();
   expect(executionBody).toEqual({ execution_kind: 'excel_stage1' });
