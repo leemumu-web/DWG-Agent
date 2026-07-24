@@ -203,6 +203,29 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
     assert dispatched and dispatched[0][0] == "convert_dwg_to_dxf"
 
 
+def test_conversion_rejects_dwg_only_input(monkeypatch, tmp_path):
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "dwg-only")
+    monkeypatch.setattr("app.platform.config.settings.settings.dxf_pipeline_enabled", True)
+    client.post(f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers)
+    imported = _upload_dwg_folder(
+        client,
+        owner_headers,
+        workflow_id,
+        [("A.dwg", b"AC1027" + bytes(2048))],
+    )
+    assert imported.status_code == 201, imported.text
+
+    conversion = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch/conversion-requests",
+        headers=owner_headers,
+    )
+
+    assert conversion.status_code == 409
+    assert conversion.json()["error"]["code"] == "INPUT_EXCEL_REQUIRED"
+
+
 def test_separate_uploads_register_one_excel_and_all_dwgs(
     monkeypatch, tmp_path
 ):

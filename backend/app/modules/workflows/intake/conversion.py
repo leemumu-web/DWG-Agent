@@ -52,6 +52,20 @@ def prepare_input_conversions(
             "INPUT_DWG_REQUIRED",
             "Upload at least one valid DWG before starting conversion.",
         )
+    excel_items = [
+        item
+        for item in batch.items
+        if item.role == "source_excel"
+        and item.status == "uploaded"
+        and isinstance(item.validation_json, dict)
+        and isinstance(item.validation_json.get("inspection"), dict)
+    ]
+    if len(excel_items) != 1:
+        raise AppHTTPException(
+            409,
+            "INPUT_EXCEL_REQUIRED",
+            "Upload one validated .xls or .xlsx before starting DWG conversion.",
+        )
     jobs: list[Job] = []
     dispatch: list[tuple[int, int]] = []
     for item in dwg_items:

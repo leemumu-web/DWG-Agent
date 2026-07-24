@@ -50,4 +50,4 @@ Playwright 规范位于 `tests/e2e/{contracts,excel-processing,files,jobs,operat
 `npm run test:e2e:operations` 等目录脚本聚焦回归。上述每个源码、测试和共享分区都带有
 本地 `README.md`，说明职责、依赖、输出与能力边界。
 
-Playwright 默认通过 Nginx `8080`。真实 Excel Final 摘要闭环需要 `PLAYWRIGHT_EXCEL_SAMPLE_PATH` 指向业务有效样本；route fixture 只能证明 UI/API contract，不能证明 MySQL/Celery/MinIO 实际链路。生产流程页以“提交生产批次”为主入口，连续创建并启动 workflow 后在同一抽屉原地进入资料上传；无项目时先引导创建项目，draft 在原抽屉保留恢复按钮。`source_intake` 复用 `/files` 上传多个 DWG 和单个 Excel，服务器创建 DWG→DXF Job、显示逐文件配对并在冻结时创建图纸；冻结后同一抽屉进入 DXF 分类控制台，显示 Steel DXF Classifier 1.1.0 的 Job 进度、类型汇总、逐图分流/诊断和 JSON/CSV/DXF 下载。后续拆板等核心留白阶段仍只暴露接口和交接产物契约。详见[验证证据](../docs/verification/current.md)。
+Playwright 默认通过 Nginx `8080`。真实 Excel Final 摘要闭环需要 `PLAYWRIGHT_EXCEL_SAMPLE_PATH` 指向业务有效样本；route fixture 只能证明 UI/API contract，不能证明 MySQL/Celery/MinIO 实际链路。生产流程页以“新建生产项目”为主入口，原子创建并启动 workflow 后进入独立详情页。`source_intake` 通过 `/input-excel` 上传一个 `.xls`/`.xlsx`，通过 `/input-dwg-folder` 上传 DWG 文件夹；混合文件夹确认后只发送 DWG。服务器创建 DWG→DXF Job、显示逐文件配对并在冻结时创建图纸；冻结后进入 DXF 分类控制台，显示 Steel DXF Classifier 1.1.0 的 Job 进度、类型汇总、逐图分流/诊断和 JSON/CSV/DXF 下载。后续拆板等核心留白阶段仍只暴露接口和交接产物契约。详见[验证证据](../docs/verification/current.md)。
