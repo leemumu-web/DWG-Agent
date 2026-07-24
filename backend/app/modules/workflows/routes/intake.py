@@ -114,6 +114,11 @@ async def import_input_excel_api(
             "INPUT_EXCEL_ALREADY_IMPORTED",
             "Remove the current production input before uploading another Excel file.",
         )
+    # End the permission/batch read snapshot before Files creates its durable
+    # transfer intent in an independent MySQL transaction. Registration below
+    # locks and rechecks the batch again, so duplicate Excel uploads remain
+    # serialized without triggering MySQL error 1020 on file_transfers.
+    db.commit()
     stored = await save_upload_file(
         db,
         upload,
