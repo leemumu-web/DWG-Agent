@@ -29,6 +29,11 @@ def test_unique_upper_right_section_value_is_classified() -> None:
     assert result.part_type == "BH"
     assert result.diagnostics == ("TITLE_PROFILE_PROVED",)
     assert result.candidates[0].value.normalized == "BH300*200*6*8"
+    assert result.profile_raw == "BH300*200*6*8"
+    assert result.profile_normalized == "BH300*200*6*8"
+    assert result.type_source == "catalog"
+    assert result.group_key == "type:BH"
+    assert result.next_stage_eligible is True
 
 
 def test_material_table_with_multiple_profile_rows_requires_review() -> None:
@@ -45,6 +50,8 @@ def test_material_table_with_multiple_profile_rows_requires_review() -> None:
     assert result.disposition is Disposition.REVIEW_REQUIRED
     assert "TITLE_VALUE_CONFLICT" in result.diagnostics
     assert result.part_type is None
+    assert result.group_key == "status:review_required"
+    assert result.next_stage_eligible is False
 
 
 def test_lower_left_section_label_is_not_treated_as_title_block() -> None:
@@ -72,7 +79,7 @@ def test_same_row_profile_value_is_supported() -> None:
     assert result.candidates[0].direction == "right"
 
 
-def test_strong_title_evidence_preserves_unregistered_prefix() -> None:
+def test_strong_title_evidence_auto_discovers_safe_prefix() -> None:
     result = classify_facts(
         "custom.dxf",
         [fact("SECTION", 80, 95), fact("TT25", 80, 88), fact("x", 0, 0)],
@@ -80,7 +87,10 @@ def test_strong_title_evidence_preserves_unregistered_prefix() -> None:
 
     assert result.disposition is Disposition.CLASSIFIED
     assert result.part_type == "TT"
-    assert "PROFILE_TYPE_UNREGISTERED" in result.diagnostics
+    assert result.type_source == "auto_discovered"
+    assert result.group_key == "type:TT"
+    assert result.next_stage_eligible is True
+    assert "PROFILE_TYPE_AUTO_DISCOVERED" in result.diagnostics
 
 
 def test_missing_profile_value_requires_review() -> None:
@@ -88,6 +98,8 @@ def test_missing_profile_value_requires_review() -> None:
 
     assert result.disposition is Disposition.REVIEW_REQUIRED
     assert result.diagnostics == ("TITLE_VALUE_MISSING",)
+    assert result.group_key == "status:review_required"
+    assert result.next_stage_eligible is False
 
 
 def test_corrupted_file_is_unreadable(tmp_path: Path) -> None:
@@ -98,3 +110,5 @@ def test_corrupted_file_is_unreadable(tmp_path: Path) -> None:
 
     assert result.disposition is Disposition.UNREADABLE
     assert result.diagnostics[0] == "DXF_READ_FAILED"
+    assert result.group_key == "status:unreadable"
+    assert result.next_stage_eligible is False

@@ -81,12 +81,21 @@ def test_batch_writes_consistent_json_and_csv_reports(tmp_path: Path) -> None:
     report = json.loads((tmp_path / "项目A_分类报告.json").read_text(encoding="utf-8"))
     csv_text = (tmp_path / "项目A_分类清单.csv").read_text(encoding="utf-8-sig")
 
-    assert report["schema"] == "STEEL-DXF-CLASSIFICATION-1.1"
+    assert report["schema"] == "STEEL-DXF-CLASSIFICATION-1.2"
     assert report["summary"]["input_count"] == summary.input_count == 1
     assert report["results"][0]["part_type"] == "RHS"
+    assert report["results"][0]["profile_raw"] == "RHS200*100*8"
+    assert report["results"][0]["profile_normalized"] == "RHS200*100*8"
+    assert report["results"][0]["type_source"] == "catalog"
+    assert report["results"][0]["group_key"] == "type:RHS"
+    assert report["results"][0]["next_stage_eligible"] is True
     assert report["results"][0]["output_directory"] == "项目A_RHS_dxf"
     assert "零件一_拆板前.dxf" in csv_text
     assert "TITLE_PROFILE_PROVED" in csv_text
+    assert "规格规范值" in csv_text
+    assert "类型来源" in csv_text
+    assert "下一阶段可用" in csv_text
+    assert "catalog" in csv_text
 
 
 def test_batch_routes_xbox_and_bbh_to_independent_directories(tmp_path: Path) -> None:

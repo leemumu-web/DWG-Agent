@@ -14,7 +14,7 @@ from .model import BatchSummary, ClassificationResult, Disposition
 from .preprocess import preprocess_dxf_filenames
 
 
-REPORT_SCHEMA = "STEEL-DXF-CLASSIFICATION-1.1"
+REPORT_SCHEMA = "STEEL-DXF-CLASSIFICATION-1.2"
 
 
 def _project_name(source: Path) -> str:
@@ -86,7 +86,10 @@ def _write_reports(
             "处置",
             "零件类型",
             "规格原文",
+            "规格规范值",
             "类型注册状态",
+            "类型来源",
+            "下一阶段可用",
             "诊断码",
             "输出目录",
         ]
@@ -99,10 +102,13 @@ def _write_reports(
                     "文件名": result.source_name,
                     "处置": result.disposition.value,
                     "零件类型": result.part_type or "",
-                    "规格原文": winner.value.raw if winner is not None else "",
+                    "规格原文": result.profile_raw or "",
+                    "规格规范值": result.profile_normalized or "",
                     "类型注册状态": (
                         winner.profile.catalog_status if winner is not None else ""
                     ),
+                    "类型来源": result.type_source or "",
+                    "下一阶段可用": "是" if result.next_stage_eligible else "否",
                     "诊断码": ";".join(result.diagnostics),
                     "输出目录": route,
                 }

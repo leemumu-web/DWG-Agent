@@ -8,12 +8,12 @@ from .text import normalize_text
 
 REGISTERED_TYPES = frozenset(
     {
-        "PL", "FB",
-        "BH", "BBH", "BOX", "XBOX", "BT",
-        "H", "HW", "HM", "HN", "HEA", "HEB", "HEM",
-        "I", "IPE", "IPN", "UB", "UC", "T",
-        "L", "C", "CH", "PFC", "U", "Z",
-        "RHS", "SHS", "CHS", "PIPE",
+        "PL", "FB", "FL", "BL",
+        "BH", "BBH", "RH", "BOX", "XBOX", "BT", "PX",
+        "H", "HW", "HM", "HN", "HT", "HE", "HEA", "HEB", "HEM", "HL", "HD", "HP",
+        "I", "IPE", "IPN", "INP", "UB", "UC", "W", "S", "M", "T", "WT", "ST", "MT",
+        "L", "C", "CH", "PFC", "MC", "U", "UPN", "UPE", "Z",
+        "RHS", "SHS", "CHS", "HSS", "PIPE",
         "RB", "SB",
     }
 )
@@ -38,6 +38,8 @@ def parse_profile(raw: str) -> ProfileParse | None:
         return None
     if not any(character.isdigit() for character in body):
         return None
+    if prefix == "M" and "*" not in body:
+        return None
 
     registered = prefix in REGISTERED_TYPES
     if not registered and len(prefix) < 2:
@@ -48,4 +50,5 @@ def parse_profile(raw: str) -> ProfileParse | None:
         normalized=canonical,
         part_type=prefix,
         catalog_status="registered" if registered else "unregistered",
+        type_source="catalog" if registered else "auto_discovered",
     )

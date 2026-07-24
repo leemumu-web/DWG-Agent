@@ -63,7 +63,7 @@ def test_cli_json_mode_emits_one_completed_summary_object(
     assert code == 0
     assert captured.out.count("\n") == 1
     assert captured.err == ""
-    assert payload["schema"] == "STEEL-DXF-CLI-1.1"
+    assert payload["schema"] == "STEEL-DXF-CLI-1.2"
     assert payload["status"] == "completed"
     assert payload["exit_code"] == 0
     assert payload["summary"]["type_counts"] == {"BOX": 1}
@@ -116,7 +116,7 @@ def test_cli_version_is_a_stable_single_line(capsys) -> None:
 
     captured = capsys.readouterr()
     assert code == 0
-    assert captured.out == "steel-dxf-classifier 1.1.0\n"
+    assert captured.out == "steel-dxf-classifier 1.2.0\n"
     assert captured.err == ""
 
 

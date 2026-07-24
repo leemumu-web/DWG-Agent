@@ -9,7 +9,7 @@ from . import __version__
 from .batch import classify_directory
 
 
-CLI_SCHEMA = "STEEL-DXF-CLI-1.1"
+CLI_SCHEMA = "STEEL-DXF-CLI-1.2"
 USAGE_ERROR_EXIT = 64
 
 

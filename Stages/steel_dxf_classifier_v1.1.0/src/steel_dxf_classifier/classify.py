@@ -33,6 +33,7 @@ def classify_facts(
             None,
             ("TITLE_FIELD_MISSING",),
             source_metadata=metadata,
+            group_key="status:review_required",
         )
     if not candidates:
         return ClassificationResult(
@@ -41,6 +42,7 @@ def classify_facts(
             None,
             ("TITLE_VALUE_MISSING",),
             source_metadata=metadata,
+            group_key="status:review_required",
         )
 
     unique_values = {_value_identity(candidate) for candidate in candidates}
@@ -52,12 +54,13 @@ def classify_facts(
             ("TITLE_VALUE_CONFLICT",),
             tuple(candidates),
             metadata,
+            group_key="status:review_required",
         )
 
     winner = candidates[0]
     diagnostics = ["TITLE_PROFILE_PROVED"]
-    if winner.profile.catalog_status == "unregistered":
-        diagnostics.append("PROFILE_TYPE_UNREGISTERED")
+    if winner.profile.type_source == "auto_discovered":
+        diagnostics.append("PROFILE_TYPE_AUTO_DISCOVERED")
     return ClassificationResult(
         source_name,
         Disposition.CLASSIFIED,
@@ -65,6 +68,11 @@ def classify_facts(
         tuple(diagnostics),
         tuple(candidates),
         metadata,
+        profile_raw=winner.value.raw,
+        profile_normalized=winner.profile.normalized,
+        type_source=winner.profile.type_source,
+        group_key=f"type:{winner.profile.part_type}",
+        next_stage_eligible=True,
     )
 
 
@@ -79,5 +87,6 @@ def classify_file(path: str | Path) -> ClassificationResult:
             None,
             ("DXF_READ_FAILED",),
             source_metadata={"error": str(exc)},
+            group_key="status:unreadable",
         )
     return classify_facts(source.name, facts, source_metadata=metadata)

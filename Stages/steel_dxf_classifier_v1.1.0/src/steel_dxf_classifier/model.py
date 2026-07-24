@@ -42,6 +42,7 @@ class ProfileParse:
     normalized: str
     part_type: str
     catalog_status: str
+    type_source: str
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -49,6 +50,7 @@ class ProfileParse:
             "normalized": self.normalized,
             "part_type": self.part_type,
             "catalog_status": self.catalog_status,
+            "type_source": self.type_source,
         }
 
 
@@ -78,6 +80,11 @@ class ClassificationResult:
     diagnostics: tuple[str, ...]
     candidates: tuple[TitleCandidate, ...] = ()
     source_metadata: dict[str, Any] = field(default_factory=dict)
+    profile_raw: str | None = None
+    profile_normalized: str | None = None
+    type_source: str | None = None
+    group_key: str = ""
+    next_stage_eligible: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +94,11 @@ class ClassificationResult:
             "diagnostics": list(self.diagnostics),
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "source_metadata": self.source_metadata,
+            "profile_raw": self.profile_raw,
+            "profile_normalized": self.profile_normalized,
+            "type_source": self.type_source,
+            "group_key": self.group_key,
+            "next_stage_eligible": self.next_stage_eligible,
         }
 
 
