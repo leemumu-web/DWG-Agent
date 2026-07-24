@@ -481,7 +481,7 @@ export function WorkflowDetailPage() {
                   </Space>
                 </Card>
               )}
-              {selectedStage.job_id && (
+              {selectedStage.job_id && !isWaitingLaunchStage(selectedStage.stage_code) && (
                 <Card size="small" className="workflow-current-job">
                   <Space>
                     <ClockCircleOutlined />

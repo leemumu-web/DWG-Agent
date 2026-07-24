@@ -192,8 +192,8 @@ test('production route inspects stages safely and keeps classification output co
     name,
     sequence: index + 1,
     status: index === 0 ? 'succeeded' : index === 1 ? 'ready' : 'pending',
-    job_id: index === 1 ? 901 : null,
-    job_attempt: index === 1 ? 1 : null,
+    job_id: index === 1 ? 901 : code === 'windows_cam' ? 999 : null,
+    job_attempt: index === 1 || code === 'windows_cam' ? 1 : null,
     progress: index === 0 ? 100 : index === 1 ? 100 : 0,
     input_json: null,
     output_json: null,
@@ -480,6 +480,7 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByText('能力等待上线')).toBeVisible();
   await expect(page.getByText('等待上线', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toHaveCount(0);
+  await expect(page.getByText(/任务 #999/)).toHaveCount(0);
 
   await expect(page.getByRole('heading', { name: '生产产物与证据' })).toBeVisible();
   await expect(page.getByText('已登记 5 项')).toBeVisible();
