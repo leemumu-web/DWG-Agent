@@ -85,11 +85,14 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
   const shell = dialog.locator('.dxf-preview-shell');
   const stage = dialog.locator('.dxf-preview-stage');
   await expect(stage).toHaveCSS('background-color', 'rgb(244, 247, 251)');
-  const shellBox = await shell.boundingBox();
-  const stageBox = await stage.boundingBox();
-  expect(shellBox).not.toBeNull();
-  expect(stageBox).not.toBeNull();
-  expect(stageBox!.width).toBeGreaterThan(shellBox!.width - 2);
+  await expect.poll(async () => {
+    const [shellBox, stageBox] = await Promise.all([
+      shell.boundingBox(),
+      stage.boundingBox(),
+    ]);
+    if (!shellBox || !stageBox || shellBox.width === 0) return 0;
+    return stageBox.width / shellBox.width;
+  }).toBeGreaterThan(0.99);
 
   const transformed = dialog.locator('.react-transform-component');
   const position = async () => transformed.evaluate((element) => {

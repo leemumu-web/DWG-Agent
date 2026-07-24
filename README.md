@@ -35,13 +35,13 @@
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
 | 数据控制台 | ✅ | 总览、文件登记、存储对象、入出库流水、每日归档、一致性、运行通信七页签 | 管理员可归档/扫描/处置，审计员只读/预检；归档不改源文件，永久清理不可恢复且必须确认 |
-| Excel Final 控制台 | ✅ | 权限过滤精确总览、任务监视、跨批次检索、比重查询、批次/零件/构件分页、结果预览和 URL 状态恢复 | 上传/建任务使用数据库级幂等键；健康栏显示实际数据库/存储后端；管线关闭时历史数据仍可浏览 |
+| Excel 第一阶段工作台 | ✅ | 处理、批次、零件、五金手册四个 URL 标签；结构化输入错误、任务监视、批次明细、精确手册查询和结果预览 | 各标签按需请求；生产流程自动使用冻结 Excel，独立入口上传/建任务继续使用数据库级幂等键 |
 
 ### 编排与扩展能力
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.1.0 分类分流、十阶段、DXF→Excel/Excel Final Job、attempt 同步和生产流程控制台 | 图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口；处理管线由开关控制 |
+| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.1.0 分类分流、九阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | DXF→Excel 已移出主流程；图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和机器可读能力契约已归 `automation` | 核心执行留白；无 Agent task、LLM/LangGraph/MCP 执行器，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、拆板、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；已交付的 Steel DXF 分类属于 Linux 流程 |
@@ -95,7 +95,7 @@ Celery workers（无入站监听端口）
 
 ### 工作流边界
 
-工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` 覆盖输入冻结、图纸交接、Excel 两阶段、CAM/Windows 交接、结果接纳和归档；`excel_stage1` 与 `excel_final` 已直接复用现有 Job/Celery 管线，详情同步成功结果并自动挂接 File/AnalysisResult。
+工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` 覆盖输入冻结、图纸交接、唯一 Excel 第一阶段、CAM/Windows 交接、结果接纳和归档；`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`。DXF→Excel 只作为 `/files/dxf2excel` 独立工具保留，不参与主流程。
 
 这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
 

@@ -10,7 +10,7 @@
 - `AnalysisResult` 管处理结果；
 - `WorkflowArtifact` 只保存已有 file/result 引用和阶段元数据。
 
-公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、DXF→Excel、Excel Final、Job attempt 同步、结果产物挂接和 active Job 取消。拆板算法、CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现；它们拥有稳定阶段、输入输出和执行端点，但调用返回真实 501 边界，不伪造成功。
+公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、Steel DXF 分类、冻结 Excel 第一阶段、Job attempt 同步、结果产物挂接和 active Job 取消。DXF→Excel 只保留为独立转换工具，不是生产工作流阶段。拆板算法、CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现；它们拥有稳定阶段与输入输出合同，但前端不提交虚假任务，直接说明未实现边界。
 
 ### 1.1 代码归属与输入规则校正
 
@@ -35,13 +35,12 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 | 1 | `source_intake` | guarded | 人工上传多个 DWG 和唯一 Excel；服务器生成并校验同名 DXF，创建 Drawing 后冻结输入清单 |
 | 2 | `dxf_classification` | automated | 真实创建 `classify_steel_dxf` Job；按 1.1.0 契约预处理和分类分流；产物为逐图 DXF、JSON 报告和 CSV 清单 |
 | 3 | `drawing_processing` | placeholder | 自动/人工拆板与独立校验接口留白；分类已在上一阶段完成 |
-| 4 | `excel_stage1` | automated | 真实创建 `extract_dxf_to_excel` Job；输入 `batch_name`；产物 `stage1_excel` |
+| 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
 | 5 | `design_barrier` | manual | 人工确认图纸和基础 Excel 已满足最终合并条件 |
-| 6 | `excel_final` | automated | 真实创建 `process_excel_final` Job；输入 Excel `file_id`；产物 `final_excel` |
-| 7 | `cam_packaging` | placeholder | 生产规则分组、清单冻结和 CAM 工作包接口留白 |
-| 8 | `windows_cam` | external | Node Agent、租约、fencing token、SinoCAM Runner 外部接口留白 |
-| 9 | `result_acceptance` | placeholder | 结果摘要、文件稳定性和正式接纳接口留白 |
-| 10 | `delivery_archive` | manual | 确认已登记产物并结束流程 |
+| 6 | `cam_packaging` | placeholder | 生产规则分组、清单冻结和 CAM 工作包接口留白 |
+| 7 | `windows_cam` | external | Node Agent、租约、fencing token、SinoCAM Runner 外部接口留白 |
+| 8 | `result_acceptance` | placeholder | 结果摘要、文件稳定性和正式接纳接口留白 |
+| 9 | `delivery_archive` | manual | 确认已登记产物并结束流程 |
 
 `implemented` 表示服务器代码存在，仍受 feature flag、Stage、有效输入、数据库、worker 和存储约束；不表示默认可用。`placeholder` / `external` 表示接口与产物契约存在但核心执行器不存在。
 
@@ -108,18 +107,12 @@ completion API 只接受当前可操作阶段：
 
 `excel_stage1`：
 
-1. 要求 `DXF2EXCEL_PIPELINE_ENABLED=true`；
-2. `batch_name` 下至少有一个未删除 DXF；
-3. 对批次每个 DXF 复用现有文件读取权限；
-4. 以工作流/阶段幂等键创建或复用 `extract_dxf_to_excel` Job；
-5. 同事务绑定 `(job_id, attempt)`，commit 后才 dispatch。
-
-`excel_final`：
-
 1. 要求 `EXCEL_FINAL_PIPELINE_ENABLED=true`；
-2. `file_id` 必须存在、可读且扩展名为 `.xls`/`.xlsx`；
-3. 以工作流/阶段幂等键创建或复用 `process_excel_final` Job；
-4. 同事务绑定 attempt，commit 后 dispatch。
+2. 输入批次必须冻结，清单摘要存在，并且恰好有一个状态为 frozen 的 `source_excel`；
+3. `source_intake` 阶段必须有且仅有一个与该条目同文件的 `source_excel` artifact；
+4. 重新核对文件权限、对象 SHA-256、登记时的表格检查版本与规范检查结果；浏览器不能提交或替换 `file_id`；
+5. 请求体严格只有 `{"execution_kind":"excel_stage1"}`，服务端生成 `file_id`、`workflow_id` 和冻结清单摘要参数；
+6. 以工作流/阶段幂等键创建或复用 `process_excel_final` Job，同事务绑定 attempt，commit 后 dispatch。
 
 相同工作流阶段重放返回同一 Job 且不重复投递；改用不同参数会触发现有 Job 幂等参数冲突。
 
@@ -174,9 +167,8 @@ completion API 只接受当前可操作阶段：
 | 409/415 | `INPUT_OBJECT_CHECKSUM_MISMATCH` / `FILE_NOT_DWG` / `INPUT_EXCEL_UNREADABLE` | 对象摘要或真实格式未通过复核 |
 | 409 | `FILE_REFERENCED_BY_FROZEN_INPUT` | 通用文件删除试图破坏冻结输入清单 |
 | 503 | `JOB_ENQUEUE_FAILED` | Job 已保存但 broker 投递失败；Job 已收敛为可重试失败状态 |
-| 415 | `NOT_EXCEL` | Excel Final 输入扩展名不支持 |
+| 422 | `EXCEL_INPUT_*` | 冻结 Excel 的工作表、标题、必需列或行值不符合第一阶段输入合同；响应包含人工操作建议和来源位置 |
 | 501 | `WORKFLOW_STAGE_NOT_IMPLEMENTED` | 阶段接口存在，但核心实现留白；details 返回输入/产物契约 |
-| 503 | `DXF2EXCEL_PIPELINE_DISABLED` | DXF→Excel flag 关闭 |
 | 503 | `DXF_CLASSIFICATION_PIPELINE_DISABLED` | DXF 分类分流 flag 关闭 |
 | 409 | `CLASSIFICATION_SOURCE_MISSING` / `CLASSIFICATION_SOURCE_REQUIRED` | 冻结清单缺少可读派生 DXF |
 | 503 | `EXCEL_FINAL_PIPELINE_DISABLED` | Excel Final flag 关闭 |
@@ -185,17 +177,17 @@ completion API 只接受当前可操作阶段：
 
 React `生产流程` 页面读取模板，提供：
 
-- 页面级“提交生产批次”主入口：选择项目和批次名称后连续创建并启动 Linux workflow，同一抽屉原地切换到资料上传，不要求用户重新寻找详情入口；启动失败时也在原抽屉提供重试，没有项目时明确引导先创建项目；
-- 已创建但启动失败的 draft 在详情主体保留“启动并进入上传”恢复入口；
-- Linux 十阶段生产轨道和实现状态标签；
+- 页面级“新建生产批次”入口：选择项目和批次名称后连续创建并启动 Linux workflow，再进入可直接收藏和恢复的 `/workflows/{id}` 独立详情页；
+- 已创建但启动失败的 draft 在详情页保留启动恢复入口；
+- Linux 九阶段生产轨道和实现状态标签；
 - 项目内流程创建、分页、状态筛选、启动和取消；
 - source intake 专用四步面板：多选 DWG、单个 Excel、服务器转换、确认冻结；
 - 逐文件上传/登记、Job attempt/进度、DXF 配对、结构化问题和修复建议；
 - 上传成功但登记失败时只重试登记，避免重复保存对象；
-- 同一新建抽屉在冻结后原地进入 DXF 分类控制台，无需重新选择文件；
+- 冻结后详情工作区自动进入 DXF 分类控制台，无需重新选择文件；
 - 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断、分流 DXF 与 JSON/CSV 下载；
-- DXF 批次执行与 Excel 文件执行；
-- placeholder/external 接口探测与明确留白提示；
+- Excel 第一阶段只提交 `execution_kind`，服务端自动使用冻结 `source_excel`，页面不存在第二个文件选择器；
+- placeholder/external 只展示明确留白和输入/产物合同，不发送必然失败的探测请求；
 - Job/attempt/进度/错误展示；
 - 阶段产物和复用 `/files` 签名下载。
 
@@ -203,7 +195,7 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-2026-07-21 领域重构后，工作流边界、输入/API、生产状态机与 DXF 分类聚焦回归为 73 项通过；五张表、16 个 operation、十阶段能力、公开接口、跨域导入和退役路径另由架构测试锁定。前端合同、TypeScript/Vite production build 与 Playwright 新建→上传→冻结→分类分流的既有发布证据仍保留；本轮最终全量门禁和确切计数见[当前验证证据](../verification/current.md)。
+当前工作流为九阶段 revision 2。后端回归锁定冻结 Excel 校验、严格执行体、迁移拒绝遗留执行证据和产物挂接；前端 Playwright 锁定独立详情页、冻结 Excel 自动执行、结构化表格错误，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 

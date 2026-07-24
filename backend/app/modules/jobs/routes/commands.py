@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.files.interface import StoredFile, require_file_read_access
@@ -42,6 +43,11 @@ from app.platform.http.exceptions import AppHTTPException, not_found, service_un
 static_router = APIRouter()
 item_router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _job_cancellation_lock_statement(job_ids: list[int]):
+    """Lock cancellation targets before a worker can advance them concurrently."""
+    return select(Job).where(Job.id.in_(job_ids)).with_for_update()
 
 
 @static_router.post("", status_code=status.HTTP_202_ACCEPTED)
@@ -160,9 +166,13 @@ def cancel_jobs(
     db: Session = Depends(get_db),
 ):
     job_ids = list(dict.fromkeys(payload.job_ids))
+    jobs_by_id = {
+        job.id: job
+        for job in db.scalars(_job_cancellation_lock_statement(job_ids)).all()
+    }
     jobs: list[Job] = []
     for job_id in job_ids:
-        job = db.get(Job, job_id)
+        job = jobs_by_id.get(job_id)
         if job is None:
             raise not_found("Job")
         require_job_write_access(db, current_user, job)
@@ -249,7 +259,7 @@ def cancel_all_active(
 def cancel_job(
     job_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
 ):
-    job = db.get(Job, job_id)
+    job = db.scalars(_job_cancellation_lock_statement([job_id])).first()
     if not job:
         raise not_found("Job")
     require_job_write_access(db, current_user, job)

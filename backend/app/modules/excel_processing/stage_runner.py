@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -136,28 +137,47 @@ def _inspect(args: argparse.Namespace) -> None:
 
 
 def _lookup(args: argparse.Namespace) -> None:
-    database_config = _configure_handbook_database()
-    from handbook import SteelHandbookDB
+    from spec_parser import LookupPolicy, classify_normalized_spec
+    from weights import CIRCULAR_HOLLOW_DENSITY_SOURCE, circular_hollow_linear_weight
 
-    handbook = SteelHandbookDB(database_config)
-    try:
-        result = handbook.lookup(args.category, args.spec, material=args.material)
-    finally:
-        handbook.close()
+    classification = classify_normalized_spec(args.spec, material=args.material or "")
+    if classification.lookup_policy is LookupPolicy.CIRCULAR_HOLLOW_FORMULA:
+        if classification.normalized_width is None:
+            raise RuntimeError("PIP/PD formula classification has no wall thickness")
+        weight = circular_hollow_linear_weight(
+            Decimal(classification.normalized_spec),
+            classification.normalized_width,
+        )
+        normalized_spec = args.spec
+        source = CIRCULAR_HOLLOW_DENSITY_SOURCE
+        status = "hit"
+    else:
+        database_config = _configure_handbook_database()
+        from handbook import SteelHandbookDB
+
+        handbook = SteelHandbookDB(database_config)
+        try:
+            result = handbook.lookup(args.category, args.spec, material=args.material)
+        finally:
+            handbook.close()
+        weight = result.value_kg_per_m
+        normalized_spec = result.normalized_spec
+        source = result.source
+        status = result.status.value
     _emit_result(
         {
             "protocol_version": _PROTOCOL_VERSION,
             "operation": "lookup",
-            "category": result.category,
-            "normalized_spec": result.normalized_spec,
+            "category": args.category,
+            "normalized_spec": normalized_spec,
             "material": args.material,
             "weight_kg_per_m": (
-                float(result.value_kg_per_m)
-                if result.value_kg_per_m is not None
+                float(weight)
+                if weight is not None
                 else None
             ),
-            "source": result.source,
-            "status": result.status.value,
+            "source": source,
+            "status": status,
         }
     )
 

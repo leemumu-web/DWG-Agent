@@ -1,7 +1,7 @@
 # 生产流程与 Excel 第一阶段接入设计
 
-日期：2026-07-24  
-状态：已确认，待实施  
+日期：2026-07-24
+状态：已确认，待实施
 范围：`/workflows`、`/workflows/:workflowId`、`/files/excel-final`、workflow 编排、Excel 输入契约与错误返回
 
 ## 1. 目标

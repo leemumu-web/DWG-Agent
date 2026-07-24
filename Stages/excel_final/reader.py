@@ -376,13 +376,97 @@ def _canonicalize_values(
 
         if has_total_marker and not part_no:
             continue
-        if component_no and part_no == "构件小计":
-            subtotal = _component_source_row(
-                row,
-                columns,
-                sheet_name=sheet_name,
+        if part_no == "构件小计":
+            # Subtotal rows carry component-level aggregate weights and
+            # dimensions but often have empty component_no / batch / spec
+            # columns — inherit identity from the current component start.
+            if current is None:
+                failure = input_failure(
+                    "EXCEL_INPUT_PART_WITHOUT_COMPONENT",
+                    "构件小计行前缺少所属构件起始行。",
+                    (
+                        f"请在 {sheet_name} 第 {source_row} 行"
+                        f"构件小计前补充对应的构件起始行。"
+                    ),
+                    issues=(
+                        ExcelInputIssue.create(
+                            sheet=sheet_name,
+                            row=source_row,
+                            field="构件编号",
+                            value="构件小计",
+                            reason="subtotal_without_component",
+                        ),
+                    ),
+                )
+                raise InputContractError(
+                    failure,
+                    diagnostic=(
+                        f"row {source_row} subtotal has no preceding component row"
+                    ),
+                )
+            subtotal = ComponentSourceRow(
+                source_sheet=sheet_name,
                 source_row=source_row,
                 kind=ComponentRowKind.SUBTOTAL,
+                batch=current.batch,
+                component_no=current.component_no,
+                component_qty=current.component_qty,
+                original_spec=current.original_spec,
+                material=current.material,
+                source_unit_net=_decimal(
+                    _row_value(row, columns, "单净重"),
+                    field="单净重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_total_net=_decimal(
+                    _row_value(row, columns, "总净重"),
+                    field="总净重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_unit_gross=_decimal(
+                    _row_value(row, columns, "单毛重"),
+                    field="单毛重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_total_gross=_decimal(
+                    _row_value(row, columns, "总毛重"),
+                    field="总毛重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_unit_area=_decimal(
+                    _row_value(row, columns, "单表面积"),
+                    field="单表面积",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_total_area=_decimal(
+                    _row_value(row, columns, "总表面积"),
+                    field="总表面积",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                component_length=_decimal(
+                    _row_value(row, columns, "构件长度"),
+                    field="构件长度",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                component_width=_decimal(
+                    _row_value(row, columns, "构件宽度"),
+                    field="构件宽度",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                component_height=_decimal(
+                    _row_value(row, columns, "构件高度"),
+                    field="构件高度",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
             )
             component_rows.append(subtotal)
             continue
@@ -710,7 +794,18 @@ def _decode_fixed_text(input_file: Path) -> tuple[list[str], str]:
             continue
         if any(keyword in text[:5000] for keyword in _CONTENT_KWS):
             return text.splitlines(), encoding
-    raise ValueError(f"Cannot decode fixed-width Tekla text: {input_file}")
+    failure = input_failure(
+        "EXCEL_INPUT_TEXT_UNRECOGNIZED",
+        "无法识别 Tekla 文本格式的 XLS 文件。",
+        (
+            "请从 Tekla 重新导出包含构件和零件明细的文本格式 XLS，"
+            "或将有效工作簿另存为 XLSX 后上传。"
+        ),
+    )
+    raise InputContractError(
+        failure,
+        diagnostic=f"fixed-width Tekla text is unrecognized: {input_file}",
+    )
 
 
 def _has_component_only_header(lines: list[str]) -> bool:

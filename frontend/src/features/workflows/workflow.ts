@@ -80,8 +80,6 @@ export interface WorkflowArtifactCreatePayload {
 
 export interface WorkflowStageExecutionPayload {
   execution_kind: string;
-  batch_name?: string;
-  file_id?: number;
 }
 
 export interface DxfClassificationItem {

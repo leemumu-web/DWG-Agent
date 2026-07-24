@@ -4,6 +4,7 @@ from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -176,6 +177,56 @@ def test_generated_file_automatically_records_internal_transfer(db, tmp_path, mo
     assert transfer.storage_key == "jobs/42/result.dxf"
 
 
+def test_explicit_generated_transfer_failure_settles_durable_mysql_intent(
+    monkeypatch,
+):
+    from app.modules.files import registration
+
+    class FailingStorage:
+        def put_fileobj(self, *_args, **_kwargs):
+            raise StorageError("private storage failure")
+
+    class MysqlSession:
+        def get_bind(self):
+            return type("Bind", (), {"dialect": type("Dialect", (), {"name": "mysql"})()})()
+
+    settled: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "app.platform.storage.factory.get_storage_backend",
+        lambda: FailingStorage(),
+    )
+    monkeypatch.setattr(
+        registration,
+        "_settle_storage_write_failure",
+        lambda _db, transfer_uid, *, durable_intent: settled.update(
+            transfer_uid=transfer_uid,
+            durable_intent=durable_intent,
+        ),
+    )
+
+    with pytest.raises(AppHTTPException) as exc:
+        save_bytes_as_file(
+            MysqlSession(),  # type: ignore[arg-type]
+            bucket="dwg-reports",
+            storage_key="jobs/738/result.xlsx",
+            original_name="result.xlsx",
+            file_ext=".xlsx",
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            payload=b"result",
+            uploaded_by=1,
+            transfer_uid="durable-transfer",
+        )
+
+    assert exc.value.detail["code"] == "STORAGE_WRITE_FAILED"
+    assert settled == {
+        "transfer_uid": "durable-transfer",
+        "durable_intent": True,
+    }
+
+
 def test_excel_final_upload_automatically_records_inbound_transfer(
     db,
     tmp_path,
@@ -192,6 +243,15 @@ def test_excel_final_upload_automatically_records_inbound_transfer(
     )
     client = TestClient(app)
     headers = _admin_headers(client)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P-1", "PL10*100", 100, "Q355B", 1])
+    payload = BytesIO()
+    workbook.save(payload)
+    workbook_bytes = payload.getvalue()
 
     response = client.post(
         "/api/v1/excel-final/upload",
@@ -199,7 +259,7 @@ def test_excel_final_upload_automatically_records_inbound_transfer(
         files={
             "upload": (
                 "parts.xlsx",
-                BytesIO(b"PK\x03\x04minimal-xlsx-payload"),
+                BytesIO(workbook_bytes),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         },
@@ -217,7 +277,7 @@ def test_excel_final_upload_automatically_records_inbound_transfer(
     assert transfer is not None
     assert transfer.operation == "upload"
     assert transfer.status == "succeeded"
-    assert transfer.transferred_bytes == len(b"PK\x03\x04minimal-xlsx-payload")
+    assert transfer.transferred_bytes == len(workbook_bytes)
 
 
 def test_settle_transfer_persists_public_failure_without_secret(db):

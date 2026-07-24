@@ -310,17 +310,41 @@ def test_bare_dimensions_query_flat_once_then_caller_can_fall_back_to_plate() ->
     assert len(_lookup_sql(connection)) == 1
 
 
-def test_stage_config_contains_no_default_database_secret_or_misc_weights() -> None:
+def test_stage_config_uses_only_explicit_environment_database_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = importlib.import_module("config")
     source = inspect.getsource(config)
 
     assert config.DB_CONFIG == {}
     assert not hasattr(config, "MISC_WEIGHTS")
     assert "adminer123" not in source
-    assert '"host":' not in source
-    assert '"user":' not in source
-    assert '"password":' not in source
-    assert '"database":' not in source
+    assert "04120617" not in source
+    for name in (
+        "DWG_HANDBOOK_MYSQL_HOST",
+        "DWG_HANDBOOK_MYSQL_PORT",
+        "DWG_HANDBOOK_MYSQL_DATABASE",
+        "DWG_HANDBOOK_MYSQL_USER",
+        "DWG_HANDBOOK_MYSQL_PASSWORD",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    assert config._read_db_config() == {}
+
+    monkeypatch.setenv("DWG_HANDBOOK_MYSQL_HOST", "handbook-db")
+    assert config._read_db_config()["database"] == "hardware_handbook"
+    monkeypatch.setenv("DWG_HANDBOOK_MYSQL_PORT", "3307")
+    monkeypatch.setenv("DWG_HANDBOOK_MYSQL_DATABASE", "golden_handbook")
+    monkeypatch.setenv("DWG_HANDBOOK_MYSQL_USER", "readonly")
+    monkeypatch.setenv("DWG_HANDBOOK_MYSQL_PASSWORD", "runtime-only")
+    assert config._read_db_config() == {
+        "host": "handbook-db",
+        "port": 3307,
+        "database": "golden_handbook",
+        "user": "readonly",
+        "password": "runtime-only",
+        "charset": "utf8mb4",
+        "connect_timeout": 5,
+    }
 
 
 def test_pipeline_does_not_swallow_handbook_initialization_failure() -> None:

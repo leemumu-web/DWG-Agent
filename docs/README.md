@@ -9,6 +9,7 @@
 3. [Linux 生产工作流](architecture/workflow.md)：多个 DWG、单个 Excel、服务器生成 DXF、分类分流及后续留白契约。
 4. [实现状态与差距](architecture/implementation-status.md)：已实现、部分实现、占位和外部能力的证据。
 5. [当前验证证据](verification/current.md)：各层测试与尚未执行的真实环境验收。
+6. [排版整理算法说明书](../Stages/excel_final/排版整理算法说明书.md)：面向排版人员的 Excel 计算、拆板、五金手册查询和人工核验规则。
 
 ## 架构
 
@@ -39,6 +40,7 @@
 | [部署指南](guides/deployment.md) | 当前 Compose 拓扑、密钥、启动与验收 |
 | [运维指南](guides/operations.md) | 状态检查、归档、备份恢复和事故处理 |
 | [安全指南](guides/security.md) | 信任边界、授权、文件安全和剩余风险 |
+| [排版整理算法说明书](../Stages/excel_final/排版整理算法说明书.md) | 非程序员排版人员；只讲 Excel 处理算法、公式和核验 |
 
 ## 文档门禁
 

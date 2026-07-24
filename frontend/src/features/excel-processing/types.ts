@@ -93,10 +93,31 @@ export interface ExcelFinalComponent {
 }
 
 export interface ExcelFinalWeightLookup {
+  category: HandbookCategory;
   spec: string;
-  weight_kg_per_m: number;
+  normalized_spec: string;
+  material: string | null;
+  weight_kg_per_m: number | null;
   source: string;
+  status: 'hit' | 'not_found' | 'skipped' | 'conflict';
 }
+
+export type HandbookCategory =
+  | 'flat_steel'
+  | 'round_bar'
+  | 'rebar'
+  | 'square_bar'
+  | 'i_beam'
+  | 'h_beam'
+  | 't_beam'
+  | 'channel'
+  | 'angle'
+  | 'steel_pipe'
+  | 'square_tube'
+  | 'hfw_pipe'
+  | 'w_beam'
+  | 'plate'
+  | 'skip';
 
 export interface ExcelFinalProcessStatus {
   job_id: number;
@@ -105,9 +126,11 @@ export interface ExcelFinalProcessStatus {
   pipeline: string | null;
   error_code: string | null;
   error_message: string | null;
+  failure: ExcelInputFailure | null;
   created_at: string | null;
   started_at: string | null;
   finished_at: string | null;
   batch: ExcelFinalBatchSummary | null;
   result_file_id: number | null;
 }
+import type { ExcelInputFailure } from '../../shared/api';

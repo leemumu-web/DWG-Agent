@@ -416,14 +416,17 @@ def test_excel_final_fixed_width_probe_rejects_unrecognized_text():
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import reader
+from input_contract import InputContractError
 
 with TemporaryDirectory() as directory:
     source = Path(directory) / 'not-tekla.xls'
     source.write_text('ordinary text without a production header', encoding='utf-8')
     try:
         reader._decode_fixed_text(source)
-    except ValueError as exc:
-        assert 'Cannot decode fixed-width Tekla text' in str(exc)
+    except InputContractError as exc:
+        assert exc.failure.code == 'EXCEL_INPUT_TEXT_UNRECOGNIZED'
+        assert '重新导出' in exc.failure.action
+        assert str(source.resolve()) not in str(exc.failure.as_dict())
     else:
         raise AssertionError('unrecognized text was accepted as fixed-width Tekla')
 """
@@ -725,6 +728,49 @@ def test_excel_final_lookup_normalizes_full_width_material_whitespace():
         "D8",
         "Q235　B",
     ) == ("round_bar", "8", "Q235B")
+
+
+@pytest.mark.parametrize(
+    ("category", "spec", "expected"),
+    [
+        ("steel_pipe", "PIP219*8", 41.62608),
+        ("square_tube", "PD100×4", 9.46944),
+    ],
+)
+def test_excel_final_lookup_uses_pip_pd_formula_without_handbook(
+    category: str,
+    spec: str,
+    expected: float,
+):
+    result = excel_final.lookup_excel_final_weight(
+        category=category,
+        spec=spec,
+        material="Q355B",
+    )
+
+    assert result.status == "hit"
+    assert result.weight_kg_per_m == pytest.approx(expected)
+    assert result.source == "circular_hollow_formula:0.02466"
+
+
+@pytest.mark.parametrize(
+    ("category", "spec"),
+    [
+        ("square_tube", "PIP219*8"),
+        ("steel_pipe", "PD100*4"),
+        ("steel_pipe", "PIP60*30"),
+    ],
+)
+def test_excel_final_lookup_rejects_invalid_pip_pd_request(
+    category: str,
+    spec: str,
+):
+    with pytest.raises(ValueError):
+        excel_final.lookup_excel_final_weight(
+            category=category,
+            spec=spec,
+            material="Q355B",
+        )
 
 
 def test_excel_final_lookup_protocol_preserves_authoritative_source_conflict(monkeypatch):

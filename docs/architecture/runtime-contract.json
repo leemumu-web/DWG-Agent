@@ -67,7 +67,8 @@
     "/projects",
     "/remnants",
     "/reviews",
-    "/workflows"
+    "/workflows",
+    "/workflows/:workflowId"
   ],
   "http_operations": [
     "DELETE /api/v1/auth/sessions/current delete_current_session_api_v1_auth_sessions_current_delete",

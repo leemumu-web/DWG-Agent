@@ -88,14 +88,14 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
         -> 版本化 WorkflowArtifacts(file/result)
 ```
 
-工作流是项目范围内的薄编排层，不是另一套队列或存储。兼容的 `excel_delivery`、`file_delivery` 之外，`linux_production` 提供从输入冻结、DXF 分类分流到交付归档的十阶段服务器框架。Job/JobStep 仍是执行事实源，File/AnalysisResult 仍是产物事实源；工作流只绑定匹配 attempt 并保存引用。
+工作流是项目范围内的薄编排层，不是另一套队列或存储。兼容的 `excel_delivery`、`file_delivery` 之外，`linux_production` 提供从输入冻结、DXF 分类分流到交付归档的九阶段服务器框架。Job/JobStep 仍是执行事实源，File/AnalysisResult 仍是产物事实源；工作流只绑定匹配 attempt 并保存引用。
 
 人工输入的当前权威契约是多个 DWG 加恰好一个 Excel，DXF 由服务器转换产生。工作流登记会
 重读对象并复核大小、摘要和真实格式；转换同步只接受绑定 attempt 的服务器派生 DXF；冻结
 后 files 删除保护经工作流公开接口查询不可变引用。早期结构图中的人工 DXF 上传文字已被此
 后续确认规则取代。
 
-公开 route 已接通 Steel DXF Classifier、DXF→Excel 与 Excel Final Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。文件通过 `/files` 登记后再绑定，不重复上传。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
+公开 route 已接通 Steel DXF Classifier 与唯一 `excel_stage1` Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。Excel 阶段只读取冻结清单的 `source_excel`，浏览器不能另选文件；DXF→Excel 只保留独立工具。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
 
 Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用 files transfer saga 与 StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。执行成功同时登记结果对象、File、AnalysisResult 和 batch/part/component；失败、取消或 stale 恢复通过 Excel 公开清理接口移除本 attempt 的临时关系行。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。这是单文件 Excel Final 切片；跨全部图纸的最终屏障、左右进合并和自动汇总仍未实现。
 
@@ -200,7 +200,7 @@ access token 位于 `sessionStorage`，因此同源 XSS 仍是威胁。refresh/S
 - MySQL/storage 失败时禁止增加进程内正确性 fallback。
 - 没有显式迁移设计时，禁止让 broker 凭据脱离权威 MySQL DSN。
 - 尚未实现的 Agent/CAD/拆板/Windows 能力保持 flag 关闭，但保留目标接口、输入输出和错误契约；不得把占位写成完成，也不得在重构中删除目标边界。
-- 只能把 `excel_stage1` 与 `excel_final` 描述为已接线自动阶段；placeholder/external 阶段在真实实现与验证前禁止描述为生产闭环。
+- 生产 workflow 只能把唯一 `excel_stage1` 描述为已接线 Excel 自动阶段；独立 DXF→Excel 不能写成 workflow 阶段，placeholder/external 阶段在真实实现与验证前禁止描述为生产闭环。
 - 修复 `Stages/dxf2excel` 归属前，禁止声称 clean-clone/Docker 可复现。
 - Nginx 有已测试 TLS listener 和证书生命周期前，禁止声称 HTTPS。
 - worker 规模超过有界 SQL transport 时评估 RabbitMQ，同时保持 MySQL 为业务事实。

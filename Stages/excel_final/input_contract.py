@@ -93,6 +93,23 @@ def _columns_for_header_row(
         canonical = _ALIAS_TO_HEADER.get(value)
         if canonical is not None:
             matches.setdefault(canonical, []).append(index)
+
+    # A standard Tekla export may abbreviate both net/gross pairs as two
+    # occurrences of 单重 and 总重.  Only resolve the four-column pattern as a
+    # whole; a lone duplicate remains ambiguous instead of inventing meaning.
+    unit_indexes = matches.get("单毛重", [])
+    total_indexes = matches.get("总毛重", [])
+    if (
+        len(unit_indexes) == 2
+        and len(total_indexes) == 2
+        and not matches.get("单净重")
+        and not matches.get("总净重")
+    ):
+        matches["单净重"] = [unit_indexes[0]]
+        matches["总净重"] = [total_indexes[0]]
+        matches["单毛重"] = [unit_indexes[1]]
+        matches["总毛重"] = [total_indexes[1]]
+
     columns = {
         canonical: indexes[0]
         for canonical, indexes in matches.items()

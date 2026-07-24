@@ -20,11 +20,11 @@ router = APIRouter()
 def lookup_weight(
     request: Request,
     current_user: CurrentUser,
-    category: HandbookCategory = Query(..., description="稳定的五金手册类别"),
+    category: HandbookCategory = Query(..., description="稳定的钢材物理类别"),
     spec: str = Query(..., min_length=1, description="钢材规格, e.g. L50x5, φ60*3.5, PL10*200"),
     material: str | None = Query(None, description="D 系列必须提供材质"),
 ):
-    """通过 hardware_handbook MySQL 查询钢材比重（kg/m）。"""
+    """按生产规则返回理论米重；PIP/PD 走公式，其余类别查权威手册。"""
     try:
         result = lookup_excel_final_weight(
             category=category.value,

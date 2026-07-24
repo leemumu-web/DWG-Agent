@@ -31,7 +31,14 @@ from app.modules.excel_processing.staging import (
     resolve_file_id,
     stage_excel_source,
 )
-from app.modules.files.interface import sanitize_filename, save_bytes_as_file
+from app.modules.files.interface import (
+    complete_transfer_in_transaction,
+    prepare_generated_file_transfer,
+    sanitize_filename,
+    save_bytes_as_file,
+    session_factory_for,
+    settle_transfer,
+)
 from app.modules.jobs.interface import (
     AnalysisResult,
     JobStep,
@@ -482,15 +489,56 @@ def run_excel_final_processing(
 
             persist_started = datetime.now(UTC)
             excel_bytes = output_path.read_bytes()
+            storage_key = f"jobs/{job.id}/{uuid4().hex}{_EXCEL_EXT}"
+            result_name = f"{output_basename}_处理后{_EXCEL_EXT}"
+            transfer_uid = prepare_generated_file_transfer(
+                db,
+                actor_user_id=job.created_by,
+                request_id=f"job:{job.id}:attempt:{attempt}:excel-stage1",
+                batch_ref=source_file.batch_name,
+                bucket=settings.minio_bucket_reports,
+                storage_key=storage_key,
+                original_name=result_name,
+                expected_bytes=len(excel_bytes),
+            )
+            job = db.get(
+                type(job),
+                job_id,
+                populate_existing=True,
+            )
+            if job is None or job.status != JOB_RUNNING or job.attempt != attempt:
+                db.rollback()
+                settle_transfer(
+                    session_factory_for(db),
+                    transfer_uid,
+                    status="failed",
+                    transferred_bytes=0,
+                    error_code="JOB_ATTEMPT_INACTIVE",
+                    error_message=(
+                        "Job attempt changed before Excel result persistence."
+                    ),
+                )
+                return
             excel_file = save_bytes_as_file(
                 db,
                 bucket=settings.minio_bucket_reports,
-                storage_key=f"jobs/{job.id}/{uuid4().hex}{_EXCEL_EXT}",
-                original_name=f"{output_basename}_处理后{_EXCEL_EXT}",
+                storage_key=storage_key,
+                original_name=result_name,
                 file_ext=_EXCEL_EXT,
                 content_type=_EXCEL_CONTENT_TYPE,
                 payload=excel_bytes,
                 uploaded_by=job.created_by,
+                batch_name=source_file.batch_name,
+                transfer_uid=transfer_uid,
+            )
+            complete_transfer_in_transaction(
+                db,
+                transfer_uid,
+                file_id=excel_file.id,
+                bucket=excel_file.bucket,
+                storage_key=excel_file.storage_key,
+                original_name=excel_file.original_name,
+                transferred_bytes=excel_file.size_bytes,
             )
             result_payload = {
                 "source": "excel_final",
@@ -541,7 +589,7 @@ def run_excel_final_processing(
                     step_name=STEP_PERSIST_EXCEL_FINAL,
                     message=_completion_message(batch),
                     excel_file_id=excel_file.id,
-                    excel_name=f"{output_basename}_处理后{_EXCEL_EXT}",
+                    excel_name=result_name,
                     part_count=batch.part_count,
                     component_count=batch.component_count,
                     **database_stats,

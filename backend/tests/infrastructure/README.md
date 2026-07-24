@@ -2,7 +2,7 @@
 
 ## 现有覆盖
 
-`test_compose.py`、`test_nginx_contract.py`、`test_migrations.py`、`test_db_session.py` 锁定 13 个服务、端口、volume、MySQL pool 和 Alembic；`test_config.py` 验证 pydantic settings、MySQL/Celery URL、feature flag 与手册库凭据，`test_config_drift.py` 拒绝端口/网络/transport 漂移，`test_mysql_runtime.py` 拒绝 Redis 依赖及 SQL transport 不支持的 Flower/inspect 健康声明。`test_celery_recovery.py`、`test_celery_minio_deployment.py` 覆盖 SQL transport、MinIO 和 worker 信号；`test_scripts.py`、`test_storage_operations.py`、`test_forward_to_win11_script.py` 执行 Shell、facade、备份/处置和转发合同；`test_handbook_source_sync.py` 锁定唯一可信 `五金手册.xls` 的哈希、逐行来源、语义表计数、重复冲突保留及确定性数据库生成。
+`test_compose.py`、`test_nginx_contract.py`、`test_migrations.py`、`test_workflow_stage_migration.py`、`test_db_session.py` 锁定 13 个服务、端口、volume、MySQL pool、Alembic 与九阶段工作流迁移；`test_config.py` 验证 pydantic settings、MySQL/Celery URL、feature flag 与手册库凭据，`test_config_drift.py` 拒绝端口/网络/transport 漂移，`test_mysql_runtime.py` 拒绝 Redis 依赖及 SQL transport 不支持的 Flower/inspect 健康声明。`test_celery_recovery.py`、`test_celery_minio_deployment.py` 覆盖 SQL transport、MinIO 和 worker 信号；`test_scripts.py`、`test_storage_operations.py`、`test_forward_to_win11_script.py` 执行 Shell、facade、备份/处置和转发合同；`test_handbook_source_sync.py` 锁定唯一可信 `五金手册.xls` 的哈希、逐行来源、语义表计数、重复冲突保留及确定性数据库生成。
 
 ## 证据边界
 

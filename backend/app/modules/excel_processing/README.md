@@ -19,6 +19,7 @@
 - `schemas.py` 定义导入统计、五金手册类别、零件类别和重量状态等稳定英文枚举；HTTP DTO 由 route/presentation 保持稳定。
 - `staging.py` 只解析 file ID 并下载登记对象，不打开工作簿或识别格式。后端以 `format=auto` 记录委托事实；标准工作簿、初始表、制表符文本和固定宽度文本均由 Stage 的 Source Intake 唯一识别。
 - `uploads.py` 复用 files transfer saga 保存上传对象，避免另建一套对象补偿逻辑。
+- `validation.py` 在创建 Job 前读取并校验上传或冻结对象，统一映射结构化输入错误。
 - `importers.py` 流式读取结果工作簿，`persistence.py` 写入/替换关系投影。
 - `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。
 - `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
@@ -35,7 +36,7 @@
 - 尺寸、数量、面积、比重、利用率和重量统一用 `DECIMAL(24,9)` 持久化并在库内精确汇总；只在 HTTP/Job JSON 边界转换为普通数字，避免 MySQL `FLOAT` 累计漂移。
 - `warning` 和 `severe_warning` 不改变 Job 的成功状态；批次、process status、AnalysisResult、步骤和 done event 都返回质量状态、计数及有界摘要。计数以最终人工处置报告的合并行口径为准；`A2=无`按零问题导入，旧15列报告仍可兼容读取。
 - Job、步骤和日志只保存文件 basename、逻辑 ID、质量摘要与异常类型；临时绝对路径、MySQL 主机/DSN、口令和 traceback 不进入持久化或公共日志。
-- `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85，`skip` 返回空值，查无返回 `not_found`。
+- `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q235B/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85；`PIP/PD` 按 `(D-t)×t×0.02466` 返回理论米重且不查询手册；`skip` 返回空值，查无返回 `not_found`。
 
 ## 边界与依赖方向
 

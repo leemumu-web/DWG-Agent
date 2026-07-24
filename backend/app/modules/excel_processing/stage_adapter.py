@@ -12,6 +12,7 @@ import tempfile
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -47,6 +48,10 @@ _D_MATERIAL_CATEGORY_BY_PREFIX = {
     "Q235B": "round_bar",
     "Q355B": "round_bar",
 }
+_CIRCULAR_HOLLOW_RE = re.compile(
+    r"(PIP|PD)(\d+(?:\.\d+)?)\*(\d+(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
 _PROCESS_RESULT_FIELDS = {
     "protocol_version",
     "operation",
@@ -344,6 +349,20 @@ def _normalize_lookup_request(
         raise ValueError(f"Unsupported handbook category: {normalized_category}")
     if not normalized_spec:
         raise ValueError("Handbook spec is required")
+
+    compact_spec = normalized_spec.replace(" ", "").replace("　", "")
+    compact_spec = re.sub(r"(?<=\d)[X×](?=\d)", "*", compact_spec).upper()
+    circular_match = _CIRCULAR_HOLLOW_RE.fullmatch(compact_spec)
+    if circular_match is not None:
+        prefix, outer_text, thickness_text = circular_match.groups()
+        expected_category = "steel_pipe" if prefix == "PIP" else "square_tube"
+        if normalized_category != expected_category:
+            raise ValueError(f"{prefix} spec requires {expected_category} category")
+        outer = Decimal(outer_text)
+        thickness = Decimal(thickness_text)
+        if outer <= 0 or thickness <= 0 or outer <= thickness * 2:
+            raise ValueError("PIP/PD spec requires D>0, t>0, and D>2t")
+        normalized_spec = compact_spec
 
     material_family = next(
         (

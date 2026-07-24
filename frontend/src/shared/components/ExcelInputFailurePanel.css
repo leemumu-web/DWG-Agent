@@ -1,0 +1,66 @@
+.excel-input-failure {
+  border: 1px solid #ff7875;
+  border-radius: 4px;
+}
+
+.excel-input-failure__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.excel-input-failure__title .ant-tag {
+  margin-inline-end: 0;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+}
+
+.excel-input-failure__body > p {
+  margin: 0 0 10px;
+}
+
+.excel-input-failure__action {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  color: #5c230f;
+  background: #fff7e6;
+  border-left: 3px solid #fa8c16;
+}
+
+.excel-input-failure__issues {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+
+.excel-input-failure__issues li {
+  padding-left: 4px;
+}
+
+.excel-input-failure__issues span {
+  display: block;
+  color: #7a3327;
+  overflow-wrap: anywhere;
+}
+
+.excel-input-failure__sheets {
+  color: #7a3327;
+}
+
+.excel-input-failure__request {
+  display: block;
+  margin-top: 10px;
+  color: #8c5b52;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+@media (max-width: 640px) {
+  .excel-input-failure__action {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}

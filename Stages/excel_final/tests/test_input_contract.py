@@ -69,6 +69,30 @@ def test_binary_xls_is_not_misclassified_as_tekla_text(tmp_path: Path) -> None:
     assert str(source.resolve()) not in str(failure.as_dict())
 
 
+def test_abbreviated_duplicate_weight_pairs_map_first_to_net_and_second_to_gross() -> None:
+    contract = _contract()
+
+    columns, conflicts = contract._columns_for_header_row(
+        ("构件编号", "零件号", "单重(kg)", "总重(kg)", "单重(kg)", "总重(kg)")
+    )
+
+    assert conflicts == ()
+    assert columns["单净重"] == 3
+    assert columns["总净重"] == 4
+    assert columns["单毛重"] == 5
+    assert columns["总毛重"] == 6
+
+
+def test_incomplete_duplicate_weight_pair_stays_ambiguous() -> None:
+    contract = _contract()
+
+    _columns, conflicts = contract._columns_for_header_row(
+        ("构件编号", "零件号", "单重(kg)", "总重(kg)", "单重(kg)")
+    )
+
+    assert conflicts == ("单毛重 columns=[3, 5]",)
+
+
 def test_header_detection_resolves_duplicate_length_by_group_semantics(tmp_path: Path) -> None:
     contract = _contract()
     source = tmp_path / "grouped-header.xlsx"

@@ -511,6 +511,38 @@ def test_weight_lookup_requires_category(db: Session):
 
 
 @pytest.mark.parametrize(
+    ("category", "spec", "expected"),
+    [
+        ("steel_pipe", "PIP219*8", 41.62608),
+        ("square_tube", "PD100*4", 9.46944),
+    ],
+)
+def test_weight_lookup_uses_pip_pd_formula_before_handbook(
+    db: Session,
+    category: str,
+    spec: str,
+    expected: float,
+):
+    client, headers, _admin = _admin_client(db)
+
+    response = client.get(
+        "/api/v1/excel-final/weights/lookup",
+        params={
+            "category": category,
+            "spec": spec,
+            "material": "Q355B",
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["status"] == "hit"
+    assert data["weight_kg_per_m"] == pytest.approx(expected)
+    assert data["source"] == "circular_hollow_formula:0.02466"
+
+
+@pytest.mark.parametrize(
     "params",
     [
         {"category": "round_bar", "spec": "D24"},

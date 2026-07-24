@@ -43,6 +43,17 @@
 .excel-final-header-actions { display: flex; align-items: center; gap: 10px; }
 .excel-final-refreshed { color: #8eb0bf; font: 11px/1.4 "JetBrains Mono", monospace; white-space: nowrap; }
 
+.excel-final-work-tabs {
+  margin: -4px 0 0;
+  padding: 0 14px;
+  background: #fff;
+  border: 1px solid var(--ef-line);
+  border-radius: 4px;
+}
+.excel-final-work-tabs .ant-tabs-nav { margin: 0; }
+.excel-final-work-tabs .ant-tabs-tab { min-width: 96px; justify-content: center; padding-block: 13px; font-weight: 650; }
+.excel-final-work-tabs .ant-tabs-tab-active { background: #eff8fa; }
+
 .excel-final-overview,
 .excel-final-ingest,
 .excel-final-data-section,
@@ -81,6 +92,7 @@
 .excel-final-pulse { width: 7px; height: 7px; display: inline-block; background: #2a91a7; border-radius: 50%; box-shadow: 0 0 0 5px rgba(42, 145, 167, .12); }
 
 .excel-final-tools { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 14px; }
+.excel-final-tools.is-single { grid-template-columns: minmax(0, 1fr); }
 .excel-final-tool-card { border-radius: 4px 12px 4px 4px; }
 .excel-final-tool-card .ant-card-head { min-height: 46px; background: #f8fafb; border-bottom-color: var(--ef-line); }
 .excel-final-tool-card .ant-card-head-title { color: #294257; font-size: 14px; }
@@ -91,6 +103,19 @@
 .excel-final-weight-result strong { color: #7ee0d0; font-size: 20px; }
 .excel-final-weight-result small { grid-column: 1 / -1; color: #6e98a4; }
 .excel-final-tool-card .ant-alert { margin-top: 12px; }
+
+.excel-final-handbook-grid { display: grid; grid-template-columns: minmax(310px, .9fr) minmax(360px, 1.1fr); gap: 24px; }
+.excel-final-handbook-form { display: grid; align-content: start; gap: 12px; }
+.excel-final-handbook-form .ant-typography { margin-bottom: 0; }
+.excel-final-handbook-form > .ant-btn { justify-self: start; min-width: 190px; }
+.excel-final-field { display: grid; grid-template-columns: 82px minmax(0, 1fr); align-items: center; gap: 10px; }
+.excel-final-field > span { color: #405a6e; font-size: 12px; font-weight: 700; }
+.excel-final-handbook-rules { padding: 16px 18px; color: #d9edf1; background: #112f3d; border-left: 4px solid #31a6b7; border-radius: 3px 12px 3px 3px; }
+.excel-final-handbook-rules > strong { display: block; color: #73d5df; font-size: 12px; letter-spacing: .08em; }
+.excel-final-handbook-rules ol { display: grid; gap: 8px; margin: 12px 0 0; padding-left: 20px; }
+.excel-final-handbook-rules li { padding-left: 4px; color: #c5dce1; line-height: 1.55; }
+.excel-final-handbook > .ant-card .excel-final-weight-result,
+.excel-final-handbook > .ant-card .ant-alert { margin-top: 18px; }
 
 .excel-final-data-section { overflow: hidden; padding: 0 16px 16px; border-radius: 4px 14px 4px 4px; }
 .excel-final-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 0 -16px 12px; padding: 13px 16px; background: #f7f9fb; border-bottom: 1px solid var(--ef-line); }
@@ -119,6 +144,7 @@
 @media (max-width: 1050px) {
   .excel-final-metric-grid { grid-template-columns: repeat(2, 1fr); }
   .excel-final-tools { grid-template-columns: 1fr; }
+  .excel-final-handbook-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 720px) {
   .excel-final-header, .excel-final-ingest, .excel-final-active-head { align-items: stretch; flex-direction: column; }
@@ -130,6 +156,9 @@
   .excel-final-batch-summary > div:first-child { grid-column: 1 / -1; }
   .excel-final-breakdowns { grid-template-columns: 1fr; }
   .excel-final-section-head small { display: none; }
+  .excel-final-work-tabs { padding-inline: 4px; }
+  .excel-final-work-tabs .ant-tabs-tab { min-width: auto; }
+  .excel-final-field { grid-template-columns: 1fr; gap: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .excel-final-page *, .excel-final-page *::before, .excel-final-page *::after { transition-duration: .01ms !important; scroll-behavior: auto !important; }

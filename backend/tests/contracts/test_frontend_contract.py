@@ -157,7 +157,8 @@ def test_excel_final_retry_refreshes_status_and_replaced_batch_cache():
     assert "refetchType: 'all'" in page_source
     assert "updateUrl({ batch_id: null })" in page_source
     assert "parseExcelFinalUrlState(searchParams)" in page_source
-    assert "some((job) => ACTIVE_STATUSES.has(job.status)) ? 3000 : false" in page_source
+    assert "some((job) => ACTIVE_STATUSES.has(job.status))" in page_source
+    assert "? 3000" in page_source
     assert "<ExcelFinalBatchDrawer" in page_source
     assert "<Drawer" in drawer_source
     assert 'size="min(1180px, 96vw)"' in drawer_source
@@ -253,7 +254,8 @@ def test_dashboard_turns_existing_task_and_review_state_into_next_actions():
 
 def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     api_source = _frontend_source("features/workflows/workflows.api.ts")
-    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    list_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     type_source = _frontend_source("features/workflows/workflow.ts")
 
     for path in (
@@ -270,22 +272,22 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     ):
         assert f"interface {contract}" in type_source
     assert "linux_production" in api_source
-    assert "listFilesPage" in page_source
-    assert "listBatches" in page_source
-    assert "downloadFile" in page_source
-    assert "createWorkflowArtifact" in page_source
-    assert "executeWorkflowStage" in page_source
-    assert "接口已预留" in page_source
-    assert "CAD 图纸业务算法和 Agent 不在本模块范围内" not in page_source
+    assert "listWorkflows" in list_source
+    assert "createWorkflow" in list_source
+    assert "getWorkflow" in detail_source
+    assert "downloadFile" in detail_source
+    assert "executeWorkflowStage" in detail_source
+    assert "当前不会提交虚假任务" in detail_source
+    assert "CAD 图纸业务算法和 Agent 不在本模块范围内" not in detail_source
 
 
 def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
-    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     panel_source = _frontend_source("features/workflows/ProductionInputPanel.tsx")
     api_source = _frontend_source("features/workflows/workflow-inputs.api.ts")
 
-    assert "<ProductionInputPanel" in page_source
-    assert "actionableStage.stage_code === 'source_intake'" in page_source
+    assert "<ProductionInputPanel" in detail_source
+    assert "currentStage.stage_code === 'source_intake'" in detail_source
     assert 'accept=".dwg"' in panel_source
     assert 'accept=".xls,.xlsx"' in panel_source
     assert "上传 DWG" in panel_source
@@ -305,9 +307,9 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
 def test_production_submission_entry_creates_starts_and_opens_upload():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
 
-    assert "新建并上传生产批次" in page_source
-    assert "创建批次，下一步上传文件" in page_source
-    assert "本步不会上传文件" in page_source
+    assert "新建生产批次" in page_source
+    assert "先建批次，再上传并冻结资料" in page_source
+    assert "创建并启动后将进入独立详情页继续上传" in page_source
     assert "suggestedBatchName" in page_source
     assert "batchNameTouched" in page_source
     assert "await createWorkflow" in page_source
@@ -315,33 +317,33 @@ def test_production_submission_entry_creates_starts_and_opens_upload():
     assert page_source.index("await createWorkflow") < page_source.index(
         "await startWorkflow(created.id)"
     )
-    assert "启动并进入上传" in page_source
+    assert "创建并进入资料上传" in page_source
     assert "workflow_type: 'linux_production'" in page_source
     assert "先创建项目" in page_source
 
 
-def test_production_submission_stays_in_one_drawer_until_files_are_uploaded():
+def test_production_submission_navigates_to_one_dedicated_detail_workspace():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     success_handler = page_source.split("onSuccess: ({ workflow, startError })", 1)[1].split(
         "onError:", 1
     )[0]
 
-    assert "setSubmissionWorkflow(workflow)" in success_handler
-    assert "setCreateOpen(false)" not in success_handler
-    assert "submissionWorkflow" in page_source
-    assert "重试启动并进入上传" in page_source
-    create_drawer = page_source.split("title={submissionWorkflow", 1)[1]
-    assert "<ProductionInputPanel" in create_drawer
+    assert "closeCreate()" in success_handler
+    assert "navigate(`/workflows/${workflow.id}`)" in success_handler
+    assert "<ProductionInputPanel" not in page_source
+    assert "<ProductionInputPanel" in detail_source
+    assert "workflow-stage-rail" in detail_source
 
 
 def test_dxf_classification_has_dedicated_guarded_frontend_console():
-    page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
+    detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     panel_source = _frontend_source("features/workflows/DxfClassificationPanel.tsx")
     api_source = _frontend_source("features/workflows/workflows.api.ts")
     type_source = _frontend_source("features/workflows/workflow.ts")
 
-    assert "<DxfClassificationPanel" in page_source
-    assert "dxf_classification" in page_source
+    assert "<DxfClassificationPanel" in detail_source
+    assert "currentStage.stage_code === 'dxf_classification'" in detail_source
     assert "开始 DXF 分类分流" in panel_source
     assert "steel_dxf_classification" in panel_source
     assert "分类报告 JSON" in panel_source

@@ -115,6 +115,10 @@ def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
     assert "bash scripts/db.sh check" in content
     assert "MYSQL_APPLICATION_AVAILABLE" in content
     assert "application path was verified" in content
+    assert '"worker-remnant-convert": "remnant_convert"' in content
+    assert '"worker-remnant-parse": "remnant_parse"' in content
+    assert 'ALL_CHECKS_PASSED:{len(svcs)}' in content
+    assert '${COMPOSE_SERVICE_COUNT} services' in content
 
 
 def test_start_scripts_delegate_database_startup_to_db_script():

@@ -23,7 +23,7 @@ from app.modules.excel_processing.stage_adapter import (
     ExcelFinalProcessError,
     ExcelFinalProcessResult,
 )
-from app.modules.files.interface import StoredFile
+from app.modules.files.interface import FileTransfer, StoredFile
 from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
 
@@ -518,7 +518,10 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
             internal_output_path=internal_output_path,
         )
 
+    save_call: dict[str, object] = {}
+
     def fake_save(worker_db: Session, **kwargs):
+        save_call.update(kwargs)
         stored = StoredFile(
             bucket=kwargs["bucket"],
             storage_key=kwargs["storage_key"],
@@ -580,6 +583,15 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
     assert persisted_job.progress_data["severe_warning_count"] == 0
     assert persisted_job.progress_data["report_summary"]["category_counts"] == {"手册查无": 1}
     assert "手册查无=1" in persisted_job.progress_data["message"]
+    assert isinstance(save_call["transfer_uid"], str)
+    transfer = db.scalar(
+        select(FileTransfer).where(
+            FileTransfer.transfer_uid == save_call["transfer_uid"]
+        )
+    )
+    assert transfer is not None
+    assert transfer.status == "succeeded"
+    assert transfer.file_id == analysis.result_file_id
     status_payload = process_status(
         persisted_job,
         batch=batch,

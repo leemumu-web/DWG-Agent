@@ -158,6 +158,8 @@ workers = {
     "worker-dxf2excel": "dxf2excel",
     "worker-excel-final": "excel_final",
     "worker-maintenance": "maintenance",
+    "worker-remnant-convert": "remnant_convert",
+    "worker-remnant-parse": "remnant_parse",
     "worker-report": "report",
 }
 expected = {"nginx", "backend-api", "mysql", "minio", *workers}
@@ -261,12 +263,13 @@ for removed in ("redis", "6379", "flower", "inspect ping"):
 if errors:
     print("ERRORS:" + "\nERRORS:".join(errors))
 else:
-    print("ALL_CHECKS_PASSED")
+    print(f"ALL_CHECKS_PASSED:{len(svcs)}")
 PYEOF
 )
 
 if echo "$COMPOSE_CHECKS" | grep -q 'ALL_CHECKS_PASSED'; then
-    pass "compose.yaml 全部结构检查通过 (13 services, MySQL-backed runtime)"
+    COMPOSE_SERVICE_COUNT="${COMPOSE_CHECKS#ALL_CHECKS_PASSED:}"
+    pass "compose.yaml 全部结构检查通过 (${COMPOSE_SERVICE_COUNT} services, MySQL-backed runtime)"
 else
     while IFS= read -r line; do
         [ -n "$line" ] && fail "compose.yaml" "$line"
