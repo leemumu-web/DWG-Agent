@@ -33,6 +33,8 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 - `access.py`：集中 workflow detail 加载、项目成员授权和 route 共享常量。
 - `intake/`：按登记、转换、冻结、展示四种状态转换拆分。
 - `routes/`：只处理 HTTP dependency、项目授权、审计、commit 后 dispatch 和 envelope。
+- `routes/archive.py`：复用 Files ZIP、传输登记和审计能力，提供完整流程及指定阶段两种
+  压缩包；生产 artifact 不提供单文件出口。
 - `interface.py`：其他业务模块唯一允许导入的工作流边界。
 
 ## 依赖方向与事务边界
@@ -57,6 +59,8 @@ cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保�
 `drawing_processing`、`cam_packaging`、`windows_cam`
 与 `result_acceptance` 只有稳定输入、产物和 501/人工交接契约；自动拆板、CAM 打包、Windows
 Node Agent/SinoCAM 和结果接纳算法尚未实现。目录整理不能被解释为生产闭环已经完成。
+`drawing_processing` 当前不产生进度或速度；前端展示的项目总进度、张/分钟和预计剩余时间
+只是未接入合同，不能用其他阶段 Job 进度代替。
 Workflow 列表在服务端聚合 Project 编号/名称，并返回忽略状态筛选、但遵守项目权限与
 Workflow 类型范围的全局状态统计，避免前端用独立分页做不完整关联。
 

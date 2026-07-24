@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示九阶段轨道、当前阶段工作台、产物和错误；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.1.0 Job、类型汇总和逐图结果；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
+`WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示九阶段工作台、产物和错误，`WorkflowStageRail.tsx` 提供可点击的阶段导航；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.1.0 Job、类型汇总和按需展开的逐图结果；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
 
 `workflow.ts` 定义 run/stage/artifact/template、阶段执行请求与分类 run/item；`workflow-input.ts` 定义输入批次、计数、问题、item 和转换反馈。`styles.css` 拥有生产项目创建、工业化阶段轨道、当前工作区和窄屏布局；`index.ts` 统一重导出页面、API 与合同，其他 feature 不深层导入。
 
@@ -17,6 +17,13 @@ accepted_dxf → delivery_dxf` 流通。Excel 第一阶段从冻结清单解析�
 和 Excel 保持各自格式。页面直接展示服务端 `required_inputs`、`artifact_types` 和
 `required_outputs`。
 
+`PRODUCTION ROUTE` 按钮只切换所查看的阶段，实际上传、执行和确认始终绑定服务端
+`current_stage`。历史阶段可查看和下载已有阶段 ZIP；未来阶段只读展示合同和锁定原因。
+分类完成后默认只展示项目计数、类型汇总和“下载分流结果压缩包”，逐文件明细折叠并每页
+10 条，不显示文件 ID，也不提供单文件下载。
+
 ## 边界
 
 浏览器拒绝人工 DXF；后续自动拆板、Windows/CAM、最终屏障等未交付阶段只显示真实占位状态。
+第三步“图纸分类与拆板”的项目总进度、完成数、实时速度和预计剩余时间均显示“未接入”，
+不得用分类进度、定时器或零值伪造拆板执行数据。
