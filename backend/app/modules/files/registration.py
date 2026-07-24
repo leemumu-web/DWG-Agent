@@ -42,6 +42,7 @@ async def save_upload_file(
     transfer_direction: str = "inbound",
     transfer_operation: str = "upload",
     request_id: str | None = None,
+    advance_transfer_intent: bool = True,
 ) -> StoredFile:
     original_name = sanitize_filename(upload.filename or "unnamed.dwg")
     file_ext = validate_upload_name(original_name)
@@ -124,7 +125,7 @@ async def save_upload_file(
                 original_name=original_name,
                 expected_bytes=size,
             )
-        elif transfer_uid is not None:
+        elif transfer_uid is not None and advance_transfer_intent:
             from app.modules.files.storage_transactions import (
                 mark_transfer_in_progress,
                 session_factory_for,

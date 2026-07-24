@@ -192,6 +192,7 @@ async def import_input_excel_api(
             batch_name=f"workflow-input-{batch.id}",
             transfer_uid=transfers[0].transfer_uid,
             request_id=request.state.request_id,
+            advance_transfer_intent=False,
         )
         complete_transfer_in_transaction(
             db,
@@ -283,6 +284,7 @@ async def import_input_dwg_folder_api(
                 batch_name=f"workflow-input-{batch.id}",
                 transfer_uid=transfer.transfer_uid,
                 request_id=request.state.request_id,
+                advance_transfer_intent=False,
             )
             complete_transfer_in_transaction(
                 db,
