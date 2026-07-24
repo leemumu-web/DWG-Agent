@@ -255,7 +255,7 @@ uv run alembic check
 cd ..
 cd Stages/dwg2dxf && uv run pytest -q && cd ../..
 cd Stages/dxf2dwg && uv run pytest -q && cd ../..
-cd Stages/excel_final && uv run pytest -q multi_split/tests && cd ../..
+cd Stages/excel_final && uv run pytest -q && cd ../..
 bash scripts/db.sh migration-test
 bash infra/verification/verify.sh
 docker compose config --quiet

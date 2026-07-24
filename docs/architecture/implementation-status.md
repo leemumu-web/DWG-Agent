@@ -666,7 +666,7 @@ BH 稳定后再增加 BOX，其他类型继续走人工分支。
 | `Stages/dxf2dwg` | 30 passed |
 | `Stages/dxf2excel` | 17 passed |
 | `Stages/steel_dxf_classifier_v1.1.0` | 52 passed |
-| `Stages/excel_final/multi_split/tests` | 259 passed |
+| `Stages/excel_final/tests` | 最终规范流程全套通过 |
 | `docker compose config --quiet` | 通过 |
 | `infra/verification/verify.sh` | 122/122；Nginx/Compose/Dockerfile/环境/路径、活动 MySQL 45 表、种子、权限与时间列全部通过 |
 | 隔离 MySQL 迁移 | 临时 schema 从空库执行 17 个 revision 到 `e2f4b8c6a130`，验证 36 张业务表与管理员种子后自动清理 |

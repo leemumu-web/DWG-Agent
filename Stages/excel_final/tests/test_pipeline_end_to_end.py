@@ -892,7 +892,6 @@ def test_documentation_contract_rejects_legacy_production_rules() -> None:
     stage_root = Path(__file__).resolve().parents[1]
     readme = (stage_root / "README.md").read_text(encoding="utf-8")
     process = (stage_root / "PROCESS.md").read_text(encoding="utf-8")
-    multi_split = (stage_root / "multi_split/CLAUDE.md").read_text(encoding="utf-8")
 
     combined_production_docs = readme + "\n" + process
     forbidden = (
@@ -920,6 +919,9 @@ def test_documentation_contract_rejects_legacy_production_rules() -> None:
         "表毛重",
     ):
         assert required in combined_production_docs
-    assert "兼容" in multi_split
-    assert "规范流程" in multi_split
-    assert "split_fabricated_geometry" in multi_split
+    assert not (stage_root / "multi_split").exists()
+    production_modules = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in stage_root.glob("*.py")
+    )
+    assert "multi_split" not in production_modules

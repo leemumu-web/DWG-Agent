@@ -813,7 +813,7 @@ cd backend
   tests/excel_processing/test_excel_final_models.py tests/excel_processing/test_excel_final_retry.py \
   tests/excel_processing/test_excel_final_idempotency.py tests/architecture
 cd ../Stages/excel_final
-uv run pytest -q multi_split/tests
+uv run pytest -q
 ```
 
 - [x] **Step 5: Commit**
@@ -1337,13 +1337,14 @@ cd Stages/dwg2dxf && .venv/bin/pytest -q
 cd ../dxf2dwg && .venv/bin/pytest -q
 cd ../dxf2excel && .venv/bin/pytest -q
 cd ../steel_dxf_classifier_v1.1.0 && .venv/bin/pytest -q
-cd ../excel_final && uv run pytest -q multi_split/tests
+cd ../excel_final && uv run pytest -q
 ```
 
 Record exact pass counts; no test file may be removed.
 
-Results are DWG-to-DXF 30, DXF-to-DWG 30, DXF-to-Excel 17, Steel DXF Classifier 52 and Excel Final
-259 passed. Test files and runtime task contracts remain present.
+Results must record the current exact counts for DWG-to-DXF, DXF-to-DWG, DXF-to-Excel,
+Steel DXF Classifier and the final Excel Final suite. Test files and runtime task contracts remain
+present.
 
 - [x] **Step 4: Run frontend and browser gates**
 
