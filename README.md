@@ -41,7 +41,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、九阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | DXF→Excel 已移出主流程；图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口 |
+| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、十阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | Excel 第二阶段、图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为等待上线接口 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和机器可读能力契约已归 `automation` | 核心执行留白；无 Agent task、LLM/LangGraph/MCP 执行器，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、拆板、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；已交付的 Steel DXF 分类属于 Linux 流程 |
@@ -95,7 +95,7 @@ Celery workers（无入站监听端口）
 
 ### 工作流边界
 
-工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。`linux_production` revision 3 接收多个 DWG 与唯一 Excel，源 DWG 全部留档并转换为 canonical DXF；冻结后图纸只按 classified/processed/CAM/accepted/delivery DXF 流通。`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`。报告、清单和 Excel 保持各自格式；DXF→Excel 只作为独立工具保留。
+工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。新建 `linux_production` 使用 revision 4，接收多个 DWG 与唯一 Excel，源 DWG 全部留档并转换为 canonical DXF；冻结后图纸只按 classified/processed/CAM/accepted/delivery DXF 流通。`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`；`excel_stage2` 位于其后并预留 `stage2_excel` 合同，当前等待上线。历史流程保持原 revision，不被自动改写。
 
 这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
 

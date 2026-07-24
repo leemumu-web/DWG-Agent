@@ -26,7 +26,7 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 
 ## 2. 模板与阶段能力
 
-`GET /api/v1/workflows/templates` 是模板元数据的权威入口。前端根据返回的 `execution_mode`、`implementation_status`、`execution_kind`、`required_inputs`、`artifact_types` 和 `required_outputs` 渲染操作，不在浏览器中猜测后端能力。当前 `linux_production` 使用 `definition_revision 3`。
+`GET /api/v1/workflows/templates` 是模板元数据的权威入口。前端根据返回的 `execution_mode`、`implementation_status`、`execution_kind`、`required_inputs`、`artifact_types` 和 `required_outputs` 渲染操作，不在浏览器中猜测后端能力。新建 `linux_production` 使用 `definition_revision 4`；已存在的流程保留创建时的 revision 和阶段行。
 
 图纸主链是：
 
@@ -44,11 +44,12 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 | 2 | `dxf_classification` | automated | 消费 `canonical_dxf`；产出 `classified_dxf`、JSON 报告和清单 |
 | 3 | `drawing_processing` | placeholder | 消费 `classified_dxf`；合同要求 `processed_dxf` 与校验报告，核心拆板仍留白 |
 | 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
-| 5 | `design_barrier` | manual | 人工确认图纸和基础 Excel 已满足最终合并条件 |
-| 6 | `cam_packaging` | placeholder | 合同要求 `cam_input_dxf` 与 CAM 清单；生成算法留白 |
-| 7 | `windows_cam` | external | 合同要求 `cam_output_dxf`；Node Agent、租约、fencing token、SinoCAM Runner 留白 |
-| 8 | `result_acceptance` | placeholder | 合同要求 `accepted_dxf` 与接纳报告；正式接纳算法留白 |
-| 9 | `delivery_archive` | manual | 合同要求 `delivery_dxf`、交付 Excel 和归档清单 |
+| 5 | `excel_stage2` | placeholder | 消费 `stage1_excel` 与 `processed_dxf`，预留 `stage2_excel`；当前等待上线 |
+| 6 | `design_barrier` | manual | 人工确认图纸和 `stage2_excel` 已满足后续生产条件 |
+| 7 | `cam_packaging` | placeholder | 合同要求 `cam_input_dxf` 与 CAM 清单；等待上线 |
+| 8 | `windows_cam` | external | 合同要求 `cam_output_dxf`；Node Agent、租约、fencing token、SinoCAM Runner 等待上线 |
+| 9 | `result_acceptance` | placeholder | 合同要求 `accepted_dxf` 与接纳报告；等待上线 |
+| 10 | `delivery_archive` | manual | 合同要求 `delivery_dxf`、基于 `stage2_excel` 的交付 Excel 和归档清单；前端等待上线 |
 
 `implemented` 表示服务器代码存在，仍受 feature flag、Stage、有效输入、数据库、worker 和存储约束；不表示默认可用。`placeholder` / `external` 表示接口与产物契约存在但核心执行器不存在。
 
@@ -196,7 +197,7 @@ React `生产流程` 页面读取模板，提供：
 - 生产项目列表响应聚合 Project 编号/名称并提供全局状态统计；状态筛选只影响行分页，不改变统计口径；
 - 通用 Workflow 创建服务锁定 Project，并以 `PRODUCTION_WORKFLOW_ALREADY_EXISTS` 拒绝同一项目的第二条 `linux_production` 流程；兼容 workflow 类型保持原行为；
 - 已创建但启动失败的 draft 在详情页保留启动恢复入口；
-- Linux 九阶段生产轨道和实现状态标签；
+- Linux 十阶段生产轨道、实现状态标签和等待上线视觉边界；
 - 项目内流程创建、分页、状态筛选、启动和取消；
 - source intake 专用面板：分步提交 Excel 与 DWG 文件夹、确认忽略其他文件、服务器转换、确认冻结；
 - 工作流产物只提供按阶段组织的完整 ZIP，不提供逐文件下载；
@@ -205,15 +206,15 @@ React `生产流程` 页面读取模板，提供：
 - 冻结后详情工作区自动进入 DXF 分类控制台，无需重新选择文件；
 - 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断、分流 DXF 与 JSON/CSV 下载；
 - Excel 第一阶段只提交 `execution_kind`，服务端自动使用冻结 `source_excel`，页面不存在第二个文件选择器；
-- placeholder/external 只展示明确留白和输入/产物合同，不发送必然失败的探测请求；
+- Excel 第二阶段及 CAM/归档节点只展示等待上线和输入/产物合同，不发送必然失败的探测请求；
 - Job/attempt/进度/错误展示；
-- 阶段产物和复用 `/files` 签名下载。
+- 生产产物按 artifact type 精炼汇总，并复用 `/files` 生成全量 ZIP。
 
 界面按钮不是权限边界；FastAPI 仍执行项目、文件、状态和 feature flag 校验。
 
 ## 7. 当前验证和未完成边界
 
-当前工作流为九阶段 revision 2。后端回归锁定冻结 Excel 校验、严格执行体、迁移拒绝遗留执行证据和产物挂接；前端 Playwright 锁定独立详情页、冻结 Excel 自动执行、结构化表格错误，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
+新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、严格执行体、`excel_stage2` 未实现门禁和产物挂接；前端 Playwright 锁定独立详情页、冻结 Excel 自动执行、等待上线节点、精炼产物摘要，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 

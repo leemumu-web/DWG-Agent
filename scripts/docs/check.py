@@ -413,7 +413,8 @@ def _workflow_dxf_contract(errors: list[str]) -> None:
         "cam_output_dxf",
         "accepted_dxf",
         "delivery_dxf",
-        "definition_revision 3",
+        "stage2_excel",
+        "definition_revision 4",
     ):
         if marker not in content:
             errors.append(f"{path.relative_to(ROOT)} omits workflow contract {marker}")

@@ -88,7 +88,7 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
         -> 版本化 WorkflowArtifacts(file/result)
 ```
 
-工作流是项目范围内的薄编排层，不是另一套队列或存储。兼容的 `excel_delivery`、`file_delivery` 之外，`linux_production` 提供从输入冻结、DXF 分类分流到交付归档的九阶段服务器框架。Job/JobStep 仍是执行事实源，File/AnalysisResult 仍是产物事实源；工作流只绑定匹配 attempt 并保存引用。
+工作流是项目范围内的薄编排层，不是另一套队列或存储。兼容的 `excel_delivery`、`file_delivery` 之外，新建 `linux_production` 以 revision 4 提供从输入冻结、DXF 分类分流、两段 Excel 到交付归档的十阶段服务器框架。Excel 第二阶段及 CAM/归档能力当前等待上线；历史流程保留原 revision。Job/JobStep 仍是执行事实源，File/AnalysisResult 仍是产物事实源；工作流只绑定匹配 attempt 并保存引用。
 
 人工输入的当前权威契约是多个 DWG 加恰好一个 Excel，DXF 由服务器转换产生。工作流登记会
 重读对象并复核大小、摘要和真实格式；转换同步只接受绑定 attempt 的服务器派生 DXF；冻结

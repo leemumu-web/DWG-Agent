@@ -2,7 +2,7 @@
 
 ## 现有场景
 
-`workflow-input.spec.ts` 覆盖创建并启动后在详情页上传、多个 DWG + 单 Excel 校验、补交/冲突诊断、禁止人工 DXF、服务器派生 DXF、冻结及分类入口；`workflow-detail.spec.ts` 锁定九阶段工作台以及冻结 Excel 第一阶段不再二次选择文件的执行合同。
+`workflow-input.spec.ts` 覆盖创建并启动后在详情页上传、多个 DWG + 单 Excel 校验、补交/冲突诊断、禁止人工 DXF、服务器派生 DXF、冻结及分类入口；`workflow-detail.spec.ts` 锁定十阶段工作台、冻结 Excel 第一阶段不再二次选择文件、Excel 第二阶段与 CAM 等待上线、拆板无模拟指标以及产物按类型汇总合同。
 
 ## 输入与证据边界
 

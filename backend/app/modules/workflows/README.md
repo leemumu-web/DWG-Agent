@@ -1,6 +1,6 @@
 # Production workflows module
 
-本模块拥有项目级生产批次、九阶段流程、输入冻结和阶段产物引用。公开 HTTP 前缀保持为
+本模块拥有项目级生产批次、十阶段流程、输入冻结和阶段产物引用。公开 HTTP 前缀保持为
 `/api/v1/workflows`；五张表、公开 operation、错误码、审计 action 和 Job 幂等键均保持
 不变。本模块不另建文件存储或任务队列。
 
@@ -53,14 +53,14 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 `source_intake`、`dxf_classification` 和 `excel_stage1` 已接入现有服务器实现；`excel_stage1`
 从冻结清单解析唯一 `source_excel`，不接收浏览器提供的文件 ID 或 DXF 批次名，底层复用现有
 Excel Job。DXF→Excel 仅保留为独立工具，不属于生产主流程。上述阶段仍受 feature flag、worker、
-Stage、MySQL、对象存储和真实样本约束。当前 `definition_revision 3` 图纸链固定为
+Stage、MySQL、对象存储和真实样本约束。新建流程使用 `definition_revision 4`，历史流程保留原 revision；图纸链固定为
 `source_dwg → canonical_dxf → classified_dxf → processed_dxf → cam_input_dxf →
 cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保持各自格式。
+`excel_stage2` 消费 `stage1_excel` 与 `processed_dxf` 并预留 `stage2_excel`；它与
 `drawing_processing`、`cam_packaging`、`windows_cam`
 与 `result_acceptance` 只有稳定输入、产物和 501/人工交接契约；自动拆板、CAM 打包、Windows
 Node Agent/SinoCAM 和结果接纳算法尚未实现。目录整理不能被解释为生产闭环已经完成。
-`drawing_processing` 当前不产生进度或速度；前端展示的项目总进度、张/分钟和预计剩余时间
-只是未接入合同，不能用其他阶段 Job 进度代替。
+`drawing_processing` 当前不产生进度或速度；前端只说明输入输出边界，不显示模拟指标。
 Workflow 列表在服务端聚合 Project 编号/名称，并返回忽略状态筛选、但遵守项目权限与
 Workflow 类型范围的全局状态统计，避免前端用独立分页做不完整关联。
 

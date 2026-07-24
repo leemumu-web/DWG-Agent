@@ -6,7 +6,7 @@
 
 ## 历史审计说明
 
-> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 3 九阶段框架：新建生产项目时原子创建并启动其唯一完整 Workflow；一个 `.xls`/`.xlsx` 单文件与一个 DWG 文件夹分步入库，混合文件夹确认后只上传 DWG；DWG 转换为 canonical DXF，冻结的 DrawingVersion 指向 DXF，后续图纸仅按 DXF 类型流通；Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通。DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端生产项目工作台与独立 Workflow 详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
+> 2026-07-25 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。新建 `linux_production` 为 revision 4 十阶段框架，在 Excel 第一阶段与设计屏障之间加入 `excel_stage2`，预留 `stage2_excel` 且当前等待上线；历史流程保持原 revision。Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通，图纸拆板不显示模拟指标，Excel 第二阶段、CAM 工作包、Windows Node Agent/SinoCAM、结果接纳与交付归档在前端统一弱化为等待上线。本报告其余较早日期章节作为当时审计快照保留。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`
@@ -267,7 +267,7 @@ Celery workers
 | 创建、启动、人工确认、取消 | 已实现 | API 与 React 页面存在 |
 | Job 绑定、同步和重试 | 已实现于自动阶段 | 公开执行端点按阶段能力创建/复用 Job，绑定 `job_id + attempt`，同步 Result、失败/取消并支持新 attempt；不适用于留白阶段 |
 | 自动挂接文件/结果产物 | 部分实现 | 输入冻结、分类和 Excel 第一阶段能将受支持的 File/Result 挂接为 artifact；独立 DXF→Excel 仍登记自身结果，但不推进 workflow；拆板、CAM 和结果接纳没有产物实现 |
-| 目标钢结构批次工作流 | 部分实现 | `linux_production` 已提供九阶段框架，输入冻结、分类和 Excel 第一阶段可调用现有实现；拆板、CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
+| 目标钢结构批次工作流 | 部分实现 | 新建 `linux_production` 已提供 revision 4 十阶段框架，输入冻结、分类和 Excel 第一阶段可调用现有实现；Excel 第二阶段、拆板、CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
 | 数据库屏障 | 未实现 | 没有目标的原子 compare-and-set 批次阶段推进 |
 
 **评价：** 这是可复用的编排元数据框架，但不能被视为目标业务 orchestration 已完成。
