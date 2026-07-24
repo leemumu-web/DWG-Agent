@@ -95,41 +95,6 @@
 | `GET` | `/api/v1/files/{file_id}/download-url` |
 | `GET` | `/api/v1/files/{file_id}/download` |
 
-## 图纸
-
-| Method | Path |
-|---|---|
-| `GET, POST` | `/api/v1/drawings` |
-| `GET, PATCH, DELETE` | `/api/v1/drawings/{drawing_id}` |
-| `GET, POST` | `/api/v1/drawings/{drawing_id}/versions` |
-| `GET` | `/api/v1/drawings/{drawing_id}/preview` |
-
-## 任务
-
-| Method | Path |
-|---|---|
-| `GET, POST` | `/api/v1/jobs` |
-| `POST` | `/api/v1/jobs/batches` |
-| `POST` | `/api/v1/jobs/cancellation-requests` |
-| `POST` | `/api/v1/jobs/cancel-all-active` |
-| `GET` | `/api/v1/jobs/events/stream` |
-| `GET` | `/api/v1/jobs/{job_id}` |
-| `GET` | `/api/v1/jobs/{job_id}/steps` |
-| `GET` | `/api/v1/jobs/{job_id}/logs` |
-| `POST` | `/api/v1/jobs/{job_id}/cancellation-requests` |
-| `POST` | `/api/v1/jobs/{job_id}/retry-requests` |
-| `GET` | `/api/v1/jobs/{job_id}/events` |
-| `GET` | `/api/v1/jobs/{job_id}/results` |
-
-## 结果与复核
-
-| Method | Path |
-|---|---|
-| `GET` | `/api/v1/results/{result_id}` |
-| `GET` | `/api/v1/results/{result_id}/download-url` |
-| `POST, GET` | `/api/v1/results/{result_id}/reviews` |
-| `GET` | `/api/v1/reviews/pending` |
-
 ## 审计
 
 | Method | Path |
@@ -188,6 +153,26 @@
 
 | Method | Path |
 |---|---|
+| `GET, POST` | `/api/v1/workflows/drawings` |
+| `GET, PATCH, DELETE` | `/api/v1/workflows/drawings/{drawing_id}` |
+| `GET, POST` | `/api/v1/workflows/drawings/{drawing_id}/versions` |
+| `GET` | `/api/v1/workflows/drawings/{drawing_id}/preview` |
+| `GET, POST` | `/api/v1/workflows/jobs` |
+| `POST` | `/api/v1/workflows/jobs/batches` |
+| `POST` | `/api/v1/workflows/jobs/cancellation-requests` |
+| `POST` | `/api/v1/workflows/jobs/cancel-all-active` |
+| `GET` | `/api/v1/workflows/jobs/events/stream` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/steps` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/logs` |
+| `POST` | `/api/v1/workflows/jobs/{job_id}/cancellation-requests` |
+| `POST` | `/api/v1/workflows/jobs/{job_id}/retry-requests` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/events` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/results` |
+| `GET` | `/api/v1/workflows/results/{result_id}` |
+| `GET` | `/api/v1/workflows/results/{result_id}/download-url` |
+| `POST, GET` | `/api/v1/workflows/results/{result_id}/reviews` |
+| `GET` | `/api/v1/workflows/reviews/pending` |
 | `GET` | `/api/v1/workflows/templates` |
 | `GET, POST` | `/api/v1/workflows/projects` |
 | `GET, POST` | `/api/v1/workflows` |

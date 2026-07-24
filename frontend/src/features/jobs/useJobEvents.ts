@@ -70,7 +70,7 @@ export function useJobEvents(
       esRef.current = null;
     };
 
-    const url = `${VITE_API_BASE_URL}/api/v1/jobs/${jobId}/events`;
+    const url = `${VITE_API_BASE_URL}/api/v1/workflows/jobs/${jobId}/events`;
     const es = new EventSource(url, { withCredentials: true });
     esRef.current = es;
 

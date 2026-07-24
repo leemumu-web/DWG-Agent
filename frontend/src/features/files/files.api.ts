@@ -52,7 +52,7 @@ export async function uploadFile(file: File, batchName?: string, idempotencyKey?
 
 export async function uploadFileAndConvert(file: File, batchName?: string) {
   const stored = await uploadFile(file, batchName);
-  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
     task_type: 'convert_dwg_to_dxf',
     precision_level: 'normal',
     params: { file_id: stored.id, batch_name: batchName || null },
