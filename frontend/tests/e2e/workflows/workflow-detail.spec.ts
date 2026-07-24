@@ -217,6 +217,17 @@ test('production route inspects stages safely and keeps classification output co
     created_at: now,
     updated_at: now,
   }));
+  artifacts.push({
+    id: 904,
+    stage_run_id: 206,
+    artifact_type: 'cam_output_dxf',
+    file_id: 804,
+    result_id: null,
+    version: 1,
+    metadata_json: { original_name: 'cam-output.dxf' },
+    created_at: now,
+    updated_at: now,
+  });
   const workflow = {
     id: 42,
     project_id: 8,
@@ -410,6 +421,9 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByText('拆板执行能力尚未接入')).toBeVisible();
   await expect(page.getByText('项目总进度')).toBeVisible();
   await expect(page.getByText('实时速度')).toBeVisible();
+  await expect(page.getByText('自动完成')).toBeVisible();
+  await expect(page.getByText('待人工处理')).toBeVisible();
+  await expect(page.getByText('失败数量')).toBeVisible();
   await expect(page.getByText('未接入', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: /开始|重试|确认当前阶段/ })).toHaveCount(0);
 
@@ -454,4 +468,8 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByText('该阶段尚未解锁')).toBeVisible();
   await expect(page.getByRole('button', { name: '运行 Excel 第一阶段' })).toHaveCount(0);
   expect(executionRequests).toBe(0);
+
+  await page.getByRole('button', { name: /Windows CAM 排版/ }).click();
+  await expect(page.getByRole('heading', { name: 'Windows CAM 排版' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toBeEnabled();
 });

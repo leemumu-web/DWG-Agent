@@ -27,6 +27,7 @@ import {
   executeWorkflowStage,
   getDxfClassification,
   getDxfClassificationGroup,
+  getWorkflow,
 } from './workflows.api';
 import { describeApiError } from '../../shared/api';
 import { fmtSize } from '../../shared/components';
@@ -118,9 +119,15 @@ export function DxfClassificationPanel({
   });
 
   const executeMutation = useMutation({
-    mutationFn: () => executeWorkflowStage(workflowId, 'dxf_classification', {
-      execution_kind: 'steel_dxf_classification',
-    }),
+    mutationFn: async () => {
+      const workflow = await getWorkflow(workflowId);
+      if (!isCurrent || workflow.current_stage !== 'dxf_classification') {
+        throw new Error('当前阶段已变化，请刷新后重试');
+      }
+      return executeWorkflowStage(workflowId, 'dxf_classification', {
+        execution_kind: 'steel_dxf_classification',
+      });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ['workflow-dxf-classification', workflowId],

@@ -284,6 +284,8 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     assert "确认，仅上传 DWG" in panel_source
     assert "downloadFile" not in panel_source
     assert "冻结后不可修改" in panel_source
+    assert "getWorkflow" in panel_source
+    assert "workflow.current_stage !== 'source_intake'" in panel_source
     for path in (
         "/input-batch",
         "/input-excel",
@@ -293,6 +295,15 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
         "/input-batch/freeze",
     ):
         assert path in api_source
+
+
+def test_workflow_stage_mutations_recheck_authoritative_current_stage():
+    classification_source = _frontend_source(
+        "features/workflows/DxfClassificationPanel.tsx"
+    )
+
+    assert "getWorkflow" in classification_source
+    assert "workflow.current_stage !== 'dxf_classification'" in classification_source
 
 
 def test_production_project_drawer_uses_atomic_project_contract():

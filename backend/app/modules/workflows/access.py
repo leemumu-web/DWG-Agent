@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.modules.jobs.interface import AnalysisResult
 from app.modules.workflows.lifecycle import get_workflow_or_404
 from app.modules.workflows.models import (
     WorkflowArtifact,
@@ -41,8 +42,12 @@ def find_production_file_workflow_id(db: Session, file_id: int) -> int | None:
     workflow_id = db.scalar(
         select(WorkflowArtifact.workflow_run_id)
         .join(WorkflowRun, WorkflowRun.id == WorkflowArtifact.workflow_run_id)
+        .outerjoin(AnalysisResult, AnalysisResult.id == WorkflowArtifact.result_id)
         .where(
-            WorkflowArtifact.file_id == file_id,
+            or_(
+                WorkflowArtifact.file_id == file_id,
+                AnalysisResult.result_file_id == file_id,
+            ),
             WorkflowRun.workflow_type == "linux_production",
         )
         .limit(1)

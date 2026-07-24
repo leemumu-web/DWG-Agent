@@ -37,6 +37,7 @@ import {
   uploadWorkflowInputDwgFolder,
   uploadWorkflowInputExcel,
 } from './workflow-inputs.api';
+import { getWorkflow } from './workflows.api';
 import { fmtDateTime, fmtSize } from '../../shared/components';
 import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
 
@@ -65,11 +66,23 @@ export function ProductionInputPanel({
   const excelInput = useRef<HTMLInputElement>(null);
   const dwgFolderInput = useRef<HTMLInputElement>(null);
 
+  const requireCurrentSourceIntake = async () => {
+    if (!sourceIntakeActive) {
+      throw new Error('当前阶段已变化，请刷新后重试');
+    }
+    const workflow = await getWorkflow(workflowId);
+    if (workflow.current_stage !== 'source_intake') {
+      throw new Error('当前阶段已变化，请刷新后重试');
+    }
+  };
+
   const batchQ = useQuery({
     queryKey: ['workflow-input-batch', workflowId],
-    queryFn: () => sourceIntakeActive
-      ? createWorkflowInputBatch(workflowId)
-      : getWorkflowInputBatch(workflowId),
+    queryFn: async () => {
+      if (!sourceIntakeActive) return getWorkflowInputBatch(workflowId);
+      await requireCurrentSourceIntake();
+      return createWorkflowInputBatch(workflowId);
+    },
     refetchInterval: (query) => ACTIVE_BATCH.has(query.state.data?.status ?? '') ? 2500 : false,
   });
   const batch = batchQ.data;
@@ -80,12 +93,18 @@ export function ProductionInputPanel({
   };
 
   const clearM = useMutation({
-    mutationFn: () => clearWorkflowInputFolder(workflowId),
+    mutationFn: async () => {
+      await requireCurrentSourceIntake();
+      return clearWorkflowInputFolder(workflowId);
+    },
     onSuccess: () => { message.success('生产输入文件夹已清空，可重新选择完整文件夹'); refresh(); },
     onError: (error) => message.error(describeApiError(error, '清空失败')),
   });
   const convertM = useMutation({
-    mutationFn: () => requestWorkflowInputConversions(workflowId),
+    mutationFn: async () => {
+      await requireCurrentSourceIntake();
+      return requestWorkflowInputConversions(workflowId);
+    },
     onSuccess: (result) => {
       refresh(result.batch);
       message.success(result.dispatched_count > 0 ? `已提交 ${result.dispatched_count} 个 DWG 转换任务` : '没有重复投递，继续跟踪现有任务');
@@ -93,12 +112,18 @@ export function ProductionInputPanel({
     onError: (error) => message.error(describeApiError(error, '转换提交失败')),
   });
   const freezeM = useMutation({
-    mutationFn: () => freezeWorkflowInputBatch(workflowId),
+    mutationFn: async () => {
+      await requireCurrentSourceIntake();
+      return freezeWorkflowInputBatch(workflowId);
+    },
     onSuccess: (result) => { refresh(result); message.success('输入已冻结，生产流程进入下一阶段'); onFrozen(); },
     onError: (error) => { message.error(describeApiError(error, '冻结失败')); refresh(); },
   });
   const uploadExcelM = useMutation({
-    mutationFn: (file: File) => uploadWorkflowInputExcel(workflowId, file),
+    mutationFn: async (file: File) => {
+      await requireCurrentSourceIntake();
+      return uploadWorkflowInputExcel(workflowId, file);
+    },
     onSuccess: (result) => {
       refresh(result);
       message.success('Excel 已上传并通过输入审核');
@@ -106,7 +131,10 @@ export function ProductionInputPanel({
     onError: (error) => message.error(describeApiError(error, 'Excel 上传失败')),
   });
   const uploadDwgFolderM = useMutation({
-    mutationFn: (files: File[]) => uploadWorkflowInputDwgFolder(workflowId, files),
+    mutationFn: async (files: File[]) => {
+      await requireCurrentSourceIntake();
+      return uploadWorkflowInputDwgFolder(workflowId, files);
+    },
     onSuccess: (result) => {
       refresh(result);
       message.success(`DWG 文件夹已上传并校验，共 ${result.counts.dwg} 张图纸`);

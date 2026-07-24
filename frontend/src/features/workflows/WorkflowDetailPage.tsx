@@ -106,7 +106,10 @@ function StageArchiveCard({
     mutationFn: () => downloadWorkflowStageArchive(workflowId, stage.stage_code),
     onError: (error) => message.error(describeApiError(error, '阶段结果压缩包下载失败')),
   });
-  if (capability.implementation_status !== 'implemented') return null;
+  if (
+    stage.stage_code === 'drawing_processing'
+    && capability.implementation_status === 'placeholder'
+  ) return null;
   const downloadLabel = stage.stage_code === 'dxf_classification'
     ? '下载分流结果压缩包'
     : '下载本阶段结果压缩包';
@@ -143,6 +146,9 @@ function DrawingProcessingPlaceholder() {
     ['已完成 / 总数', '未接入'],
     ['实时速度', '未接入'],
     ['预计剩余时间', '未接入'],
+    ['自动完成', '未接入'],
+    ['待人工处理', '未接入'],
+    ['失败数量', '未接入'],
   ];
   return (
     <Card className="workflow-drawing-placeholder">

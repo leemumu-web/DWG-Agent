@@ -306,6 +306,29 @@ def test_artifact_rejects_cross_project_result(db):
     assert caught.value.detail["code"] == "WORKFLOW_ARTIFACT_PROJECT_MISMATCH"
 
 
+def test_result_only_artifact_keeps_production_zip_download_boundary(db):
+    user, project, workflow = _production_workflow(db)
+    result_file = _stored_file(db, name="processed.dxf", uploaded_by=user.id)
+    result = _result(
+        db,
+        project_id=project.id,
+        created_by=user.id,
+        file_id=result_file.id,
+    )
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        artifact_type="processed_dxf",
+        result_id=result.id,
+    )
+
+    assert (
+        workflow_service.find_production_file_workflow_id(db, result_file.id)
+        == workflow.id
+    )
+
+
 def test_drawing_processing_requires_classified_dxf(db):
     _, _, workflow = _production_workflow(db)
     _set_current_stage(workflow, "drawing_processing")
