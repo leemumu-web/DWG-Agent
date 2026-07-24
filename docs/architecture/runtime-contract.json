@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "9d6e4a1b2c70"
+    "6f4a8c2d1e90"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -76,6 +76,7 @@
     "DELETE /api/v1/files/{file_id} delete_file_api_v1_files__file_id__delete",
     "DELETE /api/v1/projects/{project_id} delete_project_api_v1_projects__project_id__delete",
     "DELETE /api/v1/projects/{project_id}/members/{member_id} delete_project_member_api_v1_projects__project_id__members__member_id__delete",
+    "DELETE /api/v1/remnants/{remnant_id} delete_remnant_api_v1_remnants__remnant_id__delete",
     "DELETE /api/v1/users/{user_id} delete_user_api_api_v1_users__user_id__delete",
     "DELETE /api/v1/users/{user_id}/roles/{role_id} remove_role_api_v1_users__user_id__roles__role_id__delete",
     "DELETE /api/v1/workflows/{workflow_id}/input-batch/files/{item_id} remove_file_api_api_v1_workflows__workflow_id__input_batch_files__item_id__delete",
@@ -202,6 +203,7 @@
     "POST /api/v1/projects/{project_id}/members add_project_member_api_v1_projects__project_id__members_post",
     "POST /api/v1/remnant-import-batches post_import_batch_api_v1_remnant_import_batches_post",
     "POST /api/v1/remnant-import-batches/auto post_auto_import_batch_api_v1_remnant_import_batches_auto_post",
+    "POST /api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata post_bulk_optional_metadata_api_v1_remnant_import_batches__batch_id__bulk_optional_metadata_post",
     "POST /api/v1/remnant-import-batches/{batch_id}/bulk-project post_bulk_project_api_v1_remnant_import_batches__batch_id__bulk_project_post",
     "POST /api/v1/remnant-import-batches/{batch_id}/bulk-thickness post_bulk_thickness_api_v1_remnant_import_batches__batch_id__bulk_thickness_post",
     "POST /api/v1/remnant-import-batches/{batch_id}/cancel post_cancel_batch_api_v1_remnant_import_batches__batch_id__cancel_post",
@@ -321,6 +323,7 @@
     "/api/v1/remnant-import-batches",
     "/api/v1/remnant-import-batches/auto",
     "/api/v1/remnant-import-batches/{batch_id}",
+    "/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
     "/api/v1/remnant-import-batches/{batch_id}/bulk-project",
     "/api/v1/remnant-import-batches/{batch_id}/bulk-thickness",
     "/api/v1/remnant-import-batches/{batch_id}/cancel",

@@ -129,6 +129,10 @@ def _seed_global_remnants() -> tuple[int, int]:
                 thickness_mm=thickness,
                 material_id=material.id,
                 project_no=project,
+                project_no_secondary="合同-二号" if index == 1 else None,
+                storage_location="A区-03架" if index == 1 else None,
+                remark_1="待复核" if index == 1 else None,
+                remark_2="优先使用" if index == 1 else None,
                 status=status,
                 imported_by=worker.id,
                 confirmed_by=worker.id,
@@ -663,6 +667,10 @@ def test_worker_can_page_filter_and_sort_the_global_inventory(
             "thickness_mm": "10",
             "statuses": "available",
             "project": "精武路",
+            "project_secondary": "二号",
+            "storage_location": "03架",
+            "remark_1": "复核",
+            "remark_2": "优先",
             "part": "JWL-1014",
         },
     )
@@ -670,6 +678,38 @@ def test_worker_can_page_filter_and_sort_the_global_inventory(
     assert filtered.status_code == 200, filtered.text
     assert filtered.json()["pagination"]["total"] == 1
     assert filtered.json()["data"][0]["parts"] == ["JWL-1014-B-4"]
+    assert filtered.json()["data"][0]["project_no_secondary"] == "合同-二号"
+    assert filtered.json()["data"][0]["storage_location"] == "A区-03架"
+
+
+def test_worker_can_delete_own_archived_remnant_while_audit_and_source_remain(
+    client, worker_headers
+) -> None:
+    _seed_global_remnants()
+    listed = client.get(
+        "/api/v1/remnants/all",
+        headers=worker_headers,
+        params={"statuses": "archived"},
+    )
+    archived = listed.json()["data"][0]
+
+    deleted = client.delete(
+        f"/api/v1/remnants/{archived['id']}",
+        headers=worker_headers,
+    )
+
+    assert deleted.status_code == 204
+    with get_test_session_factory()() as db:
+        assert db.get(Remnant, archived["id"]) is None
+        assert db.get(StoredFile, archived["source_file_id"]) is not None
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.delete",
+                AuditLog.resource_id == archived["id"],
+            )
+        )
+        assert audit is not None
+        assert audit.before_json["source_sha256"]
 
 
 def test_worker_bulk_archive_returns_success_and_chinese_failure_details(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
@@ -190,6 +191,91 @@ def test_only_importer_or_admin_can_edit_or_archive_available_remnant(db) -> Non
         update_remnant(db, row.id, actor=outsider, project_no="NO")
     assert update_remnant(db, row.id, actor=owner, project_no="YES").project_no == "YES"
     assert archive_remnant(db, row.id, actor=admin).status == "archived"
+
+
+def test_optional_inventory_fields_can_be_updated_and_searched_independently(db) -> None:
+    from app.modules.remnant_inventory.inventory import list_all_remnants, update_remnant
+
+    owner = _user(db, "metadata-owner")
+    row = _remnant(db, owner=owner, suffix="m")
+
+    update_remnant(
+        db,
+        row.id,
+        actor=owner,
+        project_no_secondary="合同-M2",
+        storage_location="A区-03架",
+        remark_1="待复核",
+        remark_2="优先使用",
+    )
+
+    assert [item.id for item in list_all_remnants(db, project_secondary="合同-M2").items] == [
+        row.id
+    ]
+    assert [item.id for item in list_all_remnants(db, storage_location="03架").items] == [
+        row.id
+    ]
+    assert [item.id for item in list_all_remnants(db, remark_1="复核").items] == [row.id]
+    assert [item.id for item in list_all_remnants(db, remark_2="优先").items] == [row.id]
+
+    update_remnant(
+        db,
+        row.id,
+        actor=owner,
+        project_no_secondary="",
+        storage_location="",
+        remark_1="",
+        remark_2="",
+    )
+    assert row.project_no_secondary is None
+    assert row.storage_location is None
+    assert row.remark_1 is None
+    assert row.remark_2 is None
+
+
+def test_deleting_archived_remnant_keeps_audit_and_frees_source_for_resubmission(db) -> None:
+    from app.modules.operations.audit.models import AuditLog
+    from app.modules.remnant_inventory.inventory import archive_remnant, delete_archived_remnant
+
+    owner = _user(db, "delete-owner")
+    row = _remnant(db, owner=owner, suffix="z")
+    source_sha256 = row.source_sha256
+    source_file_id = row.source_file_id
+    remnant_id = row.id
+    archive_remnant(db, row.id, actor=owner)
+
+    delete_archived_remnant(db, row.id, actor=owner)
+    db.flush()
+
+    assert db.get(Remnant, remnant_id) is None
+    assert db.get(StoredFile, source_file_id) is not None
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "remnants.delete",
+            AuditLog.resource_id == remnant_id,
+        )
+    )
+    assert audit is not None
+    assert audit.before_json["source_sha256"] == source_sha256
+
+    replacement_item = RemnantImportItem(
+        batch_id=row.import_item_id and db.get(RemnantImportItem, row.import_item_id).batch_id,
+        source_file_id=source_file_id,
+        dxf_file_id=row.dxf_file_id,
+        source_sha256=source_sha256,
+        source_ext=".dxf",
+        status="pending_confirmation",
+        corrected_thickness_mm=Decimal("10"),
+        corrected_material_id=row.material_id,
+        corrected_project_no="再次提交",
+        corrected_parts_json=["P-RESUBMIT"],
+    )
+    db.add(replacement_item)
+    db.flush()
+    from app.modules.remnant_inventory.imports import confirm_import_items
+
+    result = confirm_import_items(db, [replacement_item.id], actor=owner)
+    assert len(result.confirmed) == 1
 
 
 def test_bulk_archive_partially_succeeds_and_preserves_first_input_order(db) -> None:

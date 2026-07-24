@@ -138,6 +138,10 @@ def update_import_item(
     thickness_mm: Decimal | str | int | float | None = None,
     material_id: int | None = None,
     project_no: str | None = None,
+    project_no_secondary: str | None = None,
+    storage_location: str | None = None,
+    remark_1: str | None = None,
+    remark_2: str | None = None,
     parts: Sequence[str] | None = None,
 ) -> RemnantImportItem:
     item = db.get(RemnantImportItem, item_id)
@@ -155,6 +159,14 @@ def update_import_item(
         item.corrected_material_id = material.id
     if project_no is not None:
         item.corrected_project_no = unicodedata.normalize("NFKC", project_no).strip()
+    for value, attribute in (
+        (project_no_secondary, "corrected_project_no_secondary"),
+        (storage_location, "corrected_storage_location"),
+        (remark_1, "corrected_remark_1"),
+        (remark_2, "corrected_remark_2"),
+    ):
+        if value is not None:
+            setattr(item, attribute, unicodedata.normalize("NFKC", value).strip() or None)
     if parts is not None:
         item.corrected_parts_json = _parts(parts)
     db.flush()
@@ -222,6 +234,50 @@ def bulk_apply_project(
         if item.status in {"confirmed", "cancelled"}:
             continue
         item.corrected_project_no = normalized
+        changed.append(item.id)
+    db.flush()
+    return changed
+
+
+def bulk_apply_optional_metadata(
+    db: Session,
+    batch_id: int,
+    *,
+    item_ids: Sequence[int],
+    actor: User,
+    project_no_secondary: str | None = None,
+    storage_location: str | None = None,
+    remark_1: str | None = None,
+    remark_2: str | None = None,
+) -> list[int]:
+    batch = db.get(RemnantImportBatch, batch_id)
+    if batch is None:
+        raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "导入批次不存在或已被删除。")
+    if batch.created_by != actor.id and not (_ADMIN_ROLES & user_role_codes(actor)):
+        raise AppHTTPException(403, "REMNANT_IMPORT_FORBIDDEN", "无权访问该导入批次。")
+    selected = list(
+        db.scalars(
+            select(RemnantImportItem)
+            .where(
+                RemnantImportItem.batch_id == batch_id,
+                RemnantImportItem.id.in_(set(item_ids)),
+            )
+            .order_by(RemnantImportItem.id)
+        ).all()
+    )
+    values = {
+        "corrected_project_no_secondary": project_no_secondary,
+        "corrected_storage_location": storage_location,
+        "corrected_remark_1": remark_1,
+        "corrected_remark_2": remark_2,
+    }
+    changed: list[int] = []
+    for item in selected:
+        if item.status in {"confirmed", "cancelled"}:
+            continue
+        for attribute, value in values.items():
+            if value is not None:
+                setattr(item, attribute, unicodedata.normalize("NFKC", value).strip() or None)
         changed.append(item.id)
     db.flush()
     return changed
@@ -390,6 +446,10 @@ def confirm_import_items(
             thickness_mm=item.corrected_thickness_mm,
             material_id=item.corrected_material_id,
             project_no=item.corrected_project_no.strip(),
+            project_no_secondary=item.corrected_project_no_secondary,
+            storage_location=item.corrected_storage_location,
+            remark_1=item.corrected_remark_1,
+            remark_2=item.corrected_remark_2,
             imported_by=db.get(RemnantImportBatch, item.batch_id).created_by,
             confirmed_by=actor.id,
             confirmed_at=datetime.now(UTC),

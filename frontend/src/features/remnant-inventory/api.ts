@@ -87,6 +87,10 @@ export async function listAllRemnants(search: RemnantGlobalSearch): Promise<Page
       thickness_mm: search.thicknessMm,
       statuses: search.statuses,
       project: search.project,
+      project_secondary: search.projectSecondary,
+      storage_location: search.storageLocation,
+      remark_1: search.remark1,
+      remark_2: search.remark2,
       part: search.part,
       sort: search.sort,
       page: search.page,
@@ -137,7 +141,16 @@ export async function markRemnantUsed(remnantId: number): Promise<Remnant> {
 
 export async function updateRemnant(
   remnantId: number,
-  payload: { thickness_mm: string; material_id: number; project_no: string; parts: string[] },
+  payload: {
+    thickness_mm: string;
+    material_id: number;
+    project_no: string;
+    project_no_secondary?: string;
+    storage_location?: string;
+    remark_1?: string;
+    remark_2?: string;
+    parts: string[];
+  },
 ): Promise<Remnant> {
   const response = await apiClient.patch<ApiEnvelope<Remnant>>(`/api/v1/remnants/${remnantId}`, payload);
   return response.data.data;
@@ -181,6 +194,10 @@ export async function createRemnantImportBatch(files: File[]): Promise<RemnantIm
   return response.data.data;
 }
 
+export async function deleteArchivedRemnant(remnantId: number): Promise<void> {
+  await apiClient.delete(`/api/v1/remnants/${remnantId}`);
+}
+
 export interface AutoImportFile {
   file: File;
   relativePath: string;
@@ -215,7 +232,16 @@ export async function getRemnantImportBatch(batchId: number): Promise<RemnantImp
 
 export async function updateRemnantImportItem(
   itemId: number,
-  payload: { thickness_mm?: string; material_id?: number; project_no?: string; parts?: string[] },
+  payload: {
+    thickness_mm?: string;
+    material_id?: number;
+    project_no?: string;
+    project_no_secondary?: string;
+    storage_location?: string;
+    remark_1?: string;
+    remark_2?: string;
+    parts?: string[];
+  },
 ): Promise<RemnantImportItem> {
   const response = await apiClient.patch<ApiEnvelope<RemnantImportItem>>(
     `/api/v1/remnant-import-items/${itemId}`,
@@ -244,6 +270,23 @@ export async function bulkApplyProject(
   const response = await apiClient.post<ApiEnvelope<{ updated_item_ids: number[] }>>(
     `/api/v1/remnant-import-batches/${batchId}/bulk-project`,
     { item_ids: itemIds, project_no: projectNo },
+  );
+  return response.data.data.updated_item_ids;
+}
+
+export async function bulkApplyOptionalMetadata(
+  batchId: number,
+  itemIds: number[],
+  payload: {
+    project_no_secondary?: string;
+    storage_location?: string;
+    remark_1?: string;
+    remark_2?: string;
+  },
+): Promise<number[]> {
+  const response = await apiClient.post<ApiEnvelope<{ updated_item_ids: number[] }>>(
+    `/api/v1/remnant-import-batches/${batchId}/bulk-optional-metadata`,
+    { item_ids: itemIds, ...payload },
   );
   return response.data.data.updated_item_ids;
 }

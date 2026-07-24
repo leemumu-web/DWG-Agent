@@ -96,6 +96,10 @@ class ImportItemUpdate(BaseModel):
     thickness_mm: Decimal | None = None
     material_id: int | None = None
     project_no: str | None = Field(default=None, max_length=128)
+    project_no_secondary: str | None = Field(default=None, max_length=128)
+    storage_location: str | None = Field(default=None, max_length=128)
+    remark_1: str | None = Field(default=None, max_length=500)
+    remark_2: str | None = Field(default=None, max_length=500)
     parts: list[str] | None = Field(default=None, max_length=500)
 
 
@@ -119,6 +123,14 @@ class BulkProjectUpdate(BaseModel):
             "item_ids": value.get("item_ids"),
             "project_no": value.get("project_no"),
         }
+
+
+class BulkOptionalMetadataUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=1000)
+    project_no_secondary: str | None = Field(default=None, max_length=128)
+    storage_location: str | None = Field(default=None, max_length=128)
+    remark_1: str | None = Field(default=None, max_length=500)
+    remark_2: str | None = Field(default=None, max_length=500)
 
 
 class ImportConfirmRequest(BaseModel):
@@ -145,6 +157,10 @@ class RemnantUpdate(BaseModel):
     thickness_mm: Decimal | None = None
     material_id: int | None = None
     project_no: str | None = Field(default=None, max_length=128)
+    project_no_secondary: str | None = Field(default=None, max_length=128)
+    storage_location: str | None = Field(default=None, max_length=128)
+    remark_1: str | None = Field(default=None, max_length=500)
+    remark_2: str | None = Field(default=None, max_length=500)
     parts: list[str] | None = Field(default=None, max_length=500)
 
 

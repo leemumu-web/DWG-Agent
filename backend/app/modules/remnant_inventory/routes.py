@@ -21,6 +21,7 @@ from app.modules.remnant_inventory.export import (
 )
 from app.modules.remnant_inventory.imports import (
     _require_item_access,
+    bulk_apply_optional_metadata,
     bulk_apply_project,
     bulk_apply_thickness,
     cancel_import_batch,
@@ -34,6 +35,7 @@ from app.modules.remnant_inventory.inventory import (
     archive_remnant,
     build_original_download,
     bulk_archive_remnants,
+    delete_archived_remnant,
     list_all_remnants,
     mark_remnant_used,
     preview_file_id,
@@ -58,6 +60,7 @@ from app.modules.remnant_inventory.models import (
     RemnantPart,
 )
 from app.modules.remnant_inventory.schemas import (
+    BulkOptionalMetadataUpdate,
     BulkProjectUpdate,
     BulkThicknessUpdate,
     ImportConfirmRequest,
@@ -132,6 +135,10 @@ def _item_data(db: Session, item: RemnantImportItem) -> dict:
         "thickness_mm": str(item.corrected_thickness_mm) if item.corrected_thickness_mm else None,
         "material_id": item.corrected_material_id,
         "project_no": item.corrected_project_no,
+        "project_no_secondary": item.corrected_project_no_secondary,
+        "storage_location": item.corrected_storage_location,
+        "remark_1": item.corrected_remark_1,
+        "remark_2": item.corrected_remark_2,
         "parts": item.corrected_parts_json or [],
         "error_code": item.error_code,
         "error_message": item.error_message,
@@ -187,6 +194,10 @@ def _remnant_data(db: Session, row: Remnant) -> dict:
         "material_id": row.material_id,
         "material_code": material.code if material else None,
         "project_no": row.project_no,
+        "project_no_secondary": row.project_no_secondary,
+        "storage_location": row.storage_location,
+        "remark_1": row.remark_1,
+        "remark_2": row.remark_2,
         "parts": parts,
         "status": row.status,
         "imported_by": row.imported_by,
@@ -629,6 +640,43 @@ def post_bulk_project(
     return ok({"updated_item_ids": changed}, request.state.request_id)
 
 
+@imports_router.post("/{batch_id}/bulk-optional-metadata")
+def post_bulk_optional_metadata(
+    batch_id: int,
+    payload: BulkOptionalMetadataUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    changed = bulk_apply_optional_metadata(
+        db,
+        batch_id,
+        item_ids=payload.item_ids,
+        actor=current_user,
+        project_no_secondary=payload.project_no_secondary,
+        storage_location=payload.storage_location,
+        remark_1=payload.remark_1,
+        remark_2=payload.remark_2,
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.bulk_optional_metadata",
+        resource_type="remnant_import_batch",
+        resource_id=batch_id,
+        after_json={
+            "item_ids": changed,
+            "project_no_secondary": payload.project_no_secondary,
+            "storage_location": payload.storage_location,
+            "remark_1": payload.remark_1,
+            "remark_2": payload.remark_2,
+        },
+        request=request,
+    )
+    db.commit()
+    return ok({"updated_item_ids": changed}, request.state.request_id)
+
+
 @imports_router.post("/{batch_id}/cancel")
 def post_cancel_batch(
     batch_id: int,
@@ -744,15 +792,8 @@ def patch_import_item(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
-    row = update_import_item(
-        db,
-        item_id,
-        actor=current_user,
-        thickness_mm=payload.thickness_mm,
-        material_id=payload.material_id,
-        project_no=payload.project_no,
-        parts=payload.parts,
-    )
+    values = payload.model_dump(exclude_unset=True)
+    row = update_import_item(db, item_id, actor=current_user, **values)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -762,6 +803,10 @@ def patch_import_item(
         after_json={
             "material_id": row.corrected_material_id,
             "project_no": row.corrected_project_no,
+            "project_no_secondary": row.corrected_project_no_secondary,
+            "storage_location": row.corrected_storage_location,
+            "remark_1": row.corrected_remark_1,
+            "remark_2": row.corrected_remark_2,
             "parts": row.corrected_parts_json,
             "thickness_mm": str(row.corrected_thickness_mm),
         },
@@ -882,6 +927,10 @@ def get_all_remnants(
     thickness_mm: Decimal | None = Query(default=None, gt=0),
     statuses: list[str] | None = Query(default=None),
     project: str | None = Query(default=None, max_length=128),
+    project_secondary: str | None = Query(default=None, max_length=128),
+    storage_location: str | None = Query(default=None, max_length=128),
+    remark_1: str | None = Query(default=None, max_length=500),
+    remark_2: str | None = Query(default=None, max_length=500),
     part: str | None = Query(default=None, max_length=128),
     sort: str = Query(default="created_desc"),
     page_no: int = Query(default=1, alias="page", ge=1),
@@ -895,6 +944,10 @@ def get_all_remnants(
         thickness_mm=thickness_mm,
         statuses=statuses,
         project=project,
+        project_secondary=project_secondary,
+        storage_location=storage_location,
+        remark_1=remark_1,
+        remark_2=remark_2,
         part=part,
         sort=sort,
         page=page_no,
@@ -987,10 +1040,7 @@ def patch_remnant(
         db,
         remnant_id,
         actor=current_user,
-        thickness_mm=payload.thickness_mm,
-        material_id=payload.material_id,
-        project_no=payload.project_no,
-        parts=payload.parts,
+        **payload.model_dump(exclude_unset=True),
     )
     db.commit()
     return ok(_remnant_data(db, row), request.state.request_id)
@@ -1070,3 +1120,14 @@ def post_archive(
     row = archive_remnant(db, remnant_id, actor=current_user)
     db.commit()
     return ok(_remnant_data(db, row), request.state.request_id)
+
+
+@remnants_router.delete("/{remnant_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_remnant(
+    remnant_id: int,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    delete_archived_remnant(db, remnant_id, actor=current_user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

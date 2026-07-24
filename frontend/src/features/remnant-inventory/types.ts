@@ -20,6 +20,10 @@ export interface Remnant {
   material_id: number;
   material_code: string;
   project_no: string;
+  project_no_secondary: string | null;
+  storage_location: string | null;
+  remark_1: string | null;
+  remark_2: string | null;
   parts: string[];
   status: RemnantStatus;
   imported_by: number;
@@ -48,6 +52,10 @@ export interface RemnantGlobalSearch {
   thicknessMm?: string;
   statuses: RemnantStatus[];
   project?: string;
+  projectSecondary?: string;
+  storageLocation?: string;
+  remark1?: string;
+  remark2?: string;
   part?: string;
   sort: RemnantGlobalSort;
   page: number;
@@ -115,6 +123,10 @@ export interface RemnantImportItem {
   thickness_mm: string | null;
   material_id: number | null;
   project_no: string | null;
+  project_no_secondary: string | null;
+  storage_location: string | null;
+  remark_1: string | null;
+  remark_2: string | null;
   parts: string[];
   error_code: string | null;
   error_message: string | null;

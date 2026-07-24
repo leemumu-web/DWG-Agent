@@ -1,6 +1,6 @@
 # Remnant inventory frontend
 
-本 feature 是网页端余料库唯一 owner。`RemnantInventoryPage.tsx` 组合页面和 URL 查询状态；`RemnantSearchPanel.tsx` 管理材质、厚度、系列与状态条件；`RemnantGlobalPanel.tsx` 无需前置条件分页查看全库、按材质/厚度/状态/项目/零件筛选、批量归档并触发后端全量 Excel 导出；`RemnantDetailDrawer.tsx` 展示占用信息和库存动作；`RemnantEditModal.tsx` 供有权限的用户修订正式库存；`RemnantMaterialCatalog.tsx` 管理标准材质、系列、后缀和别名；`errors.ts` 统一余料库中文错误与解析警告；`api.ts`、`types.ts` 定义后端契约；`styles.css` 保持现有管理端视觉边界；`index.ts` 是跨 feature 唯一入口。
+本 feature 是网页端余料库唯一 owner。`RemnantInventoryPage.tsx` 组合页面和 URL 查询状态；`RemnantSearchPanel.tsx` 管理材质、厚度、系列与状态条件；`RemnantGlobalPanel.tsx` 无需前置条件分页查看全库，支持按材质、厚度、状态、两个项目编号、库存位置、两个备注和零件编号分别筛选，支持批量归档、删除已归档库存并触发全量 Excel 导出；`RemnantDetailDrawer.tsx` 展示占用信息和库存动作；`RemnantEditModal.tsx` 供有权限的用户修订正式库存；`RemnantMaterialCatalog.tsx` 管理标准材质、系列、后缀和别名；`errors.ts` 统一余料库中文错误与解析警告；`api.ts`、`types.ts` 定义后端契约；`styles.css` 保持现有管理端视觉边界；`index.ts` 是跨 feature 唯一入口。
 
 检索通过 React Query 缓存，预占冲突会失效库存查询；在线图形复用 files feature 公开的 `DxfPreviewModal`。原图下载标签按后端返回的 `.dwg`/`.dxf` 展示，只有预占人和管理员能触发。
 
@@ -10,6 +10,6 @@
 
 材质管理的启用状态是可交互开关，切换前使用中文确认，提交时仅显示当前行加载状态；操作失败不会预先改变显示值。余料库所有面向工人的校验、请求错误和解析警告均通过 `errors.ts` 转为中文，不直接显示 `REMNANT_*` 或解析器内部代码。
 
-共享 DXF 在线预览使用浅色全宽画布，隐藏左下角状态小字和右侧统计栏，并按图纸真实宽高比适配；缩放后不限制拖动边界，仍保留缩放、适合窗口、重载和源文件下载。所有组件继续复用同一个文件、Job 和预览状态，不建立第二套存储事实。
+共享 DXF 在线预览使用浅色全宽画布，隐藏左下角状态小字和右侧统计栏，并按图纸真实宽高比适配；小图纸会自动放大填充可用画布，缩放后不限制拖动边界，仍保留缩放、适合窗口、重载和源文件下载。所有组件继续复用同一个文件、Job 和预览状态，不建立第二套存储事实。
 
 后端接口中，`GET /api/v1/remnants` 保持“材质 + 厚度”精确检索契约；`GET /api/v1/remnants/all` 提供全局筛选和服务端分页；`POST /api/v1/remnants/bulk-archive` 接收 1–200 个编号并返回成功项与失败明细；`GET /api/v1/remnants/export.xlsx` 始终导出全部已确认余料和全部库存状态，不受历史开关、页面筛选或分页影响。以上功能均沿用余料工人权限。

@@ -30,6 +30,7 @@ GLOBAL_SORTS = {
     "thickness_desc",
 }
 _ADMIN_ROLES = {ROLE_ADMIN, ROLE_SUPER_ADMIN}
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,10 @@ def list_all_remnants(
     thickness_mm: Decimal | str | int | float | None = None,
     statuses: Sequence[str] | None = None,
     project: str | None = None,
+    project_secondary: str | None = None,
+    storage_location: str | None = None,
+    remark_1: str | None = None,
+    remark_2: str | None = None,
     part: str | None = None,
     sort: str = "created_desc",
     page: int = 1,
@@ -155,6 +160,14 @@ def list_all_remnants(
         filters.append(Remnant.thickness_mm == _thickness(thickness_mm))
     if normalized_project := (project or "").strip():
         filters.append(Remnant.project_no.ilike(f"%{normalized_project}%"))
+    for value, column in (
+        (project_secondary, Remnant.project_no_secondary),
+        (storage_location, Remnant.storage_location),
+        (remark_1, Remnant.remark_1),
+        (remark_2, Remnant.remark_2),
+    ):
+        if normalized := (value or "").strip():
+            filters.append(column.ilike(f"%{normalized}%"))
     if normalized_part := (part or "").strip():
         filters.append(
             Remnant.id.in_(
@@ -320,6 +333,10 @@ def update_remnant(
     thickness_mm: Decimal | str | int | float | None = None,
     material_id: int | None = None,
     project_no: str | None = None,
+    project_no_secondary: str | None | object = _UNSET,
+    storage_location: str | None | object = _UNSET,
+    remark_1: str | None | object = _UNSET,
+    remark_2: str | None | object = _UNSET,
     parts: Sequence[str] | None = None,
 ) -> Remnant:
     _require_user(actor)
@@ -334,6 +351,10 @@ def update_remnant(
         "thickness_mm": str(row.thickness_mm),
         "material_id": row.material_id,
         "project_no": row.project_no,
+        "project_no_secondary": row.project_no_secondary,
+        "storage_location": row.storage_location,
+        "remark_1": row.remark_1,
+        "remark_2": row.remark_2,
         "version": row.version,
     }
     if thickness_mm is not None:
@@ -348,6 +369,15 @@ def update_remnant(
         if not normalized:
             raise AppHTTPException(422, "REMNANT_PROJECT_REQUIRED", "请填写项目编号。")
         row.project_no = normalized
+    for value, attribute in (
+        (project_no_secondary, "project_no_secondary"),
+        (storage_location, "storage_location"),
+        (remark_1, "remark_1"),
+        (remark_2, "remark_2"),
+    ):
+        if value is not _UNSET:
+            normalized = str(value or "").strip()
+            setattr(row, attribute, normalized or None)
     if parts is not None:
         normalized_parts = _parts(parts)
         if not normalized_parts:
@@ -366,6 +396,10 @@ def update_remnant(
             "thickness_mm": str(row.thickness_mm),
             "material_id": row.material_id,
             "project_no": row.project_no,
+            "project_no_secondary": row.project_no_secondary,
+            "storage_location": row.storage_location,
+            "remark_1": row.remark_1,
+            "remark_2": row.remark_2,
             "version": row.version,
         },
     )
@@ -402,6 +436,40 @@ def archive_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
         after={"status": row.status, "version": row.version},
     )
     return row
+
+
+def delete_archived_remnant(db: Session, remnant_id: int, *, actor: User) -> None:
+    """Hard-delete only an archived inventory row; source files and audit ledger remain."""
+    _require_user(actor)
+    row = _get_for_update(db, remnant_id)
+    if row.status != "archived":
+        raise AppHTTPException(
+            409,
+            "REMNANT_DELETE_REQUIRES_ARCHIVED",
+            "只有已归档的余料才能删除。",
+        )
+    if row.imported_by != actor.id and not _is_admin(actor):
+        raise AppHTTPException(
+            403,
+            "REMNANT_DELETE_FORBIDDEN",
+            "只能删除自己导入且已归档的余料。",
+        )
+    before = {
+        "source_sha256": row.source_sha256,
+        "source_file_id": row.source_file_id,
+        "dxf_file_id": row.dxf_file_id,
+        "material_id": row.material_id,
+        "thickness_mm": str(row.thickness_mm),
+        "project_no": row.project_no,
+        "project_no_secondary": row.project_no_secondary,
+        "storage_location": row.storage_location,
+        "remark_1": row.remark_1,
+        "remark_2": row.remark_2,
+        "status": row.status,
+    }
+    _audit(db, actor=actor, action="delete", row=row, before=before, after={"deleted": True})
+    db.delete(row)
+    db.flush()
 
 
 def bulk_archive_remnants(

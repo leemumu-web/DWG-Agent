@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DxfPreviewModal } from '../files';
 import {
   bulkApplyProject,
+  bulkApplyOptionalMetadata,
   bulkApplyThickness,
   cancelRemnantImportItem,
   confirmRemnantImportItems,
@@ -39,6 +40,9 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const [bulkThickness, setBulkThickness] = useState<number>();
   const [bulkProjectOpen, setBulkProjectOpen] = useState(false);
   const [bulkProject, setBulkProject] = useState('');
+  const [bulkMetadataOpen, setBulkMetadataOpen] = useState(false);
+  const [bulkProjectSecondary, setBulkProjectSecondary] = useState('');
+  const [bulkStorageLocation, setBulkStorageLocation] = useState('');
   const [editing, setEditing] = useState<RemnantImportItem>();
   const editingItemIdRef = useRef<number | undefined>(undefined);
   const editorGenerationRef = useRef(0);
@@ -96,6 +100,18 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     },
     onError: (error) => message.error(describeRemnantError(error, '批量设置项目编号失败')),
   });
+  const applyMetadata = useMutation({
+    mutationFn: () => bulkApplyOptionalMetadata(batch.id, selected.map(Number), {
+      project_no_secondary: bulkProjectSecondary,
+      storage_location: bulkStorageLocation,
+    }),
+    onSuccess: async () => {
+      setBulkMetadataOpen(false);
+      await refresh();
+      message.success('已批量填写项目编号二和库存位置');
+    },
+    onError: (error) => message.error(describeRemnantError(error, '批量填写附加信息失败')),
+  });
   const itemAction = useMutation({
     mutationFn: async ({ action, itemId }: { action: 'retry' | 'cancel'; itemId: number }) => {
       if (action === 'retry') await retryRemnantImportItem(itemId);
@@ -108,9 +124,22 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
     onError: (error) => message.error(describeRemnantError(error, '图纸操作失败')),
   });
   const save = useMutation({
-    mutationFn: (values: { thickness_mm: number; material_id: number; project_no: string; parts: string[] }) => updateRemnantImportItem(editing!.id, {
+    mutationFn: (values: {
+      thickness_mm: number;
+      material_id: number;
+      project_no: string;
+      project_no_secondary?: string;
+      storage_location?: string;
+      remark_1?: string;
+      remark_2?: string;
+      parts: string[];
+    }) => updateRemnantImportItem(editing!.id, {
       thickness_mm: String(values.thickness_mm), material_id: values.material_id,
       project_no: values.project_no,
+      project_no_secondary: values.project_no_secondary ?? '',
+      storage_location: values.storage_location ?? '',
+      remark_1: values.remark_1 ?? '',
+      remark_2: values.remark_2 ?? '',
       parts: [...new Set(values.parts.map((value) => value.trim()).filter(Boolean))],
     }),
     onSuccess: async () => { editingItemIdRef.current = undefined; setEditing(undefined); await refresh(); message.success('图纸信息已保存'); },
@@ -170,6 +199,10 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       thickness_mm: item.thickness_mm ? Number(item.thickness_mm) : undefined,
       material_id: item.material_id ?? detectedMaterial?.id,
       project_no: item.project_no ?? uniqueProjectCandidate(item),
+      project_no_secondary: item.project_no_secondary ?? '',
+      storage_location: item.storage_location ?? '',
+      remark_1: item.remark_1 ?? '',
+      remark_2: item.remark_2 ?? '',
       parts: [...new Set(
         (item.parts.length ? item.parts : item.part_candidates.map((candidate) => candidate.value))
           .map((value) => value.trim())
@@ -193,6 +226,11 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
             setBulkProject(batch.default_project_no ?? '');
             setBulkProjectOpen(true);
           }}>批量设置项目编号</Button>}
+          <Button disabled={!selected.length} onClick={() => {
+            setBulkProjectSecondary('');
+            setBulkStorageLocation('');
+            setBulkMetadataOpen(true);
+          }}>批量填写附加信息</Button>
           <Button disabled={!selected.length} onClick={() => setBulkOpen(true)}>批量填写厚度</Button>
           <Button type="primary" icon={<CheckOutlined />} disabled={!selected.length} loading={confirm.isPending} onClick={() => confirm.mutate()}>{isAuto ? '一键导入选中的有效项' : '确认选中项'}</Button>
         </Space>
@@ -201,7 +239,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
         rowKey="id"
         dataSource={rows}
         pagination={false}
-        scroll={{ x: isAuto ? 1780 : 1260 }}
+        scroll={{ x: isAuto ? 2100 : 1600 }}
         rowSelection={{ fixed: true, selectedRowKeys: selected, onChange: setSelected, getCheckboxProps: (row) => ({ disabled: row.status !== 'pending_confirmation' }) }}
         columns={[
           { title: '文件名', dataIndex: 'original_name', width: 220, ellipsis: true },
@@ -212,6 +250,8 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
           { title: '厚度', dataIndex: 'thickness_mm', width: 100, render: (value) => value ? `${value} mm` : <Tag color="error">待填写</Tag> },
           { title: isAuto ? '材质' : '材质候选', key: 'material', width: 160, render: (_, row) => materials.find((material) => material.id === row.material_id)?.code ?? row.standard_parse?.material ?? (row.material_candidates.map((item) => item.value).join(' / ') || '—') },
           ...(!isAuto ? [{ title: '项目编号', key: 'project', width: 220, render: (_: unknown, row: RemnantImportItem) => row.project_no ?? row.project_candidates[0]?.value ?? '—' }] : []),
+          { title: '项目编号二', dataIndex: 'project_no_secondary', width: 160, ellipsis: true, render: (value: string | null) => value || '—' },
+          { title: '库存位置', dataIndex: 'storage_location', width: 150, ellipsis: true, render: (value: string | null) => value || '—' },
           { title: isAuto ? '零件编号' : '零件数', key: 'parts', width: isAuto ? 160 : 90, render: (_, row) => isAuto ? (row.parts.join('、') || row.standard_parse?.remnant_number || '—') : (row.parts.length || row.part_candidates.length) },
           ...(isAuto ? [
             { title: '原始规格', key: 'rawSpecification', width: 210, render: (_: unknown, row: RemnantImportItem) => row.standard_parse?.raw_specification ?? '—' },
@@ -235,6 +275,11 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       </Modal>
       <Modal title="批量设置项目编号" open={bulkProjectOpen} onCancel={() => setBulkProjectOpen(false)} onOk={() => applyProject.mutate()} okButtonProps={{ disabled: !bulkProject.trim() }} confirmLoading={applyProject.isPending}>
         <Input aria-label="批量项目编号" value={bulkProject} maxLength={128} onChange={(event) => setBulkProject(event.target.value)} placeholder="请输入项目编号" />
+      </Modal>
+      <Modal title="批量填写附加信息" open={bulkMetadataOpen} onCancel={() => setBulkMetadataOpen(false)} onOk={() => applyMetadata.mutate()} confirmLoading={applyMetadata.isPending}>
+        <Typography.Paragraph type="secondary">两个字段均可留空；留空提交会清除所选图纸对应字段。</Typography.Paragraph>
+        <Input aria-label="批量项目编号二" value={bulkProjectSecondary} maxLength={128} onChange={(event) => setBulkProjectSecondary(event.target.value)} placeholder="项目编号二（可空）" style={{ marginBottom: 12 }} />
+        <Input aria-label="批量库存位置" value={bulkStorageLocation} maxLength={128} onChange={(event) => setBulkStorageLocation(event.target.value)} placeholder="库存位置（可空）" />
       </Modal>
       <Modal title={editing ? `确认 ${editing.original_name}` : '确认图纸'} open={Boolean(editing)} width={760} onCancel={closeEditor} onOk={() => form.submit()} confirmLoading={save.isPending}>
         {editing && <div className="remnant-confirm-editor">
@@ -283,6 +328,10 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
               allowClear
               placeholder="选择识别候选或手动填写"
             /></Form.Item>
+            <Form.Item name="project_no_secondary" label="项目编号二（可空）"><Input allowClear /></Form.Item>
+            <Form.Item name="storage_location" label="库存位置（可空）"><Input allowClear /></Form.Item>
+            <Form.Item name="remark_1" label="备注一（可空）"><Input.TextArea rows={2} allowClear /></Form.Item>
+            <Form.Item name="remark_2" label="备注二（可空）"><Input.TextArea rows={2} allowClear /></Form.Item>
             <Form.Item name="parts" label="零件编号" rules={[{ required: true, type: 'array', min: 1, message: '至少保留一个零件编号' }]}><Select
               mode="tags"
               tokenSeparators={['、', ',', '，', '\n']}
