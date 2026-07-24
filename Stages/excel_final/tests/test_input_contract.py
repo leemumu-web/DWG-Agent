@@ -27,8 +27,16 @@ def test_production_workbook_requires_exactly_one_sheet(tmp_path: Path) -> None:
     contract = _contract()
     source = _workbook(tmp_path / "multi.xlsx", ("原表", "整理", "part"))
 
-    with pytest.raises(contract.InputContractError, match="exactly one worksheet"):
+    with pytest.raises(contract.InputContractError) as caught:
         contract.inspect_production_input(source)
+
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_MULTIPLE_WORKSHEETS"
+    assert failure.message == "Excel 第一阶段只接受一张工作表。"
+    assert failure.action == "请删除整理表、part 等结果页，仅保留一张原始明细工作表后重新上传。"
+    assert failure.sheets == ("原表", "整理", "part")
+    assert failure.meta["sheet_count"] == 3
+    assert failure.as_dict()["contract_version"] == 1
 
 
 def test_production_single_sheet_and_tekla_text_have_distinct_kinds(tmp_path: Path) -> None:
@@ -44,6 +52,21 @@ def test_production_single_sheet_and_tekla_text_have_distinct_kinds(tmp_path: Pa
     assert workbook_input.sheet_name == "原表"
     assert text_input.kind is contract.InputKind.TEKLA_TEXT
     assert text_input.sheet_name is None
+
+
+def test_binary_xls_is_not_misclassified_as_tekla_text(tmp_path: Path) -> None:
+    contract = _contract()
+    source = tmp_path / "legacy.xls"
+    source.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1") + b"\x00" * 64)
+
+    with pytest.raises(contract.InputContractError) as caught:
+        contract.inspect_production_input(source)
+
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_BINARY_XLS_UNSUPPORTED"
+    assert "另存为" in failure.action
+    assert failure.issues == ()
+    assert str(source.resolve()) not in str(failure.as_dict())
 
 
 def test_header_detection_resolves_duplicate_length_by_group_semantics(tmp_path: Path) -> None:
@@ -118,12 +141,12 @@ def test_header_detection_rejects_equally_complete_rows_with_diagnostics(tmp_pat
     finally:
         loaded.close()
 
-    message = str(caught.value)
-    assert "ambiguous canonical header" in message
-    assert "first 15 candidate scores" in message
-    assert "row=2" in message
-    assert "row=4" in message
-    assert "missing=[]" in message
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_HEADER_AMBIGUOUS"
+    assert failure.message == "表格中检测到多个同等有效的标题行。"
+    assert failure.action == "请只保留一行正式列标题，并删除重复标题行。"
+    assert [issue.row for issue in failure.issues] == [2, 4]
+    assert failure.meta["candidate_rows"] == [2, 4]
 
 
 def test_header_detection_rejects_incomplete_row_six_without_fallback(tmp_path: Path) -> None:
@@ -144,11 +167,15 @@ def test_header_detection_rejects_incomplete_row_six_without_fallback(tmp_path: 
     finally:
         loaded.close()
 
-    message = str(caught.value)
-    assert "missing required fields" in message
-    assert "数量" in message
-    assert "row=6" in message
-    assert "first 15 candidate scores" in message
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_REQUIRED_COLUMNS_MISSING"
+    assert failure.message == "表格缺少 Excel 第一阶段所需列。"
+    assert failure.action == "请在正式标题行中补充：数量。"
+    assert failure.meta["missing_fields"] == ["数量"]
+    assert failure.issues[0].sheet is None
+    assert failure.issues[0].row == 6
+    assert failure.issues[0].field == "数量"
+    assert failure.issues[0].reason == "required_column_missing"
 
 
 def test_header_detection_accepts_common_aliases_without_batch(tmp_path: Path) -> None:
@@ -201,7 +228,14 @@ def test_header_detection_rejects_duplicate_alias_for_core_field(tmp_path: Path)
     finally:
         loaded.close()
 
-    message = str(caught.value)
-    assert "conflicting header aliases" in message
-    assert "零件号" in message
-    assert "columns=[2, 3]" in message
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_DUPLICATE_COLUMNS"
+    assert failure.message == "同一业务字段对应了多个标题列。"
+    assert failure.meta["duplicate_fields"] == {"零件号": [2, 3]}
+    assert [
+        (issue.field, issue.column, issue.reason)
+        for issue in failure.issues
+    ] == [
+        ("零件号", "B", "duplicate_column"),
+        ("零件号", "C", "duplicate_column"),
+    ]

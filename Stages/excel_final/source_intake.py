@@ -18,6 +18,7 @@ from input_contract import (
     detect_canonical_header,
     inspect_production_input,
 )
+from input_errors import input_failure
 from quality import QualityIssue
 from reader import CanonicalWorkbookRead, read_canonical_source, read_canonical_workbook
 from reader_init import detect_initial_layout, read_init_canonical, read_init_table
@@ -129,8 +130,15 @@ def _read_workbook(path: Path, sheet_name: str) -> SourceIntakeResult:
                 raise canonical_error
         else:
             if initial_layout is not None:
+                failure = input_failure(
+                    "EXCEL_INPUT_SCHEMA_AMBIGUOUS",
+                    "工作表同时匹配两种输入表结构。",
+                    "请只保留一种表头结构，不要在同一工作表混合 Tekla 清单和初始材料表。",
+                    sheets=(sheet_name,),
+                )
                 raise InputContractError(
-                    "workbook matches both canonical and initial-table schemas"
+                    failure,
+                    diagnostic="workbook matches both canonical and initial-table schemas",
                 )
             return _from_canonical(
                 read_canonical_workbook(path),
@@ -139,7 +147,16 @@ def _read_workbook(path: Path, sheet_name: str) -> SourceIntakeResult:
     finally:
         workbook.close()
     if initial_layout is None:
-        raise InputContractError("workbook format could not be detected")
+        failure = input_failure(
+            "EXCEL_INPUT_SCHEMA_AMBIGUOUS",
+            "无法确定工作表属于哪一种受支持的输入结构。",
+            "请上传 Tekla 构件零件明细清单，或标准初始材料表。",
+            sheets=(sheet_name,),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic="workbook format could not be detected",
+        )
     return _read_initial(path, sheet_name, initial_layout.header_row)
 
 
@@ -154,7 +171,15 @@ def _text_format(path: Path) -> SourceFormat:
             if "\t" in text
             else SourceFormat.FIXED_WIDTH_TEKLA_TEXT
         )
-    raise InputContractError("Tekla text encoding could not be detected")
+    failure = input_failure(
+        "EXCEL_INPUT_TEXT_ENCODING_UNSUPPORTED",
+        "无法识别 Tekla 文本文件的字符编码。",
+        "请使用 UTF-8 或 GB18030 编码重新导出 Tekla 文本文件。",
+    )
+    raise InputContractError(
+        failure,
+        diagnostic="Tekla text encoding could not be detected",
+    )
 
 
 def read_production_source(path: str | Path) -> SourceIntakeResult:
@@ -162,7 +187,15 @@ def read_production_source(path: str | Path) -> SourceIntakeResult:
     inspected = inspect_production_input(Path(path))
     if inspected.kind is InputKind.WORKBOOK:
         if inspected.sheet_name is None:
-            raise InputContractError("validated workbook has no worksheet")
+            failure = input_failure(
+                "EXCEL_INPUT_NO_WORKSHEET",
+                "Excel 文件中没有可读取的工作表。",
+                "请添加一张 Tekla 原始零件明细工作表后重新上传。",
+            )
+            raise InputContractError(
+                failure,
+                diagnostic="validated workbook has no worksheet",
+            )
         return _read_workbook(inspected.path, inspected.sheet_name)
 
     source_format = _text_format(inspected.path)

@@ -27,6 +27,7 @@ from input_contract import (
     detect_canonical_header,
     inspect_production_input,
 )
+from input_errors import ExcelInputIssue, input_failure
 from quality import IssueLevel, QualityIssue
 
 log = logging.getLogger(__name__)
@@ -66,15 +67,55 @@ def _text(value: Any) -> str | None:
     return result if result else None
 
 
-def _decimal(value: Any, *, field: str, source_row: int) -> Decimal | None:
+def _decimal(
+    value: Any,
+    *,
+    field: str,
+    source_row: int,
+    sheet_name: str,
+) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
         result = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
-        raise ValueError(f"row {source_row} field {field} is not numeric: {value!r}") from exc
+        failure = input_failure(
+            "EXCEL_INPUT_ROW_VALUE_INVALID",
+            "表格中存在无法读取的数值。",
+            f"请检查 {sheet_name} 第 {source_row} 行“{field}”，填写有效数字。",
+            issues=(
+                ExcelInputIssue.create(
+                    sheet=sheet_name,
+                    row=source_row,
+                    field=field,
+                    value=value,
+                    reason="not_numeric",
+                ),
+            ),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"row {source_row} field {field} is not numeric: {value!r}",
+        ) from exc
     if not result.is_finite():
-        raise ValueError(f"row {source_row} field {field} must be finite")
+        failure = input_failure(
+            "EXCEL_INPUT_ROW_VALUE_INVALID",
+            "表格中存在无效数值。",
+            f"请检查 {sheet_name} 第 {source_row} 行“{field}”，填写有限数字。",
+            issues=(
+                ExcelInputIssue.create(
+                    sheet=sheet_name,
+                    row=source_row,
+                    field=field,
+                    value=value,
+                    reason="not_finite",
+                ),
+            ),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"row {source_row} field {field} must be finite",
+        )
     return result
 
 
@@ -98,25 +139,91 @@ def _component_source_row(
 ) -> ComponentSourceRow:
     component_no = _text(_row_value(row, columns, "构件编号"))
     if not component_no:
-        raise ValueError(f"row {source_row} component source row has no component number")
+        failure = input_failure(
+            "EXCEL_INPUT_ROW_VALUE_INVALID",
+            "构件行缺少构件编号。",
+            f"请检查 {sheet_name} 第 {source_row} 行并填写构件编号。",
+            issues=(
+                ExcelInputIssue.create(
+                    sheet=sheet_name,
+                    row=source_row,
+                    field="构件编号",
+                    reason="required_value_missing",
+                ),
+            ),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"row {source_row} component source row has no component number",
+        )
     return ComponentSourceRow(
         source_sheet=sheet_name,
         source_row=source_row,
         kind=kind,
         batch=_text(_row_value(row, columns, "批次")),
         component_no=component_no,
-        component_qty=_decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row),
+        component_qty=_decimal(
+            _row_value(row, columns, "数量"),
+            field="数量",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
         original_spec=_text(_row_value(row, columns, "规格")),
         material=_text(_row_value(row, columns, "材质")),
-        source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
-        source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
-        source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
-        source_total_gross=_decimal(_row_value(row, columns, "总毛重"), field="总毛重", source_row=source_row),
-        source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
-        source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
-        component_length=_decimal(_row_value(row, columns, "构件长度"), field="构件长度", source_row=source_row),
-        component_width=_decimal(_row_value(row, columns, "构件宽度"), field="构件宽度", source_row=source_row),
-        component_height=_decimal(_row_value(row, columns, "构件高度"), field="构件高度", source_row=source_row),
+        source_unit_net=_decimal(
+            _row_value(row, columns, "单净重"),
+            field="单净重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_total_net=_decimal(
+            _row_value(row, columns, "总净重"),
+            field="总净重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_unit_gross=_decimal(
+            _row_value(row, columns, "单毛重"),
+            field="单毛重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_total_gross=_decimal(
+            _row_value(row, columns, "总毛重"),
+            field="总毛重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_unit_area=_decimal(
+            _row_value(row, columns, "单表面积"),
+            field="单表面积",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_total_area=_decimal(
+            _row_value(row, columns, "总表面积"),
+            field="总表面积",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        component_length=_decimal(
+            _row_value(row, columns, "构件长度"),
+            field="构件长度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        component_width=_decimal(
+            _row_value(row, columns, "构件宽度"),
+            field="构件宽度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        component_height=_decimal(
+            _row_value(row, columns, "构件高度"),
+            field="构件高度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
     )
 
 
@@ -293,10 +400,42 @@ def _canonicalize_values(
         if not part_no and (current is None or not _has_part_payload(row, columns)):
             continue
         if current is None:
-            raise ValueError(f"row {source_row} part {part_no!r} has no preceding component row")
+            failure = input_failure(
+                "EXCEL_INPUT_PART_WITHOUT_COMPONENT",
+                "零件明细前缺少所属构件行。",
+                (
+                    f"请在 {sheet_name} 第 {source_row} 行零件 "
+                    f"{part_no or '<空>'} 前补充对应的构件起始行。"
+                ),
+                issues=(
+                    ExcelInputIssue.create(
+                        sheet=sheet_name,
+                        row=source_row,
+                        field="构件编号",
+                        value=part_no,
+                        reason="part_without_component",
+                    ),
+                ),
+            )
+            raise InputContractError(
+                failure,
+                diagnostic=(
+                    f"row {source_row} part {part_no!r} has no preceding component row"
+                ),
+            )
 
-        length = _decimal(_row_value(row, columns, "零件长度"), field="零件长度", source_row=source_row)
-        quantity = _decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row)
+        length = _decimal(
+            _row_value(row, columns, "零件长度"),
+            field="零件长度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        )
+        quantity = _decimal(
+            _row_value(row, columns, "数量"),
+            field="数量",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        )
         original_spec = _text(_row_value(row, columns, "规格"))
         material = _text(_row_value(row, columns, "材质"))
         invalid_fields = tuple(
@@ -323,12 +462,42 @@ def _canonicalize_values(
             material=material or "",
             length=length or Decimal("0"),
             original_qty=quantity or Decimal("0"),
-            source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
-            source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
-            source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
-            source_total_gross=_decimal(_row_value(row, columns, "总毛重"), field="总毛重", source_row=source_row),
-            source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
-            source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
+            source_unit_net=_decimal(
+                _row_value(row, columns, "单净重"),
+                field="单净重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_total_net=_decimal(
+                _row_value(row, columns, "总净重"),
+                field="总净重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_unit_gross=_decimal(
+                _row_value(row, columns, "单毛重"),
+                field="单毛重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_total_gross=_decimal(
+                _row_value(row, columns, "总毛重"),
+                field="总毛重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_unit_area=_decimal(
+                _row_value(row, columns, "单表面积"),
+                field="单表面积",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_total_area=_decimal(
+                _row_value(row, columns, "总表面积"),
+                field="总表面积",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
             classification=None,
             invalid_fields=invalid_fields,
         ))
@@ -563,8 +732,15 @@ def _space_text_workbook(input_file: Path) -> openpyxl.Workbook:
     """Adapt a fixed-width Tekla export without collapsing blank columns."""
     lines, encoding = _decode_fixed_text(input_file)
     if _has_component_only_header(lines):
+        failure = input_failure(
+            "EXCEL_INPUT_COMPONENT_ONLY",
+            "输入只有构件汇总，没有零件明细。",
+            "请从 Tekla 导出包含零件号的构件零件明细清单后重新上传。",
+            sheets=("原表",),
+        )
         raise InputContractError(
-            "输入只有构件汇总，没有零件明细，不能生成 Excel Final part"
+            failure,
+            diagnostic="输入只有构件汇总，没有零件明细，不能生成 Excel Final part",
         )
     candidates: list[tuple[int, tuple[tuple[str, int, int | None], ...]]] = []
     for index, line in enumerate(lines[:100]):
@@ -573,10 +749,40 @@ def _space_text_workbook(input_file: Path) -> openpyxl.Workbook:
         except ValueError:
             continue
         candidates.append((index, spans))
-    if len(candidates) != 1:
-        raise ValueError(
-            "fixed-width Tekla header is not unique: "
-            f"candidate_rows={[index + 1 for index, _ in candidates]}"
+    candidate_rows = [index + 1 for index, _ in candidates]
+    if not candidates:
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_NOT_FOUND",
+            "未检测到固定宽度 Tekla 明细表的标题行。",
+            "请重新从 Tekla 导出构件零件明细清单，不要手工改变列间距。",
+            sheets=("原表",),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic="fixed-width Tekla header is not unique: candidate_rows=[]",
+        )
+    if len(candidates) > 1:
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_AMBIGUOUS",
+            "固定宽度 Tekla 文本中检测到多个标题行。",
+            "请只保留一行正式列标题，并删除重复标题行。",
+            issues=tuple(
+                ExcelInputIssue.create(
+                    sheet="原表",
+                    row=row,
+                    reason="ambiguous_header",
+                )
+                for row in candidate_rows
+            ),
+            sheets=("原表",),
+            meta={"candidate_rows": candidate_rows},
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=(
+                "fixed-width Tekla header is not unique: "
+                f"candidate_rows={candidate_rows}"
+            ),
         )
     header_index, spans = candidates[0]
     spans = _calibrate_fixed_spans(lines, header_index, spans)

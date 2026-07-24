@@ -10,10 +10,13 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
-
-class InputContractError(ValueError):
-    """Raised when a production source cannot be interpreted unambiguously."""
+from input_errors import (
+    ExcelInputIssue,
+    InputContractError,
+    input_failure,
+)
 
 
 class InputKind(StrEnum):
@@ -123,6 +126,18 @@ def _candidate_diagnostics(candidates: list[tuple[HeaderCandidateScore, dict[str
     return "first 15 candidate scores: " + "; ".join(details)
 
 
+def _duplicate_fields(conflicts: tuple[str, ...]) -> dict[str, list[int]]:
+    duplicates: dict[str, list[int]] = {}
+    for conflict in conflicts:
+        match = re.fullmatch(r"(.+?) columns=\[([0-9, ]+)\]", conflict)
+        if match is None:
+            continue
+        duplicates[match.group(1)] = [
+            int(value.strip()) for value in match.group(2).split(",")
+        ]
+    return duplicates
+
+
 def detect_canonical_header(worksheet: Any) -> HeaderDetection:
     """Locate the strongest canonical header without assuming a fixed row."""
     candidates: list[tuple[HeaderCandidateScore, dict[str, int]]] = []
@@ -137,7 +152,15 @@ def detect_canonical_header(worksheet: Any) -> HeaderDetection:
             columns,
         ))
     if not candidates:
-        raise InputContractError("worksheet does not contain a detectable header")
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_NOT_FOUND",
+            "未检测到可用的列标题。",
+            "请确认工作表中包含构件编号、零件号、规格、长度、材质和数量列。",
+        )
+        raise InputContractError(
+            failure,
+            diagnostic="worksheet does not contain a detectable header",
+        )
 
     valid = [
         (candidate, columns)
@@ -148,23 +171,94 @@ def detect_canonical_header(worksheet: Any) -> HeaderDetection:
     if not valid:
         best = max(candidates, key=lambda item: item[0].score)[0]
         if best.conflicts:
+            duplicate_fields = _duplicate_fields(best.conflicts)
+            issues = tuple(
+                ExcelInputIssue.create(
+                    row=best.row_number,
+                    column=get_column_letter(column),
+                    field=field,
+                    reason="duplicate_column",
+                )
+                for field, columns in duplicate_fields.items()
+                for column in columns
+            )
+            failure = input_failure(
+                "EXCEL_INPUT_DUPLICATE_COLUMNS",
+                "同一业务字段对应了多个标题列。",
+                "请删除或改名重复标题，使每个业务字段只对应一列。",
+                issues=issues,
+                meta={"duplicate_fields": duplicate_fields},
+            )
             raise InputContractError(
-                f"conflicting header aliases: {list(best.conflicts)}; {diagnostics}"
+                failure,
+                diagnostic=(
+                    f"conflicting header aliases: {list(best.conflicts)}; {diagnostics}"
+                ),
             )
         if best.missing == ("零件号",):
-            raise InputContractError(
-                "输入只有构件汇总，没有零件明细，不能生成 Excel Final part"
+            failure = input_failure(
+                "EXCEL_INPUT_COMPONENT_ONLY",
+                "输入只有构件汇总，没有零件明细。",
+                "请从 Tekla 导出包含零件号的构件零件明细清单后重新上传。",
+                issues=(
+                    ExcelInputIssue.create(
+                        row=best.row_number,
+                        field="零件号",
+                        reason="required_column_missing",
+                    ),
+                ),
+                meta={"missing_fields": ["零件号"]},
             )
+            raise InputContractError(
+                failure,
+                diagnostic="输入只有构件汇总，没有零件明细，不能生成 Excel Final part",
+            )
+        if best.score == 0:
+            failure = input_failure(
+                "EXCEL_INPUT_HEADER_NOT_FOUND",
+                "未检测到可用的列标题。",
+                "请确认工作表中包含构件编号、零件号、规格、长度、材质和数量列。",
+                meta={"candidate_row": best.row_number},
+            )
+            raise InputContractError(failure, diagnostic=diagnostics)
+        issues = tuple(
+            ExcelInputIssue.create(
+                row=best.row_number,
+                field=field,
+                reason="required_column_missing",
+            )
+            for field in best.missing
+        )
+        missing_text = "、".join(best.missing)
+        failure = input_failure(
+            "EXCEL_INPUT_REQUIRED_COLUMNS_MISSING",
+            "表格缺少 Excel 第一阶段所需列。",
+            f"请在正式标题行中补充：{missing_text}。",
+            issues=issues,
+            meta={"missing_fields": list(best.missing)},
+        )
         raise InputContractError(
-            f"missing required fields: {list(best.missing)}; {diagnostics}"
+            failure,
+            diagnostic=f"missing required fields: {list(best.missing)}; {diagnostics}",
         )
 
     best_score = max(candidate.score for candidate, _ in valid)
     winners = [(candidate, columns) for candidate, columns in valid if candidate.score == best_score]
     if len(winners) != 1:
         rows = [candidate.row_number for candidate, _ in winners]
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_AMBIGUOUS",
+            "表格中检测到多个同等有效的标题行。",
+            "请只保留一行正式列标题，并删除重复标题行。",
+            issues=tuple(
+                ExcelInputIssue.create(row=row, reason="ambiguous_header")
+                for row in rows
+            ),
+            meta={"candidate_rows": rows},
+        )
         raise InputContractError(
-            f"ambiguous canonical header at rows {rows}; {diagnostics}"
+            failure,
+            diagnostic=f"ambiguous canonical header at rows {rows}; {diagnostics}",
         )
 
     winner, columns = winners[0]
@@ -175,20 +269,84 @@ def detect_canonical_header(worksheet: Any) -> HeaderDetection:
 def inspect_production_input(path: Path) -> ProductionInput:
     resolved = path.resolve()
     if not resolved.is_file():
-        raise InputContractError(f"production input does not exist: {resolved}")
+        failure = input_failure(
+            "EXCEL_INPUT_UNREADABLE",
+            "无法读取上传的 Excel 文件。",
+            "请重新选择文件并上传；如果问题持续，请确认文件没有被移动或删除。",
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"production input does not exist: {resolved}",
+        )
+    if resolved.stat().st_size == 0:
+        failure = input_failure(
+            "EXCEL_INPUT_EMPTY",
+            "上传的文件为空。",
+            "请选择包含 Tekla 零件明细的 Excel 文件后重新上传。",
+        )
+        raise InputContractError(failure, diagnostic="production input is empty")
 
     suffix = resolved.suffix.lower()
     if suffix == ".xls":
+        with resolved.open("rb") as source:
+            signature = source.read(8)
+        if signature == bytes.fromhex("D0CF11E0A1B11AE1"):
+            failure = input_failure(
+                "EXCEL_INPUT_BINARY_XLS_UNSUPPORTED",
+                "当前流程不直接读取旧版二进制 XLS 工作簿。",
+                "请将文件另存为仅含一张原始明细表的 XLSX，或重新导出 Tekla 文本格式 XLS。",
+            )
+            raise InputContractError(
+                failure,
+                diagnostic="binary OLE/BIFF .xls is unsupported",
+            )
         return ProductionInput(resolved, InputKind.TEKLA_TEXT, None)
     if suffix not in {".xlsx", ".xlsm"}:
-        raise InputContractError(f"unsupported production input extension: {suffix or '<none>'}")
+        failure = input_failure(
+            "EXCEL_INPUT_UNSUPPORTED_EXTENSION",
+            "文件格式不受支持。",
+            "请上传 .xlsx、.xlsm，或 Tekla 文本格式的 .xls 文件。",
+            meta={"extension": suffix or None},
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"unsupported production input extension: {suffix or '<none>'}",
+        )
 
-    workbook = load_workbook(resolved, read_only=True, data_only=False)
     try:
-        if len(workbook.sheetnames) != 1:
+        workbook = load_workbook(resolved, read_only=True, data_only=False)
+    except Exception as exc:
+        failure = input_failure(
+            "EXCEL_INPUT_UNREADABLE",
+            "Excel 文件损坏、加密或与扩展名不一致。",
+            "请使用 Excel 打开并另存为未加密的 XLSX 文件后重新上传。",
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"production workbook is unreadable: {exc.__class__.__name__}",
+        ) from exc
+    try:
+        if not workbook.sheetnames:
+            failure = input_failure(
+                "EXCEL_INPUT_NO_WORKSHEET",
+                "Excel 文件中没有可读取的工作表。",
+                "请添加一张 Tekla 原始零件明细工作表后重新上传。",
+            )
+            raise InputContractError(failure, diagnostic="production workbook has no worksheet")
+        if len(workbook.sheetnames) > 1:
+            sheets = tuple(workbook.sheetnames)
+            failure = input_failure(
+                "EXCEL_INPUT_MULTIPLE_WORKSHEETS",
+                "Excel 第一阶段只接受一张工作表。",
+                "请删除整理表、part 等结果页，仅保留一张原始明细工作表后重新上传。",
+                sheets=sheets,
+            )
             raise InputContractError(
-                "production workbook must contain exactly one worksheet; "
-                f"found {len(workbook.sheetnames)}: {workbook.sheetnames}"
+                failure,
+                diagnostic=(
+                    "production workbook must contain exactly one worksheet; "
+                    f"found {len(workbook.sheetnames)}: {workbook.sheetnames}"
+                ),
             )
         sheet_name = workbook.sheetnames[0]
     finally:

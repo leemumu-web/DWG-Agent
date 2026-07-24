@@ -7,6 +7,7 @@ Row 3+: part data rows, terminated by 合计 row
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
@@ -18,6 +19,7 @@ import openpyxl
 
 from domain import SourcePart
 from input_contract import InputContractError, InputKind, inspect_production_input
+from input_errors import ExcelInputIssue, input_failure
 from utils import safe_float, safe_str
 
 # ── Dataclasses ──────────────────────────────────────────────────
@@ -73,6 +75,13 @@ _INITIAL_ALIAS_TO_FIELD = {
     for alias in aliases
 }
 _INITIAL_REQUIRED_FIELDS = frozenset({"part_no", "spec", "length", "material", "qty"})
+_INITIAL_FIELD_LABELS = {
+    "length": "长度",
+    "qty": "数量",
+    "unit_weight": "单重",
+    "total_weight": "总重",
+    "surface_area": "总面积",
+}
 
 # ── Public API ───────────────────────────────────────────────────
 
@@ -241,10 +250,36 @@ def detect_initial_layout(worksheet: Any) -> InitialLayout:
     valid = [candidate for candidate in candidates if not candidate[2]]
     if not valid:
         if candidates:
-            raise InputContractError(
-                f"conflicting initial-table header aliases: {list(candidates[0][2])}"
+            failure = input_failure(
+                "EXCEL_INPUT_DUPLICATE_COLUMNS",
+                "初始材料表中同一业务字段对应了多个标题列。",
+                "请删除或改名重复标题，使每个业务字段只对应一列。",
+                issues=tuple(
+                    ExcelInputIssue.create(
+                        row=candidates[0][0],
+                        field=conflict.split(" columns=", 1)[0],
+                        reason="duplicate_column",
+                    )
+                    for conflict in candidates[0][2]
+                ),
+                meta={"conflicts": list(candidates[0][2])},
             )
-        raise InputContractError("initial-table header is missing required fields")
+            raise InputContractError(
+                failure,
+                diagnostic=(
+                    "conflicting initial-table header aliases: "
+                    f"{list(candidates[0][2])}"
+                ),
+            )
+        failure = input_failure(
+            "EXCEL_INPUT_REQUIRED_COLUMNS_MISSING",
+            "初始材料表缺少必需列。",
+            "请确认表中包含零件号、截面型材、长度、材质和数量列。",
+        )
+        raise InputContractError(
+            failure,
+            diagnostic="initial-table header is missing required fields",
+        )
     best_score = max(len(columns) for _, columns, _ in valid)
     winners = [
         (row_number, columns)
@@ -252,8 +287,20 @@ def detect_initial_layout(worksheet: Any) -> InitialLayout:
         if len(columns) == best_score
     ]
     if len(winners) != 1:
+        rows = [row for row, _ in winners]
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_AMBIGUOUS",
+            "初始材料表中检测到多个同等有效的标题行。",
+            "请只保留一行正式列标题，并删除重复标题行。",
+            issues=tuple(
+                ExcelInputIssue.create(row=row, reason="ambiguous_header")
+                for row in rows
+            ),
+            meta={"candidate_rows": rows},
+        )
         raise InputContractError(
-            f"ambiguous initial-table header at rows {[row for row, _ in winners]}"
+            failure,
+            diagnostic=f"ambiguous initial-table header at rows {rows}",
         )
     header_row, columns = winners[0]
     metadata_rows = [
@@ -262,8 +309,21 @@ def detect_initial_layout(worksheet: Any) -> InitialLayout:
         if "构件数量" in _join_row(worksheet, row_number)
     ]
     if len(metadata_rows) != 1:
+        failure = input_failure(
+            "EXCEL_INPUT_SCHEMA_AMBIGUOUS",
+            "初始材料表的构件信息行缺失或不唯一。",
+            "请只保留一行包含“构件数量”的构件信息。",
+            issues=tuple(
+                ExcelInputIssue.create(row=row, reason="component_metadata_candidate")
+                for row in metadata_rows
+            ),
+            meta={"candidate_rows": metadata_rows},
+        )
         raise InputContractError(
-            f"initial-table component metadata is not unique: rows={metadata_rows}"
+            failure,
+            diagnostic=(
+                f"initial-table component metadata is not unique: rows={metadata_rows}"
+            ),
         )
     return InitialLayout(
         metadata_row=metadata_rows[0],
@@ -325,7 +385,34 @@ def _layout_float(
     column = layout.columns.get(field)
     if column is None:
         return None
-    return safe_float(worksheet.cell(row=row, column=column).value)
+    value = worksheet.cell(row=row, column=column).value
+    if value is None or (isinstance(value, str) and value.strip() in {"", "-"}):
+        return None
+    result = safe_float(value)
+    if result is not None and math.isfinite(result):
+        return result
+    display_field = _INITIAL_FIELD_LABELS[field]
+    failure = input_failure(
+        "EXCEL_INPUT_ROW_VALUE_INVALID",
+        "表格中存在无法读取的数值。",
+        f"请检查 {worksheet.title} 第 {row} 行“{display_field}”，填写有效数字。",
+        issues=(
+            ExcelInputIssue.create(
+                sheet=worksheet.title,
+                row=row,
+                field=display_field,
+                value=value,
+                reason="not_numeric" if result is None else "not_finite",
+            ),
+        ),
+    )
+    raise InputContractError(
+        failure,
+        diagnostic=(
+            f"initial-table row {row} field {display_field} is not a finite number: "
+            f"{value!r}"
+        ),
+    )
 
 
 def _join_row(ws, row: int) -> str:
