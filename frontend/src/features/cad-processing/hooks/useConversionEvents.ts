@@ -36,7 +36,7 @@ export function useConversionEvents(
     for (const chunk of chunksOf(ids, MAX_STREAM_FILES)) {
       const params = new URLSearchParams({ task_type: taskType, file_ids: chunk.join(',') });
       const stream = new EventSource(
-        `${VITE_API_BASE_URL}/api/v1/jobs/events/stream?${params.toString()}`,
+        `${VITE_API_BASE_URL}/api/v1/workflows/jobs/events/stream?${params.toString()}`,
         { withCredentials: true },
       );
       streams.push(stream);

@@ -7,11 +7,7 @@ from sqlalchemy import select
 from app.modules.identity.interface import Permission, Role, User
 from app.platform.config.constants import (
     ROLE_ADMIN,
-    ROLE_AUDITOR,
-    ROLE_ENGINEER,
     ROLE_OPERATOR,
-    ROLE_REMNANT_WORKER,
-    ROLE_REVIEWER,
     ROLE_SUPER_ADMIN,
     ROLE_VIEWER,
 )
@@ -20,28 +16,20 @@ from app.platform.database.session import SessionLocal
 from app.platform.security.tokens import hash_password
 
 ROLE_SEEDS = [
-    (ROLE_SUPER_ADMIN, "超级管理员"),
-    (ROLE_ADMIN, "系统管理员"),
-    (ROLE_ENGINEER, "工程师"),
-    (ROLE_REVIEWER, "复核员"),
-    (ROLE_OPERATOR, "操作员"),
-    (ROLE_VIEWER, "只读用户"),
-    (ROLE_AUDITOR, "审计员"),
-    (ROLE_REMNANT_WORKER, "余料工人"),
+    (ROLE_SUPER_ADMIN, "超级管理员", "全部管理权限：用户、角色、系统配置、审计日志、生产流程"),
+    (ROLE_ADMIN, "管理员", "全部管理权限：用户、角色、系统配置、审计日志、生产流程"),
+    (ROLE_OPERATOR, "操作员", "生产操作：工作流、文件、任务、复核、余料读写；不可管理用户和角色"),
+    (ROLE_VIEWER, "只读用户", "只读查看：审计日志、余料预览；不可执行任何写入操作"),
 ]
 
+# Three-tier permission model matching the three effective access levels:
+#   admin    — super_admin & admin: full platform control
+#   operator — operator: production operations (workflows/files/jobs/reviews/remnants)
+#   viewer   — viewer: read-only (audit logs + remnant preview)
 PERMISSION_SEEDS = [
-    ("users:read", "users", "read", "查看用户"),
-    ("users:write", "users", "write", "管理用户"),
-    ("roles:write", "roles", "write", "管理角色"),
-    ("projects:write", "projects", "write", "管理项目"),
-    ("files:write", "files", "write", "上传/删除文件"),
-    ("jobs:write", "jobs", "write", "创建/管理任务"),
-    ("reviews:write", "reviews", "write", "提交复核"),
-    ("audit_logs:read", "audit_logs", "read", "查看审计日志"),
-    ("remnants:read", "remnants", "read", "查询和预览余料"),
-    ("remnants:write", "remnants", "write", "导入和操作余料"),
-    ("remnant_materials:write", "remnant_materials", "write", "管理余料材质目录"),
+    ("admin", "admin", "write", "全部管理权限"),
+    ("operator", "operator", "write", "生产操作权限"),
+    ("viewer", "viewer", "read", "只读查看权限"),
 ]
 
 
@@ -56,10 +44,10 @@ def init_db() -> None:
     """
     db = SessionLocal()
     try:
-        for code, name in ROLE_SEEDS:
+        for code, name, description in ROLE_SEEDS:
             role = db.scalar(select(Role).where(Role.code == code))
             if not role:
-                role = Role(code=code, name=name, is_system=True)
+                role = Role(code=code, name=name, description=description, is_system=True)
                 db.add(role)
         db.flush()
 
@@ -69,17 +57,29 @@ def init_db() -> None:
                 db.add(Permission(code=code, resource=resource, action=action, name=name))
         db.flush()
 
-        super_role = db.scalar(select(Role).where(Role.code == ROLE_SUPER_ADMIN))
-        permissions = list(db.scalars(select(Permission)).all())
-        if super_role:
-            super_role.permissions = permissions
+        all_permissions = list(db.scalars(select(Permission)).all())
 
-        remnant_role = db.scalar(select(Role).where(Role.code == ROLE_REMNANT_WORKER))
-        if remnant_role:
-            remnant_role.permissions = [
-                permission
-                for permission in permissions
-                if permission.code in {"remnants:read", "remnants:write"}
+        # super_admin 与 admin 权限完全相同 —— 全部管理权限
+        super_role = db.scalar(select(Role).where(Role.code == ROLE_SUPER_ADMIN))
+        if super_role:
+            super_role.permissions = all_permissions
+
+        admin_role = db.scalar(select(Role).where(Role.code == ROLE_ADMIN))
+        if admin_role:
+            admin_role.permissions = all_permissions
+
+        # operator: 生产操作权限（不含用户/角色管理）
+        operator_role = db.scalar(select(Role).where(Role.code == ROLE_OPERATOR))
+        if operator_role:
+            operator_role.permissions = [
+                p for p in all_permissions if p.code == "operator"
+            ]
+
+        # viewer: 只读查看权限
+        viewer_role = db.scalar(select(Role).where(Role.code == ROLE_VIEWER))
+        if viewer_role:
+            viewer_role.permissions = [
+                p for p in all_permissions if p.code == "viewer"
             ]
 
         admin = db.scalar(select(User).where(User.username == settings.super_admin_username))

@@ -20,7 +20,8 @@ def is_admin(user: User) -> bool:
 
 def require_roles(*allowed_roles: str):
     def dependency(current_user: CurrentUser) -> User:
-        if has_any_role(current_user, {ROLE_SUPER_ADMIN, *allowed_roles}):
+        # super_admin and admin both have full access
+        if has_any_role(current_user, {ROLE_SUPER_ADMIN, ROLE_ADMIN, *allowed_roles}):
             return current_user
         raise forbidden()
 

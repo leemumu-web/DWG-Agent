@@ -57,11 +57,8 @@ export function statusOf(map: Record<string, StatusStyle>, key?: string | null):
 const ROLE_COLORS: Record<string, string> = {
   super_admin: 'magenta',
   admin: 'red',
-  engineer: 'blue',
-  reviewer: 'purple',
   operator: 'cyan',
   viewer: 'default',
-  auditor: 'gold',
 };
 
 export function roleColor(code: string): string {

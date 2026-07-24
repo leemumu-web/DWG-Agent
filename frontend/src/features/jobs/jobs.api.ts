@@ -14,7 +14,7 @@ export type JobResult = AnalysisResult;
 export async function listJobs(taskType?: string) {
   const params: Record<string, unknown> = {};
   if (taskType) params.task_type = taskType;
-  return fetchAllPages<Job>('/api/v1/jobs', params);
+  return fetchAllPages<Job>('/api/v1/workflows/jobs', params);
 }
 
 const MAX_BULK_IDS = 200;
@@ -55,35 +55,35 @@ export interface JobListParams {
 }
 
 export async function listJobsPage(params: JobListParams) {
-  const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/jobs', { params });
+  const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/workflows/jobs', { params });
   return res.data;
 }
 
 export async function getJob(jobId: number) {
-  const res = await apiClient.get<ApiEnvelope<Job>>(`/api/v1/jobs/${jobId}`);
+  const res = await apiClient.get<ApiEnvelope<Job>>(`/api/v1/workflows/jobs/${jobId}`);
   return res.data.data;
 }
 
 export async function getJobSteps(jobId: number, attempt?: number) {
-  return fetchAllPages<JobStep>(`/api/v1/jobs/${jobId}/steps`, {
+  return fetchAllPages<JobStep>(`/api/v1/workflows/jobs/${jobId}/steps`, {
     ...(attempt === undefined ? {} : { attempt }),
   });
 }
 
 export async function getJobResults(jobId: number) {
-  const res = await apiClient.get<PageEnvelope<JobResult>>(`/api/v1/jobs/${jobId}/results`, {
+  const res = await apiClient.get<PageEnvelope<JobResult>>(`/api/v1/workflows/jobs/${jobId}/results`, {
     params: { page_size: 200 },
   });
   return res.data.data;
 }
 
 export async function retryJob(jobId: number) {
-  const res = await apiClient.post<ApiEnvelope<Job>>(`/api/v1/jobs/${jobId}/retry-requests`);
+  const res = await apiClient.post<ApiEnvelope<Job>>(`/api/v1/workflows/jobs/${jobId}/retry-requests`);
   return res.data.data;
 }
 
 export async function createDxfJob(fileId: number) {
-  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
     task_type: 'convert_dwg_to_dxf',
     precision_level: 'normal',
     params: { file_id: fileId },
@@ -92,7 +92,7 @@ export async function createDxfJob(fileId: number) {
 }
 
 export async function createDxf2DwgJob(fileId: number) {
-  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
     task_type: 'convert_dxf_to_dwg',
     precision_level: 'normal',
     params: { file_id: fileId },
@@ -132,7 +132,7 @@ export async function createConversionBatches(
     const wave = pendingChunks.slice(index, index + 3);
     const settled = await Promise.allSettled(
       wave.map((chunk) =>
-        apiClient.post<ApiEnvelope<{ jobs: Job[] }>>('/api/v1/jobs/batches', {
+        apiClient.post<ApiEnvelope<{ jobs: Job[] }>>('/api/v1/workflows/jobs/batches', {
           task_type: taskType,
           file_ids: chunk,
           precision_level: 'normal',
@@ -158,7 +158,7 @@ export async function createConversionBatches(
 }
 
 export async function createDxf2ExcelJob(batchName: string) {
-  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
     task_type: 'extract_dxf_to_excel',
     precision_level: 'normal',
     params: { batch_name: batchName },
@@ -167,7 +167,7 @@ export async function createDxf2ExcelJob(batchName: string) {
 }
 
 export async function createFrameworkSmokeJob() {
-  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/jobs', {
+  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
     task_type: 'framework_smoke_test',
     precision_level: 'normal',
     params: { source: 'frontend' },
@@ -176,13 +176,13 @@ export async function createFrameworkSmokeJob() {
 }
 
 export async function cancelJob(jobId: number) {
-  const res = await apiClient.post<ApiEnvelope<Job>>(`/api/v1/jobs/${jobId}/cancellation-requests`);
+  const res = await apiClient.post<ApiEnvelope<Job>>(`/api/v1/workflows/jobs/${jobId}/cancellation-requests`);
   return res.data.data;
 }
 
 export async function cancelAllJobs(): Promise<{ cancelled_count: number }> {
   const res = await apiClient.post<ApiEnvelope<{ cancelled_count: number }>>(
-    '/api/v1/jobs/cancel-all-active',
+    '/api/v1/workflows/jobs/cancel-all-active',
   );
   return res.data.data;
 }
@@ -193,7 +193,7 @@ export async function cancelJobs(jobIds: number[]): Promise<{ cancelled_count: n
   const responses = await Promise.all(
     chunksOf(Array.from(new Set(jobIds))).map((chunk) =>
       apiClient.post<ApiEnvelope<{ cancelled_count: number }>>(
-        '/api/v1/jobs/cancellation-requests',
+        '/api/v1/workflows/jobs/cancellation-requests',
         { job_ids: chunk },
       )),
   );

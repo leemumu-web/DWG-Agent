@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`paths.py` 提供仓库/后端/Stage 绝对路径；`database.py` 提供隔离 engine/session 和表创建；`workflow_api.py` 集中生产输入 HTTP 构造器；`__init__.py` 只标识 package。全局认证/client fixture 仍在 `backend/tests/conftest.py`。
+`paths.py` 提供仓库/后端/Stage 绝对路径；`database.py` 提供隔离 engine/session 和表创建；`project_fixtures.py` 提供 DB 级项目创建替代已移除的 /projects HTTP 端点；`workflow_api.py` 集中生产输入 HTTP 构造器；`__init__.py` 只标识 package。全局认证/client fixture 仍在 `backend/tests/conftest.py`。
 
 ## 边界
 

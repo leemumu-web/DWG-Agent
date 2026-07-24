@@ -9,13 +9,13 @@ from app.modules.automation.contracts.interface import windows_node_contract
 from app.modules.identity.interface import require_roles
 from app.modules.operations.control_plane.models import ControlPlaneEvent, PlatformMessage
 from app.modules.operations.control_plane.service import control_plane_overview
-from app.platform.config.constants import ROLE_ADMIN, ROLE_AUDITOR
+from app.platform.config.constants import ROLE_ADMIN
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok, page
 
 router = APIRouter()
-reader = require_roles(ROLE_ADMIN, ROLE_AUDITOR)
+reader = require_roles(ROLE_ADMIN)
 
 
 def _event(row: ControlPlaneEvent) -> dict:

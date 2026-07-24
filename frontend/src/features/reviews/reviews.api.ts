@@ -11,11 +11,11 @@ export interface ReviewRecord {
 }
 
 export async function listPendingReviews() {
-  return fetchAllPages<AnalysisResult>('/api/v1/reviews/pending');
+  return fetchAllPages<AnalysisResult>('/api/v1/workflows/reviews/pending');
 }
 
 export async function getResult(resultId: number) {
-  const res = await apiClient.get<ApiEnvelope<AnalysisResult>>(`/api/v1/results/${resultId}`);
+  const res = await apiClient.get<ApiEnvelope<AnalysisResult>>(`/api/v1/workflows/results/${resultId}`);
   return res.data.data;
 }
 
@@ -24,7 +24,7 @@ export async function submitReview(
   payload: { decision: 'approved' | 'rejected' | 'needs_revision'; comment?: string },
 ) {
   const res = await apiClient.post<ApiEnvelope<ReviewRecord>>(
-    `/api/v1/results/${resultId}/reviews`,
+    `/api/v1/workflows/results/${resultId}/reviews`,
     payload,
   );
   return res.data.data;
@@ -32,7 +32,7 @@ export async function submitReview(
 
 export async function listResultReviews(resultId: number) {
   const res = await apiClient.get<ApiEnvelope<ReviewRecord[]>>(
-    `/api/v1/results/${resultId}/reviews`,
+    `/api/v1/workflows/results/${resultId}/reviews`,
   );
   return res.data.data;
 }

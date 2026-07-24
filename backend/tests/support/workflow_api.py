@@ -6,6 +6,13 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.projects.interface import (
+    ProjectCreate,
+    ProjectMemberCreate,
+    add_project_member as _add_project_member,
+    create_project as _create_project,
+)
+from tests.support.database import open_test_session
 
 
 def client() -> TestClient:
@@ -51,14 +58,22 @@ def create_engineer_user(
 
 
 def create_project(client: TestClient, owner_headers: dict[str, str]) -> int:
+    """Create a project via the service layer (replaces removed HTTP endpoint).
+
+    Keeps the same signature for backward compatibility with existing tests.
+    """
     code = f"WFAPI-{uuid4().hex[:6]}"
-    response = client.post(
-        "/api/v1/projects",
-        headers=owner_headers,
-        json={"code": code, "name": f"API Test {code}", "description": "test"},
-    )
-    assert response.status_code == 201, response.text
-    return response.json()["data"]["id"]
+    me = client.get("/api/v1/auth/me", headers=owner_headers)
+    assert me.status_code == 200, me.text
+    owner_id = me.json()["data"]["id"]
+    with open_test_session() as db:
+        project = _create_project(
+            db,
+            ProjectCreate(code=code, name=f"API Test {code}", description="test"),
+            owner_id=owner_id,
+        )
+        db.commit()
+        return project.id
 
 
 def add_project_member(
@@ -68,9 +83,14 @@ def add_project_member(
     role: str,
     admin_headers: dict[str, str],
 ) -> None:
-    response = client.post(
-        f"/api/v1/projects/{project_id}/members",
-        headers=admin_headers,
-        json={"user_id": user_id, "project_role": role},
-    )
-    assert response.status_code == 201, response.text
+    """Add a project member via the service layer (replaces removed HTTP endpoint).
+
+    Keeps the same signature for backward compatibility with existing tests.
+    """
+    with open_test_session() as db:
+        _add_project_member(
+            db,
+            project_id,
+            ProjectMemberCreate(user_id=user_id, project_role=role),
+        )
+        db.commit()

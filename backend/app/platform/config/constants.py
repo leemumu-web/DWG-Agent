@@ -8,12 +8,8 @@ DELETED = "deleted"
 
 ROLE_SUPER_ADMIN = "super_admin"
 ROLE_ADMIN = "admin"
-ROLE_ENGINEER = "engineer"
-ROLE_REVIEWER = "reviewer"
 ROLE_OPERATOR = "operator"
 ROLE_VIEWER = "viewer"
-ROLE_AUDITOR = "auditor"
-ROLE_REMNANT_WORKER = "remnant_worker"
 
 JOB_PENDING = "pending"
 JOB_QUEUED = "queued"

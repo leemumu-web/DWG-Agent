@@ -1,3 +1,5 @@
+"""Project service layer — direct DB operations (no HTTP dependency)."""
+
 from __future__ import annotations
 
 from sqlalchemy import select

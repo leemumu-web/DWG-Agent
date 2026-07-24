@@ -44,10 +44,16 @@ interface ErrorBody {
 const MAX_FAILURE_ISSUES = 20;
 const MAX_FAILURE_SHEETS = 10;
 
+const ROLE_HINT: Record<string, string> = {
+  admin: '该操作需要管理员权限（admin / super_admin）',
+  operator: '该操作需要操作员权限（operator 或以上）',
+  viewer: '你的只读权限不足以执行此操作',
+};
+
 const STATUS_MESSAGES: Record<number, string> = {
   400: '请求内容不正确',
   401: '登录状态已失效，请重新登录',
-  403: '当前账号没有执行此操作的权限',
+  403: '当前账号没有执行此操作的权限。如需提权，请联系管理员',
   404: '请求的资源不存在或已被删除',
   405: '当前服务不支持此操作，可能仍在运行旧版后端，请联系管理员重启服务',
   408: '请求处理超时，请稍后重试',

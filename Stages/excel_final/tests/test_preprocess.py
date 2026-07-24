@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 import preprocess
 from conftest import STAGE_ROOT
@@ -52,7 +52,7 @@ def test_preprocessor_extracts_only_equivalent_raw_sheet(
         assert output_sheet.max_row == source_sheet.max_row
         assert output_sheet.max_column == source_sheet.max_column
         assert output_sheet.calculate_dimension() == source_sheet.calculate_dimension()
-        assert list(output_sheet.merged_cells.ranges) == list(source_sheet.merged_cells.ranges)
+        assert set(output_sheet.merged_cells.ranges) == set(source_sheet.merged_cells.ranges)
         assert output_sheet.freeze_panes == source_sheet.freeze_panes
         assert output_sheet.sheet_view.showGridLines == source_sheet.sheet_view.showGridLines
 
@@ -99,3 +99,38 @@ def test_preprocessor_returns_verified_summary(
     assert result.source_sheet_name == "原始清单"
     assert result.output_sheet_name == "原表"
     assert result.dimension == "A1:C3"
+
+
+def test_preprocessor_compares_many_merge_ranges_without_order_dependence(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "many-merges.xlsx"
+    output = tmp_path / "many-merges-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原始清单"
+    for block in range(35):
+        start = block * 5 + 1
+        sheet.cell(start, 1, f"构件-{block}")
+        sheet.merge_cells(start_row=start, start_column=1, end_row=start + 2, end_column=1)
+        sheet.cell(start + 3, 2, f"小计-{block}")
+        sheet.merge_cells(
+            start_row=start + 3,
+            start_column=2,
+            end_row=start + 3,
+            end_column=4,
+        )
+    workbook.save(source)
+    workbook.close()
+
+    preprocess.preprocess_ground_truth(source, output)
+
+    source_book = load_workbook(source, data_only=False)
+    output_book = load_workbook(output, data_only=False)
+    try:
+        source_merges = {str(item) for item in source_book.worksheets[0].merged_cells.ranges}
+        output_merges = {str(item) for item in output_book["原表"].merged_cells.ranges}
+        assert output_merges == source_merges
+    finally:
+        source_book.close()
+        output_book.close()

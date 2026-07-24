@@ -7,7 +7,11 @@ from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.interface import Job
 from app.modules.jobs.interface import cancel_job as transition_job_to_cancelled
 from app.modules.operations.audit.interface import write_audit_log
-from app.modules.projects.interface import require_project_role
+from app.modules.projects.interface import (
+    ProjectCreate,
+    create_project,
+    require_project_role,
+)
 from app.modules.workflows.access import WORKFLOW_WRITE_ROLES, load_workflow_detail
 from app.modules.workflows.lifecycle import (
     cancel_workflow,
@@ -21,6 +25,50 @@ from app.platform.http.envelopes import ok
 
 collection_router = APIRouter()
 detail_router = APIRouter()
+
+
+@collection_router.post("/projects", status_code=status.HTTP_201_CREATED)
+def create_project_api(
+    payload: ProjectCreate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    """Create a project for use in workflows.
+
+    Requires admin or operator permission.  Viewer cannot create projects.
+    """
+    from app.modules.identity.access import has_any_role
+    from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN
+
+    if not has_any_role(current_user, {ROLE_SUPER_ADMIN, ROLE_ADMIN}):
+        # Non-admin users need operator permission
+        user_perms = {p.code for role in current_user.roles for p in role.permissions}
+        if "operator" not in user_perms:
+            from app.platform.http.exceptions import forbidden as _forbidden
+            raise _forbidden("operator permission required to create projects")
+
+    project = create_project(db, payload, owner_id=current_user.id)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="workflow_projects.create",
+        resource_type="project",
+        resource_id=project.id,
+        after_json=payload.model_dump(),
+        request=request,
+    )
+    db.commit()
+    return ok(
+        {
+            "id": project.id,
+            "code": project.code,
+            "name": project.name,
+            "owner_id": project.owner_id,
+            "owner_name": current_user.real_name,
+        },
+        request.state.request_id,
+    )
 
 
 @collection_router.post("", status_code=status.HTTP_201_CREATED)

@@ -20,7 +20,6 @@
 | 哪些处理管线可以启用 | [处理能力](#-处理能力) → [工作流与启用边界](docs/architecture/workflow.md) |
 | 如何开发和验证 | [开发与验证](#-开发与验证) → [开发文档](docs/guides/development.md) |
 | 如何部署和运维 | [Compose 部署](#compose-部署) → [部署文档](docs/guides/deployment.md) → [运维文档](docs/guides/operations.md) |
-| 如何导入、查询和使用余料 | [余料库使用说明](docs/guides/remnant-inventory.md) |
 
 状态标记：**✅ 已实现** · **⚠️ 有条件可用** · **⏸️ 默认关闭/占位** · **❌ 不在当前交付范围**
 
@@ -30,14 +29,13 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、143 个 OpenAPI path 和 167 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、140 个 OpenAPI path 和 160 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 42 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 43 张表；Celery runtime 全部初始化后最多 51 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
 | 数据控制台 | ✅ | 总览、文件登记、存储对象、入出库流水、每日归档、一致性、运行通信七页签 | 管理员可归档/扫描/处置，审计员只读/预检；归档不改源文件，永久清理不可恢复且必须确认 |
 | Excel 第一阶段工作台 | ✅ | 处理、批次、零件、五金手册四个 URL 标签；结构化输入错误、任务监视、批次明细、精确手册查询和结果预览 | 各标签按需请求；生产流程自动使用冻结 Excel，独立入口上传/建任务继续使用数据库级幂等键 |
-| 全厂共享余料库 | ⚠️ | DWG/DXF 批量与自动导入、确定性解析、人工确认、材质目录、独立字段查询、预览、预占/领用、归档删除和 Excel 导出 | 默认关闭；依赖 ODA、真实图纸校准、专用 Worker、材质目录与权限验收 |
 
 ### 编排与扩展能力
 

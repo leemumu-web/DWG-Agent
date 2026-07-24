@@ -76,8 +76,8 @@ def _verify_equivalent(source_path: Path, output_path: Path) -> tuple[str, str]:
                     f"preprocessed sheet {label} mismatch: {source_value!r} != {output_value!r}"
                 )
 
-        source_merges = [str(item) for item in source_sheet.merged_cells.ranges]
-        output_merges = [str(item) for item in output_sheet.merged_cells.ranges]
+        source_merges = {str(item) for item in source_sheet.merged_cells.ranges}
+        output_merges = {str(item) for item in output_sheet.merged_cells.ranges}
         if source_merges != output_merges:
             raise ValueError("preprocessed sheet merged-cell ranges do not match source")
 

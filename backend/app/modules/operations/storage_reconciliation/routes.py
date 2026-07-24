@@ -16,7 +16,7 @@ from app.modules.operations.storage_reconciliation.remediation import (
     execute_remediation,
     preview_remediation,
 )
-from app.platform.config.constants import ROLE_ADMIN, ROLE_AUDITOR
+from app.platform.config.constants import ROLE_ADMIN
 from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import DbSession
@@ -25,7 +25,7 @@ from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, not_found
 
 router = APIRouter()
-data_reader = require_roles(ROLE_ADMIN, ROLE_AUDITOR)
+data_reader = require_roles(ROLE_ADMIN)
 data_writer = require_roles(ROLE_ADMIN)
 
 

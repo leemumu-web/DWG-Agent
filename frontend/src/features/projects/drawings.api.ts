@@ -11,17 +11,17 @@ export interface DrawingVersion {
 }
 
 export async function listDrawings() {
-  return fetchAllPages<Drawing>('/api/v1/drawings');
+  return fetchAllPages<Drawing>('/api/v1/workflows/drawings');
 }
 
 export async function getDrawing(drawingId: number) {
-  const res = await apiClient.get<ApiEnvelope<Drawing>>(`/api/v1/drawings/${drawingId}`);
+  const res = await apiClient.get<ApiEnvelope<Drawing>>(`/api/v1/workflows/drawings/${drawingId}`);
   return res.data.data;
 }
 
 export async function listDrawingVersions(drawingId: number) {
   const res = await apiClient.get<PageEnvelope<DrawingVersion>>(
-    `/api/v1/drawings/${drawingId}/versions`,
+    `/api/v1/workflows/drawings/${drawingId}/versions`,
     { params: { page_size: 200 } },
   );
   return res.data.data;

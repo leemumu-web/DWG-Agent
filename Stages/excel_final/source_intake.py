@@ -61,6 +61,7 @@ def _from_canonical(
         issues=read.issues,
         diagnostics=MappingProxyType({
             "header_row": read.header.row_number,
+            "repeated_header_rows": read.header.repeated_rows,
             "part_count": len(read.parts),
             "component_count": len(read.component_rows),
         }),

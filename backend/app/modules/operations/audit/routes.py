@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.modules.identity.interface import User, require_roles
 from app.modules.operations.audit.models import AuditLog
 from app.modules.operations.audit.schemas import AuditLogRead
-from app.platform.config.constants import ROLE_AUDITOR, ROLE_SUPER_ADMIN
+from app.platform.config.constants import ROLE_SUPER_ADMIN
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
@@ -25,7 +25,7 @@ def list_audit_logs(
     action_domain: str = Query("", max_length=64),
     search: str = Query("", max_length=100),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_AUDITOR)),
+    _: User = Depends(require_roles(ROLE_SUPER_ADMIN)),
 ):
     statement = select(AuditLog)
     if action_domain.strip():
@@ -61,7 +61,7 @@ def get_audit_log(
     audit_log_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_AUDITOR)),
+    _: User = Depends(require_roles(ROLE_SUPER_ADMIN)),
 ):
     log = db.get(AuditLog, audit_log_id)
     if not log:

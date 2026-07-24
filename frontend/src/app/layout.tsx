@@ -4,11 +4,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   DashboardOutlined,
-  ProjectOutlined,
   FileOutlined,
-  FileImageOutlined,
-  CloudOutlined,
-  AuditOutlined,
   TeamOutlined,
   SafetyCertificateOutlined,
   UserOutlined,
@@ -37,16 +33,11 @@ interface NavItem {
 const NAV: NavItem[] = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
   { key: '/workflows', label: '生产流程', icon: <ApartmentOutlined /> },
-  { key: '/projects', label: '项目', icon: <ProjectOutlined /> },
   { key: '/files', label: '文件转换', icon: <FileOutlined /> },
-  { key: '/drawings', label: '图纸', icon: <FileImageOutlined /> },
-  { key: '/jobs', label: '任务', icon: <CloudOutlined /> },
-  { key: '/reviews', label: '复核', icon: <AuditOutlined /> },
-  { key: '/remnants', label: '余料库', icon: <InboxOutlined />, roles: ['admin', 'remnant_worker'] },
+  { key: '/remnants', label: '余料库', icon: <InboxOutlined />, roles: ['admin', 'operator'] },
   { key: '/admin/users', label: '用户管理', icon: <TeamOutlined />, roles: ['admin'] },
   { key: '/admin/roles', label: '角色权限', icon: <SafetyCertificateOutlined />, roles: ['admin'] },
-  { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin', 'auditor'] },
-  { key: '/admin/audit-logs', label: '审计日志', icon: <ProfileOutlined />, roles: ['auditor'] },
+  { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin'] },
 ];
 
 /** Build a 1-2 segment breadcrumb from the active path. */

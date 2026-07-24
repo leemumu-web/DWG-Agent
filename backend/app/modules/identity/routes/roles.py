@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.modules.identity.access import require_roles
 from app.modules.identity.models.role import Permission, Role
@@ -16,7 +16,7 @@ from app.modules.identity.schemas.user import (
     RoleRead,
 )
 from app.modules.operations.audit.interface import write_audit_log
-from app.platform.config.constants import ROLE_SUPER_ADMIN
+from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN, ROLE_ADMIN
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
@@ -32,10 +32,13 @@ def list_roles(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(ROLE_SUPER_ADMIN, "admin")),
+    _: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
 ):
     roles, total = paginate_scalars(
-        db, select(Role).order_by(Role.id), page_no=page, page_size=page_size
+        db,
+        select(Role).options(selectinload(Role.permissions)).order_by(Role.id),
+        page_no=page,
+        page_size=page_size,
     )
     return page_response(
         [RoleRead.model_validate(r) for r in roles],
@@ -51,7 +54,7 @@ def create_role(
     payload: RoleCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
 ):
     if db.scalar(select(Role).where(Role.code == payload.code)):
         raise AppHTTPException(409, "ROLE_EXISTS", "Role code already exists.")
@@ -79,7 +82,7 @@ def list_permissions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(ROLE_SUPER_ADMIN, "admin")),
+    _: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
 ):
     permissions, total = paginate_scalars(
         db,
@@ -102,7 +105,7 @@ def replace_role_permissions(
     payload: ReplaceRolePermissionsRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN)),
+    current_user: User = Depends(require_roles(ROLE_SUPER_ADMIN, ROLE_ADMIN)),
 ):
     role = db.get(Role, role_id)
     if not role:

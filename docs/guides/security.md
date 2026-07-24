@@ -14,7 +14,7 @@ Nginx 和 React 不是授权边界。所有业务 route 在 FastAPI 认证，并
 - 登出把可用 token JTI 存入 MySQL `token_blacklist`。
 - 改密写入 `password_changed_at`；拒绝更早的 access/refresh token。
 - 每个认证请求重新读取用户，并拒绝 disabled/deleted 用户。
-- Refresh 为 HttpOnly、SameSite=Lax、path `/api/v1/auth`；SSE cookie 为 HttpOnly、SameSite=Lax、path `/api/v1/jobs`。
+- Refresh 为 HttpOnly、SameSite=Lax、path `/api/v1/auth`；SSE cookie 为 HttpOnly、SameSite=Lax、path `/api/v1/workflows/jobs`。
 
 Secure cookie 默认值跟随 `APP_ENV=production`。公网部署需要真实 TLS 和 Secure cookie。设置 `REFRESH_COOKIE_SECURE=false` 只是私有 HTTP 网络的显式风险接受；当前 Compose 只发布 HTTP 且不发布 443。
 

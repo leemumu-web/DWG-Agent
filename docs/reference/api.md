@@ -9,12 +9,12 @@
 - 成功响应使用 `{data, meta}`；分页响应额外包含 `pagination`，`total` 来自 SQL `COUNT(*)`。
 - 错误响应使用 `{error: {code, message, details}, meta}`，不会向客户端暴露 traceback、DSN 或本机路径。
 - 仓库前端优先展示 `error.message`；422 会展开 `details.errors` 的字段路径和原因，并附带 `error.code` 与 `meta.request_id`。客户端不得只显示“HTTP 4xx”而隐藏服务端原因。无法连接、超时以及无结构化响应时才使用状态码兜底文案。
-- `GET /api/v1/jobs/{job_id}/events` 与聚合 `GET /api/v1/jobs/events/stream` 使用 SSE cookie 认证并轮询 MySQL 权威状态；URL 中不传 token。聚合流每次最多观察 200 个文件并在全部终态后关闭。
+- `GET /api/v1/workflows/jobs/{job_id}/events` 与聚合 `GET /api/v1/workflows/jobs/events/stream` 使用 SSE cookie 认证并轮询 MySQL 权威状态；URL 中不传 token。聚合流每次最多观察 200 个文件并在全部终态后关闭。
 - 下载流程为：鉴权获取短期签名 URL，再携带 Bearer token 下载。403、408、429、5xx 或网络错误重试时必须重新获取签名。
 - 任务重试递增 `attempt`；步骤查询可用 `?attempt=N`，旧 worker 不能覆盖新 attempt。
 - 双向 CAD 批量创建一次接受最多 200 个文件并保留每文件 Job；批量取消只作用于请求内且有权写入的 Job，不等同于管理员全局取消。
 - SSE snapshot 只包含当前 attempt 的 steps；无项目 Job 的结果仅管理员或创建者可访问。
-- 数据控制台读取允许 `admin/auditor`，扫描与处置执行只允许 `admin`；处置必须先预检，再携带绑定操作人和目标摘要的短期 token 与幂等键执行。
+- 数据控制台读取和执行只允许 `admin`；处置必须先预检，再携带绑定操作人和目标摘要的短期 token 与幂等键执行。
 - 文件/流水/finding 使用服务端页码分页；对象清单使用不透明 cursor。永久清理未登记对象还必须提交确认词 `PURGE`。
 - `AGENT_ENABLED=false` 时 Agent 端点返回 503；仓库没有可执行 Agent task，本项目也不把 Agent 执行列为当前交付目标。
 
@@ -75,15 +75,6 @@
 | `PUT` | `/api/v1/roles/{role_id}/permissions` |
 | `GET` | `/api/v1/permissions` |
 
-## 项目
-
-| Method | Path |
-|---|---|
-| `GET, POST` | `/api/v1/projects` |
-| `GET, PATCH, DELETE` | `/api/v1/projects/{project_id}` |
-| `GET, POST` | `/api/v1/projects/{project_id}/members` |
-| `PATCH, DELETE` | `/api/v1/projects/{project_id}/members/{member_id}` |
-
 ## 文件与下载
 
 | Method | Path |
@@ -103,41 +94,6 @@
 | `GET, DELETE` | `/api/v1/files/{file_id}` |
 | `GET` | `/api/v1/files/{file_id}/download-url` |
 | `GET` | `/api/v1/files/{file_id}/download` |
-
-## 图纸
-
-| Method | Path |
-|---|---|
-| `GET, POST` | `/api/v1/drawings` |
-| `GET, PATCH, DELETE` | `/api/v1/drawings/{drawing_id}` |
-| `GET, POST` | `/api/v1/drawings/{drawing_id}/versions` |
-| `GET` | `/api/v1/drawings/{drawing_id}/preview` |
-
-## 任务
-
-| Method | Path |
-|---|---|
-| `GET, POST` | `/api/v1/jobs` |
-| `POST` | `/api/v1/jobs/batches` |
-| `POST` | `/api/v1/jobs/cancellation-requests` |
-| `POST` | `/api/v1/jobs/cancel-all-active` |
-| `GET` | `/api/v1/jobs/events/stream` |
-| `GET` | `/api/v1/jobs/{job_id}` |
-| `GET` | `/api/v1/jobs/{job_id}/steps` |
-| `GET` | `/api/v1/jobs/{job_id}/logs` |
-| `POST` | `/api/v1/jobs/{job_id}/cancellation-requests` |
-| `POST` | `/api/v1/jobs/{job_id}/retry-requests` |
-| `GET` | `/api/v1/jobs/{job_id}/events` |
-| `GET` | `/api/v1/jobs/{job_id}/results` |
-
-## 结果与复核
-
-| Method | Path |
-|---|---|
-| `GET` | `/api/v1/results/{result_id}` |
-| `GET` | `/api/v1/results/{result_id}/download-url` |
-| `POST, GET` | `/api/v1/results/{result_id}/reviews` |
-| `GET` | `/api/v1/reviews/pending` |
 
 ## 审计
 
@@ -197,7 +153,28 @@
 
 | Method | Path |
 |---|---|
+| `GET, POST` | `/api/v1/workflows/drawings` |
+| `GET, PATCH, DELETE` | `/api/v1/workflows/drawings/{drawing_id}` |
+| `GET, POST` | `/api/v1/workflows/drawings/{drawing_id}/versions` |
+| `GET` | `/api/v1/workflows/drawings/{drawing_id}/preview` |
+| `GET, POST` | `/api/v1/workflows/jobs` |
+| `POST` | `/api/v1/workflows/jobs/batches` |
+| `POST` | `/api/v1/workflows/jobs/cancellation-requests` |
+| `POST` | `/api/v1/workflows/jobs/cancel-all-active` |
+| `GET` | `/api/v1/workflows/jobs/events/stream` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/steps` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/logs` |
+| `POST` | `/api/v1/workflows/jobs/{job_id}/cancellation-requests` |
+| `POST` | `/api/v1/workflows/jobs/{job_id}/retry-requests` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/events` |
+| `GET` | `/api/v1/workflows/jobs/{job_id}/results` |
+| `GET` | `/api/v1/workflows/results/{result_id}` |
+| `GET` | `/api/v1/workflows/results/{result_id}/download-url` |
+| `POST, GET` | `/api/v1/workflows/results/{result_id}/reviews` |
+| `GET` | `/api/v1/workflows/reviews/pending` |
 | `GET` | `/api/v1/workflows/templates` |
+| `GET, POST` | `/api/v1/workflows/projects` |
 | `GET, POST` | `/api/v1/workflows` |
 | `POST` | `/api/v1/workflows/{workflow_id}/artifacts` |
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` |

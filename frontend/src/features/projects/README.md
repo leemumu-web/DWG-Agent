@@ -1,13 +1,9 @@
-# 项目与图纸目录
+# 项目 (Projects)
 
 ## 现有实现
 
-`ProjectsPage.tsx` 管理项目、成员和进入入口；`DrawingsPage.tsx` 展示图纸与版本；`projects.api.ts`、`drawings.api.ts` 调用稳定端点；`project.ts`、`drawing.ts` 定义 DTO，`index.ts` 暴露公共能力。
-
-## 业务流
-
-输入是当前身份、项目成员权限和后端项目/图纸事实，输出是生产批次可引用的 project/drawing 标识与导航。
+`project.ts` 定义 `Project` 类型；`projects.api.ts` 通过 `GET /workflows/projects` 获取项目列表（原 `/projects` CRUD 端点已整合至工作流子系统）；`drawing.ts`/`drawings.api.ts`/`DrawingsPage.tsx` 提供图纸管理页面；`index.ts` 为统一导出点。
 
 ## 边界
 
-项目目录不拥有文件字节、CAD Job 或 workflow 状态；这些能力分别经 files、jobs、workflows 公共入口使用。
+项目创建已迁移至 `POST /workflows/projects`；项目列表仅返回只读投影；成员管理不再提供 HTTP 端点。
