@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,8 +21,10 @@ from app.modules.remnant_inventory.export import (
 )
 from app.modules.remnant_inventory.imports import (
     _require_item_access,
+    bulk_apply_project,
     bulk_apply_thickness,
     cancel_import_batch,
+    cancel_import_item,
     confirm_import_items,
     register_import_batch,
     retry_import_item,
@@ -56,6 +58,7 @@ from app.modules.remnant_inventory.models import (
     RemnantPart,
 )
 from app.modules.remnant_inventory.schemas import (
+    BulkProjectUpdate,
     BulkThicknessUpdate,
     ImportConfirmRequest,
     ImportItemUpdate,
@@ -63,6 +66,7 @@ from app.modules.remnant_inventory.schemas import (
     MaterialCreate,
     MaterialRead,
     MaterialResolveCreate,
+    MaterialStatusUpdate,
     MaterialUpdate,
     RemnantBulkArchiveFailure,
     RemnantBulkArchiveRequest,
@@ -116,12 +120,14 @@ def _item_data(db: Session, item: RemnantImportItem) -> dict:
         "dxf_file_id": item.dxf_file_id,
         "original_name": source.original_name if source else None,
         "source_ext": item.source_ext,
+        "source_relative_path": item.source_relative_path,
         "attempt": item.attempt,
         "status": item.status,
         "material_candidates": item.material_candidates_json or [],
         "project_candidates": item.project_candidates_json or [],
         "part_candidates": item.part_candidates_json or [],
         "warnings": item.warnings_json or [],
+        "standard_parse": item.standard_parse_json,
         "thickness_mm": str(item.corrected_thickness_mm) if item.corrected_thickness_mm else None,
         "material_id": item.corrected_material_id,
         "project_no": item.corrected_project_no,
@@ -135,6 +141,9 @@ def _batch_data(db: Session, batch: RemnantImportBatch, *, include_items: bool =
     data = {
         "id": batch.id,
         "created_by": batch.created_by,
+        "import_mode": batch.import_mode,
+        "default_project_no": batch.default_project_no,
+        "source_folder_name": batch.source_folder_name,
         "status": batch.status,
         "total_count": batch.total_count,
         "converting_count": batch.converting_count,
@@ -298,6 +307,46 @@ def patch_material(
     return ok(_material_data(db, row), request.state.request_id)
 
 
+@materials_router.patch("/{material_id}/status")
+def patch_material_status(
+    material_id: int,
+    payload: MaterialStatusUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    _require_user(current_user)
+    row = db.get(RemnantMaterial, material_id)
+    if row is None:
+        raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "材质不存在或已被删除。")
+    before = row.enabled
+    row = update_material(
+        db,
+        material_id,
+        enabled=payload.enabled,
+        actor_id=current_user.id,
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.material.status",
+        resource_type="remnant_material",
+        resource_id=row.id,
+        before_json={"enabled": before},
+        after_json={"enabled": row.enabled},
+        request=request,
+    )
+    db.commit()
+    db.refresh(row)
+    return ok(
+        {
+            "material": _material_data(db, row),
+            "message": "材质已启用。" if row.enabled else "材质已停用。",
+        },
+        request.state.request_id,
+    )
+
+
 @materials_router.put("/{material_id}/aliases")
 def put_material_aliases(
     material_id: int,
@@ -375,6 +424,75 @@ async def post_import_batch(
     return ok(_batch_data(db, batch), request.state.request_id)
 
 
+@imports_router.post("/auto", status_code=status.HTTP_202_ACCEPTED)
+async def post_auto_import_batch(
+    request: Request,
+    current_user: CurrentUser,
+    files: list[UploadFile] = File(...),
+    relative_paths: list[str] = Form(...),
+    project_no: str = Form(...),
+    folder_name: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    _require_user(current_user)
+    if not files or len(files) > settings.remnant_import_max_files:
+        raise AppHTTPException(
+            422,
+            "REMNANT_IMPORT_FILE_COUNT_INVALID",
+            "导入图纸数量不正确。",
+            {"max_files": settings.remnant_import_max_files},
+        )
+    if len(relative_paths) != len(files):
+        raise AppHTTPException(
+            422,
+            "REMNANT_SOURCE_PATH_COUNT_MISMATCH",
+            "图纸文件与相对路径数量不一致。",
+        )
+    stored_files: list[StoredFile] = []
+    try:
+        for upload in files:
+            stored_files.append(
+                await save_upload_file(
+                    db,
+                    upload,
+                    uploaded_by=current_user.id,
+                    batch_name=f"remnant-auto-{request.state.request_id}",
+                    request_id=request.state.request_id,
+                    transfer_operation="remnant_auto_import",
+                )
+            )
+        batch = register_import_batch(
+            db,
+            actor_id=current_user.id,
+            source_files=stored_files,
+            import_mode="auto",
+            default_project_no=project_no,
+            source_folder_name=folder_name,
+            source_relative_paths=relative_paths,
+        )
+        dispatch = prepare_import_execution(db, batch.id, actor_id=current_user.id)
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="remnants.import.auto",
+            resource_type="remnant_import_batch",
+            resource_id=batch.id,
+            after_json={
+                "file_count": len(files),
+                "default_project_no": batch.default_project_no,
+                "source_folder_name": batch.source_folder_name,
+            },
+            request=request,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    dispatch_import_execution(dispatch)
+    db.refresh(batch)
+    return ok(_batch_data(db, batch), request.state.request_id)
+
+
 def _batch_with_access(db: Session, batch_id: int, actor: User) -> RemnantImportBatch:
     batch = db.get(RemnantImportBatch, batch_id)
     if batch is None:
@@ -422,6 +540,34 @@ def post_bulk_thickness(
         resource_type="remnant_import_batch",
         resource_id=batch_id,
         after_json={"item_ids": changed, "thickness_mm": str(payload.thickness_mm)},
+        request=request,
+    )
+    db.commit()
+    return ok({"updated_item_ids": changed}, request.state.request_id)
+
+
+@imports_router.post("/{batch_id}/bulk-project")
+def post_bulk_project(
+    batch_id: int,
+    payload: BulkProjectUpdate,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    changed = bulk_apply_project(
+        db,
+        batch_id,
+        item_ids=payload.item_ids,
+        project_no=payload.project_no,
+        actor=current_user,
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.bulk_project",
+        resource_type="remnant_import_batch",
+        resource_id=batch_id,
+        after_json={"item_ids": changed, "project_no": payload.project_no.strip()},
         request=request,
     )
     db.commit()
@@ -534,6 +680,28 @@ def post_retry_item(
     return ok(
         {"item_id": item_id, "attempt": item.attempt}, request.state.request_id
     )
+
+
+@import_items_router.post("/{item_id}/cancel")
+def post_cancel_item(
+    item_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    item = cancel_import_item(db, item_id, actor=current_user)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="remnants.import.cancel_item",
+        resource_type="remnant_import_item",
+        resource_id=item.id,
+        after_json={"status": item.status},
+        request=request,
+    )
+    db.commit()
+    db.refresh(item)
+    return ok(_item_data(db, item), request.state.request_id)
 
 
 def _search_response(

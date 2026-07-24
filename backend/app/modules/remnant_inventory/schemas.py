@@ -30,6 +30,10 @@ class MaterialUpdate(BaseModel):
         return value
 
 
+class MaterialStatusUpdate(BaseModel):
+    enabled: bool
+
+
 class MaterialAliasReplace(BaseModel):
     aliases: list[str] = Field(default_factory=list, max_length=200)
 
@@ -71,6 +75,11 @@ class ImportItemUpdate(BaseModel):
 class BulkThicknessUpdate(BaseModel):
     item_ids: list[int] = Field(min_length=1, max_length=1000)
     thickness_mm: Decimal
+
+
+class BulkProjectUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=1000)
+    project_no: str
 
 
 class ImportConfirmRequest(BaseModel):

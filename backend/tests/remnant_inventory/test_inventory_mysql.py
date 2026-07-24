@@ -22,7 +22,10 @@ from app.modules.remnant_inventory.inventory import (
     search_remnants,
     update_remnant,
 )
-from app.modules.remnant_inventory.materials import resolve_or_create_material
+from app.modules.remnant_inventory.materials import (
+    resolve_or_create_auto_material,
+    resolve_or_create_material,
+)
 from app.modules.remnant_inventory.models import (
     Remnant,
     RemnantImportBatch,
@@ -70,6 +73,58 @@ def test_two_workers_resolve_one_material_row() -> None:
     finally:
         with factory() as cleanup:
             cleanup.execute(delete(RemnantMaterial).where(RemnantMaterial.code == code))
+            cleanup.commit()
+        engine.dispose()
+
+
+def test_two_auto_parsers_create_one_material_row() -> None:
+    assert MYSQL_URL is not None
+    engine = create_engine(MYSQL_URL, pool_pre_ping=True)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    code = f"AUTO-RACE-{uuid4().hex[:12]}".upper()
+    barrier = Barrier(2)
+    with factory() as setup:
+        actors = [
+            User(
+                username=f"auto-material-{slot}-{uuid4().hex}",
+                real_name=f"Auto Material {slot}",
+                password_hash="x",
+            )
+            for slot in (1, 2)
+        ]
+        setup.add_all(actors)
+        setup.commit()
+        actor_ids = [actor.id for actor in actors]
+
+    def create_from_parser(actor_id: int) -> tuple[int, bool]:
+        with factory() as session:
+            barrier.wait(timeout=10)
+            material, created, _reenabled = resolve_or_create_auto_material(
+                session,
+                code=code,
+                actor_id=actor_id,
+            )
+            session.commit()
+            return material.id, created
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(create_from_parser, actor_ids))
+        assert len({material_id for material_id, _created in results}) == 1
+        assert sum(created for _material_id, created in results) == 1
+        with factory() as check:
+            assert (
+                check.scalar(
+                    select(func.count()).select_from(RemnantMaterial).where(
+                        RemnantMaterial.code == code
+                    )
+                )
+                == 1
+            )
+    finally:
+        with factory() as cleanup:
+            cleanup.execute(delete(RemnantMaterial).where(RemnantMaterial.code == code))
+            cleanup.execute(delete(User).where(User.id.in_(actor_ids)))
             cleanup.commit()
         engine.dispose()
 

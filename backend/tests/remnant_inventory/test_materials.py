@@ -75,6 +75,92 @@ def test_resolve_or_create_does_not_reenable_disabled_material(db) -> None:
     assert captured.value.detail["code"] == "REMNANT_MATERIAL_DISABLED"
 
 
+def test_auto_resolve_creates_one_full_grade_and_returns_same_row(db) -> None:
+    from app.modules.remnant_inventory.materials import resolve_or_create_auto_material
+
+    first_actor = User(username="auto-first", real_name="Auto First", password_hash="x")
+    second_actor = User(username="auto-second", real_name="Auto Second", password_hash="x")
+    db.add_all([first_actor, second_actor])
+    db.flush()
+    first, created, reenabled = resolve_or_create_auto_material(
+        db,
+        code=" q355b-z15 ",
+        actor_id=first_actor.id,
+    )
+    second, repeated_created, repeated_reenabled = resolve_or_create_auto_material(
+        db,
+        code="Q355B-Z15",
+        actor_id=second_actor.id,
+    )
+
+    assert (first.code, first.family_code) == ("Q355B-Z15", "Q355B-Z15")
+    assert (second.id, created, reenabled) == (first.id, True, False)
+    assert (repeated_created, repeated_reenabled) == (False, False)
+
+
+def test_auto_resolve_reenables_disabled_material_without_changing_family(db) -> None:
+    from app.modules.remnant_inventory.materials import (
+        create_material,
+        resolve_or_create_auto_material,
+    )
+
+    actor = User(username="auto-enable", real_name="Auto Enable", password_hash="x")
+    db.add(actor)
+    db.flush()
+    material = create_material(db, code="Q390B", family_code="Q390", actor_id=None)
+    material.enabled = False
+    db.flush()
+
+    resolved, created, reenabled = resolve_or_create_auto_material(
+        db,
+        code="q390b",
+        actor_id=actor.id,
+    )
+
+    assert (resolved.id, created, reenabled) == (material.id, False, True)
+    assert (resolved.enabled, resolved.family_code, resolved.updated_by) == (
+        True,
+        "Q390",
+        actor.id,
+    )
+
+
+def test_auto_resolve_uses_existing_disabled_alias_instead_of_creating_code(db) -> None:
+    from app.modules.remnant_inventory.materials import (
+        create_material,
+        replace_aliases,
+        resolve_or_create_auto_material,
+    )
+    from app.modules.remnant_inventory.models import RemnantMaterial
+
+    actor = User(username="auto-alias", real_name="Auto Alias", password_hash="x")
+    db.add(actor)
+    db.flush()
+    material = create_material(db, code="Q355B", family_code="Q355", actor_id=None)
+    replace_aliases(
+        db,
+        material=material,
+        aliases=["Q355-B"],
+        actor_id=None,
+    )
+    material.enabled = False
+    db.flush()
+
+    resolved, created, reenabled = resolve_or_create_auto_material(
+        db,
+        code=" q355-b ",
+        actor_id=actor.id,
+    )
+
+    assert (resolved.id, created, reenabled) == (material.id, False, True)
+    assert (resolved.code, resolved.family_code, resolved.enabled) == (
+        "Q355B",
+        "Q355",
+        True,
+    )
+    assert db.query(RemnantMaterial).count() == 1
+
+
 def test_family_search_expands_only_enabled_family_members(db) -> None:
     from app.modules.remnant_inventory.materials import create_material, material_ids_for_search
 

@@ -967,7 +967,7 @@ wheels = [
 
 [[package]]
 name = "remnant-drawing-reader"
-version = "0.1.0"
+version = "0.4.0"
 source = { editable = "../Stages/remnant_drawing_reader" }
 dependencies = [
     { name = "ezdxf" },
