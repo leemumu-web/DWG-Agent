@@ -360,6 +360,24 @@
   margin-top: 10px;
 }
 
+.production-input-ignore-confirm {
+  margin-top: 12px;
+}
+
+.production-input-ignore-list {
+  max-height: 220px;
+  margin-top: 10px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid #d7e3e2;
+  border-radius: 6px;
+  background: #f6faf9;
+  color: #425b5e;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
 @media (max-width: 576px) {
   .production-create-form { min-height: calc(100vh - 140px); }
   .production-create-hero { padding: 18px; }

@@ -62,6 +62,7 @@ async function mockWorkflow(page: Page) {
   let frozen = false;
   let classificationStarted = false;
   let submittedProject: Record<string, unknown> | null = null;
+  let dwgUploadBody = '';
   const batch = () => ({
     id: 501, workflow_run_id: 41, project_id: 7, status: frozen ? 'frozen' : items.some((item) => item.derived_dxf) ? 'ready_to_freeze' : 'uploading',
     version: frozen ? 1 : 0, manifest_sha256: frozen ? 'a'.repeat(64) : null, frozen_at: frozen ? now : null,
@@ -150,15 +151,20 @@ async function mockWorkflow(page: Page) {
     items = items.map((item, index) => item.role === 'source_dwg' ? { ...item, status: 'frozen', drawing_id: 1000 + index } : { ...item, status: 'frozen' });
     await json(route, batch());
   });
-  await page.route('**/api/v1/workflows/41/input-folder', async (route) => {
-    items = [
-      { id: 1301, role: 'source_dwg', status: 'validated', original_name: 'panel-A.dwg', normalized_stem: 'panel-a', file: storedFile(701, 'panel-A.dwg'), conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null },
-      { id: 1302, role: 'source_excel', status: 'validated', original_name: 'parts.xlsx', normalized_stem: 'parts', file: storedFile(702, 'parts.xlsx'), conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null },
-    ];
+  await page.route('**/api/v1/workflows/41/input-excel', async (route) => {
+    items.push({ id: 1302, role: 'source_excel', status: 'validated', original_name: 'parts.xlsx', normalized_stem: 'parts', file: storedFile(702, 'parts.xlsx'), conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null });
+    await json(route, batch(), 201);
+  });
+  await page.route('**/api/v1/workflows/41/input-dwg-folder', async (route) => {
+    dwgUploadBody = route.request().postData() ?? '';
+    items.push({ id: 1301, role: 'source_dwg', status: 'validated', original_name: 'panel-A.dwg', normalized_stem: 'panel-a', file: storedFile(701, 'panel-A.dwg'), conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null });
     await json(route, batch(), 201);
   });
   await page.route('**/api/v1/workflows/41/input-batch', (route) => json(route, batch(), route.request().method() === 'POST' ? 201 : 200));
-  return { submittedProject: () => submittedProject };
+  return {
+    submittedProject: () => submittedProject,
+    dwgUploadBody: () => dwgUploadBody,
+  };
 }
 
 test('production source intake prevents DXF mistakes and freezes server-generated pairs', async ({ page }) => {
@@ -188,22 +194,43 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   });
   await expect(page.getByText('图纸主格式：DXF')).toBeVisible();
   await expect(page.getByText(/DWG 只在输入阶段留档/)).toBeVisible();
-  await expect(page.getByRole('button', { name: '选择并上传生产文件夹' })).toBeVisible();
-  await expect(page.getByText('统一选择并上传一个完整生产文件夹')).toBeVisible();
+  await expect(page.getByRole('button', { name: '上传 Excel 文件' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '选择 DWG 文件夹' })).toBeVisible();
+  await expect(page.getByText('Excel 与 DWG 分步提交')).toBeVisible();
+  await expect(page.locator('input[type=file][accept=".xls,.xlsx"]')).toHaveCount(1);
+
+  await page.locator('input[type=file][accept=".xls,.xlsx"]').setInputFiles({
+    name: 'parts.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: Buffer.from('xlsx'),
+  });
+  await expect(page.getByText('parts.xlsx', { exact: true })).toBeVisible();
 
   await page.locator('input[webkitdirectory]').evaluate((node) => {
     const transfer = new DataTransfer();
     const dwg = new File(['AC1027-DWG'], 'panel-A.dwg', { type: 'application/acad' });
     Object.defineProperty(dwg, 'webkitRelativePath', { value: '生产批次/图纸/panel-A.dwg' });
-    const excel = new File(['xlsx'], 'parts.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    Object.defineProperty(excel, 'webkitRelativePath', { value: '生产批次/清单/parts.xlsx' });
+    const pdf = new File(['notes'], '说明.pdf', { type: 'application/pdf' });
+    Object.defineProperty(pdf, 'webkitRelativePath', { value: '生产批次/说明.pdf' });
+    const dxf = new File(['dxf'], 'manual.dxf', { type: 'application/dxf' });
+    Object.defineProperty(dxf, 'webkitRelativePath', { value: '生产批次/图纸/manual.dxf' });
     transfer.items.add(dwg);
-    transfer.items.add(excel);
+    transfer.items.add(pdf);
+    transfer.items.add(dxf);
     Object.defineProperty(node, 'files', { configurable: true, value: transfer.files });
     node.dispatchEvent(new Event('change', { bubbles: true }));
   });
+  const ignoreDialog = page.getByRole('dialog', { name: '文件夹包含其他文件' });
+  await expect(ignoreDialog).toBeVisible();
+  await expect(ignoreDialog.getByText('生产批次/说明.pdf')).toBeVisible();
+  await expect(ignoreDialog.getByText('生产批次/图纸/manual.dxf')).toBeVisible();
+  expect(state.dwgUploadBody()).toBe('');
+  await ignoreDialog.getByRole('button', { name: '确认，仅上传 DWG' }).click();
   await expect(page.getByText('panel-A.dwg', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '选择并上传生产文件夹' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '选择 DWG 文件夹' })).toBeDisabled();
+  expect(state.dwgUploadBody()).toContain('panel-A.dwg');
+  expect(state.dwgUploadBody()).not.toContain('说明.pdf');
+  expect(state.dwgUploadBody()).not.toContain('manual.dxf');
 
   await page.getByRole('button', { name: '生成并校验 DXF' }).click();
   await expect(page.getByText('已配对')).toBeVisible();

@@ -34,7 +34,8 @@ import {
   freezeWorkflowInputBatch,
   getWorkflowInputBatch,
   requestWorkflowInputConversions,
-  uploadWorkflowInputFolder,
+  uploadWorkflowInputDwgFolder,
+  uploadWorkflowInputExcel,
 } from './workflow-inputs.api';
 import { fmtDateTime, fmtSize } from '../../shared/components';
 import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
@@ -59,9 +60,10 @@ export function ProductionInputPanel({
   sourceIntakeActive: boolean;
   onFrozen: () => void;
 }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
-  const folderInput = useRef<HTMLInputElement>(null);
+  const excelInput = useRef<HTMLInputElement>(null);
+  const dwgFolderInput = useRef<HTMLInputElement>(null);
 
   const batchQ = useQuery({
     queryKey: ['workflow-input-batch', workflowId],
@@ -95,31 +97,72 @@ export function ProductionInputPanel({
     onSuccess: (result) => { refresh(result); message.success('输入已冻结，生产流程进入下一阶段'); onFrozen(); },
     onError: (error) => { message.error(describeApiError(error, '冻结失败')); refresh(); },
   });
-  const uploadFolderM = useMutation({
-    mutationFn: (files: File[]) => uploadWorkflowInputFolder(workflowId, files),
+  const uploadExcelM = useMutation({
+    mutationFn: (file: File) => uploadWorkflowInputExcel(workflowId, file),
     onSuccess: (result) => {
       refresh(result);
-      message.success(`完整文件夹已上传并校验，共 ${result.items.length} 个文件`);
+      message.success('Excel 已上传并通过输入审核');
     },
-    onError: (error) => message.error(describeApiError(error, '文件夹上传失败')),
+    onError: (error) => message.error(describeApiError(error, 'Excel 上传失败')),
+  });
+  const uploadDwgFolderM = useMutation({
+    mutationFn: (files: File[]) => uploadWorkflowInputDwgFolder(workflowId, files),
+    onSuccess: (result) => {
+      refresh(result);
+      message.success(`DWG 文件夹已上传并校验，共 ${result.counts.dwg} 张图纸`);
+    },
+    onError: (error) => message.error(describeApiError(error, 'DWG 文件夹上传失败')),
   });
 
-  const handleFolder = (selected: File[]) => {
+  const handleExcel = (file: File | undefined) => {
+    if (!batch || !editable || !file) return;
+    if (!/\.xlsx?$/i.test(file.name)) {
+      message.error('Excel 只能是 .xls 或 .xlsx 文件');
+      return;
+    }
+    uploadExcelM.mutate(file);
+  };
+
+  const handleDwgFolder = (selected: File[]) => {
     if (!batch || !editable) return;
-    const invalid = selected.find((file) => !/\.(dwg|xls|xlsx)$/i.test(file.name));
-    if (invalid) {
-      message.error(`${invalid.name} 格式不允许；文件夹只能包含 DWG 和一个 Excel`);
-      return;
-    }
-    const dwgCount = selected.filter((file) => /\.dwg$/i.test(file.name)).length;
-    const excelCount = selected.filter((file) => /\.xlsx?$/i.test(file.name)).length;
+    const dwgFiles = selected.filter((file) => /\.dwg$/i.test(file.name));
+    const ignoredFiles = selected.filter((file) => !/\.dwg$/i.test(file.name));
     const roots = new Set(selected.map((file) => file.webkitRelativePath.split('/')[0]));
-    if (!selected.length || dwgCount < 1 || excelCount !== 1 || roots.size !== 1
+    if (!selected.length || dwgFiles.length < 1 || roots.size !== 1
       || selected.some((file) => !file.webkitRelativePath.includes('/'))) {
-      message.error('请选择一个完整文件夹：至少一个 DWG、恰好一个 Excel，且不能混入其他格式');
+      message.error('请选择一个至少包含一个 DWG 的完整文件夹');
       return;
     }
-    uploadFolderM.mutate(selected);
+    if (!ignoredFiles.length) {
+      uploadDwgFolderM.mutate(dwgFiles);
+      return;
+    }
+    modal.confirm({
+      title: '文件夹包含其他文件',
+      width: 620,
+      content: (
+        <div className="production-input-ignore-confirm">
+          <Typography.Paragraph>
+            将上传 <Typography.Text strong>{dwgFiles.length}</Typography.Text> 个 DWG；
+            忽略 <Typography.Text strong>{ignoredFiles.length}</Typography.Text> 个其他文件。
+          </Typography.Paragraph>
+          <Typography.Text type="secondary">
+            以下文件不会上传、入库，也不会进入生产压缩包：
+          </Typography.Text>
+          <div className="production-input-ignore-list">
+            {ignoredFiles.map((file) => (
+              <div key={file.webkitRelativePath || file.name}>
+                {file.webkitRelativePath || file.name}
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+      okText: '确认，仅上传 DWG',
+      cancelText: '取消',
+      okButtonProps: { icon: <CloudUploadOutlined /> },
+      onOk: () => uploadDwgFolderM.mutateAsync(dwgFiles),
+    });
   };
 
   if (batchQ.isError) {
@@ -150,7 +193,7 @@ export function ProductionInputPanel({
   return (
     <Card title={<Space><CloudUploadOutlined />01 · 文件上传、完整性校验与输入冻结</Space>} style={{ marginTop: 12 }} loading={batchQ.isLoading} extra={<Button icon={<ReloadOutlined />} loading={batchQ.isFetching} onClick={() => batchQ.refetch()}>刷新状态</Button>}>
       <Steps size="small" current={stepsCurrent} items={[{ title: '建立批次' }, { title: '上传源文件' }, { title: '服务器转 DXF' }, { title: '确认冻结' }]} />
-      <Alert style={{ marginTop: 18 }} type={batch?.status === 'frozen' ? 'success' : 'info'} showIcon message={batch?.status === 'frozen' ? '输入版本已冻结' : '统一选择并上传一个完整生产文件夹'} description={batch?.status === 'frozen' ? `版本 v${batch.version} · 清单 ${batch.manifest_sha256}` : '文件夹只能包含至少一个 DWG 和恰好一个 Excel；不得包含 DXF 或其他格式。服务器整批审核通过后才入库，随后统一将 DWG 转为 DXF。'} />
+      <Alert style={{ marginTop: 18 }} type={batch?.status === 'frozen' ? 'success' : 'info'} showIcon message={batch?.status === 'frozen' ? '输入版本已冻结' : 'Excel 与 DWG 分步提交'} description={batch?.status === 'frozen' ? `版本 v${batch.version} · 清单 ${batch.manifest_sha256}` : 'Excel 只能单独上传一个 .xls 或 .xlsx；DWG 必须选择文件夹。文件夹中的其他文件经确认后忽略，服务器只接收 DWG。'} />
 
       <Row gutter={[12, 12]} style={{ marginTop: 16 }}>
         <Col xs={24} md={8}><Card size="small"><Typography.Text type="secondary">DWG 源文件</Typography.Text><Typography.Title level={3} style={{ margin: '4px 0' }}>{batch?.counts.dwg ?? 0}</Typography.Title><Typography.Text type="secondary">至少 1 个，可多选</Typography.Text></Card></Col>
@@ -159,10 +202,12 @@ export function ProductionInputPanel({
       </Row>
 
       {editable && <Space wrap style={{ marginTop: 16 }}>
-        <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '', directory: '' }} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; handleFolder(files); }} />
-        <Button type="primary" icon={<CloudUploadOutlined />} loading={uploadFolderM.isPending} disabled={Boolean(batch?.items.length)} onClick={() => folderInput.current?.click()}>选择并上传生产文件夹</Button>
+        <input ref={excelInput} type="file" accept=".xls,.xlsx" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; handleExcel(file); }} />
+        <input ref={dwgFolderInput} type="file" multiple hidden {...{ webkitdirectory: '', directory: '' }} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; handleDwgFolder(files); }} />
+        <Button type="primary" icon={<FileExcelOutlined />} loading={uploadExcelM.isPending} disabled={excelExists || uploadDwgFolderM.isPending} onClick={() => excelInput.current?.click()}>上传 Excel 文件</Button>
+        <Button type="primary" icon={<CloudUploadOutlined />} loading={uploadDwgFolderM.isPending} disabled={Boolean(batch?.counts.dwg) || uploadExcelM.isPending} onClick={() => dwgFolderInput.current?.click()}>选择 DWG 文件夹</Button>
         {Boolean(batch?.items.length) && <Popconfirm title="清空整个生产输入文件夹？" description="冻结前可整批清空后重新选择；不支持逐个替换。" onConfirm={() => clearM.mutate()}><Button danger loading={clearM.isPending}>整批清空</Button></Popconfirm>}
-        <Button icon={<SyncOutlined spin={convertM.isPending} />} loading={convertM.isPending} disabled={uploadFolderM.isPending || !batch?.counts.dwg || !excelExists} onClick={() => convertM.mutate()}>{batch?.counts.failed ? '重试失败转换' : '生成并校验 DXF'}</Button>
+        <Button icon={<SyncOutlined spin={convertM.isPending} />} loading={convertM.isPending} disabled={uploadExcelM.isPending || uploadDwgFolderM.isPending || !batch?.counts.dwg || !excelExists} onClick={() => convertM.mutate()}>{batch?.counts.failed ? '重试失败转换' : '生成并校验 DXF'}</Button>
         <Popconfirm title="确认冻结本批输入？" description="冻结后不可修改；系统将创建图纸处理单元并进入下一阶段。" okText="确认冻结" cancelText="继续检查" onConfirm={() => freezeM.mutate()}><Button type="primary" icon={<LockOutlined />} loading={freezeM.isPending} disabled={!batch?.freeze_ready}>冻结输入版本</Button></Popconfirm>
       </Space>}
       <div aria-live="polite">
