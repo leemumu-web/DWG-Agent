@@ -21,7 +21,8 @@ from app.modules.workflows.intake.registration import (
     raise_excel_failure,
     register_input_file,
     remove_input_item,
-    validate_input_folder_manifest,
+    validate_input_dwg_folder_manifest,
+    validate_input_excel_name,
 )
 from app.modules.workflows.lifecycle import get_workflow_or_404
 from app.modules.workflows.schemas import (
@@ -90,16 +91,60 @@ def get_batch_api(
 
 
 @router.post(
-    "/{workflow_id}/input-folder",
+    "/{workflow_id}/input-excel",
     status_code=status.HTTP_201_CREATED,
     response_model=WorkflowInputBatchEnvelope,
-    summary="导入生产输入文件夹",
-    description=(
-        "一次接收浏览器选择的完整文件夹；存储前审核全部相对路径，"
-        "只允许至少一个 DWG 和恰好一个 Excel，人工 DXF 与其他文件整批拒绝。"
-    ),
+    summary="上传生产 Excel",
+    description="单独接收一个 .xls 或 .xlsx；DWG 必须通过文件夹入口另行上传。",
 )
-async def import_input_folder_api(
+async def import_input_excel_api(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    upload: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    workflow = get_workflow_or_404(db, workflow_id)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    validate_input_excel_name(upload.filename or "")
+    batch = lock_input_batch(db, get_input_batch(db, workflow_id))
+    if any(item.role == "source_excel" for item in batch.items):
+        raise AppHTTPException(
+            409,
+            "INPUT_EXCEL_ALREADY_IMPORTED",
+            "Remove the current production input before uploading another Excel file.",
+        )
+    stored = await save_upload_file(
+        db,
+        upload,
+        uploaded_by=current_user.id,
+        batch_name=f"workflow-input-{batch.id}",
+        request_id=request.state.request_id,
+    )
+    outcome = register_input_file(db, batch, stored)
+    if outcome.failure is not None:
+        raise_excel_failure(outcome.failure)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="workflow_input_excel.import",
+        resource_type="workflow_input_batch",
+        resource_id=batch.id,
+        after_json={"workflow_id": workflow.id, "file_id": stored.id},
+        request=request,
+    )
+    db.commit()
+    return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
+
+
+@router.post(
+    "/{workflow_id}/input-dwg-folder",
+    status_code=status.HTTP_201_CREATED,
+    response_model=WorkflowInputBatchEnvelope,
+    summary="导入生产 DWG 文件夹",
+    description="只接收一个文件夹中的 DWG；其他文件必须在浏览器确认后排除，不得上传。",
+)
+async def import_input_dwg_folder_api(
     workflow_id: int,
     request: Request,
     current_user: CurrentUser,
@@ -126,14 +171,14 @@ async def import_input_folder_api(
             "The folder manifest must be a JSON string array.",
         )
     upload_names = [upload.filename or "" for upload in uploads]
-    folder_name = validate_input_folder_manifest(upload_names, parsed_paths)
+    folder_name = validate_input_dwg_folder_manifest(upload_names, parsed_paths)
 
     batch = lock_input_batch(db, get_input_batch(db, workflow_id))
-    if batch.items:
+    if any(item.role == "source_dwg" for item in batch.items):
         raise AppHTTPException(
             409,
-            "INPUT_FOLDER_ALREADY_IMPORTED",
-            "Remove the current input items before importing a replacement folder.",
+            "INPUT_DWG_FOLDER_ALREADY_IMPORTED",
+            "Remove the current production input before uploading another DWG folder.",
         )
 
     imported_file_ids: list[int] = []
@@ -153,7 +198,7 @@ async def import_input_folder_api(
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action="workflow_input_folders.import",
+        action="workflow_input_dwg_folders.import",
         resource_type="workflow_input_batch",
         resource_id=batch.id,
         after_json={
