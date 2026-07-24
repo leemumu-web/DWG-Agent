@@ -73,28 +73,55 @@ export async function getWorkflow(workflowId: number) {
   return response.data.data;
 }
 
-export async function downloadWorkflowArchive(workflowId: number) {
+async function downloadArchive(
+  url: string,
+  fallbackName: string,
+  errorMessage: string,
+) {
   try {
     const response = await apiClient.get<Blob>(
-      `/api/v1/workflows/${workflowId}/download-archive`,
+      url,
       { responseType: 'blob', timeout: 300_000 },
     );
-    const disposition = response.headers['content-disposition'] as string | undefined;
-    const encoded = disposition?.match(/filename\\*=UTF-8''([^;]+)/i)?.[1];
-    const filename = encoded ? decodeURIComponent(encoded) : `workflow-${workflowId}.zip`;
-    const url = URL.createObjectURL(response.data);
+    const disposition = (
+      typeof response.headers.get === 'function'
+        ? response.headers.get('content-disposition')
+        : response.headers['content-disposition']
+    ) as string | undefined;
+    const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const filename = encoded ? decodeURIComponent(encoded) : fallbackName;
+    const objectUrl = URL.createObjectURL(response.data);
     const anchor = document.createElement('a');
-    anchor.href = url;
+    anchor.href = objectUrl;
     anchor.download = filename;
     document.body.appendChild(anchor);
     anchor.click();
     setTimeout(() => {
       document.body.removeChild(anchor);
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
     }, 100);
   } catch (error) {
-    throw new Error(await describeApiErrorAsync(error, '生产压缩包下载失败'));
+    throw new Error(await describeApiErrorAsync(error, errorMessage));
   }
+}
+
+export async function downloadWorkflowArchive(workflowId: number) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/download-archive`,
+    `workflow-${workflowId}.zip`,
+    '生产压缩包下载失败',
+  );
+}
+
+export async function downloadWorkflowStageArchive(
+  workflowId: number,
+  stageCode: string,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/${stageCode}/download-archive`,
+    `workflow-${workflowId}-${stageCode}.zip`,
+    '阶段结果压缩包下载失败',
+  );
 }
 
 export async function createWorkflow(payload: WorkflowCreatePayload) {

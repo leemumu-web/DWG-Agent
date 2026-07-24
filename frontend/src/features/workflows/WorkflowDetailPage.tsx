@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   App,
@@ -15,10 +15,10 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined,
-  CheckCircleOutlined,
   ClockCircleOutlined,
   DownloadOutlined,
   FileExcelOutlined,
+  LockOutlined,
   ReloadOutlined,
   StopOutlined,
   ThunderboltOutlined,
@@ -35,10 +35,12 @@ import {
 import { listProjects } from '../projects';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
 import { ProductionInputPanel } from './ProductionInputPanel';
+import { stageStateLabel, WorkflowStageRail } from './WorkflowStageRail';
 import {
   cancelWorkflow,
   completeWorkflowStage,
   downloadWorkflowArchive,
+  downloadWorkflowStageArchive,
   executeWorkflowStage,
   getWorkflow,
   listWorkflowTemplates,
@@ -56,58 +58,6 @@ import type {
   WorkflowStage,
   WorkflowStageCapability,
 } from './workflow';
-
-function stageStateLabel(stage: WorkflowStage): string {
-  return WORKFLOW_STATUS[stage.status]?.label ?? stage.status;
-}
-
-function StageRail({
-  stages,
-  capabilities,
-  currentCode,
-}: {
-  stages: WorkflowStage[];
-  capabilities: Map<string, WorkflowStageCapability>;
-  currentCode?: string | null;
-}) {
-  return (
-    <nav className="workflow-stage-rail" aria-label="生产阶段">
-      <div className="workflow-stage-rail__heading">
-        <span>PRODUCTION ROUTE</span>
-        <strong>{stages.length} 个阶段</strong>
-      </div>
-      <ol>
-        {stages.map((stage) => {
-          const capability = capabilities.get(stage.stage_code);
-          const active = stage.stage_code === currentCode;
-          const completed = ['succeeded', 'skipped'].includes(stage.status);
-          return (
-            <li
-              key={stage.id}
-              className={[
-                active ? 'is-active' : '',
-                completed ? 'is-complete' : '',
-                stage.status === 'failed' ? 'is-failed' : '',
-              ].filter(Boolean).join(' ')}
-              aria-current={active ? 'step' : undefined}
-            >
-              <span className="workflow-stage-rail__index">
-                {completed ? <CheckCircleOutlined /> : String(stage.sequence).padStart(2, '0')}
-              </span>
-              <div>
-                <strong>{stage.name}</strong>
-                <small>{stageStateLabel(stage)}</small>
-                {capability && capability.implementation_status !== 'implemented' && (
-                  <small>{capability.implementation_status === 'external' ? '外部节点' : '接口预留'}</small>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
-}
 
 function ArtifactLedger({ workflowId, artifacts }: { workflowId: number; artifacts: WorkflowArtifact[] }) {
   const { message } = App.useApp();
@@ -130,16 +80,87 @@ function ArtifactLedger({ workflowId, artifacts }: { workflowId: number; artifac
               <div>
                 <Tag>{artifact.artifact_type}</Tag>
                 <Typography.Text strong>版本 v{artifact.version}</Typography.Text>
-                <small>
-                  {artifact.file_id ? `文件 #${artifact.file_id}` : `结果 #${artifact.result_id}`}
-                  {' · '}
-                  {fmtDateTime(artifact.created_at)}
-                </small>
+                <small>已登记 · {fmtDateTime(artifact.created_at)}</small>
               </div>
             </div>
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+function StageArchiveCard({
+  workflowId,
+  stage,
+  capability,
+  artifacts,
+}: {
+  workflowId: number;
+  stage: WorkflowStage;
+  capability: WorkflowStageCapability;
+  artifacts: WorkflowArtifact[];
+}) {
+  const { message } = App.useApp();
+  const archiveM = useMutation({
+    mutationFn: () => downloadWorkflowStageArchive(workflowId, stage.stage_code),
+    onError: (error) => message.error(describeApiError(error, '阶段结果压缩包下载失败')),
+  });
+  if (capability.implementation_status !== 'implemented') return null;
+  const downloadLabel = stage.stage_code === 'dxf_classification'
+    ? '下载分流结果压缩包'
+    : '下载本阶段结果压缩包';
+  return (
+    <Card className="workflow-stage-archive-card">
+      <div>
+        <span>STAGE OUTPUT</span>
+        <Typography.Text strong>
+          {artifacts.length ? `已登记 ${artifacts.length} 项阶段产物` : '本阶段尚无可下载产物'}
+        </Typography.Text>
+        {artifacts.length > 0 && (
+          <Space wrap size={[4, 6]}>
+            {Array.from(new Set(artifacts.map((artifact) => artifact.artifact_type)))
+              .map((artifactType) => <Tag key={artifactType}>{artifactType}</Tag>)}
+          </Space>
+        )}
+      </div>
+      <Button
+        type={stage.stage_code === 'dxf_classification' ? 'primary' : 'default'}
+        icon={<DownloadOutlined />}
+        loading={archiveM.isPending}
+        disabled={!artifacts.length}
+        onClick={() => archiveM.mutate()}
+      >
+        {downloadLabel}
+      </Button>
+    </Card>
+  );
+}
+
+function DrawingProcessingPlaceholder() {
+  const metrics = [
+    ['项目总进度', '未接入'],
+    ['已完成 / 总数', '未接入'],
+    ['实时速度', '未接入'],
+    ['预计剩余时间', '未接入'],
+  ];
+  return (
+    <Card className="workflow-drawing-placeholder">
+      <Alert
+        type="warning"
+        showIcon
+        icon={<LockOutlined />}
+        message="拆板执行能力尚未接入"
+        description="第三步继续保持真实占位；下列指标是后续服务端执行器必须提供的数据合同，当前不显示模拟值。"
+      />
+      <div className="workflow-placeholder-metrics">
+        {metrics.map(([label, value]) => (
+          <div key={label}>
+            <small>{label}</small>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }
@@ -150,6 +171,7 @@ export function WorkflowDetailPage() {
   const params = useParams();
   const workflowId = Number(params.workflowId);
   const [executionError, setExecutionError] = useState<ParsedApiError | null>(null);
+  const [selectedStageCode, setSelectedStageCode] = useState<string | null>(null);
 
   const detailQ = useQuery({
     queryKey: ['workflow', workflowId],
@@ -168,13 +190,39 @@ export function WorkflowDetailPage() {
     () => new Map((template?.stages ?? []).map((stage) => [stage.code, stage])),
     [template],
   );
-  const currentStage = detail?.stages.find((stage) => stage.stage_code === detail.current_stage)
+  const authoritativeCurrentStage = detail?.stages.find(
+    (stage) => stage.stage_code === detail.current_stage,
+  )
     ?? detail?.stages.find((stage) => ACTIONABLE.has(stage.status));
-  const currentCapability = currentStage
-    ? capabilities.get(currentStage.stage_code)
+  const authoritativeCurrentCapability = authoritativeCurrentStage
+    ? capabilities.get(authoritativeCurrentStage.stage_code)
     : undefined;
+  const selectedStage = detail?.stages.find(
+    (stage) => stage.stage_code === selectedStageCode,
+  ) ?? authoritativeCurrentStage;
+  const selectedCapability = selectedStage
+    ? capabilities.get(selectedStage.stage_code)
+    : undefined;
+  const selectedIsCurrent = Boolean(
+    selectedStage
+    && authoritativeCurrentStage
+    && selectedStage.stage_code === authoritativeCurrentStage.stage_code,
+  );
+  const selectedArtifacts = detail?.artifacts.filter(
+    (artifact) => artifact.stage_run_id === selectedStage?.id,
+  ) ?? [];
   const project = projectsQ.data?.find((item) => item.id === detail?.project_id);
   const sourceExcel = detail?.artifacts.find((item) => item.artifact_type === 'source_excel');
+
+  useEffect(() => {
+    if (
+      selectedStageCode
+      && detail
+      && !detail.stages.some((stage) => stage.stage_code === selectedStageCode)
+    ) {
+      setSelectedStageCode(null);
+    }
+  }, [detail, selectedStageCode]);
 
   const refresh = () => {
     setExecutionError(null);
@@ -193,23 +241,34 @@ export function WorkflowDetailPage() {
   });
   const completeM = useMutation({
     mutationFn: () => {
-      if (!currentStage) throw new Error('当前没有可确认阶段');
-      return completeWorkflowStage(workflowId, currentStage.stage_code);
+      if (!authoritativeCurrentStage || !selectedIsCurrent) {
+        throw new Error('当前查看阶段不可确认');
+      }
+      return completeWorkflowStage(workflowId, authoritativeCurrentStage.stage_code);
     },
-    onSuccess: () => { message.success('当前阶段已确认'); refresh(); },
+    onSuccess: () => {
+      setSelectedStageCode(null);
+      message.success('当前阶段已确认');
+      refresh();
+    },
     onError: (error) => message.error(describeApiError(error, '确认失败')),
   });
   const executeM = useMutation({
     mutationFn: () => {
-      if (!currentStage || !currentCapability?.execution_kind) {
+      if (
+        !authoritativeCurrentStage
+        || !authoritativeCurrentCapability?.execution_kind
+        || !selectedIsCurrent
+      ) {
         throw new Error('当前阶段没有服务器执行接口');
       }
-      return executeWorkflowStage(workflowId, currentStage.stage_code, {
-        execution_kind: currentCapability.execution_kind,
+      return executeWorkflowStage(workflowId, authoritativeCurrentStage.stage_code, {
+        execution_kind: authoritativeCurrentCapability.execution_kind,
       });
     },
     onMutate: () => setExecutionError(null),
     onSuccess: (result) => {
+      setSelectedStageCode(null);
       message.success(
         result.retried
           ? `任务 #${result.job.id} 已重新入队`
@@ -245,10 +304,21 @@ export function WorkflowDetailPage() {
   }
 
   const manualConfirmation = Boolean(
-    currentStage
-    && currentCapability
-    && currentStage.stage_code !== 'source_intake'
-    && currentCapability.execution_mode === 'manual',
+    selectedStage
+    && selectedCapability
+    && selectedIsCurrent
+    && selectedStage.stage_code !== 'source_intake'
+    && selectedCapability.execution_mode === 'manual',
+  );
+  const selectedIsPast = Boolean(
+    selectedStage
+    && (
+      ['succeeded', 'skipped'].includes(selectedStage.status)
+      || (
+        authoritativeCurrentStage
+        && selectedStage.sequence < authoritativeCurrentStage.sequence
+      )
+    ),
   );
 
   return (
@@ -300,68 +370,107 @@ export function WorkflowDetailPage() {
       )}
 
       <div className="workflow-detail-grid">
-        <StageRail
+        <WorkflowStageRail
           stages={detail.stages}
           capabilities={capabilities}
           currentCode={detail.current_stage}
+          selectedCode={selectedStage?.stage_code}
+          onSelect={(stageCode) => {
+            setExecutionError(null);
+            setSelectedStageCode(
+              stageCode === authoritativeCurrentStage?.stage_code ? null : stageCode,
+            );
+          }}
         />
         <main className="workflow-stage-workspace">
-          {currentStage && currentCapability ? (
+          {selectedStage && selectedCapability ? (
             <>
               <section className="workflow-stage-heading">
                 <div>
-                  <span>STAGE {String(currentStage.sequence).padStart(2, '0')}</span>
-                  <Typography.Title level={3}>{currentStage.name}</Typography.Title>
-                  <Typography.Paragraph>{currentCapability.description}</Typography.Paragraph>
+                  <span>STAGE {String(selectedStage.sequence).padStart(2, '0')}</span>
+                  <Typography.Title level={3}>{selectedStage.name}</Typography.Title>
+                  <Typography.Paragraph>{selectedCapability.description}</Typography.Paragraph>
                 </div>
                 <Space wrap>
-                  {capabilityTag(currentCapability)}
-                  <Tag>{stageStateLabel(currentStage)}</Tag>
+                  {capabilityTag(selectedCapability)}
+                  <Tag>{stageStateLabel(selectedStage)}</Tag>
                 </Space>
               </section>
+
+              {!selectedIsCurrent && (
+                <Alert
+                  type={selectedIsPast ? 'info' : 'warning'}
+                  showIcon
+                  message={selectedIsPast ? '正在查看历史阶段' : '该阶段尚未解锁'}
+                  description={selectedIsPast
+                    ? '历史阶段仅供核对结果和下载已有压缩包，不能重新上传、执行或确认。'
+                    : '可以提前查看阶段合同；上传、执行和确认仍严格绑定服务器当前阶段。'}
+                  action={authoritativeCurrentStage && (
+                    <Button onClick={() => setSelectedStageCode(null)}>
+                      返回当前阶段
+                    </Button>
+                  )}
+                />
+              )}
 
               <Alert
                 type="info"
                 showIcon
                 message="阶段数据合同"
                 description={[
-                  `所需输入：${currentCapability.required_inputs.join('、') || '无'}`,
-                  `允许产物：${currentCapability.artifact_types.join('、') || '无'}`,
-                  `完成必需产物：${currentCapability.required_outputs.join('、') || '无'}`,
+                  `所需输入：${selectedCapability.required_inputs.join('、') || '无'}`,
+                  `允许产物：${selectedCapability.artifact_types.join('、') || '无'}`,
+                  `完成必需产物：${selectedCapability.required_outputs.join('、') || '无'}`,
                 ].join('；')}
               />
 
-              {currentStage.error_message && (
+              {selectedStage.error_message && (
                 <Alert
                   type="error"
                   showIcon
-                  message={currentStage.error_code ?? '阶段执行失败'}
-                  description={currentStage.error_message}
+                  message={selectedStage.error_code ?? '阶段执行失败'}
+                  description={selectedStage.error_message}
                 />
               )}
-              {executionError?.failure && (
+              {selectedIsCurrent && executionError?.failure && (
                 <ExcelInputFailurePanel
                   failure={executionError.failure}
                   requestId={executionError.requestId}
                 />
               )}
 
-              {currentStage.stage_code === 'source_intake' && (
+              <StageArchiveCard
+                workflowId={detail.id}
+                stage={selectedStage}
+                capability={selectedCapability}
+                artifacts={selectedArtifacts}
+              />
+
+              {selectedStage.stage_code === 'source_intake' && (
                 <ProductionInputPanel
                   workflowId={detail.id}
-                  sourceIntakeActive
-                  onFrozen={refresh}
+                  sourceIntakeActive={selectedIsCurrent}
+                  onFrozen={() => {
+                    setSelectedStageCode(null);
+                    refresh();
+                  }}
                 />
               )}
-              {currentStage.stage_code === 'dxf_classification' && (
+              {selectedStage.stage_code === 'dxf_classification' && (
                 <DxfClassificationPanel
                   workflowId={detail.id}
-                  stage={currentStage}
-                  isCurrent
-                  onChanged={refresh}
+                  stage={selectedStage}
+                  isCurrent={selectedIsCurrent}
+                  onChanged={() => {
+                    setSelectedStageCode(null);
+                    refresh();
+                  }}
                 />
               )}
-              {currentStage.stage_code === 'excel_stage1' && (
+              {selectedStage.stage_code === 'drawing_processing' && (
+                <DrawingProcessingPlaceholder />
+              )}
+              {selectedStage.stage_code === 'excel_stage1' && (
                 <Card className="workflow-excel-stage-card">
                   <div className="workflow-excel-stage-source">
                     <span className="workflow-excel-stage-icon"><FileExcelOutlined /></span>
@@ -385,22 +494,25 @@ export function WorkflowDetailPage() {
                       { key: 'check', label: '执行前核验', children: '对象 SHA-256、Excel 格式、单工作表、标题行和必需列' },
                     ]}
                   />
-                  <Button
-                    type="primary"
-                    size="large"
-                    icon={<ThunderboltOutlined />}
-                    loading={executeM.isPending}
-                    onClick={() => executeM.mutate()}
-                  >
-                    运行 Excel 第一阶段
-                  </Button>
+                  {selectedIsCurrent && (
+                    <Button
+                      type="primary"
+                      size="large"
+                      icon={<ThunderboltOutlined />}
+                      loading={executeM.isPending}
+                      onClick={() => executeM.mutate()}
+                    >
+                      运行 Excel 第一阶段
+                    </Button>
+                  )}
                 </Card>
               )}
-              {currentCapability.implementation_status !== 'implemented' && (
+              {selectedCapability.implementation_status !== 'implemented'
+                && selectedStage.stage_code !== 'drawing_processing' && (
                 <Alert
                   type="warning"
                   showIcon
-                  message={currentCapability.implementation_status === 'external'
+                  message={selectedCapability.implementation_status === 'external'
                     ? '该阶段由外部生产节点完成'
                     : '该阶段接口已定义，执行能力尚未实现'}
                   description="当前不会提交虚假任务；请按阶段数据合同绑定真实产物后人工确认。"
@@ -417,16 +529,16 @@ export function WorkflowDetailPage() {
                   </Space>
                 </Card>
               )}
-              {currentStage.job_id && (
+              {selectedStage.job_id && (
                 <Card size="small" className="workflow-current-job">
                   <Space>
                     <ClockCircleOutlined />
-                    <Typography.Text>任务 #{currentStage.job_id} · 尝试 #{currentStage.job_attempt}</Typography.Text>
+                    <Typography.Text>任务 #{selectedStage.job_id} · 尝试 #{selectedStage.job_attempt}</Typography.Text>
                     <Link to="/jobs">查看任务记录</Link>
                   </Space>
                   <Progress
-                    percent={currentStage.progress}
-                    status={STAGE_STATUS[currentStage.status] === 'error' ? 'exception' : 'active'}
+                    percent={selectedStage.progress}
+                    status={STAGE_STATUS[selectedStage.status] === 'error' ? 'exception' : 'active'}
                   />
                 </Card>
               )}

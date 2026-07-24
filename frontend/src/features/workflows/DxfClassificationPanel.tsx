@@ -2,7 +2,7 @@ import {
   Alert,
   Button,
   Card,
-  Descriptions,
+  Collapse,
   Empty,
   Progress,
   Space,
@@ -18,7 +18,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { executeWorkflowStage, getDxfClassification } from './workflows.api';
 import { describeApiError } from '../../shared/api';
-import { fmtSize } from '../../shared/components';
 import type { DxfClassificationItem, WorkflowStage } from './workflow';
 
 interface Props {
@@ -61,11 +60,10 @@ export function DxfClassificationPanel({ workflowId, stage, isCurrent, onChanged
     {
       title: '来源 DXF',
       dataIndex: 'source_name',
-      render: (value: string, item: DxfClassificationItem) => (
-        <Space orientation="vertical" size={0}>
-          <Typography.Text>{value}</Typography.Text>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>文件 #{item.source_file.id}</Typography.Text>
-        </Space>
+      render: (value: string) => (
+        <Typography.Text className="workflow-classification-file-name">
+          {value}
+        </Typography.Text>
       ),
     },
     {
@@ -76,8 +74,12 @@ export function DxfClassificationPanel({ workflowId, stage, isCurrent, onChanged
         return (
           <Space orientation="vertical" size={2}>
             <Space wrap><Tag color={meta.color}>{meta.label}</Tag>{item.part_type && <Tag color="blue">{item.part_type}</Tag>}</Space>
-            <Typography.Text>{item.output_directory}</Typography.Text>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{item.output_name} · {fmtSize(item.output_file.size_bytes)}</Typography.Text>
+            <Typography.Text className="workflow-classification-file-name">
+              {item.output_directory}
+            </Typography.Text>
+            <Typography.Text type="secondary" className="workflow-classification-file-name">
+              {item.output_name}
+            </Typography.Text>
           </Space>
         );
       },
@@ -132,31 +134,40 @@ export function DxfClassificationPanel({ workflowId, stage, isCurrent, onChanged
             message={run.status === 'completed_with_review' ? '分类完成，存在待确认或无法读取图纸' : '全部 DXF 已完成分类分流'}
             description={`Steel DXF Classifier ${run.classifier_version} · 输入清单 ${run.input_manifest_sha256}`}
           />
-          <Descriptions
-            bordered
-            size="small"
-            column={4}
-            style={{ marginTop: 16 }}
-            items={[
-              { key: 'input', label: '输入', children: run.input_count },
-              { key: 'classified', label: '已分类', children: run.classified_count },
-              { key: 'review', label: '待确认', children: run.review_required_count },
-              { key: 'unreadable', label: '无法读取', children: run.unreadable_count },
-            ]}
-          />
+          <div className="workflow-classification-summary">
+            {[
+              ['输入图纸', run.input_count],
+              ['已分类', run.classified_count],
+              ['待确认', run.review_required_count],
+              ['无法读取', run.unreadable_count],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <small>{label}</small>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
           <Space wrap style={{ marginTop: 14 }}>
             {Object.entries(run.type_counts).map(([type, count]) => <Tag color="blue" key={type}>{type} · {count}</Tag>)}
             {run.report_file && <Tag>分类报告已纳入生产压缩包</Tag>}
             {run.manifest_file && <Tag>分类清单已纳入生产压缩包</Tag>}
           </Space>
-          <Table<DxfClassificationItem>
-            rowKey="id"
-            dataSource={run.items}
-            columns={columns}
-            pagination={false}
-            scroll={{ x: 780 }}
-            style={{ marginTop: 16 }}
-            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无逐图结果" /> }}
+          <Collapse
+            className="workflow-classification-details"
+            items={[{
+              key: 'files',
+              label: `查看文件明细（${run.items.length}）`,
+              children: (
+                <Table<DxfClassificationItem>
+                  rowKey="id"
+                  dataSource={run.items}
+                  columns={columns}
+                  pagination={{ pageSize: 10, hideOnSinglePage: true }}
+                  scroll={{ x: 720 }}
+                  locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无逐图结果" /> }}
+                />
+              ),
+            }]}
           />
         </>
       )}

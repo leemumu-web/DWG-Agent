@@ -242,5 +242,6 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await expect(page.getByRole('button', { name: '开始 DXF 分类分流' })).toBeVisible();
   await page.getByRole('button', { name: '开始 DXF 分类分流' }).click();
   await expect(page.getByText('全部 DXF 已完成分类分流')).toBeVisible();
+  await page.getByRole('button', { name: '查看文件明细（1）' }).click();
   await expect(page.getByText('P7-workflow-41_BH_dxf')).toBeVisible();
 });
