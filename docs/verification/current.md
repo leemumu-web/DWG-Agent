@@ -1,5 +1,23 @@
 # 全栈工作流验证
 
+## 2026-07-25 十阶段生产工作台与 Excel 第二阶段合同
+
+新建 `linux_production` 已升级为 revision 4 十阶段，在 Excel 第一阶段与设计屏障之间加入
+`excel_stage2`。该阶段在数据库阶段行中以稳定 `stage_code=excel_stage2` 明确标注，并声明
+`stage1_excel + processed_dxf → stage2_excel`；执行器当前保持 501 未实现门禁，历史流程不被
+自动改写。前端将 Excel 第二阶段、CAM 工作包、Windows CAM、结果接纳和交付归档统一标为
+“等待上线”，不显示执行、确认或阶段下载操作；拆板占位不再展示模拟进度，生产产物按类型
+精炼汇总并保留全量 ZIP 下载。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| Backend 全量 | **1396 passed，10 skipped** | 十阶段模板、revision 4、`excel_stage2` schema/501 门禁、后续 `stage2_excel` 血缘及全部既有回归通过；22 条依赖弃用类 warning，无失败。 |
+| 工作流与架构聚焦 | **195 passed** | 生产项目 API、完整十阶段状态机、前端/文档合同与模块边界通过；仅 1 条既存 Starlette 弃用 warning。 |
+| Playwright 全量 | **119 passed，1 skipped** | 共 120 个浏览器场景；十阶段导航、等待上线交互抑制、拆板无模拟指标、产物类型分组及既有页面回归无失败，真实 XLS 场景按环境条件跳过。 |
+| 工作流 Playwright | **3 passed** | 冻结 Excel 第一阶段、分类文件夹与下载、十阶段安全查看、生产输入冻结闭环通过。 |
+| Quick 门禁 | **PASS=6 FAIL=0 BLOCKED=0** | Shell、Ruff、174 个 HTTP operation/42 表/13 task 架构快照、141 个分区文档、225 项聚焦回归、API 文档和前端生产构建通过。 |
+| 前端生产构建 | **pass** | 124 个源码文件、12 个 feature 边界通过，TypeScript 与 Vite production build 成功；仅保留既有大 chunk 提示。 |
+
 ## 2026-07-24 Linux 生产图纸 DXF 规范流验收
 
 本轮将 `linux_production` 固定为一个 Excel 加多份 DWG 的输入合同。源 DWG 只在
