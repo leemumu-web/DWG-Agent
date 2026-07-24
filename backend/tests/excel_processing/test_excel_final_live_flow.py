@@ -184,8 +184,8 @@ def test_live_upload_worker_catalog_and_download_flow(
         ]
         assert workbook["整理表"].max_row == 528
         part_headers = [cell.value for cell in workbook["part"][1]]
-        assert len(part_headers) == 11
-        assert part_headers[9:] == ["备注", "文件"]
+        assert len(part_headers) == 12
+        assert part_headers[9:] == ["备注", "文件", "类型"]
         part_rows = [
             dict(zip(part_headers, values, strict=True))
             for values in workbook["part"].iter_rows(min_row=2, values_only=True)
@@ -203,6 +203,10 @@ def test_live_upload_worker_catalog_and_download_flow(
         assert all(row["导入构件编号"] is None for row in global_scoped)
         assert sum(row["汇总"] for row in global_scoped) == 1216
         assert all(row["文件"] is None for row in part_rows)
+        visible_types = {
+            row["类型"] for row in part_rows if row["类型"] is not None
+        }
+        assert visible_types == {"BOX腹", "BOX翼"}
         assert workbook["处理报告"]["A2"].value == "无"
         assert workbook["处理报告"].max_row == 2
         for sheet_name in ("清洗表", "构件表", "整理表", "part", "处理报告"):
@@ -218,15 +222,22 @@ def test_live_upload_worker_catalog_and_download_flow(
             assert workbook["处理报告"][coordinate].alignment.wrap_text is True
             assert workbook["处理报告"][coordinate].alignment.vertical == "top"
         assert workbook["构件表"].auto_filter.ref == "A1:O1"
-        assert workbook["整理表"].auto_filter.ref == "A1:AE1"
+        assert workbook["整理表"].auto_filter.ref == "A1:AF1"
         for sheet_name, removed_headers in (
-            ("整理表", ("类型", "比重来源", "净材利用率", "重量核验")),
-            ("part", ("类型",)),
+            ("整理表", ("比重来源", "净材利用率", "重量核验")),
             ("构件表", ("来源sheet", "行类型", "小计来源行")),
         ):
             worksheet = workbook[sheet_name]
             header_values = {cell.value for cell in worksheet[1]}
             assert not (set(removed_headers) & header_values)
+        organized_headers = [cell.value for cell in workbook["整理表"][1]]
+        organized_type_column = organized_headers.index("类型")
+        organized_types = {
+            row[organized_type_column]
+            for row in workbook["整理表"].iter_rows(min_row=2, values_only=True)
+            if row[organized_type_column] is not None
+        }
+        assert organized_types == {"BOX腹", "BOX翼"}
     finally:
         workbook.close()
 
@@ -244,13 +255,13 @@ def test_live_upload_worker_catalog_and_download_flow(
             if isinstance(cell.value, str) and cell.value.startswith("=")
         ]
         assert len(organized_formulas) == 3515
-        assert formula_workbook["整理表"]["O2"].value == "=L2-M2-N2"
-        assert formula_workbook["整理表"]["S2"].value == "=D2*R2"
-        assert formula_workbook["整理表"]["V2"].value == (
-            "=ROUND(J2*K2*L2*U2/1000000,3)"
+        assert formula_workbook["整理表"]["P2"].value == "=M2-N2-O2"
+        assert formula_workbook["整理表"]["T2"].value == "=D2*S2"
+        assert formula_workbook["整理表"]["W2"].value == (
+            "=ROUND(K2*L2*M2*V2/1000000,3)"
         )
         assert len(part_formulas) == 122
-        assert all(formula.startswith("=SUM('整理表'!S") for formula in part_formulas)
+        assert all(formula.startswith("=SUM('整理表'!T") for formula in part_formulas)
     finally:
         formula_workbook.close()
 

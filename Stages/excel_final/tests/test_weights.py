@@ -25,6 +25,38 @@ def test_plate_and_handbook_unit_weights_use_unrounded_decimal_math() -> None:
     assert profile.as_tuple().exponent < -3
 
 
+def test_circular_hollow_linear_weight_matches_the_existing_manual_formula() -> None:
+    weights = _weights()
+
+    result = weights.circular_hollow_linear_weight(
+        Decimal("2000"),
+        Decimal("60"),
+    )
+
+    assert result == Decimal("2870.424")
+    assert (
+        weights.profile_unit_weight(result, Decimal("7291"))
+        == Decimal("20928.261384")
+    )
+
+
+@pytest.mark.parametrize(
+    ("outer_diameter", "wall_thickness"),
+    [("0", "1"), ("60", "0"), ("60", "30"), ("60", "31")],
+)
+def test_circular_hollow_formula_rejects_nonphysical_dimensions(
+    outer_diameter: str,
+    wall_thickness: str,
+) -> None:
+    weights = _weights()
+
+    with pytest.raises(ValueError, match="circular hollow"):
+        weights.circular_hollow_linear_weight(
+            Decimal(outer_diameter),
+            Decimal(wall_thickness),
+        )
+
+
 @pytest.mark.parametrize(
     ("profile", "height", "width", "web", "flange", "length", "expected_area"),
     [

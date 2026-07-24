@@ -25,8 +25,10 @@ from spec_parser import (
 )
 from splitter import split_parent
 from weights import (
+    CIRCULAR_HOLLOW_DENSITY_SOURCE,
     STEEL_DENSITY,
     TheoryBasis,
+    circular_hollow_linear_weight,
     fabricated_parent_unit_weight,
     plate_unit_weight,
     profile_unit_weight,
@@ -101,6 +103,32 @@ def _lookup_issue(
         affects_part=False,
         density_source=density_source,
         description=f"{source.original_spec}: {reason}",
+    )
+
+
+def _circular_hollow_issue(
+    source: SourcePart,
+    density_source: str,
+) -> QualityIssue:
+    return QualityIssue(
+        level=IssueLevel.WARNING,
+        category="圆管规格无效",
+        source_sheet=source.source_sheet,
+        source_row=source.source_row,
+        component_no=source.component_no,
+        part_no=source.part_no,
+        spec=source.original_spec,
+        field="规格",
+        actual_value=source.original_spec,
+        expected_value="PIP/PD外径*壁厚，且 D>2t",
+        absolute_error=None,
+        relative_error=None,
+        affects_part=False,
+        density_source=density_source,
+        description=(
+            f"{source.original_spec}: 圆管公式要求外径D和壁厚t均为正数，且D>2t；"
+            "比重和理论重量留空"
+        ),
     )
 
 
@@ -193,6 +221,25 @@ def _resolve_parent(source: SourcePart, handbook: HandbookReader) -> _ResolvedPa
                 classification.normalized_width,
                 source.length,
             )
+    elif classification.lookup_policy is LookupPolicy.CIRCULAR_HOLLOW_FORMULA:
+        outer_diameter = Decimal(classification.normalized_spec)
+        wall_thickness = classification.normalized_width
+        if wall_thickness is None:
+            raise ValueError(
+                f"圆管规格缺少壁厚: {classification.original_spec!r}"
+            )
+        try:
+            density_value = circular_hollow_linear_weight(
+                outer_diameter,
+                wall_thickness,
+            )
+        except ValueError:
+            density_source = "circular_hollow_formula:invalid"
+            issues.append(_circular_hollow_issue(source, density_source))
+        else:
+            density_source = CIRCULAR_HOLLOW_DENSITY_SOURCE
+            theoretical = profile_unit_weight(density_value, source.length)
+        theory_basis = TheoryBasis.GEOMETRY
     elif classification.lookup_policy is LookupPolicy.HANDBOOK and theoretical is None:
         lookup = precomputed_lookup or handbook.lookup(
             classification.handbook_category,

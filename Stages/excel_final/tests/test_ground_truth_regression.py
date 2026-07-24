@@ -112,18 +112,25 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             assert formulas["处理报告"][coordinate].alignment.wrap_text is True
             assert formulas["处理报告"][coordinate].alignment.vertical == "top"
         assert formulas["构件表"].auto_filter.ref == "A1:O1"
-        assert formulas["整理表"].auto_filter.ref == "A1:AE1"
+        assert formulas["整理表"].auto_filter.ref == "A1:AF1"
         for sheet_name, removed_headers in (
-            ("整理表", ("类型", "比重来源", "净材利用率", "重量核验")),
-            ("part", ("类型",)),
+            ("整理表", ("比重来源", "净材利用率", "重量核验")),
             ("构件表", ("来源sheet", "行类型", "小计来源行")),
         ):
             worksheet = formulas[sheet_name]
             header_values = {cell.value for cell in worksheet[1]}
             assert not (set(removed_headers) & header_values)
-        assert formulas["part"].max_column == 11
+        assert formulas["part"].max_column == 12
         assert formulas["part"]["J1"].value == "备注"
         assert formulas["part"]["K1"].value == "文件"
+        assert formulas["part"]["L1"].value == "类型"
+        visible_types = {
+            row["类型"] for row in part if row["类型"] is not None
+        }
+        assert visible_types == {"BOX腹", "BOX翼"}
+        assert {
+            row["类型"] for row in organized if row["类型"] is not None
+        } == {"BOX腹", "BOX翼"}
         d_rows = [row for row in organized if str(row["截面型材"]).startswith("D")]
         assert len(d_rows) == baseline["d"]
         assert {row["规格"] for row in d_rows} == {24, 30}
@@ -151,8 +158,8 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             for rows in box_rows.values()
         )
 
-        assert formulas["整理表"]["O2"].value == "=L2-M2-N2"
-        assert values["整理表"]["O2"].value is not None
+        assert formulas["整理表"]["P2"].value == "=M2-N2-O2"
+        assert values["整理表"]["P2"].value is not None
         organized_formula_counts = Counter(
             cell.column_letter
             for row in formulas["整理表"].iter_rows(min_row=2)
@@ -160,13 +167,13 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             if isinstance(cell.value, str) and cell.value.startswith("=")
         )
         assert organized_formula_counts == {
-            "O": 527,
-            "S": 527,
+            "P": 527,
             "T": 527,
-            "V": 482,
+            "U": 527,
             "W": 482,
-            "Z": 485,
-            "AC": 485,
+            "X": 482,
+            "AA": 485,
+            "AD": 485,
         }
         part_formulas = [
             cell.value
@@ -174,7 +181,7 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             if isinstance(cell.value, str) and cell.value.startswith("=")
         ]
         assert len(part_formulas) == baseline["part_rows"]
-        assert all(formula.startswith("=SUM('整理表'!S") for formula in part_formulas)
+        assert all(formula.startswith("=SUM('整理表'!T") for formula in part_formulas)
     finally:
         formulas.close()
         values.close()

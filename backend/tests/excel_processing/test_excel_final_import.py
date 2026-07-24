@@ -425,6 +425,7 @@ def test_excel_final_parts_rejects_unknown_part_type(db: Session, tmp_path: Path
         ("角钢", "angle"),
         ("方管", "square_tube"),
         ("钢管", "steel_pipe"),
+        ("圆管", "steel_pipe"),
         ("方钢", "square_bar"),
         ("高频焊", "hfw_pipe"),
         ("W型钢", "w_beam"),

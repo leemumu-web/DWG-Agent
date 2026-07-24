@@ -30,6 +30,7 @@ class HandbookCategory(StrEnum):
 class LookupPolicy(StrEnum):
     HANDBOOK = "handbook"
     PLATE_CONSTANT = "plate_constant"
+    CIRCULAR_HOLLOW_FORMULA = "circular_hollow_formula"
     FLAT_THEN_PLATE = "flat_then_plate"
     SKIP = "skip"
     NOT_FOUND = "not_found"
@@ -62,6 +63,10 @@ _EXPLICIT_FLAT_RE = re.compile(
     re.IGNORECASE,
 )
 _D_BAR_RE = re.compile(rf"^D({_NUMBER})$", re.IGNORECASE)
+_CIRCULAR_HOLLOW_RE = re.compile(
+    rf"^(?:PIP|PD)({_NUMBER})\*({_NUMBER})$",
+    re.IGNORECASE,
+)
 
 
 def _compact(value: object) -> str:
@@ -249,6 +254,18 @@ def classify_normalized_spec(
                 reason=reason,
             )
 
+    match = _CIRCULAR_HOLLOW_RE.fullmatch(upper)
+    if match:
+        outer_diameter = _number_text(match.group(1))
+        wall_thickness = _number_text(match.group(2))
+        return _result(
+            original_spec,
+            normalized_type="圆管",
+            normalized_spec=outer_diameter,
+            normalized_width=_number(wall_thickness),
+            lookup=LookupPolicy.CIRCULAR_HOLLOW_FORMULA,
+        )
+
     if upper.startswith("HA"):
         return _result(
             original_spec,
@@ -298,7 +315,7 @@ def classify_normalized_spec(
         return _handbook_profile(original_spec, upper, "角钢", HandbookCategory.ANGLE)
     if upper.startswith(("方管", "矩形管", "□")):
         return _handbook_profile(original_spec, upper, "方管", HandbookCategory.SQUARE_TUBE)
-    if re.match(r"^(?:PIP|IP|P|Φ|D)\d+(?:\.\d+)?\*", upper):
+    if re.match(r"^(?:IP|P|Φ|D)\d+(?:\.\d+)?\*", upper):
         return _handbook_profile(original_spec, upper, "钢管", HandbookCategory.STEEL_PIPE)
     if upper.startswith("方钢"):
         return _handbook_profile(original_spec, upper, "方钢", HandbookCategory.SQUARE_BAR)

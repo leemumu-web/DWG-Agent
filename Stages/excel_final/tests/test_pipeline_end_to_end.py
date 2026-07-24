@@ -62,6 +62,8 @@ PARTS = (
     ("p-plate", "PL10*100", "Q355B"),
     ("p-flat", "PL6*30", "Q355B"),
     ("p-bare", "9*91", "Q355B"),
+    ("p-pip", "PIP2000*60", "Q355B"),
+    ("p-pd", "PD114.3*6.3", "Q355B"),
     ("p-box", "BOX100*100*10*10", "Q355B"),
     ("p-round", "D24", "Q355B"),
     ("p-rebar", "D24", "HRB400"),
@@ -327,8 +329,9 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
     source = tmp_path / "source.xlsx"
     output = tmp_path / "output.xlsx"
     _tekla_workbook(source)
+    handbook = FakeHandbook()
 
-    outcome = run_auto_pipeline(source, output, handbook_repository=FakeHandbook())
+    outcome = run_auto_pipeline(source, output, handbook_repository=handbook)
     rows = _organized(output)
     by_part: dict[str, list[dict[str, object]]] = {}
     for row in rows:
@@ -341,6 +344,14 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
     assert by_part["p-bare"][0]["比重"] == 7.85
     assert by_part["p-bare"][0]["规格"] == 9
     assert by_part["p-bare"][0]["宽度"] == 91
+    assert by_part["p-pip"][0]["比重"] == pytest.approx(2870.424)
+    assert by_part["p-pip"][0]["规格"] == 2000
+    assert by_part["p-pip"][0]["宽度"] == 60
+    assert by_part["p-pip"][0]["理单重(kg)"] == pytest.approx(2870.424)
+    assert by_part["p-pd"][0]["比重"] == pytest.approx(16.778664)
+    assert by_part["p-pd"][0]["规格"] == pytest.approx(114.3)
+    assert by_part["p-pd"][0]["宽度"] == pytest.approx(6.3)
+    assert by_part["p-pd"][0]["理单重(kg)"] == pytest.approx(16.779)
     assert [row["导入零件号"] for row in by_part["p-box"]] == [
         "p-box-BOX腹", "p-box-BOX翼",
     ]
@@ -356,11 +367,31 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
     assert by_part["p-tt"][0]["比重"] is None
     assert by_part["p-miss"][0]["比重"] == "查无"
     assert outcome.warning_count > 0
+    assert not any(
+        request[0] == "steel_pipe"
+        or request[1] in {"PIP2000*60", "PD114.3*6.3"}
+        for request in handbook.requests
+    )
 
-    workbook = load_workbook(output, data_only=True, read_only=True)
+    workbook = load_workbook(output, data_only=False, read_only=True)
     try:
+        organized_sheet = workbook["整理表"]
+        headers = [cell.value for cell in organized_sheet[1]]
+        rows_by_part = {
+            row[headers.index("零件号")]: row
+            for row in organized_sheet.iter_rows(min_row=2, values_only=True)
+        }
+        for part_no in ("p-pip", "p-pd"):
+            density_formula = rows_by_part[part_no][headers.index("比重")]
+            assert isinstance(density_formula, str)
+            assert density_formula.startswith("=")
+            assert "*0.02466" in density_formula
         report_rows = list(workbook["处理报告"].iter_rows(min_row=2, values_only=True))
         assert any(row[1] == "五金手册查无" and row[4] == "p-miss" for row in report_rows)
+        assert not any(
+            row[1] == "五金手册查无" and row[4] in {"p-pip", "p-pd"}
+            for row in report_rows
+        )
         assert not any(row[1] == "五金手册查无" and row[4] in {"p-nut", "p-tt"} for row in report_rows)
         part_headers = [cell.value for cell in workbook["part"][1]]
         file_index = part_headers.index("文件")
@@ -371,6 +402,46 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
         assert all(value is None for value in file_cells)
     finally:
         workbook.close()
+
+
+def test_nonphysical_circular_hollow_dimensions_are_reported_without_crashing(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "invalid-pipe.xlsx"
+    output = tmp_path / "invalid-pipe-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append([
+        "批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+    ])
+    sheet.append(["B1", "C1", None, "BOX100*100*10*10", 1000, "Q355B", 1])
+    sheet.append([None, None, "bad-pipe", "PD60*30", 1000, "Q355B", 1])
+    sheet.append(["B1", "C1", "构件小计", None, None, None, 1])
+    workbook.save(source)
+    workbook.close()
+    handbook = FakeHandbook()
+
+    outcome = run_auto_pipeline(source, output, handbook_repository=handbook)
+
+    assert output.is_file()
+    rows = _organized(output)
+    pipe = next(row for row in rows if row["零件号"] == "bad-pipe")
+    assert pipe["比重"] is None
+    assert pipe["理单重(kg)"] is None
+    assert outcome.warning_count >= 1
+    assert not handbook.requests
+    report = load_workbook(output, data_only=True, read_only=True)
+    try:
+        report_rows = list(report["处理报告"].iter_rows(min_row=2, values_only=True))
+        assert any(
+            row[1] == "圆管规格无效"
+            and row[4] == "bad-pipe"
+            and "D>2t" in str(row[6])
+            for row in report_rows
+        )
+    finally:
+        report.close()
 
 
 def test_handbook_conflict_is_not_downgraded_to_not_found_or_plate_fallback(

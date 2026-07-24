@@ -21,6 +21,10 @@ from domain import ComponentSourceRow, PipelineOutcome, SourcePart
 from ooxml_formula import FormulaCache, patch_formula_caches
 from part_builder import PartRow
 from quality import IssueLevel, QualityIssue, QualityLedger
+from weights import (
+    CIRCULAR_HOLLOW_DENSITY_SOURCE,
+    CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR,
+)
 
 
 log = logging.getLogger(__name__)
@@ -67,8 +71,7 @@ _WIDTH_BOUNDS_BY_HEADER = {
 _WRAPPED_REPORT_HEADERS = ("说明", "建议操作")
 _REMOVED_OUTPUT_COLUMNS = {
     "构件表": ("来源sheet", "行类型", "小计来源行"),
-    "整理表": ("类型", "比重来源", "净材利用率", "重量核验"),
-    "part": ("类型",),
+    "整理表": ("比重来源", "净材利用率", "重量核验"),
 }
 
 _LIGHT_RED_FILL = PatternFill(fill_type="solid", fgColor="F4CCCC")
@@ -235,6 +238,22 @@ def _theory_basis_formula(
     return f"{density}*{length}/1000"
 
 
+def _density_formula(
+    item: Mapping[str, object],
+    *,
+    row_number: int,
+    columns: Mapping[str, str],
+) -> str | None:
+    if item.get("比重来源") != CIRCULAR_HOLLOW_DENSITY_SOURCE:
+        return None
+    outer_diameter = f"{columns['规格']}{row_number}"
+    wall_thickness = f"{columns['宽度']}{row_number}"
+    return (
+        f"=({outer_diameter}-{wall_thickness})"
+        f"*{wall_thickness}*{_formula_number(CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR)}"
+    )
+
+
 def _apply_organized_formulas(
     ws,
     rows: Sequence[Mapping[str, object]],
@@ -264,6 +283,13 @@ def _apply_organized_formulas(
         caches[cell.coordinate] = FormulaCache(formula, cached_value)
 
         formula_specs: list[tuple[str, str, object]] = []
+        density_formula = _density_formula(
+            item,
+            row_number=row_number,
+            columns=columns,
+        )
+        if density_formula is not None:
+            formula_specs.append(("比重", density_formula, item["比重"]))
         component_qty = f"{columns['构件数']}{row_number}"
         quantity = f"{columns['数量']}{row_number}"
         total_count = f"{columns['总数']}{row_number}"
@@ -522,6 +548,32 @@ def _format_canonical_workbook(workbook) -> None:
         for column in columns:
             ws.delete_cols(column)
         ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}1"
+
+    organized = workbook["整理表"]
+    organized_headers = [cell.value for cell in organized[1]]
+    organized_type_column = organized_headers.index("类型") + 1
+    for row in range(2, organized.max_row + 1):
+        cell = organized.cell(row=row, column=organized_type_column)
+        if cell.value not in _COMPONENT_SCOPED_TYPES:
+            cell.value = None
+
+    part = workbook["part"]
+    part_headers = [cell.value for cell in part[1]]
+    type_column = part_headers.index("类型") + 1
+    notes_column = part_headers.index("备注") + 1
+    file_column = part_headers.index("文件") + 1
+    for row in range(1, part.max_row + 1):
+        part_type = part.cell(row=row, column=type_column).value
+        notes = part.cell(row=row, column=notes_column).value
+        file_value = part.cell(row=row, column=file_column).value
+        part.cell(row=row, column=type_column).value = notes
+        part.cell(row=row, column=notes_column).value = file_value
+        part.cell(row=row, column=file_column).value = (
+            "类型"
+            if row == 1
+            else part_type if part_type in _COMPONENT_SCOPED_TYPES else None
+        )
+    part.auto_filter.ref = f"A1:{get_column_letter(part.max_column)}1"
 
     for sheet_name in _AUTO_WIDTH_SHEETS:
         ws = workbook[sheet_name]

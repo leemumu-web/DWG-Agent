@@ -11,6 +11,10 @@ from fabricated_profile import FabricatedProfile
 from quality import IssueLevel, QualityIssue
 
 STEEL_DENSITY = Decimal("7.85")
+CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR = Decimal("0.02466")
+CIRCULAR_HOLLOW_DENSITY_SOURCE = (
+    f"circular_hollow_formula:{CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR}"
+)
 SOURCE_CHAIN_TOLERANCE = Decimal("0.1")
 ABSOLUTE_THEORY_TOLERANCE = Decimal("0.01")
 PASS_RELATIVE_TOLERANCE = Decimal("0.005")
@@ -52,6 +56,25 @@ def plate_unit_weight(
 
 def profile_unit_weight(linear_weight: Decimal, length: Decimal) -> Decimal:
     return linear_weight * length / Decimal("1000")
+
+
+def circular_hollow_linear_weight(
+    outer_diameter: Decimal,
+    wall_thickness: Decimal,
+    factor: Decimal = CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR,
+) -> Decimal:
+    """Return kg/m for a PIP/PD round tube using the established shop formula."""
+    if (
+        not outer_diameter.is_finite()
+        or not wall_thickness.is_finite()
+        or outer_diameter <= 0
+        or wall_thickness <= 0
+        or outer_diameter <= wall_thickness * 2
+    ):
+        raise ValueError(
+            "circular hollow section requires finite D>0, t>0, and D>2t"
+        )
+    return (outer_diameter - wall_thickness) * wall_thickness * factor
 
 
 def fabricated_parent_unit_weight(

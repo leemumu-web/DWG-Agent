@@ -209,7 +209,7 @@ def test_blank_spec_uses_explicit_fastener_part_number_only() -> None:
         ("C20a", "CHANNEL"),
         ("L50*5", "ANGLE"),
         ("方管100*100*5", "SQUARE_TUBE"),
-        ("PIP60*3.5", "STEEL_PIPE"),
+        ("IP60*3.5", "STEEL_PIPE"),
         ("TN100*100*6*8", "T_BEAM"),
         ("LH100*50*2.3*3.2", "HFW_PIPE"),
         ("HFW100*50*2.3*3.2", "HFW_PIPE"),
@@ -226,6 +226,30 @@ def test_other_known_profiles_map_to_exactly_one_handbook_category(
 
     assert result.handbook_category is getattr(parser.HandbookCategory, category)
     assert result.lookup_policy is parser.LookupPolicy.HANDBOOK
+    assert result.split_policy is parser.SplitPolicy.NONE
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_outer_diameter", "expected_wall_thickness"),
+    [
+        ("PIP2000*60", "2000", Decimal("60")),
+        ("PD114.3×6.3", "114.3", Decimal("6.3")),
+    ],
+)
+def test_pip_and_pd_use_circular_hollow_formula_instead_of_handbook(
+    spec: str,
+    expected_outer_diameter: str,
+    expected_wall_thickness: Decimal,
+) -> None:
+    parser = _parser()
+
+    result = parser.classify_normalized_spec(spec, material="Q355B")
+
+    assert result.normalized_type == "圆管"
+    assert result.normalized_spec == expected_outer_diameter
+    assert result.normalized_width == expected_wall_thickness
+    assert result.handbook_category is None
+    assert result.lookup_policy is parser.LookupPolicy.CIRCULAR_HOLLOW_FORMULA
     assert result.split_policy is parser.SplitPolicy.NONE
 
 

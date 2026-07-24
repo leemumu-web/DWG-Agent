@@ -41,6 +41,7 @@ _PART_TYPE_ALIASES = {
     "角钢": ExcelFinalPartType.ANGLE,
     "方管": ExcelFinalPartType.SQUARE_TUBE,
     "钢管": ExcelFinalPartType.STEEL_PIPE,
+    "圆管": ExcelFinalPartType.STEEL_PIPE,
     "方钢": ExcelFinalPartType.SQUARE_BAR,
     "高频焊": ExcelFinalPartType.HFW_PIPE,
     "W型钢": ExcelFinalPartType.W_BEAM,
