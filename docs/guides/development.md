@@ -162,7 +162,7 @@ uv run pytest -q
 cd ../Stages/dwg2dxf && uv run pytest -q
 cd ../dxf2dwg && uv run pytest -q
 cd ../dxf2excel && uv run pytest -q
-cd ../excel_final && uv run pytest -q multi_split/tests
+cd ../excel_final && uv run pytest -q
 
 # MySQL/infrastructure
 cd ../..

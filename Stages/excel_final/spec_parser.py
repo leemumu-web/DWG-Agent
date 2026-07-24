@@ -331,22 +331,6 @@ def classify_normalized_spec(
     )
 
 
-def classify_spec(spec: str, material: str = "") -> str:
-    """Compatibility label for legacy callers while the canonical path migrates."""
-    result = classify_normalized_spec(spec, material=material)
-    if result.split_policy is not SplitPolicy.NONE:
-        return result.split_policy.value
-    if result.normalized_type == "工字钢":
-        return "I"
-    if result.normalized_type in {"板材", "扁钢", "扁钢候选"}:
-        return "PL"
-    if result.normalized_type in {"圆钢", "螺纹钢"}:
-        return "D"
-    if result.normalized_type == "螺栓":
-        return "M20"
-    return "UNKNOWN"
-
-
 def parse_plate_dims(spec: str) -> tuple[float, float] | None:
     """Parse explicit or bare two-number dimensions in their written order."""
     compact = _compact(spec).upper()

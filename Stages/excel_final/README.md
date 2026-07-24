@@ -1,6 +1,6 @@
 # Excel Final
 
-Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。唯一生产入口自动选择标准工作簿、初始表工作簿、制表符 Tekla 文本或固定宽度 Tekla 文本 Adapter，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
+Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。本目录是仓库内唯一、最终的 Excel 整理实现；不提供历史 SunFire/VBA 拆分 API 或旧版 CLI。唯一生产入口自动选择标准工作簿、初始表工作簿、制表符 Tekla 文本或固定宽度 Tekla 文本 Adapter，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
 
 面向排版人员的业务算法、计算口径和核验方法见[《排版整理算法说明书》](排版整理算法说明书.md)。
 
@@ -8,7 +8,7 @@ Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计
 
 ```bash
 uv run python main.py /path/to/input.xlsx -o /path/to/output.xlsx
-uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tests
+uv run pytest -q
 ```
 
 `.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的制表符或固定宽度文本表格。固定宽度 Adapter 按中文双宽显示列恢复空字段，不按空白压缩；没有批次列不影响合法清单进入。只有构件汇总而没有零件明细的输入明确拒绝。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。

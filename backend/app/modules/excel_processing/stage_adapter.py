@@ -190,7 +190,7 @@ def excel_final_dependencies_available() -> bool:
 
 
 def handbook_database_available() -> bool:
-    """Probe the handbook database without importing the legacy Stage modules."""
+    """Probe the handbook database without importing Stage algorithm modules."""
     connection = None
     try:
         connection = pymysql.connect(**settings.handbook_database_config)

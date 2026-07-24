@@ -131,7 +131,6 @@ def _owned_markdown_files() -> list[Path]:
             "Stages/dxf2dwg/convert/README.md",
             "Stages/dxf2excel/README.md",
             "Stages/excel_final/PROCESS.md",
-            "Stages/excel_final/multi_split/CLAUDE.md",
         )
     )
     return list(dict.fromkeys(markdown_files))

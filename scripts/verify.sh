@@ -84,7 +84,7 @@ if [ "$MODE" = "full" ]; then
     run_gate "DXF→Excel Stage" bash -c 'cd Stages/dxf2excel && uv run pytest -q' -- "$PROJECT_ROOT"
     run_gate "Steel DXF Classifier Stage" bash -c \
         'cd Stages/steel_dxf_classifier_v1.1.0 && uv run pytest -q' -- "$PROJECT_ROOT"
-    run_optional_gate "Excel Final Stage" bash -c 'cd Stages/excel_final && uv run pytest -q multi_split/tests' -- "$PROJECT_ROOT"
+    run_optional_gate "Excel Final Stage" bash -c 'cd Stages/excel_final && uv run pytest -q' -- "$PROJECT_ROOT"
     run_gate "前端浏览器回归" bash -c 'cd frontend && npx playwright test' -- "$PROJECT_ROOT"
 fi
 

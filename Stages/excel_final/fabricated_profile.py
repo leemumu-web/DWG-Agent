@@ -6,9 +6,6 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from multi_split.profile import FabricatedChildGeometry, split_fabricated_geometry
-
-
 class FabricatedProfileError(ValueError):
     """Raised when a fabricated-profile prefix has invalid geometry."""
 
@@ -43,6 +40,56 @@ def _number_text(value: Decimal) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class FabricatedChildGeometry:
+    part_type: str
+    thickness: Decimal
+    width: Decimal
+    quantity_multiplier: Decimal
+    is_main: bool
+
+
+def _split_geometry(
+    kind: str,
+    height: Decimal,
+    width: Decimal,
+    web_thickness: Decimal,
+    flange_thickness: Decimal,
+) -> tuple[FabricatedChildGeometry, FabricatedChildGeometry]:
+    if kind == "BT":
+        web_width = height - flange_thickness
+        web_multiplier = flange_multiplier = Decimal("1")
+    elif kind == "BOX":
+        web_width = height - Decimal("2") * flange_thickness
+        web_multiplier = flange_multiplier = Decimal("2")
+    elif kind == "BH":
+        web_width = height - Decimal("2") * flange_thickness
+        web_multiplier = Decimal("1")
+        flange_multiplier = Decimal("2")
+    else:
+        raise FabricatedProfileError(f"unsupported fabricated profile: {kind}")
+    if min(height, width, web_thickness, flange_thickness, web_width) <= 0:
+        raise FabricatedProfileError(
+            f"fabricated profile has non-positive geometry: {kind}"
+        )
+    return (
+        FabricatedChildGeometry(
+            part_type=f"{kind}腹",
+            thickness=web_thickness,
+            width=web_width,
+            quantity_multiplier=web_multiplier,
+            is_main=True,
+        ),
+        FabricatedChildGeometry(
+            part_type=f"{kind}翼",
+            thickness=flange_thickness,
+            width=width,
+            quantity_multiplier=flange_multiplier,
+            is_main=False,
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class FabricatedProfile:
     kind: str
     height: Decimal
@@ -55,16 +102,13 @@ class FabricatedProfile:
             raise FabricatedProfileError(
                 f"unsupported fabricated profile: {self.kind}"
             )
-        try:
-            split_fabricated_geometry(
-                self.kind,
-                self.height,
-                self.width,
-                self.web_thickness,
-                self.flange_thickness,
-            )
-        except ValueError as exc:
-            raise FabricatedProfileError(str(exc)) from exc
+        _split_geometry(
+            self.kind,
+            self.height,
+            self.width,
+            self.web_thickness,
+            self.flange_thickness,
+        )
 
     @property
     def normalized_spec(self) -> str:
@@ -79,7 +123,7 @@ class FabricatedProfile:
     def children(
         self,
     ) -> tuple[FabricatedChildGeometry, FabricatedChildGeometry]:
-        return split_fabricated_geometry(
+        return _split_geometry(
             self.kind,
             self.height,
             self.width,

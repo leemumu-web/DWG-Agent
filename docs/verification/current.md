@@ -13,7 +13,7 @@
 | Backend 全量 | **1300 passed，9 skipped** | Excel 结果文件事务、结构化输入错误、手册/公式查询、工作流冻结 Excel 执行和 Job 并发取消回归通过；22 条依赖弃用类 warning，无失败。 |
 | 基础设施 | **122 / 122** | 当前 15 个 Compose service、活动 MySQL 51 张运行表、环境键、Nginx、文件和死代码边界通过。 |
 | 隔离 MySQL 迁移 | **pass** | 临时空 schema 升级至唯一 head `5f8d3b0c2e41`，验证 42 张业务表和管理员种子后自动清理。 |
-| 独立 Stage | **30 + 30 + 17 + 52 + 249 passed** | 统一门禁覆盖 DWG→DXF、DXF→DWG、DXF→Excel、Steel DXF Classifier 和 Excel Final；另从 backend 依赖环境执行 Excel Final 全量为 **508 passed**，包含真实手册 MySQL 用例。 |
+| 独立 Stage | **30 + 30 + 17 + 52 + 237 passed，24 skipped** | 统一门禁覆盖 DWG→DXF、DXF→DWG、DXF→Excel、Steel DXF Classifier 和唯一 Excel Final；另从 backend 生产依赖环境执行 Excel Final 全量为 **261 passed**，包含真实手册 MySQL 用例。 |
 | Playwright 全量 | **120 passed，2 skipped** | 122 个浏览器场景无失败；真实大 XLS 默认关闭，DXF→DWG 暂停在无活动任务时按条件跳过。 |
 | 真实 Excel E2E | **pass** | 首体院预处理原表实际完成上传、预检、Celery 处理、MySQL 登记、签名刷新和下载；Job `1177`、Batch `9`、结果 File `838`，四步均成功。 |
 | 真实结果统计 | **pass** | 527 个零件、46 个构件；总净重 `122013.557 kg`、总毛重 `124831.881 kg`；质量 `ok`，0 警告。 |
@@ -53,7 +53,7 @@
 | E2E 分区 | pass | 9 个 spec 归入 contracts、excel-processing、files、jobs、operations、workflows，support 单独保存环境；Playwright 成功收集 98 个用例 |
 | Playwright 全量 | pass | 最终统一门禁 `93 passed, 5 skipped in 2.4m`；同一最终源码另两轮为 94/4、95/3，跳过数随活动 Job/批次前置条件变化，三轮均无失败 |
 | 分区说明 | pass | backend、tests、infra、scripts、frontend/E2E 自动发现源码 owner，并显式覆盖 Stage、Agent 与 Windows 产品边界，共 134 个维护分区；均有就地业务 README，架构检查拒绝缺失、空泛、未引用真实源码或未声明能力边界的文档 |
-| 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 259 passed`；三个 CAD Stage、Classifier 1.1.0 与 Excel Final `multi_split` 路径/CLI/行为保持 |
+| 独立 Stage 回归 | pass | `30 + 30 + 17 + 52 + 237 passed，24 skipped`；三个 CAD Stage、Classifier 1.1.0 与唯一 Excel Final 流程通过 |
 | 统一 quick 门禁 | pass | Shell、ruff、架构、221 项聚焦后端、文档、前端 production build 共 6 gate 全部通过 |
 | 统一 full 门禁 | pass | `PASS=17 FAIL=0 BLOCKED=0`；包含空 MySQL 迁移、五组 Stage、全量后端、基础设施、Compose、文档、构建和 Playwright |
 | 基础设施分类 | pass | gateway/database/storage/messaging/operations/verification 与 Windows 四边界均有路径测试 |
@@ -167,7 +167,7 @@ cd ..
 cd Stages/dwg2dxf && uv run pytest -q
 cd ../dxf2dwg && uv run pytest -q
 cd ../dxf2excel && uv run pytest -q
-cd ../excel_final && uv run pytest -q multi_split/tests
+cd ../excel_final && uv run pytest -q
 cd ../..
 
 bash scripts/db.sh migration-test
@@ -215,7 +215,7 @@ python tests/run_full_verify.py
 | 十阶段贯通测试 | **pass** | 输入冻结、DXF 分类分流、留白交接、DXF→Excel Job/Result、设计屏障、Excel Final Job/Result、CAM 三段交接与交付归档。 |
 | 失败恢复 | **pass** | 自动阶段失败/单独取消后停留原阶段；同一 executions 请求复用 Job、attempt +1、清除错误并重新投递；显式取消流程仍保持终态。 |
 | Backend 全量 | **959 passed，6 skipped** | API/service/security/state、旧工作流兼容与新增生产工作流回归；15 条既有 dependency/deprecation warning。 |
-| Stage 测试 | **30 + 30 + 17 + 259 passed** | DWG→DXF、DXF→DWG、DXF→Excel 与 Excel Final。 |
+| Stage 测试 | **30 + 30 + 17 passed** | 当时的 DWG→DXF、DXF→DWG 与 DXF→Excel 证据；已退役 Excel 兼容套件不再列入当前门禁。 |
 | Frontend build | **pass** | TypeScript 6 + Vite 8 生产构建；工作流模板、文件绑定、真实执行、留白探测、任务/产物显示。 |
 | Playwright 全量 | **91 passed，2 skipped** | 真实本地 API 的 93 个浏览器场景；文件页用例按需建立独立源文件夹具，消除批量删除后的状态泄漏。 |
 | Infrastructure / Compose | **82/82 pass** | Nginx、worker wrapper、环境键和 Compose 结构；`docker compose config --quiet` 通过。 |
@@ -243,7 +243,7 @@ python tests/run_full_verify.py
 | 门禁 | 结果 | 实际覆盖 |
 |---|---|---|
 | Backend 全量回归 | **924 passed，6 skipped** | 多文件夹原子删除、回滚、权限、活动 Job 取消、批量提交契约与既有 API/service/security/state。 |
-| Stage 测试 | **30 + 30 + 259 passed** | DWG→DXF、DXF→DWG 与 Excel Final `multi_split`。 |
+| Stage 测试 | **30 + 30 passed** | 当时的 DWG→DXF 与 DXF→DWG 证据；已退役 Excel 兼容套件不再列入当前门禁。 |
 | Frontend build | pass | TypeScript 6 + Vite 8 生产构建。 |
 | Playwright 全量 | **82 passed，3 skipped** | 双向转换提交/重试、可信进度、加载态、多文件夹打包/原子删除/失败保留选择，以及既有真实 API 交互。 |
 | Infrastructure / Compose | **82/82 pass** | Nginx 语法、CAD worker 包装脚本队列/App/PID 就绪契约、环境键与 Compose 结构。 |
@@ -309,7 +309,7 @@ TLS 和 clean-checkout 两行当前是已知失败，不是已完成验收项。
 | Documentation checker | pass | 91 个 OpenAPI path / 110 个 operation、中文文档、端口、28 张模型表和当前 Alembic head |
 | Alembic | pass | 单一 head `9c4e7b1a2d60`；`alembic check` 无待生成 operation；空 MySQL schema 完整升级并验证 28 张业务表/种子数据 |
 | Infrastructure / Compose | **110/110 pass** | 活动 MySQL 37 张运行时表；生产 Compose、workers profile、开发覆盖及 workers profile 均可合并 |
-| Stage tests | **28 + 28 + 259 passed** | dwg2dxf、dxf2dwg、Excel Final multi_split |
+| Stage tests | **28 + 28 passed** | 当时的 dwg2dxf、dxf2dwg 证据；已退役 Excel 兼容套件不再列入当前门禁 |
 | Frontend install/build | pass | `npm ci`、TypeScript 6、Vite 8；DXF 预览与 Excel Final 控制台 production bundle |
 | Playwright 全量 | **72 passed，1 skipped** | 真实本地 API；新增鉴权 DXF Blob、Excel Final 精确总览/工具/详情、失败重试和 DXF→Excel 桥接；未提供外部真实 XLS 样本路径的条件用例按设计跳过 |
 | DXF 性能对照 | pass | 同一约 5 MiB / 21,117 文档实体样本：PR Matplotlib PNG 约 27.28 秒；当前 ezdxf SVG recording 约 1.724 秒，输出约 2.62 MiB |
@@ -334,7 +334,7 @@ MinIO 探针没有重建或替换运行 33 小时的 Compose 容器。它启动�
 | Local + MySQL 事务探针 | pass | Excel file #903 / Job #1080 重放未复制对象；DXF #904 / SVG #905，677 bytes；上传、预览生成、鉴权出库、源删除失效和软删除流水均 succeeded |
 | MinIO + MySQL 事务探针 | pass | 使用 Compose 内部 MinIO endpoint 与 `.env.docker` 对应凭据；Excel file #906 / Job #1081、DXF #907 / SVG #908，677 bytes；同一组入库/出库/失效操作全部 succeeded，探针对象已清理 |
 | Infrastructure / Compose | **110/110 pass** | MySQL、MinIO、Nginx、生产/开发 Compose 和 worker 契约；没有为了探针发布 MinIO 9000/9001 |
-| Stage tests | **28 + 28 + 259 passed** | dwg2dxf、dxf2dwg、Excel Final multi_split |
+| Stage tests | **28 + 28 passed** | 当时的 dwg2dxf、dxf2dwg 证据；已退役 Excel 兼容套件不再列入当前门禁 |
 | Frontend build | pass | TypeScript 6、Vite 8；幂等提交、URL 状态、真实后端健康标签和标题区对比度修复进入 production bundle |
 | Playwright 全量 | **72 passed，1 skipped** | 73 条浏览器场景；Excel Final 数据控制台、历史/刷新恢复、Local/SQLite 健康文案、CORS 幂等头、转换桥接和视觉回归；外部真实 XLS 样本未配置的成功链路按设计跳过 |
 | 浏览器实景复核 | pass | 1440×1000 管理员会话无 console error；后端实际报告 `MySQL 权威数据 · 本地对象存储`，最近刷新、分页、搜索和任务区可见；说明文字计算颜色为 `rgb(185, 206, 216)` |
@@ -409,7 +409,7 @@ uv run python ../scripts/cad/benchmark_conversion.py \
 | Alembic check | 无新 operation | 已知 `drawings`/`drawing_versions` cycle warning 仍存在 |
 | MySQL migration test | pass | 空临时 schema -> `e4a1c7f2b930`；验证 25 张模型表并清理临时库 |
 | Infrastructure verifier | **110/110 pass** | 活动 MySQL 为 34 张表；静态 Compose/Nginx/Dockerfile/env 契约；不含 TLS/build/restore E2E |
-| Stage tests | **28 + 28 + 259 passed** | 分别为 dwg2dxf、dxf2dwg、Excel Final multi_split |
+| Stage tests | **28 + 28 passed** | 当时的 dwg2dxf、dxf2dwg 证据；已退役 Excel 兼容套件不再列入当前门禁 |
 | 工作流框架测试 | **69 passed（包含于后端全量）** | service 状态机、HTTP 认证/访问/校验、生命周期、同步、重新计算 |
 | Frontend build | pass | TypeScript 6 与 Vite 8 production bundle；尚无生产流程/基础设施页面 Playwright 用例 |
 | Playwright | **68 passed** | 通过现有本地 Nginx/API/worker；含有效 Excel 样本、下载重签名、双向文件页和 Jobs UI；不覆盖新增 workflow API/UI |

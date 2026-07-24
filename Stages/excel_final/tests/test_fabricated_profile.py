@@ -62,6 +62,51 @@ def test_box_three_parameter_geometry_is_uniform_wall() -> None:
 
 
 @pytest.mark.parametrize(
+    ("spec", "expected_children"),
+    [
+        (
+            "BH700*300*16*30",
+            (
+                ("BH腹", "16", "640", "1", True),
+                ("BH翼", "30", "300", "2", False),
+            ),
+        ),
+        (
+            "BOX700*700*36*36",
+            (
+                ("BOX腹", "36", "628", "2", True),
+                ("BOX翼", "36", "700", "2", False),
+            ),
+        ),
+        (
+            "BT500*300*16*25",
+            (
+                ("BT腹", "16", "475", "1", True),
+                ("BT翼", "25", "300", "1", False),
+            ),
+        ),
+    ],
+)
+def test_final_geometry_owns_all_supported_split_rules(
+    spec: str,
+    expected_children: tuple[tuple[str, str, str, str, bool], ...],
+) -> None:
+    profile = parse_fabricated_profile(spec)
+
+    assert profile is not None
+    assert tuple(
+        (
+            child.part_type,
+            str(child.thickness),
+            str(child.width),
+            str(child.quantity_multiplier),
+            child.is_main,
+        )
+        for child in profile.children()
+    ) == expected_children
+
+
+@pytest.mark.parametrize(
     "spec",
     [
         "BH500*300*12",

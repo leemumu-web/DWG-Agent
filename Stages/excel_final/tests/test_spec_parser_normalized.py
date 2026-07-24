@@ -253,10 +253,16 @@ def test_pip_and_pd_use_circular_hollow_formula_instead_of_handbook(
     assert result.split_policy is parser.SplitPolicy.NONE
 
 
-def test_legacy_classifier_no_longer_calls_d15_to_d29_studs_or_ha_bh() -> None:
+def test_canonical_classifier_does_not_guess_d_series_material_or_ha_profiles() -> None:
     parser = _parser()
 
     assert not hasattr(parser, "D8_DENSITY")
-    assert parser.classify_spec("D24") == "UNKNOWN"
-    assert parser.classify_spec("HA700*300*16*30") == "UNKNOWN"
-    assert parser.classify_spec("I20a") == "I"
+    d_series = parser.classify_normalized_spec("D24")
+    ha_profile = parser.classify_normalized_spec("HA700*300*16*30")
+    i_profile = parser.classify_normalized_spec("I20a")
+    assert d_series.normalized_type == "未分类"
+    assert d_series.reason == "D系列材质不足"
+    assert ha_profile.normalized_type == "未分类"
+    assert ha_profile.reason == "HA不在支持范围"
+    assert i_profile.normalized_type == "工字钢"
+    assert i_profile.handbook_category is parser.HandbookCategory.I_BEAM
