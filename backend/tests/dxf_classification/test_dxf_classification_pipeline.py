@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.dxf_classification import execution as dxf_classification_service
+from app.modules.dxf_classification import interface as classification_interface
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.dxf_classification.persistence import classification_request_id
 from app.modules.files.interface import StoredFile, get_storage_backend
@@ -242,6 +243,44 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     }
     assert classified_files == {output.id}
 
+    payload = classification_interface.build_classification_run_read(db, run)
+    assert [(group.group_key, group.label, group.count) for group in payload.groups] == [
+        ("type:PX", "PX", 1)
+    ]
+    assert payload.groups[0].type_source == "catalog"
+    assert payload.groups[0].warning_count == 0
+    assert payload.groups[0].total_size_bytes == output.size_bytes
+
+    detail = classification_interface.build_classification_group_page(
+        db,
+        run,
+        group_key="type:PX",
+        page=1,
+        page_size=20,
+    )
+    assert detail.total == 1
+    assert detail.items[0].output_name == "A001_拆板前.dxf"
+    assert detail.items[0].profile_normalized == "PX300*150*8"
+    assert detail.items[0].type_source == "catalog"
+    assert detail.items[0].size_bytes == output.size_bytes
+    assert not {
+        "id",
+        "file_id",
+        "output_file_id",
+        "bucket",
+        "storage_key",
+    } & detail.items[0].model_dump().keys()
+
+    next_stage = classification_interface.list_next_stage_inputs(db, workflow_id)
+    assert len(next_stage) == 1
+    assert next_stage[0].drawing_id == item.drawing_id
+    assert next_stage[0].part_type == "PX"
+    assert next_stage[0].profile_normalized == "PX300*150*8"
+    assert next_stage[0].type_source == "catalog"
+    assert next_stage[0].source_file_id == source_file_id
+    assert next_stage[0].output_file_id == output.id
+    assert next_stage[0].classifier_version == "1.2.0"
+
 
 def test_classifier_naming_contract_uses_project_code_and_workflow_id():
     assert dxf_classification_service.classifier_project_name("PRJ_01", 42) == "PRJ_01-workflow-42"
@@ -271,6 +310,16 @@ def test_classification_transfer_request_id_is_bounded_stable_and_path_sensitive
         attempt=1,
         relative_path=f"{long_path}.other",
     )
+
+
+def test_classification_openapi_exposes_paginated_group_details():
+    path = (
+        "/api/v1/workflows/{workflow_id}/dxf-classification/"
+        "groups/{group_key}"
+    )
+
+    assert path in app.openapi()["paths"]
+    assert "get" in app.openapi()["paths"][path]
 
 
 def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatch):

@@ -22,6 +22,7 @@ from app.modules.dxf_classification.models import (
     DxfClassificationItem,
     DxfClassificationRun,
 )
+from app.modules.dxf_classification.schemas import DxfNextStageInput
 from app.modules.files.interface import (
     StoredFile,
     complete_transfer_in_transaction,
@@ -318,3 +319,33 @@ def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificatio
             DxfClassificationRun.id.desc(),
         )
     )
+
+
+def list_next_stage_inputs(
+    db: Session,
+    workflow_id: int,
+) -> list[DxfNextStageInput]:
+    run = latest_classification_run(db, workflow_id)
+    if run is None:
+        return []
+    inputs: list[DxfNextStageInput] = []
+    for item in run.items:
+        if not item.next_stage_eligible:
+            continue
+        if item.part_type is None or item.type_source is None:
+            raise ClassificationError("下一阶段分类记录缺少类型语义。")
+        output_file = db.get(StoredFile, item.output_file_id)
+        if output_file is None or output_file.status == "deleted":
+            raise ClassificationError("下一阶段分类输出文件不可用。")
+        inputs.append(
+            DxfNextStageInput(
+                drawing_id=item.drawing_id,
+                part_type=item.part_type,
+                profile_normalized=item.profile_normalized,
+                type_source=item.type_source,
+                source_file_id=item.source_file_id,
+                output_file_id=item.output_file_id,
+                classifier_version=run.classifier_version,
+            )
+        )
+    return inputs

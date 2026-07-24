@@ -21,6 +21,45 @@ class DxfClassificationItemRead(BaseModel):
     diagnostics: list[str]
 
 
+class DxfClassificationGroupRead(BaseModel):
+    group_key: str
+    label: str
+    part_type: str | None
+    type_source: str | None
+    disposition: str
+    count: int
+    warning_count: int
+    total_size_bytes: int
+
+
+class DxfClassificationGroupItemRead(BaseModel):
+    output_name: str
+    part_type: str | None
+    profile_raw: str | None
+    profile_normalized: str | None
+    type_source: str | None
+    disposition: str
+    diagnostics: list[str]
+    size_bytes: int
+
+
+class DxfClassificationGroupPage(BaseModel):
+    items: list[DxfClassificationGroupItemRead]
+    total: int
+    page: int
+    page_size: int
+
+
+class DxfNextStageInput(BaseModel):
+    drawing_id: int | None
+    part_type: str
+    profile_normalized: str | None
+    type_source: str
+    source_file_id: int
+    output_file_id: int
+    classifier_version: str
+
+
 class DxfClassificationRunRead(BaseModel):
     id: int
     workflow_run_id: int
@@ -35,6 +74,7 @@ class DxfClassificationRunRead(BaseModel):
     review_required_count: int
     unreadable_count: int
     type_counts: dict[str, int]
+    groups: list[DxfClassificationGroupRead]
     report_file: FileRead | None
     manifest_file: FileRead | None
     job: JobRead

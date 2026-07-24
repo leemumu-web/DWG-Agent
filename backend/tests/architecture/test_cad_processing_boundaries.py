@@ -45,12 +45,18 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "REPORT_SCHEMA",
     "DxfClassificationItem",
     "DxfClassificationItemRead",
+    "DxfClassificationGroupItemRead",
+    "DxfClassificationGroupPage",
+    "DxfClassificationGroupRead",
+    "DxfNextStageInput",
     "DxfClassificationRun",
     "DxfClassificationRunRead",
+    "build_classification_group_page",
     "build_classification_run_read",
     "classifier_project_name",
     "enqueue_dxf_classification_job",
     "latest_classification_run",
+    "list_next_stage_inputs",
     "run_dxf_classification",
 }
 
