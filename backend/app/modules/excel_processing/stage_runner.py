@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
+_ERROR_PREFIX = "DWG_EXCEL_FINAL_ERROR="
 _PROTOCOL_VERSION = 1
 _REQUIRED_STAGE_FILES = (
     "main.py",
@@ -47,6 +48,10 @@ def _parse_args() -> argparse.Namespace:
     process_parser.add_argument("--output", required=True, type=Path)
     process_parser.add_argument("--internal-output", required=True, type=Path)
 
+    inspect_parser = subparsers.add_parser("inspect")
+    inspect_parser.add_argument("--stage-root", required=True, type=Path)
+    inspect_parser.add_argument("--input", required=True, type=Path)
+
     lookup_parser = subparsers.add_parser("lookup")
     lookup_parser.add_argument("--stage-root", required=True, type=Path)
     lookup_parser.add_argument("--category", required=True, choices=_LOOKUP_CATEGORIES)
@@ -55,13 +60,17 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _configure_stage(stage_root: Path) -> dict[str, Any]:
+def _configure_stage_imports(stage_root: Path) -> Path:
     root = stage_root.resolve()
     for filename in _REQUIRED_STAGE_FILES:
         if not (root / filename).is_file():
             raise RuntimeError(f"Excel Final Stage file is missing: {root / filename}")
-    sys.path.insert(0, str(root))
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return root
 
+
+def _configure_handbook_database() -> dict[str, Any]:
     import config as stage_config
 
     database_config: dict[str, Any] = {
@@ -79,7 +88,7 @@ def _configure_stage(stage_root: Path) -> dict[str, Any]:
 
 
 def _process(args: argparse.Namespace) -> None:
-    _configure_stage(args.stage_root)
+    _configure_handbook_database()
     from pipeline import run_auto_pipeline
 
     result = run_auto_pipeline(
@@ -107,8 +116,27 @@ def _process(args: argparse.Namespace) -> None:
     )
 
 
+def _inspect(args: argparse.Namespace) -> None:
+    from input_errors import INPUT_CONTRACT_VERSION
+    from source_intake import read_production_source
+
+    result = read_production_source(args.input.resolve())
+    _emit_result(
+        {
+            "protocol_version": _PROTOCOL_VERSION,
+            "operation": "inspect",
+            "input_contract_version": INPUT_CONTRACT_VERSION,
+            "source_format": result.source_format.value,
+            "sheet_name": result.sheet_name,
+            "header_row": int(result.diagnostics["header_row"]),
+            "part_count": len(result.parts),
+            "component_count": len(result.component_rows),
+        }
+    )
+
+
 def _lookup(args: argparse.Namespace) -> None:
-    database_config = _configure_stage(args.stage_root)
+    database_config = _configure_handbook_database()
     from handbook import SteelHandbookDB
 
     handbook = SteelHandbookDB(database_config)
@@ -141,12 +169,36 @@ def _emit_result(payload: dict[str, object]) -> None:
     )
 
 
+def _emit_error(operation: str, failure: dict[str, object]) -> None:
+    print(
+        _ERROR_PREFIX
+        + json.dumps(
+            {
+                "protocol_version": _PROTOCOL_VERSION,
+                "operation": operation,
+                "failure": failure,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    )
+
+
 def main() -> None:
     args = _parse_args()
-    if args.command == "process":
-        _process(args)
-    else:
-        _lookup(args)
+    _configure_stage_imports(args.stage_root)
+    from input_errors import InputContractError
+
+    try:
+        if args.command == "process":
+            _process(args)
+        elif args.command == "inspect":
+            _inspect(args)
+        else:
+            _lookup(args)
+    except InputContractError as exc:
+        _emit_error(args.command, exc.failure.as_dict())
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

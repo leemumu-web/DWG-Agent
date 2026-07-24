@@ -17,9 +17,13 @@ EXCEL_TABLES = {
 EXCEL_PUBLIC_CONTRACT = {
     "ExcelFinalBatch",
     "ExcelFinalComponent",
+    "ExcelFinalInputError",
+    "ExcelInputFailure",
+    "ExcelStage1Inspection",
     "ExcelFinalPart",
     "cleanup_excel_processing_rows",
     "enqueue_excel_final_job",
+    "inspect_excel_stage1_bytes",
     "run_excel_final_processing",
 }
 

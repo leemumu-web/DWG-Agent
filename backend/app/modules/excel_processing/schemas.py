@@ -2,8 +2,52 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelInputIssue:
+    sheet: str | None
+    row: int | None
+    column: str | None
+    field: str | None
+    value: str | None
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelInputFailure:
+    code: str
+    message: str
+    action: str
+    contract_version: int
+    issues: tuple[ExcelInputIssue, ...]
+    sheets: tuple[str, ...]
+    meta: dict[str, Any]
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "action": self.action,
+            "contract_version": self.contract_version,
+            "issues": [asdict(issue) for issue in self.issues],
+            "sheets": list(self.sheets),
+            "meta": dict(self.meta),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelStage1Inspection:
+    protocol_version: int
+    input_contract_version: int
+    source_format: str
+    sheet_name: str | None
+    header_row: int
+    part_count: int
+    component_count: int
 
 
 class ExcelFinalPartType(StrEnum):
@@ -99,6 +143,9 @@ __all__ = [
     "BatchImportStats",
     "ComponentsImportStats",
     "ExcelFinalPartType",
+    "ExcelInputFailure",
+    "ExcelInputIssue",
+    "ExcelStage1Inspection",
     "HandbookCategory",
     "PartsImportStats",
     "QualityExpectation",
