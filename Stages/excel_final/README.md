@@ -11,7 +11,7 @@ uv run python main.py /path/to/input.xlsx -o /path/to/output.xlsx
 uv run pytest -q -m "not handbook_mysql and not live_data" tests multi_split/tests
 ```
 
-`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `tools/preprocess_ground_truth.py` 分离原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的制表符或固定宽度文本表格。固定宽度 Adapter 按中文双宽显示列恢复空字段，不按空白压缩；没有批次列不影响合法清单进入。只有构件汇总而没有零件明细的输入明确拒绝。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
+`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `preprocess.py` 分离首个已审查原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的制表符或固定宽度文本表格。固定宽度 Adapter 按中文双宽显示列恢复空字段，不按空白压缩；没有批次列不影响合法清单进入。只有构件汇总而没有零件明细的输入明确拒绝。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
 
 五金手册配置不写在 Stage 中。平台通过隔离子进程注入只读 MySQL 配置；连接、schema 或查询故障均为致命错误。
 

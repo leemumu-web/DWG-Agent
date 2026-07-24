@@ -36,6 +36,7 @@ class HeaderDetection:
     row_number: int
     columns: Mapping[str, int]
     candidate_scores: tuple[HeaderCandidateScore, ...]
+    repeated_rows: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +156,40 @@ def _duplicate_fields(conflicts: tuple[str, ...]) -> dict[str, list[int]]:
     return duplicates
 
 
+def _section_has_payload(
+    worksheet: Any,
+    *,
+    header_row: int,
+    next_header_row: int,
+    columns: Mapping[str, int],
+) -> bool:
+    identity_columns = tuple(
+        columns[field]
+        for field in ("构件编号", "零件号")
+        if field in columns
+    )
+    return any(
+        any(
+            column <= len(values) and values[column - 1] not in (None, "")
+            for column in identity_columns
+        )
+        for values in worksheet.iter_rows(
+            min_row=header_row + 1,
+            max_row=next_header_row - 1,
+            values_only=True,
+        )
+    )
+
+
+def is_repeated_canonical_header(
+    values: tuple[Any, ...],
+    columns: Mapping[str, int],
+) -> bool:
+    """Return whether a later row repeats the selected canonical column layout."""
+    repeated_columns, conflicts = _columns_for_header_row(values)
+    return not conflicts and repeated_columns == dict(columns)
+
+
 def detect_canonical_header(worksheet: Any) -> HeaderDetection:
     """Locate the strongest canonical header without assuming a fixed row."""
     candidates: list[tuple[HeaderCandidateScore, dict[str, int]]] = []
@@ -263,24 +298,47 @@ def detect_canonical_header(worksheet: Any) -> HeaderDetection:
     winners = [(candidate, columns) for candidate, columns in valid if candidate.score == best_score]
     if len(winners) != 1:
         rows = [candidate.row_number for candidate, _ in winners]
-        failure = input_failure(
-            "EXCEL_INPUT_HEADER_AMBIGUOUS",
-            "表格中检测到多个同等有效的标题行。",
-            "请只保留一行正式列标题，并删除重复标题行。",
-            issues=tuple(
-                ExcelInputIssue.create(row=row, reason="ambiguous_header")
-                for row in rows
-            ),
-            meta={"candidate_rows": rows},
+        layouts = {
+            tuple(sorted(columns.items()))
+            for _, columns in winners
+        }
+        repeated_sections = len(layouts) == 1 and all(
+            _section_has_payload(
+                worksheet,
+                header_row=candidate.row_number,
+                next_header_row=(
+                    winners[index + 1][0].row_number
+                    if index + 1 < len(winners)
+                    else worksheet.max_row + 1
+                ),
+                columns=columns,
+            )
+            for index, (candidate, columns) in enumerate(winners)
         )
-        raise InputContractError(
-            failure,
-            diagnostic=f"ambiguous canonical header at rows {rows}; {diagnostics}",
-        )
+        if not repeated_sections:
+            failure = input_failure(
+                "EXCEL_INPUT_HEADER_AMBIGUOUS",
+                "表格中检测到多个同等有效的标题行。",
+                "请只保留一行正式列标题，并删除重复标题行。",
+                issues=tuple(
+                    ExcelInputIssue.create(row=row, reason="ambiguous_header")
+                    for row in rows
+                ),
+                meta={"candidate_rows": rows},
+            )
+            raise InputContractError(
+                failure,
+                diagnostic=f"ambiguous canonical header at rows {rows}; {diagnostics}",
+            )
 
     winner, columns = winners[0]
     scores = tuple(candidate for candidate, _ in candidates)
-    return HeaderDetection(winner.row_number, MappingProxyType(columns), scores)
+    return HeaderDetection(
+        winner.row_number,
+        MappingProxyType(columns),
+        scores,
+        tuple(candidate.row_number for candidate, _ in winners[1:]),
+    )
 
 
 def inspect_production_input(path: Path) -> ProductionInput:

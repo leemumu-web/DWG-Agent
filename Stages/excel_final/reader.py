@@ -26,6 +26,7 @@ from input_contract import (
     InputKind,
     detect_canonical_header,
     inspect_production_input,
+    is_repeated_canonical_header,
 )
 from input_errors import ExcelInputIssue, input_failure
 from quality import IssueLevel, QualityIssue
@@ -365,6 +366,8 @@ def _canonicalize_values(
     current: ComponentSourceRow | None = None
 
     for source_row, row in enumerate(working_values[header.row_number:], start=header.row_number + 1):
+        if is_repeated_canonical_header(row, columns):
+            continue
         batch = _text(_row_value(row, columns, "批次"))
         component_no = _text(_row_value(row, columns, "构件编号"))
         part_no = _text(_row_value(row, columns, "零件号"))

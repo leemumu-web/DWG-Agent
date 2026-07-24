@@ -70,6 +70,41 @@ def test_source_intake_detects_standard_workbook(tmp_path: Path) -> None:
     assert result.component_rows[0].component_qty == Decimal("2")
 
 
+def test_standard_workbook_accepts_identical_headers_between_component_blocks(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "repeated-section-headers.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    header = [
+        "构件号",
+        "零件号",
+        "截面型材",
+        "长度(mm)",
+        "材质",
+        "数量",
+        "单重(kg)",
+        "总重(kg)",
+    ]
+    sheet.append(header)
+    sheet.append(["C1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P1", "PL10*200", 100, "Q355B", 2, 1.57, 3.14])
+    sheet.append(header)
+    sheet.append(["C2", None, "BOX500*300*12*20", 1200, "Q355B", 1])
+    sheet.append([None, "P2", "PL12*200", 120, "Q355B", 3, 2.26, 6.78])
+    workbook.save(source)
+    workbook.close()
+
+    result = read_production_source(source)
+
+    assert result.source_format is SourceFormat.STANDARD_WORKBOOK
+    assert [part.part_no for part in result.parts] == ["P1", "P2"]
+    assert [part.component_no for part in result.parts] == ["C1", "C2"]
+    assert [row.component_no for row in result.component_rows] == ["C1", "C2"]
+    assert result.diagnostics["header_row"] == 1
+
+
 def test_source_intake_detects_initial_workbook(tmp_path: Path) -> None:
     source = _initial_workbook(tmp_path / "initial.xlsx")
 
