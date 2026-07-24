@@ -49,11 +49,31 @@ EXPECTED_ROUTES = [
     (("POST",), "/{workflow_id}/artifacts", "create_workflow_artifact"),
     (("GET",), "/{workflow_id}/download-archive", "download_workflow_archive"),
     (
+        ("GET",),
+        "/{workflow_id}/stages/{stage_code}/download-archive",
+        "download_workflow_stage_archive",
+    ),
+    (
         ("POST",),
         "/{workflow_id}/stages/{stage_code}/executions",
         "execute_workflow_stage",
     ),
     (("GET",), "/{workflow_id}/dxf-classification", "get_dxf_classification"),
+    (
+        ("GET",),
+        "/{workflow_id}/dxf-classification/groups/{group_key}",
+        "get_dxf_classification_group",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/dxf-classification/groups/{group_key}/download-archive",
+        "download_dxf_classification_group_archive",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/dxf-classification/download-archive",
+        "download_all_dxf_classification_archive",
+    ),
     (("GET",), "/{workflow_id}", "get_workflow"),
     (("POST",), "/{workflow_id}/start", "start_workflow_api"),
     (

@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "c7b2d4e9f601"
+    "d6f3a8c2e710"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -161,6 +161,9 @@
     "GET /api/v1/workflows/{workflow_id} get_workflow_api_v1_workflows__workflow_id__get",
     "GET /api/v1/workflows/{workflow_id}/download-archive download_workflow_archive_api_v1_workflows__workflow_id__download_archive_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification get_dxf_classification_api_v1_workflows__workflow_id__dxf_classification_get",
+    "GET /api/v1/workflows/{workflow_id}/dxf-classification/download-archive download_all_dxf_classification_archive_api_v1_workflows__workflow_id__dxf_classification_download_archive_get",
+    "GET /api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key} get_dxf_classification_group_api_v1_workflows__workflow_id__dxf_classification_groups__group_key__get",
+    "GET /api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}/download-archive download_dxf_classification_group_archive_api_v1_workflows__workflow_id__dxf_classification_groups__group_key__download_archive_get",
     "GET /api/v1/workflows/{workflow_id}/input-batch get_batch_api_api_v1_workflows__workflow_id__input_batch_get",
     "GET /api/v1/workflows/{workflow_id}/stages/{stage_code}/download-archive download_workflow_stage_archive_api_v1_workflows__workflow_id__stages__stage_code__download_archive_get",
     "GET /health root_health_health_get",
@@ -379,6 +382,9 @@
     "/api/v1/workflows/{workflow_id}/cancellation-requests",
     "/api/v1/workflows/{workflow_id}/download-archive",
     "/api/v1/workflows/{workflow_id}/dxf-classification",
+    "/api/v1/workflows/{workflow_id}/dxf-classification/download-archive",
+    "/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}",
+    "/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}/download-archive",
     "/api/v1/workflows/{workflow_id}/input-batch",
     "/api/v1/workflows/{workflow_id}/input-batch/conversion-requests",
     "/api/v1/workflows/{workflow_id}/input-batch/freeze",
