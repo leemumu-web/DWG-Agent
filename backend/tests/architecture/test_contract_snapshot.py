@@ -31,7 +31,7 @@ def test_contract_snapshot_locks_every_public_surface() -> None:
     assert "app.workers.tasks_agent.* -> agent" in snapshot["celery_task_routes"]
     assert "app.workers.tasks_cad.* -> cad" in snapshot["celery_task_routes"]
     assert "app.workers.tasks_dispatch.* -> dispatch" in snapshot["celery_task_routes"]
-    assert snapshot["alembic_heads"] == ["7c4d9e2a1b60"]
+    assert snapshot["alembic_heads"] == ["4e7c2a9b1d30"]
     assert "/workflows" in snapshot["frontend_routes"]
     assert "/files/dwg2dxf" in snapshot["frontend_routes"]
     assert "backend-api" in snapshot["compose_services"]

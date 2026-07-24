@@ -2,8 +2,8 @@
 
 ## 现有实现
 
-`registration.py` 登记/补交多个 DWG 与单 Excel 并生成规范名；`conversion.py` 创建/同步 DWG→DXF Job；`freeze.py` 校验格式、重复、缺失、同名冲突后冻结 manifest/drawing unit；`presentation.py` 投影配对、错误和操作员状态。
+`registration.py` 登记/补交多个 DWG 与单 Excel 并生成规范名。Excel 只通过 Excel Final 阶段一的版本化规则检查；成功时保存检查摘要、规则版本和对象 SHA-256，失败时仍保存输入项及完整人工处理提示，再由 HTTP 返回 422。`conversion.py` 创建/同步 DWG→DXF Job；`freeze.py` 按登记时 SHA-256 复检 Excel，并在创建任何 Drawing 前校验格式、重复、缺失和同名冲突；`presentation.py` 投影配对、表格错误和操作员下一步动作。
 
 ## 输入、输出与边界
 
-输入是 workflow、已登记 file ID、files/jobs/CAD 公共接口，输出是服务器派生 DXF、逐图配对诊断与不可变输入清单。人工 DXF 始终拒绝，冻结后源文件删除受保护。
+输入是 workflow、已登记 file ID、files/jobs/CAD/Excel 公共接口，输出是服务器派生 DXF、逐图配对诊断、Excel 检查账本与不可变输入清单。人工 DXF 始终拒绝，冻结后源文件删除受保护；旧批次若没有 Excel 检查快照，必须移除并重新登记，不能静默冻结。

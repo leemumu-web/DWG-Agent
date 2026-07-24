@@ -191,12 +191,16 @@ def sync_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBat
                     "Multiple DWG inputs normalize to the same drawing name.",
                 )
 
-    excel_count = sum(item.role == "source_excel" for item in batch.items)
-    if dwg_items and excel_count == 1 and all(item.status == "paired" for item in dwg_items):
+    excel_items = [item for item in batch.items if item.role == "source_excel"]
+    excel_ready = len(excel_items) == 1 and excel_items[0].status in {"uploaded", "frozen"}
+    if dwg_items and excel_ready and all(item.status == "paired" for item in dwg_items):
         batch.status = "ready_to_freeze"
         batch.error_code = None
         batch.error_message = None
-    elif any(item.status == "conversion_failed" for item in dwg_items):
+    elif any(
+        item.status in {"conversion_failed", "failed"}
+        for item in batch.items
+    ):
         batch.status = "needs_attention"
         batch.error_code = "INPUT_BATCH_NEEDS_ATTENTION"
         batch.error_message = "Resolve the file-level input issues before freezing."

@@ -88,11 +88,30 @@ def _stored_object(db, storage: LocalFileStorage, name: str, payload: bytes) -> 
     return stored
 
 
-def _xlsx_bytes() -> bytes:
+def _xlsx_bytes(*, extra_part: bool = False) -> bytes:
     workbook = openpyxl.Workbook()
-    workbook.active["A1"] = "构件编号"
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P-1", "PL10*200", 100, "Q355B", 1])
+    if extra_part:
+        sheet.append([None, "P-2", "PL8*100", 200, "Q355B", 2])
     output = BytesIO()
     workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+def _invalid_xlsx_bytes() -> bytes:
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "构件汇总"
+    sheet.append(["构件编号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", "BH500*300*12*20", 1000, "Q355B", 1])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
     return output.getvalue()
 
 
@@ -165,16 +184,54 @@ def test_registers_multiple_real_dwgs_and_one_readable_excel(db, tmp_path, monke
     second = _stored_object(db, storage, "A.dwg", b"AC1018" + bytes(2048))
     excel = _stored_object(db, storage, "parts.xlsx", _xlsx_bytes())
 
-    first_item = workflow_input_registration.register_input_file(db, batch, first)
-    second_item = workflow_input_registration.register_input_file(db, batch, second)
-    excel_item = workflow_input_registration.register_input_file(db, batch, excel)
+    first_outcome = workflow_input_registration.register_input_file(db, batch, first)
+    second_outcome = workflow_input_registration.register_input_file(db, batch, second)
+    excel_outcome = workflow_input_registration.register_input_file(db, batch, excel)
     replay = workflow_input_registration.register_input_file(db, batch, first)
 
-    assert first_item.normalized_stem == "b 01"
-    assert second_item.role == "source_dwg"
-    assert excel_item.role == "source_excel"
-    assert replay.id == first_item.id
+    assert first_outcome.item.normalized_stem == "b 01"
+    assert second_outcome.item.role == "source_dwg"
+    assert excel_outcome.item.role == "source_excel"
+    assert excel_outcome.failure is None
+    assert excel_outcome.item.validation_contract_version == 1
+    assert excel_outcome.item.validated_sha256 == excel.sha256
+    assert excel_outcome.item.validation_json == {
+        "inspection": {
+            "protocol_version": 1,
+            "input_contract_version": 1,
+            "source_format": "standard_workbook",
+            "sheet_name": "原表",
+            "header_row": 1,
+            "part_count": 1,
+            "component_count": 1,
+        }
+    }
+    assert replay.item.id == first_outcome.item.id
     assert len(batch.items) == 3
+
+
+def test_invalid_excel_registration_returns_persistable_failed_outcome(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    user, _, workflow = _workflow(db)
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
+    invalid = _stored_object(db, storage, "component-only.xlsx", _invalid_xlsx_bytes())
+
+    outcome = workflow_input_registration.register_input_file(db, batch, invalid)
+
+    assert outcome.failure is not None
+    assert outcome.failure["code"] == "EXCEL_INPUT_COMPONENT_ONLY"
+    assert outcome.item.status == "failed"
+    assert outcome.item.error_code == outcome.failure["code"]
+    assert outcome.item.error_message == outcome.failure["message"]
+    assert outcome.item.validation_json == {"failure": outcome.failure}
+    assert outcome.item.validation_contract_version == 1
+    assert outcome.item.validated_sha256 == invalid.sha256
+    assert [item.id for item in batch.items] == [outcome.item.id]
 
 
 def test_rejects_human_dxf_with_stable_error(db, tmp_path, monkeypatch):
@@ -228,10 +285,13 @@ def test_rejects_fake_xlsx_container(db, tmp_path, monkeypatch):
     batch = workflow_input_registration.create_input_batch(db, workflow, created_by=user.id)
     fake = _stored_object(db, storage, "fake.xlsx", b"not an excel container")
 
-    with pytest.raises(AppHTTPException) as error:
-        workflow_input_registration.register_input_file(db, batch, fake)
+    outcome = workflow_input_registration.register_input_file(db, batch, fake)
 
-    assert error.value.detail["code"] == "INPUT_EXCEL_UNREADABLE"
+    assert outcome.failure is not None
+    assert outcome.failure["code"] == "EXCEL_INPUT_UNREADABLE"
+    assert outcome.failure["action"]
+    assert outcome.item.status == "failed"
+    assert outcome.item.validation_json == {"failure": outcome.failure}
 
 
 def _registered_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
@@ -442,6 +502,58 @@ def test_freeze_creates_drawings_manifest_artifacts_and_completes_source_intake(
         "source_excel",
         "derived_dxf",
     }
+
+
+def test_freeze_rejects_excel_changed_after_registration(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    _, _, workflow, batch = _ready_batch(db, tmp_path, monkeypatch, dwg_names=("A.dwg",))
+    excel_item = next(item for item in batch.items if item.role == "source_excel")
+    stored = db.get(StoredFile, excel_item.file_id)
+    assert stored is not None
+    original_sha256 = excel_item.validated_sha256
+    changed_payload = _xlsx_bytes(extra_part=True)
+    storage = LocalFileStorage(tmp_path / "storage")
+    storage.put_fileobj(
+        stored.bucket,
+        stored.storage_key,
+        BytesIO(changed_payload),
+        length=len(changed_payload),
+    )
+    stored.size_bytes = len(changed_payload)
+    stored.sha256 = hashlib.sha256(changed_payload).hexdigest()
+    db.flush()
+
+    with pytest.raises(AppHTTPException) as caught:
+        workflow_input_freeze.freeze_input_batch(db, batch)
+
+    assert caught.value.detail["code"] == "EXCEL_INPUT_OBJECT_CHANGED"
+    assert caught.value.detail["details"]["failure"]["code"] == caught.value.detail["code"]
+    assert excel_item.validated_sha256 == original_sha256
+    assert db.query(Drawing).count() == 0
+
+
+def test_freeze_rejects_legacy_excel_without_validation_snapshot(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    _, _, _, batch = _ready_batch(db, tmp_path, monkeypatch, dwg_names=("A.dwg",))
+    excel_item = next(item for item in batch.items if item.role == "source_excel")
+    excel_item.validation_json = None
+    excel_item.validation_contract_version = None
+    excel_item.validated_sha256 = None
+    db.flush()
+
+    with pytest.raises(AppHTTPException) as caught:
+        workflow_input_freeze.freeze_input_batch(db, batch)
+
+    failure = caught.value.detail["details"]["failure"]
+    assert caught.value.detail["code"] == "EXCEL_INPUT_VALIDATION_REQUIRED"
+    assert failure["action"] == "请从输入批次中移除该 Excel，并重新上传、登记。"
+    assert db.query(Drawing).count() == 0
 
 
 def test_freeze_rejects_duplicate_normalized_dwg_names(db, tmp_path, monkeypatch):

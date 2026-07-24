@@ -18,6 +18,8 @@ EXCEL_PUBLIC_CONTRACT = {
     "ExcelFinalBatch",
     "ExcelFinalComponent",
     "ExcelFinalInputError",
+    "ExcelFinalProcessError",
+    "ExcelFinalUnavailableError",
     "ExcelInputFailure",
     "ExcelStage1Inspection",
     "ExcelFinalPart",

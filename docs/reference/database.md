@@ -610,6 +610,7 @@ analysis_results ──< workflow_artifacts
 | `workflow_runs` | `config_json` | 流程配置快照；当前没有自动执行器消费 |
 | `workflow_stage_runs` | `input_json`, `output_json` | 阶段输入/输出元数据 |
 | `workflow_artifacts` | `metadata_json` | 产物补充信息 |
+| `workflow_input_items` | `validation_json` | Excel 登记时的规则检查摘要，或包含人工处理动作的失败详情 |
 
 **查询 JSON 列:** MySQL 8.x 支持 `JSON_EXTRACT()`, `->` 和 `->>` 操作符。请使用这些操作符而非字符串匹配，以确保查询的可靠性。
 
@@ -642,8 +643,9 @@ analysis_results ──< workflow_artifacts
 | `f3a7c9d2e6b1` | 新增 Excel Final 导入身份、物理核验字段及批次质量摘要 | 2026-07-22 |
 | `2f6b8c1d4e90` | Excel Final 24 个物理数值字段改用 `DECIMAL(24,9)`，消除项目重量累计漂移 | 2026-07-23 |
 | `7c4d9e2a1b60` | 汇合 Excel Final 与余料库迁移分支，不执行 DDL | 2026-07-23 |
+| `4e7c2a9b1d30` | 生产输入项新增 Excel 规则检查快照、规则版本和登记对象 SHA-256 | 2026-07-24 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，再由 `7c4d9e2a1b60` 汇合；**`7c4d9e2a1b60` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；随后 `4e7c2a9b1d30` 增加工作流 Excel 输入验证快照。**`4e7c2a9b1d30` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 

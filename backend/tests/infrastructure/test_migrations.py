@@ -26,6 +26,9 @@ EXCEL_FINAL_DECIMAL_REVISION = (
     VERSIONS_DIR / "2f6b8c1d4e90_use_decimal_for_excel_final_physical_values.py"
 )
 MERGE_REVISION = VERSIONS_DIR / "7c4d9e2a1b60_merge_excel_final_and_remnant_heads.py"
+WORKFLOW_EXCEL_VALIDATION_REVISION = (
+    VERSIONS_DIR / "4e7c2a9b1d30_add_workflow_excel_validation.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -295,6 +298,23 @@ def test_merge_revision_joins_excel_final_and_remnant_heads_without_ddl():
     assert "def upgrade() -> None:\n    pass" in source
     assert "def downgrade() -> None:\n    pass" in source
     assert "op." not in source
+
+
+def test_workflow_excel_validation_migration_extends_head_and_is_reversible():
+    source = WORKFLOW_EXCEL_VALIDATION_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "4e7c2a9b1d30"' in source
+    assert 'down_revision: str | None = "7c4d9e2a1b60"' in source
+    for column in (
+        "validation_json",
+        "validation_contract_version",
+        "validated_sha256",
+    ):
+        assert f'"{column}"' in source
+        assert f'op.drop_column("workflow_input_items", "{column}")' in source
+    assert "sa.JSON()" in source
+    assert "sa.Integer()" in source
+    assert "sa.String(length=64)" in source
 
 
 def test_alembic_autogenerate_excludes_celery_owned_tables():

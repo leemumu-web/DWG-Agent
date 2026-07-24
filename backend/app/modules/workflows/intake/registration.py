@@ -5,16 +5,20 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from dataclasses import dataclass
-from io import BytesIO
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import openpyxl
-import xlrd
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.modules.excel_processing.interface import (
+    ExcelFinalInputError,
+    ExcelFinalProcessError,
+    ExcelFinalUnavailableError,
+    ExcelStage1Inspection,
+    inspect_excel_stage1_bytes,
+)
 from app.modules.files.interface import (
     MIN_DWG_SIZE_BYTES,
     StoredFile,
@@ -44,6 +48,14 @@ class FrozenInputReference:
 
     workflow_id: int
     input_batch_id: int
+
+
+@dataclass(frozen=True)
+class InputRegistrationOutcome:
+    """A durable input row plus an optional operator-facing validation failure."""
+
+    item: WorkflowInputItem
+    failure: dict[str, object] | None = None
 
 
 def classify_human_input_extension(file_ext: str) -> str:
@@ -181,43 +193,50 @@ def validate_dwg_payload(payload: bytes) -> None:
         )
 
 
-def validate_excel_payload(file_ext: str, payload: bytes) -> None:
+def inspect_excel_payload(
+    *,
+    file_name: str,
+    payload: bytes,
+    expected_sha256: str | None = None,
+) -> ExcelStage1Inspection:
+    """Use the Excel domain's canonical contract and map only operational failures."""
     try:
-        if file_ext == ".xlsx":
-            workbook = openpyxl.load_workbook(BytesIO(payload), read_only=True, data_only=True)
-            try:
-                visible_count = sum(
-                    1 for sheet in workbook.worksheets if sheet.sheet_state == "visible"
-                )
-            finally:
-                workbook.close()
-        else:
-            workbook = xlrd.open_workbook(file_contents=payload, on_demand=True)
-            try:
-                visible_count = sum(
-                    1 for sheet in workbook.sheets() if getattr(sheet, "visibility", 0) == 0
-                )
-            finally:
-                workbook.release_resources()
-    except Exception as exc:
-        raise AppHTTPException(
-            415,
-            "INPUT_EXCEL_UNREADABLE",
-            "The Excel file is damaged, encrypted, or does not match its extension.",
-        ) from exc
-    if visible_count < 1:
-        raise AppHTTPException(
-            415,
-            "INPUT_EXCEL_NO_VISIBLE_SHEET",
-            "The Excel file must contain at least one visible worksheet.",
+        return inspect_excel_stage1_bytes(
+            file_name=file_name,
+            payload=payload,
+            expected_sha256=expected_sha256,
         )
+    except ExcelFinalInputError:
+        raise
+    except ExcelFinalUnavailableError as exc:
+        raise AppHTTPException(
+            503,
+            "EXCEL_STAGE1_UNAVAILABLE",
+            "Excel 第一阶段检查服务当前不可用。",
+            {"action": "请稍后重试；如果问题持续，请联系管理员检查服务状态。"},
+        ) from exc
+    except ExcelFinalProcessError as exc:
+        raise AppHTTPException(
+            503,
+            "EXCEL_STAGE1_INTERNAL_ERROR",
+            "Excel 第一阶段检查未能完成。",
+            {"action": "请稍后重试；如果问题持续，请联系管理员并提供请求编号。"},
+        ) from exc
+
+
+def _persisted_failure(item: WorkflowInputItem) -> dict[str, object] | None:
+    validation = item.validation_json
+    if not isinstance(validation, dict):
+        return None
+    failure = validation.get("failure")
+    return failure if isinstance(failure, dict) else None
 
 
 def register_input_file(
     db: Session,
     batch: WorkflowInputBatch,
     stored: StoredFile,
-) -> WorkflowInputItem:
+) -> InputRegistrationOutcome:
     batch = lock_input_batch(db, batch)
     if batch.status == "frozen":
         raise AppHTTPException(
@@ -225,7 +244,10 @@ def register_input_file(
         )
     existing = next((item for item in batch.items if item.file_id == stored.id), None)
     if existing is not None:
-        return existing
+        return InputRegistrationOutcome(
+            item=existing,
+            failure=_persisted_failure(existing),
+        )
     file_ext = stored.file_ext.lower()
     role = classify_human_input_extension(file_ext)
     if role == "source_excel" and any(item.role == "source_excel" for item in batch.items):
@@ -237,19 +259,53 @@ def register_input_file(
     payload = read_verified_input_object(stored)
     if role == "source_dwg":
         validate_dwg_payload(payload)
+        item = WorkflowInputItem(
+            batch=batch,
+            file_id=stored.id,
+            role=role,
+            original_name=stored.original_name,
+            normalized_stem=normalize_input_stem(stored.original_name),
+            status="uploaded",
+        )
+        failure = None
     else:
-        validate_excel_payload(file_ext, payload)
-    item = WorkflowInputItem(
-        batch=batch,
-        file_id=stored.id,
-        role=role,
-        original_name=stored.original_name,
-        normalized_stem=normalize_input_stem(stored.original_name),
-        status="uploaded",
-    )
+        try:
+            inspection = inspect_excel_payload(
+                file_name=stored.original_name,
+                payload=payload,
+                expected_sha256=stored.sha256,
+            )
+        except ExcelFinalInputError as exc:
+            failure = exc.failure.as_dict()
+            item = WorkflowInputItem(
+                batch=batch,
+                file_id=stored.id,
+                role=role,
+                original_name=stored.original_name,
+                normalized_stem=normalize_input_stem(stored.original_name),
+                status="failed",
+                error_code=exc.failure.code,
+                error_message=exc.failure.message,
+                validation_json={"failure": failure},
+                validation_contract_version=exc.failure.contract_version,
+                validated_sha256=stored.sha256,
+            )
+        else:
+            failure = None
+            item = WorkflowInputItem(
+                batch=batch,
+                file_id=stored.id,
+                role=role,
+                original_name=stored.original_name,
+                normalized_stem=normalize_input_stem(stored.original_name),
+                status="uploaded",
+                validation_json={"inspection": asdict(inspection)},
+                validation_contract_version=inspection.input_contract_version,
+                validated_sha256=stored.sha256,
+            )
     db.add(item)
     db.flush()
-    return item
+    return InputRegistrationOutcome(item=item, failure=failure)
 
 
 def get_input_batch(db: Session, workflow_id: int) -> WorkflowInputBatch:

@@ -11,7 +11,11 @@ from app.modules.excel_processing.models import (
     ExcelFinalPart,
 )
 from app.modules.excel_processing.schemas import ExcelInputFailure, ExcelStage1Inspection
-from app.modules.excel_processing.stage_adapter import ExcelFinalInputError
+from app.modules.excel_processing.stage_adapter import (
+    ExcelFinalInputError,
+    ExcelFinalProcessError,
+    ExcelFinalUnavailableError,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -59,6 +63,8 @@ __all__ = [
     "ExcelFinalComponent",
     "ExcelFinalInputError",
     "ExcelFinalPart",
+    "ExcelFinalProcessError",
+    "ExcelFinalUnavailableError",
     "ExcelInputFailure",
     "ExcelStage1Inspection",
     "cleanup_excel_processing_rows",
