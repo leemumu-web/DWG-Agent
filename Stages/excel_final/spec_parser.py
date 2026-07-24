@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
+from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
+from material_routing import d_series_category
+
 
 class HandbookCategory(StrEnum):
     FLAT_STEEL = "flat_steel"
@@ -27,6 +30,7 @@ class HandbookCategory(StrEnum):
 class LookupPolicy(StrEnum):
     HANDBOOK = "handbook"
     PLATE_CONSTANT = "plate_constant"
+    CIRCULAR_HOLLOW_FORMULA = "circular_hollow_formula"
     FLAT_THEN_PLATE = "flat_then_plate"
     SKIP = "skip"
     NOT_FOUND = "not_found"
@@ -59,6 +63,10 @@ _EXPLICIT_FLAT_RE = re.compile(
     re.IGNORECASE,
 )
 _D_BAR_RE = re.compile(rf"^D({_NUMBER})$", re.IGNORECASE)
+_CIRCULAR_HOLLOW_RE = re.compile(
+    rf"^(?:PIP|PD)({_NUMBER})\*({_NUMBER})$",
+    re.IGNORECASE,
+)
 
 
 def _compact(value: object) -> str:
@@ -124,10 +132,19 @@ def classify_normalized_spec(
     *,
     material: object = "",
     width: str | Decimal | float | int | None = None,
+    part_no: object = "",
 ) -> ClassificationResult:
     """Return one deterministic classification decision without querying the handbook."""
     original_spec = str(spec or "")
     compact = _compact(spec)
+    part_key = _compact(part_no)
+    if not compact and (
+        part_key.startswith(
+            ("NUT", "螺母", "SLEEVE", "螺套", "套筒", "TT", "BOLT", "螺栓")
+        )
+        or re.match(r"^M\d", part_key)
+    ):
+        compact = part_key
     upper = compact.upper()
     material_upper = _compact(material).upper()
 
@@ -220,13 +237,34 @@ def classify_normalized_spec(
 
     for prefix, split in (("BOX", SplitPolicy.BOX), ("BH", SplitPolicy.BH), ("BT", SplitPolicy.BT)):
         if upper.startswith(prefix):
+            try:
+                fabricated = parse_fabricated_profile(upper)
+            except FabricatedProfileError as exc:
+                normalized = upper
+                reason = str(exc)
+            else:
+                normalized = fabricated.normalized_spec if fabricated is not None else upper
+                reason = None
             return _result(
                 original_spec,
                 normalized_type=prefix,
-                normalized_spec=upper,
+                normalized_spec=normalized,
                 lookup=LookupPolicy.PLATE_CONSTANT,
                 split=split,
+                reason=reason,
             )
+
+    match = _CIRCULAR_HOLLOW_RE.fullmatch(upper)
+    if match:
+        outer_diameter = _number_text(match.group(1))
+        wall_thickness = _number_text(match.group(2))
+        return _result(
+            original_spec,
+            normalized_type="圆管",
+            normalized_spec=outer_diameter,
+            normalized_width=_number(wall_thickness),
+            lookup=LookupPolicy.CIRCULAR_HOLLOW_FORMULA,
+        )
 
     if upper.startswith("HA"):
         return _result(
@@ -240,14 +278,15 @@ def classify_normalized_spec(
     match = _D_BAR_RE.fullmatch(upper)
     if match:
         diameter = _number_text(match.group(1))
-        if material_upper.startswith("HRB"):
+        material_category = d_series_category(material_upper)
+        if material_category == HandbookCategory.REBAR.value:
             return _handbook_profile(
                 original_spec,
                 diameter,
                 "螺纹钢",
                 HandbookCategory.REBAR,
             )
-        if material_upper.startswith("HPB") or material_upper.startswith("Q355B"):
+        if material_category == HandbookCategory.ROUND_BAR.value:
             return _handbook_profile(
                 original_spec,
                 diameter,
@@ -264,7 +303,9 @@ def classify_normalized_spec(
 
     if re.match(r"^(?:I|HI)\d", upper):
         return _handbook_profile(original_spec, upper, "工字钢", HandbookCategory.I_BEAM)
-    if re.match(r"^(?:HN|HW|HM|HT|LH)\d", upper) or re.match(r"^H\d", upper):
+    if re.match(r"^(?:LH|HFW)\d", upper):
+        return _handbook_profile(original_spec, upper, "高频焊", HandbookCategory.HFW_PIPE)
+    if re.match(r"^(?:HN|HW|HM|HT)\d", upper) or re.match(r"^H\d", upper):
         return _handbook_profile(original_spec, upper, "H型钢", HandbookCategory.H_BEAM)
     if re.match(r"^(?:TN|TW|TM|T)\d", upper):
         return _handbook_profile(original_spec, upper, "T型钢", HandbookCategory.T_BEAM)
@@ -274,12 +315,10 @@ def classify_normalized_spec(
         return _handbook_profile(original_spec, upper, "角钢", HandbookCategory.ANGLE)
     if upper.startswith(("方管", "矩形管", "□")):
         return _handbook_profile(original_spec, upper, "方管", HandbookCategory.SQUARE_TUBE)
-    if re.match(r"^(?:PIP|IP|P|Φ|D)\d+(?:\.\d+)?\*", upper):
+    if re.match(r"^(?:IP|P|Φ|D)\d+(?:\.\d+)?\*", upper):
         return _handbook_profile(original_spec, upper, "钢管", HandbookCategory.STEEL_PIPE)
     if upper.startswith("方钢"):
         return _handbook_profile(original_spec, upper, "方钢", HandbookCategory.SQUARE_BAR)
-    if upper.startswith("HFW"):
-        return _handbook_profile(original_spec, upper, "高频焊", HandbookCategory.HFW_PIPE)
     if re.match(r"^W\d", upper):
         return _handbook_profile(original_spec, upper, "W型钢", HandbookCategory.W_BEAM)
 

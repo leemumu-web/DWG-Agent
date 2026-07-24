@@ -1,6 +1,7 @@
 import './styles.css';
 
 export { WorkflowsPage } from './WorkflowsPage';
+export { WorkflowDetailPage } from './WorkflowDetailPage';
 export * from './workflow-inputs.api';
 export * from './workflows.api';
 export type {

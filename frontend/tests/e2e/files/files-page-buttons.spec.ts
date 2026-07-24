@@ -86,18 +86,39 @@ function findSamples(samplesDir: string, fileExt: string): string[] {
     .map((f) => path.join(dir, f));
 }
 
+function minimalSourceFixture(dir: Direction): {
+  buffer: Buffer;
+  mimeType: string;
+} {
+  if (dir.fileExt === '.dxf') {
+    return {
+      buffer: Buffer.from(
+        '0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1027\n0\nENDSEC\n'
+        + '0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n',
+        'ascii',
+      ),
+      mimeType: 'application/dxf',
+    };
+  }
+  return {
+    buffer: Buffer.concat([Buffer.from('AC1027'), Buffer.alloc(2048)]),
+    mimeType: 'application/acad',
+  };
+}
+
 /** Create a fixture file with a deterministically retryable cancelled/failed job. */
 async function createRetryableFixture(page: Page, dir: Direction): Promise<number> {
   const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
   expect(token).toBeTruthy();
   const name = `retry-fixture-${Date.now()}${dir.fileExt}`;
+  const fixture = minimalSourceFixture(dir);
   const upload = await page.request.post(`${API_BASE}/api/v1/files`, {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
       upload: {
         name,
-        mimeType: 'application/acad',
-        buffer: Buffer.concat([Buffer.from('AC1027'), Buffer.alloc(2048)]),
+        mimeType: fixture.mimeType,
+        buffer: fixture.buffer,
       },
     },
   });
@@ -139,13 +160,14 @@ async function ensureSourceFixture(page: Page, dir: Direction): Promise<boolean>
   const body = await listed.json();
   if ((body.pagination?.total ?? body.data?.length ?? 0) > 0) return false;
 
+  const fixture = minimalSourceFixture(dir);
   const uploaded = await page.request.post(`${API_BASE}/api/v1/files`, {
     headers: { Authorization: `Bearer ${token}` },
     multipart: {
       upload: {
         name: `e2e-source-${Date.now()}${dir.fileExt}`,
-        mimeType: 'application/acad',
-        buffer: Buffer.concat([Buffer.from('AC1027'), Buffer.alloc(2048)]),
+        mimeType: fixture.mimeType,
+        buffer: fixture.buffer,
       },
     },
   });

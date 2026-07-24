@@ -44,15 +44,18 @@ class TestNetworkIsolation:
 # ───────────────────────── backend port unification ─────────────────────────
 class TestBackendPortUnification:
     def test_no_stray_backend_8000_in_shipped_config(self):
-        for path in (
+        shipped_paths = [
             COMPOSE,
             NGINX_DOCKER,
             NGINX_LOCAL,
             REPO_ROOT / "backend/Dockerfile",
             REPO_ROOT / "Makefile",
-            REPO_ROOT / "frontend/.env.production",
             REPO_ROOT / "frontend/.env.example",
-        ):
+        ]
+        local_production_env = REPO_ROOT / "frontend/.env.production"
+        if local_production_env.exists():
+            shipped_paths.append(local_production_env)
+        for path in shipped_paths:
             text = path.read_text(encoding="utf-8")
             assert ":8000" not in text and "8000/tcp" not in text, f"stray backend 8000 in {path}"
 

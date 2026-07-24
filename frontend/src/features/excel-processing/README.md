@@ -2,13 +2,13 @@
 
 ## 现有实现
 
-`ExcelFinalPage.tsx` 组合批次列表、上传、处理工具和详情；`ExcelPreview.tsx` 提供后端快速预览与 LuckyExcel 增强预览；`api.ts` 覆盖 14 个 Excel Final operation，`types.ts` 定义批次、part、component、weight 和 preview 合同；复杂组件与展示模型分别进入 `components/`、`model/`。
+`ExcelFinalPage.tsx` 提供处理、批次、零件、五金手册四个 URL 标签并只加载当前标签查询；`ExcelPreview.tsx` 提供后端快速预览与 LuckyExcel 增强预览；`api.ts` 覆盖 Excel 第一阶段 operation，`types.ts` 定义批次、part、component、类别感知手册结果和 preview 合同；复杂组件与展示模型分别进入 `components/`、`model/`。
 
 `index.ts` 只重导出页面、预览和跨 feature 必需的 API/类型，是本功能的稳定前端 facade；内部组件和展示模型不作为全局工具暴露。
 
 ## 业务流
 
-Excel 先经 files 登记，再创建 Excel Final Job；完成后页面查询关系化批次、零件、构件和重量，支持结果下载与失败重试。输入是有效工作簿和权限，输出是可核对的处理结果界面。
+独立入口把 Excel 经 files 登记后创建第一阶段 Job；生产 workflow 则自动解析冻结输入中的唯一 Excel。页面显示结构化表格错误、关系化批次/零件/构件和类别+规格+材质手册查询，支持结果下载与失败重试。
 
 ## 未完成边界
 

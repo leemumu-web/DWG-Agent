@@ -213,7 +213,12 @@ def save_bytes_as_file(
 ) -> StoredFile:
     storage = storage_factory.get_storage_backend()
     auto_transfer = transfer_uid is None
-    durable_intent = False
+    # An explicit transfer is prepared and committed by the caller before the
+    # generated-file metadata transaction.  MySQL failures therefore need an
+    # independent settlement; SQLite tests keep the intent in this transaction.
+    durable_intent = (
+        transfer_uid is not None and db.get_bind().dialect.name != "sqlite"
+    )
     if auto_transfer:
         request_id = request_id or f"generated:{hashlib.sha256(storage_key.encode()).hexdigest()[:40]}"
         transfer_uid, durable_intent = _prepare_storage_transfer(
@@ -319,7 +324,9 @@ def save_path_as_file(
 
     storage = storage_factory.get_storage_backend()
     auto_transfer = transfer_uid is None
-    durable_intent = False
+    durable_intent = (
+        transfer_uid is not None and db.get_bind().dialect.name != "sqlite"
+    )
     if auto_transfer:
         request_id = request_id or f"generated:{hashlib.sha256(storage_key.encode()).hexdigest()[:40]}"
         transfer_uid, durable_intent = _prepare_storage_transfer(

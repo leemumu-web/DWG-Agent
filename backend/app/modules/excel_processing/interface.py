@@ -10,6 +10,12 @@ from app.modules.excel_processing.models import (
     ExcelFinalComponent,
     ExcelFinalPart,
 )
+from app.modules.excel_processing.schemas import ExcelInputFailure, ExcelStage1Inspection
+from app.modules.excel_processing.stage_adapter import (
+    ExcelFinalInputError,
+    ExcelFinalProcessError,
+    ExcelFinalUnavailableError,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -36,11 +42,33 @@ def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
     return str(process_excel_final_task.delay(job_id, attempt).id)
 
 
+def inspect_excel_stage1_bytes(
+    *,
+    file_name: str,
+    payload: bytes,
+    expected_sha256: str | None = None,
+) -> ExcelStage1Inspection:
+    """Validate storage bytes through the single Stage-owned input contract."""
+    from app.modules.excel_processing.stage_adapter import inspect_excel_stage1_bytes as inspect
+
+    return inspect(
+        file_name=file_name,
+        payload=payload,
+        expected_sha256=expected_sha256,
+    )
+
+
 __all__ = [
     "ExcelFinalBatch",
     "ExcelFinalComponent",
+    "ExcelFinalInputError",
     "ExcelFinalPart",
+    "ExcelFinalProcessError",
+    "ExcelFinalUnavailableError",
+    "ExcelInputFailure",
+    "ExcelStage1Inspection",
     "cleanup_excel_processing_rows",
     "enqueue_excel_final_job",
+    "inspect_excel_stage1_bytes",
     "run_excel_final_processing",
 ]

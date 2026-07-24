@@ -2,37 +2,14 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from decimal import Decimal
 
 from domain import ParentPartEvidence, SplitPart
-from multi_split.profile import split_fabricated_geometry
+from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
 from quality import IssueLevel, QualityIssue
 from spec_parser import ClassificationResult, SplitPolicy
 from weights import plate_unit_weight
-
-_FABRICATED_SPEC = re.compile(
-    r"^(BH|BOX|BT)([0-9]+(?:\.[0-9]+)?)\*([0-9]+(?:\.[0-9]+)?)"
-    r"\*([0-9]+(?:\.[0-9]+)?)\*([0-9]+(?:\.[0-9]+)?)$"
-)
-
-_DISPLAY_FIELDS = (
-    "source_unit_net",
-    "source_total_net",
-    "source_unit_gross",
-    "source_total_gross",
-    "source_unit_area",
-    "source_total_area",
-    "density_value",
-    "density_source",
-    "theoretical_unit_weight",
-    "theoretical_total_weight",
-    "material_utilization",
-    "weight_validation_status",
-    "weight_validation_details",
-)
-
 
 @dataclass(frozen=True, slots=True)
 class CanonicalSplitResult:
@@ -61,6 +38,37 @@ def _geometry_issue(parent: ParentPartEvidence, description: str) -> QualityIssu
     )
 
 
+def _weight_conservation_issue(
+    parent: ParentPartEvidence,
+    child_theory: Decimal,
+) -> QualityIssue:
+    source = parent.source
+    expected = parent.theoretical_unit_weight_unrounded
+    absolute_error = None if expected is None else abs(child_theory - expected)
+    relative_error = (
+        absolute_error / abs(expected)
+        if absolute_error is not None and expected
+        else None
+    )
+    return QualityIssue(
+        level=IssueLevel.SEVERE,
+        category="拆板重量守恒异常",
+        source_sheet=source.source_sheet,
+        source_row=source.source_row,
+        component_no=source.component_no,
+        part_no=source.part_no,
+        spec=source.original_spec,
+        field="理单重",
+        actual_value=child_theory,
+        expected_value=expected,
+        absolute_error=absolute_error,
+        relative_error=relative_error,
+        affects_part=True,
+        density_source=parent.density_source,
+        description="拆板单块理论重乘块数之和不等于父构件理论重",
+    )
+
+
 def split_parent(
     parent: ParentPartEvidence,
     classification: ClassificationResult,
@@ -70,65 +78,58 @@ def split_parent(
         raise ValueError(
             f"{classification.original_spec!r} is not a canonical split candidate"
         )
-    match = _FABRICATED_SPEC.fullmatch(classification.normalized_spec)
-    if match is None or match.group(1) != classification.split_policy.value:
+    try:
+        fabricated = parse_fabricated_profile(classification.normalized_spec)
+    except FabricatedProfileError as exc:
+        issue = _geometry_issue(parent, str(exc))
+        return CanonicalSplitResult((), (issue,))
+    if (
+        fabricated is None
+        or fabricated.kind != classification.split_policy.value
+    ):
         issue = _geometry_issue(parent, "已确认拆板类别与截面规格不一致")
         return CanonicalSplitResult((), (issue,))
 
-    profile = match.group(1)
-    height, width, web, flange = (
-        Decimal(value) for value in match.groups()[1:]
-    )
     try:
-        geometry = split_fabricated_geometry(
-            profile,
-            height,
-            width,
-            web,
-            flange,
-        )
-    except ValueError as exc:
+        geometry = fabricated.children()
+    except FabricatedProfileError as exc:
         return CanonicalSplitResult((), (_geometry_issue(parent, str(exc)),))
 
     source = parent.source
-    children = tuple(
-        SplitPart(
-            parent=parent,
-            part_type=child.part_type,
-            import_component_no=source.component_no,
-            import_part_no=f"{source.part_no}-{child.part_type}",
-            spec=child.thickness,
-            width=child.width,
-            quantity=source.original_qty * child.quantity_multiplier,
-            is_main=child.is_main,
-            theoretical_contribution_unrounded=(
-                plate_unit_weight(child.thickness, child.width, source.length)
-                * child.quantity_multiplier
-            ),
+    children_list: list[SplitPart] = []
+    for child in geometry:
+        unit_weight = plate_unit_weight(
+            child.thickness,
+            child.width,
+            source.length,
         )
-        for child in geometry
+        children_list.append(
+            SplitPart(
+                parent=parent,
+                part_type=child.part_type,
+                import_component_no=source.component_no,
+                import_part_no=f"{source.part_no}-{child.part_type}",
+                spec=child.thickness,
+                width=child.width,
+                quantity=source.original_qty * child.quantity_multiplier,
+                is_main=child.is_main,
+                theoretical_unit_weight_unrounded=unit_weight,
+                theoretical_contribution_unrounded=(
+                    unit_weight * child.quantity_multiplier
+                ),
+            )
+        )
+    children = tuple(children_list)
+    child_theory = sum(
+        (child.theoretical_contribution_unrounded for child in children),
+        start=Decimal("0"),
     )
+    if (
+        parent.theoretical_unit_weight_unrounded is not None
+        and child_theory != parent.theoretical_unit_weight_unrounded
+    ):
+        return CanonicalSplitResult(
+            (),
+            (_weight_conservation_issue(parent, child_theory),),
+        )
     return CanonicalSplitResult(children, ())
-
-
-def parent_display_values(child: SplitPart) -> dict[str, object]:
-    """Return parent evidence only for the main/web output row."""
-    if not child.is_main:
-        return {field: None for field in _DISPLAY_FIELDS}
-    parent = child.parent
-    source = parent.source
-    return {
-        "source_unit_net": source.source_unit_net,
-        "source_total_net": source.source_total_net,
-        "source_unit_gross": source.source_unit_gross,
-        "source_total_gross": source.source_total_gross,
-        "source_unit_area": source.source_unit_area,
-        "source_total_area": source.source_total_area,
-        "density_value": parent.density_value,
-        "density_source": parent.density_source,
-        "theoretical_unit_weight": parent.theoretical_unit_weight_unrounded,
-        "theoretical_total_weight": parent.theoretical_total_weight_unrounded,
-        "material_utilization": parent.material_utilization,
-        "weight_validation_status": parent.weight_validation_status,
-        "weight_validation_details": parent.weight_validation_details,
-    }

@@ -108,8 +108,8 @@ EXPECTED_PRODUCTION_STAGES = [
         "excel_stage1",
         "automated",
         "implemented",
-        "dxf_to_excel",
-        ("batch_name",),
+        "excel_stage1",
+        ("frozen_source_excel",),
         ("stage1_excel",),
     ),
     (
@@ -121,19 +121,11 @@ EXPECTED_PRODUCTION_STAGES = [
         ("review_record",),
     ),
     (
-        "excel_final",
-        "automated",
-        "implemented",
-        "excel_final",
-        ("file_id",),
-        ("final_excel",),
-    ),
-    (
         "cam_packaging",
         "placeholder",
         "placeholder",
         "cam_packaging",
-        ("final_excel", "processed_drawings"),
+        ("stage1_excel", "processed_drawings"),
         ("cam_package",),
     ),
     (

@@ -5,10 +5,12 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import sessionmaker
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.jobs.routes.commands import _job_cancellation_lock_statement
 from app.platform.config.settings import settings
 
 
@@ -153,6 +155,18 @@ def test_scoped_cancellation_only_changes_requested_jobs():
         for job in jobs
     ]
     assert states == ["cancelled", "queued", "cancelled"]
+
+
+def test_scoped_cancellation_locks_jobs_before_worker_state_can_change():
+    sql = str(
+        _job_cancellation_lock_statement([3, 7]).compile(
+            dialect=mysql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "jobs.id IN (3, 7)" in sql
+    assert sql.endswith(" FOR UPDATE")
 
 
 def test_conversion_events_stream_returns_ordered_terminal_snapshot():

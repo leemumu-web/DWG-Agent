@@ -29,7 +29,7 @@ from app.modules.workflows.schemas import (
 from app.platform.config.constants import TASK_DWG_TO_DXF
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
-from app.platform.http.exceptions import not_found
+from app.platform.http.exceptions import AppHTTPException, not_found
 
 router = APIRouter()
 
@@ -109,22 +109,41 @@ def register_file_api(
         raise not_found("File")
     require_file_read_access(db, current_user, stored)
     known_ids = {item.file_id for item in batch.items}
-    item = register_input_file(db, batch, stored)
+    outcome = register_input_file(db, batch, stored)
+    item = outcome.item
     reused = stored.id in known_ids
+    if outcome.failure is not None:
+        audit_action = "workflow_input_files.reject"
+    elif reused:
+        audit_action = "workflow_input_files.reuse"
+    else:
+        audit_action = "workflow_input_files.register"
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action=("workflow_input_files.reuse" if reused else "workflow_input_files.register"),
+        action=audit_action,
         resource_type="workflow_input_item",
         resource_id=item.id,
         after_json={
             "workflow_id": workflow.id,
             "file_id": stored.id,
             "role": item.role,
+            "failure": outcome.failure,
         },
         request=request,
     )
     db.commit()
+    if outcome.failure is not None:
+        failure_code = str(outcome.failure.get("code") or "EXCEL_INPUT_INVALID")
+        failure_message = str(
+            outcome.failure.get("message") or "Excel 输入未通过检查。"
+        )
+        raise AppHTTPException(
+            422,
+            failure_code,
+            failure_message,
+            {"failure": outcome.failure},
+        )
     if reused:
         response.status_code = status.HTTP_200_OK
     return ok(

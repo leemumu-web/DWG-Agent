@@ -17,24 +17,26 @@
 - `idempotency.py` 规范并作用域化请求幂等键，防止不同 operation 误复用同一个 key。
 - `models.py` 定义 `ExcelFinalBatch`、`ExcelFinalPart`、`ExcelFinalComponent` 三张关系投影表。
 - `schemas.py` 定义导入统计、五金手册类别、零件类别和重量状态等稳定英文枚举；HTTP DTO 由 route/presentation 保持稳定。
-- `staging.py` 解析 file ID、下载登记对象并识别源格式；`init`、`canonical`、`tsv` 分别表示旧初始表、规范工作簿和 Tekla 文本，不直接写业务终态。
+- `staging.py` 只解析 file ID 并下载登记对象，不打开工作簿或识别格式。后端以 `format=auto` 记录委托事实；标准工作簿、初始表、制表符文本和固定宽度文本均由 Stage 的 Source Intake 唯一识别。
 - `uploads.py` 复用 files transfer saga 保存上传对象，避免另建一套对象补偿逻辑。
+- `validation.py` 在创建 Job 前读取并校验上传或冻结对象，统一映射结构化输入错误。
 - `importers.py` 流式读取结果工作簿，`persistence.py` 写入/替换关系投影。
 - `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。
 - `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
 - `stage_adapter.py` / `stage_runner.py` 隔离父进程与 Stage；`interface.py` 是跨域唯一入口。
+- `handbook_catalog_source.py` 把唯一可信 `五金手册.xls` 逐行映射为可追溯的关系表、生成确定性 SQL，并提供源表与已部署手册库的逐值审计。
 
 ## 规范结果与质量语义
 
 - Stage 只生成 `原表、清洗表、构件表、整理表、part、处理报告` 六张表；后端不再修补或重写 Stage 输出。
 - 后端数据库继续从构件级 `整理表`导入零件关系，下载工作簿中的 `part`是独立的未分班组下料汇总；`part`清空普通零件构件号并跨构件合并，不覆盖数据库中的构件身份。
-- `整理表` 的中文类型在入库时显式转换为稳定英文枚举，例如 `板材 -> plate`、`BOX腹 -> box_web`、`圆钢 -> round_bar`；未知类型拒绝入库。
+- 内部 `整理表` 的中文类型在入库时显式转换为稳定英文枚举，例如 `板材 -> plate`、`BOX腹 -> box_web`、`圆钢 -> round_bar`、`圆管/钢管 -> steel_pipe`；未知类型拒绝入库。下载工作簿的类型列只显示六种 BH/BOX/BT 子板类型，不影响内部完整类别入库。
 - 批次零件列表的 `part_type` 查询参数只接受 `schemas.ExcelFinalPartType` 的稳定英文值；中文标签或未知值返回 HTTP 422，不静默返回空结果。
 - 批次净重和毛重仅汇总 `表净重` 与 `表毛重`，拆板翼行的空表重不重复计入，合法零值保持为零。
 - 尺寸、数量、面积、比重、利用率和重量统一用 `DECIMAL(24,9)` 持久化并在库内精确汇总；只在 HTTP/Job JSON 边界转换为普通数字，避免 MySQL `FLOAT` 累计漂移。
 - `warning` 和 `severe_warning` 不改变 Job 的成功状态；批次、process status、AnalysisResult、步骤和 done event 都返回质量状态、计数及有界摘要。计数以最终人工处置报告的合并行口径为准；`A2=无`按零问题导入，旧15列报告仍可兼容读取。
 - Job、步骤和日志只保存文件 basename、逻辑 ID、质量摘要与异常类型；临时绝对路径、MySQL 主机/DSN、口令和 traceback 不进入持久化或公共日志。
-- `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85，`skip` 返回空值，查无返回 `not_found`。
+- `/weights/lookup` 必须提供英文 `category` 和 `spec`。D 系列还必须提供 `material`：HPB/Q235B/Q355B 只允许 `round_bar`，HRB 只允许 `rebar`。板材返回常量 7.85；`PIP/PD` 按 `(D-t)×t×0.02466` 返回理论米重且不查询手册；`skip` 返回空值，查无返回 `not_found`。
 
 ## 边界与依赖方向
 
@@ -55,4 +57,4 @@ DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s tests/excel_processing/test_ex
 
 ## 范围边界
 
-这里实现的是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。跨图纸数据库屏障、左右进结果合并、自动汇总触发和生产输入 schema 的最终验收仍是待实现能力；外部 `hardware_handbook` 数据库也是部署依赖。代码移动和健康检查不能被解释为这些能力已经完成。
+这里实现的是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。跨图纸数据库屏障、左右进结果合并、自动汇总触发和生产输入 schema 的最终验收仍是待实现能力；由唯一可信 `五金手册.xls` 生成并审计的 `hardware_handbook` 数据库也是部署依赖。代码移动和健康检查不能被解释为这些能力已经完成。

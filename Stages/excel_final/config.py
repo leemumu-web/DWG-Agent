@@ -2,23 +2,32 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "data/output"
 
-# Used only to recognize whitespace-delimited Tekla text candidates.
-KW_批次 = "批次"
-KW_构件编号 = "构件编号"
-KW_零件号 = "零件"
-KW_数量 = "数量"
-KW_材质 = "材质"
+
+def _read_db_config() -> dict[str, object]:
+    """Read handbook database config from env vars (standalone) or platform injection."""
+    host = os.environ.get("DWG_HANDBOOK_MYSQL_HOST")
+    if host:
+        return {
+            "host": host,
+            "port": int(os.environ.get("DWG_HANDBOOK_MYSQL_PORT", "3306")),
+            "database": os.environ.get(
+                "DWG_HANDBOOK_MYSQL_DATABASE",
+                "hardware_handbook",
+            ),
+            "user": os.environ.get("DWG_HANDBOOK_MYSQL_USER", "dwg_user"),
+            "password": os.environ.get("DWG_HANDBOOK_MYSQL_PASSWORD", ""),
+            "charset": "utf8mb4",
+            "connect_timeout": 5,
+        }
+    return {}
+
 
 # The platform injects the read-only connection at the isolated process boundary.
-DB_CONFIG: dict[str, object] = {}
-
-# Unit suffixes are deliberately omitted so both forms match.
-INIT_TABLE_SIGNATURE = [
-    "零件号", "截面型材", "长度", "材质", "数量", "单重", "总重", "总面积", "备注",
-]
+DB_CONFIG: dict[str, object] = _read_db_config()

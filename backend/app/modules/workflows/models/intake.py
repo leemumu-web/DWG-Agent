@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.platform.database.base import Base, PKType
@@ -67,5 +67,8 @@ class WorkflowInputItem(TimestampMixin, Base):
     drawing_id: Mapped[int | None] = mapped_column(ForeignKey("drawings.id"), index=True)
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
+    validation_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    validation_contract_version: Mapped[int | None] = mapped_column(Integer)
+    validated_sha256: Mapped[str | None] = mapped_column(String(64))
 
     batch: Mapped[WorkflowInputBatch] = relationship(back_populates="items")

@@ -20,6 +20,7 @@ const AuditLogsPage = lazy(() => import('../features/operations').then((module) 
 const RolesPage = lazy(() => import('../features/identity').then((module) => ({ default: module.RolesPage })));
 const ProfilePage = lazy(() => import('../features/identity').then((module) => ({ default: module.ProfilePage })));
 const WorkflowsPage = lazy(() => import('../features/workflows').then((module) => ({ default: module.WorkflowsPage })));
+const WorkflowDetailPage = lazy(() => import('../features/workflows').then((module) => ({ default: module.WorkflowDetailPage })));
 const InfrastructurePage = lazy(() => import('../features/operations').then((module) => ({ default: module.InfrastructurePage })));
 const RemnantInventoryPage = lazy(() => import('../features/remnant-inventory').then((module) => ({ default: module.RemnantInventoryPage })));
 
@@ -34,6 +35,7 @@ export function AppRouter() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/workflows" element={<WorkflowsPage />} />
+            <Route path="/workflows/:workflowId" element={<WorkflowDetailPage />} />
             <Route path="/files" element={<FilesLayout />}>
               <Route index element={<Navigate to="/files/dwg2dxf" replace />} />
               <Route path="dwg2dxf" element={<Dwg2DxfPage />} />

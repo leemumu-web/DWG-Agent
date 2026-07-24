@@ -210,7 +210,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - Axios 对 401 只执行一次共享 refresh 请求，避免并发刷新风暴；登录和 refresh 请求自身不循环重试。
 - React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
 - Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
-- 生产流程页面以“提交生产批次”为主入口，在同一抽屉完成创建、启动、多个 DWG + 单 Excel 上传、服务器转换、冻结与 DXF 分类；后续留白阶段展示契约、交接产物和可恢复错误。
+- 生产流程列表以“新建生产批次”为主入口，创建并启动后进入独立批次详情 URL；详情页按当前阶段完成多个 DWG + 单 Excel 上传、服务器转换、冻结、DXF 分类和冻结 Excel 第一阶段处理，后续留白阶段只展示契约、交接产物和可恢复错误。
 - EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。
 - UI 权限守卫只控制显示，不替代 API 授权。
 
@@ -240,7 +240,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - `audit_logs` 通过应用 service 追加写入，API 没有更新/删除端点；但数据库没有 append-only trigger、WORM 存储、签名链或独立审计账号。因此它是**应用层追加约定**，不是防 DBA 篡改的不可变审计系统。
 - MySQL 和对象存储必须形成一致恢复点；只恢复数据库会留下缺失对象，只恢复对象会留下孤儿。
 - `scripts/docker.sh backup/restore` 提供 MySQL + MinIO 的手工单机基线；它不是跨系统原子快照，也没有调度、保留、加密、PITR 或 RPO/RTO 证据。执行环境必须补齐这些能力。
-- `hardware_handbook` 应使用只读账号；Compose 初始化给应用用户授予该库 `SELECT`。
+- `hardware_handbook` 只允许由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并通过逐值审计；运行时应使用只读账号，Compose 初始化只给应用用户授予该库 `SELECT`。
 
 ## 18. 测试与验收
 

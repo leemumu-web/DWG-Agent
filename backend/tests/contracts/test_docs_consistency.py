@@ -46,13 +46,14 @@ def test_linux_production_workflow_documentation_matches_public_routes() -> None
         "drawing_processing",
         "excel_stage1",
         "design_barrier",
-        "excel_final",
         "cam_packaging",
         "windows_cam",
         "result_acceptance",
         "delivery_archive",
     ):
         assert stage in workflow
+    assert "| 6 | `excel_final`" not in workflow
+    assert "DXF→Excel 只保留为独立转换工具" in workflow
     assert "WORKFLOW_STAGE_NOT_IMPLEMENTED" in workflow
     assert "不会自动创建 Excel Final Job" not in combined
     assert "公开 workflow route 没有调用 Job 绑定或产物挂接函数" not in combined

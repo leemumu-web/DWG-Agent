@@ -136,7 +136,7 @@ bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 
 |---|---|
 | 应用 MySQL | 全部业务表、`alembic_version` 和当前 Celery runtime 表 |
 | 对象存储 | 每个已配置 bucket，包括 original、derived、report、按需 temporary 和 DXF bucket |
-| 手册库 | `hardware_handbook` schema/data 或独立管理的权威源 |
+| 手册库 | 由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并逐值审计的 `hardware_handbook` |
 | 密钥/配置 | 部署值的加密副本；禁止提交真实 `.env.docker` |
 | 证据 | 备份时间、应用 revision、迁移 head、对象快照标记、checksum 和恢复测试结果 |
 

@@ -144,6 +144,131 @@ def test_net_above_theory_threshold_boundaries(net: str, expected: str) -> None:
     assert assessment.level.value == expected
 
 
+def test_tiny_net_excess_within_absolute_rounding_tolerance_passes() -> None:
+    weights = _weights()
+
+    assessment = weights.assess_net_against_theory(
+        Decimal("0.081"),
+        Decimal("0.080541"),
+    )
+
+    assert assessment.level.value == "pass"
+
+
+def test_large_geometry_to_gross_deviation_warns_without_isolating_part() -> None:
+    weights = _weights()
+    source = _source(
+        component_qty=Decimal("1"),
+        original_qty=Decimal("1"),
+        source_unit_net=Decimal("90"),
+        source_total_net=Decimal("90"),
+        source_unit_gross=Decimal("103"),
+        source_total_gross=Decimal("103"),
+    )
+
+    result = weights.validate_parent_weights(
+        source,
+        normalized_type="BH",
+        normalized_spec="BH500*300*10*16",
+        normalized_width=None,
+        density_value=Decimal("7.85"),
+        density_source="plate_constant:7.85",
+        theoretical_unit_weight=Decimal("100"),
+        theory_basis=weights.TheoryBasis.GEOMETRY,
+    )
+
+    issues = [issue for issue in result.issues if issue.category == "几何理论重与毛重"]
+    assert issues
+    assert all(issue.level.value == "警告" for issue in issues)
+    assert all(issue.affects_part is False for issue in issues)
+    assert result.evidence.weight_validation_status == "warning"
+
+
+def test_large_handbook_to_gross_deviation_remains_severe() -> None:
+    weights = _weights()
+    source = _source(
+        component_qty=Decimal("1"),
+        original_qty=Decimal("1"),
+        source_unit_net=Decimal("90"),
+        source_total_net=Decimal("90"),
+        source_unit_gross=Decimal("103"),
+        source_total_gross=Decimal("103"),
+    )
+
+    result = weights.validate_parent_weights(
+        source,
+        normalized_type="H型钢",
+        normalized_spec="H200*200*8*12",
+        normalized_width=None,
+        density_value=Decimal("49.9"),
+        density_source="h_beam:h_beam",
+        theoretical_unit_weight=Decimal("100"),
+        theory_basis=weights.TheoryBasis.HANDBOOK,
+    )
+
+    issues = [issue for issue in result.issues if issue.category == "手册理论重与毛重"]
+    assert issues
+    assert all(issue.level.value == "严重" for issue in issues)
+    assert all(issue.affects_part is True for issue in issues)
+    assert result.evidence.weight_validation_status == "severe_warning"
+
+
+def test_theory_total_absolute_tolerance_scales_with_source_quantity() -> None:
+    weights = _weights()
+    source = _source(
+        component_qty=Decimal("1"),
+        original_qty=Decimal("3"),
+        source_unit_net=Decimal("0.47"),
+        source_total_net=Decimal("1.40"),
+        source_unit_gross=Decimal("0.475"),
+        source_total_gross=Decimal("1.415"),
+    )
+
+    result = weights.validate_parent_weights(
+        source,
+        normalized_type="角钢",
+        normalized_spec="L50*5",
+        normalized_width=None,
+        density_value=Decimal("3.77"),
+        density_source="angle:angle",
+        theoretical_unit_weight=Decimal("0.47502"),
+        theory_basis=weights.TheoryBasis.HANDBOOK,
+    )
+
+    assert not [issue for issue in result.issues if issue.category == "手册理论重与毛重"]
+
+
+@pytest.mark.parametrize("basis_name", ["GEOMETRY", "HANDBOOK"])
+def test_net_above_theory_is_review_only_for_each_theory_basis(
+    basis_name: str,
+) -> None:
+    weights = _weights()
+    source = _source(
+        component_qty=Decimal("1"),
+        original_qty=Decimal("1"),
+        source_unit_net=Decimal("103"),
+        source_total_net=Decimal("103"),
+        source_unit_gross=Decimal("103"),
+        source_total_gross=Decimal("103"),
+    )
+
+    result = weights.validate_parent_weights(
+        source,
+        normalized_type="板材",
+        normalized_spec="10",
+        normalized_width=Decimal("100"),
+        density_value=Decimal("7.85"),
+        density_source="plate_constant:7.85",
+        theoretical_unit_weight=Decimal("100"),
+        theory_basis=getattr(weights.TheoryBasis, basis_name),
+    )
+
+    issues = [issue for issue in result.issues if issue.category == "净重大于理论重"]
+    assert len(issues) == 1
+    assert issues[0].level.value == "警告"
+    assert issues[0].affects_part is False
+
+
 def test_missing_source_weights_warn_without_backfill_or_isolation() -> None:
     weights = _weights()
     source = _source(

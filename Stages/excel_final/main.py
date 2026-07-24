@@ -8,43 +8,12 @@ from pathlib import Path
 import sys
 from typing import Sequence
 
-import openpyxl
-
-from config import INIT_TABLE_SIGNATURE
 from handbook import HandbookInfrastructureError
-from input_contract import InputContractError, InputKind, inspect_production_input
-from pipeline import run_init_pipeline, run_pipeline
+from input_contract import InputContractError
+from pipeline import run_auto_pipeline
 
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-
-def detect_format(filepath: Path) -> str:
-    """Validate the production input first, then distinguish init from Tekla."""
-    inspected = inspect_production_input(filepath)
-    if inspected.kind is InputKind.TEKLA_TEXT:
-        return "tsv"
-    if inspected.sheet_name is None:
-        raise InputContractError("validated workbook has no worksheet")
-
-    workbook = openpyxl.load_workbook(
-        inspected.path,
-        read_only=True,
-        data_only=True,
-    )
-    try:
-        sheet = workbook[inspected.sheet_name]
-        if sheet.title == "初始表":
-            return "init"
-        row2_cells = [str(sheet.cell(row=2, column=column).value or "") for column in range(1, 10)]
-        matches = sum(
-            1
-            for keyword in INIT_TABLE_SIGNATURE
-            if any(keyword in cell for cell in row2_cells)
-        )
-        return "init" if matches >= 7 else "tsv"
-    finally:
-        workbook.close()
 
 
 def _parse_args(args: Sequence[str]) -> tuple[Path | None, Path | None]:
@@ -86,12 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        source_format = detect_format(input_file)
-        logging.info("检测格式: %s", source_format)
-        if source_format == "init":
-            outcome = run_init_pipeline(input_file, output_file)
-        else:
-            outcome = run_pipeline(input_file, output_file)
+        outcome = run_auto_pipeline(input_file, output_file)
     except HandbookInfrastructureError:
         print(
             "处理失败：五金手册数据库不可用，请检查服务、配置和表结构。",

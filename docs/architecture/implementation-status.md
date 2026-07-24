@@ -6,7 +6,7 @@
 
 ## 历史审计说明
 
-> 2026-07-21 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。CAD 域按 DWG→DXF、DXF→DWG、DXF 材料表、预览渲染和共享执行原语细分；Classifier 1.1 的适配、账本和编排分别归档；Excel Final 的上传事务、14 个 route、Stage 子进程、工作簿导入、三张关系表和 Job 编排也已分层。workflows 的五张表、模板/状态机/Job 同步/阶段执行规划、输入登记/转换/冻结/展示和 16 个 route 已分层，files 与 classifier 不再直连 workflow 私有模型或服务。files 仍拥有文件行/传输 saga，jobs 仍拥有执行状态，跨域只经 `interface.py`；目录归域不代表跨图纸最终屏障、左右进合并或留白核心算法已实现。当前 SSE 无事件编号补发、投递无 Outbox。`linux_production` 仍是十阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结和 Steel DXF Classifier 已接通，图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。本报告其余章节保留 2026-07-18 审计快照。
+> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 2 九阶段框架：多个 DWG + 单 Excel 上传、服务器 DXF、输入冻结、Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通；DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端列表与独立批次详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`
@@ -198,7 +198,7 @@ Celery workers
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
-| 一次上传生产批次 | 已实现当前输入切片 | 已按后续确认规则改为“多个 DWG + 恰好一个 Excel”；前端在新建 `linux_production` 批次后原地提供上传、转换、错误和冻结反馈，人工 DXF 被拒绝 |
+| 一次上传生产批次 | 已实现当前输入切片 | 已按后续确认规则改为“多个 DWG + 恰好一个 Excel”；前端新建后进入独立详情页提供上传、转换、结构化错误和冻结反馈，人工 DXF 被拒绝 |
 | `batch_id` 与批次状态机 | 已实现当前输入切片 | `WorkflowInputBatch` 以 `workflow_run_id` 唯一绑定生产流程，保存 `uploading`、转换同步、`ready_to_freeze`、`frozen`、版本和错误信息；它不是全目标通用 `ProcessingBatch` |
 | 真实格式、文件头、可读性校验 | 已实现当前输入切片 | `registration.py` 从 Local/MinIO 重读字节并核对 SQL 大小/SHA-256，验证 DWG header/最小长度和 XLS/XLSX 至少一个可见工作表；尚未覆盖所有未来人工拆板/CAM 文件类型 |
 | 文件名规范化规则和版本 | 部分实现 | NFKC、首尾/连续空白和 casefold 规则用于检测 DWG 同名冲突，同时保留 `original_name` 与 `normalized_stem`；批次 `version=1` 已保存，但规范化算法尚无独立版本字段 |
@@ -243,13 +243,13 @@ Celery workers
 
 **评价：** 这是前端、API、模型和校验都需要新增的完整垂直切片。
 
-### 3.9 Excel 两阶段处理和图纸屏障
+### 3.9 Excel 第一阶段处理和图纸屏障
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
 | Excel 基础处理 | 部分实现/较成熟 | `Stages/excel_final`、backend integration、关系化导入和控制台已实现较多实际处理能力 |
 | 生成整理表和 part 表 | 部分实现 | Stage 中存在对应整理、拆分、零件写入逻辑，但需用目标真实样本核对最终字段语义 |
-| 与 DXF 任务编排 | 部分接入 | `linux_production` 已定义 `dxf_classification` 与 `excel_stage1` 自动执行契约并复用 Job；当前阶段仍按顺序推进，不是目标文档设想的批次并行屏障 |
+| 与生产任务编排 | 部分接入 | `linux_production` 已定义 `dxf_classification` 与唯一 `excel_stage1` 自动执行契约并复用 Job；Excel 阶段只解析冻结 `source_excel`，DXF→Excel 不在主流程；当前阶段仍按顺序推进，不是批次并行屏障 |
 | 等待所有图纸自动/人工结果 | 未实现 | 无图纸处理单元屏障 |
 | 合并左右进信息 | 未实现 | 上游左右进识别不存在，Excel Final 无法接收完整目标数据 |
 | part 表登记原始/拆板后逻辑路径 | 未实现或不足 | 现有 output 与 result file ID 可映射，但没有目标清单内所有图纸的稳定业务对象引用 |
@@ -265,8 +265,8 @@ Celery workers
 | WorkflowRun/StageRun/Artifact 模型 | 已实现 | 具备阶段、进度、Job attempt 绑定字段和版本化 artifact |
 | 创建、启动、人工确认、取消 | 已实现 | API 与 React 页面存在 |
 | Job 绑定、同步和重试 | 已实现于自动阶段 | 公开执行端点按阶段能力创建/复用 Job，绑定 `job_id + attempt`，同步 Result、失败/取消并支持新 attempt；不适用于留白阶段 |
-| 自动挂接文件/结果产物 | 部分实现 | 输入冻结、分类、DXF→Excel 和 Excel Final 能将受支持的 File/Result 挂接为 artifact；拆板、CAM 和结果接纳没有产物实现 |
-| 目标钢结构批次工作流 | 部分实现 | `linux_production` 已提供十阶段框架，前四个服务器切片与 Excel Final 可调用现有实现；拆板、CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
+| 自动挂接文件/结果产物 | 部分实现 | 输入冻结、分类和 Excel 第一阶段能将受支持的 File/Result 挂接为 artifact；独立 DXF→Excel 仍登记自身结果，但不推进 workflow；拆板、CAM 和结果接纳没有产物实现 |
+| 目标钢结构批次工作流 | 部分实现 | `linux_production` 已提供九阶段框架，输入冻结、分类和 Excel 第一阶段可调用现有实现；拆板、CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
 | 数据库屏障 | 未实现 | 没有目标的原子 compare-and-set 批次阶段推进 |
 
 **评价：** 这是可复用的编排元数据框架，但不能被视为目标业务 orchestration 已完成。
@@ -370,7 +370,7 @@ DWG↔DXF 的 ODA adapter、批量分片、进度、结果登记和实际吞吐�
 
 ### 4.5 Excel Final Stage
 
-Excel Final 已有独立 Stage、进程隔离、输入探测、手册数据库读取、关系化导入、批次/零件/构件查询和前端控制台。它是目标 Excel 两阶段处理中最有价值的现有资产。
+Excel 第一阶段已有独立 Stage、进程隔离、版本化输入探测、唯一源手册数据库读取、关系化导入、批次/零件/构件查询和四标签前端工作台。生产 workflow 直接使用冻结的唯一源 Excel，不再拆成 DXF→Excel 与 Excel Final 两个阶段。
 
 后续重点不是重写 Excel Final，而是定义其正式输入/输出契约，并把它挂到“全部图纸处理完成”数据库屏障之后。
 

@@ -99,6 +99,13 @@ def test_database_script_exposes_isolated_mysql_migration_test():
     assert "CREATE DATABASE" in content
     assert "DROP DATABASE IF EXISTS" in content
     assert "uv run alembic upgrade head" in content
+    assert "ScriptDirectory.from_config" in content
+    assert "repository must have exactly one Alembic head" in content
+    assert 'version != "e2f4b8c6a130"' not in content
+    assert "cleanup_migration_test_database" in content
+    assert "information_schema.SCHEMATA" in content
+    assert "FROM mysql.db" in content
+    assert "REVOKE ALL PRIVILEGES ON" in content
 
 
 def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
@@ -108,6 +115,10 @@ def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
     assert "bash scripts/db.sh check" in content
     assert "MYSQL_APPLICATION_AVAILABLE" in content
     assert "application path was verified" in content
+    assert '"worker-remnant-convert": "remnant_convert"' in content
+    assert '"worker-remnant-parse": "remnant_parse"' in content
+    assert 'ALL_CHECKS_PASSED:{len(svcs)}' in content
+    assert '${COMPOSE_SERVICE_COUNT} services' in content
 
 
 def test_start_scripts_delegate_database_startup_to_db_script():

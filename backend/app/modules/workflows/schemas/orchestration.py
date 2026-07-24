@@ -44,17 +44,16 @@ class WorkflowArtifactCreate(BaseModel):
 
 
 class WorkflowStageExecutionCreate(BaseModel):
-    execution_kind: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]+$")
-    batch_name: str | None = Field(default=None, max_length=255)
-    file_id: int | None = Field(default=None, gt=0)
+    model_config = ConfigDict(extra="forbid")
 
-    @field_validator("batch_name")
-    @classmethod
-    def normalize_batch_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        return normalized or None
+    execution_kind: Literal[
+        "steel_dxf_classification",
+        "excel_stage1",
+        "drawing_processing",
+        "cam_packaging",
+        "windows_cam",
+        "result_acceptance",
+    ]
 
 
 class WorkflowCreate(BaseModel):

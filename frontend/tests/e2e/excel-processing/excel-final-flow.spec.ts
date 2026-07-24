@@ -46,6 +46,189 @@ async function waitForJob(page: Page, token: string, jobId: number, attempt: num
 }
 
 test.describe('Excel Final retry and download closure', () => {
+  test('work center tabs defer heavy queries and submit an explicit handbook key', async ({ page }) => {
+    const envelope = (data: unknown) => ({
+      data,
+      meta: { request_id: 'excel-tabs-e2e' },
+    });
+    const paged = (data: unknown[]) => ({
+      ...envelope(data),
+      pagination: { page: 1, page_size: 20, total: data.length, total_pages: 1 },
+    });
+    let batchCalls = 0;
+    let searchCalls = 0;
+    let handbookCalls = 0;
+    let handbookQuery = '';
+    await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+    await page.route('**/api/v1/excel-final/**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/health')) {
+        await route.fulfill({ json: envelope({
+          pipeline_enabled: true,
+          stage_available: true,
+          dependencies_available: true,
+          package_available: true,
+          handbook_available: true,
+          handbook_database_available: true,
+          database_backend: 'mysql',
+          database_available: true,
+          storage_backend: 'local',
+          storage_available: true,
+          storage_bucket: 'dwg-reports',
+          degraded_components: [],
+          ready: true,
+        }) });
+      } else if (url.pathname.endsWith('/overview')) {
+        await route.fulfill({ json: envelope({
+          batch_count: 1,
+          part_count: 2,
+          component_count: 1,
+          total_net_weight: 3,
+          total_gross_weight: 4,
+          latest_created_at: '2026-07-24T08:00:00Z',
+        }) });
+      } else if (url.pathname.endsWith('/batches')) {
+        batchCalls += 1;
+        await route.fulfill({ json: paged([]) });
+      } else if (url.pathname.endsWith('/parts/search')) {
+        searchCalls += 1;
+        await route.fulfill({ json: paged([]) });
+      } else if (url.pathname.endsWith('/weights/lookup')) {
+        handbookCalls += 1;
+        handbookQuery = url.search;
+        await route.fulfill({ json: envelope({
+          category: 'round_bar',
+          spec: 'D8',
+          normalized_spec: '8',
+          material: 'Q235B',
+          weight_kg_per_m: 0.395,
+          source: 'round_square_bar:round_bar',
+          status: 'hit',
+        }) });
+      } else {
+        await route.fallback();
+      }
+    });
+
+    await login(page);
+    await expect(page.getByRole('heading', { name: 'Excel 第一阶段处理' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: '处理' })).toHaveAttribute('aria-selected', 'true');
+    expect(batchCalls).toBe(0);
+    expect(searchCalls).toBe(0);
+    expect(handbookCalls).toBe(0);
+
+    await page.getByRole('tab', { name: '批次', exact: true }).click();
+    await expect.poll(() => batchCalls).toBe(1);
+    expect(new URL(page.url()).searchParams.get('tab')).toBe('batches');
+
+    await page.getByRole('tab', { name: '零件', exact: true }).click();
+    await page.getByLabel('跨批次零件号').fill('P-1');
+    await page.getByRole('button', { name: '搜索零件' }).click();
+    await expect.poll(() => searchCalls).toBe(1);
+
+    await page.getByRole('tab', { name: '五金手册', exact: true }).click();
+    await page.getByRole('combobox', { name: '五金手册类别' }).click();
+    await page.getByText('圆钢', { exact: true }).click();
+    await page.getByLabel('钢材规格').fill('D8');
+    await page.getByLabel('钢材材质').fill('Q235B');
+    await page.getByRole('button', { name: '查询理论重量' }).click();
+    await expect(page.getByText('0.395 kg/m')).toBeVisible();
+    expect(handbookCalls).toBe(1);
+    expect(new URLSearchParams(handbookQuery)).toEqual(new URLSearchParams({
+      category: 'round_bar',
+      spec: 'D8',
+      material: 'Q235B',
+    }));
+  });
+
+  test('invalid workbook response shows bounded operator guidance', async ({ page }) => {
+    const envelope = (data: unknown) => ({
+      data,
+      meta: { request_id: 'excel-input-guidance' },
+    });
+    const paged = (data: unknown[]) => ({
+      ...envelope(data),
+      pagination: { page: 1, page_size: 50, total: data.length, total_pages: 1 },
+    });
+    await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+    await page.route('**/api/v1/excel-final/health', (route) => route.fulfill({
+      json: envelope({
+        pipeline_enabled: true,
+        stage_available: true,
+        dependencies_available: true,
+        package_available: true,
+        handbook_available: true,
+        handbook_database_available: true,
+        database_backend: 'mysql',
+        database_available: true,
+        storage_backend: 'local',
+        storage_available: true,
+        storage_bucket: 'dwg-reports',
+        degraded_components: [],
+        ready: true,
+      }),
+    }));
+    await page.route('**/api/v1/excel-final/overview', (route) => route.fulfill({
+      json: envelope({
+        batch_count: 0,
+        part_count: 0,
+        component_count: 0,
+        total_net_weight: 0,
+        total_gross_weight: 0,
+        latest_created_at: null,
+      }),
+    }));
+    await page.route('**/api/v1/excel-final/batches?**', (route) => route.fulfill({
+      json: paged([]),
+    }));
+    await page.route('**/api/v1/excel-final/upload-and-process', (route) => route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'EXCEL_INPUT_REQUIRED_COLUMNS_MISSING',
+          message: '表格缺少 Excel 第一阶段所需列。',
+          details: {
+            failure: {
+              code: 'EXCEL_INPUT_REQUIRED_COLUMNS_MISSING',
+              message: '表格缺少 Excel 第一阶段所需列。',
+              action: '请在正式标题行中补充：数量。',
+              contract_version: 1,
+              issues: [{
+                sheet: '原表',
+                row: 6,
+                column: null,
+                field: '数量',
+                value: null,
+                reason: 'required_column_missing',
+              }],
+              sheets: ['原表'],
+              meta: { issue_count: 1, server_path: '/home/private/input.xlsx' },
+              traceback: 'Traceback: private internals',
+            },
+          },
+        },
+        meta: { request_id: 'excel-input-guidance' },
+      }),
+    }));
+
+    await login(page);
+    await page.locator('.ant-upload input[type="file"]').setInputFiles({
+      name: 'missing-quantity.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('mock workbook'),
+    });
+    await page.getByRole('button', { name: '提交处理' }).click();
+
+    const failure = page.getByRole('alert', { name: '表格输入不符合规范' });
+    await expect(failure).toBeVisible();
+    await expect(failure).toContainText('表格缺少 Excel 第一阶段所需列。');
+    await expect(failure).toContainText('请在正式标题行中补充：数量。');
+    await expect(failure).toContainText('原表 · 第 6 行 · 数量');
+    await expect(failure).toContainText('请求 excel-input-guidance');
+    await expect(page.getByText(/\/home\/private|Traceback/)).toHaveCount(0);
+  });
+
   test('real XLS upload succeeds and download retry obtains a fresh signature', async ({ page }) => {
     test.skip(!VALID_SAMPLE || !fs.existsSync(VALID_SAMPLE), 'Set PLAYWRIGHT_EXCEL_SAMPLE_PATH');
     const token = await login(page);
@@ -114,8 +297,15 @@ test.describe('Excel Final retry and download closure', () => {
     expect(signedUrlRequests).toBe(2);
   });
 
-  test('invalid XLS shows safe failure and retry advances the attempt', async ({ page }) => {
+  test('corrupt XLS is rejected before job creation with safe guidance', async ({ page }) => {
     const token = await login(page);
+    const jobsBeforeResponse = await page.request.get(
+      `${API_BASE}/api/v1/jobs?task_type=excel_final&page_size=1`,
+      { headers: auth(token) },
+    );
+    expect(jobsBeforeResponse.status()).toBe(200);
+    const jobsBefore = (await jobsBeforeResponse.json()).pagination.total as number;
+
     await page.locator('.ant-upload input[type="file"]').setInputFiles({
       name: 'invalid-e2e.xls',
       mimeType: 'application/vnd.ms-excel',
@@ -131,39 +321,23 @@ test.describe('Excel Final retry and download closure', () => {
     expect(submitResponse.request().headers()['idempotency-key']).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    const jobId = (await submitResponse.json()).data.job_id as number;
+    expect(submitResponse.status()).toBe(422);
+    const failureBody = await submitResponse.json();
+    expect(failureBody.error.code).toBe('EXCEL_INPUT_TEXT_UNRECOGNIZED');
+    expect(failureBody.error.details.failure.action).toContain('从 Tekla 重新导出');
+    expect(JSON.stringify(failureBody)).not.toMatch(/Traceback|\/home\/|pandas\.errors/);
 
-    const first = await waitForJob(page, token, jobId, 1);
-    expect(first.status).toBe('failed');
-    expect(first.error_message).toContain('流水线处理失败');
-    expect(first.error_message.length).toBeLessThan(300);
-    expect(first.error_message).not.toMatch(/Traceback|\/home\/|pandas\.errors/);
+    const failure = page.getByRole('alert', { name: '表格输入不符合规范' });
+    await expect(failure).toBeVisible();
+    await expect(failure).toContainText('无法识别 Tekla 文本格式的 XLS 文件');
+    await expect(failure).toContainText('从 Tekla 重新导出');
 
-    const row = page.locator(`.ant-table-row[data-row-key="${jobId}"]`);
-    await expect(row).toBeVisible({ timeout: 10_000 });
-    await expect(row).toContainText('失败', { timeout: 10_000 });
-    const [retryResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) => response.url().includes(`/api/v1/jobs/${jobId}/retry-requests`)
-          && response.request().method() === 'POST',
-      ),
-      row.getByTitle('重新提交').click(),
-    ]);
-    expect(retryResponse.status()).toBe(202);
-    expect((await retryResponse.json()).data.attempt).toBe(2);
-
-    const second = await waitForJob(page, token, jobId, 2);
-    expect(second.status).toBe('failed');
-    expect(second.error_message).not.toMatch(/Traceback|\/home\/|pandas\.errors/);
-    const stepsResponse = await page.request.get(
-      `${API_BASE}/api/v1/jobs/${jobId}/steps?attempt=2&page_size=200`,
+    const jobsAfterResponse = await page.request.get(
+      `${API_BASE}/api/v1/jobs?task_type=excel_final&page_size=1`,
       { headers: auth(token) },
     );
-    const steps = (await stepsResponse.json()).data;
-    expect(steps.map((step: any) => [step.attempt, step.step_name, step.status])).toEqual([
-      [2, 'download_excel_source', 'succeeded'],
-      [2, 'run_excel_final_pipeline', 'failed'],
-    ]);
+    expect(jobsAfterResponse.status()).toBe(200);
+    expect((await jobsAfterResponse.json()).pagination.total).toBe(jobsBefore);
   });
 });
 
@@ -253,9 +427,13 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
       }], Number(url.searchParams.get('page') || 1), Number(url.searchParams.get('page_size') || 20), 41) });
     } else if (pathname.endsWith('/weights/lookup')) {
       await route.fulfill({ json: envelope({
+        category: 'angle',
         spec: url.searchParams.get('spec'),
+        normalized_spec: 'L50x5',
+        material: null,
         weight_kg_per_m: 3.77,
         source: 'hardware_handbook',
+        status: 'hit',
       }) });
     } else if (pathname.endsWith('/batches/41/parts/900')) {
       await route.fulfill({ json: envelope({
@@ -310,22 +488,22 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
       + '&part_no=P-900&search_page=2&search_size=20',
   );
 
-  await expect(page.getByRole('heading', { name: 'Excel Final 数据控制台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Excel 第一阶段处理' })).toBeVisible();
   await expect(page.getByText('12,840')).toBeVisible();
   await expect(page.getByText('204,850.75')).toBeVisible();
   await expect(page.getByText('数据管道就绪')).toBeVisible();
   await expect(page.getByText('SQLite 权威数据')).toBeVisible();
   await expect(page.getByText('本地对象存储')).toBeVisible();
   await expect(page.getByText(/MinIO/)).toHaveCount(0);
-  const heroDescription = page.getByText('监视处理任务、核对业务数据库入库记录，并预览对象存储中的最终清单。');
+  const heroDescription = page.getByText('校验原始 Tekla 清单，生成规范整理表和 part 表，并保留可追溯的计算痕迹。');
   await expect(heroDescription).toHaveCSS('color', 'rgb(185, 206, 216)');
   await expect(page.getByText(/最近刷新/)).toBeVisible();
   await expect(page.getByText('任务 #777')).toBeVisible();
-  await expect(page.getByLabel('跨批次零件号')).toHaveValue('P-900');
-  await expect(page.getByText('PL12*280').first()).toBeVisible();
-  await expect.poll(() => batchQueries.some((query) => query.includes('page=3') && query.includes('page_size=50'))).toBe(true);
-  await expect.poll(() => searchQueries.some((query) => query.includes('page=2') && query.includes('part_no=P-900'))).toBe(true);
+  expect(batchQueries).toEqual([]);
+  expect(searchQueries).toEqual([]);
 
+  await page.getByRole('tab', { name: '批次', exact: true }).click();
+  await expect.poll(() => batchQueries.some((query) => query.includes('page=3') && query.includes('page_size=50'))).toBe(true);
   const drawer = page.getByRole('dialog', { name: /批次 #41/ });
   await expect(drawer.getByText('tower-zone-a.xlsx')).toBeVisible();
   await drawer.getByRole('tab', { name: /构件/ }).click();
@@ -344,6 +522,11 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   await expect(drawer).toBeVisible();
   await drawer.getByRole('button', { name: '关闭' }).click();
 
+  await page.getByRole('tab', { name: '零件', exact: true }).click();
+  await expect(page.getByLabel('跨批次零件号')).toHaveValue('P-900');
+  await expect(page.getByText('PL12*280').first()).toBeVisible();
+  await expect.poll(() => searchQueries.some((query) => query.includes('page=2') && query.includes('part_no=P-900'))).toBe(true);
+
   await page.getByRole('button', { name: '清空搜索' }).click();
   await expect(page.getByText('P-900')).toBeHidden();
   const clearedUrl = new URL(page.url());
@@ -351,12 +534,16 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   expect(clearedUrl.searchParams.has('search_page')).toBe(false);
   expect(clearedUrl.searchParams.get('job_id')).toBe('777');
 
+  await page.getByRole('tab', { name: '五金手册', exact: true }).click();
+  await page.getByRole('combobox', { name: '五金手册类别' }).click();
+  await page.getByText('角钢', { exact: true }).click();
   await page.getByLabel('钢材规格').fill('L50x5');
   await page.getByRole('button', { name: '查询理论重量' }).click();
   await expect(page.getByText('3.77 kg/m')).toBeVisible();
 
+  await page.getByRole('tab', { name: '处理', exact: true }).click();
   await page.getByRole('button', { name: '预览任务 777 结果' }).click();
-  await expect(page.getByRole('dialog', { name: /excel-final-777\.xlsx/ })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: /excel-stage1-777\.xlsx/ })).toBeVisible();
   await expect(page.getByText('Q355').last()).toBeVisible();
   expect(consoleErrors).toEqual([]);
 });
@@ -403,5 +590,5 @@ test('DXF to Excel result can be registered once as an Excel Final job', async (
   await expect(page).toHaveURL(/\/files\/excel-final\?job_id=990$/);
   expect(processCalls).toBe(1);
   expect(processRequestKey).toBe('dxf2excel-700-880');
-  await expect(page.getByRole('heading', { name: 'Excel Final 数据控制台' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Excel 第一阶段处理' })).toBeVisible();
 });

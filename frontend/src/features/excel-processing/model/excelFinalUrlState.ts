@@ -1,5 +1,7 @@
 export const DEFAULT_BATCH_PAGE_SIZE = 20;
 export const DEFAULT_SEARCH_PAGE_SIZE = 20;
+export type ExcelFinalTab = 'process' | 'batches' | 'parts' | 'handbook';
+const EXCEL_FINAL_TABS = new Set<ExcelFinalTab>(['process', 'batches', 'parts', 'handbook']);
 
 const BATCH_PAGE_SIZES = new Set([10, 20, 50, 100, 200]);
 const SEARCH_PAGE_SIZES = new Set([10, 20, 50, 100, 200]);
@@ -23,6 +25,7 @@ function textValue(value: string | null): string {
 }
 
 export interface ExcelFinalUrlState {
+  tab: ExcelFinalTab;
   jobId: number | null;
   batchPage: number;
   batchPageSize: number;
@@ -41,7 +44,9 @@ export function parseExcelFinalUrlState(params: URLSearchParams): ExcelFinalUrlS
   const partNo = textValue(params.get('part_no'));
   const spec = textValue(params.get('spec'));
   const material = textValue(params.get('material'));
+  const requestedTab = params.get('tab') as ExcelFinalTab | null;
   return {
+    tab: requestedTab && EXCEL_FINAL_TABS.has(requestedTab) ? requestedTab : 'process',
     jobId,
     batchPage: positiveInt(params.get('batch_page'), 1),
     batchPageSize: allowedPageSize(

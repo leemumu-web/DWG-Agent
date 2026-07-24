@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,7 @@ class WorkflowInputIssueRead(BaseModel):
     code: str
     message: str
     recommended_action: str
+    failure: dict[str, Any] | None = None
 
 
 class WorkflowInputItemRead(BaseModel):
@@ -42,6 +44,9 @@ class WorkflowInputItemRead(BaseModel):
     drawing_id: int | None = None
     error_code: str | None = None
     error_message: str | None = None
+    validation: dict[str, Any] | None = None
+    validation_contract_version: int | None = None
+    validated_sha256: str | None = None
 
 
 class WorkflowInputBatchRead(BaseModel):

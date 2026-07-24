@@ -90,10 +90,10 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "excel_stage1",
                 "Excel 第一阶段处理",
-                "调用现有 DXF 批次提取管线生成基础工作簿。",
+                "处理冻结的原始 Tekla Excel，生成整理表和 part。",
                 execution_mode="automated",
-                execution_kind="dxf_to_excel",
-                required_inputs=("batch_name",),
+                execution_kind="excel_stage1",
+                required_inputs=("frozen_source_excel",),
                 artifact_types=("stage1_excel",),
             ),
             _stage(
@@ -103,22 +103,13 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 artifact_types=("review_record",),
             ),
             _stage(
-                "excel_final",
-                "Excel 最终合并",
-                "调用现有 Excel Final 管线并导入结构化零件数据。",
-                execution_mode="automated",
-                execution_kind="excel_final",
-                required_inputs=("file_id",),
-                artifact_types=("final_excel",),
-            ),
-            _stage(
                 "cam_packaging",
                 "CAM 工作包生成",
                 "预留生产规则分组、清单冻结和工作包生成契约。",
                 execution_mode="placeholder",
                 implementation_status="placeholder",
                 execution_kind="cam_packaging",
-                required_inputs=("final_excel", "processed_drawings"),
+                required_inputs=("stage1_excel", "processed_drawings"),
                 artifact_types=("cam_package",),
             ),
             _stage(

@@ -610,6 +610,7 @@ analysis_results ──< workflow_artifacts
 | `workflow_runs` | `config_json` | 流程配置快照；当前没有自动执行器消费 |
 | `workflow_stage_runs` | `input_json`, `output_json` | 阶段输入/输出元数据 |
 | `workflow_artifacts` | `metadata_json` | 产物补充信息 |
+| `workflow_input_items` | `validation_json` | Excel 登记时的规则检查摘要，或包含人工处理动作的失败详情 |
 
 **查询 JSON 列:** MySQL 8.x 支持 `JSON_EXTRACT()`, `->` 和 `->>` 操作符。请使用这些操作符而非字符串匹配，以确保查询的可靠性。
 
@@ -643,8 +644,11 @@ analysis_results ──< workflow_artifacts
 | `2f6b8c1d4e90` | Excel Final 24 个物理数值字段改用 `DECIMAL(24,9)`，消除项目重量累计漂移 | 2026-07-23 |
 | `7c4d9e2a1b60` | 汇合 Excel Final 与余料库迁移分支，不执行 DDL | 2026-07-23 |
 | `9d6e4a1b2c70` | 增加余料自动导入批次、来源路径与标准解析摘要字段 | 2026-07-24 |
+| `4e7c2a9b1d30` | 生产输入项新增 Excel 规则检查快照、规则版本和登记对象 SHA-256 | 2026-07-24 |
+| `5f8d3b0c2e41` | 将 Linux 生产流程归一为九阶段，Excel 第一阶段直接使用冻结 source Excel | 2026-07-24 |
+| `8a6c1f4e2b90` | 汇合余料库与 Linux Excel Stage 迁移分支，不执行 DDL | 2026-07-24 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合，再由 `9d6e4a1b2c70` 增加余料自动导入字段；**`9d6e4a1b2c70` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），最终由 `8a6c1f4e2b90` 汇合。**`8a6c1f4e2b90` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -786,7 +790,7 @@ bash scripts/db.sh init
 |---|---|---|
 | MySQL `dwg_agent` | 42 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
-| `hardware_handbook` | schema/data 或独立管理的权威源 | Excel Final 重量查找可能变化或失败 |
+| `hardware_handbook` | 唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 的确定性生成物；每条语义记录可追溯到源 Sheet/行 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |
 | 证据 | revision、migration head、timestamp、checksum、恢复结果 | 未测试 dump 不是备份保证 |
 

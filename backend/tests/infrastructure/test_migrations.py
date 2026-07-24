@@ -29,6 +29,15 @@ MERGE_REVISION = VERSIONS_DIR / "7c4d9e2a1b60_merge_excel_final_and_remnant_head
 REMNANT_AUTO_IMPORT_REVISION = (
     VERSIONS_DIR / "9d6e4a1b2c70_add_remnant_auto_import.py"
 )
+WORKFLOW_EXCEL_VALIDATION_REVISION = (
+    VERSIONS_DIR / "4e7c2a9b1d30_add_workflow_excel_validation.py"
+)
+LINUX_EXCEL_STAGE_REVISION = (
+    VERSIONS_DIR / "5f8d3b0c2e41_normalize_linux_excel_stage.py"
+)
+REMNANT_EXCEL_WORKFLOW_MERGE_REVISION = (
+    VERSIONS_DIR / "8a6c1f4e2b90_merge_remnant_and_excel_workflow_heads.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -322,6 +331,49 @@ def test_remnant_auto_import_migration_extends_merge_head_and_is_reversible():
     assert 'op.drop_column("remnant_import_batches", "import_mode")' in source
 
 
+def test_workflow_excel_validation_migration_extends_head_and_is_reversible():
+    source = WORKFLOW_EXCEL_VALIDATION_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "4e7c2a9b1d30"' in source
+    assert 'down_revision: str | None = "7c4d9e2a1b60"' in source
+    for column in (
+        "validation_json",
+        "validation_contract_version",
+        "validated_sha256",
+    ):
+        assert f'"{column}"' in source
+        assert f'op.drop_column("workflow_input_items", "{column}")' in source
+    assert "sa.JSON()" in source
+    assert "sa.Integer()" in source
+    assert "sa.String(length=64)" in source
+
+
+def test_linux_excel_stage_migration_is_fail_closed_and_reversible():
+    source = LINUX_EXCEL_STAGE_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "5f8d3b0c2e41"' in source
+    assert 'down_revision: str | None = "4e7c2a9b1d30"' in source
+    assert "def _normalize_linux_workflows(" in source
+    assert "def _restore_legacy_linux_workflows(" in source
+    assert "has legacy Excel execution evidence" in source
+    assert "is currently at legacy excel_final" in source
+    assert "DELETE FROM workflow_stage_runs" in source
+    assert "definition_revision" in source
+
+
+def test_remnant_excel_workflow_merge_revision_joins_heads_without_ddl():
+    source = REMNANT_EXCEL_WORKFLOW_MERGE_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "8a6c1f4e2b90"' in source
+    assert (
+        'down_revision: tuple[str, str] = ("6f4a8c2d1e90", "5f8d3b0c2e41")'
+        in source
+    )
+    assert "def upgrade() -> None:\n    pass" in source
+    assert "def downgrade() -> None:\n    pass" in source
+    assert "op." not in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -359,10 +411,19 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "workflow_input_items",
         "workflow_runs",
         "workflow_stage_runs",
+        "remnant_import_batches",
+        "remnant_import_items",
+        "remnant_material_aliases",
+        "remnant_materials",
+        "remnant_parts",
+        "remnants",
     ):
         assert f'"{table}"' in source
     assert "create_engine(settings.sqlalchemy_database_url)" in source
-    assert 'version != "e2f4b8c6a130"' in source
+    assert "ScriptDirectory.from_config" in source
+    assert "repository must have exactly one Alembic head" in source
+    assert "version != expected_head" in source
+    assert 'version != "e2f4b8c6a130"' not in source
     assert '"files": {"deleted_at"}' in source
     assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
     assert '"uq_jobs_actor_task_request_key"' in source

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,13 +13,35 @@ from app.modules.excel_processing.execution import (
 from app.modules.excel_processing.models import ExcelFinalBatch, ExcelFinalPart
 from app.modules.excel_processing.persistence import replace_batch_for_job
 from app.modules.excel_processing.presentation import process_status
+from app.modules.excel_processing.schemas import (
+    ExcelInputFailure,
+    ExcelInputIssue,
+    ExcelStage1Inspection,
+)
 from app.modules.excel_processing.stage_adapter import (
+    ExcelFinalInputError,
     ExcelFinalProcessError,
     ExcelFinalProcessResult,
 )
-from app.modules.files.interface import StoredFile
+from app.modules.files.interface import FileTransfer, StoredFile
 from app.modules.jobs.interface import Job
 from app.platform.config.constants import TASK_EXCEL_FINAL
+
+
+def _allow_worker_preflight(monkeypatch, service, source_format: str) -> None:
+    monkeypatch.setattr(
+        service,
+        "inspect_excel_stage1_path",
+        lambda _path: ExcelStage1Inspection(
+            protocol_version=1,
+            input_contract_version=1,
+            source_format=source_format,
+            sheet_name="原表",
+            header_row=1,
+            part_count=1,
+            component_count=1,
+        ),
+    )
 
 
 def test_retry_replaces_previously_committed_excel_batch(db: Session):
@@ -190,7 +213,7 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
         return source_path, worker_db.get(StoredFile, file_id)
 
     monkeypatch.setattr(service, "stage_excel_source", fake_stage)
-    monkeypatch.setattr(service, "detect_source_format", lambda _path: "tsv")
+    _allow_worker_preflight(monkeypatch, service, "fixed_width_tekla_text")
     monkeypatch.setattr(
         service,
         "run_excel_final_pipeline",
@@ -232,6 +255,109 @@ def test_pipeline_failure_uses_one_session_and_commits_failed_step(
         )
         == 0
     )
+
+
+def test_worker_revalidation_persists_structured_input_failure(
+    db: Session,
+    monkeypatch,
+    tmp_path,
+):
+    from app.modules.excel_processing import execution as service
+
+    source = StoredFile(
+        bucket="dwg-reports",
+        storage_key="uploads/changed.xlsx",
+        original_name="changed.xlsx",
+        file_ext=".xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size_bytes=7,
+        sha256="b" * 64,
+        status="available",
+    )
+    db.add(source)
+    db.flush()
+    job = Job(
+        task_type=TASK_EXCEL_FINAL,
+        precision_level="normal",
+        pipeline="excel_final",
+        status="queued",
+        attempt=1,
+        progress=0,
+        params_json={"file_id": source.id},
+    )
+    db.add(job)
+    db.commit()
+    source_path = tmp_path / "changed.xlsx"
+    source_path.write_bytes(b"changed")
+    failure = ExcelInputFailure(
+        code="EXCEL_INPUT_OBJECT_CHANGED",
+        message="Excel 文件内容已发生变化。",
+        action="请重新上传文件并重新冻结输入后再运行。",
+        contract_version=1,
+        issues=(
+            ExcelInputIssue(
+                sheet=None,
+                row=None,
+                column=None,
+                field=None,
+                value=None,
+                reason="checksum_mismatch",
+            ),
+        ),
+        sheets=(),
+        meta={
+            "issue_count": 1,
+            "issues_truncated": False,
+            "sheet_count": 0,
+            "sheets_truncated": False,
+        },
+    )
+
+    monkeypatch.setattr(
+        service,
+        "stage_excel_source",
+        lambda worker_db, file_id, _work_dir: (
+            source_path,
+            worker_db.get(StoredFile, file_id),
+        ),
+    )
+    _allow_worker_preflight(monkeypatch, service, "standard_workbook")
+    monkeypatch.setattr(
+        service,
+        "inspect_excel_stage1_path",
+        lambda _path: (_ for _ in ()).throw(ExcelFinalInputError(failure)),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        service,
+        "run_excel_final_pipeline",
+        lambda *_args, **_kwargs: pytest.fail(
+            "invalid worker input must not start the processing pipeline"
+        ),
+    )
+
+    run_excel_final_processing(job.id, expected_attempt=1)
+
+    db.expire_all()
+    persisted = db.get(Job, job.id)
+    assert persisted.status == "failed"
+    assert persisted.error_code == "EXCEL_INPUT_OBJECT_CHANGED"
+    assert persisted.error_message == failure.message
+    assert persisted.progress_data["failure"] == failure.as_dict()
+    assert persisted.progress_data["message"] == failure.message
+    status_payload = process_status(
+        persisted,
+        batch=None,
+        result_file_id=None,
+    )
+    assert status_payload["failure"] == failure.as_dict()
+    steps = list(
+        db.scalars(select(service.JobStep).where(service.JobStep.job_id == job.id))
+    )
+    assert [(step.step_name, step.status) for step in steps] == [
+        ("download_excel_source", "succeeded"),
+        ("run_excel_final_pipeline", "failed"),
+    ]
 
 
 def test_database_import_failure_never_discloses_connection_details(
@@ -276,10 +402,8 @@ def test_database_import_failure_never_discloses_connection_details(
             worker_db.get(StoredFile, file_id),
         ),
     )
-    monkeypatch.setattr(service, "detect_source_format", lambda _path: "tsv")
-
-    def fake_pipeline(_source_path, output_path, *, source_format):
-        assert source_format == "tsv"
+    _allow_worker_preflight(monkeypatch, service, "standard_workbook")
+    def fake_pipeline(_source_path, output_path):
         output_path.write_bytes(b"result")
         return ExcelFinalProcessResult(
             protocol_version=1,
@@ -351,8 +475,7 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
     def fake_stage(worker_db: Session, file_id: int, _work_dir):
         return source_path, worker_db.get(StoredFile, file_id)
 
-    def fake_pipeline(_source_path, output_path, *, source_format):
-        assert source_format == "init"
+    def fake_pipeline(_source_path, output_path):
         workbook = Workbook()
         organized = workbook.active
         organized.title = "整理表"
@@ -395,7 +518,10 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
             internal_output_path=internal_output_path,
         )
 
+    save_call: dict[str, object] = {}
+
     def fake_save(worker_db: Session, **kwargs):
+        save_call.update(kwargs)
         stored = StoredFile(
             bucket=kwargs["bucket"],
             storage_key=kwargs["storage_key"],
@@ -412,7 +538,7 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
         return stored
 
     monkeypatch.setattr(service, "stage_excel_source", fake_stage)
-    monkeypatch.setattr(service, "detect_source_format", lambda _path: "init")
+    _allow_worker_preflight(monkeypatch, service, "standard_workbook")
     monkeypatch.setattr(service, "run_excel_final_pipeline", fake_pipeline)
     monkeypatch.setattr(service, "save_bytes_as_file", fake_save)
 
@@ -457,6 +583,15 @@ def test_successful_warning_job_persists_and_broadcasts_quality(
     assert persisted_job.progress_data["severe_warning_count"] == 0
     assert persisted_job.progress_data["report_summary"]["category_counts"] == {"手册查无": 1}
     assert "手册查无=1" in persisted_job.progress_data["message"]
+    assert isinstance(save_call["transfer_uid"], str)
+    transfer = db.scalar(
+        select(FileTransfer).where(
+            FileTransfer.transfer_uid == save_call["transfer_uid"]
+        )
+    )
+    assert transfer is not None
+    assert transfer.status == "succeeded"
+    assert transfer.file_id == analysis.result_file_id
     status_payload = process_status(
         persisted_job,
         batch=batch,

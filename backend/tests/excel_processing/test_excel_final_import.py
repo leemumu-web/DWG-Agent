@@ -76,6 +76,50 @@ def _workbook(
     workbook.save(path)
 
 
+def test_excel_final_combined_import_opens_workbook_once(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    batch = _batch(db)
+    output_path = tmp_path / "combined-import.xlsx"
+    workbook = Workbook()
+    organized = workbook.active
+    organized.title = "整理表"
+    organized.append(
+        ["序号", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"]
+    )
+    organized.append([1, "C-1", "P-1", "PL10*100", 200, "Q355B", 2])
+    components = workbook.create_sheet("构件表")
+    components.append(["构件编号", "构件数", "总净重"])
+    components.append(["C-1", 1, 15.7])
+    report = workbook.create_sheet("处理报告")
+    report.append(["级别", "类别", "说明"])
+    report.append(["无", None, None])
+    workbook.save(output_path)
+
+    real_load_workbook = importers.openpyxl.load_workbook
+    opened = 0
+
+    def counted_load_workbook(*args, **kwargs):
+        nonlocal opened
+        opened += 1
+        return real_load_workbook(*args, **kwargs)
+
+    monkeypatch.setattr(
+        importers.openpyxl,
+        "load_workbook",
+        counted_load_workbook,
+    )
+
+    stats = importers.import_workbook_to_db(db, batch.id, output_path)
+
+    assert opened == 1
+    assert stats["parts_imported"] == 1
+    assert stats["components_imported"] == 1
+    assert stats["quality_status"] == "ok"
+
+
 def test_excel_final_quality_import_treats_no_report_sentinel_as_empty(
     tmp_path: Path,
 ) -> None:
@@ -213,6 +257,25 @@ def test_excel_final_parts_imports_sparse_rows_and_optional_fields(db: Session, 
     assert part.length == 120.5
     assert part.material == "Q235B"
     assert part.qty == 0
+
+
+def test_excel_final_import_preserves_d_series_display_spec(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    batch = _batch(db)
+    output_path = tmp_path / "d-series.xlsx"
+    _workbook(
+        output_path,
+        ["序号", "构件编号", "零件号", "截面型材", "规格", "长度", "材质", "数量"],
+        [[1, "C-1", "P-D24", "D24", "D24", 1000, "Q355B", 1]],
+    )
+
+    assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
+    part = db.scalar(select(ExcelFinalPart))
+    assert part is not None
+    assert part.profile_spec == "D24"
+    assert part.spec == "D24"
 
 
 def test_excel_final_parts_never_persists_negative_physical_values(
@@ -381,6 +444,7 @@ def test_excel_final_parts_rejects_unknown_part_type(db: Session, tmp_path: Path
         ("角钢", "angle"),
         ("方管", "square_tube"),
         ("钢管", "steel_pipe"),
+        ("圆管", "steel_pipe"),
         ("方钢", "square_bar"),
         ("高频焊", "hfw_pipe"),
         ("W型钢", "w_beam"),

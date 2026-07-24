@@ -4,6 +4,7 @@ import type {
   ExcelFinalBatchSummary,
   ExcelFinalComponent,
   ExcelFinalHealth,
+  HandbookCategory,
   ExcelFinalOverview,
   ExcelFinalPart,
   ExcelFinalProcessStatus,
@@ -112,10 +113,14 @@ export async function searchExcelFinalParts(
   return response.data;
 }
 
-export async function lookupExcelFinalWeight(spec: string) {
+export async function lookupExcelFinalWeight(input: {
+  category: HandbookCategory;
+  spec: string;
+  material?: string;
+}) {
   const response = await apiClient.get<ApiEnvelope<ExcelFinalWeightLookup>>(
     '/api/v1/excel-final/weights/lookup',
-    { params: { spec } },
+    { params: input },
   );
   return response.data.data;
 }

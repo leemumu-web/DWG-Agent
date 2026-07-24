@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -16,11 +18,6 @@ PREPROCESSED = (
     / "data/preprocessed/20260320-首都体育学院B7#地下部分-构件零件清单(毛净重)去gyb(3)_原表.xlsx"
 )
 BASELINE_PATH = Path(__file__).parent / "fixtures/ground_truth_baseline.json"
-COMPONENT_SCOPED_TYPES = {
-    "BH腹", "BH翼", "BOX腹", "BOX翼", "BT腹", "BT翼",
-}
-
-
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as file:
@@ -41,13 +38,20 @@ def _rows_by_headers(sheet) -> list[dict[str, object]]:
 def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
     if not SOURCE.is_file() or not PREPROCESSED.is_file():
         pytest.skip("real ground-truth source or reviewed single-sheet input is absent")
+    backend_root = STAGE_ROOT.parents[1] / "backend"
+    if str(backend_root) not in sys.path:
+        sys.path.insert(0, str(backend_root))
+    pytest.importorskip(
+        "pydantic",
+        reason="live platform adapter requires the backend dependency environment",
+    )
     from app.modules.excel_processing.stage_adapter import run_excel_final_pipeline
 
     baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
     assert _sha256(SOURCE) == baseline["sha256"]
     output = tmp_path / "ground-truth-canonical.xlsx"
 
-    result = run_excel_final_pipeline(PREPROCESSED, output, source_format="canonical")
+    result = run_excel_final_pipeline(PREPROCESSED, output)
 
     assert result.protocol_version == 1
     assert result.output_path == output.resolve()
@@ -84,12 +88,8 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             "NUT": baseline["nut"],
         }
 
-        component_scoped = [
-            row for row in part if row["类型"] in COMPONENT_SCOPED_TYPES
-        ]
-        global_scoped = [
-            row for row in part if row["类型"] not in COMPONENT_SCOPED_TYPES
-        ]
+        component_scoped = [row for row in part if row["导入构件编号"]]
+        global_scoped = [row for row in part if row["导入构件编号"] is None]
         assert len(part) == baseline["part_rows"]
         assert len(component_scoped) == baseline["part_component_scoped"]
         assert len(global_scoped) == baseline["part_global_scoped"]
@@ -120,10 +120,20 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
             worksheet = formulas[sheet_name]
             header_values = {cell.value for cell in worksheet[1]}
             assert not (set(removed_headers) & header_values)
-
+        assert formulas["part"].max_column == 12
+        assert formulas["part"]["J1"].value == "备注"
+        assert formulas["part"]["K1"].value == "文件"
+        assert formulas["part"]["L1"].value == "类型"
+        visible_types = {
+            row["类型"] for row in part if row["类型"] is not None
+        }
+        assert visible_types == {"BOX腹", "BOX翼"}
+        assert {
+            row["类型"] for row in organized if row["类型"] is not None
+        } == {"BOX腹", "BOX翼"}
         d_rows = [row for row in organized if str(row["截面型材"]).startswith("D")]
         assert len(d_rows) == baseline["d"]
-        assert {row["规格"] for row in d_rows} == {24, 30}
+        assert {row["规格"] for row in d_rows} == {"D24", "D30"}
         assert {row["比重"] for row in d_rows} == {3.55, 5.55}
         assert all(row["理单重(kg)"] is not None for row in d_rows)
 
@@ -143,12 +153,35 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
         assert all(len(rows) == 2 for rows in box_rows.values())
         assert all(
             sum(row["单毛重(kg)"] is not None for row in rows) == 1
-            and sum(row["理总重(kg)"] is not None for row in rows) == 1
+            and sum(row["理总重(kg)"] is not None for row in rows) == 2
+            and sum(row["比重"] == 7.85 for row in rows) == 2
             for rows in box_rows.values()
         )
 
         assert formulas["整理表"]["P2"].value == "=M2-N2-O2"
         assert values["整理表"]["P2"].value is not None
+        organized_formula_counts = Counter(
+            cell.column_letter
+            for row in formulas["整理表"].iter_rows(min_row=2)
+            for cell in row
+            if isinstance(cell.value, str) and cell.value.startswith("=")
+        )
+        assert organized_formula_counts == {
+            "P": 527,
+            "T": 527,
+            "U": 527,
+            "W": 482,
+            "X": 482,
+            "AA": 485,
+            "AD": 485,
+        }
+        part_formulas = [
+            cell.value
+            for cell in formulas["part"]["G"][1:]
+            if isinstance(cell.value, str) and cell.value.startswith("=")
+        ]
+        assert len(part_formulas) == baseline["part_rows"]
+        assert all(formula.startswith("=SUM('整理表'!T") for formula in part_formulas)
     finally:
         formulas.close()
         values.close()

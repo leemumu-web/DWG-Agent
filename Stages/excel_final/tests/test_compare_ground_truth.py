@@ -14,6 +14,17 @@ def test_ground_truth_part_type_normalizes_box_cover() -> None:
     assert _normalized_part_type(None) == "板材"
 
 
+def test_final_part_without_type_derives_scope_from_identity() -> None:
+    assert _normalized_part_type({
+        "导入构件编号": "C1",
+        "导入零件号": "P1-BOX腹",
+    }) == "BOX腹"
+    assert _normalized_part_type({
+        "导入构件编号": None,
+        "导入零件号": "P1",
+    }) == "板材"
+
+
 def test_component_scoped_comparison_key_keeps_component_identity() -> None:
     row = {
         "导入构件编号": "C1",

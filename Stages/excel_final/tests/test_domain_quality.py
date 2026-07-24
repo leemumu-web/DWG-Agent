@@ -103,12 +103,14 @@ def test_parent_evidence_and_split_part_share_one_weight_source() -> None:
         width=Decimal("628"),
         quantity=Decimal("2"),
         is_main=True,
+        theoretical_unit_weight_unrounded=Decimal("646.000992"),
         theoretical_contribution_unrounded=Decimal("1292.001984"),
     )
 
     assert web.parent is evidence
     assert web.parent.source.original_qty == Decimal("1")
     assert web.parent.theoretical_unit_weight_unrounded == Decimal("2732.131584")
+    assert web.theoretical_unit_weight_unrounded == Decimal("646.000992")
     assert web.theoretical_contribution_unrounded == Decimal("1292.001984")
     with pytest.raises(FrozenInstanceError):
         evidence.density_source = "changed"
@@ -258,6 +260,196 @@ def test_quality_report_filters_info_and_merges_same_source_category() -> None:
         "category_counts": {"关键字段缺失": 1},
         "representative_messages": ["长度缺失；材质缺失"],
     }
+
+
+def test_quality_report_groups_repeated_action_across_source_rows() -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    for source_row in (10, 11):
+        ledger.add(
+            quality.QualityIssue(
+                level=quality.IssueLevel.WARNING,
+                category="五金手册查无",
+                source_sheet="原表",
+                source_row=source_row,
+                component_no=f"C{source_row}",
+                part_no=f"P{source_row}",
+                spec="D8",
+                field="比重",
+                actual_value="查无",
+                expected_value="指定类别手册命中",
+                absolute_error=None,
+                relative_error=None,
+                affects_part=False,
+                density_source="unsupported:not_found",
+                description="D8: D系列材质不足",
+            )
+        )
+    ledger.add(
+        quality.QualityIssue(
+            level=quality.IssueLevel.WARNING,
+            category="五金手册查无",
+            source_sheet="原表",
+            source_row=12,
+            component_no="C12",
+            part_no="P12",
+            spec="D12",
+            field="比重",
+            actual_value="查无",
+            expected_value="指定类别手册命中",
+            absolute_error=None,
+            relative_error=None,
+            affects_part=False,
+            density_source="unsupported:not_found",
+            description="D12: D系列材质不足",
+        )
+    )
+
+    rows = ledger.report_rows()
+
+    assert len(rows) == 2
+    d8 = next(row for row in rows if "D8" in str(row["说明"]))
+    assert d8["来源位置"] == "原表!10、11"
+    assert d8["构件编号"] == "C10、C11"
+    assert d8["零件号"] == "P10、P11"
+    assert d8["涉及字段"] == "比重"
+    assert d8["说明"] == "影响 2 行；D8: D系列材质不足"
+    assert ledger.warning_count == 2
+
+
+def test_quality_report_compacts_geometry_review_and_prioritizes_severe_rows() -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    for source_row, spec, actual, expected in (
+        (10, "BH500*300*10*16", Decimal("120"), Decimal("100")),
+        (11, "BOX400*400*16*16", Decimal("90"), Decimal("100")),
+    ):
+        ledger.add(
+            quality.QualityIssue(
+                level=quality.IssueLevel.WARNING,
+                category="几何理论重与毛重",
+                source_sheet="原表",
+                source_row=source_row,
+                component_no=f"C{source_row}",
+                part_no=f"P{source_row}",
+                spec=spec,
+                field="单毛重",
+                actual_value=actual,
+                expected_value=expected,
+                absolute_error=abs(actual - expected),
+                relative_error=abs(actual - expected) / expected,
+                affects_part=False,
+                density_source="plate_constant:7.85",
+                description="单毛重与父理论重量偏差超限",
+            )
+        )
+    ledger.add(
+        quality.QualityIssue(
+            level=quality.IssueLevel.SEVERE,
+            category="源重量链异常",
+            source_sheet="原表",
+            source_row=10,
+            component_no="C10",
+            part_no="P10",
+            spec="BH500*300*10*16",
+            field="总毛重",
+            actual_value=Decimal("250"),
+            expected_value=Decimal("240"),
+            absolute_error=Decimal("10"),
+            relative_error=Decimal("0.0416667"),
+            affects_part=True,
+            density_source="plate_constant:7.85",
+            description="总毛重不等于对应单重乘原数量",
+        )
+    )
+
+    rows = ledger.report_rows()
+
+    assert len(rows) == 2
+    geometry = next(row for row in rows if row["类别"] == "几何理论重与毛重")
+    assert geometry["来源位置"] == "原表!11"
+    assert geometry["说明"] == (
+        "源毛重低于BOX拆板合计父理论重（腹板×2+翼板×2）；"
+        "最大相对偏差 10.00%"
+    )
+    assert geometry["建议操作"] == ("抽查轮廓、切割和毛坯口径；仅在源毛重用于下料或采购时人工确认")
+    severe = next(row for row in rows if row["类别"] == "源重量链异常")
+    assert severe["来源位置"] == "原表!10"
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_basis"),
+    [
+        ("BH500*300*10*16", "BH拆板合计父理论重（腹板×1+翼板×2）"),
+        ("BOX400*400*16*16", "BOX拆板合计父理论重（腹板×2+翼板×2）"),
+        ("BT500*300*10*16", "BT拆板合计父理论重（腹板×1+翼板×1）"),
+    ],
+)
+def test_geometry_report_names_weighted_fabricated_parent_basis(
+    spec: str,
+    expected_basis: str,
+) -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    ledger.add(
+        quality.QualityIssue(
+            level=quality.IssueLevel.WARNING,
+            category="几何理论重与毛重",
+            source_sheet="原表",
+            source_row=8,
+            component_no="C1",
+            part_no="P1",
+            spec=spec,
+            field="单毛重",
+            actual_value=Decimal("90"),
+            expected_value=Decimal("100"),
+            absolute_error=Decimal("10"),
+            relative_error=Decimal("0.1"),
+            affects_part=False,
+            density_source="plate_constant:7.85",
+            description="单毛重与父理论重量偏差超限",
+        )
+    )
+
+    report = ledger.report_rows()
+
+    assert len(report) == 1
+    assert report[0]["说明"] == (
+        f"源毛重低于{expected_basis}；最大相对偏差 10.00%"
+    )
+
+
+def test_quality_report_keeps_handbook_specs_separate_for_standard_review() -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    for source_row, spec in ((20, "HN400*200*8*13"), (21, "HN450*200*9*14")):
+        ledger.add(
+            quality.QualityIssue(
+                level=quality.IssueLevel.WARNING,
+                category="手册理论重与毛重",
+                source_sheet="原表",
+                source_row=source_row,
+                component_no=f"C{source_row}",
+                part_no=f"P{source_row}",
+                spec=spec,
+                field="单毛重",
+                actual_value=Decimal("66"),
+                expected_value=Decimal("65.4"),
+                absolute_error=Decimal("0.6"),
+                relative_error=Decimal("0.009174"),
+                affects_part=False,
+                density_source="h_beam:h_beam",
+                description="单毛重与父理论重量偏差超限",
+            )
+        )
+
+    rows = ledger.report_rows()
+
+    assert len(rows) == 2
+    assert all(
+        row["建议操作"] == "确认项目采用的型材标准版本；需要时补充版本映射后重新处理"
+        for row in rows
+    )
 
 
 @pytest.mark.parametrize(

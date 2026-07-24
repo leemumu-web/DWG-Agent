@@ -11,6 +11,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.modules.excel_processing.interface import ExcelFinalInputError
 from app.modules.files.interface import StoredFile
 from app.modules.projects.interface import Drawing, DrawingVersion
 from app.modules.workflows.artifacts import attach_artifact
@@ -90,11 +91,35 @@ def freeze_input_batch(
                 "A registered input file no longer exists.",
                 {"item_id": item.id, "file_id": item.file_id},
             )
+        if item.role == "source_excel":
+            persisted_failure = registration.persisted_excel_failure(item)
+            if persisted_failure is not None:
+                registration.raise_excel_failure(persisted_failure)
+            if (
+                item.validation_contract_version is None
+                or item.validated_sha256 is None
+                or not isinstance(item.validation_json, dict)
+                or not isinstance(item.validation_json.get("inspection"), dict)
+            ):
+                registration.raise_excel_failure(
+                    registration.excel_validation_required_failure(item)
+                )
         payload = registration.read_verified_input_object(stored)
         if item.role == "source_dwg":
             registration.validate_dwg_payload(payload)
         else:
-            registration.validate_excel_payload(stored.file_ext.lower(), payload)
+            try:
+                inspection = registration.inspect_excel_payload(
+                    file_name=stored.original_name,
+                    payload=payload,
+                    expected_sha256=item.validated_sha256,
+                )
+            except ExcelFinalInputError as exc:
+                registration.raise_excel_failure(exc.failure.as_dict())
+            if inspection.input_contract_version != item.validation_contract_version:
+                registration.raise_excel_failure(
+                    registration.excel_validation_required_failure(item)
+                )
 
     conversion.sync_input_batch(db, batch)
     if batch.status != "ready_to_freeze":

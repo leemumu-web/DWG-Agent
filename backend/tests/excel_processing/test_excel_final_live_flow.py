@@ -112,7 +112,7 @@ def test_live_upload_worker_catalog_and_download_flow(
 
     batch = db.scalar(select(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job_id))
     assert batch is not None
-    assert batch.source_type == "canonical"
+    assert batch.source_type == "auto"
     assert db.scalar(
         select(func.count()).select_from(ExcelFinalPart).where(
             ExcelFinalPart.batch_id == batch.id
@@ -184,18 +184,17 @@ def test_live_upload_worker_catalog_and_download_flow(
         ]
         assert workbook["整理表"].max_row == 528
         part_headers = [cell.value for cell in workbook["part"][1]]
+        assert len(part_headers) == 12
+        assert part_headers[9:] == ["备注", "文件", "类型"]
         part_rows = [
             dict(zip(part_headers, values, strict=True))
             for values in workbook["part"].iter_rows(min_row=2, values_only=True)
         ]
-        component_types = {
-            "BH腹", "BH翼", "BOX腹", "BOX翼", "BT腹", "BT翼",
-        }
         component_scoped = [
-            row for row in part_rows if row["类型"] in component_types
+            row for row in part_rows if row["导入构件编号"]
         ]
         global_scoped = [
-            row for row in part_rows if row["类型"] not in component_types
+            row for row in part_rows if row["导入构件编号"] is None
         ]
         assert len(part_rows) == 122
         assert len(component_scoped) == 84
@@ -204,6 +203,10 @@ def test_live_upload_worker_catalog_and_download_flow(
         assert all(row["导入构件编号"] is None for row in global_scoped)
         assert sum(row["汇总"] for row in global_scoped) == 1216
         assert all(row["文件"] is None for row in part_rows)
+        visible_types = {
+            row["类型"] for row in part_rows if row["类型"] is not None
+        }
+        assert visible_types == {"BOX腹", "BOX翼"}
         assert workbook["处理报告"]["A2"].value == "无"
         assert workbook["处理报告"].max_row == 2
         for sheet_name in ("清洗表", "构件表", "整理表", "part", "处理报告"):
@@ -227,8 +230,40 @@ def test_live_upload_worker_catalog_and_download_flow(
             worksheet = workbook[sheet_name]
             header_values = {cell.value for cell in worksheet[1]}
             assert not (set(removed_headers) & header_values)
+        organized_headers = [cell.value for cell in workbook["整理表"][1]]
+        organized_type_column = organized_headers.index("类型")
+        organized_types = {
+            row[organized_type_column]
+            for row in workbook["整理表"].iter_rows(min_row=2, values_only=True)
+            if row[organized_type_column] is not None
+        }
+        assert organized_types == {"BOX腹", "BOX翼"}
     finally:
         workbook.close()
+
+    formula_workbook = load_workbook(BytesIO(downloaded.content), data_only=False)
+    try:
+        organized_formulas = [
+            cell.value
+            for row in formula_workbook["整理表"].iter_rows(min_row=2)
+            for cell in row
+            if isinstance(cell.value, str) and cell.value.startswith("=")
+        ]
+        part_formulas = [
+            cell.value
+            for cell in formula_workbook["part"]["G"][1:]
+            if isinstance(cell.value, str) and cell.value.startswith("=")
+        ]
+        assert len(organized_formulas) == 3515
+        assert formula_workbook["整理表"]["P2"].value == "=M2-N2-O2"
+        assert formula_workbook["整理表"]["T2"].value == "=D2*S2"
+        assert formula_workbook["整理表"]["W2"].value == (
+            "=ROUND(K2*L2*M2*V2/1000000,3)"
+        )
+        assert len(part_formulas) == 122
+        assert all(formula.startswith("=SUM('整理表'!T") for formula in part_formulas)
+    finally:
+        formula_workbook.close()
 
     assert db.scalar(select(func.count()).select_from(Job)) == 1
     assert db.scalar(select(func.count()).select_from(AnalysisResult)) == 1

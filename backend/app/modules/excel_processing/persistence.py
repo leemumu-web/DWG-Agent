@@ -8,11 +8,7 @@ from pathlib import Path
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.modules.excel_processing.importers import (
-    import_components_to_db,
-    import_parts_to_db,
-    import_quality_report,
-)
+from app.modules.excel_processing.importers import import_workbook_to_db
 from app.modules.excel_processing.models import ExcelFinalBatch, ExcelFinalPart
 from app.modules.excel_processing.schemas import BatchImportStats, QualityExpectation
 
@@ -68,26 +64,24 @@ def import_workbook_for_job(
         source_type=source_type,
         source_name=source_name,
     )
-    parts_stats = import_parts_to_db(db, batch.id, output_path)
-    components_stats = import_components_to_db(db, batch.id, output_path)
-    quality_stats = import_quality_report(output_path)
+    workbook_stats = import_workbook_to_db(db, batch.id, output_path)
     if expected_quality is not None:
         quality_fields = ("quality_status", "warning_count", "severe_warning_count")
         mismatches = [
             field
             for field in quality_fields
-            if expected_quality[field] != quality_stats[field]
+            if expected_quality[field] != workbook_stats[field]
         ]
         if mismatches:
             raise ValueError(
                 "Excel Final quality summary mismatch for: " + ", ".join(mismatches)
             )
-    batch.part_count = parts_stats["parts_imported"]
-    batch.component_count = components_stats["components_imported"]
-    batch.quality_status = quality_stats["quality_status"]
-    batch.warning_count = quality_stats["warning_count"]
-    batch.severe_warning_count = quality_stats["severe_warning_count"]
-    batch.report_summary = quality_stats["report_summary"]
+    batch.part_count = workbook_stats["parts_imported"]
+    batch.component_count = workbook_stats["components_imported"]
+    batch.quality_status = workbook_stats["quality_status"]
+    batch.warning_count = workbook_stats["warning_count"]
+    batch.severe_warning_count = workbook_stats["severe_warning_count"]
+    batch.report_summary = workbook_stats["report_summary"]
     if batch.part_count > 0:
         total_net, total_gross = db.execute(
             select(
@@ -99,9 +93,7 @@ def import_workbook_for_job(
         batch.total_gross_weight = total_gross
     stats: BatchImportStats = {
         "batch_id": batch.id,
-        **parts_stats,
-        **components_stats,
-        **quality_stats,
+        **workbook_stats,
         "total_net_weight": (
             float(batch.total_net_weight) if batch.total_net_weight is not None else None
         ),

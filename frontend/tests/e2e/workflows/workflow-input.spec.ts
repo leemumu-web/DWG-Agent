@@ -160,11 +160,11 @@ test('production source intake prevents DXF mistakes and freezes server-generate
     sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
   }, { token: 'e2e-token', savedUser: user });
   await page.goto('/workflows');
-  await expect(page.getByRole('button', { name: /新建并上传生产批次/ })).toBeVisible();
-  await page.getByRole('button', { name: /新建并上传生产批次/ }).click();
+  await expect(page.getByRole('button', { name: '新建生产批次' })).toBeVisible();
+  await page.getByRole('button', { name: '新建生产批次' }).click();
   const submission = page.getByRole('dialog', { name: '新建生产批次' });
   await expect(submission.getByText('多个 DWG + 1 个 Excel')).toBeVisible();
-  await expect(submission.getByText('进入资料上传', { exact: true })).toBeVisible();
+  await expect(submission.getByText('进入批次详情', { exact: true })).toBeVisible();
   await submission.getByRole('combobox', { name: '所属项目' }).click();
   await page.getByText('P7 · 生产项目').click();
   const browserDate = await page.evaluate(() => {
@@ -173,13 +173,11 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   });
   await expect(submission.getByRole('textbox', { name: '批次名称' })).toHaveValue(`P7-${browserDate}-生产批次`);
   await submission.getByRole('textbox', { name: '批次名称' }).fill('浏览器生产批次');
-  await expect(submission.getByText('本步不会上传文件')).toBeVisible();
-  await submission.getByRole('button', { name: '创建批次，下一步上传文件' }).click();
-  const uploadStep = page.getByRole('dialog', { name: '生产批次 #41 · 资料提交' });
-  await expect(uploadStep.getByRole('button', { name: /上传 DWG/ })).toBeVisible();
-  await expect(uploadStep.getByRole('button', { name: '上传 Excel' })).toBeVisible();
-  await uploadStep.getByRole('button', { name: '关闭' }).click();
-  await page.getByRole('button', { name: '详情' }).click();
+  await expect(submission.getByText('创建并启动后将进入独立详情页继续上传。')).toBeVisible();
+  await submission.getByRole('button', { name: '创建并进入资料上传' }).click();
+  await expect(page).toHaveURL(/\/workflows\/41$/);
+  await expect(page.getByRole('button', { name: /上传 DWG/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '上传 Excel' })).toBeVisible();
   await expect(page.getByText('只需上传多个 DWG 和一个 Excel')).toBeVisible();
 
   let chooser = page.waitForEvent('filechooser');
@@ -203,8 +201,7 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await page.getByRole('button', { name: '冻结输入版本' }).click();
   await expect(page.getByText(/冻结后不可修改/)).toBeVisible();
   await page.getByRole('button', { name: '确认冻结' }).click();
-  await expect(page.getByText('输入版本已冻结')).toBeVisible();
-  await expect(page.getByText(`版本 v1 · 清单 ${'a'.repeat(64)}`)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();
   await expect(page.getByRole('button', { name: '开始 DXF 分类分流' })).toBeVisible();
   await page.getByRole('button', { name: '开始 DXF 分类分流' }).click();
   await expect(page.getByText('全部 DXF 已完成分类分流')).toBeVisible();

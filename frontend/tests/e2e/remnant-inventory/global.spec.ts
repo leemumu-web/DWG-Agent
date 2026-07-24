@@ -92,7 +92,7 @@ test('workers browse filter page and export the complete remnant inventory', asy
   const initialUrl = new URL(state.requestUrls[0]);
   expect(initialUrl.searchParams.getAll('statuses')).toEqual(['available', 'reserved']);
 
-  await page.getByLabel('项目编号筛选').fill('精武路');
+  await page.getByLabel('项目编号一筛选').fill('精武路');
   await page.getByLabel('零件编号筛选').fill('JWL-1');
   await page.getByRole('button', { name: '查询全部余料' }).click();
   await expect.poll(() => state.requestUrls.length).toBe(2);
@@ -158,7 +158,7 @@ test('changing filters or history visibility clears selected remnants', async ({
 
   await first.check();
   await expect(archiveButton).toBeEnabled();
-  await page.getByLabel('项目编号筛选').fill('精武路');
+  await page.getByLabel('项目编号一筛选').fill('精武路');
   await page.getByRole('button', { name: '查询全部余料' }).click();
   await expect(first).not.toBeChecked();
   await expect(archiveButton).toBeDisabled();

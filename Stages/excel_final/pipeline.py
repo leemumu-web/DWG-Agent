@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from decimal import Decimal
 from pathlib import Path
 import logging
 import os
@@ -15,10 +14,9 @@ from openpyxl import Workbook
 import config as cfg
 from canonical_pipeline import HandbookReader, process_canonical_records
 from config import OUTPUT_DIR
-from domain import ComponentRowKind, ComponentSourceRow, PipelineOutcome
+from domain import PipelineOutcome
 from handbook import close_handbook, init_handbook
-from reader import CanonicalWorkbookRead, read_canonical_source
-from reader_init import read_init_canonical, read_init_table
+from source_intake import SourceIntakeResult, read_production_source
 
 
 log = logging.getLogger(__name__)
@@ -34,31 +32,6 @@ def _xlsx_output(output_file: str | Path) -> Path:
     if output_path.suffix.lower() != ".xlsx":
         raise ValueError("Excel Final output must use the .xlsx extension")
     return output_path
-
-
-def _initial_component_rows(input_file: Path) -> tuple[ComponentSourceRow, ...]:
-    component, _ = read_init_table(input_file)
-    return (
-        ComponentSourceRow(
-            source_sheet="初始表",
-            source_row=1,
-            kind=ComponentRowKind.SUMMARY,
-            batch=None,
-            component_no=component.component_no.replace(" ", "").replace("　", ""),
-            component_qty=Decimal(str(component.component_qty)),
-            original_spec=None,
-            material=None,
-            source_unit_net=None,
-            source_total_net=None,
-            source_unit_gross=None,
-            source_total_gross=None,
-            source_unit_area=None,
-            source_total_area=None,
-            component_length=None,
-            component_width=None,
-            component_height=None,
-        ),
-    )
 
 
 def _decode_tab_text(path: Path) -> list[list[object]] | None:
@@ -80,7 +53,7 @@ def _decode_tab_text(path: Path) -> list[list[object]] | None:
 def _writer_source(
     input_file: Path,
     output_file: Path,
-    canonical_read: CanonicalWorkbookRead | None = None,
+    intake: SourceIntakeResult | None = None,
 ) -> Iterator[Path]:
     """Materialize Tekla text as one reviewed raw sheet for the workbook writer."""
     if input_file.suffix.lower() in {".xlsx", ".xlsm"}:
@@ -96,9 +69,9 @@ def _writer_source(
     try:
         rows = _decode_tab_text(input_file)
         if rows is None:
-            if canonical_read is None:
+            if intake is None:
                 raise ValueError("Tekla text source could not be materialized")
-            rows = [list(row) for row in canonical_read.working_values]
+            rows = [list(row) for row in intake.working_values]
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "原表"
@@ -139,53 +112,46 @@ def _run_with_repository(
             close_handbook()
 
 
-def run_pipeline(
-    input_file: str | Path,
-    output_file: str | Path | None = None,
+def _run_intake(
+    intake: SourceIntakeResult,
+    output_file: str | Path | None,
     *,
-    handbook_repository: HandbookReader | None = None,
-    internal_output_file: str | Path | None = None,
+    handbook_repository: HandbookReader | None,
+    internal_output_file: str | Path | None,
 ) -> PipelineOutcome:
-    """Adapt one strict Tekla source and run the canonical engine."""
-    input_path = Path(input_file).resolve()
+    input_path = intake.source_path
     output_path = _xlsx_output(
         _default_output(input_path) if output_file is None else output_file
     )
-    log.info("规范 Tekla 流程: %s → %s", input_path.name, output_path.name)
-    canonical_read = read_canonical_source(input_path)
-    with _writer_source(input_path, output_path, canonical_read) as source_path:
+    log.info(
+        "规范 Excel Final 流程 [%s]: %s → %s",
+        intake.source_format.value,
+        input_path.name,
+        output_path.name,
+    )
+    with _writer_source(input_path, output_path, intake) as source_path:
         return _run_with_repository(
             source_path=source_path,
             output_path=output_path,
-            parts=canonical_read.parts,
-            component_rows=canonical_read.component_rows,
-            reader_issues=canonical_read.issues,
+            parts=intake.parts,
+            component_rows=intake.component_rows,
+            reader_issues=intake.issues,
             handbook_repository=handbook_repository,
             internal_output_file=internal_output_file,
         )
 
 
-def run_init_pipeline(
+def run_auto_pipeline(
     input_file: str | Path,
     output_file: str | Path | None = None,
     *,
     handbook_repository: HandbookReader | None = None,
     internal_output_file: str | Path | None = None,
 ) -> PipelineOutcome:
-    """Adapt one strict initial-table workbook and run the same canonical engine."""
-    input_path = Path(input_file).resolve()
-    output_path = _xlsx_output(
-        _default_output(input_path) if output_file is None else output_file
-    )
-    log.info("规范初始表流程: %s → %s", input_path.name, output_path.name)
-    parts = read_init_canonical(input_path)
-    component_rows = _initial_component_rows(input_path)
-    return _run_with_repository(
-        source_path=input_path,
-        output_path=output_path,
-        parts=parts,
-        component_rows=component_rows,
-        reader_issues=(),
+    """Auto-detect one supported production source and run the canonical engine."""
+    return _run_intake(
+        read_production_source(input_file),
+        output_file,
         handbook_repository=handbook_repository,
         internal_output_file=internal_output_file,
     )

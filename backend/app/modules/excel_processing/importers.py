@@ -18,6 +18,7 @@ from app.modules.excel_processing.schemas import (
     PartsImportStats,
     QualityImportStats,
     WeightValidationStatus,
+    WorkbookImportStats,
 )
 
 _PART_TYPE_ALIASES = {
@@ -40,6 +41,7 @@ _PART_TYPE_ALIASES = {
     "角钢": ExcelFinalPartType.ANGLE,
     "方管": ExcelFinalPartType.SQUARE_TUBE,
     "钢管": ExcelFinalPartType.STEEL_PIPE,
+    "圆管": ExcelFinalPartType.STEEL_PIPE,
     "方钢": ExcelFinalPartType.SQUARE_BAR,
     "高频焊": ExcelFinalPartType.HFW_PIPE,
     "W型钢": ExcelFinalPartType.W_BEAM,
@@ -124,9 +126,15 @@ def import_parts_to_db(
     db: Session,
     batch_id: int,
     output_path: Path,
+    *,
+    _workbook: Any | None = None,
 ) -> PartsImportStats:
     """Stream the canonical part-list sheet into `excel_final_parts`."""
-    workbook = openpyxl.load_workbook(output_path, read_only=True, data_only=True)
+    workbook = _workbook or openpyxl.load_workbook(
+        output_path,
+        read_only=True,
+        data_only=True,
+    )
     try:
         sheet_name = "整理表" if "整理表" in workbook.sheetnames else None
         if sheet_name is None:
@@ -286,7 +294,8 @@ def import_parts_to_db(
                 continue
             parts.append(record)
     finally:
-        workbook.close()
+        if _workbook is None:
+            workbook.close()
 
     if parts:
         db.bulk_insert_mappings(ExcelFinalPart, parts)
@@ -294,9 +303,17 @@ def import_parts_to_db(
     return {"parts_imported": len(parts)}
 
 
-def import_quality_report(output_path: Path) -> QualityImportStats:
+def import_quality_report(
+    output_path: Path,
+    *,
+    _workbook: Any | None = None,
+) -> QualityImportStats:
     """Read the canonical quality ledger and return a bounded aggregate."""
-    workbook = openpyxl.load_workbook(output_path, read_only=True, data_only=True)
+    workbook = _workbook or openpyxl.load_workbook(
+        output_path,
+        read_only=True,
+        data_only=True,
+    )
     try:
         if "处理报告" not in workbook.sheetnames:
             return {
@@ -374,16 +391,23 @@ def import_quality_report(output_path: Path) -> QualityImportStats:
             },
         }
     finally:
-        workbook.close()
+        if _workbook is None:
+            workbook.close()
 
 
 def import_components_to_db(
     db: Session,
     batch_id: int,
     output_path: Path,
+    *,
+    _workbook: Any | None = None,
 ) -> ComponentsImportStats:
     """Stream the component-summary sheet into `excel_final_components`."""
-    workbook = openpyxl.load_workbook(output_path, read_only=True, data_only=True)
+    workbook = _workbook or openpyxl.load_workbook(
+        output_path,
+        read_only=True,
+        data_only=True,
+    )
     try:
         if "构件表" not in workbook.sheetnames:
             return {"components_imported": 0}
@@ -430,7 +454,8 @@ def import_components_to_db(
                 }
             )
     finally:
-        workbook.close()
+        if _workbook is None:
+            workbook.close()
 
     if components:
         db.bulk_insert_mappings(ExcelFinalComponent, components)
@@ -438,4 +463,39 @@ def import_components_to_db(
     return {"components_imported": len(components)}
 
 
-__all__ = ["import_components_to_db", "import_parts_to_db", "import_quality_report"]
+def import_workbook_to_db(
+    db: Session,
+    batch_id: int,
+    output_path: Path,
+) -> WorkbookImportStats:
+    """Project all canonical workbook sheets through one read-only workbook."""
+    workbook = openpyxl.load_workbook(output_path, read_only=True, data_only=True)
+    try:
+        return {
+            **import_parts_to_db(
+                db,
+                batch_id,
+                output_path,
+                _workbook=workbook,
+            ),
+            **import_components_to_db(
+                db,
+                batch_id,
+                output_path,
+                _workbook=workbook,
+            ),
+            **import_quality_report(
+                output_path,
+                _workbook=workbook,
+            ),
+        }
+    finally:
+        workbook.close()
+
+
+__all__ = [
+    "import_components_to_db",
+    "import_parts_to_db",
+    "import_quality_report",
+    "import_workbook_to_db",
+]

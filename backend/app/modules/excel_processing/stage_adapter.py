@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import logging
@@ -7,25 +8,50 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
 import pymysql
 
-from app.modules.excel_processing.schemas import HandbookCategory
+from app.modules.excel_processing.schemas import (
+    ExcelInputFailure,
+    ExcelInputIssue,
+    ExcelStage1Inspection,
+    HandbookCategory,
+)
 from app.platform.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-SourceFormat = Literal["init", "canonical", "tsv"]
 _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
+_ERROR_PREFIX = "DWG_EXCEL_FINAL_ERROR="
 _PROTOCOL_VERSION = 1
-_REQUIRED_STAGE_FILES = ("main.py", "pipeline.py", "handbook.py")
+_INPUT_CONTRACT_VERSION = 1
+_REQUIRED_STAGE_FILES = (
+    "main.py",
+    "pipeline.py",
+    "handbook.py",
+    "config.py",
+    "material_routing.py",
+)
 _QUALITY_STATUSES = {"ok", "warning", "severe_warning"}
-_LOOKUP_STATUSES = {"hit", "not_found", "skipped"}
+_LOOKUP_STATUSES = {"hit", "not_found", "skipped", "conflict"}
 _LOOKUP_CATEGORIES = {item.value for item in HandbookCategory}
+_D_MATERIAL_CATEGORY_BY_PREFIX = {
+    "HRB": "rebar",
+    "HPB": "round_bar",
+    "Q235B": "round_bar",
+    "Q355B": "round_bar",
+}
+_CIRCULAR_HOLLOW_RE = re.compile(
+    r"(PIP|PD)(\d+(?:\.\d+)?)\*(\d+(?:\.\d+)?)",
+    flags=re.IGNORECASE,
+)
 _PROCESS_RESULT_FIELDS = {
     "protocol_version",
     "operation",
@@ -44,6 +70,33 @@ _LOOKUP_RESULT_FIELDS = {
     "weight_kg_per_m",
     "source",
     "status",
+}
+_INSPECTION_RESULT_FIELDS = {
+    "protocol_version",
+    "operation",
+    "input_contract_version",
+    "source_format",
+    "sheet_name",
+    "header_row",
+    "part_count",
+    "component_count",
+}
+_ERROR_FIELDS = {"protocol_version", "operation", "failure"}
+_FAILURE_FIELDS = {
+    "code",
+    "message",
+    "action",
+    "contract_version",
+    "issues",
+    "sheets",
+    "meta",
+}
+_ISSUE_FIELDS = {"sheet", "row", "column", "field", "value", "reason"}
+_SOURCE_FORMATS = {
+    "standard_workbook",
+    "initial_workbook",
+    "delimited_tekla_text",
+    "fixed_width_tekla_text",
 }
 _SUMMARY_FIELDS = {
     "info_count",
@@ -93,6 +146,14 @@ class ExcelFinalUnavailableError(ExcelFinalIntegrationError):
 
 class ExcelFinalProcessError(ExcelFinalIntegrationError):
     """Raised when the isolated Stage process exits unsuccessfully."""
+
+
+class ExcelFinalInputError(ExcelFinalIntegrationError):
+    """Raised when a production table fails the versioned Stage input contract."""
+
+    def __init__(self, failure: ExcelInputFailure) -> None:
+        super().__init__(failure.message)
+        self.failure = failure
 
 
 def get_excel_final_stage_root() -> Path:
@@ -150,51 +211,54 @@ def handbook_database_available() -> bool:
 def run_excel_final_pipeline(
     source_path: Path,
     output_path: Path,
-    *,
-    source_format: SourceFormat,
 ) -> ExcelFinalProcessResult:
     """Run the canonical Stage and validate its versioned process result."""
-    if source_format not in ("init", "canonical", "tsv"):
-        raise ValueError(f"Unsupported Excel Final source format: {source_format}")
     if not source_path.is_file():
         raise ExcelFinalProcessError("Excel Final source file does not exist")
     if output_path.suffix.lower() != ".xlsx":
         raise ValueError("Excel Final output must use the .xlsx extension")
 
+    output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     internal_output_path = output_path.with_name(
         f".{output_path.stem}.internal.xlsx"
-    ).resolve()
-    internal_output_path.unlink(missing_ok=True)
+    )
+    publish_token = uuid.uuid4().hex
+    stage_output_path = output_path.with_name(
+        f".{output_path.stem}.{publish_token}.xlsx"
+    )
+    stage_internal_output_path = output_path.with_name(
+        f".{output_path.stem}.{publish_token}.internal.xlsx"
+    )
     try:
         completed = _run_stage(
             "process",
-            "--format",
-            source_format,
             "--input",
             str(source_path.resolve()),
             "--output",
-            str(output_path.resolve()),
+            str(stage_output_path),
             "--internal-output",
-            str(internal_output_path),
+            str(stage_internal_output_path),
         )
-        _raise_for_failed_stage(completed)
+        _raise_for_failed_stage(completed, operation="process")
         payload = _result_payload(completed, operation="process")
-        result = _process_result(payload, expected_output=output_path)
-        if not output_path.is_file():
+        result = _process_result(payload, expected_output=stage_output_path)
+        if not stage_output_path.is_file():
             raise ExcelFinalProcessError(
                 "Excel Final Stage exited successfully without an output file"
             )
-        if not internal_output_path.is_file():
+        if not stage_internal_output_path.is_file():
             raise ExcelFinalProcessError(
                 "Excel Final Stage exited successfully without its internal import file"
             )
-    except Exception:
-        internal_output_path.unlink(missing_ok=True)
-        raise
+        stage_internal_output_path.replace(internal_output_path)
+        stage_output_path.replace(output_path)
+    finally:
+        stage_output_path.unlink(missing_ok=True)
+        stage_internal_output_path.unlink(missing_ok=True)
     return ExcelFinalProcessResult(
         protocol_version=result.protocol_version,
-        output_path=result.output_path,
+        output_path=output_path,
         quality_status=result.quality_status,
         warning_count=result.warning_count,
         severe_warning_count=result.severe_warning_count,
@@ -219,7 +283,7 @@ def lookup_excel_final_weight(
     if normalized_material is not None:
         arguments.extend(("--material", normalized_material))
     completed = _run_stage(*arguments)
-    _raise_for_failed_stage(completed)
+    _raise_for_failed_stage(completed, operation="lookup")
     payload = _result_payload(completed, operation="lookup")
     return _lookup_result(
         payload,
@@ -229,6 +293,48 @@ def lookup_excel_final_weight(
     )
 
 
+def inspect_excel_stage1_path(source_path: Path) -> ExcelStage1Inspection:
+    """Run the Stage-owned, side-effect-free source inspection."""
+    completed = _run_stage("inspect", "--input", str(source_path.resolve()))
+    _raise_for_failed_stage(completed, operation="inspect")
+    payload = _result_payload(completed, operation="inspect")
+    return _inspection_result(payload)
+
+
+def inspect_excel_stage1_bytes(
+    *,
+    file_name: str,
+    payload: bytes,
+    expected_sha256: str | None = None,
+) -> ExcelStage1Inspection:
+    """Inspect verified object bytes without exposing storage concerns to the Stage."""
+    actual_sha256 = hashlib.sha256(payload).hexdigest()
+    if expected_sha256 is not None and actual_sha256 != expected_sha256:
+        raise ExcelFinalInputError(
+            ExcelInputFailure(
+                code="EXCEL_INPUT_OBJECT_CHANGED",
+                message="Excel 文件内容已发生变化。",
+                action="请重新上传文件并重新冻结输入后再运行。",
+                contract_version=_INPUT_CONTRACT_VERSION,
+                issues=(),
+                sheets=(),
+                meta={
+                    "expected_sha256": expected_sha256,
+                    "actual_sha256": actual_sha256,
+                    "issue_count": 0,
+                    "issues_truncated": False,
+                    "sheet_count": 0,
+                    "sheets_truncated": False,
+                },
+            )
+        )
+    suffix = Path(file_name).suffix.lower()
+    with tempfile.TemporaryDirectory(prefix="excel-stage1-inspect-") as directory:
+        source_path = Path(directory) / f"source{suffix}"
+        source_path.write_bytes(payload)
+        return inspect_excel_stage1_path(source_path)
+
+
 def _normalize_lookup_request(
     category: str,
     spec: str,
@@ -236,31 +342,62 @@ def _normalize_lookup_request(
 ) -> tuple[str, str, str | None]:
     normalized_category = str(category or "").strip()
     normalized_spec = str(spec or "").strip()
-    normalized_material = str(material or "").replace(" ", "").upper() or None
+    normalized_material = (
+        str(material or "").replace(" ", "").replace("　", "").upper() or None
+    )
     if normalized_category not in _LOOKUP_CATEGORIES:
         raise ValueError(f"Unsupported handbook category: {normalized_category}")
     if not normalized_spec:
         raise ValueError("Handbook spec is required")
 
+    compact_spec = normalized_spec.replace(" ", "").replace("　", "")
+    compact_spec = re.sub(r"(?<=\d)[X×](?=\d)", "*", compact_spec).upper()
+    circular_match = _CIRCULAR_HOLLOW_RE.fullmatch(compact_spec)
+    if circular_match is not None:
+        prefix, outer_text, thickness_text = circular_match.groups()
+        expected_category = "steel_pipe" if prefix == "PIP" else "square_tube"
+        if normalized_category != expected_category:
+            raise ValueError(f"{prefix} spec requires {expected_category} category")
+        outer = Decimal(outer_text)
+        thickness = Decimal(thickness_text)
+        if outer <= 0 or thickness <= 0 or outer <= thickness * 2:
+            raise ValueError("PIP/PD spec requires D>0, t>0, and D>2t")
+        normalized_spec = compact_spec
+
+    material_family = next(
+        (
+            prefix
+            for prefix in _D_MATERIAL_CATEGORY_BY_PREFIX
+            if normalized_material is not None
+            and normalized_material.startswith(prefix)
+        ),
+        None,
+    )
+    material_category = (
+        _D_MATERIAL_CATEGORY_BY_PREFIX.get(material_family)
+        if material_family is not None
+        else None
+    )
     d_match = re.fullmatch(r"D(\d+(?:\.\d+)?)", normalized_spec, flags=re.IGNORECASE)
     if d_match:
         if normalized_material is None:
             raise ValueError("D-series handbook lookup requires material")
         normalized_spec = d_match.group(1)
-        if normalized_material.startswith("HRB") and normalized_category != "rebar":
-            raise ValueError("D-series HRB material requires rebar category")
-        if normalized_material.startswith(("HPB", "Q355B")) and normalized_category != "round_bar":
-            raise ValueError("D-series HPB/Q355B material requires round_bar category")
-        if not normalized_material.startswith(("HRB", "HPB", "Q355B")):
+        if material_category is None:
             raise ValueError("Unsupported D-series material")
+        if normalized_category != material_category:
+            raise ValueError(
+                f"D-series {material_family} material requires "
+                f"{material_category} category"
+            )
 
     if normalized_category in {"round_bar", "rebar"} and normalized_material is None:
         raise ValueError(f"{normalized_category} handbook lookup requires material")
     if normalized_category == "round_bar" and normalized_material is not None:
-        if not normalized_material.startswith(("HPB", "Q355B")):
+        if material_category != "round_bar":
             raise ValueError("round_bar category conflicts with material")
     if normalized_category == "rebar" and normalized_material is not None:
-        if not normalized_material.startswith("HRB"):
+        if material_category != "rebar":
             raise ValueError("rebar category conflicts with material")
     return normalized_category, normalized_spec, normalized_material
 
@@ -268,7 +405,7 @@ def _normalize_lookup_request(
 def _result_payload(
     completed: subprocess.CompletedProcess[str],
     *,
-    operation: Literal["process", "lookup"],
+    operation: Literal["process", "lookup", "inspect"],
 ) -> dict[str, object]:
     result_lines = [
         line
@@ -288,10 +425,53 @@ def _result_payload(
     return payload
 
 
+def _inspection_result(payload: dict[str, object]) -> ExcelStage1Inspection:
+    try:
+        if set(payload) != _INSPECTION_RESULT_FIELDS:
+            raise ValueError("invalid fields")
+        if payload["protocol_version"] != _PROTOCOL_VERSION:
+            raise ValueError("unsupported protocol version")
+        if payload["operation"] != "inspect":
+            raise ValueError("wrong operation")
+        if payload["input_contract_version"] != _INPUT_CONTRACT_VERSION:
+            raise ValueError("unsupported input contract version")
+        source_format = payload["source_format"]
+        sheet_name = payload["sheet_name"]
+        if not isinstance(source_format, str) or source_format not in _SOURCE_FORMATS:
+            raise ValueError("invalid source format")
+        if sheet_name is not None and (
+            not isinstance(sheet_name, str) or not sheet_name or len(sheet_name) > 128
+        ):
+            raise ValueError("invalid sheet name")
+        header_row = _positive_int(payload["header_row"])
+        part_count = _non_negative_int(payload["part_count"])
+        component_count = _non_negative_int(payload["component_count"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ExcelFinalProcessError(
+            "Excel Final returned an invalid inspect result"
+        ) from exc
+    return ExcelStage1Inspection(
+        protocol_version=_PROTOCOL_VERSION,
+        input_contract_version=_INPUT_CONTRACT_VERSION,
+        source_format=source_format,
+        sheet_name=sheet_name,
+        header_row=header_row,
+        part_count=part_count,
+        component_count=component_count,
+    )
+
+
 def _non_negative_int(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError("expected a non-negative integer")
     return value
+
+
+def _positive_int(value: object) -> int:
+    result = _non_negative_int(value)
+    if result == 0:
+        raise ValueError("expected a positive integer")
+    return result
 
 
 def _validated_summary(
@@ -496,9 +676,31 @@ def _stage_environment() -> dict[str, str]:
     return environment
 
 
-def _raise_for_failed_stage(completed: subprocess.CompletedProcess[str]) -> None:
+def _raise_for_failed_stage(
+    completed: subprocess.CompletedProcess[str],
+    *,
+    operation: Literal["process", "lookup", "inspect"],
+) -> None:
     if completed.returncode == 0:
         return
+    error_lines = [
+        line
+        for line in completed.stdout.splitlines()
+        if line.startswith(_ERROR_PREFIX)
+    ]
+    if error_lines:
+        if len(error_lines) != 1:
+            raise ExcelFinalProcessError(
+                f"Excel Final returned an invalid {operation} error"
+            )
+        try:
+            payload = json.loads(error_lines[0].removeprefix(_ERROR_PREFIX))
+            failure = _input_failure_from_payload(payload, operation=operation)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ExcelFinalProcessError(
+                f"Excel Final returned an invalid {operation} error"
+            ) from exc
+        raise ExcelFinalInputError(failure)
     details = (completed.stderr or completed.stdout or "unknown error").strip()
     failure_kind = "input_parse" if any(
         marker in details
@@ -527,3 +729,87 @@ def _raise_for_failed_stage(completed: subprocess.CompletedProcess[str]) -> None
     else:
         message = "Excel Final Stage failed while processing the input."
     raise ExcelFinalProcessError(message)
+
+
+def _input_failure_from_payload(
+    payload: object,
+    *,
+    operation: str,
+) -> ExcelInputFailure:
+    if not isinstance(payload, Mapping) or set(payload) != _ERROR_FIELDS:
+        raise ValueError("invalid error shape")
+    if payload["protocol_version"] != _PROTOCOL_VERSION:
+        raise ValueError("unsupported protocol version")
+    if payload["operation"] != operation:
+        raise ValueError("wrong operation")
+    raw_failure = payload["failure"]
+    if not isinstance(raw_failure, Mapping) or set(raw_failure) != _FAILURE_FIELDS:
+        raise ValueError("invalid failure shape")
+
+    code = _bounded_text(raw_failure["code"], maximum=64)
+    if re.fullmatch(r"EXCEL_INPUT_[A-Z0-9_]+", code) is None:
+        raise ValueError("invalid input failure code")
+    message = _bounded_text(raw_failure["message"], maximum=500)
+    action = _bounded_text(raw_failure["action"], maximum=1000)
+    if raw_failure["contract_version"] != _INPUT_CONTRACT_VERSION:
+        raise ValueError("unsupported input contract version")
+
+    raw_issues = raw_failure["issues"]
+    if not isinstance(raw_issues, list) or len(raw_issues) > 20:
+        raise ValueError("invalid issues")
+    issues = tuple(_input_issue_from_payload(issue) for issue in raw_issues)
+
+    raw_sheets = raw_failure["sheets"]
+    if not isinstance(raw_sheets, list) or len(raw_sheets) > 10:
+        raise ValueError("invalid sheets")
+    sheets = tuple(_bounded_text(sheet, maximum=128) for sheet in raw_sheets)
+
+    raw_meta = raw_failure["meta"]
+    if not isinstance(raw_meta, Mapping) or len(raw_meta) > 30:
+        raise ValueError("invalid metadata")
+    meta = dict(raw_meta)
+    encoded_meta = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+    if len(encoded_meta) > 8000:
+        raise ValueError("metadata too large")
+    return ExcelInputFailure(
+        code=code,
+        message=message,
+        action=action,
+        contract_version=_INPUT_CONTRACT_VERSION,
+        issues=issues,
+        sheets=sheets,
+        meta=meta,
+    )
+
+
+def _input_issue_from_payload(payload: object) -> ExcelInputIssue:
+    if not isinstance(payload, Mapping) or set(payload) != _ISSUE_FIELDS:
+        raise ValueError("invalid issue shape")
+    sheet = _optional_bounded_text(payload["sheet"], maximum=128)
+    row = payload["row"]
+    if row is not None:
+        row = _positive_int(row)
+    column = _optional_bounded_text(payload["column"], maximum=16)
+    field = _optional_bounded_text(payload["field"], maximum=128)
+    value = _optional_bounded_text(payload["value"], maximum=160)
+    reason = _bounded_text(payload["reason"], maximum=128)
+    return ExcelInputIssue(
+        sheet=sheet,
+        row=row,
+        column=column,
+        field=field,
+        value=value,
+        reason=reason,
+    )
+
+
+def _bounded_text(value: object, *, maximum: int) -> str:
+    if not isinstance(value, str) or not value or len(value) > maximum:
+        raise ValueError("invalid text")
+    return value
+
+
+def _optional_bounded_text(value: object, *, maximum: int) -> str | None:
+    if value is None:
+        return None
+    return _bounded_text(value, maximum=maximum)

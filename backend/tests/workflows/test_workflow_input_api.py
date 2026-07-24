@@ -12,9 +12,26 @@ from tests.support import workflow_api as workflow_test_api
 
 def _xlsx() -> bytes:
     workbook = openpyxl.Workbook()
-    workbook.active["A1"] = "构件编号"
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P-1", "PL10*200", 100, "Q355B", 1])
     output = BytesIO()
     workbook.save(output)
+    workbook.close()
+    return output.getvalue()
+
+
+def _invalid_xlsx() -> bytes:
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "构件汇总"
+    sheet.append(["构件编号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C-1", "BH500*300*12*20", 1000, "Q355B", 1])
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
     return output.getvalue()
 
 
@@ -152,6 +169,54 @@ def test_registration_rejects_human_dxf_and_second_excel(monkeypatch, tmp_path):
     assert duplicate.json()["error"]["code"] == "INPUT_EXCEL_ALREADY_EXISTS"
     assert manual_dxf.status_code == 422
     assert manual_dxf.json()["error"]["code"] == "INPUT_DXF_NOT_ALLOWED"
+
+
+def test_invalid_excel_registration_commits_failed_item_before_422(monkeypatch, tmp_path):
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "invalid-excel-ledger")
+    batch = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    ).json()["data"]
+    excel_id = _upload(
+        client,
+        owner_headers,
+        "component-only.xlsx",
+        _invalid_xlsx(),
+        batch["id"],
+    )
+
+    registered = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch/files",
+        headers=owner_headers,
+        json={"file_id": excel_id},
+    )
+
+    assert registered.status_code == 422, registered.text
+    error = registered.json()["error"]
+    assert error["code"] == "EXCEL_INPUT_COMPONENT_ONLY"
+    assert error["details"]["failure"]["action"]
+
+    detail = client.get(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+    assert detail.status_code == 200, detail.text
+    data = detail.json()["data"]
+    assert data["status"] == "needs_attention"
+    assert data["freeze_ready"] is False
+    assert data["counts"]["excel"] == 1
+    assert data["counts"]["failed"] == 1
+    excel_issue = next(issue for issue in data["issues"] if issue["code"] == error["code"])
+    assert excel_issue["failure"]["code"] == error["code"]
+    assert len(data["items"]) == 1
+    item = data["items"][0]
+    assert item["status"] == "failed"
+    assert item["error_code"] == error["code"]
+    assert item["validation"]["failure"] == error["details"]["failure"]
+    assert item["validation_contract_version"] == 1
+    assert len(item["validated_sha256"]) == 64
 
 
 def test_input_batch_is_project_scoped(monkeypatch, tmp_path):

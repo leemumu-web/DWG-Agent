@@ -54,6 +54,11 @@ def describe_input_batch(
         job = db.get(Job, item.conversion_job_id) if item.conversion_job_id else None
         derived = db.get(StoredFile, item.derived_dxf_file_id) if item.derived_dxf_file_id else None
         if item.error_code:
+            failure = None
+            if isinstance(item.validation_json, dict):
+                candidate = item.validation_json.get("failure")
+                if isinstance(candidate, dict):
+                    failure = candidate
             issues.append(
                 WorkflowInputIssueRead(
                     item_id=item.id,
@@ -63,6 +68,7 @@ def describe_input_batch(
                     recommended_action=(
                         "retry_conversion" if item.role == "source_dwg" else "remove_file"
                     ),
+                    failure=failure,
                 )
             )
         item_reads.append(
@@ -78,6 +84,9 @@ def describe_input_batch(
                 drawing_id=item.drawing_id,
                 error_code=item.error_code,
                 error_message=item.error_message,
+                validation=item.validation_json,
+                validation_contract_version=item.validation_contract_version,
+                validated_sha256=item.validated_sha256,
             )
         )
     counts = WorkflowInputCounts(
@@ -85,7 +94,10 @@ def describe_input_batch(
         excel=len(excel_items),
         paired=sum(item.status in {"paired", "frozen"} for item in dwg_items),
         converting=sum(item.status == "converting" for item in dwg_items),
-        failed=sum(item.status == "conversion_failed" for item in dwg_items),
+        failed=sum(
+            item.status in {"conversion_failed", "failed"}
+            for item in batch.items
+        ),
     )
     return WorkflowInputBatchRead(
         id=batch.id,

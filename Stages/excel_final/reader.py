@@ -9,20 +9,26 @@ Produces an openpyxl Workbook with two sheets:
 from __future__ import annotations
 
 import logging
-import re as _re
+import re
+import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 import openpyxl
 
-from config import KW_批次, KW_构件编号, KW_零件号, KW_数量, KW_材质
 from domain import ComponentRowKind, ComponentSourceRow, SourcePart
-from input_contract import HeaderDetection, InputKind, detect_canonical_header, inspect_production_input
+from input_contract import (
+    HeaderDetection,
+    InputContractError,
+    InputKind,
+    detect_canonical_header,
+    inspect_production_input,
+)
+from input_errors import ExcelInputIssue, input_failure
 from quality import IssueLevel, QualityIssue
-from utils import safe_str
 
 log = logging.getLogger(__name__)
 
@@ -61,15 +67,55 @@ def _text(value: Any) -> str | None:
     return result if result else None
 
 
-def _decimal(value: Any, *, field: str, source_row: int) -> Decimal | None:
+def _decimal(
+    value: Any,
+    *,
+    field: str,
+    source_row: int,
+    sheet_name: str,
+) -> Decimal | None:
     if value is None or value == "":
         return None
     try:
         result = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
-        raise ValueError(f"row {source_row} field {field} is not numeric: {value!r}") from exc
+        failure = input_failure(
+            "EXCEL_INPUT_ROW_VALUE_INVALID",
+            "表格中存在无法读取的数值。",
+            f"请检查 {sheet_name} 第 {source_row} 行“{field}”，填写有效数字。",
+            issues=(
+                ExcelInputIssue.create(
+                    sheet=sheet_name,
+                    row=source_row,
+                    field=field,
+                    value=value,
+                    reason="not_numeric",
+                ),
+            ),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"row {source_row} field {field} is not numeric: {value!r}",
+        ) from exc
     if not result.is_finite():
-        raise ValueError(f"row {source_row} field {field} must be finite")
+        failure = input_failure(
+            "EXCEL_INPUT_ROW_VALUE_INVALID",
+            "表格中存在无效数值。",
+            f"请检查 {sheet_name} 第 {source_row} 行“{field}”，填写有限数字。",
+            issues=(
+                ExcelInputIssue.create(
+                    sheet=sheet_name,
+                    row=source_row,
+                    field=field,
+                    value=value,
+                    reason="not_finite",
+                ),
+            ),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"row {source_row} field {field} must be finite",
+        )
     return result
 
 
@@ -93,25 +139,91 @@ def _component_source_row(
 ) -> ComponentSourceRow:
     component_no = _text(_row_value(row, columns, "构件编号"))
     if not component_no:
-        raise ValueError(f"row {source_row} component source row has no component number")
+        failure = input_failure(
+            "EXCEL_INPUT_ROW_VALUE_INVALID",
+            "构件行缺少构件编号。",
+            f"请检查 {sheet_name} 第 {source_row} 行并填写构件编号。",
+            issues=(
+                ExcelInputIssue.create(
+                    sheet=sheet_name,
+                    row=source_row,
+                    field="构件编号",
+                    reason="required_value_missing",
+                ),
+            ),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=f"row {source_row} component source row has no component number",
+        )
     return ComponentSourceRow(
         source_sheet=sheet_name,
         source_row=source_row,
         kind=kind,
         batch=_text(_row_value(row, columns, "批次")),
         component_no=component_no,
-        component_qty=_decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row),
+        component_qty=_decimal(
+            _row_value(row, columns, "数量"),
+            field="数量",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
         original_spec=_text(_row_value(row, columns, "规格")),
         material=_text(_row_value(row, columns, "材质")),
-        source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
-        source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
-        source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
-        source_total_gross=_decimal(_row_value(row, columns, "总毛重"), field="总毛重", source_row=source_row),
-        source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
-        source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
-        component_length=_decimal(_row_value(row, columns, "构件长度"), field="构件长度", source_row=source_row),
-        component_width=_decimal(_row_value(row, columns, "构件宽度"), field="构件宽度", source_row=source_row),
-        component_height=_decimal(_row_value(row, columns, "构件高度"), field="构件高度", source_row=source_row),
+        source_unit_net=_decimal(
+            _row_value(row, columns, "单净重"),
+            field="单净重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_total_net=_decimal(
+            _row_value(row, columns, "总净重"),
+            field="总净重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_unit_gross=_decimal(
+            _row_value(row, columns, "单毛重"),
+            field="单毛重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_total_gross=_decimal(
+            _row_value(row, columns, "总毛重"),
+            field="总毛重",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_unit_area=_decimal(
+            _row_value(row, columns, "单表面积"),
+            field="单表面积",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        source_total_area=_decimal(
+            _row_value(row, columns, "总表面积"),
+            field="总表面积",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        component_length=_decimal(
+            _row_value(row, columns, "构件长度"),
+            field="构件长度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        component_width=_decimal(
+            _row_value(row, columns, "构件宽度"),
+            field="构件宽度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
+        component_height=_decimal(
+            _row_value(row, columns, "构件高度"),
+            field="构件高度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        ),
     )
 
 
@@ -256,16 +368,105 @@ def _canonicalize_values(
         batch = _text(_row_value(row, columns, "批次"))
         component_no = _text(_row_value(row, columns, "构件编号"))
         part_no = _text(_row_value(row, columns, "零件号"))
+        has_total_marker = any(
+            "合计" in str(value)
+            for value in row
+            if value not in (None, "")
+        )
 
-        if component_no and "合计" in component_no and not part_no:
+        if has_total_marker and not part_no:
             continue
-        if component_no and part_no == "构件小计":
-            subtotal = _component_source_row(
-                row,
-                columns,
-                sheet_name=sheet_name,
+        if part_no == "构件小计":
+            # Subtotal rows carry component-level aggregate weights and
+            # dimensions but often have empty component_no / batch / spec
+            # columns — inherit identity from the current component start.
+            if current is None:
+                failure = input_failure(
+                    "EXCEL_INPUT_PART_WITHOUT_COMPONENT",
+                    "构件小计行前缺少所属构件起始行。",
+                    (
+                        f"请在 {sheet_name} 第 {source_row} 行"
+                        f"构件小计前补充对应的构件起始行。"
+                    ),
+                    issues=(
+                        ExcelInputIssue.create(
+                            sheet=sheet_name,
+                            row=source_row,
+                            field="构件编号",
+                            value="构件小计",
+                            reason="subtotal_without_component",
+                        ),
+                    ),
+                )
+                raise InputContractError(
+                    failure,
+                    diagnostic=(
+                        f"row {source_row} subtotal has no preceding component row"
+                    ),
+                )
+            subtotal = ComponentSourceRow(
+                source_sheet=sheet_name,
                 source_row=source_row,
                 kind=ComponentRowKind.SUBTOTAL,
+                batch=current.batch,
+                component_no=current.component_no,
+                component_qty=current.component_qty,
+                original_spec=current.original_spec,
+                material=current.material,
+                source_unit_net=_decimal(
+                    _row_value(row, columns, "单净重"),
+                    field="单净重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_total_net=_decimal(
+                    _row_value(row, columns, "总净重"),
+                    field="总净重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_unit_gross=_decimal(
+                    _row_value(row, columns, "单毛重"),
+                    field="单毛重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_total_gross=_decimal(
+                    _row_value(row, columns, "总毛重"),
+                    field="总毛重",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_unit_area=_decimal(
+                    _row_value(row, columns, "单表面积"),
+                    field="单表面积",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                source_total_area=_decimal(
+                    _row_value(row, columns, "总表面积"),
+                    field="总表面积",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                component_length=_decimal(
+                    _row_value(row, columns, "构件长度"),
+                    field="构件长度",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                component_width=_decimal(
+                    _row_value(row, columns, "构件宽度"),
+                    field="构件宽度",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
+                component_height=_decimal(
+                    _row_value(row, columns, "构件高度"),
+                    field="构件高度",
+                    source_row=source_row,
+                    sheet_name=sheet_name,
+                ),
             )
             component_rows.append(subtotal)
             continue
@@ -283,10 +484,42 @@ def _canonicalize_values(
         if not part_no and (current is None or not _has_part_payload(row, columns)):
             continue
         if current is None:
-            raise ValueError(f"row {source_row} part {part_no!r} has no preceding component row")
+            failure = input_failure(
+                "EXCEL_INPUT_PART_WITHOUT_COMPONENT",
+                "零件明细前缺少所属构件行。",
+                (
+                    f"请在 {sheet_name} 第 {source_row} 行零件 "
+                    f"{part_no or '<空>'} 前补充对应的构件起始行。"
+                ),
+                issues=(
+                    ExcelInputIssue.create(
+                        sheet=sheet_name,
+                        row=source_row,
+                        field="构件编号",
+                        value=part_no,
+                        reason="part_without_component",
+                    ),
+                ),
+            )
+            raise InputContractError(
+                failure,
+                diagnostic=(
+                    f"row {source_row} part {part_no!r} has no preceding component row"
+                ),
+            )
 
-        length = _decimal(_row_value(row, columns, "零件长度"), field="零件长度", source_row=source_row)
-        quantity = _decimal(_row_value(row, columns, "数量"), field="数量", source_row=source_row)
+        length = _decimal(
+            _row_value(row, columns, "零件长度"),
+            field="零件长度",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        )
+        quantity = _decimal(
+            _row_value(row, columns, "数量"),
+            field="数量",
+            source_row=source_row,
+            sheet_name=sheet_name,
+        )
         original_spec = _text(_row_value(row, columns, "规格"))
         material = _text(_row_value(row, columns, "材质"))
         invalid_fields = tuple(
@@ -313,12 +546,42 @@ def _canonicalize_values(
             material=material or "",
             length=length or Decimal("0"),
             original_qty=quantity or Decimal("0"),
-            source_unit_net=_decimal(_row_value(row, columns, "单净重"), field="单净重", source_row=source_row),
-            source_total_net=_decimal(_row_value(row, columns, "总净重"), field="总净重", source_row=source_row),
-            source_unit_gross=_decimal(_row_value(row, columns, "单毛重"), field="单毛重", source_row=source_row),
-            source_total_gross=_decimal(_row_value(row, columns, "总毛重"), field="总毛重", source_row=source_row),
-            source_unit_area=_decimal(_row_value(row, columns, "单表面积"), field="单表面积", source_row=source_row),
-            source_total_area=_decimal(_row_value(row, columns, "总表面积"), field="总表面积", source_row=source_row),
+            source_unit_net=_decimal(
+                _row_value(row, columns, "单净重"),
+                field="单净重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_total_net=_decimal(
+                _row_value(row, columns, "总净重"),
+                field="总净重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_unit_gross=_decimal(
+                _row_value(row, columns, "单毛重"),
+                field="单毛重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_total_gross=_decimal(
+                _row_value(row, columns, "总毛重"),
+                field="总毛重",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_unit_area=_decimal(
+                _row_value(row, columns, "单表面积"),
+                field="单表面积",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
+            source_total_area=_decimal(
+                _row_value(row, columns, "总表面积"),
+                field="总表面积",
+                source_row=source_row,
+                sheet_name=sheet_name,
+            ),
             classification=None,
             invalid_fields=invalid_fields,
         ))
@@ -404,237 +667,237 @@ def read_canonical_source(path: str | Path) -> CanonicalWorkbookRead:
     )
 
 
-def _try_read(input_file: Path, sep: str, enc: str) -> pd.DataFrame | None:
-    """Try reading with given separator and encoding. Returns None on failure."""
-    try:
-        engine = "python" if sep == r"\s+" else "c"
-        df = pd.read_csv(
-            input_file, sep=sep, encoding=enc, header=None, dtype=str,
-            engine=engine,
+_FIXED_HEADER_PATTERNS = (
+    (re.compile(r"构件\s*编号"), "构件编号"),
+    (re.compile(r"零件\s*(?:编号|号)"), "零件号"),
+    (re.compile(r"型\s*材"), "规格"),
+    (re.compile(r"构件\s*名称"), "构件名称"),
+    (re.compile(r"材\s*质"), "材质"),
+    (re.compile(r"长度(?:\([^)]*\))?"), "长度"),
+    (re.compile(r"数量"), "数量"),
+    (re.compile(r"单净重(?:\([^)]*\))?"), "单净重"),
+    (re.compile(r"总净重(?:\([^)]*\))?"), "总净重"),
+    (re.compile(r"单毛重(?:\([^)]*\))?"), "单毛重"),
+    (re.compile(r"总毛重(?:\([^)]*\))?"), "总毛重"),
+    (re.compile(r"单(?:表)?面积(?:\([^)]*\))?"), "单表面积"),
+    (re.compile(r"总(?:表)?面积(?:\([^)]*\))?"), "总表面积"),
+    (re.compile(r"备\s*注"), "备注"),
+)
+
+
+def _display_width(character: str) -> int:
+    if unicodedata.combining(character):
+        return 0
+    return 2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+
+
+def _display_offset(text: str, character_index: int) -> int:
+    return sum(_display_width(character) for character in text[:character_index])
+
+
+def _display_slice(text: str, start: int, end: int | None) -> str:
+    result: list[str] = []
+    position = 0
+    for character in text:
+        width = _display_width(character)
+        next_position = position + width
+        if next_position > start and (end is None or position < end):
+            result.append(character)
+        if end is not None and position >= end:
+            break
+        position = next_position
+    return "".join(result).strip()
+
+
+def _fixed_header_spans(
+    header: str,
+) -> tuple[tuple[str, int, int | None], ...]:
+    matches: list[tuple[int, str]] = []
+    for pattern, canonical in _FIXED_HEADER_PATTERNS:
+        match = pattern.search(header)
+        if match is not None:
+            matches.append((_display_offset(header, match.start()), canonical))
+    matches.sort()
+    if len(matches) < 8:
+        raise ValueError(
+            f"fixed-width Tekla header has only {len(matches)} recognized columns"
         )
-        if df.shape[1] > 2:
-            sample = " ".join(
-                str(df.iloc[min(i, len(df) - 1), j])
-                for i in range(min(10, len(df)))
-                for j in range(min(17, len(df.columns)))
-            )
-            if any(kw in sample for kw in _CONTENT_KWS):
-                return df
-    except (UnicodeDecodeError, UnicodeError, pd.errors.ParserError):
-        pass
-    return None
+    duplicate_names = {
+        name for _, name in matches if sum(other == name for _, other in matches) > 1
+    }
+    if duplicate_names:
+        raise ValueError(
+            f"fixed-width Tekla header has duplicate columns: {sorted(duplicate_names)}"
+        )
+    return tuple(
+        (name, start, matches[index + 1][0] if index + 1 < len(matches) else None)
+        for index, (start, name) in enumerate(matches)
+    )
 
 
-def _merge_split_headers(headers: list[str]) -> list[str]:
-    """Merge adjacent single-CJK-char headers split by whitespace separator.
+def _calibrate_fixed_spans(
+    lines: list[str],
+    header_index: int,
+    spans: tuple[tuple[str, int, int | None], ...],
+) -> tuple[tuple[str, int, int | None], ...]:
+    token_starts: Counter[int] = Counter()
+    for line in lines[header_index + 1:header_index + 501]:
+        for match in re.finditer(r"\S+", line):
+            token_starts[_display_offset(line, match.start())] += 1
 
-    E.g. ["型","材","构件名称","材","质"] → ["型材","构件名称","材质"]
-    """
-    _CJK = _re.compile(r"^[一-鿿]$")
-    merged = []
-    skip = False
-    for i, h in enumerate(headers):
-        if skip:
-            skip = False
+    calibrated_starts: list[int] = []
+    for index, (_, expected, _) in enumerate(spans):
+        if index == 0:
+            calibrated_starts.append(expected)
             continue
-        if _CJK.match(h) and i + 1 < len(headers) and _CJK.match(headers[i + 1]):
-            merged.append(h + headers[i + 1])
-            skip = True
-        else:
-            merged.append(h)
-    return merged
+        nearby = [
+            position
+            for position in range(max(0, expected - 2), expected + 3)
+            if token_starts[position]
+        ]
+        if not nearby:
+            calibrated_starts.append(expected)
+            continue
+        calibrated_starts.append(max(
+            nearby,
+            key=lambda position: (
+                token_starts[position],
+                -abs(position - expected),
+                -position,
+            ),
+        ))
+
+    if any(
+        right <= left
+        for left, right in zip(calibrated_starts, calibrated_starts[1:])
+    ):
+        raise ValueError(
+            f"fixed-width Tekla column starts are not increasing: {calibrated_starts}"
+        )
+    return tuple(
+        (
+            spans[index][0],
+            start,
+            calibrated_starts[index + 1]
+            if index + 1 < len(calibrated_starts)
+            else None,
+        )
+        for index, start in enumerate(calibrated_starts)
+    )
+
+
+def _decode_fixed_text(input_file: Path) -> tuple[list[str], str]:
+    for encoding in ("utf-8-sig", "gb18030", "gbk", "gb2312"):
+        try:
+            text = input_file.read_text(encoding=encoding)
+        except UnicodeError:
+            continue
+        if any(keyword in text[:5000] for keyword in _CONTENT_KWS):
+            return text.splitlines(), encoding
+    failure = input_failure(
+        "EXCEL_INPUT_TEXT_UNRECOGNIZED",
+        "无法识别 Tekla 文本格式的 XLS 文件。",
+        (
+            "请从 Tekla 重新导出包含构件和零件明细的文本格式 XLS，"
+            "或将有效工作簿另存为 XLSX 后上传。"
+        ),
+    )
+    raise InputContractError(
+        failure,
+        diagnostic=f"fixed-width Tekla text is unrecognized: {input_file}",
+    )
+
+
+def _has_component_only_header(lines: list[str]) -> bool:
+    for line in lines[:100]:
+        compact = "".join(line.split())
+        has_component = "构件编号" in compact or "构件号" in compact
+        has_spec = "截面型材" in compact or "规格" in compact
+        has_core_metrics = all(
+            field in compact
+            for field in ("材质", "长度", "数量")
+        )
+        has_part = "零件编号" in compact or "零件号" in compact
+        if has_component and has_spec and has_core_metrics and not has_part:
+            return True
+    return False
 
 
 def _space_text_workbook(input_file: Path) -> openpyxl.Workbook:
-    """Adapt a recognized whitespace-delimited Tekla export to one raw sheet."""
-    log.info("Loading %s ...", input_file.name)
-
-    encodings = ["gbk", "gb2312", "gb18030", "utf-8", "latin-1"]
-
-    # ---- Try tab-separated first (standard Tekla TSV) ----
-    raw_df = None
-    sep = None
-    for enc in encodings:
-        raw_df = _try_read(input_file, "\t", enc)
-        if raw_df is not None:
-            sep = "\t"
-            log.info("  Detected: encoding=%s, tab-separated, %d cols.", enc, raw_df.shape[1])
-            break
-
-    # ---- Fallback: space-delimited ----
-    if raw_df is None:
-        for enc in encodings:
-            raw_df = _try_read(input_file, r"\s+", enc)
-            if raw_df is not None:
-                sep = r"\s+"
-                log.info("  Detected: encoding=%s, whitespace-separated, %d cols.",
-                         enc, raw_df.shape[1])
-                break
-
-    # ---- Fallback: real Excel file (.xls/.xlsx binary) ----
-    if raw_df is None:
-        try:
-            raw_df = pd.read_excel(input_file, header=None, dtype=str)
-            if raw_df.shape[1] > 2:
-                sep = "excel"
-                log.info("  Detected: real Excel file, %d cols.", raw_df.shape[1])
-        except Exception:
-            pass
-
-    if raw_df is None:
-        raise ValueError(f"Cannot decode {input_file} with any known encoding/separator.")
-
-    # ---- Detect header row by keyword scoring ----
-    keywords = [KW_批次, KW_构件编号, KW_零件号, KW_数量, KW_材质,
-                "零件编号", "型材", "型 材", "构件名称"]
-    best_row, best_score = 0, 0
-    for i in range(min(15, len(raw_df))):
-        row_text = " ".join(
-            safe_str(raw_df.iloc[i, j]) for j in range(min(17, len(raw_df.columns)))
+    """Adapt a fixed-width Tekla export without collapsing blank columns."""
+    lines, encoding = _decode_fixed_text(input_file)
+    if _has_component_only_header(lines):
+        failure = input_failure(
+            "EXCEL_INPUT_COMPONENT_ONLY",
+            "输入只有构件汇总，没有零件明细。",
+            "请从 Tekla 导出包含零件号的构件零件明细清单后重新上传。",
+            sheets=("原表",),
         )
-        score = sum(1 for kw in keywords if kw in row_text)
-        if score > best_score:
-            best_score = score
-            best_row = i
-    if best_score < 2:
-        raise ValueError("whitespace Tekla text has no credible header candidate")
-    header_row = best_row
-    log.info("  Detected header at row %d (score=%d/%d).", header_row, best_score, len(keywords))
-
-    # ---- Extract headers ----
-    headers = [safe_str(raw_df.iloc[header_row, j]) for j in range(len(raw_df.columns))]
-    # Strip unit suffixes like (mm), (kg), (m2)
-    headers = [_re.sub(r"\([^)]*\)", "", h).strip() for h in headers]
-    # Normalize space-embedded headers: "型 材"→"型材", "材 质"→"材质", "备 注"→"备注"
-    headers = [h.replace(" ", "") for h in headers]
-    # Merge split single-char CJK headers (whitespace separator artifact)
-    headers = _merge_split_headers(headers)
-
-    # ---- Extract data rows ----
-    data_rows = []
-    for i in range(header_row + 1, len(raw_df)):
-        row_vals = [raw_df.iloc[i, j] for j in range(len(raw_df.columns))]
-        row_vals = [None if pd.isna(v) else v for v in row_vals]
-        data_rows.append(row_vals)
-
-    # ---- Normalize row structure for space-delimited format ----
-    # In space-delimited files, col 0 is either 构件编号 (component rows)
-    # or 零件编号 (part rows).  Normalize so that:
-    #   component rows: col 0=构件编号, col 1=empty(零件号), col 2=型材, ...
-    #   part rows:      col 0=empty(构件编号), col 1=零件号, col 2=型材, ...
-    import re as _re2
-    _PART_NO_RE2 = _re2.compile(
-        r"^(\d+[A-Za-z]+-\d+.*|M\d+.*|[a-z]\d+-[a-z]-\d+.*|"
-        r"(?!SKG-)[A-Z]{2,5}-\d+.*)$"
+        raise InputContractError(
+            failure,
+            diagnostic="输入只有构件汇总，没有零件明细，不能生成 Excel Final part",
+        )
+    candidates: list[tuple[int, tuple[tuple[str, int, int | None], ...]]] = []
+    for index, line in enumerate(lines[:100]):
+        try:
+            spans = _fixed_header_spans(line)
+        except ValueError:
+            continue
+        candidates.append((index, spans))
+    candidate_rows = [index + 1 for index, _ in candidates]
+    if not candidates:
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_NOT_FOUND",
+            "未检测到固定宽度 Tekla 明细表的标题行。",
+            "请重新从 Tekla 导出构件零件明细清单，不要手工改变列间距。",
+            sheets=("原表",),
+        )
+        raise InputContractError(
+            failure,
+            diagnostic="fixed-width Tekla header is not unique: candidate_rows=[]",
+        )
+    if len(candidates) > 1:
+        failure = input_failure(
+            "EXCEL_INPUT_HEADER_AMBIGUOUS",
+            "固定宽度 Tekla 文本中检测到多个标题行。",
+            "请只保留一行正式列标题，并删除重复标题行。",
+            issues=tuple(
+                ExcelInputIssue.create(
+                    sheet="原表",
+                    row=row,
+                    reason="ambiguous_header",
+                )
+                for row in candidate_rows
+            ),
+            sheets=("原表",),
+            meta={"candidate_rows": candidate_rows},
+        )
+        raise InputContractError(
+            failure,
+            diagnostic=(
+                "fixed-width Tekla header is not unique: "
+                f"candidate_rows={candidate_rows}"
+            ),
+        )
+    header_index, spans = candidates[0]
+    spans = _calibrate_fixed_spans(lines, header_index, spans)
+    log.info(
+        "Loading %s as fixed-width text: encoding=%s header_row=%d columns=%d",
+        input_file.name,
+        encoding,
+        header_index + 1,
+        len(spans),
     )
-    # Material-grade pattern for fallback row-type detection:
-    #   starts with Q+3digits (Q345GJB, Q355B, etc.) OR is purely numeric
-    #   (bolt grades like "60", non-PL specs like "48").  Must NOT match
-    #   strings like "2GL" (构件名称) which start with a digit but contain
-    #   letters — those are component names, not materials.
-    _MAT_GRADE_RE = _re2.compile(r"^(Q\d{3})")  # Q345, Q355, etc.
-    if sep == r"\s+" and len(headers) >= 3:
-        norm_data = []
-        norm_count = 0
-        for row_vals in data_rows:
-            c0 = safe_str(row_vals[0]) if len(row_vals) > 0 else ""
-            if not c0:
-                norm_data.append(row_vals)
-                continue
 
-            is_part = bool(_PART_NO_RE2.match(c0.strip()))
-
-            # Fallback: if regex doesn't match, check col 2 for material pattern.
-            # In space-delimited files with split-CJK headers (型 材, 材 质),
-            # part rows have material (Q345GJB, Q355B) at col 2, component
-            # rows have 构件名称 (2GL, albl_Top_f, WGL-, etc.) at col 2.
-            if not is_part and len(row_vals) > 2:
-                c2 = safe_str(row_vals[2])
-                if _MAT_GRADE_RE.match(c2):
-                    is_part = True
-                elif c2 and c2.replace('.', '', 1).replace('-', '').isdigit():
-                    # Pure numeric (or decimal) — bolt grade / non-PL spec
-                    # e.g. "48", "0.3", "10.9" but NOT "2GL", "WGL-"
-                    is_part = True
-
-            if is_part:
-                # Part row: insert empty 构件编号 at front + empty 构件名称 after spec
-                # Part rows lack 构件名称 → shift: [part, spec, mat, len, qty, ...]
-                # Normalize to:  [None, part, spec, None, mat, len, qty, ...]
-                new_row = [None] + row_vals[:2] + [None] + row_vals[2:]
-                norm_data.append(new_row)
-                norm_count += 1
-            else:
-                # Component row: insert empty 零件号 at col 1
-                new_row = [row_vals[0]] + [None] + row_vals[1:]
-                norm_data.append(new_row)
-                norm_count += 1
-        if norm_count:
-            data_rows = norm_data
-            # Rename 零件编号→零件号 in header (don't insert duplicate)
-            if "零件编号" in headers[1] if len(headers) > 1 else False:
-                headers[1] = "零件号"
-            log.info("  Normalized row structure: %d rows.", norm_count)
-
-    # ---- Normalize column order to standard layout ----
-    # Map variant columns (型材→规格, 单面积→单表面积, etc.) and reorder.
-    _STD_KEYS = [
-        ("批次","批次"), ("构件编号","构件编号"), ("零件","零件号"),
-        ("型材","规格"), ("规格","规格"),
-        ("长度","长度"), ("材质","材质"), ("数量","数量"),
-        ("单净重","单净重"), ("总净重","总净重"),
-        ("单毛重","单毛重"), ("总毛重","总毛重"),
-        ("单面","单表面积"), ("总面","总表面积"),
-    ]
-    col_map = {}
-    used_dst = set()
-    for src_idx, h in enumerate(headers):
-        for kw, dst_name in _STD_KEYS:
-            if kw in h and dst_name not in used_dst:
-                col_map[src_idx] = (len(col_map), dst_name)
-                used_dst.add(dst_name)
-                break
-    # Only normalize space-delimited files (tab-separated = standard layout)
-    if sep == r"\s+" and len(col_map) >= 5 and len(col_map) < len(headers):
-        # Reorder to standard Tekla column order:
-        # 构件编号, 零件号, 规格, 长度, 材质, 数量, 单净重, 总净重,
-        # 单毛重, 总毛重, 单表面积, 总表面积
-        _DST_ORDER = [
-            "构件编号", "零件号", "规格", "长度", "材质", "数量",
-            "单净重", "总净重", "单毛重", "总毛重", "单表面积", "总表面积",
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "原表"
+    worksheet.append([name for name, _, _ in spans])
+    for line in lines[header_index + 1:]:
+        values = [
+            _display_slice(line, start, end) or None
+            for _, start, end in spans
         ]
-        # Build lookup: dst_name → src_index
-        name_to_src = {dst_name: src for src, (_d, dst_name) in col_map.items()}
-        new_headers = []
-        src_order = []
-        for name in _DST_ORDER:
-            if name in name_to_src:
-                new_headers.append(name)
-                src_order.append(name_to_src[name])
-        if len(new_headers) >= 8:
-            new_data_rows = []
-            for row_vals in data_rows:
-                new_data_rows.append([
-                    row_vals[src] if src < len(row_vals) else None
-                    for src in src_order
-                ])
-            headers = new_headers
-            data_rows = new_data_rows
-            log.info("  Normalized column layout: %d cols (Tekla order).", len(headers))
-
-    log.info("  Headers: %s", headers)
-    log.info("  Data rows: %d", len(data_rows))
-
-    # ---- Create workbook with 原表 ----
-    wb = openpyxl.Workbook()
-    ws_raw = wb.active
-    ws_raw.title = "原表"
-
-    for j, h in enumerate(headers):
-        ws_raw.cell(row=1, column=j + 1, value=h)
-    for i, row_vals in enumerate(data_rows):
-        for j, val in enumerate(row_vals):
-            if val is not None:
-                ws_raw.cell(row=i + 2, column=j + 1, value=val)
-
-    return wb
+        if any(value is not None for value in values):
+            worksheet.append(values)
+    return workbook
