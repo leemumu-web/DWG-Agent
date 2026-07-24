@@ -133,7 +133,7 @@ def test_real_ground_truth_invariants_with_live_mysql(tmp_path: Path) -> None:
         } == {"BOX腹", "BOX翼"}
         d_rows = [row for row in organized if str(row["截面型材"]).startswith("D")]
         assert len(d_rows) == baseline["d"]
-        assert {row["规格"] for row in d_rows} == {24, 30}
+        assert {row["规格"] for row in d_rows} == {"D24", "D30"}
         assert {row["比重"] for row in d_rows} == {3.55, 5.55}
         assert all(row["理单重(kg)"] is not None for row in d_rows)
 
