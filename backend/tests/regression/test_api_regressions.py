@@ -14,7 +14,7 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.identity.schemas.user import UserCreate
 from app.modules.identity.users import create_user
-from app.modules.projects.schemas.project import ProjectCreate
+from app.modules.projects.interface import ProjectCreate
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.security.tokens import create_access_token
 

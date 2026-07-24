@@ -42,7 +42,9 @@ WORKFLOW_PUBLIC_CONTRACT = {
 
 EXPECTED_ROUTES = [
     (("GET",), "/templates", "get_workflow_templates"),
+    (("GET",), "/projects", "list_workflow_projects"),
     (("GET",), "", "list_workflows"),
+    (("POST",), "/projects", "create_project_api"),
     (("POST",), "", "create_workflow_api"),
     (("POST",), "/{workflow_id}/artifacts", "create_workflow_artifact"),
     (

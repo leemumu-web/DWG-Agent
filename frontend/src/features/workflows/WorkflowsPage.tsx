@@ -360,7 +360,7 @@ export function WorkflowsPage() {
               showIcon
               message="需要先创建项目"
               description="生产批次必须归属一个项目，当前没有可选项目。"
-              action={<Button href="/projects">先创建项目</Button>}
+              action={<Button onClick={() => { setCreateOpen(false); message.info('项目创建已迁移到工作流系统，请联系管理员通过 API 创建项目。'); }}>了解详情</Button>}
             />
           )}
         </Form>

@@ -4,7 +4,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   DashboardOutlined,
-  ProjectOutlined,
   FileOutlined,
   FileImageOutlined,
   CloudOutlined,
@@ -37,7 +36,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
   { key: '/workflows', label: '生产流程', icon: <ApartmentOutlined /> },
-  { key: '/projects', label: '项目', icon: <ProjectOutlined /> },
   { key: '/files', label: '文件转换', icon: <FileOutlined /> },
   { key: '/drawings', label: '图纸', icon: <FileImageOutlined /> },
   { key: '/jobs', label: '任务', icon: <CloudOutlined /> },

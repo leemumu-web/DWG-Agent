@@ -6,7 +6,6 @@ import { RequireAuth, RequireRoles } from '../shared/auth';
 
 const LoginPage = lazy(() => import('../features/identity').then((module) => ({ default: module.LoginPage })));
 const DashboardPage = lazy(() => import('../features/dashboard').then((module) => ({ default: module.DashboardPage })));
-const ProjectsPage = lazy(() => import('../features/projects').then((module) => ({ default: module.ProjectsPage })));
 const FilesLayout = lazy(() => import('../features/files').then((module) => ({ default: module.FilesLayout })));
 const Dwg2DxfPage = lazy(() => import('../features/cad-processing').then((module) => ({ default: module.Dwg2DxfPage })));
 const Dxf2DwgPage = lazy(() => import('../features/cad-processing').then((module) => ({ default: module.Dxf2DwgPage })));
@@ -33,7 +32,7 @@ export function AppRouter() {
         <Route element={<RequireAuth />}>
           <Route element={<AppLayout />}>
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects" element={<Navigate to="/workflows" replace />} />
             <Route path="/workflows" element={<WorkflowsPage />} />
             <Route path="/workflows/:workflowId" element={<WorkflowDetailPage />} />
             <Route path="/files" element={<FilesLayout />}>

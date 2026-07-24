@@ -20,7 +20,16 @@ from app.main import app
 from app.modules.automation.contracts.interface import automation_capability_contracts
 from app.modules.identity.users import reset_user_password
 from app.modules.projects.services import drawings as drawing_service
-from app.modules.projects.services import projects as project_service
+from app.modules.projects.interface import (
+    ProjectCreate,
+    ProjectMemberCreate,
+    ProjectMemberUpdate,
+    add_project_member,
+    create_project,
+    remove_project_member,
+    require_project_member_or_404,
+    update_project_member,
+)
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -496,12 +505,12 @@ class TestNewServiceFiles:
         assert hasattr(file_service, "require_file_delete_access")
 
     def test_project_service_imports(self):
-        """project_service exports expected functions."""
-        assert hasattr(project_service, "create_project")
-        assert hasattr(project_service, "add_project_member")
-        assert hasattr(project_service, "update_project_member")
-        assert hasattr(project_service, "remove_project_member")
-        assert hasattr(project_service, "require_project_member_or_404")
+        """project_service functions are available via interface."""
+        assert callable(create_project)
+        assert callable(add_project_member)
+        assert callable(update_project_member)
+        assert callable(remove_project_member)
+        assert callable(require_project_member_or_404)
 
     def test_drawing_service_imports(self):
         """drawing_service exports expected functions."""

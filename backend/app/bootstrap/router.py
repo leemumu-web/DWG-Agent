@@ -13,7 +13,7 @@ from app.modules.operations.audit.routes import router as audit_router
 from app.modules.operations.control_plane.routes import router as control_plane_router
 from app.modules.operations.data_catalog.system_routes import router as system_router
 from app.modules.operations.router import router as operations_router
-from app.modules.projects.routes.router import drawings_router, projects_router
+from app.modules.projects.routes.router import drawings_router
 from app.modules.remnant_inventory.routes import (
     import_items_router,
     imports_router,
@@ -31,7 +31,6 @@ api_router.include_router(
 )
 api_router.include_router(users_router, prefix="/users", tags=["users"])
 api_router.include_router(roles_router, tags=["roles"])
-api_router.include_router(projects_router, prefix="/projects", tags=["projects"])
 api_router.include_router(files_router, prefix="/files", tags=["files"])
 api_router.include_router(drawings_router, prefix="/drawings", tags=["drawings"])
 api_router.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
