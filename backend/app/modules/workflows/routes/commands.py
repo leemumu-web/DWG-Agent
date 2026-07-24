@@ -36,18 +36,17 @@ def create_project_api(
 ):
     """Create a project for use in workflows.
 
-    Requires admin or projects:write permission.  Viewer cannot create projects.
+    Requires admin or operator permission.  Viewer cannot create projects.
     """
     from app.modules.identity.access import has_any_role
     from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN
 
     if not has_any_role(current_user, {ROLE_SUPER_ADMIN, ROLE_ADMIN}):
-        # Non-admin users need projects:write permission
-        from app.modules.identity.interface import Permission
+        # Non-admin users need operator permission
         user_perms = {p.code for role in current_user.roles for p in role.permissions}
-        if "projects:write" not in user_perms:
+        if "operator" not in user_perms:
             from app.platform.http.exceptions import forbidden as _forbidden
-            raise _forbidden("projects:write permission required to create projects")
+            raise _forbidden("operator permission required to create projects")
 
     project = create_project(db, payload, owner_id=current_user.id)
     write_audit_log(
