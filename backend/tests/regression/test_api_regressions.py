@@ -299,7 +299,7 @@ def test_duplicate_project_member_returns_conflict():
     headers = _admin_headers(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("DUPMEM"), "name": "Duplicate Member Guard"},
     )
@@ -310,7 +310,7 @@ def test_duplicate_project_member_returns_conflict():
     user_id = current_user.json()["data"]["id"]
 
     response = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=headers,
         json={"user_id": user_id, "project_role": "project_viewer"},
     )
@@ -324,7 +324,7 @@ def test_job_inherits_project_id_from_drawing_id():
     headers = _admin_headers(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("JOBDRAW"), "name": "Job Drawing Project"},
     )
@@ -332,7 +332,7 @@ def test_job_inherits_project_id_from_drawing_id():
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG")},
     )
@@ -340,7 +340,7 @@ def test_job_inherits_project_id_from_drawing_id():
     drawing_id = drawing.json()["data"]["id"]
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={"drawing_id": drawing_id, "task_type": "framework_smoke_test"},
     )
@@ -560,7 +560,7 @@ def test_project_access_requires_membership_and_role():
     )
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=admin_headers,
         json={"code": _unique("RBAC"), "name": "RBAC Project"},
     )
@@ -574,21 +574,21 @@ def test_project_access_requires_membership_and_role():
     assert login.status_code == 201, login.text
     viewer_headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
-    blocked = client.get(f"/api/v1/projects/{project_id}", headers=viewer_headers)
+    blocked = client.get(f"/api/v1/workflows/projects/{project_id}", headers=viewer_headers)
     assert blocked.status_code == 403, blocked.text
 
     added = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=admin_headers,
         json={"user_id": viewer_id, "project_role": "project_viewer"},
     )
     assert added.status_code == 201, added.text
 
-    allowed = client.get(f"/api/v1/projects/{project_id}", headers=viewer_headers)
+    allowed = client.get(f"/api/v1/workflows/projects/{project_id}", headers=viewer_headers)
     assert allowed.status_code == 200, allowed.text
 
     denied_write = client.patch(
-        f"/api/v1/projects/{project_id}",
+        f"/api/v1/workflows/projects/{project_id}",
         headers=viewer_headers,
         json={"name": "Viewer Should Not Write"},
     )
@@ -619,7 +619,7 @@ def test_project_scoped_drawing_job_and_result_require_membership():
     )
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=admin_headers,
         json={"code": _unique("RSCOPE"), "name": "Scoped Resource Project"},
     )
@@ -627,7 +627,7 @@ def test_project_scoped_drawing_job_and_result_require_membership():
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=admin_headers,
         json={"project_id": project_id, "drawing_no": _unique("RSCOPE-DWG")},
     )
@@ -635,14 +635,14 @@ def test_project_scoped_drawing_job_and_result_require_membership():
     drawing_id = drawing.json()["data"]["id"]
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=admin_headers,
         json={"drawing_id": drawing_id, "task_type": "framework_smoke_test"},
     )
     assert job.status_code == 202, job.text
     job_id = job.json()["data"]["id"]
 
-    results = client.get(f"/api/v1/jobs/{job_id}/results", headers=admin_headers)
+    results = client.get(f"/api/v1/workflows/jobs/{job_id}/results", headers=admin_headers)
     assert results.status_code == 200, results.text
     result_id = results.json()["data"][0]["id"]
 
@@ -654,19 +654,19 @@ def test_project_scoped_drawing_job_and_result_require_membership():
     viewer_headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
     for path in (
-        f"/api/v1/drawings/{drawing_id}",
-        f"/api/v1/drawings/{drawing_id}/preview",
-        f"/api/v1/jobs/{job_id}",
-        f"/api/v1/jobs/{job_id}/results",
-        f"/api/v1/results/{result_id}",
-        f"/api/v1/results/{result_id}/download-url",
-        f"/api/v1/results/{result_id}/reviews",
+        f"/api/v1/workflows/drawings/{drawing_id}",
+        f"/api/v1/workflows/drawings/{drawing_id}/preview",
+        f"/api/v1/workflows/jobs/{job_id}",
+        f"/api/v1/workflows/jobs/{job_id}/results",
+        f"/api/v1/workflows/results/{result_id}",
+        f"/api/v1/workflows/results/{result_id}/download-url",
+        f"/api/v1/workflows/results/{result_id}/reviews",
     ):
         response = client.get(path, headers=viewer_headers)
         assert response.status_code == 403, response.text
 
     review = client.post(
-        f"/api/v1/results/{result_id}/reviews",
+        f"/api/v1/workflows/results/{result_id}/reviews",
         headers=viewer_headers,
         json={"decision": "approved", "comment": "cross-project review should be blocked"},
     )

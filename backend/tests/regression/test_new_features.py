@@ -220,14 +220,14 @@ def test_project_member_blocked_from_deleted_project_drawing():
 
     # Create project + drawing
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("CASCADE2"), "name": "Cascade v2"},
     )
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG")},
     )
@@ -238,7 +238,7 @@ def test_project_member_blocked_from_deleted_project_drawing():
     viewer_pass = "ViewerPass1234"
     viewer_id = _create_user(client, headers, viewer_user, viewer_pass, roles=["viewer"])
     client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=headers,
         json={"user_id": viewer_id, "project_role": "project_viewer"},
     )
@@ -251,14 +251,14 @@ def test_project_member_blocked_from_deleted_project_drawing():
     }
 
     # Viewer can access drawing while project active
-    d1 = client.get(f"/api/v1/drawings/{drawing_id}", headers=viewer_headers)
+    d1 = client.get(f"/api/v1/workflows/drawings/{drawing_id}", headers=viewer_headers)
     assert d1.status_code == 200
 
     # Delete project
-    client.delete(f"/api/v1/projects/{project_id}", headers=headers)
+    client.delete(f"/api/v1/workflows/projects/{project_id}", headers=headers)
 
     # Viewer can NO LONGER access drawing
-    d2 = client.get(f"/api/v1/drawings/{drawing_id}", headers=viewer_headers)
+    d2 = client.get(f"/api/v1/workflows/drawings/{drawing_id}", headers=viewer_headers)
     assert d2.status_code == 404, f"Expected 404, got {d2.status_code}: {d2.text}"
 
 
@@ -268,24 +268,24 @@ def test_admin_still_blocked_from_deleted_project_drawing():
     headers = _admin(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("ADMDEL"), "name": "Admin Delete"},
     )
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG-ADM")},
     )
     drawing_id = drawing.json()["data"]["id"]
 
     # Delete
-    client.delete(f"/api/v1/projects/{project_id}", headers=headers)
+    client.delete(f"/api/v1/workflows/projects/{project_id}", headers=headers)
 
     # Admin can't access drawing of deleted project
-    d = client.get(f"/api/v1/drawings/{drawing_id}", headers=headers)
+    d = client.get(f"/api/v1/workflows/drawings/{drawing_id}", headers=headers)
     assert d.status_code == 404, d.text
 
 

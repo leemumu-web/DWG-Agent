@@ -112,15 +112,15 @@ test('data console monitors paged MySQL, storage, transfers and findings', async
   expect(consoleErrors).toEqual([]);
 });
 
-test('jobs and audit pages request one bounded server page', async ({ page }) => {
+test('workflow and audit pages request one bounded server page', async ({ page }) => {
   await login(page);
-  const [jobsResponse] = await Promise.all([
-    page.waitForResponse((response) => response.url().includes('/api/v1/jobs?')),
-    page.goto('/jobs'),
+  const [workflowsResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/v1/workflows?')),
+    page.goto('/workflows'),
   ]);
-  const jobsUrl = new URL(jobsResponse.url());
-  expect(jobsUrl.searchParams.get('page')).toBe('1');
-  expect(jobsUrl.searchParams.get('page_size')).toBe('20');
+  const workflowsUrl = new URL(workflowsResponse.url());
+  expect(workflowsUrl.searchParams.get('page')).toBe('1');
+  expect(workflowsUrl.searchParams.get('page_size')).toBe('20');
 
   const [auditResponse] = await Promise.all([
     page.waitForResponse((response) => response.url().includes('/api/v1/audit-logs?')),

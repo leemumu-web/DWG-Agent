@@ -78,10 +78,10 @@ def test_pagination_page_size_exceeds_max_rejected():
 @pytest.mark.parametrize("path", [
     "/api/v1/users",
     "/api/v1/roles",
-    "/api/v1/projects",
+    "/api/v1/workflows/projects",
     "/api/v1/files",
-    "/api/v1/drawings",
-    "/api/v1/jobs",
+    "/api/v1/workflows/drawings",
+    "/api/v1/workflows/jobs",
     "/api/v1/audit-logs",
 ])
 def test_all_paginated_endpoints_reject_zero_page(path):
@@ -158,7 +158,7 @@ def test_xss_in_project_name_is_escaped_not_executed():
     ]
     for payload in xss_payloads:
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": _unique("XSS"), "name": payload},
         )
@@ -202,14 +202,14 @@ def test_cancel_succeeded_job_is_rejected():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("JOBSTATE"), "name": "Job State Test"},
     )
     project_id = project.json()["data"]["id"]
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={"project_id": project_id, "task_type": "framework_smoke_test"},
     )
@@ -218,10 +218,10 @@ def test_cancel_succeeded_job_is_rejected():
     import time
     time.sleep(0.15)
 
-    detail = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    detail = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=headers)
     assert detail.json()["data"]["status"] == "succeeded"
 
-    cancel = client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
+    cancel = client.post(f"/api/v1/workflows/jobs/{job_id}/cancellation-requests", headers=headers)
     assert cancel.status_code == 409, (
         f"Expected 409 JOB_NOT_CANCELLABLE, got {cancel.status_code}: {cancel.text}"
     )
@@ -234,14 +234,14 @@ def test_cancel_failed_job_is_rejected():
     headers = _login(client)
     # A job that was cancelled can't be cancelled again either
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("FAILCAN"), "name": "Fail Cancel Test"},
     )
     project_id = project.json()["data"]["id"]
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={"project_id": project_id, "task_type": "framework_smoke_test"},
     )
@@ -251,10 +251,10 @@ def test_cancel_failed_job_is_rejected():
     time.sleep(0.15)
     # Cancel once — should work (status is "succeeded")
     # Wait, the stub task runs to completion. Let me just cancel twice.
-    c1 = client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
+    c1 = client.post(f"/api/v1/workflows/jobs/{job_id}/cancellation-requests", headers=headers)
     # First cancel might be 409 (already succeeded) or 202 (if still running)
     if c1.status_code == 202:
-        c2 = client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
+        c2 = client.post(f"/api/v1/workflows/jobs/{job_id}/cancellation-requests", headers=headers)
         # Second cancel on already-cancelled job must be 409
         assert c2.status_code == 409, (
             f"Expected 409 on double cancel, got {c2.status_code}: {c2.text}"
@@ -268,14 +268,14 @@ def test_retry_rejected_for_succeeded_job():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("RETRYJOB"), "name": "Retry Reject Test"},
     )
     project_id = project.json()["data"]["id"]
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={"project_id": project_id, "task_type": "framework_smoke_test"},
     )
@@ -286,7 +286,7 @@ def test_retry_rejected_for_succeeded_job():
     time.sleep(0.15)
 
     # Retrying a succeeded job must be rejected
-    retry = client.post(f"/api/v1/jobs/{job_id}/retry-requests", headers=headers)
+    retry = client.post(f"/api/v1/workflows/jobs/{job_id}/retry-requests", headers=headers)
     assert retry.status_code == 409, f"Expected 409, got: {retry.text}"
     assert retry.json()["error"]["code"] == "JOB_NOT_RETRYABLE"
 
@@ -309,7 +309,7 @@ def test_add_same_member_twice_is_rejected():
     ).json()["data"]["id"]
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("TWICE"), "name": "Duplicate Member Test"},
     )
@@ -317,7 +317,7 @@ def test_add_same_member_twice_is_rejected():
 
     # First add — succeeds
     r1 = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=headers,
         json={"user_id": viewer_id, "project_role": "project_viewer"},
     )
@@ -325,7 +325,7 @@ def test_add_same_member_twice_is_rejected():
 
     # Second add — must be rejected
     r2 = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=headers,
         json={"user_id": viewer_id, "project_role": "project_engineer"},
     )
@@ -339,13 +339,13 @@ def test_remove_nonexistent_member_returns_404():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("NOMEM"), "name": "No Member Test"},
     )
     project_id = project.json()["data"]["id"]
 
-    resp = client.delete(f"/api/v1/projects/{project_id}/members/99999", headers=headers)
+    resp = client.delete(f"/api/v1/workflows/projects/{project_id}/members/99999", headers=headers)
     assert resp.status_code == 404, resp.text
 
 
@@ -355,14 +355,14 @@ def test_patch_nonexistent_member_returns_404():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("PATCHNOMEM"), "name": "Patch No Member"},
     )
     project_id = project.json()["data"]["id"]
 
     resp = client.patch(
-        f"/api/v1/projects/{project_id}/members/99999",
+        f"/api/v1/workflows/projects/{project_id}/members/99999",
         headers=headers,
         json={"project_role": "project_engineer"},
     )
@@ -380,14 +380,14 @@ def test_drawing_version_number_increments_correctly():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("VERINC"), "name": "Version Increment Test"},
     )
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG-VER")},
     )
@@ -405,7 +405,7 @@ def test_drawing_version_number_increments_correctly():
 
     file1 = upload_dwg("v1.dwg")
     v1 = client.post(
-        f"/api/v1/drawings/{drawing_id}/versions",
+        f"/api/v1/workflows/drawings/{drawing_id}/versions",
         headers=headers,
         json={"file_id": file1, "source": "test"},
     )
@@ -414,7 +414,7 @@ def test_drawing_version_number_increments_correctly():
 
     file2 = upload_dwg("v2.dwg")
     v2 = client.post(
-        f"/api/v1/drawings/{drawing_id}/versions",
+        f"/api/v1/workflows/drawings/{drawing_id}/versions",
         headers=headers,
         json={"file_id": file2, "source": "test"},
     )
@@ -422,7 +422,7 @@ def test_drawing_version_number_increments_correctly():
     assert v2.json()["data"]["version_no"] == 2
 
     # Verify versions list
-    versions = client.get(f"/api/v1/drawings/{drawing_id}/versions", headers=headers)
+    versions = client.get(f"/api/v1/workflows/drawings/{drawing_id}/versions", headers=headers)
     assert versions.status_code == 200, versions.text
     version_nos = [v["version_no"] for v in versions.json()["data"]]
     assert version_nos == [1, 2] or version_nos == [2, 1]  # order may vary
@@ -441,7 +441,7 @@ def test_create_version_for_nonexistent_drawing_returns_404():
     file_id = file_r.json()["data"]["id"]
 
     resp = client.post(
-        "/api/v1/drawings/99999/versions",
+        "/api/v1/workflows/drawings/99999/versions",
         headers=headers,
         json={"file_id": file_id, "source": "test"},
     )
@@ -454,14 +454,14 @@ def test_drawing_current_version_id_updated_on_new_version():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("CURVER"), "name": "Current Version Test"},
     )
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG-CURV")},
     )
@@ -475,13 +475,13 @@ def test_drawing_current_version_id_updated_on_new_version():
     file_id = file_r.json()["data"]["id"]
 
     v1 = client.post(
-        f"/api/v1/drawings/{drawing_id}/versions",
+        f"/api/v1/workflows/drawings/{drawing_id}/versions",
         headers=headers,
         json={"file_id": file_id, "source": "test"},
     )
     version_id = v1.json()["data"]["id"]
 
-    detail = client.get(f"/api/v1/drawings/{drawing_id}", headers=headers)
+    detail = client.get(f"/api/v1/workflows/drawings/{drawing_id}", headers=headers)
     assert detail.json()["data"]["current_version_id"] == version_id
 
 
@@ -496,7 +496,7 @@ def test_create_review_for_nonexistent_result_returns_404():
     headers = _login(client)
 
     resp = client.post(
-        "/api/v1/results/99999/reviews",
+        "/api/v1/workflows/results/99999/reviews",
         headers=headers,
         json={"decision": "approved", "comment": "ghost review"},
     )
@@ -509,14 +509,14 @@ def test_review_decisions_accepted():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("REVDEC"), "name": "Review Decision Test"},
     )
     project_id = project.json()["data"]["id"]
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={"project_id": project_id, "task_type": "framework_smoke_test"},
     )
@@ -525,12 +525,12 @@ def test_review_decisions_accepted():
     import time
     time.sleep(0.1)
 
-    results = client.get(f"/api/v1/jobs/{job_id}/results", headers=headers)
+    results = client.get(f"/api/v1/workflows/jobs/{job_id}/results", headers=headers)
     result_id = results.json()["data"][0]["id"]
 
     for decision in ("approved", "rejected", "needs_revision"):
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": decision, "comment": f"Decision: {decision}"},
         )
@@ -547,7 +547,7 @@ def test_update_nonexistent_drawing_returns_404():
     client = _client()
     headers = _login(client)
     resp = client.patch(
-        "/api/v1/drawings/99999",
+        "/api/v1/workflows/drawings/99999",
         headers=headers,
         json={"title": "Ghost Drawing"},
     )
@@ -560,23 +560,23 @@ def test_update_deleted_drawing_returns_404():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("DELDRAW"), "name": "Delete Drawing Test"},
     )
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG-DEL")},
     )
     drawing_id = drawing.json()["data"]["id"]
 
-    client.delete(f"/api/v1/drawings/{drawing_id}", headers=headers)
+    client.delete(f"/api/v1/workflows/drawings/{drawing_id}", headers=headers)
 
     resp = client.patch(
-        f"/api/v1/drawings/{drawing_id}",
+        f"/api/v1/workflows/drawings/{drawing_id}",
         headers=headers,
         json={"title": "Should Not Work"},
     )
@@ -661,7 +661,7 @@ def test_project_code_exactly_64_chars_accepted():
     if len(code) > 64:
         code = code[:64]
     resp = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": code, "name": "Max Code"},
     )
@@ -678,7 +678,7 @@ def test_create_drawing_with_nonexistent_project_returns_404():
     client = _client()
     headers = _login(client)
     resp = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": 99999, "drawing_no": _unique("ORPHAN")},
     )
@@ -692,7 +692,7 @@ def test_create_job_with_nonexistent_drawing_returns_error():
     client = _client()
     headers = _login(client)
     resp = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={"drawing_id": 99999, "task_type": "framework_smoke_test"},
     )

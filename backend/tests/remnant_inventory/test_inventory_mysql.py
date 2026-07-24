@@ -138,7 +138,7 @@ def test_two_workers_get_one_reservation_and_lifecycle_remains_consistent() -> N
 
     try:
         with factory() as setup:
-            role = setup.scalar(select(Role).where(Role.code == "remnant_worker"))
+            role = setup.scalar(select(Role).where(Role.code == "operator"))
             assert role is not None
             workers = [
                 User(

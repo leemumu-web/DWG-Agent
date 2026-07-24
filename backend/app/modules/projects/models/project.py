@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.platform.database.base import Base, PKType
 from app.platform.database.mixins import TimestampMixin
+
+if TYPE_CHECKING:
+    from app.modules.identity.models.user import User
 
 
 class Project(TimestampMixin, Base):
@@ -18,6 +23,10 @@ class Project(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
 
     owner: Mapped["User | None"] = relationship(foreign_keys=[owner_id])
+
+    @property
+    def owner_name(self) -> str | None:
+        return self.owner.real_name if self.owner else None
 
     members: Mapped[list["ProjectMember"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"

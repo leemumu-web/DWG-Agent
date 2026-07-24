@@ -566,7 +566,7 @@ class TestFileAccessControl:
             json={"username": uname, "password": "EngineerPass1", "real_name": "Eng"},
         )
         uid = r.json()["data"]["id"]
-        client.post(f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "engineer"})
+        client.post(f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "operator"})
         h = _login(client, uname, "EngineerPass1")
         return uid, h, uname
 

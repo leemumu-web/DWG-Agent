@@ -106,7 +106,7 @@ def test_password_change_does_not_blacklist_old_tokens():
     )
 
     # Old token is REJECTED on ALL protected endpoints (BUG-19 fix)
-    for path in ("/api/v1/auth/me", "/api/v1/projects", "/api/v1/files"):
+    for path in ("/api/v1/auth/me", "/api/v1/workflows/projects", "/api/v1/files"):
         resp = client.get(path, headers=old_headers)
         assert resp.status_code == 401, f"{path} should reject old token, got {resp.status_code}: {resp.text}"
 
@@ -314,26 +314,26 @@ def test_drawing_accessible_after_project_soft_delete():
     headers = _login(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("CASCTEST"), "name": "Cascade Test"},
     )
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG-CASC")},
     )
     drawing_id = drawing.json()["data"]["id"]
 
-    client.delete(f"/api/v1/projects/{project_id}", headers=headers)
+    client.delete(f"/api/v1/workflows/projects/{project_id}", headers=headers)
 
     # Project is 404
-    assert client.get(f"/api/v1/projects/{project_id}", headers=headers).status_code == 404
+    assert client.get(f"/api/v1/workflows/projects/{project_id}", headers=headers).status_code == 404
 
     # Drawing is NOW INACCESSIBLE — BUG-7: soft-deleted project cascades to drawings
-    d = client.get(f"/api/v1/drawings/{drawing_id}", headers=headers)
+    d = client.get(f"/api/v1/workflows/drawings/{drawing_id}", headers=headers)
     assert d.status_code == 404, f"Drawing of deleted project must return 404: {d.text}"
 
 

@@ -1238,7 +1238,7 @@ def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
         f"/api/v1/workflows/{workflow_id}/cancellation-requests",
         headers=owner_headers,
     )
-    job = client.get(f"/api/v1/jobs/{job_id}", headers=owner_headers)
+    job = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=owner_headers)
 
     assert cancelled.status_code == 200, cancelled.text
     assert job.status_code == 200, job.text

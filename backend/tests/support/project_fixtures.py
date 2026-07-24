@@ -1,4 +1,4 @@
-"""DB-level project fixtures — replaces the removed /api/v1/projects HTTP endpoint.
+"""DB-level project fixtures — replaces the removed /api/v1/workflows/projects HTTP endpoint.
 
 All project creation now uses direct service-layer calls since the /projects
 HTTP CRUD endpoint has been removed (functionality merged into /workflows).
@@ -11,7 +11,11 @@ from uuid import uuid4
 from app.modules.projects.interface import (
     ProjectCreate,
     ProjectMemberCreate,
+)
+from app.modules.projects.interface import (
     add_project_member as _add_project_member,
+)
+from app.modules.projects.interface import (
     create_project as _create_project,
 )
 from tests.support.database import open_test_session

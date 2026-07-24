@@ -47,7 +47,7 @@ def admin_headers(client: TestClient) -> dict[str, str]:
 @pytest.fixture
 def worker_headers(client: TestClient) -> dict[str, str]:
     with get_test_session_factory()() as db:
-        role = db.scalar(select(Role).where(Role.code == "remnant_worker"))
+        role = db.scalar(select(Role).where(Role.code == "operator"))
         assert role is not None
         user = User(
             username="material-worker",
@@ -149,7 +149,7 @@ def _seed_bulk_archive_rows() -> tuple[int, int]:
     _seed_global_remnants()
     with get_test_session_factory()() as db:
         worker = db.scalar(select(User).where(User.username == "material-worker"))
-        role = db.scalar(select(Role).where(Role.code == "remnant_worker"))
+        role = db.scalar(select(Role).where(Role.code == "operator"))
         assert worker is not None
         assert role is not None
         outsider = User(

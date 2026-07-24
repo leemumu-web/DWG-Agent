@@ -90,4 +90,4 @@ cd backend && .venv/bin/pytest -q tests/architecture
 cd ../frontend && npm run check:architecture
 ```
 
-检查器验证路径存在、数组确定性排序、42 张 ORM 表唯一归属、160 个 HTTP operation 唯一归属、13 个 Celery 任务唯一归属、12 条任务路由稳定，以及目标能力的显式状态。
+检查器验证路径存在、数组确定性排序、42 张 ORM 表唯一归属、167 个 HTTP operation 唯一归属、13 个 Celery 任务唯一归属、12 条任务路由稳定，以及目标能力的显式状态。

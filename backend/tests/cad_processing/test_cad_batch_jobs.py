@@ -62,7 +62,7 @@ def _create_batch(
     file_ids: list[int],
 ):
     return client.post(
-        "/api/v1/jobs/batches",
+        "/api/v1/workflows/jobs/batches",
         headers=headers,
         json={
             "task_type": task_type,
@@ -106,7 +106,7 @@ def test_create_conversion_batch_rejects_wrong_extension_without_partial_jobs():
     headers = _admin_headers(client)
     dwg_id = _upload_dwg(client, headers, "valid.dwg")
     dxf_id = _upload_dxf(client, headers, "wrong.dxf")
-    before = client.get("/api/v1/jobs", headers=headers).json()["pagination"]["total"]
+    before = client.get("/api/v1/workflows/jobs", headers=headers).json()["pagination"]["total"]
 
     response = _create_batch(
         client,
@@ -117,7 +117,7 @@ def test_create_conversion_batch_rejects_wrong_extension_without_partial_jobs():
 
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "INVALID_CONVERSION_SOURCE"
-    after = client.get("/api/v1/jobs", headers=headers).json()["pagination"]["total"]
+    after = client.get("/api/v1/workflows/jobs", headers=headers).json()["pagination"]["total"]
     assert after == before
 
 
@@ -140,7 +140,7 @@ def test_scoped_cancellation_only_changes_requested_jobs():
     requested_ids = [jobs[0]["id"], jobs[2]["id"]]
 
     response = client.post(
-        "/api/v1/jobs/cancellation-requests",
+        "/api/v1/workflows/jobs/cancellation-requests",
         headers=headers,
         json={"job_ids": requested_ids},
     )
@@ -151,7 +151,7 @@ def test_scoped_cancellation_only_changes_requested_jobs():
         "cancelled_job_ids": requested_ids,
     }
     states = [
-        client.get(f"/api/v1/jobs/{job['id']}", headers=headers).json()["data"]["status"]
+        client.get(f"/api/v1/workflows/jobs/{job['id']}", headers=headers).json()["data"]["status"]
         for job in jobs
     ]
     assert states == ["cancelled", "queued", "cancelled"]
@@ -182,14 +182,14 @@ def test_conversion_events_stream_returns_ordered_terminal_snapshot():
         )
     jobs = created.json()["data"]["jobs"]
     cancelled = client.post(
-        "/api/v1/jobs/cancellation-requests",
+        "/api/v1/workflows/jobs/cancellation-requests",
         headers=headers,
         json={"job_ids": [job["id"] for job in jobs]},
     )
     assert cancelled.status_code == 202, cancelled.text
 
     response = client.get(
-        "/api/v1/jobs/events/stream",
+        "/api/v1/workflows/jobs/events/stream",
         headers=headers,
         params={
             "task_type": "convert_dwg_to_dxf",
@@ -210,7 +210,7 @@ def test_conversion_events_stream_rejects_more_than_200_files():
     headers = _admin_headers(client)
 
     response = client.get(
-        "/api/v1/jobs/events/stream",
+        "/api/v1/workflows/jobs/events/stream",
         headers=headers,
         params={
             "task_type": "convert_dwg_to_dxf",
@@ -241,7 +241,7 @@ def test_list_jobs_latest_per_file_omits_superseded_attempt_rows():
         ).json()["data"]["jobs"][0]
 
     response = client.get(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         params={
             "task_type": "convert_dwg_to_dxf",
@@ -357,10 +357,10 @@ def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
     assert len(calls) == 1
     assert calls[0]["version"] == "ACAD2013"
     for job in jobs:
-        current = client.get(f"/api/v1/jobs/{job['id']}", headers=headers).json()["data"]
+        current = client.get(f"/api/v1/workflows/jobs/{job['id']}", headers=headers).json()["data"]
         assert current["status"] == "succeeded"
         assert current["progress"] == 100
-        results = client.get(f"/api/v1/jobs/{job['id']}/results", headers=headers).json()["data"]
+        results = client.get(f"/api/v1/workflows/jobs/{job['id']}/results", headers=headers).json()["data"]
         assert len(results) == 1
         assert results[0]["result_type"] == "convert_dwg_to_dxf"
 
@@ -422,10 +422,10 @@ def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
     assert len(calls) == 1
     assert calls[0]["version"] == "ACAD2013"
     for job in jobs:
-        current = client.get(f"/api/v1/jobs/{job['id']}", headers=headers).json()["data"]
+        current = client.get(f"/api/v1/workflows/jobs/{job['id']}", headers=headers).json()["data"]
         assert current["status"] == "succeeded"
         assert current["progress"] == 100
-        results = client.get(f"/api/v1/jobs/{job['id']}/results", headers=headers).json()["data"]
+        results = client.get(f"/api/v1/workflows/jobs/{job['id']}/results", headers=headers).json()["data"]
         assert len(results) == 1
         assert results[0]["result_type"] == "convert_dxf_to_dwg"
 
@@ -467,7 +467,7 @@ def test_dwg_batch_missing_result_fails_only_the_unmatched_job(db, monkeypatch):
     )
 
     states = [
-        client.get(f"/api/v1/jobs/{job['id']}", headers=headers).json()["data"]["status"]
+        client.get(f"/api/v1/workflows/jobs/{job['id']}", headers=headers).json()["data"]["status"]
         for job in jobs
     ]
     assert summary == {"total": 2, "succeeded": 1, "failed": 1, "skipped": 0}

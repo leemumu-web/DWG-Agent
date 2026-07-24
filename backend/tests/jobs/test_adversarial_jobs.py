@@ -52,7 +52,7 @@ def _unique(prefix: str) -> str:
 def _make_project(client: TestClient, admin_h: dict[str, str]) -> int:
     code = _unique("PROJ")
     r = client.post(
-        "/api/v1/projects", headers=admin_h,
+        "/api/v1/workflows/projects", headers=admin_h,
         json={"code": code, "name": f"Project {code}"},
     )
     assert r.status_code == 201, r.text
@@ -61,7 +61,7 @@ def _make_project(client: TestClient, admin_h: dict[str, str]) -> int:
 
 def _make_drawing(client: TestClient, admin_h: dict[str, str], project_id: int) -> int:
     r = client.post(
-        "/api/v1/drawings", headers=admin_h,
+        "/api/v1/workflows/drawings", headers=admin_h,
         json={"project_id": project_id, "drawing_no": _unique("DWG"), "title": "T"},
     )
     assert r.status_code == 201, r.text
@@ -73,7 +73,7 @@ def _create_job(client: TestClient, admin_h: dict[str, str], project_id: int,
     body: dict = {"project_id": project_id}
     if drawing_id is not None:
         body["drawing_id"] = drawing_id
-    r = client.post("/api/v1/jobs", headers=admin_h, json=body)
+    r = client.post("/api/v1/workflows/jobs", headers=admin_h, json=body)
     assert r.status_code == 202, r.text
     return r.json()["data"]["id"]
 
@@ -84,7 +84,7 @@ def _wait_for_status(client: TestClient, h: dict[str, str], job_id: int,
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
-        r = client.get(f"/api/v1/jobs/{job_id}", headers=h)
+        r = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=h)
         last = r.json()["data"]["status"]
         if last in target:
             return last
@@ -103,7 +103,7 @@ class TestJobCreateValidation:
         h = _admin(client)
         pid = _make_project(client, h)
         # Uppercase first char violates ^[a-z][a-z0-9_]+$
-        r = client.post("/api/v1/jobs", headers=h,
+        r = client.post("/api/v1/workflows/jobs", headers=h,
                         json={"project_id": pid, "task_type": "BadTask"})
         assert r.status_code == 422
 
@@ -111,7 +111,7 @@ class TestJobCreateValidation:
         client = _client()
         h = _admin(client)
         pid = _make_project(client, h)
-        r = client.post("/api/v1/jobs", headers=h,
+        r = client.post("/api/v1/workflows/jobs", headers=h,
                         json={"project_id": pid, "task_type": "convert-dwg"})
         assert r.status_code == 422
 
@@ -129,7 +129,7 @@ class TestJobCreateValidation:
         h = _admin(client)
         pid = _make_project(client, h)
         r = client.post(
-            "/api/v1/jobs", headers=h,
+            "/api/v1/workflows/jobs", headers=h,
             json={"project_id": pid, "params": {bad_key: "evil"}},
         )
         assert r.status_code == 422
@@ -148,7 +148,7 @@ class TestJobCreateValidation:
         h = _admin(client)
         pid = _make_project(client, h)
         r = client.post(
-            "/api/v1/jobs", headers=h,
+            "/api/v1/workflows/jobs", headers=h,
             json={"project_id": pid, "params": {ok_key: "v"}},
         )
         assert r.status_code == 202, r.text
@@ -168,7 +168,7 @@ class TestDxfPipelineGate:
         pid = _make_project(client, h)
         monkeypatch.setattr(settings, "dxf_pipeline_enabled", False)
         r = client.post(
-            "/api/v1/jobs", headers=h,
+            "/api/v1/workflows/jobs", headers=h,
             json={"project_id": pid, "task_type": "convert_dwg_to_dxf"},
         )
         assert r.status_code == 503
@@ -187,7 +187,7 @@ class TestDxfPipelineGate:
         cfg.settings.dxf_pipeline_enabled = True
         try:
             r = client.post(
-                "/api/v1/jobs", headers=h,
+                "/api/v1/workflows/jobs", headers=h,
                 json={"project_id": pid, "task_type": "convert_dwg_to_dxf"},
             )
             assert r.status_code == 202, r.text
@@ -234,7 +234,7 @@ class TestCancelRetryGuards:
         h = _admin(client)
         pid = _make_project(client, h)
         jid = _create_job(client, h, pid)
-        r = client.post(f"/api/v1/jobs/{jid}/cancellation-requests", headers=h)
+        r = client.post(f"/api/v1/workflows/jobs/{jid}/cancellation-requests", headers=h)
         assert r.status_code in (202, 409)
 
     def test_cancel_succeeded_job_rejected(self):
@@ -243,7 +243,7 @@ class TestCancelRetryGuards:
         pid = _make_project(client, h)
         jid = _create_job(client, h, pid)
         _wait_for_status(client, h, jid, {"succeeded", "failed"})
-        r = client.post(f"/api/v1/jobs/{jid}/cancellation-requests", headers=h)
+        r = client.post(f"/api/v1/workflows/jobs/{jid}/cancellation-requests", headers=h)
         assert r.status_code == 409
         assert r.json()["error"]["code"] == "JOB_NOT_CANCELLABLE"
 
@@ -255,7 +255,7 @@ class TestCancelRetryGuards:
         jid = _create_job(client, h, pid)
         # Immediately retry before the eager worker flips it to succeeded.
         # The job may already be succeeded (eager) — both succeeded and queued are non-retryable.
-        r = client.post(f"/api/v1/jobs/{jid}/retry-requests", headers=h)
+        r = client.post(f"/api/v1/workflows/jobs/{jid}/retry-requests", headers=h)
         assert r.status_code == 409
         assert r.json()["error"]["code"] == "JOB_NOT_RETRYABLE"
 
@@ -265,10 +265,10 @@ class TestCancelRetryGuards:
         pid = _make_project(client, h)
         jid = _create_job(client, h, pid)
         _wait_for_status(client, h, jid, {"succeeded", "failed"})
-        status = client.get(f"/api/v1/jobs/{jid}", headers=h).json()["data"]["status"]
+        status = client.get(f"/api/v1/workflows/jobs/{jid}", headers=h).json()["data"]["status"]
         if status != "failed":
             pytest.skip("stub worker succeeded; cannot exercise failed-retry path in this env")
-        r = client.post(f"/api/v1/jobs/{jid}/retry-requests", headers=h)
+        r = client.post(f"/api/v1/workflows/jobs/{jid}/retry-requests", headers=h)
         assert r.status_code == 202
 
     def test_retry_cancelled_job_accepted(self):
@@ -277,10 +277,10 @@ class TestCancelRetryGuards:
         pid = _make_project(client, h)
         jid = _create_job(client, h, pid)
         # Cancel (if still cancellable).
-        c = client.post(f"/api/v1/jobs/{jid}/cancellation-requests", headers=h)
+        c = client.post(f"/api/v1/workflows/jobs/{jid}/cancellation-requests", headers=h)
         if c.status_code != 202:
             pytest.skip("job already terminal before cancel")
-        r = client.post(f"/api/v1/jobs/{jid}/retry-requests", headers=h)
+        r = client.post(f"/api/v1/workflows/jobs/{jid}/retry-requests", headers=h)
         assert r.status_code == 202
 
 
@@ -301,13 +301,13 @@ class TestRetryStaleFields:
         terminal = _wait_for_status(client, h, jid, {"succeeded", "failed"})
         if terminal != "failed":
             pytest.skip("stub worker succeeded; cannot seed failure metadata")
-        before = client.get(f"/api/v1/jobs/{jid}", headers=h).json()["data"]
+        before = client.get(f"/api/v1/workflows/jobs/{jid}", headers=h).json()["data"]
         assert before["error_code"]  # the failed job has a non-null error_code
 
         # Retry via the API.
-        r = client.post(f"/api/v1/jobs/{jid}/retry-requests", headers=h)
+        r = client.post(f"/api/v1/workflows/jobs/{jid}/retry-requests", headers=h)
         assert r.status_code == 202
-        after = client.get(f"/api/v1/jobs/{jid}", headers=h).json()["data"]
+        after = client.get(f"/api/v1/workflows/jobs/{jid}", headers=h).json()["data"]
         assert after["status"] == "queued"
         assert after["progress"] == 0
         # Stale failure fields persist:
@@ -332,7 +332,7 @@ class TestCreateJobMissingDrawing:
         h = _admin(client)
         # No project, no drawing — admin can create a job with project_id=None directly.
         r = client.post(
-            "/api/v1/jobs", headers=h,
+            "/api/v1/workflows/jobs", headers=h,
             json={"drawing_id": 999999, "task_type": "framework_smoke_test"},
         )
         # The route requires project role via drawing lookup when drawing_id is set:
@@ -413,10 +413,10 @@ class TestPaginationEdges:
 class TestSortColumnWhitelist:
     @pytest.mark.parametrize("resource", [
         "/api/v1/users",
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         "/api/v1/files",
-        "/api/v1/drawings",
-        "/api/v1/jobs",
+        "/api/v1/workflows/drawings",
+        "/api/v1/workflows/jobs",
     ])
     def test_unknown_sort_column_rejected(self, resource):
         client = _client()
@@ -427,10 +427,10 @@ class TestSortColumnWhitelist:
 
     @pytest.mark.parametrize("resource", [
         "/api/v1/users",
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         "/api/v1/files",
-        "/api/v1/drawings",
-        "/api/v1/jobs",
+        "/api/v1/workflows/drawings",
+        "/api/v1/workflows/jobs",
     ])
     def test_known_sort_column_accepted(self, resource):
         client = _client()
@@ -452,7 +452,7 @@ class TestCrossProjectIsolation:
             json={"username": uname, "password": "EngineerPass1", "real_name": "Eng"},
         )
         uid = r.json()["data"]["id"]
-        client.post(f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "engineer"})
+        client.post(f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "operator"})
         h = _login(client, uname, "EngineerPass1")
         return uid, h
 
@@ -465,7 +465,7 @@ class TestCrossProjectIsolation:
         _, eng_a_h = self._make_engineer(client, admin_h)
         # Engineer A creates their own project (auto owner) + job.
         pa_code = _unique("PA")
-        rpa = client.post("/api/v1/projects", headers=eng_a_h,
+        rpa = client.post("/api/v1/workflows/projects", headers=eng_a_h,
                           json={"code": pa_code, "name": "A"})
         assert rpa.status_code == 201, rpa.text
         pid_a = rpa.json()["data"]["id"]
@@ -475,11 +475,11 @@ class TestCrossProjectIsolation:
         _, eng_b_h = self._make_engineer(client, admin_h)
 
         # B's job list must not contain A's job.
-        listing = client.get("/api/v1/jobs", headers=eng_b_h).json()["data"]
+        listing = client.get("/api/v1/workflows/jobs", headers=eng_b_h).json()["data"]
         assert all(j["id"] != jid for j in listing)
 
         # B fetching A's job directly -> 403 (require_project_member on a non-member).
-        rb = client.get(f"/api/v1/jobs/{jid}", headers=eng_b_h)
+        rb = client.get(f"/api/v1/workflows/jobs/{jid}", headers=eng_b_h)
         assert rb.status_code == 403
 
 
@@ -498,7 +498,7 @@ class TestAuditLogAccessAndCap:
             json={"username": uname, "password": "EngineerPass1", "real_name": "Eng"},
         )
         uid = r.json()["data"]["id"]
-        client.post(f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "engineer"})
+        client.post(f"/api/v1/users/{uid}/roles", headers=admin_h, json={"role_code": "operator"})
         h = _login(client, uname, "EngineerPass1")
         rr = client.get("/api/v1/audit-logs", headers=h)
         assert rr.status_code == 403

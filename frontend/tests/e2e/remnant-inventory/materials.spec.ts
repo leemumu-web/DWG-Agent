@@ -12,7 +12,7 @@ const worker = {
   id: 9,
   username: 'worker',
   real_name: '余料工人',
-  roles: [{ id: 9, code: 'remnant_worker', name: '余料工人', is_system: true }],
+  roles: [{ id: 9, code: 'operator', name: '余料工人', is_system: true }],
 };
 const disabled = {
   id: 2, code: 'Q355D', family_code: 'Q355', enabled: false, aliases: ['旧-Q355D'],

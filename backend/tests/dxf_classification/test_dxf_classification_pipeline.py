@@ -275,7 +275,7 @@ def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatc
     )
     headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": f"API-{uuid4().hex[:6]}", "name": "Classifier API"},
     ).json()["data"]

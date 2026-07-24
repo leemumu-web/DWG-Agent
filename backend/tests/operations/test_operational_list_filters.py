@@ -61,7 +61,7 @@ def test_jobs_can_be_filtered_for_current_file_page(db: Session):
     headers = _admin_headers(client)
 
     response = client.get(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         params={
             "task_type": "convert_dwg_to_dxf",
@@ -105,7 +105,7 @@ def test_jobs_status_and_search_filters_are_server_side(db: Session):
     headers = _admin_headers(client)
 
     response = client.get(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         params={"status": "active", "search": "dxf_open"},
     )

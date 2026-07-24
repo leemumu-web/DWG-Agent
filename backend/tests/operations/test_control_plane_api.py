@@ -84,17 +84,17 @@ def test_admin_can_queue_bounded_stale_job_recovery():
     assert payload["operation"] == "reconcile_stale_jobs"
 
 
-def test_auditor_cannot_queue_maintenance_work(db):
+def test_viewer_cannot_queue_maintenance_work(db):
     client = TestClient(app)
     init_db()
-    auditor = User(
-        username="auditor", password_hash=hash_password("AuditorPass1234"), real_name="Auditor"
+    viewer = User(
+        username="viewer", password_hash=hash_password("AuditorPass1234"), real_name="Auditor"
     )
-    auditor.roles.append(db.scalar(select(Role).where(Role.code == "auditor")))
-    db.add(auditor)
+    viewer.roles.append(db.scalar(select(Role).where(Role.code == "viewer")))
+    db.add(viewer)
     db.commit()
     login = client.post(
-        "/api/v1/auth/sessions", json={"username": "auditor", "password": "AuditorPass1234"}
+        "/api/v1/auth/sessions", json={"username": "viewer", "password": "AuditorPass1234"}
     )
     response = client.post(
         "/api/v1/control-plane/maintenance/reconcile-stale-jobs",

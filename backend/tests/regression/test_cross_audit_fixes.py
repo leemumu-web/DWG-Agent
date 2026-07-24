@@ -19,17 +19,14 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.automation.contracts.interface import automation_capability_contracts
 from app.modules.identity.users import reset_user_password
-from app.modules.projects.services import drawings as drawing_service
 from app.modules.projects.interface import (
-    ProjectCreate,
-    ProjectMemberCreate,
-    ProjectMemberUpdate,
     add_project_member,
     create_project,
     remove_project_member,
     require_project_member_or_404,
     update_project_member,
 )
+from app.modules.projects.services import drawings as drawing_service
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -144,7 +141,7 @@ class TestAuditLogIPCature:
         code = _unique("PRJ")
 
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Project {code}"},
         )
@@ -283,12 +280,12 @@ class TestDeleteProjectMember:
         # Create project
         code = _unique("DELMEM")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Project {code}"},
         )
         # Find it
-        list_resp = client.get("/api/v1/projects", headers=headers)
+        list_resp = client.get("/api/v1/workflows/projects", headers=headers)
         projects = list_resp.json()["data"]
         project = next((p for p in projects if p["code"] == code), None)
         assert project is not None, f"Project {code} not found"
@@ -297,7 +294,7 @@ class TestDeleteProjectMember:
         username = _unique("member-del")
         uid = _create_user(client, headers, username, roles=["viewer"])
         member_resp = client.post(
-            f"/api/v1/projects/{project['id']}/members",
+            f"/api/v1/workflows/projects/{project['id']}/members",
             headers=headers,
             json={"user_id": uid, "project_role": "project_viewer"},
         )
@@ -306,7 +303,7 @@ class TestDeleteProjectMember:
 
         # Delete member
         del_resp = client.delete(
-            f"/api/v1/projects/{project['id']}/members/{member_id}",
+            f"/api/v1/workflows/projects/{project['id']}/members/{member_id}",
             headers=headers,
         )
         assert del_resp.status_code == 204, del_resp.text
@@ -318,25 +315,25 @@ class TestDeleteProjectMember:
 
         code = _unique("AUDPRJ")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Project {code}"},
         )
 
-        list_resp = client.get("/api/v1/projects", headers=headers)
+        list_resp = client.get("/api/v1/workflows/projects", headers=headers)
         project = next((p for p in list_resp.json()["data"] if p["code"] == code), None)
 
         username = _unique("audit-mem")
         uid = _create_user(client, headers, username, roles=["viewer"])
         member_resp = client.post(
-            f"/api/v1/projects/{project['id']}/members",
+            f"/api/v1/workflows/projects/{project['id']}/members",
             headers=headers,
             json={"user_id": uid, "project_role": "project_viewer"},
         )
         member_id = member_resp.json()["data"]["id"]
 
         client.delete(
-            f"/api/v1/projects/{project['id']}/members/{member_id}",
+            f"/api/v1/workflows/projects/{project['id']}/members/{member_id}",
             headers=headers,
         )
 
@@ -360,16 +357,16 @@ class TestReviewDecisionValidation:
         code = _unique("REVW")
         # Create project
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Review Project {code}"},
         )
-        proj_resp = client.get("/api/v1/projects", headers=headers)
+        proj_resp = client.get("/api/v1/workflows/projects", headers=headers)
         project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
 
         # Create drawing
         draw_resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=headers,
             json={"project_id": project["id"], "title": "Review Drawing"},
         )
@@ -378,7 +375,7 @@ class TestReviewDecisionValidation:
 
         # Create job
         job_resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={
                 "drawing_id": drawing_id,
@@ -397,7 +394,7 @@ class TestReviewDecisionValidation:
         time.sleep(1.5)
 
         # Get results
-        results_resp = client.get(f"/api/v1/jobs/{job_id}/results", headers=headers)
+        results_resp = client.get(f"/api/v1/workflows/jobs/{job_id}/results", headers=headers)
         assert results_resp.status_code == 200, results_resp.text
         results = results_resp.json()["data"]
         if not results:
@@ -411,7 +408,7 @@ class TestReviewDecisionValidation:
         result_id = self._setup_review_context(client, headers)
 
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": "approved", "comment": "Looks good."},
         )
@@ -424,7 +421,7 @@ class TestReviewDecisionValidation:
         result_id = self._setup_review_context(client, headers)
 
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": "rejected", "comment": "Incorrect extraction."},
         )
@@ -437,7 +434,7 @@ class TestReviewDecisionValidation:
         result_id = self._setup_review_context(client, headers)
 
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": "needs_revision", "comment": "Please add layer info."},
         )
@@ -450,7 +447,7 @@ class TestReviewDecisionValidation:
         result_id = self._setup_review_context(client, headers)
 
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": "invalid_choice", "comment": "Should fail."},
         )
@@ -465,7 +462,7 @@ class TestReviewDecisionValidation:
         result_id = self._setup_review_context(client, headers)
 
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": "", "comment": "Empty."},
         )
@@ -478,7 +475,7 @@ class TestReviewDecisionValidation:
         result_id = self._setup_review_context(client, headers)
 
         resp = client.post(
-            f"/api/v1/results/{result_id}/reviews",
+            f"/api/v1/workflows/results/{result_id}/reviews",
             headers=headers,
             json={"decision": "   ", "comment": "Whitespace."},
         )
@@ -555,19 +552,19 @@ class TestCancelRetryJobService:
         # Create a project, drawing, job
         code = _unique("CNCL")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Cancel {code}"},
         )
-        proj_resp = client.get("/api/v1/projects", headers=headers)
+        proj_resp = client.get("/api/v1/workflows/projects", headers=headers)
         project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
         draw_resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=headers,
             json={"project_id": project["id"], "title": "Cancel Drawing"},
         )
         job_resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={
                 "drawing_id": draw_resp.json()["data"]["id"],
@@ -584,7 +581,7 @@ class TestCancelRetryJobService:
 
         # Try to cancel the job (which may already be succeeded from stub worker)
         resp = client.post(
-            f"/api/v1/jobs/{job_id}/cancellation-requests",
+            f"/api/v1/workflows/jobs/{job_id}/cancellation-requests",
             headers=headers,
         )
 
@@ -601,19 +598,19 @@ class TestCancelRetryJobService:
 
         code = _unique("RETRY")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Retry {code}"},
         )
-        proj_resp = client.get("/api/v1/projects", headers=headers)
+        proj_resp = client.get("/api/v1/workflows/projects", headers=headers)
         project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
         draw_resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=headers,
             json={"project_id": project["id"], "title": "Retry Drawing"},
         )
         job_resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={
                 "drawing_id": draw_resp.json()["data"]["id"],
@@ -630,7 +627,7 @@ class TestCancelRetryJobService:
         time.sleep(2)
 
         resp = client.post(
-            f"/api/v1/jobs/{job_id}/retry-requests",
+            f"/api/v1/workflows/jobs/{job_id}/retry-requests",
             headers=headers,
         )
         if resp.status_code == 409:
@@ -654,15 +651,15 @@ class TestDeleteProjectMemberEdgeCases:
 
         code = _unique("EDGE")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Edge {code}"},
         )
-        proj_resp = client.get("/api/v1/projects", headers=headers)
+        proj_resp = client.get("/api/v1/workflows/projects", headers=headers)
         project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
 
         resp = client.delete(
-            f"/api/v1/projects/{project['id']}/members/999999",
+            f"/api/v1/workflows/projects/{project['id']}/members/999999",
             headers=headers,
         )
         assert resp.status_code == 404, resp.text
@@ -675,26 +672,26 @@ class TestDeleteProjectMemberEdgeCases:
         # Project A with member
         code_a = _unique("PROJA")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code_a, "name": f"Project A {code_a}"},
         )
         # Project B (empty)
         code_b = _unique("PROJB")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code_b, "name": f"Project B {code_b}"},
         )
 
-        proj_resp = client.get("/api/v1/projects", headers=headers)
+        proj_resp = client.get("/api/v1/workflows/projects", headers=headers)
         proj_a = next((p for p in proj_resp.json()["data"] if p["code"] == code_a), None)
         proj_b = next((p for p in proj_resp.json()["data"] if p["code"] == code_b), None)
 
         username = _unique("cross-proj")
         uid = _create_user(client, headers, username, roles=["viewer"])
         member_resp = client.post(
-            f"/api/v1/projects/{proj_a['id']}/members",
+            f"/api/v1/workflows/projects/{proj_a['id']}/members",
             headers=headers,
             json={"user_id": uid, "project_role": "project_viewer"},
         )
@@ -702,7 +699,7 @@ class TestDeleteProjectMemberEdgeCases:
 
         # Try to delete member of project A via project B's endpoint
         resp = client.delete(
-            f"/api/v1/projects/{proj_b['id']}/members/{member_id}",
+            f"/api/v1/workflows/projects/{proj_b['id']}/members/{member_id}",
             headers=headers,
         )
         assert resp.status_code == 404, (
@@ -716,21 +713,21 @@ class TestDeleteProjectMemberEdgeCases:
 
         code = _unique("NONOWN")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"NonOwner {code}"},
         )
-        proj_resp = client.get("/api/v1/projects", headers=headers)
+        proj_resp = client.get("/api/v1/workflows/projects", headers=headers)
         project = next((p for p in proj_resp.json()["data"] if p["code"] == code), None)
 
         # Create engineer user
         eng_username = _unique("engineer-no-own")
-        eng_uid = _create_user(client, headers, eng_username, roles=["engineer"])
+        eng_uid = _create_user(client, headers, eng_username, roles=["operator"])
         eng_headers = _login(client, eng_username)
 
         # Add engineer as project_engineer (not owner)
         client.post(
-            f"/api/v1/projects/{project['id']}/members",
+            f"/api/v1/workflows/projects/{project['id']}/members",
             headers=headers,
             json={"user_id": eng_uid, "project_role": "project_engineer"},
         )
@@ -739,7 +736,7 @@ class TestDeleteProjectMemberEdgeCases:
         viewer_username = _unique("viewer-victim")
         viewer_uid = _create_user(client, headers, viewer_username, roles=["viewer"])
         member_resp = client.post(
-            f"/api/v1/projects/{project['id']}/members",
+            f"/api/v1/workflows/projects/{project['id']}/members",
             headers=headers,
             json={"user_id": viewer_uid, "project_role": "project_viewer"},
         )
@@ -747,7 +744,7 @@ class TestDeleteProjectMemberEdgeCases:
 
         # Engineer tries to delete viewer
         resp = client.delete(
-            f"/api/v1/projects/{project['id']}/members/{member_id}",
+            f"/api/v1/workflows/projects/{project['id']}/members/{member_id}",
             headers=eng_headers,
         )
         assert resp.status_code == 403, (
@@ -779,7 +776,7 @@ class TestFullFlowAuditIP:
         # 2. Create project → audit: projects.create
         code = _unique("FLOW")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=headers,
             json={"code": code, "name": f"Flow {code}"},
         )

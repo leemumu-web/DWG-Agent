@@ -42,7 +42,7 @@ def _create_job(
     """Create project, drawing, job. Returns (project_id, drawing_id, job_id)."""
     code = _unique("JOB")
     resp = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": code, "name": f"Job Project {code}"},
     )
@@ -50,7 +50,7 @@ def _create_job(
     pid = resp.json()["data"]["id"]
 
     resp = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": pid, "title": f"Drawing {code}"},
     )
@@ -58,7 +58,7 @@ def _create_job(
     did = resp.json()["data"]["id"]
 
     resp = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={
             "drawing_id": did,
@@ -89,7 +89,7 @@ class TestJobCreation:
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         _, _, jid = _create_job(client, headers)
-        resp = client.get(f"/api/v1/jobs/{jid}", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}", headers=headers)
         assert resp.status_code == 200
         status = resp.json()["data"]["status"]
         valid = {"queued", "running", "succeeded", "failed"}
@@ -107,7 +107,7 @@ class TestJobCreation:
 
     def test_create_job_without_auth_fails(self):
         client = _client()
-        resp = client.post("/api/v1/jobs", json={
+        resp = client.post("/api/v1/workflows/jobs", json={
             "task_type": "test", "precision_level": "normal",
         })
         assert resp.status_code == 401
@@ -115,7 +115,7 @@ class TestJobCreation:
     def test_list_jobs_returns_paginated(self):
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
-        resp = client.get("/api/v1/jobs", headers=headers)
+        resp = client.get("/api/v1/workflows/jobs", headers=headers)
         assert resp.status_code == 200
         assert "pagination" in resp.json()
         assert "data" in resp.json()
@@ -123,7 +123,7 @@ class TestJobCreation:
     def test_get_nonexistent_job_returns_404(self):
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
-        resp = client.get("/api/v1/jobs/999999", headers=headers)
+        resp = client.get("/api/v1/workflows/jobs/999999", headers=headers)
         assert resp.status_code == 404
 
 
@@ -143,7 +143,7 @@ class TestJobLifecycleProgression:
         deadline = time.time() + 5
         status = None
         while time.time() < deadline:
-            resp = client.get(f"/api/v1/jobs/{jid}", headers=headers)
+            resp = client.get(f"/api/v1/workflows/jobs/{jid}", headers=headers)
             status = resp.json()["data"]["status"]
             if status in ("succeeded", "failed", "cancelled"):
                 break
@@ -157,7 +157,7 @@ class TestJobLifecycleProgression:
         _, _, jid = _create_job(client, headers)
 
         time.sleep(2)
-        resp = client.get(f"/api/v1/jobs/{jid}/steps", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}/steps", headers=headers)
         assert resp.status_code == 200
         steps = resp.json()["data"]
         assert len(steps) >= 1, f"Job should have at least 1 step, got {len(steps)}"
@@ -168,7 +168,7 @@ class TestJobLifecycleProgression:
         _, _, jid = _create_job(client, headers)
 
         time.sleep(2)
-        resp = client.get(f"/api/v1/jobs/{jid}/results", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}/results", headers=headers)
         assert resp.status_code == 200
         results = resp.json()["data"]
         assert len(results) >= 1, f"Job should have results, got {len(results)}"
@@ -179,7 +179,7 @@ class TestJobLifecycleProgression:
         _, _, jid = _create_job(client, headers)
 
         time.sleep(0.5)
-        resp = client.get(f"/api/v1/jobs/{jid}", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}", headers=headers)
         progress = resp.json()["data"]["progress"]
         assert progress >= 0, f"Progress should be >= 0, got {progress}"
 
@@ -198,7 +198,7 @@ class TestJobCancel:
 
         # Cancel immediately (before stub worker picks it up)
         resp = client.post(
-            f"/api/v1/jobs/{jid}/cancellation-requests",
+            f"/api/v1/workflows/jobs/{jid}/cancellation-requests",
             headers=headers,
         )
         # May be 202 if still queued, or 409 if stub already progressed it
@@ -214,7 +214,7 @@ class TestJobCancel:
 
         time.sleep(3)  # Let it complete
         resp = client.post(
-            f"/api/v1/jobs/{jid}/cancellation-requests",
+            f"/api/v1/workflows/jobs/{jid}/cancellation-requests",
             headers=headers,
         )
         assert resp.status_code == 409, f"succeeded job cancel: {resp.status_code}"
@@ -227,7 +227,7 @@ class TestJobCancel:
         _, _, jid = _create_job(client, headers)
 
         resp = client.post(
-            f"/api/v1/jobs/{jid}/cancellation-requests", headers=headers
+            f"/api/v1/workflows/jobs/{jid}/cancellation-requests", headers=headers
         )
         if resp.status_code == 202:
             audit = client.get("/api/v1/audit-logs", headers=headers)
@@ -253,7 +253,7 @@ class TestJobRetry:
 
         # Immediately retry
         resp = client.post(
-            f"/api/v1/jobs/{jid}/retry-requests",
+            f"/api/v1/workflows/jobs/{jid}/retry-requests",
             headers=headers,
         )
         # Stub worker is fast — it might already be succeeded or still queued
@@ -267,7 +267,7 @@ class TestJobRetry:
         _, _, jid = _create_job(client, headers)
 
         resp = client.post(
-            f"/api/v1/jobs/{jid}/retry-requests", headers=headers
+            f"/api/v1/workflows/jobs/{jid}/retry-requests", headers=headers
         )
         if resp.status_code == 202:
             audit = client.get("/api/v1/audit-logs", headers=headers)
@@ -291,20 +291,20 @@ class TestJobSteps:
         _, _, jid = _create_job(client, headers)
 
         time.sleep(2)
-        resp = client.get(f"/api/v1/jobs/{jid}/steps?page=1&page_size=5", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}/steps?page=1&page_size=5", headers=headers)
         assert resp.status_code == 200
         assert "pagination" in resp.json()
 
     def test_job_steps_requires_auth(self):
         client = _client()
-        resp = client.get("/api/v1/jobs/1/steps")
+        resp = client.get("/api/v1/workflows/jobs/1/steps")
         assert resp.status_code == 401
 
     def test_job_logs_returns_placeholder(self):
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         _, _, jid = _create_job(client, headers)
-        resp = client.get(f"/api/v1/jobs/{jid}/logs", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}/logs", headers=headers)
         assert resp.status_code == 200
         # Stage 1 placeholder
         assert "logs" in resp.json()["data"]
@@ -313,7 +313,7 @@ class TestJobSteps:
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         _, _, jid = _create_job(client, headers)
-        resp = client.get(f"/api/v1/jobs/{jid}/events", headers=headers)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}/events", headers=headers)
         assert resp.status_code == 200
 
 
@@ -330,21 +330,21 @@ class TestJobCrossProject:
         # Create job in project
         code = _unique("JCROSS")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Cross {code}"},
         )
         pid = resp.json()["data"]["id"]
 
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=admin_h,
             json={"project_id": pid, "title": "Cross Drawing"},
         )
         did = resp.json()["data"]["id"]
 
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=admin_h,
             json={
                 "drawing_id": did,
@@ -365,7 +365,7 @@ class TestJobCrossProject:
         assert resp.status_code == 201, resp.text
         outsider_h = _login(client, outsider_user, "OutsiderPass1")
 
-        resp = client.get(f"/api/v1/jobs/{jid}", headers=outsider_h)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}", headers=outsider_h)
         assert resp.status_code in (403, 404), f"outsider job: {resp.status_code}"
 
 
@@ -381,7 +381,7 @@ class TestJobValidation:
         headers = _login(client, "admin", "SuperAdminPass1")
 
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={
                 "task_type": "INVALID TYPE!",
@@ -394,7 +394,7 @@ class TestJobValidation:
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={"task_type": "", "precision_level": "normal"},
         )
@@ -404,7 +404,7 @@ class TestJobValidation:
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         # Send invalid task_type
-        resp = client.post("/api/v1/jobs", headers=headers, json={
+        resp = client.post("/api/v1/workflows/jobs", headers=headers, json={
             "task_type": "", "precision_level": "",
         })
         assert resp.status_code == 422, f"expected 422, got {resp.status_code}: {resp.text}"
@@ -413,7 +413,7 @@ class TestJobValidation:
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={
                 "drawing_id": 999999,

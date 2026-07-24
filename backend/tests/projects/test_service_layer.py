@@ -117,7 +117,7 @@ class TestProjectService:
         # Use the HTTP-level test to get a db session (we test via API for integration)
         code = _unique("PSVC")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Svc Project {code}"},
         )
@@ -131,12 +131,12 @@ class TestProjectService:
         admin_h = _admin(client)
         code = _unique("DUP")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Dup {code}"},
         )
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Dup2 {code}"},
         )
@@ -147,7 +147,7 @@ class TestProjectService:
         admin_h = _admin(client)
         code = _unique("ADDMEM")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"AddMem {code}"},
         )
@@ -162,7 +162,7 @@ class TestProjectService:
         uid = resp.json()["data"]["id"]
 
         resp = client.post(
-            f"/api/v1/projects/{pid}/members",
+            f"/api/v1/workflows/projects/{pid}/members",
             headers=admin_h,
             json={"user_id": uid, "project_role": "project_viewer"},
         )
@@ -173,7 +173,7 @@ class TestProjectService:
         admin_h = _admin(client)
         code = _unique("DUPMEM")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"DupMem {code}"},
         )
@@ -188,12 +188,12 @@ class TestProjectService:
         uid = resp.json()["data"]["id"]
 
         client.post(
-            f"/api/v1/projects/{pid}/members",
+            f"/api/v1/workflows/projects/{pid}/members",
             headers=admin_h,
             json={"user_id": uid, "project_role": "project_viewer"},
         )
         resp = client.post(
-            f"/api/v1/projects/{pid}/members",
+            f"/api/v1/workflows/projects/{pid}/members",
             headers=admin_h,
             json={"user_id": uid, "project_role": "project_engineer"},
         )
@@ -204,7 +204,7 @@ class TestProjectService:
         admin_h = _admin(client)
         code = _unique("UPDMEM")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"UpdMem {code}"},
         )
@@ -219,14 +219,14 @@ class TestProjectService:
         uid = resp.json()["data"]["id"]
 
         resp = client.post(
-            f"/api/v1/projects/{pid}/members",
+            f"/api/v1/workflows/projects/{pid}/members",
             headers=admin_h,
             json={"user_id": uid, "project_role": "project_viewer"},
         )
         mid = resp.json()["data"]["id"]
 
         resp = client.patch(
-            f"/api/v1/projects/{pid}/members/{mid}",
+            f"/api/v1/workflows/projects/{pid}/members/{mid}",
             headers=admin_h,
             json={"project_role": "project_engineer"},
         )
@@ -245,14 +245,14 @@ class TestDrawingService:
         admin_h = _admin(client)
         code = _unique("DRW")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Drw {code}"},
         )
         pid = resp.json()["data"]["id"]
 
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=admin_h,
             json={"project_id": pid, "title": "No File Drawing"},
         )
@@ -264,7 +264,7 @@ class TestDrawingService:
         admin_h = _admin(client)
         code = _unique("VER")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Ver {code}"},
         )
@@ -282,7 +282,7 @@ class TestDrawingService:
 
         # Create drawing with file
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=admin_h,
             json={"project_id": pid, "title": "Versioned", "file_id": fid},
         )
@@ -291,7 +291,7 @@ class TestDrawingService:
 
         # Upload second version
         resp = client.post(
-            f"/api/v1/drawings/{did}/versions",
+            f"/api/v1/workflows/drawings/{did}/versions",
             headers=admin_h,
             json={"file_id": fid, "source": "update"},
         )
@@ -303,24 +303,24 @@ class TestDrawingService:
         admin_h = _admin(client)
         code = _unique("ARCH")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Arch {code}"},
         )
         pid = resp.json()["data"]["id"]
 
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=admin_h,
             json={"project_id": pid, "title": "To Archive"},
         )
         did = resp.json()["data"]["id"]
 
-        resp = client.delete(f"/api/v1/drawings/{did}", headers=admin_h)
+        resp = client.delete(f"/api/v1/workflows/drawings/{did}", headers=admin_h)
         assert resp.status_code == 204
 
         # Archived drawing returns 404
-        resp = client.get(f"/api/v1/drawings/{did}", headers=admin_h)
+        resp = client.get(f"/api/v1/workflows/drawings/{did}", headers=admin_h)
         assert resp.status_code == 404
 
 
@@ -337,19 +337,19 @@ class TestReviewService:
         # Setup: project → drawing → job → wait → result → review
         code = _unique("REV")
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Review {code}"},
         )
         pid = resp.json()["data"]["id"]
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=admin_h,
             json={"project_id": pid, "title": "Review Drawing"},
         )
         did = resp.json()["data"]["id"]
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=admin_h,
             json={
                 "drawing_id": did,
@@ -364,7 +364,7 @@ class TestReviewService:
 
         time.sleep(2)
 
-        results = client.get(f"/api/v1/jobs/{jid}/results", headers=admin_h)
+        results = client.get(f"/api/v1/workflows/jobs/{jid}/results", headers=admin_h)
         if not results.json()["data"]:
             import pytest
 
@@ -372,7 +372,7 @@ class TestReviewService:
         rid = results.json()["data"][0]["id"]
 
         resp = client.post(
-            f"/api/v1/results/{rid}/reviews",
+            f"/api/v1/workflows/results/{rid}/reviews",
             headers=admin_h,
             json={"decision": "approved", "comment": "Good"},
         )
@@ -383,7 +383,7 @@ class TestReviewService:
         admin_h = _admin(client)
         # Use any result ID; the validation happens before DB lookup
         resp = client.post(
-            "/api/v1/results/1/reviews",
+            "/api/v1/workflows/results/1/reviews",
             headers=admin_h,
             json={"decision": "bad_decision"},
         )
@@ -545,12 +545,12 @@ class TestErrorResponseFormat:
         admin_h = _admin(client)
         code = _unique("CONFLICT")
         client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Conflict {code}"},
         )
         resp = client.post(
-            "/api/v1/projects",
+            "/api/v1/workflows/projects",
             headers=admin_h,
             json={"code": code, "name": f"Conflict2 {code}"},
         )

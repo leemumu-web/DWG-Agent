@@ -49,30 +49,6 @@ def _viewer_headers(client: TestClient, admin_headers: dict[str, str]) -> dict[s
     return {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
 
-def _auditor_headers(client: TestClient, admin_headers: dict[str, str]) -> dict[str, str]:
-    created = client.post(
-        "/api/v1/users",
-        headers=admin_headers,
-        json={
-            "username": "data-console-auditor",
-            "password": "AuditorPass1234",
-            "real_name": "Data Auditor",
-        },
-    )
-    user_id = created.json()["data"]["id"]
-    assigned = client.post(
-        f"/api/v1/users/{user_id}/roles",
-        headers=admin_headers,
-        json={"role_code": "auditor"},
-    )
-    assert assigned.status_code == 201
-    login = client.post(
-        "/api/v1/auth/sessions",
-        json={"username": "data-console-auditor", "password": "AuditorPass1234"},
-    )
-    return {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
-
-
 def test_data_admin_overview_identifies_environment_without_secrets(tmp_path, monkeypatch):
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
@@ -302,7 +278,7 @@ def test_data_admin_scans_are_server_paginated(tmp_path, monkeypatch):
     assert payload["data"][0]["scope_bucket"] == "dwg-derived"
 
 
-def test_auditor_can_preview_remediation_but_only_admin_can_execute(
+def test_viewer_cannot_read_or_mutate_admin_remediation_data(
     tmp_path,
     monkeypatch,
 ):
@@ -324,44 +300,35 @@ def test_auditor_can_preview_remediation_but_only_admin_can_execute(
     monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     admin = _admin_headers(client)
-    auditor = _auditor_headers(client, admin)
+    viewer = _viewer_headers(client, admin)
     scan = client.post(
         "/api/v1/data-admin/scans",
         headers=admin,
         json={"scope_bucket": "dwg-original"},
     )
     scan_id = scan.json()["data"]["id"]
+    viewer_findings = client.get(
+        f"/api/v1/data-admin/scans/{scan_id}/findings",
+        headers=viewer,
+    )
+    assert viewer_findings.status_code == 403
     findings = client.get(
         f"/api/v1/data-admin/scans/{scan_id}/findings",
-        headers=auditor,
+        headers=admin,
     )
+    assert findings.status_code == 200
     finding_id = next(
         item["id"]
         for item in findings.json()["data"]
         if item["storage_key"] == "untracked/remediation.dwg"
     )
 
-    preview = client.post(
+    denied_preview = client.post(
         "/api/v1/data-admin/remediations/preview",
-        headers=auditor,
+        headers=viewer,
         json={"finding_ids": [finding_id], "action": "purge_untracked"},
     )
-
-    assert preview.status_code == 200, preview.text
-    preview_data = preview.json()["data"]
-    assert preview_data["count"] == 1
-    assert preview_data["total_bytes"] == 3
-    assert preview_data["confirmation_word"] == "PURGE"
-    denied = client.post(
-        "/api/v1/data-admin/remediations/execute",
-        headers=auditor,
-        json={
-            "preview_token": preview_data["token"],
-            "idempotency_key": "auditor-cannot-purge",
-            "confirmation_word": "PURGE",
-        },
-    )
-    assert denied.status_code == 403
+    assert denied_preview.status_code == 403
 
     admin_preview = client.post(
         "/api/v1/data-admin/remediations/preview",
@@ -369,7 +336,21 @@ def test_auditor_can_preview_remediation_but_only_admin_can_execute(
         json={"finding_ids": [finding_id], "action": "purge_untracked"},
     )
     assert admin_preview.status_code == 200
-    admin_token = admin_preview.json()["data"]["token"]
+    preview_data = admin_preview.json()["data"]
+    assert preview_data["count"] == 1
+    assert preview_data["total_bytes"] == 3
+    assert preview_data["confirmation_word"] == "PURGE"
+    admin_token = preview_data["token"]
+    denied_execute = client.post(
+        "/api/v1/data-admin/remediations/execute",
+        headers=viewer,
+        json={
+            "preview_token": admin_token,
+            "idempotency_key": "viewer-cannot-purge",
+            "confirmation_word": "PURGE",
+        },
+    )
+    assert denied_execute.status_code == 403
     missing_confirmation = client.post(
         "/api/v1/data-admin/remediations/execute",
         headers=admin,

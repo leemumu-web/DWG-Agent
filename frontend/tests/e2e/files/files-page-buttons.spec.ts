@@ -124,7 +124,7 @@ async function createRetryableFixture(page: Page, dir: Direction): Promise<numbe
   });
   expect(upload.status()).toBe(201);
   const fileId = (await upload.json()).data.id as number;
-  const submitted = await page.request.post(`${API_BASE}/api/v1/jobs`, {
+  const submitted = await page.request.post(`${API_BASE}/api/v1/workflows/jobs`, {
     headers: { Authorization: `Bearer ${token}` },
     data: {
       task_type: dir.taskType,
@@ -135,12 +135,12 @@ async function createRetryableFixture(page: Page, dir: Direction): Promise<numbe
   expect(submitted.status()).toBe(202);
   const jobId = (await submitted.json()).data.id as number;
   const cancelled = await page.request.post(
-    `${API_BASE}/api/v1/jobs/${jobId}/cancellation-requests`,
+    `${API_BASE}/api/v1/workflows/jobs/${jobId}/cancellation-requests`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
   expect([202, 409]).toContain(cancelled.status());
   await expect.poll(async () => {
-    const response = await page.request.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
+    const response = await page.request.get(`${API_BASE}/api/v1/workflows/jobs/${jobId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     return (await response.json()).data.status;
@@ -229,7 +229,7 @@ async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) 
     contentType: 'application/json',
     body: JSON.stringify(envelope(files, 200)),
   }));
-  await page.route('**/api/v1/jobs?**', async (route) => {
+  await page.route('**/api/v1/workflows/jobs?**', async (route) => {
     if (jobsDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, jobsDelayMs));
     await route.fulfill({
       status: 200,
@@ -275,7 +275,7 @@ async function mockFolderState(page: Page, dir: Direction) {
     contentType: 'application/json',
     body: JSON.stringify(envelope(files)),
   }));
-  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
     body: JSON.stringify(envelope([])),
@@ -305,7 +305,7 @@ for (const dir of DIRECTIONS) {
         && response.request().method() === 'POST',
     );
     const jobResponse = page.waitForResponse(
-      (response) => response.url().endsWith('/api/v1/jobs/batches')
+      (response) => response.url().endsWith('/api/v1/workflows/jobs/batches')
         && response.request().method() === 'POST',
     );
     await uploadSample(page, samples[0], dir);
@@ -328,7 +328,7 @@ for (const dir of DIRECTIONS) {
 
     const [cancelResp] = await Promise.all([
       page.waitForResponse(
-        (r) => r.url().includes('/api/v1/jobs/cancellation-requests') && r.request().method() === 'POST',
+        (r) => r.url().includes('/api/v1/workflows/jobs/cancellation-requests') && r.request().method() === 'POST',
         { timeout: 10_000 },
       ),
       pauseBtn.click(),
@@ -347,7 +347,7 @@ for (const dir of DIRECTIONS) {
 
     let jobCalls = 0;
     page.on('request', (req) => {
-      if (req.url().endsWith('/api/v1/jobs/batches') && req.method() === 'POST') {
+      if (req.url().endsWith('/api/v1/workflows/jobs/batches') && req.method() === 'POST') {
         const data = req.postDataJSON();
         if (data?.task_type === dir.taskType) jobCalls++;
       }

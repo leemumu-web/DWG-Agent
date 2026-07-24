@@ -121,7 +121,6 @@ def test_browser_e2e_uses_session_storage_and_cookie_sse_auth():
         _e2e_source(path)
         for path in (
             "files/files-page-buttons.spec.ts",
-            "jobs/jobs-page-buttons.spec.ts",
             "contracts/api-contract.spec.ts",
         )
     )
@@ -178,13 +177,6 @@ def test_dxf_to_excel_result_bridges_to_excel_final_without_dynamic_imports():
     assert "import(" not in page_source
     assert "'/api/v1/excel-final/process'" in api_source
     assert "'Idempotency-Key': requestKey" in api_source
-
-
-def test_job_drawer_loads_steps_for_the_current_attempt_only():
-    source = _frontend_source("features/jobs/JobsPage.tsx")
-
-    assert "getJobSteps(jobId, job.attempt)" in source
-    assert "getJobSteps(retried.id, retried.attempt)" in source
 
 
 def test_frontend_system_health_lists_every_pipeline_flag():
@@ -400,12 +392,14 @@ def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     assert "destroyOnHidden" in page_source
 
 
-def test_auditor_can_open_read_only_data_console():
+def test_data_console_and_audit_log_routes_are_admin_only():
     router_source = _frontend_source("app/router.tsx")
     layout_source = _frontend_source("app/layout.tsx")
 
-    assert "<RequireRoles allowed={['admin', 'auditor']} />" in router_source
-    assert "roles: ['admin', 'auditor']" in layout_source
+    assert "<RequireRoles allowed={['admin']} />" in router_source
+    assert "roles: ['admin']" in layout_source
+    assert "viewer" not in router_source
+    assert "viewer" not in layout_source
 
 
 def test_operational_tables_use_bounded_server_pagination():
@@ -413,7 +407,6 @@ def test_operational_tables_use_bounded_server_pagination():
     jobs_api = _frontend_source("features/jobs/jobs.api.ts")
     audit_api = _frontend_source("features/operations/api/auditLogs.ts")
     conversion_page = _frontend_source("features/cad-processing/ConversionPage.tsx")
-    jobs_page = _frontend_source("features/jobs/JobsPage.tsx")
     audit_page = _frontend_source("features/operations/pages/AuditLogsPage.tsx")
 
     assert "listFilesPage" in files_api
@@ -423,7 +416,5 @@ def test_operational_tables_use_bounded_server_pagination():
     assert "listJobsForFiles" in conversion_page
     assert "latest_per_file: true" in jobs_api
     assert "current: page" in conversion_page
-    assert "listJobsPage" in jobs_page
-    assert "total: query.data?.pagination.total" in jobs_page
     assert "listAuditLogsPage" in audit_page
     assert "total: logsQ.data?.pagination.total" in audit_page

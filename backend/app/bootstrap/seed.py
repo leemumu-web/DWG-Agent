@@ -19,13 +19,13 @@ ROLE_SEEDS = [
     (ROLE_SUPER_ADMIN, "超级管理员", "全部管理权限：用户、角色、系统配置、审计日志、生产流程"),
     (ROLE_ADMIN, "管理员", "全部管理权限：用户、角色、系统配置、审计日志、生产流程"),
     (ROLE_OPERATOR, "操作员", "生产操作：工作流、文件、任务、复核、余料读写；不可管理用户和角色"),
-    (ROLE_VIEWER, "只读用户", "只读查看：审计日志、余料预览；不可执行任何写入操作"),
+    (ROLE_VIEWER, "只读用户", "只读查看已授权的项目、流程和结果；不可执行生产或管理操作"),
 ]
 
 # Three-tier permission model matching the three effective access levels:
 #   admin    — super_admin & admin: full platform control
 #   operator — operator: production operations (workflows/files/jobs/reviews/remnants)
-#   viewer   — viewer: read-only (audit logs + remnant preview)
+#   viewer   — viewer: read-only access to authorized project and workflow data
 PERMISSION_SEEDS = [
     ("admin", "admin", "write", "全部管理权限"),
     ("operator", "operator", "write", "生产操作权限"),

@@ -206,7 +206,7 @@ def test_worker_can_use_but_only_admin_can_manage_catalog() -> None:
         username="w",
         real_name="W",
         password_hash="x",
-        roles=[Role(code="remnant_worker", name="余料工人")],
+        roles=[Role(code="operator", name="余料工人")],
     )
     admin = User(
         username="a", real_name="A", password_hash="x", roles=[Role(code="admin", name="管理员")]
@@ -222,11 +222,11 @@ def test_worker_can_use_but_only_admin_can_manage_catalog() -> None:
     assert can_use_remnants(viewer) is False
 
 
-def test_seed_installs_remnant_role_and_permissions(db) -> None:
+def test_seed_installs_operator_role_and_three_tier_permissions(db) -> None:
     from app.modules.identity.interface import Permission
 
     init_db()
     roles = set(db.scalars(select(Role.code)).all())
     permissions = set(db.scalars(select(Permission.code)).all())
-    assert "remnant_worker" in roles
-    assert {"remnants:read", "remnants:write", "remnant_materials:write"} <= permissions
+    assert "operator" in roles
+    assert permissions == {"admin", "operator", "viewer"}

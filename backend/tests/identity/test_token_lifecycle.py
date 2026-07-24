@@ -117,7 +117,7 @@ def test_login_sets_scoped_httponly_sse_cookie():
     cookies = response.headers.get_list("set-cookie")
     sse_cookie = next(value for value in cookies if value.startswith("dwg_sse_token="))
     assert "HttpOnly" in sse_cookie
-    assert "Path=/api/v1/jobs" in sse_cookie
+    assert "Path=/api/v1/workflows/jobs" in sse_cookie
 
 
 def test_sse_accepts_scoped_cookie_without_token_query(db):
@@ -138,7 +138,7 @@ def test_sse_accepts_scoped_cookie_without_token_query(db):
     db.add(job)
     db.commit()
 
-    response = client.get(f"/api/v1/jobs/{job.id}/events")
+    response = client.get(f"/api/v1/workflows/jobs/{job.id}/events")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -164,7 +164,7 @@ def test_sse_rejects_query_token_without_header_or_cookie(db):
     db.commit()
 
     anonymous = TestClient(app)
-    response = anonymous.get(f"/api/v1/jobs/{job.id}/events?token={token}")
+    response = anonymous.get(f"/api/v1/workflows/jobs/{job.id}/events?token={token}")
 
     assert response.status_code == 401
 
@@ -179,10 +179,10 @@ def test_blacklisted_token_cannot_be_used_for_any_endpoint():
     # Try various endpoints with the revoked token
     paths = [
         ("GET", "/api/v1/users"),
-        ("GET", "/api/v1/projects"),
+        ("GET", "/api/v1/workflows/projects"),
         ("GET", "/api/v1/files"),
-        ("GET", "/api/v1/drawings"),
-        ("GET", "/api/v1/jobs"),
+        ("GET", "/api/v1/workflows/drawings"),
+        ("GET", "/api/v1/workflows/jobs"),
     ]
     for method, path in paths:
         resp = client.get(path, headers=headers)

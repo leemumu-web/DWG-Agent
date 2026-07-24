@@ -73,7 +73,7 @@ def render() -> str:
 - 成功响应使用 `{data, meta}`；分页响应额外包含 `pagination`，`total` 来自 SQL `COUNT(*)`。
 - 错误响应使用 `{error: {code, message, details}, meta}`，不会向客户端暴露 traceback、DSN 或本机路径。
 - 仓库前端优先展示 `error.message`；422 会展开 `details.errors` 的字段路径和原因，并附带 `error.code` 与 `meta.request_id`。客户端不得只显示“HTTP 4xx”而隐藏服务端原因。无法连接、超时以及无结构化响应时才使用状态码兜底文案。
-- `GET /api/v1/jobs/{job_id}/events` 与聚合 `GET /api/v1/jobs/events/stream` 使用 SSE cookie 认证并轮询 MySQL 权威状态；URL 中不传 token。聚合流每次最多观察 200 个文件并在全部终态后关闭。
+- `GET /api/v1/workflows/jobs/{job_id}/events` 与聚合 `GET /api/v1/workflows/jobs/events/stream` 使用 SSE cookie 认证并轮询 MySQL 权威状态；URL 中不传 token。聚合流每次最多观察 200 个文件并在全部终态后关闭。
 - 下载流程为：鉴权获取短期签名 URL，再携带 Bearer token 下载。403、408、429、5xx 或网络错误重试时必须重新获取签名。
 - 任务重试递增 `attempt`；步骤查询可用 `?attempt=N`，旧 worker 不能覆盖新 attempt。
 - 双向 CAD 批量创建一次接受最多 200 个文件并保留每文件 Job；批量取消只作用于请求内且有权写入的 Job，不等同于管理员全局取消。
@@ -87,7 +87,7 @@ def render() -> str:
 
 ### 批量创建转换任务
 
-`POST /api/v1/jobs/batches` 仅接受 `convert_dwg_to_dxf` 或 `convert_dxf_to_dwg`，每次请求包含 1-200 个 `file_id`。服务端对重复 ID 去重，先验证全部文件存在性、读权限以及源扩展名（DWG→DXF 只接受 `.dwg`，DXF→DWG 只接受 `.dxf`），再为每个文件创建独立 Job。任一文件不存在、不可读或类型错误时，该 HTTP 请求不留下部分 Job。
+`POST /api/v1/workflows/jobs/batches` 仅接受 `convert_dwg_to_dxf` 或 `convert_dxf_to_dwg`，每次请求包含 1-200 个 `file_id`。服务端对重复 ID 去重，先验证全部文件存在性、读权限以及源扩展名（DWG→DXF 只接受 `.dwg`，DXF→DWG 只接受 `.dxf`），再为每个文件创建独立 Job。任一文件不存在、不可读或类型错误时，该 HTTP 请求不留下部分 Job。
 
 ```json
 {

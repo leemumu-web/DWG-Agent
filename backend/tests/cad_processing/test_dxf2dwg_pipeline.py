@@ -74,7 +74,7 @@ def _admin_headers(client: TestClient) -> dict[str, str]:
 
 def _create_project(client: TestClient, headers: dict, code: str) -> int:
     resp = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": code, "name": code},
     )
@@ -115,7 +115,7 @@ def _create_dxf2dwg_job(
     client: TestClient, headers: dict, project_id: int, file_id: int
 ) -> tuple[int, dict]:
     resp = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={
             "project_id": project_id,
@@ -156,7 +156,7 @@ def test_dxf2dwg_pipeline_disabled_returns_503(monkeypatch):
     fid = _upload_dxf(client, headers)
 
     resp = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={
             "project_id": pid,
@@ -197,11 +197,11 @@ def test_run_dxf2dwg_conversion_success():
 
     assert save_result.call_args.kwargs["transfer_uid"]
 
-    jobv = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    jobv = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=headers)
     jd = jobv.json()["data"]
     assert jd["status"] == JOB_SUCCEEDED, f"status={jd['status']} err={jd.get('error_message')}"
 
-    stepsv = client.get(f"/api/v1/jobs/{job_id}/steps", headers=headers)
+    stepsv = client.get(f"/api/v1/workflows/jobs/{job_id}/steps", headers=headers)
     steps_data = stepsv.json()["data"]
     step_names = [s["step_name"] for s in steps_data]
     assert "download_source_dxf" in step_names
@@ -209,7 +209,7 @@ def test_run_dxf2dwg_conversion_success():
     assert "persist_dwg_result" in step_names
     assert all(s["status"] == "succeeded" for s in steps_data)
 
-    resultsv = client.get(f"/api/v1/jobs/{job_id}/results", headers=headers)
+    resultsv = client.get(f"/api/v1/workflows/jobs/{job_id}/results", headers=headers)
     results = resultsv.json()["data"]
     assert len(results) >= 1
     res = results[0]
@@ -242,7 +242,7 @@ def _seed_dwg_to_dxf_analysis_result(
     dwg_file_id = resp.json()["data"]["id"]
 
     resp = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": "SEED", "name": "SEED"},
     )
@@ -260,7 +260,7 @@ def _seed_dwg_to_dxf_analysis_result(
 
     with patch("dwg_converter.convert_file", return_value=fake):
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=headers,
             json={
                 "project_id": seed_pid,
@@ -392,7 +392,7 @@ def test_run_dxf2dwg_conversion_oda_failure():
     with patch("dxf_converter.convert_file", return_value=fake):
         job_id, _ = _create_dxf2dwg_job(client, headers, pid, fid)
 
-    jobv = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    jobv = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=headers)
     jd = jobv.json()["data"]
     assert jd["status"] == JOB_FAILED
     assert jd["error_code"] == "DWG_CONVERSION_FAILED"
@@ -424,7 +424,7 @@ def test_run_dxf2dwg_conversion_source_missing():
     with patch("dxf_converter.convert_file", return_value=fake):
         job_id, _ = _create_dxf2dwg_job(client, headers, pid, fid)
 
-    jobv = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+    jobv = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=headers)
     jd = jobv.json()["data"]
     assert jd["status"] == JOB_FAILED
     assert jd["error_code"] == "DXF_SOURCE_FILE_MISSING"

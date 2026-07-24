@@ -37,14 +37,14 @@ const ROLE_CONFIG: Record<string, { color: string; icon: React.ReactNode; tier: 
     color: 'default',
     icon: <EyeOutlined />,
     tier: 3,
-    desc: '只读查看：审计日志、余料预览',
+    desc: '只读查看已授权的项目、流程和结果；不可执行生产或管理操作',
   },
 };
 
 const PERM_TIER_LABELS: Record<string, { title: string; subtitle: string }> = {
   admin: { title: '第一级 · 管理权限', subtitle: '用户/角色/系统/审计全部控制' },
   operator: { title: '第二级 · 操作权限', subtitle: '生产流程、文件、任务、复核、余料' },
-  viewer: { title: '第三级 · 只读权限', subtitle: '审计日志查看、余料预览' },
+  viewer: { title: '第三级 · 只读权限', subtitle: '已授权项目、流程和结果' },
 };
 
 function tierProgress(roleCode: string): number {

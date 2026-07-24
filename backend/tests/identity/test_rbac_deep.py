@@ -65,7 +65,7 @@ def _create_project(
     client: TestClient, headers: dict[str, str], code: str
 ) -> int:
     resp = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": code, "name": f"Project {code}"},
     )
@@ -81,7 +81,7 @@ def _add_member(
     role: str,
 ) -> int:
     resp = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=admin_h,
         json={"user_id": user_id, "project_role": role},
     )
@@ -114,7 +114,7 @@ class TestGlobalRoleAdminEndpoints:
     def test_engineer_cannot_list_users(self):
         client = _client()
         admin_h = _login(client, "admin", "SuperAdminPass1")
-        _, eh = _create_user_with_roles(client, admin_h, _unique("rbac-eng"), role_codes=["engineer"])
+        _, eh = _create_user_with_roles(client, admin_h, _unique("rbac-eng"), role_codes=["operator"])
         resp = client.get("/api/v1/users", headers=eh)
         assert resp.status_code == 403
 
@@ -135,17 +135,17 @@ class TestGlobalRoleAdminEndpoints:
         )
         assert resp.status_code == 403
 
-    def test_auditor_can_read_audit_logs(self):
+    def test_viewer_cannot_read_admin_audit_logs(self):
         client = _client()
         admin_h = _login(client, "admin", "SuperAdminPass1")
-        _, ah = _create_user_with_roles(client, admin_h, _unique("rbac-aud"), role_codes=["auditor"])
+        _, ah = _create_user_with_roles(client, admin_h, _unique("rbac-aud"), role_codes=["viewer"])
         resp = client.get("/api/v1/audit-logs", headers=ah)
-        assert resp.status_code == 200
+        assert resp.status_code == 403
 
-    def test_auditor_cannot_create_users(self):
+    def test_viewer_cannot_create_users(self):
         client = _client()
         admin_h = _login(client, "admin", "SuperAdminPass1")
-        _, ah = _create_user_with_roles(client, admin_h, _unique("rbac-aud2"), role_codes=["auditor"])
+        _, ah = _create_user_with_roles(client, admin_h, _unique("rbac-aud2"), role_codes=["viewer"])
         resp = client.post(
             "/api/v1/users",
             headers=ah,
@@ -163,7 +163,7 @@ class TestGlobalRoleAdminEndpoints:
     def test_engineer_cannot_create_roles(self):
         client = _client()
         admin_h = _login(client, "admin", "SuperAdminPass1")
-        _, eh = _create_user_with_roles(client, admin_h, _unique("rbac-eng2"), role_codes=["engineer"])
+        _, eh = _create_user_with_roles(client, admin_h, _unique("rbac-eng2"), role_codes=["operator"])
         resp = client.post(
             "/api/v1/roles",
             headers=eh,
@@ -211,11 +211,11 @@ class TestProjectRoleAccess:
         admin_h = _login(client, "admin", "SuperAdminPass1")
         code = _unique("PROLE")
         pid = _create_project(client, admin_h, code)
-        uid, eh = _create_user_with_roles(client, admin_h, _unique("pe"), role_codes=["engineer"])
+        uid, eh = _create_user_with_roles(client, admin_h, _unique("pe"), role_codes=["operator"])
         _add_member(client, admin_h, pid, uid, "project_engineer")
 
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=eh,
             json={"project_id": pid, "title": "Engineer Drawing"},
         )
@@ -226,10 +226,10 @@ class TestProjectRoleAccess:
         admin_h = _login(client, "admin", "SuperAdminPass1")
         code = _unique("PROLE2")
         pid = _create_project(client, admin_h, code)
-        uid, eh = _create_user_with_roles(client, admin_h, _unique("pe2"), role_codes=["engineer"])
+        uid, eh = _create_user_with_roles(client, admin_h, _unique("pe2"), role_codes=["operator"])
         _add_member(client, admin_h, pid, uid, "project_engineer")
 
-        resp = client.delete(f"/api/v1/projects/{pid}", headers=eh)
+        resp = client.delete(f"/api/v1/workflows/projects/{pid}", headers=eh)
         assert resp.status_code == 403
 
     def test_project_reviewer_can_see_pending_reviews(self):
@@ -237,10 +237,10 @@ class TestProjectRoleAccess:
         admin_h = _login(client, "admin", "SuperAdminPass1")
         code = _unique("PROLE3")
         pid = _create_project(client, admin_h, code)
-        uid, rh = _create_user_with_roles(client, admin_h, _unique("pr"), role_codes=["reviewer"])
+        uid, rh = _create_user_with_roles(client, admin_h, _unique("pr"), role_codes=["operator"])
         _add_member(client, admin_h, pid, uid, "project_reviewer")
 
-        resp = client.get("/api/v1/reviews/pending", headers=rh)
+        resp = client.get("/api/v1/workflows/reviews/pending", headers=rh)
         assert resp.status_code == 200
 
     def test_project_owner_can_add_members(self):
@@ -251,7 +251,7 @@ class TestProjectRoleAccess:
 
         new_uid, _ = _create_user_with_roles(client, admin_h, _unique("newmem"), role_codes=["viewer"])
         resp = client.post(
-            f"/api/v1/projects/{pid}/members",
+            f"/api/v1/workflows/projects/{pid}/members",
             headers=admin_h,
             json={"user_id": new_uid, "project_role": "project_viewer"},
         )
@@ -264,7 +264,7 @@ class TestProjectRoleAccess:
         pid = _create_project(client, admin_h, code)
         _, oh = _create_user_with_roles(client, admin_h, _unique("outsider"), role_codes=["viewer"])
 
-        resp = client.get(f"/api/v1/projects/{pid}", headers=oh)
+        resp = client.get(f"/api/v1/workflows/projects/{pid}", headers=oh)
         # Non-members get 403 (forbidden) or 404 (not found)
         assert resp.status_code in (403, 404), f"non-member: {resp.status_code}"
 
@@ -277,7 +277,7 @@ class TestProjectRoleAccess:
         _add_member(client, admin_h, pid, uid, "project_viewer")
 
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=vh,
             json={
                 "project_id": pid,
@@ -300,11 +300,11 @@ class TestCrossProjectIsolation:
 
         # Project A with engineer A
         pid_a = _create_project(client, admin_h, _unique("ISO-A"))
-        uid_a, ea = _create_user_with_roles(client, admin_h, _unique("eng-a"), role_codes=["engineer"])
+        uid_a, ea = _create_user_with_roles(client, admin_h, _unique("eng-a"), role_codes=["operator"])
         _add_member(client, admin_h, pid_a, uid_a, "project_engineer")
 
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=ea,
             json={"project_id": pid_a, "title": "Drawing A"},
         )
@@ -313,11 +313,11 @@ class TestCrossProjectIsolation:
 
         # Project B with engineer B
         pid_b = _create_project(client, admin_h, _unique("ISO-B"))
-        uid_b, eb = _create_user_with_roles(client, admin_h, _unique("eng-b"), role_codes=["engineer"])
+        uid_b, eb = _create_user_with_roles(client, admin_h, _unique("eng-b"), role_codes=["operator"])
         _add_member(client, admin_h, pid_b, uid_b, "project_engineer")
 
         # Engineer B tries to access drawing from project A
-        resp = client.get(f"/api/v1/drawings/{did}", headers=eb)
+        resp = client.get(f"/api/v1/workflows/drawings/{did}", headers=eb)
         # Cross-project access should be denied: either 403 (explicit deny) or 404 (not found)
         assert resp.status_code in (403, 404), f"cross-project leak: {resp.status_code}"
 
@@ -326,17 +326,17 @@ class TestCrossProjectIsolation:
         admin_h = _login(client, "admin", "SuperAdminPass1")
 
         pid_a = _create_project(client, admin_h, _unique("JOB-A"))
-        uid_a, ea = _create_user_with_roles(client, admin_h, _unique("job-eng-a"), role_codes=["engineer"])
+        uid_a, ea = _create_user_with_roles(client, admin_h, _unique("job-eng-a"), role_codes=["operator"])
         _add_member(client, admin_h, pid_a, uid_a, "project_engineer")
 
         resp = client.post(
-            "/api/v1/drawings",
+            "/api/v1/workflows/drawings",
             headers=ea,
             json={"project_id": pid_a, "title": "Job Drawing A"},
         )
         did = resp.json()["data"]["id"]
         resp = client.post(
-            "/api/v1/jobs",
+            "/api/v1/workflows/jobs",
             headers=ea,
             json={
                 "drawing_id": did,
@@ -348,10 +348,10 @@ class TestCrossProjectIsolation:
         jid = resp.json()["data"]["id"]
 
         pid_b = _create_project(client, admin_h, _unique("JOB-B"))
-        uid_b, eb = _create_user_with_roles(client, admin_h, _unique("job-eng-b"), role_codes=["engineer"])
+        uid_b, eb = _create_user_with_roles(client, admin_h, _unique("job-eng-b"), role_codes=["operator"])
         _add_member(client, admin_h, pid_b, uid_b, "project_engineer")
 
-        resp = client.get(f"/api/v1/jobs/{jid}", headers=eb)
+        resp = client.get(f"/api/v1/workflows/jobs/{jid}", headers=eb)
         assert resp.status_code in (403, 404), f"cross-project job leak: {resp.status_code}"
 
 
@@ -363,15 +363,15 @@ class TestCrossProjectIsolation:
 class TestUnauthenticatedAccess:
     GET_ENDPOINTS = [
         "/api/v1/users",
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         "/api/v1/files",
-        "/api/v1/drawings",
-        "/api/v1/jobs",
-        "/api/v1/reviews/pending",
+        "/api/v1/workflows/drawings",
+        "/api/v1/workflows/jobs",
+        "/api/v1/workflows/reviews/pending",
         "/api/v1/audit-logs",
         "/api/v1/roles",
         "/api/v1/permissions",
-        "/api/v1/results/1",
+        "/api/v1/workflows/results/1",
     ]
 
     def test_get_endpoints_require_auth(self):
@@ -382,7 +382,7 @@ class TestUnauthenticatedAccess:
 
     def test_post_endpoints_require_auth(self):
         client = _client()
-        for path in ["/api/v1/users", "/api/v1/projects", "/api/v1/jobs", "/api/v1/roles"]:
+        for path in ["/api/v1/users", "/api/v1/workflows/projects", "/api/v1/workflows/jobs", "/api/v1/roles"]:
             resp = client.post(path, json={})
             assert resp.status_code in (401, 422), (
                 f"POST {path}: expected 401 or 422, got {resp.status_code}"
@@ -395,7 +395,7 @@ class TestUnauthenticatedAccess:
 
     def test_delete_endpoints_require_auth(self):
         client = _client()
-        for path in ["/api/v1/users/1", "/api/v1/projects/1", "/api/v1/files/1"]:
+        for path in ["/api/v1/users/1", "/api/v1/workflows/projects/1", "/api/v1/files/1"]:
             resp = client.delete(path)
             assert resp.status_code in (401, 404), (
                 f"DELETE {path}: expected 401 or 404, got {resp.status_code}"

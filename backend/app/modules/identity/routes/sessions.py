@@ -29,6 +29,7 @@ from app.platform.security.tokens import decode_token, hash_password, verify_pas
 router = APIRouter()
 REFRESH_COOKIE_NAME = "dwg_refresh_token"
 REFRESH_COOKIE_PATH = f"{settings.api_v1_prefix}/auth"
+JOB_EVENTS_COOKIE_PATH = f"{settings.api_v1_prefix}/workflows/jobs"
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -55,14 +56,14 @@ def _set_job_events_cookie(response: Response, token: str) -> None:
         httponly=True,
         secure=settings.refresh_cookie_secure_enabled,
         samesite="lax",
-        path=f"{settings.api_v1_prefix}/jobs",
+        path=JOB_EVENTS_COOKIE_PATH,
     )
 
 
 def _clear_job_events_cookie(response: Response) -> None:
     response.delete_cookie(
         JOB_EVENTS_COOKIE_NAME,
-        path=f"{settings.api_v1_prefix}/jobs",
+        path=JOB_EVENTS_COOKIE_PATH,
     )
 
 

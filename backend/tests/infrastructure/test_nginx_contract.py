@@ -25,7 +25,7 @@ def test_nginx_preserves_fastapi_error_status_and_json(config_path: Path):
 @pytest.mark.parametrize("config_path", NGINX_CONFIGS)
 def test_nginx_sse_route_has_streaming_contract(config_path: Path):
     content = config_path.read_text(encoding="utf-8")
-    route_start = content.index("location ~ ^/api/v1/jobs/[0-9]+/events$")
+    route_start = content.index("location ~ ^/api/v1/workflows/jobs/[0-9]+/events$")
     route_end = content.index("}", route_start)
     route = content[route_start:route_end]
 

@@ -465,18 +465,18 @@ def test_unauthenticated_endpoints_return_401():
         ("POST", "/api/v1/users"),
         ("GET", "/api/v1/roles"),
         ("POST", "/api/v1/roles"),
-        ("GET", "/api/v1/projects"),
-        ("POST", "/api/v1/projects"),
+        ("GET", "/api/v1/workflows/projects"),
+        ("POST", "/api/v1/workflows/projects"),
         ("GET", "/api/v1/files"),
         ("POST", "/api/v1/files"),
-        ("GET", "/api/v1/drawings"),
-        ("POST", "/api/v1/drawings"),
-        ("GET", "/api/v1/jobs"),
-        ("POST", "/api/v1/jobs"),
+        ("GET", "/api/v1/workflows/drawings"),
+        ("POST", "/api/v1/workflows/drawings"),
+        ("GET", "/api/v1/workflows/jobs"),
+        ("POST", "/api/v1/workflows/jobs"),
         ("GET", "/api/v1/audit-logs"),
         ("POST", "/api/v1/agent-runs"),
         ("GET", "/api/v1/agent-tools"),
-        ("GET", "/api/v1/reviews/pending"),
+        ("GET", "/api/v1/workflows/reviews/pending"),
     ]
 
     for method, path in protected_paths:
@@ -576,11 +576,11 @@ def test_get_nonexistent_resource_returns_404():
 
     paths = [
         ("GET", "/api/v1/users/99999"),
-        ("GET", "/api/v1/projects/99999"),
+        ("GET", "/api/v1/workflows/projects/99999"),
         ("GET", "/api/v1/files/99999"),
-        ("GET", "/api/v1/drawings/99999"),
-        ("GET", "/api/v1/jobs/99999"),
-        ("GET", "/api/v1/results/99999"),
+        ("GET", "/api/v1/workflows/drawings/99999"),
+        ("GET", "/api/v1/workflows/jobs/99999"),
+        ("GET", "/api/v1/workflows/results/99999"),
         ("GET", "/api/v1/audit-logs/99999"),
     ]
 
@@ -687,23 +687,23 @@ def test_unscoped_result_endpoints_are_restricted_to_job_creator(db: Session):
     result_id = result.id
 
     owner_headers = _login(client, owner_name, "ResultOwnerPass1")
-    assert client.get(f"/api/v1/results/{result_id}", headers=owner_headers).status_code == 200
+    assert client.get(f"/api/v1/workflows/results/{result_id}", headers=owner_headers).status_code == 200
     assert (
-        client.get(f"/api/v1/results/{result_id}/reviews", headers=owner_headers).status_code
+        client.get(f"/api/v1/workflows/results/{result_id}/reviews", headers=owner_headers).status_code
         == 200
     )
 
     outsider_headers = _login(client, outsider_name, "ResultOutsiderPass1")
     for path in (
-        f"/api/v1/results/{result_id}",
-        f"/api/v1/results/{result_id}/download-url",
-        f"/api/v1/results/{result_id}/reviews",
+        f"/api/v1/workflows/results/{result_id}",
+        f"/api/v1/workflows/results/{result_id}/download-url",
+        f"/api/v1/workflows/results/{result_id}/reviews",
     ):
         response = client.get(path, headers=outsider_headers)
         assert response.status_code == 403, response.text
 
     review = client.post(
-        f"/api/v1/results/{result_id}/reviews",
+        f"/api/v1/workflows/results/{result_id}/reviews",
         headers=outsider_headers,
         json={"decision": "approved", "comment": "must be rejected"},
     )
@@ -769,7 +769,7 @@ def test_project_viewer_cannot_add_members():
     )
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=admin_headers,
         json={"code": _unique("VIEWERPROJ"), "name": "Viewer Project"},
     )
@@ -778,7 +778,7 @@ def test_project_viewer_cannot_add_members():
 
     # Add viewer to project
     client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=admin_headers,
         json={"user_id": viewer_id, "project_role": "project_viewer"},
     )
@@ -792,7 +792,7 @@ def test_project_viewer_cannot_add_members():
     )
 
     resp = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=viewer_headers,
         json={"user_id": target_id, "project_role": "project_viewer"},
     )
@@ -811,21 +811,21 @@ def test_project_viewer_cannot_update_project():
     )
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=admin_headers,
         json={"code": _unique("STATICPROJ"), "name": "Static Project"},
     )
     project_id = project.json()["data"]["id"]
 
     client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=admin_headers,
         json={"user_id": viewer_id, "project_role": "project_viewer"},
     )
 
     viewer_headers = _login(client, viewer_user, viewer_pass)
     resp = client.patch(
-        f"/api/v1/projects/{project_id}",
+        f"/api/v1/workflows/projects/{project_id}",
         headers=viewer_headers,
         json={"name": "Viewer Should Not Write"},
     )

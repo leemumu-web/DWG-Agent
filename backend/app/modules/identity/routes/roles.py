@@ -16,7 +16,7 @@ from app.modules.identity.schemas.user import (
     RoleRead,
 )
 from app.modules.operations.audit.interface import write_audit_log
-from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN, ROLE_ADMIN
+from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok

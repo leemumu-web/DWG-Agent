@@ -10,7 +10,7 @@ const worker = {
   username: 'remnant-worker',
   real_name: '余料工人',
   status: 'active',
-  roles: [{ id: 7, code: 'remnant_worker', name: '余料工人', is_system: true }],
+  roles: [{ id: 7, code: 'operator', name: '余料工人', is_system: true }],
   created_at: now,
   updated_at: now,
 };

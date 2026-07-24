@@ -59,7 +59,7 @@ def client(monkeypatch) -> TestClient:
 @pytest.fixture
 def worker_headers(client: TestClient) -> dict[str, str]:
     with get_test_session_factory()() as db:
-        role = db.scalar(select(Role).where(Role.code == "remnant_worker"))
+        role = db.scalar(select(Role).where(Role.code == "operator"))
         assert role is not None
         worker = User(
             username="export-worker",

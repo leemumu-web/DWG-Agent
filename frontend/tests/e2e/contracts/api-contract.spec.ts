@@ -36,7 +36,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
 
   test.beforeAll(async ({ request }) => {
     ({ token, sseCookie } = await getSessionAuth(request));
-    const jobsR = await request.get(`${BASE}/api/v1/jobs?page_size=1`, {
+    const jobsR = await request.get(`${BASE}/api/v1/workflows/jobs?page_size=1`, {
       headers: auth(token),
     });
     const jobs = (await jobsR.json()).data;
@@ -44,7 +44,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
       jobId = jobs[0].id;
       return;
     }
-    const created = await request.post(`${BASE}/api/v1/jobs`, {
+    const created = await request.post(`${BASE}/api/v1/workflows/jobs`, {
       headers: auth(token),
       data: { task_type: 'framework_smoke_test', precision_level: 'normal' },
     });
@@ -183,15 +183,15 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   // ── Jobs ───────────────────────────────────────────────────────────────
-  test('GET /api/v1/jobs — list jobs', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs`, { headers: auth(token) });
+  test('GET /api/v1/workflows/jobs — list jobs', async ({ request }) => {
+    const r = await request.get(`${BASE}/api/v1/workflows/jobs`, { headers: auth(token) });
     expect(r.status()).toBe(200);
     const body = await r.json();
     expect(Array.isArray(body.data)).toBe(true);
   });
 
-  test('GET /api/v1/jobs/{id} — single job', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}`, { headers: auth(token) });
+  test('GET /api/v1/workflows/jobs/{id} — single job', async ({ request }) => {
+    const r = await request.get(`${BASE}/api/v1/workflows/jobs/${jobId}`, { headers: auth(token) });
     expect(r.status()).toBe(200);
     const body = await r.json();
     expect(body.data).toHaveProperty('task_type');
@@ -202,8 +202,8 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(body.data).toHaveProperty('params_json');
   });
 
-  test('GET /api/v1/jobs/{id}/steps — job steps', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}/steps`, {
+  test('GET /api/v1/workflows/jobs/{id}/steps — job steps', async ({ request }) => {
+    const r = await request.get(`${BASE}/api/v1/workflows/jobs/${jobId}/steps`, {
       headers: auth(token),
     });
     expect(r.status()).toBe(200);
@@ -212,8 +212,8 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     for (const step of body.data) expect(step).toHaveProperty('attempt');
   });
 
-  test('GET /api/v1/jobs/{id}/results — job results', async ({ request }) => {
-    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}/results`, {
+  test('GET /api/v1/workflows/jobs/{id}/results — job results', async ({ request }) => {
+    const r = await request.get(`${BASE}/api/v1/workflows/jobs/${jobId}/results`, {
       headers: auth(token),
     });
     expect(r.status()).toBe(200);
@@ -221,16 +221,16 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(Array.isArray(body.data)).toBe(true);
   });
 
-  test('POST /api/v1/jobs/{id}/retry-requests — retry job', async ({ request }) => {
-    const r = await request.post(`${BASE}/api/v1/jobs/${jobId}/retry-requests`, {
+  test('POST /api/v1/workflows/jobs/{id}/retry-requests — retry job', async ({ request }) => {
+    const r = await request.post(`${BASE}/api/v1/workflows/jobs/${jobId}/retry-requests`, {
       headers: auth(token),
     });
     // 202 if job can be retried, 409 or other if not
     expect([202, 409]).toContain(r.status());
   });
 
-  test('POST /api/v1/jobs/cancel-all-active — cancel all', async ({ request }) => {
-    const r = await request.post(`${BASE}/api/v1/jobs/cancel-all-active`, {
+  test('POST /api/v1/workflows/jobs/cancel-all-active — cancel all', async ({ request }) => {
+    const r = await request.post(`${BASE}/api/v1/workflows/jobs/cancel-all-active`, {
       headers: auth(token),
     });
     expect(r.status()).toBe(200);
@@ -240,7 +240,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(body.data).toHaveProperty('broker_purge_failed_queues');
   });
 
-  test('POST /api/v1/jobs (convert_dwg_to_dxf) — create DXF job', async ({ request }) => {
+  test('POST /api/v1/workflows/jobs (convert_dwg_to_dxf) — create DXF job', async ({ request }) => {
     // First get a valid file_id
     const filesR = await request.get(`${BASE}/api/v1/files?page_size=1`, {
       headers: auth(token),
@@ -248,7 +248,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     const files = (await filesR.json()).data;
     if (files.length === 0) return; // no files
 
-    const r = await request.post(`${BASE}/api/v1/jobs`, {
+    const r = await request.post(`${BASE}/api/v1/workflows/jobs`, {
       headers: { ...auth(token), 'Content-Type': 'application/json' },
       data: {
         task_type: 'convert_dwg_to_dxf',
@@ -261,14 +261,14 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     expect(body.data.pipeline).toBe('dxf_open_source');
   });
 
-  test('POST /api/v1/jobs (convert_dxf_to_dwg) — create DXF→DWG job', async ({ request }) => {
+  test('POST /api/v1/workflows/jobs (convert_dxf_to_dwg) — create DXF→DWG job', async ({ request }) => {
     const filesR = await request.get(`${BASE}/api/v1/files?page_size=1`, {
       headers: auth(token),
     });
     const files = (await filesR.json()).data;
     if (files.length === 0) return;
 
-    const r = await request.post(`${BASE}/api/v1/jobs`, {
+    const r = await request.post(`${BASE}/api/v1/workflows/jobs`, {
       headers: { ...auth(token), 'Content-Type': 'application/json' },
       data: {
         task_type: 'convert_dxf_to_dwg',
@@ -282,9 +282,9 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   // ── Results ────────────────────────────────────────────────────────────
-  test('GET /api/v1/results/{id}/download-url — result download URL', async ({ request }) => {
+  test('GET /api/v1/workflows/results/{id}/download-url — result download URL', async ({ request }) => {
     // Find a valid result
-    const jobsR = await request.get(`${BASE}/api/v1/jobs?page_size=5`, {
+    const jobsR = await request.get(`${BASE}/api/v1/workflows/jobs?page_size=5`, {
       headers: auth(token),
     });
     const jobs = (await jobsR.json()).data;
@@ -292,14 +292,14 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     if (!succeededJob) return;
 
     const resultsR = await request.get(
-      `${BASE}/api/v1/jobs/${succeededJob.id}/results`,
+      `${BASE}/api/v1/workflows/jobs/${succeededJob.id}/results`,
       { headers: auth(token) },
     );
     const results = (await resultsR.json()).data;
     if (results.length === 0) return;
 
     const r = await request.get(
-      `${BASE}/api/v1/results/${results[0].id}/download-url`,
+      `${BASE}/api/v1/workflows/results/${results[0].id}/download-url`,
       { headers: auth(token) },
     );
     expect(r.status()).toBe(200);
@@ -335,9 +335,9 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   // ── SSE ────────────────────────────────────────────────────────────────
-  test('GET /api/v1/jobs/{id}/events — SSE stream', async ({ request }) => {
+  test('GET /api/v1/workflows/jobs/{id}/events — SSE stream', async ({ request }) => {
     // Hit the SSE endpoint; expect 200 + text/event-stream content type
-    const r = await request.get(`${BASE}/api/v1/jobs/${jobId}/events`, {
+    const r = await request.get(`${BASE}/api/v1/workflows/jobs/${jobId}/events`, {
       headers: { Accept: 'text/event-stream', Cookie: sseCookie },
     });
     expect(r.status()).toBe(200);

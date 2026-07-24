@@ -34,7 +34,7 @@ async function waitForJob(page: Page, token: string, jobId: number, attempt: num
   let body: any;
   await expect.poll(
     async () => {
-      const response = await page.request.get(`${API_BASE}/api/v1/jobs/${jobId}`, {
+      const response = await page.request.get(`${API_BASE}/api/v1/workflows/jobs/${jobId}`, {
         headers: auth(token),
       });
       body = await response.json();
@@ -59,7 +59,7 @@ test.describe('Excel Final retry and download closure', () => {
     let searchCalls = 0;
     let handbookCalls = 0;
     let handbookQuery = '';
-    await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+    await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ json: paged([]) }));
     await page.route('**/api/v1/excel-final/**', async (route) => {
       const url = new URL(route.request().url());
       if (url.pathname.endsWith('/health')) {
@@ -150,7 +150,7 @@ test.describe('Excel Final retry and download closure', () => {
       ...envelope(data),
       pagination: { page: 1, page_size: 50, total: data.length, total_pages: 1 },
     });
-    await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+    await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ json: paged([]) }));
     await page.route('**/api/v1/excel-final/health', (route) => route.fulfill({
       json: envelope({
         pipeline_enabled: true,
@@ -300,7 +300,7 @@ test.describe('Excel Final retry and download closure', () => {
   test('corrupt XLS is rejected before job creation with safe guidance', async ({ page }) => {
     const token = await login(page);
     const jobsBeforeResponse = await page.request.get(
-      `${API_BASE}/api/v1/jobs?task_type=excel_final&page_size=1`,
+      `${API_BASE}/api/v1/workflows/jobs?task_type=excel_final&page_size=1`,
       { headers: auth(token) },
     );
     expect(jobsBeforeResponse.status()).toBe(200);
@@ -333,7 +333,7 @@ test.describe('Excel Final retry and download closure', () => {
     await expect(failure).toContainText('从 Tekla 重新导出');
 
     const jobsAfterResponse = await page.request.get(
-      `${API_BASE}/api/v1/jobs?task_type=excel_final&page_size=1`,
+      `${API_BASE}/api/v1/workflows/jobs?task_type=excel_final&page_size=1`,
       { headers: auth(token) },
     );
     expect(jobsAfterResponse.status()).toBe(200);
@@ -353,7 +353,7 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
     ...envelope(data),
     pagination: { page: pageNo, page_size: pageSize, total, total_pages: Math.ceil(total / pageSize) },
   });
-  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ json: paged([]) }));
   await page.route('**/api/v1/files/901/excel-preview**', (route) => route.fulfill({
     json: envelope({
       file_id: 901,
@@ -560,12 +560,12 @@ test('DXF to Excel result can be registered once as an Excel Final job', async (
     name: 'bridge-batch', file_count: 3, total_size: 4096,
     latest_created_at: '2026-07-13T02:00:00Z',
   }]) }));
-  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({ json: paged([{
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ json: paged([{
     id: 700, task_type: 'extract_dxf_to_excel', status: 'succeeded', progress: 100,
     pipeline: 'dxf2excel', params_json: { batch_name: 'bridge-batch' },
     created_at: '2026-07-13T02:00:00Z', updated_at: '2026-07-13T02:00:02Z',
   }]) }));
-  await page.route('**/api/v1/jobs/700/results**', (route) => route.fulfill({ json: paged([{
+  await page.route('**/api/v1/workflows/jobs/700/results**', (route) => route.fulfill({ json: paged([{
     id: 701, job_id: 700, result_type: 'extract_dxf_to_excel', result_file_id: 880,
     summary_json: null, metrics_json: null, created_at: '2026-07-13T02:00:02Z',
   }]) }));

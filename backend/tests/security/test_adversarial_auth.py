@@ -495,27 +495,27 @@ class TestRequireRolesSemantics:
         r = client.get("/api/v1/roles", headers=h)
         assert r.status_code == 200
 
-    def test_auditor_cannot_list_users(self):
-        """An auditor role must NOT satisfy require_roles(ROLE_ADMIN) for GET /users."""
+    def test_viewer_cannot_list_users(self):
+        """A viewer must not satisfy the admin requirement for GET /users."""
         client = _client()
         admin_h = _admin(client)
         uname = _unique("aud")
-        _create_user(client, admin_h, uname, "AuditorPass1234", "Aud", ["auditor"])
-        # Login as the auditor.
+        _create_user(client, admin_h, uname, "AuditorPass1234", "Aud", ["viewer"])
+        # Login as the viewer.
         h = _login(client, uname, "AuditorPass1234")
         r = client.get("/api/v1/users", headers=h)
         assert r.status_code == 403
         assert r.json()["error"]["code"] == "FORBIDDEN"
 
-    def test_auditor_can_list_audit_logs(self):
-        """require_roles(ROLE_SUPER_ADMIN, ROLE_AUDITOR) on audit-logs must admit an auditor."""
+    def test_viewer_cannot_list_admin_audit_logs(self):
+        """Audit logs remain inside the admin-only data and storage boundary."""
         client = _client()
         admin_h = _admin(client)
         uname = _unique("aud2")
-        _create_user(client, admin_h, uname, "AuditorPass1234", "Aud2", ["auditor"])
+        _create_user(client, admin_h, uname, "AuditorPass1234", "Aud2", ["viewer"])
         h = _login(client, uname, "AuditorPass1234")
         r = client.get("/api/v1/audit-logs", headers=h)
-        assert r.status_code == 200
+        assert r.status_code == 403
 
     def test_roles_api_literal_admin_string_works(self):
         """roles_api passes the literal string "admin" (not the constant) to require_roles.
@@ -529,8 +529,8 @@ class TestRequireRolesSemantics:
         r = client.get("/api/v1/roles", headers=h)
         assert r.status_code == 200, "literal 'admin' string must match the role code"
 
-    def test_admin_cannot_create_roles(self):
-        """POST /roles is super_admin-only; a plain admin must get 403."""
+    def test_admin_can_create_roles(self):
+        """The simplified model gives admin and super_admin equal control."""
         client = _client()
         admin_h = _admin(client)
         uname = _unique("adm3")
@@ -541,7 +541,7 @@ class TestRequireRolesSemantics:
             headers=h,
             json={"code": _unique("r"), "name": "R"},
         )
-        assert r.status_code == 403
+        assert r.status_code == 201
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +602,7 @@ class TestDisabledUserTokenRejection:
         client = _client()
         admin_h = _admin(client)
         uname = _unique("u")
-        uid = _create_user(client, admin_h, uname, "UserPass1234A", "U", ["engineer"])
+        uid = _create_user(client, admin_h, uname, "UserPass1234A", "U", ["operator"])
         h = _login(client, uname, "UserPass1234A")
         # Confirm token works.
         assert client.get("/api/v1/auth/me", headers=h).status_code == 200
@@ -618,7 +618,7 @@ class TestDisabledUserTokenRejection:
         client = _client()
         admin_h = _admin(client)
         uname = _unique("u2")
-        uid = _create_user(client, admin_h, uname, "UserPass1234A", "U2", ["engineer"])
+        uid = _create_user(client, admin_h, uname, "UserPass1234A", "U2", ["operator"])
         # Disable the user via the disable-request endpoint.
         client.post(f"/api/v1/users/{uid}/disable-requests", headers=admin_h)
         r = client.post(

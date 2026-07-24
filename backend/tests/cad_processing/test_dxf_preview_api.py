@@ -55,7 +55,7 @@ def _create_engineer(
     role_response = client.post(
         f"/api/v1/users/{user_id}/roles",
         headers=admin_headers,
-        json={"role_code": "engineer"},
+        json={"role_code": "operator"},
     )
     assert role_response.status_code == 201, role_response.text
     return _login(client, username, password)

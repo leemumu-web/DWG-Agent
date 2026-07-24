@@ -31,6 +31,7 @@ class ProjectRead(BaseModel):
     name: str
     description: str | None = None
     owner_id: int | None = None
+    owner_name: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime

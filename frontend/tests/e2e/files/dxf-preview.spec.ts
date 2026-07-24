@@ -31,7 +31,7 @@ async function mockPreviewPage(page: Page, fileName: string, onPreview: () => vo
   await page.route('**/api/v1/files/batches?**', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(envelope([])),
   }));
-  await page.route('**/api/v1/jobs?**', (route) => route.fulfill({
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(pageEnvelope([])),
   }));
   await page.route('**/api/v1/files/987/dxf-preview/content', (route) => route.fulfill({

@@ -112,7 +112,7 @@ def test_project_soft_delete_does_not_cascade_to_drawings():
     headers = _admin_headers(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("SOFTDEL"), "name": "Soft Delete Project"},
     )
@@ -120,7 +120,7 @@ def test_project_soft_delete_does_not_cascade_to_drawings():
     project_id = project.json()["data"]["id"]
 
     drawing = client.post(
-        "/api/v1/drawings",
+        "/api/v1/workflows/drawings",
         headers=headers,
         json={"project_id": project_id, "drawing_no": _unique("DWG-SD")},
     )
@@ -128,14 +128,14 @@ def test_project_soft_delete_does_not_cascade_to_drawings():
     drawing_id = drawing.json()["data"]["id"]
 
     # Soft-delete the project
-    resp = client.delete(f"/api/v1/projects/{project_id}", headers=headers)
+    resp = client.delete(f"/api/v1/workflows/projects/{project_id}", headers=headers)
     assert resp.status_code == 204
 
     # Project should be 404
-    assert client.get(f"/api/v1/projects/{project_id}", headers=headers).status_code == 404
+    assert client.get(f"/api/v1/workflows/projects/{project_id}", headers=headers).status_code == 404
 
     # Drawing NOT accessible — BUG-7: soft-deleted project cascades to drawings
-    drawing_after = client.get(f"/api/v1/drawings/{drawing_id}", headers=headers)
+    drawing_after = client.get(f"/api/v1/workflows/drawings/{drawing_id}", headers=headers)
     assert drawing_after.status_code == 404, drawing_after.text
 
 
@@ -146,18 +146,18 @@ def test_deleted_project_code_not_reusable():
 
     code = _unique("REUSE")
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": code, "name": "Reuse Test"},
     )
     assert project.status_code == 201, project.text
     project_id = project.json()["data"]["id"]
 
-    client.delete(f"/api/v1/projects/{project_id}", headers=headers)
+    client.delete(f"/api/v1/workflows/projects/{project_id}", headers=headers)
 
     # Try to create a new project with the same code
     resp = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": code, "name": "Reuse Attempt"},
     )
@@ -286,7 +286,7 @@ def test_project_member_delete_is_hard_delete():
     headers = _admin_headers(client)
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": _unique("MEMDEL"), "name": "Member Delete Test"},
     )
@@ -310,7 +310,7 @@ def test_project_member_delete_is_hard_delete():
     )
 
     add = client.post(
-        f"/api/v1/projects/{project_id}/members",
+        f"/api/v1/workflows/projects/{project_id}/members",
         headers=headers,
         json={"user_id": viewer_id, "project_role": "project_viewer"},
     )
@@ -318,12 +318,12 @@ def test_project_member_delete_is_hard_delete():
 
     # Remove member
     remove = client.delete(
-        f"/api/v1/projects/{project_id}/members/{member_id}", headers=headers
+        f"/api/v1/workflows/projects/{project_id}/members/{member_id}", headers=headers
     )
     assert remove.status_code == 204, remove.text
 
     # Member no longer in list
-    members = client.get(f"/api/v1/projects/{project_id}/members", headers=headers)
+    members = client.get(f"/api/v1/workflows/projects/{project_id}/members", headers=headers)
     member_ids = {m["id"] for m in members.json()["data"]}
     assert member_id not in member_ids
 

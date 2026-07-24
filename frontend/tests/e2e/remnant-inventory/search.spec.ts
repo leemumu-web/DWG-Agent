@@ -4,7 +4,7 @@ const now = '2026-07-22T10:00:00Z';
 const envelope = (data: unknown) => ({ data, meta: { request_id: 'remnant-search-e2e', timestamp: now } });
 const user = {
   id: 8, username: 'worker', real_name: '余料工人', status: 'active',
-  roles: [{ id: 8, code: 'remnant_worker', name: '余料工人', is_system: true }],
+  roles: [{ id: 8, code: 'operator', name: '余料工人', is_system: true }],
   created_at: now, updated_at: now,
 };
 

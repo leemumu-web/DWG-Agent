@@ -1,5 +1,5 @@
 import { apiClient, fetchAllPages, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
-import type { Job, JobStep } from './job';
+import type { Job } from './job';
 import type { AnalysisResult } from './result';
 
 /** Re-export so existing `import type { JobResult }` keeps working. The
@@ -57,17 +57,6 @@ export interface JobListParams {
 export async function listJobsPage(params: JobListParams) {
   const res = await apiClient.get<PageEnvelope<Job>>('/api/v1/workflows/jobs', { params });
   return res.data;
-}
-
-export async function getJob(jobId: number) {
-  const res = await apiClient.get<ApiEnvelope<Job>>(`/api/v1/workflows/jobs/${jobId}`);
-  return res.data.data;
-}
-
-export async function getJobSteps(jobId: number, attempt?: number) {
-  return fetchAllPages<JobStep>(`/api/v1/workflows/jobs/${jobId}/steps`, {
-    ...(attempt === undefined ? {} : { attempt }),
-  });
 }
 
 export async function getJobResults(jobId: number) {
@@ -162,15 +151,6 @@ export async function createDxf2ExcelJob(batchName: string) {
     task_type: 'extract_dxf_to_excel',
     precision_level: 'normal',
     params: { batch_name: batchName },
-  });
-  return res.data.data;
-}
-
-export async function createFrameworkSmokeJob() {
-  const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
-    task_type: 'framework_smoke_test',
-    precision_level: 'normal',
-    params: { source: 'frontend' },
   });
   return res.data.data;
 }

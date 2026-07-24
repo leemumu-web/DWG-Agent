@@ -52,7 +52,7 @@ def _admin_headers(client: TestClient) -> dict[str, str]:
 
 def _create_job(client: TestClient, headers: dict, batch_name: str) -> dict:
     resp = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={
             "task_type": "extract_dxf_to_excel",
@@ -116,7 +116,7 @@ class TestServiceHelpers:
             error_code="DXF2EXCEL_EMPTY_BATCH",
         )
 
-        check = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+        check = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=headers)
         data = check.json()["data"]
         assert data["status"] == "failed"
         assert data["error_code"] == "DXF2EXCEL_EMPTY_BATCH"
@@ -139,12 +139,12 @@ class TestServiceHelpers:
         attempt = job_data["attempt"]
 
         # Cancel the job first (终态)
-        client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
+        client.post(f"/api/v1/workflows/jobs/{job_id}/cancellation-requests", headers=headers)
 
         # Now try to mark it failed — should skip because it's already cancelled
         _mark_job_failed(db, job_id, attempt, Exception("should not apply"))
 
-        check = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
+        check = client.get(f"/api/v1/workflows/jobs/{job_id}", headers=headers)
         assert check.json()["data"]["status"] == "cancelled"
 
     def test_successful_run_persists_terminal_progress_in_same_transaction(
@@ -249,7 +249,7 @@ class TestJobCancellation:
         assert resp.status_code == 202
         job_id = resp.json()["data"]["id"]
 
-        cancel_resp = client.post(f"/api/v1/jobs/{job_id}/cancellation-requests", headers=headers)
+        cancel_resp = client.post(f"/api/v1/workflows/jobs/{job_id}/cancellation-requests", headers=headers)
         assert cancel_resp.status_code == 202
         assert cancel_resp.json()["data"]["status"] == "cancelled"
 
@@ -258,7 +258,7 @@ class TestJobCancellation:
         init_db()
         client = TestClient(app)
         headers = _admin_headers(client)
-        resp = client.post("/api/v1/jobs/99999/cancellation-requests", headers=headers)
+        resp = client.post("/api/v1/workflows/jobs/99999/cancellation-requests", headers=headers)
         assert resp.status_code == 404
 
 

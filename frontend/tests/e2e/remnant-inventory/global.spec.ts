@@ -2,7 +2,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 
 const now = '2026-07-23T10:00:00Z';
 const envelope = (data: unknown) => ({ data, meta: { request_id: 'remnant-global-e2e', timestamp: now } });
-const user = { id: 8, username: 'worker', real_name: '余料工人', status: 'active', roles: [{ id: 8, code: 'remnant_worker', name: '余料工人', is_system: true }], created_at: now, updated_at: now };
+const user = { id: 8, username: 'worker', real_name: '余料工人', status: 'active', roles: [{ id: 8, code: 'operator', name: '余料工人', is_system: true }], created_at: now, updated_at: now };
 
 async function json(route: Route, data: unknown) {
   await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });

@@ -49,7 +49,7 @@ def _create_user(
     role_response = client.post(
         f"/api/v1/users/{user_id}/roles",
         headers=admin_headers,
-        json={"role_code": "engineer"},
+        json={"role_code": "operator"},
     )
     assert role_response.status_code == 201, role_response.text
     return user_id, _login(client, username, password)
@@ -79,20 +79,20 @@ def test_unscoped_jobs_are_visible_only_to_owner_and_admin(db: Session):
     job = _seed_unscoped_job(db, owner_id=owner_id)
 
     owner_ids = {
-        item["id"] for item in client.get("/api/v1/jobs", headers=owner_headers).json()["data"]
+        item["id"] for item in client.get("/api/v1/workflows/jobs", headers=owner_headers).json()["data"]
     }
     stranger_ids = {
-        item["id"] for item in client.get("/api/v1/jobs", headers=stranger_headers).json()["data"]
+        item["id"] for item in client.get("/api/v1/workflows/jobs", headers=stranger_headers).json()["data"]
     }
     admin_ids = {
-        item["id"] for item in client.get("/api/v1/jobs", headers=admin_headers).json()["data"]
+        item["id"] for item in client.get("/api/v1/workflows/jobs", headers=admin_headers).json()["data"]
     }
 
     assert job.id in owner_ids
     assert job.id not in stranger_ids
     assert job.id in admin_ids
-    assert client.get(f"/api/v1/jobs/{job.id}", headers=owner_headers).status_code == 200
-    assert client.get(f"/api/v1/jobs/{job.id}", headers=admin_headers).status_code == 200
+    assert client.get(f"/api/v1/workflows/jobs/{job.id}", headers=owner_headers).status_code == 200
+    assert client.get(f"/api/v1/workflows/jobs/{job.id}", headers=admin_headers).status_code == 200
 
 
 @pytest.mark.parametrize("suffix", ["", "/steps", "/logs", "/results", "/events"])
@@ -103,7 +103,7 @@ def test_unscoped_job_read_endpoints_reject_other_users(db: Session, suffix: str
     _, stranger_headers = _create_user(client, admin_headers, "read-stranger")
     job = _seed_unscoped_job(db, owner_id=owner_id)
 
-    response = client.get(f"/api/v1/jobs/{job.id}{suffix}", headers=stranger_headers)
+    response = client.get(f"/api/v1/workflows/jobs/{job.id}{suffix}", headers=stranger_headers)
 
     assert response.status_code == 403, response.text
     assert response.json()["error"]["code"] == "FORBIDDEN"
@@ -122,7 +122,7 @@ def test_unscoped_job_write_endpoints_reject_other_users(
     _, stranger_headers = _create_user(client, admin_headers, "write-stranger")
     job = _seed_unscoped_job(db, owner_id=owner_id, status=initial_status)
 
-    response = client.post(f"/api/v1/jobs/{job.id}/{action}", headers=stranger_headers)
+    response = client.post(f"/api/v1/workflows/jobs/{job.id}/{action}", headers=stranger_headers)
 
     assert response.status_code == 403, response.text
     db.refresh(job)

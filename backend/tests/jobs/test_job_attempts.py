@@ -340,7 +340,7 @@ def test_cancel_all_locks_exact_active_set_and_reports_broker_purge(
     )
     headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
-    response = client.post("/api/v1/jobs/cancel-all-active", headers=headers)
+    response = client.post("/api/v1/workflows/jobs/cancel-all-active", headers=headers)
 
     assert response.status_code == 200, response.text
     data = response.json()["data"]

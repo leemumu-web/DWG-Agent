@@ -9,7 +9,11 @@ from app.main import app
 from app.modules.projects.interface import (
     ProjectCreate,
     ProjectMemberCreate,
+)
+from app.modules.projects.interface import (
     add_project_member as _add_project_member,
+)
+from app.modules.projects.interface import (
     create_project as _create_project,
 )
 from tests.support.database import open_test_session
@@ -46,7 +50,7 @@ def create_engineer_user(
     role_response = client.post(
         f"/api/v1/users/{user_id}/roles",
         headers=admin_headers,
-        json={"role_code": "engineer"},
+        json={"role_code": "operator"},
     )
     assert role_response.status_code == 201, role_response.text
     login = client.post(

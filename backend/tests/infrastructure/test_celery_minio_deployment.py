@@ -111,14 +111,14 @@ def test_result_download_url_is_signed_and_downloads_generated_file():
     headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": "RESULT-DOWNLOAD", "name": "Result Download"},
     )
     assert project.status_code == 201, project.text
 
     job = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={
             "project_id": project.json()["data"]["id"],
@@ -130,11 +130,11 @@ def test_result_download_url_is_signed_and_downloads_generated_file():
 
     run_local_stub_job(job_id)
 
-    results = client.get(f"/api/v1/jobs/{job_id}/results", headers=headers)
+    results = client.get(f"/api/v1/workflows/jobs/{job_id}/results", headers=headers)
     assert results.status_code == 200, results.text
     result_id = results.json()["data"][0]["id"]
 
-    download_url = client.get(f"/api/v1/results/{result_id}/download-url", headers=headers)
+    download_url = client.get(f"/api/v1/workflows/results/{result_id}/download-url", headers=headers)
     assert download_url.status_code == 200, download_url.text
     url = download_url.json()["data"]["url"]
     assert "expires=" in url
@@ -311,7 +311,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
 
     project = client.post(
-        "/api/v1/projects",
+        "/api/v1/workflows/projects",
         headers=headers,
         json={"code": "CELERY-DOWN", "name": "Celery Down"},
     )
@@ -323,7 +323,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     monkeypatch.setattr(job_dispatch, "enqueue_job", fail_enqueue)
 
     response = client.post(
-        "/api/v1/jobs",
+        "/api/v1/workflows/jobs",
         headers=headers,
         json={
             "project_id": project.json()["data"]["id"],
@@ -378,7 +378,7 @@ def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
 
     monkeypatch.setattr(job_dispatch, "enqueue_job", fail_enqueue)
 
-    response = client.post(f"/api/v1/jobs/{job_id}/retry-requests", headers=headers)
+    response = client.post(f"/api/v1/workflows/jobs/{job_id}/retry-requests", headers=headers)
 
     assert response.status_code == 503, response.text
     db = job_dispatch.SessionLocal()

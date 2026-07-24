@@ -17,7 +17,7 @@ from app.modules.remnant_inventory.models import (
 )
 
 
-def _user(db, name: str, role: str = "remnant_worker") -> User:
+def _user(db, name: str, role: str = "operator") -> User:
     role_row = db.scalar(select(Role).where(Role.code == role))
     if role_row is None:
         role_row = Role(code=role, name=role)
