@@ -173,7 +173,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 - 密码由 `pwdlib` 推荐 Argon2id 参数哈希；不存在用户和密码错误都执行一次验证以降低用户枚举时序差异。
 - access token 默认 30 分钟；refresh cookie 默认 14 天，HttpOnly、SameSite=Lax、path 为 `/api/v1/auth`。
-- SSE cookie 使用 access token，HttpOnly、SameSite=Lax、path 为 `/api/v1/jobs`。
+- SSE cookie 使用 access token，HttpOnly、SameSite=Lax、path 为 `/api/v1/workflows/jobs`。
 - access/refresh token 类型严格区分；JTI 吊销与 `password_changed_at` 检查直接查询 MySQL。
 - 前端 access token 和用户快照存于 `sessionStorage`；这降低跨 tab 持久化，但不能防止同源 XSS 读取 access token。
 - 全局角色为 `super_admin/admin/engineer/reviewer/operator/viewer/auditor`；项目成员角色为 owner/engineer/reviewer/viewer。
@@ -192,7 +192,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 12. SSE
 
-`GET /api/v1/jobs/{job_id}/events` 在开始 streaming 前执行普通 Job 权限检查。EventSource 使用 HttpOnly cookie，不在 URL 传 access token。服务循环查询 MySQL Job 和当前 attempt steps，发送权威 snapshot、progress 和 terminal event；断线重连重新发送当前快照，不承诺 `Last-Event-ID` 回放。Nginx 对该 location 关闭 buffering/cache 并设置一小时 read/send timeout。
+`GET /api/v1/workflows/jobs/{job_id}/events` 在开始 streaming 前执行普通 Job 权限检查。EventSource 使用 HttpOnly cookie，不在 URL 传 access token。服务循环查询 MySQL Job 和当前 attempt steps，发送权威 snapshot、progress 和 terminal event；断线重连重新发送当前快照，不承诺 `Last-Event-ID` 回放。Nginx 对该 location 关闭 buffering/cache 并设置一小时 read/send timeout。
 
 ## 13. 处理 Stage
 
