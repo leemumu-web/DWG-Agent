@@ -248,6 +248,10 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     api_source = _frontend_source("features/workflows/workflows.api.ts")
     list_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
+    artifact_source = _frontend_source(
+        "features/workflows/WorkflowArtifactSummary.tsx"
+    )
+    future_source = _frontend_source("features/workflows/FutureStageNotice.tsx")
     type_source = _frontend_source("features/workflows/workflow.ts")
 
     for path in ("/api/v1/workflows/templates", "/executions"):
@@ -262,10 +266,16 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     assert "listWorkflows" in list_source
     assert "createProductionProject" in list_source
     assert "getWorkflow" in detail_source
-    assert "downloadWorkflowArchive" in detail_source
+    assert "WorkflowArtifactSummary" in detail_source
+    assert "FutureStageNotice" in detail_source
+    assert "downloadWorkflowArchive" in artifact_source
+    assert "已登记" in artifact_source
+    assert "下载全部" in artifact_source
+    assert "能力等待上线" in future_source
+    assert "等待上线" in future_source
     assert "downloadFile" not in detail_source
     assert "executeWorkflowStage" in detail_source
-    assert "当前不会提交虚假任务" in detail_source
+    assert "当前不会提交虚假任务" not in detail_source
     assert "CAD 图纸业务算法和 Agent 不在本模块范围内" not in detail_source
 
 

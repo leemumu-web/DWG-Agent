@@ -29,6 +29,7 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
     ['drawing_processing', '图纸分类与拆板', 'placeholder', 'placeholder', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
+    ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
     ['cam_packaging', 'CAM 工作包生成', 'placeholder', 'placeholder', 'cam_packaging'],
     ['windows_cam', 'Windows CAM 排版', 'external', 'external', 'windows_cam'],
@@ -62,7 +63,7 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
     status: 'waiting_input',
     current_stage: 'excel_stage1',
     progress: 33,
-    config_json: { definition_revision: 3 },
+    config_json: { definition_revision: 4 },
     error_code: null,
     error_message: null,
     started_at: now,
@@ -178,6 +179,7 @@ test('production route inspects stages safely and keeps classification output co
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
     ['drawing_processing', '图纸分类与拆板', 'placeholder', 'placeholder', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
+    ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
     ['cam_packaging', 'CAM 工作包生成', 'placeholder', 'placeholder', 'cam_packaging'],
     ['windows_cam', 'Windows CAM 排版', 'external', 'external', 'windows_cam'],
@@ -204,6 +206,7 @@ test('production route inspects stages safely and keeps classification output co
   }));
   const artifacts = [
     ['classified_dxf', 801, 'member-01.dxf'],
+    ['classified_dxf', 805, 'member-02.dxf'],
     ['classification_report', 802, 'classification-report.json'],
     ['classification_manifest', 803, 'classification-manifest.json'],
   ].map(([artifactType, fileId, originalName], index) => ({
@@ -219,7 +222,7 @@ test('production route inspects stages safely and keeps classification output co
   }));
   artifacts.push({
     id: 904,
-    stage_run_id: 206,
+    stage_run_id: 207,
     artifact_type: 'cam_output_dxf',
     file_id: 804,
     result_id: null,
@@ -237,7 +240,7 @@ test('production route inspects stages safely and keeps classification output co
     status: 'waiting_input',
     current_stage: 'dxf_classification',
     progress: 22,
-    config_json: { definition_revision: 3 },
+    config_json: { definition_revision: 4 },
     error_code: null,
     error_message: null,
     started_at: now,
@@ -418,13 +421,10 @@ test('production route inspects stages safely and keeps classification output co
   await page.getByRole('button', { name: /图纸分类与拆板/ }).click();
   await expect(page.getByRole('heading', { name: '图纸分类与拆板' })).toBeVisible();
   await expect(page.getByText('该阶段尚未解锁')).toBeVisible();
-  await expect(page.getByText('拆板执行能力尚未接入')).toBeVisible();
-  await expect(page.getByText('项目总进度')).toBeVisible();
-  await expect(page.getByText('实时速度')).toBeVisible();
-  await expect(page.getByText('自动完成')).toBeVisible();
-  await expect(page.getByText('待人工处理')).toBeVisible();
-  await expect(page.getByText('失败数量')).toBeVisible();
-  await expect(page.getByText('未接入', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('拆板能力预留')).toBeVisible();
+  await expect(page.getByText('项目总进度')).toHaveCount(0);
+  await expect(page.getByText('实时速度')).toHaveCount(0);
+  await expect(page.getByText('未接入', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /开始|重试|确认当前阶段/ })).toHaveCount(0);
 
   await page.getByRole('button', { name: '返回当前阶段' }).click();
@@ -469,7 +469,22 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByRole('button', { name: '运行 Excel 第一阶段' })).toHaveCount(0);
   expect(executionRequests).toBe(0);
 
+  await page.getByRole('button', { name: /Excel 第二阶段处理/ }).click();
+  await expect(page.getByRole('heading', { name: 'Excel 第二阶段处理' })).toBeVisible();
+  await expect(page.getByText('能力等待上线')).toBeVisible();
+  await expect(page.getByText('流程位置与数据接口已经预留')).toBeVisible();
+  await expect(page.getByRole('button', { name: /开始|重试|确认当前阶段|下载本阶段结果压缩包/ })).toHaveCount(0);
+
   await page.getByRole('button', { name: /Windows CAM 排版/ }).click();
   await expect(page.getByRole('heading', { name: 'Windows CAM 排版' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toBeEnabled();
+  await expect(page.getByText('能力等待上线')).toBeVisible();
+  await expect(page.getByText('等待上线', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toHaveCount(0);
+
+  await expect(page.getByRole('heading', { name: '生产产物与证据' })).toBeVisible();
+  await expect(page.getByText('已登记 5 项')).toBeVisible();
+  await expect(page.getByText('classified_dxf × 2')).toBeVisible();
+  await expect(page.getByText(/版本 v/)).toHaveCount(0);
+  await expect(page.getByText(/已登记 ·/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '下载全部' })).toBeEnabled();
 });
