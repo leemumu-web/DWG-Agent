@@ -8,6 +8,7 @@ import openpyxl
 import pytest
 from sqlalchemy import select
 
+from app.modules.files.interface import save_bytes_as_file
 from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.intake.registration import (
     validate_input_dwg_folder_manifest,
@@ -397,6 +398,121 @@ def test_workflow_download_is_one_zip_with_stage_folders(monkeypatch, tmp_path):
         assert bypass.json()["error"]["code"] == "WORKFLOW_ARCHIVE_DOWNLOAD_REQUIRED"
 
 
+def test_workflow_stage_download_is_one_zip_with_only_stage_artifacts(
+    monkeypatch, tmp_path
+):
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    admin_headers, owner_headers, _, workflow_id = _setup(
+        client, "workflow-stage-archive"
+    )
+    source_id = _upload(
+        client,
+        owner_headers,
+        "source.dwg",
+        b"AC1027" + bytes(2048),
+        workflow_id,
+    )
+    classified_id = _upload(
+        client,
+        owner_headers,
+        "member_001_pre_split.dxf",
+        b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+        workflow_id,
+    )
+    with open_test_session() as db:
+        workflow = workflow_service.get_workflow_or_404(db, workflow_id)
+        report = save_bytes_as_file(
+            db,
+            bucket="workflow-results",
+            storage_key=f"workflows/{workflow_id}/classification-report.json",
+            original_name="classification-report.json",
+            file_ext=".json",
+            content_type="application/json",
+            payload=b'{"classified": 1}',
+            uploaded_by=workflow.created_by,
+            batch_name=f"workflow-{workflow_id}",
+        )
+        manifest = save_bytes_as_file(
+            db,
+            bucket="workflow-results",
+            storage_key=f"workflows/{workflow_id}/classification-manifest.json",
+            original_name="classification-manifest.json",
+            file_ext=".json",
+            content_type="application/json",
+            payload=b'{"files": ["member_001_pre_split.dxf"]}',
+            uploaded_by=workflow.created_by,
+            batch_name=f"workflow-{workflow_id}",
+        )
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code="source_intake",
+            artifact_type="source_dwg",
+            file_id=source_id,
+        )
+        for artifact_type, file_id in (
+            ("classified_dxf", classified_id),
+            ("classification_report", report.id),
+            ("classification_manifest", manifest.id),
+        ):
+            workflow_service.attach_artifact(
+                db,
+                workflow,
+                stage_code="dxf_classification",
+                artifact_type=artifact_type,
+                file_id=file_id,
+            )
+        db.commit()
+
+    response = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/dxf_classification/download-archive",
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+    assert "workflow-" in response.headers["content-disposition"]
+    assert "02_dxf_classification" in response.headers["content-disposition"]
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        names = archive.namelist()
+        assert len(names) == 3
+        assert all(
+            name.startswith(f"workflow-{workflow_id}/02_dxf_classification/")
+            for name in names
+        )
+        assert any("/classified_dxf/" in name for name in names)
+        assert any("/classification_report/" in name for name in names)
+        assert any("/classification_manifest/" in name for name in names)
+        assert not any("/source_intake/" in name for name in names)
+        assert not any(name.lower().endswith(".dwg") for name in names)
+
+    empty = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/download-archive",
+        headers=owner_headers,
+    )
+    assert empty.status_code == 409
+    assert empty.json()["error"]["code"] == "WORKFLOW_STAGE_ARCHIVE_EMPTY"
+
+    unknown = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/not-a-stage/download-archive",
+        headers=owner_headers,
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["error"]["code"] == "WORKFLOW_STAGE_UNKNOWN"
+
+    _, stranger_headers = workflow_test_api.create_engineer_user(
+        client,
+        admin_headers,
+        "workflow-stage-archive-stranger",
+    )
+    forbidden = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/dxf_classification/download-archive",
+        headers=stranger_headers,
+    )
+    assert forbidden.status_code == 403
+
+
 def test_registration_rejects_human_dxf_and_second_excel(monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
     client = workflow_test_api.client()
@@ -501,6 +617,7 @@ def test_input_batch_openapi_exposes_complete_guarded_surface():
         "/api/v1/workflows/{workflow_id}/input-batch/conversion-requests": {"post"},
         "/api/v1/workflows/{workflow_id}/input-batch/freeze": {"post"},
         "/api/v1/workflows/{workflow_id}/download-archive": {"get"},
+        "/api/v1/workflows/{workflow_id}/stages/{stage_code}/download-archive": {"get"},
     }
     for path, methods in expected.items():
         assert path in paths

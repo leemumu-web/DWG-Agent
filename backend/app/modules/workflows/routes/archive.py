@@ -23,45 +23,40 @@ from app.modules.jobs.interface import AnalysisResult
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member
 from app.modules.workflows.access import load_workflow_detail
+from app.modules.workflows.models import WorkflowRun, WorkflowStageRun
 from app.platform.http.dependencies import get_db
 from app.platform.http.exceptions import AppHTTPException
 
 router = APIRouter()
 
 
-@router.get(
-    "/{workflow_id}/download-archive",
-    summary="下载完整工作流压缩包",
-    response_class=StreamingResponse,
-    responses={
-        200: {
-            "content": {
-                "application/zip": {
-                    "schema": {"type": "string", "format": "binary"},
-                }
-            }
-        }
-    },
-    description=(
-        "把当前所有已登记生产 artifact 按阶段和类型写入一个 ZIP；"
-        "工作流不提供单个 artifact 下载。"
-    ),
-)
-def download_workflow_archive(
-    workflow_id: int,
-    request: Request,
+def _collect_archive_members(
+    db: Session,
     current_user: CurrentUser,
-    db: Session = Depends(get_db),
-):
-    workflow = load_workflow_detail(db, workflow_id)
-    require_project_member(db, current_user, workflow.project_id)
+    workflow: WorkflowRun,
+    *,
+    stage_code: str | None = None,
+) -> tuple[list[tuple[int, str]], WorkflowStageRun | None]:
     stage_by_id = {stage.id: stage for stage in workflow.stages}
+    selected_stage = next(
+        (stage for stage in workflow.stages if stage.stage_code == stage_code),
+        None,
+    )
+    if stage_code is not None and selected_stage is None:
+        return [], None
+    artifacts = [
+        artifact
+        for artifact in workflow.artifacts
+        if selected_stage is None or artifact.stage_run_id == selected_stage.id
+    ]
     members: list[tuple[int, str]] = []
     seen_paths: set[str] = set()
     for artifact in sorted(
-        workflow.artifacts,
+        artifacts,
         key=lambda value: (
-            stage_by_id[value.stage_run_id].sequence if value.stage_run_id in stage_by_id else 999,
+            stage_by_id[value.stage_run_id].sequence
+            if value.stage_run_id in stage_by_id
+            else 999,
             value.id,
         ),
     ):
@@ -80,34 +75,40 @@ def download_workflow_archive(
         require_file_read_access(db, current_user, stored)
         stage = stage_by_id.get(artifact.stage_run_id)
         sequence = stage.sequence if stage is not None else 99
-        stage_code = stage.stage_code if stage is not None else "workflow"
+        code = stage.stage_code if stage is not None else "workflow"
         original_name = sanitize_filename(stored.original_name)
         relative_path = (
-            f"workflow-{workflow.id}/{sequence:02d}_{stage_code}/"
+            f"workflow-{workflow.id}/{sequence:02d}_{code}/"
             f"{artifact.artifact_type}/{original_name}"
         )
         if relative_path.casefold() in seen_paths:
             relative_path = (
-                f"workflow-{workflow.id}/{sequence:02d}_{stage_code}/"
+                f"workflow-{workflow.id}/{sequence:02d}_{code}/"
                 f"{artifact.artifact_type}/{stored.id}-{original_name}"
             )
         seen_paths.add(relative_path.casefold())
         members.append((stored.id, relative_path))
+    return members, selected_stage
 
-    if not members:
-        raise AppHTTPException(
-            409,
-            "WORKFLOW_ARCHIVE_EMPTY",
-            "The workflow has no downloadable production artifacts.",
-        )
-    archive_name = f"workflow-{workflow.id}"
+
+def _stream_prepared_archive(
+    db: Session,
+    request: Request,
+    current_user: CurrentUser,
+    workflow: WorkflowRun,
+    members: list[tuple[int, str]],
+    archive_name: str,
+    *,
+    operation: str,
+    audit_action: str,
+) -> StreamingResponse:
     prepared = build_registered_files_zip_to_path(db, members, archive_name)
     try:
         transfer = prepare_transfer_in_transaction(
             db,
             TransferSpec(
                 direction="outbound",
-                operation="workflow_download_zip",
+                operation=operation,
                 actor_user_id=current_user.id,
                 request_id=request.state.request_id,
                 idempotency_key=request.state.request_id,
@@ -119,7 +120,7 @@ def download_workflow_archive(
         write_audit_log(
             db,
             actor_user_id=current_user.id,
-            action="workflow_archives.download",
+            action=audit_action,
             resource_type="workflow",
             resource_id=workflow.id,
             after_json={
@@ -154,4 +155,104 @@ def download_workflow_archive(
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
             "Content-Length": str(prepared.size_bytes),
         },
+    )
+
+
+@router.get(
+    "/{workflow_id}/download-archive",
+    summary="下载完整工作流压缩包",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "application/zip": {
+                    "schema": {"type": "string", "format": "binary"},
+                }
+            }
+        }
+    },
+    description=(
+        "把当前所有已登记生产 artifact 按阶段和类型写入一个 ZIP；"
+        "工作流不提供单个 artifact 下载。"
+    ),
+)
+def download_workflow_archive(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    members, _ = _collect_archive_members(db, current_user, workflow)
+
+    if not members:
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_ARCHIVE_EMPTY",
+            "The workflow has no downloadable production artifacts.",
+        )
+    return _stream_prepared_archive(
+        db,
+        request,
+        current_user,
+        workflow,
+        members,
+        f"workflow-{workflow.id}",
+        operation="workflow_download_zip",
+        audit_action="workflow_archives.download",
+    )
+
+
+@router.get(
+    "/{workflow_id}/stages/{stage_code}/download-archive",
+    summary="下载阶段结果压缩包",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "application/zip": {
+                    "schema": {"type": "string", "format": "binary"},
+                }
+            }
+        }
+    },
+    description="把指定生产阶段所有已登记 artifact 写入一个 ZIP，不提供单文件下载。",
+)
+def download_workflow_stage_archive(
+    workflow_id: int,
+    stage_code: str,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    members, stage = _collect_archive_members(
+        db,
+        current_user,
+        workflow,
+        stage_code=stage_code,
+    )
+    if stage is None:
+        raise AppHTTPException(
+            404,
+            "WORKFLOW_STAGE_UNKNOWN",
+            "Workflow stage was not found.",
+        )
+    if not members:
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_STAGE_ARCHIVE_EMPTY",
+            "The workflow stage has no downloadable production artifacts.",
+        )
+    return _stream_prepared_archive(
+        db,
+        request,
+        current_user,
+        workflow,
+        members,
+        f"workflow-{workflow.id}-{stage.sequence:02d}_{stage.stage_code}",
+        operation="workflow_stage_download_zip",
+        audit_action="workflow_stage_archives.download",
     )
