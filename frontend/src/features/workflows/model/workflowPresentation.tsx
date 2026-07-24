@@ -27,9 +27,23 @@ export const STAGE_STATUS: Record<string, 'wait' | 'process' | 'finish' | 'error
 
 export const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 export const ACTIONABLE = new Set(['ready', 'waiting_input', 'waiting_review']);
+export const WAITING_LAUNCH_STAGES = new Set([
+  'excel_stage2',
+  'cam_packaging',
+  'windows_cam',
+  'result_acceptance',
+  'delivery_archive',
+]);
 
-export function capabilityTag(capability?: WorkflowStageCapability) {
+export function isWaitingLaunchStage(stageCode?: string): boolean {
+  return Boolean(stageCode && WAITING_LAUNCH_STAGES.has(stageCode));
+}
+
+export function capabilityTag(capability?: WorkflowStageCapability, stageCode?: string) {
   if (!capability) return null;
+  if (isWaitingLaunchStage(stageCode)) {
+    return <Tag>等待上线</Tag>;
+  }
   if (capability.implementation_status === 'implemented') {
     return <Tag color="success">服务器已实现</Tag>;
   }

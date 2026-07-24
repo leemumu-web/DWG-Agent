@@ -1,6 +1,6 @@
 import { CheckCircleOutlined } from '@ant-design/icons';
 
-import { WORKFLOW_STATUS } from './model/workflowPresentation';
+import { isWaitingLaunchStage, WORKFLOW_STATUS } from './model/workflowPresentation';
 import type { WorkflowStage, WorkflowStageCapability } from './workflow';
 
 export function stageStateLabel(stage: WorkflowStage): string {
@@ -33,6 +33,7 @@ export function WorkflowStageRail({
           const current = stage.stage_code === currentCode;
           const selected = stage.stage_code === selectedCode;
           const completed = ['succeeded', 'skipped'].includes(stage.status);
+          const waitingLaunch = isWaitingLaunchStage(stage.stage_code);
           const locked = Boolean(
             currentStage
             && stage.sequence > currentStage.sequence
@@ -46,6 +47,7 @@ export function WorkflowStageRail({
                 selected ? 'is-selected' : '',
                 completed ? 'is-complete' : '',
                 stage.status === 'failed' ? 'is-failed' : '',
+                waitingLaunch ? 'is-waiting-launch' : '',
                 locked ? 'is-locked' : '',
               ].filter(Boolean).join(' ')}
             >
@@ -66,7 +68,9 @@ export function WorkflowStageRail({
                     {stageStateLabel(stage)}
                     {current ? ' · 当前阶段' : ''}
                   </small>
-                  {capability && capability.implementation_status !== 'implemented' && (
+                  {waitingLaunch ? (
+                    <small>等待上线</small>
+                  ) : capability && capability.implementation_status !== 'implemented' && (
                     <small>
                       {capability.implementation_status === 'external'
                         ? '外部节点'

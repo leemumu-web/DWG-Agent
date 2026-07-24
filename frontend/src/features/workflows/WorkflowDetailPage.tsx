@@ -34,12 +34,13 @@ import {
 } from '../../shared/components';
 import { listProjects } from '../projects';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
+import { FutureStageNotice } from './FutureStageNotice';
 import { ProductionInputPanel } from './ProductionInputPanel';
+import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
 import { stageStateLabel, WorkflowStageRail } from './WorkflowStageRail';
 import {
   cancelWorkflow,
   completeWorkflowStage,
-  downloadWorkflowArchive,
   downloadWorkflowStageArchive,
   executeWorkflowStage,
   getWorkflow,
@@ -49,46 +50,12 @@ import {
 import {
   ACTIONABLE,
   capabilityTag,
+  isWaitingLaunchStage,
   STAGE_STATUS,
   TERMINAL,
   WORKFLOW_STATUS,
 } from './model/workflowPresentation';
-import type {
-  WorkflowArtifact,
-  WorkflowStage,
-  WorkflowStageCapability,
-} from './workflow';
-
-function ArtifactLedger({ workflowId, artifacts }: { workflowId: number; artifacts: WorkflowArtifact[] }) {
-  const { message } = App.useApp();
-  const archiveM = useMutation({
-    mutationFn: () => downloadWorkflowArchive(workflowId),
-    onError: (error) => message.error(describeApiError(error, '生产压缩包下载失败')),
-  });
-  return (
-    <Card
-      className="workflow-artifact-ledger"
-      title="生产产物与证据"
-      extra={<Button icon={<DownloadOutlined />} loading={archiveM.isPending} disabled={!artifacts.length} onClick={() => archiveM.mutate()}>下载完整生产压缩包</Button>}
-    >
-      {artifacts.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前尚无已登记产物" />
-      ) : (
-        <div className="workflow-artifact-list">
-          {artifacts.map((artifact) => (
-            <div key={artifact.id} className="workflow-artifact-item">
-              <div>
-                <Tag>{artifact.artifact_type}</Tag>
-                <Typography.Text strong>版本 v{artifact.version}</Typography.Text>
-                <small>已登记 · {fmtDateTime(artifact.created_at)}</small>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
+import type { WorkflowArtifact, WorkflowStage, WorkflowStageCapability } from './workflow';
 
 function StageArchiveCard({
   workflowId,
@@ -141,31 +108,14 @@ function StageArchiveCard({
 }
 
 function DrawingProcessingPlaceholder() {
-  const metrics = [
-    ['项目总进度', '未接入'],
-    ['已完成 / 总数', '未接入'],
-    ['实时速度', '未接入'],
-    ['预计剩余时间', '未接入'],
-    ['自动完成', '未接入'],
-    ['待人工处理', '未接入'],
-    ['失败数量', '未接入'],
-  ];
   return (
     <Card className="workflow-drawing-placeholder">
-      <Alert
-        type="warning"
-        showIcon
-        icon={<LockOutlined />}
-        message="拆板执行能力尚未接入"
-        description="第三步继续保持真实占位；下列指标是后续服务端执行器必须提供的数据合同，当前不显示模拟值。"
-      />
-      <div className="workflow-placeholder-metrics">
-        {metrics.map(([label, value]) => (
-          <div key={label}>
-            <small>{label}</small>
-            <strong>{value}</strong>
-          </div>
-        ))}
+      <div className="workflow-drawing-placeholder__icon"><LockOutlined /></div>
+      <div>
+        <Typography.Text strong>拆板能力预留</Typography.Text>
+        <Typography.Paragraph type="secondary">
+          分类后的 DXF 将在此完成拆板与校验；当前仅保留输入输出合同，不生成模拟任务或指标。
+        </Typography.Paragraph>
       </div>
     </Card>
   );
@@ -314,6 +264,7 @@ export function WorkflowDetailPage() {
     && selectedCapability
     && selectedIsCurrent
     && selectedStage.stage_code !== 'source_intake'
+    && !isWaitingLaunchStage(selectedStage.stage_code)
     && selectedCapability.execution_mode === 'manual',
   );
   const selectedIsPast = Boolean(
@@ -398,7 +349,7 @@ export function WorkflowDetailPage() {
                   <Typography.Paragraph>{selectedCapability.description}</Typography.Paragraph>
                 </div>
                 <Space wrap>
-                  {capabilityTag(selectedCapability)}
+                  {capabilityTag(selectedCapability, selectedStage.stage_code)}
                   <Tag>{stageStateLabel(selectedStage)}</Tag>
                 </Space>
               </section>
@@ -445,7 +396,8 @@ export function WorkflowDetailPage() {
                 />
               )}
 
-              {selectedStage.stage_code !== 'dxf_classification' && (
+              {selectedStage.stage_code !== 'dxf_classification'
+                && !isWaitingLaunchStage(selectedStage.stage_code) && (
                 <StageArchiveCard
                   workflowId={detail.id}
                   stage={selectedStage}
@@ -477,6 +429,9 @@ export function WorkflowDetailPage() {
               )}
               {selectedStage.stage_code === 'drawing_processing' && (
                 <DrawingProcessingPlaceholder />
+              )}
+              {isWaitingLaunchStage(selectedStage.stage_code) && (
+                <FutureStageNotice />
               )}
               {selectedStage.stage_code === 'excel_stage1' && (
                 <Card className="workflow-excel-stage-card">
@@ -515,17 +470,6 @@ export function WorkflowDetailPage() {
                   )}
                 </Card>
               )}
-              {selectedCapability.implementation_status !== 'implemented'
-                && selectedStage.stage_code !== 'drawing_processing' && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  message={selectedCapability.implementation_status === 'external'
-                    ? '该阶段由外部生产节点完成'
-                    : '该阶段接口已定义，执行能力尚未实现'}
-                  description="当前不会提交虚假任务；请按阶段数据合同绑定真实产物后人工确认。"
-                />
-              )}
               {manualConfirmation && (
                 <Card className="workflow-manual-stage">
                   <Space orientation="vertical">
@@ -554,7 +498,7 @@ export function WorkflowDetailPage() {
           ) : (
             <Empty description="当前没有待处理阶段" />
           )}
-          <ArtifactLedger workflowId={detail.id} artifacts={detail.artifacts} />
+          <WorkflowArtifactSummary workflowId={detail.id} artifacts={detail.artifacts} />
         </main>
       </div>
     </div>
