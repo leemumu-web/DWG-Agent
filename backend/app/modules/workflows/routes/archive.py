@@ -91,7 +91,7 @@ def _collect_archive_members(
     return members, selected_stage
 
 
-def _stream_prepared_archive(
+def stream_registered_workflow_archive(
     db: Session,
     request: Request,
     current_user: CurrentUser,
@@ -192,7 +192,7 @@ def download_workflow_archive(
             "WORKFLOW_ARCHIVE_EMPTY",
             "The workflow has no downloadable production artifacts.",
         )
-    return _stream_prepared_archive(
+    return stream_registered_workflow_archive(
         db,
         request,
         current_user,
@@ -246,7 +246,7 @@ def download_workflow_stage_archive(
             "WORKFLOW_STAGE_ARCHIVE_EMPTY",
             "The workflow stage has no downloadable production artifacts.",
         )
-    return _stream_prepared_archive(
+    return stream_registered_workflow_archive(
         db,
         request,
         current_user,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,9 +16,15 @@ from app.modules.dxf_classification import execution as dxf_classification_servi
 from app.modules.dxf_classification import interface as classification_interface
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.dxf_classification.persistence import classification_request_id
-from app.modules.files.interface import StoredFile, get_storage_backend
+from app.modules.files.interface import (
+    FileTransfer,
+    StoredFile,
+    get_storage_backend,
+    save_bytes_as_file,
+)
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job
+from app.modules.operations.audit.models import AuditLog
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.interface import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
@@ -320,6 +328,233 @@ def test_classification_openapi_exposes_paginated_group_details():
 
     assert path in app.openapi()["paths"]
     assert "get" in app.openapi()["paths"][path]
+
+
+def test_classification_downloads_category_and_all_dxf_without_audit_files(
+    db, monkeypatch, tmp_path: Path
+):
+    from app.platform.config.settings import settings
+
+    monkeypatch.setattr(settings, "storage_backend", "local")
+    monkeypatch.setattr(settings, "local_storage_root", tmp_path / "storage")
+    init_db()
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    project = client.post(
+        "/api/v1/workflows/projects",
+        headers=headers,
+        json={"code": f"ZIP-{uuid4().hex[:6]}", "name": "Classifier ZIP"},
+    ).json()["data"]
+    created = client.post(
+        "/api/v1/workflows",
+        headers=headers,
+        json={
+            "project_id": project["id"],
+            "name": "Classifier ZIP run",
+            "workflow_type": "linux_production",
+        },
+    ).json()["data"]
+
+    dxf_payload = b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n"
+    with db:
+        workflow = db.get(WorkflowRun, created["id"])
+        assert workflow is not None
+        job = Job(
+            project_id=workflow.project_id,
+            created_by=workflow.created_by,
+            task_type="classify_steel_dxf",
+            pipeline="steel_dxf_classifier",
+            status="succeeded",
+            attempt=1,
+            progress=100,
+            precision_level="normal",
+        )
+        db.add(job)
+        db.flush()
+        run = DxfClassificationRun(
+            workflow_run_id=workflow.id,
+            project_id=workflow.project_id,
+            job_id=job.id,
+            job_attempt=1,
+            status="completed_with_review",
+            classifier_version="1.2.0",
+            report_schema="STEEL-DXF-CLASSIFICATION-1.2",
+            cli_schema="STEEL-DXF-CLI-1.2",
+            project_name=f"{project['code']}-workflow-{workflow.id}",
+            input_manifest_sha256="c" * 64,
+            input_count=2,
+            classified_count=1,
+            review_required_count=1,
+            unreadable_count=0,
+            type_counts_json={"PX": 1},
+        )
+        db.add(run)
+        db.flush()
+        for index, semantic in enumerate(
+            (
+                {
+                    "name": "px_拆板前.dxf",
+                    "directory": f"{run.project_name}_PX_dxf",
+                    "disposition": "classified",
+                    "part_type": "PX",
+                    "profile": "PX300*150*8",
+                    "type_source": "catalog",
+                    "group_key": "type:PX",
+                    "eligible": True,
+                },
+                {
+                    "name": "review_拆板前.dxf",
+                    "directory": f"{run.project_name}_待确认_dxf",
+                    "disposition": "review_required",
+                    "part_type": None,
+                    "profile": None,
+                    "type_source": None,
+                    "group_key": "status:review_required",
+                    "eligible": False,
+                },
+            ),
+            start=1,
+        ):
+            source = save_bytes_as_file(
+                db,
+                bucket="dxf-derived",
+                storage_key=f"tests/classification-zip/source-{uuid4().hex}.dxf",
+                original_name=f"source-{index}.dxf",
+                file_ext=".dxf",
+                content_type="application/dxf",
+                payload=dxf_payload,
+                uploaded_by=workflow.created_by,
+                batch_name=f"classification-{run.id}",
+            )
+            output = save_bytes_as_file(
+                db,
+                bucket="dxf-derived",
+                storage_key=f"tests/classification-zip/output-{uuid4().hex}.dxf",
+                original_name=semantic["name"],
+                file_ext=".dxf",
+                content_type="application/dxf",
+                payload=dxf_payload,
+                uploaded_by=workflow.created_by,
+                batch_name=semantic["directory"],
+            )
+            db.add(
+                DxfClassificationItem(
+                    run=run,
+                    source_file_id=source.id,
+                    output_file_id=output.id,
+                    source_name=source.original_name,
+                    output_name=semantic["name"],
+                    output_directory=semantic["directory"],
+                    disposition=semantic["disposition"],
+                    part_type=semantic["part_type"],
+                    profile_raw=semantic["profile"],
+                    profile_normalized=semantic["profile"],
+                    type_source=semantic["type_source"],
+                    group_key=semantic["group_key"],
+                    next_stage_eligible=semantic["eligible"],
+                    diagnostics_json=(
+                        ["TITLE_PROFILE_PROVED"]
+                        if semantic["eligible"]
+                        else ["TITLE_VALUE_MISSING"]
+                    ),
+                    evidence_json={},
+                )
+            )
+        report = save_bytes_as_file(
+            db,
+            bucket="reports",
+            storage_key=f"tests/classification-zip/{uuid4().hex}.json",
+            original_name="分类报告.json",
+            file_ext=".json",
+            content_type="application/json",
+            payload=b'{"schema":"STEEL-DXF-CLASSIFICATION-1.2"}',
+            uploaded_by=workflow.created_by,
+            batch_name=f"classification-{run.id}",
+        )
+        manifest = save_bytes_as_file(
+            db,
+            bucket="reports",
+            storage_key=f"tests/classification-zip/{uuid4().hex}.csv",
+            original_name="分类清单.csv",
+            file_ext=".csv",
+            content_type="text/csv",
+            payload=b"name,status\n",
+            uploaded_by=workflow.created_by,
+            batch_name=f"classification-{run.id}",
+        )
+        run.report_file_id = report.id
+        run.manifest_file_id = manifest.id
+        db.commit()
+
+    category = client.get(
+        f"/api/v1/workflows/{created['id']}/dxf-classification/"
+        "groups/type:PX/download-archive",
+        headers=headers,
+    )
+    assert category.status_code == 200, category.text
+    with zipfile.ZipFile(BytesIO(category.content)) as archive:
+        category_names = archive.namelist()
+        assert len(category_names) == 1
+        assert category_names[0].endswith("/PX/px_拆板前.dxf")
+
+    complete = client.get(
+        f"/api/v1/workflows/{created['id']}/dxf-classification/download-archive",
+        headers=headers,
+    )
+    assert complete.status_code == 200, complete.text
+    with zipfile.ZipFile(BytesIO(complete.content)) as archive:
+        names = archive.namelist()
+        assert len(names) == 2
+        assert any(name.endswith("/PX/px_拆板前.dxf") for name in names)
+        assert any(name.endswith("/待确认/review_拆板前.dxf") for name in names)
+        assert all(name.lower().endswith(".dxf") for name in names)
+        assert not any(name.lower().endswith((".json", ".csv", ".dwg")) for name in names)
+
+    missing = client.get(
+        f"/api/v1/workflows/{created['id']}/dxf-classification/"
+        "groups/type:NOT-FOUND/download-archive",
+        headers=headers,
+    )
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "CLASSIFICATION_GROUP_NOT_FOUND"
+
+    db.expire_all()
+    transfers = db.scalars(
+        select(FileTransfer).where(
+            FileTransfer.operation.in_(
+                ("dxf_class_group_zip", "dxf_class_all_zip")
+            )
+        )
+    ).all()
+    assert {transfer.operation for transfer in transfers} == {
+        "dxf_class_group_zip",
+        "dxf_class_all_zip",
+    }
+    assert all(transfer.status == "succeeded" for transfer in transfers)
+    audits = db.scalars(
+        select(AuditLog).where(
+            AuditLog.action.in_(
+                (
+                    "dxf_classification_groups.download",
+                    "dxf_classification_archives.download",
+                )
+            )
+        )
+    ).all()
+    assert len(audits) == 2
+
+    paths = app.openapi()["paths"]
+    assert (
+        "/api/v1/workflows/{workflow_id}/dxf-classification/"
+        "groups/{group_key}/download-archive"
+    ) in paths
+    assert (
+        "/api/v1/workflows/{workflow_id}/dxf-classification/download-archive"
+    ) in paths
 
 
 def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatch):
