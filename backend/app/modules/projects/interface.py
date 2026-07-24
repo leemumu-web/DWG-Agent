@@ -12,6 +12,7 @@ from app.modules.projects.schemas.project import (
     ProjectCreate,
     ProjectMemberCreate,
     ProjectMemberUpdate,
+    ProjectRead,
 )
 from app.modules.projects.services.projects import (
     add_project_member,
@@ -29,6 +30,7 @@ __all__ = [
     "ProjectCreate",
     "ProjectMemberCreate",
     "ProjectMemberUpdate",
+    "ProjectRead",
     "add_project_member",
     "create_project",
     "get_project_membership",

@@ -45,6 +45,7 @@ EXPECTED_ROUTES = [
     (("GET",), "/templates", "get_workflow_templates"),
     (("GET",), "", "list_workflows"),
     (("POST",), "", "create_workflow_api"),
+    (("POST",), "/production-projects", "create_production_project_api"),
     (("POST",), "/{workflow_id}/artifacts", "create_workflow_artifact"),
     (("GET",), "/{workflow_id}/download-archive", "download_workflow_archive"),
     (

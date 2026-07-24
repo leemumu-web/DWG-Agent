@@ -11,6 +11,9 @@ from app.modules.workflows.routes.commands import (
 from app.modules.workflows.routes.commands import detail_router as command_detail_router
 from app.modules.workflows.routes.execution import router as execution_router
 from app.modules.workflows.routes.intake import router as intake_router
+from app.modules.workflows.routes.production_projects import (
+    router as production_projects_router,
+)
 from app.modules.workflows.routes.queries import (
     collection_router as query_collection_router,
 )
@@ -30,6 +33,7 @@ def _mount(child: APIRouter, *, tag: str) -> None:
 _mount(templates_router, tag="workflows")
 _mount(query_collection_router, tag="workflows")
 _mount(command_collection_router, tag="workflows")
+_mount(production_projects_router, tag="workflows")
 _mount(artifacts_router, tag="workflows")
 _mount(archive_router, tag="workflows")
 _mount(execution_router, tag="workflows")

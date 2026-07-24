@@ -28,6 +28,7 @@ export interface ParsedApiError {
   code?: string;
   requestId?: string;
   failure?: ExcelInputFailure;
+  workflowId?: number;
 }
 
 interface ErrorBody {
@@ -181,6 +182,10 @@ function parsedResponseError(
     code,
     requestId,
     failure: parseExcelInputFailure(body?.error?.details?.failure),
+    workflowId: Number.isInteger(body?.error?.details?.workflow_id)
+      && Number(body?.error?.details?.workflow_id) > 0
+      ? Number(body?.error?.details?.workflow_id)
+      : undefined,
   };
 }
 

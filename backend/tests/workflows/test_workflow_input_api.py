@@ -97,6 +97,7 @@ def _upload_folder(client, headers, workflow_id: int, entries):
         "生产批次/./A.dwg",
         "生产批次//A.dwg",
         "C:/生产批次/A.dwg",
+        "C:生产批次/A.dwg",
         "生产批次/\x00A.dwg",
     ],
 )

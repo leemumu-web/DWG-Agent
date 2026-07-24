@@ -61,6 +61,7 @@ async function mockWorkflow(page: Page) {
   let items: Array<Record<string, unknown>> = [];
   let frozen = false;
   let classificationStarted = false;
+  let submittedProject: Record<string, unknown> | null = null;
   const batch = () => ({
     id: 501, workflow_run_id: 41, project_id: 7, status: frozen ? 'frozen' : items.some((item) => item.derived_dxf) ? 'ready_to_freeze' : 'uploading',
     version: frozen ? 1 : 0, manifest_sha256: frozen ? 'a'.repeat(64) : null, frozen_at: frozen ? now : null,
@@ -84,8 +85,25 @@ async function mockWorkflow(page: Page) {
     }),
   }));
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
-  await page.route('**/api/v1/workflows?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...envelope([workflow]), pagination: { page: 1, page_size: 20, total: 1, total_pages: 1 } }) }));
+  await page.route('**/api/v1/workflows?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...envelope([{ ...workflow, project_code: 'P7', project_name: '浏览器生产项目' }]), pagination: { page: 1, page_size: 20, total: 1, total_pages: 1 }, summary: { total: 1, running: 0, waiting: 1, completed: 0 } }) }));
   await page.route('**/api/v1/workflows', (route) => json(route, { ...workflow, status: 'draft', started_at: null, stages, artifacts: [] }, 201));
+  await page.route('**/api/v1/workflows/production-projects', async (route) => {
+    submittedProject = route.request().postDataJSON() as Record<string, unknown>;
+    await json(route, {
+      project: {
+        id: 7,
+        code: submittedProject.code,
+        name: submittedProject.name,
+        description: submittedProject.description,
+        owner_id: 1,
+        owner_name: '生产操作员',
+        status: 'active',
+        created_at: now,
+        updated_at: now,
+      },
+      workflow: workflowDetail(),
+    }, 201);
+  });
   const workflowDetail = () => ({
     ...workflow,
     current_stage: frozen ? 'dxf_classification' : 'source_intake',
@@ -140,32 +158,34 @@ async function mockWorkflow(page: Page) {
     await json(route, batch(), 201);
   });
   await page.route('**/api/v1/workflows/41/input-batch', (route) => json(route, batch(), route.request().method() === 'POST' ? 201 : 200));
+  return { submittedProject: () => submittedProject };
 }
 
 test('production source intake prevents DXF mistakes and freezes server-generated pairs', async ({ page }) => {
-  await mockWorkflow(page);
+  const state = await mockWorkflow(page);
   await page.goto('/');
   await page.evaluate(({ token, savedUser }) => {
     sessionStorage.setItem('dwg_access_token', token);
     sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
   }, { token: 'e2e-token', savedUser: user });
   await page.goto('/workflows');
-  await expect(page.getByRole('button', { name: '新建生产批次' })).toBeVisible();
-  await page.getByRole('button', { name: '新建生产批次' }).click();
-  const submission = page.getByRole('dialog', { name: '新建生产批次' });
-  await expect(submission.getByText('多个 DWG + 1 个 Excel')).toBeVisible();
-  await expect(submission.getByText('进入批次详情', { exact: true })).toBeVisible();
-  await submission.getByRole('combobox', { name: '所属项目' }).click();
-  await page.getByText('P7 · 生产项目').click();
-  const browserDate = await page.evaluate(() => {
-    const current = new Date();
-    return `${current.getFullYear()}${String(current.getMonth() + 1).padStart(2, '0')}${String(current.getDate()).padStart(2, '0')}`;
-  });
-  await expect(submission.getByRole('textbox', { name: '批次名称' })).toHaveValue(`P7-${browserDate}-生产批次`);
-  await submission.getByRole('textbox', { name: '批次名称' }).fill('浏览器生产批次');
-  await expect(submission.getByText('创建并启动后将进入独立详情页继续上传。')).toBeVisible();
-  await submission.getByRole('button', { name: '创建并进入资料上传' }).click();
+  await expect(page.getByRole('button', { name: '新建生产项目' })).toBeVisible();
+  await expect(page.getByText('浏览器生产项目')).toBeVisible();
+  await page.getByRole('button', { name: '新建生产项目' }).click();
+  const submission = page.getByRole('dialog', { name: '新建生产项目' });
+  await expect(submission.getByText('填写项目资料')).toBeVisible();
+  await expect(submission.getByLabel('所属项目')).toHaveCount(0);
+  await expect(submission.getByLabel('批次名称')).toHaveCount(0);
+  await submission.getByLabel('项目编号').fill('P-2026-001');
+  await submission.getByLabel('项目名称').fill('浏览器生产项目');
+  await submission.getByLabel('项目说明').fill('完整流程 E2E');
+  await submission.getByRole('button', { name: '创建项目并进入工作流' }).click();
   await expect(page).toHaveURL(/\/workflows\/41$/);
+  expect(state.submittedProject()).toEqual({
+    code: 'P-2026-001',
+    name: '浏览器生产项目',
+    description: '完整流程 E2E',
+  });
   await expect(page.getByText('图纸主格式：DXF')).toBeVisible();
   await expect(page.getByText(/DWG 只在输入阶段留档/)).toBeVisible();
   await expect(page.getByRole('button', { name: '选择并上传生产文件夹' })).toBeVisible();

@@ -54,7 +54,7 @@ export function DashboardPage() {
     projectCount === 0 ? { key: 'project', tone: 'info', title: '先创建或加入一个项目', description: '项目用于组织后续文件、任务和生产流程。', label: '进入工作流', to: '/workflows' } : null,
   ].filter((item): item is NonNullable<typeof item> => item !== null);
   if (!actionItems.length) {
-    actionItems.push({ key: 'workflow', tone: 'success', title: '生产环境已准备就绪', description: '从生产流程创建批次，上传 DWG 与 Excel 后由服务器生成 DXF。', label: '新建生产批次', to: '/workflows' });
+    actionItems.push({ key: 'workflow', tone: 'success', title: '生产环境已准备就绪', description: '新建生产项目后上传完整文件夹，DWG 入库并由服务器统一生成 DXF。', label: '新建生产项目', to: '/workflows' });
   }
 
   const anyError = projectsQ.isError || filesQ.isError || jobsQ.isError;

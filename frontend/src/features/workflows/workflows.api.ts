@@ -1,5 +1,6 @@
 import { apiClient, describeApiErrorAsync, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
 import type { Job } from '../jobs';
+import type { Project } from '../projects';
 import type {
   WorkflowDetail,
   WorkflowRun,
@@ -12,6 +13,7 @@ export interface WorkflowListParams {
   page?: number;
   page_size?: number;
   project_id?: number;
+  workflow_type?: 'linux_production' | 'excel_delivery' | 'file_delivery';
   status?: string;
 }
 
@@ -22,6 +24,28 @@ export interface WorkflowCreatePayload {
   config?: Record<string, unknown>;
 }
 
+export interface ProductionProjectCreatePayload {
+  code: string;
+  name: string;
+  description?: string;
+}
+
+export interface ProductionProjectCreateResult {
+  project: Project;
+  workflow: WorkflowDetail;
+}
+
+export interface WorkflowSummary {
+  total: number;
+  running: number;
+  waiting: number;
+  completed: number;
+}
+
+export interface WorkflowPage extends PageEnvelope<WorkflowRun> {
+  summary: WorkflowSummary;
+}
+
 export async function listWorkflowTemplates() {
   const response = await apiClient.get<ApiEnvelope<WorkflowTemplate[]>>(
     '/api/v1/workflows/templates',
@@ -30,8 +54,18 @@ export async function listWorkflowTemplates() {
 }
 
 export async function listWorkflows(params: WorkflowListParams = {}) {
-  const response = await apiClient.get<PageEnvelope<WorkflowRun>>('/api/v1/workflows', { params });
+  const response = await apiClient.get<WorkflowPage>('/api/v1/workflows', { params });
   return response.data;
+}
+
+export async function createProductionProject(
+  payload: ProductionProjectCreatePayload,
+) {
+  const response = await apiClient.post<ApiEnvelope<ProductionProjectCreateResult>>(
+    '/api/v1/workflows/production-projects',
+    payload,
+  );
+  return response.data.data;
 }
 
 export async function getWorkflow(workflowId: number) {

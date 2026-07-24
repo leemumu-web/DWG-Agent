@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **143 个 path、168 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **144 个 path、169 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -179,6 +179,7 @@
 | `GET` | `/api/v1/workflows/reviews/pending` |
 | `GET` | `/api/v1/workflows/templates` |
 | `GET, POST` | `/api/v1/workflows` |
+| `POST` | `/api/v1/workflows/production-projects` |
 | `POST` | `/api/v1/workflows/{workflow_id}/artifacts` |
 | `GET` | `/api/v1/workflows/{workflow_id}/download-archive` |
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` |

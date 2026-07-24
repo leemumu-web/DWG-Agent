@@ -1,7 +1,7 @@
 # Production workflows module
 
 本模块拥有项目级生产批次、九阶段流程、输入冻结和阶段产物引用。公开 HTTP 前缀保持为
-`/api/v1/workflows`；五张表、16 个 operation、错误码、审计 action 和 Job 幂等键均保持
+`/api/v1/workflows`；五张表、18 个 operation、错误码、审计 action 和 Job 幂等键均保持
 不变。本模块不另建文件存储或任务队列。
 
 ## 已确定输入契约
@@ -23,7 +23,8 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 - `models/intake.py`：`workflow_input_batches`、`workflow_input_items`。
 - `templates.py`：三个模板和阶段能力的唯一事实源；未实现阶段保持 placeholder/external。
 - `contracts.py`：阶段输入/输出类型、文件归属和 DXF 对象结构的统一门禁。
-- `lifecycle.py`：创建、启动、人工交接、取消和整体状态重算。
+- `lifecycle.py`：创建、唯一生产流程约束、启动、人工交接、取消和整体状态重算。
+- `production_projects.py`：原子组合 Project 创建、唯一生产 Workflow 创建与启动。
 - `artifacts.py`：阶段类型白名单和 file/result 引用幂等绑定。
 - `job_sync.py`：`job_id + attempt` 绑定、Result 投影和阶段推进。
 - `stage_execution.py`：已实现阶段的参数/权限/feature flag/Job 复用计划；不提交或投递。
@@ -54,10 +55,12 @@ cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保�
 `drawing_processing`、`cam_packaging`、`windows_cam`
 与 `result_acceptance` 只有稳定输入、产物和 501/人工交接契约；自动拆板、CAM 打包、Windows
 Node Agent/SinoCAM 和结果接纳算法尚未实现。目录整理不能被解释为生产闭环已经完成。
+Workflow 列表在服务端聚合 Project 编号/名称，并返回忽略状态筛选、但遵守项目权限与
+Workflow 类型范围的全局状态统计，避免前端用独立分页做不完整关联。
 
 ## 验证
 
 行为回归位于 `backend/tests/workflows/`，分类集成位于
 `backend/tests/dxf_classification/`；结构边界位于
-`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 137 path、
-160 operation、42 张模型表、13 个 Celery task 和 12 条任务路由。
+`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 144 path、
+169 operation、42 张模型表、13 个 Celery task 和 12 条任务路由。

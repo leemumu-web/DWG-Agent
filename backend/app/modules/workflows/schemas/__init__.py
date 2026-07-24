@@ -25,8 +25,18 @@ from app.modules.workflows.schemas.orchestration import (
     WorkflowStageRead,
     WorkflowTemplateRead,
 )
+from app.modules.workflows.schemas.production_projects import (
+    ProductionProjectCreate,
+    ProductionProjectEnvelope,
+    ProductionProjectRead,
+    ProductionProjectResponseMeta,
+)
 
 __all__ = [
+    "ProductionProjectCreate",
+    "ProductionProjectEnvelope",
+    "ProductionProjectRead",
+    "ProductionProjectResponseMeta",
     "WORKFLOW_TYPES",
     "WorkflowArtifactCreate",
     "WorkflowArtifactRead",

@@ -32,6 +32,8 @@ export interface WorkflowArtifact {
 export interface WorkflowRun {
   id: number;
   project_id: number;
+  project_code?: string | null;
+  project_name?: string | null;
   created_by: number;
   name: string;
   workflow_type: string;

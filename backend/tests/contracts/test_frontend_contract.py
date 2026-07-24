@@ -260,7 +260,7 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
         assert f"interface {contract}" in type_source
     assert "linux_production" in api_source
     assert "listWorkflows" in list_source
-    assert "createWorkflow" in list_source
+    assert "createProductionProject" in list_source
     assert "getWorkflow" in detail_source
     assert "downloadWorkflowArchive" in detail_source
     assert "downloadFile" not in detail_source
@@ -290,32 +290,33 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
         assert path in api_source
 
 
-def test_production_submission_entry_creates_starts_and_opens_upload():
+def test_production_project_drawer_uses_atomic_project_contract():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
-
-    assert "新建生产批次" in page_source
-    assert "先建批次，再上传并冻结资料" in page_source
-    assert "创建并启动后将进入独立详情页继续上传" in page_source
-    assert "suggestedBatchName" in page_source
-    assert "batchNameTouched" in page_source
-    assert "await createWorkflow" in page_source
-    assert "await startWorkflow(created.id)" in page_source
-    assert page_source.index("await createWorkflow") < page_source.index(
-        "await startWorkflow(created.id)"
+    drawer_source = _frontend_source(
+        "features/workflows/ProductionProjectCreateDrawer.tsx"
     )
-    assert "创建并进入资料上传" in page_source
-    assert "workflow_type: 'linux_production'" in page_source
-    assert "先创建项目" in page_source
+    api_source = _frontend_source("features/workflows/workflows.api.ts")
+
+    assert "新建生产项目" in page_source
+    assert "<ProductionProjectCreateDrawer" in page_source
+    assert "项目编号" in drawer_source
+    assert "项目名称" in drawer_source
+    assert "项目说明" in drawer_source
+    assert "创建项目并进入工作流" in drawer_source
+    assert "project_id" not in drawer_source
+    assert "批次名称" not in drawer_source
+    assert "/production-projects" in api_source
+    assert "createProductionProject" in api_source
 
 
 def test_production_submission_navigates_to_one_dedicated_detail_workspace():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
-    success_handler = page_source.split("onSuccess: ({ workflow, startError })", 1)[1].split(
+    success_handler = page_source.split("onSuccess: ({ workflow })", 1)[1].split(
         "onError:", 1
     )[0]
 
-    assert "closeCreate()" in success_handler
+    assert "setCreateOpen(false)" in success_handler
     assert "navigate(`/workflows/${workflow.id}`)" in success_handler
     assert "<ProductionInputPanel" not in page_source
     assert "<ProductionInputPanel" in detail_source

@@ -28,12 +28,6 @@ export const STAGE_STATUS: Record<string, 'wait' | 'process' | 'finish' | 'error
 export const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 export const ACTIONABLE = new Set(['ready', 'waiting_input', 'waiting_review']);
 
-export function suggestedBatchName(projectCode: string): string {
-  const now = new Date();
-  const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-  return `${projectCode}-${day}-生产批次`;
-}
-
 export function capabilityTag(capability?: WorkflowStageCapability) {
   if (!capability) return null;
   if (capability.implementation_status === 'implemented') {

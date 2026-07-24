@@ -189,7 +189,9 @@ completion API 只接受当前可操作阶段：
 
 React `生产流程` 页面读取模板，提供：
 
-- 页面级“新建生产批次”入口：选择项目和批次名称后连续创建并启动 Linux workflow，再进入可直接收藏和恢复的 `/workflows/{id}` 独立详情页；
+- 页面级“新建生产项目”入口：填写项目编号、名称和说明后，由 `POST /api/v1/workflows/production-projects` 在同一事务中创建 Project、所有者关系及其唯一 Linux production workflow 并启动，再进入可直接收藏和恢复的 `/workflows/{id}` 独立详情页；
+- 生产项目列表响应聚合 Project 编号/名称并提供全局状态统计；状态筛选只影响行分页，不改变统计口径；
+- 通用 Workflow 创建服务锁定 Project，并以 `PRODUCTION_WORKFLOW_ALREADY_EXISTS` 拒绝同一项目的第二条 `linux_production` 流程；兼容 workflow 类型保持原行为；
 - 已创建但启动失败的 draft 在详情页保留启动恢复入口；
 - Linux 九阶段生产轨道和实现状态标签；
 - 项目内流程创建、分页、状态筛选、启动和取消；

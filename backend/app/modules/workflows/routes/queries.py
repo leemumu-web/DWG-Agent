@@ -1,11 +1,12 @@
 """Workflow collection and detail query endpoints."""
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.modules.identity.interface import CurrentUser
 from app.modules.projects.interface import (
+    Project,
     ProjectMember,
     has_global_project_access,
     require_project_member,
@@ -16,7 +17,7 @@ from app.modules.workflows.access import (
 )
 from app.modules.workflows.job_sync import sync_workflow_from_jobs
 from app.modules.workflows.models import WorkflowRun
-from app.modules.workflows.schemas import WorkflowDetail, WorkflowRead
+from app.modules.workflows.schemas import WORKFLOW_TYPES, WorkflowDetail, WorkflowRead
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
@@ -34,29 +35,79 @@ def list_workflows(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
     project_id: int | None = Query(None, ge=1),
+    workflow_type: str | None = Query(None),
     workflow_status: str | None = Query(None, alias="status"),
     db: Session = Depends(get_db),
 ):
-    stmt = select(WorkflowRun).order_by(WorkflowRun.created_at.desc(), WorkflowRun.id.desc())
+    scope = select(WorkflowRun)
     if project_id is not None:
-        stmt = stmt.where(WorkflowRun.project_id == project_id)
-    if workflow_status is not None:
-        if workflow_status not in WORKFLOW_STATUSES:
-            raise AppHTTPException(422, "INVALID_WORKFLOW_STATUS", "Invalid workflow status.")
-        stmt = stmt.where(WorkflowRun.status == workflow_status)
+        scope = scope.where(WorkflowRun.project_id == project_id)
+    if workflow_type is not None:
+        if workflow_type not in WORKFLOW_TYPES:
+            raise AppHTTPException(422, "INVALID_WORKFLOW_TYPE", "Invalid workflow type.")
+        scope = scope.where(WorkflowRun.workflow_type == workflow_type)
     if not has_global_project_access(current_user):
-        stmt = stmt.join(
+        scope = scope.join(
             ProjectMember,
             ProjectMember.project_id == WorkflowRun.project_id,
         ).where(ProjectMember.user_id == current_user.id)
+    summary_scope = scope.with_only_columns(
+        func.count(WorkflowRun.id),
+        func.coalesce(
+            func.sum(case((WorkflowRun.status == "running", 1), else_=0)),
+            0,
+        ),
+        func.coalesce(
+            func.sum(
+                case(
+                    (WorkflowRun.status.in_(("waiting_input", "waiting_review")), 1),
+                    else_=0,
+                )
+            ),
+            0,
+        ),
+        func.coalesce(
+            func.sum(case((WorkflowRun.status == "succeeded", 1), else_=0)),
+            0,
+        ),
+    ).order_by(None)
+    summary_row = db.execute(summary_scope).one()
+    if workflow_status is not None:
+        if workflow_status not in WORKFLOW_STATUSES:
+            raise AppHTTPException(422, "INVALID_WORKFLOW_STATUS", "Invalid workflow status.")
+        scope = scope.where(WorkflowRun.status == workflow_status)
+    stmt = scope.order_by(WorkflowRun.created_at.desc(), WorkflowRun.id.desc())
     workflows, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
-    return page_response(
-        [WorkflowRead.model_validate(workflow) for workflow in workflows],
+    projects = {
+        project.id: project
+        for project in db.scalars(
+            select(Project).where(
+                Project.id.in_({workflow.project_id for workflow in workflows})
+            )
+        ).all()
+    }
+    response = page_response(
+        [
+            WorkflowRead.model_validate(workflow).model_copy(
+                update={
+                    "project_code": projects[workflow.project_id].code,
+                    "project_name": projects[workflow.project_id].name,
+                }
+            )
+            for workflow in workflows
+        ],
         page,
         page_size,
         total,
         request.state.request_id,
     )
+    response["summary"] = {
+        "total": int(summary_row[0]),
+        "running": int(summary_row[1]),
+        "waiting": int(summary_row[2]),
+        "completed": int(summary_row[3]),
+    }
+    return response
 
 
 @detail_router.get("/{workflow_id}")

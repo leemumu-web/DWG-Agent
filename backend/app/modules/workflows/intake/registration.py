@@ -86,7 +86,7 @@ def validate_input_folder_manifest(
             or any(ord(character) < 32 or ord(character) == 127 for character in slash_path)
             or any(part in {"", ".", ".."} for part in raw_parts)
             or any(part in {"", ".", ".."} for part in normalized_parts)
-            or (raw_parts and raw_parts[0].endswith(":"))
+            or (raw_parts and re.match(r"^[A-Za-z]:", raw_parts[0]) is not None)
             or path.is_absolute()
             or len(path.parts) < 2
             or path.as_posix() != normalized_path

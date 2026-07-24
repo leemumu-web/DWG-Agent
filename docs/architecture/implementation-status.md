@@ -6,7 +6,7 @@
 
 ## 历史审计说明
 
-> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 3 九阶段框架：多个 DWG + 单 Excel 上传后，DWG 留档并转换为 canonical DXF，冻结的 DrawingVersion 指向 DXF，后续图纸仅按 DXF 类型流通；Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通。DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端列表与独立批次详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
+> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 3 九阶段框架：新建生产项目时原子创建并启动其唯一完整 Workflow；完整文件夹中的 DWG 入库后转换为 canonical DXF，冻结的 DrawingVersion 指向 DXF，后续图纸仅按 DXF 类型流通；Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通。DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端生产项目工作台与独立 Workflow 详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`

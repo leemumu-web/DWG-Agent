@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.projects.interface import Project
 from app.modules.workflows.contracts import (
     require_stage_inputs,
     require_stage_outputs,
@@ -25,6 +26,28 @@ STAGE_ACTIVE = {"queued", "running"}
 def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) -> WorkflowRun:
     config = dict(payload.config)
     if payload.workflow_type == "linux_production":
+        project = db.scalar(
+            select(Project).where(Project.id == payload.project_id).with_for_update()
+        )
+        if project is None or project.status == "deleted":
+            raise not_found("Project")
+        existing = db.scalar(
+            select(WorkflowRun)
+            .where(
+                WorkflowRun.project_id == payload.project_id,
+                WorkflowRun.workflow_type == "linux_production",
+            )
+            .order_by(WorkflowRun.id)
+            .limit(1)
+            .with_for_update()
+        )
+        if existing is not None:
+            raise AppHTTPException(
+                409,
+                "PRODUCTION_WORKFLOW_ALREADY_EXISTS",
+                "This project already has its complete production workflow.",
+                {"project_id": project.id, "workflow_id": existing.id},
+            )
         config["definition_revision"] = 3
     workflow = WorkflowRun(
         project_id=payload.project_id,

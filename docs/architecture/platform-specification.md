@@ -183,7 +183,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 77 个 path、95 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 144 个 path、169 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -210,7 +210,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - Axios 对 401 只执行一次共享 refresh 请求，避免并发刷新风暴；登录和 refresh 请求自身不循环重试。
 - React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
 - Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
-- 生产流程列表以“新建生产批次”为主入口，创建并启动后进入独立批次详情 URL；详情页按当前阶段完成多个 DWG + 单 Excel 上传、服务器转换、冻结、DXF 分类和冻结 Excel 第一阶段处理，后续留白阶段只展示契约、交接产物和可恢复错误。
+- 生产项目工作台以“新建生产项目”为主入口；服务端在同一事务内创建 Project、项目所有者关系及其唯一 `linux_production` Workflow 并启动，随后进入独立工作流详情 URL。详情页按当前阶段完成生产文件夹整批上传、服务器转换、冻结、DXF 分类和冻结 Excel 第一阶段处理，后续留白阶段只展示契约、交接产物和可恢复错误。
 - EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。
 - UI 权限守卫只控制显示，不替代 API 授权。
 

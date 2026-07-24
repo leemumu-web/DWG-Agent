@@ -119,6 +119,8 @@ class WorkflowRead(BaseModel):
 
     id: int
     project_id: int
+    project_code: str | None = None
+    project_name: str | None = None
     created_by: int
     name: str
     workflow_type: str

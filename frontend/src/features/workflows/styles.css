@@ -9,6 +9,49 @@
 .production-create-checklist span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; color: #285881; background: #edf6ff; border: 1px solid #cfe5f7; border-radius: 8px; font-size: 12px; font-weight: 600; }
 .production-create-actions { display: flex; flex-direction: column; gap: 12px; margin-top: auto; padding: 16px; background: #fff; border: 1px solid #dce7f1; border-radius: 12px; box-shadow: 0 -4px 18px rgba(15, 23, 42, .04); }
 .production-create-action-buttons { display: flex; justify-content: flex-end; }
+.production-project-create__identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  color: #123c4a;
+  background:
+    linear-gradient(135deg, rgba(229, 250, 248, .95), rgba(248, 250, 252, .98)),
+    repeating-linear-gradient(90deg, transparent 0 31px, rgba(8, 126, 139, .04) 32px);
+  border: 1px solid #b9dadd;
+  border-left: 4px solid #087e8b;
+  border-radius: 4px;
+}
+.production-project-create__identity h5.ant-typography { margin: 4px 0 0; color: #123c4a; }
+.production-project-create__identity > .anticon {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  color: #eaffff;
+  background: #123c4a;
+  border: 2px solid #5fc1c9;
+  border-radius: 2px;
+  font-size: 26px;
+  place-items: center;
+}
+.production-project-code-input,
+.production-project-code {
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .055em;
+}
+.production-project-table .ant-table-tbody > tr { cursor: pointer; }
+.production-project-table .ant-table-tbody > tr:hover > td { background: #f0faf9 !important; }
+.production-project-identity { display: grid; gap: 3px; }
+.production-project-identity .production-project-code { color: #087e8b; font-size: 14px; }
+.production-project-identity > span:not(.production-project-code) { color: #14252e; font-size: 15px; font-weight: 650; }
+.production-project-identity small {
+  color: #70828a;
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+}
 
 .workflow-detail-page {
   --workflow-ink: #14252e;
