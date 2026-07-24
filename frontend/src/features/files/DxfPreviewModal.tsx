@@ -62,7 +62,6 @@ export function DxfPreviewModal({
     const imageSize = imageSizeRef.current;
     if (!stage || !imageSize?.width || !imageSize.height) return null;
     return Math.min(
-      1,
       stage.clientWidth / imageSize.width,
       stage.clientHeight / imageSize.height,
     ) * 0.96;
@@ -70,7 +69,16 @@ export function DxfPreviewModal({
 
   const fitView = useCallback((animationTime = 0) => {
     const scale = fitScale();
-    if (scale !== null) transformRef.current?.centerView(scale, animationTime);
+    const stage = stageRef.current;
+    const imageSize = imageSizeRef.current;
+    if (scale !== null && stage && imageSize) {
+      transformRef.current?.setTransform(
+        (stage.clientWidth - imageSize.width * scale) / 2,
+        (stage.clientHeight - imageSize.height * scale) / 2,
+        scale,
+        animationTime,
+      );
+    }
   }, [fitScale]);
 
   const revokeObjectUrl = useCallback(() => {

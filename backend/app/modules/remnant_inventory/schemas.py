@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SkipValidation,
+    field_validator,
+    model_validator,
+)
 
 
 class MaterialCreate(BaseModel):
@@ -27,6 +34,18 @@ class MaterialUpdate(BaseModel):
     def reject_blank_family(cls, value: str | None) -> str | None:
         if value is not None and not value.strip():
             raise ValueError("must not be blank")
+        return value
+
+
+class MaterialStatusUpdate(BaseModel):
+    enabled: SkipValidation[bool]
+
+    @model_validator(mode="before")
+    @classmethod
+    def defer_missing_field_validation(cls, value: object) -> object:
+        # Keep the field required/boolean in OpenAPI while the route owns its Chinese error.
+        if isinstance(value, dict) and "enabled" not in value:
+            return {**value, "enabled": None}
         return value
 
 
@@ -61,16 +80,57 @@ class MaterialResolveCreateResult(BaseModel):
     created: bool
 
 
+class ImportMaterialResolveCreate(BaseModel):
+    code: SkipValidation[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def defer_missing_field_validation(cls, value: object) -> object:
+        # Keep a required string in OpenAPI while the route returns Chinese errors.
+        if isinstance(value, dict) and "code" not in value:
+            return {**value, "code": None}
+        return value
+
+
 class ImportItemUpdate(BaseModel):
     thickness_mm: Decimal | None = None
     material_id: int | None = None
     project_no: str | None = Field(default=None, max_length=128)
+    project_no_secondary: str | None = Field(default=None, max_length=128)
+    storage_location: str | None = Field(default=None, max_length=128)
+    remark_1: str | None = Field(default=None, max_length=500)
+    remark_2: str | None = Field(default=None, max_length=500)
     parts: list[str] | None = Field(default=None, max_length=500)
 
 
 class BulkThicknessUpdate(BaseModel):
     item_ids: list[int] = Field(min_length=1, max_length=1000)
     thickness_mm: Decimal
+
+
+class BulkProjectUpdate(BaseModel):
+    item_ids: SkipValidation[list[int]]
+    project_no: SkipValidation[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def defer_missing_field_validation(cls, value: object) -> object:
+        # Keep required typed fields in OpenAPI while the route owns Chinese errors.
+        if not isinstance(value, dict):
+            return value
+        return {
+            **value,
+            "item_ids": value.get("item_ids"),
+            "project_no": value.get("project_no"),
+        }
+
+
+class BulkOptionalMetadataUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1, max_length=1000)
+    project_no_secondary: str | None = Field(default=None, max_length=128)
+    storage_location: str | None = Field(default=None, max_length=128)
+    remark_1: str | None = Field(default=None, max_length=500)
+    remark_2: str | None = Field(default=None, max_length=500)
 
 
 class ImportConfirmRequest(BaseModel):
@@ -97,6 +157,10 @@ class RemnantUpdate(BaseModel):
     thickness_mm: Decimal | None = None
     material_id: int | None = None
     project_no: str | None = Field(default=None, max_length=128)
+    project_no_secondary: str | None = Field(default=None, max_length=128)
+    storage_location: str | None = Field(default=None, max_length=128)
+    remark_1: str | None = Field(default=None, max_length=500)
+    remark_2: str | None = Field(default=None, max_length=500)
     parts: list[str] | None = Field(default=None, max_length=500)
 
 

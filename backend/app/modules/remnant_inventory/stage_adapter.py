@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app.platform.config.settings import settings
@@ -28,6 +29,7 @@ def parse_staged_dxf(path: Path):
     from remnant_drawing_reader.models import (
         ParseResult,
         ParseWarning,
+        StandardOffcut,
     )
 
     output = path.with_suffix(".result.json")
@@ -51,6 +53,20 @@ def parse_staged_dxf(path: Path):
         raise RemnantStageError("REMNANT_PARSE_FAILED")
     try:
         payload = json.loads(output.read_text(encoding="utf-8"))
+        standard_payload = payload.get("standard_offcut")
+        standard_offcut = (
+            StandardOffcut(
+                block_type=standard_payload["block_type"],
+                raw_specification=standard_payload["raw_specification"],
+                thickness=Decimal(str(standard_payload["thickness"])),
+                length=Decimal(str(standard_payload["length"])),
+                width=Decimal(str(standard_payload["width"])),
+                material=standard_payload["material"],
+                remnant_number=standard_payload["remnant_number"],
+            )
+            if standard_payload is not None
+            else None
+        )
         return ParseResult(
             schema_version=payload["schema_version"],
             parser_version=payload["parser_version"],
@@ -59,6 +75,7 @@ def parse_staged_dxf(path: Path):
             project_candidates=_candidates(payload, "project_candidates"),
             part_candidates=_candidates(payload, "part_candidates"),
             warnings=[ParseWarning(**warning) for warning in payload["warnings"]],
+            standard_offcut=standard_offcut,
         )
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (KeyError, TypeError, ValueError, InvalidOperation, json.JSONDecodeError) as exc:
         raise RemnantStageError("REMNANT_PARSE_CONTRACT_INVALID") from exc

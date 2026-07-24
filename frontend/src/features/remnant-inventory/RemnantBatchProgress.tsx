@@ -36,6 +36,7 @@ export function RemnantBatchProgress({ batch, loading, onRetry, onCancel }: Prop
         <Statistic title="解析中" value={batch.parsing_count} />
         <Statistic title="待确认" value={batch.pending_count} />
         <Statistic title="失败" value={batch.failed_count} valueStyle={{ color: batch.failed_count ? '#cf1322' : undefined }} />
+        <Statistic title="已完成" value={batch.confirmed_count} />
       </div>
       <Progress percent={batch.total_count ? Math.round(done / batch.total_count * 100) : 0} status={batch.failed_count ? 'exception' : 'active'} />
       <Table<RemnantImportItem>
@@ -46,6 +47,7 @@ export function RemnantBatchProgress({ batch, loading, onRetry, onCancel }: Prop
         dataSource={batch.items}
         columns={[
           { title: '原始文件', dataIndex: 'original_name', ellipsis: true },
+          ...(batch.import_mode === 'auto' ? [{ title: '相对路径', dataIndex: 'source_relative_path', ellipsis: true }] : []),
           { title: '格式', dataIndex: 'source_ext', width: 80, render: (ext) => ext.slice(1).toUpperCase() },
           { title: '状态', dataIndex: 'status', width: 110, render: (status) => <Tag color={labels[status as RemnantImportItem['status']][1]}>{labels[status as RemnantImportItem['status']][0]}</Tag> },
           { title: '次数', dataIndex: 'attempt', width: 70 },

@@ -26,11 +26,17 @@ EXCEL_FINAL_DECIMAL_REVISION = (
     VERSIONS_DIR / "2f6b8c1d4e90_use_decimal_for_excel_final_physical_values.py"
 )
 MERGE_REVISION = VERSIONS_DIR / "7c4d9e2a1b60_merge_excel_final_and_remnant_heads.py"
+REMNANT_AUTO_IMPORT_REVISION = (
+    VERSIONS_DIR / "9d6e4a1b2c70_add_remnant_auto_import.py"
+)
 WORKFLOW_EXCEL_VALIDATION_REVISION = (
     VERSIONS_DIR / "4e7c2a9b1d30_add_workflow_excel_validation.py"
 )
 LINUX_EXCEL_STAGE_REVISION = (
     VERSIONS_DIR / "5f8d3b0c2e41_normalize_linux_excel_stage.py"
+)
+REMNANT_EXCEL_WORKFLOW_MERGE_REVISION = (
+    VERSIONS_DIR / "8a6c1f4e2b90_merge_remnant_and_excel_workflow_heads.py"
 )
 MODEL_TABLES = (
     "agent_run_steps",
@@ -303,6 +309,28 @@ def test_merge_revision_joins_excel_final_and_remnant_heads_without_ddl():
     assert "op." not in source
 
 
+def test_remnant_auto_import_migration_extends_merge_head_and_is_reversible():
+    source = REMNANT_AUTO_IMPORT_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "9d6e4a1b2c70"' in source
+    assert 'down_revision: str | None = "7c4d9e2a1b60"' in source
+    for column in (
+        "import_mode",
+        "default_project_no",
+        "source_folder_name",
+        "source_relative_path",
+        "standard_parse_json",
+    ):
+        assert f'"{column}"' in source
+    assert 'server_default="manual"' in source
+    assert 'op.drop_constraint("uq_remnant_import_item_batch_source"' in source
+    assert "DELETE duplicate_row" not in source
+    assert "Cannot downgrade remnant auto import" in source
+    assert 'op.create_unique_constraint(' in source
+    assert 'op.drop_column("remnant_import_items", "standard_parse_json")' in source
+    assert 'op.drop_column("remnant_import_batches", "import_mode")' in source
+
+
 def test_workflow_excel_validation_migration_extends_head_and_is_reversible():
     source = WORKFLOW_EXCEL_VALIDATION_REVISION.read_text(encoding="utf-8")
 
@@ -331,6 +359,19 @@ def test_linux_excel_stage_migration_is_fail_closed_and_reversible():
     assert "is currently at legacy excel_final" in source
     assert "DELETE FROM workflow_stage_runs" in source
     assert "definition_revision" in source
+
+
+def test_remnant_excel_workflow_merge_revision_joins_heads_without_ddl():
+    source = REMNANT_EXCEL_WORKFLOW_MERGE_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "8a6c1f4e2b90"' in source
+    assert (
+        'down_revision: tuple[str, str] = ("6f4a8c2d1e90", "5f8d3b0c2e41")'
+        in source
+    )
+    assert "def upgrade() -> None:\n    pass" in source
+    assert "def downgrade() -> None:\n    pass" in source
+    assert "op." not in source
 
 
 def test_alembic_autogenerate_excludes_celery_owned_tables():

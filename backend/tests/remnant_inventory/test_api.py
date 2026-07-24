@@ -21,6 +21,7 @@ from app.modules.remnant_inventory.models import (
     RemnantMaterial,
     RemnantPart,
 )
+from app.modules.remnant_inventory.schemas import BulkProjectUpdate, MaterialStatusUpdate
 from app.platform.config.settings import settings
 from app.platform.security.tokens import hash_password
 from tests.support.database import get_test_session_factory
@@ -128,6 +129,10 @@ def _seed_global_remnants() -> tuple[int, int]:
                 thickness_mm=thickness,
                 material_id=material.id,
                 project_no=project,
+                project_no_secondary="合同-二号" if index == 1 else None,
+                storage_location="A区-03架" if index == 1 else None,
+                remark_1="待复核" if index == 1 else None,
+                remark_2="优先使用" if index == 1 else None,
                 status=status,
                 imported_by=worker.id,
                 confirmed_by=worker.id,
@@ -181,6 +186,11 @@ def test_material_api_uses_envelope_auth_and_admin_permissions(client, admin_hea
     )
     assert created.status_code == 201, created.text
     material_id = created.json()["data"]["id"]
+    updated = client.patch(
+        f"/api/v1/remnant-materials/{material_id}",
+        headers=admin_headers,
+        json={"family_code": "Q235-FAMILY"},
+    )
     aliases = client.put(
         f"/api/v1/remnant-materials/{material_id}/aliases",
         headers=admin_headers,
@@ -188,36 +198,38 @@ def test_material_api_uses_envelope_auth_and_admin_permissions(client, admin_hea
     )
     listed = client.get("/api/v1/remnant-materials", headers=admin_headers)
     assert aliases.status_code == 200
+    assert updated.status_code == 200
+    assert updated.json()["data"]["family_code"] == "Q235-FAMILY"
     assert listed.status_code == 200
     assert listed.json()["data"][0]["code"] == "Q235B"
     assert listed.json()["meta"]["request_id"]
     with get_test_session_factory()() as db:
         actions = set(db.scalars(select(AuditLog.action)).all())
-    assert {"remnants.material.create", "remnants.material.aliases"} <= actions
+    assert {
+        "remnants.material.create",
+        "remnants.material.update",
+        "remnants.material.aliases",
+    } <= actions
 
 
-def test_worker_resolves_or_creates_material_but_cannot_administer_it(
-    client, worker_headers
+def test_worker_cannot_manually_create_or_administer_material(
+    client, worker_headers, admin_headers
 ) -> None:
     created = client.post(
-        "/api/v1/remnant-materials/resolve-or-create",
-        headers=worker_headers,
-        json={"code": "q355b"},
+        "/api/v1/remnant-materials",
+        headers=admin_headers,
+        json={"code": "Q355B", "family_code": "Q355"},
     )
     assert created.status_code == 201, created.text
     payload = created.json()["data"]
-    assert payload["created"] is True
-    assert payload["material"]["code"] == payload["material"]["family_code"] == "Q355B"
-
-    repeated = client.post(
+    forbidden = client.post(
         "/api/v1/remnant-materials/resolve-or-create",
         headers=worker_headers,
         json={"code": "Q355B"},
     )
-    assert repeated.status_code == 200, repeated.text
-    assert repeated.json()["data"]["created"] is False
+    assert forbidden.status_code == 403
 
-    material_id = payload["material"]["id"]
+    material_id = payload["id"]
     assert client.patch(
         f"/api/v1/remnant-materials/{material_id}",
         headers=worker_headers,
@@ -236,6 +248,349 @@ def test_worker_resolves_or_creates_material_but_cannot_administer_it(
             ).all()
         )
     assert len(audits) == 1
+
+
+def test_resolve_or_create_material_requires_admin(
+    client, worker_headers, admin_headers
+) -> None:
+    forbidden = client.post(
+        "/api/v1/remnant-materials/resolve-or-create",
+        headers=worker_headers,
+        json={"code": "Q460B"},
+    )
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["message"] == "该操作需要管理员权限。"
+
+    created = client.post(
+        "/api/v1/remnant-materials/resolve-or-create",
+        headers=admin_headers,
+        json={"code": "Q460B"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["data"]["material"]["code"] == "Q460B"
+
+
+def test_worker_can_create_material_only_for_owned_pending_import_item(
+    client, worker_headers, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.routes.dispatch_import_execution",
+        lambda _dispatch: None,
+    )
+    created = client.post(
+        "/api/v1/remnant-import-batches",
+        headers=worker_headers,
+        files=[("files", ("worker-source.dxf", _dxf_bytes(), "application/dxf"))],
+    )
+    assert created.status_code == 202, created.text
+    item_id = created.json()["data"]["items"][0]["id"]
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        item.status = "pending_confirmation"
+        db.commit()
+
+    resolved = client.post(
+        f"/api/v1/remnant-import-items/{item_id}/resolve-material",
+        headers=worker_headers,
+        json={"code": "Q460GJC"},
+    )
+    assert resolved.status_code == 201, resolved.text
+    assert resolved.json()["data"]["material"]["code"] == "Q460GJC"
+    assert resolved.json()["data"]["created"] is True
+
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        item.status = "confirmed"
+        db.commit()
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.import.material.create",
+                AuditLog.resource_type == "remnant_import_item",
+                AuditLog.resource_id == item_id,
+            )
+        )
+        assert audit is not None
+
+    locked = client.post(
+        f"/api/v1/remnant-import-items/{item_id}/resolve-material",
+        headers=worker_headers,
+        json={"code": "Q355C"},
+    )
+    assert locked.status_code == 409
+    assert locked.json()["error"]["message"] == "该图纸当前不可补录材质。"
+
+
+@pytest.mark.parametrize(
+    ("files", "data", "message"),
+    [
+        (
+            None,
+            {"relative_paths": ["one.dxf"], "project_no": "P1"},
+            "请至少选择一张图纸。",
+        ),
+        (
+            [("files", ("one.dxf", _dxf_bytes(), "application/dxf"))],
+            {"project_no": "P1"},
+            "请提供与图纸一一对应的相对路径。",
+        ),
+        (
+            [("files", ("one.dxf", _dxf_bytes(), "application/dxf"))],
+            {"relative_paths": ["one.dxf"]},
+            "请填写项目编号。",
+        ),
+    ],
+)
+def test_auto_import_missing_multipart_fields_return_stable_chinese_errors(
+    client,
+    admin_headers,
+    files,
+    data,
+    message,
+) -> None:
+    response = client.post(
+        "/api/v1/remnant-import-batches/auto",
+        headers=admin_headers,
+        files=files,
+        data=data,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()["error"]
+    assert payload["message"] == message
+    assert payload["code"] not in payload["message"]
+    assert "Request validation failed" not in payload["message"]
+
+
+def test_worker_can_toggle_material_status_without_catalog_edit_access(
+    client, worker_headers
+) -> None:
+    with get_test_session_factory()() as db:
+        material = RemnantMaterial(
+            code="Q390B",
+            family_code="Q390",
+            enabled=True,
+        )
+        db.add(material)
+        db.commit()
+        material_id = material.id
+
+    disabled = client.patch(
+        f"/api/v1/remnant-materials/{material_id}/status",
+        headers=worker_headers,
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["data"]["material"]["enabled"] is False
+    assert disabled.json()["data"]["message"] == "材质已停用。"
+    assert client.patch(
+        f"/api/v1/remnant-materials/{material_id}",
+        headers=worker_headers,
+        json={"family_code": "OTHER"},
+    ).status_code == 403
+    with get_test_session_factory()() as db:
+        audit = db.scalar(
+            select(AuditLog).where(AuditLog.action == "remnants.material.status")
+        )
+        assert audit is not None
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({}, "请提供材质启停状态。"),
+        ({"enabled": "false"}, "材质启停状态必须为布尔值。"),
+    ],
+)
+def test_material_status_invalid_fields_return_stable_chinese_errors(
+    client,
+    worker_headers,
+    body,
+    message,
+) -> None:
+    response = client.patch(
+        "/api/v1/remnant-materials/999/status",
+        headers=worker_headers,
+        json=body,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()["error"]
+    assert payload["message"] == message
+    assert payload["code"] not in payload["message"]
+    assert "Request validation failed" not in payload["message"]
+
+
+def test_localized_command_schemas_retain_required_openapi_types() -> None:
+    status_schema = MaterialStatusUpdate.model_json_schema()
+    project_schema = BulkProjectUpdate.model_json_schema()
+
+    assert status_schema["required"] == ["enabled"]
+    assert status_schema["properties"]["enabled"]["type"] == "boolean"
+    assert set(project_schema["required"]) == {"item_ids", "project_no"}
+    assert project_schema["properties"]["item_ids"]["type"] == "array"
+    assert project_schema["properties"]["item_ids"]["items"]["type"] == "integer"
+    assert project_schema["properties"]["project_no"]["type"] == "string"
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"project_no": "PRJ-A"}, "请选择需要设置项目的图纸。"),
+        ({"item_ids": "1", "project_no": "PRJ-A"}, "图纸编号列表格式不正确。"),
+        ({"item_ids": [1]}, "请填写项目编号。"),
+        ({"item_ids": [1], "project_no": 123}, "项目编号格式不正确。"),
+    ],
+)
+def test_bulk_project_invalid_fields_return_stable_chinese_errors(
+    client,
+    admin_headers,
+    body,
+    message,
+) -> None:
+    response = client.post(
+        "/api/v1/remnant-import-batches/999/bulk-project",
+        headers=admin_headers,
+        json=body,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()["error"]
+    assert payload["message"] == message
+    assert payload["code"] not in payload["message"]
+    assert "Request validation failed" not in payload["message"]
+
+
+def test_auto_multipart_import_returns_paths_and_supports_bulk_project_and_cancel(
+    client, admin_headers, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.routes.dispatch_import_execution",
+        lambda _dispatch: None,
+    )
+    drawing = _dxf_bytes()
+    created = client.post(
+        "/api/v1/remnant-import-batches/auto",
+        headers=admin_headers,
+        files=[
+            ("files", ("one.dxf", drawing, "application/dxf")),
+            ("files", ("duplicate.dxf", drawing, "application/dxf")),
+        ],
+        data={
+            "relative_paths": [r"一层\one.dxf", "一层/duplicate.dxf"],
+            "project_no": "PRJ-A",
+            "folder_name": "来料文件夹",
+        },
+    )
+    assert created.status_code == 202, created.text
+    payload = created.json()["data"]
+    assert (
+        payload["import_mode"],
+        payload["default_project_no"],
+        payload["source_folder_name"],
+    ) == ("auto", "PRJ-A", "来料文件夹")
+    assert [item["source_relative_path"] for item in payload["items"]] == [
+        "一层/one.dxf",
+        "一层/duplicate.dxf",
+    ]
+    assert payload["items"][1]["status"] == "failed"
+    assert payload["items"][1]["error_message"] == "同一张源图纸在本批次中重复，已跳过该文件。"
+
+    batch_id = payload["id"]
+    item_ids = [item["id"] for item in payload["items"]]
+    bulk = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-project",
+        headers=admin_headers,
+        json={"item_ids": item_ids, "project_no": "PRJ-B"},
+    )
+    assert bulk.status_code == 200, bulk.text
+    assert bulk.json()["data"]["updated_item_ids"] == item_ids
+    blank_project = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-project",
+        headers=admin_headers,
+        json={"item_ids": item_ids, "project_no": "  "},
+    )
+    assert blank_project.status_code == 422
+    assert blank_project.json()["error"]["message"] == "请填写项目编号。"
+    cancelled = client.post(
+        f"/api/v1/remnant-import-items/{item_ids[1]}/cancel",
+        headers=admin_headers,
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["data"]["status"] == "cancelled"
+
+
+def test_bulk_optional_metadata_api_preserves_omitted_fields_and_rejects_noop(
+    client, admin_headers, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.routes.dispatch_import_execution",
+        lambda _dispatch: None,
+    )
+    created = client.post(
+        "/api/v1/remnant-import-batches/auto",
+        headers=admin_headers,
+        files=[("files", ("metadata.dxf", _dxf_bytes(), "application/dxf"))],
+        data={
+            "relative_paths": ["metadata.dxf"],
+            "project_no": "PRJ-METADATA",
+        },
+    )
+    assert created.status_code == 202, created.text
+    batch_id = created.json()["data"]["id"]
+    item_id = created.json()["data"]["items"][0]["id"]
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        item.corrected_project_no_secondary = "合同-02"
+        item.corrected_storage_location = "A区-03架"
+        db.commit()
+
+    project_only = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
+        headers=admin_headers,
+        json={"item_ids": [item_id], "project_no_secondary": "合同-03"},
+    )
+    assert project_only.status_code == 200, project_only.text
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        assert item.corrected_project_no_secondary == "合同-03"
+        assert item.corrected_storage_location == "A区-03架"
+
+    clear_storage = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
+        headers=admin_headers,
+        json={"item_ids": [item_id], "storage_location": None},
+    )
+    assert clear_storage.status_code == 200, clear_storage.text
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        assert item.corrected_project_no_secondary == "合同-03"
+        assert item.corrected_storage_location is None
+        successful_audits = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.import.bulk_optional_metadata"
+            )
+        ).all()
+        assert len(successful_audits) == 2
+
+    noop = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
+        headers=admin_headers,
+        json={"item_ids": [item_id]},
+    )
+    assert noop.status_code == 422
+    assert noop.json()["error"]["message"] == "请至少选择一项需要批量更新的附加信息。"
+    with get_test_session_factory()() as db:
+        audits_after_noop = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.import.bulk_optional_metadata"
+            )
+        ).all()
+        assert len(audits_after_noop) == 2
 
 
 def test_multipart_import_edit_partial_confirm_and_inventory_lifecycle(
@@ -384,6 +739,10 @@ def test_worker_can_page_filter_and_sort_the_global_inventory(
             "thickness_mm": "10",
             "statuses": "available",
             "project": "精武路",
+            "project_secondary": "二号",
+            "storage_location": "03架",
+            "remark_1": "复核",
+            "remark_2": "优先",
             "part": "JWL-1014",
         },
     )
@@ -391,6 +750,38 @@ def test_worker_can_page_filter_and_sort_the_global_inventory(
     assert filtered.status_code == 200, filtered.text
     assert filtered.json()["pagination"]["total"] == 1
     assert filtered.json()["data"][0]["parts"] == ["JWL-1014-B-4"]
+    assert filtered.json()["data"][0]["project_no_secondary"] == "合同-二号"
+    assert filtered.json()["data"][0]["storage_location"] == "A区-03架"
+
+
+def test_worker_can_delete_own_archived_remnant_while_audit_and_source_remain(
+    client, worker_headers
+) -> None:
+    _seed_global_remnants()
+    listed = client.get(
+        "/api/v1/remnants/all",
+        headers=worker_headers,
+        params={"statuses": "archived"},
+    )
+    archived = listed.json()["data"][0]
+
+    deleted = client.delete(
+        f"/api/v1/remnants/{archived['id']}",
+        headers=worker_headers,
+    )
+
+    assert deleted.status_code == 204
+    with get_test_session_factory()() as db:
+        assert db.get(Remnant, archived["id"]) is None
+        assert db.get(StoredFile, archived["source_file_id"]) is not None
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.delete",
+                AuditLog.resource_id == archived["id"],
+            )
+        )
+        assert audit is not None
+        assert audit.before_json["source_sha256"]
 
 
 def test_worker_bulk_archive_returns_success_and_chinese_failure_details(

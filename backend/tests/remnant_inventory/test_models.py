@@ -50,7 +50,8 @@ def test_business_uniqueness_is_enforced_by_named_constraints() -> None:
     material, alias, _batch, item, remnant, part = _models()
     assert "uq_remnant_material_code" in _unique_names(material)
     assert "uq_remnant_material_alias_normalized" in _unique_names(alias)
-    assert "uq_remnant_import_item_batch_source" in _unique_names(item)
+    # Auto imports retain later duplicate rows as failed ledger entries.
+    assert "uq_remnant_import_item_batch_source" not in _unique_names(item)
     assert "uq_remnant_source_sha256" in _unique_names(remnant)
     assert "uq_remnant_import_item_confirmation" in _unique_names(remnant)
     assert "uq_remnant_part_number" in _unique_names(part)
@@ -85,6 +86,17 @@ def test_status_attempt_counters_and_version_have_safe_defaults() -> None:
     assert item.attempt.property.columns[0].default.arg == 1
     assert remnant.status.property.columns[0].default.arg == "available"
     assert remnant.version.property.columns[0].default.arg == 1
+
+
+def test_auto_import_metadata_columns_have_safe_manual_defaults() -> None:
+    _material, _alias, batch, item, _remnant, _part = _models()
+
+    assert batch.import_mode.property.columns[0].default.arg == "manual"
+    assert batch.import_mode.property.columns[0].nullable is False
+    assert batch.default_project_no.property.columns[0].type.length == 128
+    assert batch.source_folder_name.property.columns[0].type.length == 255
+    assert item.source_relative_path.property.columns[0].type.length == 1024
+    assert item.standard_parse_json.property.columns[0].nullable is True
 
 
 def test_models_are_registered_in_application_metadata() -> None:

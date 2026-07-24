@@ -33,7 +33,11 @@ HEADERS = (
     "余料编号",
     "材质",
     "厚度(mm)",
-    "项目编号",
+    "项目编号一",
+    "项目编号二",
+    "库存位置",
+    "备注一",
+    "备注二",
     "零件编号",
     "库存状态",
     "原始图纸文件名",
@@ -45,7 +49,7 @@ HEADERS = (
     "领用时间",
     "最后更新时间",
 )
-COLUMN_WIDTHS = (12, 14, 12, 32, 42, 12, 36, 16, 20, 16, 20, 16, 20, 20)
+COLUMN_WIDTHS = (12, 14, 12, 32, 32, 20, 28, 28, 42, 12, 36, 16, 20, 16, 20, 16, 20, 20)
 
 
 @dataclass(frozen=True)
@@ -70,6 +74,14 @@ def _excel_datetime(value: datetime | None) -> datetime | None:
         return None
     aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     return aware.astimezone(BEIJING).replace(tzinfo=None)
+
+
+def _excel_safe_value(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value.lstrip()[:1] in {"=", "+", "-", "@"}:
+        return f"'{value}"
+    return value
 
 
 def _indexed(rows) -> dict[int, object]:
@@ -114,7 +126,7 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet("全部余料")
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:N{max(1, len(remnants) + 1)}"
+    sheet.auto_filter.ref = f"A1:R{max(1, len(remnants) + 1)}"
     for index, width in enumerate(COLUMN_WIDTHS, 1):
         sheet.column_dimensions[chr(64 + index)].width = width
     header_cells = []
@@ -137,6 +149,10 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
             material.code if material else None,
             float(row.thickness_mm),
             row.project_no,
+            row.project_no_secondary,
+            row.storage_location,
+            row.remark_1,
+            row.remark_2,
             "、".join(parts[row.id]),
             STATUS_LABELS.get(row.status, row.status),
             source.original_name if source else None,
@@ -150,8 +166,8 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
         ]
         cells = []
         for index, value in enumerate(values):
-            cell = WriteOnlyCell(sheet, value=value)
-            cell.alignment = Alignment(vertical="top", wrap_text=index in (3, 4))
+            cell = WriteOnlyCell(sheet, value=_excel_safe_value(value))
+            cell.alignment = Alignment(vertical="top", wrap_text=index in (3, 4, 5, 6, 7, 8))
             if isinstance(value, datetime):
                 cell.number_format = "yyyy-mm-dd hh:mm:ss"
             cells.append(cell)

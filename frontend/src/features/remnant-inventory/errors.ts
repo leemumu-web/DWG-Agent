@@ -6,6 +6,7 @@ const REMNANT_MESSAGES: Record<string, string> = {
   REMNANT_MATERIAL_REQUIRED: '请选择或新建材质',
   REMNANT_PROJECT_REQUIRED: '请填写项目编号',
   REMNANT_PARTS_REQUIRED: '至少填写一个零件编号',
+  REMNANT_OPTIONAL_METADATA_REQUIRED: '请至少选择一项需要批量更新的附加信息',
   REMNANT_DXF_REQUIRED: '缺少可用于确认的 DXF 图纸',
   REMNANT_IMPORT_ITEM_NOT_READY: '该图纸当前不能确认，请刷新后重试',
   REMNANT_IMPORT_ITEM_NOT_FOUND: '导入图纸不存在或已被删除',

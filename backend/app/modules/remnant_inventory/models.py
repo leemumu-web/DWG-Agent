@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -55,10 +56,19 @@ class RemnantMaterialAlias(TimestampMixin, Base):
 
 class RemnantImportBatch(TimestampMixin, Base):
     __tablename__ = "remnant_import_batches"
-    __table_args__ = (Index("ix_remnant_import_batch_creator_status", "created_by", "status"),)
+    __table_args__ = (
+        CheckConstraint(
+            "import_mode IN ('manual', 'auto')",
+            name="ck_remnant_import_batch_mode",
+        ),
+        Index("ix_remnant_import_batch_creator_status", "created_by", "status"),
+    )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     created_by: Mapped[int] = mapped_column(PKType, ForeignKey("sys_users.id"), nullable=False)
+    import_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    default_project_no: Mapped[str | None] = mapped_column(String(128))
+    source_folder_name: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="uploaded")
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     converting_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -72,9 +82,6 @@ class RemnantImportBatch(TimestampMixin, Base):
 class RemnantImportItem(TimestampMixin, Base):
     __tablename__ = "remnant_import_items"
     __table_args__ = (
-        UniqueConstraint(
-            "batch_id", "source_sha256", name="uq_remnant_import_item_batch_source"
-        ),
         Index("ix_remnant_import_item_batch_status", "batch_id", "status"),
         Index("ix_remnant_import_item_source_sha", "source_sha256"),
     )
@@ -87,6 +94,7 @@ class RemnantImportItem(TimestampMixin, Base):
     dxf_file_id: Mapped[int | None] = mapped_column(PKType, ForeignKey("files.id"))
     source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     source_ext: Mapped[str] = mapped_column(String(8), nullable=False)
+    source_relative_path: Mapped[str | None] = mapped_column(String(1024))
     conversion_job_id: Mapped[int | None] = mapped_column(PKType, ForeignKey("jobs.id"))
     parse_job_id: Mapped[int | None] = mapped_column(PKType, ForeignKey("jobs.id"))
     attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -97,11 +105,16 @@ class RemnantImportItem(TimestampMixin, Base):
     project_candidates_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     part_candidates_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     warnings_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    standard_parse_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     corrected_thickness_mm: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
     corrected_material_id: Mapped[int | None] = mapped_column(
         PKType, ForeignKey("remnant_materials.id")
     )
     corrected_project_no: Mapped[str | None] = mapped_column(String(128))
+    corrected_project_no_secondary: Mapped[str | None] = mapped_column(String(128))
+    corrected_storage_location: Mapped[str | None] = mapped_column(String(128))
+    corrected_remark_1: Mapped[str | None] = mapped_column(String(500))
+    corrected_remark_2: Mapped[str | None] = mapped_column(String(500))
     corrected_parts_json: Mapped[list[str] | None] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
@@ -128,6 +141,10 @@ class Remnant(TimestampMixin, Base):
         PKType, ForeignKey("remnant_materials.id"), nullable=False
     )
     project_no: Mapped[str] = mapped_column(String(128), nullable=False)
+    project_no_secondary: Mapped[str | None] = mapped_column(String(128))
+    storage_location: Mapped[str | None] = mapped_column(String(128))
+    remark_1: Mapped[str | None] = mapped_column(String(500))
+    remark_2: Mapped[str | None] = mapped_column(String(500))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="available")
     imported_by: Mapped[int] = mapped_column(PKType, ForeignKey("sys_users.id"), nullable=False)
     confirmed_by: Mapped[int] = mapped_column(PKType, ForeignKey("sys_users.id"), nullable=False)

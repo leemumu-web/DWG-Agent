@@ -4,6 +4,7 @@ import logging
 import tempfile
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,7 +26,11 @@ from app.modules.jobs.interface import (
     fail_job_attempt,
     make_event,
 )
-from app.modules.remnant_inventory.materials import resolve_material_candidate
+from app.modules.operations.audit.interface import write_audit_log
+from app.modules.remnant_inventory.materials import (
+    resolve_material_candidate,
+    resolve_or_create_auto_material,
+)
 from app.modules.remnant_inventory.models import RemnantImportBatch, RemnantImportItem
 from app.modules.remnant_inventory.stage_adapter import parse_staged_dxf
 from app.platform.config.settings import settings
@@ -47,13 +52,85 @@ def _candidate_payload(result, name: str):
 
 
 def store_parse_result(db: Session, item_id: int, *, expected_attempt: int, result) -> bool:
-    resolved_material_ids = {
-        material.id
-        for candidate in result.material_candidates
-        if (material := resolve_material_candidate(db, candidate.value)) is not None
-    }
-    projects = list(dict.fromkeys(candidate.value.strip() for candidate in result.project_candidates if candidate.value.strip()))
-    parts = list(dict.fromkeys(candidate.value.strip() for candidate in result.part_candidates if candidate.value.strip()))
+    item = db.get(RemnantImportItem, item_id)
+    if (
+        item is None
+        or item.status != "parsing"
+        or item.attempt != expected_attempt
+    ):
+        return False
+    batch = db.get(RemnantImportBatch, item.batch_id)
+    if batch is None:
+        return False
+
+    payload = result.to_dict()
+    standard_summary = payload.get("standard_offcut")
+    if batch.import_mode == "auto":
+        corrected_material_id = None
+        corrected_thickness_mm = None
+        corrected_parts = None
+        if standard_summary is not None:
+            try:
+                corrected_thickness_mm = abs(
+                    Decimal(str(standard_summary["thickness"]))
+                ).quantize(Decimal("0.001"))
+            except (InvalidOperation, KeyError, TypeError, ValueError):
+                corrected_thickness_mm = None
+            material_code = str(standard_summary.get("material") or "").strip()
+            if material_code:
+                material, created, reenabled = resolve_or_create_auto_material(
+                    db,
+                    code=material_code,
+                    actor_id=batch.created_by,
+                )
+                corrected_material_id = material.id
+                if created or reenabled:
+                    write_audit_log(
+                        db,
+                        actor_user_id=batch.created_by,
+                        action=(
+                            "remnants.material.auto_create"
+                            if created
+                            else "remnants.material.auto_enable"
+                        ),
+                        resource_type="remnant_material",
+                        resource_id=material.id,
+                        after_json={
+                            "code": material.code,
+                            "family_code": material.family_code,
+                            "enabled": material.enabled,
+                        },
+                    )
+            remnant_number = str(standard_summary.get("remnant_number") or "").strip()
+            corrected_parts = [remnant_number] if remnant_number else None
+        corrected_project_no = batch.default_project_no
+    else:
+        resolved_material_ids = {
+            material.id
+            for candidate in result.material_candidates
+            if (material := resolve_material_candidate(db, candidate.value)) is not None
+        }
+        projects = list(
+            dict.fromkeys(
+                candidate.value.strip()
+                for candidate in result.project_candidates
+                if candidate.value.strip()
+            )
+        )
+        parts = list(
+            dict.fromkeys(
+                candidate.value.strip()
+                for candidate in result.part_candidates
+                if candidate.value.strip()
+            )
+        )
+        corrected_material_id = (
+            next(iter(resolved_material_ids)) if len(resolved_material_ids) == 1 else None
+        )
+        corrected_thickness_mm = item.corrected_thickness_mm
+        corrected_project_no = projects[0] if len(projects) == 1 else None
+        corrected_parts = parts or None
+
     statement = (
         update(RemnantImportItem)
         .where(
@@ -69,11 +146,11 @@ def store_parse_result(db: Session, item_id: int, *, expected_attempt: int, resu
             project_candidates_json=_candidate_payload(result, "project_candidates"),
             part_candidates_json=_candidate_payload(result, "part_candidates"),
             warnings_json=_candidate_payload(result, "warnings"),
-            corrected_material_id=(
-                next(iter(resolved_material_ids)) if len(resolved_material_ids) == 1 else None
-            ),
-            corrected_project_no=projects[0] if len(projects) == 1 else None,
-            corrected_parts_json=parts or None,
+            standard_parse_json=standard_summary,
+            corrected_thickness_mm=corrected_thickness_mm,
+            corrected_material_id=corrected_material_id,
+            corrected_project_no=corrected_project_no,
+            corrected_parts_json=corrected_parts,
             error_code=None,
             error_message=None,
         )
@@ -102,7 +179,7 @@ def recalculate_batch_counters(db: Session, batch_id: int) -> RemnantImportBatch
         batch.status = "confirmed"
     elif batch.confirmed_count + batch.cancelled_count == batch.total_count:
         batch.status = "cancelled"
-    elif batch.failed_count + batch.pending_count + batch.confirmed_count == batch.total_count:
+    elif not any(counts[state] for state in ("uploaded", "converting", "parsing")):
         batch.status = "awaiting_confirmation"
     else:
         batch.status = "processing"

@@ -7,6 +7,13 @@ const admin = {
   roles: [{ id: 1, code: 'admin', name: '系统管理员', is_system: true }],
   created_at: now, updated_at: now,
 };
+const worker = {
+  ...admin,
+  id: 9,
+  username: 'worker',
+  real_name: '余料工人',
+  roles: [{ id: 9, code: 'remnant_worker', name: '余料工人', is_system: true }],
+};
 const disabled = {
   id: 2, code: 'Q355D', family_code: 'Q355', enabled: false, aliases: ['旧-Q355D'],
   created_at: now, updated_at: now,
@@ -30,14 +37,15 @@ test('material status switch confirms and re-enables the row', async ({ page }) 
     allCatalogRequests += 1;
     return json(route, [{ ...disabled, enabled }]);
   });
-  await page.route('**/api/v1/remnant-materials/2', async (route) => {
+  await page.route('**/api/v1/remnant-materials/2/status', async (route) => {
     expect(route.request().method()).toBe('PATCH');
     expect(route.request().postDataJSON()).toEqual({ enabled: true });
     enabled = true;
-    await json(route, { ...disabled, enabled: true });
+    await json(route, { material: { ...disabled, enabled: true }, message: '材质已启用。' });
   });
 
   await page.goto('/remnants?tab=materials');
+  await page.getByRole('switch', { name: '显示已停用' }).click();
   await expect(page.getByText('Q355D', { exact: true })).toBeVisible();
   await page.getByRole('switch', { name: 'Q355D 启用状态' }).click();
   await expect(page.getByText('重新启用 Q355D？')).toBeVisible();
@@ -54,7 +62,7 @@ test('material status switch restores its value and shows a Chinese error on fai
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user: admin }, 201));
   await page.route('**/api/v1/remnant-materials', (route) => json(route, []));
   await page.route('**/api/v1/remnant-materials?enabled_only=false', (route) => json(route, [disabled]));
-  await page.route('**/api/v1/remnant-materials/2', (route) => route.fulfill({
+  await page.route('**/api/v1/remnant-materials/2/status', (route) => route.fulfill({
     status: 409,
     contentType: 'application/json',
     body: JSON.stringify({
@@ -64,6 +72,7 @@ test('material status switch restores its value and shows a Chinese error on fai
   }));
 
   await page.goto('/remnants?tab=materials');
+  await page.getByRole('switch', { name: '显示已停用' }).click();
   const statusSwitch = page.getByRole('switch', { name: 'Q355D 启用状态' });
   await expect(statusSwitch).not.toBeChecked();
   await statusSwitch.click();
@@ -86,13 +95,14 @@ test('only the submitted material stays loading until both catalogs refresh', as
     await waitForRefresh();
     return json(route, [enabledMaterial, { ...disabled, enabled }]);
   });
-  await page.route('**/api/v1/remnant-materials/2', async (route) => {
+  await page.route('**/api/v1/remnant-materials/2/status', async (route) => {
     enabled = true;
     refreshing = true;
-    await json(route, { ...disabled, enabled: true });
+    await json(route, { material: { ...disabled, enabled: true }, message: '材质已启用。' });
   });
 
   await page.goto('/remnants?tab=materials');
+  await page.getByRole('switch', { name: '显示已停用' }).click();
   const submitted = page.getByRole('switch', { name: 'Q355D 启用状态' });
   const other = page.getByRole('switch', { name: 'Q235B 启用状态' });
   await submitted.click();
@@ -102,4 +112,32 @@ test('only the submitted material stays loading until both catalogs refresh', as
   await expect.poll(() => releaseRefresh.length).toBe(2);
   releaseRefresh.forEach((release) => release());
   await expect(submitted).not.toHaveClass(/ant-switch-loading/);
+});
+
+test('worker can show disabled materials and toggle status but cannot edit the catalog', async ({ page }) => {
+  let statusCalls = 0;
+  await page.route('**/api/v1/auth/tokens/refresh', (route) =>
+    json(route, { access_token: 'worker-token', user: worker }, 201));
+  await page.route('**/api/v1/remnant-materials', (route) => json(route, [enabledMaterial]));
+  await page.route('**/api/v1/remnant-materials?enabled_only=false', (route) =>
+    json(route, [enabledMaterial, disabled]));
+  await page.route('**/api/v1/remnant-materials/2/status', async (route) => {
+    statusCalls += 1;
+    expect(route.request().method()).toBe('PATCH');
+    expect(route.request().postDataJSON()).toEqual({ enabled: true });
+    await json(route, { material: { ...disabled, enabled: true }, message: '材质已启用。' });
+  });
+
+  await page.goto('/remnants?tab=materials');
+  await expect(page.getByText('Q235B', { exact: true })).toBeVisible();
+  await expect(page.getByText('Q355D', { exact: true })).toHaveCount(0);
+  await page.getByRole('switch', { name: '显示已停用' }).click();
+  await expect(page.getByText('Q355D', { exact: true })).toBeVisible();
+  await page.getByRole('switch', { name: 'Q355D 启用状态' }).click();
+  await page.getByRole('button', { name: '确 定' }).click();
+  await expect.poll(() => statusCalls).toBe(1);
+
+  await expect(page.getByRole('button', { name: '新增材质' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '编辑' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /删除/ })).toHaveCount(0);
 });

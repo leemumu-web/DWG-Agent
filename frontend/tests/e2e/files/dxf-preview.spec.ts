@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const now = '2026-07-23T10:00:00Z';
 const envelope = (data: unknown) => ({ data, meta: { request_id: 'dxf-preview-e2e', timestamp: now } });
-const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400"><path d="M40 40 L1160 360" stroke="#334155"/></svg>';
+const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80"><path d="M8 8 L232 72" stroke="#334155"/></svg>';
 
 async function mockPreviewPage(page: Page, fileName: string, onPreview: () => void) {
   const admin = {
@@ -47,7 +47,7 @@ async function mockPreviewPage(page: Page, fileName: string, onPreview: () => vo
         content_url: '/api/v1/files/987/dxf-preview/content', content_type: 'image/svg+xml',
         document_entities: 3, modelspace_entities: 2,
         entity_counts: { LINE: 2, TEXT: 1 }, layers: ['0'], layer_colors: { 0: 7 },
-        bounds: { min_x: 0, min_y: 0, max_x: 1200, max_y: 400 }, cached: true,
+        bounds: { min_x: 0, min_y: 0, max_x: 240, max_y: 80 }, cached: true,
       })),
     });
   });
@@ -110,7 +110,7 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
         yCenterRatio: Number.POSITIVE_INFINITY,
       };
     }
-    const expectedScale = Math.min(1, currentStage.width / 1200, currentStage.height / 400) * 0.96;
+    const expectedScale = Math.min(currentStage.width / 240, currentStage.height / 80) * 0.96;
     const xCenterError = Math.abs(
       currentImage.x + currentImage.width / 2 - (currentStage.x + currentStage.width / 2),
     );

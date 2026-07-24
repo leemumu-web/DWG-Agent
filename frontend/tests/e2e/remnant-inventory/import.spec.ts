@@ -11,7 +11,10 @@ function item(id: number, name: string, status: string) {
     material_candidates: [{ value: 'Q235B', evidence: [{ raw_text: '材质: Q235B', entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }],
     project_candidates: [{ value: `PJ-${id}`, evidence: [{ raw_text: `项目编号: PJ-${id}`, entity_type: 'TEXT', layer: 'TITLE', block_path: [] }] }],
     part_candidates: [{ value: `L-${id}`, evidence: [] }], warnings: id === 1 ? [{ code: 'MATERIAL_CANDIDATES_CONFLICT', message: '发现多个材质候选，请人工确认' }] : [],
-    thickness_mm: null, material_id: null, project_no: null, parts: [],
+    thickness_mm: null, material_id: null, project_no: null,
+    project_no_secondary: id === 1 ? '合同-02' : null,
+    storage_location: id === 1 ? 'A区-03架' : null,
+    remark_1: null, remark_2: null, parts: [],
     error_code: status === 'failed' ? 'REMNANT_PARSE_FAILED' : null,
     error_message: status === 'failed' ? '图纸解析失败' : null,
   };
@@ -49,6 +52,7 @@ async function mockImport(page: Page, options: {
   let patchCalls = 0;
   let materialCreateCalls = 0;
   let lastPatchedParts: string[] = [];
+  const bulkMetadataPayloads: Array<Record<string, unknown>> = [];
   let releaseMaterialRequest: (() => void) | undefined;
   const batch = () => ({
     id: 77, created_by: 8, status: 'awaiting_confirmation', total_count: 3,
@@ -58,7 +62,8 @@ async function mockImport(page: Page, options: {
   });
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
   await page.route('**/api/v1/remnant-materials', (route) => json(route, [{ id: 1, code: 'Q235B', family_code: 'Q235', enabled: true, created_at: now, updated_at: now }]));
-  await page.route('**/api/v1/remnant-materials/resolve-or-create', async (route) => {
+  await page.route('**/api/v1/remnant-import-items/*/resolve-material', async (route) => {
+    expect(route.request().url()).toMatch(/\/remnant-import-items\/\d+\/resolve-material$/);
     if (options.failMaterialCreate) return json(route, { message: 'create failed' }, 500);
     if (options.delayMaterialCreate) await new Promise<void>((resolve) => { releaseMaterialRequest = resolve; });
     const code = route.request().postDataJSON().code.toUpperCase();
@@ -75,6 +80,19 @@ async function mockImport(page: Page, options: {
   await page.route('**/api/v1/remnant-import-batches/77/bulk-thickness', async (route) => {
     const payload = route.request().postDataJSON();
     for (const selected of items.filter((row) => payload.item_ids.includes(row.id))) selected.thickness_mm = String(payload.thickness_mm);
+    await json(route, { updated_item_ids: payload.item_ids });
+  });
+  await page.route('**/api/v1/remnant-import-batches/77/bulk-optional-metadata', async (route) => {
+    const payload = route.request().postDataJSON() as Record<string, unknown> & { item_ids: number[] };
+    bulkMetadataPayloads.push(payload);
+    for (const selected of items.filter((row) => payload.item_ids.includes(row.id))) {
+      if (Object.hasOwn(payload, 'project_no_secondary')) {
+        selected.project_no_secondary = (payload.project_no_secondary as string | null) || null;
+      }
+      if (Object.hasOwn(payload, 'storage_location')) {
+        selected.storage_location = (payload.storage_location as string | null) || null;
+      }
+    }
     await json(route, { updated_item_ids: payload.item_ids });
   });
   await page.route('**/api/v1/remnant-import-items/1', async (route) => {
@@ -94,10 +112,39 @@ async function mockImport(page: Page, options: {
     patchCalls: () => patchCalls,
     materialRequestWaiting: () => Boolean(releaseMaterialRequest),
     materialCreateCalls: () => materialCreateCalls,
+    bulkMetadataPayloads: () => bulkMetadataPayloads,
     lastPatchedParts: () => lastPatchedParts,
     releaseMaterialCreate: () => releaseMaterialRequest?.(),
   };
 }
+
+test('bulk optional metadata updates only selected fields and supports explicit clear', async ({ page }) => {
+  const state = await mockImport(page);
+  await page.goto('/remnants?tab=import&batch=77');
+
+  await page.getByRole('button', { name: '批量填写附加信息' }).click();
+  const dialog = page.getByRole('dialog', { name: '批量填写附加信息' });
+  await expect(dialog.getByRole('button', { name: '确 定' })).toBeDisabled();
+  await dialog.getByRole('checkbox', { name: '更新项目编号二' }).check();
+  await dialog.getByLabel('批量项目编号二').fill('合同-03');
+  await dialog.getByRole('button', { name: '确 定' }).click();
+
+  await expect.poll(() => state.bulkMetadataPayloads()).toEqual([{
+    item_ids: [1, 2],
+    project_no_secondary: '合同-03',
+  }]);
+
+  await page.getByRole('button', { name: '批量填写附加信息' }).click();
+  const clearDialog = page.getByRole('dialog', { name: '批量填写附加信息' });
+  await clearDialog.getByRole('checkbox', { name: '更新库存位置' }).check();
+  await expect(clearDialog.getByText('将清空所选图纸的库存位置')).toBeVisible();
+  await clearDialog.getByRole('button', { name: '确 定' }).click();
+
+  await expect.poll(() => state.bulkMetadataPayloads()).toEqual([
+    { item_ids: [1, 2], project_no_secondary: '合同-03' },
+    { item_ids: [1, 2], storage_location: null },
+  ]);
+});
 
 test('all detected part candidates are selected and remain worker-editable', async ({ page }) => {
   const state = await mockImport(page, { multipleParts: true });
@@ -145,8 +192,8 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await expect.poll(state.retryCalls).toBe(1);
 
   const confirmation = page.locator('.remnant-confirm-card');
-  await confirmation.getByRole('checkbox', { name: 'Select row 1' }).check();
-  await confirmation.getByRole('checkbox', { name: 'Select row 2' }).check();
+  await confirmation.getByRole('checkbox').nth(1).check();
+  await confirmation.getByRole('checkbox').nth(2).check();
   await confirmation.getByRole('button', { name: '批量填写厚度' }).click();
   await page.getByLabel('批量厚度').fill('10');
   await page.getByRole('dialog', { name: '批量填写厚度' }).getByRole('button', { name: '确 定' }).click({ force: true });
@@ -157,12 +204,12 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await expect(editor.getByText('材质候选需要确认')).toBeVisible();
   await expect(editor.getByText('MATERIAL_CANDIDATES_CONFLICT')).toHaveCount(0);
   await expect(editor.getByText(/TITLE: Q355B/)).toBeVisible();
-  await expect(editor.getByLabel('项目编号')).toHaveValue('北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03');
+  await expect(editor.getByLabel('项目编号', { exact: true })).toHaveValue('北工大定位板及南京北站017计划天窗2批激光零件 2026-7-03');
   await editor.getByLabel('厚度（mm）').fill('10');
   await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
   await expect(editor.locator('.ant-form-item').filter({ hasText: '标准材质' })).toContainText('Q355B');
   await expect(page.getByText('材质已创建并选中')).toBeVisible();
-  await editor.getByLabel('项目编号').fill('PJ-CONFIRMED');
+  await editor.getByLabel('项目编号', { exact: true }).fill('PJ-CONFIRMED');
   const parts = editor.locator('.ant-form-item').filter({ hasText: '零件编号' });
   await parts.getByRole('combobox').fill('L-2,');
   await parts.getByRole('combobox').press('Tab');
@@ -184,7 +231,7 @@ test('未填写厚度时只显示中文校验错误', async ({ page }) => {
   }));
   await page.goto('/remnants?tab=import&batch=77');
   const confirmation = page.locator('.remnant-confirm-card');
-  await confirmation.getByRole('checkbox', { name: 'Select row 1' }).check();
+  await confirmation.getByRole('checkbox').nth(1).check();
   await confirmation.getByRole('button', { name: '确认选中项' }).click();
   await expect(confirmation.getByText('请填写余料厚度')).toBeVisible();
   await expect(confirmation.getByText('REMNANT_THICKNESS_REQUIRED')).toHaveCount(0);
@@ -204,14 +251,14 @@ test('failed material creation preserves confirmation fields', async ({ page }) 
   await confirmation.getByRole('button', { name: '编辑' }).first().click();
   const editor = page.getByRole('dialog', { name: '确认 现场余料-A.dwg' });
   await editor.getByLabel('厚度（mm）').fill('10');
-  const expectedProject = await editor.getByLabel('项目编号').inputValue();
+  const expectedProject = await editor.getByLabel('项目编号', { exact: true }).inputValue();
   const parts = editor.locator('.ant-form-item').filter({ hasText: '零件编号' });
   const expectedParts = await parts.locator('.ant-select-selection-item').allTextContents();
 
   await editor.getByRole('button', { name: '新建并使用 Q355B' }).click();
 
   await expect(editor.getByLabel('厚度（mm）')).toHaveAttribute('aria-valuenow', '10');
-  await expect(editor.getByLabel('项目编号')).toHaveValue(expectedProject);
+  await expect(editor.getByLabel('项目编号', { exact: true })).toHaveValue(expectedProject);
   await expect(parts.locator('.ant-select-selection-item')).toHaveText(expectedParts);
 });
 
@@ -234,7 +281,7 @@ test('conflicting project candidates stay blank for worker confirmation', async 
   await confirmation.getByRole('button', { name: '编辑' }).nth(1).click();
 
   const editor = page.getByRole('dialog', { name: '确认 现场余料-B.dxf' });
-  await expect(editor.getByLabel('项目编号')).toHaveValue('');
+  await expect(editor.getByLabel('项目编号', { exact: true })).toHaveValue('');
 });
 
 test('worker chooses one of multiple missing grades and creates it', async ({ page }) => {

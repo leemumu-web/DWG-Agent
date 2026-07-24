@@ -77,6 +77,25 @@ def test_importer_can_correct_candidates_and_values_are_normalized(db) -> None:
     assert updated.corrected_parts_json == ["L-2", "L-3"]
 
 
+def test_import_item_optional_fields_distinguish_omitted_from_explicit_clear(db) -> None:
+    from app.modules.remnant_inventory.imports import update_import_item
+
+    owner = _user(db, "confirm-optional-owner")
+    item, _material = _ready_item(db, owner=owner, suffix="optional")
+    update_import_item(
+        db,
+        item.id,
+        actor=owner,
+        project_no_secondary=" 合同-02 ",
+        storage_location=" A区-03架 ",
+    )
+
+    update_import_item(db, item.id, actor=owner, project_no_secondary=None)
+
+    assert item.corrected_project_no_secondary is None
+    assert item.corrected_storage_location == "A区-03架"
+
+
 def test_non_owner_cannot_edit_but_admin_can(db) -> None:
     from app.modules.remnant_inventory.imports import update_import_item
 

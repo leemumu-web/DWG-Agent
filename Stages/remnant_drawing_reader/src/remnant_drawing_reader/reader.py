@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+import re
 
 import ezdxf
 from ezdxf.entities import DXFEntity, Insert
 
-from .models import Evidence, ParseError
+from .models import Evidence, ParseError, ParseWarning, StandardOffcut
 from .text import normalize_text
+
+
+_STANDARD_OFFCUT_BLOCK_NAME = "offcut_zh_cn"
+_REQUIRED_STANDARD_OFFCUT_ATTRIBUTES = ("GG", "CZ", "YLBH")
+_DIMENSION = r"([+-]?\s*(?:\d+(?:\.\d*)?|\.\d+))"
+_STANDARD_OFFCUT_SPECIFICATION = re.compile(
+    rf"^\s*{_DIMENSION}\s*[xX×]\s*{_DIMENSION}\s*[xX×]\s*{_DIMENSION}\s*$"
+)
 
 def _read_document(path: Path):
     try:
@@ -91,3 +101,91 @@ def read_evidence(path: Path) -> tuple[list[Evidence], bool]:
             raise ParseError("REMNANT_DXF_UNREADABLE") from exc
         anomalies[0] = True
     return found, anomalies[0]
+
+
+def _standard_offcut_inserts(document) -> Iterator[Insert]:
+    def walk(insert: Insert) -> Iterator[Insert]:
+        if str(insert.dxf.name).casefold() == _STANDARD_OFFCUT_BLOCK_NAME:
+            yield insert
+        try:
+            for entity in insert.virtual_entities():
+                if entity.dxftype() == "INSERT":
+                    yield from walk(entity)  # type: ignore[arg-type]
+        except Exception:
+            return
+
+    for entity in document.modelspace():
+        if entity.dxftype() == "INSERT":
+            yield from walk(entity)  # type: ignore[arg-type]
+
+
+def _parse_standard_offcut_specification(
+    value: str,
+) -> tuple[Decimal, Decimal, Decimal] | None:
+    match = _STANDARD_OFFCUT_SPECIFICATION.fullmatch(normalize_text(value))
+    if match is None:
+        return None
+    try:
+        thickness, length, width = (
+            Decimal(part.replace(" ", "")) for part in match.groups()
+        )
+    except InvalidOperation:
+        return None
+    thickness = abs(thickness)
+    if thickness <= 0 or length <= 0 or width <= 0:
+        return None
+    return thickness, length, width
+
+
+def read_standard_offcut(path: Path) -> tuple[StandardOffcut | None, list[ParseWarning]]:
+    document = _read_document(path)
+    inserts = list(_standard_offcut_inserts(document))
+    if not inserts:
+        return None, [
+            ParseWarning(
+                "STANDARD_OFFCUT_MISSING", "图纸中未找到标准余料块 offcut_zh_cn"
+            )
+        ]
+    if len(inserts) > 1:
+        return None, [
+            ParseWarning(
+                "STANDARD_OFFCUT_DUPLICATE", "图纸中存在多个标准余料块 offcut_zh_cn"
+            )
+        ]
+
+    insert = inserts[0]
+    attributes = {
+        str(attribute.dxf.tag): str(attribute.dxf.text)
+        for attribute in insert.attribs
+    }
+    missing = [
+        tag
+        for tag in _REQUIRED_STANDARD_OFFCUT_ATTRIBUTES
+        if not normalize_text(attributes.get(tag, ""))
+    ]
+    if missing:
+        return None, [
+            ParseWarning(
+                "STANDARD_OFFCUT_MISSING_REQUIRED_ATTRIBUTE",
+                f"标准余料块缺少必要属性：{'、'.join(missing)}",
+            )
+        ]
+
+    raw_specification = attributes["GG"]
+    dimensions = _parse_standard_offcut_specification(raw_specification)
+    if dimensions is None:
+        return None, [
+            ParseWarning(
+                "STANDARD_OFFCUT_INVALID_SPECIFICATION", "标准余料块规格 GG 非法"
+            )
+        ]
+    thickness, length, width = dimensions
+    return StandardOffcut(
+        block_type=str(insert.dxf.name),
+        raw_specification=raw_specification,
+        thickness=thickness,
+        length=length,
+        width=width,
+        material=normalize_text(attributes["CZ"]),
+        remnant_number=normalize_text(attributes["YLBH"]),
+    ), []

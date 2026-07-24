@@ -82,6 +82,64 @@ def resolve_or_create_material(
     return material, True
 
 
+def resolve_or_create_auto_material(
+    db: Session, *, code: str, actor_id: int
+) -> tuple[RemnantMaterial, bool, bool]:
+    normalized = normalize_material_token(code)
+    if not normalized:
+        raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "图纸中的材质牌号不完整。")
+
+    existing = db.scalar(
+        select(RemnantMaterial)
+        .where(RemnantMaterial.code == normalized)
+        .with_for_update()
+    )
+    if existing is None:
+        existing = db.scalar(
+            select(RemnantMaterial)
+            .join(
+                RemnantMaterialAlias,
+                RemnantMaterialAlias.material_id == RemnantMaterial.id,
+            )
+            .where(RemnantMaterialAlias.normalized_alias == normalized)
+            .with_for_update()
+        )
+    if existing is not None:
+        reenabled = not existing.enabled
+        if reenabled:
+            existing.enabled = True
+            existing.updated_by = actor_id
+            db.flush()
+        return existing, False, reenabled
+
+    material = RemnantMaterial(
+        code=normalized,
+        family_code=normalized,
+        enabled=True,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    try:
+        with db.begin_nested():
+            db.add(material)
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(
+            select(RemnantMaterial)
+            .where(RemnantMaterial.code == normalized)
+            .with_for_update()
+        )
+        if existing is None:
+            raise
+        reenabled = not existing.enabled
+        if reenabled:
+            existing.enabled = True
+            existing.updated_by = actor_id
+            db.flush()
+        return existing, False, reenabled
+    return material, True, False
+
+
 def update_material(
     db: Session,
     material_id: int,

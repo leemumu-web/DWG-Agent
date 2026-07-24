@@ -31,7 +31,11 @@ HEADERS = [
     "余料编号",
     "材质",
     "厚度(mm)",
-    "项目编号",
+    "项目编号一",
+    "项目编号二",
+    "库存位置",
+    "备注一",
+    "备注二",
     "零件编号",
     "库存状态",
     "原始图纸文件名",
@@ -119,6 +123,10 @@ def _seed_remnant() -> int:
             thickness_mm="28.000",
             material_id=material.id,
             project_no="精武路外框项目",
+            project_no_secondary="合同-02",
+            storage_location="A区-03架",
+            remark_1="待复核",
+            remark_2="优先使用",
             status="used",
             imported_by=worker.id,
             confirmed_by=worker.id,
@@ -153,31 +161,59 @@ def test_worker_exports_all_remnants_as_one_styled_row_per_remnant(client, worke
     assert workbook.sheetnames == ["全部余料"]
     sheet = workbook["全部余料"]
     assert sheet.freeze_panes == "A2"
-    assert sheet.auto_filter.ref == "A1:N2"
+    assert sheet.auto_filter.ref == "A1:R2"
     assert [cell.value for cell in sheet[1]] == HEADERS
     assert sheet["A1"].font.bold is True
     assert sheet["A1"].fill.fgColor.rgb == "001F4E78"
     assert sheet["A1"].alignment.wrap_text is True
-    assert sheet.column_dimensions["E"].width == 42
+    assert sheet.column_dimensions["I"].width == 42
     values = [cell.value for cell in sheet[2]]
-    assert values[:8] == [
+    assert values[:12] == [
         remnant_id,
         "Q355B",
         28,
         "精武路外框项目",
+        "合同-02",
+        "A区-03架",
+        "待复核",
+        "优先使用",
         "JWL-1014-B-4、ND-1053-3",
         "已领用",
         "精武路余料图.dxf",
         "导出工人",
     ]
-    assert values[8] == datetime(2026, 7, 23, 9, 2, 3)
-    assert values[9:12] == [None, None, "导出工人"]
     assert values[12] == datetime(2026, 7, 23, 9, 2, 3)
-    assert isinstance(values[13], datetime)
+    assert values[13:16] == [None, None, "导出工人"]
+    assert values[16] == datetime(2026, 7, 23, 9, 2, 3)
+    assert isinstance(values[17], datetime)
     assert sheet["D2"].alignment.wrap_text is True
-    assert sheet["E2"].alignment.wrap_text is True
+    assert sheet["I2"].alignment.wrap_text is True
     with get_test_session_factory()() as db:
         assert db.scalar(select(AuditLog).where(AuditLog.action == "remnants.export")) is not None
+
+
+def test_export_neutralizes_formula_like_worker_text(client, worker_headers) -> None:
+    remnant_id = _seed_remnant()
+    with get_test_session_factory()() as db:
+        row = db.get(Remnant, remnant_id)
+        assert row is not None
+        row.project_no = "=1+1"
+        row.project_no_secondary = " +SUM(A1:A2)"
+        row.storage_location = "-2+3"
+        row.remark_1 = "@危险公式"
+        db.commit()
+
+    response = client.get("/api/v1/remnants/export.xlsx", headers=worker_headers)
+
+    assert response.status_code == 200, response.text
+    sheet = openpyxl.load_workbook(BytesIO(response.content))["全部余料"]
+    assert [sheet.cell(2, column).value for column in range(4, 8)] == [
+        "'=1+1",
+        "' +SUM(A1:A2)",
+        "'-2+3",
+        "'@危险公式",
+    ]
+    assert all(sheet.cell(2, column).data_type == "s" for column in range(4, 8))
 
 
 def test_empty_inventory_export_still_contains_the_header(client, worker_headers) -> None:

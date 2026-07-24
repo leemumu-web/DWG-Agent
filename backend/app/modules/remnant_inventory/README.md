@@ -2,7 +2,9 @@
 
 本目录是全厂共享余料、材质目录和余料导入账本的唯一业务 owner。`models.py` 定义六张表；`materials.py` 管理材质；`imports.py` 登记、校正和确认批次；`inventory.py` 实现检索、预占、批量归档及正式余料生命周期；`export.py` 负责全局余料 Excel 导出；`execution.py` 执行 attempt-fenced 转换解析；`stage_adapter.py` 调用独立解析 Stage；`tasks.py` 提供两个专用 Celery 入口；`routes.py` 发布功能开关保护的 HTTP API；`schemas.py` 定义契约；`access.py` 定义角色判定；`interface.py` 是其他领域唯一可导入的余料边界；`__init__.py` 不承担隐式装配。
 
-正式余料生命周期为 `available → reserved → used`，预占可以取消回到 `available`，未使用记录可以归档。厚度始终由工人填写，系统解析的材质、项目编号和多个零件编号候选在确认前只保存在导入项中。
+正式余料生命周期为 `available → reserved → used`，预占可以取消回到 `available`，未使用记录可以归档。正式库存保留必填的项目编号一，并支持可空的项目编号二、库存位置、备注一和备注二；这些字段可逐项筛选。厚度始终由工人填写，系统解析的材质、项目编号和多个零件编号候选在确认前只保存在导入项中。
+
+工人可以删除自己导入的已归档余料，管理员可以删除任意已归档余料。删除只移除正式库存行，原图、导入账本和带完整删除前快照的 `remnants.delete` 审计记录保留；库存唯一约束随库存行释放，因此同一图纸可以再次提交。
 
 ## 批量归档合同
 

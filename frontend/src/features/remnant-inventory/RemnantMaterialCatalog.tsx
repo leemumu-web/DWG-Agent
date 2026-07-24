@@ -2,14 +2,26 @@ import { useState } from 'react';
 import { App, Button, Card, Form, Input, Modal, Space, Switch, Table, Tag, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createRemnantMaterial, replaceRemnantMaterialAliases, updateRemnantMaterial } from './api';
+import { createRemnantMaterial, replaceRemnantMaterialAliases, setRemnantMaterialStatus, updateRemnantMaterial } from './api';
 import { describeRemnantError } from './errors';
 import type { RemnantMaterial } from './types';
 
-interface Props { materials: RemnantMaterial[]; loading: boolean }
+interface Props {
+  materials: RemnantMaterial[];
+  loading: boolean;
+  isAdmin: boolean;
+  showInactive: boolean;
+  onShowInactiveChange: (value: boolean) => void;
+}
 interface Values { code: string; family_code: string; aliasesText: string }
 
-export function RemnantMaterialCatalog({ materials, loading }: Props) {
+export function RemnantMaterialCatalog({
+  materials,
+  loading,
+  isAdmin,
+  showInactive,
+  onShowInactiveChange,
+}: Props) {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<RemnantMaterial | null>();
@@ -31,13 +43,13 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
     onError: (error) => message.error(describeRemnantError(error, '材质目录保存失败')),
   });
   const toggle = useMutation({
-    mutationFn: (row: RemnantMaterial) => updateRemnantMaterial(row.id, { enabled: !row.enabled }),
-    onSuccess: async () => {
+    mutationFn: (row: RemnantMaterial) => setRemnantMaterialStatus(row.id, !row.enabled),
+    onSuccess: async (result) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['remnant-materials'], exact: true }),
-        queryClient.invalidateQueries({ queryKey: ['remnant-materials', 'all'], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ['remnant-materials', 'catalog'], exact: false }),
       ]);
-      message.success('材质启用状态已更新');
+      message.success(result.message);
     },
     onError: (error) => {
       message.error(describeRemnantError(error, '材质启用状态更新失败'));
@@ -54,15 +66,19 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
   };
   return <Card bordered={false} className="remnant-results-card">
     <div className="remnant-section-heading">
-      <div><Typography.Title level={4}>标准材质目录</Typography.Title><Typography.Text type="secondary">维护完整牌号、同系列标识和图纸解析别名。</Typography.Text></div>
-      <Button type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新增材质</Button>
+      <div><Typography.Title level={4}>标准材质目录</Typography.Title><Typography.Text type="secondary">{isAdmin ? '维护完整牌号、同系列标识和图纸解析别名。' : '可查看目录并启用或停用材质；系列与别名由管理员维护。'}</Typography.Text></div>
+      <Space>
+        <Typography.Text>显示已停用</Typography.Text>
+        <Switch aria-label="显示已停用" checked={showInactive} onChange={onShowInactiveChange} />
+        {isAdmin && <Button type="primary" icon={<PlusOutlined />} onClick={() => open(null)}>新增材质</Button>}
+      </Space>
     </div>
     <Table<RemnantMaterial> rowKey="id" loading={loading} dataSource={materials} pagination={false} columns={[
       { title: '标准牌号', dataIndex: 'code', width: 180 },
       { title: '同系列标识', dataIndex: 'family_code', width: 180 },
       { title: '解析别名', dataIndex: 'aliases', render: (values: string[]) => <Space wrap>{values.length ? values.map((value) => <Tag key={value}>{value}</Tag>) : '—'}</Space> },
       { title: '启用', dataIndex: 'enabled', width: 90, render: (enabled, row) => <Switch aria-label={`${row.code} 启用状态`} checked={enabled} loading={toggle.isPending && pendingToggle?.id === row.id} onChange={() => setPendingToggle(row)} /> },
-      { title: '操作', key: 'actions', width: 100, render: (_, row) => <Button type="link" onClick={() => open(row)}>编辑</Button> },
+      ...(isAdmin ? [{ title: '操作', key: 'actions', width: 100, render: (_: unknown, row: RemnantMaterial) => <Button type="link" onClick={() => open(row)}>编辑</Button> }] : []),
     ]} />
     <Modal
       title={pendingToggle ? `${pendingToggle.enabled ? '停用' : '重新启用'} ${pendingToggle.code}？` : '修改材质启用状态'}
@@ -78,7 +94,7 @@ export function RemnantMaterialCatalog({ materials, loading }: Props) {
         {pendingToggle?.enabled ? '停用后，导入余料时将不能继续选择该材质。' : '启用后，该材质将立即恢复为可选状态。'}
       </Typography.Text>
     </Modal>
-    <Modal title={editing ? `编辑 ${editing.code}` : '新增标准材质'} open={editing !== undefined} onCancel={() => setEditing(undefined)} onOk={() => form.submit()} confirmLoading={save.isPending}>
+    <Modal title={editing ? `编辑 ${editing.code}` : '新增标准材质'} open={isAdmin && editing !== undefined} onCancel={() => setEditing(undefined)} onOk={() => form.submit()} confirmLoading={save.isPending}>
       <Form form={form} layout="vertical" onFinish={(values) => save.mutate(values)}>
         <Form.Item name="code" label="标准完整牌号" rules={[{ required: true }]}><Input disabled={Boolean(editing)} placeholder="例如 Q235B-Z15" /></Form.Item>
         <Form.Item name="family_code" label="同系列标识" rules={[{ required: true }]}><Input placeholder="例如 Q235" /></Form.Item>

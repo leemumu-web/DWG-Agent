@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { bulkArchiveRemnants, exportAllRemnants, listAllRemnants } from './api';
+import { bulkArchiveRemnants, deleteArchivedRemnant, exportAllRemnants, listAllRemnants } from './api';
 import { describeRemnantError, describeRemnantErrorAsync } from './errors';
 import { StatusTag } from './RemnantDetailDrawer';
 import type { BulkArchiveResult, Remnant, RemnantGlobalSearch, RemnantMaterial, RemnantStatus } from './types';
@@ -61,6 +61,14 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
     },
     onError: (error) => message.error(describeRemnantError(error, '批量归档失败')),
   });
+  const deleting = useMutation({
+    mutationFn: deleteArchivedRemnant,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['remnants'] });
+      message.success('已删除归档余料；该图纸现在可以重新提交');
+    },
+    onError: (error) => message.error(describeRemnantError(error, '删除归档余料失败')),
+  });
 
   return <div className="remnant-tab-stack">
     <Card bordered={false} className="remnant-search-card">
@@ -75,6 +83,10 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
             thicknessMm: values.thicknessMm ? String(values.thicknessMm) : undefined,
             statuses: values.statuses?.length ? values.statuses : (showHistory ? allStatuses : activeStatuses),
             project: values.project?.trim() || undefined,
+            projectSecondary: values.projectSecondary?.trim() || undefined,
+            storageLocation: values.storageLocation?.trim() || undefined,
+            remark1: values.remark1?.trim() || undefined,
+            remark2: values.remark2?.trim() || undefined,
             part: values.part?.trim() || undefined,
             sort: values.sort,
             page: 1,
@@ -85,7 +97,11 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
           <Form.Item name="materialId" label="材质"><Select allowClear showSearch optionFilterProp="label" options={materials.map((item) => ({ value: item.id, label: item.code }))} /></Form.Item>
           <Form.Item name="thicknessMm" label="厚度（mm）"><InputNumber min={0.001} precision={3} style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="statuses" label="库存状态"><Select mode="multiple" options={showHistory ? statusOptions : statusOptions.slice(0, 2)} maxTagCount="responsive" /></Form.Item>
-          <Form.Item name="project" label="项目编号"><Input aria-label="项目编号筛选" allowClear /></Form.Item>
+          <Form.Item name="project" label="项目编号一"><Input aria-label="项目编号一筛选" allowClear /></Form.Item>
+          <Form.Item name="projectSecondary" label="项目编号二"><Input aria-label="项目编号二筛选" allowClear /></Form.Item>
+          <Form.Item name="storageLocation" label="库存位置"><Input aria-label="库存位置筛选" allowClear /></Form.Item>
+          <Form.Item name="remark1" label="备注一"><Input aria-label="备注一筛选" allowClear /></Form.Item>
+          <Form.Item name="remark2" label="备注二"><Input aria-label="备注二筛选" allowClear /></Form.Item>
           <Form.Item name="part" label="零件编号"><Input aria-label="零件编号筛选" allowClear /></Form.Item>
           <Form.Item name="sort" label="排序"><Select options={sortOptions} /></Form.Item>
           <Form.Item className="remnant-global-search-action"><Button type="primary" htmlType="submit" icon={<SearchOutlined />}>查询全部余料</Button></Form.Item>
@@ -134,6 +150,7 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
       />}
       <Table<Remnant>
         rowKey="id"
+        scroll={{ x: 1900 }}
         loading={results.isFetching}
         dataSource={results.data?.data ?? []}
         rowSelection={{
@@ -157,11 +174,26 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
           { title: '状态', dataIndex: 'status', width: 100, render: (status) => <StatusTag status={status} /> },
           { title: '材质', dataIndex: 'material_code', width: 120 },
           { title: '厚度', dataIndex: 'thickness_mm', width: 110, render: (value) => `${value} mm` },
-          { title: '项目编号', dataIndex: 'project_no', ellipsis: true },
+          { title: '项目编号一', dataIndex: 'project_no', ellipsis: true },
+          { title: '项目编号二', dataIndex: 'project_no_secondary', ellipsis: true, render: (value) => value || '—' },
+          { title: '库存位置', dataIndex: 'storage_location', ellipsis: true, render: (value) => value || '—' },
+          { title: '备注一', dataIndex: 'remark_1', ellipsis: true, render: (value) => value || '—' },
+          { title: '备注二', dataIndex: 'remark_2', ellipsis: true, render: (value) => value || '—' },
           { title: '零件编号', dataIndex: 'parts', ellipsis: true, render: (parts: string[]) => parts.join('、') },
           { title: '原始文件', dataIndex: 'source_name', ellipsis: true },
           { title: '更新时间', dataIndex: 'updated_at', width: 190, render: (value) => new Date(value).toLocaleString('zh-CN') },
-          { title: '操作', key: 'actions', width: 90, render: (_, row) => <Space><Button type="link" icon={<EyeOutlined />} onClick={() => onOpenDetail(row.id)}>详情</Button></Space> },
+          { title: '操作', key: 'actions', width: 170, fixed: 'right', render: (_, row) => <Space>
+            <Button type="link" icon={<EyeOutlined />} onClick={() => onOpenDetail(row.id)}>详情</Button>
+            {row.status === 'archived' && (isAdmin || row.imported_by === currentUserId) && (
+              <Popconfirm
+                title="确认永久删除这张已归档余料？"
+                description="审计日志和原图保留，删除后同一图纸可以重新提交。"
+                onConfirm={() => deleting.mutate(row.id)}
+              >
+                <Button danger type="link" loading={deleting.isPending && deleting.variables === row.id}>删除</Button>
+              </Popconfirm>
+            )}
+          </Space> },
         ]}
       />
     </Card>

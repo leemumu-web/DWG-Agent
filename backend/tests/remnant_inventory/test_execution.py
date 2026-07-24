@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
 import ezdxf
 import pytest
+from sqlalchemy import select
 
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
@@ -112,6 +114,121 @@ def test_parse_result_resolves_unique_material_code_or_alias(db) -> None:
     assert item.corrected_material_id == material.id
 
 
+def test_auto_parse_uses_standard_offcut_and_batch_project(db) -> None:
+    from app.modules.operations.audit.models import AuditLog
+    from app.modules.remnant_inventory.execution import store_parse_result
+    from app.modules.remnant_inventory.models import RemnantMaterial
+
+    item = _item(db)
+    batch = db.get(RemnantImportBatch, item.batch_id)
+    batch.import_mode = "auto"
+    batch.default_project_no = "PROJECT-A"
+    result = _stage_result()
+    result.schema_version = "1.1"
+    result.standard_offcut = SimpleNamespace(
+        block_type="OffCut_Zh_Cn",
+        raw_specification="-12.5 × 1000 X 2000",
+        thickness=Decimal("12.5"),
+        length=Decimal("1000"),
+        width=Decimal("2000"),
+        material=" q355b ",
+        remnant_number="YL-001",
+    )
+    result.to_dict = lambda: {
+        "material_candidates": [],
+        "project_candidates": [],
+        "part_candidates": [],
+        "warnings": [],
+        "standard_offcut": {
+            "block_type": "OffCut_Zh_Cn",
+            "raw_specification": "-12.5 × 1000 X 2000",
+            "thickness": "12.5",
+            "length": "1000",
+            "width": "2000",
+            "material": " q355b ",
+            "remnant_number": "YL-001",
+        },
+    }
+
+    assert store_parse_result(db, item.id, expected_attempt=1, result=result) is True
+    db.refresh(item)
+    material = db.get(RemnantMaterial, item.corrected_material_id)
+    assert item.standard_parse_json == result.to_dict()["standard_offcut"]
+    assert item.corrected_thickness_mm == Decimal("12.500")
+    assert item.corrected_project_no == "PROJECT-A"
+    assert item.corrected_parts_json == ["YL-001"]
+    assert (material.code, material.family_code, material.enabled) == ("Q355B", "Q355B", True)
+    audit = db.scalar(
+        select(AuditLog).where(AuditLog.action == "remnants.material.auto_create")
+    )
+    assert audit.actor_user_id == batch.created_by
+
+
+def test_auto_parse_without_standard_summary_keeps_project_and_allows_manual_fill(db) -> None:
+    from app.modules.remnant_inventory.execution import store_parse_result
+
+    item = _item(db)
+    batch = db.get(RemnantImportBatch, item.batch_id)
+    batch.import_mode = "auto"
+    batch.default_project_no = "PROJECT-B"
+    result = _stage_result()
+    result.schema_version = "1.0"
+    result.standard_offcut = None
+
+    assert store_parse_result(db, item.id, expected_attempt=1, result=result) is True
+    db.refresh(item)
+    assert item.status == "pending_confirmation"
+    assert item.standard_parse_json is None
+    assert item.corrected_project_no == "PROJECT-B"
+    assert item.corrected_material_id is None
+    assert item.corrected_parts_json is None
+
+
+def test_auto_parse_reenables_disabled_standard_material_with_audit(db) -> None:
+    from app.modules.operations.audit.models import AuditLog
+    from app.modules.remnant_inventory.execution import store_parse_result
+    from app.modules.remnant_inventory.models import RemnantMaterial
+
+    item = _item(db)
+    batch = db.get(RemnantImportBatch, item.batch_id)
+    batch.import_mode = "auto"
+    batch.default_project_no = "PROJECT-C"
+    material = RemnantMaterial(
+        code="Q355B",
+        family_code="Q355",
+        enabled=False,
+    )
+    db.add(material)
+    db.flush()
+    result = _stage_result()
+    result.schema_version = "1.1"
+    result.to_dict = lambda: {
+        "material_candidates": [],
+        "project_candidates": [],
+        "part_candidates": [],
+        "warnings": [],
+        "standard_offcut": {
+            "block_type": "OffCut_Zh_Cn",
+            "raw_specification": "12 × 1000 × 2000",
+            "thickness": "12",
+            "length": "1000",
+            "width": "2000",
+            "material": "Q355B",
+            "remnant_number": "YL-002",
+        },
+    }
+
+    assert store_parse_result(db, item.id, expected_attempt=1, result=result) is True
+    db.refresh(material)
+    db.refresh(item)
+    assert material.enabled is True
+    assert item.corrected_material_id == material.id
+    audit = db.scalar(
+        select(AuditLog).where(AuditLog.action == "remnants.material.auto_enable")
+    )
+    assert audit.actor_user_id == batch.created_by
+
+
 def test_stage_adapter_runs_isolated_cli_and_restores_typed_result(tmp_path: Path) -> None:
     from app.modules.remnant_inventory.stage_adapter import parse_staged_dxf
 
@@ -122,7 +239,7 @@ def test_stage_adapter_runs_isolated_cli_and_restores_typed_result(tmp_path: Pat
 
     result = parse_staged_dxf(staged)
 
-    assert result.schema_version == "1.0"
+    assert result.schema_version == "1.1"
     assert result.source_sha256
     assert any(candidate.value == "Q235B-Z15" for candidate in result.material_candidates)
 
@@ -147,6 +264,29 @@ def test_batch_counters_are_recalculated_from_item_truth(db) -> None:
     recalculate_batch_counters(db, batch.id)
     db.refresh(batch)
     assert (batch.total_count, batch.pending_count, batch.failed_count) == (2, 1, 1)
+
+
+def test_failed_and_cancelled_terminal_rows_leave_batch_awaiting_attention(db) -> None:
+    from app.modules.remnant_inventory.execution import recalculate_batch_counters
+
+    item = _item(db, status="failed")
+    batch = db.get(RemnantImportBatch, item.batch_id)
+    db.add(
+        RemnantImportItem(
+            batch_id=batch.id,
+            source_file_id=item.source_file_id,
+            source_sha256="e" * 64,
+            source_ext=".dxf",
+            status="cancelled",
+            attempt=1,
+        )
+    )
+    db.flush()
+
+    recalculate_batch_counters(db, batch.id)
+
+    assert batch.status == "awaiting_confirmation"
+    assert (batch.failed_count, batch.cancelled_count) == (1, 1)
 
 
 def test_cad_directory_conversion_invokes_oda_once_and_maps_item_ids(

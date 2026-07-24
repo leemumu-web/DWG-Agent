@@ -34,7 +34,11 @@ export function RemnantDetailDrawer(props: Props) {
             <StatusTag status={remnant.status} />
           </div>
           <Descriptions column={1} size="small" bordered items={[
-            { key: 'project', label: '项目编号', children: remnant.project_no },
+            { key: 'project', label: '项目编号一', children: remnant.project_no },
+            { key: 'project2', label: '项目编号二', children: remnant.project_no_secondary || '—' },
+            { key: 'location', label: '库存位置', children: remnant.storage_location || '—' },
+            { key: 'remark1', label: '备注一', children: remnant.remark_1 || '—' },
+            { key: 'remark2', label: '备注二', children: remnant.remark_2 || '—' },
             { key: 'source', label: '原始图纸', children: `${remnant.source_name}（${remnant.source_ext.slice(1).toUpperCase()}）` },
             { key: 'parts', label: '零件编号', children: <Space wrap>{remnant.parts.map((part) => <Tag key={part}>{part}</Tag>)}</Space> },
             { key: 'reserved', label: '预占信息', children: remnant.reserved_by ? `${remnant.reserved_by_name ?? `用户 #${remnant.reserved_by}`} · ${remnant.reserved_at ? new Date(remnant.reserved_at).toLocaleString() : ''}` : '—' },
