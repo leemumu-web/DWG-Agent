@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.platform.database.base import Base, PKType
@@ -25,7 +35,7 @@ class DxfClassificationRun(TimestampMixin, Base):
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
     job_attempt: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running", index=True)
-    classifier_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.1.0")
+    classifier_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.2.0")
     report_schema: Mapped[str | None] = mapped_column(String(64))
     cli_schema: Mapped[str | None] = mapped_column(String(64))
     project_name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -53,6 +63,12 @@ class DxfClassificationItem(TimestampMixin, Base):
         UniqueConstraint("run_id", "source_file_id", name="uq_dxf_classification_run_source"),
         Index("ix_dxf_classification_items_disposition", "run_id", "disposition"),
         Index("ix_dxf_classification_items_part_type", "run_id", "part_type"),
+        Index("ix_dxf_classification_items_group", "run_id", "group_key"),
+        Index(
+            "ix_dxf_classification_items_next_stage",
+            "run_id",
+            "next_stage_eligible",
+        ),
     )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
@@ -67,6 +83,13 @@ class DxfClassificationItem(TimestampMixin, Base):
     output_directory: Mapped[str] = mapped_column(String(255), nullable=False)
     disposition: Mapped[str] = mapped_column(String(32), nullable=False)
     part_type: Mapped[str | None] = mapped_column(String(64))
+    profile_raw: Mapped[str | None] = mapped_column(String(255))
+    profile_normalized: Mapped[str | None] = mapped_column(String(255))
+    type_source: Mapped[str | None] = mapped_column(String(32))
+    group_key: Mapped[str] = mapped_column(String(96), nullable=False)
+    next_stage_eligible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     diagnostics_json: Mapped[list[str] | None] = mapped_column(JSON)
     evidence_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 

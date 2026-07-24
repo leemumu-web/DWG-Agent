@@ -162,20 +162,20 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
         project_name = input_directory.name.removesuffix("_dxf")
         renamed = input_directory / "A001_拆板前.dxf"
         (input_directory / "A001.dxf").rename(renamed)
-        route = f"{project_name}_BH_dxf"
+        route = f"{project_name}_PX_dxf"
         output_dir = input_directory.parent / route
         output_dir.mkdir()
         output = output_dir / renamed.name
         output.write_bytes(renamed.read_bytes())
         report = {
-            "schema": "STEEL-DXF-CLASSIFICATION-1.1",
+            "schema": "STEEL-DXF-CLASSIFICATION-1.2",
             "summary": {
                 "project_name": project_name,
                 "input_count": 1,
                 "classified_count": 1,
                 "review_required_count": 0,
                 "unreadable_count": 0,
-                "type_counts": {"BH": 1},
+                "type_counts": {"PX": 1},
                 "output_directories": [route],
                 "elapsed_seconds": 0.01,
             },
@@ -183,8 +183,13 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
                 {
                     "source_name": renamed.name,
                     "disposition": "classified",
-                    "part_type": "BH",
-                    "diagnostics": [],
+                    "part_type": "PX",
+                    "profile_raw": "PX300*150*8",
+                    "profile_normalized": "PX300*150*8",
+                    "type_source": "catalog",
+                    "group_key": "type:PX",
+                    "next_stage_eligible": True,
+                    "diagnostics": ["TITLE_PROFILE_PROVED"],
                     "candidates": [],
                     "source_metadata": {},
                     "output_directory": route,
@@ -196,7 +201,7 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
         manifest_path = input_directory.parent / f"{project_name}_分类清单.csv"
         manifest_path.write_text("文件名,处置\nA001_拆板前.dxf,classified\n", encoding="utf-8")
         return {
-            "schema": "STEEL-DXF-CLI-1.1",
+            "schema": "STEEL-DXF-CLI-1.2",
             "status": "completed",
             "exit_code": 0,
             "summary": report["summary"],
@@ -214,8 +219,13 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     assert run.input_manifest_sha256 == "f" * 64
     assert run.report_file_id is not None and run.manifest_file_id is not None
     assert item is not None and item.source_file_id == source_file_id
-    assert item.disposition == "classified" and item.part_type == "BH"
-    assert item.output_directory.endswith("_BH_dxf")
+    assert item.disposition == "classified" and item.part_type == "PX"
+    assert item.profile_raw == "PX300*150*8"
+    assert item.profile_normalized == "PX300*150*8"
+    assert item.type_source == "catalog"
+    assert item.group_key == "type:PX"
+    assert item.next_stage_eligible is True
+    assert item.output_directory.endswith("_PX_dxf")
     output = db.get(StoredFile, item.output_file_id)
     assert output is not None
     assert output.original_name == "A001_拆板前.dxf"

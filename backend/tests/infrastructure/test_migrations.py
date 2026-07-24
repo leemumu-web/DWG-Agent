@@ -41,6 +41,9 @@ REMNANT_EXCEL_WORKFLOW_MERGE_REVISION = (
 WORKFLOW_DXF_CANONICAL_REVISION = (
     VERSIONS_DIR / "c7b2d4e9f601_canonicalize_workflow_dxf_flow.py"
 )
+DXF_CLASSIFICATION_SEMANTICS_REVISION = (
+    VERSIONS_DIR / "d6f3a8c2e710_add_dxf_classification_semantics.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -219,6 +222,31 @@ def test_dxf_classification_migration_adds_ledger_and_stage_backfill():
     assert '"uq_dxf_classification_job_attempt"' in source
     assert '"uq_dxf_classification_run_source"' in source
     assert 'stage_code="dxf_classification"' in source
+
+
+def test_dxf_classification_semantics_migration_adds_authoritative_fields():
+    source = DXF_CLASSIFICATION_SEMANTICS_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "c7b2d4e9f601"' in source
+    for column in (
+        "profile_raw",
+        "profile_normalized",
+        "type_source",
+        "group_key",
+        "next_stage_eligible",
+    ):
+        assert f'"{column}"' in source
+    assert '"ix_dxf_classification_items_group"' in source
+    assert '"ix_dxf_classification_items_next_stage"' in source
+    assert '"legacy"' in source
+    for column in (
+        "profile_raw",
+        "profile_normalized",
+        "type_source",
+        "group_key",
+        "next_stage_eligible",
+    ):
+        assert f'op.drop_column("dxf_classification_items", "{column}")' in source
 
 
 def test_control_plane_migration_extends_head_with_persisted_observability():

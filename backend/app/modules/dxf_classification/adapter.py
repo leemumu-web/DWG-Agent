@@ -10,9 +10,9 @@ from typing import Any
 
 from app.platform.config.settings import settings
 
-CLASSIFIER_VERSION = "1.1.0"
-REPORT_SCHEMA = "STEEL-DXF-CLASSIFICATION-1.1"
-CLI_SCHEMA = "STEEL-DXF-CLI-1.1"
+CLASSIFIER_VERSION = "1.2.0"
+REPORT_SCHEMA = "STEEL-DXF-CLASSIFICATION-1.2"
+CLI_SCHEMA = "STEEL-DXF-CLI-1.2"
 ERROR_CODE_CLASSIFICATION_FAILED = "DXF_CLASSIFICATION_FAILED"
 ERROR_CODE_CLASSIFICATION_CONTRACT = "DXF_CLASSIFICATION_CONTRACT_INVALID"
 
@@ -65,7 +65,7 @@ def invoke_classifier(input_directory: Path) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         raise ClassificationError("DXF 分类器未返回合法 JSON。") from exc
     if payload.get("schema") != CLI_SCHEMA or payload.get("exit_code") != completed.returncode:
-        raise ClassificationError("DXF 分类器 CLI schema 或退出码不符合 1.1 契约。")
+        raise ClassificationError("DXF 分类器 CLI schema 或退出码不符合 1.2 契约。")
     return payload
 
 

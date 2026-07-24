@@ -180,6 +180,28 @@ def record_classification_item(
     route: str,
     result: dict[str, Any],
 ) -> DxfClassificationItem:
+    disposition = str(result.get("disposition") or "")
+    part_type = result.get("part_type")
+    part_type = part_type if isinstance(part_type, str) and part_type else None
+    profile_raw = result.get("profile_raw")
+    profile_normalized = result.get("profile_normalized")
+    type_source = result.get("type_source")
+    group_key = result.get("group_key")
+    requested_eligibility = result.get("next_stage_eligible") is True
+    if not isinstance(group_key, str) or not group_key:
+        raise ClassificationError("分类报告缺少稳定分类组。")
+    if disposition == "classified":
+        if part_type is None or type_source not in {"catalog", "auto_discovered"}:
+            raise ClassificationError("已分类记录缺少类型或类型来源。")
+        expected_group = f"type:{part_type}"
+        if group_key != expected_group or not requested_eligibility:
+            raise ClassificationError("已分类记录的分组或下一阶段标记不一致。")
+        next_stage_eligible = True
+    else:
+        expected_group = f"status:{disposition}"
+        if group_key != expected_group:
+            raise ClassificationError("异常分类记录的状态分组不一致。")
+        next_stage_eligible = False
     item = DxfClassificationItem(
         run=run,
         drawing_id=input_item.drawing_id,
@@ -188,8 +210,15 @@ def record_classification_item(
         source_name=source_file.original_name,
         output_name=output_name,
         output_directory=route,
-        disposition=str(result.get("disposition") or ""),
-        part_type=(result.get("part_type") if isinstance(result.get("part_type"), str) else None),
+        disposition=disposition,
+        part_type=part_type,
+        profile_raw=profile_raw if isinstance(profile_raw, str) else None,
+        profile_normalized=(
+            profile_normalized if isinstance(profile_normalized, str) else None
+        ),
+        type_source=type_source if isinstance(type_source, str) else None,
+        group_key=group_key,
+        next_stage_eligible=next_stage_eligible,
         diagnostics_json=(
             result.get("diagnostics") if isinstance(result.get("diagnostics"), list) else []
         ),

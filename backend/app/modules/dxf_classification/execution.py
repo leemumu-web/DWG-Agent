@@ -194,7 +194,7 @@ def run_dxf_classification(
             except (OSError, json.JSONDecodeError) as exc:
                 raise ClassificationError("分类 JSON 报告不可读取。") from exc
             if report.get("schema") != REPORT_SCHEMA or cli_payload.get("schema") != CLI_SCHEMA:
-                raise ClassificationError("分类器输出 schema 不符合 1.1 契约。")
+                raise ClassificationError("分类器输出 schema 不符合 1.2 契约。")
             results = report.get("results")
             summary = report.get("summary")
             if (
