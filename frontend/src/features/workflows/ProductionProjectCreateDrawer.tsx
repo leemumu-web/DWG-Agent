@@ -88,7 +88,7 @@ export function ProductionProjectCreateDrawer({
         />
 
         <div className="production-create-checklist" aria-label="文件准备清单">
-          <span><CheckCircleOutlined /> 完整文件夹：DWG + 1 个 Excel</span>
+          <span><CheckCircleOutlined /> 单个 Excel + 一个 DWG 文件夹</span>
           <span><CloudServerOutlined /> DXF 由服务器统一生成</span>
         </div>
 

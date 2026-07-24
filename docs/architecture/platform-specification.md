@@ -126,7 +126,7 @@ failed/cancelled  -> retry -> queued (attempt + 1)
 - 工作流必须属于项目，写操作只允许项目 owner/engineer，其他项目成员只读；
 - `WorkflowRun` 是业务编排元数据，`Job`/`JobStep` 仍是异步执行事实；
 - 公开 route 已为已实现阶段绑定 `(job_id, job_attempt)`、同步匹配 attempt 的状态并挂接 file/result；
-- `source_intake` 只接受多个 DWG 与唯一 Excel，人工 DXF 被拒绝；DXF 必须由服务器转换并登记后才能冻结；
+- `source_intake` 分步接收一个 `.xls`/`.xlsx` 单文件与一个 DWG 文件夹，人工 DXF 被拒绝；混合文件夹确认后只上传 DWG，DXF 必须由服务器转换并登记后才能冻结；
 - 通用 completion 不能绕过输入冻结或自动阶段执行；placeholder/external 阶段必须提交符合契约的交接产物；
 - 取消工作流会协调活动 Job，但外部子进程的强制终止能力仍取决于具体 Stage；
 - 拆板、CAM、Windows/SinoCAM、结果接纳和确定性交付清单完成前，不得称为生产自动闭环。

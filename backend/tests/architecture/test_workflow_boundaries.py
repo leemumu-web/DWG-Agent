@@ -70,8 +70,13 @@ EXPECTED_ROUTES = [
     (("GET",), "/{workflow_id}/input-batch", "get_batch_api"),
     (
         ("POST",),
-        "/{workflow_id}/input-folder",
-        "import_input_folder_api",
+        "/{workflow_id}/input-excel",
+        "import_input_excel_api",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/input-dwg-folder",
+        "import_input_dwg_folder_api",
     ),
     (
         ("DELETE",),
@@ -242,7 +247,7 @@ def test_workflow_router_preserves_all_operations_order_and_tags() -> None:
         route.tags
         == (
             ["workflow-inputs"]
-            if "input-batch" in route.path or "input-folder" in route.path
+            if "/input-" in route.path
             else ["workflows"]
         )
         for route in module.router.routes

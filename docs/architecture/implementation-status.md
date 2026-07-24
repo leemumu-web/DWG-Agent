@@ -6,7 +6,7 @@
 
 ## 历史审计说明
 
-> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 3 九阶段框架：新建生产项目时原子创建并启动其唯一完整 Workflow；完整文件夹中的 DWG 入库后转换为 canonical DXF，冻结的 DrawingVersion 指向 DXF，后续图纸仅按 DXF 类型流通；Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通。DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端生产项目工作台与独立 Workflow 详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
+> 2026-07-24 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。Excel 第一阶段现拥有版本化输入检查和有界错误合同，登记、冻结、worker 执行使用同一规则。`linux_production` 为 revision 3 九阶段框架：新建生产项目时原子创建并启动其唯一完整 Workflow；一个 `.xls`/`.xlsx` 单文件与一个 DWG 文件夹分步入库，混合文件夹确认后只上传 DWG；DWG 转换为 canonical DXF，冻结的 DrawingVersion 指向 DXF，后续图纸仅按 DXF 类型流通；Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通。DXF→Excel 仅保留独立工具。图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳仍为明确 placeholder/external。前端生产项目工作台与独立 Workflow 详情分离，当前阶段工作区不会要求二次选择 Excel。本报告其余较早日期章节作为当时审计快照保留。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`
@@ -198,7 +198,7 @@ Celery workers
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
-| 一次上传生产批次 | 已实现当前输入切片 | 已按后续确认规则改为“多个 DWG + 恰好一个 Excel”；前端新建后进入独立详情页提供上传、转换、结构化错误和冻结反馈，人工 DXF 被拒绝 |
+| 分步上传生产输入 | 已实现当前输入切片 | Excel 只能单文件 `.xls`/`.xlsx`，DWG 只能文件夹上传；混合文件夹确认后只发送 DWG，前端提供转换、结构化错误和冻结反馈，人工 DXF 被拒绝 |
 | `batch_id` 与批次状态机 | 已实现当前输入切片 | `WorkflowInputBatch` 以 `workflow_run_id` 唯一绑定生产流程，保存 `uploading`、转换同步、`ready_to_freeze`、`frozen`、版本和错误信息；它不是全目标通用 `ProcessingBatch` |
 | 真实格式、文件头、可读性校验 | 已实现当前输入切片 | `registration.py` 从 Local/MinIO 重读字节并核对 SQL 大小/SHA-256，验证 DWG header/最小长度和 XLS/XLSX 至少一个可见工作表；尚未覆盖所有未来人工拆板/CAM 文件类型 |
 | 文件名规范化规则和版本 | 部分实现 | NFKC、首尾/连续空白和 casefold 规则用于检测 DWG 同名冲突，同时保留 `original_name` 与 `normalized_stem`；批次 `version=1` 已保存，但规范化算法尚无独立版本字段 |

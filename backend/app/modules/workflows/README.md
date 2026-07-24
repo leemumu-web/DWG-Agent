@@ -1,12 +1,14 @@
 # Production workflows module
 
 本模块拥有项目级生产批次、九阶段流程、输入冻结和阶段产物引用。公开 HTTP 前缀保持为
-`/api/v1/workflows`；五张表、18 个 operation、错误码、审计 action 和 Job 幂等键均保持
+`/api/v1/workflows`；五张表、公开 operation、错误码、审计 action 和 Job 幂等键均保持
 不变。本模块不另建文件存储或任务队列。
 
 ## 已确定输入契约
 
-操作员只上传一批多个 DWG 和恰好一个可读 XLS/XLSX，不上传 DXF。`intake/registration.py`
+操作员分步上传一个可读 `.xls`/`.xlsx` 单文件和一个含多个 DWG 的文件夹，不上传 DXF。
+DWG 文件夹混有其他文件时，浏览器确认后只发送 DWG；服务端 DWG 入口仍拒绝任何非 DWG。
+`intake/registration.py`
 重新读取 Local/MinIO 对象，核对 SQL 登记的大小与 SHA-256，并通过 Excel Final 阶段一的
 版本化输入规则检查表格；`intake/conversion.py` 为每个 DWG 幂等建立 `convert_dwg_to_dxf`
 Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/freeze.py` 再次校验对象和
@@ -62,5 +64,5 @@ Workflow 类型范围的全局状态统计，避免前端用独立分页做不�
 
 行为回归位于 `backend/tests/workflows/`，分类集成位于
 `backend/tests/dxf_classification/`；结构边界位于
-`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 144 path、
-169 operation、42 张模型表、13 个 Celery task 和 12 条任务路由。
+`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 146 path、
+170 operation、42 张模型表、13 个 Celery task 和 12 条任务路由。
