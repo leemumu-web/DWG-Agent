@@ -150,7 +150,30 @@ Excel Final 桥接和每日归档交互均保留原实现；API、类型、页�
 E2E 也按 7 个工作区归档。134 个维护边界由真实源码 owner 自动发现并补充 Stage/Agent/Windows 产品边界，统一检查本地 README，不以总览文档或固定手工清单替代。
 
 > **范围：** Nginx、FastAPI、MySQL、Celery SQL transport、storage、frontend retry/SSE/download
-> **最近发布验证：** 2026-07-22
+> **最近发布验证：** 2026-07-25
+
+## 2026-07-25 DXF 分类 1.2 发布证据
+
+本轮把 DXF 分类从固定类型汇总升级为可供后续阶段读取的逐图分类账本：明确覆盖 PX 等工程
+类型，安全自动发现新英文前缀，数据库保存原始/规范规格、类型来源、稳定分组键和下一阶段
+可用标记。工作流页面按分类文件夹展示和分页查看逐图信息，仅对待确认/无法读取预警；分类
+页面不展示 JSON/CSV，可下载任一分类或全部分类的 DXF-only ZIP。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| Classifier 1.2 Stage / 独立仓库 | pass | 两处源码字节一致；各自 `108 passed`，独立仓库 compileall 与 1.2.0 sdist/wheel 构建通过 |
+| 后端全量 | pass | `1393 passed, 10 skipped, 22 warnings in 168.69s` |
+| 分类/Workflow 聚焦回归 | pass | 数据库语义、分组详情、下一阶段输入、真实 ZIP 成员/传输账本和前端合同共 `222 passed, 1 warning` |
+| 前端 production build | pass | 122 个 TypeScript 源文件、12 个 feature boundary，Vite production build 通过 |
+| Playwright 全量 | pass | 最终复跑 `117 passed, 3 skipped in 3.1m`；分类文件夹、详情、预警、分类/全量下载和生产输入闭环通过 |
+| Alembic / 活动 MySQL | pass | 单一 head `d6f3a8c2e710`；活动 schema 已在 head；空临时 MySQL schema 完整升级 28 个 revision，验证 42 张业务表与种子后自动清理 |
+| 基础设施 | pass | `95 / 95`；Compose 15 services、MySQL、Nginx、环境与路径检查通过 |
+| 实际运行进程 | pass | FastAPI 与 dxf-classification worker 已安全重启；`:8010` 和 Nginx `:8080` 均返回健康/就绪 200、150 个 OpenAPI path，三个新分类路由可见，运行分类器报告 1.2.0 |
+
+真实 ZIP 语料的既有 243 张 BH/BOX/PL 回归分布继续保留，但其中没有 PX。PX、动态新类型和
+不确定类型的本轮自动化样本通过，不能替代未来获准 PX 生产图纸的人工质量验收。自动拆板、
+Windows CAM 和 SinoCAM 仍是后续阶段，不因分类目录和下载闭环完成而改变实现状态。
+
 ## 1. 证据层级
 
 | 层级 | 能证明 | 不能证明 |
