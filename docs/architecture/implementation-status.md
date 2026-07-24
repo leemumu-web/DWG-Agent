@@ -213,8 +213,9 @@ Celery workers
 
 | 目标要求 | 状态 | 审计结论 |
 |---|---|---|
-| DXF 右上角语义分类 | 已实现当前分类切片 | `steel_dxf_classifier_v1.1.0` 读取标题栏截面/规格字段，区分 BH、BOX、PL、RHS 等具体类型；证据不足进入待确认/无法读取，不猜测类型 |
-| 保存依据、诊断、算法版本 | 已实现当前分类切片 | `DxfClassificationRun/Item` 保存 Classifier 1.1.0、输入 manifest、来源/输出、候选证据和诊断，JSON/CSV 报告、分流 DXF 同时登记为 File/AnalysisResult；尚未覆盖拆板 validator 的几何检查项 |
+| DXF 右上角语义分类 | 已实现当前分类切片 | `steel_dxf_classifier_v1.1.0` 包目录内运行 1.2.0，读取标题栏截面/规格字段，明确覆盖 PX 等工程类型，并安全自动发现新英文前缀；证据不足进入待确认/无法读取，不猜测类型 |
+| 保存依据、诊断、算法版本 | 已实现当前分类切片 | `DxfClassificationRun/Item` 保存 Classifier 1.2.0、输入 manifest、来源/输出、原始/规范规格、类型来源、分组键、下一阶段可用标记、候选证据和诊断；JSON/CSV 报告、分流 DXF 同时登记为 File/AnalysisResult |
+| 分类目录浏览与下载 | 已实现当前分类切片 | 页面按数据库分组显示每个类型和预警文件夹，点击分页查看逐图信息；不展示 JSON/CSV，可分别下载任一类别或全部分类 DXF 的压缩包 |
 | BH/BOX 自动拆板 | 未实现 | 没有标题栏识别、截面解析、视图定位、孔洞、腹板/翼板轮廓、重排等实现 |
 | 非 BH/BOX 自动转人工 | 未实现 | 没有人工拆板状态机 |
 | 独立拆板结果校验 | 未实现 | 没有轮廓闭合、板件数量、厚度、孔洞、零件映射等独立 validator |
@@ -665,7 +666,7 @@ BH 稳定后再增加 BOX，其他类型继续走人工分支。
 | `Stages/dwg2dxf` | 30 passed |
 | `Stages/dxf2dwg` | 30 passed |
 | `Stages/dxf2excel` | 17 passed |
-| `Stages/steel_dxf_classifier_v1.1.0` | 52 passed |
+| `Stages/steel_dxf_classifier_v1.1.0` | 108 passed |
 | `Stages/excel_final/tests` | 最终规范流程全套通过 |
 | `docker compose config --quiet` | 通过 |
 | `infra/verification/verify.sh` | 122/122；Nginx/Compose/Dockerfile/环境/路径、活动 MySQL 45 表、种子、权限与时间列全部通过 |
@@ -696,7 +697,7 @@ Playwright 均在最终源码上重新通过；旧 root 日志只做保留性改
 当前 `complete_framework` 已经完成了一个质量较高的“企业文件处理平台底座”，其中认证权限、文件与对象一致性、Job attempt、审计、转换工具、Excel Final、管理端和部署测试都具有明显复用价值。
 
 它已经形成《架构设计.txt》目标中的服务器前段切片：操作员提交多个 DWG 与一个 Excel，服务器
-完成 DWG→DXF、摘要复核和输入冻结，再由 Classifier 1.1.0 预处理、分类、分流，并把源文件与
+完成 DWG→DXF、摘要复核和输入冻结，再由 Classifier 1.2.0 预处理、分类、分流，并把源文件与
 派生文件登记进 MySQL 和对象存储。它尚未完成完整生产系统，剩余的不是少量页面，而是四个完整领域：
 
 1. **BH/BOX 自动拆板、独立几何校验和人工拆板回流；**

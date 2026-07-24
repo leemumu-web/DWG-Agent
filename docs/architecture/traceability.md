@@ -10,7 +10,7 @@
 | `U4-U9` 上传完整性、规范化、DWG/Excel 配对 | `workflows` | implemented | `modules/workflows/intake/{registration,conversion,presentation}.py`、`test_workflow_input_*` |
 | `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | `modules/workflows/intake/freeze.py`、projects 公开 Drawing 能力、生产流程测试 |
 | 服务器 DWG→DXF、DXF→DWG、DXF 材料表提取 | `cad_processing` | partial | `modules/cad_processing/` 按方向拆分版本策略、批处理、登记和执行；三个独立 Stage 保持原路径，ODA 与真实样本仍需部署验收 |
-| `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.1.0 契约，`persistence.py` 登记两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
+| `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.2.0 契约，`persistence.py` 登记逐图类型语义、两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
 | `E1-E4` Excel Final 处理 | `excel_processing` | partial | `stage_adapter` 隔离 Stage，`execution` 编排 Job/MinIO，`importers`/`persistence` 登记三张 MySQL 关系表；真实 schema、手册库和跨图纸最终屏障仍是依赖/缺口。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
 | 图纸拆板与设计屏障 | `workflows` | placeholder | 阶段、输入输出、交接 artifact 和 `WORKFLOW_STAGE_NOT_IMPLEMENTED` |
 | CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
@@ -79,7 +79,7 @@
 | `/files` | `app/modules/files/` | 其他模块只导入 `files.interface`；拥有文件、传输和扫描四张表，与 platform byte adapter 解耦。 |
 | `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Step/Result/Review 四张表，attempt 状态机与 Celery transport 解耦。 |
 | CAD 转换、预览解释与 DXF 材料表 | `app/modules/cad_processing/` | 无自有表和 HTTP 前缀；`files`/`jobs` 只经 `cad_processing.interface` 调用，Stage 代码保持独立产品。 |
-| Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.1.0 CLI 和输出命名由 adapter 校验。 |
+| Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.2.0 CLI、类型分组和输出命名由 adapter 校验。 |
 | `/excel-final` 与 Excel Final task | `app/modules/excel_processing/` | 拥有 batch/part/component 三张表；files/jobs 由公开接口组合，Stage 子进程、导入、持久化和 HTTP route 分层；稳定 task name/queue 不变。 |
 | `/workflows` | `app/modules/workflows/` | 拥有 run/stage/artifact/input batch/input item 五张表；模板、状态机、Job 同步、阶段执行、输入四种转换和 16 个 HTTP operation 分层；其他模块只经 `workflows.interface`。 |
 | 跨领域 audit write 与 `/audit-logs` read | `app/modules/operations/audit/interface.py` + operations 路由/服务/模型 | 写入统一经 audit interface；读取、ORM、筛选与权限均已归 operations，不再依赖旧横向路径。 |

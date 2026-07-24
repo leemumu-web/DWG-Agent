@@ -22,7 +22,7 @@ backend lock 包含 `Stages/` 下 editable path dependency，因此必须从完�
 | `backend/app/modules/files/` | 文件登记、传输 saga、下载/预览与存储一致性；公共入口为 `interface.py` |
 | `backend/app/modules/jobs/` | Job/Step/Result/Review、attempt、事件和投递；公共入口为 `interface.py` |
 | `backend/app/modules/cad_processing/` | CAD 转换、DXF 解释/预览与 DXF 材料表；公共入口为 `interface.py` |
-| `backend/app/modules/dxf_classification/` | Classifier 1.1 适配、两张账本与 Job/Workflow 编排；公共入口为 `interface.py` |
+| `backend/app/modules/dxf_classification/` | Classifier 1.2 适配、逐图分类语义、两张账本与 Job/Workflow 编排；公共入口为 `interface.py` |
 | `backend/app/modules/excel_processing/` | Excel Final 上传/执行、三张关系投影表、查询与手册工具；公共入口为 `interface.py` |
 | `backend/app/modules/workflows/` | 生产模板、五张流程/输入表、状态机、Job 同步、输入冻结和 16 个 route；公共入口为 `interface.py` |
 | `backend/app/modules/operations/` | 审计、归档、数据目录、存储对账和控制平面；跨域写入口位于各 owner 的 `interface.py` |

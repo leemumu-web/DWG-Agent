@@ -2,9 +2,11 @@
 
 ## Responsibility
 
-This module invokes Steel DXF Classifier 1.1.0 for a frozen production input,
+This module invokes Steel DXF Classifier 1.2.0 for a frozen production input,
 registers every routed DXF plus JSON/CSV reports in object storage and MySQL,
-and exposes the latest classification ledger to Workflow HTTP presentation.
+and exposes the latest classification ledger as category folders to Workflow
+HTTP presentation. Each item persists its raw/normalized profile, type source,
+stable group key and next-stage eligibility.
 
 It owns `dxf_classification_runs` and `dxf_classification_items`. File bytes,
 Jobs and workflows remain authoritative in their respective modules.
@@ -22,7 +24,7 @@ Jobs and workflows remain authoritative in their respective modules.
 ```text
 dxf_classification/
 ├── interface.py       cross-domain API
-├── adapter.py         1.1 CLI, schema, exit code, route and filename contract
+├── adapter.py         1.2 CLI, schema, exit code, route and filename contract
 ├── persistence.py     frozen sources, files, run/item/result ledgers
 ├── execution.py       attempt-aware Job and Workflow sequencing
 ├── models.py          two owned MySQL tables
@@ -38,3 +40,7 @@ only; automatic plate splitting remains a later explicit stage, not an implied
 implementation.
 It must not modify the immutable server-derived source DXF or upgrade a
 needs-review classifier exit into an unqualified automatic success.
+The public workflow projection exposes folder summaries and paginated folder
+details without storage identifiers. Folder and all-classification downloads
+contain routed DXF files only; JSON/CSV audit artifacts remain registered but
+are not presented as classification folders.

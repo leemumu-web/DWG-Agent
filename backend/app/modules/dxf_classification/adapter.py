@@ -1,4 +1,4 @@
-"""Steel DXF Classifier 1.1 process, schema and naming contract."""
+"""Steel DXF Classifier 1.2 process, schema and naming contract."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def classifier_project_name(project_code: str, workflow_id: int) -> str:
 
 
 def preprocessed_name(name: str) -> str:
-    """Apply the classifier 1.1 input naming convention exactly once."""
+    """Apply the classifier 1.2 input naming convention exactly once."""
     source = Path(name).name
     if Path(source).suffix.lower() != ".dxf":
         raise ClassificationError(f"分类输入不是 DXF: {source}")
@@ -74,5 +74,5 @@ def safe_route(project_name: str, route: object) -> str:
     if not isinstance(route, str) or Path(route).name != route:
         raise ClassificationError("分类报告包含非法输出目录。")
     if not route.startswith(f"{project_name}_") or not route.endswith("_dxf"):
-        raise ClassificationError("分类输出目录不符合 1.1 命名契约。")
+        raise ClassificationError("分类输出目录不符合 1.2 命名契约。")
     return route

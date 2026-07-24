@@ -51,7 +51,7 @@ async function mockWorkflow(page: Page) {
       required_outputs: ['source_dwg', 'source_excel', 'canonical_dxf'],
     }, {
       code: 'dxf_classification', name: 'DXF 分类与分流',
-      description: '调用 Steel DXF Classifier 1.1.0 预处理并按零件类型分流冻结 DXF',
+      description: '调用 Steel DXF Classifier 1.2.0 预处理并按零件类型分流冻结 DXF',
       execution_mode: 'automated', implementation_status: 'implemented', execution_kind: 'steel_dxf_classification',
       required_inputs: ['canonical_dxf'],
       artifact_types: ['classified_dxf', 'classification_report', 'classification_manifest'],
@@ -125,16 +125,32 @@ async function mockWorkflow(page: Page) {
     }, 202);
   });
   await page.route('**/api/v1/workflows/41/dxf-classification', (route) => json(route, classificationStarted ? {
-    id: 77, workflow_run_id: 41, status: 'completed', classifier_version: '1.1.0',
-    report_schema: 'STEEL-DXF-CLASSIFICATION-1.1', cli_schema: 'STEEL-DXF-CLI-1.1',
+    id: 77, workflow_run_id: 41, status: 'completed', classifier_version: '1.2.0',
+    report_schema: 'STEEL-DXF-CLASSIFICATION-1.2', cli_schema: 'STEEL-DXF-CLI-1.2',
     project_name: 'P7-workflow-41', input_manifest_sha256: 'a'.repeat(64), input_count: 1,
     classified_count: 1, review_required_count: 0, unreadable_count: 0, type_counts: { BH: 1 },
+    groups: [{
+      group_key: 'type:BH', label: 'BH', part_type: 'BH', type_source: 'catalog',
+      disposition: 'classified', count: 1, warning_count: 0, total_size_bytes: 2054,
+    }],
     report_file: storedFile(910, 'P7-workflow-41_分类报告.json'),
     manifest_file: storedFile(911, 'P7-workflow-41_分类清单.csv'),
     job: { id: 990, project_id: 7, drawing_id: null, created_by: 1, task_type: 'classify_steel_dxf', precision_level: 'normal', pipeline: 'steel_dxf_classifier', status: 'succeeded', attempt: 1, priority: 0, progress: 100, params_json: { workflow_id: 41 }, error_code: null, error_message: null, progress_data: null, created_at: now, updated_at: now, started_at: now, finished_at: now },
     items: [{ id: 88, drawing_id: 1000, source_file: storedFile(900, 'panel-A.dxf'), output_file: storedFile(912, 'panel-A_拆板前.dxf'), source_name: 'panel-A.dxf', output_name: 'panel-A_拆板前.dxf', output_directory: 'P7-workflow-41_BH_dxf', disposition: 'classified', part_type: 'BH', diagnostics: [] }],
     error_code: null, error_message: null, started_at: now, finished_at: now, created_at: now, updated_at: now,
   } : null));
+  await page.route(
+    /\/api\/v1\/workflows\/41\/dxf-classification\/groups\/type(?:%3A|:)BH\?page=1&page_size=20$/,
+    (route) => json(route, {
+      items: [{
+        output_name: 'panel-A_拆板前.dxf', part_type: 'BH',
+        profile_raw: 'BH300*150*6*8', profile_normalized: 'BH300*150*6*8',
+        type_source: 'catalog', disposition: 'classified',
+        diagnostics: ['TITLE_PROFILE_PROVED'], size_bytes: 2054,
+      }],
+      total: 1, page: 1, page_size: 20,
+    }),
+  );
   await page.route('**/api/v1/workflows/41', (route) => json(route, workflowDetail()));
   await page.route('**/api/v1/files/batches**', (route) => json(route, []));
   await page.route('**/api/v1/workflows/41/input-batch/conversion-requests', async (route) => {
@@ -241,7 +257,9 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();
   await expect(page.getByRole('button', { name: '开始 DXF 分类分流' })).toBeVisible();
   await page.getByRole('button', { name: '开始 DXF 分类分流' }).click();
-  await expect(page.getByText('全部 DXF 已完成分类分流')).toBeVisible();
-  await page.getByRole('button', { name: '查看文件明细（1）' }).click();
-  await expect(page.getByText('P7-workflow-41_BH_dxf')).toBeVisible();
+  await expect(page.getByText('Steel DXF Classifier 1.2.0')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'BH 1 张 内置类型' })).toBeVisible();
+  await page.getByRole('button', { name: 'BH 1 张 内置类型' }).click();
+  await expect(page.getByRole('dialog', { name: 'BH · 1 张 DXF' })).toBeVisible();
+  await expect(page.getByText('panel-A_拆板前.dxf')).toBeVisible();
 });

@@ -70,7 +70,7 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "dxf_classification",
                 "DXF 分类与分流",
-                "调用 Steel DXF Classifier 1.1.0 预处理并按零件类型分流冻结 DXF。",
+                "调用 Steel DXF Classifier 1.2.0 预处理并按零件类型分流冻结 DXF。",
                 execution_mode="automated",
                 execution_kind="steel_dxf_classification",
                 required_inputs=("canonical_dxf",),

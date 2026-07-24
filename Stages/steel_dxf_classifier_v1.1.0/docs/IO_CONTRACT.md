@@ -1,6 +1,6 @@
-# 1.1 输入输出契约
+# 1.2 输入输出契约
 
-本文件是 Steel DXF Classifier 1.1.0 的正式进程与文件系统接口定义。除非后续发布明确升级 schema，自动化调用应以本文件为准。
+本文件是 Steel DXF Classifier 1.2.0 的正式进程与文件系统接口定义。除非后续发布明确升级 schema，自动化调用应以本文件为准。
 
 项目目录可以移动或重命名；移动后运行 `uv sync --reinstall --frozen` 重写 `.venv` 的入口脚本，再执行分类命令。
 
@@ -29,7 +29,19 @@ steel-dxf-classify --version
 <项目名称>_分类清单.csv
 ```
 
-每个输出 DXF 是预处理后输入的逐字节副本。`<项目名称>_分类报告.json` 的 schema 固定为 `STEEL-DXF-CLASSIFICATION-1.1`，包含汇总、每个源文件、标题栏候选、诊断和输出目录；CSV 是同一结果的人工筛选视图。
+每个输出 DXF 是预处理后输入的逐字节副本。`<项目名称>_分类报告.json` 的 schema 固定为 `STEEL-DXF-CLASSIFICATION-1.2`，包含汇总、每个源文件、标题栏候选、诊断和输出目录；CSV 是同一结果的人工筛选视图。
+
+每个逐图结果还包含以下稳定语义字段：
+
+| 字段 | 含义 |
+|---|---|
+| `profile_raw` | 标题栏恢复后的原始规格 |
+| `profile_normalized` | 用于判定的规范化规格 |
+| `type_source` | `catalog`、`auto_discovered` 或非自动分类处置来源 |
+| `group_key` | 类型文件夹键 `type:<类型>`，或 `status:review_required` / `status:unreadable` |
+| `next_stage_eligible` | 是否允许下一阶段直接读取该 DXF |
+
+自动发现类型必须满足安全前缀和唯一标题栏证据规则。自动发现不等于预警；只有待确认和无法读取结果要求人工处置，且其 `next_stage_eligible` 固定为 `false`。
 
 默认不会覆盖已有输出。`--overwrite` 在隐藏 staging 目录完整生成新副本与报告、核对数量后，备份并替换旧输出；提升失败会恢复旧输出。输入目录从不属于输出替换集合。
 
@@ -48,12 +60,12 @@ steel-dxf-classify --version
 耗时: 39.654 秒
 ```
 
-`--json` 模式的 stdout 只输出一个 UTF-8 JSON 对象和一个换行，不混入进度、日志或错误。对象 schema 为 `STEEL-DXF-CLI-1.1`：
+`--json` 模式的 stdout 只输出一个 UTF-8 JSON 对象和一个换行，不混入进度、日志或错误。对象 schema 为 `STEEL-DXF-CLI-1.2`：
 
 ```json
 {
   "exit_code": 0,
-  "schema": "STEEL-DXF-CLI-1.1",
+  "schema": "STEEL-DXF-CLI-1.2",
   "status": "completed",
   "summary": {
     "classified_count": 171,
@@ -79,4 +91,4 @@ steel-dxf-classify --version
 | 1 | 运行失败：命名冲突、已有输出、I/O 或事务失败 | 空 | `错误:` 原因 |
 | 64 | 调用/输入契约错误：未知参数、缺少输入、目录名不合法 | 空 | `错误:` 原因 |
 
-`steel-dxf-classify --version` 向 stdout 输出单行 `steel-dxf-classifier 1.1.0`，退出码为 0，stderr 为空。
+`steel-dxf-classify --version` 向 stdout 输出单行 `steel-dxf-classifier 1.2.0`，退出码为 0，stderr 为空。

@@ -13,7 +13,7 @@
 | `jobs` | implemented | 4 | 18 | 1 | Job attempt、步骤、结果、复核、SSE |
 | `workflows` | partial | 5 | 16 | 0 | 生产批次、输入冻结、阶段和产物编排 |
 | `cad_processing` | partial | 0 | 0 | 5 | DWG/DXF 格式转换、DXF 预览解释与材料表提取 |
-| `dxf_classification` | partial | 2 | 0 | 1 | Steel DXF Classifier 1.1.0 分类分流 |
+| `dxf_classification` | partial | 2 | 0 | 1 | Steel DXF Classifier 1.2.0 分类分流、目录浏览与 DXF-only 下载 |
 | `excel_processing` | partial | 3 | 14 | 1 | Excel Final 与关系化导入 |
 | `operations` | partial | 5 | 29 | 3 | 审计、数据控制台、控制平面、归档、扫描 |
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |

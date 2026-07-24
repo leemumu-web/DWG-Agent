@@ -31,14 +31,14 @@ PROFILE/SIZE
 
 | 工程族 | 保留的具体类型 |
 |---|---|
-| 板与扁钢 | PL, FB |
-| 焊接组合截面 | BH, BBH, BOX, XBOX, BT |
-| H/I/T 型 | H, HW, HM, HN, HEA, HEB, HEM, I, IPE, IPN, UB, UC, T |
-| 角钢与槽钢 | L, C, CH, PFC, U, Z |
-| 空心截面与管材 | RHS, SHS, CHS, PIPE |
+| 板与扁钢 | PL, FB, FL, BL |
+| 焊接组合截面 | BH, BBH, RH, BOX, XBOX, BT, PX |
+| H/I/T 型 | H, HW, HM, HN, HT, HE, HEA, HEB, HEM, HL, HD, HP, I, IPE, IPN, INP, UB, UC, W, S, M, T, WT, ST, MT |
+| 角钢与槽钢 | L, C, CH, PFC, MC, U, UPN, UPE, Z |
+| 空心截面与管材 | RHS, SHS, CHS, HSS, PIPE |
 | 棒材 | RB, SB |
 
-标题栏唯一强证据允许安全的未注册 ASCII 前缀，例如 `TT25 → TT`；JSON/CSV 同时标记 `PROFILE_TYPE_UNREGISTERED`。动态前缀至少两个字母，只能包含安全目录字符，且后方必须是数值尺寸主体。`Q355B`、`1:10`、纯数字尺寸和说明语句不是型材规格。
+标题栏唯一强证据允许自动发现安全的未注册 ASCII 前缀，例如 `TT25 → TT`。动态前缀必须由 2–12 个字母组成，后方必须是数值尺寸主体；结果标记 `type_source=auto_discovered` 和 `PROFILE_TYPE_AUTO_DISCOVERED`，保留独立 `group_key`。目录中的注册类型标记为 `type_source=catalog`。未知单字母前缀、`Q355B`、孤立的 `M20`、`1:10`、纯数字尺寸和说明语句不是型材规格。
 
 ## 4. Fail-closed 决策
 
@@ -60,6 +60,6 @@ PROFILE/SIZE
 
 ## 5. 输出事务与审计
 
-每次运行生成 `<项目名称>_分类报告.json` 和 `<项目名称>_分类清单.csv`。JSON 的 schema 为 `STEEL-DXF-CLASSIFICATION-1.1`，是完整审计记录；CSV 是其面向技术人员的扁平投影。两者的输入计数、处置、类型和输出目录必须一致。CLI 的 `--json` 输出仅为摘要投影，正式进程/文件流规则见 [IO_CONTRACT.md](IO_CONTRACT.md)。
+每次运行生成 `<项目名称>_分类报告.json` 和 `<项目名称>_分类清单.csv`。JSON 的 schema 为 `STEEL-DXF-CLASSIFICATION-1.2`，是完整审计记录；CSV 是其面向技术人员的扁平投影。两者的输入计数、处置、类型、`group_key`、`type_source`、`next_stage_eligible` 和输出目录必须一致。只有证据充分且已形成安全类型分组的结果可供下一阶段读取；待确认和无法读取固定为不可接入。CLI 的 `--json` 输出仅为摘要投影，正式进程/文件流规则见 [IO_CONTRACT.md](IO_CONTRACT.md)。
 
 默认不覆盖现有目录。`--overwrite` 先在隐藏 staging 目录生成所有副本和报告、核对文件数量，再备份并替换已有同项目输出；提升失败则恢复备份。输入 `<项目名称>_dxf` 永远不在输出替换集合中，但其中的 DXF 文件名会在分类前按预处理规则规范化。

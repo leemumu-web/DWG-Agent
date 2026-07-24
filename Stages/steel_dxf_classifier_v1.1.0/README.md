@@ -1,4 +1,4 @@
-# Steel DXF Classifier 1.1.0
+# Steel DXF Classifier 1.2.0
 
 本项目是独立的 Tekla 钢结构零件 DXF 分类工具。它读取零件图右上信息表的“截面/规格”字段，把输入目录第一层的 DXF 复制到按具体零件类型划分的同级目录。程序会在分类前原地规范输入文件名，但不重写 DXF 内容；它不依赖 BH 拆板仓库，也不把文件名或材料表中的游离规格当作分类事实。证据不足时停止自动判断，交给技术人员确认。
 
@@ -54,7 +54,7 @@ uv run steel-dxf-classify /data/项目2_dxf
 uv run steel-dxf-classify --json /data/项目2_dxf
 ```
 
-`--json` 的 stdout 只输出一个 `STEEL-DXF-CLI-1.1` JSON 对象；错误仍只写入 stderr。字段、退出码和完整文件系统契约见 [docs/IO_CONTRACT.md](docs/IO_CONTRACT.md)。
+`--json` 的 stdout 只输出一个 `STEEL-DXF-CLI-1.2` JSON 对象；错误仍只写入 stderr。字段、退出码和完整文件系统契约见 [docs/IO_CONTRACT.md](docs/IO_CONTRACT.md)。
 
 ### 文件名预处理
 
@@ -80,6 +80,7 @@ uv run steel-dxf-classify /data/项目2_dxf --overwrite
 ```text
 /data/项目2_BH_dxf/             # 例如 A001_拆板前.dxf
 /data/项目2_BOX_dxf/
+/data/项目2_PX_dxf/
 /data/项目2_PL_dxf/
 /data/项目2_RHS_dxf/
 /data/项目2_待确认_dxf/
@@ -88,7 +89,7 @@ uv run steel-dxf-classify /data/项目2_dxf --overwrite
 /data/项目2_分类报告.json
 ```
 
-通用目录规则是 `<项目名称>_<零件类型>_dxf`。具体前缀不会被粗略合并：例如 BH、BBH、H、HW、HM、HN、HEA、BOX、XBOX、PL、L、C、RHS 分别输出。
+通用目录规则是 `<项目名称>_<零件类型>_dxf`。具体前缀不会被粗略合并：例如 BH、BBH、H、HW、HM、HN、HEA、BOX、XBOX、PX、PL、L、C、RHS 分别输出。
 
 `待确认` 表示 DXF 可读，但截面字段缺失、规格缺失或多个候选冲突；`无法读取` 表示文件损坏、不是 DXF 或无法解码。两者都不会被猜测为某个零件类型。
 
@@ -96,14 +97,14 @@ uv run steel-dxf-classify /data/项目2_dxf --overwrite
 
 内置型材前缀包括：
 
-- 板材：PL、FB；
-- 焊接与箱形：BH、BBH、BOX、XBOX、BT；
-- H/I/T 型：H、HW、HM、HN、HEA、HEB、HEM、I、IPE、IPN、UB、UC、T；
-- 角钢与槽钢：L、C、CH、PFC、U、Z；
-- 管材：RHS、SHS、CHS、PIPE；
+- 板材：PL、FB、FL、BL；
+- 焊接与箱形：BH、BBH、RH、BOX、XBOX、BT、PX；
+- H/I/T 型：H、HW、HM、HN、HT、HE、HEA、HEB、HEM、HL、HD、HP、I、IPE、IPN、INP、UB、UC、W、S、M、T、WT、ST、MT；
+- 角钢与槽钢：L、C、CH、PFC、MC、U、UPN、UPE、Z；
+- 管材：RHS、SHS、CHS、HSS、PIPE；
 - 棒材：RB、SB。
 
-标题栏出现安全、明确但未登记的英文前缀时，程序会保留该具体前缀，不会擅自合并；例如 `TT25` 输出到 `<项目名称>_TT_dxf`。材料牌号（如 Q355B）、纯数字、比例和含路径字符的文本不会成为零件类型。
+标题栏出现安全、明确但未登记的英文前缀时，程序会自动发现并保留该具体前缀，不会擅自合并；例如 `TT25` 输出到 `<项目名称>_TT_dxf`。报告中将其标记为 `type_source=auto_discovered`，并记录 `PROFILE_TYPE_AUTO_DISCOVERED`；唯一标题栏证据充分时仍可设置 `next_stage_eligible=true`。自动发现前缀必须由 2–12 个 ASCII 字母组成并带数值尺寸主体；单字母未知前缀、材料牌号（如 Q355B）、螺栓规格（如 M20）、纯数字、比例和含路径字符的文本不会成为零件类型。
 
 ## 证据边界
 
@@ -118,7 +119,7 @@ uv run steel-dxf-classify /data/项目2_dxf --overwrite
 - `1`：输入契约、已有输出、文件系统或批处理事务失败。
 - `64`：命令参数或输入目录命名契约错误；stdout 为空，原因写入 stderr。
 
-`--json` 是流程摘要；`STEEL-DXF-CLASSIFICATION-1.1` JSON 报告保存完整候选、坐标、图层、实体类型、块路径、解码器和诊断码；CSV 用于技术人员快速筛选。输出先在 staging 中完整构造并核对数量，再提升到正式目录。
+`--json` 是流程摘要；`STEEL-DXF-CLASSIFICATION-1.2` JSON 报告保存完整候选、坐标、图层、实体类型、块路径、解码器、诊断码，以及 `profile_raw`、`profile_normalized`、`type_source`、`group_key` 和 `next_stage_eligible`。CSV 用于技术人员快速筛选。输出先在 staging 中完整构造并核对数量，再提升到正式目录。
 
 `--overwrite` 只替换与当前项目同名的分类目录和报告；提升新结果失败时会恢复旧结果。输入 DXF 的文件名会按上述规则原地修改，但其字节内容不变，输出副本应与预处理后的输入逐字节一致。
 

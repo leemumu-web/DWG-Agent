@@ -29,7 +29,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、147 个 OpenAPI path 和 171 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、150 个 OpenAPI path 和 174 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 42 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 43 张表；Celery runtime 全部初始化后最多 51 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
@@ -41,7 +41,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.1.0 分类分流、九阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | DXF→Excel 已移出主流程；图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口 |
+| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、九阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | DXF→Excel 已移出主流程；图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为显式留白接口 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和机器可读能力契约已归 `automation` | 核心执行留白；无 Agent task、LLM/LangGraph/MCP 执行器，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、拆板、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；已交付的 Steel DXF 分类属于 Linux 流程 |
@@ -84,7 +84,7 @@ Celery workers（无入站监听端口）
 | DWG → DXF / `dxf` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF_PIPELINE_ENABLED=false` | ODA File Converter、无头 X 环境、源 DWG 校验通过 |
 | DXF → DWG / `dxf2dwg` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF2DWG_PIPELINE_ENABLED=false` | 同上，并要求有效 DXF |
 | DXF → Excel / `dxf2excel` | ⚠️ Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
-| Steel DXF 分类 / `dxf_classification` | ⚠️ Classifier 1.1.0、Job/Workflow 编排、两张账本表及 DXF/JSON/CSV 双登记已接通 | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | 需要冻结的服务器派生 DXF 与代表性业务样本；分类不等于自动拆板 |
+| Steel DXF 分类 / `dxf_classification` | ⚠️ Classifier 1.2.0、PX/安全新类型、逐图数据库语义、目录详情和 DXF-only 分类/全量下载已接通；JSON/CSV 仅作审计登记 | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | 需要冻结的服务器派生 DXF 与代表性业务样本；分类不等于自动拆板 |
 | Excel Final / `excel_final` | ⚠️ backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
 | Agent / `agent` | ⏸️ API/持久化与队列名保留，没有注册 Celery task | `AGENT_ENABLED=false` | 缺少真实执行器；运行一个空闲 queue worker 也不代表能力可用 |
 | Windows / `cad` | ⏸️ `windows/` 按 Node Agent/CAM Runner/Adapter/协议保留外部合同，没有注册 Celery task | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |

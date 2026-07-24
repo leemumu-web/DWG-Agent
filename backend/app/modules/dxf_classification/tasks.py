@@ -1,4 +1,4 @@
-"""Celery entry point for Steel DXF Classifier 1.1.0."""
+"""Celery entry point for Steel DXF Classifier 1.2.0."""
 
 from __future__ import annotations
 

@@ -217,7 +217,7 @@
       "stages": ["Stages/steel_dxf_classifier_v1.1.0"],
       "tests": ["backend/tests/dxf_classification/test_dxf_classification_pipeline.py"],
       "docs": ["Stages/steel_dxf_classifier_v1.1.0/docs/IO_CONTRACT.md", "docs/architecture/workflow.md"],
-      "notes": "Classifier 1.1.0 output names and source/output relations are registered in MySQL and object storage."
+      "notes": "Classifier 1.2.0 output names, per-drawing type semantics, folder groups and source/output relations are registered in MySQL and object storage."
     },
     {
       "code": "excel_processing",

@@ -74,7 +74,7 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 
 ### 3.5 `dxf_classification_runs` / `dxf_classification_items`
 
-每个 Job attempt 建立独立分类 run，保存 workflow/project/job、冻结输入清单 SHA-256、分类器/CLI/报告 schema 版本、汇总、JSON 报告和 CSV 清单文件引用。逐图 item 保存 Drawing、来源派生 DXF、分流输出 DXF、处置、零件类型、诊断、证据和遵循 1.1.0 的输出目录名。`(job_id, job_attempt)` 与 `(run_id, source_file_id)` 唯一，旧 attempt 不覆盖新结果。
+每个 Job attempt 建立独立分类 run，保存 workflow/project/job、冻结输入清单 SHA-256、分类器/CLI/报告 schema 版本、汇总、JSON 报告和 CSV 清单文件引用。逐图 item 保存 Drawing、来源派生 DXF、分流输出 DXF、处置、零件类型、原始/规范规格、类型来源、稳定 `group_key`、`next_stage_eligible`、诊断、证据和遵循 1.2.0 的输出目录名。`(job_id, job_attempt)` 与 `(run_id, source_file_id)` 唯一，旧 attempt 不覆盖新结果。
 
 ## 4. 状态与执行
 
@@ -110,11 +110,13 @@ completion API 只接受当前可操作阶段：
 
 1. 要求 `DXF_CLASSIFICATION_PIPELINE_ENABLED=true`，且生产输入已经冻结；
 2. 只读取冻结条目登记的服务器派生 DXF，重新核对对象大小和 SHA-256；
-3. 临时输入目录命名为 `<项目代码>-workflow-<id>_dxf`，通过 `python -m steel_dxf_classifier.cli --json` 调用 1.1.0 正式进程契约；
+3. 临时输入目录命名为 `<项目代码>-workflow-<id>_dxf`，通过 `python -m steel_dxf_classifier.cli --json` 调用 1.2.0 正式进程契约；
 4. 分类器只在临时副本上增加 `*_拆板前.dxf`，原始 MinIO DXF 不改名；
 5. 输出严格使用 `<项目名>_<零件类型>_dxf`、`<项目名>_待确认_dxf`、`<项目名>_无法读取_dxf`，逐图核对报告、数量和字节摘要；
 6. 每个分流 DXF、JSON 报告和 CSV 清单分别写入 MinIO、登记 `files`，并关联 classification item/artifact/result；
 7. CLI 退出码 2 表示“完成但需确认”，仍保存完整结果并进入拆板留白阶段；退出码 1/64 或契约不一致使当前 attempt 失败并允许重试。
+
+分类查询按数据库 `group_key` 聚合为类型、待确认和无法读取文件夹，逐类详情分页读取；下一阶段公共接口只返回 `next_stage_eligible=true` 且输出对象存在的 DXF。分类页面不展示 JSON/CSV 审计文件。任一类别或全部分类下载都复用 Files 的权限、传输账本和流式 ZIP，且 ZIP 成员严格限于已登记 `.dxf`。
 
 `excel_stage1`：
 

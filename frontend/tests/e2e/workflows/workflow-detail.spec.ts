@@ -440,6 +440,9 @@ test('production route inspects stages safely and keeps classification output co
   await expect.poll(() => categoryArchiveRequests).toBe(1);
   expect(categoryDownload.suggestedFilename()).toBe('workflow-42-dxf-PX.zip');
 
+  await page.getByRole('dialog', { name: 'PX · 3 张 DXF' }).getByRole('button', { name: '关闭' }).click();
+  await expect(page.getByRole('dialog', { name: 'PX · 3 张 DXF' })).toBeHidden();
+
   const allDownloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: '下载全部 DXF' }).click();
   const allDownload = await allDownloadPromise;

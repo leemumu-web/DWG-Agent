@@ -102,7 +102,7 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `DXF_PIPELINE_ENABLED` | `false` | 启用 DWG -> DXF Job 创建 |
 | `DXF2DWG_PIPELINE_ENABLED` | `false` | 启用 DXF -> DWG Job 创建 |
 | `DXF2EXCEL_PIPELINE_ENABLED` | `false` | 启用 DXF batch -> Excel Job 创建 |
-| `DXF_CLASSIFICATION_PIPELINE_ENABLED` | `false` | 启用冻结生产 DXF 的 Steel DXF Classifier 1.1.0 分类分流 Job |
+| `DXF_CLASSIFICATION_PIPELINE_ENABLED` | `false` | 启用冻结生产 DXF 的 Steel DXF Classifier 1.2.0 分类分流 Job |
 | `EXCEL_FINAL_PIPELINE_ENABLED` | `false` | 启用 Excel Final 端点/Job |
 | `CAD_WORKER_ENABLED` | `false` | Windows worker 缺失时必须保持 false |
 | `CELERY_TASK_ALWAYS_EAGER` | `false` | 测试/开发捷径，不是生产 worker 拓扑 |

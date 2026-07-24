@@ -42,7 +42,7 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 - 文件行、对象字节和传输补偿仍归 `files`；工作流只保存 `file_id`。
 - Job、Step、Result、attempt 和 Celery 投递仍归 `jobs`；工作流只绑定当前 attempt。
 - Drawing/Version 仍归 `projects`；冻结用例在同一数据库事务中组合它们。
-- 分类 run/item 和 Classifier 1.1.0 仍归 `dxf_classification`；分类通过工作流公开接口读取
+- 分类 run/item 和 Classifier 1.2.0 仍归 `dxf_classification`；分类通过工作流公开接口读取
   已验证对象并挂接 artifact。
 - `files` 删除保护通过延迟调用 `workflows.interface.find_frozen_input_reference` 获取不可变
   标识，避免 files/workflows 两个公开接口在 import 时形成环。

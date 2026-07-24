@@ -174,7 +174,7 @@ worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_
 | DWG -> DXF | `dxf` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
 | DXF -> DWG | `dxf2dwg` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
 | DXF -> Excel | `dxf2excel` | service/task 与父仓库跟踪 Stage | flag 关闭；大规模验证 corpus 不随源码分发 |
-| Steel DXF classification | `dxf_classification` | 1.1.0 Stage、task、两张账本表、Workflow 与 DXF/JSON/CSV 登记 | flag 关闭；分类准确率需真实样本，且不等于拆板 |
+| Steel DXF classification | `dxf_classification` | 1.2.0 Stage、task、两张账本表、显式逐图语义、Workflow 分类目录与 DXF-only 下载；DXF/JSON/CSV 均登记 | flag 关闭；分类准确率需真实样本，且不等于拆板 |
 | Excel Final | `excel_final` | 隔离 Stage + 关系化导入 | flag 关闭；需要内容 schema 和手册库 |
 | Agent | `agent` | 三张表、会话 memory、API 与 capability contract | 无注册 task/执行器；queue/process 只能是 contract-only |
 | Windows CAD | `cad` | 配置与外部 Node/CAM/协议合同 | 无 task、worker、service 或 Compose node |

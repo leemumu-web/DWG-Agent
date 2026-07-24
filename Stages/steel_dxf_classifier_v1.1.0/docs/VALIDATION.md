@@ -1,6 +1,6 @@
 # 发布验证记录
 
-本文记录 1.1.0 正式发布候选在真实 Tekla DXF 数据上的验收结果。原始 ZIP 保留不变，先完整解压，再对目标目录第一层的 DXF 执行分类；解压目录、分类目录、`STEEL-DXF-CLASSIFICATION-1.1` JSON 和 CSV 均作为中间结果保留。
+本文记录 Steel DXF Classifier 1.2.0 对既有真实 Tekla DXF 语料的回归基线。原始 ZIP 保留不变，先完整解压，再对目标目录第一层的 DXF 执行分类；解压目录、分类目录、`STEEL-DXF-CLASSIFICATION-1.2` JSON 和 CSV 均作为中间结果保留。
 
 ## 真实项目结果
 
@@ -33,15 +33,17 @@
 
 内容集合摘要的计算只取每张 DXF 的 SHA-256，再排序汇总，因此不受文件名变化影响。摘要一致证明迁移过程中 DXF 字节内容保持不变。
 
-## 1.1 JSON 流验证
+## 1.2 JSON 流与类型语义验证
 
-两个项目均通过 `steel-dxf-classify --json <项目目录> --overwrite` 重新验证。每次 stdout 只产生一个 `STEEL-DXF-CLI-1.1` JSON 对象，stderr 为空、退出码为 0；对象中的 `summary` 与同次生成的 `STEEL-DXF-CLASSIFICATION-1.1` 文件报告汇总一致。
+两个真实项目的数量和字节摘要继续作为回归基线。1.2 自动化测试验证 stdout 只产生一个 `STEEL-DXF-CLI-1.2` JSON 对象，且对象中的 `summary` 与同次生成的 `STEEL-DXF-CLASSIFICATION-1.2` 文件报告汇总一致。
 
 - 项目1：`status=completed`，输入 72，BH 67、BOX 2、PL 3；
 - 项目2：`status=completed`，输入 171，BH 141、BOX 30；
 - 两个项目的待确认和无法读取均为 0。
 
 真实数据全部自动通过不代表分类器会强制给出结果。单元测试另行覆盖字段缺失、候选冲突、损坏 DXF、中文转义、嵌套块、已有输出保护与事务回滚等失败路径；这些情况分别进入 `待确认`、`无法读取` 或以退出码 1 停止。
+
+1.2 类型语义回归另外覆盖 PX 目录类型、安全新前缀的自动发现、`type_source=auto_discovered`、稳定 `group_key` 和 `next_stage_eligible`。上述两组历史真实项目不包含 PX，表中的分布不用于冒充 PX 实物图验收；PX 与动态类型由构造的标题栏 DXF 自动化样本验证。
 
 ## 可复核产物
 

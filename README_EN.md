@@ -29,7 +29,7 @@ Status markers: **✅ Implemented** · **⚠️ Conditionally available** · **�
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Web and API | ✅ | React administration UI, Nginx gateway, 114 OpenAPI paths, and 135 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
+| Web and API | ✅ | React administration UI, Nginx gateway, 150 OpenAPI paths, and 174 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
 | Data | ✅ | MySQL 8.x is the only runtime source of business truth; Alembic manages 36 model tables, and Celery creates 8 broker/result tables on demand | A migrated empty database has 37 tables including `alembic_version`; up to 45 after all Celery runtime tables exist; SQLite is used only by pytest |
 | Asynchronous jobs | ✅ | Celery uses the MySQL SQLAlchemy transport and MySQL result backend | Suitable for the current bounded worker topology; not equivalent to a high-throughput message broker |
 | Runtime communication | ✅ | MySQL persists best-effort worker observations, control-plane events, and administrator messages | RabbitMQ, Beat, Outbox, and a Windows Node Agent remain explicit target contracts |
@@ -41,7 +41,7 @@ Status markers: **✅ Implemented** · **⚠️ Conditionally available** · **�
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Linux production workflow | ⚠️ | Multiple-DWG + one-Excel intake, server-side DWG→DXF pairing/freezing, Steel DXF Classifier 1.1.0 routing, ten stages, DXF→Excel/Excel Final Jobs, attempt synchronization, and a production console | Plate splitting, CAM packaging, Windows/SinoCAM, and result acceptance remain explicit placeholder/external stages |
+| Linux production workflow | ⚠️ | Multiple-DWG + one-Excel intake, server-side DWG→DXF pairing/freezing, Steel DXF Classifier 1.2.0 routing, ten stages, DXF→Excel/Excel Final Jobs, attempt synchronization, and a production console | Plate splitting, CAM packaging, Windows/SinoCAM, and result acceptance remain explicit placeholder/external stages |
 | Conversion pipelines | ⚠️ | Service paths for report, DWG → DXF, DXF → DWG, DXF → Excel, and Excel Final; authenticated SVG preview for DXF | All four business pipelines are disabled by default and depend on ODA, Stage integrity, or the handbook database; online preview has independent size/complexity limits |
 | Agent | ⏸️ | Three MySQL tables, bounded session memory, API/permission boundaries, and machine-readable capability contracts are grouped under `automation` | No Agent Celery task or LLM/LangGraph/MCP executor exists; `AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Node/CAM/protocol directories and a draft control-plane contract remain | Node authentication, leases/fencing, plate splitting, left/right feed, interactive CAD, CAM Runner, and SinoCAM Adapter are not implemented; Steel DXF classification is a delivered Linux slice |
@@ -84,7 +84,7 @@ Celery workers (no inbound listening ports)
 | DWG → DXF / `dxf` | ⚠️ Service, task, tests, and ODA adapter exist | `DXF_PIPELINE_ENABLED=false` | ODA File Converter, a headless X environment, and a validated source DWG |
 | DXF → DWG / `dxf2dwg` | ⚠️ Service, task, tests, and ODA adapter exist | `DXF2DWG_PIPELINE_ENABLED=false` | Same as above, plus a valid DXF input |
 | DXF → Excel / `dxf2excel` | ⚠️ Stage source, platform service/task, and tests are tracked in the parent repository | `DXF2EXCEL_PIPELINE_ENABLED=false` | Valid DXF, Stage locked dependencies; built-in tests cover decoding only; real batches still require external corpus acceptance |
-| Steel DXF classification / `dxf_classification` | ⚠️ Classifier 1.1.0, Job/Workflow orchestration, two ledger tables, and registered DXF/JSON/CSV outputs are wired | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | Requires frozen server-derived DXFs and representative business samples; classification is not plate splitting |
+| Steel DXF classification / `dxf_classification` | ⚠️ Classifier 1.2.0, PX/safe discovered types, explicit per-drawing DB semantics, folder details, and DXF-only category/all downloads are wired; JSON/CSV remain audit records | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | Requires frozen server-derived DXFs and representative business samples; classification is not plate splitting |
 | Excel Final / `excel_final` | ⚠️ Backend adapter, isolated subprocess, relational import, and Stage tests exist | `EXCEL_FINAL_PIPELINE_ENABLED=false` | Valid Tekla/initial-sheet schema, read-only `hardware_handbook` database, and sufficient timeout |
 | Agent / `agent` | ⏸️ API/persistence and the queue name remain; no Celery task is registered | `AGENT_ENABLED=false` | A connected idle queue worker does not make the missing executor available |
 | Windows / `cad` | ⏸️ `windows/` separates Node Agent, CAM Runner, Adapter, and protocol contracts; no Celery task is registered | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |

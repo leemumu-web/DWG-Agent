@@ -19,7 +19,7 @@
 - 用户、角色、权限、项目成员、文件、图纸版本、任务、结果、复核与审计。
 - MySQL 权威状态、Celery SQL broker/result、本地或 MinIO 对象存储。
 - report/maintenance 框架任务及受功能开关保护的确定性 CAD、分类和 Excel 管线。
-- 项目级工作流、多个 DWG + 单个 Excel 的生产输入、服务器 DWG→DXF、输入冻结、Steel DXF Classifier 1.1.0 分类分流、阶段推进、审计 API 和生产流程页面。
+- 项目级工作流、多个 DWG + 单个 Excel 的生产输入、服务器 DWG→DXF、输入冻结、Steel DXF Classifier 1.2.0 分类分流、阶段推进、审计 API 和生产流程页面。
 - 前端登录刷新、分页、轮询/SSE、重试和签名下载交互。
 
 目标架构中已有契约但当前尚未实现：
@@ -183,7 +183,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 144 个 path、169 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 150 个 path、174 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
