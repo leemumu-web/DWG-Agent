@@ -63,13 +63,14 @@ def test_linux_production_template_has_complete_ordered_server_framework(db):
         "dxf_classification",
         "drawing_processing",
         "excel_stage1",
+        "excel_stage2",
         "design_barrier",
         "cam_packaging",
         "windows_cam",
         "result_acceptance",
         "delivery_archive",
     ]
-    assert workflow.config_json == {"definition_revision": 3}
+    assert workflow.config_json == {"definition_revision": 4}
 
 
 def test_linux_production_template_exposes_honest_capabilities():
@@ -90,6 +91,15 @@ def test_linux_production_template_exposes_honest_capabilities():
     assert stages["excel_stage1"].execution_kind == "excel_stage1"
     assert stages["excel_stage1"].required_inputs == ["source_excel"]
     assert stages["excel_stage1"].artifact_types == ["stage1_excel"]
+    assert stages["excel_stage2"].execution_mode == "placeholder"
+    assert stages["excel_stage2"].implementation_status == "placeholder"
+    assert stages["excel_stage2"].execution_kind == "excel_stage2"
+    assert stages["excel_stage2"].required_inputs == ["stage1_excel", "processed_dxf"]
+    assert stages["excel_stage2"].artifact_types == ["stage2_excel"]
+    assert stages["excel_stage2"].required_outputs == ["stage2_excel"]
+    assert stages["design_barrier"].required_inputs == ["processed_dxf", "stage2_excel"]
+    assert "stage2_excel" in stages["cam_packaging"].required_inputs
+    assert "stage2_excel" in stages["delivery_archive"].required_inputs
     assert "excel_final" not in stages
     assert all(stage.execution_kind != "dxf_to_excel" for stage in production.stages)
     assert stages["drawing_processing"].implementation_status == "placeholder"
@@ -109,6 +119,42 @@ def test_workflow_stage_execution_request_is_closed_and_parameter_free():
     ):
         with pytest.raises(ValidationError):
             WorkflowStageExecutionCreate(execution_kind="excel_stage1", **extra)
+
+
+def test_excel_stage2_execution_is_rejected_without_creating_job(db):
+    user, project = _owner_project(db)
+    workflow = workflow_service.create_workflow(
+        db,
+        WorkflowCreate(
+            project_id=project.id,
+            name="Stage 2 placeholder",
+            workflow_type="linux_production",
+        ),
+        created_by=user.id,
+    )
+    for stage in workflow.stages:
+        if stage.stage_code == "excel_stage2":
+            stage.status = "waiting_input"
+        elif stage.sequence < 5:
+            stage.status = "succeeded"
+            stage.progress = 100
+    workflow.current_stage = "excel_stage2"
+    workflow.status = "waiting_input"
+    job_count = db.query(Job).count()
+
+    with pytest.raises(AppHTTPException) as caught:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="excel_stage2",
+            payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+            current_user=user,
+        )
+
+    assert caught.value.status_code == 501
+    assert caught.value.detail["code"] == "WORKFLOW_STAGE_NOT_IMPLEMENTED"
+    assert caught.value.detail["details"]["stage_code"] == "excel_stage2"
+    assert db.query(Job).count() == job_count
 
 
 def test_legacy_workflow_templates_keep_their_stage_order(db):

@@ -41,13 +41,18 @@ EXPECTED_DRAWING_FLOW = {
         "artifact_types": ["stage1_excel"],
         "required_outputs": ["stage1_excel"],
     },
+    "excel_stage2": {
+        "required_inputs": ["stage1_excel", "processed_dxf"],
+        "artifact_types": ["stage2_excel"],
+        "required_outputs": ["stage2_excel"],
+    },
     "design_barrier": {
-        "required_inputs": ["processed_dxf", "stage1_excel"],
+        "required_inputs": ["processed_dxf", "stage2_excel"],
         "artifact_types": ["review_record"],
         "required_outputs": ["review_record"],
     },
     "cam_packaging": {
-        "required_inputs": ["processed_dxf", "stage1_excel", "review_record"],
+        "required_inputs": ["processed_dxf", "stage2_excel", "review_record"],
         "artifact_types": ["cam_input_dxf", "cam_package_manifest"],
         "required_outputs": ["cam_input_dxf", "cam_package_manifest"],
     },
@@ -62,7 +67,7 @@ EXPECTED_DRAWING_FLOW = {
         "required_outputs": ["accepted_dxf", "acceptance_report"],
     },
     "delivery_archive": {
-        "required_inputs": ["accepted_dxf", "stage1_excel", "acceptance_report"],
+        "required_inputs": ["accepted_dxf", "stage2_excel", "acceptance_report"],
         "artifact_types": ["delivery_dxf", "delivery_excel", "archive_manifest"],
         "required_outputs": ["delivery_dxf", "delivery_excel", "archive_manifest"],
     },
@@ -226,7 +231,7 @@ def test_linux_production_has_no_generic_drawing_artifacts():
     assert published.isdisjoint(forbidden)
 
 
-def test_new_linux_workflow_uses_definition_revision_three(db):
+def test_new_linux_workflow_uses_definition_revision_four(db):
     user, project = _owner_project(db)
 
     workflow = workflow_service.create_workflow(
@@ -239,7 +244,7 @@ def test_new_linux_workflow_uses_definition_revision_three(db):
         created_by=user.id,
     )
 
-    assert workflow.config_json == {"definition_revision": 3}
+    assert workflow.config_json == {"definition_revision": 4}
 
 
 def test_dxf_artifact_rejects_excel_file(db):

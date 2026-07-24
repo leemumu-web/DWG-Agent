@@ -45,6 +45,7 @@ def test_linux_production_workflow_documentation_matches_public_routes() -> None
         "dxf_classification",
         "drawing_processing",
         "excel_stage1",
+        "excel_stage2",
         "design_barrier",
         "cam_packaging",
         "windows_cam",
