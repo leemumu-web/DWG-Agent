@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
+import re
 
 from domain import PipelineOutcome
 
@@ -35,6 +36,7 @@ _ACTION_BY_CATEGORY = {
     "构件编号冲突": "统一冲突的构件身份和数据后重新处理",
     "导入零件身份冲突": "统一冲突的零件身份和几何数据后重新处理",
     "拆板几何异常": "修正 BH/BOX/BT 截面尺寸后重新处理",
+    "拆板重量守恒异常": "检查拆板规格和数量倍率后重新处理",
     "源重量链异常": "核对单重、总重、数量及净毛重关系后重新处理",
     "净重大于毛重": "核对单重、总重、数量及净毛重关系后重新处理",
     "几何理论重与毛重": "抽查轮廓、切割和毛坯口径；仅在源毛重用于下料或采购时人工确认",
@@ -51,6 +53,11 @@ _SECONDARY_WEIGHT_REVIEW_CATEGORIES = frozenset(
     }
 )
 _REPRESENTATIVE_LIMIT = 3
+_FABRICATED_THEORY_BASIS = {
+    "BH": "BH拆板合计父理论重（腹板×1+翼板×2）",
+    "BOX": "BOX拆板合计父理论重（腹板×2+翼板×2）",
+    "BT": "BT拆板合计父理论重（腹板×1+翼板×1）",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +134,7 @@ class QualityLedger:
                     issue.level,
                     issue.category,
                     issue.source_sheet,
+                    _geometry_theory_basis(issue),
                     _comparison_direction(issue),
                     action,
                 )
@@ -147,7 +155,7 @@ class QualityLedger:
             source_rows = _unique((issue.source_sheet, issue.source_row) for issue in issues)
             if first.category == "几何理论重与毛重":
                 direction = _comparison_direction(first)
-                description = f"源毛重{direction}几何理论重"
+                description = f"源毛重{direction}{_geometry_theory_basis(first)}"
                 relative_errors = [
                     issue.relative_error
                     for issue in issues
@@ -220,6 +228,14 @@ def _comparison_direction(issue: QualityIssue) -> str:
     if actual < expected:
         return "低于"
     return "等于"
+
+
+def _geometry_theory_basis(issue: QualityIssue) -> str:
+    compact = re.sub(r"\s+", "", str(issue.spec or "")).upper()
+    for prefix, basis in _FABRICATED_THEORY_BASIS.items():
+        if compact.startswith(prefix):
+            return basis
+    return "几何理论重"
 
 
 def _source_representatives(

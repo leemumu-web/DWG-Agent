@@ -368,10 +368,55 @@ def test_quality_report_compacts_geometry_review_and_prioritizes_severe_rows() -
     assert len(rows) == 2
     geometry = next(row for row in rows if row["类别"] == "几何理论重与毛重")
     assert geometry["来源位置"] == "原表!11"
-    assert geometry["说明"] == "源毛重低于几何理论重；最大相对偏差 10.00%"
+    assert geometry["说明"] == (
+        "源毛重低于BOX拆板合计父理论重（腹板×2+翼板×2）；"
+        "最大相对偏差 10.00%"
+    )
     assert geometry["建议操作"] == ("抽查轮廓、切割和毛坯口径；仅在源毛重用于下料或采购时人工确认")
     severe = next(row for row in rows if row["类别"] == "源重量链异常")
     assert severe["来源位置"] == "原表!10"
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_basis"),
+    [
+        ("BH500*300*10*16", "BH拆板合计父理论重（腹板×1+翼板×2）"),
+        ("BOX400*400*16*16", "BOX拆板合计父理论重（腹板×2+翼板×2）"),
+        ("BT500*300*10*16", "BT拆板合计父理论重（腹板×1+翼板×1）"),
+    ],
+)
+def test_geometry_report_names_weighted_fabricated_parent_basis(
+    spec: str,
+    expected_basis: str,
+) -> None:
+    quality = _quality()
+    ledger = quality.QualityLedger()
+    ledger.add(
+        quality.QualityIssue(
+            level=quality.IssueLevel.WARNING,
+            category="几何理论重与毛重",
+            source_sheet="原表",
+            source_row=8,
+            component_no="C1",
+            part_no="P1",
+            spec=spec,
+            field="单毛重",
+            actual_value=Decimal("90"),
+            expected_value=Decimal("100"),
+            absolute_error=Decimal("10"),
+            relative_error=Decimal("0.1"),
+            affects_part=False,
+            density_source="plate_constant:7.85",
+            description="单毛重与父理论重量偏差超限",
+        )
+    )
+
+    report = ledger.report_rows()
+
+    assert len(report) == 1
+    assert report[0]["说明"] == (
+        f"源毛重低于{expected_basis}；最大相对偏差 10.00%"
+    )
 
 
 def test_quality_report_keeps_handbook_specs_separate_for_standard_review() -> None:

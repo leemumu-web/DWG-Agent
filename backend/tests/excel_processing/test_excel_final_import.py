@@ -259,6 +259,25 @@ def test_excel_final_parts_imports_sparse_rows_and_optional_fields(db: Session, 
     assert part.qty == 0
 
 
+def test_excel_final_import_preserves_d_series_display_spec(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    batch = _batch(db)
+    output_path = tmp_path / "d-series.xlsx"
+    _workbook(
+        output_path,
+        ["序号", "构件编号", "零件号", "截面型材", "规格", "长度", "材质", "数量"],
+        [[1, "C-1", "P-D24", "D24", "D24", 1000, "Q355B", 1]],
+    )
+
+    assert import_parts_to_db(db, batch.id, output_path) == {"parts_imported": 1}
+    part = db.scalar(select(ExcelFinalPart))
+    assert part is not None
+    assert part.profile_spec == "D24"
+    assert part.spec == "D24"
+
+
 def test_excel_final_parts_never_persists_negative_physical_values(
     db: Session,
     tmp_path: Path,

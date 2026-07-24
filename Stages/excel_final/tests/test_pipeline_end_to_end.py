@@ -223,7 +223,7 @@ def test_split_parent_utilization_remains_a_parent_formula_in_internal_output(
 
     output = tmp_path / "box-output.xlsx"
     internal = tmp_path / "box-internal.xlsx"
-    run_auto_pipeline(
+    outcome = run_auto_pipeline(
         source,
         output,
         handbook_repository=FakeHandbook(),
@@ -250,12 +250,23 @@ def test_split_parent_utilization_remains_a_parent_formula_in_internal_output(
 
         assert value_sheet.cell(web_row, columns["单净重(kg)"]).value == 28
         assert value_sheet.cell(flange_row, columns["单净重(kg)"]).value is None
+        assert value_sheet.cell(web_row, columns["单毛重(kg)"]).value == 28.26
+        assert value_sheet.cell(flange_row, columns["单毛重(kg)"]).value is None
+        assert (
+            value_sheet.cell(web_row, columns["理总重(kg)"]).value
+            + value_sheet.cell(flange_row, columns["理总重(kg)"]).value
+        ) == pytest.approx(28.26)
         assert formula.startswith(f"={unit_net_column}{web_row}/(")
         assert f"{theory_column}{web_row}" not in formula
         assert value_sheet.cell(web_row, utilization_column).value == pytest.approx(
             28 / 28.26
         )
         assert formula_sheet.cell(flange_row, utilization_column).value is None
+        assert outcome.quality_status == "ok"
+        report_rows = list(
+            values["处理报告"].iter_rows(min_row=2, values_only=True)
+        )
+        assert report_rows == [("无", None, None, None, None, None, None, None)]
     finally:
         formulas.close()
         values.close()
@@ -362,6 +373,10 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
     assert by_part["p-box"][1]["理总重(kg)"] == 31.4
     assert by_part["p-box"][1]["比重"] == 7.85
     assert sum(row["理总重(kg)"] for row in by_part["p-box"]) == pytest.approx(56.52)
+    assert by_part["p-round"][0]["规格"] == "D24"
+    assert by_part["p-rebar"][0]["规格"] == "D24"
+    assert ("round_bar", "24", "Q355B") in handbook.requests
+    assert ("rebar", "24", "HRB400") in handbook.requests
     assert by_part["p-nut"][0]["比重"] is None
     assert by_part["p-nut"][0]["理单重(kg)"] is None
     assert by_part["p-tt"][0]["比重"] is None

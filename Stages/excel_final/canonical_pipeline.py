@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+import re
 from typing import Iterable, Protocol
 
 from domain import ComponentSourceRow, ParentPartEvidence, PipelineOutcome, SourcePart
@@ -302,6 +303,17 @@ def _number_or_text(value: str) -> Decimal | str:
         return Decimal(value)
     except InvalidOperation:
         return value
+
+
+def _display_spec(classification: ClassificationResult) -> Decimal | str:
+    compact_original = re.sub(
+        r"\s+",
+        "",
+        classification.original_spec,
+    ).upper()
+    if re.fullmatch(r"D\d+(?:\.\d+)?", compact_original):
+        return f"D{classification.normalized_spec}"
+    return _number_or_text(classification.normalized_spec)
 
 
 def _rounded(value: Decimal | None) -> Decimal | None:
@@ -653,7 +665,7 @@ def process_canonical_records(
                     resolved,
                     part_type=classification.normalized_type,
                     import_part_no=source.part_no,
-                    spec=_number_or_text(classification.normalized_spec),
+                    spec=_display_spec(classification),
                     width=classification.normalized_width,
                     quantity=source.original_qty,
                     display_parent=True,
@@ -681,7 +693,7 @@ def process_canonical_records(
             resolved,
             part_type=classification.normalized_type,
             import_part_no=source.part_no,
-            spec=_number_or_text(classification.normalized_spec),
+            spec=_display_spec(classification),
             width=classification.normalized_width,
             quantity=source.original_qty,
             display_parent=True,

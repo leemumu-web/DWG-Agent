@@ -160,6 +160,32 @@ def test_split_children_retain_parent_reference_and_main_role() -> None:
     assert flange.theoretical_contribution_unrounded > 0
 
 
+def test_split_rejects_parent_theory_that_does_not_equal_weighted_children() -> None:
+    splitter = _splitter()
+    parent = _parent("BH700*300*16*30")
+    inconsistent = replace(
+        parent,
+        theoretical_unit_weight_unrounded=(
+            parent.theoretical_unit_weight_unrounded - Decimal("1")
+        ),
+    )
+
+    result = splitter.split_parent(
+        inconsistent,
+        classify_normalized_spec(
+            inconsistent.source.original_spec,
+            material=inconsistent.source.material,
+        ),
+    )
+
+    assert result.children == ()
+    assert len(result.issues) == 1
+    assert result.issues[0].level.value == "严重"
+    assert result.issues[0].category == "拆板重量守恒异常"
+    assert result.issues[0].field == "理单重"
+    assert result.issues[0].affects_part is True
+
+
 def test_invalid_inset_geometry_is_severe_and_has_no_children() -> None:
     splitter = _splitter()
     source = _parent("BH700*300*16*30").source

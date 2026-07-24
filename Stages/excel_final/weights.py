@@ -95,7 +95,19 @@ def fabricated_parent_unit_weight(
         web_thickness,
         flange_thickness,
     )
-    return fabricated.cross_section_area * length * density / Decimal("1000000")
+    return sum(
+        (
+            plate_unit_weight(
+                child.thickness,
+                child.width,
+                length,
+                density,
+            )
+            * child.quantity_multiplier
+            for child in fabricated.children()
+        ),
+        start=Decimal("0"),
+    )
 
 
 def round_weight_for_output(value: Decimal) -> Decimal:
