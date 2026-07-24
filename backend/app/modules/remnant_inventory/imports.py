@@ -84,6 +84,12 @@ def normalize_source_relative_path(value: str) -> str:
             "REMNANT_SOURCE_PATH_INVALID",
             "图纸相对路径格式不正确。",
         )
+    if len(normalized) > 1024:
+        raise AppHTTPException(
+            422,
+            "REMNANT_SOURCE_PATH_TOO_LONG",
+            "图纸相对路径不能超过 1024 个字符。",
+        )
     parts = normalized.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         raise AppHTTPException(
@@ -114,6 +120,12 @@ def _source_folder_name(value: str | None) -> str | None:
             422,
             "REMNANT_SOURCE_FOLDER_INVALID",
             "来源文件夹名称格式不正确。",
+        )
+    if len(top_level) > 255:
+        raise AppHTTPException(
+            422,
+            "REMNANT_SOURCE_FOLDER_TOO_LONG",
+            "来源文件夹名称不能超过 255 个字符。",
         )
     return top_level
 

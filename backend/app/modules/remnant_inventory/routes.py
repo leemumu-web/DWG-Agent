@@ -254,7 +254,7 @@ def post_resolve_or_create_material(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
-    _require_user(current_user)
+    _require_admin(current_user)
     row, created = resolve_or_create_material(
         db, code=payload.code, actor_id=current_user.id
     )
@@ -428,19 +428,31 @@ async def post_import_batch(
 async def post_auto_import_batch(
     request: Request,
     current_user: CurrentUser,
-    files: list[UploadFile] = File(...),
-    relative_paths: list[str] = Form(...),
-    project_no: str = Form(...),
+    files: list[UploadFile] | None = File(None),
+    relative_paths: list[str] | None = Form(None),
+    project_no: str | None = Form(None),
     folder_name: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     _require_user(current_user)
-    if not files or len(files) > settings.remnant_import_max_files:
+    if not files:
+        raise AppHTTPException(
+            422,
+            "REMNANT_IMPORT_EMPTY",
+            "请至少选择一张图纸。",
+        )
+    if len(files) > settings.remnant_import_max_files:
         raise AppHTTPException(
             422,
             "REMNANT_IMPORT_FILE_COUNT_INVALID",
             "导入图纸数量不正确。",
             {"max_files": settings.remnant_import_max_files},
+        )
+    if relative_paths is None:
+        raise AppHTTPException(
+            422,
+            "REMNANT_SOURCE_PATH_REQUIRED",
+            "请提供与图纸一一对应的相对路径。",
         )
     if len(relative_paths) != len(files):
         raise AppHTTPException(
@@ -448,6 +460,8 @@ async def post_auto_import_batch(
             "REMNANT_SOURCE_PATH_COUNT_MISMATCH",
             "图纸文件与相对路径数量不一致。",
         )
+    if project_no is None or not project_no.strip():
+        raise AppHTTPException(422, "REMNANT_PROJECT_REQUIRED", "请填写项目编号。")
     stored_files: list[StoredFile] = []
     try:
         for upload in files:

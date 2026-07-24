@@ -322,6 +322,73 @@ def test_auto_batch_requires_one_path_per_file(db) -> None:
     assert captured.value.detail["code"] == "REMNANT_SOURCE_PATH_COUNT_MISMATCH"
 
 
+def test_auto_batch_accepts_source_metadata_at_storage_limits(db) -> None:
+    from app.modules.remnant_inventory.imports import register_import_batch
+
+    actor = _user(db)
+    source = _file(db, name="limit.dxf", sha="b" * 64, ext=".dxf")
+    relative_path = f"{'a' * 1020}.dxf"
+    folder_name = "根" * 255
+
+    batch = register_import_batch(
+        db,
+        actor_id=actor.id,
+        source_files=[source],
+        import_mode="auto",
+        default_project_no="P1",
+        source_folder_name=folder_name,
+        source_relative_paths=[relative_path],
+    )
+    item = db.query(RemnantImportItem).filter_by(batch_id=batch.id).one()
+
+    assert len(item.source_relative_path) == 1024
+    assert len(batch.source_folder_name) == 255
+
+
+@pytest.mark.parametrize(
+    ("folder_name", "relative_path", "code", "message"),
+    [
+        (
+            None,
+            f"{'a' * 1021}.dxf",
+            "REMNANT_SOURCE_PATH_TOO_LONG",
+            "图纸相对路径不能超过 1024 个字符。",
+        ),
+        (
+            "根" * 256,
+            "one.dxf",
+            "REMNANT_SOURCE_FOLDER_TOO_LONG",
+            "来源文件夹名称不能超过 255 个字符。",
+        ),
+    ],
+)
+def test_auto_batch_rejects_source_metadata_over_storage_limits(
+    db,
+    folder_name: str | None,
+    relative_path: str,
+    code: str,
+    message: str,
+) -> None:
+    from app.modules.remnant_inventory.imports import register_import_batch
+
+    actor = _user(db)
+    source = _file(db, name="too-long.dxf", sha="c" * 64, ext=".dxf")
+    with pytest.raises(HTTPException) as captured:
+        register_import_batch(
+            db,
+            actor_id=actor.id,
+            source_files=[source],
+            import_mode="auto",
+            default_project_no="P1",
+            source_folder_name=folder_name,
+            source_relative_paths=[relative_path],
+        )
+
+    assert captured.value.status_code == 422
+    assert captured.value.detail["code"] == code
+    assert captured.value.detail["message"] == message
+
+
 def test_bulk_project_and_single_item_cancel_update_only_owned_nonterminal_rows(db) -> None:
     from app.modules.remnant_inventory.imports import (
         bulk_apply_project,

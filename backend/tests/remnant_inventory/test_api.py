@@ -207,28 +207,24 @@ def test_material_api_uses_envelope_auth_and_admin_permissions(client, admin_hea
     } <= actions
 
 
-def test_worker_resolves_or_creates_material_but_cannot_administer_it(
-    client, worker_headers
+def test_worker_cannot_manually_create_or_administer_material(
+    client, worker_headers, admin_headers
 ) -> None:
     created = client.post(
-        "/api/v1/remnant-materials/resolve-or-create",
-        headers=worker_headers,
-        json={"code": "q355b"},
+        "/api/v1/remnant-materials",
+        headers=admin_headers,
+        json={"code": "Q355B", "family_code": "Q355"},
     )
     assert created.status_code == 201, created.text
     payload = created.json()["data"]
-    assert payload["created"] is True
-    assert payload["material"]["code"] == payload["material"]["family_code"] == "Q355B"
-
-    repeated = client.post(
+    forbidden = client.post(
         "/api/v1/remnant-materials/resolve-or-create",
         headers=worker_headers,
         json={"code": "Q355B"},
     )
-    assert repeated.status_code == 200, repeated.text
-    assert repeated.json()["data"]["created"] is False
+    assert forbidden.status_code == 403
 
-    material_id = payload["material"]["id"]
+    material_id = payload["id"]
     assert client.patch(
         f"/api/v1/remnant-materials/{material_id}",
         headers=worker_headers,
@@ -247,6 +243,67 @@ def test_worker_resolves_or_creates_material_but_cannot_administer_it(
             ).all()
         )
     assert len(audits) == 1
+
+
+def test_resolve_or_create_material_requires_admin(
+    client, worker_headers, admin_headers
+) -> None:
+    forbidden = client.post(
+        "/api/v1/remnant-materials/resolve-or-create",
+        headers=worker_headers,
+        json={"code": "Q460B"},
+    )
+    assert forbidden.status_code == 403
+    assert forbidden.json()["error"]["message"] == "该操作需要管理员权限。"
+
+    created = client.post(
+        "/api/v1/remnant-materials/resolve-or-create",
+        headers=admin_headers,
+        json={"code": "Q460B"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["data"]["material"]["code"] == "Q460B"
+
+
+@pytest.mark.parametrize(
+    ("files", "data", "message"),
+    [
+        (
+            None,
+            {"relative_paths": ["one.dxf"], "project_no": "P1"},
+            "请至少选择一张图纸。",
+        ),
+        (
+            [("files", ("one.dxf", _dxf_bytes(), "application/dxf"))],
+            {"project_no": "P1"},
+            "请提供与图纸一一对应的相对路径。",
+        ),
+        (
+            [("files", ("one.dxf", _dxf_bytes(), "application/dxf"))],
+            {"relative_paths": ["one.dxf"]},
+            "请填写项目编号。",
+        ),
+    ],
+)
+def test_auto_import_missing_multipart_fields_return_stable_chinese_errors(
+    client,
+    admin_headers,
+    files,
+    data,
+    message,
+) -> None:
+    response = client.post(
+        "/api/v1/remnant-import-batches/auto",
+        headers=admin_headers,
+        files=files,
+        data=data,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()["error"]
+    assert payload["message"] == message
+    assert payload["code"] not in payload["message"]
+    assert "Request validation failed" not in payload["message"]
 
 
 def test_worker_can_toggle_material_status_without_catalog_edit_access(
