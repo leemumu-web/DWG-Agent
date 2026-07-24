@@ -48,7 +48,7 @@ def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) ->
                 "This project already has its complete production workflow.",
                 {"project_id": project.id, "workflow_id": existing.id},
             )
-        config["definition_revision"] = 3
+        config["definition_revision"] = 4
     workflow = WorkflowRun(
         project_id=payload.project_id,
         created_by=created_by,

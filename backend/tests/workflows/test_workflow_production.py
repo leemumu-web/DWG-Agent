@@ -1136,7 +1136,7 @@ def test_successful_job_sync_attaches_result_once_and_advances(db):
 
     stage = next(item for item in workflow.stages if item.stage_code == "excel_stage1")
     artifacts = [item for item in workflow.artifacts if item.stage_run_id == stage.id]
-    assert workflow.current_stage == "design_barrier"
+    assert workflow.current_stage == "excel_stage2"
     assert workflow.status == "waiting_input"
     assert len(artifacts) == 1
     assert artifacts[0].artifact_type == "stage1_excel"
@@ -1292,7 +1292,7 @@ def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
 
 
 def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
-    """Exercise the complete nine-stage server-side state machine."""
+    """Exercise the complete ten-stage server-side state machine."""
     _, project, workflow = _production_workflow(db)
 
     def bind_and_complete(
@@ -1341,7 +1341,12 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
 
     _advance_to_drawing_processing(db, workflow)
     _complete_drawing_processing_fixture(db, workflow)
-    stage1 = finish_job("excel_stage1", "process_excel_final", "stage1.xlsx")
+    finish_job("excel_stage1", "process_excel_final", "stage1.xlsx")
+    stage2 = _stored_file(db, name="stage2.xlsx")
+    bind_and_complete(
+        "excel_stage2",
+        (("stage2_excel", stage2),),
+    )
     bind_and_complete(
         "design_barrier",
         (("review_record", "review-record.json"),),
@@ -1368,7 +1373,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         "delivery_archive",
         (
             ("delivery_dxf", "delivery.dxf"),
-            ("delivery_excel", stage1),
+            ("delivery_excel", stage2),
             ("archive_manifest", "archive-manifest.json"),
         ),
     )
@@ -1376,7 +1381,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
     assert workflow.current_stage == "delivery_archive"
-    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 9
+    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 10
     assert {artifact.artifact_type for artifact in workflow.artifacts} == {
         "source_dwg",
         "source_excel",
@@ -1387,6 +1392,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         "processed_dxf",
         "validation_report",
         "stage1_excel",
+        "stage2_excel",
         "review_record",
         "cam_input_dxf",
         "cam_package_manifest",

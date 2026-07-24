@@ -50,6 +50,7 @@ class WorkflowStageExecutionCreate(BaseModel):
     execution_kind: Literal[
         "steel_dxf_classification",
         "excel_stage1",
+        "excel_stage2",
         "drawing_processing",
         "cam_packaging",
         "windows_cam",
