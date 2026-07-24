@@ -192,6 +192,30 @@ def test_worker_exports_all_remnants_as_one_styled_row_per_remnant(client, worke
         assert db.scalar(select(AuditLog).where(AuditLog.action == "remnants.export")) is not None
 
 
+def test_export_neutralizes_formula_like_worker_text(client, worker_headers) -> None:
+    remnant_id = _seed_remnant()
+    with get_test_session_factory()() as db:
+        row = db.get(Remnant, remnant_id)
+        assert row is not None
+        row.project_no = "=1+1"
+        row.project_no_secondary = " +SUM(A1:A2)"
+        row.storage_location = "-2+3"
+        row.remark_1 = "@危险公式"
+        db.commit()
+
+    response = client.get("/api/v1/remnants/export.xlsx", headers=worker_headers)
+
+    assert response.status_code == 200, response.text
+    sheet = openpyxl.load_workbook(BytesIO(response.content))["全部余料"]
+    assert [sheet.cell(2, column).value for column in range(4, 8)] == [
+        "'=1+1",
+        "' +SUM(A1:A2)",
+        "'-2+3",
+        "'@危险公式",
+    ]
+    assert all(sheet.cell(2, column).data_type == "s" for column in range(4, 8))
+
+
 def test_empty_inventory_export_still_contains_the_header(client, worker_headers) -> None:
     response = client.get("/api/v1/remnants/export.xlsx", headers=worker_headers)
 

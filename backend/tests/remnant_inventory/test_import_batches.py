@@ -441,6 +441,58 @@ def test_bulk_project_and_single_item_cancel_update_only_owned_nonterminal_rows(
     assert batch.cancelled_count == 1
 
 
+def test_bulk_optional_metadata_updates_only_supplied_fields_and_allows_clear(db) -> None:
+    from app.modules.remnant_inventory.imports import bulk_apply_optional_metadata
+
+    actor = _user(db)
+    source = _file(db, name="optional-metadata.dxf", sha="7" * 64, ext=".dxf")
+    batch = RemnantImportBatch(created_by=actor.id, total_count=1)
+    db.add(batch)
+    db.flush()
+    item = RemnantImportItem(
+        batch_id=batch.id,
+        source_file_id=source.id,
+        source_sha256=source.sha256,
+        source_ext=".dxf",
+        status="pending_confirmation",
+        corrected_project_no_secondary="合同-02",
+        corrected_storage_location="A区-03架",
+    )
+    db.add(item)
+    db.flush()
+
+    changed = bulk_apply_optional_metadata(
+        db,
+        batch.id,
+        item_ids=[item.id],
+        actor=actor,
+        project_no_secondary=None,
+    )
+
+    assert changed == [item.id]
+    assert item.corrected_project_no_secondary is None
+    assert item.corrected_storage_location == "A区-03架"
+
+
+def test_bulk_optional_metadata_rejects_request_without_update_fields(db) -> None:
+    from app.modules.remnant_inventory.imports import bulk_apply_optional_metadata
+
+    actor = _user(db)
+    batch = RemnantImportBatch(created_by=actor.id, total_count=0)
+    db.add(batch)
+    db.flush()
+
+    with pytest.raises(HTTPException) as captured:
+        bulk_apply_optional_metadata(db, batch.id, item_ids=[1], actor=actor)
+
+    assert captured.value.status_code == 422
+    assert captured.value.detail == {
+        "code": "REMNANT_OPTIONAL_METADATA_REQUIRED",
+        "message": "请至少选择一项需要批量更新的附加信息。",
+        "details": {},
+    }
+
+
 def test_permanent_duplicate_failure_cannot_be_retried(db) -> None:
     from app.modules.remnant_inventory.imports import retry_import_item
 

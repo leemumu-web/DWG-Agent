@@ -648,15 +648,23 @@ def post_bulk_optional_metadata(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
+    optional_fields = {
+        "project_no_secondary",
+        "storage_location",
+        "remark_1",
+        "remark_2",
+    }
+    updates = {
+        field: getattr(payload, field)
+        for field in optional_fields
+        if field in payload.model_fields_set
+    }
     changed = bulk_apply_optional_metadata(
         db,
         batch_id,
         item_ids=payload.item_ids,
         actor=current_user,
-        project_no_secondary=payload.project_no_secondary,
-        storage_location=payload.storage_location,
-        remark_1=payload.remark_1,
-        remark_2=payload.remark_2,
+        **updates,
     )
     write_audit_log(
         db,
@@ -666,10 +674,7 @@ def post_bulk_optional_metadata(
         resource_id=batch_id,
         after_json={
             "item_ids": changed,
-            "project_no_secondary": payload.project_no_secondary,
-            "storage_location": payload.storage_location,
-            "remark_1": payload.remark_1,
-            "remark_2": payload.remark_2,
+            **updates,
         },
         request=request,
     )

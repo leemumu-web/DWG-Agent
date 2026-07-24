@@ -38,6 +38,7 @@ _PERMANENT_IMPORT_ERRORS = {
     "REMNANT_SOURCE_DUPLICATE",
     "REMNANT_SOURCE_DUPLICATE_IN_BATCH",
 }
+_UNSET = object()
 
 
 def _require_item_access(db: Session, item: RemnantImportItem, actor: User) -> RemnantImportBatch:
@@ -70,6 +71,10 @@ def _parts(values: Sequence[str]) -> list[str]:
         if unicodedata.normalize("NFKC", value).strip()
     ]
     return list(dict.fromkeys(normalized))
+
+
+def _optional_text(value: str | None) -> str | None:
+    return unicodedata.normalize("NFKC", value or "").strip() or None
 
 
 def normalize_source_relative_path(value: str) -> str:
@@ -138,10 +143,10 @@ def update_import_item(
     thickness_mm: Decimal | str | int | float | None = None,
     material_id: int | None = None,
     project_no: str | None = None,
-    project_no_secondary: str | None = None,
-    storage_location: str | None = None,
-    remark_1: str | None = None,
-    remark_2: str | None = None,
+    project_no_secondary: str | None | object = _UNSET,
+    storage_location: str | None | object = _UNSET,
+    remark_1: str | None | object = _UNSET,
+    remark_2: str | None | object = _UNSET,
     parts: Sequence[str] | None = None,
 ) -> RemnantImportItem:
     item = db.get(RemnantImportItem, item_id)
@@ -165,8 +170,8 @@ def update_import_item(
         (remark_1, "corrected_remark_1"),
         (remark_2, "corrected_remark_2"),
     ):
-        if value is not None:
-            setattr(item, attribute, unicodedata.normalize("NFKC", value).strip() or None)
+        if value is not _UNSET:
+            setattr(item, attribute, _optional_text(value if isinstance(value, str) else None))
     if parts is not None:
         item.corrected_parts_json = _parts(parts)
     db.flush()
@@ -245,11 +250,27 @@ def bulk_apply_optional_metadata(
     *,
     item_ids: Sequence[int],
     actor: User,
-    project_no_secondary: str | None = None,
-    storage_location: str | None = None,
-    remark_1: str | None = None,
-    remark_2: str | None = None,
+    project_no_secondary: str | None | object = _UNSET,
+    storage_location: str | None | object = _UNSET,
+    remark_1: str | None | object = _UNSET,
+    remark_2: str | None | object = _UNSET,
 ) -> list[int]:
+    supplied_values = {
+        attribute: value
+        for attribute, value in (
+            ("corrected_project_no_secondary", project_no_secondary),
+            ("corrected_storage_location", storage_location),
+            ("corrected_remark_1", remark_1),
+            ("corrected_remark_2", remark_2),
+        )
+        if value is not _UNSET
+    }
+    if not supplied_values:
+        raise AppHTTPException(
+            422,
+            "REMNANT_OPTIONAL_METADATA_REQUIRED",
+            "请至少选择一项需要批量更新的附加信息。",
+        )
     batch = db.get(RemnantImportBatch, batch_id)
     if batch is None:
         raise AppHTTPException(404, "REMNANT_IMPORT_BATCH_NOT_FOUND", "导入批次不存在或已被删除。")
@@ -265,19 +286,12 @@ def bulk_apply_optional_metadata(
             .order_by(RemnantImportItem.id)
         ).all()
     )
-    values = {
-        "corrected_project_no_secondary": project_no_secondary,
-        "corrected_storage_location": storage_location,
-        "corrected_remark_1": remark_1,
-        "corrected_remark_2": remark_2,
-    }
     changed: list[int] = []
     for item in selected:
         if item.status in {"confirmed", "cancelled"}:
             continue
-        for attribute, value in values.items():
-            if value is not None:
-                setattr(item, attribute, unicodedata.normalize("NFKC", value).strip() or None)
+        for attribute, value in supplied_values.items():
+            setattr(item, attribute, _optional_text(value if isinstance(value, str) else None))
         changed.append(item.id)
     db.flush()
     return changed

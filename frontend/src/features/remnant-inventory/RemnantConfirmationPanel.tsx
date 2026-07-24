@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, App, AutoComplete, Button, Card, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, AutoComplete, Button, Card, Checkbox, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import { CheckOutlined, CloseCircleOutlined, EditOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DxfPreviewModal } from '../files';
@@ -41,6 +41,8 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   const [bulkProjectOpen, setBulkProjectOpen] = useState(false);
   const [bulkProject, setBulkProject] = useState('');
   const [bulkMetadataOpen, setBulkMetadataOpen] = useState(false);
+  const [bulkUpdateProjectSecondary, setBulkUpdateProjectSecondary] = useState(false);
+  const [bulkUpdateStorageLocation, setBulkUpdateStorageLocation] = useState(false);
   const [bulkProjectSecondary, setBulkProjectSecondary] = useState('');
   const [bulkStorageLocation, setBulkStorageLocation] = useState('');
   const [editing, setEditing] = useState<RemnantImportItem>();
@@ -102,13 +104,21 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
   });
   const applyMetadata = useMutation({
     mutationFn: () => bulkApplyOptionalMetadata(batch.id, selected.map(Number), {
-      project_no_secondary: bulkProjectSecondary,
-      storage_location: bulkStorageLocation,
+      ...(bulkUpdateProjectSecondary
+        ? { project_no_secondary: bulkProjectSecondary.trim() || null }
+        : {}),
+      ...(bulkUpdateStorageLocation
+        ? { storage_location: bulkStorageLocation.trim() || null }
+        : {}),
     }),
     onSuccess: async () => {
       setBulkMetadataOpen(false);
       await refresh();
-      message.success('已批量填写项目编号二和库存位置');
+      const labels = [
+        bulkUpdateProjectSecondary ? '项目编号二' : '',
+        bulkUpdateStorageLocation ? '库存位置' : '',
+      ].filter(Boolean);
+      message.success(`已批量更新${labels.join('和')}`);
     },
     onError: (error) => message.error(describeRemnantError(error, '批量填写附加信息失败')),
   });
@@ -227,6 +237,8 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
             setBulkProjectOpen(true);
           }}>批量设置项目编号</Button>}
           <Button disabled={!selected.length} onClick={() => {
+            setBulkUpdateProjectSecondary(false);
+            setBulkUpdateStorageLocation(false);
             setBulkProjectSecondary('');
             setBulkStorageLocation('');
             setBulkMetadataOpen(true);
@@ -276,10 +288,29 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
       <Modal title="批量设置项目编号" open={bulkProjectOpen} onCancel={() => setBulkProjectOpen(false)} onOk={() => applyProject.mutate()} okButtonProps={{ disabled: !bulkProject.trim() }} confirmLoading={applyProject.isPending}>
         <Input aria-label="批量项目编号" value={bulkProject} maxLength={128} onChange={(event) => setBulkProject(event.target.value)} placeholder="请输入项目编号" />
       </Modal>
-      <Modal title="批量填写附加信息" open={bulkMetadataOpen} onCancel={() => setBulkMetadataOpen(false)} onOk={() => applyMetadata.mutate()} confirmLoading={applyMetadata.isPending}>
-        <Typography.Paragraph type="secondary">两个字段均可留空；留空提交会清除所选图纸对应字段。</Typography.Paragraph>
-        <Input aria-label="批量项目编号二" value={bulkProjectSecondary} maxLength={128} onChange={(event) => setBulkProjectSecondary(event.target.value)} placeholder="项目编号二（可空）" style={{ marginBottom: 12 }} />
-        <Input aria-label="批量库存位置" value={bulkStorageLocation} maxLength={128} onChange={(event) => setBulkStorageLocation(event.target.value)} placeholder="库存位置（可空）" />
+      <Modal
+        title="批量填写附加信息"
+        open={bulkMetadataOpen}
+        onCancel={() => setBulkMetadataOpen(false)}
+        onOk={() => applyMetadata.mutate()}
+        okButtonProps={{ disabled: !bulkUpdateProjectSecondary && !bulkUpdateStorageLocation }}
+        confirmLoading={applyMetadata.isPending}
+      >
+        <Typography.Paragraph type="secondary">只会修改勾选的字段；勾选后留空提交表示清空该字段。</Typography.Paragraph>
+        <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 16 }}>
+          <Checkbox checked={bulkUpdateProjectSecondary} onChange={(event) => setBulkUpdateProjectSecondary(event.target.checked)}>更新项目编号二</Checkbox>
+          {bulkUpdateProjectSecondary && <>
+            <Input aria-label="批量项目编号二" value={bulkProjectSecondary} maxLength={128} onChange={(event) => setBulkProjectSecondary(event.target.value)} placeholder="项目编号二（可空）" />
+            {!bulkProjectSecondary.trim() && <Typography.Text type="warning">将清空所选图纸的项目编号二</Typography.Text>}
+          </>}
+        </Space>
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Checkbox checked={bulkUpdateStorageLocation} onChange={(event) => setBulkUpdateStorageLocation(event.target.checked)}>更新库存位置</Checkbox>
+          {bulkUpdateStorageLocation && <>
+            <Input aria-label="批量库存位置" value={bulkStorageLocation} maxLength={128} onChange={(event) => setBulkStorageLocation(event.target.value)} placeholder="库存位置（可空）" />
+            {!bulkStorageLocation.trim() && <Typography.Text type="warning">将清空所选图纸的库存位置</Typography.Text>}
+          </>}
+        </Space>
       </Modal>
       <Modal title={editing ? `确认 ${editing.original_name}` : '确认图纸'} open={Boolean(editing)} width={760} onCancel={closeEditor} onOk={() => form.submit()} confirmLoading={save.isPending}>
         {editing && <div className="remnant-confirm-editor">

@@ -521,6 +521,78 @@ def test_auto_multipart_import_returns_paths_and_supports_bulk_project_and_cance
     assert cancelled.json()["data"]["status"] == "cancelled"
 
 
+def test_bulk_optional_metadata_api_preserves_omitted_fields_and_rejects_noop(
+    client, admin_headers, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.routes.dispatch_import_execution",
+        lambda _dispatch: None,
+    )
+    created = client.post(
+        "/api/v1/remnant-import-batches/auto",
+        headers=admin_headers,
+        files=[("files", ("metadata.dxf", _dxf_bytes(), "application/dxf"))],
+        data={
+            "relative_paths": ["metadata.dxf"],
+            "project_no": "PRJ-METADATA",
+        },
+    )
+    assert created.status_code == 202, created.text
+    batch_id = created.json()["data"]["id"]
+    item_id = created.json()["data"]["items"][0]["id"]
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        item.corrected_project_no_secondary = "合同-02"
+        item.corrected_storage_location = "A区-03架"
+        db.commit()
+
+    project_only = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
+        headers=admin_headers,
+        json={"item_ids": [item_id], "project_no_secondary": "合同-03"},
+    )
+    assert project_only.status_code == 200, project_only.text
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        assert item.corrected_project_no_secondary == "合同-03"
+        assert item.corrected_storage_location == "A区-03架"
+
+    clear_storage = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
+        headers=admin_headers,
+        json={"item_ids": [item_id], "storage_location": None},
+    )
+    assert clear_storage.status_code == 200, clear_storage.text
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        assert item.corrected_project_no_secondary == "合同-03"
+        assert item.corrected_storage_location is None
+        successful_audits = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.import.bulk_optional_metadata"
+            )
+        ).all()
+        assert len(successful_audits) == 2
+
+    noop = client.post(
+        f"/api/v1/remnant-import-batches/{batch_id}/bulk-optional-metadata",
+        headers=admin_headers,
+        json={"item_ids": [item_id]},
+    )
+    assert noop.status_code == 422
+    assert noop.json()["error"]["message"] == "请至少选择一项需要批量更新的附加信息。"
+    with get_test_session_factory()() as db:
+        audits_after_noop = db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.import.bulk_optional_metadata"
+            )
+        ).all()
+        assert len(audits_after_noop) == 2
+
+
 def test_multipart_import_edit_partial_confirm_and_inventory_lifecycle(
     client, admin_headers, monkeypatch
 ) -> None:

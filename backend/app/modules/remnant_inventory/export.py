@@ -76,6 +76,14 @@ def _excel_datetime(value: datetime | None) -> datetime | None:
     return aware.astimezone(BEIJING).replace(tzinfo=None)
 
 
+def _excel_safe_value(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value.lstrip()[:1] in {"=", "+", "-", "@"}:
+        return f"'{value}"
+    return value
+
+
 def _indexed(rows) -> dict[int, object]:
     return {row.id: row for row in rows}
 
@@ -158,7 +166,7 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
         ]
         cells = []
         for index, value in enumerate(values):
-            cell = WriteOnlyCell(sheet, value=value)
+            cell = WriteOnlyCell(sheet, value=_excel_safe_value(value))
             cell.alignment = Alignment(vertical="top", wrap_text=index in (3, 4, 5, 6, 7, 8))
             if isinstance(value, datetime):
                 cell.number_format = "yyyy-mm-dd hh:mm:ss"

@@ -278,10 +278,10 @@ export async function bulkApplyOptionalMetadata(
   batchId: number,
   itemIds: number[],
   payload: {
-    project_no_secondary?: string;
-    storage_location?: string;
-    remark_1?: string;
-    remark_2?: string;
+    project_no_secondary?: string | null;
+    storage_location?: string | null;
+    remark_1?: string | null;
+    remark_2?: string | null;
   },
 ): Promise<number[]> {
   const response = await apiClient.post<ApiEnvelope<{ updated_item_ids: number[] }>>(
