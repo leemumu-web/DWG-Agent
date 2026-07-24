@@ -5,7 +5,16 @@ import json
 from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.modules.files.interface import save_upload_file
+from app.modules.files.interface import (
+    TransferSnapshot,
+    TransferSpec,
+    complete_transfer_in_transaction,
+    prepare_transfer_in_transaction,
+    sanitize_filename,
+    save_upload_file,
+    session_factory_for,
+    settle_transfer,
+)
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.interface import JobRead, dispatch_committed_conversion_batch
 from app.modules.operations.audit.interface import write_audit_log
@@ -36,6 +45,59 @@ from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import AppHTTPException
 
 router = APIRouter()
+
+
+def _prepare_input_transfers(
+    db: Session,
+    uploads: list[UploadFile],
+    *,
+    actor_user_id: int,
+    request_id: str,
+    batch_id: int,
+    operation: str,
+) -> list[TransferSnapshot]:
+    transfers = [
+        prepare_transfer_in_transaction(
+            db,
+            TransferSpec(
+                direction="inbound",
+                operation=operation,
+                actor_user_id=actor_user_id,
+                request_id=request_id,
+                idempotency_key=f"{request_id}:{index}",
+                batch_ref=f"workflow-input-{batch_id}",
+                original_name=sanitize_filename(upload.filename or "unnamed"),
+            ),
+        )
+        for index, upload in enumerate(uploads)
+    ]
+    db.commit()
+    return transfers
+
+
+def _settle_failed_input_transfers(
+    db: Session,
+    transfers: list[TransferSnapshot],
+    exc: Exception,
+) -> None:
+    db.rollback()
+    detail = exc.detail if isinstance(exc, AppHTTPException) else None
+    code = detail.get("code") if isinstance(detail, dict) else "INPUT_UPLOAD_FAILED"
+    message = (
+        detail.get("message")
+        if isinstance(detail, dict)
+        else "Production input upload failed before commit."
+    )
+    factory = session_factory_for(db)
+    for transfer in transfers:
+        settle_transfer(
+            factory,
+            transfer.transfer_uid,
+            status="failed",
+            transferred_bytes=0,
+            error_code=str(code),
+            error_message=str(message),
+        )
 
 
 @router.post(
@@ -114,31 +176,48 @@ async def import_input_excel_api(
             "INPUT_EXCEL_ALREADY_IMPORTED",
             "Remove the current production input before uploading another Excel file.",
         )
-    # End the permission/batch read snapshot before Files creates its durable
-    # transfer intent in an independent MySQL transaction. Registration below
-    # locks and rechecks the batch again, so duplicate Excel uploads remain
-    # serialized without triggering MySQL error 1020 on file_transfers.
-    db.commit()
-    stored = await save_upload_file(
+    transfers = _prepare_input_transfers(
         db,
-        upload,
-        uploaded_by=current_user.id,
-        batch_name=f"workflow-input-{batch.id}",
-        request_id=request.state.request_id,
-    )
-    outcome = register_input_file(db, batch, stored)
-    if outcome.failure is not None:
-        raise_excel_failure(outcome.failure)
-    write_audit_log(
-        db,
+        [upload],
         actor_user_id=current_user.id,
-        action="workflow_input_excel.import",
-        resource_type="workflow_input_batch",
-        resource_id=batch.id,
-        after_json={"workflow_id": workflow.id, "file_id": stored.id},
-        request=request,
+        request_id=request.state.request_id,
+        batch_id=batch.id,
+        operation="workflow_input_excel",
     )
-    db.commit()
+    try:
+        stored = await save_upload_file(
+            db,
+            upload,
+            uploaded_by=current_user.id,
+            batch_name=f"workflow-input-{batch.id}",
+            transfer_uid=transfers[0].transfer_uid,
+            request_id=request.state.request_id,
+        )
+        complete_transfer_in_transaction(
+            db,
+            transfers[0].transfer_uid,
+            file_id=stored.id,
+            bucket=stored.bucket,
+            storage_key=stored.storage_key,
+            original_name=stored.original_name,
+            transferred_bytes=stored.size_bytes,
+        )
+        outcome = register_input_file(db, batch, stored)
+        if outcome.failure is not None:
+            raise_excel_failure(outcome.failure)
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="workflow_input_excel.import",
+            resource_type="workflow_input_batch",
+            resource_id=batch.id,
+            after_json={"workflow_id": workflow.id, "file_id": stored.id},
+            request=request,
+        )
+        db.commit()
+    except Exception as exc:
+        _settle_failed_input_transfers(db, transfers, exc)
+        raise
     return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
 
 
@@ -186,35 +265,57 @@ async def import_input_dwg_folder_api(
             "Remove the current production input before uploading another DWG folder.",
         )
 
-    imported_file_ids: list[int] = []
-    for upload in uploads:
-        stored = await save_upload_file(
-            db,
-            upload,
-            uploaded_by=current_user.id,
-            batch_name=f"workflow-input-{batch.id}",
-            request_id=request.state.request_id,
-        )
-        outcome = register_input_file(db, batch, stored)
-        if outcome.failure is not None:
-            raise_excel_failure(outcome.failure)
-        imported_file_ids.append(stored.id)
-
-    write_audit_log(
+    transfers = _prepare_input_transfers(
         db,
+        uploads,
         actor_user_id=current_user.id,
-        action="workflow_input_dwg_folders.import",
-        resource_type="workflow_input_batch",
-        resource_id=batch.id,
-        after_json={
-            "workflow_id": workflow.id,
-            "folder_name": folder_name,
-            "file_ids": imported_file_ids,
-            "relative_paths": parsed_paths,
-        },
-        request=request,
+        request_id=request.state.request_id,
+        batch_id=batch.id,
+        operation="workflow_input_dwg_folder",
     )
-    db.commit()
+    try:
+        imported_file_ids: list[int] = []
+        for upload, transfer in zip(uploads, transfers, strict=True):
+            stored = await save_upload_file(
+                db,
+                upload,
+                uploaded_by=current_user.id,
+                batch_name=f"workflow-input-{batch.id}",
+                transfer_uid=transfer.transfer_uid,
+                request_id=request.state.request_id,
+            )
+            complete_transfer_in_transaction(
+                db,
+                transfer.transfer_uid,
+                file_id=stored.id,
+                bucket=stored.bucket,
+                storage_key=stored.storage_key,
+                original_name=stored.original_name,
+                transferred_bytes=stored.size_bytes,
+            )
+            outcome = register_input_file(db, batch, stored)
+            if outcome.failure is not None:
+                raise_excel_failure(outcome.failure)
+            imported_file_ids.append(stored.id)
+
+        write_audit_log(
+            db,
+            actor_user_id=current_user.id,
+            action="workflow_input_dwg_folders.import",
+            resource_type="workflow_input_batch",
+            resource_id=batch.id,
+            after_json={
+                "workflow_id": workflow.id,
+                "folder_name": folder_name,
+                "file_ids": imported_file_ids,
+                "relative_paths": parsed_paths,
+            },
+            request=request,
+        )
+        db.commit()
+    except Exception as exc:
+        _settle_failed_input_transfers(db, transfers, exc)
+        raise
     return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
 
 
