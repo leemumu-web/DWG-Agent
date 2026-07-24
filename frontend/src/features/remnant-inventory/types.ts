@@ -87,6 +87,16 @@ export interface RemnantCandidate {
   evidence: CandidateEvidence[];
 }
 
+export interface RemnantStandardParse {
+  block_type: string;
+  raw_specification: string;
+  thickness: string;
+  length: string;
+  width: string;
+  material: string;
+  remnant_number: string;
+}
+
 export interface RemnantImportItem {
   id: number;
   batch_id: number;
@@ -94,12 +104,14 @@ export interface RemnantImportItem {
   dxf_file_id: number | null;
   original_name: string;
   source_ext: '.dwg' | '.dxf';
+  source_relative_path?: string | null;
   attempt: number;
   status: RemnantImportItemStatus;
   material_candidates: RemnantCandidate[];
   project_candidates: RemnantCandidate[];
   part_candidates: RemnantCandidate[];
   warnings: { code: string; message: string }[];
+  standard_parse?: RemnantStandardParse | null;
   thickness_mm: string | null;
   material_id: number | null;
   project_no: string | null;
@@ -111,7 +123,10 @@ export interface RemnantImportItem {
 export interface RemnantImportBatch {
   id: number;
   created_by: number;
-  status: 'uploaded' | 'processing' | 'awaiting_confirmation' | 'confirmed' | 'cancelled';
+  import_mode?: 'manual' | 'auto';
+  default_project_no?: string | null;
+  source_folder_name?: string | null;
+  status: 'uploaded' | 'processing' | 'awaiting_confirmation' | 'confirmed' | 'failed' | 'cancelled';
   total_count: number;
   converting_count: number;
   parsing_count: number;

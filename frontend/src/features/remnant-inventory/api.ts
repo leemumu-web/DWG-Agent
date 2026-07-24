@@ -31,14 +31,14 @@ export async function createRemnantMaterial(payload: { code: string; family_code
   return response.data.data;
 }
 
-export async function resolveOrCreateRemnantMaterial(code: string): Promise<{
+export async function resolveOrCreateRemnantMaterial(itemId: number, code: string): Promise<{
   material: RemnantMaterial;
   created: boolean;
 }> {
   const response = await apiClient.post<ApiEnvelope<{
     material: RemnantMaterial;
     created: boolean;
-  }>>('/api/v1/remnant-materials/resolve-or-create', { code });
+  }>>(`/api/v1/remnant-import-items/${itemId}/resolve-material`, { code });
   return response.data.data;
 }
 
@@ -47,6 +47,17 @@ export async function updateRemnantMaterial(
   payload: { family_code?: string; enabled?: boolean },
 ): Promise<RemnantMaterial> {
   const response = await apiClient.patch<ApiEnvelope<RemnantMaterial>>(`/api/v1/remnant-materials/${materialId}`, payload);
+  return response.data.data;
+}
+
+export async function setRemnantMaterialStatus(
+  materialId: number,
+  enabled: boolean,
+): Promise<{ material: RemnantMaterial; message: string }> {
+  const response = await apiClient.patch<ApiEnvelope<{ material: RemnantMaterial; message: string }>>(
+    `/api/v1/remnant-materials/${materialId}/status`,
+    { enabled },
+  );
   return response.data.data;
 }
 
@@ -170,6 +181,31 @@ export async function createRemnantImportBatch(files: File[]): Promise<RemnantIm
   return response.data.data;
 }
 
+export interface AutoImportFile {
+  file: File;
+  relativePath: string;
+}
+
+export async function createAutoRemnantImportBatch(
+  entries: AutoImportFile[],
+  projectNo: string,
+  folderName?: string,
+): Promise<RemnantImportBatch> {
+  const form = new FormData();
+  entries.forEach(({ file, relativePath }) => {
+    form.append('files', file);
+    form.append('relative_paths', relativePath);
+  });
+  form.append('project_no', projectNo);
+  if (folderName) form.append('folder_name', folderName);
+  const response = await apiClient.post<ApiEnvelope<RemnantImportBatch>>(
+    '/api/v1/remnant-import-batches/auto',
+    form,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return response.data.data;
+}
+
 export async function getRemnantImportBatch(batchId: number): Promise<RemnantImportBatch> {
   const response = await apiClient.get<ApiEnvelope<RemnantImportBatch>>(
     `/api/v1/remnant-import-batches/${batchId}`,
@@ -200,12 +236,31 @@ export async function bulkApplyThickness(
   return response.data.data.updated_item_ids;
 }
 
+export async function bulkApplyProject(
+  batchId: number,
+  itemIds: number[],
+  projectNo: string,
+): Promise<number[]> {
+  const response = await apiClient.post<ApiEnvelope<{ updated_item_ids: number[] }>>(
+    `/api/v1/remnant-import-batches/${batchId}/bulk-project`,
+    { item_ids: itemIds, project_no: projectNo },
+  );
+  return response.data.data.updated_item_ids;
+}
+
 export async function retryRemnantImportItem(itemId: number): Promise<void> {
   await apiClient.post(`/api/v1/remnant-import-items/${itemId}/retry`);
 }
 
 export async function cancelRemnantImportBatch(batchId: number): Promise<void> {
   await apiClient.post(`/api/v1/remnant-import-batches/${batchId}/cancel`);
+}
+
+export async function cancelRemnantImportItem(itemId: number): Promise<RemnantImportItem> {
+  const response = await apiClient.post<ApiEnvelope<RemnantImportItem>>(
+    `/api/v1/remnant-import-items/${itemId}/cancel`,
+  );
+  return response.data.data;
 }
 
 export async function confirmRemnantImportItems(itemIds: number[]): Promise<ImportConfirmationResult> {

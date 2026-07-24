@@ -62,6 +62,7 @@ from app.modules.remnant_inventory.schemas import (
     BulkThicknessUpdate,
     ImportConfirmRequest,
     ImportItemUpdate,
+    ImportMaterialResolveCreate,
     MaterialAliasReplace,
     MaterialCreate,
     MaterialRead,
@@ -673,6 +674,66 @@ def post_bulk_confirm(
     )
     db.commit()
     return ok(result.model_dump(mode="json"), request.state.request_id)
+
+
+@import_items_router.post("/{item_id}/resolve-material")
+def post_resolve_import_material(
+    item_id: int,
+    payload: ImportMaterialResolveCreate,
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    if not isinstance(payload.code, str) or not payload.code.strip():
+        raise AppHTTPException(
+            422,
+            "REMNANT_MATERIAL_INVALID",
+            "请填写完整的材质牌号。",
+        )
+    if len(payload.code.strip()) > 64:
+        raise AppHTTPException(
+            422,
+            "REMNANT_MATERIAL_INVALID",
+            "材质牌号不能超过 64 个字符。",
+        )
+    item = db.get(RemnantImportItem, item_id)
+    if item is None:
+        raise AppHTTPException(
+            404,
+            "REMNANT_IMPORT_ITEM_NOT_FOUND",
+            "导入图纸不存在或已被删除。",
+        )
+    _require_item_access(db, item, current_user)
+    if item.status != "pending_confirmation":
+        raise AppHTTPException(
+            409,
+            "REMNANT_IMPORT_ITEM_LOCKED",
+            "该图纸当前不可补录材质。",
+        )
+    row, created = resolve_or_create_material(
+        db,
+        code=payload.code,
+        actor_id=current_user.id,
+    )
+    action = "remnants.import.material.create" if created else "remnants.import.material.resolve"
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action=action,
+        resource_type="remnant_import_item",
+        resource_id=item.id,
+        after_json={"material_id": row.id, "code": row.code},
+        request=request,
+    )
+    if created:
+        response.status_code = status.HTTP_201_CREATED
+    db.commit()
+    db.refresh(row)
+    return ok(
+        {"material": _material_data(db, row), "created": created},
+        request.state.request_id,
+    )
 
 
 @import_items_router.patch("/{item_id}")

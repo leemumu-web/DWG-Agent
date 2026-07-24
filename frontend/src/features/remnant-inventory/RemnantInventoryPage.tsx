@@ -19,6 +19,7 @@ import {
 } from './api';
 import { RemnantBatchProgress } from './RemnantBatchProgress';
 import { RemnantConfirmationPanel } from './RemnantConfirmationPanel';
+import { RemnantAutoImportPanel } from './RemnantAutoImportPanel';
 import { RemnantImportPanel } from './RemnantImportPanel';
 import { RemnantGlobalPanel } from './RemnantGlobalPanel';
 import { RemnantMaterialCatalog } from './RemnantMaterialCatalog';
@@ -48,12 +49,13 @@ export function RemnantInventoryPage() {
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const search = useMemo(() => fromParams(params), [params]);
-  const activeTab = ['global', 'import', 'materials'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'search';
+  const activeTab = ['global', 'import', 'auto', 'materials'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'search';
   const batchId = params.get('batch') ? Number(params.get('batch')) : undefined;
   const [selectedId, setSelectedId] = useState<number>();
   const [preview, setPreview] = useState<{ id: number; name: string }>();
   const [editOpen, setEditOpen] = useState(false);
   const [downloadError, setDownloadError] = useState<string>();
+  const [showInactiveMaterials, setShowInactiveMaterials] = useState(false);
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.roles.some((role) => ['admin', 'super_admin'].includes(role.code)) ?? false;
 
@@ -62,9 +64,9 @@ export function RemnantInventoryPage() {
     queryFn: () => listRemnantMaterials(),
   });
   const materialCatalog = useQuery({
-    queryKey: ['remnant-materials', 'all'],
-    queryFn: () => listRemnantMaterials(false),
-    enabled: isAdmin,
+    queryKey: ['remnant-materials', 'catalog', showInactiveMaterials],
+    queryFn: () => listRemnantMaterials(!showInactiveMaterials),
+    enabled: activeTab === 'materials',
   });
   const results = useQuery({
     queryKey: ['remnants', search],
@@ -152,7 +154,7 @@ export function RemnantInventoryPage() {
           const target = new URLSearchParams(params);
           if (tab === 'search') target.delete('tab');
           else target.set('tab', tab);
-          if (tab !== 'import') target.delete('batch');
+          if (!['import', 'auto'].includes(tab)) target.delete('batch');
           setParams(target);
         }}
         items={[
@@ -211,7 +213,28 @@ export function RemnantInventoryPage() {
               {batch.data.pending_count > 0 && <RemnantConfirmationPanel batch={batch.data} materials={materials.data ?? []} />}
             </>}
           </div> },
-          ...(isAdmin ? [{ key: 'materials', label: '材质管理', children: <RemnantMaterialCatalog materials={materialCatalog.data ?? []} loading={materialCatalog.isLoading} /> }] : []),
+          { key: 'auto', label: '自动导入', children: <div className="remnant-tab-stack">
+            <RemnantAutoImportPanel onCreated={(created) => {
+              const target = new URLSearchParams(params);
+              target.set('tab', 'auto'); target.set('batch', String(created.id)); setParams(target);
+            }} />
+            {batch.data && <>
+              <RemnantBatchProgress
+                batch={batch.data}
+                loading={batch.isFetching || batchAction.isPending}
+                onRetry={(item) => batchAction.mutate({ kind: 'retry', itemId: item.id })}
+                onCancel={() => batchAction.mutate({ kind: 'cancel' })}
+              />
+              <RemnantConfirmationPanel batch={batch.data} materials={materials.data ?? []} />
+            </>}
+          </div> },
+          { key: 'materials', label: '材质管理', children: <RemnantMaterialCatalog
+            materials={materialCatalog.data ?? []}
+            loading={materialCatalog.isLoading}
+            isAdmin={isAdmin}
+            showInactive={showInactiveMaterials}
+            onShowInactiveChange={setShowInactiveMaterials}
+          /> },
         ]}
       />
       <RemnantDetailDrawer

@@ -266,6 +266,58 @@ def test_resolve_or_create_material_requires_admin(
     assert created.json()["data"]["material"]["code"] == "Q460B"
 
 
+def test_worker_can_create_material_only_for_owned_pending_import_item(
+    client, worker_headers, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.remnant_inventory.routes.dispatch_import_execution",
+        lambda _dispatch: None,
+    )
+    created = client.post(
+        "/api/v1/remnant-import-batches",
+        headers=worker_headers,
+        files=[("files", ("worker-source.dxf", _dxf_bytes(), "application/dxf"))],
+    )
+    assert created.status_code == 202, created.text
+    item_id = created.json()["data"]["items"][0]["id"]
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        item.status = "pending_confirmation"
+        db.commit()
+
+    resolved = client.post(
+        f"/api/v1/remnant-import-items/{item_id}/resolve-material",
+        headers=worker_headers,
+        json={"code": "Q460GJC"},
+    )
+    assert resolved.status_code == 201, resolved.text
+    assert resolved.json()["data"]["material"]["code"] == "Q460GJC"
+    assert resolved.json()["data"]["created"] is True
+
+    with get_test_session_factory()() as db:
+        item = db.get(RemnantImportItem, item_id)
+        assert item is not None
+        item.status = "confirmed"
+        db.commit()
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "remnants.import.material.create",
+                AuditLog.resource_type == "remnant_import_item",
+                AuditLog.resource_id == item_id,
+            )
+        )
+        assert audit is not None
+
+    locked = client.post(
+        f"/api/v1/remnant-import-items/{item_id}/resolve-material",
+        headers=worker_headers,
+        json={"code": "Q355C"},
+    )
+    assert locked.status_code == 409
+    assert locked.json()["error"]["message"] == "该图纸当前不可补录材质。"
+
+
 @pytest.mark.parametrize(
     ("files", "data", "message"),
     [

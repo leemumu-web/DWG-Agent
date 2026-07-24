@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getRemnantImportBatch } from './api';
 
-const terminal = new Set(['awaiting_confirmation', 'confirmed', 'cancelled']);
+const terminal = new Set(['awaiting_confirmation', 'confirmed', 'failed', 'cancelled']);
 
 export function useRemnantBatch(batchId?: number) {
   return useQuery({

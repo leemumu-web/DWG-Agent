@@ -80,6 +80,18 @@ class MaterialResolveCreateResult(BaseModel):
     created: bool
 
 
+class ImportMaterialResolveCreate(BaseModel):
+    code: SkipValidation[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def defer_missing_field_validation(cls, value: object) -> object:
+        # Keep a required string in OpenAPI while the route returns Chinese errors.
+        if isinstance(value, dict) and "code" not in value:
+            return {**value, "code": None}
+        return value
+
+
 class ImportItemUpdate(BaseModel):
     thickness_mm: Decimal | None = None
     material_id: int | None = None

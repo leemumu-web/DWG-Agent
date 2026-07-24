@@ -58,7 +58,8 @@ async function mockImport(page: Page, options: {
   });
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
   await page.route('**/api/v1/remnant-materials', (route) => json(route, [{ id: 1, code: 'Q235B', family_code: 'Q235', enabled: true, created_at: now, updated_at: now }]));
-  await page.route('**/api/v1/remnant-materials/resolve-or-create', async (route) => {
+  await page.route('**/api/v1/remnant-import-items/*/resolve-material', async (route) => {
+    expect(route.request().url()).toMatch(/\/remnant-import-items\/\d+\/resolve-material$/);
     if (options.failMaterialCreate) return json(route, { message: 'create failed' }, 500);
     if (options.delayMaterialCreate) await new Promise<void>((resolve) => { releaseMaterialRequest = resolve; });
     const code = route.request().postDataJSON().code.toUpperCase();
@@ -145,8 +146,8 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await expect.poll(state.retryCalls).toBe(1);
 
   const confirmation = page.locator('.remnant-confirm-card');
-  await confirmation.getByRole('checkbox', { name: 'Select row 1' }).check();
-  await confirmation.getByRole('checkbox', { name: 'Select row 2' }).check();
+  await confirmation.getByRole('checkbox').nth(1).check();
+  await confirmation.getByRole('checkbox').nth(2).check();
   await confirmation.getByRole('button', { name: '批量填写厚度' }).click();
   await page.getByLabel('批量厚度').fill('10');
   await page.getByRole('dialog', { name: '批量填写厚度' }).getByRole('button', { name: '确 定' }).click({ force: true });
@@ -184,7 +185,7 @@ test('未填写厚度时只显示中文校验错误', async ({ page }) => {
   }));
   await page.goto('/remnants?tab=import&batch=77');
   const confirmation = page.locator('.remnant-confirm-card');
-  await confirmation.getByRole('checkbox', { name: 'Select row 1' }).check();
+  await confirmation.getByRole('checkbox').nth(1).check();
   await confirmation.getByRole('button', { name: '确认选中项' }).click();
   await expect(confirmation.getByText('请填写余料厚度')).toBeVisible();
   await expect(confirmation.getByText('REMNANT_THICKNESS_REQUIRED')).toHaveCount(0);
