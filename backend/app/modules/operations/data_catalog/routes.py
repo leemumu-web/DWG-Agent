@@ -16,7 +16,7 @@ from app.modules.operations.data_catalog.queries import (
     query_transfers,
     registered_files_by_storage_key,
 )
-from app.platform.config.constants import ROLE_ADMIN, ROLE_AUDITOR
+from app.platform.config.constants import ROLE_ADMIN
 from app.platform.config.settings import settings
 from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok
@@ -25,7 +25,7 @@ from app.platform.http.exceptions import AppHTTPException, not_found
 from app.platform.storage.base import StorageError
 
 router = APIRouter()
-data_reader = require_roles(ROLE_ADMIN, ROLE_AUDITOR)
+data_reader = require_roles(ROLE_ADMIN)
 
 
 @router.get("/overview")

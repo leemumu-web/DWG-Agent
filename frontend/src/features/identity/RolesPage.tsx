@@ -14,11 +14,8 @@ import { PageHeader, StatCard, StatGrid } from '../../shared/components';
 const SYSTEM_ROLE_COLOR: Record<string, string> = {
   super_admin: 'magenta',
   admin: 'red',
-  engineer: 'blue',
-  reviewer: 'purple',
   operator: 'cyan',
   viewer: 'default',
-  auditor: 'gold',
 };
 
 export function RolesPage() {

@@ -43,17 +43,13 @@ export function AppRouter() {
               <Route path="excel-final" element={<ExcelFinalPage />} />
             </Route>
             <Route path="/profile" element={<ProfilePage />} />
-            <Route element={<RequireRoles allowed={['admin', 'remnant_worker']} />}>
+            <Route element={<RequireRoles allowed={['admin', 'operator']} />}>
               <Route path="/remnants" element={<RemnantInventoryPage />} />
             </Route>
             <Route element={<RequireRoles allowed={['admin']} />}>
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />
-            </Route>
-            <Route element={<RequireRoles allowed={['admin', 'auditor']} />}>
               <Route path="/admin/infrastructure" element={<InfrastructurePage />} />
-            </Route>
-            <Route element={<RequireRoles allowed={['auditor']} />}>
               <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
             </Route>
           </Route>
