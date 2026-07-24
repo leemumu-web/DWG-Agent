@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 import json
 
@@ -8,6 +9,14 @@ import pytest
 
 from remnant_drawing_reader import ParseError, parse_dxf
 from remnant_drawing_reader.text import normalize_text
+
+
+def _legacy_warning_codes(result) -> list[str]:
+    return [
+        warning.code
+        for warning in result.warnings
+        if warning.code != "STANDARD_OFFCUT_MISSING"
+    ]
 
 
 def _save_labelled_drawing(path: Path) -> None:
@@ -29,19 +38,214 @@ def _save_nested_drawing(path: Path) -> None:
     document.saveas(path)
 
 
+def _add_standard_offcut_block(
+    document: ezdxf.document.Drawing,
+    *,
+    name: str = "offcut_zh_cn",
+    gg: str = "-12.5 × 1000 X 2000",
+    cz: str = "Q355B",
+    ylbh: str = "YL-001",
+) -> None:
+    block = document.blocks.new(name)
+    for tag, value in (("GG", gg), ("CZ", cz), ("YLBH", ylbh)):
+        block.add_attdef(tag, (0, 0), text=value)
+    insert = document.modelspace().add_blockref(name, (0, 0))
+    for tag, value in (("GG", gg), ("CZ", cz), ("YLBH", ylbh)):
+        insert.add_attrib(tag, value, (0, 0))
+
+
+def _add_standard_offcut_insert_with_attributes(
+    document: ezdxf.document.Drawing, attributes: dict[str, str]
+) -> None:
+    block = document.blocks.new("offcut_zh_cn")
+    for tag in ("GG", "CZ", "YLBH"):
+        block.add_attdef(tag, (0, 0))
+    insert = document.modelspace().add_blockref("offcut_zh_cn", (0, 0))
+    for tag, value in attributes.items():
+        insert.add_attrib(tag, value, (0, 0))
+
+
+def test_extracts_standard_offcut_summary_from_exact_case_insensitive_block(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "standard-offcut.dxf"
+    document = ezdxf.new("R2018")
+    _add_standard_offcut_block(document, name="OffCut_Zh_Cn")
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.schema_version == "1.1"
+    assert result.standard_offcut is not None
+    assert result.standard_offcut.block_type == "OffCut_Zh_Cn"
+    assert result.standard_offcut.raw_specification == "-12.5 × 1000 X 2000"
+    assert result.standard_offcut.thickness == Decimal("12.5")
+    assert result.standard_offcut.length == Decimal("1000")
+    assert result.standard_offcut.width == Decimal("2000")
+    assert result.standard_offcut.material == "Q355B"
+    assert result.standard_offcut.remnant_number == "YL-001"
+    assert result.warnings == []
+
+
+@pytest.mark.parametrize(
+    ("gg", "expected"),
+    [
+        ("+12.5x1000.25X2000.5", ("12.5", "1000.25", "2000.5")),
+        ("12 × 1000 × 2000", ("12", "1000", "2000")),
+        ("-12 X 1000 x 2000", ("12", "1000", "2000")),
+    ],
+)
+def test_standard_offcut_specification_accepts_signs_separators_spaces_and_decimals(
+    tmp_path: Path, gg: str, expected: tuple[str, str, str]
+) -> None:
+    source = tmp_path / "specification.dxf"
+    document = ezdxf.new("R2018")
+    _add_standard_offcut_block(document, gg=gg)
+    document.saveas(source)
+
+    summary = parse_dxf(source).standard_offcut
+
+    assert summary is not None
+    assert (summary.thickness, summary.length, summary.width) == tuple(
+        Decimal(value) for value in expected
+    )
+
+
+@pytest.mark.parametrize(
+    "gg", ["0 x 1000 x 2000", "12 x 0 x 2000", "12 x -1 x 2000", "12x1000"]
+)
+def test_standard_offcut_rejects_zero_negative_length_or_width_and_malformed_specification(
+    tmp_path: Path, gg: str
+) -> None:
+    source = tmp_path / "invalid-specification.dxf"
+    document = ezdxf.new("R2018")
+    _add_standard_offcut_block(document, gg=gg)
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.standard_offcut is None
+    assert "STANDARD_OFFCUT_INVALID_SPECIFICATION" in [
+        warning.code for warning in result.warnings
+    ]
+
+
+def test_standard_offcut_is_not_inferred_from_ordinary_text(tmp_path: Path) -> None:
+    source = tmp_path / "ordinary-text.dxf"
+    document = ezdxf.new("R2018")
+    modelspace = document.modelspace()
+    modelspace.add_text("GG: 12 x 1000 x 2000").set_placement((0, 0))
+    modelspace.add_text("CZ: Q355B").set_placement((0, 10))
+    modelspace.add_text("YLBH: YL-001").set_placement((0, 20))
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.standard_offcut is None
+    assert "STANDARD_OFFCUT_MISSING" in [warning.code for warning in result.warnings]
+
+
+@pytest.mark.parametrize("name", ["prefix_offcut_zh_cn", "offcut_zh_cn_suffix"])
+def test_standard_offcut_rejects_partial_block_name_matches(
+    tmp_path: Path, name: str
+) -> None:
+    source = tmp_path / "partial-block-name.dxf"
+    document = ezdxf.new("R2018")
+    _add_standard_offcut_block(document, name=name)
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.standard_offcut is None
+    assert "STANDARD_OFFCUT_MISSING" in [warning.code for warning in result.warnings]
+
+
+def test_standard_offcut_rejects_duplicate_exact_name_blocks(tmp_path: Path) -> None:
+    source = tmp_path / "duplicate-standard-blocks.dxf"
+    document = ezdxf.new("R2018")
+    _add_standard_offcut_block(document, name="offcut_zh_cn", ylbh="YL-001")
+    duplicate = document.modelspace().add_blockref("offcut_zh_cn", (10, 10))
+    for tag, value in (
+        ("GG", "12 x 1000 x 2000"),
+        ("CZ", "Q355B"),
+        ("YLBH", "YL-002"),
+    ):
+        duplicate.add_attrib(tag, value, (10, 10))
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.standard_offcut is None
+    assert "STANDARD_OFFCUT_DUPLICATE" in [warning.code for warning in result.warnings]
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {"CZ": "Q355B", "YLBH": "YL-001"},
+        {"GG": "12 x 1000 x 2000", "YLBH": "YL-001"},
+        {"GG": "12 x 1000 x 2000", "CZ": "Q355B"},
+        {"GG": "   ", "CZ": "Q355B", "YLBH": "YL-001"},
+        {"GG": "12 x 1000 x 2000", "CZ": " ", "YLBH": "YL-001"},
+        {"GG": "12 x 1000 x 2000", "CZ": "Q355B", "YLBH": "\t"},
+    ],
+)
+def test_standard_offcut_requires_nonblank_gg_cz_and_ylbh_attributes(
+    tmp_path: Path, attributes: dict[str, str]
+) -> None:
+    source = tmp_path / "missing-required-attribute.dxf"
+    document = ezdxf.new("R2018")
+    _add_standard_offcut_insert_with_attributes(document, attributes)
+    document.saveas(source)
+
+    result = parse_dxf(source)
+
+    assert result.standard_offcut is None
+    assert "STANDARD_OFFCUT_MISSING_REQUIRED_ATTRIBUTE" in [
+        warning.code for warning in result.warnings
+    ]
+
+
+def test_standard_summary_is_json_serializable_and_keeps_legacy_candidates(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "serializable-standard-offcut.dxf"
+    document = ezdxf.new("R2018")
+    document.modelspace().add_text("材质: Q235B").set_placement((0, 10))
+    document.modelspace().add_text("项目编号: PJ-2026-001").set_placement((0, 20))
+    document.modelspace().add_text("零件编号: L-101").set_placement((0, 30))
+    _add_standard_offcut_block(document)
+    document.saveas(source)
+
+    payload = json.loads(json.dumps(parse_dxf(source).to_dict(), ensure_ascii=False))
+
+    assert payload["standard_offcut"] == {
+        "block_type": "offcut_zh_cn",
+        "raw_specification": "-12.5 × 1000 X 2000",
+        "thickness": "12.5",
+        "length": "1000",
+        "width": "2000",
+        "material": "Q355B",
+        "remnant_number": "YL-001",
+    }
+    assert payload["material_candidates"][0]["value"] == "Q235B"
+    assert payload["project_candidates"][0]["value"] == "PJ-2026-001"
+    assert payload["part_candidates"][0]["value"] == "L-101"
+
+
 def test_extracts_labelled_candidates_and_preserves_material_suffix(tmp_path: Path) -> None:
     source = tmp_path / "labelled.dxf"
     _save_labelled_drawing(source)
 
     result = parse_dxf(source)
 
-    assert result.schema_version == "1.0"
-    assert result.parser_version == "0.3.0"
+    assert result.schema_version == "1.1"
+    assert result.parser_version == "0.4.0"
     assert len(result.source_sha256) == 64
     assert [candidate.value for candidate in result.material_candidates] == ["Q235B-Z15"]
     assert [candidate.value for candidate in result.project_candidates] == ["PJ-2026-001"]
     assert [candidate.value for candidate in result.part_candidates] == ["L-101", "L-102"]
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 def test_nested_insert_preserves_block_path_and_world_position(tmp_path: Path) -> None:
@@ -84,7 +288,7 @@ def test_conflicting_single_value_candidates_emit_warnings(tmp_path: Path) -> No
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.material_candidates] == ["Q235B", "Q235D"]
-    assert [warning.code for warning in result.warnings] == ["MATERIAL_CANDIDATES_CONFLICT"]
+    assert _legacy_warning_codes(result) == ["MATERIAL_CANDIDATES_CONFLICT"]
 
 
 def test_unreadable_dxf_raises_stable_error_without_host_path(tmp_path: Path) -> None:
@@ -107,7 +311,7 @@ def test_cli_writes_utf8_versioned_json(tmp_path: Path) -> None:
 
     assert main([str(source), "--output", str(output)]) == 0
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == "1.0"
+    assert payload["schema_version"] == "1.1"
     assert payload["material_candidates"][0]["value"] == "Q235B-Z15"
 
 
@@ -137,7 +341,7 @@ def test_unrecognized_label_and_encoding_anomaly_emit_stable_warnings(tmp_path: 
 
     result = parse_dxf(source)
 
-    assert {warning.code for warning in result.warnings} == {
+    assert set(_legacy_warning_codes(result)) == {
         "ENCODING_ANOMALY",
         "UNRECOGNIZED_LABEL",
     }
@@ -152,7 +356,7 @@ def test_unlabelled_chinese_text_becomes_project_candidate(tmp_path: Path) -> No
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.project_candidates] == ["这是一段普通备注"]
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 def test_r2013_ansi_936_header_keeps_utf8_chinese_text(tmp_path: Path) -> None:
@@ -187,7 +391,7 @@ def test_classifies_unlabelled_production_drawing_values(tmp_path: Path) -> None
         "南京北站016计划桁架箱型梁火焰零件2026/7/6"
     ]
     assert [candidate.value for candidate in result.part_candidates] == ["NJB-99-1"]
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 def test_unlabelled_project_candidate_keeps_complete_drawing_title(tmp_path: Path) -> None:
@@ -267,7 +471,7 @@ def test_unlabelled_hyphenated_metadata_is_not_a_part_number(
     result = parse_dxf(source)
 
     assert result.part_candidates == []
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 @pytest.mark.parametrize(
@@ -291,7 +495,7 @@ def test_extracts_expanded_unlabelled_material_grades(
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.material_candidates] == [expected]
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 def test_extracts_material_and_part_from_composite_text(tmp_path: Path) -> None:
@@ -304,7 +508,7 @@ def test_extracts_material_and_part_from_composite_text(tmp_path: Path) -> None:
 
     assert [candidate.value for candidate in result.material_candidates] == ["Q345GJC-Z15"]
     assert [candidate.value for candidate in result.part_candidates] == ["JWL-36-01"]
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 @pytest.mark.parametrize(
@@ -399,7 +603,7 @@ def test_extracts_structurally_similar_part_numbers_in_first_seen_order(
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.part_candidates] == values
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 @pytest.mark.parametrize("annotation", ["余料", "未到料", "返修件"])
@@ -416,7 +620,7 @@ def test_ignores_standalone_two_or_three_chinese_character_annotations(
     assert result.material_candidates == []
     assert result.project_candidates == []
     assert result.part_candidates == []
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 def test_all_longer_chinese_texts_become_project_candidates(tmp_path: Path) -> None:
@@ -434,7 +638,7 @@ def test_all_longer_chinese_texts_become_project_candidates(tmp_path: Path) -> N
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.project_candidates] == titles
-    assert [warning.code for warning in result.warnings] == ["PROJECT_CANDIDATES_CONFLICT"]
+    assert _legacy_warning_codes(result) == ["PROJECT_CANDIDATES_CONFLICT"]
 
 
 def test_ignores_unclassified_dimensions_dates_and_plain_ascii(tmp_path: Path) -> None:
@@ -449,7 +653,7 @@ def test_ignores_unclassified_dimensions_dates_and_plain_ascii(tmp_path: Path) -
     assert result.material_candidates == []
     assert result.project_candidates == []
     assert result.part_candidates == []
-    assert result.warnings == []
+    assert _legacy_warning_codes(result) == []
 
 
 def test_normal_non_text_geometry_does_not_emit_structure_warning(tmp_path: Path) -> None:
@@ -489,4 +693,4 @@ def test_single_malformed_entity_emits_structure_warning_and_keeps_other_evidenc
     result = parse_dxf(source)
 
     assert [candidate.value for candidate in result.material_candidates] == ["Q235B"]
-    assert [warning.code for warning in result.warnings] == ["STRUCTURE_ANOMALY"]
+    assert _legacy_warning_codes(result) == ["STRUCTURE_ANOMALY"]

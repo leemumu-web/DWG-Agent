@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal
 from typing import Any
 
 
@@ -28,6 +29,17 @@ class ParseWarning:
     message: str
 
 
+@dataclass(frozen=True, slots=True)
+class StandardOffcut:
+    block_type: str
+    raw_specification: str
+    thickness: Decimal
+    length: Decimal
+    width: Decimal
+    material: str
+    remnant_number: str
+
+
 @dataclass(slots=True)
 class ParseResult:
     schema_version: str
@@ -37,9 +49,15 @@ class ParseResult:
     project_candidates: list[Candidate]
     part_candidates: list[Candidate]
     warnings: list[ParseWarning]
+    standard_offcut: StandardOffcut | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if self.standard_offcut is not None:
+            summary = result["standard_offcut"]
+            for key in ("thickness", "length", "width"):
+                summary[key] = format(summary[key], "f")
+        return result
 
 
 class ParseError(RuntimeError):

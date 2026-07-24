@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "remnant-drawing-reader"
-version = "0.1.0"
+version = "0.4.0"
 description = "Deterministic DXF metadata candidate reader for remnant inventory"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
