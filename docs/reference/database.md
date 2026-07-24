@@ -644,8 +644,9 @@ analysis_results ──< workflow_artifacts
 | `2f6b8c1d4e90` | Excel Final 24 个物理数值字段改用 `DECIMAL(24,9)`，消除项目重量累计漂移 | 2026-07-23 |
 | `7c4d9e2a1b60` | 汇合 Excel Final 与余料库迁移分支，不执行 DDL | 2026-07-23 |
 | `4e7c2a9b1d30` | 生产输入项新增 Excel 规则检查快照、规则版本和登记对象 SHA-256 | 2026-07-24 |
+| `5f8d3b0c2e41` | 将 Linux 生产流程归一为九阶段，Excel 第一阶段直接使用冻结 source Excel | 2026-07-24 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；随后 `4e7c2a9b1d30` 增加工作流 Excel 输入验证快照。**`4e7c2a9b1d30` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；随后 `4e7c2a9b1d30` 增加工作流 Excel 输入验证快照，`5f8d3b0c2e41` 归一 Linux 生产阶段。**`5f8d3b0c2e41` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 

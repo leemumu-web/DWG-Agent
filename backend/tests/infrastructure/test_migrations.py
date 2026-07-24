@@ -29,6 +29,9 @@ MERGE_REVISION = VERSIONS_DIR / "7c4d9e2a1b60_merge_excel_final_and_remnant_head
 WORKFLOW_EXCEL_VALIDATION_REVISION = (
     VERSIONS_DIR / "4e7c2a9b1d30_add_workflow_excel_validation.py"
 )
+LINUX_EXCEL_STAGE_REVISION = (
+    VERSIONS_DIR / "5f8d3b0c2e41_normalize_linux_excel_stage.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -315,6 +318,19 @@ def test_workflow_excel_validation_migration_extends_head_and_is_reversible():
     assert "sa.JSON()" in source
     assert "sa.Integer()" in source
     assert "sa.String(length=64)" in source
+
+
+def test_linux_excel_stage_migration_is_fail_closed_and_reversible():
+    source = LINUX_EXCEL_STAGE_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "5f8d3b0c2e41"' in source
+    assert 'down_revision: str | None = "4e7c2a9b1d30"' in source
+    assert "def _normalize_linux_workflows(" in source
+    assert "def _restore_legacy_linux_workflows(" in source
+    assert "has legacy Excel execution evidence" in source
+    assert "is currently at legacy excel_final" in source
+    assert "DELETE FROM workflow_stage_runs" in source
+    assert "definition_revision" in source
 
 
 def test_alembic_autogenerate_excludes_celery_owned_tables():

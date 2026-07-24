@@ -7,6 +7,7 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import NoReturn
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -224,12 +225,46 @@ def inspect_excel_payload(
         ) from exc
 
 
-def _persisted_failure(item: WorkflowInputItem) -> dict[str, object] | None:
+def persisted_excel_failure(item: WorkflowInputItem) -> dict[str, object] | None:
     validation = item.validation_json
     if not isinstance(validation, dict):
         return None
     failure = validation.get("failure")
     return failure if isinstance(failure, dict) else None
+
+
+def excel_validation_required_failure(
+    item: WorkflowInputItem,
+    *,
+    message: str = "Excel 输入缺少可核验的登记记录。",
+    action: str = "请从输入批次中移除该 Excel，并重新上传、登记。",
+) -> dict[str, object]:
+    return {
+        "code": "EXCEL_INPUT_VALIDATION_REQUIRED",
+        "message": message,
+        "action": action,
+        "contract_version": item.validation_contract_version or 1,
+        "issues": [],
+        "sheets": [],
+        "meta": {
+            "item_id": item.id,
+            "issue_count": 0,
+            "issues_truncated": False,
+            "sheet_count": 0,
+            "sheets_truncated": False,
+        },
+    }
+
+
+def raise_excel_failure(failure: dict[str, object]) -> NoReturn:
+    code = str(failure.get("code") or "EXCEL_INPUT_INVALID")
+    message = str(failure.get("message") or "Excel 输入未通过检查。")
+    raise AppHTTPException(
+        409 if code == "EXCEL_INPUT_OBJECT_CHANGED" else 422,
+        code,
+        message,
+        {"failure": failure},
+    )
 
 
 def register_input_file(
@@ -246,7 +281,7 @@ def register_input_file(
     if existing is not None:
         return InputRegistrationOutcome(
             item=existing,
-            failure=_persisted_failure(existing),
+            failure=persisted_excel_failure(existing),
         )
     file_ext = stored.file_ext.lower()
     role = classify_human_input_extension(file_ext)

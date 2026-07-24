@@ -38,43 +38,6 @@ def _manifest_entry(stored: StoredFile) -> dict[str, object]:
     }
 
 
-def _stored_excel_failure(item: WorkflowInputItem) -> dict[str, object] | None:
-    if not isinstance(item.validation_json, dict):
-        return None
-    failure = item.validation_json.get("failure")
-    return failure if isinstance(failure, dict) else None
-
-
-def _validation_required_failure(item: WorkflowInputItem) -> dict[str, object]:
-    return {
-        "code": "EXCEL_INPUT_VALIDATION_REQUIRED",
-        "message": "Excel 输入缺少可核验的登记记录。",
-        "action": "请从输入批次中移除该 Excel，并重新上传、登记。",
-        "contract_version": item.validation_contract_version or 1,
-        "issues": [],
-        "sheets": [],
-        "meta": {
-            "item_id": item.id,
-            "issue_count": 0,
-            "issues_truncated": False,
-            "sheet_count": 0,
-            "sheets_truncated": False,
-        },
-    }
-
-
-def _raise_excel_failure(failure: dict[str, object]) -> None:
-    code = str(failure.get("code") or "EXCEL_INPUT_INVALID")
-    message = str(failure.get("message") or "Excel 输入未通过检查。")
-    status_code = 409 if code == "EXCEL_INPUT_OBJECT_CHANGED" else 422
-    raise AppHTTPException(
-        status_code,
-        code,
-        message,
-        {"failure": failure},
-    )
-
-
 def freeze_input_batch(
     db: Session,
     batch: WorkflowInputBatch,
@@ -129,16 +92,18 @@ def freeze_input_batch(
                 {"item_id": item.id, "file_id": item.file_id},
             )
         if item.role == "source_excel":
-            persisted_failure = _stored_excel_failure(item)
+            persisted_failure = registration.persisted_excel_failure(item)
             if persisted_failure is not None:
-                _raise_excel_failure(persisted_failure)
+                registration.raise_excel_failure(persisted_failure)
             if (
                 item.validation_contract_version is None
                 or item.validated_sha256 is None
                 or not isinstance(item.validation_json, dict)
                 or not isinstance(item.validation_json.get("inspection"), dict)
             ):
-                _raise_excel_failure(_validation_required_failure(item))
+                registration.raise_excel_failure(
+                    registration.excel_validation_required_failure(item)
+                )
         payload = registration.read_verified_input_object(stored)
         if item.role == "source_dwg":
             registration.validate_dwg_payload(payload)
@@ -150,9 +115,11 @@ def freeze_input_batch(
                     expected_sha256=item.validated_sha256,
                 )
             except ExcelFinalInputError as exc:
-                _raise_excel_failure(exc.failure.as_dict())
+                registration.raise_excel_failure(exc.failure.as_dict())
             if inspection.input_contract_version != item.validation_contract_version:
-                _raise_excel_failure(_validation_required_failure(item))
+                registration.raise_excel_failure(
+                    registration.excel_validation_required_failure(item)
+                )
 
     conversion.sync_input_batch(db, batch)
     if batch.status != "ready_to_freeze":

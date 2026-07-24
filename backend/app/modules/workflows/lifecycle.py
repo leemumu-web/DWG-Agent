@@ -18,6 +18,9 @@ STAGE_ACTIVE = {"queued", "running"}
 
 
 def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) -> WorkflowRun:
+    config = dict(payload.config)
+    if payload.workflow_type == "linux_production":
+        config["definition_revision"] = 2
     workflow = WorkflowRun(
         project_id=payload.project_id,
         created_by=created_by,
@@ -25,7 +28,7 @@ def create_workflow(db: Session, payload: WorkflowCreate, *, created_by: int) ->
         workflow_type=payload.workflow_type,
         status="draft",
         progress=0,
-        config_json=payload.config,
+        config_json=config,
     )
     db.add(workflow)
     db.flush()
