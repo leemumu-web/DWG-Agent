@@ -1,7 +1,7 @@
 # DWG-Agent 平台 -- 数据库设计与运维
 
 > **受众:** 数据库管理员、平台运维人员、后端开发者
-> **最后更新:** 2026-07-23
+> **最后更新:** 2026-07-25
 > **范围:** 引擎配置、表目录、实体关系、迁移管理、种子数据、备份策略
 
 ---
@@ -647,10 +647,11 @@ analysis_results ──< workflow_artifacts
 | `9d6e4a1b2c70` | 增加余料自动导入批次、来源路径与标准解析摘要字段 | 2026-07-24 |
 | `4e7c2a9b1d30` | 生产输入项新增 Excel 规则检查快照、规则版本和登记对象 SHA-256 | 2026-07-24 |
 | `5f8d3b0c2e41` | 将 Linux 生产流程归一为九阶段，Excel 第一阶段直接使用冻结 source Excel | 2026-07-24 |
-| `c7b2d4e9f601` | 将 Linux 生产图纸链升级为 revision 3：源 DWG 留档、DrawingVersion 与后续图纸 artifact 统一为 DXF | 2026-07-24 |
 | `8a6c1f4e2b90` | 汇合余料库与 Linux Excel Stage 迁移分支，不执行 DDL | 2026-07-24 |
+| `c7b2d4e9f601` | 将 Linux 生产图纸链升级为 revision 3：源 DWG 留档、DrawingVersion 与后续图纸 artifact 统一为 DXF | 2026-07-24 |
+| `d6f3a8c2e710` | 为 DXF 分类条目增加权威截面、类型来源、分组键和下游资格字段 | 2026-07-25 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），最终由 `8a6c1f4e2b90` 汇合。**`8a6c1f4e2b90` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601` 与 `d6f3a8c2e710`。**`d6f3a8c2e710` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 

@@ -275,7 +275,8 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     api_source = _frontend_source("features/workflows/workflow-inputs.api.ts")
 
     assert "<ProductionInputPanel" in detail_source
-    assert "currentStage.stage_code === 'source_intake'" in detail_source
+    assert "selectedStage.stage_code === 'source_intake'" in detail_source
+    assert "sourceIntakeActive={selectedIsCurrent}" in detail_source
     assert "webkitdirectory" in panel_source
     assert "上传 Excel 文件" in panel_source
     assert "选择 DWG 文件夹" in panel_source
@@ -316,6 +317,7 @@ def test_production_project_drawer_uses_atomic_project_contract():
 def test_production_submission_navigates_to_one_dedicated_detail_workspace():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
+    rail_source = _frontend_source("features/workflows/WorkflowStageRail.tsx")
     success_handler = page_source.split("onSuccess: ({ workflow })", 1)[1].split(
         "onError:", 1
     )[0]
@@ -324,7 +326,9 @@ def test_production_submission_navigates_to_one_dedicated_detail_workspace():
     assert "navigate(`/workflows/${workflow.id}`)" in success_handler
     assert "<ProductionInputPanel" not in page_source
     assert "<ProductionInputPanel" in detail_source
-    assert "workflow-stage-rail" in detail_source
+    assert "<WorkflowStageRail" in detail_source
+    assert "workflow-stage-rail" in rail_source
+    assert 'type="button"' in rail_source
 
 
 def test_dxf_classification_has_dedicated_guarded_frontend_console():
@@ -334,7 +338,8 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
     type_source = _frontend_source("features/workflows/workflow.ts")
 
     assert "<DxfClassificationPanel" in detail_source
-    assert "currentStage.stage_code === 'dxf_classification'" in detail_source
+    assert "selectedStage.stage_code === 'dxf_classification'" in detail_source
+    assert "isCurrent={selectedIsCurrent}" in detail_source
     assert "开始 DXF 分类分流" in panel_source
     assert "steel_dxf_classification" in panel_source
     assert "分类报告已纳入生产压缩包" in panel_source

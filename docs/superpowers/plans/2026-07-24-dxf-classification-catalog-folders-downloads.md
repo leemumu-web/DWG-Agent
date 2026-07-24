@@ -10,6 +10,8 @@
 
 ---
 
+## Implementation Tasks
+
 ### Task 1: Classifier 1.2 semantic contract
 
 **Files:**
