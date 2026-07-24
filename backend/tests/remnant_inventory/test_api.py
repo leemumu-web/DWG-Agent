@@ -21,6 +21,7 @@ from app.modules.remnant_inventory.models import (
     RemnantMaterial,
     RemnantPart,
 )
+from app.modules.remnant_inventory.schemas import BulkProjectUpdate, MaterialStatusUpdate
 from app.platform.config.settings import settings
 from app.platform.security.tokens import hash_password
 from tests.support.database import get_test_session_factory
@@ -337,6 +338,72 @@ def test_worker_can_toggle_material_status_without_catalog_edit_access(
             select(AuditLog).where(AuditLog.action == "remnants.material.status")
         )
         assert audit is not None
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({}, "请提供材质启停状态。"),
+        ({"enabled": "false"}, "材质启停状态必须为布尔值。"),
+    ],
+)
+def test_material_status_invalid_fields_return_stable_chinese_errors(
+    client,
+    worker_headers,
+    body,
+    message,
+) -> None:
+    response = client.patch(
+        "/api/v1/remnant-materials/999/status",
+        headers=worker_headers,
+        json=body,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()["error"]
+    assert payload["message"] == message
+    assert payload["code"] not in payload["message"]
+    assert "Request validation failed" not in payload["message"]
+
+
+def test_localized_command_schemas_retain_required_openapi_types() -> None:
+    status_schema = MaterialStatusUpdate.model_json_schema()
+    project_schema = BulkProjectUpdate.model_json_schema()
+
+    assert status_schema["required"] == ["enabled"]
+    assert status_schema["properties"]["enabled"]["type"] == "boolean"
+    assert set(project_schema["required"]) == {"item_ids", "project_no"}
+    assert project_schema["properties"]["item_ids"]["type"] == "array"
+    assert project_schema["properties"]["item_ids"]["items"]["type"] == "integer"
+    assert project_schema["properties"]["project_no"]["type"] == "string"
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"project_no": "PRJ-A"}, "请选择需要设置项目的图纸。"),
+        ({"item_ids": "1", "project_no": "PRJ-A"}, "图纸编号列表格式不正确。"),
+        ({"item_ids": [1]}, "请填写项目编号。"),
+        ({"item_ids": [1], "project_no": 123}, "项目编号格式不正确。"),
+    ],
+)
+def test_bulk_project_invalid_fields_return_stable_chinese_errors(
+    client,
+    admin_headers,
+    body,
+    message,
+) -> None:
+    response = client.post(
+        "/api/v1/remnant-import-batches/999/bulk-project",
+        headers=admin_headers,
+        json=body,
+    )
+
+    assert response.status_code == 422
+    payload = response.json()["error"]
+    assert payload["message"] == message
+    assert payload["code"] not in payload["message"]
+    assert "Request validation failed" not in payload["message"]
 
 
 def test_auto_multipart_import_returns_paths_and_supports_bulk_project_and_cancel(

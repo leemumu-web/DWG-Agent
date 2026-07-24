@@ -316,6 +316,18 @@ def patch_material_status(
     db: Session = Depends(get_db),
 ):
     _require_user(current_user)
+    if payload.enabled is None:
+        raise AppHTTPException(
+            422,
+            "REMNANT_MATERIAL_STATUS_REQUIRED",
+            "请提供材质启停状态。",
+        )
+    if type(payload.enabled) is not bool:
+        raise AppHTTPException(
+            422,
+            "REMNANT_MATERIAL_STATUS_INVALID",
+            "材质启停状态必须为布尔值。",
+        )
     row = db.get(RemnantMaterial, material_id)
     if row is None:
         raise AppHTTPException(404, "REMNANT_MATERIAL_NOT_FOUND", "材质不存在或已被删除。")
@@ -568,6 +580,34 @@ def post_bulk_project(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
+    if payload.item_ids is None or payload.item_ids == []:
+        raise AppHTTPException(
+            422,
+            "REMNANT_IMPORT_ITEMS_REQUIRED",
+            "请选择需要设置项目的图纸。",
+        )
+    if (
+        not isinstance(payload.item_ids, list)
+        or len(payload.item_ids) > 1000
+        or any(type(item_id) is not int or item_id < 1 for item_id in payload.item_ids)
+    ):
+        raise AppHTTPException(
+            422,
+            "REMNANT_IMPORT_ITEM_IDS_INVALID",
+            "图纸编号列表格式不正确。",
+        )
+    if payload.project_no is None:
+        raise AppHTTPException(
+            422,
+            "REMNANT_PROJECT_REQUIRED",
+            "请填写项目编号。",
+        )
+    if not isinstance(payload.project_no, str):
+        raise AppHTTPException(
+            422,
+            "REMNANT_PROJECT_INVALID",
+            "项目编号格式不正确。",
+        )
     changed = bulk_apply_project(
         db,
         batch_id,

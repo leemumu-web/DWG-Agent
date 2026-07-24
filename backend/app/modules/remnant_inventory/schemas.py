@@ -3,7 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SkipValidation,
+    field_validator,
+    model_validator,
+)
 
 
 class MaterialCreate(BaseModel):
@@ -31,7 +38,15 @@ class MaterialUpdate(BaseModel):
 
 
 class MaterialStatusUpdate(BaseModel):
-    enabled: bool
+    enabled: SkipValidation[bool]
+
+    @model_validator(mode="before")
+    @classmethod
+    def defer_missing_field_validation(cls, value: object) -> object:
+        # Keep the field required/boolean in OpenAPI while the route owns its Chinese error.
+        if isinstance(value, dict) and "enabled" not in value:
+            return {**value, "enabled": None}
+        return value
 
 
 class MaterialAliasReplace(BaseModel):
@@ -78,8 +93,20 @@ class BulkThicknessUpdate(BaseModel):
 
 
 class BulkProjectUpdate(BaseModel):
-    item_ids: list[int] = Field(min_length=1, max_length=1000)
-    project_no: str
+    item_ids: SkipValidation[list[int]]
+    project_no: SkipValidation[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def defer_missing_field_validation(cls, value: object) -> object:
+        # Keep required typed fields in OpenAPI while the route owns Chinese errors.
+        if not isinstance(value, dict):
+            return value
+        return {
+            **value,
+            "item_ids": value.get("item_ids"),
+            "project_no": value.get("project_no"),
+        }
 
 
 class ImportConfirmRequest(BaseModel):
