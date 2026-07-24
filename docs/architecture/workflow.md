@@ -93,7 +93,7 @@ completion API 只接受当前可操作阶段：
 
 ### 4.2 生产输入、服务器转换与冻结
 
-人工输入严格为至少一个 DWG 和恰好一个 Excel（XLS/XLSX），不上传 DXF。浏览器先复用带 `Idempotency-Key` 的 `/files` 上传，再把 `file_id` 登记到 workflow input batch。服务端逐个重新读取对象并校验登记大小、SHA-256、DWG 文件头或 Excel 可读工作表；第二个 Excel、人工 DXF、同名 DWG 和伪扩展文件均返回稳定问题码。
+人工输入统一选择一个完整文件夹，文件夹内严格为至少一个 DWG 和恰好一个 Excel（XLS/XLSX），不允许 DXF 或其他文件。`POST /input-folder` 先审核同一根目录、相对路径、扩展名、重名和数量，再复用 Files 存储与 Workflow 登记能力在同一事务中整批入库；任一对象的 DWG 文件头、Excel 可读工作表、大小或 SHA-256 校验失败，整批回滚。
 
 转换请求为每个 DWG 建立稳定的 `convert_dwg_to_dxf` Job：活动/成功 Job 幂等复用，失败或取消 Job 通过现有 retry 递增 attempt。API 先提交数据库再投递 worker；明确的 broker 投递失败会以 status + attempt 条件把仍 queued 的 Job 标为 `JOB_ENQUEUE_FAILED`，下一次请求可递增 attempt 重投，已被 worker 领取的状态不会被覆盖。状态查询只接纳条目绑定 attempt 的成功 Result，并验证派生对象、DXF 结构和规范化同名配对。
 
@@ -155,8 +155,9 @@ completion API 只接受当前可操作阶段：
 | POST | `/api/v1/workflows/{workflow_id}/artifacts` | 绑定已有 File/Result，重复请求幂等 |
 | POST | `/api/v1/workflows/{workflow_id}/start` | 启动草稿 |
 | GET, POST | `/api/v1/workflows/{workflow_id}/input-batch` | 读取/幂等建立生产输入批次 |
-| POST | `/api/v1/workflows/{workflow_id}/input-batch/files` | 登记 `/files` 中的 DWG 或唯一 Excel |
-| DELETE | `/api/v1/workflows/{workflow_id}/input-batch/files/{item_id}` | 冻结前移除条目并取消其活动 Job |
+| POST | `/api/v1/workflows/{workflow_id}/input-folder` | 整批审核并导入一个含 DWG 与唯一 Excel 的文件夹 |
+| DELETE | `/api/v1/workflows/{workflow_id}/input-folder` | 冻结前整批清空输入文件夹并取消活动 Job |
+| GET | `/api/v1/workflows/{workflow_id}/download-archive` | 按阶段和产物类型下载完整生产 ZIP |
 | POST | `/api/v1/workflows/{workflow_id}/input-batch/conversion-requests` | 幂等创建或重试 DWG→DXF Job |
 | POST | `/api/v1/workflows/{workflow_id}/input-batch/freeze` | 重校验、建 Drawing、冻结清单并推进阶段 |
 | POST | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` | 执行真实 Linux 阶段或返回留白契约 |
@@ -192,7 +193,8 @@ React `生产流程` 页面读取模板，提供：
 - 已创建但启动失败的 draft 在详情页保留启动恢复入口；
 - Linux 九阶段生产轨道和实现状态标签；
 - 项目内流程创建、分页、状态筛选、启动和取消；
-- source intake 专用四步面板：多选 DWG、单个 Excel、服务器转换、确认冻结；
+- source intake 专用四步面板：选择完整文件夹、整批审核、服务器转换、确认冻结；
+- 工作流产物只提供按阶段组织的完整 ZIP，不提供逐文件下载；
 - 逐文件上传/登记、Job attempt/进度、DXF 配对、结构化问题和修复建议；
 - 上传成功但登记失败时只重试登记，避免重复保存对象；
 - 冻结后详情工作区自动进入 DXF 分类控制台，无需重新选择文件；

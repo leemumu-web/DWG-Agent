@@ -32,6 +32,7 @@ WORKFLOW_PUBLIC_CONTRACT = {
     "complete_manual_stage",
     "create_workflow",
     "find_frozen_input_reference",
+    "find_production_file_workflow_id",
     "get_workflow_or_404",
     "list_workflow_templates",
     "read_verified_input_object",
@@ -45,6 +46,7 @@ EXPECTED_ROUTES = [
     (("GET",), "", "list_workflows"),
     (("POST",), "", "create_workflow_api"),
     (("POST",), "/{workflow_id}/artifacts", "create_workflow_artifact"),
+    (("GET",), "/{workflow_id}/download-archive", "download_workflow_archive"),
     (
         ("POST",),
         "/{workflow_id}/stages/{stage_code}/executions",
@@ -65,11 +67,15 @@ EXPECTED_ROUTES = [
     ),
     (("POST",), "/{workflow_id}/input-batch", "create_batch_api"),
     (("GET",), "/{workflow_id}/input-batch", "get_batch_api"),
-    (("POST",), "/{workflow_id}/input-batch/files", "register_file_api"),
+    (
+        ("POST",),
+        "/{workflow_id}/input-folder",
+        "import_input_folder_api",
+    ),
     (
         ("DELETE",),
-        "/{workflow_id}/input-batch/files/{item_id}",
-        "remove_file_api",
+        "/{workflow_id}/input-folder",
+        "clear_input_folder_api",
     ),
     (
         ("POST",),
@@ -232,7 +238,12 @@ def test_workflow_router_preserves_all_operations_order_and_tags() -> None:
         (("GET",), "/{workflow_id}", "get_workflow")
     )
     assert all(
-        route.tags == (["workflow-inputs"] if "input-batch" in route.path else ["workflows"])
+        route.tags
+        == (
+            ["workflow-inputs"]
+            if "input-batch" in route.path or "input-folder" in route.path
+            else ["workflows"]
+        )
         for route in module.router.routes
     )
 

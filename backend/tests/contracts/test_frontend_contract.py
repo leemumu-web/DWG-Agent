@@ -250,16 +250,11 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     type_source = _frontend_source("features/workflows/workflow.ts")
 
-    for path in (
-        "/api/v1/workflows/templates",
-        "/artifacts",
-        "/executions",
-    ):
+    for path in ("/api/v1/workflows/templates", "/executions"):
         assert path in api_source
     for contract in (
         "WorkflowTemplate",
         "WorkflowStageCapability",
-        "WorkflowArtifactCreatePayload",
         "WorkflowStageExecutionPayload",
     ):
         assert f"interface {contract}" in type_source
@@ -267,7 +262,8 @@ def test_workflow_console_uses_backend_templates_files_and_stage_execution():
     assert "listWorkflows" in list_source
     assert "createWorkflow" in list_source
     assert "getWorkflow" in detail_source
-    assert "downloadFile" in detail_source
+    assert "downloadWorkflowArchive" in detail_source
+    assert "downloadFile" not in detail_source
     assert "executeWorkflowStage" in detail_source
     assert "当前不会提交虚假任务" in detail_source
     assert "CAD 图纸业务算法和 Agent 不在本模块范围内" not in detail_source
@@ -280,16 +276,14 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
 
     assert "<ProductionInputPanel" in detail_source
     assert "currentStage.stage_code === 'source_intake'" in detail_source
-    assert 'accept=".dwg"' in panel_source
-    assert 'accept=".xls,.xlsx"' in panel_source
-    assert "上传 DWG" in panel_source
-    assert "上传 Excel" in panel_source
-    assert "INPUT_DXF_NOT_ALLOWED" in panel_source
+    assert "webkitdirectory" in panel_source
+    assert "选择并上传生产文件夹" in panel_source
+    assert "完整文件夹" in panel_source
+    assert "downloadFile" not in panel_source
     assert "冻结后不可修改" in panel_source
-    assert "crypto.randomUUID()" in panel_source
     for path in (
         "/input-batch",
-        "/input-batch/files",
+        "/input-folder",
         "/input-batch/conversion-requests",
         "/input-batch/freeze",
     ):
@@ -338,8 +332,9 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
     assert "currentStage.stage_code === 'dxf_classification'" in detail_source
     assert "开始 DXF 分类分流" in panel_source
     assert "steel_dxf_classification" in panel_source
-    assert "分类报告 JSON" in panel_source
-    assert "分类清单 CSV" in panel_source
+    assert "分类报告已纳入生产压缩包" in panel_source
+    assert "分类清单已纳入生产压缩包" in panel_source
+    assert "downloadFile" not in panel_source
     assert "output_directory" in panel_source
     assert "getDxfClassification" in api_source
     assert "/dxf-classification" in api_source

@@ -11,13 +11,11 @@ import {
   Typography,
 } from 'antd';
 import {
-  DownloadOutlined,
   FileSearchOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { downloadFile } from '../files';
 import { executeWorkflowStage, getDxfClassification } from './workflows.api';
 import { describeApiError } from '../../shared/api';
 import { fmtSize } from '../../shared/components';
@@ -89,13 +87,6 @@ export function DxfClassificationPanel({ workflowId, stage, isCurrent, onChanged
       dataIndex: 'diagnostics',
       render: (values: string[]) => values.length ? <Space wrap>{values.map((value) => <Tag key={value}>{value}</Tag>)}</Space> : '—',
     },
-    {
-      title: '操作',
-      width: 92,
-      render: (_: unknown, item: DxfClassificationItem) => (
-        <Button type="link" icon={<DownloadOutlined />} onClick={() => downloadFile(item.output_file.id, item.output_name)}>下载</Button>
-      ),
-    },
   ];
 
   return (
@@ -155,8 +146,8 @@ export function DxfClassificationPanel({ workflowId, stage, isCurrent, onChanged
           />
           <Space wrap style={{ marginTop: 14 }}>
             {Object.entries(run.type_counts).map(([type, count]) => <Tag color="blue" key={type}>{type} · {count}</Tag>)}
-            {run.report_file && <Button icon={<DownloadOutlined />} onClick={() => downloadFile(run.report_file!.id, run.report_file!.original_name)}>分类报告 JSON</Button>}
-            {run.manifest_file && <Button icon={<DownloadOutlined />} onClick={() => downloadFile(run.manifest_file!.id, run.manifest_file!.original_name)}>分类清单 CSV</Button>}
+            {run.report_file && <Tag>分类报告已纳入生产压缩包</Tag>}
+            {run.manifest_file && <Tag>分类清单已纳入生产压缩包</Tag>}
           </Space>
           <Table<DxfClassificationItem>
             rowKey="id"

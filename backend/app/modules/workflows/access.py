@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.workflows.lifecycle import get_workflow_or_404
-from app.modules.workflows.models import WorkflowRun
+from app.modules.workflows.models import (
+    WorkflowArtifact,
+    WorkflowInputBatch,
+    WorkflowInputItem,
+    WorkflowRun,
+)
 
 WORKFLOW_WRITE_ROLES = {"project_owner", "project_engineer"}
 WORKFLOW_STATUSES = {
@@ -29,3 +34,31 @@ def load_workflow_detail(db: Session, workflow_id: int) -> WorkflowRun:
     if workflow is None:
         return get_workflow_or_404(db, workflow_id)
     return workflow
+
+
+def find_production_file_workflow_id(db: Session, file_id: int) -> int | None:
+    """Return the production workflow that owns a file's download boundary."""
+    workflow_id = db.scalar(
+        select(WorkflowArtifact.workflow_run_id)
+        .join(WorkflowRun, WorkflowRun.id == WorkflowArtifact.workflow_run_id)
+        .where(
+            WorkflowArtifact.file_id == file_id,
+            WorkflowRun.workflow_type == "linux_production",
+        )
+        .limit(1)
+    )
+    if workflow_id is not None:
+        return workflow_id
+    return db.scalar(
+        select(WorkflowInputBatch.workflow_run_id)
+        .join(WorkflowInputItem, WorkflowInputItem.input_batch_id == WorkflowInputBatch.id)
+        .join(WorkflowRun, WorkflowRun.id == WorkflowInputBatch.workflow_run_id)
+        .where(
+            or_(
+                WorkflowInputItem.file_id == file_id,
+                WorkflowInputItem.derived_dxf_file_id == file_id,
+            ),
+            WorkflowRun.workflow_type == "linux_production",
+        )
+        .limit(1)
+    )

@@ -1,8 +1,6 @@
-import { apiClient, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
+import { apiClient, describeApiErrorAsync, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
 import type { Job } from '../jobs';
 import type {
-  WorkflowArtifact,
-  WorkflowArtifactCreatePayload,
   WorkflowDetail,
   WorkflowRun,
   WorkflowStageExecutionPayload,
@@ -41,6 +39,30 @@ export async function getWorkflow(workflowId: number) {
   return response.data.data;
 }
 
+export async function downloadWorkflowArchive(workflowId: number) {
+  try {
+    const response = await apiClient.get<Blob>(
+      `/api/v1/workflows/${workflowId}/download-archive`,
+      { responseType: 'blob', timeout: 300_000 },
+    );
+    const disposition = response.headers['content-disposition'] as string | undefined;
+    const encoded = disposition?.match(/filename\\*=UTF-8''([^;]+)/i)?.[1];
+    const filename = encoded ? decodeURIComponent(encoded) : `workflow-${workflowId}.zip`;
+    const url = URL.createObjectURL(response.data);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    setTimeout(() => {
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }, 100);
+  } catch (error) {
+    throw new Error(await describeApiErrorAsync(error, '生产压缩包下载失败'));
+  }
+}
+
 export async function createWorkflow(payload: WorkflowCreatePayload) {
   const response = await apiClient.post<ApiEnvelope<WorkflowDetail>>('/api/v1/workflows', payload);
   return response.data.data;
@@ -62,16 +84,6 @@ export async function cancelWorkflow(workflowId: number) {
   const response = await apiClient.post<ApiEnvelope<WorkflowDetail>>(
     `/api/v1/workflows/${workflowId}/cancellation-requests`,
   );
-  return response.data.data;
-}
-
-export async function createWorkflowArtifact(
-  workflowId: number,
-  payload: WorkflowArtifactCreatePayload,
-) {
-  const response = await apiClient.post<
-    ApiEnvelope<{ artifact: WorkflowArtifact; workflow: WorkflowDetail; reused: boolean }>
-  >(`/api/v1/workflows/${workflowId}/artifacts`, payload);
   return response.data.data;
 }
 

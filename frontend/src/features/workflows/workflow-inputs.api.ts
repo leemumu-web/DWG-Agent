@@ -18,15 +18,21 @@ export async function getWorkflowInputBatch(workflowId: number) {
   return response.data.data;
 }
 
-export async function registerWorkflowInputFile(workflowId: number, fileId: number) {
-  const response = await apiClient.post<
-    ApiEnvelope<{ batch: WorkflowInputBatch; item_id: number; reused: boolean }>
-  >(`/api/v1/workflows/${workflowId}/input-batch/files`, { file_id: fileId });
+export async function uploadWorkflowInputFolder(workflowId: number, files: File[]) {
+  const form = new FormData();
+  const relativePaths = files.map((file) => file.webkitRelativePath);
+  files.forEach((file) => form.append('uploads', file, file.name));
+  form.append('relative_paths', JSON.stringify(relativePaths));
+  const response = await apiClient.post<ApiEnvelope<WorkflowInputBatch>>(
+    `/api/v1/workflows/${workflowId}/input-folder`,
+    form,
+    { timeout: 300_000 },
+  );
   return response.data.data;
 }
 
-export async function removeWorkflowInputFile(workflowId: number, itemId: number) {
-  await apiClient.delete(`/api/v1/workflows/${workflowId}/input-batch/files/${itemId}`);
+export async function clearWorkflowInputFolder(workflowId: number) {
+  await apiClient.delete(`/api/v1/workflows/${workflowId}/input-folder`);
 }
 
 export async function requestWorkflowInputConversions(workflowId: number) {

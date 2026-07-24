@@ -71,14 +71,6 @@ export interface WorkflowTemplate {
   stages: WorkflowStageCapability[];
 }
 
-export interface WorkflowArtifactCreatePayload {
-  stage_code: string;
-  artifact_type: string;
-  file_id?: number;
-  result_id?: number;
-  metadata?: Record<string, unknown>;
-}
-
 export interface WorkflowStageExecutionPayload {
   execution_kind: string;
 }

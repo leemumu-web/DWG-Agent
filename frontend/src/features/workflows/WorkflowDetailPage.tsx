@@ -32,13 +32,13 @@ import {
   fmtDateTime,
   StatusChip,
 } from '../../shared/components';
-import { downloadFile } from '../files';
 import { listProjects } from '../projects';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import {
   cancelWorkflow,
   completeWorkflowStage,
+  downloadWorkflowArchive,
   executeWorkflowStage,
   getWorkflow,
   listWorkflowTemplates,
@@ -109,9 +109,18 @@ function StageRail({
   );
 }
 
-function ArtifactLedger({ artifacts }: { artifacts: WorkflowArtifact[] }) {
+function ArtifactLedger({ workflowId, artifacts }: { workflowId: number; artifacts: WorkflowArtifact[] }) {
+  const { message } = App.useApp();
+  const archiveM = useMutation({
+    mutationFn: () => downloadWorkflowArchive(workflowId),
+    onError: (error) => message.error(describeApiError(error, '生产压缩包下载失败')),
+  });
   return (
-    <Card className="workflow-artifact-ledger" title="生产产物与证据">
+    <Card
+      className="workflow-artifact-ledger"
+      title="生产产物与证据"
+      extra={<Button icon={<DownloadOutlined />} loading={archiveM.isPending} disabled={!artifacts.length} onClick={() => archiveM.mutate()}>下载完整生产压缩包</Button>}
+    >
       {artifacts.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前尚无已登记产物" />
       ) : (
@@ -127,20 +136,6 @@ function ArtifactLedger({ artifacts }: { artifacts: WorkflowArtifact[] }) {
                   {fmtDateTime(artifact.created_at)}
                 </small>
               </div>
-              {artifact.file_id && (
-                <Button
-                  type="text"
-                  icon={<DownloadOutlined />}
-                  onClick={() => downloadFile(
-                    artifact.file_id!,
-                    typeof artifact.metadata_json?.original_name === 'string'
-                      ? artifact.metadata_json.original_name
-                      : `workflow-artifact-${artifact.file_id}`,
-                  )}
-                >
-                  下载
-                </Button>
-              )}
             </div>
           ))}
         </div>
@@ -439,7 +434,7 @@ export function WorkflowDetailPage() {
           ) : (
             <Empty description="当前没有待处理阶段" />
           )}
-          <ArtifactLedger artifacts={detail.artifacts} />
+          <ArtifactLedger workflowId={detail.id} artifacts={detail.artifacts} />
         </main>
       </div>
     </div>

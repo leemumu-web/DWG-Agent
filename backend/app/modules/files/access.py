@@ -152,6 +152,21 @@ def require_file_read_access(
         raise forbidden("File access is restricted.")
 
 
+def require_file_download_access(db: Session, current_user: User, stored: StoredFile) -> None:
+    """Authorize direct bytes; production workflow files use their archive endpoint."""
+    require_file_read_access(db, current_user, stored)
+    from app.modules.workflows.interface import find_production_file_workflow_id
+
+    workflow_id = find_production_file_workflow_id(db, stored.id)
+    if workflow_id is not None:
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_ARCHIVE_DOWNLOAD_REQUIRED",
+            "Production workflow files are available only through the workflow ZIP archive.",
+            {"workflow_id": workflow_id},
+        )
+
+
 def require_file_delete_access(db: Session, current_user: User, stored: StoredFile) -> None:
     # Resolve lazily: workflow registration depends on files.interface, so a
     # top-level reverse import would make both public boundaries order-sensitive.
@@ -183,5 +198,6 @@ __all__ = [
     "file_list_access_filter",
     "file_project_ids",
     "require_file_delete_access",
+    "require_file_download_access",
     "require_file_read_access",
 ]

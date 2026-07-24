@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **143 个 path、167 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **143 个 path、168 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -180,6 +180,7 @@
 | `GET` | `/api/v1/workflows/templates` |
 | `GET, POST` | `/api/v1/workflows` |
 | `POST` | `/api/v1/workflows/{workflow_id}/artifacts` |
+| `GET` | `/api/v1/workflows/{workflow_id}/download-archive` |
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` |
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification` |
 | `GET` | `/api/v1/workflows/{workflow_id}` |
@@ -187,8 +188,7 @@
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion` |
 | `POST` | `/api/v1/workflows/{workflow_id}/cancellation-requests` |
 | `POST, GET` | `/api/v1/workflows/{workflow_id}/input-batch` |
-| `POST` | `/api/v1/workflows/{workflow_id}/input-batch/files` |
-| `DELETE` | `/api/v1/workflows/{workflow_id}/input-batch/files/{item_id}` |
+| `POST, DELETE` | `/api/v1/workflows/{workflow_id}/input-folder` |
 | `POST` | `/api/v1/workflows/{workflow_id}/input-batch/conversion-requests` |
 | `POST` | `/api/v1/workflows/{workflow_id}/input-batch/freeze` |
 
@@ -398,7 +398,7 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 
 `POST /api/v1/workflows/{workflow_id}/artifacts` 只绑定现有 `file_id` / `result_id`，不接收文件字节。服务端同时验证项目写权限与目标资源读权限；相同 workflow、stage、artifact type、file、result 的重放返回原 artifact 和 `reused=true`。
 
-`source_intake` 不再允许用通用 artifact/completion 绕过。人工只上传至少一个 `.dwg` 和恰好一个 `.xls`/`.xlsx`：先以带 `Idempotency-Key` 的 `POST /api/v1/files` 保存字节，再用 `POST /api/v1/workflows/{workflow_id}/input-batch/files` 登记引用。人工 `.dxf` 返回 `INPUT_DXF_NOT_ALLOWED`；服务器通过 `POST .../input-batch/conversion-requests` 复用现有 `convert_dwg_to_dxf` Job，失败重试递增 attempt，成功 Result 必须产生同名、可读且格式有效的 DXF。
+`source_intake` 不再允许用通用 artifact/completion 绕过。人工通过 `POST /api/v1/workflows/{workflow_id}/input-folder` 一次上传完整文件夹；服务端存储前整批审核至少一个 `.dwg`、恰好一个 `.xls`/`.xlsx`、统一根目录、安全相对路径和无其他格式，任一文件失败则整批回滚。人工 `.dxf` 返回 `INPUT_DXF_NOT_ALLOWED`；服务器通过 `POST .../input-batch/conversion-requests` 复用现有 `convert_dwg_to_dxf` Job，失败重试递增 attempt，成功 Result 必须产生同名、可读且格式有效的 DXF。生产产物统一通过 `GET /api/v1/workflows/{workflow_id}/download-archive` 下载按阶段组织的 ZIP，不提供逐文件下载入口。
 
 `GET .../input-batch` 返回每个 DWG 的上传、Job、attempt、进度、派生 DXF、配对和错误建议。批次创建以 savepoint 处理唯一键竞态；文件登记/移除/转换以批次行锁串行化，避免并发产生两个 Excel。明确的 broker 投递失败以 status + attempt 条件把仍 queued 的 Job 标为 `JOB_ENQUEUE_FAILED`，重放可进入 retry；已领取 Job 不被覆盖。
 

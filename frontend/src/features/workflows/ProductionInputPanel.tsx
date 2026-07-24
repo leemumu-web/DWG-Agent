@@ -1,9 +1,7 @@
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import {
   CheckCircleOutlined,
   CloudUploadOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
   FileExcelOutlined,
   FileOutlined,
   LoadingOutlined,
@@ -30,27 +28,19 @@ import {
   Typography,
 } from 'antd';
 import { describeApiError } from '../../shared/api';
-import { downloadFile, uploadFile } from '../files';
 import {
+  clearWorkflowInputFolder,
   createWorkflowInputBatch,
   freezeWorkflowInputBatch,
   getWorkflowInputBatch,
-  registerWorkflowInputFile,
-  removeWorkflowInputFile,
   requestWorkflowInputConversions,
+  uploadWorkflowInputFolder,
 } from './workflow-inputs.api';
 import { fmtDateTime, fmtSize } from '../../shared/components';
-import type { StoredFile } from '../files';
 import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
-
-interface OrphanUpload {
-  file: StoredFile;
-  error: string;
-}
 
 const ACTIVE_BATCH = new Set(['converting']);
 const ACTIVE_JOB = new Set(['queued', 'running', 'retrying']);
-const INPUT_DXF_NOT_ALLOWED = 'INPUT_DXF_NOT_ALLOWED';
 
 function itemStatus(item: WorkflowInputItem) {
   if (item.status === 'paired') return <Tag color="success">已配对</Tag>;
@@ -71,11 +61,7 @@ export function ProductionInputPanel({
 }) {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
-  const dwgInput = useRef<HTMLInputElement>(null);
-  const excelInput = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
-  const [orphans, setOrphans] = useState<OrphanUpload[]>([]);
+  const folderInput = useRef<HTMLInputElement>(null);
 
   const batchQ = useQuery({
     queryKey: ['workflow-input-batch', workflowId],
@@ -91,10 +77,10 @@ export function ProductionInputPanel({
     else void batchQ.refetch();
   };
 
-  const removeM = useMutation({
-    mutationFn: (itemId: number) => removeWorkflowInputFile(workflowId, itemId),
-    onSuccess: () => { message.success('已从生产批次移除，文件中心原文件仍保留'); refresh(); },
-    onError: (error) => message.error(describeApiError(error, '移除失败')),
+  const clearM = useMutation({
+    mutationFn: () => clearWorkflowInputFolder(workflowId),
+    onSuccess: () => { message.success('生产输入文件夹已清空，可重新选择完整文件夹'); refresh(); },
+    onError: (error) => message.error(describeApiError(error, '清空失败')),
   });
   const convertM = useMutation({
     mutationFn: () => requestWorkflowInputConversions(workflowId),
@@ -109,61 +95,31 @@ export function ProductionInputPanel({
     onSuccess: (result) => { refresh(result); message.success('输入已冻结，生产流程进入下一阶段'); onFrozen(); },
     onError: (error) => { message.error(describeApiError(error, '冻结失败')); refresh(); },
   });
-  const retryRegisterM = useMutation({
-    mutationFn: (stored: StoredFile) => registerWorkflowInputFile(workflowId, stored.id),
-    onSuccess: (result, stored) => {
-      setOrphans((items) => items.filter((item) => item.file.id !== stored.id));
-      refresh(result.batch);
-      message.success(`${stored.original_name} 已补登记`);
+  const uploadFolderM = useMutation({
+    mutationFn: (files: File[]) => uploadWorkflowInputFolder(workflowId, files),
+    onSuccess: (result) => {
+      refresh(result);
+      message.success(`完整文件夹已上传并校验，共 ${result.items.length} 个文件`);
     },
-    onError: (error) => message.error(describeApiError(error, '补登记失败')),
+    onError: (error) => message.error(describeApiError(error, '文件夹上传失败')),
   });
 
-  const uploadAndRegister = async (file: File) => {
-    const requestKey = crypto.randomUUID();
-    const stored = await uploadFile(file, `workflow-input-${batch!.id}`, requestKey);
-    try {
-      const result = await registerWorkflowInputFile(workflowId, stored.id);
-      queryClient.setQueryData(['workflow-input-batch', workflowId], result.batch);
-    } catch (error) {
-      const text = describeApiError(error, '登记失败');
-      setOrphans((items) => [...items.filter((item) => item.file.id !== stored.id), { file: stored, error: text }]);
-      throw new Error(`${file.name} 已存入文件中心，但未进入生产批次：${text}`);
-    }
-  };
-
-  const handleFiles = async (selected: File[], kind: 'dwg' | 'excel') => {
+  const handleFolder = (selected: File[]) => {
     if (!batch || !editable) return;
-    const allowed = kind === 'dwg' ? ['.dwg'] : ['.xls', '.xlsx'];
-    const invalid = selected.find((file) => !allowed.some((ext) => file.name.toLowerCase().endsWith(ext)));
+    const invalid = selected.find((file) => !/\.(dwg|xls|xlsx)$/i.test(file.name));
     if (invalid) {
-      const isDxf = invalid.name.toLowerCase().endsWith('.dxf');
-      message.error(isDxf
-        ? `${INPUT_DXF_NOT_ALLOWED}：请只上传 DWG，DXF 由服务器生成`
-        : `${invalid.name} 格式不支持`);
+      message.error(`${invalid.name} 格式不允许；文件夹只能包含 DWG 和一个 Excel`);
       return;
     }
-    if (kind === 'excel' && (batch.counts.excel > 0 || selected.length !== 1)) {
-      message.error('每批必须且只能有一个 Excel；请先移除现有 Excel 再替换');
+    const dwgCount = selected.filter((file) => /\.dwg$/i.test(file.name)).length;
+    const excelCount = selected.filter((file) => /\.xlsx?$/i.test(file.name)).length;
+    const roots = new Set(selected.map((file) => file.webkitRelativePath.split('/')[0]));
+    if (!selected.length || dwgCount < 1 || excelCount !== 1 || roots.size !== 1
+      || selected.some((file) => !file.webkitRelativePath.includes('/'))) {
+      message.error('请选择一个完整文件夹：至少一个 DWG、恰好一个 Excel，且不能混入其他格式');
       return;
     }
-    setUploading(true);
-    setUploadProgress({ done: 0, total: selected.length });
-    const failures: string[] = [];
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < selected.length) {
-        const file = selected[cursor++];
-        try { await uploadAndRegister(file); }
-        catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
-        setUploadProgress((progress) => ({ ...progress, done: progress.done + 1 }));
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(3, selected.length) }, worker));
-    setUploading(false);
-    refresh();
-    if (failures.length) message.error(`${failures.length} 个文件未完成登记，请按下方提示重试`);
-    else message.success(`${selected.length} 个文件上传并校验完成`);
+    uploadFolderM.mutate(selected);
   };
 
   if (batchQ.isError) {
@@ -178,17 +134,13 @@ export function ProductionInputPanel({
     { title: '类型', dataIndex: 'role', width: 86, render: (role: string) => role === 'source_excel' ? <Tag icon={<FileExcelOutlined />} color="green">Excel</Tag> : <Tag color="blue">DWG</Tag> },
     {
       title: '服务器处理', key: 'processing', width: 210,
-      render: (_: unknown, item: WorkflowInputItem) => <div>{itemStatus(item)}{item.conversion_job && <><Progress percent={item.conversion_job.progress ?? 0} size="small" /><Typography.Text type="secondary" style={{ fontSize: 12 }}>任务 #{item.conversion_job.id} · 尝试 #{item.conversion_job.attempt}</Typography.Text></>}{item.derived_dxf && <div><Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => downloadFile(item.derived_dxf!.id, item.derived_dxf!.original_name)}>下载生成 DXF</Button></div>}</div>,
+      render: (_: unknown, item: WorkflowInputItem) => <div>{itemStatus(item)}{item.conversion_job && <><Progress percent={item.conversion_job.progress ?? 0} size="small" /><Typography.Text type="secondary" style={{ fontSize: 12 }}>任务 #{item.conversion_job.id} · 尝试 #{item.conversion_job.attempt}</Typography.Text></>}{item.derived_dxf && <div><Typography.Text type="secondary">{item.derived_dxf.original_name} 已纳入生产压缩包</Typography.Text></div>}</div>,
     },
     {
       title: '反馈', key: 'feedback',
       render: (_: unknown, item: WorkflowInputItem) => item.error_code
         ? <Typography.Text type="danger">{item.error_code}：{item.error_message}</Typography.Text>
         : item.drawing_id ? <Typography.Link href="/drawings">图纸 #{item.drawing_id}</Typography.Link> : <Typography.Text type="secondary">{item.role === 'source_dwg' ? `将配对为 ${item.normalized_stem}.dxf` : '批次级数据表'}</Typography.Text>,
-    },
-    {
-      title: '操作', key: 'actions', width: 88,
-      render: (_: unknown, item: WorkflowInputItem) => editable && <Popconfirm title="从本生产批次移除？" description="文件中心中的原文件不会删除。" onConfirm={() => removeM.mutate(item.id)}><Button danger type="text" icon={<DeleteOutlined />}>移除</Button></Popconfirm>,
     },
   ];
 
@@ -198,7 +150,7 @@ export function ProductionInputPanel({
   return (
     <Card title={<Space><CloudUploadOutlined />01 · 文件上传、完整性校验与输入冻结</Space>} style={{ marginTop: 12 }} loading={batchQ.isLoading} extra={<Button icon={<ReloadOutlined />} loading={batchQ.isFetching} onClick={() => batchQ.refetch()}>刷新状态</Button>}>
       <Steps size="small" current={stepsCurrent} items={[{ title: '建立批次' }, { title: '上传源文件' }, { title: '服务器转 DXF' }, { title: '确认冻结' }]} />
-      <Alert style={{ marginTop: 18 }} type={batch?.status === 'frozen' ? 'success' : 'info'} showIcon message={batch?.status === 'frozen' ? '输入版本已冻结' : '只需上传多个 DWG 和一个 Excel'} description={batch?.status === 'frozen' ? `版本 v${batch.version} · 清单 ${batch.manifest_sha256}` : '不要人工上传 DXF：服务器会调用现有转换技术生成、校验并与同名 DWG 配对。文件名请保持唯一，上传后仍可在冻结前移除和更换。'} />
+      <Alert style={{ marginTop: 18 }} type={batch?.status === 'frozen' ? 'success' : 'info'} showIcon message={batch?.status === 'frozen' ? '输入版本已冻结' : '统一选择并上传一个完整生产文件夹'} description={batch?.status === 'frozen' ? `版本 v${batch.version} · 清单 ${batch.manifest_sha256}` : '文件夹只能包含至少一个 DWG 和恰好一个 Excel；不得包含 DXF 或其他格式。服务器整批审核通过后才入库，随后统一将 DWG 转为 DXF。'} />
 
       <Row gutter={[12, 12]} style={{ marginTop: 16 }}>
         <Col xs={24} md={8}><Card size="small"><Typography.Text type="secondary">DWG 源文件</Typography.Text><Typography.Title level={3} style={{ margin: '4px 0' }}>{batch?.counts.dwg ?? 0}</Typography.Title><Typography.Text type="secondary">至少 1 个，可多选</Typography.Text></Card></Col>
@@ -207,17 +159,13 @@ export function ProductionInputPanel({
       </Row>
 
       {editable && <Space wrap style={{ marginTop: 16 }}>
-        <input ref={dwgInput} type="file" accept=".dwg" multiple hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void handleFiles(files, 'dwg'); }} />
-        <input ref={excelInput} type="file" accept=".xls,.xlsx" hidden onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; void handleFiles(files, 'excel'); }} />
-        <Button type="primary" icon={<CloudUploadOutlined />} disabled={uploading} onClick={() => dwgInput.current?.click()}>上传 DWG（可多选）</Button>
-        <Button icon={<FileExcelOutlined />} disabled={uploading || excelExists} title={excelExists ? '每批只能有一个 Excel；移除后可替换' : undefined} onClick={() => excelInput.current?.click()}>上传 Excel</Button>
-        <Button icon={<SyncOutlined spin={convertM.isPending} />} loading={convertM.isPending} disabled={uploading || !batch?.counts.dwg || !excelExists} onClick={() => convertM.mutate()}>{batch?.counts.failed ? '重试失败转换' : '生成并校验 DXF'}</Button>
+        <input ref={folderInput} type="file" multiple hidden {...{ webkitdirectory: '', directory: '' }} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; handleFolder(files); }} />
+        <Button type="primary" icon={<CloudUploadOutlined />} loading={uploadFolderM.isPending} disabled={Boolean(batch?.items.length)} onClick={() => folderInput.current?.click()}>选择并上传生产文件夹</Button>
+        {Boolean(batch?.items.length) && <Popconfirm title="清空整个生产输入文件夹？" description="冻结前可整批清空后重新选择；不支持逐个替换。" onConfirm={() => clearM.mutate()}><Button danger loading={clearM.isPending}>整批清空</Button></Popconfirm>}
+        <Button icon={<SyncOutlined spin={convertM.isPending} />} loading={convertM.isPending} disabled={uploadFolderM.isPending || !batch?.counts.dwg || !excelExists} onClick={() => convertM.mutate()}>{batch?.counts.failed ? '重试失败转换' : '生成并校验 DXF'}</Button>
         <Popconfirm title="确认冻结本批输入？" description="冻结后不可修改；系统将创建图纸处理单元并进入下一阶段。" okText="确认冻结" cancelText="继续检查" onConfirm={() => freezeM.mutate()}><Button type="primary" icon={<LockOutlined />} loading={freezeM.isPending} disabled={!batch?.freeze_ready}>冻结输入版本</Button></Popconfirm>
       </Space>}
-      {uploading && <Progress style={{ marginTop: 12 }} percent={Math.round((uploadProgress.done / Math.max(1, uploadProgress.total)) * 100)} format={() => `${uploadProgress.done}/${uploadProgress.total}`} />}
-
       <div aria-live="polite">
-        {orphans.map((orphan) => <Alert key={orphan.file.id} style={{ marginTop: 12 }} type="warning" showIcon message={`${orphan.file.original_name} 已存入文件中心，但未进入生产批次`} description={orphan.error} action={<Button loading={retryRegisterM.isPending} onClick={() => retryRegisterM.mutate(orphan.file)}>仅重试登记</Button>} />)}
         {batch?.issues.map((issue) => <Alert key={`${issue.item_id ?? 'batch'}-${issue.code}`} style={{ marginTop: 12 }} type="error" showIcon message={`${issue.file_name ? `${issue.file_name} · ` : ''}${issue.code}`} description={<><div>{issue.message}</div><Typography.Text strong>建议：{issue.recommended_action}</Typography.Text></>} />)}
       </div>
 

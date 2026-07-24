@@ -5,7 +5,7 @@ import hmac
 import time
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
 from urllib.parse import quote
 
@@ -323,4 +323,93 @@ def build_zip_to_path(
         filename=f"{folder_name}.zip",
         size_bytes=size_bytes,
         included_file_ids=requested_ids,
+    )
+
+
+def build_registered_files_zip_to_path(
+    db: Session,
+    members: list[tuple[int, str]],
+    archive_name: str,
+) -> PreparedExport:
+    """Stream registered files into one caller-defined, structured ZIP archive."""
+    if not members:
+        raise AppHTTPException(
+            409,
+            "FILE_ARCHIVE_EMPTY",
+            "The requested archive has no registered files.",
+        )
+    file_ids = tuple(dict.fromkeys(file_id for file_id, _ in members))
+    stored_by_id = {
+        stored.id: stored
+        for stored in db.scalars(
+            select(StoredFile).where(
+                StoredFile.id.in_(file_ids),
+                StoredFile.status != "deleted",
+            )
+        ).all()
+    }
+    missing = [file_id for file_id in file_ids if file_id not in stored_by_id]
+    if missing:
+        raise AppHTTPException(
+            409,
+            "FILE_ARCHIVE_MEMBER_MISSING",
+            "One or more required archive files are unavailable.",
+            {"file_ids": missing[:20], "missing_count": len(missing)},
+        )
+
+    normalized_members: list[tuple[int, StoredFile, str]] = []
+    seen_paths: set[str] = set()
+    for file_id, raw_path in members:
+        path = PurePosixPath(raw_path.replace("\\", "/"))
+        if (
+            path.is_absolute()
+            or not path.parts
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            raise AppHTTPException(
+                422,
+                "FILE_ARCHIVE_PATH_INVALID",
+                "Archive member paths must be safe relative paths.",
+                {"path": raw_path},
+            )
+        archive_path = path.as_posix()
+        path_key = archive_path.casefold()
+        if path_key in seen_paths:
+            raise AppHTTPException(
+                409,
+                "FILE_ARCHIVE_PATH_CONFLICT",
+                "Archive member paths must be unique.",
+                {"path": archive_path},
+            )
+        seen_paths.add(path_key)
+        normalized_members.append((file_id, stored_by_id[file_id], archive_path))
+
+    storage = storage_factory.get_storage_backend()
+    tmp = NamedTemporaryFile(suffix=".zip", delete=False)
+    path = Path(tmp.name)
+    tmp.close()
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            for file_id, stored, archive_path in normalized_members:
+                try:
+                    with archive.open(archive_path, "w", force_zip64=True) as target:
+                        for chunk in storage.iter_file(stored.bucket, stored.storage_key):
+                            target.write(chunk)
+                except Exception as exc:
+                    raise AppHTTPException(
+                        409,
+                        "STORAGE_INCONSISTENT",
+                        "A required stored object could not be read for export.",
+                        {"file_id": file_id},
+                    ) from exc
+        size_bytes = path.stat().st_size
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+    return PreparedExport(
+        path=path,
+        filename=f"{archive_name}.zip",
+        size_bytes=size_bytes,
+        included_file_ids=file_ids,
     )

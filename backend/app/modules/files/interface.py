@@ -7,6 +7,7 @@ from app.modules.files.access import (
     file_list_access_filter,
     file_project_ids,
     require_file_delete_access,
+    require_file_download_access,
     require_file_read_access,
 )
 from app.modules.files.exports import (
@@ -14,6 +15,7 @@ from app.modules.files.exports import (
     PreparedExport,
     ZipAvailabilityResolution,
     build_dxf_result_map,
+    build_registered_files_zip_to_path,
     build_result_map,
     build_signed_download_url,
     build_zip,
@@ -24,7 +26,12 @@ from app.modules.files.exports import (
     validate_download_signature,
 )
 from app.modules.files.lifecycle import soft_delete_file_in_transaction
-from app.modules.files.models import FileTransfer, StorageScanFinding, StorageScanRun, StoredFile
+from app.modules.files.models import (
+    FileTransfer,
+    StorageScanFinding,
+    StorageScanRun,
+    StoredFile,
+)
 from app.modules.files.registration import (
     get_local_file_path,
     save_bytes_as_file,
@@ -119,6 +126,7 @@ __all__ = [
     "begin_transfer",
     "build_dxf_result_map",
     "build_result_map",
+    "build_registered_files_zip_to_path",
     "build_signed_download_url",
     "build_storage_path",
     "build_zip",
@@ -139,6 +147,7 @@ __all__ = [
     "preview_zip_availability",
     "register_pending_destructive_transfer",
     "require_file_delete_access",
+    "require_file_download_access",
     "require_file_read_access",
     "sanitize_filename",
     "save_bytes_as_file",

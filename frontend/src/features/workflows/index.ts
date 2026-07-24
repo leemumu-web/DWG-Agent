@@ -15,7 +15,6 @@ export type {
   DxfClassificationItem,
   DxfClassificationRun,
   WorkflowArtifact,
-  WorkflowArtifactCreatePayload,
   WorkflowDetail,
   WorkflowRun,
   WorkflowStage,

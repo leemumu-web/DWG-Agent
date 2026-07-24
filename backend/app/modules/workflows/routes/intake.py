@@ -1,9 +1,11 @@
 """Production input-batch HTTP operations."""
 
-from fastapi import APIRouter, Depends, Request, Response, status
+import json
+
+from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.modules.files.interface import StoredFile, require_file_read_access
+from app.modules.files.interface import save_upload_file
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.interface import JobRead, dispatch_committed_conversion_batch
 from app.modules.operations.audit.interface import write_audit_log
@@ -15,21 +17,22 @@ from app.modules.workflows.intake.presentation import describe_input_batch
 from app.modules.workflows.intake.registration import (
     create_input_batch,
     get_input_batch,
+    lock_input_batch,
+    raise_excel_failure,
     register_input_file,
     remove_input_item,
+    validate_input_folder_manifest,
 )
 from app.modules.workflows.lifecycle import get_workflow_or_404
 from app.modules.workflows.schemas import (
     WorkflowInputBatchEnvelope,
     WorkflowInputConversionEnvelope,
     WorkflowInputConversionRead,
-    WorkflowInputFileCreate,
-    WorkflowInputRegistrationEnvelope,
 )
 from app.platform.config.constants import TASK_DWG_TO_DXF
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
-from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.http.exceptions import AppHTTPException
 
 router = APIRouter()
 
@@ -87,83 +90,91 @@ def get_batch_api(
 
 
 @router.post(
-    "/{workflow_id}/input-batch/files",
+    "/{workflow_id}/input-folder",
     status_code=status.HTTP_201_CREATED,
-    response_model=WorkflowInputRegistrationEnvelope,
-    summary="登记生产输入文件",
-    description="登记由 /files 上传的真实 DWG 或唯一 Excel；人工 DXF 被拒绝。",
+    response_model=WorkflowInputBatchEnvelope,
+    summary="导入生产输入文件夹",
+    description=(
+        "一次接收浏览器选择的完整文件夹；存储前审核全部相对路径，"
+        "只允许至少一个 DWG 和恰好一个 Excel，人工 DXF 与其他文件整批拒绝。"
+    ),
 )
-def register_file_api(
+async def import_input_folder_api(
     workflow_id: int,
-    payload: WorkflowInputFileCreate,
     request: Request,
-    response: Response,
     current_user: CurrentUser,
+    uploads: list[UploadFile] = File(...),
+    relative_paths: str = Form(...),
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
-    batch = get_input_batch(db, workflow_id)
-    stored = db.get(StoredFile, payload.file_id)
-    if stored is None or stored.status == "deleted":
-        raise not_found("File")
-    require_file_read_access(db, current_user, stored)
-    known_ids = {item.file_id for item in batch.items}
-    outcome = register_input_file(db, batch, stored)
-    item = outcome.item
-    reused = stored.id in known_ids
-    if outcome.failure is not None:
-        audit_action = "workflow_input_files.reject"
-    elif reused:
-        audit_action = "workflow_input_files.reuse"
-    else:
-        audit_action = "workflow_input_files.register"
+    try:
+        parsed_paths = json.loads(relative_paths)
+    except json.JSONDecodeError as exc:
+        raise AppHTTPException(
+            422,
+            "INPUT_FOLDER_MANIFEST_INVALID",
+            "The folder manifest is not valid JSON.",
+        ) from exc
+    if not isinstance(parsed_paths, list) or not all(
+        isinstance(value, str) for value in parsed_paths
+    ):
+        raise AppHTTPException(
+            422,
+            "INPUT_FOLDER_MANIFEST_INVALID",
+            "The folder manifest must be a JSON string array.",
+        )
+    upload_names = [upload.filename or "" for upload in uploads]
+    folder_name = validate_input_folder_manifest(upload_names, parsed_paths)
+
+    batch = lock_input_batch(db, get_input_batch(db, workflow_id))
+    if batch.items:
+        raise AppHTTPException(
+            409,
+            "INPUT_FOLDER_ALREADY_IMPORTED",
+            "Remove the current input items before importing a replacement folder.",
+        )
+
+    imported_file_ids: list[int] = []
+    for upload in uploads:
+        stored = await save_upload_file(
+            db,
+            upload,
+            uploaded_by=current_user.id,
+            batch_name=f"workflow-input-{batch.id}",
+            request_id=request.state.request_id,
+        )
+        outcome = register_input_file(db, batch, stored)
+        if outcome.failure is not None:
+            raise_excel_failure(outcome.failure)
+        imported_file_ids.append(stored.id)
+
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action=audit_action,
-        resource_type="workflow_input_item",
-        resource_id=item.id,
+        action="workflow_input_folders.import",
+        resource_type="workflow_input_batch",
+        resource_id=batch.id,
         after_json={
             "workflow_id": workflow.id,
-            "file_id": stored.id,
-            "role": item.role,
-            "failure": outcome.failure,
+            "folder_name": folder_name,
+            "file_ids": imported_file_ids,
+            "relative_paths": parsed_paths,
         },
         request=request,
     )
     db.commit()
-    if outcome.failure is not None:
-        failure_code = str(outcome.failure.get("code") or "EXCEL_INPUT_INVALID")
-        failure_message = str(
-            outcome.failure.get("message") or "Excel 输入未通过检查。"
-        )
-        raise AppHTTPException(
-            422,
-            failure_code,
-            failure_message,
-            {"failure": outcome.failure},
-        )
-    if reused:
-        response.status_code = status.HTTP_200_OK
-    return ok(
-        {
-            "batch": describe_input_batch(db, batch).model_dump(),
-            "item_id": item.id,
-            "reused": reused,
-        },
-        request.state.request_id,
-    )
+    return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
 
 
 @router.delete(
-    "/{workflow_id}/input-batch/files/{item_id}",
+    "/{workflow_id}/input-folder",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="移除生产输入文件",
+    summary="清空生产输入文件夹",
 )
-def remove_file_api(
+def clear_input_folder_api(
     workflow_id: int,
-    item_id: int,
     request: Request,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
@@ -171,13 +182,16 @@ def remove_file_api(
     workflow = get_workflow_or_404(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     batch = get_input_batch(db, workflow_id)
-    remove_input_item(db, batch, item_id)
+    item_ids = [item.id for item in batch.items]
+    for item_id in item_ids:
+        remove_input_item(db, batch, item_id)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
-        action="workflow_input_files.remove",
-        resource_type="workflow_input_item",
-        resource_id=item_id,
+        action="workflow_input_folders.clear",
+        resource_type="workflow_input_batch",
+        resource_id=batch.id,
+        after_json={"removed_item_ids": item_ids},
         request=request,
     )
     db.commit()

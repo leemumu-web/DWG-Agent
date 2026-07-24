@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.modules.files.access import require_file_read_access
+from app.modules.files.access import require_file_download_access
 from app.modules.files.exports import (
     build_signed_download_url,
     build_zip_to_path,
@@ -35,6 +35,7 @@ from app.platform.storage.base import StorageError, StorageObjectNotFound
 static_router = APIRouter()
 item_router = APIRouter()
 
+
 @item_router.get("/{file_id}/download-url")
 def get_download_url(
     file_id: int, request: Request, current_user: CurrentUser, db: Session = Depends(get_db)
@@ -42,7 +43,7 @@ def get_download_url(
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
-    require_file_read_access(db, current_user, stored)
+    require_file_download_access(db, current_user, stored)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -67,7 +68,7 @@ def download_file(
     stored = db.get(StoredFile, file_id)
     if not stored or stored.status == "deleted":
         raise not_found("File")
-    require_file_read_access(db, current_user, stored)
+    require_file_download_access(db, current_user, stored)
     if expires is None or signature is None:
         raise AppHTTPException(
             403, "INVALID_DOWNLOAD_SIGNATURE", "Download URL signature is required."
@@ -148,7 +149,7 @@ def preview_zip_endpoint(
     if len(stored_list) != len(requested_ids):
         raise not_found("File")
     for stored in stored_list:
-        require_file_read_access(db, current_user, stored)
+        require_file_download_access(db, current_user, stored)
 
     preview = preview_zip_availability(db, requested_ids, payload.formats)
     return ok(preview, request.state.request_id)
@@ -181,7 +182,7 @@ def download_zip_endpoint(
     if len(stored_list) != len(payload.file_ids):
         raise not_found("File")
     for s in stored_list:
-        require_file_read_access(db, current_user, s)
+        require_file_download_access(db, current_user, s)
 
     clean_name = sanitize_filename(payload.folder_name) or "图纸导出"
     prepared = build_zip_to_path(db, payload.file_ids, payload.formats, clean_name)
