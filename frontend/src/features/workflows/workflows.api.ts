@@ -6,6 +6,7 @@ import type {
   WorkflowRun,
   WorkflowStageExecutionPayload,
   WorkflowTemplate,
+  DxfClassificationGroupPage,
   DxfClassificationRun,
 } from './workflow';
 
@@ -164,4 +165,36 @@ export async function getDxfClassification(workflowId: number) {
     `/api/v1/workflows/${workflowId}/dxf-classification`,
   );
   return response.data.data;
+}
+
+export async function getDxfClassificationGroup(
+  workflowId: number,
+  groupKey: string,
+  page = 1,
+  pageSize = 20,
+) {
+  const response = await apiClient.get<ApiEnvelope<DxfClassificationGroupPage>>(
+    `/api/v1/workflows/${workflowId}/dxf-classification/groups/${encodeURIComponent(groupKey)}`,
+    { params: { page, page_size: pageSize } },
+  );
+  return response.data.data;
+}
+
+export async function downloadDxfClassificationGroupArchive(
+  workflowId: number,
+  groupKey: string,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/dxf-classification/groups/${encodeURIComponent(groupKey)}/download-archive`,
+    `workflow-${workflowId}-dxf-group.zip`,
+    '分类文件夹下载失败',
+  );
+}
+
+export async function downloadAllDxfClassificationArchive(workflowId: number) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/dxf-classification/download-archive`,
+    `workflow-${workflowId}-all-classified-dxf.zip`,
+    '全部 DXF 下载失败',
+  );
 }

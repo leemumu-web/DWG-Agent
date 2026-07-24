@@ -342,13 +342,21 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
     assert "isCurrent={selectedIsCurrent}" in detail_source
     assert "开始 DXF 分类分流" in panel_source
     assert "steel_dxf_classification" in panel_source
-    assert "分类报告已纳入生产压缩包" in panel_source
-    assert "分类清单已纳入生产压缩包" in panel_source
+    assert "workflow-classification-folders" in panel_source
+    assert "下载全部 DXF" in panel_source
+    assert "自动发现" in panel_source
+    assert "张图纸需要处理" in panel_source
+    assert "分类报告已纳入生产压缩包" not in panel_source
+    assert "分类清单已纳入生产压缩包" not in panel_source
     assert "downloadFile" not in panel_source
-    assert "output_directory" in panel_source
     assert "getDxfClassification" in api_source
-    assert "/dxf-classification" in api_source
+    assert "getDxfClassificationGroup" in api_source
+    assert "downloadDxfClassificationGroupArchive" in api_source
+    assert "downloadAllDxfClassificationArchive" in api_source
+    assert "/dxf-classification/groups/" in api_source
+    assert "/dxf-classification/download-archive" in api_source
     assert "DxfClassificationRun" in type_source
+    assert "DxfClassificationGroup" in type_source
 
 
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():

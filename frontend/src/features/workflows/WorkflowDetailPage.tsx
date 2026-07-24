@@ -439,12 +439,14 @@ export function WorkflowDetailPage() {
                 />
               )}
 
-              <StageArchiveCard
-                workflowId={detail.id}
-                stage={selectedStage}
-                capability={selectedCapability}
-                artifacts={selectedArtifacts}
-              />
+              {selectedStage.stage_code !== 'dxf_classification' && (
+                <StageArchiveCard
+                  workflowId={detail.id}
+                  stage={selectedStage}
+                  capability={selectedCapability}
+                  artifacts={selectedArtifacts}
+                />
+              )}
 
               {selectedStage.stage_code === 'source_intake' && (
                 <ProductionInputPanel

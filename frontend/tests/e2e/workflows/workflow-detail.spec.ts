@@ -264,51 +264,61 @@ test('production route inspects stages safely and keeps classification output co
           : [],
     })),
   };
-  const classificationItems = Array.from({ length: 12 }, (_, index) => ({
-    id: 1000 + index,
-    drawing_id: 1100 + index,
-    source_file: {
-      id: 1200 + index,
-      original_name: `member-${String(index + 1).padStart(2, '0')}.dxf`,
-      file_ext: '.dxf',
-      size_bytes: 2048,
-    },
-    output_file: {
-      id: 1300 + index,
-      original_name: `member-${String(index + 1).padStart(2, '0')}_拆板前.dxf`,
-      file_ext: '.dxf',
-      size_bytes: 2048,
-    },
-    source_name: `member-${String(index + 1).padStart(2, '0')}.dxf`,
-    output_name: `member-${String(index + 1).padStart(2, '0')}_拆板前.dxf`,
-    output_directory: '厂房钢构生产项目_BH_dxf',
-    disposition: index === 11 ? 'review_required' : 'classified',
-    part_type: 'BH',
-    diagnostics: index === 11 ? ['截面字段需要人工确认'] : [],
-  }));
   const classification = {
     id: 77,
     workflow_run_id: 42,
     status: 'completed_with_review',
-    classifier_version: '1.1.0',
-    report_schema: 'steel-dxf-classifier-report/1',
-    cli_schema: 'steel-dxf-classifier-cli/1',
+    classifier_version: '1.2.0',
+    report_schema: 'STEEL-DXF-CLASSIFICATION-1.2',
+    cli_schema: 'STEEL-DXF-CLI-1.2',
     project_name: '厂房钢构生产项目',
     input_manifest_sha256: 'a'.repeat(64),
     input_count: 12,
     classified_count: 11,
     review_required_count: 1,
     unreadable_count: 0,
-    type_counts: { BH: 12 },
-    report_file: classificationItems[0].output_file,
-    manifest_file: classificationItems[1].output_file,
+    type_counts: { PX: 3, XY: 8 },
+    groups: [
+      {
+        group_key: 'status:review_required',
+        label: '待确认',
+        part_type: null,
+        type_source: null,
+        disposition: 'review_required',
+        count: 1,
+        warning_count: 1,
+        total_size_bytes: 2048,
+      },
+      {
+        group_key: 'type:PX',
+        label: 'PX',
+        part_type: 'PX',
+        type_source: 'catalog',
+        disposition: 'classified',
+        count: 3,
+        warning_count: 0,
+        total_size_bytes: 6144,
+      },
+      {
+        group_key: 'type:XY',
+        label: 'XY',
+        part_type: 'XY',
+        type_source: 'auto_discovered',
+        disposition: 'classified',
+        count: 8,
+        warning_count: 0,
+        total_size_bytes: 16384,
+      },
+    ],
+    report_file: { original_name: 'classification-report.json' },
+    manifest_file: { original_name: 'classification-manifest.csv' },
     job: {
       id: 901,
       status: 'succeeded',
       progress: 100,
       attempt: 1,
     },
-    items: classificationItems,
+    items: [],
     error_code: null,
     error_message: null,
     started_at: now,
@@ -316,8 +326,24 @@ test('production route inspects stages safely and keeps classification output co
     created_at: now,
     updated_at: now,
   };
+  const pxDetails = {
+    items: Array.from({ length: 3 }, (_, index) => ({
+      output_name: `px-${index + 1}_拆板前.dxf`,
+      part_type: 'PX',
+      profile_raw: 'PX300*150*8',
+      profile_normalized: 'PX300*150*8',
+      type_source: 'catalog',
+      disposition: 'classified',
+      diagnostics: ['TITLE_PROFILE_PROVED'],
+      size_bytes: 2048,
+    })),
+    total: 3,
+    page: 1,
+    page_size: 20,
+  };
   let executionRequests = 0;
-  let stageArchiveRequests = 0;
+  let categoryArchiveRequests = 0;
+  let allDxfArchiveRequests = 0;
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
     access_token: 'e2e-token',
@@ -331,22 +357,41 @@ test('production route inspects stages safely and keeps classification output co
   }));
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
   await page.route('**/api/v1/workflows/42/dxf-classification', (route) => json(route, classification));
+  await page.route(
+    /\/api\/v1\/workflows\/42\/dxf-classification\/groups\/type(?:%3A|:)PX\?page=1&page_size=20$/,
+    (route) => json(route, pxDetails),
+  );
   await page.route('**/api/v1/workflows/42/stages/**/executions', async (route) => {
     executionRequests += 1;
     await json(route, {});
   });
   await page.route(
-    '**/api/v1/workflows/42/stages/dxf_classification/download-archive',
+    /\/api\/v1\/workflows\/42\/dxf-classification\/groups\/type(?:%3A|:)PX\/download-archive$/,
     async (route) => {
-      stageArchiveRequests += 1;
+      categoryArchiveRequests += 1;
       await route.fulfill({
         status: 200,
         contentType: 'application/zip',
         headers: {
-          'content-disposition': "attachment; filename*=UTF-8''workflow-42-02_dxf_classification.zip",
+          'content-disposition': "attachment; filename*=UTF-8''workflow-42-dxf-PX.zip",
           'access-control-expose-headers': 'content-disposition',
         },
-        body: 'PK-stage-archive',
+        body: 'PK-category-archive',
+      });
+    },
+  );
+  await page.route(
+    '**/api/v1/workflows/42/dxf-classification/download-archive',
+    async (route) => {
+      allDxfArchiveRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'content-disposition': "attachment; filename*=UTF-8''workflow-42-all-classified-dxf.zip",
+          'access-control-expose-headers': 'content-disposition',
+        },
+        body: 'PK-all-dxf-archive',
       });
     },
   );
@@ -372,17 +417,34 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();
   await expect(page.getByRole('table')).toHaveCount(0);
   await expect(page.getByText(/文件 #/)).toHaveCount(0);
+  await expect(page.getByText('分类报告已纳入生产压缩包')).toHaveCount(0);
+  await expect(page.getByText('分类清单已纳入生产压缩包')).toHaveCount(0);
+  await expect(page.getByText('1 张图纸需要处理')).toBeVisible();
+  await expect(page.getByRole('button', { name: /PX.*3 张.*内置类型/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /XY.*8 张.*自动发现/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /待确认.*1 张.*需要处理/ })).toBeVisible();
 
-  await page.getByRole('button', { name: '查看文件明细（12）' }).click();
+  await page.getByRole('button', { name: /PX.*3 张.*内置类型/ }).click();
+  await expect(page.getByRole('dialog', { name: 'PX · 3 张 DXF' })).toBeVisible();
   await expect(page.getByRole('table')).toBeVisible();
-  await expect(page.getByRole('row')).toHaveCount(11);
+  await expect(page.getByRole('row')).toHaveCount(4);
+  await expect(page.getByText('PX300*150*8').first()).toBeVisible();
   await expect(page.getByText(/文件 #/)).toHaveCount(0);
 
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: '下载分流结果压缩包' }).click();
-  const download = await downloadPromise;
-  await expect.poll(() => stageArchiveRequests).toBe(1);
-  expect(download.suggestedFilename()).toBe('workflow-42-02_dxf_classification.zip');
+  const categoryDownloadPromise = page.waitForEvent('download');
+  await page
+    .getByRole('dialog', { name: 'PX · 3 张 DXF' })
+    .getByRole('button', { name: '下载 PX 类 DXF' })
+    .click();
+  const categoryDownload = await categoryDownloadPromise;
+  await expect.poll(() => categoryArchiveRequests).toBe(1);
+  expect(categoryDownload.suggestedFilename()).toBe('workflow-42-dxf-PX.zip');
+
+  const allDownloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载全部 DXF' }).click();
+  const allDownload = await allDownloadPromise;
+  await expect.poll(() => allDxfArchiveRequests).toBe(1);
+  expect(allDownload.suggestedFilename()).toBe('workflow-42-all-classified-dxf.zip');
 
   await page.getByRole('button', { name: /Excel 第一阶段处理/ }).click();
   await expect(page.getByRole('heading', { name: 'Excel 第一阶段处理' })).toBeVisible();

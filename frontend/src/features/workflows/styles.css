@@ -429,13 +429,105 @@
   font-size: 23px;
 }
 
-.workflow-classification-details {
-  margin-top: 16px;
-  background: #fafcfc;
+.workflow-classification-command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background:
+    linear-gradient(105deg, rgba(9, 83, 91, .08), transparent 58%),
+    #f8fbfb;
+  border: 1px solid #cddfe1;
+  border-left: 4px solid var(--workflow-accent);
 }
 
-.workflow-classification-details .ant-collapse-header-text {
+.workflow-classification-command > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.workflow-classification-warning {
+  margin-top: 14px;
+}
+
+.workflow-classification-folders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.workflow-classification-folder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 92px;
+  overflow: hidden;
+  background: #fbfdfd;
+  border: 1px solid #ccdcde;
+  border-radius: 3px;
+  box-shadow: 0 8px 20px rgba(17, 57, 62, .06);
+  transition:
+    border-color .16s ease,
+    box-shadow .16s ease,
+    transform .16s ease;
+}
+
+.workflow-classification-folder:hover,
+.workflow-classification-folder:focus-within {
+  border-color: var(--workflow-accent);
+  box-shadow: 0 12px 26px rgba(17, 57, 62, .11);
+  transform: translateY(-1px);
+}
+
+.workflow-classification-folder.is-warning {
+  background: #fffaf1;
+  border-color: #e4bd79;
+}
+
+.workflow-classification-folder.is-discovered {
+  background: #f2f8fc;
+  border-color: #9fc2d5;
+}
+
+.workflow-classification-folder-open {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  height: 100%;
+  padding: 16px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.workflow-classification-folder-open > .anticon {
+  color: #c68b25;
+  font-size: 30px;
+}
+
+.workflow-classification-folder-open > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.workflow-classification-folder-open strong {
+  overflow: hidden;
   color: var(--workflow-deep);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 18px;
+  text-overflow: ellipsis;
+}
+
+.workflow-classification-folder-open small {
+  color: var(--workflow-muted);
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -565,5 +657,14 @@
   .workflow-classification-summary,
   .workflow-placeholder-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workflow-classification-command {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workflow-classification-folders {
+    grid-template-columns: 1fr;
   }
 }

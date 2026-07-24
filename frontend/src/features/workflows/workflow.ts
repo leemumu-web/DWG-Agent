@@ -90,6 +90,40 @@ export interface DxfClassificationItem {
   diagnostics: string[];
 }
 
+export type DxfClassificationTypeSource =
+  | 'catalog'
+  | 'auto_discovered'
+  | 'legacy';
+
+export interface DxfClassificationGroup {
+  group_key: string;
+  label: string;
+  part_type?: string | null;
+  type_source?: DxfClassificationTypeSource | null;
+  disposition: 'classified' | 'review_required' | 'unreadable';
+  count: number;
+  warning_count: number;
+  total_size_bytes: number;
+}
+
+export interface DxfClassificationGroupItem {
+  output_name: string;
+  part_type?: string | null;
+  profile_raw?: string | null;
+  profile_normalized?: string | null;
+  type_source?: DxfClassificationTypeSource | null;
+  disposition: 'classified' | 'review_required' | 'unreadable';
+  diagnostics: string[];
+  size_bytes: number;
+}
+
+export interface DxfClassificationGroupPage {
+  items: DxfClassificationGroupItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface DxfClassificationRun {
   id: number;
   workflow_run_id: number;
@@ -104,6 +138,7 @@ export interface DxfClassificationRun {
   review_required_count: number;
   unreadable_count: number;
   type_counts: Record<string, number>;
+  groups: DxfClassificationGroup[];
   report_file?: import('../files').StoredFile | null;
   manifest_file?: import('../files').StoredFile | null;
   job: import('../jobs').Job;
