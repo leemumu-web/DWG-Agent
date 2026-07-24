@@ -318,7 +318,7 @@ export function WorkflowsPage() {
               onChange={selectProject}
               options={(projectsQ.data ?? []).map((project) => ({
                 value: project.id,
-                label: `${project.code} · ${project.name}`,
+                label: `${project.code} · ${project.name}${project.owner_name ? ` (${project.owner_name})` : ''}`,
               }))}
             />
           </Form.Item>

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.modules.identity.interface import CurrentUser
 from app.modules.projects.interface import (
@@ -37,18 +37,30 @@ def list_workflow_projects(
     """Return a minimal project list for workflow filter dropdowns.
 
     Replaces the removed /projects CRUD endpoint.  Only active projects
-    that the user can access are returned.
+    that the user can access are returned.  Each entry includes the
+    owner so the workflow UI can display accountability.
     """
-    stmt = select(Project).where(Project.status == "active").order_by(Project.code)
+    stmt = (
+        select(Project)
+        .options(joinedload(Project.owner))
+        .where(Project.status == "active")
+        .order_by(Project.code)
+    )
     if not has_global_project_access(current_user):
         stmt = stmt.join(
             ProjectMember,
             ProjectMember.project_id == Project.id,
         ).where(ProjectMember.user_id == current_user.id)
-    projects = db.scalars(stmt).all()
+    projects = db.scalars(stmt).unique().all()
     return ok(
         [
-            {"id": p.id, "code": p.code, "name": p.name}
+            {
+                "id": p.id,
+                "code": p.code,
+                "name": p.name,
+                "owner_id": p.owner_id,
+                "owner_name": p.owner.real_name if p.owner else None,
+            }
             for p in projects
         ],
         request.state.request_id,

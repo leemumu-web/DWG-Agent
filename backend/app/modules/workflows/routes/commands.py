@@ -51,7 +51,13 @@ def create_project_api(
     )
     db.commit()
     return ok(
-        {"id": project.id, "code": project.code, "name": project.name},
+        {
+            "id": project.id,
+            "code": project.code,
+            "name": project.name,
+            "owner_id": project.owner_id,
+            "owner_name": current_user.real_name,
+        },
         request.state.request_id,
     )
 
