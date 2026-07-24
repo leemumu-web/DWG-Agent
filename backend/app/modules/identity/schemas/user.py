@@ -28,6 +28,7 @@ class RoleRead(BaseModel):
     name: str
     description: str | None = None
     is_system: bool = False
+    permissions: list["PermissionRead"] = []
 
 
 class PermissionRead(BaseModel):
