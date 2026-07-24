@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
 from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
+from material_routing import d_series_category
 
 
 class HandbookCategory(StrEnum):
@@ -260,14 +261,15 @@ def classify_normalized_spec(
     match = _D_BAR_RE.fullmatch(upper)
     if match:
         diameter = _number_text(match.group(1))
-        if material_upper.startswith("HRB"):
+        material_category = d_series_category(material_upper)
+        if material_category == HandbookCategory.REBAR.value:
             return _handbook_profile(
                 original_spec,
                 diameter,
                 "螺纹钢",
                 HandbookCategory.REBAR,
             )
-        if material_upper.startswith(("HPB", "Q235B", "Q355B")):
+        if material_category == HandbookCategory.ROUND_BAR.value:
             return _handbook_profile(
                 original_spec,
                 diameter,

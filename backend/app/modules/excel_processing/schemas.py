@@ -81,6 +81,10 @@ class QualityImportStats(QualityExpectation):
     report_summary: dict[str, object] | None
 
 
+class WorkbookImportStats(PartsImportStats, ComponentsImportStats, QualityImportStats):
+    pass
+
+
 class BatchImportStats(PartsImportStats, ComponentsImportStats):
     batch_id: int
     quality_status: str
@@ -99,5 +103,6 @@ __all__ = [
     "PartsImportStats",
     "QualityExpectation",
     "QualityImportStats",
+    "WorkbookImportStats",
     "WeightValidationStatus",
 ]

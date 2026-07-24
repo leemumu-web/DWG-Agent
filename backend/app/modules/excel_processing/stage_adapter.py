@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,10 +22,22 @@ logger = logging.getLogger(__name__)
 
 _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
 _PROTOCOL_VERSION = 1
-_REQUIRED_STAGE_FILES = ("main.py", "pipeline.py", "handbook.py")
+_REQUIRED_STAGE_FILES = (
+    "main.py",
+    "pipeline.py",
+    "handbook.py",
+    "config.py",
+    "material_routing.py",
+)
 _QUALITY_STATUSES = {"ok", "warning", "severe_warning"}
 _LOOKUP_STATUSES = {"hit", "not_found", "skipped", "conflict"}
 _LOOKUP_CATEGORIES = {item.value for item in HandbookCategory}
+_D_MATERIAL_CATEGORY_BY_PREFIX = {
+    "HRB": "rebar",
+    "HPB": "round_bar",
+    "Q235B": "round_bar",
+    "Q355B": "round_bar",
+}
 _PROCESS_RESULT_FIELDS = {
     "protocol_version",
     "operation",
@@ -156,38 +169,47 @@ def run_excel_final_pipeline(
     if output_path.suffix.lower() != ".xlsx":
         raise ValueError("Excel Final output must use the .xlsx extension")
 
+    output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     internal_output_path = output_path.with_name(
         f".{output_path.stem}.internal.xlsx"
-    ).resolve()
-    internal_output_path.unlink(missing_ok=True)
+    )
+    publish_token = uuid.uuid4().hex
+    stage_output_path = output_path.with_name(
+        f".{output_path.stem}.{publish_token}.xlsx"
+    )
+    stage_internal_output_path = output_path.with_name(
+        f".{output_path.stem}.{publish_token}.internal.xlsx"
+    )
     try:
         completed = _run_stage(
             "process",
             "--input",
             str(source_path.resolve()),
             "--output",
-            str(output_path.resolve()),
+            str(stage_output_path),
             "--internal-output",
-            str(internal_output_path),
+            str(stage_internal_output_path),
         )
         _raise_for_failed_stage(completed)
         payload = _result_payload(completed, operation="process")
-        result = _process_result(payload, expected_output=output_path)
-        if not output_path.is_file():
+        result = _process_result(payload, expected_output=stage_output_path)
+        if not stage_output_path.is_file():
             raise ExcelFinalProcessError(
                 "Excel Final Stage exited successfully without an output file"
             )
-        if not internal_output_path.is_file():
+        if not stage_internal_output_path.is_file():
             raise ExcelFinalProcessError(
                 "Excel Final Stage exited successfully without its internal import file"
             )
-    except Exception:
-        internal_output_path.unlink(missing_ok=True)
-        raise
+        stage_internal_output_path.replace(internal_output_path)
+        stage_output_path.replace(output_path)
+    finally:
+        stage_output_path.unlink(missing_ok=True)
+        stage_internal_output_path.unlink(missing_ok=True)
     return ExcelFinalProcessResult(
         protocol_version=result.protocol_version,
-        output_path=result.output_path,
+        output_path=output_path,
         quality_status=result.quality_status,
         warning_count=result.warning_count,
         severe_warning_count=result.severe_warning_count,
@@ -229,31 +251,48 @@ def _normalize_lookup_request(
 ) -> tuple[str, str, str | None]:
     normalized_category = str(category or "").strip()
     normalized_spec = str(spec or "").strip()
-    normalized_material = str(material or "").replace(" ", "").upper() or None
+    normalized_material = (
+        str(material or "").replace(" ", "").replace("　", "").upper() or None
+    )
     if normalized_category not in _LOOKUP_CATEGORIES:
         raise ValueError(f"Unsupported handbook category: {normalized_category}")
     if not normalized_spec:
         raise ValueError("Handbook spec is required")
 
+    material_family = next(
+        (
+            prefix
+            for prefix in _D_MATERIAL_CATEGORY_BY_PREFIX
+            if normalized_material is not None
+            and normalized_material.startswith(prefix)
+        ),
+        None,
+    )
+    material_category = (
+        _D_MATERIAL_CATEGORY_BY_PREFIX.get(material_family)
+        if material_family is not None
+        else None
+    )
     d_match = re.fullmatch(r"D(\d+(?:\.\d+)?)", normalized_spec, flags=re.IGNORECASE)
     if d_match:
         if normalized_material is None:
             raise ValueError("D-series handbook lookup requires material")
         normalized_spec = d_match.group(1)
-        if normalized_material.startswith("HRB") and normalized_category != "rebar":
-            raise ValueError("D-series HRB material requires rebar category")
-        if normalized_material.startswith(("HPB", "Q355B")) and normalized_category != "round_bar":
-            raise ValueError("D-series HPB/Q355B material requires round_bar category")
-        if not normalized_material.startswith(("HRB", "HPB", "Q355B")):
+        if material_category is None:
             raise ValueError("Unsupported D-series material")
+        if normalized_category != material_category:
+            raise ValueError(
+                f"D-series {material_family} material requires "
+                f"{material_category} category"
+            )
 
     if normalized_category in {"round_bar", "rebar"} and normalized_material is None:
         raise ValueError(f"{normalized_category} handbook lookup requires material")
     if normalized_category == "round_bar" and normalized_material is not None:
-        if not normalized_material.startswith(("HPB", "Q355B")):
+        if material_category != "round_bar":
             raise ValueError("round_bar category conflicts with material")
     if normalized_category == "rebar" and normalized_material is not None:
-        if not normalized_material.startswith("HRB"):
+        if material_category != "rebar":
             raise ValueError("rebar category conflicts with material")
     return normalized_category, normalized_spec, normalized_material
 

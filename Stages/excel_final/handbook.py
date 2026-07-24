@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping
 import pymysql
 
 from config import DB_CONFIG
+from material_routing import material_class
 from spec_parser import HandbookCategory
 
 log = logging.getLogger(__name__)
@@ -162,19 +163,6 @@ def _category_value(category: HandbookCategory | str) -> str:
     return str(category).strip()
 
 
-def _material_class(material: str | None) -> str | None:
-    normalized = str(material or "").replace(" ", "").replace("　", "").upper()
-    if normalized.startswith("HRB"):
-        return "HRB"
-    if normalized.startswith("HPB"):
-        return "HPB"
-    if normalized.startswith("Q235B"):
-        return "Q235B"
-    if normalized.startswith("Q355B"):
-        return "Q355B"
-    return None
-
-
 def _database_spec(category: str, source_spec: str) -> str:
     """Translate supported drawing aliases to the handbook's stored key only."""
     upper = str(source_spec).replace(" ", "").replace("　", "").upper()
@@ -303,19 +291,19 @@ class SteelHandbookRepository:
         if category_value not in _QUERIES and category_value not in _SPECIAL_CATEGORIES:
             raise HandbookRequestError(f"unsupported category: {category_value}")
 
-        material_class = _material_class(material)
+        normalized_material_class = material_class(material)
         if category_value == HandbookCategory.ROUND_BAR.value:
-            if material_class is None:
+            if normalized_material_class is None:
                 raise HandbookRequestError("round_bar material is required")
-            if material_class not in {"HPB", "Q235B", "Q355B"}:
+            if normalized_material_class not in {"HPB", "Q235B", "Q355B"}:
                 raise HandbookRequestError("round_bar category conflicts with material")
         elif category_value == HandbookCategory.REBAR.value:
-            if material_class is None:
+            if normalized_material_class is None:
                 raise HandbookRequestError("rebar material is required")
-            if material_class != "HRB":
+            if normalized_material_class != "HRB":
                 raise HandbookRequestError("rebar category conflicts with material")
 
-        cache_key = (category_value, spec, material_class)
+        cache_key = (category_value, spec, normalized_material_class)
         cached = self._cache.get(cache_key)
         if cached is not None:
             return cached

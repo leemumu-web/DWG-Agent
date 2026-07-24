@@ -11,6 +11,13 @@ from typing import Any
 
 _RESULT_PREFIX = "DWG_EXCEL_FINAL_RESULT="
 _PROTOCOL_VERSION = 1
+_REQUIRED_STAGE_FILES = (
+    "main.py",
+    "pipeline.py",
+    "handbook.py",
+    "config.py",
+    "material_routing.py",
+)
 _LOOKUP_CATEGORIES = (
     "flat_steel",
     "round_bar",
@@ -50,7 +57,7 @@ def _parse_args() -> argparse.Namespace:
 
 def _configure_stage(stage_root: Path) -> dict[str, Any]:
     root = stage_root.resolve()
-    for filename in ("pipeline.py", "handbook.py", "config.py"):
+    for filename in _REQUIRED_STAGE_FILES:
         if not (root / filename).is_file():
             raise RuntimeError(f"Excel Final Stage file is missing: {root / filename}")
     sys.path.insert(0, str(root))

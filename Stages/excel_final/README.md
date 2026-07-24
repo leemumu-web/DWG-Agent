@@ -54,6 +54,7 @@ BH/BOX/BT 的父理论重用于源毛重物理核验；拆板后的每一行则�
 | `source_intake.py` | 唯一生产输入 Interface 与四类 Adapter 选择 |
 | `preprocess.py` | 从复核多表工作簿中分离原始输入表 |
 | `reader.py` / `reader_init.py` | Tekla 与初始表适配为 `SourcePart` |
+| `material_routing.py` | D系列材质族到圆钢/螺纹钢手册类别的唯一映射 |
 | `spec_parser.py` | 材质感知、确定性的规格分类 |
 | `fabricated_profile.py` | BH/BOX/BT 的唯一规格与几何解释 |
 | `handbook.py` | 类别门控、只读 MySQL 查询 |

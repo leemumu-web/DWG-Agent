@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Lock the supervised comparison contract
+## Task 1: Lock the supervised comparison contract
 
 **Files:**
 - Create: `Stages/excel_final/tools/compare_supervised_sample.py`
@@ -97,7 +97,7 @@ git add Stages/excel_final/tools/compare_supervised_sample.py \
 git commit -m "test(excel-final): add supervised sample comparator"
 ```
 
-### Task 2: Establish the ten-project artifact layout
+## Task 2: Establish the ten-project artifact layout
 
 **Files:**
 - Create outside the repository: `/home/Creeken/Paper/CAD_research/Data/十份排版/程序验证/排版01` through `排版10`
@@ -122,7 +122,7 @@ For each project report, record the SHA256 of:
 
 Do not copy or rewrite the source/GT files.
 
-### Task 3: Process and close project 01
+## Task 3: Process and close project 01
 
 **Inputs:**
 - `/home/Creeken/Paper/CAD_research/Data/十份排版/ground_truth整理/排版01/输入/排版01-Tekla输入.xls`
@@ -135,43 +135,43 @@ Do not copy or rewrite the source/GT files.
 - [ ] If the program is wrong, add a minimal failing test, fix the general rule, rerun project 01 and focused regressions.
 - [ ] Write `排版01-验证报告.md` with source scope, output status, shared-field counts, confirmed differences, program changes, and remaining human actions.
 
-### Task 4: Process and close project 02
+## Task 4: Process and close project 02
 
 Repeat the Task 3 execution sequence for `排版02`, specifically checking D-region isolation, duplicated aliases, BOX rows, flat-steel routing, and complete-key part grouping. Any fix must rerun project 01 before closing project 02.
 
-### Task 5: Process and close project 03
+## Task 5: Process and close project 03
 
 Repeat the Task 3 execution sequence for `排版03`, specifically checking the small G-region population, connector rows with missing geometry, BOX identity, and the six rows omitted from the old combined `Sheet1`. Any fix must rerun projects 01–02 before closing project 03.
 
-### Task 6: Process and close project 04
+## Task 6: Process and close project 04
 
 Repeat the Task 3 execution sequence for `排版04`, specifically checking fixed-width intake at larger scale, absence of component relationships, blank original length, `6*30` width placeholders, and whether program `part` admission correctly follows source identities rather than manual downstream-only knowledge. Any fix must rerun projects 01–03.
 
-### Task 7: Process and close project 05
+## Task 7: Process and close project 05
 
 Repeat the Task 3 execution sequence for `排版05`, specifically checking BOX split naming, parent-weight single-display behavior, original versus reviewed length, connector exclusions, and ordinary-part aggregation. Any fix must rerun projects 01–04.
 
-### Task 8: Process and close project 06
+## Task 8: Process and close project 06
 
 Repeat the Task 3 execution sequence for `排版06`, specifically checking the 14 pipe/profile rows absent from human `part`, handbook classification, reviewed length, and whether common nonempty GT fields agree without forcing downstream manual selection rules into production. Any fix must rerun projects 01–05.
 
-### Task 9: Process and close project 07
+## Task 9: Process and close project 07
 
 Repeat the Task 3 execution sequence for `排版07`, specifically checking the largest no-part supervision gap, 60 rows without uniquely matched original length, component summaries, and whether program-only valid `part` rows are recorded as unmatched rather than failures. Any fix must rerun projects 01–06.
 
-### Task 10: Process and close project 08
+## Task 10: Process and close project 08
 
 Repeat the Task 3 execution sequence for `排版08`, specifically checking BH/BOX component scoping, parent-weight deduplication, ordinary-part aggregation, and direct manual length correspondence. Any fix must rerun projects 01–07.
 
-### Task 11: Process and close project 09
+## Task 11: Process and close project 09
 
 Repeat the Task 3 execution sequence for `排版09`, specifically checking 1,615 organized GT rows, BH split recovery despite overwritten manual type text, 249 original/cut-length differences, the `14B-156` manhole reinforcing plate, D-series material routing, and 753 part keys. Any fix must rerun projects 01–08.
 
-### Task 12: Process and close project 10
+## Task 12: Process and close project 10
 
 Repeat the Task 3 execution sequence for `排版10`, specifically checking 56 BH rows with reviewed cut length, empty left/right inset fields, formula cache visibility, D-series material routing, and 380 part keys. Any fix must rerun projects 01–09.
 
-### Task 13: Final regression and repository handoff
+## Task 13: Final regression and repository handoff
 
 **Files:**
 - Modify when warranted: production modules under `Stages/excel_final/`

@@ -56,6 +56,10 @@ Steel DXF Classifier 1.1.0 对冻结 DXF 集合的一次版本化执行，包含
 
 Excel Final 内部把工作簿或 Tekla 文本可靠转换为统一 `SourcePart`、`ComponentSourceRow` 和输入诊断的 Module。它在同一个 Interface 后选择标准工作簿、初始表、制表符文本或固定宽度文本 Adapter；格式或表头无法唯一判断时拒绝整份输入，已识别输入中的行级问题交给质量流程保留并隔离。
 
+### 五金手册材质路由（Handbook Material Routing）
+
+Excel Final 对 D 系列规格按材质族选择唯一手册类别的规则：HRB 查询螺纹钢，HPB、Q235B、Q355B 查询圆钢。该路由只确定查询类别，不代表手册一定命中；其他材质不得跨类别借用重量。Stage 是规则 implementation，后端 Adapter 只按同一映射校验调用契约，并由跨 seam 测试防止两侧漂移。
+
 ### 每日归档（Daily Archive）
 
 按 `Asia/Shanghai` 业务日冻结已登记对象，非破坏性生成 ZIP 与独立 JSON 清单，并将产物重新登记到 MySQL 和配置的对象存储。它不是 MySQL/MinIO 灾难备份。
