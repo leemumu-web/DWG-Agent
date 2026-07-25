@@ -34,6 +34,10 @@ def list_files(
     sort_dir: str = Query("desc", pattern=r"^(asc|desc)$"),
     batch_name: str = Query(""),
     file_ext: str = Query("", description="Filter by file extension, e.g. '.dwg' or '.dxf'"),
+    standalone_only: bool = Query(
+        False,
+        description="Exclude files reserved by the production workflow.",
+    ),
     db: Session = Depends(get_db),
 ):
     sort_column = validate_sort_by("files", sort_by)
@@ -48,6 +52,10 @@ def list_files(
         stmt = stmt.where(StoredFile.batch_name == batch_name.strip())
     if file_ext.strip():
         stmt = stmt.where(StoredFile.file_ext == file_ext.strip())
+    if standalone_only:
+        from app.modules.workflows.interface import production_file_reference_exists
+
+        stmt = stmt.where(~production_file_reference_exists(StoredFile.id))
     tie_breaker = StoredFile.id.asc() if sort_dir_value == "asc" else StoredFile.id.desc()
     stmt = stmt.where(file_list_access_filter(current_user)).order_by(order_clause, tie_breaker)
     files, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)

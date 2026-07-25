@@ -259,6 +259,72 @@ def _validate_auto_result(
     )
 
 
+def _validate_manual_result(
+    source: StagedSplitSource,
+    result: dict[str, Any],
+    output_root: Path,
+) -> ValidatedSplitItem:
+    diagnostics = [
+        "SPLITTER_MANUAL_REVIEW",
+        *[
+            str(value)
+            for value in result.get("diagnostic_codes", [])
+            if isinstance(value, str)
+        ],
+    ]
+    checks: dict[str, object] = {}
+    candidate: Path | None = None
+    report_path: Path | None = None
+    candidate_value = result.get("review_candidate")
+    if candidate_value:
+        try:
+            candidate = _resolved_output(
+                candidate_value,
+                output_root,
+                "拆板普通版候选 DXF",
+            )
+            _validate_dxf(candidate, "拆板普通版候选 DXF")
+        except ValueError as exc:
+            diagnostics.append("MANUAL_CANDIDATE_INVALID")
+            checks["candidate_error"] = str(exc)
+            candidate = None
+    report_value = result.get("report")
+    if report_value:
+        try:
+            report_path = _resolved_output(
+                report_value,
+                output_root,
+                "拆板人工处理报告",
+            )
+            report = _read_json_object(report_path, "拆板人工处理报告")
+        except ValueError as exc:
+            diagnostics.append("MANUAL_REPORT_INVALID")
+            checks["report_error"] = str(exc)
+            report_path = None
+        else:
+            paired = report.get("paired_output")
+            if isinstance(paired, dict):
+                for field in (
+                    "failure_stage",
+                    "error_type",
+                    "error",
+                    "error_zh",
+                ):
+                    value = paired.get(field)
+                    if isinstance(value, str) and value:
+                        checks[field] = value
+    family = result.get("family")
+    return _manual_item(
+        source,
+        family=str(family) if isinstance(family, str) else None,
+        disposition=str(result.get("disposition") or "manual_review"),
+        diagnostics=diagnostics,
+        checks=checks,
+        normal_dxf_path=candidate,
+        split_report_path=report_path,
+    )
+
+
 def validate_split_results(
     sources: list[StagedSplitSource],
     cli_payload: dict[str, Any],
@@ -288,22 +354,8 @@ def validate_split_results(
         if route == "auto_accepted":
             validated.append(_validate_auto_result(source, raw_result, output_root))
         elif route == "manual_review":
-            diagnostics = [
-                str(value)
-                for value in raw_result.get("diagnostic_codes", [])
-                if isinstance(value, str)
-            ]
             validated.append(
-                _manual_item(
-                    source,
-                    family=(
-                        str(raw_result.get("family"))
-                        if isinstance(raw_result.get("family"), str)
-                        else None
-                    ),
-                    disposition=str(raw_result.get("disposition") or "manual_review"),
-                    diagnostics=["SPLITTER_MANUAL_REVIEW", *diagnostics],
-                )
+                _validate_manual_result(source, raw_result, output_root)
             )
         elif route == "failed":
             error_type = raw_result.get("error_type")

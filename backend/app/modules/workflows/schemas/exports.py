@@ -12,13 +12,15 @@ WorkflowExportCategory = Literal[
     "processed_dxf",
     "source_excel",
     "stage1_excel",
+    "split_result_normal",
+    "split_result_allowance",
 ]
 
 
 class WorkflowBatchExportCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    categories: list[WorkflowExportCategory] = Field(min_length=1, max_length=4)
+    categories: list[WorkflowExportCategory] = Field(min_length=1, max_length=6)
 
     @field_validator("categories")
     @classmethod

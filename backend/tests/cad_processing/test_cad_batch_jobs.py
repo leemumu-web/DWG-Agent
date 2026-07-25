@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import sessionmaker
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.files.interface import StoredFile
+from app.modules.jobs.models import AnalysisResult, Job
 from app.modules.jobs.routes.commands import _job_cancellation_lock_statement
 from app.platform.config.settings import settings
 
@@ -254,6 +258,63 @@ def test_list_jobs_latest_per_file_omits_superseded_attempt_rows():
     assert response.status_code == 200, response.text
     assert [job["id"] for job in response.json()["data"]] == [second["id"]]
     assert first["id"] != second["id"]
+
+
+def test_list_latest_conversion_job_reports_whether_its_result_file_is_available(db):
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    file_id = _upload_dwg(client, headers, "result-lifecycle.dwg")
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+        created = _create_batch(
+            client,
+            headers,
+            task_type="convert_dwg_to_dxf",
+            file_ids=[file_id],
+        ).json()["data"]["jobs"][0]
+
+    job = db.scalar(select(Job).where(Job.id == created["id"]))
+    assert job is not None
+    job.status = "succeeded"
+    job.progress = 100
+    result_file = StoredFile(
+        bucket="test-results",
+        storage_key=f"result-lifecycle/{job.id}.dxf",
+        original_name="result-lifecycle.dxf",
+        file_ext=".dxf",
+        content_type="application/dxf",
+        size_bytes=32,
+        sha256="a" * 64,
+        status="available",
+    )
+    db.add(result_file)
+    db.flush()
+    db.add(
+        AnalysisResult(
+            job_id=job.id,
+            result_type=job.task_type,
+            result_file_id=result_file.id,
+            status="succeeded",
+        )
+    )
+    db.commit()
+
+    params = {
+        "task_type": "convert_dwg_to_dxf",
+        "file_ids": str(file_id),
+        "latest_per_file": "true",
+        "page_size": 200,
+    }
+    available = client.get("/api/v1/workflows/jobs", headers=headers, params=params)
+    assert available.status_code == 200, available.text
+    assert available.json()["data"][0]["result_available"] is True
+
+    result_file.status = "deleted"
+    result_file.deleted_at = datetime.now(UTC)
+    db.commit()
+
+    released = client.get("/api/v1/workflows/jobs", headers=headers, params=params)
+    assert released.status_code == 200, released.text
+    assert released.json()["data"][0]["result_available"] is False
 
 
 def test_oda_batch_group_uses_bounded_parallel_shards(tmp_path, monkeypatch):

@@ -186,7 +186,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 167 个 path、195 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 169 个 path、197 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -215,7 +215,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - Axios 对 401 只执行一次共享 refresh 请求，避免并发刷新风暴；登录和 refresh 请求自身不循环重试。
 - React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
 - Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
-- 生产项目工作台以“新建生产项目”为主入口；服务端在同一事务内创建 Project、项目所有者关系及其唯一 `linux_production` Workflow 并启动，随后进入独立工作流详情 URL。详情页按当前阶段完成生产文件夹整批上传、服务器转换、冻结、DXF 分类、整批拆板和冻结 Excel 第一阶段处理；拆板人工复核只提供当前 attempt 未通过分类原始 DXF ZIP，后续留白阶段只展示契约、交接产物和可恢复错误。
+- 生产项目工作台以“新建生产项目”为主入口；服务端在同一事务内创建 Project、项目所有者关系及其唯一 `linux_production` Workflow 并启动，随后进入独立工作流详情 URL。详情页按当前阶段完成生产文件夹整批上传、服务器转换、冻结、DXF 分类、整批拆板和冻结 Excel 第一阶段处理；拆板完成后分别提供正式成对结果与本批全部分类原图，未形成结果的单图显示明确原因且不进入正式交接，后续留白阶段只展示契约、交接产物和可恢复错误。
 - Stage A3 “图纸拆板与独立校验”卡片标题栏提供分批导出，而不是把入口放在全局产物汇总。四个展示标签只负责 UI；服务端机器类型固定为 `classified_dxf`、`processed_dxf`、`source_excel`、`stage1_excel`，ZIP 一级目录固定为 `原DXF/`、`正常拆板DXF/`、`原Excel/`、`产出Excel/`，叶子文件名不得改写。
 - 分批 ZIP 通过不可 seek 的流直接从 Local/MinIO 发往浏览器，不生成服务器临时 ZIP，也不让 Axios 在浏览器内整体缓存 Blob。路径级 HttpOnly 能力只允许访问本次下载 URL；流中断、关闭弹窗或能力过期都不删除源文件。只有服务端出库流水成功、状态变为 `downloaded`，且有写权限的创建者或管理员通过第二次不可恢复确认后，才物理删除所选对象和关联 DXF 预览缓存。
 - EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。

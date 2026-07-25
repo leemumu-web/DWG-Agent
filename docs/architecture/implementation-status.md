@@ -2,7 +2,7 @@
 
 > 本文保留原始逐项调研证据，并作为目标差距的历史基线。2026-07-21 起，仓库结构重构的实时设计与计划见[领域重构设计](../superpowers/specs/2026-07-21-repository-domain-reorganization-design.md)和[实施计划](../superpowers/plans/2026-07-21-repository-domain-reorganization.md)。文中旧路径或旧排除声明仅代表调研时点，不应解释为当前完成状态。
 
-> 2026-07-25 拆板接入更新：`Stages/steel_dxf_split_v1.5.2` 以版本锁定运行时源码切片进入父仓库，不复制 DXF corpus、上游测试、开发脚本和发布报告；新增 `dxf_splitting` 领域、`dxf_split_runs/items` 两张 attempt 账本、`dxf_split` Celery 队列和默认关闭的 `DXF_SPLIT_PIPELINE_ENABLED`。`drawing_processing` 已升级为自动阶段：只消费分类登记，整批处理 BH/BOX，独立重开校验，向现有 MinIO bucket 登记正常拆板、余量增长、报告、manifest 和 `BH拆板信息表.xlsx`；非 BH/BOX 或未通过图纸进入 `manual_review`，但不阻断同批其他图纸。前端仅能按当前 run 即时下载未通过的分类原始 DXF ZIP。该更新表示代码纵向切片已经接通，不表示真实 MinIO/MySQL、代表性图纸、算法质量或人工操作已经完成生产验收；功能开关必须保持 false，直到[当前验证证据](../verification/current.md)记录这些外部门禁。
+> 2026-07-25 拆板接入更新：`Stages/steel_dxf_split_v1.5.2` 以版本锁定运行时源码切片进入父仓库，不复制 DXF corpus、上游测试、开发脚本和发布报告；新增 `dxf_splitting` 领域、`dxf_split_runs/items` 两张 attempt 账本、`dxf_split` Celery 队列和默认关闭的 `DXF_SPLIT_PIPELINE_ENABLED`。`drawing_processing` 已升级为自动阶段：只消费分类登记，整批处理 BH/BOX，独立重开校验，向现有 MinIO bucket 登记正常拆板、余量增长、报告、manifest 和 `BH拆板信息表.xlsx`；非 BH/BOX 或未通过图纸记为未形成正式结果，但不阻断同批其他图纸。复合右端轮廓证明合入后，现有真实 40 张批次已形成 40 组正式配对结果；BOX 共享流水线变更重新通过 10 对校准、10 对验收并签发实现指纹。部分成功批次在至少有一组正式配对产物时继续进入 Excel，未形成结果的图纸不进入正式 ZIP 或 Excel 交接；前端提供正式结果与本批全部分类原图下载。该更新表示代码纵向切片已经接通，不表示所有新图形都能自动证明余量几何；无法证明时仍安全拒绝自动发布。
 
 > 2026-07-22 余料库更新：独立 `remnant_inventory` 后端领域、DXF 确定性解析 Stage、六张业务表、21 个 API 操作、`remnant_convert`/`remnant_parse` 专用队列（默认并发 2/4）以及 Web 检索、批量导入、刷新恢复、人工校正、部分确认、预占和原图下载界面已实现。功能仍默认关闭，只有完成[余料库上线与运行手册](../operations/remnant-inventory.md)中的真实样本、材质、权限、备份和回滚门禁后才允许启用。该纵向功能不代表历史审计所述自动拆板或 Windows/SinoCAM 闭环已经实现。
 

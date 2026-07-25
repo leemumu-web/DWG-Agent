@@ -130,6 +130,12 @@ def find_dxf_split_file_workflow_id(db, file_id: int) -> int | None:
     return find_workflow_id(db, file_id)
 
 
+def dxf_split_file_reference_exists(file_id):
+    from app.modules.dxf_splitting.persistence import split_file_reference_exists
+
+    return split_file_reference_exists(file_id)
+
+
 __all__ = [
     "BH_SOURCE_CONTRACT",
     "BOX_SOURCE_CONTRACT",
@@ -154,6 +160,7 @@ __all__ = [
     "decide_split_item",
     "enqueue_dxf_splitting_job",
     "find_dxf_split_file_workflow_id",
+    "dxf_split_file_reference_exists",
     "get_dxf_split_outcome",
     "get_excel_split_handoff",
     "latest_dxf_split_run",

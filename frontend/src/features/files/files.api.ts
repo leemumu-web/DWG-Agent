@@ -10,10 +10,11 @@ import type { Job } from '../jobs';
 import { describeApiError, describeApiErrorAsync } from '../../shared/api';
 
 /** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
-export async function listFiles(batchName?: string, fileExt?: string) {
+export async function listFiles(batchName?: string, fileExt?: string, standaloneOnly = false) {
   const params: Record<string, unknown> = {};
   if (batchName) params.batch_name = batchName;
   if (fileExt) params.file_ext = fileExt;
+  if (standaloneOnly) params.standalone_only = true;
   return fetchAllPages<StoredFile>('/api/v1/files', params);
 }
 
@@ -24,6 +25,7 @@ export interface FileListParams {
   file_ext?: string;
   sort_by?: string;
   sort_dir?: 'asc' | 'desc';
+  standalone_only?: boolean;
 }
 
 export async function listFilesPage(params: FileListParams) {
@@ -32,9 +34,10 @@ export async function listFilesPage(params: FileListParams) {
 }
 
 /** List distinct batches (folder names), optionally filtered by file_ext. */
-export async function listBatches(fileExt?: string) {
+export async function listBatches(fileExt?: string, standaloneOnly = false) {
   const params: Record<string, unknown> = {};
   if (fileExt) params.file_ext = fileExt;
+  if (standaloneOnly) params.standalone_only = true;
   const res = await apiClient.get<ApiEnvelope<BatchInfo[]>>('/api/v1/files/batches', { params });
   return res.data.data;
 }

@@ -95,7 +95,7 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
 后 files 删除保护经工作流公开接口查询不可变引用。早期结构图中的人工 DXF 上传文字已被此
 后续确认规则取代。
 
-公开 route 已接通 Steel DXF Classifier、Steel DXF Split 与唯一 `excel_stage1` Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。Excel 阶段只读取冻结清单的 `source_excel` 和当前拆板交接，浏览器不能另选文件；DXF→Excel 只保留独立工具。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；拆板再按冻结分类清单整批处理 BH/BOX，登记正常拆板、余量增长、报告、manifest 与 BH ledger。存在人工复核时整批完成但保持 `waiting_review`，前端只即时下载未通过分类原始 DXF。CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
+公开 route 已接通 Steel DXF Classifier、Steel DXF Split 与唯一 `excel_stage1` Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。Excel 阶段只读取冻结清单的 `source_excel` 和当前拆板交接，浏览器不能另选文件；DXF→Excel 只保留独立工具。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；拆板再按冻结分类清单整批处理 BH/BOX，登记正常拆板、余量增长、报告、manifest 与 BH ledger。部分图纸未形成正式结果时保留审计状态，但正式产物齐备即可推进 Excel，未形成结果的图纸不进入 ZIP 或 Excel 交接。CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
 
 Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用 files transfer saga 与 StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。执行成功同时登记结果对象、File、AnalysisResult 和 batch/part/component；失败、取消或 stale 恢复通过 Excel 公开清理接口移除本 attempt 的临时关系行。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。这是单文件 Excel Final 切片；跨全部图纸的最终屏障、左右进合并和自动汇总仍未实现。
 

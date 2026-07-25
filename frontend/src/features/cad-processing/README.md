@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`Dwg2DxfPage.tsx`、`Dxf2DwgPage.tsx` 复用 `ConversionPage.tsx`；`Dxf2ExcelPage.tsx` 管理材料表提取。`components/conversion` 拆分上传、文件夹、总览和列模型，`components/dxf2excel` 拆分批次上传/卡片，`hooks/useConversionEvents.ts` 合并 SSE 状态，`styles.css` 保存局部样式。
+`Dwg2DxfPage.tsx`、`Dxf2DwgPage.tsx` 复用 `ConversionPage.tsx`；`Dxf2ExcelPage.tsx` 管理材料表提取。`conversionState.ts` 统一判定活动、卡滞、结果已释放和可重新提交状态；`components/conversion` 拆分上传、文件夹、总览和列模型，`components/dxf2excel` 拆分批次上传/卡片，`hooks/useConversionEvents.ts` 合并 SSE 状态，`styles.css` 保存局部样式。
 
 `index.ts` 是跨 feature 唯一入口，重导出三个页面、共享转换组件和必要类型；其他 feature 不得深层导入本目录内部文件。
 

@@ -22,6 +22,7 @@ const STATUS: Record<string, { color: string; bg: string; label: string; icon: R
   waiting_cad_worker: { color: '#1677ff', bg: '#e6f4ff', label: '等待 CAD', icon: <SyncOutlined style={{ color: '#1677ff' }} spin /> },
   failed: { color: '#ff4d4f', bg: '#fff2f0', label: '失败', icon: <CloseCircleFilled style={{ color: '#ff4d4f' }} /> },
   cancelled: { color: '#8c8c8c', bg: '#fafafa', label: '已取消', icon: <CloseCircleFilled style={{ color: '#8c8c8c' }} /> },
+  result_unavailable: { color: '#d46b08', bg: '#fff7e6', label: '结果已释放', icon: <CloseCircleFilled style={{ color: '#d46b08' }} /> },
 };
 
 export function fmtSize(bytes: number): string {
@@ -43,6 +44,7 @@ export interface ConversionColumnsOptions {
   onPreviewResult: (job: Job, sourceName: string) => void;
   onDownloadResult: (job: Job, sourceName: string) => void;
   onRetry: (jobId: number) => void;
+  onResubmit: (fileId: number) => void;
 }
 
 export function buildConversionColumns(options: ConversionColumnsOptions) {
@@ -77,10 +79,19 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
         if (options.statusLoadFailed) return <Typography.Text type="danger">状态加载失败，请刷新重试</Typography.Text>;
         const job = options.jobsByFileId.get(record.id);
         if (!job) return <Typography.Text type="secondary">未提交</Typography.Text>;
-        const status = STATUS[job.status] ?? STATUS.cancelled;
+        const resultUnavailable = job.status === 'succeeded' && job.result_available === false;
+        const status = resultUnavailable
+          ? STATUS.result_unavailable
+          : STATUS[job.status] ?? STATUS.cancelled;
         return (
           <Space size={8}>
-            <Tooltip title={job.status === 'failed' ? `${job.error_code || '转换失败'}；可使用“重新提交”再次处理` : undefined}>
+            <Tooltip title={
+              resultUnavailable
+                ? '历史转换结果文件已释放，源文件仍可用，可重新提交转换'
+                : job.status === 'failed'
+                  ? `${job.error_code || '转换失败'}；可使用“重新提交”再次处理`
+                  : undefined
+            }>
               <Tag style={{ color: status.color, background: status.bg, border: 'none', borderRadius: 6 }}>
                 {status.icon} <span style={{ marginLeft: 4 }}>{status.label}</span>
               </Tag>
@@ -90,7 +101,13 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
               size="small"
               style={{ width: 120, margin: 0 }}
               strokeColor={status.color}
-              status={job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : undefined}
+              status={
+                job.status === 'failed' || resultUnavailable
+                  ? 'exception'
+                  : job.status === 'succeeded'
+                    ? 'success'
+                    : undefined
+              }
             />
           </Space>
         );
@@ -112,7 +129,8 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
       align: 'center' as const,
       render: (_: unknown, record: StoredFile) => {
         const job = options.jobsByFileId.get(record.id);
-        const succeeded = job?.status === 'succeeded';
+        const resultUnavailable = job?.status === 'succeeded' && job.result_available === false;
+        const succeeded = job?.status === 'succeeded' && !resultUnavailable;
         const failed = job?.status === 'failed' || job?.status === 'cancelled';
         return (
           <Space size={2}>
@@ -139,6 +157,11 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
             {failed && job && (
               <Tooltip title="重新提交转换任务">
                 <Button aria-label="重新提交" type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => options.onRetry(job.id)} />
+              </Tooltip>
+            )}
+            {resultUnavailable && (
+              <Tooltip title="历史结果已释放，创建新的转换任务">
+                <Button aria-label="重新提交" type="text" size="small" danger icon={<ReloadOutlined />} onClick={() => options.onResubmit(record.id)} />
               </Tooltip>
             )}
           </Space>

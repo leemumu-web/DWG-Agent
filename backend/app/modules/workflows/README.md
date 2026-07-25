@@ -31,12 +31,13 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 - `production_projects.py`：原子组合 Project 创建、唯一生产 Workflow 创建与启动。
 - `artifacts.py`：阶段类型白名单和 file/result 引用幂等绑定。
 - `job_sync.py`：`job_id + attempt` 绑定、Result 投影和阶段推进。
-- `stage_execution.py`：已实现阶段的参数/权限/feature flag/Job 复用计划；不提交或投递。
+- `stage_execution.py`：已实现阶段的参数/权限/feature flag/Job 复用计划；Excel 预检与正式
+  执行复用同一冻结输入门，预检不创建 Job。
 - `access.py`：集中 workflow detail 加载、项目成员授权和 route 共享常量。
 - `intake/`：按登记、转换、冻结、展示四种状态转换拆分。
 - `routes/`：只处理 HTTP dependency、项目授权、审计、commit 后 dispatch 和 envelope。
-- `routes/archive.py`：复用 Files ZIP、传输登记和审计能力，提供完整流程及指定阶段两种
-  压缩包；生产 artifact 不提供单文件出口。
+- `routes/archive.py`：复用 Files ZIP、传输登记和审计能力，提供完整流程及普通阶段压缩包；
+  `excel_stage1` 只下载经来源链校验的唯一 `.xlsx`，其阶段 ZIP 入口返回稳定错误。
 - `routes/batch_exports.py`：在不落服务器临时 ZIP 的前提下流式导出四类文件；只有出库
   流水成功且用户再次确认后，才物理删除所选对象及其 DXF 预览缓存。
 - `interface.py`：其他业务模块唯一允许导入的工作流边界。
@@ -58,7 +59,8 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 
 `source_intake`、`dxf_classification` 和 `excel_stage1` 已接入现有服务器实现；`excel_stage1`
 从冻结清单解析唯一 `source_excel`，不接收浏览器提供的文件 ID 或 DXF 批次名，底层复用现有
-Excel Job。DXF→Excel 仅保留为独立工具，不属于生产主流程。上述阶段仍受 feature flag、worker、
+Excel Job。运行前核对冻结清单、唯一源表、对象摘要、Excel 合同和正式拆板交接，正式执行
+再次复用同一门禁。DXF→Excel 仅保留为独立工具，不属于生产主流程。上述阶段仍受 feature flag、worker、
 Stage、MySQL、对象存储和真实样本约束。新建流程使用 `definition_revision 4`，历史流程保留原 revision；图纸链固定为
 `source_dwg → canonical_dxf → classified_dxf → processed_dxf → cam_input_dxf →
 cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保持各自格式。
@@ -85,5 +87,5 @@ Workflow 类型范围的全局状态统计，避免前端用独立分页做不�
 
 行为回归位于 `backend/tests/workflows/`，分类集成位于
 `backend/tests/dxf_classification/`；结构边界位于
-`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照锁定 167 path、
-195 operation、46 张模型表、14 个 Celery task 和 13 条任务路由。
+`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照锁定 169 path、
+197 operation、46 张模型表、14 个 Celery task 和 13 条任务路由。

@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.access import job_read_filter, require_job_read_access
-from app.modules.jobs.models import Job, JobStep
+from app.modules.jobs.models import AnalysisResult, Job, JobStep
 from app.modules.jobs.schemas import JobRead, JobStepRead
 from app.modules.projects.interface import has_global_project_access
 from app.platform.config.validators import validate_sort_by
@@ -89,8 +90,31 @@ def list_jobs(
     if not has_global_project_access(current_user):
         stmt = stmt.where(job_read_filter(current_user))
     jobs, total = paginate_scalars(db, stmt, page_no=page, page_size=page_size)
+    available_result_pairs: set[tuple[int, str]] = set()
+    if latest_per_file:
+        succeeded_job_ids = [job.id for job in jobs if job.status == "succeeded"]
+        if succeeded_job_ids:
+            available_result_pairs = set(
+                db.execute(
+                    select(AnalysisResult.job_id, AnalysisResult.result_type)
+                    .join(StoredFile, StoredFile.id == AnalysisResult.result_file_id)
+                    .where(
+                        AnalysisResult.job_id.in_(succeeded_job_ids),
+                        AnalysisResult.status == "succeeded",
+                        StoredFile.status == "available",
+                        StoredFile.deleted_at.is_(None),
+                        StoredFile.purged_at.is_(None),
+                    )
+                ).all()
+            )
+    payloads: list[JobRead] = []
+    for job in jobs:
+        payload = JobRead.model_validate(job)
+        if latest_per_file and job.status == "succeeded":
+            payload.result_available = (job.id, job.task_type) in available_result_pairs
+        payloads.append(payload)
     return page_response(
-        [JobRead.model_validate(j) for j in jobs],
+        payloads,
         page,
         page_size,
         total,

@@ -406,6 +406,34 @@ def test_workflow_download_is_one_zip_with_stage_folders(monkeypatch, tmp_path):
         assert bypass.status_code == 409
         assert bypass.json()["error"]["code"] == "WORKFLOW_ARCHIVE_DOWNLOAD_REQUIRED"
 
+    standalone = client.post(
+        "/api/v1/files",
+        headers={**owner_headers, "Idempotency-Key": "standalone-conversion-source"},
+        params={"batch_name": "standalone-conversion"},
+        files={"upload": ("standalone.dwg", b"AC1027" + bytes(2048), "application/octet-stream")},
+    )
+    assert standalone.status_code == 201, standalone.text
+    standalone_id = standalone.json()["data"]["id"]
+
+    standalone_files = client.get(
+        "/api/v1/files?standalone_only=true&page_size=200",
+        headers=owner_headers,
+    )
+    assert standalone_files.status_code == 200, standalone_files.text
+    visible_ids = {item["id"] for item in standalone_files.json()["data"]}
+    assert standalone_id in visible_ids
+    assert source_file_id not in visible_ids
+
+    standalone_batches = client.get(
+        "/api/v1/files/batches?standalone_only=true",
+        headers=owner_headers,
+    )
+    assert standalone_batches.status_code == 200, standalone_batches.text
+    visible_batches = {item["name"] for item in standalone_batches.json()["data"]}
+    assert "standalone-conversion" in visible_batches
+    production_batch_name = imported["items"][0]["file"]["batch_name"]
+    assert production_batch_name not in visible_batches
+
 
 def test_workflow_stage_download_is_one_zip_with_only_stage_artifacts(
     monkeypatch, tmp_path

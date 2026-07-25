@@ -35,6 +35,7 @@ WORKFLOW_PUBLIC_CONTRACT = {
     "create_workflow",
     "find_frozen_input_reference",
     "find_production_file_workflow_id",
+    "production_file_reference_exists",
     "get_workflow_or_404",
     "list_workflow_templates",
     "read_verified_input_object",
@@ -79,6 +80,16 @@ EXPECTED_ROUTES = [
         ("GET",),
         "/{workflow_id}/stages/{stage_code}/download-archive",
         "download_workflow_stage_archive",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/stages/excel_stage1/download-result",
+        "download_excel_stage1_result",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/stages/excel_stage1/preflight",
+        "preflight_excel_stage1_api",
     ),
     (
         ("POST",),

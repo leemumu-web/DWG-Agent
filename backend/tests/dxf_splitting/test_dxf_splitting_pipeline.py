@@ -20,6 +20,7 @@ from app.main import app
 from app.modules.dxf_classification.interface import (
     DxfClassificationItem,
     DxfClassificationRun,
+    DxfSplitCandidateInput,
 )
 from app.modules.dxf_splitting import adapter as split_adapter
 from app.modules.dxf_splitting import execution as split_execution
@@ -32,6 +33,10 @@ from app.modules.dxf_splitting.interface import (
     list_split_review_items,
     manual_review_archive_members,
     review_candidate_archive_members,
+)
+from app.modules.dxf_splitting.validation import (
+    StagedSplitSource,
+    validate_split_results,
 )
 from app.modules.files.interface import (
     StoredFile,
@@ -49,6 +54,92 @@ from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from tests.support import workflow_api as workflow_test_api
+
+
+def test_manual_pair_failure_preserves_candidate_report_and_exact_reason(tmp_path):
+    source = tmp_path / "input" / "BH-SLOPED_拆板前.dxf"
+    source.parent.mkdir()
+    source.write_bytes(_valid_dxf_bytes(tmp_path, "source.dxf"))
+    output_root = tmp_path / "output"
+    task = output_root / "manual_review" / "bh" / "BH-SLOPED"
+    task.mkdir(parents=True)
+    candidate = task / "BH-SLOPED_normal_candidate.dxf"
+    candidate.write_bytes(_valid_dxf_bytes(tmp_path, "candidate.dxf"))
+    report = task / "BH-SLOPED_report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "automation_route": "manual_review",
+                "paired_output": {
+                    "status": "manual_review",
+                    "failure_stage": "paired_weld_allowance",
+                    "error_type": "WeldAllowanceProcessingError",
+                    "error": (
+                        "PLATE_CUT closed polyline is missing its weld "
+                        "allowance XDATA binding."
+                    ),
+                    "error_zh": "腹板轮廓无法证明唯一的余量伸长端。",
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    semantic = DxfSplitCandidateInput(
+        classification_item_id=7,
+        drawing_id=None,
+        classification_disposition="classified",
+        part_type="BH",
+        profile_normalized="BH500*300*12*20",
+        type_source="catalog",
+        source_file_id=10,
+        output_file_id=11,
+        classifier_version="1.2.0",
+    )
+
+    [validated] = validate_split_results(
+        [
+            StagedSplitSource(
+                semantic=semantic,
+                source_name=source.name,
+                staged_path=source,
+            )
+        ],
+        {
+            "results": [
+                {
+                    "input": str(source.resolve()),
+                    "family": "BH",
+                    "automation_route": "manual_review",
+                    "native_automation_route": "production",
+                    "disposition": "auto_accept",
+                    "review_candidate": str(candidate.resolve()),
+                    "report": str(report.resolve()),
+                    "diagnostic_codes": [
+                        "PAIRED_WELD_ALLOWANCE_FAILED",
+                        "WELD_ALLOWANCE_CONTRACT_UNAVAILABLE",
+                    ],
+                }
+            ]
+        },
+        output_root,
+    )
+
+    assert validated.normal_dxf_path == candidate
+    assert validated.split_report_path == report
+    assert validated.diagnostics == (
+        "SPLITTER_MANUAL_REVIEW",
+        "PAIRED_WELD_ALLOWANCE_FAILED",
+        "WELD_ALLOWANCE_CONTRACT_UNAVAILABLE",
+    )
+    assert validated.validation["checks"] == {
+        "failure_stage": "paired_weld_allowance",
+        "error_type": "WeldAllowanceProcessingError",
+        "error": (
+            "PLATE_CUT closed polyline is missing its weld allowance XDATA binding."
+        ),
+        "error_zh": "腹板轮廓无法证明唯一的余量伸长端。",
+    }
 
 
 def test_review_decision_model_keeps_candidates_separate_from_formal_outputs():
@@ -577,6 +668,26 @@ def test_review_decision_service_accepts_candidate_pair_idempotently(
     assert (
         decision.final_weld_allowance_dxf_file_id
         == item.candidate_weld_allowance_dxf_file_id
+    )
+
+    decision_only_file = _save_source_dxf(
+        db,
+        user_id=workflow.created_by,
+        original_name="人工确认后的最终腹板.dxf",
+        payload=b"decision-only-final-dxf",
+    )
+    from app.modules.dxf_splitting.models import DxfSplitReviewDecision
+
+    persisted_decision = db.get(DxfSplitReviewDecision, decision.id)
+    assert persisted_decision is not None
+    persisted_decision.final_normal_dxf_file_id = decision_only_file.id
+    db.flush()
+
+    from app.modules.workflows.interface import find_production_file_workflow_id
+
+    assert (
+        find_production_file_workflow_id(db, decision_only_file.id)
+        == workflow.id
     )
 
 
@@ -1642,12 +1753,21 @@ def test_mixed_batch_splits_only_bh_box_and_review_zip_has_failed_originals(
 
     workflow = db.get(WorkflowRun, workflow_id)
     workflow_service.sync_workflow_from_jobs(db, workflow)
-    assert workflow.current_stage == "drawing_processing"
-    assert workflow.status == "waiting_review"
+    assert workflow.current_stage == "excel_stage1"
+    assert workflow.status == "waiting_input"
     drawing_stage = next(
         stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
     )
-    assert drawing_stage.status == "waiting_review"
+    assert drawing_stage.status == "succeeded"
+    excel_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "excel_stage1"
+    )
+    assert excel_stage.status == "waiting_input"
+    handoff = get_excel_split_handoff(db, workflow_id)
+    assert len(handoff.drawings) == 1
+    assert handoff.drawings[0].classification_item_id == by_name[
+        "BOX-AUTO_拆板前.dxf"
+    ].classification_item_id
     db.commit()
 
     init_db()

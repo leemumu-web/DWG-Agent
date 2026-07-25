@@ -22,7 +22,11 @@ from app.modules.dxf_splitting.adapter import (
     DxfSplitError,
     source_contract_for,
 )
-from app.modules.dxf_splitting.models import DxfSplitItem, DxfSplitRun
+from app.modules.dxf_splitting.models import (
+    DxfSplitItem,
+    DxfSplitReviewDecision,
+    DxfSplitRun,
+)
 from app.modules.dxf_splitting.schemas import (
     DxfSplitExcelHandoff,
     DxfSplitHandoffDrawing,
@@ -598,6 +602,10 @@ def find_split_file_workflow_id(db: Session, file_id: int) -> int | None:
     item_workflow_id = db.scalar(
         select(DxfSplitRun.workflow_run_id)
         .join(DxfSplitItem, DxfSplitItem.run_id == DxfSplitRun.id)
+        .outerjoin(
+            DxfSplitReviewDecision,
+            DxfSplitReviewDecision.split_item_id == DxfSplitItem.id,
+        )
         .where(
             or_(
                 DxfSplitItem.source_file_id == file_id,
@@ -609,6 +617,8 @@ def find_split_file_workflow_id(db: Session, file_id: int) -> int | None:
                 DxfSplitItem.candidate_weld_allowance_dxf_file_id == file_id,
                 DxfSplitItem.candidate_split_report_file_id == file_id,
                 DxfSplitItem.candidate_weld_allowance_report_file_id == file_id,
+                DxfSplitReviewDecision.final_normal_dxf_file_id == file_id,
+                DxfSplitReviewDecision.final_weld_allowance_dxf_file_id == file_id,
             )
         )
         .limit(1)
@@ -625,6 +635,53 @@ def find_split_file_workflow_id(db: Session, file_id: int) -> int | None:
             )
         )
         .limit(1)
+    )
+
+
+def split_file_reference_exists(file_id):
+    """Return a correlated predicate covering every file owned by a split run."""
+    def indexed_reference_exists(model, column):
+        return (
+            select(1)
+            .select_from(model)
+            .where(column == file_id)
+            .correlate_except(model)
+            .exists()
+        )
+
+    item_columns = (
+        DxfSplitItem.source_file_id,
+        DxfSplitItem.normal_dxf_file_id,
+        DxfSplitItem.weld_allowance_dxf_file_id,
+        DxfSplitItem.split_report_file_id,
+        DxfSplitItem.weld_allowance_report_file_id,
+        DxfSplitItem.candidate_normal_dxf_file_id,
+        DxfSplitItem.candidate_weld_allowance_dxf_file_id,
+        DxfSplitItem.candidate_split_report_file_id,
+        DxfSplitItem.candidate_weld_allowance_report_file_id,
+    )
+    review_columns = (
+        DxfSplitReviewDecision.final_normal_dxf_file_id,
+        DxfSplitReviewDecision.final_weld_allowance_dxf_file_id,
+    )
+    run_columns = (
+        DxfSplitRun.bh_split_ledger_file_id,
+        DxfSplitRun.split_manifest_file_id,
+        DxfSplitRun.validation_report_file_id,
+    )
+    return or_(
+        *(
+            indexed_reference_exists(DxfSplitItem, column)
+            for column in item_columns
+        ),
+        *(
+            indexed_reference_exists(DxfSplitReviewDecision, column)
+            for column in review_columns
+        ),
+        *(
+            indexed_reference_exists(DxfSplitRun, column)
+            for column in run_columns
+        ),
     )
 
 
@@ -769,11 +826,11 @@ def get_excel_split_handoff(
                 "run_job_attempt": run.job_attempt,
             },
         )
-    if run.status != "completed":
+    if run.status not in {"completed", "completed_with_review"}:
         raise AppHTTPException(
             409,
-            "DXF_SPLIT_REVIEW_PENDING",
-            "拆板仍有待人工处理图纸，Excel 处理不能开始。",
+            "DXF_SPLIT_RESULTS_PENDING",
+            "拆板批次尚未形成可交接的正式结果。",
             {"split_run_id": run.id, "status": run.status},
         )
     if run.bh_split_ledger_file_id is None:
@@ -785,6 +842,8 @@ def get_excel_split_handoff(
     drawings: list[DxfSplitHandoffDrawing] = []
     required_file_ids = [run.bh_split_ledger_file_id]
     for item in run.items:
+        if item.automation_route != "auto_accepted":
+            continue
         if (
             item.normal_dxf_file_id is None
             or item.weld_allowance_dxf_file_id is None
@@ -805,6 +864,17 @@ def get_excel_split_handoff(
                 weld_allowance_dxf_file_id=item.weld_allowance_dxf_file_id,
                 part_type=item.part_type,
             )
+        )
+    if not drawings or len(drawings) != run.auto_accepted_count:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_HANDOFF_INCOMPLETE",
+            "拆板批次的正式配对结果数量与 Excel 交接账本不一致。",
+            {
+                "split_run_id": run.id,
+                "expected_count": run.auto_accepted_count,
+                "handoff_count": len(drawings),
+            },
         )
     unavailable = [
         file_id

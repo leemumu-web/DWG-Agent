@@ -13,6 +13,7 @@ import type {
   WorkflowBatchExportPreview,
   WorkflowBatchExportPurgeResult,
   WorkflowExportCategory,
+  WorkflowExcelStagePreflight,
 } from './workflow';
 
 export interface WorkflowListParams {
@@ -130,6 +131,21 @@ export async function downloadWorkflowStageArchive(
   );
 }
 
+export async function downloadWorkflowExcelStageResult(workflowId: number) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage1/download-result`,
+    `workflow-${workflowId}-excel-stage1.xlsx`,
+    'Excel 结果下载失败',
+  );
+}
+
+export async function getWorkflowExcelStagePreflight(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowExcelStagePreflight>>(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage1/preflight`,
+  );
+  return response.data.data;
+}
+
 export async function createWorkflow(payload: WorkflowCreatePayload) {
   const response = await apiClient.post<ApiEnvelope<WorkflowDetail>>('/api/v1/workflows', payload);
   return response.data.data;
@@ -209,17 +225,6 @@ export async function getDxfSplitRun(workflowId: number) {
     `/api/v1/workflows/${workflowId}/drawing-processing`,
   );
   return response.data.data;
-}
-
-export async function downloadDxfSplitResultsArchive(
-  workflowId: number,
-  runId: number,
-) {
-  return downloadArchive(
-    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/results-archive`,
-    `workflow-${workflowId}-split-run-${runId}-results.zip`,
-    '拆板正式结果压缩包下载失败',
-  );
 }
 
 export async function getWorkflowBatchExportPreview(workflowId: number) {

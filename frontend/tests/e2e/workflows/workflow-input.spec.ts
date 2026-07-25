@@ -254,6 +254,11 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await page.getByRole('button', { name: '冻结输入版本' }).click();
   await expect(page.getByText(/冻结后不可修改/)).toBeVisible();
   await page.getByRole('button', { name: '确认冻结' }).click();
+  await expect(page.getByText('正在查看历史阶段')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /DXF 分类与分流.*待输入.*当前阶段/ }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: /DXF 分类与分流.*待输入.*当前阶段/ }).click();
   await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();
   await expect(page.getByRole('button', { name: '开始 DXF 分类分流' })).toBeVisible();
   await page.getByRole('button', { name: '开始 DXF 分类分流' }).click();

@@ -11,12 +11,34 @@ from app.modules.workflows.access import WORKFLOW_WRITE_ROLES, load_workflow_det
 from app.modules.workflows.schemas import WorkflowDetail, WorkflowStageExecutionCreate
 from app.modules.workflows.stage_execution import (
     dispatch_stage_execution,
+    preflight_excel_stage1,
     prepare_stage_execution,
 )
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 
 router = APIRouter()
+
+
+@router.get(
+    "/{workflow_id}/stages/excel_stage1/preflight",
+    summary="预检 Excel 第一阶段输入",
+    description="使用与正式执行完全相同的冻结输入、Excel 结构和拆板交接校验，但不创建任务。",
+)
+def preflight_excel_stage1_api(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    result = preflight_excel_stage1(
+        db,
+        workflow,
+        current_user=current_user,
+    )
+    return ok(result, request.state.request_id)
 
 
 @router.post(

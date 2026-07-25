@@ -11,9 +11,9 @@
 | `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | `modules/workflows/intake/freeze.py`、projects 公开 Drawing 能力、生产流程测试 |
 | 服务器 DWG→DXF、DXF→DWG、DXF 材料表提取 | `cad_processing` | partial | `modules/cad_processing/` 按方向拆分版本策略、批处理、登记和执行；三个独立 Stage 保持原路径，ODA 与真实样本仍需部署验收 |
 | `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.2.0 契约，`persistence.py` 登记逐图类型语义、两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
-| BH/BOX 自动拆板、余量增长与独立校验 | `dxf_splitting` | partial | Split 1.5.2 Stage、整批 Job、两张 attempt 账本、正常拆板/余量增长/报告/ledger/manifest 登记和人工复核原图 ZIP 已接通；默认关闭且待真实 MinIO/MySQL 与业务样本验收 |
+| BH/BOX 自动拆板、余量增长与独立校验 | `dxf_splitting` | implemented | Split 1.5.2 Stage、整批 Job、两张 attempt 账本、正常拆板/余量增长/报告/ledger/manifest 登记已接通；真实 40 张批次已验证 40 组正式配对结果，包含两张复合右端轮廓回归 |
 | `E1-E4` Excel Final 处理 | `excel_processing` | partial | `stage_adapter` 隔离 Stage，`execution` 编排 Job/MinIO，`importers`/`persistence` 登记三张 MySQL 关系表；真实 schema、手册库和跨图纸最终屏障仍是依赖/缺口。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
-| 拆板人工复核后的回流与设计屏障 | `workflows` | partial | 当前只保持 `waiting_review` 并下载未通过原图；人工上传、确认推进及机器完整性屏障尚未实现 |
+| 未形成拆板结果的隔离与后续交接 | `workflows` | partial | 未形成结果的图纸保留原因和原图，不进入正式 ZIP/Excel；其余正式结果自动推进，线下处理后的重新上传回流尚未实现 |
 | CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
 | `AGENT/RUNNER/ADAPTER/SINOCAM` | `windows_execution` | external | draft control-plane contract；认证、租约、fencing、Runner 未实现 |
 | 结果接纳与交付归档 | `workflows` + `operations` | partial | 每日归档可用；SinoCAM 结果接纳与确定性交付清单未实现 |
@@ -38,7 +38,7 @@
 ## 数据事实归属
 
 - MySQL：身份、项目、文件登记、Job、Workflow、分类、拆板逐图处置、Excel、运维与 Agent 账本。
-- Local/MinIO：原始 DWG、服务器生成 DXF、分类分流 DXF、正常拆板/余量增长 DXF、Excel、报告和归档字节；人工复核 ZIP 即时生成，不写回对象存储。
+- Local/MinIO：原始 DWG、服务器生成 DXF、分类分流 DXF、正常拆板/余量增长 DXF、Excel、报告和归档字节；正式拆板包和整批原图包即时流式生成，不写回对象存储。
 - Celery broker/result：投递与短期运行数据；不替代 Job、AnalysisResult 或审计。
 - Stage：确定性文件处理，不拥有平台身份、项目权限或最终业务状态。
 - 前端：提高操作效率、展示结构化反馈和恢复动作，不拥有最终权限与状态机。

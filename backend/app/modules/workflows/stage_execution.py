@@ -13,7 +13,6 @@ from app.modules.dxf_classification.interface import (
 )
 from app.modules.dxf_splitting.interface import (
     MAX_AUTOMATIC_ATTEMPTS,
-    get_dxf_split_outcome,
     get_excel_split_handoff,
 )
 from app.modules.excel_processing.interface import ExcelFinalInputError
@@ -23,7 +22,6 @@ from app.modules.jobs.interface import (
     Job,
     JobCreate,
     create_or_reuse_job,
-    rerun_succeeded_job,
     retry_job,
 )
 from app.modules.workflows.contracts import require_stage_inputs
@@ -50,6 +48,54 @@ class StageExecutionPlan:
     @property
     def should_dispatch(self) -> bool:
         return not self.reused or self.retried
+
+
+def preflight_excel_stage1(
+    db: Session,
+    workflow: WorkflowRun,
+    *,
+    current_user: User,
+) -> dict[str, object]:
+    """Run the exact Excel execution gate without creating or binding a Job."""
+    require_stage_execution(
+        workflow,
+        stage_code="excel_stage1",
+        execution_kind="excel_stage1",
+    )
+    require_stage_inputs(workflow, "excel_stage1")
+    _, params = _prepare_excel_stage1(db, workflow, current_user)
+    source = db.get(StoredFile, int(params["file_id"]))
+    if source is None:
+        raise AppHTTPException(
+            409,
+            "WORKFLOW_SOURCE_EXCEL_FILE_MISSING",
+            "冻结的 Excel 源文件已不可用。",
+            {"file_id": params["file_id"]},
+        )
+    batch = workflow.input_batch
+    source_item = next(
+        item
+        for item in batch.items
+        if item.role == "source_excel" and item.file_id == source.id
+    )
+    handoff = params["dxf_split_handoff"]
+    assert isinstance(handoff, dict)
+    drawings = handoff.get("drawings")
+    return {
+        "ready": True,
+        "source_file_id": source.id,
+        "source_file_name": source.original_name,
+        "input_contract_version": source_item.validation_contract_version,
+        "split_run_id": handoff.get("split_run_id"),
+        "official_pair_count": len(drawings) if isinstance(drawings, list) else 0,
+        "checks": [
+            {"code": "input_batch_frozen", "label": "冻结输入清单有效"},
+            {"code": "source_excel_unique", "label": "唯一 Excel 来源一致"},
+            {"code": "source_object_verified", "label": "对象摘要与冻结记录一致"},
+            {"code": "excel_contract_verified", "label": "Excel 表结构符合输入合同"},
+            {"code": "split_handoff_verified", "label": "正式拆板结果成对且可用"},
+        ],
+    }
 
 
 def dispatch_stage_execution(
@@ -164,26 +210,10 @@ def prepare_stage_execution(
             raise AppHTTPException(
                 409,
                 "DXF_SPLIT_ATTEMPTS_EXHAUSTED",
-                "拆板任务已用完三次完整批次尝试，不能继续重跑。",
+                "拆板任务只允许一次完整批次尝试，不能自动重跑。",
                 {"job_id": job.id, "attempt": job.attempt},
             )
         job = retry_job(db, job)
-    elif reused and job.status == "succeeded" and stage_code == "drawing_processing":
-        outcome = get_dxf_split_outcome(
-            db,
-            job_id=job.id,
-            attempt=job.attempt,
-        )
-        if outcome == "completed_with_review":
-            if job.attempt >= MAX_AUTOMATIC_ATTEMPTS:
-                raise AppHTTPException(
-                    409,
-                    "DXF_SPLIT_ATTEMPTS_EXHAUSTED",
-                    "拆板任务已用完三次完整批次尝试，不能继续重跑。",
-                    {"job_id": job.id, "attempt": job.attempt},
-                )
-            job = rerun_succeeded_job(db, job)
-            retried = True
     bind_stage_job(db, workflow, stage_code=stage_code, job=job)
     return StageExecutionPlan(job=job, reused=reused, retried=retried)
 

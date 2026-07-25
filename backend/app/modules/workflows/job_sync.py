@@ -105,17 +105,12 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                     job_id=job.id,
                     attempt=job.attempt,
                 )
-                if split_outcome == "completed_with_review":
-                    stage.status = "waiting_review"
-                    stage.progress = 100
-                    stage.error_code = None
-                    stage.error_message = None
+                if split_outcome in {"completed", "completed_with_review"}:
                     stage.output_json = {
                         "split_status": split_outcome,
                         "job_id": job.id,
                         "job_attempt": job.attempt,
                     }
-                    continue
             try:
                 require_stage_outputs(workflow, stage.stage_code)
             except AppHTTPException as exc:

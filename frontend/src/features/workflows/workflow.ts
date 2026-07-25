@@ -77,6 +77,21 @@ export interface WorkflowStageExecutionPayload {
   execution_kind: string;
 }
 
+export interface WorkflowExcelPreflightCheck {
+  code: string;
+  label: string;
+}
+
+export interface WorkflowExcelStagePreflight {
+  ready: boolean;
+  source_file_id: number;
+  source_file_name: string;
+  input_contract_version: number;
+  split_run_id: number;
+  official_pair_count: number;
+  checks: WorkflowExcelPreflightCheck[];
+}
+
 export interface DxfClassificationItem {
   id: number;
   drawing_id?: number | null;
@@ -211,7 +226,9 @@ export type WorkflowExportCategory =
   | 'classified_dxf'
   | 'processed_dxf'
   | 'source_excel'
-  | 'stage1_excel';
+  | 'stage1_excel'
+  | 'split_result_normal'
+  | 'split_result_allowance';
 
 export interface WorkflowBatchExportCategory {
   key: WorkflowExportCategory;

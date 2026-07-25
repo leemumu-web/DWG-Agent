@@ -41,8 +41,10 @@ import { stageStateLabel, WorkflowStageRail } from './WorkflowStageRail';
 import {
   cancelWorkflow,
   completeWorkflowStage,
+  downloadWorkflowExcelStageResult,
   downloadWorkflowStageArchive,
   executeWorkflowStage,
+  getWorkflowExcelStagePreflight,
   getWorkflow,
   listWorkflowTemplates,
   startWorkflow,
@@ -68,18 +70,29 @@ function StageArchiveCard({
 }) {
   const { message } = App.useApp();
   const archiveM = useMutation({
-    mutationFn: () => downloadWorkflowStageArchive(workflowId, stage.stage_code),
-    onError: (error) => message.error(describeApiError(error, '阶段结果压缩包下载失败')),
+    mutationFn: () => stage.stage_code === 'excel_stage1'
+      ? downloadWorkflowExcelStageResult(workflowId)
+      : downloadWorkflowStageArchive(workflowId, stage.stage_code),
+    onError: (error) => message.error(describeApiError(
+      error,
+      stage.stage_code === 'excel_stage1' ? 'Excel 结果下载失败' : '阶段结果压缩包下载失败',
+    )),
   });
   const downloadLabel = stage.stage_code === 'dxf_classification'
     ? '下载分流结果压缩包'
+    : stage.stage_code === 'excel_stage1'
+      ? '下载 Excel 结果'
     : '下载本阶段结果压缩包';
   return (
     <Card className="workflow-stage-archive-card">
       <div>
         <span>STAGE OUTPUT</span>
         <Typography.Text strong>
-          {artifacts.length ? `已登记 ${artifacts.length} 项阶段产物` : '本阶段尚无可下载产物'}
+          {artifacts.length
+            ? stage.stage_code === 'excel_stage1'
+              ? '已生成 1 个 Excel 文件'
+              : `已登记 ${artifacts.length} 项阶段产物`
+            : '本阶段尚无可下载产物'}
         </Typography.Text>
         {artifacts.length > 0 && (
           <Space wrap size={[4, 6]}>
@@ -159,6 +172,20 @@ export function WorkflowDetailPage() {
   );
   const project = projectsQ.data?.find((item) => item.id === detail?.project_id);
   const sourceExcel = detail?.artifacts.find((item) => item.artifact_type === 'source_excel');
+  const excelPreflightEnabled = Boolean(
+    selectedStage
+    && selectedIsCurrent
+    && selectedStage.stage_code === 'excel_stage1',
+  );
+  const excelPreflightQ = useQuery({
+    queryKey: ['workflow-excel-stage1-preflight', workflowId],
+    queryFn: () => getWorkflowExcelStagePreflight(workflowId),
+    enabled: excelPreflightEnabled,
+    retry: false,
+  });
+  const excelPreflightError = excelPreflightQ.isError
+    ? parseApiError(excelPreflightQ.error, 'Excel 执行前检查失败')
+    : null;
 
   useEffect(() => {
     if (
@@ -193,7 +220,7 @@ export function WorkflowDetailPage() {
       return completeWorkflowStage(workflowId, authoritativeCurrentStage.stage_code);
     },
     onSuccess: () => {
-      setSelectedStageCode(null);
+      setSelectedStageCode(authoritativeCurrentStage?.stage_code ?? null);
       message.success('当前阶段已确认');
       refresh();
     },
@@ -214,7 +241,7 @@ export function WorkflowDetailPage() {
     },
     onMutate: () => setExecutionError(null),
     onSuccess: (result) => {
-      setSelectedStageCode(null);
+      setSelectedStageCode(authoritativeCurrentStage?.stage_code ?? null);
       message.success(
         result.retried
           ? `任务 #${result.job.id} 已重新入队`
@@ -401,7 +428,7 @@ export function WorkflowDetailPage() {
                   workflowId={detail.id}
                   sourceIntakeActive={selectedIsCurrent}
                   onFrozen={() => {
-                    setSelectedStageCode(null);
+                    setSelectedStageCode(selectedStage.stage_code);
                     refresh();
                   }}
                 />
@@ -412,7 +439,7 @@ export function WorkflowDetailPage() {
                   stage={selectedStage}
                   isCurrent={selectedIsCurrent}
                   onChanged={() => {
-                    setSelectedStageCode(null);
+                    setSelectedStageCode(selectedStage.stage_code);
                     refresh();
                   }}
                 />
@@ -423,7 +450,7 @@ export function WorkflowDetailPage() {
                   stage={selectedStage}
                   isCurrent={selectedIsCurrent}
                   onChanged={() => {
-                    setSelectedStageCode(null);
+                    setSelectedStageCode(selectedStage.stage_code);
                     refresh();
                   }}
                 />
@@ -455,12 +482,58 @@ export function WorkflowDetailPage() {
                       { key: 'check', label: '执行前核验', children: '对象 SHA-256、Excel 格式、单工作表、标题行和必需列' },
                     ]}
                   />
+                  {selectedIsCurrent && excelPreflightQ.isLoading && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="正在执行运行前检查"
+                      description="正在核对冻结清单、源表对象、Excel 结构与正式拆板交接。"
+                    />
+                  )}
+                  {selectedIsCurrent && excelPreflightQ.data?.ready && (
+                    <Alert
+                      type="success"
+                      showIcon
+                      message="运行前检查通过"
+                      description={(
+                        <Space orientation="vertical" size={4}>
+                          <Typography.Text>
+                            源表：{excelPreflightQ.data.source_file_name}
+                          </Typography.Text>
+                          <Typography.Text>
+                            正式拆板：{excelPreflightQ.data.official_pair_count} 对图纸
+                          </Typography.Text>
+                          <Space wrap size={[4, 4]}>
+                            {excelPreflightQ.data.checks.map((check) => (
+                              <Tag color="green" key={check.code}>{check.label}</Tag>
+                            ))}
+                          </Space>
+                        </Space>
+                      )}
+                    />
+                  )}
+                  {selectedIsCurrent && excelPreflightError?.failure && (
+                    <ExcelInputFailurePanel
+                      failure={excelPreflightError.failure}
+                      requestId={excelPreflightError.requestId}
+                    />
+                  )}
+                  {selectedIsCurrent && excelPreflightError && !excelPreflightError.failure && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      message={excelPreflightError.code ?? '运行前检查未通过'}
+                      description={excelPreflightError.message}
+                      action={<Button onClick={() => excelPreflightQ.refetch()}>重新检查</Button>}
+                    />
+                  )}
                   {selectedIsCurrent && (
                     <Button
                       type="primary"
                       size="large"
                       icon={<ThunderboltOutlined />}
-                      loading={executeM.isPending}
+                      loading={executeM.isPending || excelPreflightQ.isLoading}
+                      disabled={!excelPreflightQ.data?.ready}
                       onClick={() => executeM.mutate()}
                     >
                       运行 Excel 第一阶段

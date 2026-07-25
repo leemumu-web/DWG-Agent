@@ -88,7 +88,7 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "drawing_processing",
                 "图纸拆板与独立校验",
-                "按冻结分类结果整批执行 BH/BOX 拆板；其他类型和校验未通过图纸进入人工复核。",
+                "按冻结分类结果整批执行 BH/BOX 拆板；未通过图纸保留原因和原图，不进入正式结果。",
                 execution_mode="automated",
                 execution_kind="drawing_processing",
                 required_inputs=("classified_dxf",),

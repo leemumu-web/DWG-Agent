@@ -334,6 +334,15 @@ def test_batch_export_streams_exact_names_then_requires_explicit_purge(
             client,
             storage,
         )
+        with open_test_session() as db:
+            split_run = db.scalar(
+                select(DxfSplitRun).where(
+                    DxfSplitRun.workflow_run_id == workflow_id
+                )
+            )
+            assert split_run is not None
+            split_run.status = "completed_with_review"
+            db.commit()
 
         preview = client.get(
             f"/api/v1/workflows/{workflow_id}/batch-exports/preview",
@@ -443,6 +452,107 @@ def test_batch_export_streams_exact_names_then_requires_explicit_purge(
                 )
                 is not None
             )
+
+
+def test_split_result_pair_uses_native_export_with_two_exact_folders(
+    monkeypatch,
+    tmp_path,
+):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr(
+        "app.platform.storage.factory.get_storage_backend",
+        lambda: storage,
+    )
+    with workflow_test_api.client() as client:
+        headers, workflow_id, _, _, _ = _setup(client, storage)
+        unpaired_selection = client.post(
+            f"/api/v1/workflows/{workflow_id}/batch-exports",
+            headers=headers,
+            json={"categories": ["split_result_normal"]},
+        )
+        assert unpaired_selection.status_code == 409, unpaired_selection.text
+        assert unpaired_selection.json()["error"] == {
+            "code": "DXF_SPLIT_EXPORT_PAIR_REQUIRED",
+            "message": "正式拆板结果必须同时导出原长版和余量增长版。",
+            "details": {},
+        }
+
+        incomplete = client.post(
+            f"/api/v1/workflows/{workflow_id}/batch-exports",
+            headers=headers,
+            json={
+                "categories": [
+                    "split_result_normal",
+                    "split_result_allowance",
+                ]
+            },
+        )
+        assert incomplete.status_code == 409, incomplete.text
+        assert incomplete.json()["error"] == {
+            "code": "DXF_SPLIT_EXPORT_INCOMPLETE",
+            "message": "正式拆板结果账本不完整，不能生成可能缺图的压缩包。",
+            "details": {
+                "expected_pairs": 1,
+                "normal_references": 1,
+                "allowance_references": 0,
+                "available_normals": 1,
+                "available_allowances": 0,
+            },
+        }
+
+        with open_test_session() as db:
+            workflow = db.get(WorkflowRun, workflow_id)
+            assert workflow is not None
+            split_item = db.scalar(
+                select(DxfSplitItem)
+                .join(DxfSplitRun)
+                .where(DxfSplitRun.workflow_run_id == workflow_id)
+            )
+            assert split_item is not None
+            allowance = _register_object(
+                db,
+                storage,
+                owner_id=workflow.created_by,
+                name="A_余量增长.dxf",
+                payload=b"allowance dxf bytes",
+            )
+            split_item.weld_allowance_dxf_file_id = allowance.id
+            db.commit()
+
+        preview = client.get(
+            f"/api/v1/workflows/{workflow_id}/batch-exports/preview",
+            headers=headers,
+        )
+        assert preview.status_code == 200, preview.text
+        assert [item["key"] for item in preview.json()["data"]["categories"]] == [
+            "classified_dxf",
+            "processed_dxf",
+            "source_excel",
+            "stage1_excel",
+        ]
+
+        created = client.post(
+            f"/api/v1/workflows/{workflow_id}/batch-exports",
+            headers=headers,
+            json={
+                "categories": [
+                    "split_result_normal",
+                    "split_result_allowance",
+                ]
+            },
+        )
+        assert created.status_code == 201, created.text
+        export = created.json()["data"]
+        assert export["file_count"] == 2
+        assert export["filename"] == f"workflow-{workflow_id}-split-results.zip"
+
+        downloaded = client.get(export["download_url"])
+        assert downloaded.status_code == 200, downloaded.text
+        with zipfile.ZipFile(BytesIO(downloaded.content)) as archive:
+            assert archive.namelist() == [
+                "原长/A_正常拆板.dxf",
+                "余量增长后短文件/A_余量增长.dxf",
+            ]
 
 
 def test_batch_export_purge_is_rejected_before_download(monkeypatch, tmp_path):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from io import BytesIO
+from urllib.parse import unquote
 from uuid import uuid4
 
 import openpyxl
@@ -1204,6 +1205,139 @@ def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     assert dispatched == [first_data["job"]["id"]]
 
 
+def test_excel_stage1_preflight_reuses_the_execution_gate(monkeypatch):
+    from app.platform.config.settings import settings
+
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(
+        client, admin_headers, "prod-preflight"
+    )
+    project_id = workflow_test_api.create_project(client, owner_headers)
+    workflow_id, excel_file_id = _api_workflow_at_excel_stage(
+        client, owner_headers, project_id
+    )
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+
+    response = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/preflight",
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["ready"] is True
+    assert data["source_file_id"] == excel_file_id
+    assert data["source_file_name"] == "source.xlsx"
+    assert data["input_contract_version"] == 1
+    assert data["split_run_id"] > 0
+    assert data["official_pair_count"] == 1
+    assert [check["code"] for check in data["checks"]] == [
+        "input_batch_frozen",
+        "source_excel_unique",
+        "source_object_verified",
+        "excel_contract_verified",
+        "split_handoff_verified",
+    ]
+
+
+def test_excel_stage1_result_download_streams_one_xlsx_not_zip(monkeypatch):
+    from app.platform.config.settings import settings
+
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(
+        client, admin_headers, "prod-excel-download"
+    )
+    project_id = workflow_test_api.create_project(client, owner_headers)
+    workflow_id, _ = _api_workflow_at_excel_stage(client, owner_headers, project_id)
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    payload = _canonical_xlsx_bytes()
+    uploaded = client.post(
+        "/api/v1/files",
+        headers=owner_headers,
+        files={
+            "upload": (
+                "最终整理结果.xlsx",
+                payload,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    output_file_id = uploaded.json()["data"]["id"]
+
+    with open_test_session() as db:
+        workflow = db.get(WorkflowRun, workflow_id)
+        assert workflow is not None
+        job = Job(
+            project_id=workflow.project_id,
+            created_by=workflow.created_by,
+            task_type="process_excel_final",
+            pipeline="excel_final",
+            status="succeeded",
+            attempt=1,
+            progress=100,
+            precision_level="normal",
+            params_json={"workflow_id": workflow.id},
+        )
+        db.add(job)
+        db.flush()
+        workflow_service.bind_stage_job(
+            db,
+            workflow,
+            stage_code="excel_stage1",
+            job=job,
+        )
+        result = AnalysisResult(
+            job_id=job.id,
+            result_type="process_excel_final",
+            result_file_id=output_file_id,
+            status="succeeded",
+        )
+        db.add(result)
+        db.flush()
+        workflow_service.sync_workflow_from_jobs(db, workflow)
+        db.commit()
+
+    response = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/download-result",
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.content == payload
+    assert response.content[:2] == b"PK"
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "最终整理结果.xlsx" in unquote(response.headers["content-disposition"])
+    assert ".zip" not in response.headers["content-disposition"]
+
+    with open_test_session() as db:
+        stored = db.get(StoredFile, output_file_id)
+        assert stored is not None
+        stored.file_ext = ".zip"
+        db.commit()
+
+    invalid_format = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/download-result",
+        headers=owner_headers,
+    )
+    assert invalid_format.status_code == 409, invalid_format.text
+    assert invalid_format.json()["error"]["code"] == "EXCEL_STAGE_RESULT_FORMAT_INVALID"
+
+    zip_bypass = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/download-archive",
+        headers=owner_headers,
+    )
+    assert zip_bypass.status_code == 409, zip_bypass.text
+    assert (
+        zip_bypass.json()["error"]["code"]
+        == "EXCEL_STAGE_SINGLE_FILE_DOWNLOAD_REQUIRED"
+    )
+
+
 def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
     from app.platform.config.settings import settings
 
@@ -1602,84 +1736,42 @@ def test_drawing_processing_dispatch_does_not_retry_enqueue_failure(
     assert exc_info.value.detail["code"] == "DXF_SPLIT_ATTEMPTS_EXHAUSTED"
 
 
-def test_review_outcome_cannot_rerun_the_whole_batch(
-    db,
-    monkeypatch,
-):
-    from app.platform.config.settings import settings
-
-    user, project, workflow = _production_workflow(db)
+def test_partial_split_outcome_with_deliverables_advances_to_excel(db):
+    _, _, workflow = _production_workflow(db)
     _advance_to_drawing_processing(db, workflow)
-    classification = db.scalar(
-        select(DxfClassificationRun).where(DxfClassificationRun.workflow_run_id == workflow.id)
+    _complete_drawing_processing_fixture(db, workflow)
+    run = db.scalar(
+        select(DxfSplitRun).where(DxfSplitRun.workflow_run_id == workflow.id)
     )
-    assert classification is not None
-    job = Job(
-        project_id=project.id,
-        created_by=user.id,
-        task_type="split_steel_dxf",
-        pipeline="steel_dxf_split",
-        status="succeeded",
-        attempt=1,
-        progress=100,
-        precision_level="normal",
-        request_key=f"workflow-{workflow.id}-drawing_processing",
-        params_json={
-            "workflow_id": workflow.id,
-            "classification_run_id": classification.id,
-            "input_manifest_sha256": classification.input_manifest_sha256,
-        },
-    )
-    db.add(job)
-    db.flush()
-    prior_run = DxfSplitRun(
-        workflow_run_id=workflow.id,
-        project_id=project.id,
-        classification_run_id=classification.id,
-        job_id=job.id,
-        job_attempt=1,
-        status="completed_with_review",
-        splitter_version="1.5.2",
-        input_manifest_sha256=classification.input_manifest_sha256,
-        input_count=1,
-        auto_accepted_count=0,
-        manual_review_count=1,
-    )
-    db.add(prior_run)
-    workflow_service.bind_stage_job(
-        db,
-        workflow,
-        stage_code="drawing_processing",
-        job=job,
-    )
+    assert run is not None
+    run.status = "completed_with_review"
+    run.input_count = 2
+    run.processed_count = 2
+    run.auto_accepted_count = 1
+    run.manual_review_count = 1
     drawing_stage = next(
         stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
     )
+    excel_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "excel_stage1"
+    )
+    drawing_stage.status = "running"
+    excel_stage.status = "pending"
+    workflow.current_stage = "drawing_processing"
+    workflow.status = "running"
+    db.flush()
+
     workflow_service.sync_workflow_from_jobs(db, workflow)
-    assert drawing_stage.status == "waiting_review"
-    assert workflow.current_stage == "drawing_processing"
-    db.commit()
-    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
 
-    with pytest.raises(AppHTTPException) as exc_info:
-        prepare_stage_execution(
-            db,
-            workflow,
-            stage_code="drawing_processing",
-            payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
-            current_user=user,
-        )
-
-    assert exc_info.value.detail["code"] == "DXF_SPLIT_ATTEMPTS_EXHAUSTED"
-    assert job.attempt == 1
-    assert job.status == "succeeded"
-    assert prior_run.job_attempt == 1
-    assert prior_run.status == "completed_with_review"
+    assert drawing_stage.status == "succeeded"
     assert drawing_stage.output_json == {
-        "job_id": job.id,
+        "job_id": run.job_id,
         "job_attempt": 1,
         "split_status": "completed_with_review",
     }
+    assert excel_stage.status == "waiting_input"
+    assert workflow.current_stage == "excel_stage1"
+    assert workflow.status == "waiting_input"
 
 
 def test_automated_stage_cannot_be_manually_completed(db):

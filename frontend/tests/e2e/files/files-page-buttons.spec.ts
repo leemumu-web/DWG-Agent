@@ -175,7 +175,12 @@ async function ensureSourceFixture(page: Page, dir: Direction): Promise<boolean>
   return true;
 }
 
-async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) {
+async function mockConversionState(
+  page: Page,
+  dir: Direction,
+  jobsDelayMs = 0,
+  releasedResult = false,
+) {
   const now = new Date().toISOString();
   const files = [1, 2, 3, 4].map((id) => ({
     id: 91_000 + id,
@@ -208,6 +213,7 @@ async function mockConversionState(page: Page, dir: Direction, jobsDelayMs = 0) 
     error_code: job.status === 'failed' ? 'CONVERSION_FAILED' : null,
     error_message: job.status === 'failed' ? '测试转换失败，请重新提交' : null,
     progress_data: null,
+    result_available: job.status === 'succeeded' ? !releasedResult : null,
     created_at: now,
     updated_at: now,
     started_at: null,
@@ -625,6 +631,33 @@ for (const dir of DIRECTIONS) {
     expect(retryResp.status()).toBe(202);
   });
 
+  test('released result is reported and resubmitted as a new batch', async ({ page }) => {
+    await mockConversionState(page, dir, 0, true);
+    let submittedBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workflows/jobs/batches', async (route) => {
+      submittedBody = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: { jobs: [] },
+          meta: { request_id: 'released-result-resubmit', timestamp: new Date().toISOString() },
+        }),
+      });
+    });
+    await page.reload();
+
+    const row = page.locator('.ant-table-row[data-row-key="91001"]');
+    await expect(row.getByText('结果已释放', { exact: true })).toBeVisible();
+    await expect(row.getByRole('button', { name: dir.downloadResultBtn })).toHaveCount(0);
+    await row.getByRole('button', { name: '重新提交' }).click();
+
+    await expect.poll(() => submittedBody).toMatchObject({
+      task_type: dir.taskType,
+      file_ids: [91_001],
+    });
+  });
+
   // ── 12. Table pagination: page size changer ──────────────────────
   test('table pagination: size changer shows options', async ({ page }) => {
     await page.waitForSelector('.ant-table-row', { timeout: 10_000 });
@@ -646,9 +679,8 @@ for (const dir of DIRECTIONS) {
 
   // ── 13. Batch cards → navigate into batch detail ─────────────────
   test('batch card click → batch detail with breadcrumb', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
-    const cards = page.locator('.ant-card');
+    const cards = page.locator('.folder-card');
+    await expect(cards.first()).toBeVisible({ timeout: 10_000 });
     const cardCount = await cards.count();
     test.skip(cardCount === 0, 'No batch cards');
 

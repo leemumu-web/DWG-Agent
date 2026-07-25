@@ -82,3 +82,57 @@ def find_production_file_workflow_id(db: Session, file_id: int) -> int | None:
     from app.modules.dxf_splitting.interface import find_dxf_split_file_workflow_id
 
     return find_dxf_split_file_workflow_id(db, file_id)
+
+
+def production_file_reference_exists(file_id):
+    """Return a correlated predicate for files reserved by production workflows."""
+    artifact_file_reference = (
+        select(1)
+        .select_from(WorkflowArtifact)
+        .join(WorkflowRun, WorkflowRun.id == WorkflowArtifact.workflow_run_id)
+        .where(
+            WorkflowRun.workflow_type == "linux_production",
+            WorkflowArtifact.file_id == file_id,
+        )
+        .correlate_except(WorkflowArtifact, WorkflowRun)
+        .exists()
+    )
+    artifact_result_reference = (
+        select(1)
+        .select_from(WorkflowArtifact)
+        .join(WorkflowRun, WorkflowRun.id == WorkflowArtifact.workflow_run_id)
+        .join(AnalysisResult, AnalysisResult.id == WorkflowArtifact.result_id)
+        .where(
+            WorkflowRun.workflow_type == "linux_production",
+            AnalysisResult.result_file_id == file_id,
+        )
+        .correlate_except(WorkflowArtifact, WorkflowRun, AnalysisResult)
+        .exists()
+    )
+
+    def input_reference(column):
+        return (
+            select(1)
+            .select_from(WorkflowInputItem)
+            .join(
+                WorkflowInputBatch,
+                WorkflowInputBatch.id == WorkflowInputItem.input_batch_id,
+            )
+            .join(WorkflowRun, WorkflowRun.id == WorkflowInputBatch.workflow_run_id)
+            .where(
+                WorkflowRun.workflow_type == "linux_production",
+                column == file_id,
+            )
+            .correlate_except(WorkflowInputItem, WorkflowInputBatch, WorkflowRun)
+            .exists()
+        )
+
+    from app.modules.dxf_splitting.interface import dxf_split_file_reference_exists
+
+    return or_(
+        artifact_file_reference,
+        artifact_result_reference,
+        input_reference(WorkflowInputItem.file_id),
+        input_reference(WorkflowInputItem.derived_dxf_file_id),
+        dxf_split_file_reference_exists(file_id),
+    )

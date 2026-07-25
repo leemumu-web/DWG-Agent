@@ -1,6 +1,9 @@
 """Public workflow boundary for other business modules."""
 
-from app.modules.workflows.access import find_production_file_workflow_id
+from app.modules.workflows.access import (
+    find_production_file_workflow_id,
+    production_file_reference_exists,
+)
 from app.modules.workflows.artifacts import attach_artifact
 from app.modules.workflows.intake.registration import (
     FrozenInputReference,
@@ -41,6 +44,7 @@ __all__ = [
     "create_workflow",
     "find_frozen_input_reference",
     "find_production_file_workflow_id",
+    "production_file_reference_exists",
     "get_workflow_or_404",
     "list_workflow_templates",
     "read_verified_input_object",

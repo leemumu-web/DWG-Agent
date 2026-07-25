@@ -18,6 +18,7 @@ export async function listJobs(taskType?: string) {
 }
 
 const MAX_BULK_IDS = 200;
+const MAX_PARALLEL_BULK_REQUESTS = 3;
 
 function chunksOf<T>(values: T[], size = MAX_BULK_IDS): T[][] {
   const chunks: T[][] = [];
@@ -30,16 +31,22 @@ function chunksOf<T>(values: T[], size = MAX_BULK_IDS): T[][] {
 /** Fetch all matching jobs while respecting the backend's 200-file filter limit. */
 export async function listJobsForFiles(taskType: string, fileIds: number[]): Promise<Job[]> {
   if (fileIds.length === 0) return [];
-  const pages = await Promise.all(
-    chunksOf(fileIds).map((chunk) => listJobsPage({
-      page: 1,
-      page_size: MAX_BULK_IDS,
-      task_type: taskType,
-      file_ids: chunk.join(','),
-      latest_per_file: true,
-    })),
-  );
-  return pages.flatMap((page) => page.data);
+  const chunks = chunksOf(fileIds);
+  const jobs: Job[] = [];
+  for (let index = 0; index < chunks.length; index += MAX_PARALLEL_BULK_REQUESTS) {
+    const wave = chunks.slice(index, index + MAX_PARALLEL_BULK_REQUESTS);
+    const pages = await Promise.all(
+      wave.map((chunk) => listJobsPage({
+        page: 1,
+        page_size: MAX_BULK_IDS,
+        task_type: taskType,
+        file_ids: chunk.join(','),
+        latest_per_file: true,
+      })),
+    );
+    jobs.push(...pages.flatMap((page) => page.data));
+  }
+  return jobs;
 }
 
 export interface JobListParams {

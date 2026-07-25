@@ -49,6 +49,10 @@ def list_batches(
     file_ext: str = Query(
         "", description="Filter batches by file extension, e.g. '.dwg' or '.dxf'"
     ),
+    standalone_only: bool = Query(
+        False,
+        description="Exclude batches whose files belong to the production workflow.",
+    ),
     db: Session = Depends(get_db),
 ):
     """Query MySQL for distinct batch names, file counts and latest creation times."""
@@ -61,6 +65,10 @@ def list_batches(
     ]
     if file_ext.strip():
         where_clauses.append(StoredFile.file_ext == file_ext.strip())
+    if standalone_only:
+        from app.modules.workflows.interface import production_file_reference_exists
+
+        where_clauses.append(~production_file_reference_exists(StoredFile.id))
     where_clauses.append(file_list_access_filter(current_user))
 
     rows = list(

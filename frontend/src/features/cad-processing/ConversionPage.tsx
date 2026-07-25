@@ -42,33 +42,13 @@ import {
   buildConversionColumns,
 } from './components/conversion/conversionColumns';
 import { ConversionOverview } from './components/conversion/ConversionOverview';
+import {
+  ACTIVE_JOB_STATUSES,
+  actionableFiles,
+  isStuckJob,
+} from './conversionState';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-const ACTIVE_JOB_STATUSES = new Set([
-  'pending',
-  'queued',
-  'running',
-  'validating',
-  'waiting_cad_worker',
-]);
-
-function isStuckJob(job: Job, now = Date.now()): boolean {
-  return job.status === 'queued'
-    && job.progress === 0
-    && now - new Date(job.created_at).getTime() > 60_000;
-}
-
-function actionableFiles(files: StoredFile[], jobsByFileId: Map<number, Job>): StoredFile[] {
-  const now = Date.now();
-  return files.filter((file) => {
-    const job = jobsByFileId.get(file.id);
-    return !job
-      || job.status === 'failed'
-      || job.status === 'cancelled'
-      || isStuckJob(job, now);
-  });
-}
 
 function reportSubmission(prefix: string, submission: ConversionBatchSubmission): void {
   if (submission.unsubmittedFileIds.length > 0) {
@@ -123,90 +103,111 @@ export function ConversionPage(props: ConversionPageProps) {
       page_size: pageSize,
       batch_name: selectedBatch || undefined,
       file_ext: p.fileExt,
+      standalone_only: true,
     }),
     staleTime: 2000,
   });
   const batchesQ = useQuery({
     queryKey: ['batches', p.fileExt],
-    queryFn: ({ queryKey }) => listBatches(queryKey[1] as string),
+    queryFn: ({ queryKey }) => listBatches(queryKey[1] as string, true),
     staleTime: 5000,
     enabled: selectedBatch === null,
   });
   const scopeFilesQ = useQuery({
     queryKey: ['conversion-scope-files', p.fileExt, selectedBatch],
-    queryFn: () => listFiles(selectedBatch || undefined, p.fileExt),
+    queryFn: () => listFiles(selectedBatch || undefined, p.fileExt, true),
     staleTime: 2000,
   });
   const scopeFiles = scopeFilesQ.data ?? [];
   const scopeFileIds = useMemo(() => scopeFiles.map((file) => file.id), [scopeFiles]);
   const scopeFileIdsKey = scopeFileIds.join(',');
+  const allFiles = filesQ.data?.data ?? [];
+  const dwgFiles = useMemo(
+    () => allFiles.filter((f) => f.file_ext === p.fileExt),
+    [allFiles, p.fileExt],
+  );
+  // Always show source rows only; converted output is represented in status/actions.
+  const tableFiles = dwgFiles;
+  const pageFileIds = useMemo(() => tableFiles.map((file) => file.id), [tableFiles]);
+  const pageFileIdsKey = pageFileIds.join(',');
+  const pageJobsKey = useMemo(
+    () => ['conversion-page-jobs', p.taskType, pageFileIdsKey] as const,
+    [p.taskType, pageFileIdsKey],
+  );
   const scopeJobsKey = useMemo(
     () => ['conversion-jobs', p.taskType, scopeFileIdsKey] as const,
     [p.taskType, scopeFileIdsKey],
   );
-  const jobsQ = useQuery({
+  const pageJobsQ = useQuery({
+    queryKey: pageJobsKey,
+    queryFn: () => listJobsForFiles(p.taskType, pageFileIds),
+    staleTime: 2000,
+    enabled: pageFileIds.length > 0,
+  });
+  const pageCoversScope = pageFileIdsKey === scopeFileIdsKey;
+  const scopeJobsQ = useQuery({
     queryKey: scopeJobsKey,
     queryFn: () => listJobsForFiles(p.taskType, scopeFileIds),
     staleTime: 2000,
-    enabled: scopeFileIds.length > 0,
+    enabled: scopeFileIds.length > 0 && !pageCoversScope && pageJobsQ.isSuccess,
   });
-
-  const allFiles = filesQ.data?.data ?? [];
-
-  const dwgFiles = useMemo(
-    () => allFiles.filter((f) => f.file_ext === p.fileExt),
-    [allFiles],
-  );
-
-  // Always show DWG rows only — DXF info is embedded in each row
-  // via the conversion status column and DXF download button.
-  // This cuts the table size in half.
-  const tableFiles = dwgFiles;
+  const scopeJobs = pageCoversScope ? pageJobsQ.data : scopeJobsQ.data;
 
   const hasActive = useMemo(
-    () => (jobsQ.data ?? []).some(
+    () => (scopeJobs ?? []).some(
       (job) => ACTIVE_JOB_STATUSES.has(job.status) && !isStuckJob(job),
     ),
     // tick keeps stuck-queue classification current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [jobsQ.data, tick],
+    [scopeJobs, tick],
   );
 
   // SSE is primary; a slow fallback poll repairs state after network/auth interruptions.
   useEffect(() => {
     if (!hasActive) return;
-    const id = setInterval(() => { filesQ.refetch(); scopeFilesQ.refetch(); jobsQ.refetch(); }, 10_000);
+    const id = setInterval(() => {
+      filesQ.refetch();
+      scopeFilesQ.refetch();
+      pageJobsQ.refetch();
+      scopeJobsQ.refetch();
+    }, 10_000);
     return () => clearInterval(id);
-  }, [hasActive, filesQ, scopeFilesQ, jobsQ]);
+  }, [hasActive, filesQ, scopeFilesQ, pageJobsQ, scopeJobsQ]);
 
   const streamFileIds = useMemo(
-    () => (jobsQ.data ?? []).flatMap((job) => {
+    () => (scopeJobs ?? []).flatMap((job) => {
       const fileId = (job.params_json as Record<string, unknown> | null)?.file_id;
       return typeof fileId === 'number' ? [fileId] : [];
     }),
-    [jobsQ.data],
+    [scopeJobs],
   );
   const mergeStreamJobs = useCallback((patches: Array<Partial<Job> & { id: number }>) => {
-    queryClient.setQueryData<Job[]>(scopeJobsKey, (current) => {
-      if (!current) return current;
-      const patchesById = new Map(patches.map((patch) => [patch.id, patch]));
-      return current.map((job) => {
-        const patch = patchesById.get(job.id);
-        return patch ? { ...job, ...patch } : job;
+    const patchesById = new Map(patches.map((patch) => [patch.id, patch]));
+    for (const queryKey of [scopeJobsKey, pageJobsKey]) {
+      queryClient.setQueryData<Job[]>(queryKey, (current) => {
+        if (!current) return current;
+        return current.map((job) => {
+          const patch = patchesById.get(job.id);
+          return patch ? { ...job, ...patch } : job;
+        });
       });
-    });
-  }, [queryClient, scopeJobsKey]);
+    }
+  }, [pageJobsKey, queryClient, scopeJobsKey]);
   useConversionEvents(p.taskType, streamFileIds, mergeStreamJobs);
 
   // file_id → latest Job
   const jobsByFileId = useMemo(() => {
     const map = new Map<number, Job>();
-    for (const j of jobsQ.data ?? []) {
+    for (const j of scopeJobs ?? []) {
       const fid = (j.params_json as Record<string, unknown> | null)?.file_id as number | undefined;
       if (fid && !map.has(fid)) map.set(fid, j);
     }
+    for (const j of pageJobsQ.data ?? []) {
+      const fid = (j.params_json as Record<string, unknown> | null)?.file_id as number | undefined;
+      if (fid) map.set(fid, j);
+    }
     return map;
-  }, [jobsQ.data]);
+  }, [pageJobsQ.data, scopeJobs]);
 
   // Periodic clock tick so stuck-queued detection stays fresh.
   useEffect(() => {
@@ -215,18 +216,19 @@ export function ConversionPage(props: ConversionPageProps) {
   }, []);
 
   const pendingFiles = useMemo(
-    () => actionableFiles(scopeFiles, jobsByFileId),
+    () => scopeJobs !== undefined ? actionableFiles(scopeFiles, jobsByFileId) : [],
     // tick keeps stuck-queue classification current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scopeFiles, jobsByFileId, tick],
+    [scopeFiles, scopeJobs, jobsByFileId, tick],
   );
 
   const refresh = useCallback(() => {
     filesQ.refetch();
     scopeFilesQ.refetch();
-    jobsQ.refetch();
+    pageJobsQ.refetch();
+    scopeJobsQ.refetch();
     batchesQ.refetch();
-  }, [filesQ, scopeFilesQ, jobsQ, batchesQ]);
+  }, [filesQ, scopeFilesQ, pageJobsQ, scopeJobsQ, batchesQ]);
 
   // ── single file actions ───────────────────────────────────────────────────
   const handleDownload = useCallback(async (file: StoredFile) => {
@@ -263,6 +265,16 @@ export function ConversionPage(props: ConversionPageProps) {
     try { await retryJob(jobId); message.success('已重新提交'); refresh(); } catch (err) { message.error(err instanceof Error ? err.message : '重试失败'); }
   }, [refresh]);
 
+  const handleResubmit = useCallback(async (fileId: number) => {
+    try {
+      const submission = await createConversionBatches(p.taskType, [fileId]);
+      reportSubmission('结果已释放，已重新提交', submission);
+      refresh();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '重新提交失败');
+    }
+  }, [p.taskType, refresh]);
+
   // ── bulk actions ──────────────────────────────────────────────────────────
   const handleBulkDelete = useCallback(async () => {
     try { await bulkDeleteFiles(selectedRowKeys); message.success(`已删除 ${selectedRowKeys.length} 个文件`); setSelectedRowKeys([]); refresh(); }
@@ -272,7 +284,7 @@ export function ConversionPage(props: ConversionPageProps) {
   const handlePauseAll = useCallback(async () => {
     setPauseLoading(true);
     try {
-      const activeJobIds = (jobsQ.data ?? [])
+      const activeJobIds = (scopeJobs ?? [])
         .filter((job) => ['pending', 'queued', 'running', 'validating', 'waiting_cad_worker'].includes(job.status))
         .map((job) => job.id);
       const res = await cancelJobs(activeJobIds);
@@ -280,7 +292,7 @@ export function ConversionPage(props: ConversionPageProps) {
       refresh();
     } catch (err) { message.error(err instanceof Error ? err.message : '暂停失败'); }
     setPauseLoading(false);
-  }, [jobsQ.data, refresh]);
+  }, [scopeJobs, refresh]);
 
   const handleResumeAll = useCallback(async () => {
     setPauseLoading(true);
@@ -313,7 +325,7 @@ export function ConversionPage(props: ConversionPageProps) {
     setOperation('batch-package');
     try {
       const groups = await Promise.all(
-        selectedBatchNames.map((batchName) => listFiles(batchName, p.fileExt)),
+        selectedBatchNames.map((batchName) => listFiles(batchName, p.fileExt, true)),
       );
       const allIds = [...new Set(groups.flat().map((file) => file.id))];
       if (allIds.length === 0) {
@@ -351,9 +363,11 @@ export function ConversionPage(props: ConversionPageProps) {
   const [batchZipFileIds, setBatchZipFileIds] = useState<number[]>([]);
 
   // ── stats ─────────────────────────────────────────────────────────────────
+  const rowStatusLoading = pageFileIds.length > 0 && pageJobsQ.isLoading;
+  const rowStatusLoadFailed = pageJobsQ.isError;
   const statusLoading = scopeFilesQ.isLoading
-    || (scopeFileIds.length > 0 && jobsQ.isLoading);
-  const statusLoadFailed = scopeFilesQ.isError || jobsQ.isError;
+    || (scopeFileIds.length > 0 && scopeJobs === undefined);
+  const statusLoadFailed = scopeFilesQ.isError || scopeJobsQ.isError;
   const summary = useMemo(() => {
     let succeeded = 0;
     let failed = 0;
@@ -362,7 +376,7 @@ export function ConversionPage(props: ConversionPageProps) {
     for (const file of scopeFiles) {
       const job = jobsByFileId.get(file.id);
       if (!job || isStuckJob(job)) continue;
-      if (job.status === 'succeeded') {
+      if (job.status === 'succeeded' && job.result_available !== false) {
         succeeded += 1;
         progressPoints += 100;
       } else if (ACTIVE_JOB_STATUSES.has(job.status)) {
@@ -420,8 +434,8 @@ export function ConversionPage(props: ConversionPageProps) {
     tagDone: p.tagDone,
     resultExt: p.resultExt,
     downloadResultLabel: p.downloadResultLabel,
-    statusLoading,
-    statusLoadFailed,
+    statusLoading: rowStatusLoading,
+    statusLoadFailed: rowStatusLoadFailed,
     jobsByFileId,
     onPreviewSource: (file) => {
       setPreviewFileId(file.id);
@@ -431,6 +445,7 @@ export function ConversionPage(props: ConversionPageProps) {
     onPreviewResult: handlePreviewResult,
     onDownloadResult: handleDownloadResult,
     onRetry: handleRetry,
+    onResubmit: handleResubmit,
   });
 
   return (

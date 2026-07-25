@@ -555,6 +555,36 @@ def _publish_manual_review(
     final_report = final_task / f"{member}_report.json"
     replacements[str(result.report_path.resolve())] = str(final_report.resolve())
     updated_report = _rewrite_exact_paths(deepcopy(result.report), replacements)
+    pair_error_zh: str | None = None
+    if pair_error is not None:
+        diagnostic_codes = list(result.diagnostic_codes)
+        diagnostic_codes.append("PAIRED_WELD_ALLOWANCE_FAILED")
+        if "missing its weld allowance XDATA binding" in str(pair_error):
+            diagnostic_codes.append("WELD_ALLOWANCE_CONTRACT_UNAVAILABLE")
+            manufacturing = _mapping(updated_report.get("manufacturing_ir"))
+            unbound_roles = [
+                str(plate.get("role"))
+                for plate in manufacturing.get("plates", [])
+                if isinstance(plate, dict)
+                and plate.get("weld_allowance_contract") is None
+                and isinstance(plate.get("role"), str)
+            ]
+            role_names = {
+                "web": "腹板",
+                "upper_flange": "上翼板",
+                "lower_flange": "下翼板",
+            }
+            rendered_roles = "、".join(
+                dict.fromkeys(role_names.get(role, role) for role in unbound_roles)
+            )
+            pair_error_zh = (
+                f"{rendered_roles or '板件'}轮廓无法证明唯一的余量伸长端，"
+                "余量增长版未生成。"
+            )
+        else:
+            pair_error_zh = "余量增长版生成或成对校验未通过，未形成正式配对文件。"
+        result.diagnostic_codes = tuple(dict.fromkeys(diagnostic_codes))
+        updated_report["diagnostic_codes"] = list(result.diagnostic_codes)
     outputs = updated_report.get("outputs")
     if not isinstance(outputs, dict):
         outputs = {}
@@ -581,15 +611,16 @@ def _publish_manual_review(
         "schema": "STEEL-DXF-PAIRED-OUTPUT-1.0",
         "status": "manual_review",
         "summary_zh": (
-            "余量伸长版未通过成对验收，整个任务已转入人工复核。"
+            "余量伸长版未通过成对验收，本图未形成正式配对结果。"
             if pair_error is not None
-            else "领域拆板结果未达到自动发布条件，整个任务已转入人工复核。"
+            else "领域拆板结果未达到自动发布条件，本图未形成正式配对结果。"
         ),
         "failure_stage": (
             "paired_weld_allowance" if pair_error is not None else "native_split"
         ),
         "error_type": type(pair_error).__name__ if pair_error is not None else None,
         "error": str(pair_error) if pair_error is not None else None,
+        "error_zh": pair_error_zh,
     }
     write_json_atomic(staged_task / f"{member}_report.json", updated_report)
     _promote_task_directory(

@@ -344,55 +344,69 @@ def _persist_validated_item(
             batch_name=batch_name,
             content_type="application/json",
         )
-    elif (
-        validated.normal_dxf_path is not None
-        and validated.weld_allowance_dxf_path is not None
-    ):
-        candidate_normal_file = persist_split_output(
-            db,
-            job=job,
-            workflow_id=workflow.id,
-            attempt=job.attempt,
-            relative_path=f"{prefix}/candidates/{validated.normal_dxf_path.name}",
-            path=validated.normal_dxf_path,
-            batch_name=batch_name,
-            content_type="application/dxf",
-        )
-        candidate_allowance_file = persist_split_output(
-            db,
-            job=job,
-            workflow_id=workflow.id,
-            attempt=job.attempt,
-            relative_path=(
-                f"{prefix}/candidates/{validated.weld_allowance_dxf_path.name}"
-            ),
-            path=validated.weld_allowance_dxf_path,
-            batch_name=batch_name,
-            content_type="application/dxf",
-        )
+    else:
+        if validated.normal_dxf_path is not None:
+            candidate_normal_file = persist_split_output(
+                db,
+                job=job,
+                workflow_id=workflow.id,
+                attempt=job.attempt,
+                relative_path=f"{prefix}/candidates/{validated.normal_dxf_path.name}",
+                path=validated.normal_dxf_path,
+                batch_name=batch_name,
+                content_type="application/dxf",
+            )
+        if validated.weld_allowance_dxf_path is not None:
+            candidate_allowance_file = persist_split_output(
+                db,
+                job=job,
+                workflow_id=workflow.id,
+                attempt=job.attempt,
+                relative_path=(
+                    f"{prefix}/candidates/{validated.weld_allowance_dxf_path.name}"
+                ),
+                path=validated.weld_allowance_dxf_path,
+                batch_name=batch_name,
+                content_type="application/dxf",
+            )
         if validated.split_report_path is not None:
+            portable_candidate_report = _portable_report(
+                validated.split_report_path,
+                normalized_report_root / prefix / validated.split_report_path.name,
+                input_root=input_root,
+                output_root=output_root,
+            )
             candidate_split_report_file = persist_split_output(
                 db,
                 job=job,
                 workflow_id=workflow.id,
                 attempt=job.attempt,
                 relative_path=(
-                    f"{prefix}/candidates/{validated.split_report_path.name}"
+                    f"{prefix}/candidates/{portable_candidate_report.name}"
                 ),
-                path=validated.split_report_path,
+                path=portable_candidate_report,
                 batch_name=batch_name,
                 content_type="application/json",
             )
         if validated.weld_allowance_report_path is not None:
+            portable_candidate_allowance_report = _portable_report(
+                validated.weld_allowance_report_path,
+                normalized_report_root
+                / prefix
+                / validated.weld_allowance_report_path.name,
+                input_root=input_root,
+                output_root=output_root,
+            )
             candidate_allowance_report_file = persist_split_output(
                 db,
                 job=job,
                 workflow_id=workflow.id,
                 attempt=job.attempt,
                 relative_path=(
-                    f"{prefix}/candidates/{validated.weld_allowance_report_path.name}"
+                    f"{prefix}/candidates/"
+                    f"{portable_candidate_allowance_report.name}"
                 ),
-                path=validated.weld_allowance_report_path,
+                path=portable_candidate_allowance_report,
                 batch_name=batch_name,
                 content_type="application/json",
             )
@@ -891,7 +905,7 @@ def run_dxf_splitting(
                     status=JOB_SUCCEEDED,
                     progress=100,
                     message=(
-                        "DXF 拆板完成，存在待人工复核图纸"
+                        "DXF 拆板完成，部分图纸未形成正式配对结果"
                         if manual_count
                         else "DXF 拆板及独立校验全部完成"
                     ),

@@ -66,7 +66,7 @@ def _present_export(
         categories=categories,
         file_count=row.file_count,
         source_size_bytes=row.source_size_bytes,
-        filename=export_filename(row.workflow_run_id),
+        filename=export_filename(row.workflow_run_id, categories),
         download_url=download_url,
         token_expires_at=row.token_expires_at,
         downloaded_at=row.downloaded_at,
@@ -236,7 +236,12 @@ def download_workflow_batch_export(
             request_id=request.state.request_id,
             idempotency_key=request.state.request_id,
             batch_ref=row.export_uid,
-            original_name=export_filename(workflow_id),
+            original_name=export_filename(
+                workflow_id,
+                row.categories_json
+                if isinstance(row.categories_json, list)
+                else [],
+            ),
         ),
     )
     write_audit_log(
@@ -264,7 +269,14 @@ def download_workflow_batch_export(
             iter_storage_zip(storage, members),
         ),
     )
-    encoded_filename = quote(export_filename(workflow_id))
+    encoded_filename = quote(
+        export_filename(
+            workflow_id,
+            row.categories_json
+            if isinstance(row.categories_json, list)
+            else [],
+        )
+    )
     return StreamingResponse(
         chunks,
         media_type="application/zip",

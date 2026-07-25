@@ -89,6 +89,7 @@ SPLIT_PUBLIC_CONTRACT = {
     "build_dxf_split_run_read",
     "complete_split_review",
     "decide_split_item",
+    "dxf_split_file_reference_exists",
     "enqueue_dxf_splitting_job",
     "find_dxf_split_file_workflow_id",
     "get_dxf_split_outcome",

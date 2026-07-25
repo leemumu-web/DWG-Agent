@@ -14,6 +14,7 @@ export interface Job {
   error_code?: string | null;
   error_message?: string | null;
   progress_data?: Record<string, unknown> | null;
+  result_available?: boolean | null;
   created_at: string;
   updated_at: string;
   started_at?: string | null;

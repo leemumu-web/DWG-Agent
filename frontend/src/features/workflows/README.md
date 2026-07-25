@@ -19,7 +19,9 @@ accepted_dxf → delivery_dxf` 流通。Excel 第一阶段从冻结清单解析�
 `required_outputs`。
 
 `PRODUCTION ROUTE` 按钮只切换所查看的阶段，实际上传、执行和确认始终绑定服务端
-`current_stage`。历史阶段可查看和下载已有阶段 ZIP；未来阶段只读展示合同和锁定原因。
+`current_stage`。阶段完成后服务端只解锁下一阶段，工作区继续显示刚完成阶段，直到操作员主动
+点击阶段轨道；普通历史阶段可下载已有 ZIP，Excel 第一阶段只下载唯一 `.xlsx`；未来阶段只读
+展示合同和锁定原因。
 分类完成后展示目录型分类文件夹；点击文件夹后按页读取该类逐图详情。待确认和无法读取文件夹
 显示预警，已登记目录类型和安全自动发现类型不制造预警。页面不显示文件 ID、JSON 报告或 CSV
 清单；可下载任一分类的 DXF-only 压缩包，或下载本次全部分流 DXF 的压缩包。
@@ -28,9 +30,10 @@ accepted_dxf → delivery_dxf` 流通。Excel 第一阶段从冻结清单解析�
 
 浏览器拒绝人工 DXF。第三步“图纸拆板与独立校验”通过
 `POST /workflows/{id}/stages/drawing_processing/executions` 创建整批 Job，并通过
-`GET /workflows/{id}/drawing-processing` 读取当前 attempt 的权威进度与汇总。若有图纸进入
-`manual_review`，页面只允许调用当前 run 的 `manual-review-archive` 下载未通过的分类原始
-DXF ZIP；不展示候选图、报告、Excel，不提供人工上传、通过、继续或重跑动作。Excel 第二阶段、
+`GET /workflows/{id}/drawing-processing` 读取当前 attempt 的权威进度、正式配对数量、未形成
+正式结果数量和逐图原因。页面分别提供只含 `原长/`、`余量增长后短文件/` 的正式拆板 ZIP，
+以及本批全部分类原图 ZIP；不展示候选图、算法报告或逐图人工复核工作台。Excel 第一阶段执行
+前调用同规则预检，成功后只下载唯一 `.xlsx`，不使用阶段 ZIP。Excel 第二阶段、
 CAM 工作包、Windows CAM、结果接纳和交付归档统一弱化为“等待上线”，且不提供执行、
 人工确认或阶段下载操作。
 

@@ -154,6 +154,7 @@ workers = {
     "worker-dispatch": "dispatch",
     "worker-dxf": "dxf",
     "worker-dxf-classification": "dxf_classification",
+    "worker-dxf-split": "dxf_split",
     "worker-dxf2dwg": "dxf2dwg",
     "worker-dxf2excel": "dxf2excel",
     "worker-excel-final": "excel_final",
