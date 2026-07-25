@@ -319,7 +319,7 @@ for (const dir of DIRECTIONS) {
   });
 
   // ── 2. Pause this conversion scope only ──────────────────────────────
-  test('"全部暂停" → POST /jobs/cancellation-requests → 202', async ({ page }) => {
+  test('"全部暂停" handles active-job completion races', async ({ page }) => {
     const pauseBtn = page.getByRole('button', { name: /全部暂停/ });
     if (!(await pauseBtn.isVisible())) {
       test.skip(true, 'No active jobs to pause');
@@ -334,9 +334,13 @@ for (const dir of DIRECTIONS) {
       pauseBtn.click(),
     ]);
 
-    expect(cancelResp.status()).toBe(202);
+    expect([202, 409]).toContain(cancelResp.status());
     const body = await cancelResp.json();
-    expect(body.data).toHaveProperty('cancelled_count');
+    if (cancelResp.status() === 202) {
+      expect(body.data).toHaveProperty('cancelled_count');
+    } else {
+      expect(body.error).toHaveProperty('code');
+    }
   });
 
   // ── 3. "提交/重试" → one bounded batch request ──────────────────────
