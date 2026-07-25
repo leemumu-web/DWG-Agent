@@ -700,6 +700,7 @@ test('manual review downloads only the current split batch original DXFs', async
   };
   let reviewArchiveRequests = 0;
   let candidateArchiveRequests = 0;
+  let allDrawingsArchiveRequests = 0;
   let rerunRequests = 0;
   let reviewState = {
     items: [{
@@ -820,6 +821,21 @@ test('manual review downloads only the current split batch original DXFs', async
     },
   );
   await page.route(
+    '**/api/v1/workflows/43/dxf-classification/download-archive',
+    async (route) => {
+      allDrawingsArchiveRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'content-disposition': "attachment; filename*=UTF-8''workflow-43-all-classified-dxf.zip",
+          'access-control-expose-headers': 'content-disposition',
+        },
+        body: 'PK-all-dxf-including-review-failed-and-other-types',
+      });
+    },
+  );
+  await page.route(
     '**/api/v1/workflows/43/stages/drawing_processing/executions',
     async (route) => {
       rerunRequests += 1;
@@ -849,7 +865,9 @@ test('manual review downloads only the current split batch original DXFs', async
   await expect(page.getByText('仅分类未拆')).toBeVisible();
   await expect(page.getByText('需人工复核')).toBeVisible();
   await expect(page.getByText('2 张图纸仅保留分类，本节点不拆板')).toBeVisible();
-  await expect(page.getByText('1 张图纸未通过自动处理')).toBeVisible();
+  await expect(
+    page.getByRole('alert').filter({ hasText: '1 张图纸未通过自动处理' }),
+  ).toBeVisible();
   await expect(page.getByText('BH-REVIEW_拆板前.dxf')).toBeVisible();
   await expect(page.getByText('候选图需人工确认轮廓与孔位')).toBeVisible();
   await page.getByText('逐图拆板与独立校验账本').click();
@@ -873,6 +891,14 @@ test('manual review downloads only the current split batch original DXFs', async
   const download = await downloadPromise;
   await expect.poll(() => reviewArchiveRequests).toBe(1);
   expect(download.suggestedFilename()).toBe('workflow-43-split-run-88-manual-review.zip');
+
+  const allDrawingsDownloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载全部图纸 ZIP' }).click();
+  const allDrawingsDownload = await allDrawingsDownloadPromise;
+  await expect.poll(() => allDrawingsArchiveRequests).toBe(1);
+  expect(allDrawingsDownload.suggestedFilename()).toBe(
+    'workflow-43-all-classified-dxf.zip',
+  );
 
   await page.getByRole('button', { name: '重新整批拆板' }).click();
   await expect.poll(() => rerunRequests).toBe(1);

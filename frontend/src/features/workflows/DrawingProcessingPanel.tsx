@@ -21,7 +21,6 @@ import {
   ToolOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-
 import { describeApiError } from '../../shared/api';
 import type {
   DxfSplitReviewDecisionKind,
@@ -31,6 +30,7 @@ import type {
 import {
   completeDxfSplitReview,
   decideDxfSplitReviewItem,
+  downloadAllDxfClassificationArchive,
   downloadDxfSplitManualReviewArchive,
   downloadDxfSplitResultsArchive,
   downloadDxfSplitReviewCandidatesArchive,
@@ -39,14 +39,12 @@ import {
   getDxfSplitRun,
   getWorkflow,
 } from './workflows.api';
-
 interface Props {
   workflowId: number;
   stage?: WorkflowStage;
   isCurrent: boolean;
   onChanged: () => void;
 }
-
 export function DrawingProcessingPanel({
   workflowId,
   stage,
@@ -156,6 +154,10 @@ export function DrawingProcessingPanel({
     onError: (error) => message.error(
       describeApiError(error, '拆板正式结果压缩包下载失败'),
     ),
+  });
+  const allDrawingsArchiveM = useMutation({
+    mutationFn: () => downloadAllDxfClassificationArchive(workflowId),
+    onError: (error) => message.error(describeApiError(error, '全部图纸压缩包下载失败')),
   });
   const decisionM = useMutation({
     mutationFn: async ({
@@ -373,14 +375,19 @@ export function DrawingProcessingPanel({
               message="本批次拆板与独立校验已全部通过"
               description="本次进入拆板的 BH/BOX 均已通过独立校验；其他类型只保留分类标注，不包含在拆板结果中。"
               action={(
-                <Button
-                  type="primary"
-                  icon={<DownloadOutlined />}
-                  loading={resultsArchiveM.isPending}
-                  onClick={() => resultsArchiveM.mutate()}
-                >
-                  下载拆板结果 ZIP
-                </Button>
+                <Space wrap>
+                  <Button
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    loading={resultsArchiveM.isPending}
+                    onClick={() => resultsArchiveM.mutate()}
+                  >
+                    下载拆板结果 ZIP
+                  </Button>
+                  <Button icon={<DownloadOutlined />} loading={allDrawingsArchiveM.isPending} onClick={() => allDrawingsArchiveM.mutate()}>
+                    下载全部图纸 ZIP
+                  </Button>
+                </Space>
               )}
             />
           ) : (
@@ -406,6 +413,9 @@ export function DrawingProcessingPanel({
                       onClick={() => reviewArchiveM.mutate()}
                     >
                       仅下载未通过原图 ZIP
+                    </Button>
+                    <Button icon={<DownloadOutlined />} loading={allDrawingsArchiveM.isPending} onClick={() => allDrawingsArchiveM.mutate()}>
+                      下载全部图纸 ZIP
                     </Button>
                     <Button
                       icon={<ThunderboltOutlined />}
