@@ -9,6 +9,9 @@ import type {
   DxfClassificationGroupPage,
   DxfClassificationRun,
   DxfSplitRun,
+  DrawingSelectiveExport,
+  DrawingSelectiveExportCategory,
+  DrawingSelectiveExportPreview,
   WorkflowBatchExport,
   WorkflowBatchExportPreview,
   WorkflowBatchExportPurgeResult,
@@ -209,6 +212,43 @@ export async function getDxfSplitRun(workflowId: number) {
     `/api/v1/workflows/${workflowId}/drawing-processing`,
   );
   return response.data.data;
+}
+
+export async function getDrawingSelectiveExportPreview(
+  workflowId: number,
+  runId: number,
+) {
+  const response = await apiClient.get<ApiEnvelope<DrawingSelectiveExportPreview>>(
+    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/selective-export-preview`,
+  );
+  return response.data.data;
+}
+
+export async function createDrawingSelectiveExport(
+  workflowId: number,
+  runId: number,
+  categories: DrawingSelectiveExportCategory[],
+) {
+  const response = await apiClient.post<ApiEnvelope<DrawingSelectiveExport>>(
+    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/selective-exports`,
+    { categories },
+  );
+  return response.data.data;
+}
+
+export function startNativeDrawingSelectiveExportDownload(
+  prepared: DrawingSelectiveExport,
+) {
+  if (!prepared.download_url) {
+    throw new Error('本次选择导出没有可用的下载地址');
+  }
+  const anchor = document.createElement('a');
+  anchor.href = prepared.download_url;
+  anchor.download = prepared.filename;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
 }
 
 export async function downloadDxfSplitResultsArchive(

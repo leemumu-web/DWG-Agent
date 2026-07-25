@@ -207,6 +207,35 @@ export interface DxfSplitRun {
   created_at: string;
   updated_at: string;
 }
+export type DrawingSelectiveExportCategory =
+  | 'failed_bh'
+  | 'failed_box'
+  | 'pl'
+  | 'other';
+
+export interface DrawingSelectiveExportCategorySummary {
+  key: DrawingSelectiveExportCategory;
+  label: string;
+  file_count: number;
+  size_bytes: number;
+  available: boolean;
+}
+
+export interface DrawingSelectiveExportPreview {
+  workflow_id: number;
+  split_run_id: number;
+  categories: DrawingSelectiveExportCategorySummary[];
+}
+
+export interface DrawingSelectiveExport {
+  categories: DrawingSelectiveExportCategory[];
+  file_count: number;
+  source_size_bytes: number;
+  filename: string;
+  download_url: string;
+  token_expires_at: string;
+}
+
 export type WorkflowExportCategory =
   | 'classified_dxf'
   | 'processed_dxf'

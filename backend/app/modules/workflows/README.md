@@ -73,6 +73,9 @@ Stage A3 的“图纸拆板与独立校验”卡片标题栏提供“分批导�
 `classified_dxf`、`processed_dxf`、冻结 `source_excel` 与成功 `stage1_excel`。
 ZIP 一级目录固定为 `原DXF/`、`正常拆板DXF/`、`原Excel/`、`产出Excel/`，目录内
 严格保留数据库登记的原文件名；重名冲突直接拒绝，不做自动改名。
+同一标题栏的独立“导出”按 `failed_bh`、`failed_box`、`pl`、`other` 四个机器类别
+筛选当前 run 未自动接纳的分类 DXF，通过短期路径能力直接从对象存储流式生成 ZIP；
+它不落服务器临时文件、不改叶子文件名，也不执行物理删除。
 
 `excel_stage2` 消费 `stage1_excel` 与 `processed_dxf` 并预留 `stage2_excel`；它与
 `cam_packaging`、`windows_cam`、`result_acceptance` 仍只有稳定输入、产物和

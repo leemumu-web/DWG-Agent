@@ -177,6 +177,14 @@ export 状态标记成功；中断则标记失败且保留对象。purge 要求�
 Local/MinIO 对象及其 DXF SVG 预览缓存，移除对应 workflow artifact 文件引用，将登记标记为
 `deleted + purged_at`，但不破坏 Drawing、Job、输入和拆板账本外键。
 
+同一卡片标题栏另有独立“导出”入口，用于把当前拆板 run 绑定的分类结果按四个互斥 UI
+类别下载：`未通过的 BH`、`未通过的 BOX`、`PL`、`其他`。自动接纳的 BH/BOX 不进入
+该导出；BH/BOX 以分类账本类型和 `manual_review` 路由判定，PL 使用精确类型 `PL`，
+其余未被自动接纳的分类结果进入“其他”。ZIP 一级目录为 `未通过的BH/`、
+`未通过的BOX/`、`PL/`、`其他/`，叶子文件名保持 `files.original_name`；重名时仅增加
+中间隔离目录，不改叶子文件名。该下载同样直接流式读取 Local/MinIO，不落服务器临时 ZIP，
+但它不提供删除动作，也不会改变文件登记或对象状态。
+
 ### 4.6 取消
 
 取消流程时，如果当前阶段绑定 `pending`、`queued`、`running`、`validating` 或 `waiting_cad_worker` Job，先调用现有 guarded Job cancellation，再取消未终态阶段。已完成 Job 和历史 artifact 保留。

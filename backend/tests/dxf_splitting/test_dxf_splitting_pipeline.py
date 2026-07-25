@@ -1693,6 +1693,109 @@ def test_mixed_batch_splits_only_bh_box_and_review_zip_has_failed_originals(
     assert stale_archive.json()["error"]["code"] == "DXF_SPLIT_RUN_NOT_CURRENT"
 
 
+def test_selective_export_streams_four_disjoint_dxf_categories_without_deleting(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_local_storage(monkeypatch, tmp_path)
+    workflow_id, job_id, sources = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(
+            ("BH-FAILED", "BH"),
+            ("BOX-REVIEW", "BOX"),
+            ("BH-AUTO", "BH"),
+            ("PL-ONLY", "PL"),
+            ("PX-OTHER", "PX"),
+        ),
+    )
+    monkeypatch.setattr(
+        split_execution,
+        "_invoke_splitter",
+        _fake_splitter(
+            family_by_member={
+                "BH-FAILED": "BH",
+                "BOX-REVIEW": "BOX",
+                "BH-AUTO": "BH",
+            },
+            manual_members=frozenset({"BOX-REVIEW"}),
+            failed_members=frozenset({"BH-FAILED"}),
+        ),
+    )
+    split_execution.run_dxf_splitting(job_id, worker_name="test-split")
+
+    db.expire_all()
+    run = db.scalar(select(DxfSplitRun).where(DxfSplitRun.job_id == job_id))
+    workflow = db.get(WorkflowRun, workflow_id)
+    assert run is not None and run.status == "completed_with_review"
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+    db.commit()
+
+    init_db()
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    unauthorized_preview = TestClient(app).get(
+        f"/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run.id}"
+        "/selective-export-preview"
+    )
+    assert unauthorized_preview.status_code == 401
+    preview = client.get(
+        f"/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run.id}"
+        "/selective-export-preview",
+        headers=headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert [
+        (item["key"], item["label"], item["file_count"])
+        for item in preview.json()["data"]["categories"]
+    ] == [
+        ("failed_bh", "未通过的 BH", 1),
+        ("failed_box", "未通过的 BOX", 1),
+        ("pl", "PL", 1),
+        ("other", "其他", 1),
+    ]
+
+    created = client.post(
+        f"/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run.id}"
+        "/selective-exports",
+        headers=headers,
+        json={"categories": ["failed_bh", "failed_box", "pl", "other"]},
+    )
+    assert created.status_code == 201, created.text
+    prepared = created.json()["data"]
+    assert prepared["file_count"] == 4
+    missing_capability = TestClient(app).get(prepared["download_url"])
+    assert missing_capability.status_code == 403
+    assert (
+        missing_capability.json()["error"]["code"]
+        == "DRAWING_SELECTIVE_EXPORT_TOKEN_INVALID"
+    )
+    archive = client.get(prepared["download_url"])
+    assert archive.status_code == 200, archive.text
+    with zipfile.ZipFile(BytesIO(archive.content)) as zipped:
+        names = zipped.namelist()
+    assert names == [
+        "未通过的BH/BH-FAILED_拆板前.dxf",
+        "未通过的BOX/BOX-REVIEW_拆板前.dxf",
+        "PL/PL-ONLY_拆板前.dxf",
+        "其他/PX-OTHER_拆板前.dxf",
+    ]
+    assert not any("BH-AUTO" in name for name in names)
+    assert all(name.endswith(".dxf") for name in names)
+
+    db.expire_all()
+    storage = get_storage_backend()
+    for file_id in sources.values():
+        stored = db.get(StoredFile, file_id)
+        assert stored is not None and stored.status == "available"
+        assert b"".join(storage.iter_file(stored.bucket, stored.storage_key))
+
+
 def test_unclassified_dxf_is_kept_in_classification_but_not_sent_to_splitter(
     db,
     monkeypatch,

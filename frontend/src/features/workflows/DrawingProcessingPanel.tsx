@@ -24,7 +24,7 @@ import {
   getDxfSplitRun,
   getWorkflow,
 } from './workflows.api';
-import { WorkflowBatchExportControl } from './WorkflowBatchExportControl';
+import { DrawingProcessingExportActions } from './DrawingProcessingExportActions';
 interface Props {
   workflowId: number;
   stage?: WorkflowStage;
@@ -124,7 +124,7 @@ export function DrawingProcessingPanel({
     <Card
       className="workflow-dxf-split-panel"
       title="03 · 图纸拆板与独立校验"
-      extra={<WorkflowBatchExportControl workflowId={workflowId} disabled={active} onPurged={onChanged} />}
+      extra={<DrawingProcessingExportActions workflowId={workflowId} runId={run?.id} runStatus={run?.status} active={active} onPurged={onChanged} />}
       style={{ marginTop: 12 }}
     >
       {runQ.isError && (
