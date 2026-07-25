@@ -61,6 +61,9 @@ def test_review_decision_model_keeps_candidates_separate_from_formal_outputs():
         "candidate_weld_allowance_dxf_file_id",
         "candidate_split_report_file_id",
         "candidate_weld_allowance_report_file_id",
+        "classification_disposition",
+        "classification_part_type",
+        "type_resolution",
     } <= item_columns
     assert decision_model is not None
     assert {
@@ -1242,7 +1245,7 @@ def test_completed_batch_persists_exact_pairs_minio_ledger_and_excel_handoff(
     assert exc_info.value.detail["code"] == "DXF_SPLIT_RUN_STALE"
 
 
-def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_originals(
+def test_mixed_batch_splits_only_bh_box_and_review_zip_has_failed_originals(
     db,
     monkeypatch,
     tmp_path,
@@ -1280,11 +1283,11 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     assert job is not None and job.status == "succeeded"
     assert job.attempt == 1
     assert run is not None and run.status == "completed_with_review"
-    assert run.input_count == 4
+    assert run.input_count == 3
     assert run.auto_accepted_count == 1
-    assert run.manual_review_count == 3
+    assert run.manual_review_count == 2
     assert run.failed_count == 1
-    assert len(run.items) == 4
+    assert len(run.items) == 3
     by_name = {item.source_name: item for item in run.items}
     assert by_name["BOX-AUTO_拆板前.dxf"].automation_route == "auto_accepted"
     assert by_name["BOX-AUTO_拆板前.dxf"].normal_dxf_file_id is not None
@@ -1294,11 +1297,10 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     assert "SPLITTER_FILE_FAILED" in by_name[
         "BH-FAILED_拆板前.dxf"
     ].diagnostics_json
-    assert by_name["PX-REVIEW_拆板前.dxf"].disposition == "unsupported_part_type"
+    assert "PX-REVIEW_拆板前.dxf" not in by_name
     assert manual_review_archive_members(db, run) == [
         (sources["BH-FAILED"], "BH-FAILED_拆板前.dxf"),
         (sources["BH-REVIEW"], "BH-REVIEW_拆板前.dxf"),
-        (sources["PX-REVIEW"], "PX-REVIEW_拆板前.dxf"),
     ]
 
     workflow = db.get(WorkflowRun, workflow_id)
@@ -1334,7 +1336,6 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     assert names == [
         "BH-FAILED_拆板前.dxf",
         "BH-REVIEW_拆板前.dxf",
-        "PX-REVIEW_拆板前.dxf",
     ]
     assert all(name.endswith(".dxf") for name in names)
     assert not any(name.endswith((".json", ".xlsx", ".png", ".dwg")) for name in names)
@@ -1346,6 +1347,62 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     )
     assert stale_archive.status_code == 404
     assert stale_archive.json()["error"]["code"] == "DXF_SPLIT_RUN_NOT_CURRENT"
+
+
+def test_unclassified_dxf_is_kept_in_classification_but_not_sent_to_splitter(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_local_storage(monkeypatch, tmp_path)
+    workflow_id, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("UNKNOWN-BH", "PX"), ("BOX-AUTO", "BOX")),
+    )
+    classification = db.scalar(
+        select(DxfClassificationRun).where(
+            DxfClassificationRun.workflow_run_id == workflow_id
+        )
+    )
+    assert classification is not None
+    item = classification.items[0]
+    item.disposition = "review_required"
+    item.part_type = None
+    item.profile_raw = None
+    item.profile_normalized = None
+    item.type_source = None
+    item.group_key = "status:review_required"
+    item.next_stage_eligible = False
+    classification.status = "completed_with_review"
+    classification.classified_count = 0
+    classification.review_required_count = 1
+    classification.type_counts_json = {}
+    db.commit()
+    monkeypatch.setattr(
+        split_execution,
+        "_invoke_splitter",
+        _fake_splitter(family_by_member={"BOX-AUTO": "BOX"}),
+    )
+
+    split_execution.run_dxf_splitting(job_id, worker_name="test-split")
+
+    db.expire_all()
+    run = db.scalar(select(DxfSplitRun).where(DxfSplitRun.job_id == job_id))
+    job = db.get(Job, job_id)
+    assert job is not None and job.status == "succeeded"
+    assert run is not None and run.status == "completed"
+    assert run.input_count == 1
+    assert run.auto_accepted_count == 1
+    resolved = run.items[0]
+    assert resolved.source_name == "BOX-AUTO_拆板前.dxf"
+    assert resolved.classification_disposition == "classified"
+    assert resolved.classification_part_type == "BOX"
+    assert resolved.part_type == "BOX"
+    assert resolved.family == "BOX"
+    assert resolved.type_resolution == "classifier_confirmed"
+    assert resolved.normal_dxf_file_id is not None
+    assert resolved.weld_allowance_dxf_file_id is not None
 
 
 def test_independent_validation_mismatch_becomes_business_review_not_job_failure(

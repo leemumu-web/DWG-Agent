@@ -18,6 +18,7 @@ from app.modules.dxf_classification.schemas import (
     DxfClassificationItemRead,
     DxfClassificationRunRead,
     DxfNextStageInput,
+    DxfSplitCandidateInput,
 )
 
 
@@ -41,6 +42,14 @@ def list_next_stage_inputs(db, workflow_id: int) -> list[DxfNextStageInput]:
     return list_inputs(db, workflow_id)
 
 
+def list_split_candidate_inputs(db, workflow_id: int) -> list[DxfSplitCandidateInput]:
+    from app.modules.dxf_classification.persistence import (
+        list_split_candidate_inputs as list_inputs,
+    )
+
+    return list_inputs(db, workflow_id)
+
+
 def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
     from app.modules.dxf_classification.tasks import classify_steel_dxf_task
 
@@ -57,6 +66,7 @@ __all__ = [
     "DxfClassificationGroupPage",
     "DxfClassificationGroupRead",
     "DxfNextStageInput",
+    "DxfSplitCandidateInput",
     "DxfClassificationRun",
     "DxfClassificationRunRead",
     "build_classification_group_page",
@@ -65,5 +75,6 @@ __all__ = [
     "enqueue_dxf_classification_job",
     "latest_classification_run",
     "list_next_stage_inputs",
+    "list_split_candidate_inputs",
     "run_dxf_classification",
 ]

@@ -61,6 +61,18 @@ class DxfNextStageInput(BaseModel):
     classifier_version: str
 
 
+class DxfSplitCandidateInput(BaseModel):
+    classification_item_id: int
+    drawing_id: int | None
+    classification_disposition: str
+    part_type: str | None
+    profile_normalized: str | None
+    type_source: str | None
+    source_file_id: int
+    output_file_id: int
+    classifier_version: str
+
+
 class DxfClassificationRunRead(BaseModel):
     id: int
     workflow_run_id: int

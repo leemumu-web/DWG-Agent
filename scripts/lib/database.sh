@@ -482,6 +482,9 @@ expected_columns = {
         "candidate_weld_allowance_dxf_file_id",
         "candidate_split_report_file_id",
         "candidate_weld_allowance_report_file_id",
+        "classification_disposition",
+        "classification_part_type",
+        "type_resolution",
     },
     "dxf_split_runs": {"failed_count", "processed_count"},
     "dxf_split_review_decisions": {

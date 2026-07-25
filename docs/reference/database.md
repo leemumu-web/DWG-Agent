@@ -511,7 +511,7 @@ Agent 运行中的单个工具调用和推理步骤。
 - `dxf_classification_runs` 按 Job attempt 保存冻结清单摘要、分类器/schema 版本、汇总以及 JSON/CSV 文件引用；`(job_id, job_attempt)` 唯一。
 - `dxf_classification_items` 逐图关联 Drawing、来源派生 DXF、分流 DXF、处置、零件类型、输出目录、诊断和证据；`(run_id, source_file_id)` 唯一。
 - `dxf_split_runs` 按 Job attempt 保存分类 run、输入清单摘要、Split/CLI/校验版本、汇总、来源合同和 ledger/manifest/validation 文件引用；`(job_id, job_attempt)` 唯一。
-- `dxf_split_items` 逐图关联分类 item、分类原始 DXF、Drawing、类型、来源合同、自动路线、正常拆板/余量增长 DXF、报告、诊断与独立校验结果；`(run_id, classification_item_id)` 唯一。
+- `dxf_split_items` 只登记实际进入拆板的 BH/BOX，逐图关联分类 item、分类结论与类型、拆板识别类型、类型解析状态、Drawing、来源合同、自动路线、正常拆板/余量增长 DXF、报告、诊断与独立校验结果；PX、其他类型和未分类图纸继续保留在 `dxf_classification_items`，不伪造拆板记录；`(run_id, classification_item_id)` 唯一。
 
 删除 workflow 时阶段和 artifact 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束；公开 API 通过资源权限、非空引用和幂等查重维护当前不变量，并在 Job 成功同步时自动挂接结果。完整状态机和边界见[Linux 生产工作流](../architecture/workflow.md)。
 
@@ -662,8 +662,9 @@ analysis_results ──< workflow_artifacts
 | `f9c4b7e2a610` | 新增 DXF 拆板 run/item 账本、attempt 唯一约束、逐图产物与人工复核语义 | 2026-07-25 |
 | `a7d9e4c1b620` | 新增 DXF 拆板进度、候选产物引用与逐次人工复核决定账本 | 2026-07-25 |
 | `b4e8c2a7d910` | 新增 DXF 拆板失败数量，区分处理完成与失败告警 | 2026-07-25 |
+| `c8f1d2e3a490` | 新增拆板逐图分类结论、分类类型与类型解析来源，明确分类账本到拆板账本的边界 | 2026-07-25 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620` 与 `b4e8c2a7d910`。**`b4e8c2a7d910` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910` 与 `c8f1d2e3a490`。**`c8f1d2e3a490` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 

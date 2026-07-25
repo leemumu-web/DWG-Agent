@@ -22,7 +22,10 @@ from app.modules.dxf_classification.models import (
     DxfClassificationItem,
     DxfClassificationRun,
 )
-from app.modules.dxf_classification.schemas import DxfNextStageInput
+from app.modules.dxf_classification.schemas import (
+    DxfNextStageInput,
+    DxfSplitCandidateInput,
+)
 from app.modules.files.interface import (
     StoredFile,
     complete_transfer_in_transaction,
@@ -341,6 +344,45 @@ def list_next_stage_inputs(
             DxfNextStageInput(
                 classification_item_id=item.id,
                 drawing_id=item.drawing_id,
+                part_type=item.part_type,
+                profile_normalized=item.profile_normalized,
+                type_source=item.type_source,
+                source_file_id=item.source_file_id,
+                output_file_id=item.output_file_id,
+                classifier_version=run.classifier_version,
+            )
+        )
+    return inputs
+
+
+def list_split_candidate_inputs(
+    db: Session,
+    workflow_id: int,
+) -> list[DxfSplitCandidateInput]:
+    """Return only classified BH/BOX DXFs admitted to the current splitter."""
+    run = latest_classification_run(db, workflow_id)
+    if run is None:
+        return []
+    inputs: list[DxfSplitCandidateInput] = []
+    for item in run.items:
+        if (
+            not item.next_stage_eligible
+            or item.part_type not in {"BH", "BOX"}
+            or item.disposition != "classified"
+        ):
+            continue
+        output_file = db.get(StoredFile, item.output_file_id)
+        if (
+            output_file is None
+            or output_file.status == "deleted"
+            or output_file.file_ext.casefold() != ".dxf"
+        ):
+            raise ClassificationError("拆板候选分类输出文件不可用。")
+        inputs.append(
+            DxfSplitCandidateInput(
+                classification_item_id=item.id,
+                drawing_id=item.drawing_id,
+                classification_disposition=item.disposition,
                 part_type=item.part_type,
                 profile_normalized=item.profile_normalized,
                 type_source=item.type_source,

@@ -13,9 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.dxf_classification.interface import (
-    DxfNextStageInput,
+    DxfSplitCandidateInput,
     latest_classification_run,
-    list_next_stage_inputs,
+    list_split_candidate_inputs,
 )
 from app.modules.dxf_splitting.adapter import (
     BH_PROJECT_LEDGER_FILENAME,
@@ -25,7 +25,6 @@ from app.modules.dxf_splitting.adapter import (
     MANIFEST_SCHEMA,
     MAX_AUTOMATIC_ATTEMPTS,
     SPLITTER_VERSION,
-    SUPPORTED_PART_TYPES,
     VALIDATION_SCHEMA,
     DxfSplitError,
 )
@@ -47,7 +46,6 @@ from app.modules.dxf_splitting.validation import (
     StagedSplitSource,
     ValidatedSplitItem,
     build_validation_report,
-    unsupported_split_item,
     validate_split_results,
 )
 from app.modules.files.interface import StoredFile
@@ -189,11 +187,10 @@ def _load_workflow(db: Session, workflow_id: int) -> WorkflowRun | None:
 
 def _stage_sources(
     db: Session,
-    inputs: list[DxfNextStageInput],
+    inputs: list[DxfSplitCandidateInput],
     input_directory: Path,
-) -> tuple[list[StagedSplitSource], list[StagedSplitSource]]:
+) -> list[StagedSplitSource]:
     supported: list[StagedSplitSource] = []
-    unsupported: list[StagedSplitSource] = []
     seen_names: set[str] = set()
     for semantic in inputs:
         stored = db.get(StoredFile, semantic.output_file_id)
@@ -207,16 +204,13 @@ def _stage_sources(
             staged_path=staged_path,
         )
         payload = read_verified_input_object(stored)
-        if semantic.part_type not in SUPPORTED_PART_TYPES:
-            unsupported.append(source)
-            continue
         key = source_name.casefold()
         if key in seen_names:
             raise DxfSplitError(f"自动拆板输入文件名冲突: {source_name}")
         seen_names.add(key)
         staged_path.write_bytes(payload)
         supported.append(source)
-    return supported, unsupported
+    return supported
 
 
 def _artifact_metadata(
@@ -545,16 +539,12 @@ def run_dxf_splitting(
             or classification_job.attempt != classification.job_attempt
         ):
             raise DxfSplitError("拆板 Job 的分类 run/Job 账本不一致。")
-        if (
-            classification.status not in {"completed", "completed_with_review"}
-            or classification.review_required_count
-            or classification.unreadable_count
-        ):
-            raise DxfSplitError("DXF 分类仍有未决条目，当前策略禁止进入拆板。")
+        if classification.status not in {"completed", "completed_with_review"}:
+            raise DxfSplitError("DXF 分类运行尚未形成可追溯输出。")
         manifest_sha256 = str((job.params_json or {}).get("input_manifest_sha256") or "")
         if not manifest_sha256 or manifest_sha256 != classification.input_manifest_sha256:
             raise DxfSplitError("拆板 Job 的冻结输入摘要与分类运行不一致。")
-        inputs = list_next_stage_inputs(db, workflow.id)
+        inputs = list_split_candidate_inputs(db, workflow.id)
         if not inputs:
             raise DxfSplitError("最新分类运行没有可交给拆板的 DXF。")
         run = get_or_create_split_run(
@@ -574,7 +564,7 @@ def run_dxf_splitting(
             normalized_report_root = root / "portable-reports"
             input_directory.mkdir()
             output_directory.mkdir()
-            supported, unsupported = _stage_sources(
+            supported = _stage_sources(
                 db,
                 inputs,
                 input_directory,
@@ -603,12 +593,12 @@ def run_dxf_splitting(
                     manual_count: int = 0,
                     failed_count: int = 0,
                 ) -> None:
-                    overall_processed = min(len(unsupported) + processed, len(inputs))
+                    overall_processed = min(processed, len(inputs))
                     current_run = load_split_run(db, job_id=job.id, attempt=attempt)
                     current_run.processed_count = overall_processed
                     current_run.auto_accepted_count = auto_count
                     current_run.manual_review_count = (
-                        len(unsupported) + manual_count + failed_count
+                        manual_count + failed_count
                     )
                     current_run.failed_count = failed_count
                     db.flush()
@@ -629,7 +619,7 @@ def run_dxf_splitting(
                             input_count=len(inputs),
                             auto_accepted_count=auto_count,
                             manual_review_count=(
-                                len(unsupported) + manual_count + failed_count
+                                manual_count + failed_count
                             ),
                             failed_count=failed_count,
                         ),
@@ -668,7 +658,10 @@ def run_dxf_splitting(
                     "splitter_version": SPLITTER_VERSION,
                     "input_count": len(inputs),
                     "automatic_input_count": len(supported),
-                    "direct_manual_review_count": len(unsupported),
+                    "classification_only_count": max(
+                        classification.input_count - len(inputs),
+                        0,
+                    ),
                     "manifest_sha256": manifest_sha256,
                     "source_contracts": {
                         "BH": BH_SOURCE_CONTRACT,
@@ -702,7 +695,6 @@ def run_dxf_splitting(
                 cli_payload,
                 output_directory,
             )
-            validated.extend(unsupported_split_item(source) for source in unsupported)
             validated.sort(key=lambda item: item.source.semantic.classification_item_id)
             validation_payload = build_validation_report(
                 workflow_id=workflow.id,

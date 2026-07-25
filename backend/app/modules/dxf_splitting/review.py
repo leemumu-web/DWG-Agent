@@ -114,7 +114,11 @@ def list_split_review_items(
             DxfSplitReviewItemRead(
                 id=item.id,
                 source_name=item.source_name,
+                classification_disposition=item.classification_disposition,
+                classification_part_type=item.classification_part_type,
+                type_resolution=item.type_resolution,
                 part_type=item.part_type,
+                family=item.family,
                 profile_normalized=item.profile_normalized,
                 disposition=item.disposition,
                 diagnostics=item.diagnostics_json or [],

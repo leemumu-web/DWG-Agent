@@ -9,7 +9,7 @@ from typing import Any
 
 import ezdxf
 
-from app.modules.dxf_classification.interface import DxfNextStageInput
+from app.modules.dxf_classification.interface import DxfSplitCandidateInput
 from app.modules.dxf_splitting.adapter import (
     VALIDATION_SCHEMA,
     DxfSplitError,
@@ -21,7 +21,7 @@ from app.modules.files.interface import validate_dxf_structure
 
 @dataclass(frozen=True)
 class StagedSplitSource:
-    semantic: DxfNextStageInput
+    semantic: DxfSplitCandidateInput
     source_name: str
     staged_path: Path
 
@@ -103,19 +103,6 @@ def _manual_item(
     )
 
 
-def unsupported_split_item(source: StagedSplitSource) -> ValidatedSplitItem:
-    return _manual_item(
-        source,
-        family=None,
-        disposition="unsupported_part_type",
-        diagnostics=("UNSUPPORTED_SPLIT_PART_TYPE",),
-        checks={
-            "part_type": source.semantic.part_type,
-            "supported_part_types": ["BH", "BOX"],
-        },
-    )
-
-
 def _validate_auto_result(
     source: StagedSplitSource,
     result: dict[str, Any],
@@ -145,7 +132,12 @@ def _validate_auto_result(
     if normal is not None and allowance is not None and normal == allowance:
         findings.append("正常拆板与余量增长 DXF 不能指向同一文件")
     family = result.get("family")
-    if family != source.semantic.part_type:
+    if family not in {"BH", "BOX"}:
+        findings.append("拆板器没有识别出受支持的 BH/BOX 构件族")
+    if (
+        source.semantic.part_type in {"BH", "BOX"}
+        and family != source.semantic.part_type
+    ):
         findings.append("拆板识别族与分类类型不一致")
 
     candidate_pair_readable = normal is not None and allowance is not None
@@ -253,7 +245,11 @@ def _validate_auto_result(
         validation={
             "status": "passed",
             "checks": {
-                "family_matches_classification": True,
+                "family_matches_classification": (
+                    source.semantic.part_type not in {"BH", "BOX"}
+                    or family == source.semantic.part_type
+                ),
+                "family_detected_from_dxf": family in {"BH", "BOX"},
                 "exact_output_suffixes": True,
                 "paired_dxf_count": 2,
                 "dxf_reopen": True,
@@ -356,8 +352,20 @@ def build_validation_report(
                 "classification_item_id": item.source.semantic.classification_item_id,
                 "source_file_id": item.source.semantic.output_file_id,
                 "source_name": item.source.source_name,
-                "part_type": item.source.semantic.part_type,
-                "source_contract_id": source_contract_for(item.source.semantic.part_type),
+                "classification_disposition": (
+                    item.source.semantic.classification_disposition
+                ),
+                "classification_part_type": item.source.semantic.part_type,
+                "part_type": (
+                    item.family
+                    if item.family in {"BH", "BOX"}
+                    else item.source.semantic.part_type or "UNKNOWN"
+                ),
+                "source_contract_id": source_contract_for(
+                    item.family
+                    if item.family in {"BH", "BOX"}
+                    else item.source.semantic.part_type or ""
+                ),
                 "family": item.family,
                 "automation_route": item.automation_route,
                 "disposition": item.disposition,

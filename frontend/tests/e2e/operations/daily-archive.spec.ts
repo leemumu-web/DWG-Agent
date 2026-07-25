@@ -53,26 +53,11 @@ async function openArchiveConsole(page: Page) {
   await page.goto('/admin/infrastructure?tab=daily-archive');
 }
 
-test('daily archive preview, confirmation, polling and download form one safe workflow', async ({ page }) => {
+test('legacy daily archive route resolves to the focused MySQL and MinIO console', async ({ page }) => {
   await openArchiveConsole(page);
-  await expect(page.getByText('非破坏式每日整理')).toBeVisible();
-  await expect(page.getByText(/不会移动、重命名、软删除源文件/)).toBeVisible();
-
-  await page.getByRole('button', { name: '预检归档范围' }).click();
-  await expect(page.getByText('冻结文件')).toBeVisible();
-  await expect(page.getByText('7.0 MiB')).toBeVisible();
-  await expect(page.getByText('dwg-original · 2')).toBeVisible();
-  await expect(page.getByText('.dxf · 1')).toBeVisible();
-  await expect(page.getByText('只新增，不改源文件')).toBeVisible();
-
-  await page.getByRole('button', { name: '确认并生成每日归档' }).click();
-  await expect(page.getByText('确认归档 3 个文件？')).toBeVisible();
-  await page.getByRole('button', { name: '提交归档' }).click();
-  await expect(page.getByText('归档任务 #41', { exact: true })).toBeVisible();
-  await expect(page.getByText('归档包和清单均已登记，可安全下载。')).toBeVisible({ timeout: 8_000 });
-
-  const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: '下载 ZIP' }).click();
-  await expect((await download).suggestedFilename()).toBe('daily-archive-2026-07-20.zip');
-  await expect(page.getByText('下载已开始')).toBeVisible();
+  await expect(page).toHaveURL(/\/data-console$/);
+  await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
+  await expect(page.getByText('非破坏式每日整理')).toHaveCount(0);
 });

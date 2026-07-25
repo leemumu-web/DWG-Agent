@@ -54,6 +54,7 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "DxfClassificationGroupPage",
     "DxfClassificationGroupRead",
     "DxfNextStageInput",
+    "DxfSplitCandidateInput",
     "DxfClassificationRun",
     "DxfClassificationRunRead",
     "build_classification_group_page",
@@ -62,6 +63,7 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "enqueue_dxf_classification_job",
     "latest_classification_run",
     "list_next_stage_inputs",
+    "list_split_candidate_inputs",
     "run_dxf_classification",
 }
 

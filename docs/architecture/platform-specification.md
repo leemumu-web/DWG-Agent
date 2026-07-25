@@ -90,7 +90,7 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `b4e8c2a7d910`，SQLAlchemy/Alembic 管理 45 张模型表。
+- 当前 Alembic head 为 `c8f1d2e3a490`，SQLAlchemy/Alembic 管理 45 张模型表。
 - 空迁移 schema 加 `alembic_version` 为 46 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 54 张。不能把 54 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。

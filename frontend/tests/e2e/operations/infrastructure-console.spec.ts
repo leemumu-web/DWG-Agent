@@ -27,17 +27,14 @@ async function mockConsole(page: Page) {
   await page.route('**/api/v1/control-plane/maintenance/reconcile-stale-jobs', (route) => json(route, { operation: 'reconcile_stale_jobs', queue: 'maintenance', task_id: 'maintenance-task-001' }, 202));
 }
 
-test('infrastructure console shows actual storage state and queues bounded maintenance recovery', async ({ page }) => {
+test('legacy infrastructure route resolves to the focused MySQL and MinIO console', async ({ page }) => {
   await mockConsole(page);
   await page.goto('/');
   await page.evaluate(({ token, savedUser }) => { sessionStorage.setItem('dwg_access_token', token); sessionStorage.setItem('dwg_user', JSON.stringify(savedUser)); }, { token: 'infra-token', savedUser: user });
   await page.goto('/admin/infrastructure');
-  await expect(page.getByText('MinIO（生产对象存储）')).toBeVisible();
-  await expect(page.getByText('Bucket 对账：当前可见对象数与 MySQL 可用登记一致。')).toBeVisible();
-  await expect(page.getByText('dwg-original')).toBeVisible();
-  await page.getByRole('tab', { name: '运行与通信' }).click();
-  await expect(page.getByText('当前运行边界：MySQL SQLAlchemy 队列')).toBeVisible();
-  await expect(page.getByText('Windows Node Agent 合同（待实现）')).toBeVisible();
-  await page.getByRole('button', { name: '恢复超时运行任务' }).click();
-  await expect(page.getByText(/已提交维护任务/)).toBeVisible();
+  await expect(page).toHaveURL(/\/data-console$/);
+  await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '运行与通信' })).toHaveCount(0);
 });

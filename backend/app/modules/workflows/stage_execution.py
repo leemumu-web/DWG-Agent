@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.dxf_classification.interface import (
     latest_classification_run,
-    list_next_stage_inputs,
+    list_split_candidate_inputs,
 )
 from app.modules.dxf_splitting.interface import (
     MAX_AUTOMATIC_ATTEMPTS,
@@ -420,22 +420,18 @@ def _prepare_dxf_splitting(
             "当前分类运行没有绑定本项目已成功的正式 Job attempt。",
             {"classification_run_id": classification.id},
         )
-    if (
-        classification.status not in {"completed", "completed_with_review"}
-        or classification.review_required_count
-        or classification.unreadable_count
-    ):
+    if classification.status not in {"completed", "completed_with_review"}:
         raise AppHTTPException(
             409,
-            "DXF_CLASSIFICATION_REVIEW_UNRESOLVED",
-            "分类阶段仍有待确认或无法读取图纸；其拆板映射策略尚未确定。",
+            "DXF_CLASSIFICATION_NOT_READY",
+            "分类阶段尚未形成可追溯的 DXF 输出。",
             {
                 "classification_run_id": classification.id,
                 "review_required_count": classification.review_required_count,
                 "unreadable_count": classification.unreadable_count,
             },
         )
-    inputs = list_next_stage_inputs(db, workflow.id)
+    inputs = list_split_candidate_inputs(db, workflow.id)
     if not inputs:
         raise AppHTTPException(
             409,

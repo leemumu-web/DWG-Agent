@@ -468,6 +468,9 @@ def _complete_drawing_processing_fixture(
             classification_item_id=classification_item.id,
             source_file_id=classification_item.output_file_id,
             source_name=classification_item.output_name,
+            classification_disposition=classification_item.disposition,
+            classification_part_type=classification_item.part_type,
+            type_resolution="classifier_confirmed",
             part_type="BH",
             profile_normalized=classification_item.profile_normalized,
             family="BH",
@@ -1393,7 +1396,7 @@ def test_drawing_processing_execution_honors_disabled_feature_gate(monkeypatch):
     assert error["code"] == "DXF_SPLIT_PIPELINE_DISABLED"
 
 
-def test_drawing_processing_rejects_unresolved_classification_mapping(
+def test_drawing_processing_ignores_unresolved_types_when_bh_input_exists(
     db,
     monkeypatch,
 ):
@@ -1410,16 +1413,16 @@ def test_drawing_processing_rejects_unresolved_classification_mapping(
     db.flush()
     monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
 
-    with pytest.raises(AppHTTPException) as exc_info:
-        prepare_stage_execution(
-            db,
-            workflow,
-            stage_code="drawing_processing",
-            payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
-            current_user=user,
-        )
+    plan = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
+        current_user=user,
+    )
 
-    assert exc_info.value.detail["code"] == "DXF_CLASSIFICATION_REVIEW_UNRESOLVED"
+    assert plan.job.task_type == "split_steel_dxf"
+    assert plan.job.params_json["classification_run_id"] == classification.id
 
 
 def test_project_engineer_can_launch_split_from_another_members_classification(

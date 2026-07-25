@@ -75,6 +75,7 @@ class DxfSplitItem(TimestampMixin, Base):
         ),
         Index("ix_dxf_split_items_route", "run_id", "automation_route"),
         Index("ix_dxf_split_items_part_type", "run_id", "part_type"),
+        Index("ix_dxf_split_items_type_resolution", "run_id", "type_resolution"),
     )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
@@ -89,6 +90,9 @@ class DxfSplitItem(TimestampMixin, Base):
     drawing_id: Mapped[int | None] = mapped_column(ForeignKey("drawings.id"), index=True)
     source_file_id: Mapped[int] = mapped_column(ForeignKey("files.id"), nullable=False, index=True)
     source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    classification_disposition: Mapped[str] = mapped_column(String(32), nullable=False)
+    classification_part_type: Mapped[str | None] = mapped_column(String(64))
+    type_resolution: Mapped[str] = mapped_column(String(32), nullable=False)
     part_type: Mapped[str] = mapped_column(String(64), nullable=False)
     profile_normalized: Mapped[str | None] = mapped_column(String(255))
     family: Mapped[str | None] = mapped_column(String(16))

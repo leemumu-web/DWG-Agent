@@ -475,7 +475,7 @@
 }
 
 .workflow-dxf-split-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .workflow-classification-summary > div,
@@ -585,6 +585,39 @@
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.workflow-dxf-split-ledger {
+  overflow: hidden;
+  background: #f8fbfb;
+  border: 1px solid #ccdcde;
+}
+
+.workflow-dxf-split-ledger > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  color: var(--workflow-deep);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workflow-dxf-split-ledger > div {
+  display: grid;
+  max-height: 360px;
+  overflow: auto;
+  border-top: 1px solid #dbe6e7;
+}
+
+.workflow-dxf-split-ledger article {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(280px, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #fff;
+  border-bottom: 1px solid #e4ecec;
 }
 
 .workflow-classification-warning {
@@ -836,7 +869,8 @@
   }
 
   .workflow-dxf-split-review-list article,
-  .workflow-dxf-split-review-main {
+  .workflow-dxf-split-review-main,
+  .workflow-dxf-split-ledger article {
     grid-template-columns: 1fr;
   }
 

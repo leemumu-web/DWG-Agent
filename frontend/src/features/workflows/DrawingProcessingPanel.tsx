@@ -261,8 +261,8 @@ export function DrawingProcessingPanel({
         <Alert
           type="info"
           showIcon
-          message="分类 DXF 已就绪"
-          description="系统按冻结批次一次处理全部图纸，并分别登记正常拆板和余量增长 DXF。"
+          message="BH / BOX 拆板输入已就绪"
+          description="拆板器当前只处理数据库中已明确分类为 BH 或 BOX 的图纸。PX、其他类型和未分类图纸保留分类标注，本节点暂不拆板，也不会阻塞 BH/BOX 批次。"
           action={(
             <Button
               type="primary"
@@ -343,12 +343,11 @@ export function DrawingProcessingPanel({
           </div>
           <div className="workflow-dxf-split-summary">
             {[
-              ['本批次图纸', run.input_count],
-              ['自动完成', run.auto_accepted_count],
-              [
-                run.status === 'completed' ? '人工复核' : '需人工复核',
-                run.status === 'completed' ? run.reviewed_count : run.manual_review_count,
-              ],
+              ['分类总数', run.classification_input_count],
+              ['进入拆板', run.input_count],
+              ['仅分类未拆', run.classification_only_count],
+              ['自动接纳', run.auto_accepted_count],
+              ['需人工复核', run.manual_review_count],
               ['失败', run.failed_count],
             ].map(([label, value]) => (
               <div key={label}>
@@ -357,12 +356,22 @@ export function DrawingProcessingPanel({
               </div>
             ))}
           </div>
+          {run.classification_only_count > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message={`${run.classification_only_count} 张图纸仅保留分类，本节点不拆板`}
+              description={Object.entries(run.classification_only_type_counts)
+                .map(([type, count]) => `${type} ${count}`)
+                .join(' · ')}
+            />
+          )}
           {run.status === 'completed' ? (
             <Alert
               type="success"
               showIcon
               message="本批次拆板与独立校验已全部通过"
-              description="正常拆板 DXF 将作为后续 Excel/CAM 默认图纸，余量增长 DXF 同步保留为正式产物。"
+              description="本次进入拆板的 BH/BOX 均已通过独立校验；其他类型只保留分类标注，不包含在拆板结果中。"
               action={(
                 <Button
                   type="primary"
@@ -444,7 +453,10 @@ export function DrawingProcessingPanel({
                             {item.source_name}
                           </Typography.Text>
                           <Space size={6} wrap>
-                            <Tag color="cyan">{item.part_type}</Tag>
+                            <Tag>分类：{item.classification_part_type ?? item.part_type}</Tag>
+                            <Tag color={item.family ? 'cyan' : 'default'}>
+                              拆板识别：{item.family ?? '未识别'}
+                            </Tag>
                             {item.profile_normalized && <Tag>{item.profile_normalized}</Tag>}
                             {item.decision?.decision === 'accept_candidate' && (
                               <Tag color="success">已采用候选</Tag>
@@ -497,6 +509,34 @@ export function DrawingProcessingPanel({
                 </section>
               )}
             </>
+          )}
+          {run.items.length > 0 && (
+            <details className="workflow-dxf-split-ledger">
+              <summary>
+                逐图拆板与独立校验账本
+                <Typography.Text type="secondary">{run.items.length} 张</Typography.Text>
+              </summary>
+              <div>
+                {run.items.map((item) => (
+                  <article key={item.id}>
+                    <Typography.Text strong ellipsis={{ tooltip: item.source_name }}>
+                      {item.source_name}
+                    </Typography.Text>
+                    <Space size={6} wrap>
+                      <Tag>分类：{item.classification_part_type ?? '未分类'}</Tag>
+                      <Tag color={item.family ? 'cyan' : 'default'}>
+                        拆板识别：{item.family ?? '未识别'}
+                      </Tag>
+                    </Space>
+                    <Tag color={item.automation_route === 'auto_accepted' ? 'success' : 'warning'}>
+                      {item.automation_route === 'auto_accepted'
+                        ? '独立校验通过'
+                        : '待人工复核'}
+                    </Tag>
+                  </article>
+                ))}
+              </div>
+            </details>
           )}
         </>
       )}

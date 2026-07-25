@@ -652,6 +652,15 @@ test('manual review downloads only the current split batch original DXFs', async
     estimated_remaining_seconds: 0,
     auto_accepted_count: 2,
     manual_review_count: 1,
+    classifier_confirmed_count: 2,
+    splitter_detected_count: 0,
+    unresolved_count: 1,
+    classification_input_count: 5,
+    classification_only_count: 2,
+    classification_only_type_counts: {
+      PX: 1,
+      review_required: 1,
+    },
     source_contracts: {
       BH: 'project_tekla_bh_dxf_v1',
       BOX: 'project_tekla_box_dxf_v1',
@@ -660,7 +669,28 @@ test('manual review downloads only the current split batch original DXFs', async
     split_manifest_file: null,
     validation_report_file: null,
     job: { id: 930, status: 'succeeded', progress: 100, attempt: 1 },
-    items: [],
+    items: [{
+      id: 502,
+      drawing_id: 12,
+      classification_item_id: 402,
+      source_file_id: 302,
+      source_name: 'BOX-AUTO_拆板前.dxf',
+      classification_disposition: 'classified',
+      classification_part_type: 'BOX',
+      type_resolution: 'classifier_confirmed',
+      part_type: 'BOX',
+      profile_normalized: 'BOX600X400X20X24',
+      family: 'BOX',
+      source_contract_id: 'project_tekla_box_dxf_v1',
+      automation_route: 'auto_accepted',
+      disposition: 'auto_accepted',
+      normal_dxf_file_id: 1201,
+      weld_allowance_dxf_file_id: 1202,
+      split_report_file_id: 1203,
+      weld_allowance_report_file_id: 1204,
+      diagnostics: [],
+      validation: { status: 'passed' },
+    }],
     error_code: null,
     error_message: null,
     started_at: now,
@@ -675,7 +705,11 @@ test('manual review downloads only the current split batch original DXFs', async
     items: [{
       id: 501,
       source_name: 'BH-REVIEW_拆板前.dxf',
+      classification_disposition: 'classified',
+      classification_part_type: 'BH',
+      type_resolution: 'unresolved',
       part_type: 'BH',
+      family: 'BH',
       profile_normalized: 'BH600X300X12X20',
       disposition: 'independent_validation_failed',
       diagnostics: ['候选图需人工确认轮廓与孔位'],
@@ -810,12 +844,17 @@ test('manual review downloads only the current split batch original DXFs', async
   await page.goto('/workflows/43');
 
   await expect(page.getByRole('heading', { name: '图纸拆板与独立校验' })).toBeVisible();
-  await expect(page.getByText('本批次图纸')).toBeVisible();
-  await expect(page.getByText('自动完成')).toBeVisible();
+  await expect(page.getByText('分类总数')).toBeVisible();
+  await expect(page.getByText('进入拆板')).toBeVisible();
+  await expect(page.getByText('仅分类未拆')).toBeVisible();
   await expect(page.getByText('需人工复核')).toBeVisible();
+  await expect(page.getByText('2 张图纸仅保留分类，本节点不拆板')).toBeVisible();
   await expect(page.getByText('1 张图纸未通过自动处理')).toBeVisible();
   await expect(page.getByText('BH-REVIEW_拆板前.dxf')).toBeVisible();
   await expect(page.getByText('候选图需人工确认轮廓与孔位')).toBeVisible();
+  await page.getByText('逐图拆板与独立校验账本').click();
+  await expect(page.getByText('BOX-AUTO_拆板前.dxf')).toBeVisible();
+  await expect(page.getByText('拆板识别：BOX')).toBeVisible();
   await expect(page.getByText('processed_dxf × 1')).toBeVisible();
   await expect(page.getByText('processed_dxf × 2')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toHaveCount(0);

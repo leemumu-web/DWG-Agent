@@ -15,6 +15,9 @@ class DxfSplitItemRead(BaseModel):
     classification_item_id: int
     source_file_id: int
     source_name: str
+    classification_disposition: str
+    classification_part_type: str | None
+    type_resolution: str
     part_type: str
     profile_normalized: str | None
     family: str | None
@@ -46,6 +49,12 @@ class DxfSplitRunRead(BaseModel):
     estimated_remaining_seconds: int | None
     auto_accepted_count: int
     manual_review_count: int
+    classifier_confirmed_count: int
+    splitter_detected_count: int
+    unresolved_count: int
+    classification_input_count: int
+    classification_only_count: int
+    classification_only_type_counts: dict[str, int]
     source_contracts: dict[str, str]
     bh_split_ledger_file: FileRead | None
     split_manifest_file: FileRead | None
@@ -91,7 +100,11 @@ class DxfSplitReviewDecisionRead(BaseModel):
 class DxfSplitReviewItemRead(BaseModel):
     id: int
     source_name: str
+    classification_disposition: str
+    classification_part_type: str | None
+    type_resolution: str
     part_type: str
+    family: str | None
     profile_normalized: str | None
     disposition: str
     diagnostics: list[str]

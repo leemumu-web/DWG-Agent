@@ -185,16 +185,36 @@ def record_split_item(
     candidate_allowance_report_file: StoredFile | None = None,
 ) -> DxfSplitItem:
     semantic = validated.source.semantic
+    effective_part_type = (
+        validated.family
+        if validated.family in {"BH", "BOX"}
+        else semantic.part_type or "UNKNOWN"
+    )
+    type_resolution = (
+        "classifier_confirmed"
+        if (
+            validated.automation_route == "auto_accepted"
+            and semantic.classification_disposition == "classified"
+            and semantic.part_type == validated.family
+        )
+        else "splitter_detected"
+        if validated.automation_route == "auto_accepted"
+        and validated.family in {"BH", "BOX"}
+        else "unresolved"
+    )
     item = DxfSplitItem(
         run=run,
         classification_item_id=semantic.classification_item_id,
         drawing_id=semantic.drawing_id,
         source_file_id=semantic.output_file_id,
         source_name=validated.source.source_name,
-        part_type=semantic.part_type,
+        classification_disposition=semantic.classification_disposition,
+        classification_part_type=semantic.part_type,
+        type_resolution=type_resolution,
+        part_type=effective_part_type,
         profile_normalized=semantic.profile_normalized,
         family=validated.family,
-        source_contract_id=source_contract_for(semantic.part_type),
+        source_contract_id=source_contract_for(effective_part_type),
         automation_route=validated.automation_route,
         disposition=validated.disposition,
         normal_dxf_file_id=normal_file.id if normal_file is not None else None,

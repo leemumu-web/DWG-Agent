@@ -157,6 +157,9 @@ export interface DxfSplitItem {
   classification_item_id: number;
   source_file_id: number;
   source_name: string;
+  classification_disposition: string;
+  classification_part_type?: string | null;
+  type_resolution: 'classifier_confirmed' | 'splitter_detected' | 'unresolved';
   part_type: string;
   profile_normalized?: string | null;
   family?: string | null;
@@ -188,6 +191,12 @@ export interface DxfSplitRun {
   estimated_remaining_seconds?: number | null;
   auto_accepted_count: number;
   manual_review_count: number;
+  classifier_confirmed_count: number;
+  splitter_detected_count: number;
+  unresolved_count: number;
+  classification_input_count: number;
+  classification_only_count: number;
+  classification_only_type_counts: Record<string, number>;
   source_contracts: Record<string, string>;
   bh_split_ledger_file?: import('../files').StoredFile | null;
   split_manifest_file?: import('../files').StoredFile | null;
@@ -221,7 +230,11 @@ export interface DxfSplitReviewDecision {
 export interface DxfSplitReviewItem {
   id: number;
   source_name: string;
+  classification_disposition: string;
+  classification_part_type?: string | null;
+  type_resolution: 'classifier_confirmed' | 'splitter_detected' | 'unresolved';
   part_type: string;
+  family?: string | null;
   profile_normalized?: string | null;
   disposition: string;
   diagnostics: string[];

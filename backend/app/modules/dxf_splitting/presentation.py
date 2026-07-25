@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.dxf_splitting.models import DxfSplitRun
 from app.modules.dxf_splitting.schemas import DxfSplitItemRead, DxfSplitRunRead
+from app.modules.dxf_classification.models import DxfClassificationRun
 from app.modules.files.interface import FileRead, StoredFile
 from app.modules.jobs.interface import Job, JobRead
 from app.platform.http.exceptions import AppHTTPException, not_found
@@ -62,6 +63,26 @@ def build_dxf_split_run_read(
     manual_items = [
         item for item in run.items if item.automation_route == "manual_review"
     ]
+    classification = db.get(DxfClassificationRun, run.classification_run_id)
+    if classification is None:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_LEDGER_INCOMPLETE",
+            "拆板批次引用的分类运行不可用。",
+            {"classification_run_id": run.classification_run_id},
+        )
+    classification_only_type_counts: dict[str, int] = {}
+    for item in classification.items:
+        if (
+            item.disposition == "classified"
+            and item.part_type in {"BH", "BOX"}
+            and item.next_stage_eligible
+        ):
+            continue
+        label = item.part_type or item.disposition or "unclassified"
+        classification_only_type_counts[label] = (
+            classification_only_type_counts.get(label, 0) + 1
+        )
     return DxfSplitRunRead(
         id=run.id,
         workflow_run_id=run.workflow_run_id,
@@ -79,6 +100,21 @@ def build_dxf_split_run_read(
         estimated_remaining_seconds=estimated_remaining_seconds,
         auto_accepted_count=run.auto_accepted_count,
         manual_review_count=run.manual_review_count,
+        classifier_confirmed_count=sum(
+            item.type_resolution == "classifier_confirmed" for item in run.items
+        ),
+        splitter_detected_count=sum(
+            item.type_resolution == "splitter_detected" for item in run.items
+        ),
+        unresolved_count=sum(
+            item.type_resolution == "unresolved" for item in run.items
+        ),
+        classification_input_count=classification.input_count,
+        classification_only_count=max(
+            classification.input_count - run.input_count,
+            0,
+        ),
+        classification_only_type_counts=classification_only_type_counts,
         source_contracts=run.source_contracts_json or {},
         bh_split_ledger_file=FileRead.model_validate(ledger) if ledger else None,
         split_manifest_file=FileRead.model_validate(manifest) if manifest else None,
@@ -91,6 +127,9 @@ def build_dxf_split_run_read(
                 classification_item_id=item.classification_item_id,
                 source_file_id=item.source_file_id,
                 source_name=item.source_name,
+                classification_disposition=item.classification_disposition,
+                classification_part_type=item.classification_part_type,
+                type_resolution=item.type_resolution,
                 part_type=item.part_type,
                 profile_normalized=item.profile_normalized,
                 family=item.family,

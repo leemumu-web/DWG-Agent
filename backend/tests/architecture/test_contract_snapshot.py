@@ -35,7 +35,7 @@ def test_contract_snapshot_locks_every_public_surface() -> None:
         "app.workers.tasks_dxf_split.* -> dxf_split"
         in snapshot["celery_task_routes"]
     )
-    assert snapshot["alembic_heads"] == ["b4e8c2a7d910"]
+    assert snapshot["alembic_heads"] == ["c8f1d2e3a490"]
     assert "/workflows" in snapshot["frontend_routes"]
     assert "/files/dwg2dxf" in snapshot["frontend_routes"]
     assert "backend-api" in snapshot["compose_services"]
