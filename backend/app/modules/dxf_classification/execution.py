@@ -10,7 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.dxf_classification.adapter import (
@@ -47,6 +48,7 @@ from app.modules.dxf_classification.persistence import (
 )
 from app.modules.files.interface import StoredFile
 from app.modules.jobs.interface import (
+    Job,
     JobStep,
     claim_queued_job,
     commit_job_progress,
@@ -55,9 +57,11 @@ from app.modules.jobs.interface import (
 )
 from app.modules.projects.interface import Project
 from app.modules.workflows.interface import (
+    WorkflowArtifact,
     WorkflowInputBatch,
     WorkflowInputItem,
     WorkflowRun,
+    WorkflowStageRun,
     attach_artifact,
     read_verified_input_object,
 )
@@ -72,6 +76,11 @@ from app.platform.config.constants import (
 from app.platform.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
+_CLASSIFICATION_ARTIFACT_TYPES = {
+    "classified_dxf",
+    "classification_report",
+    "classification_manifest",
+}
 
 
 def _add_step(
@@ -98,6 +107,76 @@ def _add_step(
             finished_at=now,
         )
     )
+
+
+def _clear_previous_classification_artifacts(
+    db: Session,
+    workflow: WorkflowRun,
+) -> None:
+    stage = next(
+        (item for item in workflow.stages if item.stage_code == "dxf_classification"),
+        None,
+    )
+    if stage is None:
+        raise ClassificationError("DXF 分类阶段不存在。")
+    db.scalar(
+        select(WorkflowStageRun.id)
+        .where(WorkflowStageRun.id == stage.id)
+        .with_for_update()
+    )
+    db.execute(
+        delete(WorkflowArtifact).where(
+            WorkflowArtifact.workflow_run_id == workflow.id,
+            WorkflowArtifact.stage_run_id == stage.id,
+            WorkflowArtifact.artifact_type.in_(_CLASSIFICATION_ARTIFACT_TYPES),
+        )
+    )
+    db.expire(workflow, ["artifacts"])
+
+
+def _replace_classification_artifacts(
+    db: Session,
+    *,
+    workflow_id: int,
+    artifacts: list[tuple[str, int, int | None, dict[str, Any]]],
+) -> None:
+    for retry_index in range(2):
+        workflow = db.scalar(
+            select(WorkflowRun)
+            .where(WorkflowRun.id == workflow_id)
+            .options(
+                selectinload(WorkflowRun.stages),
+                selectinload(WorkflowRun.artifacts),
+            )
+        )
+        if workflow is None:
+            raise ClassificationError("生产工作流不存在。")
+        try:
+            _clear_previous_classification_artifacts(db, workflow)
+            for artifact_type, file_id, result_id, metadata in artifacts:
+                attach_artifact(
+                    db,
+                    workflow,
+                    stage_code="dxf_classification",
+                    artifact_type=artifact_type,
+                    file_id=file_id,
+                    result_id=result_id,
+                    metadata=metadata,
+                )
+            db.flush()
+            return
+        except OperationalError as exc:
+            error_args = getattr(exc.orig, "args", ())
+            if (
+                not error_args
+                or error_args[0] != 1020
+                or retry_index > 0
+            ):
+                raise
+            db.rollback()
+            logger.warning(
+                "Retrying DXF classification artifact replacement after MySQL 1020"
+            )
 
 
 def run_dxf_classification(
@@ -230,6 +309,7 @@ def run_dxf_classification(
                 attempt=attempt,
             )
             seen: set[str] = set()
+            artifact_specs: list[tuple[str, int, int | None, dict[str, Any]]] = []
             for result in results:
                 if not isinstance(result, dict):
                     raise ClassificationError("分类报告逐图记录格式错误。")
@@ -271,20 +351,22 @@ def run_dxf_classification(
                     route=route,
                     result=result,
                 )
-                attach_artifact(
-                    db,
-                    workflow,
-                    stage_code="dxf_classification",
-                    artifact_type="classified_dxf",
-                    file_id=output_file.id,
-                    metadata={
-                        "source_file_id": source_file.id,
-                        "drawing_id": input_item.drawing_id,
-                        "disposition": result.get("disposition"),
-                        "part_type": result.get("part_type"),
-                        "output_directory": route,
-                        "classifier_version": CLASSIFIER_VERSION,
-                    },
+                artifact_specs.append(
+                    (
+                        "classified_dxf",
+                        output_file.id,
+                        None,
+                        {
+                            "source_file_id": source_file.id,
+                            "drawing_id": input_item.drawing_id,
+                            "disposition": result.get("disposition"),
+                            "part_type": result.get("part_type"),
+                            "output_directory": route,
+                            "classifier_version": CLASSIFIER_VERSION,
+                            "job_id": job.id,
+                            "job_attempt": attempt,
+                        },
+                    )
                 )
 
             report_file = _persist_output(
@@ -317,23 +399,45 @@ def run_dxf_classification(
                 report_file=report_file,
                 manifest_file=manifest_file,
             )
-            attach_artifact(
-                db,
-                workflow,
-                stage_code="dxf_classification",
-                artifact_type="classification_report",
-                file_id=report_file.id,
-                result_id=analysis.id,
-                metadata={"schema": REPORT_SCHEMA, "classifier_version": CLASSIFIER_VERSION},
+            artifact_specs.append(
+                (
+                    "classification_report",
+                    report_file.id,
+                    analysis.id,
+                    {
+                        "schema": REPORT_SCHEMA,
+                        "classifier_version": CLASSIFIER_VERSION,
+                        "job_id": job.id,
+                        "job_attempt": attempt,
+                    },
+                )
             )
-            attach_artifact(
-                db,
-                workflow,
-                stage_code="dxf_classification",
-                artifact_type="classification_manifest",
-                file_id=manifest_file.id,
-                metadata={"classifier_version": CLASSIFIER_VERSION},
+            artifact_specs.append(
+                (
+                    "classification_manifest",
+                    manifest_file.id,
+                    None,
+                    {
+                        "classifier_version": CLASSIFIER_VERSION,
+                        "job_id": job.id,
+                        "job_attempt": attempt,
+                    },
+                )
             )
+            report_file_id = report_file.id
+            manifest_file_id = manifest_file.id
+            db.commit()
+            _replace_classification_artifacts(
+                db,
+                workflow_id=workflow.id,
+                artifacts=artifact_specs,
+            )
+            job = db.get(Job, job.id, populate_existing=True)
+            run = load_classification_run(db, job_id=job.id, attempt=attempt)
+            report_file = db.get(StoredFile, report_file_id)
+            manifest_file = db.get(StoredFile, manifest_file_id)
+            if report_file is None or manifest_file is None:
+                raise ClassificationError("分类报告或清单登记丢失。")
             finish_classification_run(
                 run,
                 cli_payload=cli_payload,

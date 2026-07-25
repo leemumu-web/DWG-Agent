@@ -7,8 +7,10 @@ from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from app.bootstrap.seed import init_db
 from app.main import app
@@ -158,14 +160,50 @@ def _frozen_classification_job(db, tmp_path: Path):
     return workflow.id, job.id, stored.id
 
 
+@pytest.mark.parametrize("inject_mysql_1020", [False, True])
 def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
-    db, monkeypatch, tmp_path: Path
+    db, monkeypatch, tmp_path: Path, inject_mysql_1020: bool
 ):
     from app.platform.config.settings import settings
 
     monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "local_storage_root", tmp_path / "storage")
     workflow_id, job_id, source_file_id = _frozen_classification_job(db, tmp_path)
+    workflow = db.get(WorkflowRun, workflow_id)
+    assert workflow is not None
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="dxf_classification",
+        artifact_type="classified_dxf",
+        file_id=source_file_id,
+        metadata={"job_id": job_id, "job_attempt": 0},
+    )
+    db.commit()
+    persistence_events: list[tuple[str, str]] = []
+    persist_output = dxf_classification_service._persist_output
+    attach_artifact = dxf_classification_service.attach_artifact
+    mysql_1020_injected = False
+
+    def tracked_persist_output(*args, **kwargs):
+        persistence_events.append(("persist", kwargs["relative_path"]))
+        return persist_output(*args, **kwargs)
+
+    def tracked_attach_artifact(*args, **kwargs):
+        nonlocal mysql_1020_injected
+        persistence_events.append(("attach", kwargs["artifact_type"]))
+        if (
+            inject_mysql_1020
+            and kwargs["artifact_type"] == "classified_dxf"
+            and not mysql_1020_injected
+        ):
+            mysql_1020_injected = True
+            raise OperationalError(
+                "INSERT INTO workflow_artifacts",
+                {},
+                Exception(1020, "Record has changed since last read"),
+            )
+        return attach_artifact(*args, **kwargs)
 
     def fake_cli(input_directory: Path):
         project_name = input_directory.name.removesuffix("_dxf")
@@ -217,6 +255,16 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
         }
 
     monkeypatch.setattr(dxf_classification_service, "_invoke_classifier", fake_cli)
+    monkeypatch.setattr(
+        dxf_classification_service,
+        "_persist_output",
+        tracked_persist_output,
+    )
+    monkeypatch.setattr(
+        dxf_classification_service,
+        "attach_artifact",
+        tracked_attach_artifact,
+    )
     dxf_classification_service.run_dxf_classification(job_id, worker_name="test-classifier")
 
     db.expire_all()
@@ -224,6 +272,7 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     run = db.scalar(select(DxfClassificationRun).where(DxfClassificationRun.job_id == job_id))
     item = db.scalar(select(DxfClassificationItem).where(DxfClassificationItem.run_id == run.id))
     assert job is not None and job.status == "succeeded"
+    assert mysql_1020_injected is inject_mysql_1020
     assert run is not None and run.status == "completed"
     assert run.input_manifest_sha256 == "f" * 64
     assert run.report_file_id is not None and run.manifest_file_id is not None
@@ -241,6 +290,13 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     assert output.batch_name == item.output_directory
     assert output.sha256 == db.get(StoredFile, source_file_id).sha256
     assert get_storage_backend().object_exists(output.bucket, output.storage_key)
+    last_file_persist = max(
+        index for index, event in enumerate(persistence_events) if event[0] == "persist"
+    )
+    first_artifact_attach = min(
+        index for index, event in enumerate(persistence_events) if event[0] == "attach"
+    )
+    assert last_file_persist < first_artifact_attach
     workflow = db.get(WorkflowRun, workflow_id)
     workflow_service.sync_workflow_from_jobs(db, workflow)
     assert workflow.current_stage == "drawing_processing"
