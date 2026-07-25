@@ -87,20 +87,17 @@ def validate_input_dwg_folder_manifest(
     dwg_stems: set[str] = set()
     for upload_name, raw_path in zip(upload_names, relative_paths, strict=True):
         slash_path = raw_path.replace("\\", "/")
-        normalized_path = unicodedata.normalize("NFKC", slash_path)
         raw_parts = slash_path.split("/")
-        normalized_parts = normalized_path.split("/")
-        path = PurePosixPath(normalized_path)
+        path = PurePosixPath(slash_path)
         if (
-            normalized_path != slash_path
-            or any(ord(character) < 32 or ord(character) == 127 for character in slash_path)
+            any(ord(character) < 32 or ord(character) == 127 for character in slash_path)
             or any(part in {"", ".", ".."} for part in raw_parts)
-            or any(part in {"", ".", ".."} for part in normalized_parts)
             or (raw_parts and re.match(r"^[A-Za-z]:", raw_parts[0]) is not None)
             or path.is_absolute()
             or len(path.parts) < 2
-            or path.as_posix() != normalized_path
-            or unicodedata.normalize("NFKC", upload_name) != path.name
+            or path.as_posix() != slash_path
+            or unicodedata.normalize("NFC", upload_name)
+            != unicodedata.normalize("NFC", path.name)
         ):
             raise AppHTTPException(
                 422,
@@ -108,7 +105,7 @@ def validate_input_dwg_folder_manifest(
                 "Every upload must be a regular file inside one selected folder.",
                 {"path": raw_path},
             )
-        key = normalized_path.casefold()
+        key = unicodedata.normalize("NFC", slash_path).casefold()
         if key in normalized_paths:
             raise AppHTTPException(
                 422,
@@ -117,7 +114,7 @@ def validate_input_dwg_folder_manifest(
                 {"path": raw_path},
             )
         normalized_paths.add(key)
-        roots.add(path.parts[0].casefold())
+        roots.add(unicodedata.normalize("NFC", path.parts[0]).casefold())
         extension = Path(path.name).suffix.lower()
         extensions.append(extension)
         if extension == ".dwg":

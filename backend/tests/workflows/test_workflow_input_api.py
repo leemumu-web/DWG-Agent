@@ -136,6 +136,15 @@ def test_input_folder_manifest_rejects_noncanonical_paths(unsafe_path):
     assert raised.value.detail["code"] == "INPUT_FOLDER_MANIFEST_INVALID"
 
 
+def test_input_folder_manifest_accepts_regular_unicode_engineering_names():
+    folder = validate_input_dwg_folder_manifest(
+        ["BH（腹板）Ⅰ.dwg", "BOX１２.dwg"],
+        ["生产图纸（一期）/BH（腹板）Ⅰ.dwg", "生产图纸（一期）/BOX１２.dwg"],
+    )
+
+    assert folder == "生产图纸（一期）"
+
+
 @pytest.mark.parametrize("name", ["parts.xls", "parts.xlsx", "PARTS.XLSX"])
 def test_excel_upload_name_accepts_supported_extensions(name):
     validate_input_excel_name(name)
