@@ -331,6 +331,7 @@ def _fake_splitter(
     *,
     family_by_member: dict[str, str],
     manual_members: frozenset[str] = frozenset(),
+    failed_members: frozenset[str] = frozenset(),
     invalid_members: frozenset[str] = frozenset(),
 ):
     def invoke(
@@ -344,6 +345,18 @@ def _fake_splitter(
         for source in sorted(input_directory.glob("*.dxf")):
             member = source.stem.removesuffix("_拆板前")
             family = family_by_member[member]
+            if member in failed_members:
+                results.append(
+                    {
+                        "input": str(source.resolve()),
+                        "compiler_version": "1.5.2",
+                        "family": family,
+                        "automation_route": "failed",
+                        "error_type": "ValueError",
+                        "error": "fixture per-file failure",
+                    }
+                )
+                continue
             if member in manual_members:
                 results.append(
                     {
@@ -406,15 +419,21 @@ def _fake_splitter(
                 progress_callback(len(results), expected_input_count)
         _write_ledger(output_directory)
         manual_count = sum(result["automation_route"] == "manual_review" for result in results)
+        failed_count = sum(result["automation_route"] == "failed" for result in results)
         assert len(results) == expected_input_count
         return {
             "schema": split_adapter.CLI_SCHEMA,
             "splitter_version": split_adapter.SPLITTER_VERSION,
-            "status": ("completed_with_review" if manual_count else "completed"),
-            "exit_code": 1 if manual_count else 0,
+            "status": (
+                "completed_with_review"
+                if manual_count or failed_count
+                else "completed"
+            ),
+            "exit_code": 2 if failed_count else (1 if manual_count else 0),
             "input_count": len(results),
-            "auto_accepted_count": len(results) - manual_count,
+            "auto_accepted_count": len(results) - manual_count - failed_count,
             "manual_review_count": manual_count,
+            "failed_count": failed_count,
             "source_contracts": {
                 "BH": split_adapter.BH_SOURCE_CONTRACT,
                 "BOX": split_adapter.BOX_SOURCE_CONTRACT,
@@ -699,6 +718,29 @@ def test_review_api_completes_candidate_and_downloads_only_zip_archives(
         "failed_count": 0,
     }
     assert final_manifest["items"][0]["review_decision"] == "accept_candidate"
+    for archive_url in (
+        f"/api/v1/workflows/{workflow.id}/stages/drawing_processing/download-archive",
+        f"/api/v1/workflows/{workflow.id}/download-archive",
+    ):
+        archive_response = client.get(archive_url, headers=headers)
+        assert archive_response.status_code == 200, archive_response.text
+        with zipfile.ZipFile(BytesIO(archive_response.content)) as zipped:
+            manifest_names = [
+                name
+                for name in zipped.namelist()
+                if name.endswith(
+                    (
+                        "dxf-split-manifest.json",
+                        "dxf-split-final-manifest.json",
+                    )
+                )
+            ]
+            assert len(manifest_names) == 1
+            archived_manifest = json.loads(
+                zipped.read(manifest_names[0]).decode("utf-8")
+            )
+        assert archived_manifest["status"] == "completed"
+        assert archived_manifest["machine_outcome"]["manual_review_count"] == 1
 
     db.expire_all()
     refreshed = db.get(WorkflowRun, workflow.id)
@@ -1209,14 +1251,24 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     workflow_id, job_id, sources = _split_job_fixture(
         db,
         tmp_path,
-        parts=(("BH-REVIEW", "BH"), ("BOX-AUTO", "BOX"), ("PX-REVIEW", "PX")),
+        parts=(
+            ("BH-FAILED", "BH"),
+            ("BH-REVIEW", "BH"),
+            ("BOX-AUTO", "BOX"),
+            ("PX-REVIEW", "PX"),
+        ),
     )
     monkeypatch.setattr(
         split_execution,
         "_invoke_splitter",
         _fake_splitter(
-            family_by_member={"BH-REVIEW": "BH", "BOX-AUTO": "BOX"},
+            family_by_member={
+                "BH-FAILED": "BH",
+                "BH-REVIEW": "BH",
+                "BOX-AUTO": "BOX",
+            },
             manual_members=frozenset({"BH-REVIEW"}),
+            failed_members=frozenset({"BH-FAILED"}),
         ),
     )
 
@@ -1228,16 +1280,23 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     assert job is not None and job.status == "succeeded"
     assert job.attempt == 1
     assert run is not None and run.status == "completed_with_review"
-    assert run.input_count == 3
+    assert run.input_count == 4
     assert run.auto_accepted_count == 1
-    assert run.manual_review_count == 2
-    assert len(run.items) == 3
+    assert run.manual_review_count == 3
+    assert run.failed_count == 1
+    assert len(run.items) == 4
     by_name = {item.source_name: item for item in run.items}
     assert by_name["BOX-AUTO_拆板前.dxf"].automation_route == "auto_accepted"
     assert by_name["BOX-AUTO_拆板前.dxf"].normal_dxf_file_id is not None
     assert by_name["BH-REVIEW_拆板前.dxf"].automation_route == "manual_review"
+    assert by_name["BH-FAILED_拆板前.dxf"].automation_route == "manual_review"
+    assert by_name["BH-FAILED_拆板前.dxf"].disposition == "splitter_failed"
+    assert "SPLITTER_FILE_FAILED" in by_name[
+        "BH-FAILED_拆板前.dxf"
+    ].diagnostics_json
     assert by_name["PX-REVIEW_拆板前.dxf"].disposition == "unsupported_part_type"
     assert manual_review_archive_members(db, run) == [
+        (sources["BH-FAILED"], "BH-FAILED_拆板前.dxf"),
         (sources["BH-REVIEW"], "BH-REVIEW_拆板前.dxf"),
         (sources["PX-REVIEW"], "PX-REVIEW_拆板前.dxf"),
     ]
@@ -1273,6 +1332,7 @@ def test_mixed_batch_finishes_every_file_and_review_zip_only_has_failed_original
     with zipfile.ZipFile(BytesIO(archive.content)) as zipped:
         names = zipped.namelist()
     assert names == [
+        "BH-FAILED_拆板前.dxf",
         "BH-REVIEW_拆板前.dxf",
         "PX-REVIEW_拆板前.dxf",
     ]
