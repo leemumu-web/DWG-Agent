@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **152 个 path、176 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **157 个 path、181 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -190,6 +190,11 @@
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification/download-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing` |
 | `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items` |
+| `PUT` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items/{item_id}/decision` |
+| `POST` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-completion` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-candidates-archive` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/results-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}` |
 | `POST` | `/api/v1/workflows/{workflow_id}/start` |
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion` |

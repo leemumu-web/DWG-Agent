@@ -98,9 +98,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-Alembic/SQLAlchemy 管理 **44 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 45 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **53 张表**。
+Alembic/SQLAlchemy 管理 **45 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 46 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **54 张表**。
 
-不能把 53 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 45 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
+不能把 54 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 46 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -660,8 +660,9 @@ analysis_results ──< workflow_artifacts
 | `c7b2d4e9f601` | 将 Linux 生产图纸链升级为 revision 3：源 DWG 留档、DrawingVersion 与后续图纸 artifact 统一为 DXF | 2026-07-24 |
 | `d6f3a8c2e710` | 为 DXF 分类条目增加权威截面、类型来源、分组键和下游资格字段 | 2026-07-25 |
 | `f9c4b7e2a610` | 新增 DXF 拆板 run/item 账本、attempt 唯一约束、逐图产物与人工复核语义 | 2026-07-25 |
+| `a7d9e4c1b620` | 新增 DXF 拆板进度、候选产物引用与逐次人工复核决定账本 | 2026-07-25 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710` 与 `f9c4b7e2a610`。**`f9c4b7e2a610` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610` 与 `a7d9e4c1b620`。**`a7d9e4c1b620` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -712,7 +713,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **44 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、DXF 分类与拆板、控制平面、每日归档与余料库存账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **45 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、DXF 分类、拆板与复核决定、控制平面、每日归档与余料库存账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
@@ -801,7 +802,7 @@ bash scripts/db.sh init
 
 | 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL `dwg_agent` | 44 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
+| MySQL `dwg_agent` | 45 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
 | `hardware_handbook` | 唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 的确定性生成物；每条语义记录可追溯到源 Sheet/行 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |
