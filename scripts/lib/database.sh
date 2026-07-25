@@ -432,6 +432,8 @@ expected_tables = {
     "drawings",
     "dxf_classification_items",
     "dxf_classification_runs",
+    "dxf_split_items",
+    "dxf_split_runs",
     "control_plane_events",
     "daily_archive_runs",
     "excel_final_batches",

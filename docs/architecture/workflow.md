@@ -10,13 +10,13 @@
 - `AnalysisResult` 管处理结果；
 - `WorkflowArtifact` 只保存已有 file/result 引用和阶段元数据。
 
-公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、Steel DXF 分类、冻结 Excel 第一阶段、Job attempt 同步、结果产物挂接和 active Job 取消。DXF→Excel 只保留为独立转换工具，不是生产工作流阶段。拆板算法、CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现；它们拥有稳定阶段与输入输出合同，但前端不提交虚假任务，直接说明未实现边界。
+公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、Steel DXF 分类、Steel DXF Split 1.5.2 整批拆板与独立校验、冻结 Excel 第一阶段、Job attempt 同步、结果产物挂接和 active Job 取消。DXF→Excel 只保留为独立转换工具，不是生产工作流阶段。拆板纵向切片默认关闭，仍需真实 MinIO/MySQL 与代表性业务样本验收；CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现。
 
 ### 1.1 代码归属与输入规则校正
 
 工作流正式实现位于 `backend/app/modules/workflows/`：`models/` 拥有五张表，`schemas/`
 拥有 HTTP/展示契约，`templates.py` 是阶段事实源，`lifecycle.py` 与 `job_sync.py` 分别负责
-业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 16 个
+业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 18 个
 operation。其他业务模块只能导入 `workflows.interface`；旧的 workflow API/model/schema/service
 横向文件已经退出。
 
@@ -42,8 +42,8 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 |---:|---|---|---|
 | 1 | `source_intake` | guarded | 登记 `source_dwg` 与 `source_excel`；服务器生成 `canonical_dxf`，创建指向 DXF 的 DrawingVersion 后冻结输入清单 |
 | 2 | `dxf_classification` | automated | 消费 `canonical_dxf`；产出 `classified_dxf`、JSON 报告和清单 |
-| 3 | `drawing_processing` | placeholder | 消费 `classified_dxf`；合同要求 `processed_dxf` 与校验报告，核心拆板仍留白 |
-| 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
+| 3 | `drawing_processing` | automated | 整批消费 `classified_dxf`；BH/BOX 通过 Steel DXF Split 1.5.2 生成正常拆板与余量增长 DXF，并由独立步骤重开校验；其他类型或未通过图纸进入人工复核；产出 7 类正式 artifact |
+| 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，同时接收当前拆板 run 的 `processed_dxf` 与 `BH拆板信息表.xlsx` 交接，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
 | 5 | `excel_stage2` | placeholder | 消费 `stage1_excel` 与 `processed_dxf`，预留 `stage2_excel`；当前等待上线 |
 | 6 | `design_barrier` | manual | 人工确认图纸和 `stage2_excel` 已满足后续生产条件 |
 | 7 | `cam_packaging` | placeholder | 合同要求 `cam_input_dxf` 与 CAM 清单；等待上线 |
@@ -76,6 +76,10 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 ### 3.5 `dxf_classification_runs` / `dxf_classification_items`
 
 每个 Job attempt 建立独立分类 run，保存 workflow/project/job、冻结输入清单 SHA-256、分类器/CLI/报告 schema 版本、汇总、JSON 报告和 CSV 清单文件引用。逐图 item 保存 Drawing、来源派生 DXF、分流输出 DXF、处置、零件类型、原始/规范规格、类型来源、稳定 `group_key`、`next_stage_eligible`、诊断、证据和遵循 1.2.0 的输出目录名。`(job_id, job_attempt)` 与 `(run_id, source_file_id)` 唯一，旧 attempt 不覆盖新结果。
+
+### 3.6 `dxf_split_runs` / `dxf_split_items`
+
+每个拆板 Job attempt 建立不可变 run，保存 workflow/project/job、输入清单 SHA-256、Split/CLI/独立校验 schema、输入/自动通过/人工复核计数、来源合同映射和批次级 ledger/manifest/validation 文件引用。逐图 item 保存分类 item、分类原始文件、Drawing、零件类型、来源合同、自动路线、处置、正常拆板/余量增长 DXF、两类算法报告、诊断和独立校验结果。`(job_id, job_attempt)` 与 `(run_id, source_file_id)` 唯一；新 attempt 重跑整个冻结批次，旧 attempt 保留但不进入当前 UI、Excel 交接或正式归档。
 
 ## 4. 状态与执行
 
@@ -115,9 +119,20 @@ completion API 只接受当前可操作阶段：
 4. 分类器只在临时副本上增加 `*_拆板前.dxf`，原始 MinIO DXF 不改名；
 5. 输出严格使用 `<项目名>_<零件类型>_dxf`、`<项目名>_待确认_dxf`、`<项目名>_无法读取_dxf`，逐图核对报告、数量和字节摘要；
 6. 每个分流 DXF、JSON 报告和 CSV 清单分别写入 MinIO、登记 `files`，并关联 classification item/artifact/result；
-7. CLI 退出码 2 表示“完成但需确认”，仍保存完整结果并进入拆板留白阶段；退出码 1/64 或契约不一致使当前 attempt 失败并允许重试。
+7. CLI 退出码 2 表示“完成但需确认”，仍保存完整结果；只有 `next_stage_eligible=true` 的分类输出可进入拆板。退出码 1/64 或契约不一致使当前 attempt 失败并允许重试。
 
 分类查询按数据库 `group_key` 聚合为类型、待确认和无法读取文件夹，逐类详情分页读取；下一阶段公共接口只返回 `next_stage_eligible=true` 且输出对象存在的 DXF。分类页面不展示 JSON/CSV 审计文件。任一类别或全部分类下载都复用 Files 的权限、传输账本和流式 ZIP，且 ZIP 成员严格限于已登记 `.dxf`。
+
+`drawing_processing`：
+
+1. 要求 `DXF_SPLIT_PIPELINE_ENABLED=true`；服务端只读取最新分类 run 中 `next_stage_eligible=true` 的文件登记，不接受浏览器路径、临时 URL 或人工上传 DXF；
+2. 创建整批冻结清单并以一个 Job attempt 处理全部图纸，不因第一张人工复核而中止；BH 使用 `project_tekla_bh_dxf_v1`，BOX 使用 `project_tekla_box_dxf_v1`，其他已分类类型直接标为 `manual_review`；
+3. BH/BOX 在隔离目录调用 `python -m steel_dxf_split.cli <input_directory> --output-dir <output_directory>`，并显式传入上述两个来源合同授权参数；产物文件名固定为 `<构件>_正常拆板.dxf` 和 `<构件>_余量增长.dxf`，平台内部字段分别为 `normal_dxf`、`weld_allowance_dxf`；
+4. 算法子进程结束后，由 Job 的第二个步骤独立重开两个 DXF，核对成对文件、报告路径、自动处置和目录边界；任一业务校验不通过只把该图纸标为 `manual_review`，其余图纸继续；
+5. 正常拆板、余量增长、两类算法报告、独立校验报告、批次 manifest 与 `BH拆板信息表.xlsx` 均登记为正式文件；DXF 写入现有 `dxf-derived` bucket，报告/ledger 写入现有 `dwg-reports` bucket，key 固定在 `workflows/{workflow_id}/drawing-processing/attempt-{attempt}/...`，不新增 bucket；
+6. 全部自动通过时 Job/run 为 `succeeded`/`completed` 并推进 `excel_stage1`；只要有一张需人工处理，Job 仍为 `succeeded`，run 为 `completed_with_review`，workflow/stage 保持 `waiting_review`，自动通过产物继续保留；
+7. executions 端点先锁定工作流行；阶段一旦绑定拆板 Job，后续请求始终复用该 Job，不因项目操作者变化而新建逻辑任务。技术失败才触发自动重试；同一个 Job 最多执行 3 个 attempt（首次加 2 次自动重试），每次都按冻结清单重跑整批。投递或执行仍失败时 Job/run 收敛为 `failed`；运行中的 Job 被取消或由新 attempt 取代时，只关闭对应旧 run，不回写新 Job；
+8. 人工复核 ZIP 由下载请求即时流式生成，只包含当前 run 中未通过图纸进入拆板前的分类原始 DXF；不包含候选图、报告、预览、Excel 或旧 attempt 文件，也不在 MinIO 保存 ZIP。下载先验证项目成员和当前 workflow/run/attempt 账本关系；服务器派生文件不要求操作者与登记上传者是同一人。
 
 `excel_stage1`：
 
@@ -125,14 +140,14 @@ completion API 只接受当前可操作阶段：
 2. 输入批次必须冻结，清单摘要存在，并且恰好有一个状态为 frozen 的 `source_excel`；
 3. `source_intake` 阶段必须有且仅有一个与该条目同文件的 `source_excel` artifact；
 4. 重新核对文件权限、对象 SHA-256、登记时的表格检查版本与规范检查结果；浏览器不能提交或替换 `file_id`；
-5. 请求体严格只有 `{"execution_kind":"excel_stage1"}`，服务端生成 `file_id`、`workflow_id` 和冻结清单摘要参数；
+5. 请求体严格只有 `{"execution_kind":"excel_stage1"}`，服务端生成 `file_id`、`workflow_id`、冻结清单摘要与当前拆板 run 的稳定交接参数；交接含正常拆板文件 ID、`BH拆板信息表.xlsx` 文件 ID 和 run/attempt 摘要，不传本地路径或临时 URL；
 6. 以工作流/阶段幂等键创建或复用 `process_excel_final` Job，同事务绑定 attempt，commit 后 dispatch。
 
 相同工作流阶段重放返回同一 Job 且不重复投递；改用不同参数会触发现有 Job 幂等参数冲突。
 
 ### 4.4 同步与产物
 
-`GET /api/v1/workflows/{workflow_id}` 同步已绑定 Job 的状态、进度、错误和时间。Job 成功时查询其成功 AnalysisResult，根据阶段能力自动挂接 file/result；重复 GET 幂等。随后推进下一阶段。失败 Job 把流程收敛为 failed，并保留错误与已完成产物。
+`GET /api/v1/workflows/{workflow_id}` 同步已绑定 Job 的状态、进度、错误和时间。Job 成功时查询其成功 AnalysisResult，根据阶段能力自动挂接 file/result；重复 GET 幂等。普通成功随后推进下一阶段；拆板 `completed_with_review` 是业务成功但不推进，阶段和流程保持 `waiting_review`。失败 Job 把流程收敛为 failed，并保留错误与已完成产物。工作流归档以已验证的项目成员资格和 artifact/run 账本为下载边界，因此同项目工程师可接续前一位操作者生成的服务器产物；非项目成员仍在进入归档收集前被拒绝。
 
 ### 4.5 取消
 
@@ -140,7 +155,7 @@ completion API 只接受当前可操作阶段：
 
 ### 4.6 失败恢复
 
-自动阶段 Job 失败或被单独取消后，流程停留在原阶段并进入可恢复的 `failed` 状态。重新调用同一 executions 端点会复用原 Job、递增 `attempt`、刷新阶段绑定并重新投递，响应返回 `retried=true`。旧 attempt 的 worker/result 仍由现有 fencing 规则拒绝；显式取消整个流程后不会自动重开。
+一般自动阶段 Job 失败或被单独取消后，流程停留在原阶段并进入可恢复的 `failed` 状态。重新调用同一 executions 端点会复用原 Job、递增 `attempt`、刷新阶段绑定并重新投递，响应返回 `retried=true`。拆板的消息投递或 worker 执行发生技术失败时，系统自动使用同一 Job 的下一 attempt，最多 3 次；达到上限后 executions 端点返回 `DXF_SPLIT_ATTEMPTS_EXHAUSTED`，业务 `manual_review` 不触发技术重试。旧 attempt 的 worker/result 仍由现有 fencing 规则拒绝；显式取消整个流程后不会自动重开。
 
 ## 5. API
 
@@ -155,6 +170,8 @@ completion API 只接受当前可操作阶段：
 | POST | `/api/v1/workflows` | 创建流程与阶段 |
 | GET | `/api/v1/workflows/{workflow_id}` | 详情、Job 同步和自动产物挂接 |
 | GET | `/api/v1/workflows/{workflow_id}/dxf-classification` | 最新分类 attempt、Job、汇总、逐图来源/输出和报告登记 |
+| GET | `/api/v1/workflows/{workflow_id}/drawing-processing` | 仅返回工作流当前拆板 Job/attempt 对应的 run、汇总和逐图处置；尚未建立 run 时返回 `data: null` |
+| GET | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive` | 即时下载当前 run 未通过图纸的分类原始 DXF ZIP |
 | POST | `/api/v1/workflows/{workflow_id}/artifacts` | 绑定已有 File/Result，重复请求幂等 |
 | POST | `/api/v1/workflows/{workflow_id}/start` | 启动草稿 |
 | GET, POST | `/api/v1/workflows/{workflow_id}/input-batch` | 读取/幂等建立生产输入批次 |
@@ -172,7 +189,7 @@ completion API 只接受当前可操作阶段：
 
 主要业务错误：
 
-| HTTP | code | 含义 |
+| HTTP/位置 | code | 含义 |
 |---:|---|---|
 | 409 | `WORKFLOW_STAGE_NOT_CURRENT` | 请求的不是当前阶段 |
 | 409 | `WORKFLOW_STAGE_REQUIRES_EXECUTION` | 自动阶段不能人工确认 |
@@ -187,6 +204,15 @@ completion API 只接受当前可操作阶段：
 | 501 | `WORKFLOW_STAGE_NOT_IMPLEMENTED` | 阶段接口存在，但核心实现留白；details 返回输入/产物契约 |
 | 503 | `DXF_CLASSIFICATION_PIPELINE_DISABLED` | DXF 分类分流 flag 关闭 |
 | 409 | `CLASSIFICATION_SOURCE_MISSING` / `CLASSIFICATION_SOURCE_REQUIRED` | 冻结清单缺少可读派生 DXF |
+| 503 | `DXF_SPLIT_PIPELINE_DISABLED` | DXF 拆板 flag 关闭 |
+| 409 | `DXF_SPLIT_ATTEMPTS_EXHAUSTED` | DXF 拆板 Job 已用完三次完整批次尝试 |
+| 409 | `DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED` | 公共 Job 创建/重试端点不能绕过工作流阶段绑定和 attempt 预算 |
+| 409 | `DXF_SPLIT_JOB_BINDING_INVALID` | 阶段已绑定的权威 Job 与当前项目、冻结输入或 attempt 不一致 |
+| 409 | `DXF_CLASSIFICATION_REVIEW_UNRESOLVED` / `DXF_CLASSIFICATION_PROJECT_MISMATCH` / `DXF_SPLIT_INPUT_REQUIRED` / `DXF_SPLIT_SOURCE_MISSING` | 当前分类 run、项目 Job 或登记对象不满足拆板输入合同 |
+| Job error | `DXF_SPLIT_FAILED` | CLI、对象存储或持久化发生技术失败；系统使用同一 Job 自动创建下一完整 attempt，最多三次 |
+| run error | `DXF_SPLIT_ATTEMPT_INTERRUPTED` | Job 已被取消或进入新 attempt；只关闭对应旧 run，不改写当前 Job |
+| run status | `completed_with_review` | 单图算法或独立校验未通过；Job 仍成功，当前图进入人工复核且同批其他图已处理到底 |
+| 404/409 | `DXF_SPLIT_RUN_NOT_CURRENT` / `DXF_SPLIT_RUN_STALE` / `DXF_SPLIT_REVIEW_ARCHIVE_*` | 请求的 run 不是当前 attempt，Excel 交接指向旧 attempt，或当前 run 没有可下载的未通过原图 |
 | 503 | `EXCEL_FINAL_PIPELINE_DISABLED` | Excel Final flag 关闭 |
 
 ## 6. 前端
@@ -204,7 +230,9 @@ React `生产流程` 页面读取模板，提供：
 - 逐文件上传/登记、Job attempt/进度、DXF 配对、结构化问题和修复建议；
 - 上传成功但登记失败时只重试登记，避免重复保存对象；
 - 冻结后详情工作区自动进入 DXF 分类控制台，无需重新选择文件；
-- 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断、分流 DXF 与 JSON/CSV 下载；
+- 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断以及分类/全量 DXF-only 下载；JSON/CSV 只进入审计产物；
+- 拆板整批启动、当前 Job/attempt 进度、输入/自动通过/人工复核汇总和错误展示；
+- 拆板人工复核时只显示“下载未通过原图 ZIP”，由服务端即时生成当前 attempt 的分类原始 DXF 压缩包；不提供候选图、报告、Excel、人工上传、通过、继续或重跑按钮；
 - Excel 第一阶段只提交 `execution_kind`，服务端自动使用冻结 `source_excel`，页面不存在第二个文件选择器；
 - Excel 第二阶段及 CAM/归档节点只展示等待上线和输入/产物合同，不发送必然失败的探测请求；
 - Job/attempt/进度/错误展示；
@@ -214,11 +242,12 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、严格执行体、`excel_stage2` 未实现门禁和产物挂接；前端 Playwright 锁定独立详情页、冻结 Excel 自动执行、等待上线节点、精炼产物摘要，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
+新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、严格执行体、拆板整批/人工复核/三 attempt 语义、当前 attempt 产物过滤、迁移和 Excel 交接，以及 `excel_stage2` 未实现门禁和产物挂接；前端 Playwright 锁定独立详情页、冻结 Excel 自动执行、结构化表格错误、拆板人工复核下载、等待上线节点、精炼产物摘要，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 
-- 自动拆板、人工拆板结果业务校验；
+- 获准真实 BH/BOX 批次上的算法质量、MinIO/MySQL 登记、人工复核 ZIP 与 Excel 交接验收；
+- 当前人工复核后的上传、重新进入自动链路或人工确认推进产品流程；本次有意只提供未通过原图下载；
 - 深化设计 barrier 的机器完整性校验；
 - CAM 规则分组和工作包生成；
 - Windows Node Agent、租约、fencing token、SinoCAM Runner/Adapter；
@@ -226,4 +255,4 @@ React `生产流程` 页面读取模板，提供：
 - 多请求并发推进的行锁/version 控制；
 - 获准真实生产图纸下的分类准确率业务验收。
 
-因此本次交付已完成服务器输入冻结和 DXF 分类分流，并保留后续拆板/CAM 边界；不是 SinoCAM 生产闭环已经完成的声明。
+因此本次交付已把服务器输入冻结、DXF 分类分流和默认关闭的 BH/BOX 拆板纵向切片接通，并保留人工复核后的产品流程与后续 CAM 边界；不是 SinoCAM 生产闭环或拆板业务验收已经完成的声明。

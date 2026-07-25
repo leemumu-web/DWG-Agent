@@ -10,6 +10,7 @@ def load_models() -> tuple[ModuleType, ...]:
     from app.modules.automation.agent.models import memory as agent_memory
     from app.modules.automation.agent.models import runs as agent_run
     from app.modules.dxf_classification import models as dxf_classification
+    from app.modules.dxf_splitting import models as dxf_splitting
     from app.modules.excel_processing import models as excel_processing
     from app.modules.files import models as files
     from app.modules.identity.models import role, token_blacklist, user
@@ -29,6 +30,7 @@ def load_models() -> tuple[ModuleType, ...]:
         daily_archive,
         drawing,
         dxf_classification,
+        dxf_splitting,
         excel_processing,
         files,
         jobs,

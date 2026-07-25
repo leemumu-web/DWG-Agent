@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap.seed import init_db
 from app.main import app
+from app.modules.jobs.interface import Job
+from tests.support.database import open_test_session
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -125,6 +127,29 @@ class TestJobCreation:
         headers = _login(client, "admin", "SuperAdminPass1")
         resp = client.get("/api/v1/workflows/jobs/999999", headers=headers)
         assert resp.status_code == 404
+
+    def test_split_job_cannot_bypass_workflow_execution_endpoint(self):
+        client = _client()
+        headers = _login(client, "admin", "SuperAdminPass1")
+        project = client.post(
+            "/api/v1/workflows/projects",
+            headers=headers,
+            json={"code": _unique("SPLIT"), "name": "Split workflow authority"},
+        )
+        assert project.status_code == 201, project.text
+
+        response = client.post(
+            "/api/v1/workflows/jobs",
+            headers=headers,
+            json={
+                "project_id": project.json()["data"]["id"],
+                "task_type": "split_steel_dxf",
+                "precision_level": "normal",
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED"
 
 
 # =============================================================================
@@ -277,6 +302,27 @@ class TestJobRetry:
             )
             assert retry_log is not None
             assert retry_log.get("ip_address"), "retry audit should have ip_address"
+
+    def test_split_job_retry_cannot_bypass_workflow_attempt_budget(self):
+        client = _client()
+        headers = _login(client, "admin", "SuperAdminPass1")
+        _, _, job_id = _create_job(client, headers)
+        with open_test_session() as db:
+            job = db.get(Job, job_id)
+            assert job is not None
+            job.task_type = "split_steel_dxf"
+            job.pipeline = "steel_dxf_split"
+            job.status = "failed"
+            job.attempt = 3
+            db.commit()
+
+        response = client.post(
+            f"/api/v1/workflows/jobs/{job_id}/retry-requests",
+            headers=headers,
+        )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED"
 
 
 # =============================================================================

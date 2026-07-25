@@ -1,0 +1,7 @@
+{
+  "schema": "BOX-BUILD-CONTRACT-1.0",
+  "files": {
+    "pyproject.toml": "bd09975d1d28d991714c8f538f0fa3a2aab5474b96d57ff2ddb6df6aa7862554",
+    "uv.lock": "9860a517f24a3304631dd7f0fd14393188c64df418b7fd09fe78468a6ad917d2"
+  }
+}

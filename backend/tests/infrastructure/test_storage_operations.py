@@ -50,7 +50,7 @@ DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
 COMPOSE_LIBRARY = SCRIPTS_DIR / "lib" / "compose.sh"
 
-EXPECTED_HEAD = "d6f3a8c2e710"
+EXPECTED_HEAD = "f9c4b7e2a610"
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ class TestMigrationChain:
             elif isinstance(down_revision, str):
                 parents = (down_revision,)
             else:
-                assert isinstance(down_revision, (tuple, list)), (
+                assert isinstance(down_revision, tuple | list), (
                     f"{path.name} has an unsupported down_revision value"
                 )
                 assert all(isinstance(parent, str) for parent in down_revision)
@@ -171,8 +171,8 @@ class TestMigrationChain:
             chain[revision] = parents
         return chain
 
-    def test_twenty_eight_migration_files_present(self):
-        assert len(list(VERSIONS_DIR.glob("*.py"))) == 28
+    def test_twenty_nine_migration_files_present(self):
+        assert len(list(VERSIONS_DIR.glob("*.py"))) == 29
 
     def test_exactly_one_base_revision(self):
         chain = self._parse_chain()
@@ -207,7 +207,7 @@ class TestMigrationChain:
             visited.add(revision)
 
         visit(EXPECTED_HEAD)
-        assert len(visited) == len(chain) == 28
+        assert len(visited) == len(chain) == 29
         assert "40452ddd24e7" in visited
 
 

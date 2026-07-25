@@ -9,6 +9,7 @@ from app.modules.identity.interface import User
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
+from app.modules.workflows.contracts import require_stage_inputs, require_stage_outputs
 from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.http.exceptions import AppHTTPException
 
@@ -33,11 +34,31 @@ EXPECTED_DRAWING_FLOW = {
     },
     "drawing_processing": {
         "required_inputs": ["classified_dxf"],
-        "artifact_types": ["processed_dxf", "validation_report"],
-        "required_outputs": ["processed_dxf", "validation_report"],
+        "artifact_types": [
+            "processed_dxf",
+            "weld_allowance_dxf",
+            "split_report",
+            "weld_allowance_report",
+            "validation_report",
+            "bh_split_ledger",
+            "split_manifest",
+        ],
+        "required_outputs": [
+            "processed_dxf",
+            "weld_allowance_dxf",
+            "split_report",
+            "weld_allowance_report",
+            "validation_report",
+            "bh_split_ledger",
+            "split_manifest",
+        ],
     },
     "excel_stage1": {
-        "required_inputs": ["source_excel"],
+        "required_inputs": [
+            "source_excel",
+            "processed_dxf",
+            "bh_split_ledger",
+        ],
         "artifact_types": ["stage1_excel"],
         "required_outputs": ["stage1_excel"],
     },
@@ -165,9 +186,7 @@ def _result(
 
 
 def _set_current_stage(workflow, stage_code: str) -> None:
-    target = next(
-        stage for stage in workflow.stages if stage.stage_code == stage_code
-    )
+    target = next(stage for stage in workflow.stages if stage.stage_code == stage_code)
     for stage in workflow.stages:
         if stage.sequence < target.sequence:
             stage.status = "succeeded"
@@ -328,10 +347,7 @@ def test_result_only_artifact_keeps_production_zip_download_boundary(db):
         result_id=result.id,
     )
 
-    assert (
-        workflow_service.find_production_file_workflow_id(db, result_file.id)
-        == workflow.id
-    )
+    assert workflow_service.find_production_file_workflow_id(db, result_file.id) == workflow.id
 
 
 def test_drawing_processing_requires_classified_dxf(db):
@@ -339,17 +355,13 @@ def test_drawing_processing_requires_classified_dxf(db):
     _set_current_stage(workflow, "drawing_processing")
 
     with pytest.raises(AppHTTPException) as caught:
-        workflow_service.complete_manual_stage(
-            db,
-            workflow,
-            "drawing_processing",
-        )
+        require_stage_inputs(workflow, "drawing_processing")
 
     assert caught.value.detail["code"] == "WORKFLOW_STAGE_INPUT_INCOMPLETE"
     assert caught.value.detail["details"]["missing_inputs"] == ["classified_dxf"]
 
 
-def test_drawing_processing_requires_dxf_and_validation_report(db):
+def test_drawing_processing_requires_all_current_attempt_outputs(db):
     user, _, workflow = _production_workflow(db)
     _set_current_stage(workflow, "drawing_processing")
     classified_dxf = _stored_file(
@@ -375,17 +387,21 @@ def test_drawing_processing_requires_dxf_and_validation_report(db):
         stage_code="drawing_processing",
         artifact_type="processed_dxf",
         file_id=processed_dxf.id,
+        metadata={"job_id": None, "job_attempt": None},
     )
 
     with pytest.raises(AppHTTPException) as caught:
-        workflow_service.complete_manual_stage(
-            db,
-            workflow,
-            "drawing_processing",
-        )
+        require_stage_outputs(workflow, "drawing_processing")
 
     assert caught.value.detail["code"] == "WORKFLOW_STAGE_OUTPUT_INCOMPLETE"
-    assert caught.value.detail["details"]["missing_outputs"] == ["validation_report"]
+    assert caught.value.detail["details"]["missing_outputs"] == [
+        "weld_allowance_dxf",
+        "split_report",
+        "weld_allowance_report",
+        "validation_report",
+        "bh_split_ledger",
+        "split_manifest",
+    ]
 
 
 def test_succeeded_job_without_required_output_fails_workflow_stage(db):
@@ -414,9 +430,7 @@ def test_succeeded_job_without_required_output_fails_workflow_stage(db):
 
     workflow_service.sync_workflow_from_jobs(db, workflow)
 
-    stage = next(
-        value for value in workflow.stages if value.stage_code == "excel_stage1"
-    )
+    stage = next(value for value in workflow.stages if value.stage_code == "excel_stage1")
     assert stage.status == "failed"
     assert stage.error_code == "WORKFLOW_STAGE_OUTPUT_INCOMPLETE"
     assert workflow.current_stage == "excel_stage1"

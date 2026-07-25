@@ -12,6 +12,7 @@ root.
 | `cad_processing/` | DWG/DXF conversion, extraction and preview adapters |
 | `contracts/` | Cross-process HTTP, frontend and documentation contracts |
 | `dxf_classification/` | Steel DXF classifier integration |
+| `dxf_splitting/` | Steel DXF Split 1.5.2 integration, review routing, storage and retry contracts |
 | `excel_processing/` | Excel Final execution, persistence and retry semantics |
 | `files/` | File registry, object storage and transfer consistency |
 | `identity/` | Users, sessions, roles and token lifecycle |

@@ -51,6 +51,7 @@ class DxfClassificationGroupPage(BaseModel):
 
 
 class DxfNextStageInput(BaseModel):
+    classification_item_id: int
     drawing_id: int | None
     part_type: str
     profile_normalized: str | None

@@ -172,7 +172,7 @@
         "backend/tests/workflows/test_workflow_production.py"
       ],
       "docs": ["docs/architecture/workflow.md", "docs/verification/current.md"],
-      "notes": "DWG plus one Excel intake, server DXF conversion, freeze and classification are wired; later production stages expose truthful placeholders."
+      "notes": "DWG plus one Excel intake, server DXF conversion, freeze, classification and the drawing-processing orchestration seam are wired; dxf_splitting owns the split task and ledgers, while CAM and Windows stages remain truthful placeholders."
     },
     {
       "code": "cad_processing",
@@ -218,6 +218,25 @@
       "tests": ["backend/tests/dxf_classification/test_dxf_classification_pipeline.py"],
       "docs": ["Stages/steel_dxf_classifier_v1.1.0/docs/IO_CONTRACT.md", "docs/architecture/workflow.md"],
       "notes": "Classifier 1.2.0 output names, per-drawing type semantics, folder groups and source/output relations are registered in MySQL and object storage."
+    },
+    {
+      "code": "dxf_splitting",
+      "title": "Steel DXF 拆板与独立校验",
+      "status": "partial",
+      "architecture_nodes": ["API", "MINIO", "MYSQL", "WEB"],
+      "backend_paths": ["backend/app/modules/dxf_splitting"],
+      "frontend_paths": ["frontend/src/features/workflows/DrawingProcessingPanel.tsx"],
+      "tables": ["dxf_split_items", "dxf_split_runs"],
+      "http_prefixes": [],
+      "celery_tasks": ["app.workers.tasks_dxf_split.split_steel_dxf"],
+      "queues": ["dxf_split"],
+      "stages": ["Stages/steel_dxf_split_v1.5.2"],
+      "tests": ["backend/tests/dxf_splitting/test_dxf_splitting_pipeline.py"],
+      "docs": [
+        "backend/app/modules/dxf_splitting/README.md",
+        "docs/architecture/workflow.md"
+      ],
+      "notes": "Steel DXF Split 1.5.2 按冻结分类清单整批处理 BH/BOX，登记正常拆板、余量增长、报告和 BH 拆板信息表；其他类型或独立校验未通过图纸保持人工复核。HTTP 路由由 workflows 模块拥有，真实 MinIO/MySQL 部署和人工前端样本验收仍受默认关闭的功能开关保护。"
     },
     {
       "code": "excel_processing",

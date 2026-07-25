@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`templates.py` 查询模板；`commands.py` 创建/启动/确认/取消；`production_projects.py` 原子创建生产项目及其唯一完整工作流；`queries.py` 查询 run/stage；`artifacts.py` 管理内部产物绑定；`archive.py` 复用 Files 能力输出完整生产 ZIP；`execution.py` 暴露阶段推进合同；`intake.py` 处理 Excel 单文件、DWG 文件夹、转换与冻结；`classification.py` 提交/查询分流；`router.py` 组合公开 operation。
+`templates.py` 查询模板；`commands.py` 创建/启动/确认/取消；`production_projects.py` 原子创建生产项目及其唯一完整工作流；`queries.py` 查询 run/stage；`artifacts.py` 管理内部产物绑定；`archive.py` 复用 Files 能力输出完整生产 ZIP；`execution.py` 暴露阶段推进合同；`intake.py` 处理 Excel 单文件、DWG 文件夹、转换与冻结；`classification.py` 提交/查询分流；`splitting.py` 查询当前拆板 attempt 并按需输出人工复核原图 ZIP；`router.py` 组合公开 operation。
 
 ## 输入、输出与边界
 

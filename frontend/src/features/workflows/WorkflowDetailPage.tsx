@@ -18,7 +18,6 @@ import {
   ClockCircleOutlined,
   DownloadOutlined,
   FileExcelOutlined,
-  LockOutlined,
   ReloadOutlined,
   StopOutlined,
   ThunderboltOutlined,
@@ -34,6 +33,7 @@ import {
 } from '../../shared/components';
 import { listProjects } from '../projects';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
+import { DrawingProcessingPanel } from './DrawingProcessingPanel';
 import { FutureStageNotice } from './FutureStageNotice';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
@@ -55,17 +55,15 @@ import {
   TERMINAL,
   WORKFLOW_STATUS,
 } from './model/workflowPresentation';
-import type { WorkflowArtifact, WorkflowStage, WorkflowStageCapability } from './workflow';
+import type { WorkflowArtifact, WorkflowStage } from './workflow';
 
 function StageArchiveCard({
   workflowId,
   stage,
-  capability,
   artifacts,
 }: {
   workflowId: number;
   stage: WorkflowStage;
-  capability: WorkflowStageCapability;
   artifacts: WorkflowArtifact[];
 }) {
   const { message } = App.useApp();
@@ -73,10 +71,6 @@ function StageArchiveCard({
     mutationFn: () => downloadWorkflowStageArchive(workflowId, stage.stage_code),
     onError: (error) => message.error(describeApiError(error, '阶段结果压缩包下载失败')),
   });
-  if (
-    stage.stage_code === 'drawing_processing'
-    && capability.implementation_status === 'placeholder'
-  ) return null;
   const downloadLabel = stage.stage_code === 'dxf_classification'
     ? '下载分流结果压缩包'
     : '下载本阶段结果压缩包';
@@ -103,20 +97,6 @@ function StageArchiveCard({
       >
         {downloadLabel}
       </Button>
-    </Card>
-  );
-}
-
-function DrawingProcessingPlaceholder() {
-  return (
-    <Card className="workflow-drawing-placeholder">
-      <div className="workflow-drawing-placeholder__icon"><LockOutlined /></div>
-      <div>
-        <Typography.Text strong>拆板能力预留</Typography.Text>
-        <Typography.Paragraph type="secondary">
-          分类后的 DXF 将在此完成拆板与校验；当前仅保留输入输出合同，不生成模拟任务或指标。
-        </Typography.Paragraph>
-      </div>
     </Card>
   );
 }
@@ -164,9 +144,19 @@ export function WorkflowDetailPage() {
     && authoritativeCurrentStage
     && selectedStage.stage_code === authoritativeCurrentStage.stage_code,
   );
-  const selectedArtifacts = detail?.artifacts.filter(
+  const stageById = new Map((detail?.stages ?? []).map((stage) => [stage.id, stage]));
+  const visibleArtifacts = (detail?.artifacts ?? []).filter((artifact) => {
+    const artifactStage = typeof artifact.stage_run_id === 'number'
+      ? stageById.get(artifact.stage_run_id)
+      : undefined;
+    if (artifactStage?.stage_code !== 'drawing_processing') return true;
+    if (!['succeeded', 'waiting_review'].includes(artifactStage.status)) return false;
+    return artifact.metadata_json?.job_id === artifactStage.job_id
+      && artifact.metadata_json?.job_attempt === artifactStage.job_attempt;
+  }) ?? [];
+  const selectedArtifacts = visibleArtifacts.filter(
     (artifact) => artifact.stage_run_id === selectedStage?.id,
-  ) ?? [];
+  );
   const project = projectsQ.data?.find((item) => item.id === detail?.project_id);
   const sourceExcel = detail?.artifacts.find((item) => item.artifact_type === 'source_excel');
 
@@ -396,12 +386,12 @@ export function WorkflowDetailPage() {
                 />
               )}
 
-              {selectedStage.stage_code !== 'dxf_classification'
-                && !isWaitingLaunchStage(selectedStage.stage_code) && (
+              {!['dxf_classification', 'drawing_processing'].includes(
+                selectedStage.stage_code,
+              ) && !isWaitingLaunchStage(selectedStage.stage_code) && (
                 <StageArchiveCard
                   workflowId={detail.id}
                   stage={selectedStage}
-                  capability={selectedCapability}
                   artifacts={selectedArtifacts}
                 />
               )}
@@ -428,7 +418,15 @@ export function WorkflowDetailPage() {
                 />
               )}
               {selectedStage.stage_code === 'drawing_processing' && (
-                <DrawingProcessingPlaceholder />
+                <DrawingProcessingPanel
+                  workflowId={detail.id}
+                  stage={selectedStage}
+                  isCurrent={selectedIsCurrent}
+                  onChanged={() => {
+                    setSelectedStageCode(null);
+                    refresh();
+                  }}
+                />
               )}
               {isWaitingLaunchStage(selectedStage.stage_code) && (
                 <FutureStageNotice />
@@ -498,7 +496,7 @@ export function WorkflowDetailPage() {
           ) : (
             <Empty description="当前没有待处理阶段" />
           )}
-          <WorkflowArtifactSummary workflowId={detail.id} artifacts={detail.artifacts} />
+          <WorkflowArtifactSummary workflowId={detail.id} artifacts={visibleArtifacts} />
         </main>
       </div>
     </div>

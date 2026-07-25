@@ -27,7 +27,7 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
   const stageDefinitions = [
     ['source_intake', '文件接收与输入冻结', 'manual', 'implemented', null],
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
-    ['drawing_processing', '图纸分类与拆板', 'placeholder', 'placeholder', 'drawing_processing'],
+    ['drawing_processing', '图纸拆板与独立校验', 'automated', 'implemented', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
     ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
@@ -96,7 +96,9 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
       execution_mode: mode,
       implementation_status: status,
       execution_kind: kind,
-      required_inputs: code === 'excel_stage1' ? ['source_excel'] : [],
+      required_inputs: code === 'excel_stage1'
+        ? ['source_excel', 'processed_dxf', 'bh_split_ledger']
+        : [],
       artifact_types: code === 'excel_stage1' ? ['stage1_excel'] : [],
       required_outputs: code === 'excel_stage1' ? ['stage1_excel'] : [],
     })),
@@ -177,7 +179,7 @@ test('production route inspects stages safely and keeps classification output co
   const stageDefinitions = [
     ['source_intake', '文件接收与输入冻结', 'manual', 'implemented', null],
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
-    ['drawing_processing', '图纸分类与拆板', 'placeholder', 'placeholder', 'drawing_processing'],
+    ['drawing_processing', '图纸拆板与独立校验', 'automated', 'implemented', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
     ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
@@ -269,12 +271,28 @@ test('production route inspects stages safely and keeps classification output co
       artifact_types: code === 'dxf_classification'
         ? ['classified_dxf', 'classification_report', 'classification_manifest']
         : code === 'drawing_processing'
-          ? ['processed_dxf', 'validation_report']
+          ? [
+              'processed_dxf',
+              'weld_allowance_dxf',
+              'split_report',
+              'weld_allowance_report',
+              'validation_report',
+              'bh_split_ledger',
+              'split_manifest',
+            ]
           : [],
       required_outputs: code === 'dxf_classification'
         ? ['classified_dxf', 'classification_report', 'classification_manifest']
         : code === 'drawing_processing'
-          ? ['processed_dxf', 'validation_report']
+          ? [
+              'processed_dxf',
+              'weld_allowance_dxf',
+              'split_report',
+              'weld_allowance_report',
+              'validation_report',
+              'bh_split_ledger',
+              'split_manifest',
+            ]
           : [],
     })),
   };
@@ -371,6 +389,7 @@ test('production route inspects stages safely and keeps classification output co
   }));
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
   await page.route('**/api/v1/workflows/42/dxf-classification', (route) => json(route, classification));
+  await page.route('**/api/v1/workflows/42/drawing-processing', (route) => json(route, null));
   await page.route(
     /\/api\/v1\/workflows\/42\/dxf-classification\/groups\/type(?:%3A|:)PX\?page=1&page_size=20$/,
     (route) => json(route, pxDetails),
@@ -418,14 +437,14 @@ test('production route inspects stages safely and keeps classification output co
   }, { token: 'e2e-token', savedUser: user });
   await page.goto('/workflows/42');
 
-  await page.getByRole('button', { name: /图纸分类与拆板/ }).click();
-  await expect(page.getByRole('heading', { name: '图纸分类与拆板' })).toBeVisible();
+  await page.getByRole('button', { name: /图纸拆板与独立校验/ }).click();
+  await expect(page.getByRole('heading', { name: '图纸拆板与独立校验' })).toBeVisible();
   await expect(page.getByText('该阶段尚未解锁')).toBeVisible();
-  await expect(page.getByText('拆板能力预留')).toBeVisible();
+  await expect(page.getByText('03 · 图纸拆板与独立校验')).toBeVisible();
   await expect(page.getByText('项目总进度')).toHaveCount(0);
   await expect(page.getByText('实时速度')).toHaveCount(0);
   await expect(page.getByText('未接入', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /开始|重试|确认当前阶段/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /开始整批拆板|确认当前阶段/ })).toHaveCount(0);
 
   await page.getByRole('button', { name: '返回当前阶段' }).click();
   await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();
@@ -488,4 +507,213 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByText(/版本 v/)).toHaveCount(0);
   await expect(page.getByText(/已登记 ·/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '下载全部' })).toBeEnabled();
+});
+
+test('manual review downloads only the current split batch original DXFs', async ({ page }) => {
+  const stageDefinitions = [
+    ['source_intake', '文件接收与输入冻结', 'manual', 'implemented', null],
+    ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
+    ['drawing_processing', '图纸拆板与独立校验', 'automated', 'implemented', 'drawing_processing'],
+    ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
+    ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
+    ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
+    ['cam_packaging', 'CAM 工作包生成', 'placeholder', 'placeholder', 'cam_packaging'],
+    ['windows_cam', 'Windows CAM 排版', 'external', 'external', 'windows_cam'],
+    ['result_acceptance', 'CAM 结果接纳', 'placeholder', 'placeholder', 'result_acceptance'],
+    ['delivery_archive', '交付与归档', 'manual', 'implemented', null],
+  ] as const;
+  const stages = stageDefinitions.map(([code, name], index) => ({
+    id: 300 + index,
+    stage_code: code,
+    name,
+    sequence: index + 1,
+    status: index < 2 ? 'succeeded' : index === 2 ? 'waiting_review' : 'pending',
+    job_id: index === 2 ? 930 : null,
+    job_attempt: index === 2 ? 1 : null,
+    progress: index <= 2 ? 100 : 0,
+    input_json: null,
+    output_json: null,
+    error_code: null,
+    error_message: null,
+    started_at: index <= 2 ? now : null,
+    finished_at: index <= 2 ? now : null,
+    created_at: now,
+    updated_at: now,
+  }));
+  const drawingArtifacts = [
+    'processed_dxf',
+    'weld_allowance_dxf',
+    'split_report',
+    'weld_allowance_report',
+    'validation_report',
+    'bh_split_ledger',
+    'split_manifest',
+  ].map((artifactType, index) => ({
+    id: 1000 + index,
+    stage_run_id: 302,
+    artifact_type: artifactType,
+    file_id: 1100 + index,
+    result_id: null,
+    version: 1,
+    metadata_json: {
+      original_name: artifactType === 'processed_dxf'
+        ? 'BH-001_正常拆板.dxf'
+        : `${artifactType}.json`,
+      job_id: 930,
+      job_attempt: 1,
+    },
+    created_at: now,
+    updated_at: now,
+  }));
+  drawingArtifacts.push({
+    id: 1099,
+    stage_run_id: 302,
+    artifact_type: 'processed_dxf',
+    file_id: 1199,
+    result_id: null,
+    version: 1,
+    metadata_json: {
+      original_name: '旧尝试_正常拆板.dxf',
+      job_id: 930,
+      job_attempt: 0,
+    },
+    created_at: now,
+    updated_at: now,
+  });
+  const workflow = {
+    id: 43,
+    project_id: 9,
+    created_by: 1,
+    name: '人工复核批次',
+    workflow_type: 'linux_production',
+    status: 'waiting_review',
+    current_stage: 'drawing_processing',
+    progress: 33,
+    config_json: { definition_revision: 4 },
+    error_code: null,
+    error_message: null,
+    started_at: now,
+    finished_at: null,
+    created_at: now,
+    updated_at: now,
+    stages,
+    artifacts: drawingArtifacts,
+  };
+  const template = {
+    code: 'linux_production',
+    name: 'Linux 生产流程',
+    description: '服务器端生产编排框架',
+    stages: stageDefinitions.map(([code, name, mode, status, kind]) => ({
+      code,
+      name,
+      description: `${name}阶段说明`,
+      execution_mode: mode,
+      implementation_status: status,
+      execution_kind: kind,
+      required_inputs: code === 'drawing_processing' ? ['classified_dxf'] : [],
+      artifact_types: code === 'drawing_processing'
+        ? [
+            'processed_dxf',
+            'weld_allowance_dxf',
+            'split_report',
+            'weld_allowance_report',
+            'validation_report',
+            'bh_split_ledger',
+            'split_manifest',
+          ]
+        : [],
+      required_outputs: code === 'drawing_processing'
+        ? [
+            'processed_dxf',
+            'weld_allowance_dxf',
+            'split_report',
+            'weld_allowance_report',
+            'validation_report',
+            'bh_split_ledger',
+            'split_manifest',
+          ]
+        : [],
+    })),
+  };
+  const splitRun = {
+    id: 88,
+    workflow_run_id: 43,
+    status: 'completed_with_review',
+    splitter_version: '1.5.2',
+    cli_schema: 'STEEL-DXF-SPLIT-CLI-1',
+    validation_schema: 'STEEL-DXF-SPLIT-VALIDATION-1',
+    input_manifest_sha256: 'b'.repeat(64),
+    input_count: 3,
+    auto_accepted_count: 2,
+    manual_review_count: 1,
+    source_contracts: {
+      BH: 'project_tekla_bh_dxf_v1',
+      BOX: 'project_tekla_box_dxf_v1',
+    },
+    bh_split_ledger_file: null,
+    split_manifest_file: null,
+    validation_report_file: null,
+    job: { id: 930, status: 'succeeded', progress: 100, attempt: 1 },
+    items: [],
+    error_code: null,
+    error_message: null,
+    started_at: now,
+    finished_at: now,
+    created_at: now,
+    updated_at: now,
+  };
+  let reviewArchiveRequests = 0;
+
+  await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
+    access_token: 'e2e-token',
+    user,
+  }, 201));
+  await page.route('**/api/v1/workflows/projects?**', (route) => route.fulfill({
+    json: {
+      ...envelope([{ id: 9, code: 'REVIEW', name: '人工复核项目' }]),
+      pagination: { page: 1, page_size: 200, total: 1, total_pages: 1 },
+    },
+  }));
+  await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
+  await page.route('**/api/v1/workflows/43/drawing-processing', (route) => json(route, splitRun));
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/manual-review-archive',
+    async (route) => {
+      reviewArchiveRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'content-disposition': "attachment; filename*=UTF-8''workflow-43-split-run-88-manual-review.zip",
+          'access-control-expose-headers': 'content-disposition',
+        },
+        body: 'PK-original-dxf-only',
+      });
+    },
+  );
+  await page.route('**/api/v1/workflows/43', (route) => json(route, workflow));
+
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'e2e-token', savedUser: user });
+  await page.goto('/workflows/43');
+
+  await expect(page.getByRole('heading', { name: '图纸拆板与独立校验' })).toBeVisible();
+  await expect(page.getByText('本批次图纸')).toBeVisible();
+  await expect(page.getByText('自动完成')).toBeVisible();
+  await expect(page.getByText('待人工处理')).toBeVisible();
+  await expect(page.getByText('1 张图纸未通过自动处理')).toBeVisible();
+  await expect(page.getByText(/压缩包只包含这些图纸进入拆板前的分类原始 DXF/)).toBeVisible();
+  await expect(page.getByText('processed_dxf × 1')).toBeVisible();
+  await expect(page.getByText('processed_dxf × 2')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /上传|确认当前阶段|继续/ })).toHaveCount(0);
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载未通过原图 ZIP' }).click();
+  const download = await downloadPromise;
+  await expect.poll(() => reviewArchiveRequests).toBe(1);
+  expect(download.suggestedFilename()).toBe('workflow-43-split-run-88-manual-review.zip');
 });

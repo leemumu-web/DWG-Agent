@@ -34,6 +34,7 @@ from app.platform.config.constants import (
     TASK_DXF_TO_DWG,
     TASK_DXF_TO_EXCEL,
     TASK_EXCEL_FINAL,
+    TASK_STEEL_DXF_SPLIT,
 )
 from app.platform.config.settings import settings
 from app.platform.http.dependencies import get_db
@@ -64,6 +65,12 @@ def create_job_api(
         if not drawing or drawing.status == "deleted":
             raise not_found("Drawing")
         require_project_role(db, current_user, drawing.project_id, PROJECT_JOB_WRITE_ROLES)
+    if payload.task_type == TASK_STEEL_DXF_SPLIT:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED",
+            "拆板 Job 只能由当前工作流的 drawing_processing executions 端点创建。",
+        )
     # Pipeline feature gates
     if payload.task_type == TASK_DWG_TO_DXF and not settings.dxf_pipeline_enabled:
         raise service_unavailable(
@@ -287,6 +294,13 @@ def retry_job(
     if not job:
         raise not_found("Job")
     require_job_write_access(db, current_user, job)
+    if job.task_type == TASK_STEEL_DXF_SPLIT:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED",
+            "拆板 Job 的新 attempt 只能由所属工作流阶段创建。",
+            {"job_id": job.id, "attempt": job.attempt},
+        )
     job = transition_job_to_queued(db, job)
     write_audit_log(
         db,

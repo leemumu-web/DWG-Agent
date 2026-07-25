@@ -18,6 +18,7 @@ BASE_PARTITIONS = [
     "Stages/excel_final",
     "Stages/remnant_drawing_reader",
     "Stages/steel_dxf_classifier_v1.1.0",
+    "Stages/steel_dxf_split_v1.5.2",
     "backend/app/bootstrap",
     "backend/app/integrations",
     "backend/app/modules",
@@ -28,6 +29,7 @@ BASE_PARTITIONS = [
             "automation",
             "cad_processing",
             "dxf_classification",
+            "dxf_splitting",
             "excel_processing",
             "files",
             "identity",
@@ -58,6 +60,7 @@ BASE_PARTITIONS = [
             "cad_processing",
             "contracts",
             "dxf_classification",
+            "dxf_splitting",
             "excel_processing",
             "files",
             "identity",
@@ -78,10 +81,7 @@ BASE_PARTITIONS = [
         for name in ("database", "gateway", "messaging", "operations", "storage", "verification")
     ],
     "scripts",
-    *[
-        f"scripts/{name}"
-        for name in ("architecture", "cad", "docs", "lib", "storage", "windows")
-    ],
+    *[f"scripts/{name}" for name in ("architecture", "cad", "docs", "lib", "storage", "windows")],
     "frontend/src/app",
     "frontend/src/features",
     "frontend/src/shared",
@@ -113,10 +113,7 @@ BASE_PARTITIONS = [
     "frontend/src/features/operations/pages",
     "frontend/src/features/operations/types",
     "frontend/src/features/workflows/model",
-    *[
-        f"frontend/src/shared/{name}"
-        for name in ("api", "auth", "components", "styles")
-    ],
+    *[f"frontend/src/shared/{name}" for name in ("api", "auth", "components", "styles")],
     "frontend/tests/e2e",
     *[
         f"frontend/tests/e2e/{name}"
@@ -189,14 +186,15 @@ def _source_owned_partitions() -> list[str]:
         source_root = ROOT / relative_root
         if not source_root.is_dir():
             continue
-        directories = [source_root, *sorted(path for path in source_root.rglob("*") if path.is_dir())]
+        directories = [
+            source_root,
+            *sorted(path for path in source_root.rglob("*") if path.is_dir()),
+        ]
         for directory in directories:
             if any(part in IGNORED_DIRECTORY_NAMES for part in directory.parts):
                 continue
             owns_source = any(
-                child.is_file()
-                and child.name != "__init__.py"
-                and child.suffix in SOURCE_SUFFIXES
+                child.is_file() and child.name != "__init__.py" and child.suffix in SOURCE_SUFFIXES
                 for child in directory.iterdir()
             )
             if owns_source:
@@ -205,6 +203,13 @@ def _source_owned_partitions() -> list[str]:
 
 
 PARTITIONS = tuple(dict.fromkeys([*BASE_PARTITIONS, *_source_owned_partitions()]))
+
+# Version-pinned Stage snapshots must remain byte-identical to their source Git
+# index. Their platform ownership is documented by the wrapping backend module,
+# so only the snapshot's packaging manifest is exempt from local README listing.
+IMMUTABLE_PARTITION_SOURCE_EXCEPTIONS = {
+    "Stages/steel_dxf_split_v1.5.2": {"pyproject.toml"},
+}
 
 
 def _direct_source_files(directory: Path) -> list[Path]:
@@ -235,8 +240,11 @@ def validation_errors() -> list[str]:
                 f"partition README lacks substantive business detail: {relative}/README.md"
             )
         source_files = _direct_source_files(directory)
+        undocumented_exceptions = IMMUTABLE_PARTITION_SOURCE_EXCEPTIONS.get(relative, set())
         undocumented_sources = [
-            source.name for source in source_files if source.name not in content
+            source.name
+            for source in source_files
+            if source.name not in content and source.name not in undocumented_exceptions
         ]
         if undocumented_sources:
             errors.append(

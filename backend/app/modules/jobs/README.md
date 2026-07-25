@@ -18,6 +18,7 @@ tables remain platform infrastructure; result files remain in the files module.
 
 - `creation.py`: pipeline selection, creation, batch creation and request-key reuse.
 - `lifecycle.py`: guarded status and attempt transitions, including cancel/retry.
+- `routes/commands.py`：公共 Job 命令；工作流管理的 DXF 拆板拒绝从这里创建或重试，避免绕过阶段血缘和三次 attempt 预算。
 - `dispatch.py`: pipeline routing and compensation after a definite broker error.
 - `event_stream.py`: latest-row event payloads and bounded short-session polling.
 - `access.py`: creator/project visibility and write/review authorization.

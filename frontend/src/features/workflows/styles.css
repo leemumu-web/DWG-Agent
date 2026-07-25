@@ -466,14 +466,20 @@
   letter-spacing: .12em;
 }
 
-.workflow-classification-summary {
+.workflow-classification-summary,
+.workflow-dxf-split-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
 
-.workflow-classification-summary > div {
+.workflow-dxf-split-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.workflow-classification-summary > div,
+.workflow-dxf-split-summary > div {
   display: grid;
   gap: 4px;
   padding: 12px 14px;
@@ -482,19 +488,22 @@
   border-left: 3px solid var(--workflow-accent);
 }
 
-.workflow-classification-summary small {
+.workflow-classification-summary small,
+.workflow-dxf-split-summary small {
   color: var(--workflow-muted);
   font-size: 11px;
   font-weight: 700;
 }
 
-.workflow-classification-summary strong {
+.workflow-classification-summary strong,
+.workflow-dxf-split-summary strong {
   color: var(--workflow-deep);
   font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 23px;
 }
 
-.workflow-classification-command {
+.workflow-classification-command,
+.workflow-dxf-split-command {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -507,9 +516,15 @@
   border-left: 4px solid var(--workflow-accent);
 }
 
-.workflow-classification-command > div:first-child {
+.workflow-classification-command > div:first-child,
+.workflow-dxf-split-command > div:first-child {
   display: grid;
   gap: 3px;
+}
+
+.workflow-dxf-split-panel > .ant-card-body {
+  display: grid;
+  gap: 14px;
 }
 
 .workflow-classification-warning {
@@ -601,20 +616,12 @@
   word-break: break-word;
 }
 
-.workflow-drawing-placeholder {
-  border: 1px dashed #9eafb6;
-  border-radius: 4px;
-  background: #f8fafb;
-}
-
-.workflow-drawing-placeholder > .ant-card-body,
 .workflow-future-stage > .ant-card-body {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
-.workflow-drawing-placeholder__icon,
 .workflow-future-stage__icon {
   display: grid;
   flex: 0 0 auto;
@@ -625,14 +632,6 @@
   border: 1px solid #cbd7da;
   border-radius: 50%;
   place-items: center;
-}
-
-.workflow-drawing-placeholder .ant-typography {
-  margin: 0;
-}
-
-.workflow-drawing-placeholder .ant-typography + .ant-typography {
-  margin-top: 4px;
 }
 
 .workflow-future-stage {
@@ -755,11 +754,13 @@
     width: 100%;
   }
 
-  .workflow-classification-summary {
+  .workflow-classification-summary,
+  .workflow-dxf-split-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .workflow-classification-command {
+  .workflow-classification-command,
+  .workflow-dxf-split-command {
     align-items: stretch;
     flex-direction: column;
   }

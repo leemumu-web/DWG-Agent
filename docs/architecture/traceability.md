@@ -11,8 +11,9 @@
 | `U10-U11` 冻结清单、创建 Drawing | `workflows` + `projects` | implemented | `modules/workflows/intake/freeze.py`、projects 公开 Drawing 能力、生产流程测试 |
 | 服务器 DWG→DXF、DXF→DWG、DXF 材料表提取 | `cad_processing` | partial | `modules/cad_processing/` 按方向拆分版本策略、批处理、登记和执行；三个独立 Stage 保持原路径，ODA 与真实样本仍需部署验收 |
 | `D1-D12` DXF 预处理、分类、分流、报告 | `dxf_classification` | partial | `adapter.py` 固定 Classifier 1.2.0 契约，`persistence.py` 登记逐图类型语义、两张分类账本和全部输出，`execution.py` 编排 Job/Workflow |
+| BH/BOX 自动拆板、余量增长与独立校验 | `dxf_splitting` | partial | Split 1.5.2 Stage、整批 Job、两张 attempt 账本、正常拆板/余量增长/报告/ledger/manifest 登记和人工复核原图 ZIP 已接通；默认关闭且待真实 MinIO/MySQL 与业务样本验收 |
 | `E1-E4` Excel Final 处理 | `excel_processing` | partial | `stage_adapter` 隔离 Stage，`execution` 编排 Job/MinIO，`importers`/`persistence` 登记三张 MySQL 关系表；真实 schema、手册库和跨图纸最终屏障仍是依赖/缺口。首份 DXF 材料表因输入域为 DXF，归 `cad_processing/dxf_to_excel` |
-| 图纸拆板与设计屏障 | `workflows` | placeholder | 阶段、输入输出、交接 artifact 和 `WORKFLOW_STAGE_NOT_IMPLEMENTED` |
+| 拆板人工复核后的回流与设计屏障 | `workflows` | partial | 当前只保持 `waiting_review` 并下载未通过原图；人工上传、确认推进及机器完整性屏障尚未实现 |
 | CAM 工作包 | `workflows` + `windows_execution` | placeholder | 仅阶段与交接契约；没有 CAM 打包算法 |
 | `AGENT/RUNNER/ADAPTER/SINOCAM` | `windows_execution` | external | draft control-plane contract；认证、租约、fencing、Runner 未实现 |
 | 结果接纳与交付归档 | `workflows` + `operations` | partial | 每日归档可用；SinoCAM 结果接纳与确定性交付清单未实现 |
@@ -26,7 +27,7 @@
 | 架构节点 | 模块 | 当前事实 | 不得误报的目标差距 |
 |---|---|---|---|
 | `NGINX/API/WEB` | 多模块入口 | implemented | Compose 当前仅 HTTP，没有完成 TLS |
-| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 42 张模型表 |
+| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 44 张模型表 |
 | `MINIO` | `files` | implemented in Compose | 本地开发可用 local；跨 MySQL/对象不存在单一 ACID 事务 |
 | `RABBIT` | `messaging_target` | placeholder | 当前 broker 是 MySQL SQLAlchemy transport |
 | `OUTBOX` | `messaging_target` | placeholder | 当前 commit 后投递有补偿，不是事务 Outbox |
@@ -36,8 +37,8 @@
 
 ## 数据事实归属
 
-- MySQL：身份、项目、文件登记、Job、Workflow、分类、Excel、运维与 Agent 账本。
-- Local/MinIO：原始 DWG、服务器生成 DXF、分类分流 DXF、Excel、报告和归档字节。
+- MySQL：身份、项目、文件登记、Job、Workflow、分类、拆板逐图处置、Excel、运维与 Agent 账本。
+- Local/MinIO：原始 DWG、服务器生成 DXF、分类分流 DXF、正常拆板/余量增长 DXF、Excel、报告和归档字节；人工复核 ZIP 即时生成，不写回对象存储。
 - Celery broker/result：投递与短期运行数据；不替代 Job、AnalysisResult 或审计。
 - Stage：确定性文件处理，不拥有平台身份、项目权限或最终业务状态。
 - 前端：提高操作效率、展示结构化反馈和恢复动作，不拥有最终权限与状态机。
@@ -50,7 +51,7 @@
 
 | 稳定入口 | 分类实现 | 主要运行事实 |
 |---|---|---|
-| `start-all.sh`、`start-dev.sh`、`stop-all.sh`、`status.sh` | `lib/common.sh`、`lib/local_stack.sh`、`lib/database.sh`、`lib/cad_worker.sh` | 本地 MySQL、FastAPI、前端、Nginx 与八组 worker 生命周期。 |
+| `start-all.sh`、`start-dev.sh`、`stop-all.sh`、`status.sh` | `lib/common.sh`、`lib/local_stack.sh`、`lib/database.sh`、`lib/cad_worker.sh` | 本地 MySQL、FastAPI、前端、Nginx 与九组 worker 生命周期。 |
 | `db.sh` | `lib/database.sh`、`storage/reap.py` | MySQL schema/种子/迁移/备份与登记对象保留期回收。 |
 | `docker.sh` | `lib/compose.sh` | Compose 服务检查、MySQL + MinIO 备份恢复。 |
 | `run-cad-worker.sh` | `lib/cad_worker.sh` | CAD 队列、Xvfb、DISPLAY、PID 和优雅退出。 |
@@ -64,9 +65,9 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载模型 owner 和 42 张表；files、jobs、workflows 与 remnant_inventory 分别通过领域模型包装配其多张表。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载模型 owner 和 44 张表；files、jobs、workflows、dxf_splitting 与 remnant_inventory 分别通过领域模型包装配其多张表。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
-| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 8 个真实 task module，并注册 jobs stale-recovery 与 control-plane observer；13 个 `app.workers.tasks_*` 公共名和 12 条 `pattern -> queue` 路由由运行时快照锁定，其中 agent/cad/dispatch 仅为无 task 的预留 seam。 |
+| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 9 个真实 task module，并注册 jobs stale-recovery 与 control-plane observer；14 个 `app.workers.tasks_*` 公共名和 13 条 `pattern -> queue` 路由由运行时快照锁定，其中 agent/cad/dispatch 仅为无 task 的预留 seam。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
 | Local/MinIO 字节接口 | `app/platform/storage/` | adapter、安全路径、选择缓存和健康检查；不导入 ORM 或文件业务。 |
 
@@ -80,6 +81,7 @@
 | `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Step/Result/Review 四张表，attempt 状态机与 Celery transport 解耦。 |
 | CAD 转换、预览解释与 DXF 材料表 | `app/modules/cad_processing/` | 无自有表和 HTTP 前缀；`files`/`jobs` 只经 `cad_processing.interface` 调用，Stage 代码保持独立产品。 |
 | Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.2.0 CLI、类型分组和输出命名由 adapter 校验。 |
+| Steel DXF 拆板 | `app/modules/dxf_splitting/` | 拥有 run/item 两张表与 `dxf_split` task；其他模块只经 `dxf_splitting.interface` 调用，1.5.2 CLI、来源合同、中文产物后缀和独立校验由 adapter/validation 校验。 |
 | `/excel-final` 与 Excel Final task | `app/modules/excel_processing/` | 拥有 batch/part/component 三张表；files/jobs 由公开接口组合，Stage 子进程、导入、持久化和 HTTP route 分层；稳定 task name/queue 不变。 |
-| `/workflows` | `app/modules/workflows/` | 拥有 run/stage/artifact/input batch/input item 五张表；模板、状态机、Job 同步、阶段执行、输入四种转换和 16 个 HTTP operation 分层；其他模块只经 `workflows.interface`。 |
+| `/workflows` | `app/modules/workflows/` | 拥有 run/stage/artifact/input batch/input item 五张表；模板、状态机、Job 同步、阶段执行、输入转换、拆板投影/下载和 60 个聚合 HTTP operation 分层；其他模块只经 `workflows.interface`。 |
 | 跨领域 audit write 与 `/audit-logs` read | `app/modules/operations/audit/interface.py` + operations 路由/服务/模型 | 写入统一经 audit interface；读取、ORM、筛选与权限均已归 operations，不再依赖旧横向路径。 |

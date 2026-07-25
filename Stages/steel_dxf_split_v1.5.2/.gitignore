@@ -1,0 +1,75 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# uv / pip
+*.egg-info/
+PIPFILE.lock
+poetry.lock
+
+# Build artifacts
+build/
+dist/
+*.whl
+*.tar.gz
+
+# Generated output (test runs, batch results)
+output/
+output_v11_isolated/
+output_v11_verify/
+
+# Release artifacts (auto-generated)
+MANIFEST_SHA256.txt
+RELEASE_VERIFICATION.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Type checker
+.mypy_cache/
+.ruff_cache/
+
+# DWG-Agent only vendors the executable runtime slice. The DXF corpus,
+# development tests, reports, and release build tools stay in the upstream
+# algorithm repository or the read-only external acceptance directories.
+*.dxf
+.python-version
+CONTEXT.md
+requirements-preview.txt
+uv.lock
+docs/
+release/
+samples/
+scripts/
+tests/
+tools/

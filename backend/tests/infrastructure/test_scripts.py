@@ -150,6 +150,7 @@ def test_start_stop_status_scripts_manage_report_worker():
     for label in (
         "report",
         "dxf-classification",
+        "dxf-split",
         "dxf",
         "dxf2dwg",
         "dxf2excel",
@@ -169,6 +170,7 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
 
     expected = {
         "dxf_classification": "dxf-classification",
+        "dxf_split": "dxf-split",
         "dxf": "dxf",
         "dxf2dwg": "dxf2dwg",
         "dxf2excel": "dxf2excel",

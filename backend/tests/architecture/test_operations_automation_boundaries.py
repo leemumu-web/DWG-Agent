@@ -59,6 +59,7 @@ MOVED_TASKS = {
 REAL_TASK_MODULES = (
     "app.modules.cad_processing.tasks",
     "app.modules.dxf_classification.tasks",
+    "app.modules.dxf_splitting.tasks",
     "app.modules.excel_processing.tasks",
     "app.modules.jobs.tasks",
     "app.modules.operations.daily_archive.tasks",
