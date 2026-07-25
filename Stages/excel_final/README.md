@@ -1,6 +1,6 @@
 # Excel Final
 
-Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。本目录是仓库内唯一、最终的 Excel 整理实现；不提供历史 SunFire/VBA 拆分 API 或旧版 CLI。唯一生产入口自动选择标准工作簿、初始表工作簿、制表符 Tekla 文本或固定宽度 Tekla 文本 Adapter，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
+Excel Final 把 Tekla 构件零件清单或 DWG“初始表”规范为可审计的钢结构零件数据库工作簿。本目录是仓库内唯一、最终的 Excel 整理实现；不提供历史 SunFire/VBA 拆分 API 或旧版 CLI。唯一生产入口自动选择标准工作簿、旧版二进制工作簿、初始表工作簿、制表符 Tekla 文本或固定宽度 Tekla 文本 Adapter，之后共同进入同一条分类、五金手册、重量核验、拆板、`part` 和写表引擎。
 
 面向排版人员的业务算法、计算口径和核验方法见[《排版整理算法说明书》](排版整理算法说明书.md)。
 
@@ -11,7 +11,7 @@ uv run python main.py /path/to/input.xlsx -o /path/to/output.xlsx
 uv run pytest -q
 ```
 
-`.xlsx` / `.xlsm` 生产工作簿必须恰好一张 sheet；多 sheet 的复核文件必须先用 `preprocess.py` 分离首个已审查原表。Tekla 文本允许使用 `.xls` 后缀，但内容必须是可识别的制表符或固定宽度文本表格。固定宽度 Adapter 按中文双宽显示列恢复空字段，不按空白压缩；没有批次列不影响合法清单进入。只有构件汇总而没有零件明细的输入明确拒绝。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
+`.xlsx` / `.xlsm` 以及旧版二进制 `.xls` 使用锁定的工作簿读取；发现多张 sheet 时自动选择第一张，并在审核结果中明确列出被忽略的 sheet，避免把整理表、part 等结果页再次当作输入。非 OLE 的 `.xls` 仍按 Tekla 文本处理，内容必须是可识别的制表符或固定宽度文本表格。固定宽度 Adapter 按中文双宽显示列恢复空字段，不按空白压缩；没有批次列不影响合法清单进入。只有构件汇总而没有零件明细的输入明确拒绝。规范结果始终新建为 `.xlsx`，显式指定其他输出后缀会被拒绝，不复制源宏。
 
 五金手册配置不写在 Stage 中。平台通过隔离子进程注入只读 MySQL 配置；连接、schema 或查询故障均为致命错误。
 
@@ -52,7 +52,8 @@ BH/BOX/BT 的父理论重用于源毛重物理核验：BH=`腹板单重×1+翼�
 | `domain.py` | 不可变规范记录与 `PipelineOutcome` |
 | `input_errors.py` | 版本化、有界且面向操作人员的输入错误 |
 | `input_contract.py` | 单 sheet 输入合同、集中表头别名和唯一题头检测 |
-| `source_intake.py` | 唯一生产输入 Interface 与四类 Adapter 选择 |
+| `source_intake.py` | 唯一生产输入 Interface 与六类 Adapter 选择 |
+| `legacy_xls.py` | 使用锁定的 `xlrd` 读取旧版 OLE/BIFF `.xls`，转换为统一行/单元格接口 |
 | `preprocess.py` | 从复核多表工作簿中分离原始输入表 |
 | `reader.py` / `reader_init.py` | Tekla 与初始表适配为 `SourcePart` |
 | `material_routing.py` | D系列材质族到圆钢/螺纹钢手册类别的唯一映射 |

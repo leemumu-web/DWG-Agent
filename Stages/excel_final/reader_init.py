@@ -20,6 +20,7 @@ import openpyxl
 from domain import SourcePart
 from input_contract import InputContractError, InputKind, inspect_production_input
 from input_errors import ExcelInputIssue, input_failure
+from legacy_xls import open_legacy_workbook
 from utils import safe_float, safe_str
 
 # ── Dataclasses ──────────────────────────────────────────────────
@@ -92,7 +93,14 @@ def read_init_table(filepath: str | Path) -> tuple[ComponentInfo, list[PartRow]]
     Returns (ComponentInfo, list of PartRow).
     """
     filepath = Path(filepath)
-    wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+    inspected = inspect_production_input(filepath)
+    if inspected.sheet_name is None:
+        raise ValueError("initial-table reader requires a named worksheet")
+    wb = (
+        open_legacy_workbook(inspected.path)
+        if inspected.kind is InputKind.LEGACY_WORKBOOK
+        else openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+    )
 
     # Locate the 初始表 sheet
     if "初始表" in wb.sheetnames:
@@ -165,8 +173,10 @@ def _decimal_or_none(value: float | None) -> Decimal | None:
 def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
     """Adapt a one-sheet initial table to canonical parts without changing source data."""
     inspected = inspect_production_input(Path(filepath))
-    if inspected.kind is not InputKind.WORKBOOK or inspected.sheet_name is None:
-        raise ValueError("initial-table canonical reader requires a one-sheet .xlsx/.xlsm source")
+    if inspected.kind not in {InputKind.WORKBOOK, InputKind.LEGACY_WORKBOOK}:
+        raise ValueError("initial-table canonical reader requires a one-sheet workbook source")
+    if inspected.sheet_name is None:
+        raise ValueError("initial-table canonical reader requires a named worksheet")
 
     component, rows = read_init_table(inspected.path)
     component_no = _compact_working_text(component.component_no)

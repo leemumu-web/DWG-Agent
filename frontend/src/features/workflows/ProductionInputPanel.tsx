@@ -52,6 +52,15 @@ function itemStatus(item: WorkflowInputItem) {
   return <Tag>待转换</Tag>;
 }
 
+function inspectionWarnings(item: WorkflowInputItem): string[] {
+  const inspection = item.validation?.inspection;
+  if (!inspection || typeof inspection !== 'object') return [];
+  const warnings = (inspection as Record<string, unknown>).warnings;
+  return Array.isArray(warnings)
+    ? warnings.filter((warning): warning is string => typeof warning === 'string')
+    : [];
+}
+
 export function ProductionInputPanel({
   workflowId,
   sourceIntakeActive,
@@ -211,7 +220,10 @@ export function ProductionInputPanel({
       title: '反馈', key: 'feedback',
       render: (_: unknown, item: WorkflowInputItem) => item.error_code
         ? <Typography.Text type="danger">{item.error_code}：{item.error_message}</Typography.Text>
-        : item.drawing_id ? <Typography.Link href="/drawings">图纸 #{item.drawing_id}</Typography.Link> : <Typography.Text type="secondary">{item.role === 'source_dwg' ? `将配对为 ${item.normalized_stem}.dxf` : '批次级数据表'}</Typography.Text>,
+        : <>
+          {item.drawing_id ? <Typography.Link href="/drawings">图纸 #{item.drawing_id}</Typography.Link> : <Typography.Text type="secondary">{item.role === 'source_dwg' ? `将配对为 ${item.normalized_stem}.dxf` : '批次级数据表'}</Typography.Text>}
+          {inspectionWarnings(item).map((warning) => <Alert key={warning} style={{ marginTop: 8 }} type="warning" showIcon message="输入提醒" description={warning} />)}
+        </>,
     },
   ];
 

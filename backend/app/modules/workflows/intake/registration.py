@@ -418,6 +418,9 @@ def register_input_file(
             )
         else:
             failure = None
+            inspection_payload = asdict(inspection)
+            inspection_payload["warnings"] = list(inspection.warnings)
+            inspection_payload["ignored_sheets"] = list(inspection.ignored_sheets)
             item = WorkflowInputItem(
                 batch=batch,
                 file_id=stored.id,
@@ -425,7 +428,7 @@ def register_input_file(
                 original_name=stored.original_name,
                 normalized_stem=normalize_input_stem(stored.original_name),
                 status="uploaded",
-                validation_json={"inspection": asdict(inspection)},
+                validation_json={"inspection": inspection_payload},
                 validation_contract_version=inspection.input_contract_version,
                 validated_sha256=stored.sha256,
             )

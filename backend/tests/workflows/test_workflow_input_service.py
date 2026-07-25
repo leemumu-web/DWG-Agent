@@ -222,6 +222,8 @@ def test_registers_multiple_real_dwgs_and_one_readable_excel(db, tmp_path, monke
             "header_row": 1,
             "part_count": 1,
             "component_count": 1,
+            "warnings": [],
+            "ignored_sheets": [],
         }
     }
     assert replay.item.id == first_outcome.item.id

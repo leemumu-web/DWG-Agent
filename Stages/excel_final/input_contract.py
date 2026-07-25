@@ -17,10 +17,12 @@ from input_errors import (
     InputContractError,
     input_failure,
 )
+from legacy_xls import open_legacy_workbook
 
 
 class InputKind(StrEnum):
     WORKBOOK = "workbook"
+    LEGACY_WORKBOOK = "legacy_workbook"
     TEKLA_TEXT = "tekla_text"
 
 
@@ -29,6 +31,22 @@ class ProductionInput:
     path: Path
     kind: InputKind
     sheet_name: str | None
+    warnings: tuple[str, ...] = ()
+    ignored_sheets: tuple[str, ...] = ()
+
+
+def _first_sheet_selection(
+    sheetnames: tuple[str, ...],
+) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
+    first = sheetnames[0]
+    ignored = sheetnames[1:]
+    visible = ignored[:10]
+    suffix = "" if len(visible) == len(ignored) else "、另有更多"
+    warning = (
+        f"检测到 {len(sheetnames)} 张工作表，仅处理第一张“{first}”；"
+        f"其余工作表已忽略：{'、'.join(visible)}{suffix}。"
+    )
+    return first, (warning,), ignored[:10]
 
 
 @dataclass(frozen=True, slots=True)
@@ -366,15 +384,46 @@ def inspect_production_input(path: Path) -> ProductionInput:
         with resolved.open("rb") as source:
             signature = source.read(8)
         if signature == bytes.fromhex("D0CF11E0A1B11AE1"):
-            failure = input_failure(
-                "EXCEL_INPUT_BINARY_XLS_UNSUPPORTED",
-                "当前流程不直接读取旧版二进制 XLS 工作簿。",
-                "请将文件另存为仅含一张原始明细表的 XLSX，或重新导出 Tekla 文本格式 XLS。",
-            )
-            raise InputContractError(
-                failure,
-                diagnostic="binary OLE/BIFF .xls is unsupported",
-            )
+            try:
+                workbook = open_legacy_workbook(resolved)
+            except Exception as exc:
+                failure = input_failure(
+                    "EXCEL_INPUT_UNREADABLE",
+                    "Excel 文件损坏、加密或与扩展名不一致。",
+                    "请使用 Excel 打开并另存为未加密的 XLSX 文件后重新上传。",
+                )
+                raise InputContractError(
+                    failure,
+                    diagnostic=f"legacy binary workbook is unreadable: {exc.__class__.__name__}",
+                ) from exc
+            try:
+                if not workbook.sheetnames:
+                    failure = input_failure(
+                        "EXCEL_INPUT_NO_WORKSHEET",
+                        "Excel 文件中没有可读取的工作表。",
+                        "请添加一张 Tekla 原始零件明细工作表后重新上传。",
+                    )
+                    raise InputContractError(
+                        failure,
+                        diagnostic="legacy binary workbook has no worksheet",
+                    )
+                sheetnames = tuple(workbook.sheetnames)
+                if len(sheetnames) > 1:
+                    first, warnings, ignored = _first_sheet_selection(sheetnames)
+                    return ProductionInput(
+                        resolved,
+                        InputKind.LEGACY_WORKBOOK,
+                        first,
+                        warnings,
+                        ignored,
+                    )
+                return ProductionInput(
+                    resolved,
+                    InputKind.LEGACY_WORKBOOK,
+                    sheetnames[0],
+                )
+            finally:
+                workbook.close()
         return ProductionInput(resolved, InputKind.TEKLA_TEXT, None)
     if suffix not in {".xlsx", ".xlsm"}:
         failure = input_failure(
@@ -408,22 +457,17 @@ def inspect_production_input(path: Path) -> ProductionInput:
                 "请添加一张 Tekla 原始零件明细工作表后重新上传。",
             )
             raise InputContractError(failure, diagnostic="production workbook has no worksheet")
-        if len(workbook.sheetnames) > 1:
-            sheets = tuple(workbook.sheetnames)
-            failure = input_failure(
-                "EXCEL_INPUT_MULTIPLE_WORKSHEETS",
-                "Excel 第一阶段只接受一张工作表。",
-                "请删除整理表、part 等结果页，仅保留一张原始明细工作表后重新上传。",
-                sheets=sheets,
+        sheetnames = tuple(workbook.sheetnames)
+        if len(sheetnames) > 1:
+            first, warnings, ignored = _first_sheet_selection(sheetnames)
+            return ProductionInput(
+                resolved,
+                InputKind.WORKBOOK,
+                first,
+                warnings,
+                ignored,
             )
-            raise InputContractError(
-                failure,
-                diagnostic=(
-                    "production workbook must contain exactly one worksheet; "
-                    f"found {len(workbook.sheetnames)}: {workbook.sheetnames}"
-                ),
-            )
-        sheet_name = workbook.sheetnames[0]
+        sheet_name = sheetnames[0]
     finally:
         workbook.close()
     return ProductionInput(resolved, InputKind.WORKBOOK, sheet_name)

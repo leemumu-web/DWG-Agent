@@ -19,14 +19,17 @@ from input_contract import (
     inspect_production_input,
 )
 from input_errors import input_failure
-from quality import QualityIssue
+from legacy_xls import open_legacy_workbook
+from quality import IssueLevel, QualityIssue
 from reader import CanonicalWorkbookRead, read_canonical_source, read_canonical_workbook
 from reader_init import detect_initial_layout, read_init_canonical, read_init_table
 
 
 class SourceFormat(StrEnum):
     STANDARD_WORKBOOK = "standard_workbook"
+    LEGACY_WORKBOOK = "legacy_workbook"
     INITIAL_WORKBOOK = "initial_workbook"
+    LEGACY_INITIAL_WORKBOOK = "legacy_initial_workbook"
     DELIMITED_TEKLA_TEXT = "delimited_tekla_text"
     FIXED_WIDTH_TEKLA_TEXT = "fixed_width_tekla_text"
 
@@ -41,16 +44,49 @@ class SourceIntakeResult:
     component_rows: tuple[ComponentSourceRow, ...]
     issues: tuple[QualityIssue, ...]
     diagnostics: Mapping[str, object]
+    warnings: tuple[str, ...] = ()
+    ignored_sheets: tuple[str, ...] = ()
 
 
 def _workbook_values(worksheet: Any) -> tuple[tuple[Any, ...], ...]:
     return tuple(tuple(value for value in row) for row in worksheet.iter_rows(values_only=True))
 
 
+def _selection_issues(
+    sheet_name: str,
+    warnings: tuple[str, ...],
+    ignored_sheets: tuple[str, ...],
+) -> tuple[QualityIssue, ...]:
+    return tuple(
+        QualityIssue(
+            level=IssueLevel.WARNING,
+            category="多工作表输入",
+            source_sheet=sheet_name,
+            source_row=1,
+            component_no=None,
+            part_no=None,
+            spec=None,
+            field="工作表",
+            actual_value=ignored_sheets,
+            expected_value=sheet_name,
+            absolute_error=None,
+            relative_error=None,
+            affects_part=False,
+            density_source=None,
+            description=warning,
+        )
+        for warning in warnings
+    )
+
+
 def _from_canonical(
     read: CanonicalWorkbookRead,
     source_format: SourceFormat,
+    *,
+    warnings: tuple[str, ...] = (),
+    ignored_sheets: tuple[str, ...] = (),
 ) -> SourceIntakeResult:
+    selection_issues = _selection_issues(read.sheet_name, warnings, ignored_sheets)
     return SourceIntakeResult(
         source_path=read.source_path,
         source_format=source_format,
@@ -58,13 +94,17 @@ def _from_canonical(
         working_values=read.working_values,
         parts=read.parts,
         component_rows=read.component_rows,
-        issues=read.issues,
+        issues=(*selection_issues, *read.issues),
         diagnostics=MappingProxyType({
             "header_row": read.header.row_number,
             "repeated_header_rows": read.header.repeated_rows,
             "part_count": len(read.parts),
             "component_count": len(read.component_rows),
+            "warnings": warnings,
+            "ignored_sheets": ignored_sheets,
         }),
+        warnings=warnings,
+        ignored_sheets=ignored_sheets,
     )
 
 
@@ -93,7 +133,12 @@ def _initial_component_row(path: Path, sheet_name: str) -> ComponentSourceRow:
 
 
 def _read_initial(path: Path, sheet_name: str, header_row: int) -> SourceIntakeResult:
-    workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    inspected = inspect_production_input(path)
+    workbook = (
+        open_legacy_workbook(path)
+        if inspected.kind is InputKind.LEGACY_WORKBOOK
+        else openpyxl.load_workbook(path, read_only=True, data_only=False)
+    )
     try:
         values = _workbook_values(workbook[sheet_name])
     finally:
@@ -102,22 +147,35 @@ def _read_initial(path: Path, sheet_name: str, header_row: int) -> SourceIntakeR
     component_rows = (_initial_component_row(path, sheet_name),)
     return SourceIntakeResult(
         source_path=path,
-        source_format=SourceFormat.INITIAL_WORKBOOK,
+        source_format=(
+            SourceFormat.LEGACY_INITIAL_WORKBOOK
+            if inspected.kind is InputKind.LEGACY_WORKBOOK
+            else SourceFormat.INITIAL_WORKBOOK
+        ),
         sheet_name=sheet_name,
         working_values=values,
         parts=parts,
         component_rows=component_rows,
-        issues=(),
+        issues=_selection_issues(sheet_name, inspected.warnings, inspected.ignored_sheets),
         diagnostics=MappingProxyType({
             "header_row": header_row,
             "part_count": len(parts),
             "component_count": len(component_rows),
+            "warnings": inspected.warnings,
+            "ignored_sheets": inspected.ignored_sheets,
         }),
+        warnings=inspected.warnings,
+        ignored_sheets=inspected.ignored_sheets,
     )
 
 
 def _read_workbook(path: Path, sheet_name: str) -> SourceIntakeResult:
-    workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
+    inspected = inspect_production_input(path)
+    workbook = (
+        open_legacy_workbook(path)
+        if inspected.kind is InputKind.LEGACY_WORKBOOK
+        else openpyxl.load_workbook(path, read_only=True, data_only=False)
+    )
     try:
         worksheet = workbook[sheet_name]
         try:
@@ -143,7 +201,13 @@ def _read_workbook(path: Path, sheet_name: str) -> SourceIntakeResult:
                 )
             return _from_canonical(
                 read_canonical_workbook(path),
-                SourceFormat.STANDARD_WORKBOOK,
+                (
+                    SourceFormat.LEGACY_WORKBOOK
+                    if inspected.kind is InputKind.LEGACY_WORKBOOK
+                    else SourceFormat.STANDARD_WORKBOOK
+                ),
+                warnings=inspected.warnings,
+                ignored_sheets=inspected.ignored_sheets,
             )
     finally:
         workbook.close()
@@ -186,7 +250,7 @@ def _text_format(path: Path) -> SourceFormat:
 def read_production_source(path: str | Path) -> SourceIntakeResult:
     """Detect and adapt one supported production source into canonical records."""
     inspected = inspect_production_input(Path(path))
-    if inspected.kind is InputKind.WORKBOOK:
+    if inspected.kind in {InputKind.WORKBOOK, InputKind.LEGACY_WORKBOOK}:
         if inspected.sheet_name is None:
             failure = input_failure(
                 "EXCEL_INPUT_NO_WORKSHEET",

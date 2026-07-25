@@ -29,6 +29,7 @@ from input_contract import (
     is_repeated_canonical_header,
 )
 from input_errors import ExcelInputIssue, input_failure
+from legacy_xls import open_legacy_workbook
 from quality import IssueLevel, QualityIssue
 
 log = logging.getLogger(__name__)
@@ -612,10 +613,16 @@ def _worksheet_values(worksheet: Any) -> tuple[tuple[Any, ...], ...]:
 def read_canonical_workbook(path: str | Path) -> CanonicalWorkbookRead:
     """Read one reviewed worksheet into immutable canonical source records."""
     inspected = inspect_production_input(Path(path))
-    if inspected.kind is not InputKind.WORKBOOK or inspected.sheet_name is None:
-        raise ValueError("canonical workbook reader requires a one-sheet .xlsx/.xlsm source")
+    if inspected.kind not in {InputKind.WORKBOOK, InputKind.LEGACY_WORKBOOK}:
+        raise ValueError("canonical workbook reader requires a one-sheet workbook source")
+    if inspected.sheet_name is None:
+        raise ValueError("canonical workbook reader requires a named worksheet")
 
-    workbook = openpyxl.load_workbook(inspected.path, read_only=True, data_only=False)
+    workbook = (
+        open_legacy_workbook(inspected.path)
+        if inspected.kind is InputKind.LEGACY_WORKBOOK
+        else openpyxl.load_workbook(inspected.path, read_only=True, data_only=False)
+    )
     try:
         worksheet = workbook[inspected.sheet_name]
         header = detect_canonical_header(worksheet)
@@ -650,7 +657,7 @@ def _tab_text_workbook(path: Path) -> openpyxl.Workbook | None:
 def read_canonical_source(path: str | Path) -> CanonicalWorkbookRead:
     """Dispatch a workbook or Tekla text export into the canonical reader."""
     inspected = inspect_production_input(Path(path))
-    if inspected.kind is InputKind.WORKBOOK:
+    if inspected.kind in {InputKind.WORKBOOK, InputKind.LEGACY_WORKBOOK}:
         return read_canonical_workbook(inspected.path)
 
     workbook = _tab_text_workbook(inspected.path)

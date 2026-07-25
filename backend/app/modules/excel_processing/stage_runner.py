@@ -132,6 +132,8 @@ def _inspect(args: argparse.Namespace) -> None:
             "header_row": int(result.diagnostics["header_row"]),
             "part_count": len(result.parts),
             "component_count": len(result.component_rows),
+            "warnings": list(result.warnings),
+            "ignored_sheets": list(result.ignored_sheets),
         }
     )
 

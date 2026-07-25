@@ -8,6 +8,7 @@ from openpyxl import Workbook
 import main
 from domain import PipelineOutcome
 from handbook import HandbookInfrastructureError
+from input_contract import inspect_production_input
 
 
 def _single_sheet(path: Path) -> None:
@@ -17,22 +18,24 @@ def _single_sheet(path: Path) -> None:
     workbook.close()
 
 
-def test_cli_rejects_multi_sheet_through_source_intake(
+def test_multi_sheet_input_selects_first_sheet_with_warning(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = tmp_path / "multi.xlsx"
     workbook = Workbook()
     workbook.active.title = "原表"
+    workbook.active.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
     workbook.create_sheet("part")
     workbook.save(path)
     workbook.close()
 
-    exit_code = main.main([str(path)])
-    captured = capsys.readouterr()
+    inspected = inspect_production_input(path)
 
-    assert exit_code == 2
-    assert "exactly one worksheet" in captured.err
+    assert inspected.sheet_name == "原表"
+    assert inspected.ignored_sheets == ("part",)
+    assert inspected.warnings == (
+        "检测到 2 张工作表，仅处理第一张“原表”；其余工作表已忽略：part。",
+    )
 
 
 def test_cli_requires_explicit_input_without_sample_specific_fallback(

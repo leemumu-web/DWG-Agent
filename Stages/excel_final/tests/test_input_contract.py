@@ -23,20 +23,17 @@ def _workbook(path: Path, sheet_names: tuple[str, ...]) -> Path:
     return path
 
 
-def test_production_workbook_requires_exactly_one_sheet(tmp_path: Path) -> None:
+def test_production_workbook_uses_first_sheet_and_warns(tmp_path: Path) -> None:
     contract = _contract()
     source = _workbook(tmp_path / "multi.xlsx", ("原表", "整理", "part"))
 
-    with pytest.raises(contract.InputContractError) as caught:
-        contract.inspect_production_input(source)
+    inspected = contract.inspect_production_input(source)
 
-    failure = caught.value.failure
-    assert failure.code == "EXCEL_INPUT_MULTIPLE_WORKSHEETS"
-    assert failure.message == "Excel 第一阶段只接受一张工作表。"
-    assert failure.action == "请删除整理表、part 等结果页，仅保留一张原始明细工作表后重新上传。"
-    assert failure.sheets == ("原表", "整理", "part")
-    assert failure.meta["sheet_count"] == 3
-    assert failure.as_dict()["contract_version"] == 1
+    assert inspected.sheet_name == "原表"
+    assert inspected.warnings == (
+        "检测到 3 张工作表，仅处理第一张“原表”；其余工作表已忽略：整理、part。",
+    )
+    assert inspected.ignored_sheets == ("整理", "part")
 
 
 def test_production_single_sheet_and_tekla_text_have_distinct_kinds(tmp_path: Path) -> None:
@@ -54,7 +51,7 @@ def test_production_single_sheet_and_tekla_text_have_distinct_kinds(tmp_path: Pa
     assert text_input.sheet_name is None
 
 
-def test_binary_xls_is_not_misclassified_as_tekla_text(tmp_path: Path) -> None:
+def test_corrupt_binary_xls_reports_unreadable(tmp_path: Path) -> None:
     contract = _contract()
     source = tmp_path / "legacy.xls"
     source.write_bytes(bytes.fromhex("D0CF11E0A1B11AE1") + b"\x00" * 64)
@@ -63,10 +60,51 @@ def test_binary_xls_is_not_misclassified_as_tekla_text(tmp_path: Path) -> None:
         contract.inspect_production_input(source)
 
     failure = caught.value.failure
-    assert failure.code == "EXCEL_INPUT_BINARY_XLS_UNSUPPORTED"
+    assert failure.code == "EXCEL_INPUT_UNREADABLE"
     assert "另存为" in failure.action
     assert failure.issues == ()
     assert str(source.resolve()) not in str(failure.as_dict())
+
+
+def test_real_binary_xls_is_registered_as_legacy_workbook() -> None:
+    contract = _contract()
+    source = (
+        Path(__file__).resolve().parents[4]
+        / "Data"
+        / "十份排版"
+        / "排版1"
+        / "C区域四节钢柱（宝冶）"
+        / "1.构件图"
+        / "C区核心筒四节钢柱构件清单.xls"
+    )
+    if not source.is_file():
+        pytest.skip("authoritative binary XLS fixture is absent")
+
+    inspected = contract.inspect_production_input(source)
+
+    assert inspected.kind is contract.InputKind.LEGACY_WORKBOOK
+    assert inspected.sheet_name == "C区域四钢柱构件清单新"
+
+
+def test_binary_workbook_reaches_schema_validation() -> None:
+    source = (
+        Path(__file__).resolve().parents[4]
+        / "Data"
+        / "十份排版"
+        / "排版1"
+        / "C区域四节钢柱（宝冶）"
+        / "1.构件图"
+        / "C区核心筒四节钢柱构件清单.xls"
+    )
+    if not source.is_file():
+        pytest.skip("binary XLS fixture is absent")
+
+    intake = importlib.import_module("source_intake")
+    contract = _contract()
+    with pytest.raises(contract.InputContractError) as caught:
+        intake.read_production_source(source)
+
+    assert caught.value.failure.code == "EXCEL_INPUT_COMPONENT_ONLY"
 
 
 def test_abbreviated_duplicate_weight_pairs_map_first_to_net_and_second_to_gross() -> None:

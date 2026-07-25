@@ -48,6 +48,8 @@ class ExcelStage1Inspection:
     header_row: int
     part_count: int
     component_count: int
+    warnings: tuple[str, ...] = ()
+    ignored_sheets: tuple[str, ...] = ()
 
 
 class ExcelFinalPartType(StrEnum):

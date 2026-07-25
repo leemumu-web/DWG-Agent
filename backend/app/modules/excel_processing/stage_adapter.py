@@ -80,6 +80,8 @@ _INSPECTION_RESULT_FIELDS = {
     "header_row",
     "part_count",
     "component_count",
+    "warnings",
+    "ignored_sheets",
 }
 _ERROR_FIELDS = {"protocol_version", "operation", "failure"}
 _FAILURE_FIELDS = {
@@ -94,7 +96,9 @@ _FAILURE_FIELDS = {
 _ISSUE_FIELDS = {"sheet", "row", "column", "field", "value", "reason"}
 _SOURCE_FORMATS = {
     "standard_workbook",
+    "legacy_workbook",
     "initial_workbook",
+    "legacy_initial_workbook",
     "delimited_tekla_text",
     "fixed_width_tekla_text",
 }
@@ -446,6 +450,10 @@ def _inspection_result(payload: dict[str, object]) -> ExcelStage1Inspection:
         header_row = _positive_int(payload["header_row"])
         part_count = _non_negative_int(payload["part_count"])
         component_count = _non_negative_int(payload["component_count"])
+        warnings = _bounded_text_list(payload["warnings"], maximum_items=10, maximum_text=500)
+        ignored_sheets = _bounded_text_list(
+            payload["ignored_sheets"], maximum_items=10, maximum_text=128
+        )
     except (KeyError, TypeError, ValueError) as exc:
         raise ExcelFinalProcessError(
             "Excel Final returned an invalid inspect result"
@@ -458,6 +466,8 @@ def _inspection_result(payload: dict[str, object]) -> ExcelStage1Inspection:
         header_row=header_row,
         part_count=part_count,
         component_count=component_count,
+        warnings=warnings,
+        ignored_sheets=ignored_sheets,
     )
 
 
@@ -472,6 +482,17 @@ def _positive_int(value: object) -> int:
     if result == 0:
         raise ValueError("expected a positive integer")
     return result
+
+
+def _bounded_text_list(
+    value: object,
+    *,
+    maximum_items: int,
+    maximum_text: int,
+) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > maximum_items:
+        raise ValueError("invalid bounded text list")
+    return tuple(_bounded_text(item, maximum=maximum_text) for item in value)
 
 
 def _validated_summary(

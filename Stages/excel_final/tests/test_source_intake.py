@@ -70,6 +70,28 @@ def test_source_intake_detects_standard_workbook(tmp_path: Path) -> None:
     assert result.component_rows[0].component_qty == Decimal("2")
 
 
+def test_multi_sheet_workbook_keeps_first_sheet_and_records_warning(tmp_path: Path) -> None:
+    source = _standard_workbook(tmp_path / "multi.xlsx")
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "原表"
+    first.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    first.append(["C1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    first.append([None, "P1", "PL10*200", 100, "Q355B", 1])
+    workbook.create_sheet("整理")
+    workbook.create_sheet("part")
+    workbook.save(source)
+    workbook.close()
+
+    result = read_production_source(source)
+
+    assert result.sheet_name == "原表"
+    assert result.ignored_sheets == ("整理", "part")
+    assert len(result.warnings) == 1
+    assert result.issues[0].category == "多工作表输入"
+    assert result.issues[0].level.value == "警告"
+
+
 def test_standard_workbook_accepts_identical_headers_between_component_blocks(
     tmp_path: Path,
 ) -> None:

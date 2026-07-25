@@ -29,6 +29,7 @@ export interface WorkflowInputItem {
   drawing_id?: number | null;
   error_code?: string | null;
   error_message?: string | null;
+  validation?: Record<string, unknown> | null;
 }
 
 export interface WorkflowInputBatch {

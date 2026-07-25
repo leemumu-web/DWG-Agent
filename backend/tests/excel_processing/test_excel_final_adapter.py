@@ -41,6 +41,8 @@ def _inspection_payload() -> dict[str, object]:
         "header_row": 6,
         "part_count": 12,
         "component_count": 3,
+        "warnings": [],
+        "ignored_sheets": [],
     }
 
 
@@ -151,6 +153,8 @@ def test_stage_runner_inspects_canonical_input_without_handbook_database(
         "header_row": 1,
         "part_count": 1,
         "component_count": 1,
+        "warnings": [],
+        "ignored_sheets": [],
     }
     assert completed.stderr == ""
 
