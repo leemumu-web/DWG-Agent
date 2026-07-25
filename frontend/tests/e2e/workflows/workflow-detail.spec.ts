@@ -644,6 +644,12 @@ test('manual review downloads only the current split batch original DXFs', async
     validation_schema: 'STEEL-DXF-SPLIT-VALIDATION-1',
     input_manifest_sha256: 'b'.repeat(64),
     input_count: 3,
+    processed_count: 3,
+    failed_count: 0,
+    reviewed_count: 0,
+    elapsed_seconds: 18,
+    throughput_per_minute: 10,
+    estimated_remaining_seconds: 0,
     auto_accepted_count: 2,
     manual_review_count: 1,
     source_contracts: {
@@ -663,6 +669,34 @@ test('manual review downloads only the current split batch original DXFs', async
     updated_at: now,
   };
   let reviewArchiveRequests = 0;
+  let candidateArchiveRequests = 0;
+  let reviewState = {
+    items: [{
+      id: 501,
+      source_name: 'BH-REVIEW_拆板前.dxf',
+      part_type: 'BH',
+      profile_normalized: 'BH600X300X12X20',
+      disposition: 'independent_validation_failed',
+      diagnostics: ['候选图需人工确认轮廓与孔位'],
+      candidate_available: true,
+      decision: null as null | {
+        id: number;
+        split_item_id: number;
+        decision: 'accept_candidate';
+        final_normal_dxf_file_id: number;
+        final_weld_allowance_dxf_file_id: number;
+        comment: string;
+        decided_by: number;
+        decided_at: string;
+        version: number;
+      },
+    }],
+    total: 1,
+    page: 1,
+    page_size: 20,
+    pending_count: 1,
+    manual_processing_count: 0,
+  };
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
     access_token: 'e2e-token',
@@ -676,6 +710,65 @@ test('manual review downloads only the current split batch original DXFs', async
   }));
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
   await page.route('**/api/v1/workflows/43/drawing-processing', (route) => json(route, splitRun));
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/review-items?**',
+    (route) => json(route, reviewState),
+  );
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/review-items/501/decision',
+    async (route) => {
+      const payload = route.request().postDataJSON();
+      expect(payload).toEqual({
+        decision: 'accept_candidate',
+        comment: '已核对候选轮廓和孔位',
+        expected_version: 0,
+      });
+      reviewState = {
+        ...reviewState,
+        pending_count: 0,
+        items: [{
+          ...reviewState.items[0],
+          decision: {
+            id: 701,
+            split_item_id: 501,
+            decision: 'accept_candidate',
+            final_normal_dxf_file_id: 1201,
+            final_weld_allowance_dxf_file_id: 1202,
+            comment: payload.comment,
+            decided_by: 1,
+            decided_at: now,
+            version: 1,
+          },
+        }],
+      };
+      await json(route, reviewState.items[0].decision);
+    },
+  );
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/review-completion',
+    async (route) => {
+      expect(reviewState.pending_count).toBe(0);
+      splitRun.status = 'completed';
+      workflow.current_stage = 'excel_stage1';
+      workflow.status = 'running';
+      await json(route, splitRun);
+    },
+  );
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/review-candidates-archive',
+    async (route) => {
+      candidateArchiveRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'content-disposition': "attachment; filename*=UTF-8''workflow-43-split-run-88-review-candidates.zip",
+          'access-control-expose-headers': 'content-disposition',
+        },
+        body: 'PK-source-candidate-reports-manifest',
+      });
+    },
+  );
   await page.route(
     '**/api/v1/workflows/43/drawing-processing/runs/88/manual-review-archive',
     async (route) => {
@@ -705,15 +798,35 @@ test('manual review downloads only the current split batch original DXFs', async
   await expect(page.getByText('自动完成')).toBeVisible();
   await expect(page.getByText('待人工处理')).toBeVisible();
   await expect(page.getByText('1 张图纸未通过自动处理')).toBeVisible();
-  await expect(page.getByText(/压缩包只包含这些图纸进入拆板前的分类原始 DXF/)).toBeVisible();
+  await expect(page.getByText('BH-REVIEW_拆板前.dxf')).toBeVisible();
+  await expect(page.getByText('候选图需人工确认轮廓与孔位')).toBeVisible();
   await expect(page.getByText('processed_dxf × 1')).toBeVisible();
   await expect(page.getByText('processed_dxf × 2')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '下载本阶段结果压缩包' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /上传|确认当前阶段|继续/ })).toHaveCount(0);
 
+  const candidateDownloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载候选复核 ZIP' }).click();
+  const candidateDownload = await candidateDownloadPromise;
+  await expect.poll(() => candidateArchiveRequests).toBe(1);
+  expect(candidateDownload.suggestedFilename()).toBe(
+    'workflow-43-split-run-88-review-candidates.zip',
+  );
+
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: '下载未通过原图 ZIP' }).click();
+  await page.getByRole('button', { name: '仅下载未通过原图 ZIP' }).click();
   const download = await downloadPromise;
   await expect.poll(() => reviewArchiveRequests).toBe(1);
   expect(download.suggestedFilename()).toBe('workflow-43-split-run-88-manual-review.zip');
+
+  await page.getByRole('button', { name: '采用候选' }).click();
+  await page.getByPlaceholder(/填写核对结论/).fill('已核对候选轮廓和孔位');
+  await page.getByRole('button', { name: '保存决定' }).click();
+  await expect(page.getByText('已采用候选')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '完成复核并进入 Excel' }),
+  ).toBeEnabled();
+  await page.getByRole('button', { name: '完成复核并进入 Excel' }).click();
+  await page.getByRole('button', { name: /图纸拆板与独立校验/ }).click();
+  await expect(page.getByRole('button', { name: '下载拆板结果 ZIP' })).toBeVisible();
 });

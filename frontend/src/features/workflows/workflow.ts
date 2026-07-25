@@ -180,6 +180,12 @@ export interface DxfSplitRun {
   validation_schema?: string | null;
   input_manifest_sha256: string;
   input_count: number;
+  processed_count: number;
+  failed_count: number;
+  reviewed_count: number;
+  elapsed_seconds: number;
+  throughput_per_minute?: number | null;
+  estimated_remaining_seconds?: number | null;
   auto_accepted_count: number;
   manual_review_count: number;
   source_contracts: Record<string, string>;
@@ -194,4 +200,40 @@ export interface DxfSplitRun {
   finished_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type DxfSplitReviewDecisionKind =
+  | 'accept_candidate'
+  | 'manual_processing';
+
+export interface DxfSplitReviewDecision {
+  id: number;
+  split_item_id: number;
+  decision: DxfSplitReviewDecisionKind;
+  final_normal_dxf_file_id?: number | null;
+  final_weld_allowance_dxf_file_id?: number | null;
+  comment: string;
+  decided_by: number;
+  decided_at: string;
+  version: number;
+}
+
+export interface DxfSplitReviewItem {
+  id: number;
+  source_name: string;
+  part_type: string;
+  profile_normalized?: string | null;
+  disposition: string;
+  diagnostics: string[];
+  candidate_available: boolean;
+  decision?: DxfSplitReviewDecision | null;
+}
+
+export interface DxfSplitReviewPage {
+  items: DxfSplitReviewItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  pending_count: number;
+  manual_processing_count: number;
 }

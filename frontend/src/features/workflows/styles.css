@@ -527,6 +527,66 @@
   gap: 14px;
 }
 
+.workflow-dxf-split-progress {
+  display: grid;
+  gap: 5px;
+  min-width: min(460px, 58vw);
+}
+
+.workflow-dxf-split-progress > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workflow-dxf-split-review {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: #f8fbfb;
+  border: 1px solid #ccdcde;
+  border-left: 4px solid #d79b28;
+}
+
+.workflow-dxf-split-review > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workflow-dxf-split-review > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.workflow-dxf-split-review > header .ant-typography {
+  margin: 0;
+}
+
+.workflow-dxf-split-review-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-dxf-split-review-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #dbe6e7;
+}
+
+.workflow-dxf-split-review-main {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(160px, auto) minmax(160px, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .workflow-classification-warning {
   margin-top: 14px;
 }
@@ -763,6 +823,21 @@
   .workflow-dxf-split-command {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .workflow-dxf-split-progress {
+    min-width: 0;
+  }
+
+  .workflow-dxf-split-progress > div,
+  .workflow-dxf-split-review > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .workflow-dxf-split-review-list article,
+  .workflow-dxf-split-review-main {
+    grid-template-columns: 1fr;
   }
 
   .workflow-classification-folders {
