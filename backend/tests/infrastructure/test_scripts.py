@@ -14,6 +14,55 @@ def _read(path: str) -> str:
     return (PROJECT_ROOT / path).read_text(encoding="utf-8")
 
 
+def _load_worker_specs(**overrides: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f'source "{PROJECT_ROOT}/scripts/lib/cad_worker.sh" || exit $?; '
+                'printf "%s\\n" "${WORKER_SPECS[@]}"'
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, **overrides},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_classification_worker_autoscales_from_one_to_three():
+    result = _load_worker_specs()
+
+    assert result.returncode == 0
+    assert "dxf_classification|3|dxf-classification||1|3" in result.stdout
+
+
+def test_classification_worker_autoscale_accepts_valid_override():
+    result = _load_worker_specs(
+        DXF_CLASSIFICATION_AUTOSCALE_MIN="2",
+        DXF_CLASSIFICATION_AUTOSCALE_MAX="4",
+    )
+
+    assert result.returncode == 0
+    assert "dxf_classification|4|dxf-classification||2|4" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("minimum", "maximum"),
+    [("0", "3"), ("2", "1"), ("one", "3")],
+)
+def test_classification_worker_autoscale_rejects_invalid_range(minimum, maximum):
+    result = _load_worker_specs(
+        DXF_CLASSIFICATION_AUTOSCALE_MIN=minimum,
+        DXF_CLASSIFICATION_AUTOSCALE_MAX=maximum,
+    )
+
+    assert result.returncode != 0
+    assert "DXF classification autoscale" in result.stderr
+
+
 def _write_fake_compose(tmp_path):
     fake = tmp_path / "fake-compose"
     fake.write_text(

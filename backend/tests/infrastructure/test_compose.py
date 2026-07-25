@@ -120,6 +120,25 @@ class TestAppServices:
             health = " ".join(service["healthcheck"]["test"])
             assert f"/tmp/dwg-celery-{queue}.pid" in health
 
+    def test_classification_worker_uses_configurable_autoscale(self):
+        service = _load()["services"]["worker-dxf-classification"]
+        command = service["command"]
+
+        assert (
+            "--autoscale=${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3},"
+            "${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}"
+        ) in command
+        assert "--concurrency=1" not in command
+        assert (
+            service["environment"]["DWG_WORKER_CONCURRENCY"]
+            == "${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
+        )
+        assert (
+            service["environment"]["DWG_WORKER_AUTOSCALE"]
+            == "${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}-"
+            "${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
+        )
+
 
 class TestComposeYamlValid:
     def test_is_parseable_yaml(self):

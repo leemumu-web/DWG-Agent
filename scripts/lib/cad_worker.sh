@@ -12,11 +12,21 @@ DXF_WORKER_CONCURRENCY="${DXF_WORKER_CONCURRENCY:-8}"
 DXF2DWG_WORKER_CONCURRENCY="${DXF2DWG_WORKER_CONCURRENCY:-8}"
 DXF_WORKER_DISPLAY="${DXF_WORKER_DISPLAY:-:91}"
 DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"
+DXF_CLASSIFICATION_AUTOSCALE_MIN="${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}"
+DXF_CLASSIFICATION_AUTOSCALE_MAX="${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
 
-# queue|concurrency|slug|optional-display is the local worker single source of truth.
+if ! [[ "$DXF_CLASSIFICATION_AUTOSCALE_MIN" =~ ^[1-9][0-9]*$ ]] \
+    || ! [[ "$DXF_CLASSIFICATION_AUTOSCALE_MAX" =~ ^[1-9][0-9]*$ ]] \
+    || ((DXF_CLASSIFICATION_AUTOSCALE_MIN > DXF_CLASSIFICATION_AUTOSCALE_MAX)); then
+    echo "DXF classification autoscale 配置无效: MIN=${DXF_CLASSIFICATION_AUTOSCALE_MIN}, MAX=${DXF_CLASSIFICATION_AUTOSCALE_MAX}" >&2
+    return 2 2>/dev/null || exit 2
+fi
+
+# queue|capacity|slug|optional-display|optional-autoscale-min|optional-autoscale-max
+# is the local worker single source of truth.
 WORKER_SPECS=(
     "report|1|report|"
-    "dxf_classification|1|dxf-classification|"
+    "dxf_classification|${DXF_CLASSIFICATION_AUTOSCALE_MAX}|dxf-classification||${DXF_CLASSIFICATION_AUTOSCALE_MIN}|${DXF_CLASSIFICATION_AUTOSCALE_MAX}"
     "dxf_split|1|dxf-split|"
     "dxf|${DXF_WORKER_CONCURRENCY}|dxf|${DXF_WORKER_DISPLAY}"
     "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
@@ -101,6 +111,7 @@ stop_celery_worker() {
 
 start_celery_worker() {
     local queue="$1" concurrency="$2" slug="${3:-${1//_/-}}" display="${4:-}"
+    local autoscale_min="${5:-}" autoscale_max="${6:-}"
     local label="worker-${slug}"
     local pidfile="/tmp/dwg-agent-${label}.pid"
     local logfile="/tmp/dwg-agent-${label}.log"
@@ -145,10 +156,21 @@ start_celery_worker() {
             "$queue" "$concurrency" "${slug}-local@%h" "$display" \
             >"$logfile" 2>&1 </dev/null &
     else
-        DWG_WORKER_QUEUE="$queue" DWG_WORKER_CONCURRENCY="$concurrency" nohup setsid "${celery_cmd[@]}" \
+        local -a pool_args
+        local autoscale_range=""
+        if [ -n "$autoscale_min" ] && [ -n "$autoscale_max" ]; then
+            pool_args=(--autoscale="${autoscale_max},${autoscale_min}")
+            autoscale_range="${autoscale_min}-${autoscale_max}"
+        else
+            pool_args=(--concurrency="$concurrency")
+        fi
+        DWG_WORKER_QUEUE="$queue" \
+        DWG_WORKER_CONCURRENCY="$concurrency" \
+        DWG_WORKER_AUTOSCALE="$autoscale_range" \
+        nohup setsid "${celery_cmd[@]}" \
             -A app.platform.messaging.celery_app:celery_app worker \
             -Q "$queue" -n "${slug}-local@%h" \
-            --concurrency="$concurrency" --loglevel=INFO \
+            "${pool_args[@]}" --loglevel=INFO \
             >"$logfile" 2>&1 </dev/null &
     fi
     local pid=$!
@@ -172,7 +194,11 @@ start_celery_worker() {
     cd "$oldpwd"
 
     if $ready; then
-        ok "Celery ${label} 已启动 (concurrency=${concurrency})"
+        if [ -n "$autoscale_min" ] && [ -n "$autoscale_max" ]; then
+            ok "Celery ${label} 已启动 (autoscale=${autoscale_min}-${autoscale_max})"
+        else
+            ok "Celery ${label} 已启动 (concurrency=${concurrency})"
+        fi
         return 0
     fi
 
@@ -184,17 +210,18 @@ start_celery_worker() {
 }
 
 start_all_workers() {
-    local spec queue concurrency slug display
+    local spec queue concurrency slug display autoscale_min autoscale_max
     for spec in "${WORKER_SPECS[@]}"; do
-        IFS='|' read -r queue concurrency slug display <<<"$spec"
-        start_celery_worker "$queue" "$concurrency" "$slug" "$display"
+        IFS='|' read -r queue concurrency slug display autoscale_min autoscale_max <<<"$spec"
+        start_celery_worker \
+            "$queue" "$concurrency" "$slug" "$display" "$autoscale_min" "$autoscale_max"
     done
 }
 
 stop_all_workers() {
-    local spec queue concurrency slug display
+    local spec queue concurrency slug display autoscale_min autoscale_max
     for spec in "${WORKER_SPECS[@]}"; do
-        IFS='|' read -r queue concurrency slug display <<<"$spec"
+        IFS='|' read -r queue concurrency slug display autoscale_min autoscale_max <<<"$spec"
         stop_celery_worker "$queue" "$slug" || true
     done
     return 0

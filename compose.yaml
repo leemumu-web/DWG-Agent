@@ -131,7 +131,7 @@ services:
 
   worker-dxf-classification:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_classification -n dxf-classification@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_classification -n dxf-classification@%h --autoscale=${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3},${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -139,7 +139,8 @@ services:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf_classification
-      DWG_WORKER_CONCURRENCY: "1"
+      DWG_WORKER_CONCURRENCY: "${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
+      DWG_WORKER_AUTOSCALE: "${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}-${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
 
   worker-dxf-split:
     <<: *worker

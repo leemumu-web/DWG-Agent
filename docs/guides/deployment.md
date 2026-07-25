@@ -52,6 +52,7 @@ bash scripts/docker.sh check
 - `DWG_AGENT_IMAGE`、`DWG_AGENT_FRONTEND_IMAGE`：默认本地 tag；CI/CD 可改为不可变 registry tag/digest。
 - `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
 - `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false；分类与拆板 worker 分别使用独立 `dxf_classification`、`dxf_split` 队列。
+- `DXF_CLASSIFICATION_AUTOSCALE_MIN=1`、`DXF_CLASSIFICATION_AUTOSCALE_MAX=3`：分类队列按不同项目自动伸缩；`prefetch=1` 保证排队公平，不会加速单个项目内部的文件处理。提高上限前必须在部署机器上复测内存和 MySQL 负载。
 - `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
 
 ## 构建与启动
