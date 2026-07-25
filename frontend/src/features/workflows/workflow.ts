@@ -168,8 +168,6 @@ export interface DxfSplitItem {
   disposition: string;
   normal_dxf_file_id?: number | null;
   weld_allowance_dxf_file_id?: number | null;
-  split_report_file_id?: number | null;
-  weld_allowance_report_file_id?: number | null;
   diagnostics: string[];
   validation: Record<string, unknown>;
 }
@@ -200,7 +198,6 @@ export interface DxfSplitRun {
   source_contracts: Record<string, string>;
   bh_split_ledger_file?: import('../files').StoredFile | null;
   split_manifest_file?: import('../files').StoredFile | null;
-  validation_report_file?: import('../files').StoredFile | null;
   job: import('../jobs').Job;
   items: DxfSplitItem[];
   error_code?: string | null;
@@ -210,47 +207,6 @@ export interface DxfSplitRun {
   created_at: string;
   updated_at: string;
 }
-
-export type DxfSplitReviewDecisionKind =
-  | 'accept_candidate'
-  | 'manual_processing';
-
-export interface DxfSplitReviewDecision {
-  id: number;
-  split_item_id: number;
-  decision: DxfSplitReviewDecisionKind;
-  final_normal_dxf_file_id?: number | null;
-  final_weld_allowance_dxf_file_id?: number | null;
-  comment: string;
-  decided_by: number;
-  decided_at: string;
-  version: number;
-}
-
-export interface DxfSplitReviewItem {
-  id: number;
-  source_name: string;
-  classification_disposition: string;
-  classification_part_type?: string | null;
-  type_resolution: 'classifier_confirmed' | 'splitter_detected' | 'unresolved';
-  part_type: string;
-  family?: string | null;
-  profile_normalized?: string | null;
-  disposition: string;
-  diagnostics: string[];
-  candidate_available: boolean;
-  decision?: DxfSplitReviewDecision | null;
-}
-
-export interface DxfSplitReviewPage {
-  items: DxfSplitReviewItem[];
-  total: number;
-  page: number;
-  page_size: number;
-  pending_count: number;
-  manual_processing_count: number;
-}
-
 export type WorkflowExportCategory =
   | 'classified_dxf'
   | 'processed_dxf'

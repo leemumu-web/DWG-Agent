@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Lock the classified-input contract with failing tests
+## Task 1: Lock the classified-input contract with failing tests
 
 **Files:**
 - Modify: `backend/tests/dxf_splitting/test_dxf_splitting_pipeline.py`
@@ -69,7 +69,7 @@ non-bijective mapping.
 
 Run the same pytest command. Expected: all `classified_manifest` tests pass.
 
-### Task 2: Replace internal profile detection with explicit dispatch
+## Task 2: Replace internal profile detection with explicit dispatch
 
 **Files:**
 - Modify: `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pipeline.py`
@@ -135,7 +135,7 @@ rg -n "profile_detection|detect_profile_family" Stages/steel_dxf_split_v1.5.2 ba
 
 Expected: no production or test references.
 
-### Task 3: Generate the manifest from frozen workflow classification
+## Task 3: Generate the manifest from frozen workflow classification
 
 **Files:**
 - Modify: `backend/app/modules/dxf_splitting/adapter.py`
@@ -183,7 +183,7 @@ Resolve and validate the file before starting the subprocess.
 
 Expected: the mixed batch passes and the fake process observes the manifest option.
 
-### Task 4: Update independent validation semantics
+## Task 4: Update independent validation semantics
 
 **Files:**
 - Modify: `backend/app/modules/dxf_splitting/validation.py`
@@ -205,7 +205,7 @@ classification type.
 
 Expected: matching BH/BOX results pass; mismatches are explicit manual-review findings.
 
-### Task 5: Rebuild BOX release evidence from the full frozen corpus
+## Task 5: Rebuild BOX release evidence from the full frozen corpus
 
 **Files:**
 - Modify: `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/box/release.py`
@@ -239,7 +239,7 @@ attestation into the slim runtime, and immediately load it with
 Supply a classified manifest for each real sample. Expected: no implementation drift;
 each accepted sample produces exactly a normal and weld-allowance DXF pair.
 
-### Task 6: Close orphan split runs
+## Task 6: Close orphan split runs
 
 **Files:**
 - Modify: `backend/app/modules/dxf_splitting/persistence.py`
@@ -269,7 +269,7 @@ stale Job transition, for process-death consistency.
 
 Expected: no cancelled Job retains a visible `running` split run.
 
-### Task 7: Full verification and production E2E
+## Task 7: Full verification and production E2E
 
 **Files:**
 - Modify: `backend/tests/dxf_splitting/README.md`

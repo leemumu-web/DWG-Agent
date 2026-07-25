@@ -64,9 +64,10 @@ Stage、MySQL、对象存储和真实样本约束。新建流程使用 `definiti
 cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保持各自格式。
 `drawing_processing` 已接入 Steel DXF Split 1.5.2：从当前分类 attempt 冻结整批输入，
 通过专用 worker 执行 BH/BOX 拆板和独立校验，在 MySQL 登记 run/item/复核决定，在 MinIO
-登记正常图、余量增长图、报告、批次清单和 `BH拆板信息表.xlsx`。技术失败最多自动执行三个
-完整 attempt；业务待确认项通过候选复核或整批重跑处理，全部固化后才允许进入 Excel。
-前端展示真实进度、速度、剩余时间、逐图复核和当前 attempt 的 ZIP 下载，不生成模拟指标。
+登记正常图、余量增长图、报告、批次清单和 `BH拆板信息表.xlsx`。每批只执行一个
+attempt；每 30 张和尾批分别核对输入数、完成数与业务分流数，单图问题直接保留明确诊断。
+前端展示真实进度、速度、剩余时间和生产结果数量，只提供正式拆板 DXF 与本批原图两个
+ZIP 入口，不展示候选、报告或逐图人工复核工作台。
 Stage A3 的“图纸拆板与独立校验”卡片标题栏提供“分批导出”：`原 DXF`、
 `正常拆板 DXF`、`原 Excel`、`产出 Excel` 分别映射当前 attempt 的
 `classified_dxf`、`processed_dxf`、冻结 `source_excel` 与成功 `stage1_excel`。

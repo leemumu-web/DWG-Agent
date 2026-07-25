@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Add a failing removal contract
+## Task 1: Add a failing removal contract
 
 **Files:**
 - Create: `backend/tests/contracts/test_excel_preview_source.py`
@@ -57,7 +57,7 @@ uv run pytest tests/contracts/test_excel_preview_source.py -q
 
 Expected: failure because the component, model, and public asset still contain LuckyExcel.
 
-### Task 2: Reduce the component to fast preview
+## Task 2: Reduce the component to fast preview
 
 **Files:**
 - Modify: `frontend/src/features/excel-processing/ExcelPreview.tsx`
@@ -88,7 +88,7 @@ Refresh must call only `loadFast(fileId)`. The information bar must display the 
 
 Keep sheet tabs, `buildFastColumns`, summary-row styling, pagination disabled, sticky header, download, refresh, close, loading skeleton, and empty state.
 
-### Task 3: Remove the Lucky model and asset
+## Task 3: Remove the Lucky model and asset
 
 **Files:**
 - Modify: `frontend/src/features/excel-processing/model/excelPreviewModel.tsx`

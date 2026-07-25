@@ -122,7 +122,6 @@ def list_split_review_items(
                 profile_normalized=item.profile_normalized,
                 disposition=item.disposition,
                 diagnostics=item.diagnostics_json or [],
-                candidate_available=_candidate_files_available(db, item),
                 decision=(
                     DxfSplitReviewDecisionRead(
                         id=item.review_decision.id,

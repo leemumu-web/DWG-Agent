@@ -1518,7 +1518,7 @@ def test_bound_split_job_is_reused_across_project_members(
     assert len(split_jobs) == 1
 
 
-def test_drawing_processing_dispatch_uses_three_attempt_technical_budget(
+def test_drawing_processing_dispatch_does_not_retry_enqueue_failure(
     db,
     monkeypatch,
 ):
@@ -1556,37 +1556,35 @@ def test_drawing_processing_dispatch_uses_three_attempt_technical_budget(
 
     def flaky_dispatch(session, dispatched_job):
         attempts.append(dispatched_job.attempt)
-        if dispatched_job.attempt < 3:
-            dispatched_job.status = "failed"
-            dispatched_job.error_code = "JOB_ENQUEUE_FAILED"
-            dispatched_job.error_message = "fixture broker failure"
-            session.commit()
-            raise AppHTTPException(
-                503,
-                "JOB_ENQUEUE_FAILED",
-                "fixture broker failure",
-            )
-        return "task-3"
+        dispatched_job.status = "failed"
+        dispatched_job.error_code = "JOB_ENQUEUE_FAILED"
+        dispatched_job.error_message = "fixture broker failure"
+        session.commit()
+        raise AppHTTPException(
+            503,
+            "JOB_ENQUEUE_FAILED",
+            "fixture broker failure",
+        )
 
-    dispatched = dispatch_stage_execution(
-        db,
-        workflow,
-        StageExecutionPlan(job=job, reused=False, retried=False),
-        dispatcher=flaky_dispatch,
-    )
+    with pytest.raises(AppHTTPException) as dispatch_error:
+        dispatch_stage_execution(
+            db,
+            workflow,
+            StageExecutionPlan(job=job, reused=False, retried=False),
+            dispatcher=flaky_dispatch,
+        )
+    assert dispatch_error.value.detail["code"] == "JOB_ENQUEUE_FAILED"
 
     db.expire_all()
     current_job = db.get(Job, job.id)
     drawing_stage = next(
         stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
     )
-    assert attempts == [1, 2, 3]
-    assert current_job is not None and current_job.status == "queued"
-    assert current_job.attempt == 3
+    assert attempts == [1]
+    assert current_job is not None and current_job.status == "failed"
+    assert current_job.attempt == 1
     assert drawing_stage.job_id == job.id
-    assert drawing_stage.job_attempt == 3
-    assert dispatched.job.attempt == 3
-    assert dispatched.retried is True
+    assert drawing_stage.job_attempt == 1
 
     from app.platform.config.settings import settings
 
@@ -1604,7 +1602,7 @@ def test_drawing_processing_dispatch_uses_three_attempt_technical_budget(
     assert exc_info.value.detail["code"] == "DXF_SPLIT_ATTEMPTS_EXHAUSTED"
 
 
-def test_review_outcome_can_only_rerun_as_a_whole_new_attempt(
+def test_review_outcome_cannot_rerun_the_whole_batch(
     db,
     monkeypatch,
 ):
@@ -1663,22 +1661,25 @@ def test_review_outcome_can_only_rerun_as_a_whole_new_attempt(
     db.commit()
     monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
 
-    plan = prepare_stage_execution(
-        db,
-        workflow,
-        stage_code="drawing_processing",
-        payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
-        current_user=user,
-    )
+    with pytest.raises(AppHTTPException) as exc_info:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="drawing_processing",
+            payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
+            current_user=user,
+        )
 
-    assert plan.job.id == job.id
-    assert plan.job.attempt == 2
-    assert plan.job.status == "queued"
-    assert plan.reused is True
-    assert plan.retried is True
+    assert exc_info.value.detail["code"] == "DXF_SPLIT_ATTEMPTS_EXHAUSTED"
+    assert job.attempt == 1
+    assert job.status == "succeeded"
     assert prior_run.job_attempt == 1
     assert prior_run.status == "completed_with_review"
-    assert drawing_stage.output_json is None
+    assert drawing_stage.output_json == {
+        "job_id": job.id,
+        "job_attempt": 1,
+        "split_status": "completed_with_review",
+    }
 
 
 def test_automated_stage_cannot_be_manually_completed(db):

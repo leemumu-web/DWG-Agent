@@ -3,9 +3,9 @@
 from fastapi import APIRouter
 
 from app.modules.operations.daily_archive.routes import router as archive_router
-from app.modules.operations.data_catalog.routes import router as catalog_router
 from app.modules.operations.data_catalog.mysql_routes import router as mysql_router
 from app.modules.operations.data_catalog.object_mutations import router as object_mutations_router
+from app.modules.operations.data_catalog.routes import router as catalog_router
 from app.modules.operations.storage_reconciliation.routes import (
     router as reconciliation_router,
 )

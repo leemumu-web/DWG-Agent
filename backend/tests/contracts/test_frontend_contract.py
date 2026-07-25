@@ -379,7 +379,7 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
     assert "DxfClassificationGroup" in type_source
 
 
-def test_dxf_split_has_guarded_batch_console_and_original_only_review_download():
+def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     panel_source = _frontend_source("features/workflows/DrawingProcessingPanel.tsx")
     export_source = _frontend_source(
@@ -397,9 +397,6 @@ def test_dxf_split_has_guarded_batch_console_and_original_only_review_download()
     assert "isCurrent={selectedIsCurrent}" in detail_source
     assert "开始整批拆板" in panel_source
     assert "drawing_processing" in panel_source
-    assert "正常拆板" in panel_source
-    assert "余量增长" in panel_source
-    assert "下载未通过原图 ZIP" in panel_source
     assert "WorkflowBatchExportControl" in panel_source
     assert 'title="03 · 图纸拆板与独立校验"' in panel_source
     assert "分批导出" in export_source
@@ -408,11 +405,20 @@ def test_dxf_split_has_guarded_batch_console_and_original_only_review_download()
     assert "已保存，删除服务器文件" in export_source
     assert "此操作不可恢复" in export_source
     assert "WorkflowBatchExportControl" not in artifact_source
+    assert "本批原图 ZIP（不含拆板成品）" in panel_source
+    assert "需人工处理的图纸" not in panel_source
+    assert "待确认" not in panel_source
+    assert "已标记线下处理" not in panel_source
+    assert "仅下载未通过原图 ZIP" not in panel_source
+    assert "候选复核 ZIP" not in panel_source
+    assert "重新整批拆板" not in panel_source
+    assert "采用候选" not in panel_source
     assert "候选图" not in panel_source
+    assert "getDxfSplitReviewItems" not in panel_source
+    assert "decideDxfSplitReviewItem" not in panel_source
     assert "上传" not in panel_source
     assert "确认当前阶段" not in panel_source
     assert "getDxfSplitRun" in api_source
-    assert "downloadDxfSplitManualReviewArchive" in api_source
     assert "startNativeWorkflowBatchExportDownload" in api_source
     assert "/batch-exports/preview" in api_source
     assert "/purge" in api_source
@@ -422,9 +428,16 @@ def test_dxf_split_has_guarded_batch_console_and_original_only_review_download()
     )[1].split("export async function purgeWorkflowBatchExport", 1)[0]
     assert "document.createElement('a')" in batch_download_source
     assert "responseType: 'blob'" not in batch_download_source
-    assert "/drawing-processing/runs/${runId}/manual-review-archive" in api_source
+    assert "downloadAllDxfClassificationArchive" in api_source
+    assert "downloadDxfSplitManualReviewArchive" not in api_source
+    assert "/drawing-processing/runs/${runId}/manual-review-archive" not in api_source
+    assert "getDxfSplitReviewItems" not in api_source
+    assert "decideDxfSplitReviewItem" not in api_source
     assert "DxfSplitRun" in type_source
+    assert "DxfSplitReviewPage" not in type_source
     assert "automation_route: 'auto_accepted' | 'manual_review'" in type_source
+    assert "split_report_file_id" not in type_source
+    assert "validation_report_file" not in type_source
 
 
 def test_data_console_has_two_url_controlled_workspaces_and_api_contracts():

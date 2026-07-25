@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import MetaData, Table, and_, delete, func, inspect, insert, select, update
+from sqlalchemy import MetaData, Table, and_, delete, func, insert, inspect, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.sql.schema import Column
 

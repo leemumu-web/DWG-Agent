@@ -24,7 +24,6 @@ from app.modules.dxf_splitting.adapter import (
     CLASSIFIED_INPUT_SCHEMA,
     CLI_SCHEMA,
     MANIFEST_SCHEMA,
-    MAX_AUTOMATIC_ATTEMPTS,
     SPLITTER_VERSION,
     VALIDATION_SCHEMA,
     DxfSplitError,
@@ -56,14 +55,11 @@ from app.modules.jobs.interface import (
     claim_queued_job,
     commit_job_progress,
     complete_job_attempt,
-    dispatch_committed_job,
     make_event,
-    retry_job,
 )
 from app.modules.workflows.interface import (
     WorkflowRun,
     attach_artifact,
-    bind_stage_job,
     read_verified_input_object,
 )
 from app.platform.config.constants import (
@@ -469,43 +465,6 @@ def _persist_validated_item(
     return item
 
 
-def _retry_failed_attempt(
-    db: Session,
-    *,
-    job_id: int,
-    workflow_id: int,
-    failed_attempt: int,
-) -> None:
-    if failed_attempt >= MAX_AUTOMATIC_ATTEMPTS:
-        return
-    job = db.get(Job, job_id, populate_existing=True)
-    workflow = _load_workflow(db, workflow_id)
-    if job is None or workflow is None or job.status != "failed":
-        return
-    retried = retry_job(db, job)
-    bind_stage_job(
-        db,
-        workflow,
-        stage_code="drawing_processing",
-        job=retried,
-    )
-    db.commit()
-    try:
-        dispatch_committed_job(db, retried)
-    except Exception:
-        logger.exception(
-            "Failed to dispatch automatic DXF split retry for job %s attempt %s",
-            job_id,
-            retried.attempt,
-        )
-        _retry_failed_attempt(
-            db,
-            job_id=job_id,
-            workflow_id=workflow_id,
-            failed_attempt=retried.attempt,
-        )
-
-
 def run_dxf_splitting(
     job_id: int,
     *,
@@ -704,6 +663,10 @@ def run_dxf_splitting(
                     "status": cli_payload["status"],
                     "auto_accepted_count": cli_payload["auto_accepted_count"],
                     "manual_review_count": cli_payload["manual_review_count"],
+                    "quantity_checkpoints": cli_payload.get(
+                        "quantity_checkpoints",
+                        [],
+                    ),
                 },
             )
             job = commit_job_progress(
@@ -824,6 +787,10 @@ def run_dxf_splitting(
                 "auto_accepted_count": auto_count,
                 "manual_review_count": manual_count,
                 "failed_count": failed_count,
+                "quantity_checkpoints": cli_payload.get(
+                    "quantity_checkpoints",
+                    [],
+                ),
                 "bh_split_ledger_file_id": ledger_file.id,
                 "validation_report_file_id": validation_file.id,
                 "items": [
@@ -941,16 +908,9 @@ def run_dxf_splitting(
         if "attempt" in locals():
             try:
                 mark_split_failed(db, job_id, attempt, exc)
-                if workflow_id:
-                    _retry_failed_attempt(
-                        db,
-                        job_id=job_id,
-                        workflow_id=workflow_id,
-                        failed_attempt=attempt,
-                    )
             except Exception:
                 db.rollback()
-                logger.exception("Failed to persist or retry split failure for job %s", job_id)
+                logger.exception("Failed to persist split failure for job %s", job_id)
         logger.exception("DXF split failed for job %s", job_id)
     finally:
         db.close()

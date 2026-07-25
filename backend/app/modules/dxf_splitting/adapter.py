@@ -21,13 +21,41 @@ BH_SOURCE_CONTRACT = "project_tekla_bh_dxf_v1"
 BOX_SOURCE_CONTRACT = "project_tekla_box_dxf_v1"
 BH_PROJECT_LEDGER_FILENAME = "BH拆板信息表.xlsx"
 SUPPORTED_PART_TYPES = frozenset({"BH", "BOX"})
+QUANTITY_CHECK_INTERVAL = 30
 
 ERROR_CODE_SPLIT_FAILED = "DXF_SPLIT_FAILED"
-MAX_AUTOMATIC_ATTEMPTS = 3
+MAX_AUTOMATIC_ATTEMPTS = 1
 
 
 class DxfSplitError(RuntimeError):
     """Technical split failure whose message is safe for the Job ledger."""
+
+
+def quantity_checkpoints(input_count: int) -> list[dict[str, int]]:
+    if input_count <= 0:
+        return []
+    checkpoint_ends = list(
+        range(
+            QUANTITY_CHECK_INTERVAL,
+            input_count + 1,
+            QUANTITY_CHECK_INTERVAL,
+        )
+    )
+    if not checkpoint_ends or checkpoint_ends[-1] != input_count:
+        checkpoint_ends.append(input_count)
+    checkpoints = []
+    previous_end = 0
+    for end in checkpoint_ends:
+        checkpoints.append(
+            {
+                "range_start": previous_end + 1,
+                "range_end": end,
+                "drawing_count": end - previous_end,
+                "cumulative_drawing_results": end,
+            }
+        )
+        previous_end = end
+    return checkpoints
 
 
 def source_contract_for(part_type: str) -> str | None:
@@ -174,6 +202,16 @@ def invoke_splitter(
         raise DxfSplitError("DXF 拆板 CLI 顶层结果不是数组。")
     if completed.stderr.strip():
         raise DxfSplitError("DXF 拆板成功或待复核退出时产生了非预期 stderr。")
+    batch_failures = [
+        item
+        for item in summaries
+        if isinstance(item, dict) and item.get("batch_failure") is True
+    ]
+    if batch_failures:
+        detail = batch_failures[0].get("error")
+        if not isinstance(detail, str) or not detail.strip():
+            detail = "批次级产物生成失败。"
+        raise DxfSplitError(f"DXF 拆板批次收尾失败：{detail.strip()}")
     if len(summaries) != expected_input_count or not all(
         isinstance(item, dict) for item in summaries
     ):
@@ -204,6 +242,7 @@ def invoke_splitter(
         "auto_accepted_count": routes.count("auto_accepted"),
         "manual_review_count": manual_review_count,
         "failed_count": failed_count,
+        "quantity_checkpoints": quantity_checkpoints(expected_input_count),
         "source_contracts": {
             "BH": BH_SOURCE_CONTRACT,
             "BOX": BOX_SOURCE_CONTRACT,

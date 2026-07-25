@@ -26,8 +26,6 @@ class DxfSplitItemRead(BaseModel):
     disposition: str
     normal_dxf_file_id: int | None
     weld_allowance_dxf_file_id: int | None
-    split_report_file_id: int | None
-    weld_allowance_report_file_id: int | None
     diagnostics: list[str]
     validation: dict[str, object]
 
@@ -58,7 +56,6 @@ class DxfSplitRunRead(BaseModel):
     source_contracts: dict[str, str]
     bh_split_ledger_file: FileRead | None
     split_manifest_file: FileRead | None
-    validation_report_file: FileRead | None
     job: JobRead
     items: list[DxfSplitItemRead]
     error_code: str | None
@@ -108,7 +105,6 @@ class DxfSplitReviewItemRead(BaseModel):
     profile_normalized: str | None
     disposition: str
     diagnostics: list[str]
-    candidate_available: bool
     decision: DxfSplitReviewDecisionRead | None
 
 

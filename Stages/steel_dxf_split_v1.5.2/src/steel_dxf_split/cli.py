@@ -13,6 +13,8 @@ from .bh_project_ledger import publish_bh_project_ledger
 from .box.contracts import BOX_EXPORT_PROFILE, BoxSourceContract
 from .pipeline import SplitOptions, SplitResult, split_classified_dxf
 
+QUANTITY_CHECK_INTERVAL = 30
+
 CLASSIFIED_INPUT_SCHEMA = "STEEL-DXF-CLASSIFIED-SPLIT-INPUT-1.0"
 
 
@@ -177,6 +179,33 @@ def _publish_progress(
     os.replace(temporary, path)
 
 
+def _verify_quantity_checkpoint(
+    *,
+    processed_count: int,
+    result_count: int,
+    auto_accepted_count: int,
+    manual_review_count: int,
+    failed_count: int,
+) -> None:
+    """Prove that only drawings contribute to each 30-file checkpoint."""
+    checkpoint_start = (
+        ((processed_count - 1) // QUANTITY_CHECK_INTERVAL)
+        * QUANTITY_CHECK_INTERVAL
+        + 1
+    )
+    if result_count != processed_count:
+        raise ValueError(
+            f"图纸数量核验失败（{checkpoint_start}-{processed_count}）："
+            f"已处理 {processed_count}，图纸结果 {result_count}。"
+        )
+    accounted = auto_accepted_count + manual_review_count + failed_count
+    if accounted != processed_count:
+        raise ValueError(
+            f"图纸数量核验失败（{checkpoint_start}-{processed_count}）："
+            f"已处理 {processed_count}，业务分类合计 {accounted}。"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -231,6 +260,17 @@ def main(argv: list[str] | None = None) -> int:
                     "error": str(exc),
                 }
             )
+            if (
+                processed_count % QUANTITY_CHECK_INTERVAL == 0
+                or processed_count == len(inputs)
+            ):
+                _verify_quantity_checkpoint(
+                    processed_count=processed_count,
+                    result_count=len(summaries),
+                    auto_accepted_count=auto_accepted_count,
+                    manual_review_count=manual_review_count,
+                    failed_count=failures,
+                )
             _publish_progress(
                 args.progress_json,
                 processed_count=processed_count,
@@ -252,6 +292,17 @@ def main(argv: list[str] | None = None) -> int:
             auto_accepted_count += 1
         else:
             manual_review_count += 1
+        if (
+            processed_count % QUANTITY_CHECK_INTERVAL == 0
+            or processed_count == len(inputs)
+        ):
+            _verify_quantity_checkpoint(
+                processed_count=processed_count,
+                result_count=len(summaries),
+                auto_accepted_count=auto_accepted_count,
+                manual_review_count=manual_review_count,
+                failed_count=failures,
+            )
         _publish_progress(
             args.progress_json,
             processed_count=processed_count,
@@ -263,17 +314,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         publish_bh_project_ledger(results, args.output_dir)
     except Exception as exc:
-        failures += 1
-        summaries.append(
-            {
-                "input": str(args.input_dir),
-                "compiler_version": __version__,
-                "automation_route": "failed",
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-                "batch_failure": True,
-            }
-        )
+        print(json.dumps(summaries, ensure_ascii=False, indent=2))
+        print(f"错误：{exc}", file=sys.stderr)
+        return 3
     print(json.dumps(summaries, ensure_ascii=False, indent=2))
     if failures:
         return 2

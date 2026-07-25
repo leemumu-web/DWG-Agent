@@ -43,7 +43,7 @@ from app.modules.identity.interface import User
 from app.modules.jobs.interface import Job, JobStep, reconcile_stale_running_jobs
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
-from app.modules.workflows.interface import WorkflowRun
+from app.modules.workflows.interface import WorkflowRun, read_verified_input_object
 from app.modules.workflows.routes.archive import _collect_archive_members
 from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.config.settings import settings
@@ -695,7 +695,7 @@ def test_review_api_completes_candidate_and_downloads_only_zip_archives(
     page = client.get(f"{base}/review-items?page=1&page_size=20", headers=headers)
     assert page.status_code == 200, page.text
     assert page.json()["data"]["total"] == 1
-    assert page.json()["data"]["items"][0]["candidate_available"] is True
+    assert "candidate_available" not in page.json()["data"]["items"][0]
 
     candidate_archive = client.get(
         f"{base}/review-candidates-archive",
@@ -739,12 +739,20 @@ def test_review_api_completes_candidate_and_downloads_only_zip_archives(
     assert results.headers["content-type"] == "application/zip"
     with zipfile.ZipFile(BytesIO(results.content)) as zipped:
         result_names = zipped.namelist()
-        final_manifest = json.loads(
-            zipped.read("batch/dxf-split-manifest.json").decode("utf-8")
-        )
     assert any(name.endswith("BH-REVIEW_正常拆板.dxf") for name in result_names)
     assert any(name.endswith("BH-REVIEW_余量增长.dxf") for name in result_names)
     assert not any("/candidates/" in name for name in result_names)
+    assert all(name.casefold().endswith(".dxf") for name in result_names)
+    assert {name.split("/", 1)[0] for name in result_names} == {
+        "原长",
+        "余量增长后短文件",
+    }
+    db.expire_all()
+    completed_run = db.get(DxfSplitRun, run.id)
+    assert completed_run is not None
+    final_manifest_file = db.get(StoredFile, completed_run.split_manifest_file_id)
+    assert final_manifest_file is not None
+    final_manifest = json.loads(read_verified_input_object(final_manifest_file))
     assert final_manifest["status"] == "completed"
     assert final_manifest["machine_outcome"] == {
         "auto_accepted_count": 0,
@@ -784,6 +792,66 @@ def test_review_api_completes_candidate_and_downloads_only_zip_archives(
     assert refreshed_run is not None
     assert refreshed_run.auto_accepted_count == 0
     assert refreshed_run.manual_review_count == 1
+
+
+def test_results_archive_serves_only_accepted_dxf_from_partial_success_batch(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_local_storage(monkeypatch, tmp_path)
+    workflow_id, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BH-AUTO", "BH"), ("BH-MANUAL", "BH")),
+    )
+    monkeypatch.setattr(
+        split_execution,
+        "_invoke_splitter",
+        _fake_splitter(
+            family_by_member={"BH-AUTO": "BH", "BH-MANUAL": "BH"},
+            manual_members=frozenset({"BH-MANUAL"}),
+        ),
+    )
+    split_execution.run_dxf_splitting(job_id, worker_name="test-split")
+    db.expire_all()
+    run = db.scalar(
+        select(split_models.DxfSplitRun).where(
+            split_models.DxfSplitRun.job_id == job_id
+        )
+    )
+    assert run is not None
+    assert run.status == "completed_with_review"
+    assert run.auto_accepted_count == 1
+    assert run.manual_review_count == 1
+
+    init_db()
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    response = client.get(
+        (
+            f"/api/v1/workflows/{workflow_id}/drawing-processing/runs/"
+            f"{run.id}/results-archive"
+        ),
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    with zipfile.ZipFile(BytesIO(response.content)) as zipped:
+        names = zipped.namelist()
+    assert len(names) == 2
+    assert all(name.casefold().endswith(".dxf") for name in names)
+    assert {name.split("/", 1)[0] for name in names} == {
+        "原长",
+        "余量增长后短文件",
+    }
+    assert any(name.endswith("BH-AUTO_正常拆板.dxf") for name in names)
+    assert any(name.endswith("BH-AUTO_余量增长.dxf") for name in names)
+    assert not any("BH-MANUAL" in name for name in names)
 
 
 def test_project_viewer_cannot_write_split_review(
@@ -896,7 +964,7 @@ def test_candidate_archive_omits_entire_candidate_set_when_one_member_is_deleted
         page=1,
         page_size=20,
     )
-    assert page.items[0].candidate_available is False
+    assert page.items[0].id == item.id
 
 
 def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path):
@@ -1065,6 +1133,189 @@ def test_adapter_keeps_one_file_failure_as_manual_review_result(monkeypatch, tmp
     assert payload["failed_count"] == 1
     assert payload["manual_review_count"] == 0
     assert payload["results"][0]["automation_route"] == "failed"
+
+
+def test_adapter_reports_batch_failure_without_extra_drawing_result(
+    monkeypatch,
+    tmp_path,
+):
+    class Process:
+        returncode = 3
+
+        def __init__(self, command, **_kwargs):
+            self.command = command
+
+        def communicate(self, timeout=None):
+            return (
+                json.dumps(
+                    [
+                        {
+                            "input": str(tmp_path / "BH-1_拆板前.dxf"),
+                            "compiler_version": "1.5.2",
+                            "automation_route": "auto_accepted",
+                        },
+                    ]
+                ),
+                "错误：BH 拆板信息表存在冲突。",
+            )
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+    classification_manifest = _write_adapter_manifest(
+        tmp_path / "classified-input.json"
+    )
+
+    with pytest.raises(
+        split_adapter.DxfSplitError,
+        match="BH 拆板信息表存在冲突",
+    ):
+        split_adapter.invoke_splitter(
+            tmp_path,
+            tmp_path.parent / "output",
+            classification_manifest=classification_manifest,
+            expected_input_count=1,
+        )
+
+
+def test_bh_project_ledger_deduplicates_identical_business_rows():
+    from types import SimpleNamespace
+
+    from steel_dxf_split.bh_project_ledger import collect_bh_project_ledger_rows
+
+    manufacturing_ir = {
+        "part_number": "BH-101",
+        "profile": "BH300*200*8*12",
+        "plates": [
+            {
+                "role": "upper_flange",
+                "merge_authorized": True,
+                "merge_group_id": "flange-1",
+            },
+            {
+                "role": "lower_flange",
+                "merge_authorized": True,
+                "merge_group_id": "flange-1",
+            },
+        ],
+    }
+    result = SimpleNamespace(
+        family="BH",
+        automation_route="auto_accepted",
+        report={"manufacturing_ir": manufacturing_ir},
+    )
+
+    rows = collect_bh_project_ledger_rows([result, result])
+
+    assert len(rows) == 1
+    assert rows[0].part_number == "BH-101"
+    assert rows[0].upper_lower_flanges_same is True
+
+
+def test_bh_project_ledger_rejects_conflicting_duplicate_business_rows():
+    from types import SimpleNamespace
+
+    from steel_dxf_split.bh_project_ledger import collect_bh_project_ledger_rows
+
+    def result(*, same: bool):
+        return SimpleNamespace(
+            family="BH",
+            automation_route="auto_accepted",
+            report={
+                "manufacturing_ir": {
+                    "part_number": "BH-101",
+                    "profile": "BH300*200*8*12",
+                    "plates": [
+                        {
+                            "role": "upper_flange",
+                            "merge_authorized": same,
+                            "merge_group_id": "flange-1" if same else None,
+                        },
+                        {
+                            "role": "lower_flange",
+                            "merge_authorized": same,
+                            "merge_group_id": "flange-1" if same else None,
+                        },
+                    ],
+                }
+            },
+        )
+
+    with pytest.raises(ValueError, match="上下翼板是否相同.*冲突"):
+        collect_bh_project_ledger_rows([result(same=True), result(same=False)])
+
+
+def test_bh_project_ledger_skips_manual_review_without_manufacturing_ir():
+    from types import SimpleNamespace
+
+    from steel_dxf_split.bh_project_ledger import collect_bh_project_ledger_rows
+
+    result = SimpleNamespace(
+        family="BH",
+        automation_route="manual_review",
+        report={},
+    )
+
+    assert collect_bh_project_ledger_rows([result]) == ()
+
+
+def test_bh_project_ledger_requires_manufacturing_ir_for_auto_accepted_result():
+    from types import SimpleNamespace
+
+    from steel_dxf_split.bh_project_ledger import collect_bh_project_ledger_rows
+
+    result = SimpleNamespace(
+        family="BH",
+        automation_route="auto_accepted",
+        report_path=Path("fixture-report.json"),
+        report={},
+    )
+
+    with pytest.raises(ValueError, match="fixture-report.json.*缺少制造 IR"):
+        collect_bh_project_ledger_rows([result])
+
+
+def test_stage_cli_quantity_checkpoint_accepts_thirty_drawing_results():
+    from steel_dxf_split.cli import _verify_quantity_checkpoint
+
+    _verify_quantity_checkpoint(
+        processed_count=30,
+        result_count=30,
+        auto_accepted_count=24,
+        manual_review_count=5,
+        failed_count=1,
+    )
+
+
+def test_stage_cli_quantity_checkpoint_rejects_report_as_drawing_result():
+    from steel_dxf_split.cli import _verify_quantity_checkpoint
+
+    with pytest.raises(ValueError, match="1-30.*结果 31"):
+        _verify_quantity_checkpoint(
+            processed_count=30,
+            result_count=31,
+            auto_accepted_count=24,
+            manual_review_count=5,
+            failed_count=1,
+        )
+
+
+def test_platform_records_one_quantity_checkpoint_per_thirty_drawings():
+    assert split_adapter.quantity_checkpoints(56) == [
+        {
+            "range_start": 1,
+            "range_end": 30,
+            "drawing_count": 30,
+            "cumulative_drawing_results": 30,
+        },
+        {
+            "range_start": 31,
+            "range_end": 56,
+            "drawing_count": 26,
+            "cumulative_drawing_results": 56,
+        },
+    ]
 
 
 def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
@@ -1411,7 +1662,14 @@ def test_mixed_batch_splits_only_bh_box_and_review_zip_has_failed_originals(
         headers=headers,
     )
     assert status.status_code == 200, status.text
-    assert status.json()["data"]["status"] == "completed_with_review"
+    public_run = status.json()["data"]
+    assert public_run["status"] == "completed_with_review"
+    assert "validation_report_file" not in public_run
+    assert all(
+        "split_report_file_id" not in item
+        and "weld_allowance_report_file_id" not in item
+        for item in public_run["items"]
+    )
     archive = client.get(
         f"/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run.id}/manual-review-archive",
         headers=headers,
@@ -1525,7 +1783,7 @@ def test_independent_validation_mismatch_becomes_business_review_not_job_failure
     assert "INDEPENDENT_VALIDATION_FAILED" in run.items[0].diagnostics_json
 
 
-def test_technical_failure_creates_at_most_three_immutable_attempts(
+def test_technical_failure_creates_one_immutable_attempt_without_automatic_retry(
     db,
     monkeypatch,
     tmp_path,
@@ -1536,34 +1794,16 @@ def test_technical_failure_creates_at_most_three_immutable_attempts(
         tmp_path,
         parts=(("BH-FAIL", "BH"),),
     )
-    dispatched: list[tuple[int, int]] = []
-
     def fail_splitter(*_args, **_kwargs):
         raise split_adapter.DxfSplitError("fixture technical failure")
 
     monkeypatch.setattr(split_execution, "_invoke_splitter", fail_splitter)
-    monkeypatch.setattr(
-        split_execution,
-        "dispatch_committed_job",
-        lambda _db, job: dispatched.append((job.id, job.attempt)) or "task",
-    )
 
     split_execution.run_dxf_splitting(
         job_id,
         worker_name="test-split",
         expected_attempt=1,
     )
-    split_execution.run_dxf_splitting(
-        job_id,
-        worker_name="test-split",
-        expected_attempt=2,
-    )
-    split_execution.run_dxf_splitting(
-        job_id,
-        worker_name="test-split",
-        expected_attempt=3,
-    )
-
     db.expire_all()
     job = db.get(Job, job_id)
     runs = db.scalars(
@@ -1571,11 +1811,10 @@ def test_technical_failure_creates_at_most_three_immutable_attempts(
     ).all()
     assert job is not None
     assert job.status == "failed"
-    assert job.attempt == 3
+    assert job.attempt == 1
     assert job.error_code == "DXF_SPLIT_FAILED"
-    assert dispatched == [(job_id, 2), (job_id, 3)]
-    assert [run.job_attempt for run in runs] == [1, 2, 3]
-    assert [run.status for run in runs] == ["failed", "failed", "failed"]
+    assert [run.job_attempt for run in runs] == [1]
+    assert [run.status for run in runs] == ["failed"]
 
 
 def test_cancelled_job_closes_running_split_attempt(

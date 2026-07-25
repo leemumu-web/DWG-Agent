@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示十阶段工作台和错误，`WorkflowStageRail.tsx` 提供可点击的阶段导航；`WorkflowArtifactSummary.tsx` 按类型精炼汇总生产产物并下载全量 ZIP；`FutureStageNotice.tsx` 统一呈现 Excel 第二阶段及 CAM/归档等待上线边界；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.2.0 的类型文件夹、预警、分页逐图详情以及分类/全量 DXF 压缩包下载；`DrawingProcessingPanel.tsx` 展示当前拆板 attempt、逐图状态和仅含未通过原图的人工复核压缩包下载；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
+`WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示十阶段工作台和错误，`WorkflowStageRail.tsx` 提供可点击的阶段导航；`WorkflowArtifactSummary.tsx` 按类型精炼汇总生产产物并下载全量 ZIP；`FutureStageNotice.tsx` 统一呈现 Excel 第二阶段及 CAM/归档等待上线边界；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.2.0 的类型文件夹、预警、分页逐图详情以及分类/全量 DXF 压缩包下载；`DrawingProcessingPanel.tsx` 展示当前拆板 attempt、数量与生产结果，并分别下载正式拆板 DXF 和本批全部原图，不展示报告或逐图复核工作台；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
 
 `workflow.ts` 定义 run/stage/artifact/template、阶段执行请求、分类 run/item 和分批导出合同；`workflow-input.ts` 定义输入批次、计数、问题、item 和转换反馈；`workflows.api.ts` 与 `workflow-inputs.api.ts` 分别拥有流程及输入 HTTP 调用。`WorkflowBatchExportControl.tsx` 位于 Stage A3 “03 · 图纸拆板与独立校验”卡片标题栏右侧，提供四类勾选、原生浏览器下载、下载状态轮询和二次确认物理删除；它不属于下方 `WorkflowArtifactSummary.tsx`。`styles.css` 拥有生产项目创建、工业化阶段轨道、当前工作区和窄屏布局；`index.ts` 统一重导出页面、API 与合同，其他 feature 不深层导入。
 

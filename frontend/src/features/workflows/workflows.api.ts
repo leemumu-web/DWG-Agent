@@ -8,9 +8,6 @@ import type {
   WorkflowTemplate,
   DxfClassificationGroupPage,
   DxfClassificationRun,
-  DxfSplitReviewDecision,
-  DxfSplitReviewDecisionKind,
-  DxfSplitReviewPage,
   DxfSplitRun,
   WorkflowBatchExport,
   WorkflowBatchExportPreview,
@@ -212,68 +209,6 @@ export async function getDxfSplitRun(workflowId: number) {
     `/api/v1/workflows/${workflowId}/drawing-processing`,
   );
   return response.data.data;
-}
-
-export async function downloadDxfSplitManualReviewArchive(
-  workflowId: number,
-  runId: number,
-) {
-  return downloadArchive(
-    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/manual-review-archive`,
-    `workflow-${workflowId}-split-run-${runId}-manual-review.zip`,
-    '未通过原图压缩包下载失败',
-  );
-}
-
-export async function getDxfSplitReviewItems(
-  workflowId: number,
-  runId: number,
-  page = 1,
-  pageSize = 20,
-) {
-  const response = await apiClient.get<ApiEnvelope<DxfSplitReviewPage>>(
-    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/review-items`,
-    { params: { page, page_size: pageSize } },
-  );
-  return response.data.data;
-}
-
-export async function decideDxfSplitReviewItem(
-  workflowId: number,
-  runId: number,
-  itemId: number,
-  payload: {
-    decision: DxfSplitReviewDecisionKind;
-    comment: string;
-    expected_version: number;
-  },
-) {
-  const response = await apiClient.put<ApiEnvelope<DxfSplitReviewDecision>>(
-    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/review-items/${itemId}/decision`,
-    payload,
-  );
-  return response.data.data;
-}
-
-export async function completeDxfSplitReview(
-  workflowId: number,
-  runId: number,
-) {
-  const response = await apiClient.post<ApiEnvelope<DxfSplitRun>>(
-    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/review-completion`,
-  );
-  return response.data.data;
-}
-
-export async function downloadDxfSplitReviewCandidatesArchive(
-  workflowId: number,
-  runId: number,
-) {
-  return downloadArchive(
-    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/review-candidates-archive`,
-    `workflow-${workflowId}-split-run-${runId}-review-candidates.zip`,
-    '候选复核压缩包下载失败',
-  );
 }
 
 export async function downloadDxfSplitResultsArchive(

@@ -45,7 +45,6 @@ def build_dxf_split_run_read(
         raise not_found("DXF split job")
     ledger = _optional_file(db, run.bh_split_ledger_file_id)
     manifest = _optional_file(db, run.split_manifest_file_id)
-    validation = _optional_file(db, run.validation_report_file_id)
     current_time = _as_utc(now or datetime.now(UTC))
     end_time = _as_utc(run.finished_at) if run.finished_at is not None else current_time
     elapsed_seconds = (
@@ -124,7 +123,6 @@ def build_dxf_split_run_read(
         source_contracts=run.source_contracts_json or {},
         bh_split_ledger_file=FileRead.model_validate(ledger) if ledger else None,
         split_manifest_file=FileRead.model_validate(manifest) if manifest else None,
-        validation_report_file=(FileRead.model_validate(validation) if validation else None),
         job=JobRead.model_validate(job),
         items=[
             DxfSplitItemRead(
@@ -144,8 +142,6 @@ def build_dxf_split_run_read(
                 disposition=item.disposition,
                 normal_dxf_file_id=item.normal_dxf_file_id,
                 weld_allowance_dxf_file_id=item.weld_allowance_dxf_file_id,
-                split_report_file_id=item.split_report_file_id,
-                weld_allowance_report_file_id=item.weld_allowance_report_file_id,
                 diagnostics=item.diagnostics_json or [],
                 validation=item.validation_json or {},
             )

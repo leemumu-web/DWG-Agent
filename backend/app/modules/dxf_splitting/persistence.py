@@ -533,7 +533,7 @@ def split_results_archive_members(
     db: Session,
     run: DxfSplitRun,
 ) -> list[tuple[int, str]]:
-    if run.status != "completed":
+    if run.status not in {"completed", "completed_with_review"}:
         raise AppHTTPException(
             409,
             "DXF_SPLIT_RESULTS_PENDING",
@@ -541,41 +541,55 @@ def split_results_archive_members(
             {"split_run_id": run.id, "status": run.status},
         )
     members: list[tuple[int, str]] = []
+    seen_paths: set[str] = set()
     for item in run.items:
+        if (
+            run.status == "completed_with_review"
+            and item.automation_route != "auto_accepted"
+        ):
+            continue
         for file_id, directory in (
-            (item.normal_dxf_file_id, "normal"),
-            (item.weld_allowance_dxf_file_id, "weld-allowance"),
-            (item.split_report_file_id, "reports"),
-            (item.weld_allowance_report_file_id, "reports"),
+            (item.normal_dxf_file_id, "原长"),
+            (item.weld_allowance_dxf_file_id, "余量增长后短文件"),
         ):
             stored = db.get(StoredFile, file_id) if file_id is not None else None
-            if stored is None or stored.status == "deleted":
+            if (
+                stored is None
+                or stored.status == "deleted"
+                or stored.file_ext.casefold() != ".dxf"
+            ):
                 raise AppHTTPException(
                     409,
                     "DXF_SPLIT_RESULT_FILE_MISSING",
-                    "已完成拆板批次的正式结果不可用。",
+                    "已通过拆板校验的正式 DXF 不可用。",
                     {"split_item_id": item.id, "file_id": file_id},
                 )
-            members.append(
-                (
-                    stored.id,
-                    f"items/{item.id}/{directory}/{Path(stored.original_name).name}",
+            relative_path = f"{directory}/{Path(stored.original_name).name}"
+            normalized_path = relative_path.casefold()
+            if normalized_path in seen_paths:
+                raise AppHTTPException(
+                    409,
+                    "DXF_SPLIT_RESULT_NAME_CONFLICT",
+                    "正式拆板结果中存在同目录同名 DXF，无法安全生成 ZIP。",
+                    {
+                        "split_run_id": run.id,
+                        "split_item_id": item.id,
+                        "archive_path": relative_path,
+                    },
                 )
-            )
-    for file_id, name in (
-        (run.bh_split_ledger_file_id, "batch/BH拆板信息表.xlsx"),
-        (run.split_manifest_file_id, "batch/dxf-split-manifest.json"),
-        (run.validation_report_file_id, "batch/dxf-split-validation.json"),
-    ):
-        stored = db.get(StoredFile, file_id) if file_id is not None else None
-        if stored is None or stored.status == "deleted":
-            raise AppHTTPException(
-                409,
-                "DXF_SPLIT_RESULT_FILE_MISSING",
-                "已完成拆板批次的批次文件不可用。",
-                {"split_run_id": run.id, "file_id": file_id},
-            )
-        members.append((stored.id, name))
+            seen_paths.add(normalized_path)
+            members.append((stored.id, relative_path))
+    if not members:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_RESULTS_EMPTY",
+            "本批次没有通过校验、可供下载的正式拆板 DXF。",
+            {
+                "split_run_id": run.id,
+                "status": run.status,
+                "auto_accepted_count": run.auto_accepted_count,
+            },
+        )
     return members
 
 

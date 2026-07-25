@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Lock the startup state machine with failing tests
+## Task 1: Lock the startup state machine with failing tests
 
 **Files:**
 - Modify: `backend/tests/infrastructure/test_scripts.py`
@@ -125,7 +125,7 @@ uv run pytest tests/infrastructure/test_scripts.py -k "compose_health_gate or st
 
 Expected: failures because `compose_wait_for_healthy_services` and `compose_up_workers` do not exist.
 
-### Task 2: Implement the fail-closed full-stack startup
+## Task 2: Implement the fail-closed full-stack startup
 
 **Files:**
 - Modify: `scripts/lib/compose.sh`
@@ -278,7 +278,7 @@ uv run pytest tests/infrastructure/test_scripts.py tests/infrastructure/test_com
 
 Expected: all selected tests pass.
 
-### Task 3: Gate the host startup on the existing status contract
+## Task 3: Gate the host startup on the existing status contract
 
 **Files:**
 - Modify: `scripts/start-all.sh`
@@ -337,7 +337,7 @@ bash -n scripts/start-all.sh scripts/status.sh
 
 Expected: test and Bash syntax checks pass.
 
-### Task 4: Document and verify both production paths
+## Task 4: Document and verify both production paths
 
 **Files:**
 - Modify: `scripts/README.md`

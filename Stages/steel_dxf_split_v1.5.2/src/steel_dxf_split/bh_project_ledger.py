@@ -65,9 +65,18 @@ def _flanges_are_same(manufacturing_ir: dict[str, object]) -> bool:
 def ledger_row_from_result(result: SplitResult) -> BHProjectLedgerRow | None:
     if result.family != "BH":
         return None
+    if result.automation_route == "manual_review":
+        return None
+    if result.automation_route != "auto_accepted":
+        raise ValueError(
+            f"BH 拆板信息表遇到未知业务路由：{result.automation_route}"
+        )
     manufacturing_ir = result.report.get("manufacturing_ir")
     if not isinstance(manufacturing_ir, dict):
-        raise ValueError("BH 拆板报告缺少制造 IR，无法生成项目拆板信息表。")
+        raise ValueError(
+            f"BH 图纸报告 {result.report_path.name} 缺少制造 IR，"
+            "无法生成项目拆板信息表。"
+        )
     return BHProjectLedgerRow(
         part_number=_required_text(
             manufacturing_ir.get("part_number"),
@@ -84,23 +93,27 @@ def ledger_row_from_result(result: SplitResult) -> BHProjectLedgerRow | None:
 def collect_bh_project_ledger_rows(
     results: Iterable[SplitResult],
 ) -> tuple[BHProjectLedgerRow, ...]:
-    rows = tuple(
+    collected = tuple(
         row
         for result in results
         if (row := ledger_row_from_result(result)) is not None
     )
-    seen: set[tuple[str, str]] = set()
-    for row in rows:
+    rows_by_key: dict[tuple[str, str], BHProjectLedgerRow] = {}
+    for row in collected:
         key = (row.part_number.casefold(), row.section_spec.casefold())
-        if key in seen:
+        existing = rows_by_key.get(key)
+        if existing is None:
+            rows_by_key[key] = row
+            continue
+        if existing.upper_lower_flanges_same != row.upper_lower_flanges_same:
             raise ValueError(
-                "BH 拆板信息表中“零件号 + BH尺寸”必须唯一："
+                "BH 拆板信息表中相同“零件号 + BH尺寸”的"
+                "“上下翼板是否相同”结论冲突："
                 f"{row.part_number} / {row.section_spec}"
             )
-        seen.add(key)
     return tuple(
         sorted(
-            rows,
+            rows_by_key.values(),
             key=lambda row: (
                 row.part_number.casefold(),
                 row.section_spec.casefold(),

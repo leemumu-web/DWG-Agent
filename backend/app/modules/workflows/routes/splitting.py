@@ -298,7 +298,11 @@ def download_split_review_candidates_archive(
     "/{workflow_id}/drawing-processing/runs/{run_id}/results-archive",
     summary="下载拆板正式结果包",
     response_class=StreamingResponse,
-    description="只在拆板完成后生成正式 DXF、报告和批次账本 ZIP，不提供单文件下载。",
+    description=(
+        "拆板到达终态且至少一张图纸通过校验后，下载普通版与余量版正式 DXF；"
+        "ZIP 仅含“原长”和“余量增长后短文件”两个中文一级目录，"
+        "不包含报告、台账、候选或未通过原图。"
+    ),
 )
 def download_split_results_archive(
     workflow_id: int,
