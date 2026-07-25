@@ -21,6 +21,7 @@ from app.modules.dxf_classification.interface import (
 )
 from app.modules.dxf_splitting import adapter as split_adapter
 from app.modules.dxf_splitting import execution as split_execution
+from app.modules.dxf_splitting import models as split_models
 from app.modules.dxf_splitting.interface import (
     DxfSplitRun,
     get_excel_split_handoff,
@@ -41,6 +42,31 @@ from app.modules.workflows.routes.archive import _collect_archive_members
 from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
+
+
+def test_review_decision_model_keeps_candidates_separate_from_formal_outputs():
+    run_columns = set(split_models.DxfSplitRun.__table__.columns.keys())
+    item_columns = set(split_models.DxfSplitItem.__table__.columns.keys())
+    decision_model = getattr(split_models, "DxfSplitReviewDecision", None)
+
+    assert "processed_count" in run_columns
+    assert {
+        "candidate_normal_dxf_file_id",
+        "candidate_weld_allowance_dxf_file_id",
+        "candidate_split_report_file_id",
+        "candidate_weld_allowance_report_file_id",
+    } <= item_columns
+    assert decision_model is not None
+    assert {
+        "split_item_id",
+        "decision",
+        "final_normal_dxf_file_id",
+        "final_weld_allowance_dxf_file_id",
+        "comment",
+        "decided_by",
+        "decided_at",
+        "version",
+    } <= set(decision_model.__table__.columns.keys())
 
 
 def _valid_dxf_bytes(tmp_path: Path, name: str) -> bytes:

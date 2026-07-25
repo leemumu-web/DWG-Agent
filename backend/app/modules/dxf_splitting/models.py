@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -42,6 +43,7 @@ class DxfSplitRun(TimestampMixin, Base):
     validation_schema: Mapped[str | None] = mapped_column(String(64))
     input_manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     input_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     auto_accepted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     manual_review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source_contracts_json: Mapped[dict[str, str] | None] = mapped_column(JSON)
@@ -100,7 +102,56 @@ class DxfSplitItem(TimestampMixin, Base):
     weld_allowance_report_file_id: Mapped[int | None] = mapped_column(
         ForeignKey("files.id"), index=True
     )
+    candidate_normal_dxf_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id"), index=True
+    )
+    candidate_weld_allowance_dxf_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id"), index=True
+    )
+    candidate_split_report_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id"), index=True
+    )
+    candidate_weld_allowance_report_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id"), index=True
+    )
     diagnostics_json: Mapped[list[str] | None] = mapped_column(JSON)
     validation_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     run: Mapped[DxfSplitRun] = relationship(back_populates="items")
+    review_decision: Mapped["DxfSplitReviewDecision | None"] = relationship(
+        back_populates="item",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class DxfSplitReviewDecision(TimestampMixin, Base):
+    __tablename__ = "dxf_split_review_decisions"
+    __table_args__ = (
+        UniqueConstraint("split_item_id", name="uq_dxf_split_review_item"),
+        Index("ix_dxf_split_review_decider", "decided_by", "decided_at"),
+        CheckConstraint(
+            "decision IN ('accept_candidate', 'manual_processing')",
+            name="ck_dxf_split_review_decision",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
+    split_item_id: Mapped[int] = mapped_column(
+        ForeignKey("dxf_split_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    final_normal_dxf_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id"), index=True
+    )
+    final_weld_allowance_dxf_file_id: Mapped[int | None] = mapped_column(
+        ForeignKey("files.id"), index=True
+    )
+    comment: Mapped[str] = mapped_column(Text, nullable=False)
+    decided_by: Mapped[int] = mapped_column(ForeignKey("sys_users.id"), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    item: Mapped[DxfSplitItem] = relationship(back_populates="review_decision")
