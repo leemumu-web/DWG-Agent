@@ -4,7 +4,7 @@
 
 `WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示十阶段工作台和错误，`WorkflowStageRail.tsx` 提供可点击的阶段导航；`WorkflowArtifactSummary.tsx` 按类型精炼汇总生产产物并下载全量 ZIP；`FutureStageNotice.tsx` 统一呈现 Excel 第二阶段及 CAM/归档等待上线边界；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.2.0 的类型文件夹、预警、分页逐图详情以及分类/全量 DXF 压缩包下载；`DrawingProcessingPanel.tsx` 展示当前拆板 attempt、数量与生产结果，并分别下载正式拆板 DXF 和本批全部原图，不展示报告或逐图复核工作台；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
 
-`workflow.ts` 定义 run/stage/artifact/template、阶段执行请求、分类 run/item 和分批导出合同；`workflow-input.ts` 定义输入批次、计数、问题、item 和转换反馈；`workflows.api.ts` 与 `workflow-inputs.api.ts` 分别拥有流程及输入 HTTP 调用。`WorkflowBatchExportControl.tsx` 位于 Stage A3 “03 · 图纸拆板与独立校验”卡片标题栏右侧，提供四类勾选、原生浏览器下载、下载状态轮询和二次确认物理删除；它不属于下方 `WorkflowArtifactSummary.tsx`。`styles.css` 拥有生产项目创建、工业化阶段轨道、当前工作区和窄屏布局；`index.ts` 统一重导出页面、API 与合同，其他 feature 不深层导入。
+`workflow.ts` 定义 run/stage/artifact/template、阶段执行请求、分类 run/item 和导出合同；`workflow-input.ts` 定义输入批次、计数、问题、item 和转换反馈；`workflows.api.ts` 与 `workflow-inputs.api.ts` 分别拥有流程及输入 HTTP 调用。`DrawingProcessingExportActions.tsx` 在 Stage A3 “03 · 图纸拆板与独立校验”卡片标题栏组合两个独立入口：`DrawingSelectiveExportControl.tsx` 按未通过的 BH、未通过的 BOX、PL、其他多选流式下载且不删除，`WorkflowBatchExportControl.tsx` 提供四类生产文件下载、状态轮询和二次确认物理删除；两者都不属于下方 `WorkflowArtifactSummary.tsx`。`styles.css` 拥有生产项目创建、工业化阶段轨道、当前工作区和窄屏布局；`index.ts` 统一重导出页面、API 与合同，其他 feature 不深层导入。
 
 ## 业务流
 
@@ -42,3 +42,7 @@ CAM 工作包、Windows CAM、结果接纳和交付归档统一弱化为“等�
 原文件名保持不变。关闭弹窗、下载中断或不点击确认均保留服务器文件；只有状态变为
 `downloaded` 后，用户点击“已保存，删除服务器文件”并通过第二次不可恢复确认，才调用
 物理清理接口。
+
+相邻的“导出”按钮同样使用路径级 HttpOnly 能力和原生浏览器流式下载，但只处理当前拆板
+run 中未自动接纳的分类 DXF。四个 UI 类别为 `未通过的 BH`、`未通过的 BOX`、`PL`、
+`其他`；自动接纳 BH/BOX 被排除，叶子文件名保持数据库登记值。该入口没有删除动作。

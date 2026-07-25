@@ -1,16 +1,16 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **169 个 path、197 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **172 个 path、200 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
 - 本地直连基地址：`http://127.0.0.1:8010`；Nginx 入口：`http://127.0.0.1:8080`；容器内部 API 端口同为 `8010`。
-- 除健康检查、登录/刷新和工作流分批导出的单次 download URL 外，业务端点均要求 Bearer access token。分批 download URL 使用创建接口写入的路径级 HttpOnly 能力 cookie，不接受 query token。
+- 除健康检查、登录/刷新和工作流导出的单次 download URL 外，业务端点均要求 Bearer access token。分批导出与图纸分类选择导出的 download URL 都使用创建接口写入的路径级 HttpOnly 能力 cookie，不接受 query token。
 - 成功响应使用 `{data, meta}`；分页响应额外包含 `pagination`，`total` 来自 SQL `COUNT(*)`。
 - 错误响应使用 `{error: {code, message, details}, meta}`，不会向客户端暴露 traceback、DSN 或本机路径。
 - 仓库前端优先展示 `error.message`；422 会展开 `details.errors` 的字段路径和原因，并附带 `error.code` 与 `meta.request_id`。客户端不得只显示“HTTP 4xx”而隐藏服务端原因。无法连接、超时以及无结构化响应时才使用状态码兜底文案。
 - `GET /api/v1/workflows/jobs/{job_id}/events` 与聚合 `GET /api/v1/workflows/jobs/events/stream` 使用 SSE cookie 认证并轮询 MySQL 权威状态；URL 中不传 token。聚合流每次最多观察 200 个文件并在全部终态后关闭。
-- 通用下载流程为：鉴权获取短期签名 URL，再携带 Bearer token 下载。工作流分批导出是例外：创建接口签发路径级 HttpOnly cookie，浏览器原生 `<a>` 直接下载流式 ZIP。403、408、429、5xx 或网络错误重试时必须重新获取相应能力或签名。
+- 通用下载流程为：鉴权获取短期签名 URL，再携带 Bearer token 下载。工作流分批导出与图纸分类选择导出是例外：创建接口签发路径级 HttpOnly cookie，浏览器原生 `<a>` 直接下载流式 ZIP。403、408、429、5xx 或网络错误重试时必须重新获取相应能力或签名。
 - 任务重试递增 `attempt`；步骤查询可用 `?attempt=N`，旧 worker 不能覆盖新 attempt。
 - 双向 CAD 批量创建一次接受最多 200 个文件并保留每文件 Job；批量取消只作用于请求内且有权写入的 Job，不等同于管理员全局取消。
 - SSE snapshot 只包含当前 attempt 的 steps；无项目 Job 的结果仅管理员或创建者可访问。
@@ -201,6 +201,9 @@
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}/download-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification/download-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/selective-export-preview` |
+| `POST` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/selective-exports` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/selective-exports/{export_uid}/download` |
 | `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items` |
 | `PUT` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items/{item_id}/decision` |

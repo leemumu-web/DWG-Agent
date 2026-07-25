@@ -385,6 +385,12 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     export_source = _frontend_source(
         "features/workflows/WorkflowBatchExportControl.tsx"
     )
+    selective_export_source = _frontend_source(
+        "features/workflows/DrawingSelectiveExportControl.tsx"
+    )
+    export_actions_source = _frontend_source(
+        "features/workflows/DrawingProcessingExportActions.tsx"
+    )
     artifact_source = _frontend_source(
         "features/workflows/WorkflowArtifactSummary.tsx"
     )
@@ -397,7 +403,9 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "isCurrent={selectedIsCurrent}" in detail_source
     assert "开始整批拆板" in panel_source
     assert "drawing_processing" in panel_source
-    assert "WorkflowBatchExportControl" in panel_source
+    assert "DrawingProcessingExportActions" in panel_source
+    assert "WorkflowBatchExportControl" in export_actions_source
+    assert "DrawingSelectiveExportControl" in export_actions_source
     assert 'title="03 · 图纸拆板与独立校验"' in panel_source
     assert "分批导出" in export_source
     assert "原 DXF" not in export_source
@@ -413,6 +421,10 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "候选复核 ZIP" not in panel_source
     assert "重新整批拆板" not in panel_source
     assert "采用候选" not in panel_source
+    assert "选择要导出的图纸" in selective_export_source
+    assert "未通过的 BH" not in selective_export_source
+    assert "category.label" in selective_export_source
+    assert "下载后不会删除服务器文件" in selective_export_source
     assert "候选图" not in panel_source
     assert "getDxfSplitReviewItems" not in panel_source
     assert "decideDxfSplitReviewItem" not in panel_source
@@ -420,6 +432,9 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "确认当前阶段" not in panel_source
     assert "getDxfSplitRun" in api_source
     assert "startNativeWorkflowBatchExportDownload" in api_source
+    assert "startNativeDrawingSelectiveExportDownload" in api_source
+    assert "/selective-export-preview" in api_source
+    assert "/selective-exports" in api_source
     assert "/batch-exports/preview" in api_source
     assert "/purge" in api_source
     batch_download_source = api_source.split(

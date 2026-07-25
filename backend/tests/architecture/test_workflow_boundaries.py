@@ -119,6 +119,21 @@ EXPECTED_ROUTES = [
     ),
     (
         ("GET",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/selective-export-preview",
+        "preview_drawing_selective_export",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/selective-exports",
+        "create_drawing_selective_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/selective-exports/{export_uid}/download",
+        "download_drawing_selective_export",
+    ),
+    (
+        ("GET",),
         "/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive",
         "download_manual_review_archive",
     ),

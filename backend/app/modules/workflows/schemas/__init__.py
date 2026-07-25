@@ -1,6 +1,11 @@
 """Workflow HTTP and presentation schemas."""
 
 from app.modules.workflows.schemas.exports import (
+    DrawingSelectiveExportCategory,
+    DrawingSelectiveExportCategoryRead,
+    DrawingSelectiveExportCreate,
+    DrawingSelectiveExportPreviewRead,
+    DrawingSelectiveExportRead,
     WorkflowBatchExportCategoryRead,
     WorkflowBatchExportCreate,
     WorkflowBatchExportPreviewRead,
@@ -41,6 +46,11 @@ from app.modules.workflows.schemas.production_projects import (
 )
 
 __all__ = [
+    "DrawingSelectiveExportCategory",
+    "DrawingSelectiveExportCategoryRead",
+    "DrawingSelectiveExportCreate",
+    "DrawingSelectiveExportPreviewRead",
+    "DrawingSelectiveExportRead",
     "ProductionProjectCreate",
     "ProductionProjectEnvelope",
     "ProductionProjectRead",

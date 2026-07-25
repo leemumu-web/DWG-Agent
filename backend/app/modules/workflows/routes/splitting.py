@@ -1,23 +1,39 @@
 """DXF split run projection, human review and ZIP-only exports."""
 
 import json
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.modules.dxf_splitting.interface import (
+    SELECTIVE_EXPORT_COOKIE_NAME,
     DxfSplitReviewDecisionRead,
     DxfSplitReviewDecisionWrite,
     build_dxf_split_run_read,
     complete_split_review,
+    create_download_token,
     decide_split_item,
+    export_download_path,
+    export_filename,
+    export_preview,
     latest_dxf_split_run,
     list_split_review_items,
     manual_review_archive_members,
+    require_download_token,
     review_candidate_archive_members,
     split_candidate_available,
     split_results_archive_members,
+    storage_members,
+)
+from app.modules.files.interface import (
+    TransferSpec,
+    get_storage_backend,
+    iter_storage_zip,
+    prepare_transfer_in_transaction,
+    session_factory_for,
+    settle_stream,
 )
 from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
@@ -25,6 +41,12 @@ from app.modules.projects.interface import require_project_member, require_proje
 from app.modules.workflows.access import WORKFLOW_WRITE_ROLES, load_workflow_detail
 from app.modules.workflows.job_sync import sync_workflow_from_jobs
 from app.modules.workflows.routes.archive import stream_registered_workflow_archive
+from app.modules.workflows.schemas import (
+    DrawingSelectiveExportCreate,
+    DrawingSelectiveExportPreviewRead,
+    DrawingSelectiveExportRead,
+)
+from app.platform.config.settings import settings
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import AppHTTPException
@@ -75,6 +97,176 @@ def get_drawing_processing(
     if not _is_current_drawing_attempt(workflow, run):
         return ok(None, request.state.request_id)
     return ok(build_dxf_split_run_read(db, run), request.state.request_id)
+
+
+@router.get(
+    "/{workflow_id}/drawing-processing/runs/{run_id}/selective-export-preview",
+    summary="预览拆板分类选择导出",
+    description="统计未通过的 BH、未通过的 BOX、PL 和其他四类当前可下载原始 DXF。",
+)
+def preview_drawing_selective_export(
+    workflow_id: int,
+    run_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    run = _current_split_run_or_404(db, workflow, run_id)
+    if run.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "DRAWING_SELECTIVE_EXPORT_UNAVAILABLE",
+            "当前拆板批次尚未形成可选择导出的分类结果。",
+            {"split_run_id": run.id, "status": run.status},
+        )
+    data = DrawingSelectiveExportPreviewRead(
+        workflow_id=workflow.id,
+        split_run_id=run.id,
+        categories=export_preview(db, run),
+    )
+    return ok(data, request.state.request_id)
+
+
+@router.post(
+    "/{workflow_id}/drawing-processing/runs/{run_id}/selective-exports",
+    status_code=status.HTTP_201_CREATED,
+    summary="创建拆板分类选择导出",
+    description="签发路径级短期下载能力；ZIP 从对象存储直接流向浏览器，不落服务器临时文件。",
+)
+def create_drawing_selective_export(
+    workflow_id: int,
+    run_id: int,
+    payload: DrawingSelectiveExportCreate,
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    run = _current_split_run_or_404(db, workflow, run_id)
+    if run.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "DRAWING_SELECTIVE_EXPORT_UNAVAILABLE",
+            "当前拆板批次尚未形成可选择导出的分类结果。",
+            {"split_run_id": run.id, "status": run.status},
+        )
+    categories = list(payload.categories)
+    members, source_size_bytes = storage_members(db, run, categories)
+    export_uid, token, expires_at = create_download_token(
+        workflow_id=workflow.id,
+        run_id=run.id,
+        categories=categories,
+        actor_user_id=current_user.id,
+    )
+    download_path = export_download_path(workflow.id, run.id, export_uid)
+    response.set_cookie(
+        SELECTIVE_EXPORT_COOKIE_NAME,
+        token,
+        max_age=settings.workflow_batch_export_ttl_minutes * 60,
+        httponly=True,
+        secure=settings.refresh_cookie_secure_enabled,
+        samesite="lax",
+        path=download_path,
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="dxf_split_selective_exports.create",
+        resource_type="dxf_split_run",
+        resource_id=run.id,
+        after_json={
+            "export_uid": export_uid,
+            "categories": categories,
+            "file_count": len(members),
+            "source_size_bytes": source_size_bytes,
+        },
+        request=request,
+    )
+    db.commit()
+    data = DrawingSelectiveExportRead(
+        categories=categories,
+        file_count=len(members),
+        source_size_bytes=source_size_bytes,
+        filename=export_filename(workflow.id, run.id),
+        download_url=download_path,
+        token_expires_at=expires_at,
+    )
+    return ok(data, request.state.request_id)
+
+
+@router.get(
+    "/{workflow_id}/drawing-processing/runs/{run_id}/selective-exports/{export_uid}/download",
+    summary="流式下载拆板分类选择导出",
+    response_class=StreamingResponse,
+    description="使用路径级 HttpOnly 能力直接流式生成 ZIP，不生成服务器临时 ZIP。",
+)
+def download_drawing_selective_export(
+    workflow_id: int,
+    run_id: int,
+    export_uid: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    categories, actor_user_id = require_download_token(
+        request.cookies.get(SELECTIVE_EXPORT_COOKIE_NAME),
+        workflow_id=workflow_id,
+        run_id=run_id,
+        export_uid=export_uid,
+    )
+    workflow = load_workflow_detail(db, workflow_id)
+    run = _current_split_run_or_404(db, workflow, run_id)
+    if run.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "DRAWING_SELECTIVE_EXPORT_UNAVAILABLE",
+            "当前拆板批次已变化，请重新创建导出。",
+        )
+    members, _ = storage_members(db, run, categories)
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="outbound",
+            operation="dxf_split_selective_export",
+            actor_user_id=actor_user_id,
+            request_id=request.state.request_id,
+            idempotency_key=request.state.request_id,
+            batch_ref=export_uid,
+            original_name=export_filename(workflow.id, run.id),
+        ),
+    )
+    write_audit_log(
+        db,
+        actor_user_id=actor_user_id,
+        action="dxf_split_selective_exports.download",
+        resource_type="dxf_split_run",
+        resource_id=run.id,
+        after_json={
+            "export_uid": export_uid,
+            "categories": categories,
+            "file_count": len(members),
+        },
+        request=request,
+    )
+    db.commit()
+    chunks = settle_stream(
+        session_factory_for(db),
+        transfer.transfer_uid,
+        iter_storage_zip(get_storage_backend(), members),
+    )
+    encoded_filename = quote(export_filename(workflow.id, run.id))
+    return StreamingResponse(
+        chunks,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get(

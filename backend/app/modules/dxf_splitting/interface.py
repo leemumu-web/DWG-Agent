@@ -25,6 +25,15 @@ from app.modules.dxf_splitting.schemas import (
     DxfSplitReviewPage,
     DxfSplitRunRead,
 )
+from app.modules.dxf_splitting.selective_exports import (
+    SELECTIVE_EXPORT_COOKIE_NAME,
+    create_download_token,
+    export_download_path,
+    export_filename,
+    export_preview,
+    require_download_token,
+    storage_members,
+)
 
 
 def list_split_review_items(db, **kwargs) -> DxfSplitReviewPage:
@@ -142,6 +151,7 @@ __all__ = [
     "CLI_SCHEMA",
     "MANIFEST_SCHEMA",
     "MAX_AUTOMATIC_ATTEMPTS",
+    "SELECTIVE_EXPORT_COOKIE_NAME",
     "SPLITTER_VERSION",
     "VALIDATION_SCHEMA",
     "DxfSplitError",
@@ -157,8 +167,12 @@ __all__ = [
     "DxfSplitRunRead",
     "build_dxf_split_run_read",
     "complete_split_review",
+    "create_download_token",
     "decide_split_item",
     "enqueue_dxf_splitting_job",
+    "export_download_path",
+    "export_filename",
+    "export_preview",
     "find_dxf_split_file_workflow_id",
     "dxf_split_file_reference_exists",
     "get_dxf_split_outcome",
@@ -168,8 +182,10 @@ __all__ = [
     "manual_review_archive_members",
     "reconcile_dxf_split_run_for_terminal_job",
     "reconcile_orphan_dxf_split_runs",
+    "require_download_token",
     "review_candidate_archive_members",
     "split_results_archive_members",
     "split_candidate_available",
+    "storage_members",
     "run_dxf_splitting",
 ]

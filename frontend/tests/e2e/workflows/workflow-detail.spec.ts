@@ -550,7 +550,7 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByRole('button', { name: '下载全部' })).toBeEnabled();
 });
 
-test('partial split unlocks Excel but stays on split results with native downloads', async ({ page }) => {
+test('partial split stays visible and supports native plus four-way selective downloads', async ({ page }) => {
   const stageDefinitions = [
     ['source_intake', '文件接收与输入冻结', 'manual', 'implemented', null],
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
@@ -780,6 +780,7 @@ test('partial split unlocks Excel but stays on split results with native downloa
   };
   let workflowReads = 0;
   const requestedExportCategories: string[][] = [];
+  let selectiveExportRequests = 0;
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
     access_token: 'e2e-token',
@@ -864,6 +865,49 @@ test('partial split unlocks Excel but stays on split results with native downloa
     workflowReads += 1;
     return json(route, workflowReads === 1 ? workflow : advancedWorkflow);
   });
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/selective-export-preview',
+    (route) => json(route, {
+      workflow_id: 43,
+      split_run_id: 88,
+      categories: [
+        { key: 'failed_bh', label: '未通过的 BH', file_count: 1, size_bytes: 1024, available: true },
+        { key: 'failed_box', label: '未通过的 BOX', file_count: 0, size_bytes: 0, available: false },
+        { key: 'pl', label: 'PL', file_count: 2, size_bytes: 2048, available: true },
+        { key: 'other', label: '其他', file_count: 3, size_bytes: 3072, available: true },
+      ],
+    }),
+  );
+  await page.route(
+    /\/api\/v1\/workflows\/43\/drawing-processing\/runs\/88\/selective-exports$/,
+    async (route) => {
+      selectiveExportRequests += 1;
+      expect(route.request().postDataJSON()).toEqual({
+        categories: ['failed_bh', 'pl', 'other'],
+      });
+      await json(route, {
+        categories: ['failed_bh', 'pl', 'other'],
+        file_count: 6,
+        source_size_bytes: 6144,
+        filename: 'workflow-43-split-run-88-selected-dxf.zip',
+        download_url: '/api/v1/workflows/43/drawing-processing/runs/88/selective-exports/e2e/download',
+        token_expires_at: now,
+      }, 201);
+    },
+  );
+  await page.route(
+    '**/api/v1/workflows/43/drawing-processing/runs/88/selective-exports/e2e/download',
+    async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'content-disposition': "attachment; filename*=UTF-8''workflow-43-split-run-88-selected-dxf.zip",
+        },
+        body: 'PK-selected-dxf',
+      });
+    },
+  );
 
   await page.goto('/');
   await page.evaluate(({ token, savedUser }) => {
@@ -902,4 +946,22 @@ test('partial split unlocks Excel but stays on split results with native downloa
     ['split_result_normal', 'split_result_allowance'],
     ['classified_dxf'],
   ]);
+
+  await page
+    .getByRole('button', { name: /导出/ })
+    .filter({ hasText: /^\s*导出\s*$/ })
+    .click();
+  const selectiveDialog = page.getByRole('dialog', { name: '选择要导出的图纸' });
+  await expect(selectiveDialog.getByText('未通过的 BH', { exact: true })).toBeVisible();
+  await expect(selectiveDialog.getByText('未通过的 BOX', { exact: true })).toBeVisible();
+  await expect(selectiveDialog.getByText('PL', { exact: true })).toBeVisible();
+  await expect(selectiveDialog.getByText('其他', { exact: true })).toBeVisible();
+  const selectiveDownloadPromise = page.waitForEvent('download');
+  await selectiveDialog.getByRole('button', { name: '下载所选 DXF' }).click();
+  const selectiveDownload = await selectiveDownloadPromise;
+  await expect.poll(() => selectiveExportRequests).toBe(1);
+  expect(selectiveDownload.url()).toContain('/selective-exports/e2e/download');
+  expect(selectiveDownload.suggestedFilename()).toBe(
+    'workflow-43-split-run-88-selected-dxf.zip',
+  );
 });

@@ -196,6 +196,23 @@ bash scripts/docker.sh smoke
 
 若接口返回 `WORKFLOW_EXPORT_PURGE_FAILED`、流水错误码为 `WORKFLOW_EXPORT_PURGE_PARTIAL`，或流水状态为 `compensation_required`，立即停止对该流程继续写入，保存 request ID、export UID 和 transfer UID，在“文件登记/存储对象”逐项核对清单范围并运行一致性扫描。对象删除不可回滚，不得通过直接 SQL 把墓碑改回 available；确认剩余对象后从同一导出记录安全重试或按存储事故流程处置。
 
+## 图纸分类选择导出
+
+Stage A3 卡片标题栏的“导出”与“分批导出”是两个独立功能。“导出”只下载当前拆板
+attempt 对应的分类后原始 DXF，不删除服务器文件。弹窗提供四个多选项：
+
+| UI 标签 | 选择规则 | ZIP 一级目录 |
+|---|---|---|
+| 未通过的 BH | 当前拆板 attempt 中分类类型为 BH 且自动处理未通过 | `未通过的BH/` |
+| 未通过的 BOX | 当前拆板 attempt 中分类类型为 BOX 且自动处理未通过 | `未通过的BOX/` |
+| PL | 当前分类 attempt 中精确类型为 PL、且未被自动接纳 | `PL/` |
+| 其他 | 其余未被自动接纳的 PX、待确认、不可读或其他类型 | `其他/` |
+
+点击“下载所选 DXF”后，ZIP 从 Local/MinIO 直接流向浏览器，不在服务器生成临时 ZIP。
+自动接纳的 BH/BOX 不会混入；报告、Excel、DWG 和拆板产出也不包含在内。叶子文件名保持
+数据库登记值；若同一类别有同名文件，只增加中间隔离目录。该功能没有清理确认步骤，下载
+完成或中断都不会修改 `files.status`、`purged_at` 或底层对象。
+
 ## 数据控制台运行手册
 
 入口为 `/admin/infrastructure`，包含总览、文件登记、存储对象、流转流水、每日归档、一致性和运行通信七个页签。管理员可提交归档、扫描和执行处置；审计员可读取并生成归档/处置预检，但不能提交归档、启动扫描或执行处置。
