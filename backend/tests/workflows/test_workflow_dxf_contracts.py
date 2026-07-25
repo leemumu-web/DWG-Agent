@@ -359,6 +359,10 @@ def test_drawing_processing_requires_classified_dxf(db):
 
     assert caught.value.detail["code"] == "WORKFLOW_STAGE_INPUT_INCOMPLETE"
     assert caught.value.detail["details"]["missing_inputs"] == ["classified_dxf"]
+    assert caught.value.detail["message"] == (
+        "当前阶段缺少必需的上游产物：classified_dxf。"
+        "请返回前序阶段补齐后重新检查。"
+    )
 
 
 def test_drawing_processing_requires_all_current_attempt_outputs(db):

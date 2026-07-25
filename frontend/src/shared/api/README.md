@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`client.ts` 创建 Axios client，注入 sessionStorage access token，并把并发 401 合并为一次 `/auth/refresh`；刷新失败会清理会话。`error.ts` 解析 FastAPI detail、字段校验、错误码与 request ID；`index.ts` 是公共出口。
+`client.ts` 创建 Axios client，注入 sessionStorage access token，并把并发 401 合并为一次 `/auth/refresh`；刷新失败会清理会话。`error.ts` 解析 FastAPI detail、字段校验、错误码、request ID 与有界操作恢复建议；`index.ts` 是公共出口。
 
 ## 输入与输出
 

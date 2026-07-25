@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DownloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Alert,
@@ -9,11 +9,15 @@ import {
   Modal,
   Space,
   Spin,
+  Tooltip,
   Typography,
 } from 'antd';
 import { describeApiError } from '../../shared/api';
-import { fmtSize } from '../../shared/components';
-import type { DrawingSelectiveExportCategory } from './workflow';
+import { ApiErrorAlert, fmtDateTime, fmtSize } from '../../shared/components';
+import type {
+  DrawingSelectiveExport,
+  DrawingSelectiveExportCategory,
+} from './workflow';
 import {
   createDrawingSelectiveExport,
   getDrawingSelectiveExportPreview,
@@ -24,48 +28,59 @@ export function DrawingSelectiveExportControl({
   workflowId,
   runId,
   disabled = false,
+  disabledReason,
 }: {
   workflowId: number;
   runId?: number;
   disabled?: boolean;
+  disabledReason?: string;
 }) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [selectionInitialized, setSelectionInitialized] = useState(false);
   const [selected, setSelected] = useState<DrawingSelectiveExportCategory[]>([]);
+  const [prepared, setPrepared] = useState<DrawingSelectiveExport | null>(null);
 
   const previewQ = useQuery({
     queryKey: ['drawing-selective-export-preview', workflowId, runId],
     queryFn: () => getDrawingSelectiveExportPreview(workflowId, runId!),
     enabled: open && runId !== undefined,
     staleTime: 0,
+    retry: false,
   });
 
   useEffect(() => {
-    if (!open || !previewQ.data || selectionInitialized) return;
+    if (
+      !open
+      || !previewQ.data
+      || previewQ.isFetching
+      || selectionInitialized
+    ) return;
     setSelected(
       previewQ.data.categories
         .filter((category) => category.available)
         .map((category) => category.key),
     );
     setSelectionInitialized(true);
-  }, [open, previewQ.data, selectionInitialized]);
+  }, [open, previewQ.data, previewQ.isFetching, selectionInitialized]);
+
+  const startDownload = (next: DrawingSelectiveExport) => {
+    try {
+      startNativeDrawingSelectiveExportDownload(next);
+      message.info(`浏览器已开始接收 ${next.file_count} 个 DXF，请查看下载栏`);
+    } catch (error) {
+      message.error(describeApiError(error, '选择导出下载启动失败'));
+    }
+  };
 
   const createM = useMutation({
     mutationFn: () => {
       if (runId === undefined) throw new Error('当前拆板批次尚未生成');
       return createDrawingSelectiveExport(workflowId, runId, selected);
     },
-    onSuccess: (prepared) => {
-      try {
-        startNativeDrawingSelectiveExportDownload(prepared);
-        message.info(`浏览器已开始接收 ${prepared.file_count} 个 DXF`);
-        setOpen(false);
-        setSelectionInitialized(false);
-        setSelected([]);
-      } catch (error) {
-        message.error(describeApiError(error, '选择导出下载启动失败'));
-      }
+    onSuccess: (next) => {
+      setPrepared(next);
+      startDownload(next);
     },
     onError: (error) => message.error(
       describeApiError(error, '选择导出创建失败'),
@@ -73,6 +88,7 @@ export function DrawingSelectiveExportControl({
   });
 
   const show = () => {
+    setPrepared(null);
     setSelectionInitialized(false);
     setSelected([]);
     setOpen(true);
@@ -81,19 +97,28 @@ export function DrawingSelectiveExportControl({
   const close = () => {
     if (createM.isPending) return;
     setOpen(false);
+    setPrepared(null);
     setSelectionInitialized(false);
     setSelected([]);
   };
+  const hasAvailableCategory = previewQ.data?.categories.some(
+    (category) => category.available,
+  ) ?? false;
+  const buttonDisabled = disabled || runId === undefined;
 
   return (
     <>
-      <Button
-        icon={<DownloadOutlined />}
-        disabled={disabled || runId === undefined}
-        onClick={show}
-      >
-        导出
-      </Button>
+      <Tooltip title={buttonDisabled ? disabledReason ?? '当前拆板批次尚未形成可导出的分类结果' : undefined}>
+        <span>
+          <Button
+            icon={<DownloadOutlined />}
+            disabled={buttonDisabled}
+            onClick={show}
+          >
+            分类图纸导出
+          </Button>
+        </span>
+      </Tooltip>
       <Modal
         open={open}
         title="选择要导出的图纸"
@@ -101,14 +126,25 @@ export function DrawingSelectiveExportControl({
         maskClosable={false}
         closable={!createM.isPending}
         onCancel={close}
-        footer={(
+        footer={prepared ? (
+          <Space wrap>
+            <Button onClick={close}>下载已开始，关闭</Button>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => startDownload(prepared)}
+            >
+              再次开始下载
+            </Button>
+          </Space>
+        ) : (
           <Space>
             <Button onClick={close} disabled={createM.isPending}>取消</Button>
             <Button
               type="primary"
               icon={<DownloadOutlined />}
               loading={createM.isPending}
-              disabled={!selected.length || previewQ.isLoading || previewQ.isError}
+              disabled={!selected.length || previewQ.isLoading || previewQ.isFetching || previewQ.isError}
               onClick={() => createM.mutate()}
             >
               下载所选 DXF
@@ -116,7 +152,8 @@ export function DrawingSelectiveExportControl({
           </Space>
         )}
       >
-        <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+        {!prepared ? (
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
           <Alert
             type="info"
             showIcon
@@ -125,23 +162,24 @@ export function DrawingSelectiveExportControl({
           />
           {previewQ.isLoading && <Spin tip="正在统计可导出图纸" />}
           {previewQ.isError && (
-            <Alert
-              type="error"
-              showIcon
-              message="可导出图纸统计失败"
-              description={describeApiError(previewQ.error, '请重试')}
-              action={(
-                <Button
-                  icon={<ReloadOutlined />}
-                  loading={previewQ.isFetching}
-                  onClick={() => previewQ.refetch()}
-                >
-                  重试
-                </Button>
-              )}
+            <ApiErrorAlert
+              title="可导出图纸统计失败"
+              error={previewQ.error}
+              fallback="分类图纸统计失败"
+              retryLabel="重新检查"
+              retryLoading={previewQ.isFetching}
+              onRetry={() => previewQ.refetch()}
             />
           )}
-          {previewQ.data && (
+          {previewQ.data && !previewQ.isFetching && !hasAvailableCategory && (
+            <Alert
+              type="warning"
+              showIcon
+              message="当前没有可导出的文件"
+              description="当前拆板批次没有符合未通过 BH、未通过 BOX、PL 或其他类别的可用源 DXF。请刷新批次状态；若文件已被清理，请联系管理员。"
+            />
+          )}
+          {previewQ.data && !previewQ.isFetching && (
             <Checkbox.Group
               className="workflow-batch-export-options"
               value={selected}
@@ -166,7 +204,34 @@ export function DrawingSelectiveExportControl({
               ))}
             </Checkbox.Group>
           )}
-        </Space>
+          </Space>
+        ) : (
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+            <Alert
+              type="success"
+              showIcon
+              message="下载已准备"
+              description={`浏览器已开始接收 ${prepared.file_count} 个 DXF。若下载栏没有任务，可在凭据有效期内再次开始下载。`}
+            />
+            <div className="workflow-batch-export-summary">
+              <div>
+                <small>图纸数量</small>
+                <strong>{prepared.file_count} 个 DXF</strong>
+              </div>
+              <div>
+                <small>源文件总大小</small>
+                <strong>{fmtSize(prepared.source_size_bytes)}</strong>
+              </div>
+              <div>
+                <small>下载文件名</small>
+                <strong title={prepared.filename}>{prepared.filename}</strong>
+              </div>
+            </div>
+            <Typography.Text type="secondary">
+              下载凭据有效至 {fmtDateTime(prepared.token_expires_at)}；下载不会删除服务器文件。
+            </Typography.Text>
+          </Space>
+        )}
       </Modal>
     </>
   );

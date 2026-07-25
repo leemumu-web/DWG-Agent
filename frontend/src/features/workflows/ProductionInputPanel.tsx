@@ -38,7 +38,7 @@ import {
   uploadWorkflowInputExcel,
 } from './workflow-inputs.api';
 import { getWorkflow } from './workflows.api';
-import { fmtDateTime, fmtSize } from '../../shared/components';
+import { ApiErrorAlert, fmtDateTime, fmtSize } from '../../shared/components';
 import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
 
 const ACTIVE_BATCH = new Set(['converting']);
@@ -213,7 +213,15 @@ export function ProductionInputPanel({
   };
 
   if (batchQ.isError) {
-    return <Alert type="error" showIcon message="生产输入批次加载失败" description={describeApiError(batchQ.error, '请刷新后重试')} action={<Button onClick={() => batchQ.refetch()}>重试</Button>} />;
+    return (
+      <ApiErrorAlert
+        title="生产输入批次加载失败"
+        error={batchQ.error}
+        fallback="生产输入批次加载失败"
+        retryLoading={batchQ.isFetching}
+        onRetry={() => batchQ.refetch()}
+      />
+    );
   }
 
   const columns = [

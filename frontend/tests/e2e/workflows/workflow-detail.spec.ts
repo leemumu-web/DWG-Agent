@@ -550,7 +550,7 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByRole('button', { name: '下载全部' })).toBeEnabled();
 });
 
-test('partial split stays visible and supports native plus four-way selective downloads', async ({ page }) => {
+test('partial split keeps downloads recoverable with operator guidance', async ({ page }) => {
   const stageDefinitions = [
     ['source_intake', '文件接收与输入冻结', 'manual', 'implemented', null],
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
@@ -780,6 +780,7 @@ test('partial split stays visible and supports native plus four-way selective do
   };
   let workflowReads = 0;
   const requestedExportCategories: string[][] = [];
+  let selectivePreviewRequests = 0;
   let selectiveExportRequests = 0;
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
@@ -867,16 +868,39 @@ test('partial split stays visible and supports native plus four-way selective do
   });
   await page.route(
     '**/api/v1/workflows/43/drawing-processing/runs/88/selective-export-preview',
-    (route) => json(route, {
+    async (route) => {
+      selectivePreviewRequests += 1;
+      if (selectivePreviewRequests === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: {
+              code: 'DRAWING_SELECTIVE_EXPORT_STORAGE_UNAVAILABLE',
+              message: '对象存储暂时不可用，未创建不完整压缩包。',
+              details: {},
+            },
+            meta: { request_id: 'selective-preview-503', timestamp: now },
+          }),
+        });
+        return;
+      }
+      await json(route, {
       workflow_id: 43,
       split_run_id: 88,
-      categories: [
+      categories: selectivePreviewRequests === 2 ? [
         { key: 'failed_bh', label: '未通过的 BH', file_count: 1, size_bytes: 1024, available: true },
         { key: 'failed_box', label: '未通过的 BOX', file_count: 0, size_bytes: 0, available: false },
         { key: 'pl', label: 'PL', file_count: 2, size_bytes: 2048, available: true },
         { key: 'other', label: '其他', file_count: 3, size_bytes: 3072, available: true },
+      ] : [
+        { key: 'failed_bh', label: '未通过的 BH', file_count: 0, size_bytes: 0, available: false },
+        { key: 'failed_box', label: '未通过的 BOX', file_count: 0, size_bytes: 0, available: false },
+        { key: 'pl', label: 'PL', file_count: 0, size_bytes: 0, available: false },
+        { key: 'other', label: '其他', file_count: 0, size_bytes: 0, available: false },
       ],
-    }),
+      });
+    },
   );
   await page.route(
     /\/api\/v1\/workflows\/43\/drawing-processing\/runs\/88\/selective-exports$/,
@@ -947,11 +971,14 @@ test('partial split stays visible and supports native plus four-way selective do
     ['classified_dxf'],
   ]);
 
-  await page
-    .getByRole('button', { name: /导出/ })
-    .filter({ hasText: /^\s*导出\s*$/ })
-    .click();
+  await page.getByRole('button', { name: '分类图纸导出' }).click();
   const selectiveDialog = page.getByRole('dialog', { name: '选择要导出的图纸' });
+  await expect(selectiveDialog.getByText('可导出图纸统计失败')).toBeVisible();
+  await expect(selectiveDialog.getByText(/对象存储暂时不可用/)).toBeVisible();
+  await expect(selectiveDialog.getByText(/DRAWING_SELECTIVE_EXPORT_STORAGE_UNAVAILABLE/)).toBeVisible();
+  await expect(selectiveDialog.getByText(/请求 selective-preview-503/)).toBeVisible();
+  await expect(selectiveDialog.getByText(/处理建议：服务器暂时无法完成操作/)).toBeVisible();
+  await selectiveDialog.getByRole('button', { name: '重新检查' }).click();
   await expect(selectiveDialog.getByText('未通过的 BH', { exact: true })).toBeVisible();
   await expect(selectiveDialog.getByText('未通过的 BOX', { exact: true })).toBeVisible();
   await expect(selectiveDialog.getByText('PL', { exact: true })).toBeVisible();
@@ -964,4 +991,14 @@ test('partial split stays visible and supports native plus four-way selective do
   expect(selectiveDownload.suggestedFilename()).toBe(
     'workflow-43-split-run-88-selected-dxf.zip',
   );
+  await expect(selectiveDialog).toBeVisible();
+  await expect(selectiveDialog.getByText('下载已准备')).toBeVisible();
+  await expect(selectiveDialog.getByText('6 个 DXF', { exact: true })).toBeVisible();
+  await expect(selectiveDialog.getByRole('button', { name: '再次开始下载' })).toBeVisible();
+  await selectiveDialog.getByRole('button', { name: '下载已开始，关闭' }).click();
+  await expect(selectiveDialog).toBeHidden();
+
+  await page.getByRole('button', { name: '分类图纸导出' }).click();
+  await expect(selectiveDialog.getByText('当前没有可导出的文件')).toBeVisible();
+  await expect(selectiveDialog.getByRole('button', { name: '下载所选 DXF' })).toBeDisabled();
 });

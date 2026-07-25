@@ -10,24 +10,24 @@
 
 ---
 
-### Task 1: Lock operator-visible behavior
+## Task 1: Lock operator-visible behavior
 
 **Files:**
 - Modify: `frontend/tests/e2e/workflows/workflow-detail.spec.ts`
 - Modify: `backend/tests/contracts/test_frontend_contract.py`
 
-- [ ] Add a Playwright case where selective preview first returns a structured 503 error containing `error.code`, `error.message` and `meta.request_id`; assert that the dialog shows the message, code, request ID, recovery advice and a retry button.
-- [ ] Make the retry return a successful preview and assert that selectable categories appear.
-- [ ] Change the selective-create assertion so the modal remains open after the native download starts and exposes `再次开始下载` plus a close action.
-- [ ] Add an empty-preview assertion that requires `当前没有可导出的文件`.
-- [ ] Run the focused test and confirm it fails because those UI elements do not exist yet:
+- [x] Add a Playwright case where selective preview first returns a structured 503 error containing `error.code`, `error.message` and `meta.request_id`; assert that the dialog shows the message, code, request ID, recovery advice and a retry button.
+- [x] Make the retry return a successful preview and assert that selectable categories appear.
+- [x] Change the selective-create assertion so the modal remains open after the native download starts and exposes `再次开始下载` plus a close action.
+- [x] Add an empty-preview assertion that requires `当前没有可导出的文件`.
+- [x] Run the focused test and confirm it fails because those UI elements do not exist yet:
 
 ```bash
 cd frontend
 npx playwright test tests/e2e/workflows/workflow-detail.spec.ts --grep "operator guidance"
 ```
 
-### Task 2: Add one safe error presentation boundary
+## Task 2: Add one safe error presentation boundary
 
 **Files:**
 - Modify: `frontend/src/shared/api/error.ts`
@@ -37,12 +37,12 @@ npx playwright test tests/e2e/workflows/workflow-detail.spec.ts --grep "operator
 - Modify: `frontend/src/shared/api/README.md`
 - Modify: `frontend/src/shared/components/README.md`
 
-- [ ] Add `status?: number` to `ParsedApiError`, set it only from Axios responses, and export `apiErrorRecovery(parsed)`.
-- [ ] Map authentication, authorization, missing resource, conflict, size/type/validation, rate limit, server, timeout and network failures to bounded Chinese recovery advice.
-- [ ] Implement `ApiErrorAlert` with `title`, `error`, `fallback`, optional `onRetry`, `retryLabel` and `retryLoading`; render a persistent Ant Design error alert with the parsed message, `处理建议：...`, and a retry action.
-- [ ] Run the focused contract test and Playwright case until the new shared behavior passes.
+- [x] Add `status?: number` to `ParsedApiError`, set it only from Axios responses, and export `apiErrorRecovery(parsed)`.
+- [x] Map authentication, authorization, missing resource, conflict, size/type/validation, rate limit, server, timeout and network failures to bounded Chinese recovery advice.
+- [x] Implement `ApiErrorAlert` with `title`, `error`, `fallback`, optional `onRetry`, `retryLabel` and `retryLoading`; render a persistent Ant Design error alert with the parsed message, `处理建议：...`, and a retry action.
+- [x] Run the focused contract test and Playwright case until the new shared behavior passes.
 
-### Task 3: Make Stage A3 exports self-explanatory and recoverable
+## Task 3: Make Stage A3 exports self-explanatory and recoverable
 
 **Files:**
 - Modify: `frontend/src/features/workflows/DrawingSelectiveExportControl.tsx`
@@ -52,22 +52,21 @@ npx playwright test tests/e2e/workflows/workflow-detail.spec.ts --grep "operator
 - Modify: `frontend/src/features/workflows/styles.css`
 - Modify: `frontend/src/features/workflows/README.md`
 
-- [ ] Rename the controls to `分类图纸导出` and `分批导出并清理`; wrap disabled controls in a tooltip containing the computed reason.
-- [ ] Keep the selective modal open after create, store the prepared export, show file count, size, name and expiry, and provide `再次开始下载` and `下载已开始，关闭` actions.
-- [ ] If no preview categories are available, render a warning explaining that the current run has no matching source DXF.
-- [ ] Catch native download launch errors in both controls and keep all server files untouched.
-- [ ] Replace run/preview/status error blocks with `ApiErrorAlert` while retaining each request's retry callback.
-- [ ] Run the focused workflow E2E and confirm all assertions pass.
+- [x] Rename the controls to `分类图纸导出` and `分批导出并清理`; wrap disabled controls in a tooltip containing the computed reason.
+- [x] Keep the selective modal open after create, store the prepared export, show file count, size, name and expiry, and provide `再次开始下载` and `下载已开始，关闭` actions.
+- [x] If no preview categories are available, render a warning explaining that the current run has no matching source DXF.
+- [x] Catch native download launch errors in both controls and keep all server files untouched.
+- [x] Replace run/preview/status error blocks with `ApiErrorAlert` while retaining each request's retry callback.
+- [x] Run the focused workflow E2E and confirm all assertions pass.
 
-### Task 4: Verify and release
+## Task 4: Verify and release
 
 **Files:**
 - Modify only files required by failures proven in the preceding tests.
 
-- [ ] Run `cd frontend && npm run build` and expect architecture check, TypeScript and Vite build to pass.
-- [ ] Run `cd frontend && npx playwright test tests/e2e/workflows` and expect all workflow cases to pass.
-- [ ] Run `cd backend && uv run pytest -q tests/contracts/test_frontend_contract.py` and expect all contract cases to pass.
-- [ ] Run `bash scripts/verify.sh quick` and expect zero failed gates.
-- [ ] Inspect the production entry with `agent-browser` at `http://127.0.0.1:8080`, checking desktop and narrow viewport labels, focus order, errors and retry actions.
-- [ ] Commit only tracked implementation, tests and documentation; push `main`; verify local `HEAD` equals `origin/main`.
-
+- [x] Run `cd frontend && npm run build` and expect architecture check, TypeScript and Vite build to pass.
+- [x] Run `cd frontend && npx playwright test tests/e2e/workflows` and expect all workflow cases to pass.
+- [x] Run `cd backend && uv run pytest -q tests/contracts/test_frontend_contract.py` and expect all contract cases to pass.
+- [x] Run `bash scripts/verify.sh quick` and expect zero failed gates.
+- [x] Inspect the production entry with `agent-browser` at `http://127.0.0.1:8080`, checking desktop and narrow viewport labels, focus order, errors and retry actions.
+- [x] Commit only tracked implementation, tests and documentation; push `main`; verify local `HEAD` equals `origin/main`.

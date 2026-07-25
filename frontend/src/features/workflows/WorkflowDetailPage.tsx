@@ -27,6 +27,7 @@ import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { describeApiError, parseApiError, type ParsedApiError } from '../../shared/api';
 import {
+  ApiErrorAlert,
   ExcelInputFailurePanel,
   fmtDateTime,
   StatusChip,
@@ -266,12 +267,13 @@ export function WorkflowDetailPage() {
   }
   if (detailQ.isError || !detail) {
     return (
-      <Alert
-        type="error"
-        showIcon
-        message="生产批次加载失败"
-        description={describeApiError(detailQ.error, '请确认批次存在且当前账号有权访问')}
-        action={<Space><Button onClick={() => detailQ.refetch()}>重试</Button><Button href="/workflows">返回列表</Button></Space>}
+      <ApiErrorAlert
+        title="生产批次加载失败"
+        error={detailQ.error}
+        fallback="请确认批次存在且当前账号有权访问"
+        retryLoading={detailQ.isFetching}
+        onRetry={() => detailQ.refetch()}
+        extraAction={<Button href="/workflows">返回列表</Button>}
       />
     );
   }
@@ -519,12 +521,13 @@ export function WorkflowDetailPage() {
                     />
                   )}
                   {selectedIsCurrent && excelPreflightError && !excelPreflightError.failure && (
-                    <Alert
-                      type="error"
-                      showIcon
-                      message={excelPreflightError.code ?? '运行前检查未通过'}
-                      description={excelPreflightError.message}
-                      action={<Button onClick={() => excelPreflightQ.refetch()}>重新检查</Button>}
+                    <ApiErrorAlert
+                      title={excelPreflightError.code ?? '运行前检查未通过'}
+                      error={excelPreflightQ.error}
+                      fallback="Excel 运行前检查未通过"
+                      retryLabel="重新检查"
+                      retryLoading={excelPreflightQ.isFetching}
+                      onRetry={() => excelPreflightQ.refetch()}
                     />
                   )}
                   {selectedIsCurrent && (

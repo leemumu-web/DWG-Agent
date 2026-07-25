@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeApiError } from '../../shared/api';
+import { ApiErrorAlert } from '../../shared/components';
 import type {
   WorkflowBatchExport,
   WorkflowExportCategory,
@@ -48,22 +49,25 @@ function useNativeWorkflowDownload({
 }) {
   const { message } = App.useApp();
   const [created, setCreated] = useState<WorkflowBatchExport | null>(null);
+  const [launchFailed, setLaunchFailed] = useState(false);
   const notifiedStatus = useRef<string | null>(null);
   useEffect(() => {
     setCreated(null);
+    setLaunchFailed(false);
     notifiedStatus.current = null;
   }, [workflowId]);
   const statusQ = useQuery({
     queryKey: ['workflow-native-export', workflowId, created?.export_uid],
     queryFn: () => getWorkflowBatchExport(workflowId, created!.export_uid),
     enabled: Boolean(created),
-    refetchInterval: (query) => (
-      ACTIVE_EXPORT_STATUSES.has(
+    refetchInterval: (query) => {
+      if (launchFailed) return false;
+      return ACTIVE_EXPORT_STATUSES.has(
         query.state.data?.status ?? created?.status ?? '',
       )
         ? 1000
-        : false
-    ),
+        : false;
+    },
   });
   const row = statusQ.data ?? created;
   useEffect(() => {
@@ -77,12 +81,21 @@ function useNativeWorkflowDownload({
       message.error(`${errorText}；服务器文件仍保留，可点击按钮重试`);
     }
   }, [completedText, errorText, message, row]);
+  const launch = (next: WorkflowBatchExport) => {
+    try {
+      startNativeWorkflowBatchExportDownload(next);
+      setLaunchFailed(false);
+      message.info(preparingText);
+    } catch (error) {
+      setLaunchFailed(true);
+      message.error(describeApiError(error, errorText));
+    }
+  };
   const createM = useMutation({
     mutationFn: () => createWorkflowBatchExport(workflowId, categories),
     onSuccess: (next) => {
       setCreated(next);
-      startNativeWorkflowBatchExportDownload(next);
-      message.info(preparingText);
+      launch(next);
     },
     onError: (error) => message.error(describeApiError(error, errorText)),
   });
@@ -91,25 +104,21 @@ function useNativeWorkflowDownload({
       createM.mutate();
       return;
     }
-    if (ACTIVE_EXPORT_STATUSES.has(row.status)) {
+    if (!launchFailed && ACTIVE_EXPORT_STATUSES.has(row.status)) {
       message.info('浏览器仍在接收 ZIP，请查看浏览器下载列表');
       return;
     }
-    try {
-      notifiedStatus.current = null;
-      startNativeWorkflowBatchExportDownload(row);
-      message.info(preparingText);
-      setTimeout(() => {
-        void statusQ.refetch();
-      }, 500);
-    } catch (error) {
-      message.error(describeApiError(error, errorText));
-    }
+    notifiedStatus.current = null;
+    launch(row);
+    setTimeout(() => {
+      void statusQ.refetch();
+    }, 500);
   };
   return {
     start,
-    loading: createM.isPending || ACTIVE_EXPORT_STATUSES.has(row?.status ?? ''),
-    failed: row?.status === 'download_failed',
+    loading: createM.isPending
+      || (!launchFailed && ACTIVE_EXPORT_STATUSES.has(row?.status ?? '')),
+    failed: launchFailed || row?.status === 'download_failed',
   };
 }
 
@@ -237,20 +246,13 @@ export function DrawingProcessingPanel({
       style={{ marginTop: 12 }}
     >
       {runQ.isError && (
-        <Alert
-          type="error"
-          showIcon
-          message="拆板批次读取失败"
-          description={describeApiError(runQ.error, '请刷新后重试')}
-          action={(
-            <Button
-              icon={<ReloadOutlined />}
-              loading={runQ.isFetching}
-              onClick={() => runQ.refetch()}
-            >
-              重新读取
-            </Button>
-          )}
+        <ApiErrorAlert
+          title="拆板批次读取失败"
+          error={runQ.error}
+          fallback="拆板批次读取失败"
+          retryLabel="重新读取"
+          retryLoading={runQ.isFetching}
+          onRetry={() => runQ.refetch()}
         />
       )}
 

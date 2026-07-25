@@ -126,10 +126,12 @@ def require_stage_inputs(workflow: WorkflowRun, stage_code: str) -> None:
         value for value in capability.required_inputs if value not in available
     ]
     if missing:
+        missing_text = "、".join(missing)
         raise AppHTTPException(
             409,
             "WORKFLOW_STAGE_INPUT_INCOMPLETE",
-            "The workflow stage is missing required upstream artifacts.",
+            f"当前阶段缺少必需的上游产物：{missing_text}。"
+            "请返回前序阶段补齐后重新检查。",
             {"stage_code": stage_code, "missing_inputs": missing},
         )
 

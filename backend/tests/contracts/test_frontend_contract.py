@@ -205,6 +205,17 @@ def test_frontend_has_global_recovery_and_connectivity_feedback():
     assert "重新加载当前页面" in boundary
 
 
+def test_workflow_batch_cleanup_keeps_four_visible_categories_separate_from_split_pair():
+    control = _frontend_source(
+        "features/workflows/WorkflowBatchExportControl.tsx"
+    )
+    readme = _frontend_source("features/workflows/README.md")
+
+    assert "选择要导出的四类数据" in control
+    assert "提供四类生产文件下载" in readme
+    assert "提供六类生产文件下载" not in readme
+
+
 def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
     api_source = _frontend_source("features/operations/api/controlPlane.ts")
     runtime_panel = _frontend_source(
@@ -407,7 +418,7 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "WorkflowBatchExportControl" in export_actions_source
     assert "DrawingSelectiveExportControl" in export_actions_source
     assert 'title="03 · 图纸拆板与独立校验"' in panel_source
-    assert "分批导出" in export_source
+    assert "分批导出并清理" in export_source
     assert "原 DXF" not in export_source
     assert "category.label" in export_source
     assert "已保存，删除服务器文件" in export_source
@@ -425,6 +436,12 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "未通过的 BH" not in selective_export_source
     assert "category.label" in selective_export_source
     assert "下载后不会删除服务器文件" in selective_export_source
+    assert "分类图纸导出" in selective_export_source
+    assert "当前没有可导出的文件" in selective_export_source
+    assert "再次开始下载" in selective_export_source
+    assert "ApiErrorAlert" in selective_export_source
+    assert "ApiErrorAlert" in export_source
+    assert "ApiErrorAlert" in panel_source
     assert "候选图" not in panel_source
     assert "getDxfSplitReviewItems" not in panel_source
     assert "decideDxfSplitReviewItem" not in panel_source
@@ -453,6 +470,36 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "automation_route: 'auto_accepted' | 'manual_review'" in type_source
     assert "split_report_file_id" not in type_source
     assert "validation_report_file" not in type_source
+
+
+def test_workflow_primary_read_failures_share_operator_recovery_feedback():
+    detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
+    classification_source = _frontend_source(
+        "features/workflows/DxfClassificationPanel.tsx"
+    )
+    input_source = _frontend_source("features/workflows/ProductionInputPanel.tsx")
+    shared_source = _frontend_source("shared/components/ApiErrorAlert.tsx")
+    error_source = _frontend_source("shared/api/error.ts")
+
+    assert "ApiErrorAlert" in detail_source
+    assert "ApiErrorAlert" in classification_source
+    assert "ApiErrorAlert" in input_source
+    assert "处理建议：" in shared_source
+    assert "apiErrorRecovery" in shared_source
+    assert "服务器暂时无法完成操作" in error_source
+    assert "先刷新当前状态" in error_source
+    assert "WORKFLOW_STAGE_INPUT_INCOMPLETE" in error_source
+    assert "返回前序阶段补齐必需产物" in error_source
+
+
+def test_drawing_native_download_recovers_when_browser_launch_fails():
+    panel = _frontend_source("features/workflows/DrawingProcessingPanel.tsx")
+
+    assert "const [launchFailed, setLaunchFailed]" in panel
+    assert "if (launchFailed) return false" in panel
+    assert "const launch = (next: WorkflowBatchExport)" in panel
+    assert "setLaunchFailed(true)" in panel
+    assert "!launchFailed && ACTIVE_EXPORT_STATUSES.has" in panel
 
 
 def test_data_console_has_two_url_controlled_workspaces_and_api_contracts():

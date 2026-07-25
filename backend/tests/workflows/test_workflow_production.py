@@ -785,6 +785,10 @@ def test_excel_stage1_rejects_missing_frozen_source_artifact(
 
     assert caught.value.detail["code"] == "WORKFLOW_STAGE_INPUT_INCOMPLETE"
     assert caught.value.detail["details"]["missing_inputs"] == ["source_excel"]
+    assert caught.value.detail["message"] == (
+        "当前阶段缺少必需的上游产物：source_excel。"
+        "请返回前序阶段补齐后重新检查。"
+    )
 
 
 def test_excel_stage1_rejects_source_changed_after_freeze(

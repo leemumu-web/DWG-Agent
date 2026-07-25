@@ -30,7 +30,7 @@ import {
   getWorkflow,
 } from './workflows.api';
 import { describeApiError } from '../../shared/api';
-import { fmtSize } from '../../shared/components';
+import { ApiErrorAlert, fmtSize } from '../../shared/components';
 import type {
   DxfClassificationGroup,
   DxfClassificationGroupItem,
@@ -147,6 +147,7 @@ export function DxfClassificationPanel({
   });
 
   const canExecute = isCurrent
+    && !runQ.isError
     && ['waiting_input', 'ready', 'failed'].includes(stage?.status ?? '');
   const active = ['queued', 'running'].includes(stage?.status ?? '')
     || run?.status === 'running';
@@ -219,7 +220,17 @@ export function DxfClassificationPanel({
       title={<Space><FileSearchOutlined />02 · DXF 预处理与分类分流</Space>}
       style={{ marginTop: 12 }}
     >
-      {!isCurrent && !run && (
+      {runQ.isError && (
+        <ApiErrorAlert
+          title="分类批次读取失败"
+          error={runQ.error}
+          fallback="分类批次读取失败"
+          retryLabel="重新读取"
+          retryLoading={runQ.isFetching}
+          onRetry={() => runQ.refetch()}
+        />
+      )}
+      {!runQ.isError && !isCurrent && !run && (
         <Alert
           type="info"
           showIcon
@@ -227,7 +238,7 @@ export function DxfClassificationPanel({
           description="服务器完成 DWG→DXF 和输入冻结后，才会开放分类分流。"
         />
       )}
-      {isCurrent && !run && !active && (
+      {!runQ.isError && isCurrent && !run && !active && (
         <Alert
           type="info"
           showIcon
@@ -286,12 +297,10 @@ export function DxfClassificationPanel({
         />
       )}
       {executeMutation.error && (
-        <Alert
-          style={{ marginTop: 12 }}
-          type="error"
-          showIcon
-          message="提交分类任务失败"
-          description={describeApiError(executeMutation.error, '请稍后重试')}
+        <ApiErrorAlert
+          title="提交分类任务失败"
+          error={executeMutation.error}
+          fallback="分类任务提交失败"
         />
       )}
       {run && ['completed', 'completed_with_review'].includes(run.status) && (
@@ -421,11 +430,13 @@ export function DxfClassificationPanel({
         )}
       >
         {groupQ.isError && (
-          <Alert
-            type="error"
-            showIcon
-            message="分类文件夹加载失败"
-            description={describeApiError(groupQ.error, '请关闭后重试')}
+          <ApiErrorAlert
+            title="分类文件夹加载失败"
+            error={groupQ.error}
+            fallback="分类文件夹加载失败"
+            retryLabel="重新读取"
+            retryLoading={groupQ.isFetching}
+            onRetry={() => groupQ.refetch()}
           />
         )}
         <Table<DxfClassificationGroupItem>

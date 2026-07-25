@@ -1,6 +1,7 @@
 export { apiClient, fetchAllPages } from './client';
 export type { ApiEnvelope, PageEnvelope } from './client';
 export {
+  apiErrorRecovery,
   describeApiError,
   describeApiErrorAsync,
   enrichApiError,

@@ -14,10 +14,11 @@ import {
   Modal,
   Space,
   Spin,
+  Tooltip,
   Typography,
 } from 'antd';
 import { describeApiError } from '../../shared/api';
-import { fmtSize } from '../../shared/components';
+import { ApiErrorAlert, fmtSize } from '../../shared/components';
 import type {
   WorkflowBatchExport,
   WorkflowExportCategory,
@@ -35,10 +36,12 @@ const ACTIVE_DOWNLOAD_STATUSES = new Set(['prepared', 'downloading']);
 export function WorkflowBatchExportControl({
   workflowId,
   disabled = false,
+  disabledReason,
   onPurged,
 }: {
   workflowId: number;
   disabled?: boolean;
+  disabledReason?: string;
   onPurged: () => void;
 }) {
   const { message, modal } = App.useApp();
@@ -53,17 +56,23 @@ export function WorkflowBatchExportControl({
     queryFn: () => getWorkflowBatchExportPreview(workflowId),
     enabled: open && !createdExport,
     staleTime: 0,
+    retry: false,
   });
 
   useEffect(() => {
-    if (!open || !previewQ.data || selectionInitialized) return;
+    if (
+      !open
+      || !previewQ.data
+      || previewQ.isFetching
+      || selectionInitialized
+    ) return;
     setSelected(
       previewQ.data.categories
         .filter((category) => category.available)
         .map((category) => category.key),
     );
     setSelectionInitialized(true);
-  }, [open, previewQ.data, selectionInitialized]);
+  }, [open, previewQ.data, previewQ.isFetching, selectionInitialized]);
 
   const statusQ = useQuery({
     queryKey: [
@@ -91,8 +100,12 @@ export function WorkflowBatchExportControl({
         ['workflow-batch-export', workflowId, next.export_uid],
         next,
       );
-      startNativeWorkflowBatchExportDownload(next);
-      message.info('浏览器已开始接收分批导出 ZIP，请保存到本地');
+      try {
+        startNativeWorkflowBatchExportDownload(next);
+        message.info('浏览器已开始接收分批导出 ZIP，请保存到本地');
+      } catch (error) {
+        message.error(describeApiError(error, '分批导出下载启动失败'));
+      }
     },
     onError: (error) => message.error(
       describeApiError(error, '分批导出创建失败'),
@@ -181,20 +194,13 @@ export function WorkflowBatchExportControl({
     if (!exportRow) return null;
     if (statusQ.isError) {
       return (
-        <Alert
-          type="error"
-          showIcon
-          message="下载状态读取失败"
-          description={describeApiError(statusQ.error, '请刷新状态后重试')}
-          action={(
-            <Button
-              icon={<ReloadOutlined />}
-              loading={statusQ.isFetching}
-              onClick={() => statusQ.refetch()}
-            >
-              刷新状态
-            </Button>
-          )}
+        <ApiErrorAlert
+          title="下载状态读取失败"
+          error={statusQ.error}
+          fallback="下载状态读取失败"
+          retryLabel="刷新状态"
+          retryLoading={statusQ.isFetching}
+          onRetry={() => statusQ.refetch()}
         />
       );
     }
@@ -233,16 +239,23 @@ export function WorkflowBatchExportControl({
       />
     );
   })();
+  const hasAvailableCategory = previewQ.data?.categories.some(
+    (category) => category.available,
+  ) ?? false;
 
   return (
     <>
-      <Button
-        icon={<DownloadOutlined />}
-        disabled={disabled}
-        onClick={show}
-      >
-        分批导出
-      </Button>
+      <Tooltip title={disabled ? disabledReason ?? '拆板任务执行期间暂不能导出或清理文件' : undefined}>
+        <span>
+          <Button
+            icon={<DownloadOutlined />}
+            disabled={disabled}
+            onClick={show}
+          >
+            分批导出并清理
+          </Button>
+        </span>
+      </Tooltip>
       <Modal
         open={open}
         title="分批导出并释放服务器空间"
@@ -296,23 +309,24 @@ export function WorkflowBatchExportControl({
             />
             {previewQ.isLoading && <Spin tip="正在统计可导出文件" />}
             {previewQ.isError && (
-              <Alert
-                type="error"
-                showIcon
-                message="可导出文件统计失败"
-                description={describeApiError(previewQ.error, '请重试')}
-                action={(
-                  <Button
-                    icon={<ReloadOutlined />}
-                    loading={previewQ.isFetching}
-                    onClick={() => previewQ.refetch()}
-                  >
-                    重试
-                  </Button>
-                )}
+              <ApiErrorAlert
+                title="可导出文件统计失败"
+                error={previewQ.error}
+                fallback="可导出文件统计失败"
+                retryLabel="重新检查"
+                retryLoading={previewQ.isFetching}
+                onRetry={() => previewQ.refetch()}
               />
             )}
-            {previewQ.data && (
+            {previewQ.data && !previewQ.isFetching && !hasAvailableCategory && (
+              <Alert
+                type="warning"
+                showIcon
+                message="当前没有可导出的文件"
+                description="当前流程没有仍可用的分类后 DXF、拆板 DXF 或 Excel 文件。若此前已执行清理，这是正常结果。"
+              />
+            )}
+            {previewQ.data && !previewQ.isFetching && (
               <Checkbox.Group
                 className="workflow-batch-export-options"
                 value={selected}

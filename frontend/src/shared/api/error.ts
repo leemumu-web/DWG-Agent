@@ -25,6 +25,7 @@ export interface ExcelInputFailure {
 
 export interface ParsedApiError {
   message: string;
+  status?: number;
   code?: string;
   requestId?: string;
   failure?: ExcelInputFailure;
@@ -179,6 +180,7 @@ function parsedResponseError(
     || (status >= 500 ? '服务器处理失败，请稍后重试' : `${fallback}（HTTP ${status}）`);
   return {
     message: `${baseMessage}${suffix(code, requestId)}`,
+    status,
     code,
     requestId,
     failure: parseExcelInputFailure(body?.error?.details?.failure),
@@ -187,6 +189,28 @@ function parsedResponseError(
       ? Number(body?.error?.details?.workflow_id)
       : undefined,
   };
+}
+
+/** Give an operator one bounded next action without exposing response internals. */
+export function apiErrorRecovery(error: ParsedApiError): string {
+  if (error.code === 'WORKFLOW_STAGE_INPUT_INCOMPLETE') {
+    return '返回前序阶段补齐必需产物，再回到当前阶段重新检查。';
+  }
+  if (error.status === 401) return '重新登录后再执行；不要连续重复提交。';
+  if (error.status === 403) return '确认当前账号属于该项目；如需提权，请联系管理员。';
+  if (error.status === 404) return '刷新当前页面确认批次是否仍存在；若已切换 attempt，请使用最新批次。';
+  if (error.status === 409) return '先刷新当前状态，再按页面显示的最新阶段重新操作。';
+  if (error.status === 413) return '减少单次文件数量或文件大小，再重新提交。';
+  if (error.status === 415) return '核对文件扩展名和真实格式，改用页面支持的文件后重试。';
+  if (error.status === 422) return '按错误中指出的字段、工作表或文件逐项修正后重新提交。';
+  if (error.status === 429) return '停止连续点击，等待一分钟后刷新状态再操作。';
+  if (error.status !== undefined && error.status >= 500) {
+    return '服务器暂时无法完成操作，请保留请求编号，稍后重试一次；若重复出现，请联系管理员。';
+  }
+  if (error.message.startsWith('请求超时')) {
+    return '先刷新任务状态，确认服务器是否已受理；只有确认未受理时才重新提交。';
+  }
+  return '检查网络连接和服务状态后重试；若重复出现，请把请求编号交给管理员。';
 }
 
 /** Parse an API failure without exposing arbitrary response properties. */
