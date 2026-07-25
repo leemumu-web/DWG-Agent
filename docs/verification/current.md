@@ -1,5 +1,21 @@
 # 全栈工作流验证
 
+## 2026-07-25 BH/BOX 拆板边界与独立校验收口
+
+`drawing_processing` 只读取数据库中明确分类为 BH 或 BOX 的 DXF；PX、其他类型、待确认和
+未分类图纸继续保留在分类账本，不调用当前拆板器，也不计入拆板失败。拆板逐图账本新增分类
+结论、分类类型和类型解析来源，前端同步显示分类总数、进入拆板、仅分类未拆、自动接纳、
+人工复核及逐图“分类 → 拆板识别 → 独立校验”记录。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| Backend 全量 | **1436 passed，10 skipped** | 22 条依赖弃用类 warning，无失败。 |
+| 拆板聚焦回归 | **20 passed** | 覆盖 BH/BOX 自动拆板、逐图失败隔离、独立重开校验、PX/未分类不进入拆板及复核 ZIP 边界。 |
+| 前端生产构建 | **pass** | 126 个源码文件、12 个 feature 边界，TypeScript 与 Vite production build 通过；仅保留既存大 chunk 提示。 |
+| 工作流与控制台 Playwright | **7 passed** | 3 个生产工作流场景及 4 个现行 MySQL/MinIO 控制台场景通过。 |
+| MySQL 迁移 | **pass** | 从空临时 schema 升级到唯一 head `c8f1d2e3a490`，验证 45 张业务表、新拆板字段和种子数据后自动清理。 |
+| 生产形态现场检查 | **pass** | MySQL、MinIO、API、Nginx、分类 worker 和拆板 worker 健康；真实登录、生产流程空态和 MySQL 表结构加载通过，业务表保持 0 条实质记录。 |
+
 ## 2026-07-25 Steel DXF Split 1.5.2 集成候选验证
 
 本轮以 `origin/main` 的 `785829f99f26134fcb952d62be55069ff00cf333` 为集成基线，把
