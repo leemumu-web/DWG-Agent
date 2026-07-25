@@ -295,6 +295,8 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     assert "选择 DWG 文件夹" in panel_source
     assert 'accept=".xls,.xlsx"' in panel_source
     assert "确认，仅上传 DWG" in panel_source
+    assert "MAX_FOLDER_FILES = 1000" in panel_source
+    assert "仅取前 ${MAX_FOLDER_FILES} 个文件上传" in panel_source
     assert "downloadFile" not in panel_source
     assert "冻结后不可修改" in panel_source
     assert "getWorkflow" in panel_source

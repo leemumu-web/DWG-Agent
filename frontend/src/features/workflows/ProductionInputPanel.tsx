@@ -43,6 +43,7 @@ import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
 
 const ACTIVE_BATCH = new Set(['converting']);
 const ACTIVE_JOB = new Set(['queued', 'running', 'retrying']);
+const MAX_FOLDER_FILES = 1000;
 
 function itemStatus(item: WorkflowInputItem) {
   if (item.status === 'paired') return <Tag color="success">已配对</Tag>;
@@ -162,12 +163,21 @@ export function ProductionInputPanel({
 
   const handleDwgFolder = (selected: File[]) => {
     if (!batch || !editable) return;
-    const dwgFiles = selected.filter((file) => /\.dwg$/i.test(file.name));
-    const ignoredFiles = selected.filter((file) => !/\.dwg$/i.test(file.name));
     const roots = new Set(selected.map((file) => file.webkitRelativePath.split('/')[0]));
-    if (!selected.length || dwgFiles.length < 1 || roots.size !== 1
+    if (!selected.length || roots.size !== 1
       || selected.some((file) => !file.webkitRelativePath.includes('/'))) {
       message.error('请选择一个至少包含一个 DWG 的完整文件夹');
+      return;
+    }
+    const limitedSelection = selected.slice(0, MAX_FOLDER_FILES);
+    const omittedCount = selected.length - limitedSelection.length;
+    if (omittedCount > 0) {
+      message.error(`文件夹包含 ${selected.length} 个文件，超过上限；仅取前 ${MAX_FOLDER_FILES} 个文件上传，后 ${omittedCount} 个文件已忽略。`);
+    }
+    const dwgFiles = limitedSelection.filter((file) => /\.dwg$/i.test(file.name));
+    const ignoredFiles = limitedSelection.filter((file) => !/\.dwg$/i.test(file.name));
+    if (dwgFiles.length < 1) {
+      message.error(`前 ${MAX_FOLDER_FILES} 个文件中没有 DWG，请调整文件夹顺序后重试`);
       return;
     }
     if (!ignoredFiles.length) {
