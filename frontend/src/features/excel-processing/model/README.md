@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`excelFinalUrlState.ts` 解析/生成 batch、tab 等 URL 查询状态；`excelPreviewModel.tsx` 把后端 preview 或 LuckyExcel cell 数据转换为列、行、合并单元格、宽度和格式化 React 内容。
+`excelFinalUrlState.ts` 解析/生成 batch、tab 等 URL 查询状态；`excelPreviewModel.tsx` 把后端 preview 的表头和行数据转换为内容感知列宽、数字格式和汇总行样式。
 
 ## 输入、输出与边界
 

@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`ExcelFinalPage.tsx` 提供处理、批次、零件、五金手册四个 URL 标签并只加载当前标签查询；`ExcelPreview.tsx` 提供后端快速预览与 LuckyExcel 增强预览；`api.ts` 覆盖 Excel 第一阶段 operation，`types.ts` 定义批次、part、component、类别感知手册结果和 preview 合同；复杂组件与展示模型分别进入 `components/`、`model/`。
+`ExcelFinalPage.tsx` 提供处理、批次、零件、五金手册四个 URL 标签并只加载当前标签查询；`ExcelPreview.tsx` 通过后端 preview 合同提供表格预览、工作表切换、刷新和下载；`api.ts` 覆盖 Excel 第一阶段 operation，`types.ts` 定义批次、part、component、类别感知手册结果和 preview 合同；复杂组件与展示模型分别进入 `components/`、`model/`。
 
 `index.ts` 只重导出页面、预览和跨 feature 必需的 API/类型，是本功能的稳定前端 facade；内部组件和展示模型不作为全局工具暴露。
 
