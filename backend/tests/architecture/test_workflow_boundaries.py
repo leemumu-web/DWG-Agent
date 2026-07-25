@@ -13,6 +13,7 @@ APP_ROOT = REPO_ROOT / "backend" / "app"
 
 WORKFLOW_TABLES = {
     "workflow_artifacts",
+    "workflow_batch_exports",
     "workflow_input_batches",
     "workflow_input_items",
     "workflow_runs",
@@ -22,6 +23,7 @@ WORKFLOW_TABLES = {
 WORKFLOW_PUBLIC_CONTRACT = {
     "FrozenInputReference",
     "WorkflowArtifact",
+    "WorkflowBatchExport",
     "WorkflowInputBatch",
     "WorkflowInputItem",
     "WorkflowRun",
@@ -47,6 +49,31 @@ EXPECTED_ROUTES = [
     (("POST",), "", "create_workflow_api"),
     (("POST",), "/production-projects", "create_production_project_api"),
     (("POST",), "/{workflow_id}/artifacts", "create_workflow_artifact"),
+    (
+        ("GET",),
+        "/{workflow_id}/batch-exports/preview",
+        "preview_workflow_batch_export",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/batch-exports",
+        "create_workflow_batch_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/batch-exports/{export_uid}",
+        "get_workflow_batch_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/batch-exports/{export_uid}/download",
+        "download_workflow_batch_export",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/batch-exports/{export_uid}/purge",
+        "purge_workflow_batch_export",
+    ),
     (("GET",), "/{workflow_id}/download-archive", "download_workflow_archive"),
     (
         ("GET",),
@@ -259,6 +286,7 @@ EXPECTED_INTERNAL_LAYERS = {
     "modules/workflows": {
         "access.py",
         "artifacts.py",
+        "batch_exports.py",
         "contracts.py",
         "interface.py",
         "job_sync.py",
@@ -266,8 +294,8 @@ EXPECTED_INTERNAL_LAYERS = {
         "stage_execution.py",
         "templates.py",
     },
-    "modules/workflows/models": {"intake.py", "orchestration.py"},
-    "modules/workflows/schemas": {"intake.py", "orchestration.py"},
+    "modules/workflows/models": {"exports.py", "intake.py", "orchestration.py"},
+    "modules/workflows/schemas": {"exports.py", "intake.py", "orchestration.py"},
     "modules/workflows/intake": {
         "conversion.py",
         "freeze.py",
@@ -276,6 +304,7 @@ EXPECTED_INTERNAL_LAYERS = {
     },
     "modules/workflows/routes": {
         "artifacts.py",
+        "batch_exports.py",
         "classification.py",
         "commands.py",
         "execution.py",
@@ -303,12 +332,13 @@ def _routes(router) -> list[tuple[tuple[str, ...], str, str]]:
     return [(tuple(sorted(route.methods or ())), route.path, route.name) for route in router.routes]
 
 
-def test_workflow_interface_is_exact_and_owns_five_tables() -> None:
+def test_workflow_interface_is_exact_and_owns_six_tables() -> None:
     workflows = importlib.import_module("app.modules.workflows.interface")
 
     assert set(workflows.__all__) == WORKFLOW_PUBLIC_CONTRACT
     assert {
         workflows.WorkflowArtifact.__table__.name,
+        workflows.WorkflowBatchExport.__table__.name,
         workflows.WorkflowInputBatch.__table__.name,
         workflows.WorkflowInputItem.__table__.name,
         workflows.WorkflowRun.__table__.name,

@@ -132,6 +132,7 @@ def reap(
             select(StoredFile)
             .where(
                 StoredFile.status == "deleted",
+                StoredFile.purged_at.is_(None),
                 StoredFile.updated_at < cutoff,
             )
             .order_by(StoredFile.id)

@@ -50,7 +50,7 @@ DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
 COMPOSE_LIBRARY = SCRIPTS_DIR / "lib" / "compose.sh"
 
-EXPECTED_HEAD = "c8f1d2e3a490"
+EXPECTED_HEAD = "e9a1b2c3d4f5"
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -171,8 +171,8 @@ class TestMigrationChain:
             chain[revision] = parents
         return chain
 
-    def test_thirty_migration_files_present(self):
-        assert len(list(VERSIONS_DIR.glob("*.py"))) == 32
+    def test_migration_file_count(self):
+        assert len(list(VERSIONS_DIR.glob("*.py"))) == 33
 
     def test_exactly_one_base_revision(self):
         chain = self._parse_chain()
@@ -207,7 +207,7 @@ class TestMigrationChain:
             visited.add(revision)
 
         visit(EXPECTED_HEAD)
-        assert len(visited) == len(chain) == 32
+        assert len(visited) == len(chain) == 33
         assert "40452ddd24e7" in visited
 
 
@@ -312,6 +312,25 @@ class TestReaperRetention:
         mock_backend.delete_object.assert_not_called()
         db.expire_all()
         assert db.scalar(select(func.count()).select_from(StoredFile)) == 1
+
+    def test_physically_purged_tombstones_are_never_reaped(self, db, reaper):
+        module, mock_backend = reaper
+        purged = _make_stored_file(
+            storage_key="uploads/already-purged.dwg",
+            status="deleted",
+            updated_at=datetime.now(UTC) - timedelta(days=365),
+        )
+        purged.purged_at = datetime.now(UTC) - timedelta(days=365)
+        db.add(purged)
+        db.commit()
+        purged_id = purged.id
+
+        result = module.reap(retention_days=7, dry_run=False)
+
+        assert result["rows_deleted"] == 0
+        mock_backend.delete_object.assert_not_called()
+        db.expire_all()
+        assert db.get(StoredFile, purged_id) is not None
 
 
 # ── requirement 5: real delete removes object + DB row ───────────────────────

@@ -23,6 +23,7 @@ class StoredFile(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("bucket", "storage_key", name="uq_files_bucket_storage_key"),
         Index("ix_files_status_deleted_at", "status", "deleted_at"),
+        Index("ix_files_purged_at", "purged_at"),
     )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
@@ -38,6 +39,7 @@ class StoredFile(TimestampMixin, Base):
     uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     status: Mapped[str] = mapped_column(String(32), default="available", nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class FileTransfer(TimestampMixin, Base):

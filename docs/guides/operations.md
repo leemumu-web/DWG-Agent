@@ -116,7 +116,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `c8f1d2e3a490` 和 45 张模型表，额外验证生产输入、DXF 分类、DXF 拆板及复核决定、余料库存、控制平面与每日归档账本、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `e9a1b2c3d4f5` 和 46 张模型表，额外验证生产输入、分批导出、DXF 分类、DXF 拆板及复核决定、余料库存、控制平面与每日归档账本、`files.purged_at`、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 
@@ -170,6 +170,31 @@ bash scripts/docker.sh smoke
 5. 复查中断期间失败的 Job，只从受支持终态重试。
 
 数据库事务 rollback 前写入的对象会自动尝试补偿删除；失败写入 `file_transfers.status=compensation_required`。软删除对象和崩溃孤儿由数据控制台的一致性扫描发现，不能仅凭 bucket 总数差额推断具体对象。`bash scripts/db.sh reap-storage --include-orphans` 仍是保留期维护工具，必须先 dry-run；永久清理应优先在控制台选择 finding、预检并确认，禁止对真实 bucket 直接批量猜测删除。
+
+## 生产流程分批导出与释放
+
+入口位于生产流程 Stage A3 “图纸分类与拆板”的 `03 · 图纸拆板与独立校验` 卡片标题栏右侧。它不在下方“生产产物与证据”汇总区。操作员可勾选四类数据：
+
+| UI 标签 | 机器类型 | ZIP 一级目录 | 数据来源 |
+|---|---|---|---|
+| 原 DXF | `classified_dxf` | `原DXF/` | 当前分类 attempt 的分类后 DXF |
+| 正常拆板 DXF | `processed_dxf` | `正常拆板DXF/` | 当前拆板 attempt 独立校验通过的正常图 |
+| 原 Excel | `source_excel` | `原Excel/` | 已冻结生产输入中的唯一原 Excel |
+| 产出 Excel | `stage1_excel` | `产出Excel/` | 当前 Excel 第一阶段成功 Job 的结果 |
+
+目录内使用数据库登记的 `original_name`，不翻译、不加前后缀、不自动处理重名；同一目录发生不区分大小写的文件名冲突时，服务端返回 409，操作员应先核对登记，不能手工修改服务器对象键规避。
+
+标准操作：
+
+1. 点击“分批导出”，核对每类文件数与总量并勾选需要的数据。
+2. 点击“生成并下载 ZIP”。响应从 Local/MinIO 直接流向浏览器，不会先在服务器磁盘生成临时 ZIP。
+3. 等页面显示“服务端已完整发送 ZIP”，在本地打开 ZIP，检查四个固定目录和代表性文件。
+4. 只有确认本地副本可用后，点击“已保存，删除服务器文件”，再完成第二次不可恢复确认。
+5. 页面显示释放字节数后，在数据控制台核对 `workflow_export_purge` 流水、`files.purged_at` 和对象 `stat`。
+
+关闭弹窗、下载中断、状态仍为 `prepared/downloading/download_failed`、未执行第二次确认，均不会删除服务器文件。清理期间若有 workflow stage 处于 queued/running，服务端拒绝删除。成功清理会物理删除所选对象及其 DXF SVG 预览缓存，清空短期导出清单和下载能力；`files` 小型墓碑与生产账本继续保留外键历史，但不包含可恢复字节。
+
+若接口返回 `WORKFLOW_EXPORT_PURGE_FAILED`、流水错误码为 `WORKFLOW_EXPORT_PURGE_PARTIAL`，或流水状态为 `compensation_required`，立即停止对该流程继续写入，保存 request ID、export UID 和 transfer UID，在“文件登记/存储对象”逐项核对清单范围并运行一致性扫描。对象删除不可回滚，不得通过直接 SQL 把墓碑改回 available；确认剩余对象后从同一导出记录安全重试或按存储事故流程处置。
 
 ## 数据控制台运行手册
 

@@ -60,6 +60,7 @@ from app.modules.files.storage_transactions import (
     complete_reused_transfer_in_transaction,
     complete_transfer_in_transaction,
     mark_transfer_in_progress,
+    prepare_destructive_transfer,
     prepare_generated_file_transfer,
     prepare_transfer_in_transaction,
     register_pending_destructive_transfer,
@@ -67,6 +68,7 @@ from app.modules.files.storage_transactions import (
     settle_stream,
     settle_transfer,
 )
+from app.modules.files.streaming_zip import StorageZipMember, iter_storage_zip
 from app.modules.files.validation import (
     ALLOWED_DWG_MIME_TYPES,
     MIN_DWG_SIZE_BYTES,
@@ -115,6 +117,7 @@ __all__ = [
     "StoredFile",
     "StorageScanFinding",
     "StorageScanRun",
+    "StorageZipMember",
     "TERMINAL_TRANSFER_STATUSES",
     "TransferSnapshot",
     "TransferSpec",
@@ -141,8 +144,10 @@ __all__ = [
     "file_project_ids",
     "get_local_file_path",
     "get_storage_backend",
+    "iter_storage_zip",
     "mark_transfer_in_progress",
     "prepare_generated_file_transfer",
+    "prepare_destructive_transfer",
     "prepare_transfer_in_transaction",
     "preview_zip_availability",
     "register_pending_destructive_transfer",

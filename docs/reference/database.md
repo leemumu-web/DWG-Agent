@@ -98,9 +98,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-Alembic/SQLAlchemy 管理 **45 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 46 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **54 张表**。
+Alembic/SQLAlchemy 管理 **46 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 47 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **55 张表**。
 
-不能把 54 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 46 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
+不能把 55 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 47 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -245,12 +245,13 @@ Alembic/SQLAlchemy 管理 **45 张模型表**。空库执行 `alembic upgrade he
 | `uploaded_by` | BIGINT | FK → `sys_users.id` | 上传者用户 ID |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'available' | `available` / `deleted` |
 | `deleted_at` | DATETIME | NULLABLE, INDEXED | 软删除时间；恢复时清空 |
+| `purged_at` | DATETIME | NULLABLE, INDEXED | 对象字节已由确认型物理清理删除的时间；非 NULL 时该行仅是不可恢复的引用墓碑 |
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
 **唯一约束:** `uq_files_bucket_storage_key` 建立在 `(bucket, storage_key)` 上，禁止一个对象位置对应两条登记。
 
-**索引:** `ix_files_sha256`, `ix_files_storage_key`, `ix_files_batch_name`, `ix_files_status_deleted_at`
+**索引:** `ix_files_sha256`, `ix_files_storage_key`, `ix_files_batch_name`, `ix_files_status_deleted_at`, `ix_files_purged_at`
 
 **批量上传:** `batch_name` 将一起上传的文件分组（带 `batch_name` 查询参数的单文件上传，或以主名解压的 `.zip`），使 DXF→Excel 管道以及批量下载/删除端点能够一次性操作整组文件。未分组上传时其值为 `NULL`。
 
@@ -500,20 +501,21 @@ Agent 运行中的单个工具调用和推理步骤。
 
 迁移 `2f6b8c1d4e90` 将三表中的尺寸、非整数数量、面积、比重、利用率和重量共 24 个物理数值字段统一为 `DECIMAL(24,9)`。库内项目净重/毛重使用定点求和，避免 MySQL 32 位 `FLOAT` 对数百行三位小数重量累计后产生约 `0.001 kg` 的漂移；HTTP 与 Job JSON 边界再显式转换为普通 JSON 数字。构件数仍为整数列。
 
-### 2.10 通用工作流、生产输入、DXF 分类与拆板 -- 9 张表
+### 2.10 通用工作流、生产输入、分批导出、DXF 分类与拆板 -- 10 张表
 
 - `workflow_runs` 保存项目级流程、类型、状态、当前阶段、整体进度、配置、错误和生命周期时间；按项目/创建者/状态建立索引。
 - `workflow_stage_runs` 保存模板生成的有序阶段，`(workflow_run_id, stage_code)` 唯一；可选记录 `job_id` 与 `job_attempt`，同步时只接受匹配 attempt。
 - `workflow_artifacts` 保存流程/阶段到 `files` 或 `analysis_results` 的引用和版本字段，不保存对象字节。
 - `workflow_input_batches` 保存每个 Linux workflow 唯一的生产输入状态、冻结版本、清单 SHA-256、错误与冻结时间。
 - `workflow_input_items` 引用源 DWG/Excel、转换 Job attempt、派生 DXF 和 Drawing；同批次同 `file_id` 唯一。
+- `workflow_batch_exports` 冻结一次四类选择的文件清单、原始登记属性、ZIP 路径、短期能力摘要和 `prepared/downloading/downloaded/download_failed/purged` 状态。`export_uid` 唯一；`(workflow_run_id, status)` 与 `(created_by, created_at)` 支持流程状态和操作人历史查询。
 - revision 3 冻结后，Drawing 当前版本指向 `derived_dxf_file_id`，`source_dwg` 仍由输入项与 artifact 保留审计链；后续图纸 artifact 只接受 DXF。
 - `dxf_classification_runs` 按 Job attempt 保存冻结清单摘要、分类器/schema 版本、汇总以及 JSON/CSV 文件引用；`(job_id, job_attempt)` 唯一。
 - `dxf_classification_items` 逐图关联 Drawing、来源派生 DXF、分流 DXF、处置、零件类型、输出目录、诊断和证据；`(run_id, source_file_id)` 唯一。
 - `dxf_split_runs` 按 Job attempt 保存分类 run、输入清单摘要、Split/CLI/校验版本、汇总、来源合同和 ledger/manifest/validation 文件引用；`(job_id, job_attempt)` 唯一。
 - `dxf_split_items` 只登记实际进入拆板的 BH/BOX，逐图关联分类 item、分类结论与类型、拆板识别类型、类型解析状态、Drawing、来源合同、自动路线、正常拆板/余量增长 DXF、报告、诊断与独立校验结果；PX、其他类型和未分类图纸继续保留在 `dxf_classification_items`，不伪造拆板记录；`(run_id, classification_item_id)` 唯一。
 
-删除 workflow 时阶段和 artifact 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束；公开 API 通过资源权限、非空引用和幂等查重维护当前不变量，并在 Job 成功同步时自动挂接结果。完整状态机和边界见[Linux 生产工作流](../architecture/workflow.md)。
+删除 workflow 时阶段、artifact 和 batch export 级联删除；artifact 的阶段被删除时 `stage_run_id` 置空。分批导出清单在下载前保存 file ID、bucket/key、原文件名、大小、SHA-256 和固定 ZIP 路径；下载时逐项重检，物理清理成功后清空 `manifest_json` 与 `token_digest`，只保留类别、计数、释放量和生命周期证据。数据库没有 CHECK 强制 artifact 至少引用 file/result，也没有版本唯一约束或跨项目一致性约束；公开 API 通过资源权限、非空引用和幂等查重维护当前不变量，并在 Job 成功同步时自动挂接结果。完整状态机和边界见[Linux 生产工作流](../architecture/workflow.md)。
 
 ### 2.11 每日归档 -- 1 张表
 
@@ -566,6 +568,7 @@ agent_runs ──< agent_run_steps
 
 workflow_runs ──< workflow_stage_runs
 workflow_runs ──< workflow_artifacts
+workflow_runs ──< workflow_batch_exports
 workflow_runs ──< dxf_classification_runs ──< dxf_classification_items
 workflow_runs ──< dxf_split_runs ──< dxf_split_items
 dxf_classification_runs ──< dxf_split_runs
@@ -618,6 +621,7 @@ analysis_results ──< workflow_artifacts
 | `workflow_runs` | `config_json` | 流程配置快照；当前没有自动执行器消费 |
 | `workflow_stage_runs` | `input_json`, `output_json` | 阶段输入/输出元数据 |
 | `workflow_artifacts` | `metadata_json` | 产物补充信息 |
+| `workflow_batch_exports` | `categories_json`, `manifest_json` | 四类机器类型；物理清理前的冻结文件属性和固定 ZIP 路径 |
 | `dxf_split_runs` | `source_contracts_json` | BH/BOX 来源合同版本映射 |
 | `dxf_split_items` | `diagnostics_json`, `validation_json` | 逐图人工复核原因与独立校验结果 |
 | `workflow_input_items` | `validation_json` | Excel 登记时的规则检查摘要，或包含人工处理动作的失败详情 |
@@ -663,8 +667,9 @@ analysis_results ──< workflow_artifacts
 | `a7d9e4c1b620` | 新增 DXF 拆板进度、候选产物引用与逐次人工复核决定账本 | 2026-07-25 |
 | `b4e8c2a7d910` | 新增 DXF 拆板失败数量，区分处理完成与失败告警 | 2026-07-25 |
 | `c8f1d2e3a490` | 新增拆板逐图分类结论、分类类型与类型解析来源，明确分类账本到拆板账本的边界 | 2026-07-25 |
+| `e9a1b2c3d4f5` | 新增工作流四类分批导出账本与 `files.purged_at` 物理清理墓碑 | 2026-07-25 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910` 与 `c8f1d2e3a490`。**`c8f1d2e3a490` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910`、`c8f1d2e3a490` 与 `e9a1b2c3d4f5`。**`e9a1b2c3d4f5` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -715,7 +720,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **45 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、DXF 分类、拆板与复核决定、控制平面、每日归档与余料库存账本、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **46 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、分批导出、DXF 分类、拆板与复核决定、控制平面、每日归档与余料库存账本、`files.purged_at`、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
@@ -804,7 +809,7 @@ bash scripts/db.sh init
 
 | 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL `dwg_agent` | 45 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
+| MySQL `dwg_agent` | 46 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
 | `hardware_handbook` | 唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 的确定性生成物；每条语义记录可追溯到源 Sheet/行 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |
@@ -872,6 +877,7 @@ bash scripts/db.sh reap-storage --include-orphans
 ```
 
 - Phase 1：删除 `status='deleted'` 且 `updated_at` 早于保留期的行的存储对象，成功后再硬删 DB 行；存储删除失败会计入 errors 且**不**孤儿删除 DB 行。
+- `purged_at IS NOT NULL` 的分批导出墓碑已没有底层对象，Phase 1 必须跳过，避免删除仍被生产外键引用的历史行。
 - Phase 2（可选）：枚举磁盘/桶对象，报告无匹配 `storage_key` 的孤儿——出于安全默认不自动删除。
 - `--retention-days 0` 需 `REAP_CONFIRM=yes` 才实际执行，避免误删刚软删除的文件。
 

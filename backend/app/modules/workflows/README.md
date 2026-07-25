@@ -1,8 +1,8 @@
 # Production workflows module
 
 本模块拥有项目级生产批次、十阶段流程、输入冻结和阶段产物引用。公开 HTTP 前缀保持为
-`/api/v1/workflows`；五张表、公开 operation、错误码、审计 action 和 Job 幂等键均保持
-不变。本模块不另建文件存储或任务队列。
+`/api/v1/workflows`；本模块拥有六张表、公开 operation、错误码、审计 action 和 Job
+幂等键。本模块不另建文件存储或任务队列。
 
 ## 已确定输入契约
 
@@ -23,6 +23,8 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 
 - `models/orchestration.py`：`workflow_runs`、`workflow_stage_runs`、`workflow_artifacts`。
 - `models/intake.py`：`workflow_input_batches`、`workflow_input_items`。
+- `models/exports.py`：`workflow_batch_exports`，冻结四类文件的短期下载清单、能力摘要和
+  下载/物理清理状态。
 - `templates.py`：三个模板和阶段能力的唯一事实源；未实现阶段保持 placeholder/external。
 - `contracts.py`：阶段输入/输出类型、文件归属和 DXF 对象结构的统一门禁。
 - `lifecycle.py`：创建、唯一生产流程约束、启动、人工交接、取消和整体状态重算。
@@ -35,11 +37,15 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 - `routes/`：只处理 HTTP dependency、项目授权、审计、commit 后 dispatch 和 envelope。
 - `routes/archive.py`：复用 Files ZIP、传输登记和审计能力，提供完整流程及指定阶段两种
   压缩包；生产 artifact 不提供单文件出口。
+- `routes/batch_exports.py`：在不落服务器临时 ZIP 的前提下流式导出四类文件；只有出库
+  流水成功且用户再次确认后，才物理删除所选对象及其 DXF 预览缓存。
 - `interface.py`：其他业务模块唯一允许导入的工作流边界。
 
 ## 依赖方向与事务边界
 
 - 文件行、对象字节和传输补偿仍归 `files`；工作流只保存 `file_id`。
+- 分批清理物理删除 Local/MinIO 字节并将 `files` 行标记为 `deleted + purged_at` 墓碑，
+  以保留外键生产链；墓碑不再进入 reaper，且对应 `workflow_artifacts` 文件引用被删除。
 - Job、Step、Result、attempt 和 Celery 投递仍归 `jobs`；工作流只绑定当前 attempt。
 - Drawing/Version 仍归 `projects`；冻结用例在同一数据库事务中组合它们。
 - 分类 run/item 和 Classifier 1.2.0 仍归 `dxf_classification`；分类通过工作流公开接口读取
@@ -61,6 +67,11 @@ cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保�
 登记正常图、余量增长图、报告、批次清单和 `BH拆板信息表.xlsx`。技术失败最多自动执行三个
 完整 attempt；业务待确认项通过候选复核或整批重跑处理，全部固化后才允许进入 Excel。
 前端展示真实进度、速度、剩余时间、逐图复核和当前 attempt 的 ZIP 下载，不生成模拟指标。
+Stage A3 的“图纸拆板与独立校验”卡片标题栏提供“分批导出”：`原 DXF`、
+`正常拆板 DXF`、`原 Excel`、`产出 Excel` 分别映射当前 attempt 的
+`classified_dxf`、`processed_dxf`、冻结 `source_excel` 与成功 `stage1_excel`。
+ZIP 一级目录固定为 `原DXF/`、`正常拆板DXF/`、`原Excel/`、`产出Excel/`，目录内
+严格保留数据库登记的原文件名；重名冲突直接拒绝，不做自动改名。
 
 `excel_stage2` 消费 `stage1_excel` 与 `processed_dxf` 并预留 `stage2_excel`；它与
 `cam_packaging`、`windows_cam`、`result_acceptance` 仍只有稳定输入、产物和
@@ -73,5 +84,5 @@ Workflow 类型范围的全局状态统计，避免前端用独立分页做不�
 
 行为回归位于 `backend/tests/workflows/`，分类集成位于
 `backend/tests/dxf_classification/`；结构边界位于
-`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照继续锁定 146 path、
-170 operation、42 张模型表、13 个 Celery task 和 12 条任务路由。
+`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照锁定 167 path、
+195 operation、46 张模型表、14 个 Celery task 和 13 条任务路由。

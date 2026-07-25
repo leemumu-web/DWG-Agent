@@ -470,6 +470,39 @@ def register_pending_destructive_transfer(
     pending.append((transfer_uid, transferred_bytes))
 
 
+def prepare_destructive_transfer(
+    db: Session,
+    spec: TransferSpec,
+) -> tuple[TransferSnapshot, bool]:
+    """Create an in-progress intent before deleting one or more storage objects.
+
+    MySQL persists the intent independently so an object deletion followed by a
+    metadata rollback remains visible as compensation-required. SQLite tests use
+    the caller transaction because their StaticPool has only one connection.
+    """
+
+    if not spec.bucket or not spec.storage_key:
+        raise ValueError("Destructive transfers require a storage scope.")
+    if db.get_bind().dialect.name == "sqlite":
+        snapshot = prepare_transfer_in_transaction(db, spec)
+        row = _transfer_for_update(db, snapshot.transfer_uid)
+        row.status = "in_progress"
+        row.started_at = row.started_at or utcnow()
+        db.flush()
+        return TransferSnapshot.from_model(row), False
+
+    factory = session_factory_for(db)
+    snapshot = begin_transfer(factory, spec)
+    snapshot = mark_transfer_in_progress(
+        factory,
+        snapshot.transfer_uid,
+        bucket=spec.bucket,
+        storage_key=spec.storage_key,
+        expected_bytes=spec.expected_bytes or 0,
+    )
+    return snapshot, True
+
+
 def _settle_pending_destructive_transfers(db: Session, *, committed: bool) -> None:
     pending = db.info.pop(_PENDING_DESTRUCTIVE_TRANSFERS, [])
     for transfer_uid, transferred_bytes in pending:
@@ -483,7 +516,7 @@ def _settle_pending_destructive_transfers(db: Session, *, committed: bool) -> No
                 error_message=(
                     None
                     if committed
-                    else "Objects were permanently removed but metadata did not commit."
+                    else "对象已永久删除，但数据库元数据未能提交。"
                 ),
             )
         except Exception:

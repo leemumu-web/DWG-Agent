@@ -1,5 +1,25 @@
 # 全栈工作流验证
 
+## 2026-07-25 生产流程四类分批导出与下载后物理释放
+
+入口已固定在 Stage A3 “图纸分类与拆板”中的
+`03 · 图纸拆板与独立校验` 卡片标题栏右侧，不位于下方“生产产物与证据”。弹窗按
+`原 DXF / 正常拆板 DXF / 原 Excel / 产出 Excel` 四个 UI 标签选择当前分类、拆板、
+冻结输入和 Excel 第一阶段结果；ZIP 固定使用四个中文一级目录，叶子文件名严格沿用
+`files.original_name`。响应不生成服务器临时 ZIP，只有服务端完整发送、用户核对本地
+文件并完成第二次确认后，才物理删除所选 Local/MinIO 对象和关联 DXF 预览缓存。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| 新增导出/物理清理聚焦 | **6 passed** | 覆盖 ZIP 头先于对象读取产生、四个固定中文目录、原文件名不变、下载前禁止删除、中断保留、运行阶段门禁、重名失败关闭，以及对象/预览缓存物理删除与文件墓碑。 |
+| 功能相关架构、迁移与合同 | **89 passed，2 skipped** | Files 公开接口边界、六张 workflow-owned 表、195 个 operation、前端位置/原生下载合同、迁移链、reaper 和存储操作通过；2 项真实 MySQL 条件用例按环境跳过。 |
+| 架构、合同、文件与工作流全组 | **407 passed，4 个基线失败** | 重放到最新 `origin/main` 后，本功能用例无失败。4 个失败来自上游新增 `test_database_startup.py` 未登记到分区 README、仍自行使用 `__file__`，以及上游部署计划文档从 H1 跳到 H3；本功能分支不修改这些无关文件。 |
+| 重放前 Backend 其余分组 | **987 passed，24 skipped** | CAD/DXF/Excel/余料、身份、Job、Project、基础设施、运维、回归和安全分组中的可运行用例通过；这是刷新远端前的开发基线证据，不冒充最新 `main` 的全量结果。 |
+| 环境阻断 | **33 项未通过环境门禁** | 11 项需要可用的 MySQL Celery broker，但本机 `dwg_user` 无可用密码；22 项依赖 Linux Bash 路径/可执行位或仓库既存固定 Nginx 本地路径。未读取 `.env` 凭据，也未启动 Docker。 |
+| 迁移与运行时合同 | **pass（静态/SQLite）** | 唯一 Alembic head `e9a1b2c3d4f5`；46 张 ORM 表、167 个 path、195 个 operation、14 个 Celery task；迁移、reaper 排除墓碑、runtime snapshot 和 module catalog 检查通过。真实 MySQL upgrade 未在本轮执行；全仓文档检查受上一行所述上游标题层级问题阻断。 |
+| 前端结构合同 | **pass / build blocked** | `127` 个源码文件、`12` 个 feature 边界通过；后端合同测试锁定按钮只在 `.workflow-dxf-split-panel` 且不在 `.workflow-artifact-summary`，并锁定原生 `<a>` 下载与四类 UI 文案。工作树没有 `node_modules`，`npm run build` 停在 `tsc is not recognized`；未擅自安装依赖。 |
+| 真实对象存储与浏览器 | **待部署验收** | 本轮用临时 Local storage 验证字节删除与流水；未连接真实 MinIO/MySQL，也未运行 Playwright。合并前应在受控部署验证大文件断点中止、Nginx 长流、对象 stat、释放字节和浏览器本地 ZIP。 |
+
 ## 2026-07-25 BH/BOX 拆板边界与独立校验收口
 
 `drawing_processing` 只读取数据库中明确分类为 BH 或 BOX 的 DXF；PX、其他类型、待确认和
