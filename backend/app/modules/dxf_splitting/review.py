@@ -5,16 +5,22 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.modules.dxf_splitting.models import (
     DxfSplitItem,
     DxfSplitReviewDecision,
     DxfSplitRun,
 )
-from app.modules.dxf_splitting.schemas import DxfSplitReviewDecisionWrite
+from app.modules.dxf_splitting.schemas import (
+    DxfSplitReviewDecisionRead,
+    DxfSplitReviewDecisionWrite,
+    DxfSplitReviewItemRead,
+    DxfSplitReviewPage,
+)
 from app.modules.files.interface import StoredFile
-from app.modules.workflows.interface import WorkflowRun
+from app.modules.workflows.interface import WorkflowRun, attach_artifact
+from app.modules.workflows.job_sync import sync_workflow_from_jobs
 from app.platform.http.exceptions import AppHTTPException
 
 
@@ -69,6 +75,98 @@ def _available_dxf(db: Session, file_id: int | None) -> StoredFile | None:
     return stored
 
 
+def _available_file(db: Session, file_id: int | None) -> StoredFile | None:
+    stored = db.get(StoredFile, file_id) if file_id is not None else None
+    if stored is None or stored.status == "deleted":
+        return None
+    return stored
+
+
+def _candidate_files_available(db: Session, item: DxfSplitItem) -> bool:
+    normal = _available_dxf(db, item.candidate_normal_dxf_file_id)
+    allowance = _available_dxf(db, item.candidate_weld_allowance_dxf_file_id)
+    split_report = _available_file(db, item.candidate_split_report_file_id)
+    allowance_report = _available_file(
+        db, item.candidate_weld_allowance_report_file_id
+    )
+    return bool(
+        normal is not None
+        and allowance is not None
+        and normal.id != allowance.id
+        and split_report is not None
+        and allowance_report is not None
+        and split_report.file_ext.casefold() == ".json"
+        and allowance_report.file_ext.casefold() == ".json"
+    )
+
+
+def list_split_review_items(
+    db: Session,
+    *,
+    workflow: WorkflowRun,
+    run_id: int,
+    page: int,
+    page_size: int,
+) -> DxfSplitReviewPage:
+    run = _current_review_run(db, workflow=workflow, run_id=run_id)
+    items = list(
+        db.scalars(
+            select(DxfSplitItem)
+            .where(
+                DxfSplitItem.run_id == run.id,
+                DxfSplitItem.automation_route == "manual_review",
+            )
+            .options(selectinload(DxfSplitItem.review_decision))
+            .order_by(DxfSplitItem.id)
+        ).all()
+    )
+    total = len(items)
+    offset = (page - 1) * page_size
+    selected = items[offset : offset + page_size]
+    return DxfSplitReviewPage(
+        items=[
+            DxfSplitReviewItemRead(
+                id=item.id,
+                source_name=item.source_name,
+                part_type=item.part_type,
+                profile_normalized=item.profile_normalized,
+                disposition=item.disposition,
+                diagnostics=item.diagnostics_json or [],
+                candidate_available=_candidate_files_available(db, item),
+                decision=(
+                    DxfSplitReviewDecisionRead(
+                        id=item.review_decision.id,
+                        split_item_id=item.review_decision.split_item_id,
+                        decision=item.review_decision.decision,
+                        final_normal_dxf_file_id=(
+                            item.review_decision.final_normal_dxf_file_id
+                        ),
+                        final_weld_allowance_dxf_file_id=(
+                            item.review_decision.final_weld_allowance_dxf_file_id
+                        ),
+                        comment=item.review_decision.comment,
+                        decided_by=item.review_decision.decided_by,
+                        decided_at=item.review_decision.decided_at,
+                        version=item.review_decision.version,
+                    )
+                    if item.review_decision is not None
+                    else None
+                ),
+            )
+            for item in selected
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pending_count=sum(item.review_decision is None for item in items),
+        manual_processing_count=sum(
+            item.review_decision is not None
+            and item.review_decision.decision == "manual_processing"
+            for item in items
+        ),
+    )
+
+
 def decide_split_item(
     db: Session,
     *,
@@ -103,7 +201,7 @@ def decide_split_item(
     if payload.decision == "accept_candidate":
         normal = _available_dxf(db, item.candidate_normal_dxf_file_id)
         allowance = _available_dxf(db, item.candidate_weld_allowance_dxf_file_id)
-        if normal is None or allowance is None or normal.id == allowance.id:
+        if not _candidate_files_available(db, item):
             raise AppHTTPException(
                 409,
                 "DXF_SPLIT_CANDIDATE_UNAVAILABLE",
@@ -163,4 +261,109 @@ def decide_split_item(
     return decision
 
 
-__all__ = ["decide_split_item"]
+def complete_split_review(
+    db: Session,
+    *,
+    workflow: WorkflowRun,
+    run_id: int,
+) -> DxfSplitRun:
+    run = _current_review_run(db, workflow=workflow, run_id=run_id)
+    items = list(
+        db.scalars(
+            select(DxfSplitItem)
+            .where(
+                DxfSplitItem.run_id == run.id,
+                DxfSplitItem.automation_route == "manual_review",
+            )
+            .options(selectinload(DxfSplitItem.review_decision))
+            .with_for_update()
+        ).all()
+    )
+    missing = [item.id for item in items if item.review_decision is None]
+    if missing:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_REVIEW_INCOMPLETE",
+            "仍有拆板条目尚未登记人工决定。",
+            {"split_item_ids": missing, "pending_count": len(missing)},
+        )
+    blocked = [
+        item.id
+        for item in items
+        if item.review_decision is not None
+        and item.review_decision.decision == "manual_processing"
+    ]
+    if blocked:
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_MANUAL_PROCESSING_REQUIRED",
+            "仍有图纸需要线下人工处理，不能进入自动下游。",
+            {"split_item_ids": blocked, "blocked_count": len(blocked)},
+        )
+    stage = next(
+        item for item in workflow.stages if item.stage_code == "drawing_processing"
+    )
+    for item in items:
+        decision = item.review_decision
+        if decision is None or not _candidate_files_available(db, item):
+            raise AppHTTPException(
+                409,
+                "DXF_SPLIT_CANDIDATE_UNAVAILABLE",
+                "复核采用的候选文件已不可用。",
+                {"split_item_id": item.id},
+            )
+        item.normal_dxf_file_id = decision.final_normal_dxf_file_id
+        item.weld_allowance_dxf_file_id = decision.final_weld_allowance_dxf_file_id
+        item.split_report_file_id = item.candidate_split_report_file_id
+        item.weld_allowance_report_file_id = (
+            item.candidate_weld_allowance_report_file_id
+        )
+        metadata = {
+            "job_id": run.job_id,
+            "job_attempt": run.job_attempt,
+            "run_id": run.id,
+            "split_item_id": item.id,
+            "classification_item_id": item.classification_item_id,
+            "human_reviewed": True,
+            "review_decision_id": decision.id,
+        }
+        for artifact_type, file_id, role in (
+            ("processed_dxf", item.normal_dxf_file_id, "normal_dxf"),
+            (
+                "weld_allowance_dxf",
+                item.weld_allowance_dxf_file_id,
+                "weld_allowance_dxf",
+            ),
+            ("split_report", item.split_report_file_id, "split_report"),
+            (
+                "weld_allowance_report",
+                item.weld_allowance_report_file_id,
+                "weld_allowance_report",
+            ),
+        ):
+            attach_artifact(
+                db,
+                workflow,
+                stage_code="drawing_processing",
+                artifact_type=artifact_type,
+                file_id=file_id,
+                metadata={**metadata, "role": role},
+            )
+    run.status = "completed"
+    run.auto_accepted_count = run.input_count
+    stage.output_json = {
+        "split_status": run.status,
+        "job_id": run.job_id,
+        "job_attempt": run.job_attempt,
+        "reviewed_count": len(items),
+    }
+    db.flush()
+    sync_workflow_from_jobs(db, workflow)
+    return run
+
+
+__all__ = [
+    "complete_split_review",
+    "decide_split_item",
+    "list_split_review_items",
+]

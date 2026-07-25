@@ -137,8 +137,14 @@ def stream_registered_workflow_archive(
     *,
     operation: str,
     audit_action: str,
+    inline_members: dict[str, bytes] | None = None,
 ) -> StreamingResponse:
-    prepared = build_registered_files_zip_to_path(db, members, archive_name)
+    prepared = build_registered_files_zip_to_path(
+        db,
+        members,
+        archive_name,
+        inline_members=inline_members,
+    )
     try:
         transfer = prepare_transfer_in_transaction(
             db,
@@ -162,6 +168,7 @@ def stream_registered_workflow_archive(
             after_json={
                 "file_ids": list(prepared.included_file_ids),
                 "artifact_count": len(members),
+                "inline_member_count": len(inline_members or {}),
             },
             request=request,
         )

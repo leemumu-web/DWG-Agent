@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.dxf_splitting.adapter import (
@@ -373,6 +373,126 @@ def manual_review_archive_members(
     return members
 
 
+def review_candidate_archive_members(
+    db: Session,
+    run: DxfSplitRun,
+) -> list[tuple[int, str]]:
+    members: list[tuple[int, str]] = []
+    for item in run.items:
+        if item.automation_route != "manual_review":
+            continue
+        files = (
+            (item.source_file_id, "source"),
+            (item.candidate_normal_dxf_file_id, "candidate"),
+            (item.candidate_weld_allowance_dxf_file_id, "candidate"),
+            (item.candidate_split_report_file_id, "reports"),
+            (item.candidate_weld_allowance_report_file_id, "reports"),
+        )
+        for file_id, directory in files:
+            stored = db.get(StoredFile, file_id) if file_id is not None else None
+            if stored is None or stored.status == "deleted":
+                if directory == "source":
+                    raise AppHTTPException(
+                        409,
+                        "DXF_SPLIT_REVIEW_SOURCE_MISSING",
+                        "待人工处理的原始 DXF 不可用。",
+                        {"split_item_id": item.id, "file_id": file_id},
+                    )
+                continue
+            members.append(
+                (
+                    stored.id,
+                    f"items/{item.id}/{directory}/{Path(stored.original_name).name}",
+                )
+            )
+    return members
+
+
+def split_results_archive_members(
+    db: Session,
+    run: DxfSplitRun,
+) -> list[tuple[int, str]]:
+    if run.status != "completed":
+        raise AppHTTPException(
+            409,
+            "DXF_SPLIT_RESULTS_PENDING",
+            "拆板批次尚未形成可交付的正式结果。",
+            {"split_run_id": run.id, "status": run.status},
+        )
+    members: list[tuple[int, str]] = []
+    for item in run.items:
+        for file_id, directory in (
+            (item.normal_dxf_file_id, "normal"),
+            (item.weld_allowance_dxf_file_id, "weld-allowance"),
+            (item.split_report_file_id, "reports"),
+            (item.weld_allowance_report_file_id, "reports"),
+        ):
+            stored = db.get(StoredFile, file_id) if file_id is not None else None
+            if stored is None or stored.status == "deleted":
+                raise AppHTTPException(
+                    409,
+                    "DXF_SPLIT_RESULT_FILE_MISSING",
+                    "已完成拆板批次的正式结果不可用。",
+                    {"split_item_id": item.id, "file_id": file_id},
+                )
+            members.append(
+                (
+                    stored.id,
+                    f"items/{item.id}/{directory}/{Path(stored.original_name).name}",
+                )
+            )
+    for file_id, name in (
+        (run.bh_split_ledger_file_id, "batch/BH拆板信息表.xlsx"),
+        (run.split_manifest_file_id, "batch/dxf-split-manifest.json"),
+        (run.validation_report_file_id, "batch/dxf-split-validation.json"),
+    ):
+        stored = db.get(StoredFile, file_id) if file_id is not None else None
+        if stored is None or stored.status == "deleted":
+            raise AppHTTPException(
+                409,
+                "DXF_SPLIT_RESULT_FILE_MISSING",
+                "已完成拆板批次的批次文件不可用。",
+                {"split_run_id": run.id, "file_id": file_id},
+            )
+        members.append((stored.id, name))
+    return members
+
+
+def find_split_file_workflow_id(db: Session, file_id: int) -> int | None:
+    """Resolve every split-owned file to its production ZIP download boundary."""
+    item_workflow_id = db.scalar(
+        select(DxfSplitRun.workflow_run_id)
+        .join(DxfSplitItem, DxfSplitItem.run_id == DxfSplitRun.id)
+        .where(
+            or_(
+                DxfSplitItem.source_file_id == file_id,
+                DxfSplitItem.normal_dxf_file_id == file_id,
+                DxfSplitItem.weld_allowance_dxf_file_id == file_id,
+                DxfSplitItem.split_report_file_id == file_id,
+                DxfSplitItem.weld_allowance_report_file_id == file_id,
+                DxfSplitItem.candidate_normal_dxf_file_id == file_id,
+                DxfSplitItem.candidate_weld_allowance_dxf_file_id == file_id,
+                DxfSplitItem.candidate_split_report_file_id == file_id,
+                DxfSplitItem.candidate_weld_allowance_report_file_id == file_id,
+            )
+        )
+        .limit(1)
+    )
+    if item_workflow_id is not None:
+        return item_workflow_id
+    return db.scalar(
+        select(DxfSplitRun.workflow_run_id)
+        .where(
+            or_(
+                DxfSplitRun.bh_split_ledger_file_id == file_id,
+                DxfSplitRun.split_manifest_file_id == file_id,
+                DxfSplitRun.validation_report_file_id == file_id,
+            )
+        )
+        .limit(1)
+    )
+
+
 def get_excel_split_handoff(
     db: Session,
     workflow_id: int,
@@ -425,8 +545,7 @@ def get_excel_split_handoff(
     required_file_ids = [run.bh_split_ledger_file_id]
     for item in run.items:
         if (
-            item.automation_route != "auto_accepted"
-            or item.normal_dxf_file_id is None
+            item.normal_dxf_file_id is None
             or item.weld_allowance_dxf_file_id is None
         ):
             raise AppHTTPException(
@@ -471,12 +590,15 @@ def get_excel_split_handoff(
 __all__ = [
     "MANIFEST_SCHEMA",
     "finish_split_run",
+    "find_split_file_workflow_id",
     "get_excel_split_handoff",
     "get_or_create_split_run",
     "get_split_outcome",
     "latest_split_run",
     "load_split_run",
     "manual_review_archive_members",
+    "review_candidate_archive_members",
+    "split_results_archive_members",
     "mark_split_failed",
     "mark_split_interrupted",
     "persist_split_output",

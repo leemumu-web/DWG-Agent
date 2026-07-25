@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.files.interface import FileRead
 from app.modules.jobs.interface import JobRead
@@ -75,6 +75,8 @@ class DxfSplitReviewDecisionWrite(BaseModel):
 
 
 class DxfSplitReviewDecisionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     split_item_id: int
     decision: Literal["accept_candidate", "manual_processing"]
@@ -84,6 +86,26 @@ class DxfSplitReviewDecisionRead(BaseModel):
     decided_by: int
     decided_at: datetime
     version: int
+
+
+class DxfSplitReviewItemRead(BaseModel):
+    id: int
+    source_name: str
+    part_type: str
+    profile_normalized: str | None
+    disposition: str
+    diagnostics: list[str]
+    candidate_available: bool
+    decision: DxfSplitReviewDecisionRead | None
+
+
+class DxfSplitReviewPage(BaseModel):
+    items: list[DxfSplitReviewItemRead]
+    total: int
+    page: int
+    page_size: int
+    pending_count: int
+    manual_processing_count: int
 
 
 class DxfSplitHandoffDrawing(BaseModel):

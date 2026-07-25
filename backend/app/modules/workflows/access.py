@@ -62,7 +62,7 @@ def find_production_file_workflow_id(db: Session, file_id: int) -> int | None:
     )
     if workflow_id is not None:
         return workflow_id
-    return db.scalar(
+    workflow_id = db.scalar(
         select(WorkflowInputBatch.workflow_run_id)
         .join(WorkflowInputItem, WorkflowInputItem.input_batch_id == WorkflowInputBatch.id)
         .join(WorkflowRun, WorkflowRun.id == WorkflowInputBatch.workflow_run_id)
@@ -75,3 +75,10 @@ def find_production_file_workflow_id(db: Session, file_id: int) -> int | None:
         )
         .limit(1)
     )
+    if workflow_id is not None:
+        return workflow_id
+    # Split candidates are deliberately not formal workflow artifacts until
+    # review acceptance, but they remain production files and ZIP-only.
+    from app.modules.dxf_splitting.interface import find_dxf_split_file_workflow_id
+
+    return find_dxf_split_file_workflow_id(db, file_id)

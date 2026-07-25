@@ -461,6 +461,18 @@ def _review_run_fixture(db, monkeypatch, tmp_path, *, with_candidate: bool):
         )
         item.candidate_normal_dxf_file_id = normal.id
         item.candidate_weld_allowance_dxf_file_id = allowance.id
+        item.candidate_split_report_file_id = _save_report(
+            db,
+            user_id=workflow.created_by,
+            original_name="BH-REVIEW_report.json",
+            payload=b'{"status":"review_candidate"}',
+        ).id
+        item.candidate_weld_allowance_report_file_id = _save_report(
+            db,
+            user_id=workflow.created_by,
+            original_name="BH-REVIEW_weld_allowance_report.json",
+            payload=b'{"status":"review_candidate"}',
+        ).id
         db.commit()
     return workflow, run, item
 
@@ -601,6 +613,120 @@ def test_review_decision_service_rejects_stale_version_and_attempt(
             payload=initial,
         )
     assert stale_exc.value.detail["code"] == "DXF_SPLIT_RUN_NOT_CURRENT"
+
+
+def test_review_api_completes_candidate_and_downloads_only_zip_archives(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=True,
+    )
+    init_db()
+    client = TestClient(app)
+    login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": "admin", "password": "SuperAdminPass1"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['data']['access_token']}"}
+    base = f"/api/v1/workflows/{workflow.id}/drawing-processing/runs/{run.id}"
+
+    page = client.get(f"{base}/review-items?page=1&page_size=20", headers=headers)
+    assert page.status_code == 200, page.text
+    assert page.json()["data"]["total"] == 1
+    assert page.json()["data"]["items"][0]["candidate_available"] is True
+
+    candidate_archive = client.get(
+        f"{base}/review-candidates-archive",
+        headers=headers,
+    )
+    assert candidate_archive.status_code == 200, candidate_archive.text
+    assert candidate_archive.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(BytesIO(candidate_archive.content)) as zipped:
+        candidate_names = zipped.namelist()
+    assert any(name.endswith("BH-REVIEW_拆板前.dxf") for name in candidate_names)
+    assert any(name.endswith("BH-REVIEW_正常拆板.dxf") for name in candidate_names)
+    assert any(name.endswith("review-manifest.json") for name in candidate_names)
+    direct_candidate = client.get(
+        f"/api/v1/files/{item.candidate_normal_dxf_file_id}/download-url",
+        headers=headers,
+    )
+    assert direct_candidate.status_code == 409
+    assert (
+        direct_candidate.json()["error"]["code"]
+        == "WORKFLOW_ARCHIVE_DOWNLOAD_REQUIRED"
+    )
+
+    decision = client.put(
+        f"{base}/review-items/{item.id}/decision",
+        headers=headers,
+        json={
+            "decision": "accept_candidate",
+            "comment": "人工核对候选图形和孔位后采用",
+            "expected_version": 0,
+        },
+    )
+    assert decision.status_code == 200, decision.text
+    assert decision.json()["data"]["version"] == 1
+
+    completion = client.post(f"{base}/review-completion", headers=headers)
+    assert completion.status_code == 200, completion.text
+    assert completion.json()["data"]["status"] == "completed"
+
+    results = client.get(f"{base}/results-archive", headers=headers)
+    assert results.status_code == 200, results.text
+    assert results.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(BytesIO(results.content)) as zipped:
+        result_names = zipped.namelist()
+    assert any(name.endswith("BH-REVIEW_正常拆板.dxf") for name in result_names)
+    assert any(name.endswith("BH-REVIEW_余量增长.dxf") for name in result_names)
+    assert not any("/candidates/" in name for name in result_names)
+
+    db.expire_all()
+    refreshed = db.get(WorkflowRun, workflow.id)
+    assert refreshed is not None
+    assert refreshed.current_stage == "excel_stage1"
+
+
+def test_review_completion_blocks_manual_processing_decision(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    from app.modules.dxf_splitting.review import (
+        complete_split_review,
+        decide_split_item,
+    )
+    from app.modules.dxf_splitting.schemas import DxfSplitReviewDecisionWrite
+
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=True,
+    )
+    decide_split_item(
+        db,
+        workflow=workflow,
+        run_id=run.id,
+        item_id=item.id,
+        actor_id=workflow.created_by,
+        payload=DxfSplitReviewDecisionWrite(
+            decision="manual_processing",
+            comment="候选轮廓仍需线下修正",
+            expected_version=0,
+        ),
+    )
+
+    with pytest.raises(AppHTTPException) as exc_info:
+        complete_split_review(db, workflow=workflow, run_id=run.id)
+
+    assert exc_info.value.detail["code"] == "DXF_SPLIT_MANUAL_PROCESSING_REQUIRED"
+    assert run.status == "completed_with_review"
 
 
 def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path):

@@ -330,13 +330,16 @@ def build_registered_files_zip_to_path(
     db: Session,
     members: list[tuple[int, str]],
     archive_name: str,
+    *,
+    inline_members: dict[str, bytes] | None = None,
 ) -> PreparedExport:
     """Stream registered files into one caller-defined, structured ZIP archive."""
-    if not members:
+    inline_members = inline_members or {}
+    if not members and not inline_members:
         raise AppHTTPException(
             409,
             "FILE_ARCHIVE_EMPTY",
-            "The requested archive has no registered files.",
+            "The requested archive has no files.",
         )
     file_ids = tuple(dict.fromkeys(file_id for file_id, _ in members))
     stored_by_id = {
@@ -384,6 +387,32 @@ def build_registered_files_zip_to_path(
         seen_paths.add(path_key)
         normalized_members.append((file_id, stored_by_id[file_id], archive_path))
 
+    normalized_inline_members: list[tuple[str, bytes]] = []
+    for raw_path, payload in inline_members.items():
+        path = PurePosixPath(raw_path.replace("\\", "/"))
+        if (
+            path.is_absolute()
+            or not path.parts
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            raise AppHTTPException(
+                422,
+                "FILE_ARCHIVE_PATH_INVALID",
+                "Archive member paths must be safe relative paths.",
+                {"path": raw_path},
+            )
+        archive_path = path.as_posix()
+        path_key = archive_path.casefold()
+        if path_key in seen_paths:
+            raise AppHTTPException(
+                409,
+                "FILE_ARCHIVE_PATH_CONFLICT",
+                "Archive member paths must be unique.",
+                {"path": archive_path},
+            )
+        seen_paths.add(path_key)
+        normalized_inline_members.append((archive_path, payload))
+
     storage = storage_factory.get_storage_backend()
     tmp = NamedTemporaryFile(suffix=".zip", delete=False)
     path = Path(tmp.name)
@@ -402,6 +431,8 @@ def build_registered_files_zip_to_path(
                         "A required stored object could not be read for export.",
                         {"file_id": file_id},
                     ) from exc
+            for archive_path, payload in normalized_inline_members:
+                archive.writestr(archive_path, payload)
         size_bytes = path.stat().st_size
     except BaseException:
         path.unlink(missing_ok=True)
