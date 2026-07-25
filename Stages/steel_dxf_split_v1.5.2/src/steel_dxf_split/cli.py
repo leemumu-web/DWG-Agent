@@ -11,17 +11,25 @@ from . import __version__
 from .bh_knowledge import BHSourceContract
 from .bh_project_ledger import publish_bh_project_ledger
 from .box.contracts import BOX_EXPORT_PROFILE, BoxSourceContract
-from .pipeline import SplitOptions, SplitResult, split_dxf
+from .pipeline import SplitOptions, SplitResult, split_classified_dxf
+
+CLASSIFIED_INPUT_SCHEMA = "STEEL-DXF-CLASSIFIED-SPLIT-INPUT-1.0"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "扫描一个输入目录，自动识别 BH/BOX；每张自动验收图成对生成普通版与余量伸长版 DXF。"
+            "按照上游冻结分类将 BH/BOX 直接交给对应拆板核心，并成对生成普通版与余量伸长版 DXF。"
         )
     )
     parser.add_argument("input_dir", type=Path, help="仅包含待处理源 DXF 的输入目录。")
     parser.add_argument("-o", "--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--classification-manifest",
+        type=Path,
+        required=True,
+        help="上游冻结的文件名与 BH/BOX 类型一一对应清单。",
+    )
     parser.add_argument(
         "--authorize-tekla-bh-single-part-profile",
         metavar="PROFILE_ID",
@@ -86,6 +94,57 @@ def _snapshot_inputs(input_dir: Path, output_dir: Path) -> tuple[Path, ...]:
     return inputs
 
 
+def _load_classified_inputs(
+    path: Path,
+    inputs: tuple[Path, ...],
+) -> dict[Path, str]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"分类清单不可读取: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"分类清单不是有效 JSON: {path}") from exc
+    if not isinstance(payload, dict) or set(payload) != {"schema", "items"}:
+        raise ValueError("分类清单顶层字段无效")
+    if payload.get("schema") != CLASSIFIED_INPUT_SCHEMA:
+        raise ValueError("分类清单 schema 无效")
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise ValueError("分类清单 items 必须是数组")
+
+    classified_by_name: dict[str, str] = {}
+    for index, item in enumerate(items):
+        if not isinstance(item, dict) or set(item) != {"file_name", "family"}:
+            raise ValueError(f"分类清单第 {index + 1} 项字段无效")
+        file_name = item.get("file_name")
+        family = item.get("family")
+        if not isinstance(file_name, str) or not file_name:
+            raise ValueError(f"分类清单第 {index + 1} 项 file_name 无效")
+        if (
+            Path(file_name).name != file_name
+            or Path(file_name).suffix.casefold() != ".dxf"
+        ):
+            raise ValueError(f"分类清单文件名不安全或不是 DXF: {file_name}")
+        if family not in {"BH", "BOX"}:
+            raise ValueError(f"分类清单类型不支持: {family}")
+        name_key = file_name.casefold()
+        if name_key in classified_by_name:
+            raise ValueError(f"分类清单文件名重复: {file_name}")
+        classified_by_name[name_key] = family
+
+    input_by_name = {input_path.name.casefold(): input_path for input_path in inputs}
+    extra_names = sorted(set(classified_by_name) - set(input_by_name))
+    if extra_names:
+        raise ValueError(f"分类清单包含额外文件: {extra_names[0]}")
+    missing_names = sorted(set(input_by_name) - set(classified_by_name))
+    if missing_names:
+        raise ValueError(f"分类清单缺少输入文件: {missing_names[0]}")
+    return {
+        input_path: classified_by_name[input_path.name.casefold()]
+        for input_path in inputs
+    }
+
+
 def _publish_progress(
     path: Path | None,
     *,
@@ -122,6 +181,10 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         inputs = _snapshot_inputs(args.input_dir, args.output_dir)
+        classified_inputs = _load_classified_inputs(
+            args.classification_manifest,
+            inputs,
+        )
     except ValueError as exc:
         print(f"错误：{exc}", file=sys.stderr)
         return 2
@@ -151,7 +214,12 @@ def main(argv: list[str] | None = None) -> int:
     for processed_count, input_path in enumerate(inputs, start=1):
         processing_started = perf_counter()
         try:
-            result = split_dxf(input_path, args.output_dir, options)
+            result = split_classified_dxf(
+                input_path,
+                args.output_dir,
+                options,
+                family=classified_inputs[input_path],
+            )
         except Exception as exc:
             failures += 1
             summaries.append(

@@ -12,7 +12,8 @@ import ezdxf
 import openpyxl
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.orm import sessionmaker
 
 from app.bootstrap.seed import init_db
 from app.main import app
@@ -23,6 +24,7 @@ from app.modules.dxf_classification.interface import (
 from app.modules.dxf_splitting import adapter as split_adapter
 from app.modules.dxf_splitting import execution as split_execution
 from app.modules.dxf_splitting import models as split_models
+from app.modules.dxf_splitting import persistence as split_persistence
 from app.modules.dxf_splitting.interface import (
     DxfSplitRun,
     build_dxf_split_run_read,
@@ -38,7 +40,7 @@ from app.modules.files.interface import (
     save_bytes_as_file,
 )
 from app.modules.identity.interface import User
-from app.modules.jobs.interface import Job, JobStep
+from app.modules.jobs.interface import Job, JobStep, reconcile_stale_running_jobs
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.interface import WorkflowRun
@@ -330,6 +332,25 @@ def _write_ledger(output_directory: Path) -> Path:
     return path
 
 
+def _write_adapter_manifest(
+    path: Path,
+    *,
+    file_name: str = "BH-1_拆板前.dxf",
+    family: str = "BH",
+) -> Path:
+    path.write_text(
+        json.dumps(
+            {
+                "schema": split_adapter.CLASSIFIED_INPUT_SCHEMA,
+                "items": [{"file_name": file_name, "family": family}],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _fake_splitter(
     *,
     family_by_member: dict[str, str],
@@ -341,9 +362,19 @@ def _fake_splitter(
         input_directory: Path,
         output_directory: Path,
         *,
+        classification_manifest: Path,
         expected_input_count: int,
         progress_callback=None,
     ) -> dict[str, object]:
+        manifest = json.loads(classification_manifest.read_text(encoding="utf-8"))
+        assert manifest["schema"] == split_adapter.CLASSIFIED_INPUT_SCHEMA
+        assert {
+            item["file_name"]: item["family"]
+            for item in manifest["items"]
+        } == {
+            source.name: family_by_member[source.stem.removesuffix("_拆板前")]
+            for source in input_directory.glob("*.dxf")
+        }
         results: list[dict[str, object]] = []
         for source in sorted(input_directory.glob("*.dxf")):
             member = source.stem.removesuffix("_拆板前")
@@ -896,9 +927,13 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
             self.returncode = -9
 
     monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+    classification_manifest = _write_adapter_manifest(
+        tmp_path / "classified-input.json"
+    )
     payload = split_adapter.invoke_splitter(
         tmp_path,
         tmp_path.parent / "output",
+        classification_manifest=classification_manifest,
         expected_input_count=1,
     )
 
@@ -911,6 +946,8 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
             str(tmp_path),
             "--output-dir",
             str(tmp_path.parent / "output"),
+            "--classification-manifest",
+            str(classification_manifest.resolve()),
             "--authorize-tekla-bh-single-part-profile",
             "project_tekla_bh_dxf_v1",
             "--authorize-tekla-box-single-part-profile",
@@ -969,10 +1006,14 @@ def test_adapter_streams_monotonic_progress_to_platform_callback(monkeypatch, tm
             self.returncode = -9
 
     monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+    classification_manifest = _write_adapter_manifest(
+        tmp_path / "classified-input.json"
+    )
 
     split_adapter.invoke_splitter(
         tmp_path,
         tmp_path.parent / "output",
+        classification_manifest=classification_manifest,
         expected_input_count=1,
         progress_callback=lambda processed, total, auto, manual, failed: callbacks.append(
             (processed, total, auto, manual, failed)
@@ -1009,10 +1050,14 @@ def test_adapter_keeps_one_file_failure_as_manual_review_result(monkeypatch, tmp
             self.returncode = -9
 
     monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+    classification_manifest = _write_adapter_manifest(
+        tmp_path / "classified-input.json"
+    )
 
     payload = split_adapter.invoke_splitter(
         tmp_path,
         tmp_path.parent / "output",
+        classification_manifest=classification_manifest,
         expected_input_count=1,
     )
 
@@ -1031,6 +1076,20 @@ def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
     input_directory.mkdir()
     for name in ("BH-1_拆板前.dxf", "BH-2_拆板前.dxf"):
         (input_directory / name).write_bytes(b"fixture")
+    classification_manifest = input_directory.parent / "classified-input.json"
+    classification_manifest.write_text(
+        json.dumps(
+            {
+                "schema": split_adapter.CLASSIFIED_INPUT_SCHEMA,
+                "items": [
+                    {"file_name": name, "family": "BH"}
+                    for name in ("BH-1_拆板前.dxf", "BH-2_拆板前.dxf")
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     class FakeResult:
         def to_summary(self, *, input_path, compiler_version, processing_seconds):
@@ -1042,7 +1101,13 @@ def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
                 "disposition": "fixture_review",
             }
 
-    monkeypatch.setattr(split_cli, "split_dxf", lambda *_args, **_kwargs: FakeResult())
+    observed_families: list[str] = []
+
+    def split_classified(*_args, family, **_kwargs):
+        observed_families.append(family)
+        return FakeResult()
+
+    monkeypatch.setattr(split_cli, "split_classified_dxf", split_classified)
     monkeypatch.setattr(split_cli, "publish_bh_project_ledger", lambda *_args: None)
 
     exit_code = split_cli.main(
@@ -1050,12 +1115,15 @@ def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
             str(input_directory),
             "--output-dir",
             str(output_directory),
+            "--classification-manifest",
+            str(classification_manifest),
             "--progress-json",
             str(progress_path),
         ]
     )
 
     assert exit_code == 1
+    assert observed_families == ["BH", "BH"]
     assert json.loads(progress_path.read_text(encoding="utf-8")) == {
         "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
         "processed_count": 2,
@@ -1553,6 +1621,109 @@ def test_cancelled_job_closes_running_split_attempt(
     assert run is not None and run.status == "failed"
     assert run.error_code == "DXF_SPLIT_ATTEMPT_INTERRUPTED"
     assert run.finished_at is not None
+
+
+def test_terminal_job_reconciliation_closes_split_run_idempotently(
+    db,
+    tmp_path,
+):
+    workflow_id, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BH-ORPHAN", "BH"),),
+    )
+    job = db.get(Job, job_id)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(
+            DxfClassificationRun.workflow_run_id == workflow_id
+        )
+    )
+    assert job is not None
+    assert classification is not None
+    job.status = "cancelled"
+    run = DxfSplitRun(
+        workflow_run_id=workflow_id,
+        project_id=job.project_id,
+        classification_run_id=classification.id,
+        job_id=job.id,
+        job_attempt=job.attempt,
+        status="running",
+        splitter_version="1.5.2",
+        input_manifest_sha256=classification.input_manifest_sha256,
+        input_count=1,
+        processed_count=0,
+        started_at=datetime.now(UTC),
+    )
+    db.add(run)
+    db.commit()
+
+    assert split_persistence.reconcile_split_run_for_terminal_job(
+        db,
+        job_id=job.id,
+        attempt=job.attempt,
+    )
+    assert not split_persistence.reconcile_split_run_for_terminal_job(
+        db,
+        job_id=job.id,
+        attempt=job.attempt,
+    )
+
+    db.refresh(run)
+    assert run.status == "failed"
+    assert run.error_code == "DXF_SPLIT_ATTEMPT_INTERRUPTED"
+    assert run.finished_at is not None
+
+
+def test_stale_worker_recovery_also_closes_running_split_run(
+    db,
+    tmp_path,
+):
+    workflow_id, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BOX-ORPHAN", "BOX"),),
+    )
+    job = db.get(Job, job_id)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(
+            DxfClassificationRun.workflow_run_id == workflow_id
+        )
+    )
+    assert job is not None
+    assert classification is not None
+    job.status = "running"
+    run = DxfSplitRun(
+        workflow_run_id=workflow_id,
+        project_id=job.project_id,
+        classification_run_id=classification.id,
+        job_id=job.id,
+        job_attempt=job.attempt,
+        status="running",
+        splitter_version="1.5.2",
+        input_manifest_sha256=classification.input_manifest_sha256,
+        input_count=1,
+        processed_count=0,
+        started_at=datetime.now(UTC) - timedelta(hours=3),
+    )
+    db.add(run)
+    db.commit()
+    old = datetime.now(UTC) - timedelta(hours=3)
+    db.execute(
+        text("UPDATE jobs SET updated_at = :old WHERE id = :job_id"),
+        {"old": old, "job_id": job.id},
+    )
+    db.commit()
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+
+    assert reconcile_stale_running_jobs(factory, timeout_seconds=3600) == 1
+
+    db.expire_all()
+    assert db.get(Job, job.id).status == "failed"
+    recovered_run = db.get(DxfSplitRun, run.id)
+    assert recovered_run is not None
+    assert recovered_run.status == "failed"
+    assert recovered_run.error_code == "DXF_SPLIT_ATTEMPT_INTERRUPTED"
+    assert recovered_run.finished_at is not None
 
 
 def test_split_http_contract_is_exposed():

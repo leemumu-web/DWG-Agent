@@ -99,6 +99,15 @@ def reconcile_stale_running_jobs(
             updated = result.rowcount or 0
             if updated:
                 cleanup_excel_processing_rows(db, (job_id,))
+                from app.modules.dxf_splitting.interface import (
+                    reconcile_dxf_split_run_for_terminal_job,
+                )
+
+                reconcile_dxf_split_run_for_terminal_job(
+                    db,
+                    job_id=job_id,
+                    attempt=attempt,
+                )
             recovered += updated
         db.commit()
     return recovered

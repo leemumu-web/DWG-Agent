@@ -40,7 +40,14 @@ from app.modules.jobs.interface import (
     fail_job_attempt,
 )
 from app.modules.workflows.interface import WorkflowRun
-from app.platform.config.constants import TASK_STEEL_DXF_SPLIT
+from app.platform.config.constants import (
+    JOB_PENDING,
+    JOB_QUEUED,
+    JOB_RUNNING,
+    JOB_VALIDATING,
+    JOB_WAITING_CAD_WORKER,
+    TASK_STEEL_DXF_SPLIT,
+)
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 
@@ -331,12 +338,14 @@ def mark_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) ->
     )
 
 
-def mark_split_interrupted(db: Session, job_id: int, attempt: int) -> None:
-    """Close one run whose Job generation stopped being active.
+def reconcile_split_run_for_terminal_job(
+    db: Session,
+    *,
+    job_id: int,
+    attempt: int,
+) -> bool:
+    """Close an orphan run only after its exact Job attempt stopped being active."""
 
-    The Job row may already belong to a newer attempt or may have been
-    cancelled, so this reconciliation must never update the Job itself.
-    """
     run = db.scalar(
         select(DxfSplitRun).where(
             DxfSplitRun.job_id == job_id,
@@ -344,12 +353,38 @@ def mark_split_interrupted(db: Session, job_id: int, attempt: int) -> None:
         )
     )
     if run is None or run.status != "running":
-        return
+        return False
+    job = db.get(Job, job_id)
+    active_statuses = {
+        JOB_PENDING,
+        JOB_QUEUED,
+        JOB_RUNNING,
+        JOB_VALIDATING,
+        JOB_WAITING_CAD_WORKER,
+    }
+    if (
+        job is not None
+        and job.attempt == attempt
+        and job.status in active_statuses
+    ):
+        return False
     run.status = "failed"
     run.error_code = "DXF_SPLIT_ATTEMPT_INTERRUPTED"
     run.error_message = "拆板 attempt 已被取消或由新的 attempt 取代。"
     run.finished_at = datetime.now(UTC)
-    db.commit()
+    db.flush()
+    return True
+
+
+def mark_split_interrupted(db: Session, job_id: int, attempt: int) -> None:
+    """Close one run after execution observes that its Job attempt is inactive."""
+
+    if reconcile_split_run_for_terminal_job(
+        db,
+        job_id=job_id,
+        attempt=attempt,
+    ):
+        db.commit()
 
 
 def latest_split_run(db: Session, workflow_id: int) -> DxfSplitRun | None:
@@ -765,4 +800,5 @@ __all__ = [
     "persist_review_completion_manifest",
     "record_split_analysis",
     "record_split_item",
+    "reconcile_split_run_for_terminal_job",
 ]

@@ -21,6 +21,7 @@ from app.modules.dxf_splitting.adapter import (
     BH_PROJECT_LEDGER_FILENAME,
     BH_SOURCE_CONTRACT,
     BOX_SOURCE_CONTRACT,
+    CLASSIFIED_INPUT_SCHEMA,
     CLI_SCHEMA,
     MANIFEST_SCHEMA,
     MAX_AUTOMATIC_ATTEMPTS,
@@ -172,6 +173,32 @@ def _write_json(path: Path, payload: dict[str, object]) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _write_classification_manifest(
+    path: Path,
+    sources: list[StagedSplitSource],
+) -> Path:
+    items: list[dict[str, str]] = []
+    for source in sources:
+        family = source.semantic.part_type
+        if family not in {"BH", "BOX"}:
+            raise DxfSplitError(
+                f"分类条目 {source.semantic.classification_item_id} "
+                f"没有可直接拆板的 BH/BOX 类型。"
+            )
+        if Path(source.source_name).name != source.source_name:
+            raise DxfSplitError(
+                f"分类条目 {source.semantic.classification_item_id} 的文件名无效。"
+            )
+        items.append({"file_name": source.source_name, "family": family})
+    return _write_json(
+        path,
+        {
+            "schema": CLASSIFIED_INPUT_SCHEMA,
+            "items": items,
+        },
+    )
 
 
 def _load_workflow(db: Session, workflow_id: int) -> WorkflowRun | None:
@@ -569,6 +596,10 @@ def run_dxf_splitting(
                 inputs,
                 input_directory,
             )
+            classification_manifest = _write_classification_manifest(
+                root / "platform" / "classified-split-input.json",
+                supported,
+            )
             job = commit_job_progress(
                 db,
                 job.id,
@@ -630,6 +661,7 @@ def run_dxf_splitting(
                 cli_payload = _invoke_splitter(
                     input_directory,
                     output_directory,
+                    classification_manifest=classification_manifest,
                     expected_input_count=len(supported),
                     progress_callback=publish_progress,
                 )

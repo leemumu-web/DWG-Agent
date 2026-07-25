@@ -1,19 +1,19 @@
 {
   "schema_version": "BOX-RELEASE-ATTESTATION-2.0",
-  "created_at": "2026-07-24T14:31:50.589097+00:00",
+  "created_at": "2026-07-25T08:02:29.607458+00:00",
   "certification": {
     "passed": true,
     "pair_count": 20,
     "calibration_count": 10,
     "acceptance_count": 10,
     "manifest_fingerprint": "1868255635eb27ed4cc2eb851ede2882447ede375732b535ce0586d47ae4e157",
-    "gate_fingerprint": "4681edad60a6ddba1626c9ad344e314187344f0e839c4fc5368889418ce7f6a8",
-    "implementation_fingerprint": "62a0c89b316458df3fec777b9b81b08f6faed87199138c97a1d0ef8a5f5bb8cf",
+    "gate_fingerprint": "4f2d4b8976e5e215f2378bcc95d045af504cc3e66e246ad8cbeb316d44bb5fbb",
+    "implementation_fingerprint": "8159a9eb2d404212b18172915fb7ae2fdc13b17bd192da46038d1b16c0c75db5",
     "core": {
       "version": "1.0.0",
       "tag": "v1.0.0",
       "commit": "5a2be1a82eb7235bcff62d97a13d2937f9ad026b"
     }
   },
-  "payload_digest": "396baaf5d3651d361768aa335550d2b533afe9b7552913c16a488edc9f8be661"
+  "payload_digest": "e7978c3a47c14fd03f1fe2abc5b838dc9c5c81fa6696e9d57aac445c189a2d87"
 }

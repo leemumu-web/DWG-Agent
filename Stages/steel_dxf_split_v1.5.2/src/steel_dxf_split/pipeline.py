@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-import gc
 import json
 import os
 import shutil
@@ -16,12 +15,10 @@ from .artifact_io import fsync_directory, write_json_atomic
 from .bh_knowledge import BHSourceContract
 from .bh_pipeline import split_bh_dxf
 from .box.contracts import BoxSourceContract
-from .dxf_io import load_document
 from .paired_output import (
     PairedOutputValidationError,
     validate_paired_outputs,
 )
-from .profile_detection import detect_profile_family
 
 
 @dataclass(frozen=True, slots=True)
@@ -712,27 +709,23 @@ def _manufacturing_fingerprint(
     return value if isinstance(value, str) else None
 
 
-def split_dxf(
+def split_classified_dxf(
     input_path: str | Path,
     output_dir: str | Path,
     options: SplitOptions,
+    *,
+    family: str,
 ) -> SplitResult:
-    """Detect and split once, then publish one normal/allowance task pair."""
+    """Dispatch one frozen classification to its matching domain core."""
 
     input_path = Path(input_path)
     output_dir = Path(output_dir)
-    document = load_document(input_path)
-    try:
-        family = detect_profile_family(document)
-    finally:
-        del document
-        gc.collect()
     if family not in {"BH", "BOX"}:
-        raise ValueError("DXF material table has no supported BH or BOX profile")
+        raise ValueError("已分类拆板类型只能是 BH 或 BOX")
     if family == "BH" and options.source_contract is None:
-        raise ValueError("BH source contract is required for a BH drawing")
+        raise ValueError("BH 分类输入缺少 BH source contract")
     if family == "BOX" and options.box_source_contract is None:
-        raise ValueError("BOX source contract is required for a BOX drawing")
+        raise ValueError("BOX 分类输入缺少 BOX source contract")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     if output_dir.is_symlink() or not output_dir.is_dir():

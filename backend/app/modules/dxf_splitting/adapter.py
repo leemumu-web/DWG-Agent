@@ -14,6 +14,7 @@ from app.platform.config.settings import settings
 
 SPLITTER_VERSION = "1.5.2"
 CLI_SCHEMA = "DWG-AGENT-STEEL-DXF-SPLIT-CLI-1.0"
+CLASSIFIED_INPUT_SCHEMA = "STEEL-DXF-CLASSIFIED-SPLIT-INPUT-1.0"
 VALIDATION_SCHEMA = "DWG-AGENT-DXF-SPLIT-VALIDATION-1.0"
 MANIFEST_SCHEMA = "DWG-AGENT-DXF-SPLIT-MANIFEST-1.0"
 BH_SOURCE_CONTRACT = "project_tekla_bh_dxf_v1"
@@ -55,12 +56,17 @@ def invoke_splitter(
     input_directory: Path,
     output_directory: Path,
     *,
+    classification_manifest: Path,
     expected_input_count: int,
     progress_callback: Callable[[int, int, int, int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Run the immutable Stage CLI and wrap its legacy JSON list in a platform schema."""
     if expected_input_count <= 0:
         raise DxfSplitError("拆板 CLI 不能接收空的自动处理批次。")
+    classification_manifest = Path(classification_manifest)
+    if classification_manifest.is_symlink() or not classification_manifest.is_file():
+        raise DxfSplitError("拆板分类清单不可用。")
+    classification_manifest = classification_manifest.resolve()
     progress_path = output_directory / ".dwg-agent-split-progress.json"
     command = [
         sys.executable,
@@ -69,6 +75,8 @@ def invoke_splitter(
         str(input_directory),
         "--output-dir",
         str(output_directory),
+        "--classification-manifest",
+        str(classification_manifest),
         "--authorize-tekla-bh-single-part-profile",
         BH_SOURCE_CONTRACT,
         "--authorize-tekla-box-single-part-profile",

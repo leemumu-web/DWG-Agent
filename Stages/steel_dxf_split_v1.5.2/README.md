@@ -1,10 +1,10 @@
-# Steel DXF Split：BH/BOX 统一双产物拆板程序
+# Steel DXF Split：已分类 BH/BOX 双产物拆板程序
 
-本程序是融合后的主程序。它只保留一个公开命令，自动识别 BH 或 BOX，调用对应领域核心，并把同一次拆板结果发布为一对完整 DXF：普通版与余量伸长版。
+本程序是融合后的主程序。它接收上一步冻结的 BH/BOX 分类清单，直接调用对应领域核心，并把同一次拆板结果发布为一对完整 DXF：普通版与余量伸长版。程序内部不再根据 DXF 文字重复判断构件类型。
 
 ```text
 输入目录快照
-→ 每张 DXF 只判型一次
+→ 校验每张 DXF 与冻结分类一一对应
 → 只调用 BH 或 BOX 中的一个拆板核心
 → 执行对称孔颜色策略
 → 形成完整拆板基础结果
@@ -20,7 +20,7 @@
 - 命令只扫描输入目录第一层的 `.dxf` 文件，并在处理开始前冻结文件列表。
 - 输入目录与输出目录不得相同或互相嵌套。
 - `output` 永远不作为任何阶段的输入。
-- 每张图只执行一次类型识别和一次拆板。
+- 每张图只按上游冻结分类执行一次拆板。
 - BH 与 BOX 使用各自的领域处理器，不互相导入制造几何模型，也没有失败后回退旧入口的逻辑。
 - 自动验收成功的每张输入严格产生两个完整 DXF；板件数量不会改变文件数量。
 - 普通版与余量版必须同源、同时验收、同时发布。任意一份失败，整个任务进入 `manual_review`。
@@ -101,6 +101,7 @@ uv sync --locked
 uv run steel-dxf-split `
   ".\input" `
   --output-dir ".\output" `
+  --classification-manifest ".\classified-split-input.json" `
   --authorize-tekla-bh-single-part-profile project_tekla_bh_dxf_v1 `
   --authorize-tekla-box-single-part-profile project_tekla_box_dxf_v1
 ```

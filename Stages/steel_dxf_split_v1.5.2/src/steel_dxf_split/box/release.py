@@ -58,10 +58,6 @@ def _production_files(package_root: Path) -> tuple[tuple[str, Path], ...]:
             package_root / "paired_output.py",
         ),
         (
-            "src/steel_dxf_split/profile_detection.py",
-            package_root / "profile_detection.py",
-        ),
-        (
             "src/steel_dxf_split/hole_color_policy.py",
             package_root / "hole_color_policy.py",
         ),

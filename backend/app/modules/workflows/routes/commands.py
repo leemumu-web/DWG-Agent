@@ -117,6 +117,15 @@ def cancel_workflow_api(
             "waiting_cad_worker",
         }:
             transition_job_to_cancelled(db, job)
+            from app.modules.dxf_splitting.interface import (
+                reconcile_dxf_split_run_for_terminal_job,
+            )
+
+            reconcile_dxf_split_run_for_terminal_job(
+                db,
+                job_id=job.id,
+                attempt=job.attempt,
+            )
     cancel_workflow(workflow)
     write_audit_log(
         db,

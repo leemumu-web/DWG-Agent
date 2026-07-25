@@ -133,12 +133,12 @@ def _validate_auto_result(
         findings.append("正常拆板与余量增长 DXF 不能指向同一文件")
     family = result.get("family")
     if family not in {"BH", "BOX"}:
-        findings.append("拆板器没有识别出受支持的 BH/BOX 构件族")
+        findings.append("拆板领域报告没有返回受支持的 BH/BOX 类型")
     if (
         source.semantic.part_type in {"BH", "BOX"}
         and family != source.semantic.part_type
     ):
-        findings.append("拆板识别族与分类类型不一致")
+        findings.append("拆板领域报告类型与冻结分类类型不一致")
 
     candidate_pair_readable = normal is not None and allowance is not None
     for path, label in (
@@ -249,7 +249,7 @@ def _validate_auto_result(
                     source.semantic.part_type not in {"BH", "BOX"}
                     or family == source.semantic.part_type
                 ),
-                "family_detected_from_dxf": family in {"BH", "BOX"},
+                "domain_report_family_supported": family in {"BH", "BOX"},
                 "exact_output_suffixes": True,
                 "paired_dxf_count": 2,
                 "dxf_reopen": True,

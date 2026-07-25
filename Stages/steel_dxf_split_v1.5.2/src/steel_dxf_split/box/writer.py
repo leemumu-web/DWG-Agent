@@ -21,8 +21,8 @@ from ..part_mark_layout import (
     PartMarkTarget,
     label_em_width as _label_em_width,
     layout_part_marks,
-    part_mark_clearance_envelope,
-    part_mark_envelope,
+    part_mark_clearance_envelope,  # noqa: F401 - release tooling compatibility export
+    part_mark_envelope,  # noqa: F401 - release tooling compatibility export
     preferred_standard_part_mark_height,
 )
 from .dxf_artifact_io import save_deterministic_dxf

@@ -19,10 +19,10 @@
 - [ ] **Step 1: Add a test that invokes the CLI parser without a classification manifest**
 
 ```python
-args = split_cli.build_parser().parse_args(
-    ["input", "--output-dir", "output"]
-)
-assert args.classification_manifest is None
+with pytest.raises(SystemExit):
+    split_cli.build_parser().parse_args(
+        ["input", "--output-dir", "output"]
+    )
 ```
 
 - [ ] **Step 2: Add manifest validation tests**

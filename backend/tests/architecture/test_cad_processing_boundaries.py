@@ -96,6 +96,7 @@ SPLIT_PUBLIC_CONTRACT = {
     "latest_dxf_split_run",
     "list_split_review_items",
     "manual_review_archive_members",
+    "reconcile_dxf_split_run_for_terminal_job",
     "review_candidate_archive_members",
     "split_candidate_available",
     "split_results_archive_members",
