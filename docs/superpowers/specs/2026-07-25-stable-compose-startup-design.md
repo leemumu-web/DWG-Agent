@@ -1,14 +1,26 @@
-# Stable Compose Startup Design
+# Stable Full-Stack Startup Design
 
 ## Goal
 
-Make `bash scripts/docker.sh up-workers` a reliable production startup command. A zero exit code must mean that the complete Compose stack was rebuilt from the current checkout, every configured service reached a stable running state, and the public gateway and backend readiness probes passed.
+Make both production startup entrypoints reliable. A zero exit code from
+`bash scripts/docker.sh up-workers` or `bash scripts/start-all.sh` must mean
+that the selected complete stack was built from the current checkout and its
+database, workers, backend, frontend, and gateway passed their readiness checks.
 
 ## Scope
 
-The change is limited to the existing Compose startup path in `scripts/lib/compose.sh`, its script tests, and operator documentation. It does not add another startup command, change application data, modify service definitions, or weaken any health check.
+The change is limited to the existing Compose startup path in
+`scripts/lib/compose.sh`, the host startup path in `scripts/start-all.sh`, their
+script tests, and operator documentation. It does not add another startup
+command, change application data, modify service definitions, or weaken any
+health check.
 
 `bash scripts/docker.sh up` keeps its existing core-stack behavior. `up-workers` remains the single command for starting the complete production stack.
+
+`bash scripts/start-all.sh` remains the stable host-process entrypoint. It
+continues to use the existing MySQL, worker, backend, frontend, and Nginx
+helpers, then runs the existing `scripts/status.sh` as a final fail-closed
+readiness gate before printing the success summary.
 
 ## Startup Flow
 
@@ -35,6 +47,12 @@ On an immediate failure or timeout, the command must:
 
 Diagnostics must not print `.env.docker`, credentials, signed URLs, authorization headers, or object keys.
 
+For host startup, a failing `scripts/status.sh` check prevents the success
+banner and returns non-zero. The status output remains the primary diagnostic:
+it identifies unavailable MySQL, missing workers, stale backend/frontend code,
+failed backend readiness, and failed Nginx API/SPA probes without exposing
+credentials.
+
 ## Interfaces
 
 `compose_wait_for_healthy_services` owns the polling and diagnostic behavior. It accepts the timeout in seconds, defaults to 180, and uses the existing `COMPOSE_CMD` array so the configured project directory and environment file remain authoritative.
@@ -50,6 +68,14 @@ compose_smoke
 
 `compose_main` delegates `up-workers` to `compose_up_workers`. Existing commands and arguments remain compatible.
 
+`scripts/start-all.sh` adds a sixth, final verification step:
+
+```text
+MySQL -> local workers -> backend -> frontend build -> Nginx -> status.sh
+```
+
+The success summary is printed only after `status.sh` returns zero.
+
 ## Testing
 
 Script contract tests must prove that:
@@ -61,6 +87,13 @@ Script contract tests must prove that:
 - timeout diagnostics include scoped status and logs;
 - smoke probes execute only after the health gate succeeds.
 
+Host-start contract tests must prove that:
+
+- `start-all.sh` invokes `scripts/status.sh` after Nginx startup;
+- a non-zero status result exits before the success banner;
+- the documented command explains that startup success includes the final
+  readiness gate.
+
 The live release gate is:
 
 1. run the focused infrastructure tests;
@@ -69,10 +102,19 @@ The live release gate is:
 4. execute `bash scripts/docker.sh smoke`;
 5. confirm local and remote `main` point to the release commit.
 
+The host-path release gate is run separately from Compose because both stacks
+cannot own ports 8010/8080 and the same worker queues simultaneously:
+
+1. stop the Compose stack while preserving its volumes;
+2. run `bash scripts/start-all.sh --restart-backend --rebuild`;
+3. require `bash scripts/status.sh` to pass;
+4. stop the host stack;
+5. restore the complete Compose stack with `bash scripts/docker.sh up-workers`.
+
 ## Non-Goals
 
 - No automatic deletion or reset of MySQL or MinIO.
 - No automatic repair loop for crashing services.
 - No fixed list of 16 service names.
-- No changes to local non-Compose startup scripts.
+- No new host-process supervisor or duplicated status implementation.
 - No background success while services are still starting.
