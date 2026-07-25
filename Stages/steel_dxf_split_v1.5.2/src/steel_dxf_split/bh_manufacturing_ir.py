@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from enum import Enum
 import hashlib
 import json
 import math
+from dataclasses import asdict, dataclass
+from enum import Enum
 from typing import Any
 
 from .bh_frames import LocalFrame
@@ -143,35 +143,63 @@ def _forward_segment_path(
     return tuple(result)
 
 
-def derive_weld_allowance_contract(
+def _segment_vertex_index(
     segments: tuple[BHContourSegmentIR, ...],
     *,
+    segment_index: int,
+    positive: bool,
     tolerance_mm: float = 1e-6,
-) -> WeldAllowanceContract:
-    """Prove the two longitudinal rails and positive terminal contour chain."""
+) -> int:
+    segment = segments[segment_index]
+    start_x = segment.start[0]
+    end_x = segment.end[0]
+    if positive:
+        if start_x > end_x + tolerance_mm:
+            return segment_index
+        if end_x > start_x + tolerance_mm:
+            return (segment_index + 1) % len(segments)
+    else:
+        if start_x < end_x - tolerance_mm:
+            return segment_index
+        if end_x < start_x - tolerance_mm:
+            return (segment_index + 1) % len(segments)
+    raise WeldAllowanceContractError(
+        "A longitudinal allowance rail has no distinct X endpoints."
+    )
 
-    if len(segments) < 3:
-        raise WeldAllowanceContractError(
-            "Weld allowance contour requires at least three segments."
-        )
-    for segment, following in zip(
-        segments,
-        (*segments[1:], segments[0]),
-        strict=True,
-    ):
-        if max(
-            abs(segment.end[0] - following.start[0]),
-            abs(segment.end[1] - following.start[1]),
-        ) > tolerance_mm:
-            raise WeldAllowanceContractError(
-                "Weld allowance contour is not end-to-start closed."
-            )
-    xs = [coordinate for segment in segments for coordinate in (segment.start[0], segment.end[0])]
-    main_length = max(xs) - min(xs)
-    if not math.isfinite(main_length) or main_length <= tolerance_mm:
-        raise WeldAllowanceContractError(
-            "Weld allowance main length must be positive and finite."
-        )
+
+def _terminal_path(
+    first_vertex: int,
+    second_vertex: int,
+    rail_indices: set[int],
+    segment_count: int,
+) -> tuple[int, ...] | None:
+    paths = (
+        _forward_segment_path(first_vertex, second_vertex, segment_count),
+        _forward_segment_path(second_vertex, first_vertex, segment_count),
+    )
+    candidates = tuple(
+        path for path in paths if path and rail_indices.isdisjoint(path)
+    )
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _chain_vertices(
+    segments: tuple[BHContourSegmentIR, ...],
+    indices: tuple[int, ...],
+) -> tuple[tuple[float, float], ...]:
+    return (
+        *(segments[index].start for index in indices),
+        segments[indices[-1]].end,
+    )
+
+
+def _horizontal_rail_contract(
+    segments: tuple[BHContourSegmentIR, ...],
+    *,
+    main_length: float,
+    tolerance_mm: float,
+) -> WeldAllowanceContract:
     maximum_semantic_horizontal_slope = 1e-4
     rails = [
         index
@@ -255,6 +283,246 @@ def derive_weld_allowance_contract(
             "BH.RULE.WELD_ALLOWANCE.POSITIVE_TERMINAL_RIGID_TRANSLATION",
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _LongitudinalTerminalCandidate:
+    score: tuple[int, int, int, int, int]
+    rail_indices: tuple[int, int]
+    positive_terminal_indices: tuple[int, ...]
+
+
+def _longitudinal_rail_contract(
+    segments: tuple[BHContourSegmentIR, ...],
+    *,
+    minimum_x: float,
+    maximum_x: float,
+    main_length: float,
+    tolerance_mm: float,
+) -> WeldAllowanceContract:
+    """Prove one rightmost terminal from dominant X-directed contour rails."""
+
+    longitudinal_spans = tuple(
+        (
+            index,
+            abs(segment.end[0] - segment.start[0]),
+        )
+        for index, segment in enumerate(segments)
+        if abs(segment.bulge) <= 1e-12
+        and abs(segment.end[0] - segment.start[0])
+        > abs(segment.end[1] - segment.start[1]) + tolerance_mm
+    )
+    if len(longitudinal_spans) < 2:
+        raise WeldAllowanceContractError(
+            "Weld allowance contract requires horizontal or longitudinal rail topology."
+        )
+    longest_span = max(span for _, span in longitudinal_spans)
+    minimum_dominant_span = max(0.25 * main_length, 0.5 * longest_span)
+    rails = tuple(
+        index
+        for index, span in longitudinal_spans
+        if span >= minimum_dominant_span - tolerance_mm
+    )
+    if len(rails) < 2:
+        raise WeldAllowanceContractError(
+            "Weld allowance contract requires horizontal or longitudinal rail topology."
+        )
+
+    score_quantum = max(tolerance_mm, 1e-6)
+
+    def quantize(value: float) -> int:
+        return int(round(value / score_quantum))
+
+    candidates: list[_LongitudinalTerminalCandidate] = []
+    for offset, first_index in enumerate(rails):
+        for second_index in rails[offset + 1 :]:
+            first = segments[first_index]
+            second = segments[second_index]
+            first_dx = first.end[0] - first.start[0]
+            second_dx = second.end[0] - second.start[0]
+            if first_dx * second_dx >= 0.0:
+                continue
+            first_y = (first.start[1] + first.end[1]) / 2.0
+            second_y = (second.start[1] + second.end[1]) / 2.0
+            if abs(first_y - second_y) <= tolerance_mm:
+                continue
+            rail_set = {first_index, second_index}
+            positive_first = _segment_vertex_index(
+                segments,
+                segment_index=first_index,
+                positive=True,
+                tolerance_mm=tolerance_mm,
+            )
+            positive_second = _segment_vertex_index(
+                segments,
+                segment_index=second_index,
+                positive=True,
+                tolerance_mm=tolerance_mm,
+            )
+            negative_first = _segment_vertex_index(
+                segments,
+                segment_index=first_index,
+                positive=False,
+                tolerance_mm=tolerance_mm,
+            )
+            negative_second = _segment_vertex_index(
+                segments,
+                segment_index=second_index,
+                positive=False,
+                tolerance_mm=tolerance_mm,
+            )
+            positive_terminal = _terminal_path(
+                positive_first,
+                positive_second,
+                rail_set,
+                len(segments),
+            )
+            negative_terminal = _terminal_path(
+                negative_first,
+                negative_second,
+                rail_set,
+                len(segments),
+            )
+            if positive_terminal is None or negative_terminal is None:
+                continue
+            positive_vertices = _chain_vertices(segments, positive_terminal)
+            negative_vertices = _chain_vertices(segments, negative_terminal)
+            if (
+                max(point[0] for point in positive_vertices)
+                < maximum_x - tolerance_mm
+                or min(point[0] for point in negative_vertices)
+                > minimum_x + tolerance_mm
+            ):
+                continue
+            positive_endpoint_x = (
+                segments[positive_first].start[0],
+                segments[positive_second].start[0],
+            )
+            positive_span = max(
+                point[0] for point in positive_vertices
+            ) - min(point[0] for point in positive_vertices)
+            positive_length = sum(
+                math.hypot(
+                    segments[index].end[0] - segments[index].start[0],
+                    segments[index].end[1] - segments[index].start[1],
+                )
+                for index in positive_terminal
+            )
+            candidates.append(
+                _LongitudinalTerminalCandidate(
+                    score=(
+                        quantize(maximum_x - min(positive_endpoint_x)),
+                        quantize(positive_span),
+                        quantize(abs(positive_endpoint_x[0] - positive_endpoint_x[1])),
+                        len(positive_terminal),
+                        quantize(positive_length),
+                    ),
+                    rail_indices=(first_index, second_index),
+                    positive_terminal_indices=positive_terminal,
+                )
+            )
+    if not candidates:
+        raise WeldAllowanceContractError(
+            "Weld allowance contract requires horizontal or longitudinal rail topology."
+        )
+    candidates.sort(
+        key=lambda candidate: (
+            candidate.score,
+            tuple(
+                segments[index].segment_id
+                for index in candidate.rail_indices
+            ),
+        )
+    )
+    best_score = candidates[0].score
+    best = tuple(candidate for candidate in candidates if candidate.score == best_score)
+    if len(best) != 1:
+        raise WeldAllowanceContractError(
+            "Weld allowance contract cannot select exactly two unique longitudinal "
+            "rails for the positive terminal."
+        )
+    selected = best[0]
+    ordered_rails = tuple(
+        sorted(
+            selected.rail_indices,
+            key=lambda index: (
+                (segments[index].start[1] + segments[index].end[1]) / 2.0,
+                segments[index].segment_id,
+            ),
+        )
+    )
+    return WeldAllowanceContract(
+        schema_version="BH-WELD-ALLOWANCE-CONTRACT-1.0",
+        coordinate_unit="mm",
+        longitudinal_axis="x",
+        main_length_mm=main_length,
+        allowance_mm=weld_allowance_mm(main_length),
+        stationary_end="negative_x",
+        movable_end="positive_x",
+        rail_segment_ids=(
+            segments[ordered_rails[0]].segment_id,
+            segments[ordered_rails[1]].segment_id,
+        ),
+        positive_terminal_segment_ids=tuple(
+            segments[index].segment_id
+            for index in selected.positive_terminal_indices
+        ),
+        rule_ids=(
+            "BH.RULE.WELD_ALLOWANCE.LONGITUDINAL_RAIL_TOPOLOGY",
+            "BH.RULE.WELD_ALLOWANCE.POSITIVE_TERMINAL_RIGID_TRANSLATION",
+        ),
+    )
+
+
+def derive_weld_allowance_contract(
+    segments: tuple[BHContourSegmentIR, ...],
+    *,
+    tolerance_mm: float = 1e-6,
+) -> WeldAllowanceContract:
+    """Prove the longitudinal rails and unique positive terminal contour chain."""
+
+    if len(segments) < 3:
+        raise WeldAllowanceContractError(
+            "Weld allowance contour requires at least three segments."
+        )
+    for segment, following in zip(
+        segments,
+        (*segments[1:], segments[0]),
+        strict=True,
+    ):
+        if max(
+            abs(segment.end[0] - following.start[0]),
+            abs(segment.end[1] - following.start[1]),
+        ) > tolerance_mm:
+            raise WeldAllowanceContractError(
+                "Weld allowance contour is not end-to-start closed."
+            )
+    xs = [
+        coordinate
+        for segment in segments
+        for coordinate in (segment.start[0], segment.end[0])
+    ]
+    minimum_x = min(xs)
+    maximum_x = max(xs)
+    main_length = maximum_x - minimum_x
+    if not math.isfinite(main_length) or main_length <= tolerance_mm:
+        raise WeldAllowanceContractError(
+            "Weld allowance main length must be positive and finite."
+        )
+    try:
+        return _horizontal_rail_contract(
+            segments,
+            main_length=main_length,
+            tolerance_mm=tolerance_mm,
+        )
+    except WeldAllowanceContractError:
+        return _longitudinal_rail_contract(
+            segments,
+            minimum_x=minimum_x,
+            maximum_x=maximum_x,
+            main_length=main_length,
+            tolerance_mm=tolerance_mm,
+        )
 
 
 @dataclass(frozen=True, slots=True)
