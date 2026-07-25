@@ -38,6 +38,12 @@ class DxfSplitRunRead(BaseModel):
     validation_schema: str | None
     input_manifest_sha256: str
     input_count: int
+    processed_count: int
+    failed_count: int
+    reviewed_count: int
+    elapsed_seconds: int
+    throughput_per_minute: float | None
+    estimated_remaining_seconds: int | None
     auto_accepted_count: int
     manual_review_count: int
     source_contracts: dict[str, str]

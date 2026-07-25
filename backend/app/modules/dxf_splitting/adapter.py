@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from app.platform.config.settings import settings
@@ -54,32 +56,82 @@ def invoke_splitter(
     output_directory: Path,
     *,
     expected_input_count: int,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Run the immutable Stage CLI and wrap its legacy JSON list in a platform schema."""
     if expected_input_count <= 0:
         raise DxfSplitError("拆板 CLI 不能接收空的自动处理批次。")
+    progress_path = output_directory / ".dwg-agent-split-progress.json"
+    command = [
+        sys.executable,
+        "-m",
+        "steel_dxf_split.cli",
+        str(input_directory),
+        "--output-dir",
+        str(output_directory),
+        "--authorize-tekla-bh-single-part-profile",
+        BH_SOURCE_CONTRACT,
+        "--authorize-tekla-box-single-part-profile",
+        BOX_SOURCE_CONTRACT,
+        "--progress-json",
+        str(progress_path),
+    ]
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+    last_processed = 0
+
+    def consume_progress() -> None:
+        nonlocal last_processed
+        if not progress_path.exists():
+            return
+        try:
+            progress = json.loads(progress_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise DxfSplitError("DXF 拆板进度文件无效。") from exc
+        if (
+            not isinstance(progress, dict)
+            or progress.get("schema") != "STEEL-DXF-SPLIT-PROGRESS-1"
+            or progress.get("input_count") != expected_input_count
+            or not isinstance(progress.get("processed_count"), int)
+        ):
+            raise DxfSplitError("DXF 拆板进度合同不匹配。")
+        processed = int(progress["processed_count"])
+        if processed < last_processed or processed > expected_input_count:
+            raise DxfSplitError("DXF 拆板进度不是有效的单调计数。")
+        if processed > last_processed:
+            last_processed = processed
+            if progress_callback is not None:
+                progress_callback(processed, expected_input_count)
+
+    deadline = monotonic() + settings.dxf_split_timeout_seconds
     try:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "steel_dxf_split.cli",
-                str(input_directory),
-                "--output-dir",
-                str(output_directory),
-                "--authorize-tekla-bh-single-part-profile",
-                BH_SOURCE_CONTRACT,
-                "--authorize-tekla-box-single-part-profile",
-                BOX_SOURCE_CONTRACT,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=settings.dxf_split_timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise DxfSplitError("DXF 拆板执行超时。") from exc
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, settings.dxf_split_timeout_seconds)
+            try:
+                stdout, stderr = process.communicate(timeout=min(0.25, remaining))
+                consume_progress()
+                break
+            except subprocess.TimeoutExpired:
+                consume_progress()
+    except BaseException as exc:
+        process.kill()
+        process.communicate()
+        if isinstance(exc, subprocess.TimeoutExpired):
+            raise DxfSplitError("DXF 拆板执行超时。") from exc
+        raise
+    completed = subprocess.CompletedProcess(
+        command,
+        process.returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
     if completed.returncode not in {0, 1, 2}:
         message = completed.stderr.strip() or "DXF 拆板进程异常退出。"
         raise DxfSplitError(message)

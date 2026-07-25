@@ -256,6 +256,10 @@ def _persist_validated_item(
     allowance_file = None
     split_report_file = None
     allowance_report_file = None
+    candidate_normal_file = None
+    candidate_allowance_file = None
+    candidate_split_report_file = None
+    candidate_allowance_report_file = None
     classification_item_id = validated.source.semantic.classification_item_id
     prefix = f"items/{classification_item_id}"
     if validated.automation_route == "auto_accepted":
@@ -323,6 +327,58 @@ def _persist_validated_item(
             batch_name=batch_name,
             content_type="application/json",
         )
+    elif (
+        validated.normal_dxf_path is not None
+        and validated.weld_allowance_dxf_path is not None
+    ):
+        candidate_normal_file = persist_split_output(
+            db,
+            job=job,
+            workflow_id=workflow.id,
+            attempt=job.attempt,
+            relative_path=f"{prefix}/candidates/{validated.normal_dxf_path.name}",
+            path=validated.normal_dxf_path,
+            batch_name=batch_name,
+            content_type="application/dxf",
+        )
+        candidate_allowance_file = persist_split_output(
+            db,
+            job=job,
+            workflow_id=workflow.id,
+            attempt=job.attempt,
+            relative_path=(
+                f"{prefix}/candidates/{validated.weld_allowance_dxf_path.name}"
+            ),
+            path=validated.weld_allowance_dxf_path,
+            batch_name=batch_name,
+            content_type="application/dxf",
+        )
+        if validated.split_report_path is not None:
+            candidate_split_report_file = persist_split_output(
+                db,
+                job=job,
+                workflow_id=workflow.id,
+                attempt=job.attempt,
+                relative_path=(
+                    f"{prefix}/candidates/{validated.split_report_path.name}"
+                ),
+                path=validated.split_report_path,
+                batch_name=batch_name,
+                content_type="application/json",
+            )
+        if validated.weld_allowance_report_path is not None:
+            candidate_allowance_report_file = persist_split_output(
+                db,
+                job=job,
+                workflow_id=workflow.id,
+                attempt=job.attempt,
+                relative_path=(
+                    f"{prefix}/candidates/{validated.weld_allowance_report_path.name}"
+                ),
+                path=validated.weld_allowance_report_path,
+                batch_name=batch_name,
+                content_type="application/json",
+            )
     item = record_split_item(
         db,
         run=run,
@@ -331,6 +387,10 @@ def _persist_validated_item(
         allowance_file=allowance_file,
         split_report_file=split_report_file,
         allowance_report_file=allowance_report_file,
+        candidate_normal_file=candidate_normal_file,
+        candidate_allowance_file=candidate_allowance_file,
+        candidate_split_report_file=candidate_split_report_file,
+        candidate_allowance_report_file=candidate_allowance_report_file,
     )
     if normal_file is not None:
         attach_artifact(
@@ -536,10 +596,36 @@ def run_dxf_splitting(
                 return
 
             if supported:
+                def publish_progress(processed: int, total: int) -> None:
+                    overall_processed = min(len(unsupported) + processed, len(inputs))
+                    current_run = load_split_run(db, job_id=job.id, attempt=attempt)
+                    current_run.processed_count = overall_processed
+                    db.flush()
+                    progress = 25 + round(35 * overall_processed / len(inputs))
+                    active_job = commit_job_progress(
+                        db,
+                        job.id,
+                        attempt=attempt,
+                        progress=progress,
+                        event=make_event(
+                            type_="progress",
+                            status=JOB_RUNNING,
+                            progress=progress,
+                            message=(
+                                f"已拆板 {overall_processed} / {len(inputs)} 张 DXF"
+                            ),
+                            processed_count=overall_processed,
+                            input_count=len(inputs),
+                        ),
+                    )
+                    if active_job is None:
+                        raise DxfSplitError("拆板 Job attempt 已不再有效。")
+
                 cli_payload = _invoke_splitter(
                     input_directory,
                     output_directory,
                     expected_input_count=len(supported),
+                    progress_callback=publish_progress,
                 )
                 ledger_path = output_directory / BH_PROJECT_LEDGER_FILENAME
             else:

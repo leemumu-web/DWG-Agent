@@ -81,16 +81,20 @@ def _manual_item(
     disposition: str,
     diagnostics: list[str] | tuple[str, ...],
     checks: dict[str, object] | None = None,
+    normal_dxf_path: Path | None = None,
+    weld_allowance_dxf_path: Path | None = None,
+    split_report_path: Path | None = None,
+    weld_allowance_report_path: Path | None = None,
 ) -> ValidatedSplitItem:
     return ValidatedSplitItem(
         source=source,
         family=family,
         automation_route="manual_review",
         disposition=disposition,
-        normal_dxf_path=None,
-        weld_allowance_dxf_path=None,
-        split_report_path=None,
-        weld_allowance_report_path=None,
+        normal_dxf_path=normal_dxf_path,
+        weld_allowance_dxf_path=weld_allowance_dxf_path,
+        split_report_path=split_report_path,
+        weld_allowance_report_path=weld_allowance_report_path,
         diagnostics=tuple(dict.fromkeys(str(value) for value in diagnostics if value)),
         validation={
             "status": "manual_review",
@@ -144,6 +148,7 @@ def _validate_auto_result(
     if family != source.semantic.part_type:
         findings.append("拆板识别族与分类类型不一致")
 
+    candidate_pair_readable = normal is not None and allowance is not None
     for path, label in (
         (normal, "正常拆板 DXF"),
         (allowance, "余量增长 DXF"),
@@ -154,6 +159,7 @@ def _validate_auto_result(
             _validate_dxf(path, label)
         except ValueError as exc:
             findings.append(str(exc))
+            candidate_pair_readable = False
 
     report: dict[str, Any] | None = None
     allowance_report: dict[str, Any] | None = None
@@ -221,6 +227,16 @@ def _validate_auto_result(
             disposition="independent_validation_failed",
             diagnostics=["INDEPENDENT_VALIDATION_FAILED", *findings],
             checks={"findings": findings},
+            normal_dxf_path=normal if candidate_pair_readable else None,
+            weld_allowance_dxf_path=allowance if candidate_pair_readable else None,
+            split_report_path=(
+                split_report_path if candidate_pair_readable and report is not None else None
+            ),
+            weld_allowance_report_path=(
+                allowance_report_path
+                if candidate_pair_readable and allowance_report is not None
+                else None
+            ),
         )
     return ValidatedSplitItem(
         source=source,

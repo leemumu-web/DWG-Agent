@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from time import perf_counter
@@ -37,6 +38,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="可选：显式指定 BOX release attestation。",
+    )
+    parser.add_argument(
+        "--progress-json",
+        type=Path,
+        default=None,
+        help="可选：逐图完成后原子更新平台进度 JSON。",
     )
     return parser
 
@@ -79,6 +86,27 @@ def _snapshot_inputs(input_dir: Path, output_dir: Path) -> tuple[Path, ...]:
     return inputs
 
 
+def _publish_progress(path: Path | None, *, processed_count: int, input_count: int) -> None:
+    if path is None:
+        return
+    if path.is_symlink():
+        raise ValueError("进度文件不能是符号链接。")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
+                "processed_count": processed_count,
+                "input_count": input_count,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -107,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     summaries: list[dict[str, object]] = []
     results: list[SplitResult] = []
     failures = 0
-    for input_path in inputs:
+    for processed_count, input_path in enumerate(inputs, start=1):
         processing_started = perf_counter()
         try:
             result = split_dxf(input_path, args.output_dir, options)
@@ -122,6 +150,11 @@ def main(argv: list[str] | None = None) -> int:
                     "error": str(exc),
                 }
             )
+            _publish_progress(
+                args.progress_json,
+                processed_count=processed_count,
+                input_count=len(inputs),
+            )
             continue
         if isinstance(result, SplitResult):
             results.append(result)
@@ -131,6 +164,11 @@ def main(argv: list[str] | None = None) -> int:
                 compiler_version=__version__,
                 processing_seconds=perf_counter() - processing_started,
             )
+        )
+        _publish_progress(
+            args.progress_json,
+            processed_count=processed_count,
+            input_count=len(inputs),
         )
     if not failures:
         try:

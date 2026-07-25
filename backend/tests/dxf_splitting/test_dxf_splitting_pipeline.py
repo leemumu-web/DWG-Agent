@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import zipfile
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -24,6 +25,7 @@ from app.modules.dxf_splitting import execution as split_execution
 from app.modules.dxf_splitting import models as split_models
 from app.modules.dxf_splitting.interface import (
     DxfSplitRun,
+    build_dxf_split_run_read,
     get_excel_split_handoff,
     manual_review_archive_members,
 )
@@ -332,6 +334,7 @@ def _fake_splitter(
         output_directory: Path,
         *,
         expected_input_count: int,
+        progress_callback=None,
     ) -> dict[str, object]:
         results: list[dict[str, object]] = []
         for source in sorted(input_directory.glob("*.dxf")):
@@ -395,6 +398,8 @@ def _fake_splitter(
                     "diagnostic_codes": [],
                 }
             )
+            if progress_callback is not None:
+                progress_callback(len(results), expected_input_count)
         _write_ledger(output_directory)
         manual_count = sum(result["automation_route"] == "manual_review" for result in results)
         assert len(results) == expected_input_count
@@ -601,12 +606,16 @@ def test_review_decision_service_rejects_stale_version_and_attempt(
 def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path):
     captured: list[list[str]] = []
 
-    def run(command, **_kwargs):
-        captured.append(command)
-        return subprocess.CompletedProcess(
-            command,
-            1,
-            stdout=json.dumps(
+    class Process:
+        returncode = 1
+
+        def __init__(self, command, **_kwargs):
+            self.command = command
+            captured.append(command)
+
+        def communicate(self, timeout=None):
+            return (
+                json.dumps(
                 [
                     {
                         "input": str(tmp_path / "BH-1_拆板前.dxf"),
@@ -614,11 +623,14 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
                         "automation_route": "manual_review",
                     }
                 ]
-            ),
-            stderr="",
-        )
+                ),
+                "",
+            )
 
-    monkeypatch.setattr(split_adapter.subprocess, "run", run)
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
     payload = split_adapter.invoke_splitter(
         tmp_path,
         tmp_path.parent / "output",
@@ -638,8 +650,131 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
             "project_tekla_bh_dxf_v1",
             "--authorize-tekla-box-single-part-profile",
             "project_tekla_box_dxf_v1",
+            "--progress-json",
+            str(tmp_path.parent / "output" / ".dwg-agent-split-progress.json"),
         ]
     ]
+
+
+def test_adapter_streams_monotonic_progress_to_platform_callback(monkeypatch, tmp_path):
+    callbacks: list[tuple[int, int]] = []
+
+    class Process:
+        returncode = 1
+
+        def __init__(self, command, **_kwargs):
+            self.command = command
+            self.calls = 0
+
+        def communicate(self, timeout=None):
+            if self.calls == 0:
+                self.calls += 1
+                progress_path = Path(
+                    self.command[self.command.index("--progress-json") + 1]
+                )
+                progress_path.parent.mkdir(parents=True, exist_ok=True)
+                progress_path.write_text(
+                    json.dumps(
+                        {
+                            "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
+                            "processed_count": 1,
+                            "input_count": 1,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                raise subprocess.TimeoutExpired(self.command, timeout)
+            return (
+                json.dumps(
+                [
+                    {
+                        "input": str(tmp_path / "BH-1_拆板前.dxf"),
+                        "compiler_version": "1.5.2",
+                        "automation_route": "manual_review",
+                    }
+                ]
+                ),
+                "",
+            )
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+
+    split_adapter.invoke_splitter(
+        tmp_path,
+        tmp_path.parent / "output",
+        expected_input_count=1,
+        progress_callback=lambda processed, total: callbacks.append((processed, total)),
+    )
+
+    assert callbacks == [(1, 1)]
+
+
+def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
+    from steel_dxf_split import cli as split_cli
+
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    progress_path = tmp_path / "progress.json"
+    input_directory.mkdir()
+    for name in ("BH-1_拆板前.dxf", "BH-2_拆板前.dxf"):
+        (input_directory / name).write_bytes(b"fixture")
+
+    class FakeResult:
+        def to_summary(self, *, input_path, compiler_version, processing_seconds):
+            return {
+                "input": str(input_path),
+                "compiler_version": compiler_version,
+                "processing_seconds": processing_seconds,
+                "automation_route": "manual_review",
+                "disposition": "fixture_review",
+            }
+
+    monkeypatch.setattr(split_cli, "split_dxf", lambda *_args, **_kwargs: FakeResult())
+    monkeypatch.setattr(split_cli, "publish_bh_project_ledger", lambda *_args: None)
+
+    exit_code = split_cli.main(
+        [
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--progress-json",
+            str(progress_path),
+        ]
+    )
+
+    assert exit_code == 1
+    assert json.loads(progress_path.read_text(encoding="utf-8")) == {
+        "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
+        "processed_count": 2,
+        "input_count": 2,
+    }
+
+
+def test_split_run_projection_reports_real_speed_and_eta(db, monkeypatch, tmp_path):
+    workflow, run, _ = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=False,
+    )
+    now = datetime(2026, 7, 25, 10, 0, tzinfo=UTC)
+    run.status = "running"
+    run.input_count = 10
+    run.processed_count = 4
+    run.started_at = now - timedelta(minutes=2)
+    run.finished_at = None
+    db.flush()
+
+    read = build_dxf_split_run_read(db, run, now=now)
+
+    assert read.workflow_run_id == workflow.id
+    assert read.processed_count == 4
+    assert read.elapsed_seconds == 120
+    assert read.throughput_per_minute == pytest.approx(2.0)
+    assert read.estimated_remaining_seconds == 180
 
 
 def test_completed_batch_persists_exact_pairs_minio_ledger_and_excel_handoff(
@@ -914,6 +1049,8 @@ def test_independent_validation_mismatch_becomes_business_review_not_job_failure
     assert run is not None and run.status == "completed_with_review"
     assert run.items[0].disposition == "independent_validation_failed"
     assert run.items[0].normal_dxf_file_id is None
+    assert run.items[0].candidate_normal_dxf_file_id is not None
+    assert run.items[0].candidate_weld_allowance_dxf_file_id is not None
     assert "INDEPENDENT_VALIDATION_FAILED" in run.items[0].diagnostics_json
 
 

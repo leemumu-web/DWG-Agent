@@ -178,6 +178,10 @@ def record_split_item(
     allowance_file: StoredFile | None = None,
     split_report_file: StoredFile | None = None,
     allowance_report_file: StoredFile | None = None,
+    candidate_normal_file: StoredFile | None = None,
+    candidate_allowance_file: StoredFile | None = None,
+    candidate_split_report_file: StoredFile | None = None,
+    candidate_allowance_report_file: StoredFile | None = None,
 ) -> DxfSplitItem:
     semantic = validated.source.semantic
     item = DxfSplitItem(
@@ -197,6 +201,22 @@ def record_split_item(
         split_report_file_id=(split_report_file.id if split_report_file is not None else None),
         weld_allowance_report_file_id=(
             allowance_report_file.id if allowance_report_file is not None else None
+        ),
+        candidate_normal_dxf_file_id=(
+            candidate_normal_file.id if candidate_normal_file is not None else None
+        ),
+        candidate_weld_allowance_dxf_file_id=(
+            candidate_allowance_file.id if candidate_allowance_file is not None else None
+        ),
+        candidate_split_report_file_id=(
+            candidate_split_report_file.id
+            if candidate_split_report_file is not None
+            else None
+        ),
+        candidate_weld_allowance_report_file_id=(
+            candidate_allowance_report_file.id
+            if candidate_allowance_report_file is not None
+            else None
         ),
         diagnostics_json=list(validated.diagnostics),
         validation_json=validated.validation,
@@ -254,6 +274,7 @@ def finish_split_run(
     run.validation_schema = VALIDATION_SCHEMA
     run.auto_accepted_count = auto_accepted_count
     run.manual_review_count = manual_review_count
+    run.processed_count = run.input_count
     run.bh_split_ledger_file_id = ledger_file.id
     run.split_manifest_file_id = manifest_file.id
     run.validation_report_file_id = validation_file.id

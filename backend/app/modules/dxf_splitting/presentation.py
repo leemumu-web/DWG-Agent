@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
 
 from app.modules.dxf_splitting.models import DxfSplitRun
@@ -28,6 +30,8 @@ def _optional_file(db: Session, file_id: int | None) -> StoredFile | None:
 def build_dxf_split_run_read(
     db: Session,
     run: DxfSplitRun,
+    *,
+    now: datetime | None = None,
 ) -> DxfSplitRunRead:
     job = db.get(Job, run.job_id)
     if job is None:
@@ -35,6 +39,29 @@ def build_dxf_split_run_read(
     ledger = _optional_file(db, run.bh_split_ledger_file_id)
     manifest = _optional_file(db, run.split_manifest_file_id)
     validation = _optional_file(db, run.validation_report_file_id)
+    current_time = now or datetime.now(UTC)
+    end_time = run.finished_at or current_time
+    elapsed_seconds = (
+        max(0, int((end_time - run.started_at).total_seconds()))
+        if run.started_at is not None
+        else 0
+    )
+    throughput_per_minute = (
+        run.processed_count / (elapsed_seconds / 60)
+        if run.processed_count > 0 and elapsed_seconds > 0
+        else None
+    )
+    remaining_count = max(run.input_count - run.processed_count, 0)
+    estimated_remaining_seconds = (
+        round((remaining_count / throughput_per_minute) * 60)
+        if throughput_per_minute and run.status == "running"
+        else 0
+        if remaining_count == 0
+        else None
+    )
+    manual_items = [
+        item for item in run.items if item.automation_route == "manual_review"
+    ]
     return DxfSplitRunRead(
         id=run.id,
         workflow_run_id=run.workflow_run_id,
@@ -44,6 +71,16 @@ def build_dxf_split_run_read(
         validation_schema=run.validation_schema,
         input_manifest_sha256=run.input_manifest_sha256,
         input_count=run.input_count,
+        processed_count=run.processed_count,
+        failed_count=sum(
+            item.candidate_normal_dxf_file_id is None
+            or item.candidate_weld_allowance_dxf_file_id is None
+            for item in manual_items
+        ),
+        reviewed_count=sum(item.review_decision is not None for item in manual_items),
+        elapsed_seconds=elapsed_seconds,
+        throughput_per_minute=throughput_per_minute,
+        estimated_remaining_seconds=estimated_remaining_seconds,
         auto_accepted_count=run.auto_accepted_count,
         manual_review_count=run.manual_review_count,
         source_contracts=run.source_contracts_json or {},
