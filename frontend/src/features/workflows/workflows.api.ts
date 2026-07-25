@@ -12,6 +12,10 @@ import type {
   DxfSplitReviewDecisionKind,
   DxfSplitReviewPage,
   DxfSplitRun,
+  WorkflowBatchExport,
+  WorkflowBatchExportPreview,
+  WorkflowBatchExportPurgeResult,
+  WorkflowExportCategory,
 } from './workflow';
 
 export interface WorkflowListParams {
@@ -281,4 +285,61 @@ export async function downloadDxfSplitResultsArchive(
     `workflow-${workflowId}-split-run-${runId}-results.zip`,
     '拆板正式结果压缩包下载失败',
   );
+}
+
+export async function getWorkflowBatchExportPreview(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowBatchExportPreview>>(
+    `/api/v1/workflows/${workflowId}/batch-exports/preview`,
+  );
+  return response.data.data;
+}
+
+export async function createWorkflowBatchExport(
+  workflowId: number,
+  categories: WorkflowExportCategory[],
+) {
+  const response = await apiClient.post<ApiEnvelope<WorkflowBatchExport>>(
+    `/api/v1/workflows/${workflowId}/batch-exports`,
+    { categories },
+  );
+  return response.data.data;
+}
+
+export async function getWorkflowBatchExport(
+  workflowId: number,
+  exportUid: string,
+) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowBatchExport>>(
+    `/api/v1/workflows/${workflowId}/batch-exports/${encodeURIComponent(exportUid)}`,
+  );
+  return response.data.data;
+}
+
+export function startNativeWorkflowBatchExportDownload(
+  exportRow: WorkflowBatchExport,
+) {
+  if (!exportRow.download_url) {
+    throw new Error('本次分批导出没有可用的下载地址');
+  }
+  const apiBase = new URL(
+    import.meta.env.VITE_API_BASE_URL || '/',
+    window.location.origin,
+  );
+  const anchor = document.createElement('a');
+  anchor.href = new URL(exportRow.download_url, apiBase).toString();
+  anchor.download = exportRow.filename;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+export async function purgeWorkflowBatchExport(
+  workflowId: number,
+  exportUid: string,
+) {
+  const response = await apiClient.post<ApiEnvelope<WorkflowBatchExportPurgeResult>>(
+    `/api/v1/workflows/${workflowId}/batch-exports/${encodeURIComponent(exportUid)}/purge`,
+  );
+  return response.data.data;
 }

@@ -18,6 +18,7 @@ from app.modules.workflows.lifecycle import (
 )
 from app.modules.workflows.models import (
     WorkflowArtifact,
+    WorkflowBatchExport,
     WorkflowInputBatch,
     WorkflowInputItem,
     WorkflowRun,
@@ -28,6 +29,7 @@ from app.modules.workflows.templates import list_workflow_templates
 __all__ = [
     "FrozenInputReference",
     "WorkflowArtifact",
+    "WorkflowBatchExport",
     "WorkflowInputBatch",
     "WorkflowInputItem",
     "WorkflowRun",

@@ -35,6 +35,7 @@ export interface DataAdminFile {
   uploaded_by?: number | null;
   status: string;
   deleted_at?: string | null;
+  purged_at?: string | null;
   created_at: string;
   updated_at: string;
 }

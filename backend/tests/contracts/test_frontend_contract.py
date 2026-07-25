@@ -382,6 +382,12 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
 def test_dxf_split_has_guarded_batch_console_and_original_only_review_download():
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     panel_source = _frontend_source("features/workflows/DrawingProcessingPanel.tsx")
+    export_source = _frontend_source(
+        "features/workflows/WorkflowBatchExportControl.tsx"
+    )
+    artifact_source = _frontend_source(
+        "features/workflows/WorkflowArtifactSummary.tsx"
+    )
     api_source = _frontend_source("features/workflows/workflows.api.ts")
     type_source = _frontend_source("features/workflows/workflow.ts")
 
@@ -394,11 +400,28 @@ def test_dxf_split_has_guarded_batch_console_and_original_only_review_download()
     assert "正常拆板" in panel_source
     assert "余量增长" in panel_source
     assert "下载未通过原图 ZIP" in panel_source
+    assert "WorkflowBatchExportControl" in panel_source
+    assert 'title="03 · 图纸拆板与独立校验"' in panel_source
+    assert "分批导出" in export_source
+    assert "原 DXF" not in export_source
+    assert "category.label" in export_source
+    assert "已保存，删除服务器文件" in export_source
+    assert "此操作不可恢复" in export_source
+    assert "WorkflowBatchExportControl" not in artifact_source
     assert "候选图" not in panel_source
     assert "上传" not in panel_source
     assert "确认当前阶段" not in panel_source
     assert "getDxfSplitRun" in api_source
     assert "downloadDxfSplitManualReviewArchive" in api_source
+    assert "startNativeWorkflowBatchExportDownload" in api_source
+    assert "/batch-exports/preview" in api_source
+    assert "/purge" in api_source
+    batch_download_source = api_source.split(
+        "export function startNativeWorkflowBatchExportDownload",
+        1,
+    )[1].split("export async function purgeWorkflowBatchExport", 1)[0]
+    assert "document.createElement('a')" in batch_download_source
+    assert "responseType: 'blob'" not in batch_download_source
     assert "/drawing-processing/runs/${runId}/manual-review-archive" in api_source
     assert "DxfSplitRun" in type_source
     assert "automation_route: 'auto_accepted' | 'manual_review'" in type_source

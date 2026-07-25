@@ -67,6 +67,7 @@ Celery broker/result URL 分别计算为 `sqla+<effective-mysql-dsn>` 和 `db+<e
 | `DAILY_ARCHIVE_PREVIEW_TTL_MINUTES` | 10 | 归档签名预检有效分钟数，限制 1-60 |
 | `DAILY_ARCHIVE_MAX_FILES` | 5000 | 单次归档冻结文件数上限，限制 1-50000 |
 | `DAILY_ARCHIVE_MAX_SOURCE_GB` | 50 | 单次归档源文件总量上限，限制 1-500 GiB |
+| `WORKFLOW_BATCH_EXPORT_TTL_MINUTES` | 60 | 分批导出路径级 HttpOnly 下载能力有效分钟数，限制 5-240；过期只阻止下载，不会删除源文件 |
 | `MINIO_ENDPOINT` | `http://localhost:9000` | API endpoint，不是 console endpoint |
 | `MINIO_ACCESS_KEY` | 空 | MinIO 客户端身份 |
 | `MINIO_SECRET_KEY` | 空 | MinIO 客户端 secret |
@@ -77,7 +78,7 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 
 生产 Compose 的 MinIO 只连接 `internal` 网络，默认不发布 9000/9001 到宿主；容器使用 `.env.docker` 的 `http://minio:9000` 与对应 backend 凭据。宿主进程若切换 `STORAGE_BACKEND=minio`，必须提供宿主可达 endpoint 和与正在运行服务一致的 access/secret，不能假定 `.env` 的 `localhost:9000` 可达或与 `.env.docker` 密钥相同。验证脚本可临时使用容器 IP，禁止为一次探针长期开放管理 console。
 
-两个 ZIP 限制和 DXF bucket 覆盖已存在于代码，但当前没有同时作为活动行列在两份环境模板中。因此除非操作员显式加入，否则使用默认值。
+两个 ZIP 解压限制和 DXF bucket 覆盖已存在于代码，但当前没有同时作为活动行列在两份环境模板中。因此除非操作员显式加入，否则使用默认值。分批导出 TTL 已在两份模板中列出；它不控制 ZIP 在服务器上的保留时间，因为分批导出不生成服务器临时 ZIP。
 
 ## 认证与初始化
 

@@ -10,13 +10,13 @@
 - `AnalysisResult` 管处理结果；
 - `WorkflowArtifact` 只保存已有 file/result 引用和阶段元数据。
 
-公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、Steel DXF 分类、Steel DXF Split 1.5.2 整批拆板与独立校验、冻结 Excel 第一阶段、Job attempt 同步、结果产物挂接和 active Job 取消。DXF→Excel 只保留为独立转换工具，不是生产工作流阶段。拆板纵向切片默认关闭，仍需真实 MinIO/MySQL 与代表性业务样本验收；CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现。
+公开 `/workflows` 路由已经接通生产输入账本、DWG→DXF、Steel DXF 分类、Steel DXF Split 1.5.2 整批拆板与独立校验、冻结 Excel 第一阶段、四类文件流式分批导出与确认后物理释放、Job attempt 同步、结果产物挂接和 active Job 取消。DXF→Excel 只保留为独立转换工具，不是生产工作流阶段。拆板纵向切片默认关闭，仍需真实 MinIO/MySQL 与代表性业务样本验收；CAM 工作包算法、Windows Node Agent 与 SinoCAM 尚无服务器实现。
 
 ### 1.1 代码归属与输入规则校正
 
-工作流正式实现位于 `backend/app/modules/workflows/`：`models/` 拥有五张表，`schemas/`
+工作流正式实现位于 `backend/app/modules/workflows/`：`models/` 拥有六张表，`schemas/`
 拥有 HTTP/展示契约，`templates.py` 是阶段事实源，`lifecycle.py` 与 `job_sync.py` 分别负责
-业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 18 个
+业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 70 个
 operation。其他业务模块只能导入 `workflows.interface`；旧的 workflow API/model/schema/service
 横向文件已经退出。
 
@@ -80,6 +80,14 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 ### 3.6 `dxf_split_runs` / `dxf_split_items`
 
 每个拆板 Job attempt 建立不可变 run，保存 workflow/project/job、输入清单 SHA-256、Split/CLI/独立校验 schema、输入/自动通过/人工复核计数、来源合同映射和批次级 ledger/manifest/validation 文件引用。逐图 item 保存分类 item、分类原始文件、Drawing、零件类型、来源合同、自动路线、处置、正常拆板/余量增长 DXF、两类算法报告、诊断和独立校验结果。`(job_id, job_attempt)` 与 `(run_id, source_file_id)` 唯一；新 attempt 重跑整个冻结批次，旧 attempt 保留但不进入当前 UI、Excel 交接或正式归档。
+
+### 3.7 `workflow_batch_exports`
+
+每次创建导出时冻结用户选择、当前 attempt 的文件登记属性和固定 ZIP 路径，并保存随机下载
+能力的 SHA-256 摘要，不保存明文 token 或 ZIP 字节。状态为
+`prepared → downloading → downloaded`，中断变为 `download_failed` 并允许重试；只有服务端
+出库流水已成功且用户二次确认后才能进入 `purged`。物理清理成功时清空 manifest 和 token
+摘要，记录对象/预览缓存数量与释放字节；`files` 行保留为带 `purged_at` 的外键墓碑。
 
 ## 4. 状态与执行
 
@@ -149,11 +157,31 @@ completion API 只接受当前可操作阶段：
 
 `GET /api/v1/workflows/{workflow_id}` 同步已绑定 Job 的状态、进度、错误和时间。Job 成功时查询其成功 AnalysisResult，根据阶段能力自动挂接 file/result；重复 GET 幂等。普通成功随后推进下一阶段；拆板 `completed_with_review` 是业务成功但不推进，阶段和流程保持 `waiting_review`。失败 Job 把流程收敛为 failed，并保留错误与已完成产物。工作流归档以已验证的项目成员资格和 artifact/run 账本为下载边界，因此同项目工程师可接续前一位操作者生成的服务器产物；非项目成员仍在进入归档收集前被拒绝。
 
-### 4.5 取消
+### 4.5 分批导出与物理释放
+
+入口只放在 Stage A3 “03 · 图纸拆板与独立校验”卡片标题栏右侧。四个 UI 标签映射为：
+
+- `原 DXF` → 当前分类 attempt 的 `classified_dxf` → `原DXF/`；
+- `正常拆板 DXF` → 当前拆板 attempt 的 `processed_dxf` → `正常拆板DXF/`；
+- `原 Excel` → 冻结输入 `source_excel` → `原Excel/`；
+- `产出 Excel` → 当前成功 Excel 第一阶段 Job 的 `stage1_excel` → `产出Excel/`。
+
+叶子名称严格使用 `files.original_name`；不改名、不翻译、不加前后缀，路径不安全或同一目录
+不区分大小写重名时失败关闭。ZIP 使用 stdlib streaming data descriptor 直接读取存储分块并
+向 HTTP 响应产出，不在服务器磁盘落临时文件。浏览器通过原生 `<a>` 下载；路径级 HttpOnly
+能力避免把 bearer/token 放进 URL。
+
+下载流结束后，独立数据库事务同时把 `file_transfers(operation=workflow_batch_export)` 和
+export 状态标记成功；中断则标记失败且保留对象。purge 要求创建者或管理员、项目写角色、
+`downloaded` 状态和成功出库流水，并在 queued/running stage 上失败关闭。确认后删除所选
+Local/MinIO 对象及其 DXF SVG 预览缓存，移除对应 workflow artifact 文件引用，将登记标记为
+`deleted + purged_at`，但不破坏 Drawing、Job、输入和拆板账本外键。
+
+### 4.6 取消
 
 取消流程时，如果当前阶段绑定 `pending`、`queued`、`running`、`validating` 或 `waiting_cad_worker` Job，先调用现有 guarded Job cancellation，再取消未终态阶段。已完成 Job 和历史 artifact 保留。
 
-### 4.6 失败恢复
+### 4.7 失败恢复
 
 一般自动阶段 Job 失败或被单独取消后，流程停留在原阶段并进入可恢复的 `failed` 状态。重新调用同一 executions 端点会复用原 Job、递增 `attempt`、刷新阶段绑定并重新投递，响应返回 `retried=true`。拆板的消息投递或 worker 执行发生技术失败时，系统自动使用同一 Job 的下一 attempt，最多 3 次；达到上限后 executions 端点返回 `DXF_SPLIT_ATTEMPTS_EXHAUSTED`，业务 `manual_review` 不触发技术重试。旧 attempt 的 worker/result 仍由现有 fencing 规则拒绝；显式取消整个流程后不会自动重开。
 
@@ -179,6 +207,11 @@ completion API 只接受当前可操作阶段：
 | POST | `/api/v1/workflows/{workflow_id}/input-dwg-folder` | 审核并登记一个只含 DWG 的文件夹 |
 | DELETE | `/api/v1/workflows/{workflow_id}/input-folder` | 冻结前整批清空输入文件夹并取消活动 Job |
 | GET | `/api/v1/workflows/{workflow_id}/download-archive` | 按阶段和产物类型下载完整生产 ZIP |
+| GET | `/api/v1/workflows/{workflow_id}/batch-exports/preview` | 统计当前四类可导出文件，不读取对象字节 |
+| POST | `/api/v1/workflows/{workflow_id}/batch-exports` | 冻结选择并签发路径级短期下载能力 |
+| GET | `/api/v1/workflows/{workflow_id}/batch-exports/{export_uid}` | 读取创建者本次导出的下载/清理状态 |
+| GET | `/api/v1/workflows/{workflow_id}/batch-exports/{export_uid}/download` | 通过 HttpOnly 能力直接流式发送 ZIP；此步不删除 |
+| POST | `/api/v1/workflows/{workflow_id}/batch-exports/{export_uid}/purge` | 下载完成后二次确认物理删除对象并保留引用墓碑 |
 | POST | `/api/v1/workflows/{workflow_id}/input-batch/conversion-requests` | 幂等创建或重试 DWG→DXF Job |
 | POST | `/api/v1/workflows/{workflow_id}/input-batch/freeze` | 重校验、建 Drawing、冻结清单并推进阶段 |
 | POST | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` | 执行真实 Linux 阶段或返回留白契约 |
@@ -214,6 +247,10 @@ completion API 只接受当前可操作阶段：
 | run status | `completed_with_review` | 单图算法或独立校验未通过；Job 仍成功，当前图进入人工复核且同批其他图已处理到底 |
 | 404/409 | `DXF_SPLIT_RUN_NOT_CURRENT` / `DXF_SPLIT_RUN_STALE` / `DXF_SPLIT_REVIEW_ARCHIVE_*` | 请求的 run 不是当前 attempt，Excel 交接指向旧 attempt，或当前 run 没有可下载的未通过原图 |
 | 503 | `EXCEL_FINAL_PIPELINE_DISABLED` | Excel Final flag 关闭 |
+| 409 | `WORKFLOW_EXPORT_CATEGORY_EMPTY` / `WORKFLOW_EXPORT_FILENAME_INVALID` / `WORKFLOW_EXPORT_FILENAME_CONFLICT` | 选中类别为空、登记名不适合安全 ZIP 路径，或保留原文件名会产生路径冲突 |
+| 403/410 | `WORKFLOW_EXPORT_TOKEN_INVALID` / `WORKFLOW_EXPORT_TOKEN_EXPIRED` | 原生下载的路径级能力无效或过期；源文件不删除 |
+| 409 | `WORKFLOW_EXPORT_MANIFEST_STALE` / `WORKFLOW_EXPORT_NOT_DOWNLOADED` / `WORKFLOW_EXPORT_PURGE_ACTIVE_STAGE` | 冻结登记变化、服务端尚未完整发送 ZIP，或仍有 queued/running stage |
+| 503 | `WORKFLOW_EXPORT_PURGE_FAILED` | 对象清理未完整完成；查看 `workflow_export_purge` 流水和一致性扫描后重试 |
 
 ## 6. 前端
 
@@ -232,6 +269,7 @@ React `生产流程` 页面读取模板，提供：
 - 冻结后详情工作区自动进入 DXF 分类控制台，无需重新选择文件；
 - 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断以及分类/全量 DXF-only 下载；JSON/CSV 只进入审计产物；
 - 拆板整批启动、当前 Job/attempt 进度、输入/自动通过/人工复核汇总和错误展示；
+- Stage A3 拆板卡片标题栏右侧的“分批导出”：四类勾选、原生浏览器流式下载、下载完成状态、明确“暂不删除”和第二次不可恢复清理确认；该入口不出现在全局“生产产物与证据”区；
 - 拆板人工复核时只显示“下载未通过原图 ZIP”，由服务端即时生成当前 attempt 的分类原始 DXF 压缩包；不提供候选图、报告、Excel、人工上传、通过、继续或重跑按钮；
 - Excel 第一阶段只提交 `execution_kind`，服务端自动使用冻结 `source_excel`，页面不存在第二个文件选择器；
 - Excel 第二阶段及 CAM/归档节点只展示等待上线和输入/产物合同，不发送必然失败的探测请求；
@@ -242,7 +280,7 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、严格执行体、拆板整批/人工复核/三 attempt 语义、当前 attempt 产物过滤、迁移和 Excel 交接，以及 `excel_stage2` 未实现门禁和产物挂接；前端 Playwright 锁定独立详情页、冻结 Excel 自动执行、结构化表格错误、拆板人工复核下载、等待上线节点、精炼产物摘要，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
+新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、严格执行体、拆板整批/人工复核/三 attempt 语义、当前 attempt 产物过滤、四类流式 ZIP、下载中断保留、确认后对象与预览缓存物理删除、迁移和 Excel 交接，以及 `excel_stage2` 未实现门禁和产物挂接；前端合同/E2E 锁定分批导出入口位于 Stage A3 拆板卡片而非全局产物区、原生下载与二次确认，同时继续覆盖独立详情页、冻结 Excel 自动执行、结构化表格错误、拆板人工复核下载、等待上线节点、精炼产物摘要，以及新建→上传→冻结→分类分流闭环。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 

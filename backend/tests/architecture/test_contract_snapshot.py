@@ -23,9 +23,9 @@ def test_runtime_contract_matches_committed_snapshot() -> None:
 def test_contract_snapshot_locks_every_public_surface() -> None:
     snapshot = build_contract_snapshot()
 
-    assert len(snapshot["http_paths"]) == 162
-    assert len(snapshot["http_operations"]) == 190
-    assert len(snapshot["orm_tables"]) == 45
+    assert len(snapshot["http_paths"]) == 167
+    assert len(snapshot["http_operations"]) == 195
+    assert len(snapshot["orm_tables"]) == 46
     assert len(snapshot["celery_tasks"]) == 14
     assert len(snapshot["celery_task_routes"]) == 13
     assert "app.workers.tasks_agent.* -> agent" in snapshot["celery_task_routes"]
@@ -35,7 +35,7 @@ def test_contract_snapshot_locks_every_public_surface() -> None:
         "app.workers.tasks_dxf_split.* -> dxf_split"
         in snapshot["celery_task_routes"]
     )
-    assert snapshot["alembic_heads"] == ["c8f1d2e3a490"]
+    assert snapshot["alembic_heads"] == ["e9a1b2c3d4f5"]
     assert "/workflows" in snapshot["frontend_routes"]
     assert "/files/dwg2dxf" in snapshot["frontend_routes"]
     assert "backend-api" in snapshot["compose_services"]

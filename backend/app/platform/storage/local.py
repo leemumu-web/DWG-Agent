@@ -115,7 +115,12 @@ class LocalFileStorage(AbstractStorageBackend):
         return counts
 
     def delete_object(self, bucket: str, storage_key: str) -> None:
-        self._path(bucket, storage_key).unlink(missing_ok=True)
+        try:
+            self._path(bucket, storage_key).unlink(missing_ok=True)
+        except OSError as exc:
+            raise StorageError(
+                f"Failed to delete local object {bucket}/{storage_key}."
+            ) from exc
 
     def stat_object(self, bucket: str, storage_key: str) -> ObjectInfo:
         path = self._path(bucket, storage_key)

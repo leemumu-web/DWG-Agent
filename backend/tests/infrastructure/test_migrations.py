@@ -45,6 +45,9 @@ DXF_CLASSIFICATION_SEMANTICS_REVISION = (
     VERSIONS_DIR / "d6f3a8c2e710_add_dxf_classification_semantics.py"
 )
 DXF_SPLIT_REVISION = VERSIONS_DIR / "f9c4b7e2a610_add_dxf_split_pipeline.py"
+WORKFLOW_BATCH_EXPORT_REVISION = (
+    VERSIONS_DIR / "e9a1b2c3d4f5_add_workflow_batch_exports.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -448,6 +451,17 @@ def test_workflow_dxf_canonical_revision_is_fail_closed_and_reversible():
     assert "definition_revision" in source
 
 
+def test_workflow_batch_export_migration_extends_head_and_is_reversible():
+    source = WORKFLOW_BATCH_EXPORT_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "e9a1b2c3d4f5"' in source
+    assert 'down_revision: str | None = "c8f1d2e3a490"' in source
+    assert '"workflow_batch_exports"' in source
+    assert '"purged_at"' in source
+    assert 'op.drop_table("workflow_batch_exports")' in source
+    assert 'op.drop_column("files", "purged_at")' in source
+
+
 def test_alembic_autogenerate_excludes_celery_owned_tables():
     source = ALEMBIC_ENV.read_text(encoding="utf-8")
 
@@ -478,6 +492,7 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "storage_scan_findings",
         "storage_scan_runs",
         "workflow_artifacts",
+        "workflow_batch_exports",
         "dxf_classification_runs",
         "dxf_classification_items",
         "dxf_split_runs",
@@ -500,7 +515,7 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     assert "repository must have exactly one Alembic head" in source
     assert "version != expected_head" in source
     assert 'version != "e2f4b8c6a130"' not in source
-    assert '"files": {"deleted_at"}' in source
+    assert '"files": {"deleted_at", "purged_at"}' in source
     assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
     assert '"uq_jobs_actor_task_request_key"' in source
     assert '"job_steps": {"attempt"}' in source

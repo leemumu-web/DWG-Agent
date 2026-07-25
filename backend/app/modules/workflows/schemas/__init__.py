@@ -1,5 +1,13 @@
 """Workflow HTTP and presentation schemas."""
 
+from app.modules.workflows.schemas.exports import (
+    WorkflowBatchExportCategoryRead,
+    WorkflowBatchExportCreate,
+    WorkflowBatchExportPreviewRead,
+    WorkflowBatchExportPurgeRead,
+    WorkflowBatchExportRead,
+    WorkflowExportCategory,
+)
 from app.modules.workflows.schemas.intake import (
     WorkflowInputBatchEnvelope,
     WorkflowInputBatchRead,
@@ -40,6 +48,11 @@ __all__ = [
     "WORKFLOW_TYPES",
     "WorkflowArtifactCreate",
     "WorkflowArtifactRead",
+    "WorkflowBatchExportCategoryRead",
+    "WorkflowBatchExportCreate",
+    "WorkflowBatchExportPreviewRead",
+    "WorkflowBatchExportPurgeRead",
+    "WorkflowBatchExportRead",
     "WorkflowCreate",
     "WorkflowDetail",
     "WorkflowInputBatchEnvelope",
@@ -58,4 +71,5 @@ __all__ = [
     "WorkflowStageExecutionCreate",
     "WorkflowStageRead",
     "WorkflowTemplateRead",
+    "WorkflowExportCategory",
 ]

@@ -90,8 +90,8 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `c8f1d2e3a490`，SQLAlchemy/Alembic 管理 45 张模型表。
-- 空迁移 schema 加 `alembic_version` 为 46 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 54 张。不能把 54 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
+- 当前 Alembic head 为 `e9a1b2c3d4f5`，SQLAlchemy/Alembic 管理 46 张模型表。
+- 空迁移 schema 加 `alembic_version` 为 47 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 55 张。不能把 55 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
 - `kombu_message` 需要 `(queue_id, timestamp, id, visible)` 索引，降低跨队列扫描和锁范围。
@@ -186,7 +186,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 162 个 path、190 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 167 个 path、195 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -216,6 +216,8 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
 - Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
 - 生产项目工作台以“新建生产项目”为主入口；服务端在同一事务内创建 Project、项目所有者关系及其唯一 `linux_production` Workflow 并启动，随后进入独立工作流详情 URL。详情页按当前阶段完成生产文件夹整批上传、服务器转换、冻结、DXF 分类、整批拆板和冻结 Excel 第一阶段处理；拆板人工复核只提供当前 attempt 未通过分类原始 DXF ZIP，后续留白阶段只展示契约、交接产物和可恢复错误。
+- Stage A3 “图纸拆板与独立校验”卡片标题栏提供分批导出，而不是把入口放在全局产物汇总。四个展示标签只负责 UI；服务端机器类型固定为 `classified_dxf`、`processed_dxf`、`source_excel`、`stage1_excel`，ZIP 一级目录固定为 `原DXF/`、`正常拆板DXF/`、`原Excel/`、`产出Excel/`，叶子文件名不得改写。
+- 分批 ZIP 通过不可 seek 的流直接从 Local/MinIO 发往浏览器，不生成服务器临时 ZIP，也不让 Axios 在浏览器内整体缓存 Blob。路径级 HttpOnly 能力只允许访问本次下载 URL；流中断、关闭弹窗或能力过期都不删除源文件。只有服务端出库流水成功、状态变为 `downloaded`，且有写权限的创建者或管理员通过第二次不可恢复确认后，才物理删除所选对象和关联 DXF 预览缓存。
 - EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。
 - UI 权限守卫只控制显示，不替代 API 授权。
 
@@ -243,6 +245,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 ## 17. 数据保护与审计边界
 
 - `audit_logs` 通过应用 service 追加写入，API 没有更新/删除端点；但数据库没有 append-only trigger、WORM 存储、签名链或独立审计账号。因此它是**应用层追加约定**，不是防 DBA 篡改的不可变审计系统。
+- 分批导出的“永久删除”针对对象字节：成功后 `files` 行保留为 `status=deleted, purged_at!=NULL` 的小型墓碑，用于维持 Drawing、Job、输入和拆板账本外键。墓碑中的文件名、大小与哈希不是可恢复副本，reaper 必须跳过；对应 workflow artifact 文件引用会被移除。
 - MySQL 和对象存储必须形成一致恢复点；只恢复数据库会留下缺失对象，只恢复对象会留下孤儿。
 - `scripts/docker.sh backup/restore` 提供 MySQL + MinIO 的手工单机基线；它不是跨系统原子快照，也没有调度、保留、加密、PITR 或 RPO/RTO 证据。执行环境必须补齐这些能力。
 - `hardware_handbook` 只允许由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并通过逐值审计；运行时应使用只读账号，Compose 初始化只给应用用户授予该库 `SELECT`。

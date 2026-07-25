@@ -527,6 +527,67 @@
   gap: 14px;
 }
 
+.workflow-batch-export-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.workflow-batch-export-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 68px;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: #f6fafa;
+  border: 1px solid #d2e1e3;
+  border-radius: 6px;
+}
+
+.workflow-batch-export-option:has(.ant-checkbox-checked) {
+  background: #edf9f9;
+  border-color: var(--workflow-accent, #087e8b);
+}
+
+.workflow-batch-export-option.is-disabled {
+  cursor: not-allowed;
+  background: #f7f7f7;
+}
+
+.workflow-batch-export-option-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.workflow-batch-export-summary {
+  display: grid;
+  grid-template-columns: .7fr .9fr 1.5fr;
+  gap: 10px;
+}
+
+.workflow-batch-export-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  background: #f4f9f9;
+  border: 1px solid #d7e4e6;
+  border-left: 3px solid var(--workflow-accent, #087e8b);
+}
+
+.workflow-batch-export-summary small {
+  color: var(--workflow-muted, #62747d);
+}
+
+.workflow-batch-export-summary strong {
+  overflow: hidden;
+  color: var(--workflow-deep, #123c4a);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workflow-dxf-split-progress {
   display: grid;
   gap: 5px;
@@ -875,6 +936,11 @@
   }
 
   .workflow-classification-folders {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-batch-export-options,
+  .workflow-batch-export-summary {
     grid-template-columns: 1fr;
   }
 }

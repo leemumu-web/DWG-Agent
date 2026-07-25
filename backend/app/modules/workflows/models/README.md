@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`orchestration.py` 定义 WorkflowRun、WorkflowStageRun、WorkflowArtifact；`intake.py` 定义 WorkflowInput 与 WorkflowDrawingUnit；`__init__.py` 聚合五张表并进入 model registry。
+`orchestration.py` 定义 WorkflowRun、WorkflowStageRun、WorkflowArtifact；`intake.py` 定义 WorkflowInputBatch 与 WorkflowInputItem；`exports.py` 定义 WorkflowBatchExport；`__init__.py` 聚合六张表并进入 model registry。
 
 ## 输入、输出与边界
 

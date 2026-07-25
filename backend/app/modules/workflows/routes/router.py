@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.modules.workflows.routes.archive import router as archive_router
 from app.modules.workflows.routes.artifacts import router as artifacts_router
+from app.modules.workflows.routes.batch_exports import router as batch_exports_router
 from app.modules.workflows.routes.classification import router as classification_router
 from app.modules.workflows.routes.commands import (
     collection_router as command_collection_router,
@@ -36,6 +37,7 @@ _mount(query_collection_router, tag="workflows")
 _mount(command_collection_router, tag="workflows")
 _mount(production_projects_router, tag="workflows")
 _mount(artifacts_router, tag="workflows")
+_mount(batch_exports_router, tag="workflows")
 _mount(archive_router, tag="workflows")
 _mount(execution_router, tag="workflows")
 _mount(classification_router, tag="workflows")

@@ -39,6 +39,7 @@ import {
   getDxfSplitRun,
   getWorkflow,
 } from './workflows.api';
+import { WorkflowBatchExportControl } from './WorkflowBatchExportControl';
 interface Props {
   workflowId: number;
   stage?: WorkflowStage;
@@ -103,7 +104,6 @@ export function DrawingProcessingPanel({
     ),
     enabled: isCurrent && run?.status === 'completed_with_review',
   });
-
   const executeM = useMutation({
     mutationFn: async () => {
       const workflow = await getWorkflow(workflowId);
@@ -234,11 +234,11 @@ export function DrawingProcessingPanel({
     && review.pending_count === 0
     && review.manual_processing_count === 0,
   );
-
   return (
     <Card
       className="workflow-dxf-split-panel"
       title="03 · 图纸拆板与独立校验"
+      extra={<WorkflowBatchExportControl workflowId={workflowId} disabled={active} onPurged={onChanged} />}
       style={{ marginTop: 12 }}
     >
       {runQ.isError && (
