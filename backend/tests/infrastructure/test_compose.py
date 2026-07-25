@@ -95,6 +95,9 @@ class TestAppServices:
         ) in dockerfile
         assert "COPY Stages/excel_final /app/Stages/excel_final" in dockerfile
         assert "COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh" in dockerfile
+        assert "COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh" in dockerfile
+        assert "COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh" in dockerfile
+        assert "COPY scripts/lib/common.sh /app/scripts/lib/common.sh" in dockerfile
 
     def test_conversion_workers_use_persistent_xvfb_and_configurable_concurrency(self):
         data = _load()

@@ -98,6 +98,9 @@ COPY backend/app ./app
 COPY backend/alembic.ini ./
 COPY backend/migrations ./migrations
 COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh
+COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh
+COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh
+COPY scripts/lib/common.sh /app/scripts/lib/common.sh
 
 # ODA File Converter 二进制（85 MB AppImage）—— worker-dxf / worker-agent 转换链路用。
 # backend-api / worker-report 不调用，但共享镜像，统一内置以简化部署。
