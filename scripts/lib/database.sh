@@ -433,6 +433,7 @@ expected_tables = {
     "dxf_classification_items",
     "dxf_classification_runs",
     "dxf_split_items",
+    "dxf_split_review_decisions",
     "dxf_split_runs",
     "control_plane_events",
     "daily_archive_runs",
@@ -476,6 +477,23 @@ timestamp_tables = (
 )
 
 expected_columns = {
+    "dxf_split_items": {
+        "candidate_normal_dxf_file_id",
+        "candidate_weld_allowance_dxf_file_id",
+        "candidate_split_report_file_id",
+        "candidate_weld_allowance_report_file_id",
+    },
+    "dxf_split_runs": {"processed_count"},
+    "dxf_split_review_decisions": {
+        "split_item_id",
+        "decision",
+        "final_normal_dxf_file_id",
+        "final_weld_allowance_dxf_file_id",
+        "comment",
+        "decided_by",
+        "decided_at",
+        "version",
+    },
     "files": {"deleted_at"},
     "jobs": {"progress_data", "attempt", "request_key"},
     "job_steps": {"attempt"},
@@ -553,6 +571,28 @@ with engine.connect() as conn:
     }
     if "uq_jobs_actor_task_request_key" not in job_unique_names:
         raise SystemExit("jobs idempotency request key is not unique")
+    review_unique_columns = {
+        tuple(item["column_names"])
+        for item in inspector.get_unique_constraints("dxf_split_review_decisions")
+    }
+    if ("split_item_id",) not in review_unique_columns:
+        raise SystemExit("dxf_split_review_decisions.split_item_id is not unique")
+    review_fks = {
+        tuple(foreign_key["constrained_columns"]): (
+            foreign_key["referred_table"],
+            foreign_key.get("options", {}).get("ondelete"),
+        )
+        for foreign_key in inspector.get_foreign_keys("dxf_split_review_decisions")
+    }
+    if review_fks.get(("split_item_id",)) != ("dxf_split_items", "CASCADE"):
+        raise SystemExit(
+            "invalid split review item FK: "
+            f"{review_fks.get(('split_item_id',))}"
+        )
+    if review_fks.get(("decided_by",), (None, None))[0] != "sys_users":
+        raise SystemExit(
+            f"invalid split review decider FK: {review_fks.get(('decided_by',))}"
+        )
 print(f"Alembic head: {version}; business tables: {len(expected_tables)}")
 PY
     )
