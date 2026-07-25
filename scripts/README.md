@@ -20,7 +20,7 @@
 ## 常用闭环
 
 ```bash
-# 启动并按需构建前端
+# 按当前代码重启全部受管服务并重建前端
 bash scripts/start-all.sh
 
 # 查看服务、worker、运行代码版本和前端构建新旧
@@ -40,9 +40,8 @@ bash scripts/verify.sh full --allow-blocked
 
 | 脚本 | 用途 | 关键边界 |
 |---|---|---|
-| `start-all.sh` | MySQL、八个 worker、FastAPI、前端 dist、Nginx | 已占用 8010 时不擅自重启；源码晚于进程会警告。 |
-| `start-all.sh --restart-backend` | 优雅重载本项目 FastAPI | 只识别 cwd 为本仓库 `backend/` 的 Uvicorn；未知进程占端口时拒绝操作。 |
-| `start-all.sh --rebuild` | 强制重建前端 | 普通启动也会在 `src/` 或依赖清单晚于 `dist/index.html` 时重建。 |
+| `start-all.sh` | MySQL、九个 worker、FastAPI、前端 dist、Nginx | 每次停止本项目旧实例、同步后端锁定依赖、重建前端并重启全部受管应用服务；未知进程占用端口时拒绝覆盖。 |
+| `start-all.sh --restart-backend` / `--rebuild` | 旧调用兼容参数 | 当前普通启动已默认重启后端和重建前端，参数无需再显式传入。 |
 | `start-dev.sh` | Uvicorn reload + Vite HMR | 开发入口，不经过本地 Nginx 静态托管。 |
 | `stop-all.sh` | 停止受管 Nginx、前端、后端和 worker | 不强杀未知 8010 进程；MySQL 默认保留。 |
 | `status.sh` | 无副作用状态检查 | 检查 MySQL、worker、后端、新旧代码、前端 dist 和 Nginx。 |
@@ -64,6 +63,15 @@ bash scripts/verify.sh full --allow-blocked
 | `storage/reap.py` | 存储保留期回收实现 | 通常经 `bash scripts/db.sh reap-storage --dry-run` 调用，不直接猜测删除对象。 |
 | `storage/verify_transactions.py` | 存储事务验证 | 用于隔离验证，不替代真实对象恢复演练。 |
 
+`bash scripts/docker.sh up-workers` 每次都会从当前代码构建镜像并强制重建全部
+容器，动态读取 Compose 完整服务清单，并在 180 秒内等待全部服务运行且健康；随后执行 Nginx 与后端
+readiness smoke。服务退出、重启、不健康或超时会输出受影响服务的状态与最近
+80 行日志并返回非零。`docker.sh down` 会包含 workers profile，避免残留转换
+容器。`bash scripts/start-all.sh` 启动前会停止现有本地服务和本项目 Compose
+容器，同步锁文件限定的后端依赖，并无条件重建前端；成功摘要前执行
+`scripts/status.sh`，只有本地 MySQL、全部受管 worker、FastAPI、最新前端构建和
+Nginx API/SPA 探针全部通过才返回零。
+
 ## Windows 与 CAD worker
 
 | 脚本 | 用途 |
@@ -72,6 +80,7 @@ bash scripts/verify.sh full --allow-blocked
 | `run-cad-worker.sh` | 为本地 ODA worker 管理独立 Xvfb、DISPLAY、PID 和退出清理。 |
 | `cad/benchmark_conversion.py` | 对真实样本测量双向转换吞吐，不作为日常启动脚本。 |
 
-出现客户端 405 时先运行 `status.sh`；若提示运行代码过期，使用 `start-all.sh --restart-backend`。ZIP 409 先看 `doctor.sh` 的 request ID，再在弹窗重新预检格式。文件夹上传曾因浏览器并发 8 超过默认 API 连接池总容量 4 而产生 QueuePool 500；当前前端把同一时刻的文件上传限制为 4。
+出现客户端 405 时先运行 `status.sh`；若提示运行代码过期，重新运行
+`start-all.sh` 即会替换旧实例。ZIP 409 先看 `doctor.sh` 的 request ID，再在弹窗重新预检格式。文件夹上传曾因浏览器并发 8 超过默认 API 连接池总容量 4 而产生 QueuePool 500；当前前端把同一时刻的文件上传限制为 4。
 
-前端弹窗会展示后端错误原因、错误码和 request ID，422 还会标明具体字段；文件夹导入会列出失败文件样本。若生产页面仍只显示 HTTP 4xx，先用 `status.sh` 检查前端 dist 是否过期，再用 `start-all.sh --rebuild` 更新构建产物。
+前端弹窗会展示后端错误原因、错误码和 request ID，422 还会标明具体字段；文件夹导入会列出失败文件样本。若生产页面仍只显示 HTTP 4xx，先用 `status.sh` 检查前端 dist 是否过期，再运行 `start-all.sh` 更新全部运行实例。

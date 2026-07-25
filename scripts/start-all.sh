@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 # DWG-Agent — 一键启动全栈
-# 用法: bash scripts/start-all.sh              # 生产模式（Nginx 统一入口 :8080）
-#       bash scripts/start-all.sh --rebuild     # 强制重建前端
-#       bash scripts/start-all.sh --restart-backend  # 安全重载本项目后端
+# 用法: bash scripts/start-all.sh  # 按当前代码重启全部受管服务（Nginx :8080）
+# 兼容旧调用者保留 --rebuild / --restart-backend；当前启动已默认执行二者。
 set -euo pipefail
 source "$(dirname "$0")/lib/common.sh"
 source "$(dirname "$0")/lib/database.sh"
 source "$(dirname "$0")/lib/local_stack.sh"
 source "$(dirname "$0")/lib/cad_worker.sh"
 
-REBUILD=false
-RESTART_BACKEND=false
 for arg in "$@"; do
     case "$arg" in
-        --rebuild) REBUILD=true ;;
-        --restart-backend) RESTART_BACKEND=true ;;
+        --rebuild|--restart-backend) ;;
         *) err "未知参数: $arg"; exit 2 ;;
     esac
 done
@@ -26,57 +22,59 @@ echo -e "${GREEN}═════════════════════
 # ── 0. Pre-flight ──────────────────────────────────────────────
 require_env_files
 
-# ── 1. MySQL ───────────────────────────────────────────────────
-step "1/5 MySQL"
+# ── 1. Replace old managed runtime and sync locked dependencies ─
+step "1/7 清理旧运行并更新环境"
+COMPOSE_CONTAINER_IDS=""
+if command -v docker >/dev/null 2>&1 \
+    && docker info >/dev/null 2>&1 \
+    && [ -f "$PROJECT_ROOT/.env.docker" ]; then
+    COMPOSE_CONTAINER_IDS="$(docker compose --project-directory "$PROJECT_ROOT" \
+        --env-file "$PROJECT_ROOT/.env.docker" --profile workers \
+        ps --all -q 2>/dev/null || true)"
+fi
+if [ -n "$COMPOSE_CONTAINER_IDS" ]; then
+    info "停止本项目现有 Compose 实例..."
+    bash "$PROJECT_ROOT/scripts/docker.sh" down
+fi
+bash "$PROJECT_ROOT/scripts/stop-all.sh"
+
+info "同步后端锁定依赖..."
+(
+    cd "$PROJECT_ROOT/backend"
+    uv sync --frozen
+)
+ok "后端运行环境已更新"
+
+# ── 2. MySQL ───────────────────────────────────────────────────
+step "2/7 MySQL"
 ensure_db_ready
 
-# ── 2. Celery Workers ──────────────────────────────────────────
-step "2/5 Celery workers"
+# ── 3. Celery Workers ──────────────────────────────────────────
+step "3/7 Celery workers"
 start_all_workers
 
-# ── 3. Backend ─────────────────────────────────────────────────
-step "3/5 后端 FastAPI"
-if $RESTART_BACKEND; then
-    restart_owned_backend
-fi
+# ── 4. Backend ─────────────────────────────────────────────────
+step "4/7 后端 FastAPI"
 if port_free "$LOCAL_BACKEND_PORT"; then
     info "启动后端 (${LOCAL_BACKEND_HOST}:${LOCAL_BACKEND_PORT})..."
     start_local_backend
 else
-    BACKEND_PID="$(owned_backend_pid 2>/dev/null || true)"
-    if [ -n "$BACKEND_PID" ] && backend_runtime_stale "$BACKEND_PID"; then
-        warn "后端已运行，但运行代码已过期 (pid=${BACKEND_PID})"
-        echo "  修复: bash scripts/start-all.sh --restart-backend"
-    else
-        ok "后端已运行 (:${LOCAL_BACKEND_PORT})"
-    fi
+    err "端口 ${LOCAL_BACKEND_PORT} 仍被非本项目进程占用，拒绝覆盖"
+    exit 1
 fi
 
-# ── 4. Frontend ────────────────────────────────────────────────
-step "4/5 前端 React"
-FRONTEND_DIST="$PROJECT_ROOT/frontend/dist"
-NEED_BUILD=false
-
-if [ ! -f "$FRONTEND_DIST/index.html" ]; then
-    info "前端尚未构建"; NEED_BUILD=true
-elif $REBUILD; then
-    info "--rebuild 指定，强制重建"; NEED_BUILD=true
-elif frontend_dist_stale; then
-    info "前端构建产物已过期"; NEED_BUILD=true
-else
-    ok "前端构建产物为最新"
-fi
-
-if $NEED_BUILD; then
-    info "构建前端..."
+# ── 5. Frontend ────────────────────────────────────────────────
+step "5/7 前端 React"
+info "按当前代码重新安装锁定依赖并构建前端..."
+(
     cd "$PROJECT_ROOT/frontend"
     npm ci --silent
     npm run build 2>&1 | tail -3
-    ok "前端构建完成"
-fi
+)
+ok "前端构建完成"
 
-# ── 5. Nginx ───────────────────────────────────────────────────
-step "5/5 Nginx 网关"
+# ── 6. Nginx ───────────────────────────────────────────────────
+step "6/7 Nginx 网关"
 NGINX_CONF="$PROJECT_ROOT/infra/gateway/nginx/nginx.local.conf"
 NGINX_PIDFILE="$PROJECT_ROOT/infra/gateway/nginx/logs/nginx.pid"
 NGINX_CLIENT_BODY_DIR="$PROJECT_ROOT/infra/gateway/nginx/logs/client-body"
@@ -102,6 +100,13 @@ else
         err "Nginx 启动失败，请检查: nginx -t -c $NGINX_CONF"
         exit 1
     fi
+fi
+
+# ── 7. Final readiness gate ────────────────────────────────────
+step "7/7 全栈就绪验证"
+if ! bash "$PROJECT_ROOT/scripts/status.sh"; then
+    err "全栈启动后验证失败；请按上方诊断处理后重试"
+    exit 1
 fi
 
 # ── Summary ────────────────────────────────────────────────────

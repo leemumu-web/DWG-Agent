@@ -373,12 +373,13 @@ Expected: failure because the README does not yet describe either final health g
 Add this paragraph under “数据库与容器”:
 
 ```markdown
-`bash scripts/docker.sh up-workers` 会从当前代码构建镜像，动态读取 Compose
-完整服务清单，并在 180 秒内等待全部服务运行且健康；随后执行 Nginx 与后端
+`bash scripts/docker.sh up-workers` 每次都会从当前代码构建镜像并强制重建全部
+容器，动态读取 Compose 完整服务清单，并在 180 秒内等待全部服务运行且健康；随后执行 Nginx 与后端
 readiness smoke。服务退出、重启、不健康或超时会输出受影响服务的状态与最近
-80 行日志并返回非零。`bash scripts/start-all.sh` 同样在成功摘要前执行
-`scripts/status.sh`，只有本地 MySQL、全部受管 worker、FastAPI、最新前端构建和
-Nginx API/SPA 探针全部通过才返回零。
+80 行日志并返回非零。`bash scripts/start-all.sh` 启动前停止旧实例、同步后端
+锁定依赖并重建前端，同样在成功摘要前执行 `scripts/status.sh`，只有本地
+MySQL、全部受管 worker、FastAPI、最新前端构建和 Nginx API/SPA 探针全部通过
+才返回零。
 ```
 
 - [ ] **Step 4: Run automated release gates**
@@ -402,7 +403,7 @@ Run:
 
 ```bash
 bash scripts/docker.sh down
-bash scripts/start-all.sh --restart-backend --rebuild
+bash scripts/start-all.sh
 bash scripts/status.sh
 bash scripts/stop-all.sh
 bash scripts/docker.sh up-workers
@@ -413,7 +414,7 @@ Expected: the host startup reaches its final gate and reports success, the host 
 - [ ] **Step 6: Commit and push**
 
 ```bash
-git add scripts/lib/compose.sh scripts/start-all.sh scripts/README.md backend/tests/infrastructure/test_scripts.py
+git add scripts/lib/compose.sh scripts/lib/local_stack.sh scripts/start-all.sh scripts/stop-all.sh scripts/README.md backend/tests/infrastructure/test_scripts.py
 git commit -m "feat(deploy): gate full startup on service health"
 git push origin main
 ```

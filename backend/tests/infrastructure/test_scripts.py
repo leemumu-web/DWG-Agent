@@ -14,6 +14,136 @@ def _read(path: str) -> str:
     return (PROJECT_ROOT / path).read_text(encoding="utf-8")
 
 
+def _write_fake_compose(tmp_path):
+    fake = tmp_path / "fake-compose"
+    fake.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$FAKE_COMPOSE_CALLS"
+if [[ "$*" == *"config --services"* ]]; then
+    printf 'api\\nworker\\n'
+elif [[ "$*" == *"ps --all --format"* ]]; then
+    case "$FAKE_COMPOSE_SCENARIO" in
+        healthy) printf 'api|running|healthy\\nworker|running|healthy\\n' ;;
+        restarting) printf 'api|running|healthy\\nworker|restarting|unhealthy\\n' ;;
+        starting) printf 'api|running|healthy\\nworker|running|starting\\n' ;;
+    esac
+elif [[ "$*" == *" logs "* ]]; then
+    printf 'worker diagnostic\\n'
+else
+    printf 'compose status\\n'
+fi
+""",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    return fake
+
+
+def _run_compose_health_case(tmp_path, scenario: str, *, timeout: int):
+    fake = _write_fake_compose(tmp_path)
+    calls_path = tmp_path / "calls.log"
+    env = {
+        **os.environ,
+        "FAKE_COMPOSE_SCENARIO": scenario,
+        "FAKE_COMPOSE_CALLS": str(calls_path),
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f'set -u; source "{PROJECT_ROOT}/scripts/lib/compose.sh"; '
+                f'COMPOSE_CMD=("{fake}"); '
+                f"compose_wait_for_healthy_services {timeout}"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    calls = calls_path.read_text(encoding="utf-8") if calls_path.exists() else ""
+    return result, calls
+
+
+def test_compose_health_gate_accepts_only_complete_healthy_stack(tmp_path):
+    result, calls = _run_compose_health_case(tmp_path, "healthy", timeout=1)
+
+    assert result.returncode == 0
+    assert "2 services healthy" in result.stdout
+    assert "config --services" in calls
+    assert "ps --all --format" in calls
+
+
+def test_compose_health_gate_fails_fast_and_scopes_logs(tmp_path):
+    result, calls = _run_compose_health_case(tmp_path, "restarting", timeout=10)
+
+    assert result.returncode != 0
+    assert "worker" in result.stderr
+    assert "logs --tail=80 worker" in calls
+
+
+def test_compose_health_gate_times_out_starting_services(tmp_path):
+    result, calls = _run_compose_health_case(tmp_path, "starting", timeout=0)
+
+    assert result.returncode != 0
+    assert "startup timed out" in result.stderr
+    assert "logs --tail=80 worker" in calls
+
+
+def test_stable_compose_startup_orders_health_gate_before_smoke():
+    content = _read("scripts/lib/compose.sh")
+
+    assert "compose_up_workers()" in content
+    body = content[
+        content.index("compose_up_workers()")
+        : content.index("compose_backup()")
+    ]
+    assert body.index("compose_wait_for_healthy_services") < body.index("compose_smoke")
+    assert "up-workers) compose_up_workers" in content
+
+
+def test_stable_startup_replaces_all_existing_managed_runtime():
+    compose = _read("scripts/lib/compose.sh")
+    compose_up_workers = compose[
+        compose.index("compose_up_workers()")
+        : compose.index("compose_backup()")
+    ]
+    compose_main = compose[compose.index("compose_main()") :]
+    host = _read("scripts/start-all.sh")
+
+    assert "--force-recreate" in compose_up_workers
+    assert '"${COMPOSE_CMD[@]}" --profile workers down --remove-orphans' in compose_main
+    assert 'bash "$PROJECT_ROOT/scripts/stop-all.sh"' in host
+    assert host.index('bash "$PROJECT_ROOT/scripts/stop-all.sh"') < host.index(
+        "start_all_workers"
+    )
+    assert "uv sync --frozen" in host
+    assert host.index("npm ci --silent") < host.index("npm run build")
+
+
+def test_start_all_runs_final_status_gate_before_success_banner():
+    content = _read("scripts/start-all.sh")
+
+    status_index = content.index('bash "$PROJECT_ROOT/scripts/status.sh"')
+    summary_index = content.index("全栈启动完成")
+    assert status_index < summary_index
+    assert 'if ! bash "$PROJECT_ROOT/scripts/status.sh"; then' in content
+    assert "exit 1" in content[status_index:summary_index]
+
+
+def test_stable_startup_docs_cover_compose_and_host_health_gates():
+    content = _read("scripts/README.md")
+
+    assert "up-workers" in content
+    assert "180 秒" in content
+    assert "80 行日志" in content
+    assert "scripts/status.sh" in content
+    assert "全部受管 worker" in content
+
+
 def test_cad_benchmark_cli_contract_and_concurrency_parser(tmp_path):
     script = PROJECT_ROOT / "scripts/cad/benchmark_conversion.py"
     assert script.is_file()
@@ -248,6 +378,7 @@ def test_stop_all_does_not_kill_unowned_backend_port():
     content = _read("scripts/stop-all.sh")
 
     assert "fuser -k" not in content
+    assert "stop_owned_backend" in content
     assert "端口 ${LOCAL_BACKEND_PORT} 仍被占用" in content
     assert 'port_free "$LOCAL_BACKEND_PORT"' in content
 
@@ -321,13 +452,15 @@ def test_background_start_is_stable_and_dev_start_keeps_hot_reload():
     assert "--reload" in start_dev
 
 
-def test_start_all_supports_explicit_owned_backend_restart():
+def test_start_all_always_restarts_owned_backend_via_full_stack_stop():
     start_all = _read("scripts/start-all.sh")
     lib_content = _read("scripts/lib/local_stack.sh")
 
     assert "--restart-backend" in start_all
-    assert "restart_owned_backend" in start_all
+    assert 'bash "$PROJECT_ROOT/scripts/stop-all.sh"' in start_all
     assert "owned_backend_pid" in lib_content
+    assert "stop_owned_backend" in lib_content
+    assert "restart_owned_backend" in lib_content
     assert "kill -TERM" in lib_content
     assert "kill -KILL" not in lib_content
 
@@ -343,7 +476,7 @@ def test_nginx_liveness_check_does_not_require_sudo_credentials():
     assert "sudo kill -0" not in start_all
 
 
-def test_runtime_and_frontend_staleness_are_reported():
+def test_runtime_staleness_is_reported_and_stable_start_rebuilds_frontend():
     lib_content = _read("scripts/lib/local_stack.sh")
     status_content = _read("scripts/status.sh")
     start_content = _read("scripts/start-all.sh")
@@ -351,7 +484,8 @@ def test_runtime_and_frontend_staleness_are_reported():
     assert "backend_runtime_stale" in lib_content
     assert "frontend_dist_stale" in lib_content
     assert "运行代码已过期" in status_content
-    assert "前端构建产物已过期" in start_content
+    assert "按当前代码重新安装锁定依赖并构建前端" in start_content
+    assert "npm ci --silent" in start_content
     assert "exit 1" in status_content
 
 

@@ -15,17 +15,22 @@ script tests, and operator documentation. It does not add another startup
 command, change application data, modify service definitions, or weaken any
 health check.
 
-`bash scripts/docker.sh up` keeps its existing core-stack behavior. `up-workers` remains the single command for starting the complete production stack.
+`bash scripts/docker.sh up` and `up-workers` rebuild from the current checkout
+and force-recreate their selected containers. `up-workers` remains the single
+command for starting the complete production stack. `down` always includes the
+workers profile so no conversion container is left behind.
 
 `bash scripts/start-all.sh` remains the stable host-process entrypoint. It
-continues to use the existing MySQL, worker, backend, frontend, and Nginx
-helpers, then runs the existing `scripts/status.sh` as a final fail-closed
-readiness gate before printing the success summary.
+stops existing project Compose and host application processes, synchronizes
+locked backend dependencies, restarts every worker and backend process, rebuilds
+the frontend, restarts Nginx, then runs the existing `scripts/status.sh` as a
+final fail-closed readiness gate before printing the success summary. MySQL
+data and volumes remain intact.
 
 ## Startup Flow
 
 1. Validate `.env.docker`, Compose configuration, required source directories, and Docker availability through the existing `compose_check`.
-2. Run the existing `docker compose --profile workers up -d --build --remove-orphans`.
+2. Run `docker compose --profile workers up -d --build --force-recreate --remove-orphans`.
 3. Derive the expected service names from `docker compose --profile workers config --services`; do not hardcode a service count.
 4. Poll `docker compose --profile workers ps --format json` until every expected service:
    - is present;
@@ -68,10 +73,10 @@ compose_smoke
 
 `compose_main` delegates `up-workers` to `compose_up_workers`. Existing commands and arguments remain compatible.
 
-`scripts/start-all.sh` adds a sixth, final verification step:
+`scripts/start-all.sh` uses seven ordered steps:
 
 ```text
-MySQL -> local workers -> backend -> frontend build -> Nginx -> status.sh
+stop old runtime + sync -> MySQL -> local workers -> backend -> frontend build -> Nginx -> status.sh
 ```
 
 The success summary is printed only after `status.sh` returns zero.
@@ -89,6 +94,8 @@ Script contract tests must prove that:
 
 Host-start contract tests must prove that:
 
+- existing Compose and local application instances are stopped before startup;
+- backend locked dependencies are synchronized and the frontend always rebuilds;
 - `start-all.sh` invokes `scripts/status.sh` after Nginx startup;
 - a non-zero status result exits before the success banner;
 - the documented command explains that startup success includes the final
@@ -106,7 +113,7 @@ The host-path release gate is run separately from Compose because both stacks
 cannot own ports 8010/8080 and the same worker queues simultaneously:
 
 1. stop the Compose stack while preserving its volumes;
-2. run `bash scripts/start-all.sh --restart-backend --rebuild`;
+2. run `bash scripts/start-all.sh`;
 3. require `bash scripts/status.sh` to pass;
 4. stop the host stack;
 5. restore the complete Compose stack with `bash scripts/docker.sh up-workers`.

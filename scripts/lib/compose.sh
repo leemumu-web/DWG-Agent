@@ -68,6 +68,120 @@ compose_public_port() {
     printf '%s' "${value:-80}"
 }
 
+compose_smoke() {
+    compose_require_env
+    local port
+    port=$(compose_public_port)
+    curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
+    curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
+    compose_info "public gateway and backend readiness checks passed"
+}
+
+compose_startup_diagnostics() {
+    local -a affected_services=("$@")
+    compose_warn "full-stack startup did not reach a healthy state"
+    "${COMPOSE_CMD[@]}" --profile workers ps --all >&2 || true
+    if [ "${#affected_services[@]}" -gt 0 ]; then
+        "${COMPOSE_CMD[@]}" --profile workers logs --tail=80 \
+            "${affected_services[@]}" >&2 || true
+    fi
+}
+
+compose_wait_for_healthy_services() {
+    local timeout="${1:-180}"
+    local deadline=$((SECONDS + timeout))
+    local expected_output rows_output service state health item
+    local terminal healthy_count
+    local -a expected rows affected_labels affected_services
+    declare -A states=() health_states=() seen=()
+
+    if ! expected_output="$("${COMPOSE_CMD[@]}" --profile workers config --services)"; then
+        compose_warn "failed to read expected Compose services"
+        return 1
+    fi
+    mapfile -t expected <<<"$expected_output"
+    if [ "${#expected[@]}" -eq 0 ] || [ -z "${expected[0]}" ]; then
+        compose_warn "Compose returned no expected services"
+        return 1
+    fi
+
+    while true; do
+        if ! rows_output="$("${COMPOSE_CMD[@]}" --profile workers ps --all \
+            --format '{{.Service}}|{{.State}}|{{.Health}}')"; then
+            compose_warn "failed to inspect Compose service state"
+            return 1
+        fi
+        mapfile -t rows <<<"$rows_output"
+        states=()
+        health_states=()
+        seen=()
+        for item in "${rows[@]}"; do
+            [ -n "$item" ] || continue
+            IFS='|' read -r service state health <<<"$item"
+            [ -n "$service" ] || continue
+            states["$service"]="$state"
+            health_states["$service"]="$health"
+            seen["$service"]=1
+        done
+
+        terminal=false
+        healthy_count=0
+        affected_labels=()
+        affected_services=()
+        for service in "${expected[@]}"; do
+            if [ -z "${seen[$service]+x}" ]; then
+                affected_labels+=("${service}=missing")
+                continue
+            fi
+            state="${states[$service]}"
+            health="${health_states[$service]}"
+            if [ "$state" = "running" ] \
+                && { [ -z "$health" ] || [ "$health" = "healthy" ]; }; then
+                healthy_count=$((healthy_count + 1))
+                continue
+            fi
+            affected_labels+=(
+                "${service}=state:${state:-unknown},health:${health:-none}"
+            )
+            affected_services+=("$service")
+            case "$state:$health" in
+                restarting:*|exited:*|dead:*|removing:*|running:unhealthy)
+                    terminal=true
+                    ;;
+                created:*|running:starting)
+                    ;;
+                *)
+                    terminal=true
+                    ;;
+            esac
+        done
+
+        if [ "$healthy_count" -eq "${#expected[@]}" ]; then
+            compose_info "${healthy_count} services healthy"
+            return 0
+        fi
+        if $terminal; then
+            printf 'ERROR: service not ready: %s\n' "${affected_labels[@]}" >&2
+            compose_startup_diagnostics "${affected_services[@]}"
+            return 1
+        fi
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            printf 'ERROR: startup timed out: %s\n' "${affected_labels[@]}" >&2
+            compose_startup_diagnostics "${affected_services[@]}"
+            return 1
+        fi
+        sleep 2
+    done
+}
+
+compose_up_workers() {
+    compose_check
+    "${COMPOSE_CMD[@]}" --profile workers up -d --build --force-recreate \
+        --remove-orphans
+    compose_wait_for_healthy_services 180
+    compose_smoke
+}
+
 compose_backup() {
     local destination=${1:-}
     [[ -n "$destination" ]] || compose_die "backup requires a destination directory"
@@ -163,22 +277,16 @@ compose_restore() {
 }
 
 compose_main() {
-    local command=${1:-} port
+    local command=${1:-}
     case "$command" in
         check) compose_check ;;
         build) compose_check; "${COMPOSE_CMD[@]}" build --pull ;;
-        up) compose_check; "${COMPOSE_CMD[@]}" up -d --build --remove-orphans ;;
-        up-workers) compose_check; "${COMPOSE_CMD[@]}" --profile workers up -d --build --remove-orphans ;;
+        up) compose_check; "${COMPOSE_CMD[@]}" up -d --build --force-recreate --remove-orphans ;;
+        up-workers) compose_up_workers ;;
         status) compose_require_env; "${COMPOSE_CMD[@]}" ps ;;
         logs) compose_require_env; "${COMPOSE_CMD[@]}" logs -f --tail=200 ;;
-        smoke)
-            compose_require_env
-            port=$(compose_public_port)
-            curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
-            curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
-            compose_info "public gateway and backend readiness checks passed"
-            ;;
-        down) compose_require_env; "${COMPOSE_CMD[@]}" down --remove-orphans ;;
+        smoke) compose_smoke ;;
+        down) compose_require_env; "${COMPOSE_CMD[@]}" --profile workers down --remove-orphans ;;
         backup) compose_backup "${2:-}" ;;
         restore) compose_restore "${2:-}" ;;
         *) compose_usage; [[ -z "$command" ]] || return 2 ;;

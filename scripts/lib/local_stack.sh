@@ -81,7 +81,7 @@ frontend_dist_stale() {
         "$PROJECT_ROOT/frontend/tsconfig.json"
 }
 
-restart_owned_backend() {
+stop_owned_backend() {
     local pid
     pid="$(owned_backend_pid 2>/dev/null || true)"
     if [ -z "$pid" ]; then
@@ -109,6 +109,10 @@ restart_owned_backend() {
         return 1
     fi
     ok "旧后端已停止"
+}
+
+restart_owned_backend() {
+    stop_owned_backend
 }
 
 start_local_backend() {

@@ -26,7 +26,7 @@ kill_by_pidfile /tmp/dwg-agent-frontend.pid "Vite dev server"
 
 # 3. Backend
 step "3/4 后端"
-kill_by_pidfile /tmp/dwg-agent-backend.pid "后端 (uvicorn)"
+stop_owned_backend || true
 if ! port_free "$LOCAL_BACKEND_PORT"; then
     warn "端口 ${LOCAL_BACKEND_PORT} 仍被占用；未执行强制 kill，请确认是否为外部启动的后端进程"
     echo -e "  ${DIM}诊断: ss -ltnp 'sport = :${LOCAL_BACKEND_PORT}'${NC}"
