@@ -37,8 +37,11 @@ class TestNetworkIsolation:
         data = _compose()
         assert [n for n, s in data["services"].items() if s.get("ports")] == ["nginx"]
 
-    def test_nginx_still_only_depends_on_backend(self):
-        assert set(_compose()["services"]["nginx"].get("depends_on") or {}) == {"backend-api"}
+    def test_nginx_depends_on_both_authenticated_upstreams(self):
+        assert set(_compose()["services"]["nginx"].get("depends_on") or {}) == {
+            "backend-api",
+            "cloudbeaver",
+        }
 
 
 # ───────────────────────── backend port unification ─────────────────────────

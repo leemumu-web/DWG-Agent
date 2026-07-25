@@ -1342,7 +1342,10 @@ def test_cancelled_bound_job_stays_on_its_recoverable_workflow_stage(db):
     assert workflow.error_code == "WORKFLOW_STAGE_CANCELLED"
 
 
-def test_drawing_processing_execution_honors_disabled_feature_gate():
+def test_drawing_processing_execution_honors_disabled_feature_gate(monkeypatch):
+    from app.platform.config.settings import settings
+
+    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", False)
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
     _, owner_headers = workflow_test_api.create_engineer_user(

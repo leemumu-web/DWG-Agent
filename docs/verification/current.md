@@ -13,7 +13,7 @@
 | Stage 运行时切片与算法回归 | **pass** | 主仓库只跟踪 107 个运行时及包元数据文件，其中保留 3 份包内发布证据；83 个 DXF（约 71.9 MB）、上游测试、开发文档和报告不进入主仓库。上游 `d9e3409a76a88272641b61176259c7373de05f90` 聚焦回归 **99 passed**。 |
 | 拆板/工作流聚焦回归 | **pass** | 拆板域、Job 生命周期和生产工作流聚焦套件 **65 passed**；分类血缘、全批处理、同一 Job 最多 3 次、并发归属丢失失败关闭、跨项目成员重试预算和当前批次人工复核 ZIP 均有覆盖。 |
 | 架构/合同/基础设施静态回归 | **pass** | 相关套件 **240 passed，2 skipped**；分区文档补充回归 **2 passed**。Ruff、compileall、Compose 配置解析、shell 语法、锁文件检查和文档生成检查通过。 |
-| 运行时合同与迁移 | **pass** | 唯一 Alembic head 为 `f9c4b7e2a610`；快照为 14 个模块、44 张 ORM 表、176 个 HTTP operation、14 个 Celery task、13 条 task route、16 个 Compose service。 |
+| 运行时合同与迁移 | **pass** | 唯一 Alembic head 为 `b4e8c2a7d910`；快照为 14 个模块、45 张 ORM 表、186 个 HTTP operation、14 个 Celery task、13 条 task route、18 个 Compose service。 |
 | 前端生产构建 | **pass** | 125 个源码文件、12 个 feature 边界、TypeScript 与 Vite production build 通过；仅有既存大 chunk 提示。 |
 | 工作流 Playwright | **3 passed** | 使用短时 Vite preview 与系统 Chrome；人工复核场景确认 ZIP 只请求当前拆板批次未通过的原始 DXF。后端未启动造成的 preview proxy 拒绝日志不影响 route fixture 断言。 |
 | Backend Linux 全量 | **本功能无失败** | Debian 12 / Python 3.12 容器接入临时 MySQL broker 后为 **1399 passed，24 skipped，1 failed**。唯一失败是 `origin/main` 未改动的 `nginx.local.conf` 把运行目录固定为 `/home/Creeken/Paper/CAD_research/complete_framework`；同一用例在该配置声明路径下复跑 **1 passed**。此前受 MySQL/Git 环境影响的集合复跑为 **38 passed，2 skipped**。 |

@@ -2,7 +2,7 @@
 
 ## 现有覆盖
 
-`test_daily_archive.py` 验证 manifest/ZIP、签名冻结和双登记；`test_storage_reconciliation.py`、`test_data_admin_api.py` 验证 scan/finding、分页、预检 token、幂等和四类处置；`test_control_plane_api.py`、`test_infrastructure_api.py`、`test_health.py` 验证 worker、queue、message、task、broker 与能力状态；`test_operational_list_filters.py` 覆盖排序/筛选边界。
+`test_daily_archive.py` 验证 manifest/ZIP、签名冻结和双登记；`test_storage_reconciliation.py`、`test_data_admin_api.py` 验证 scan/finding、结构树、对象移动/软删除、分页、预检 token、幂等和四类处置；`test_data_admin_mysql_gateway.py` 验证 CloudBeaver 短时会话、角色团队映射和篡改拒绝；`test_control_plane_api.py`、`test_infrastructure_api.py`、`test_health.py` 验证 worker、queue、message、task、broker 与能力状态；`test_operational_list_filters.py` 覆盖排序/筛选边界。
 
 ## 证据边界
 

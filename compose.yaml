@@ -52,6 +52,8 @@ services:
     depends_on:
       backend-api:
         condition: service_healthy
+      cloudbeaver:
+        condition: service_started
     init: true
     stop_grace_period: 30s
     networks:
@@ -282,10 +284,59 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  dba-bootstrap:
+    image: ${MYSQL_IMAGE:-container-registry.oracle.com/mysql/community-server:8.4}
+    env_file:
+      - .env.docker
+    entrypoint: ["/bin/bash", "/opt/dba-users.sh"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./infra/database/mysql/dba-users.sh:/opt/dba-users.sh:ro
+      - mysql_data:/var/lib/mysql:ro
+    networks:
+      - internal
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  cloudbeaver:
+    image: ${CLOUDBEAVER_IMAGE:-dbeaver/cloudbeaver:26.0.5@sha256:33083a988e83c714b98bffc58d45c6c6c15c86816bb446c5f053f1eed66d5247}
+    env_file:
+      - .env.docker
+    environment:
+      CLOUDBEAVER_ROOT_URI: /dba/mysql/
+      CLOUDBEAVER_APP_FORWARD_PROXY: "true"
+      CLOUDBEAVER_APP_ANONYMOUS_ACCESS_ENABLED: "false"
+      CLOUDBEAVER_APP_SUPPORTS_CUSTOM_CONNECTIONS: "false"
+      CLOUDBEAVER_SYSTEM_VARIABLES_RESOLVING_ENABLED: "true"
+      CLOUDBEAVER_DB_INITIAL_DATA: /opt/cloudbeaver/conf/initial-data.conf
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      MINIO_SECRET_KEY: ""
+    entrypoint: ["/bin/bash", "/opt/dwg-cloudbeaver/launch.sh"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      dba-bootstrap:
+        condition: service_completed_successfully
+    volumes:
+      - cloudbeaver_data:/opt/cloudbeaver/workspace
+      - ./infra/cloudbeaver/runtime.conf:/opt/cloudbeaver/conf/cloudbeaver.conf:ro
+      - ./infra/cloudbeaver/initial-data.conf:/opt/cloudbeaver/conf/initial-data.conf:ro
+      - ./infra/cloudbeaver:/opt/dwg-cloudbeaver:ro
+    networks:
+      - internal
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   app_var:
   mysql_data:
   minio_data:
+  cloudbeaver_data:
 
 networks:
   public:

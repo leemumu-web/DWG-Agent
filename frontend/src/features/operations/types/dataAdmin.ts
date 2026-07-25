@@ -49,6 +49,14 @@ export interface StorageObject {
   file_status?: string | null;
 }
 
+export interface StorageObjectTree {
+  bucket: string;
+  prefix: string;
+  folders: Array<{ name: string; prefix: string }>;
+  objects: StorageObject[];
+  truncated: boolean;
+}
+
 export interface FileTransfer {
   transfer_uid: string;
   direction: 'inbound' | 'outbound' | 'internal';

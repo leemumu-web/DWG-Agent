@@ -34,10 +34,10 @@ const NAV: NavItem[] = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
   { key: '/workflows', label: '生产流程', icon: <ApartmentOutlined /> },
   { key: '/files', label: '文件转换', icon: <FileOutlined /> },
+  { key: '/data-console', label: '数据控制台', icon: <DatabaseOutlined /> },
   { key: '/remnants', label: '余料库', icon: <InboxOutlined />, roles: ['admin', 'operator'] },
   { key: '/admin/users', label: '用户管理', icon: <TeamOutlined />, roles: ['admin'] },
   { key: '/admin/roles', label: '角色权限', icon: <SafetyCertificateOutlined />, roles: ['admin'] },
-  { key: '/admin/infrastructure', label: '数据与存储', icon: <DatabaseOutlined />, roles: ['admin'] },
 ];
 
 /** Build a 1-2 segment breadcrumb from the active path. */

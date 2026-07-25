@@ -1,60 +1,41 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router-dom';
-import { Button, Space, Tabs, Tag, Typography } from 'antd';
+import { useSearchParams } from 'react-router-dom';
+import { Space, Tabs, Tag, Typography } from 'antd';
 import {
-  ApiOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
-  FileSearchOutlined,
-  FileZipOutlined,
-  ProfileOutlined,
-  ScanOutlined,
-  SwapOutlined,
 } from '@ant-design/icons';
 
+import { useAuthStore } from '../../../shared/auth';
 import { getDataAdminOverview } from '../api/dataAdmin';
-import { ConsistencyPanel } from '../components/data-console/ConsistencyPanel';
-import { FilesPanel } from '../components/data-console/FilesPanel';
+import { MySqlWorkspace } from '../components/data-console/MySqlWorkspace';
 import { ObjectsPanel } from '../components/data-console/ObjectsPanel';
-import { OverviewPanel } from '../components/data-console/OverviewPanel';
-import { RuntimeCommunicationPanel } from '../components/data-console/RuntimeCommunicationPanel';
 import { STATUS_LABELS } from '../components/data-console/presentation';
-import { TransfersPanel } from '../components/data-console/TransfersPanel';
-import { DailyArchivePanel } from '../components/DailyArchivePanel';
 
 export function InfrastructurePage() {
   const [params, setParams] = useSearchParams();
-  const active = params.get('tab') || 'overview';
+  const user = useAuthStore((state) => state.user);
+  const canManage = user?.roles.some((role) => ['admin', 'super_admin'].includes(role.code)) ?? false;
+  const active = params.get('tab') || 'mysql';
   const overview = useQuery({ queryKey: ['data-admin', 'overview', 'shell'], queryFn: getDataAdminOverview });
   const items = [
-    { key: 'overview', label: '总览', icon: <DatabaseOutlined />, children: <OverviewPanel /> },
-    { key: 'files', label: '文件登记', icon: <FileSearchOutlined />, children: <FilesPanel /> },
-    { key: 'objects', label: '存储对象', icon: <CloudServerOutlined />, children: <ObjectsPanel /> },
-    { key: 'transfers', label: '流转流水', icon: <SwapOutlined />, children: <TransfersPanel /> },
-    { key: 'daily-archive', label: '每日归档', icon: <FileZipOutlined />, children: <DailyArchivePanel /> },
-    { key: 'consistency', label: '一致性', icon: <ScanOutlined />, children: <ConsistencyPanel latestScanId={overview.data?.latest_scan?.id} /> },
-    { key: 'runtime', label: '运行与通信', icon: <ApiOutlined />, children: <RuntimeCommunicationPanel /> },
     {
-      key: 'audit',
-      label: '审计日志',
-      icon: <ProfileOutlined />,
-      children: (
-        <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <ProfileOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>
-            审计日志记录所有操作的历史轨迹，可在独立页面查看完整记录。
-          </Typography.Paragraph>
-          <Link to="/admin/audit-logs">
-            <Button type="primary" icon={<ProfileOutlined />}>打开审计日志</Button>
-          </Link>
-        </div>
-      ),
+      key: 'mysql',
+      label: 'MySQL',
+      icon: <DatabaseOutlined />,
+      children: <MySqlWorkspace canManage={canManage} />,
+    },
+    {
+      key: 'minio',
+      label: 'MinIO',
+      icon: <CloudServerOutlined />,
+      children: <ObjectsPanel canManage={canManage} />,
     },
   ];
   return <div className="data-console">
     <section className="data-console-hero">
-      <div><span className="console-kicker">DATA CONTROL PLANE</span><Typography.Title level={2}>数据控制台</Typography.Title><Typography.Text>MySQL 登记、对象存储、每日归档、入库出库与一致性处置的统一视图</Typography.Text></div>
-      <Space wrap><Tag color={overview.data?.status === 'ok' ? 'success' : 'warning'}>{overview.data?.status ? (STATUS_LABELS[overview.data.status] ?? overview.data.status) : '加载中'}</Tag><Tag>{overview.data?.environment.app_env ?? '—'}</Tag><Tag>{overview.data?.environment.storage_backend ?? '—'}</Tag></Space>
+      <div><span className="console-kicker">DATA CONSOLE</span><Typography.Title level={2}>数据控制台</Typography.Title><Typography.Text>检查和管理 MySQL 数据结构与 MinIO 文件结构</Typography.Text></div>
+      <Space wrap><Tag color={overview.data?.status === 'ok' ? 'success' : 'warning'}>{overview.data?.status ? (STATUS_LABELS[overview.data.status] ?? overview.data.status) : '加载中'}</Tag><Tag color={canManage ? 'processing' : 'default'}>{canManage ? '完整操作' : '只读检查'}</Tag></Space>
     </section>
     <Tabs className="data-console-tabs" activeKey={active} onChange={(tab) => setParams({ tab })} items={items} destroyOnHidden />
   </div>;

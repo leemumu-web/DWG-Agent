@@ -17,6 +17,7 @@ export type {
   RemediationPreview,
   RemediationResult,
   StorageObject,
+  StorageObjectTree,
   StorageScanFinding,
   StorageScanRun,
 } from './types/dataAdmin';

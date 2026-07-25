@@ -90,8 +90,8 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `f9c4b7e2a610`，SQLAlchemy/Alembic 管理 44 张模型表。
-- 空迁移 schema 加 `alembic_version` 为 45 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 53 张。不能把 53 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
+- 当前 Alembic head 为 `b4e8c2a7d910`，SQLAlchemy/Alembic 管理 45 张模型表。
+- 空迁移 schema 加 `alembic_version` 为 46 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 54 张。不能把 54 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
 - `kombu_message` 需要 `(queue_id, timestamp, id, visible)` 索引，降低跨队列扫描和锁范围。
@@ -186,7 +186,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 152 个 path、176 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 161 个 path、186 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -231,7 +231,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 
 ## 16. Compose 与发布边界
 
-核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance/worker-dispatch`，总计 16 个 Compose 服务。
+核心服务为 `nginx/backend-api/mysql/minio/cloudbeaver/dba-bootstrap/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance/worker-dispatch`，总计 18 个 Compose 服务。
 
 - backend 与 worker 共用非 root `appuser` 镜像。
 - MySQL 和 MinIO 使用命名卷且不发布宿主端口。

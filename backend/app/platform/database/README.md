@@ -10,4 +10,4 @@
 
 ## 边界
 
-44 张业务表、owner 查询和 commit/rollback 决策归领域模块；Alembic 是 schema 权威，平台层不得反向导入 `app.modules`。
+45 张业务表、owner 查询和 commit/rollback 决策归领域模块；Alembic 是 schema 权威，平台层不得反向导入 `app.modules`。

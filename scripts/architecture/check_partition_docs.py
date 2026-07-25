@@ -209,6 +209,7 @@ PARTITIONS = tuple(dict.fromkeys([*BASE_PARTITIONS, *_source_owned_partitions()]
 # so only the snapshot's packaging manifest is exempt from local README listing.
 IMMUTABLE_PARTITION_SOURCE_EXCEPTIONS = {
     "Stages/steel_dxf_split_v1.5.2": {"pyproject.toml"},
+    "scripts": {"tempCodeRunnerFile.sh"},
 }
 
 

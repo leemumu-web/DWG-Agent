@@ -226,7 +226,7 @@
       "architecture_nodes": ["API", "MINIO", "MYSQL", "WEB"],
       "backend_paths": ["backend/app/modules/dxf_splitting"],
       "frontend_paths": ["frontend/src/features/workflows/DrawingProcessingPanel.tsx"],
-      "tables": ["dxf_split_items", "dxf_split_runs"],
+      "tables": ["dxf_split_items", "dxf_split_review_decisions", "dxf_split_runs"],
       "http_prefixes": [],
       "celery_tasks": ["app.workers.tasks_dxf_split.split_steel_dxf"],
       "queues": ["dxf_split"],
@@ -302,6 +302,7 @@
         "backend/tests/operations/test_control_plane_api.py",
         "backend/tests/operations/test_daily_archive.py",
         "backend/tests/operations/test_data_admin_api.py",
+        "backend/tests/operations/test_data_admin_mysql_gateway.py",
         "backend/tests/operations/test_storage_reconciliation.py"
       ],
       "docs": [
@@ -309,7 +310,7 @@
         "docs/guides/operations.md",
         "docs/verification/current.md"
       ],
-      "notes": "Audit, daily archive, read-only data catalog, storage reconciliation and control-plane use cases are grouped by owner. Maintenance is explicitly requested; periodic scheduling, automated off-site backup and full observability remain absent."
+      "notes": "Audit, daily archive, authenticated MySQL and MinIO data console, storage reconciliation and control-plane use cases are grouped by owner. Data-console writes remain admin-only and preserve the file registry and transfer ledger. Periodic scheduling, automated off-site backup and full observability remain absent."
     },
     {
       "code": "automation",

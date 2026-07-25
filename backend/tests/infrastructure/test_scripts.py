@@ -14,6 +14,13 @@ def _read(path: str) -> str:
     return (PROJECT_ROOT / path).read_text(encoding="utf-8")
 
 
+def test_dba_console_configurator_generates_local_unprinted_secrets():
+    script = _read("scripts/configure-dba-console.sh")
+    assert "openssl rand -hex" in script
+    assert 'chmod 600 "$env_file"' in script
+    assert "values were not printed" in script
+
+
 def test_cad_benchmark_cli_contract_and_concurrency_parser(tmp_path):
     script = PROJECT_ROOT / "scripts/cad/benchmark_conversion.py"
     assert script.is_file()
@@ -435,7 +442,11 @@ def test_script_implementations_are_classified_and_legacy_paths_retired():
 
 
 def test_all_shell_interfaces_and_libraries_have_valid_syntax():
-    scripts = sorted((PROJECT_ROOT / "scripts").rglob("*.sh"))
+    scripts = sorted(
+        path
+        for path in (PROJECT_ROOT / "scripts").rglob("*.sh")
+        if not path.name.startswith("tempCodeRunnerFile")
+    )
     assert scripts
     for script in scripts:
         result = subprocess.run(

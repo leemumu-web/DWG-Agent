@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "f9c4b7e2a610"
+    "b4e8c2a7d910"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -35,6 +35,8 @@
   ],
   "compose_services": [
     "backend-api",
+    "cloudbeaver",
+    "dba-bootstrap",
     "minio",
     "mysql",
     "nginx",
@@ -58,6 +60,7 @@
     "/admin/roles",
     "/admin/users",
     "/dashboard",
+    "/data-console",
     "/drawings",
     "/files",
     "/files/dwg2dxf",
@@ -75,6 +78,7 @@
   ],
   "http_operations": [
     "DELETE /api/v1/auth/sessions/current delete_current_session_api_v1_auth_sessions_current_delete",
+    "DELETE /api/v1/data-admin/objects delete_registered_object_api_v1_data_admin_objects_delete",
     "DELETE /api/v1/files/batches/{batch_name} delete_batch_api_v1_files_batches__batch_name__delete",
     "DELETE /api/v1/files/{file_id} delete_file_api_v1_files__file_id__delete",
     "DELETE /api/v1/remnants/{remnant_id} delete_remnant_api_v1_remnants__remnant_id__delete",
@@ -98,7 +102,9 @@
     "GET /api/v1/data-admin/daily-archives/{archive_id} get_daily_archive_run_api_v1_data_admin_daily_archives__archive_id__get",
     "GET /api/v1/data-admin/files list_data_files_api_v1_data_admin_files_get",
     "GET /api/v1/data-admin/files/{file_id} get_data_file_api_v1_data_admin_files__file_id__get",
+    "GET /api/v1/data-admin/mysql-session validate_mysql_session_api_v1_data_admin_mysql_session_get",
     "GET /api/v1/data-admin/objects list_storage_objects_api_v1_data_admin_objects_get",
+    "GET /api/v1/data-admin/objects/tree get_storage_object_tree_api_v1_data_admin_objects_tree_get",
     "GET /api/v1/data-admin/overview get_data_overview_api_v1_data_admin_overview_get",
     "GET /api/v1/data-admin/scans list_scans_api_v1_data_admin_scans_get",
     "GET /api/v1/data-admin/scans/{scan_id} get_scan_api_v1_data_admin_scans__scan_id__get",
@@ -165,6 +171,9 @@
     "GET /api/v1/workflows/{workflow_id}/download-archive download_workflow_archive_api_v1_workflows__workflow_id__download_archive_get",
     "GET /api/v1/workflows/{workflow_id}/drawing-processing get_drawing_processing_api_v1_workflows__workflow_id__drawing_processing_get",
     "GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive download_manual_review_archive_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__manual_review_archive_get",
+    "GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/results-archive download_split_results_archive_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__results_archive_get",
+    "GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-candidates-archive download_split_review_candidates_archive_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__review_candidates_archive_get",
+    "GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items get_split_review_items_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__review_items_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification get_dxf_classification_api_v1_workflows__workflow_id__dxf_classification_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification/download-archive download_all_dxf_classification_archive_api_v1_workflows__workflow_id__dxf_classification_download_archive_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key} get_dxf_classification_group_api_v1_workflows__workflow_id__dxf_classification_groups__group_key__get",
@@ -190,6 +199,8 @@
     "POST /api/v1/control-plane/maintenance/reconcile-stale-jobs queue_stale_job_reconciliation_api_v1_control_plane_maintenance_reconcile_stale_jobs_post",
     "POST /api/v1/data-admin/daily-archives create_daily_archive_run_api_v1_data_admin_daily_archives_post",
     "POST /api/v1/data-admin/daily-archives/preview preview_daily_archive_run_api_v1_data_admin_daily_archives_preview_post",
+    "POST /api/v1/data-admin/mysql-sessions create_mysql_session_api_v1_data_admin_mysql_sessions_post",
+    "POST /api/v1/data-admin/objects/moves move_registered_object_api_v1_data_admin_objects_moves_post",
     "POST /api/v1/data-admin/remediations/execute execute_storage_remediation_api_v1_data_admin_remediations_execute_post",
     "POST /api/v1/data-admin/remediations/preview preview_storage_remediation_api_v1_data_admin_remediations_preview_post",
     "POST /api/v1/data-admin/scans start_scan_api_v1_data_admin_scans_post",
@@ -240,6 +251,7 @@
     "POST /api/v1/workflows/results/{result_id}/reviews create_review_api_v1_workflows_results__result_id__reviews_post",
     "POST /api/v1/workflows/{workflow_id}/artifacts create_workflow_artifact_api_v1_workflows__workflow_id__artifacts_post",
     "POST /api/v1/workflows/{workflow_id}/cancellation-requests cancel_workflow_api_api_v1_workflows__workflow_id__cancellation_requests_post",
+    "POST /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-completion complete_split_review_api_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__review_completion_post",
     "POST /api/v1/workflows/{workflow_id}/input-batch create_batch_api_api_v1_workflows__workflow_id__input_batch_post",
     "POST /api/v1/workflows/{workflow_id}/input-batch/conversion-requests convert_batch_api_api_v1_workflows__workflow_id__input_batch_conversion_requests_post",
     "POST /api/v1/workflows/{workflow_id}/input-batch/freeze freeze_batch_api_api_v1_workflows__workflow_id__input_batch_freeze_post",
@@ -249,7 +261,8 @@
     "POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions execute_workflow_stage_api_v1_workflows__workflow_id__stages__stage_code__executions_post",
     "POST /api/v1/workflows/{workflow_id}/start start_workflow_api_api_v1_workflows__workflow_id__start_post",
     "PUT /api/v1/remnant-materials/{material_id}/aliases put_material_aliases_api_v1_remnant_materials__material_id__aliases_put",
-    "PUT /api/v1/roles/{role_id}/permissions replace_role_permissions_api_v1_roles__role_id__permissions_put"
+    "PUT /api/v1/roles/{role_id}/permissions replace_role_permissions_api_v1_roles__role_id__permissions_put",
+    "PUT /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items/{item_id}/decision put_split_review_decision_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__review_items__item_id__decision_put"
   ],
   "http_paths": [
     "/api/v1/agent-runs",
@@ -274,7 +287,11 @@
     "/api/v1/data-admin/daily-archives/{archive_id}",
     "/api/v1/data-admin/files",
     "/api/v1/data-admin/files/{file_id}",
+    "/api/v1/data-admin/mysql-session",
+    "/api/v1/data-admin/mysql-sessions",
     "/api/v1/data-admin/objects",
+    "/api/v1/data-admin/objects/moves",
+    "/api/v1/data-admin/objects/tree",
     "/api/v1/data-admin/overview",
     "/api/v1/data-admin/remediations/execute",
     "/api/v1/data-admin/remediations/preview",
@@ -388,6 +405,11 @@
     "/api/v1/workflows/{workflow_id}/download-archive",
     "/api/v1/workflows/{workflow_id}/drawing-processing",
     "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive",
+    "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/results-archive",
+    "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-candidates-archive",
+    "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-completion",
+    "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items",
+    "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-items/{item_id}/decision",
     "/api/v1/workflows/{workflow_id}/dxf-classification",
     "/api/v1/workflows/{workflow_id}/dxf-classification/download-archive",
     "/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}",
@@ -418,6 +440,7 @@
     "dxf_classification_items",
     "dxf_classification_runs",
     "dxf_split_items",
+    "dxf_split_review_decisions",
     "dxf_split_runs",
     "excel_final_batches",
     "excel_final_components",

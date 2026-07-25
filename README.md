@@ -29,12 +29,12 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、152 个 OpenAPI path 和 176 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 44 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 45 张表；Celery runtime 全部初始化后最多 53 张；SQLite 只用于 pytest |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、161 个 OpenAPI path 和 186 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 45 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 46 张表；Celery runtime 全部初始化后最多 54 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
-| 数据控制台 | ✅ | 总览、文件登记、存储对象、入出库流水、每日归档、一致性、运行通信七页签 | 管理员可归档/扫描/处置，审计员只读/预检；归档不改源文件，永久清理不可恢复且必须确认 |
+| 数据控制台 | ✅ | `/data-console` 收拢为 MySQL 与 MinIO 两个工作区；可检查库表字段、Bucket/目录/文件结构 | admin 可增删改查，其他登录用户只读；MinIO 写操作同步文件登记、流转流水与审计 |
 | Excel 第一阶段工作台 | ✅ | 处理、批次、零件、五金手册四个 URL 标签；结构化输入错误、任务监视、批次明细、精确手册查询和结果预览 | 各标签按需请求；生产流程自动使用冻结 Excel，独立入口上传/建任务继续使用数据库级幂等键 |
 
 ### 编排与扩展能力
@@ -181,7 +181,13 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`，Compose 总计 16 个服务。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
+首次启用数据控制台时，先运行 `./scripts/configure-dba-console.sh`，再以
+`docker compose --env-file .env.docker up -d --build` 启动。脚本生成的 DBA
+密钥只保存在本机忽略文件中，不打印也不提交。MySQL 管理器位于
+`/dba/mysql/`，只能由平台签发的短时会话经 Nginx 进入。详见
+[数据控制台运行手册](docs/operations/data-console.md)。
+
+核心集合为 `nginx/backend-api/mysql/minio/cloudbeaver/worker-report`，并由一次性 `dba-bootstrap` 幂等校正数据库控制台账号；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
 
 ## 🧪 开发与验证
 

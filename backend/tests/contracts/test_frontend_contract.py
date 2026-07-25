@@ -230,7 +230,7 @@ def test_daily_archive_console_uses_preview_queue_poll_and_signed_download_contr
     assert "/daily-archives/${archiveId}" in data_api
     assert "preview_token" in data_api
     assert "idempotency_key" in data_api
-    assert "每日归档" in infrastructure
+    assert "每日归档" not in infrastructure
     assert "非破坏式每日整理" in panel
     assert "refetchInterval" in panel
     assert "downloadFile" in panel
@@ -402,25 +402,30 @@ def test_dxf_split_has_guarded_batch_console_and_original_only_review_download()
     assert "automation_route: 'auto_accepted' | 'manual_review'" in type_source
 
 
-def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
+def test_data_console_has_two_url_controlled_workspaces_and_api_contracts():
     page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
     api_source = _frontend_source("features/operations/api/dataAdmin.ts")
     type_source = _frontend_source("features/operations/types/dataAdmin.ts")
-    files_panel = _frontend_source("features/operations/components/data-console/FilesPanel.tsx")
-    transfers_panel = _frontend_source(
-        "features/operations/components/data-console/TransfersPanel.tsx"
+    objects_panel = _frontend_source(
+        "features/operations/components/data-console/ObjectsPanel.tsx"
+    )
+    mysql_panel = _frontend_source(
+        "features/operations/components/data-console/MySqlWorkspace.tsx"
     )
     consistency_panel = _frontend_source(
         "features/operations/components/data-console/ConsistencyPanel.tsx"
     )
 
     assert "useSearchParams" in page_source
-    for key in ("overview", "files", "objects", "transfers", "consistency"):
+    for key in ("mysql", "minio"):
         assert f"key: '{key}'" in page_source
     for path in (
         "/api/v1/data-admin/overview",
         "/api/v1/data-admin/files",
         "/api/v1/data-admin/objects",
+        "/api/v1/data-admin/objects/tree",
+        "/api/v1/data-admin/objects/moves",
+        "/api/v1/data-admin/mysql-sessions",
         "/api/v1/data-admin/transfers",
         "/api/v1/data-admin/scans",
         "/api/v1/data-admin/remediations/preview",
@@ -436,23 +441,29 @@ def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
         "StorageScanFinding",
     ):
         assert f"interface {contract}" in type_source
+    assert "getStorageObjectTree" in objects_panel
+    assert "uploadDataAdminObject" in objects_panel
+    assert "moveDataAdminObject" in objects_panel
+    assert "deleteDataAdminObject" in objects_panel
+    assert "createMySqlConsoleSession" in mysql_panel
+    assert "onSuccess: ({ url }) => setConsoleUrl(url)" in mysql_panel
+    assert "src={consoleUrl}" in mysql_panel
+    assert 'src="/dba/mysql/"' not in mysql_panel
+    assert "MySQL 数据库管理器" in mysql_panel
     assert "listStorageScans" in consistency_panel
-    assert "getDataAdminFile" in files_panel
-    assert "getFileTransfer" in transfers_panel
     assert "处置预检" in consistency_panel
     assert "RemediationDrawer" in consistency_panel
-    assert "登记详情" in files_panel
-    assert "流水详情" in transfers_panel
     assert "destroyOnHidden" in page_source
 
 
-def test_data_console_and_audit_log_routes_are_admin_only():
+def test_data_console_is_authenticated_and_audit_log_remains_admin_only():
     router_source = _frontend_source("app/router.tsx")
     layout_source = _frontend_source("app/layout.tsx")
 
-    assert "<RequireRoles allowed={['admin']} />" in router_source
+    assert 'path="/data-console"' in router_source
+    assert '<Navigate to="/data-console" replace />' in router_source
     assert "roles: ['admin']" in layout_source
-    assert "viewer" not in router_source
+    assert "key: '/data-console'" in layout_source
     assert "viewer" not in layout_source
 
 

@@ -27,7 +27,7 @@
 | 架构节点 | 模块 | 当前事实 | 不得误报的目标差距 |
 |---|---|---|---|
 | `NGINX/API/WEB` | 多模块入口 | implemented | Compose 当前仅 HTTP，没有完成 TLS |
-| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 44 张模型表 |
+| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 45 张模型表 |
 | `MINIO` | `files` | implemented in Compose | 本地开发可用 local；跨 MySQL/对象不存在单一 ACID 事务 |
 | `RABBIT` | `messaging_target` | placeholder | 当前 broker 是 MySQL SQLAlchemy transport |
 | `OUTBOX` | `messaging_target` | placeholder | 当前 commit 后投递有补偿，不是事务 Outbox |
@@ -65,7 +65,7 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载模型 owner 和 44 张表；files、jobs、workflows、dxf_splitting 与 remnant_inventory 分别通过领域模型包装配其多张表。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载模型 owner 和 45 张表；files、jobs、workflows、dxf_splitting 与 remnant_inventory 分别通过领域模型包装配其多张表。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
 | Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 9 个真实 task module，并注册 jobs stale-recovery 与 control-plane observer；14 个 `app.workers.tasks_*` 公共名和 13 条 `pattern -> queue` 路由由运行时快照锁定，其中 agent/cad/dispatch 仅为无 task 的预留 seam。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |

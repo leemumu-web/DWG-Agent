@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **157 个 path、181 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **161 个 path、186 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -42,10 +42,14 @@
 | `POST` | `/api/v1/data-admin/daily-archives/preview` |
 | `POST, GET` | `/api/v1/data-admin/daily-archives` |
 | `GET` | `/api/v1/data-admin/daily-archives/{archive_id}` |
+| `POST` | `/api/v1/data-admin/mysql-sessions` |
+| `GET` | `/api/v1/data-admin/mysql-session` |
+| `DELETE, GET` | `/api/v1/data-admin/objects` |
+| `POST` | `/api/v1/data-admin/objects/moves` |
 | `GET` | `/api/v1/data-admin/overview` |
 | `GET` | `/api/v1/data-admin/files` |
 | `GET` | `/api/v1/data-admin/files/{file_id}` |
-| `GET` | `/api/v1/data-admin/objects` |
+| `GET` | `/api/v1/data-admin/objects/tree` |
 | `GET` | `/api/v1/data-admin/transfers` |
 | `GET` | `/api/v1/data-admin/transfers/{transfer_uid}` |
 | `POST, GET` | `/api/v1/data-admin/scans` |

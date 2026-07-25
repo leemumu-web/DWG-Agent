@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 import app.modules.files.interface as storage_service
 from app.modules.files.interface import FileRead, FileTransfer, StoredFile
-from app.modules.identity.interface import require_roles
+from app.modules.identity.interface import get_current_user
 from app.modules.operations.data_catalog.presentation import (
     storage_object_data,
     transfer_data,
@@ -16,7 +16,6 @@ from app.modules.operations.data_catalog.queries import (
     query_transfers,
     registered_files_by_storage_key,
 )
-from app.platform.config.constants import ROLE_ADMIN
 from app.platform.config.settings import settings
 from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok
@@ -25,7 +24,7 @@ from app.platform.http.exceptions import AppHTTPException, not_found
 from app.platform.storage.base import StorageError
 
 router = APIRouter()
-data_reader = require_roles(ROLE_ADMIN)
+data_reader = get_current_user
 
 
 @router.get("/overview")
@@ -119,6 +118,73 @@ def list_storage_objects(
     )
     response["cursor"] = {"next": object_page.next_cursor}
     return response
+
+
+@router.get("/objects/tree")
+def get_storage_object_tree(
+    request: Request,
+    db: DbSession,
+    bucket: str = Query(...),
+    prefix: str = Query("", max_length=512),
+    _current_user=Depends(data_reader),
+):
+    if bucket not in settings.minio_bucket_names:
+        raise AppHTTPException(422, "INVALID_BUCKET", "Bucket is not configured.")
+    normalized_prefix = prefix.strip().lstrip("/")
+    if normalized_prefix and not normalized_prefix.endswith("/"):
+        normalized_prefix += "/"
+    db.rollback()
+    storage = storage_service.get_storage_backend()
+    cursor: str | None = None
+    items = []
+    try:
+        while len(items) < 5000:
+            page = storage.list_objects(
+                bucket,
+                prefix=normalized_prefix,
+                cursor=cursor,
+                page_size=200,
+            )
+            items.extend(page.items)
+            cursor = page.next_cursor
+            if not cursor:
+                break
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "STORAGE_LIST_FAILED",
+            "Storage structure could not be listed.",
+        ) from exc
+
+    folders: dict[str, dict[str, str]] = {}
+    direct_objects = []
+    for item in items:
+        remainder = item.storage_key[len(normalized_prefix) :]
+        if "/" in remainder:
+            folder_name = remainder.split("/", 1)[0]
+            folder_prefix = f"{normalized_prefix}{folder_name}/"
+            folders[folder_prefix] = {"name": folder_name, "prefix": folder_prefix}
+        elif remainder:
+            direct_objects.append(item)
+
+    registered = registered_files_by_storage_key(
+        db,
+        bucket=bucket,
+        keys=[item.storage_key for item in direct_objects],
+    )
+    return ok(
+        {
+            "bucket": bucket,
+            "prefix": normalized_prefix,
+            "folders": [folders[key] for key in sorted(folders)],
+            "objects": [
+                storage_object_data(item, registered)
+                for item in sorted(direct_objects, key=lambda row: row.storage_key)
+            ],
+            "truncated": cursor is not None,
+        },
+        request.state.request_id,
+    )
 
 
 @router.get("/transfers")

@@ -140,6 +140,7 @@ class TestComposeYamlValid:
             "worker-remnant-parse",
             "mysql",
             "minio",
+            "cloudbeaver",
         }
         assert required <= actual, f"Missing services: {sorted(required - actual)}"
 
@@ -153,6 +154,31 @@ class TestComposeYamlValid:
         assert "quay.io/minio/minio@sha256:" in services["minio"]["image"]
         assert ":latest" not in services["minio"]["image"]
         assert "${HTTP_PORT:-80}:8080" in services["nginx"]["ports"]
+
+    def test_cloudbeaver_is_pinned_internal_and_not_published(self):
+        service = _load()["services"]["cloudbeaver"]
+        assert service["image"] == (
+            "${CLOUDBEAVER_IMAGE:-dbeaver/cloudbeaver:26.0.5@"
+            "sha256:33083a988e83c714b98bffc58d45c6c6c15c86816bb446c5f053f1eed66d5247}"
+        )
+        assert service["networks"] == ["internal"]
+        assert "ports" not in service
+        assert service["environment"]["CLOUDBEAVER_ROOT_URI"] == "/dba/mysql/"
+        assert service["depends_on"]["mysql"]["condition"] == "service_healthy"
+        assert "cloudbeaver_data" in _load()["volumes"]
+        assert service["entrypoint"] == [
+            "/bin/bash",
+            "/opt/dwg-cloudbeaver/launch.sh",
+        ]
+        mounts = set(service["volumes"])
+        assert (
+            "./infra/cloudbeaver/runtime.conf:"
+            "/opt/cloudbeaver/conf/cloudbeaver.conf:ro"
+        ) in mounts
+        assert "./infra/cloudbeaver:/opt/dwg-cloudbeaver:ro" in mounts
+
+        bootstrap = _load()["services"]["dba-bootstrap"]
+        assert "mysql_data:/var/lib/mysql:ro" in bootstrap["volumes"]
 
         nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text(encoding="utf-8")
         assert "listen 8080;" in nginx_conf
@@ -238,6 +264,14 @@ class TestMysqlService:
         volumes = data["services"]["mysql"]["volumes"]
         init_mounts = [v for v in volumes if "init.sql" in str(v)]
         assert len(init_mounts) >= 1, "init.sql should be mounted"
+
+    def test_mysql_initializes_scoped_console_accounts(self):
+        sql = (REPO_ROOT / "infra/database/mysql/dba-users.sh").read_text(encoding="utf-8")
+        assert "dwg_console_admin" in sql
+        assert "dwg_console_reader" in sql
+        assert "GRANT ALL PRIVILEGES ON dwg_agent.*" in sql
+        assert "GRANT SELECT, SHOW VIEW ON dwg_agent.*" in sql
+        assert "hardware_handbook.* TO 'dwg_console" not in sql
 
     def test_mysql_initializes_hardware_handbook_after_platform_grants(self):
         data = _load()

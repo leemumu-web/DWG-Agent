@@ -20,7 +20,7 @@
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |
 | `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Outbox、Beat 的目标边界 |
 | `windows_execution` | external | 0 | 0 | 0 | Node Agent、CAM Runner、SinoCAM Adapter |
-| **合计** |  | **44** | **176** | **14** | 所有运行契约唯一归属 |
+| **合计** |  | **45** | **186** | **14** | 所有运行契约唯一归属 |
 
 “HTTP operation 为 0”不表示模块不可用。例如 CAD 转换与分类由 Job/Workflow 公共端点触发，模块拥有任务和 Stage，而 HTTP 入口由 `jobs` 或 `workflows` 拥有。归属只设一个主 owner，避免同一契约由多个目录同时负责。
 
@@ -92,4 +92,4 @@ cd backend && .venv/bin/pytest -q tests/architecture
 cd ../frontend && npm run check:architecture
 ```
 
-检查器验证路径存在、数组确定性排序、44 张 ORM 表唯一归属、176 个 HTTP operation 唯一归属、14 个 Celery 任务唯一归属、13 条任务路由稳定，以及目标能力的显式状态。
+检查器验证路径存在、数组确定性排序、45 张 ORM 表唯一归属、186 个 HTTP operation 唯一归属、14 个 Celery 任务唯一归属、13 条任务路由稳定，以及目标能力的显式状态。

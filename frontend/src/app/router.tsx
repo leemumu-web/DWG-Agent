@@ -43,13 +43,14 @@ export function AppRouter() {
               <Route path="excel-final" element={<ExcelFinalPage />} />
             </Route>
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/data-console" element={<InfrastructurePage />} />
+            <Route path="/admin/infrastructure" element={<Navigate to="/data-console" replace />} />
             <Route element={<RequireRoles allowed={['admin', 'operator']} />}>
               <Route path="/remnants" element={<RemnantInventoryPage />} />
             </Route>
             <Route element={<RequireRoles allowed={['admin']} />}>
               <Route path="/admin/users" element={<UsersPage />} />
               <Route path="/admin/roles" element={<RolesPage />} />
-              <Route path="/admin/infrastructure" element={<InfrastructurePage />} />
               <Route path="/admin/audit-logs" element={<AuditLogsPage />} />
             </Route>
           </Route>

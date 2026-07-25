@@ -6,7 +6,7 @@
 
 ## 运行流
 
-Uvicorn 导入 `main.py` 后由 bootstrap 创建应用，显式装配 44 张 ORM 表、152 个 path/176 个 operation 和 9 个真实任务模块；业务请求进入对应 module，再经 platform adapter 访问 MySQL、Celery 和 Local/MinIO。
+Uvicorn 导入 `main.py` 后由 bootstrap 创建应用，显式装配 45 张 ORM 表、161 个 path/186 个 operation 和 9 个真实任务模块；业务请求进入对应 module，再经 platform adapter 访问 MySQL、Celery 和 Local/MinIO。
 
 ## 边界
 

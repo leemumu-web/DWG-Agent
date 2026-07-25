@@ -4,6 +4,9 @@ Status: implemented for first-time Compose volume initialization.
 
 - `init.sql` 建立平台应用用户对 `dwg_agent` 的必要授权，并授予五金手册只读权限。
 - `hardware_handbook.sql` 初始化外部参考数据的仓库内基线。
+- `dba-users.sh` 每次 Compose 启动时幂等创建/校正仅限 `dwg_agent.*` 的
+  `dwg_console_admin` 与 `dwg_console_reader`，同时适用于已有数据卷；脚本通过
+  只读挂载的数据卷 Unix socket 连接，root 不开放 TCP 登录。
 - 应用 schema 由 Alembic 管理；修改这里不会升级已有 `mysql_data` volume。
 - Celery SQL broker/result 表由 Kombu/Celery 按需创建，不属于 Alembic 模型迁移。
 
