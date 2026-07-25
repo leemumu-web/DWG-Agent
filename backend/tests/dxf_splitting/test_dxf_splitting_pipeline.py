@@ -416,6 +416,188 @@ def _fake_splitter(
     return invoke
 
 
+def _review_run_fixture(db, monkeypatch, tmp_path, *, with_candidate: bool):
+    _configure_local_storage(monkeypatch, tmp_path)
+    workflow_id, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BH-REVIEW", "BH"),),
+    )
+    monkeypatch.setattr(
+        split_execution,
+        "_invoke_splitter",
+        _fake_splitter(
+            family_by_member={"BH-REVIEW": "BH"},
+            manual_members=frozenset({"BH-REVIEW"}),
+        ),
+    )
+    split_execution.run_dxf_splitting(job_id, worker_name="test-split")
+    db.expire_all()
+    workflow = db.get(WorkflowRun, workflow_id)
+    run = db.scalar(select(split_models.DxfSplitRun).where(
+        split_models.DxfSplitRun.job_id == job_id
+    ))
+    assert workflow is not None
+    assert run is not None
+    item = run.items[0]
+    if with_candidate:
+        payload = _valid_dxf_bytes(tmp_path, f"candidate-{uuid4().hex}.dxf")
+        normal = _save_source_dxf(
+            db,
+            user_id=workflow.created_by,
+            payload=payload,
+            original_name="BH-REVIEW_正常拆板.dxf",
+        )
+        allowance = _save_source_dxf(
+            db,
+            user_id=workflow.created_by,
+            payload=payload,
+            original_name="BH-REVIEW_余量增长.dxf",
+        )
+        item.candidate_normal_dxf_file_id = normal.id
+        item.candidate_weld_allowance_dxf_file_id = allowance.id
+        db.commit()
+    return workflow, run, item
+
+
+def test_review_decision_service_accepts_candidate_pair_idempotently(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    from app.modules.dxf_splitting.review import decide_split_item
+    from app.modules.dxf_splitting.schemas import DxfSplitReviewDecisionWrite
+
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=True,
+    )
+    payload = DxfSplitReviewDecisionWrite(
+        decision="accept_candidate",
+        comment="轮廓和孔位已人工核对",
+        expected_version=0,
+    )
+
+    decision = decide_split_item(
+        db,
+        workflow=workflow,
+        run_id=run.id,
+        item_id=item.id,
+        actor_id=workflow.created_by,
+        payload=payload,
+    )
+    same = decide_split_item(
+        db,
+        workflow=workflow,
+        run_id=run.id,
+        item_id=item.id,
+        actor_id=workflow.created_by,
+        payload=payload,
+    )
+
+    assert same.id == decision.id
+    assert decision.version == 1
+    assert decision.final_normal_dxf_file_id == item.candidate_normal_dxf_file_id
+    assert (
+        decision.final_weld_allowance_dxf_file_id
+        == item.candidate_weld_allowance_dxf_file_id
+    )
+
+
+def test_review_decision_service_rejects_candidate_when_pair_is_missing(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    from app.modules.dxf_splitting.review import decide_split_item
+    from app.modules.dxf_splitting.schemas import DxfSplitReviewDecisionWrite
+
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=False,
+    )
+
+    with pytest.raises(AppHTTPException) as exc_info:
+        decide_split_item(
+            db,
+            workflow=workflow,
+            run_id=run.id,
+            item_id=item.id,
+            actor_id=workflow.created_by,
+            payload=DxfSplitReviewDecisionWrite(
+                decision="accept_candidate",
+                comment="尝试采用不存在的候选",
+                expected_version=0,
+            ),
+        )
+
+    assert exc_info.value.detail["code"] == "DXF_SPLIT_CANDIDATE_UNAVAILABLE"
+
+
+def test_review_decision_service_rejects_stale_version_and_attempt(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    from app.modules.dxf_splitting.review import decide_split_item
+    from app.modules.dxf_splitting.schemas import DxfSplitReviewDecisionWrite
+
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=False,
+    )
+    initial = DxfSplitReviewDecisionWrite(
+        decision="manual_processing",
+        comment="转线下人工处理",
+        expected_version=0,
+    )
+    decide_split_item(
+        db,
+        workflow=workflow,
+        run_id=run.id,
+        item_id=item.id,
+        actor_id=workflow.created_by,
+        payload=initial,
+    )
+
+    with pytest.raises(AppHTTPException) as version_exc:
+        decide_split_item(
+            db,
+            workflow=workflow,
+            run_id=run.id,
+            item_id=item.id,
+            actor_id=workflow.created_by,
+            payload=DxfSplitReviewDecisionWrite(
+                decision="manual_processing",
+                comment="修改人工说明",
+                expected_version=0,
+            ),
+        )
+    assert version_exc.value.detail["code"] == "DXF_SPLIT_REVIEW_VERSION_CONFLICT"
+
+    drawing_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
+    )
+    drawing_stage.job_attempt += 1
+    db.commit()
+    with pytest.raises(AppHTTPException) as stale_exc:
+        decide_split_item(
+            db,
+            workflow=workflow,
+            run_id=run.id,
+            item_id=item.id,
+            actor_id=workflow.created_by,
+            payload=initial,
+        )
+    assert stale_exc.value.detail["code"] == "DXF_SPLIT_RUN_NOT_CURRENT"
+
+
 def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path):
     captured: list[list[str]] = []
 

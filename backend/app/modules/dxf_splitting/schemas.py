@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.modules.files.interface import FileRead
 from app.modules.jobs.interface import JobRead
@@ -51,6 +52,32 @@ class DxfSplitRunRead(BaseModel):
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class DxfSplitReviewDecisionWrite(BaseModel):
+    decision: Literal["accept_candidate", "manual_processing"]
+    comment: str = Field(min_length=2, max_length=1000)
+    expected_version: int = Field(ge=0)
+
+    @field_validator("comment")
+    @classmethod
+    def validate_comment(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("人工复核说明至少需要两个字符。")
+        return normalized
+
+
+class DxfSplitReviewDecisionRead(BaseModel):
+    id: int
+    split_item_id: int
+    decision: Literal["accept_candidate", "manual_processing"]
+    final_normal_dxf_file_id: int | None
+    final_weld_allowance_dxf_file_id: int | None
+    comment: str
+    decided_by: int
+    decided_at: datetime
+    version: int
 
 
 class DxfSplitHandoffDrawing(BaseModel):
