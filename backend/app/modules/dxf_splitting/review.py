@@ -19,8 +19,11 @@ from app.modules.dxf_splitting.schemas import (
     DxfSplitReviewPage,
 )
 from app.modules.files.interface import StoredFile
-from app.modules.workflows.interface import WorkflowRun, attach_artifact
-from app.modules.workflows.job_sync import sync_workflow_from_jobs
+from app.modules.workflows.interface import (
+    WorkflowRun,
+    attach_artifact,
+    sync_workflow_from_jobs,
+)
 from app.platform.http.exceptions import AppHTTPException
 
 

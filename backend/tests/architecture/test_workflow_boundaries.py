@@ -84,6 +84,31 @@ EXPECTED_ROUTES = [
         "/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive",
         "download_manual_review_archive",
     ),
+    (
+        ("GET",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/review-items",
+        "get_split_review_items",
+    ),
+    (
+        ("PUT",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/review-items/{item_id}/decision",
+        "put_split_review_decision",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/review-completion",
+        "complete_split_review_api",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/review-candidates-archive",
+        "download_split_review_candidates_archive",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/drawing-processing/runs/{run_id}/results-archive",
+        "download_split_results_archive",
+    ),
     (("GET",), "/{workflow_id}", "get_workflow"),
     (("POST",), "/{workflow_id}/start", "start_workflow_api"),
     (

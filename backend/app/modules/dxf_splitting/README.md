@@ -17,6 +17,7 @@
 
 文件职责：`adapter.py` 固定版本、CLI 和来源契约；`validation.py` 独立重开并核对成对产物；
 `execution.py` 编排整批 attempt；`persistence.py` 负责数据库与对象存储登记；
+`review.py` 负责候选产物接纳与人工处理决定；
 `models.py`、`schemas.py` 定义持久化和传输结构；`presentation.py` 生成公开读模型；
 `tasks.py` 暴露 Celery 入口；`interface.py` 是其他业务模块唯一允许依赖的公开边界。
 `__init__.py` 不导出内部实现。任何模块都不能绕过文件登记直接传递 MinIO 凭据、本地路径或临时 URL。
