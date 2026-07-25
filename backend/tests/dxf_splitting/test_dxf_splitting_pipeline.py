@@ -27,7 +27,9 @@ from app.modules.dxf_splitting.interface import (
     DxfSplitRun,
     build_dxf_split_run_read,
     get_excel_split_handoff,
+    list_split_review_items,
     manual_review_archive_members,
+    review_candidate_archive_members,
 )
 from app.modules.files.interface import (
     StoredFile,
@@ -44,6 +46,7 @@ from app.modules.workflows.routes.archive import _collect_archive_members
 from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
+from tests.support import workflow_api as workflow_test_api
 
 
 def test_review_decision_model_keeps_candidates_separate_from_formal_outputs():
@@ -52,6 +55,7 @@ def test_review_decision_model_keeps_candidates_separate_from_formal_outputs():
     decision_model = getattr(split_models, "DxfSplitReviewDecision", None)
 
     assert "processed_count" in run_columns
+    assert "failed_count" in run_columns
     assert {
         "candidate_normal_dxf_file_id",
         "candidate_weld_allowance_dxf_file_id",
@@ -682,14 +686,70 @@ def test_review_api_completes_candidate_and_downloads_only_zip_archives(
     assert results.headers["content-type"] == "application/zip"
     with zipfile.ZipFile(BytesIO(results.content)) as zipped:
         result_names = zipped.namelist()
+        final_manifest = json.loads(
+            zipped.read("batch/dxf-split-manifest.json").decode("utf-8")
+        )
     assert any(name.endswith("BH-REVIEW_正常拆板.dxf") for name in result_names)
     assert any(name.endswith("BH-REVIEW_余量增长.dxf") for name in result_names)
     assert not any("/candidates/" in name for name in result_names)
+    assert final_manifest["status"] == "completed"
+    assert final_manifest["machine_outcome"] == {
+        "auto_accepted_count": 0,
+        "manual_review_count": 1,
+        "failed_count": 0,
+    }
+    assert final_manifest["items"][0]["review_decision"] == "accept_candidate"
 
     db.expire_all()
     refreshed = db.get(WorkflowRun, workflow.id)
     assert refreshed is not None
     assert refreshed.current_stage == "excel_stage1"
+    refreshed_run = db.get(DxfSplitRun, run.id)
+    assert refreshed_run is not None
+    assert refreshed_run.auto_accepted_count == 0
+    assert refreshed_run.manual_review_count == 1
+
+
+def test_project_viewer_cannot_write_split_review(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=True,
+    )
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    viewer_id, viewer_headers = workflow_test_api.create_engineer_user(
+        client,
+        admin_headers,
+        "split-view",
+    )
+    workflow_test_api.add_project_member(
+        client,
+        workflow.project_id,
+        viewer_id,
+        "project_viewer",
+        admin_headers,
+    )
+    base = f"/api/v1/workflows/{workflow.id}/drawing-processing/runs/{run.id}"
+
+    decision = client.put(
+        f"{base}/review-items/{item.id}/decision",
+        headers=viewer_headers,
+        json={
+            "decision": "accept_candidate",
+            "comment": "只读成员不得提交",
+            "expected_version": 0,
+        },
+    )
+    completion = client.post(f"{base}/review-completion", headers=viewer_headers)
+
+    assert decision.status_code == 403, decision.text
+    assert completion.status_code == 403, completion.text
 
 
 def test_review_completion_blocks_manual_processing_decision(
@@ -723,10 +783,44 @@ def test_review_completion_blocks_manual_processing_decision(
     )
 
     with pytest.raises(AppHTTPException) as exc_info:
-        complete_split_review(db, workflow=workflow, run_id=run.id)
+        complete_split_review(
+            db,
+            workflow=workflow,
+            run_id=run.id,
+            actor_id=workflow.created_by,
+        )
 
     assert exc_info.value.detail["code"] == "DXF_SPLIT_MANUAL_PROCESSING_REQUIRED"
     assert run.status == "completed_with_review"
+
+
+def test_candidate_archive_omits_entire_candidate_set_when_one_member_is_deleted(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    workflow, run, item = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=True,
+    )
+    deleted = db.get(StoredFile, item.candidate_split_report_file_id)
+    assert deleted is not None
+    deleted.status = "deleted"
+    db.flush()
+
+    members = review_candidate_archive_members(db, run)
+
+    assert members == [(item.source_file_id, f"items/{item.id}/source/{item.source_name}")]
+    page = list_split_review_items(
+        db,
+        workflow=workflow,
+        run_id=run.id,
+        page=1,
+        page_size=20,
+    )
+    assert page.items[0].candidate_available is False
 
 
 def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path):
@@ -783,7 +877,7 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
 
 
 def test_adapter_streams_monotonic_progress_to_platform_callback(monkeypatch, tmp_path):
-    callbacks: list[tuple[int, int]] = []
+    callbacks: list[tuple[int, int, int, int, int]] = []
 
     class Process:
         returncode = 1
@@ -805,6 +899,9 @@ def test_adapter_streams_monotonic_progress_to_platform_callback(monkeypatch, tm
                             "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
                             "processed_count": 1,
                             "input_count": 1,
+                            "auto_accepted_count": 0,
+                            "manual_review_count": 1,
+                            "failed_count": 0,
                         }
                     ),
                     encoding="utf-8",
@@ -832,10 +929,52 @@ def test_adapter_streams_monotonic_progress_to_platform_callback(monkeypatch, tm
         tmp_path,
         tmp_path.parent / "output",
         expected_input_count=1,
-        progress_callback=lambda processed, total: callbacks.append((processed, total)),
+        progress_callback=lambda processed, total, auto, manual, failed: callbacks.append(
+            (processed, total, auto, manual, failed)
+        ),
     )
 
-    assert callbacks == [(1, 1)]
+    assert callbacks == [(1, 1, 0, 1, 0)]
+
+
+def test_adapter_keeps_one_file_failure_as_manual_review_result(monkeypatch, tmp_path):
+    class Process:
+        returncode = 2
+
+        def __init__(self, command, **_kwargs):
+            self.command = command
+
+        def communicate(self, timeout=None):
+            return (
+                json.dumps(
+                    [
+                        {
+                            "input": str(tmp_path / "BH-1_拆板前.dxf"),
+                            "compiler_version": "1.5.2",
+                            "automation_route": "failed",
+                            "error_type": "ValueError",
+                            "error": "fixture failure",
+                        }
+                    ]
+                ),
+                "",
+            )
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+
+    payload = split_adapter.invoke_splitter(
+        tmp_path,
+        tmp_path.parent / "output",
+        expected_input_count=1,
+    )
+
+    assert payload["status"] == "completed_with_review"
+    assert payload["failed_count"] == 1
+    assert payload["manual_review_count"] == 0
+    assert payload["results"][0]["automation_route"] == "failed"
 
 
 def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
@@ -876,6 +1015,9 @@ def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
         "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
         "processed_count": 2,
         "input_count": 2,
+        "auto_accepted_count": 0,
+        "manual_review_count": 2,
+        "failed_count": 0,
     }
 
 

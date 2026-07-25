@@ -86,7 +86,15 @@ def _snapshot_inputs(input_dir: Path, output_dir: Path) -> tuple[Path, ...]:
     return inputs
 
 
-def _publish_progress(path: Path | None, *, processed_count: int, input_count: int) -> None:
+def _publish_progress(
+    path: Path | None,
+    *,
+    processed_count: int,
+    input_count: int,
+    auto_accepted_count: int,
+    manual_review_count: int,
+    failed_count: int,
+) -> None:
     if path is None:
         return
     if path.is_symlink():
@@ -99,6 +107,9 @@ def _publish_progress(path: Path | None, *, processed_count: int, input_count: i
                 "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
                 "processed_count": processed_count,
                 "input_count": input_count,
+                "auto_accepted_count": auto_accepted_count,
+                "manual_review_count": manual_review_count,
+                "failed_count": failed_count,
             },
             ensure_ascii=False,
         ),
@@ -135,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
     summaries: list[dict[str, object]] = []
     results: list[SplitResult] = []
     failures = 0
+    auto_accepted_count = 0
+    manual_review_count = 0
     for processed_count, input_path in enumerate(inputs, start=1):
         processing_started = perf_counter()
         try:
@@ -154,36 +167,45 @@ def main(argv: list[str] | None = None) -> int:
                 args.progress_json,
                 processed_count=processed_count,
                 input_count=len(inputs),
+                auto_accepted_count=auto_accepted_count,
+                manual_review_count=manual_review_count,
+                failed_count=failures,
             )
             continue
         if isinstance(result, SplitResult):
             results.append(result)
-        summaries.append(
-            result.to_summary(
-                input_path=input_path,
-                compiler_version=__version__,
-                processing_seconds=perf_counter() - processing_started,
-            )
+        summary = result.to_summary(
+            input_path=input_path,
+            compiler_version=__version__,
+            processing_seconds=perf_counter() - processing_started,
         )
+        summaries.append(summary)
+        if summary.get("automation_route") == "auto_accepted":
+            auto_accepted_count += 1
+        else:
+            manual_review_count += 1
         _publish_progress(
             args.progress_json,
             processed_count=processed_count,
             input_count=len(inputs),
+            auto_accepted_count=auto_accepted_count,
+            manual_review_count=manual_review_count,
+            failed_count=failures,
         )
-    if not failures:
-        try:
-            publish_bh_project_ledger(results, args.output_dir)
-        except Exception as exc:
-            failures += 1
-            summaries.append(
-                {
-                    "input": str(args.input_dir),
-                    "compiler_version": __version__,
-                    "automation_route": "failed",
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                }
-            )
+    try:
+        publish_bh_project_ledger(results, args.output_dir)
+    except Exception as exc:
+        failures += 1
+        summaries.append(
+            {
+                "input": str(args.input_dir),
+                "compiler_version": __version__,
+                "automation_route": "failed",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "batch_failure": True,
+            }
+        )
     print(json.dumps(summaries, ensure_ascii=False, indent=2))
     if failures:
         return 2

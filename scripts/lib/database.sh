@@ -483,7 +483,7 @@ expected_columns = {
         "candidate_split_report_file_id",
         "candidate_weld_allowance_report_file_id",
     },
-    "dxf_split_runs": {"processed_count"},
+    "dxf_split_runs": {"failed_count", "processed_count"},
     "dxf_split_review_decisions": {
         "split_item_id",
         "decision",

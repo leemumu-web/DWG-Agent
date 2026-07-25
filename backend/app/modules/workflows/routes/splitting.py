@@ -16,6 +16,7 @@ from app.modules.dxf_splitting.interface import (
     list_split_review_items,
     manual_review_archive_members,
     review_candidate_archive_members,
+    split_candidate_available,
     split_results_archive_members,
 )
 from app.modules.identity.interface import CurrentUser
@@ -208,7 +209,12 @@ def complete_split_review_api(
 ):
     workflow = load_workflow_detail(db, workflow_id, for_update=True)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
-    run = complete_split_review(db, workflow=workflow, run_id=run_id)
+    run = complete_split_review(
+        db,
+        workflow=workflow,
+        run_id=run_id,
+        actor_id=current_user.id,
+    )
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -263,12 +269,7 @@ def download_split_review_candidates_archive(
                 "part_type": item.part_type,
                 "disposition": item.disposition,
                 "diagnostics": item.diagnostics_json or [],
-                "candidate_available": bool(
-                    item.candidate_normal_dxf_file_id
-                    and item.candidate_weld_allowance_dxf_file_id
-                    and item.candidate_split_report_file_id
-                    and item.candidate_weld_allowance_report_file_id
-                ),
+                "candidate_available": split_candidate_available(db, item),
             }
             for item in run.items
             if item.automation_route == "manual_review"

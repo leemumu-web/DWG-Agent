@@ -44,6 +44,7 @@ class DxfSplitRun(TimestampMixin, Base):
     input_manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     input_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     auto_accepted_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     manual_review_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     source_contracts_json: Mapped[dict[str, str] | None] = mapped_column(JSON)
@@ -92,7 +93,7 @@ class DxfSplitItem(TimestampMixin, Base):
     profile_normalized: Mapped[str | None] = mapped_column(String(255))
     family: Mapped[str | None] = mapped_column(String(16))
     source_contract_id: Mapped[str | None] = mapped_column(String(64))
-    automation_route: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    automation_route: Mapped[str] = mapped_column(String(32), nullable=False)
     disposition: Mapped[str] = mapped_column(String(64), nullable=False)
     normal_dxf_file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), index=True)
     weld_allowance_dxf_file_id: Mapped[int | None] = mapped_column(

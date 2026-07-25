@@ -596,10 +596,21 @@ def run_dxf_splitting(
                 return
 
             if supported:
-                def publish_progress(processed: int, total: int) -> None:
+                def publish_progress(
+                    processed: int,
+                    total: int,
+                    auto_count: int = 0,
+                    manual_count: int = 0,
+                    failed_count: int = 0,
+                ) -> None:
                     overall_processed = min(len(unsupported) + processed, len(inputs))
                     current_run = load_split_run(db, job_id=job.id, attempt=attempt)
                     current_run.processed_count = overall_processed
+                    current_run.auto_accepted_count = auto_count
+                    current_run.manual_review_count = (
+                        len(unsupported) + manual_count + failed_count
+                    )
+                    current_run.failed_count = failed_count
                     db.flush()
                     progress = 25 + round(35 * overall_processed / len(inputs))
                     active_job = commit_job_progress(
@@ -616,6 +627,11 @@ def run_dxf_splitting(
                             ),
                             processed_count=overall_processed,
                             input_count=len(inputs),
+                            auto_accepted_count=auto_count,
+                            manual_review_count=(
+                                len(unsupported) + manual_count + failed_count
+                            ),
+                            failed_count=failed_count,
                         ),
                     )
                     if active_job is None:
@@ -697,6 +713,7 @@ def run_dxf_splitting(
             )
             manual_count = int(validation_payload["manual_review_count"])
             auto_count = int(validation_payload["auto_accepted_count"])
+            failed_count = int(validation_payload["failed_count"])
             _add_step(
                 db,
                 job.id,
@@ -782,6 +799,7 @@ def run_dxf_splitting(
                 "input_count": len(persisted_items),
                 "auto_accepted_count": auto_count,
                 "manual_review_count": manual_count,
+                "failed_count": failed_count,
                 "bh_split_ledger_file_id": ledger_file.id,
                 "validation_report_file_id": validation_file.id,
                 "items": [
@@ -818,6 +836,7 @@ def run_dxf_splitting(
                 run,
                 auto_accepted_count=auto_count,
                 manual_review_count=manual_count,
+                failed_count=failed_count,
                 ledger_file=ledger_file,
                 manifest_file=manifest_file,
                 validation_file=validation_file,

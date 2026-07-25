@@ -12,6 +12,10 @@ from app.modules.dxf_splitting.models import (
     DxfSplitReviewDecision,
     DxfSplitRun,
 )
+from app.modules.dxf_splitting.persistence import (
+    persist_review_completion_manifest,
+    split_candidate_files,
+)
 from app.modules.dxf_splitting.schemas import (
     DxfSplitReviewDecisionRead,
     DxfSplitReviewDecisionWrite,
@@ -78,29 +82,8 @@ def _available_dxf(db: Session, file_id: int | None) -> StoredFile | None:
     return stored
 
 
-def _available_file(db: Session, file_id: int | None) -> StoredFile | None:
-    stored = db.get(StoredFile, file_id) if file_id is not None else None
-    if stored is None or stored.status == "deleted":
-        return None
-    return stored
-
-
 def _candidate_files_available(db: Session, item: DxfSplitItem) -> bool:
-    normal = _available_dxf(db, item.candidate_normal_dxf_file_id)
-    allowance = _available_dxf(db, item.candidate_weld_allowance_dxf_file_id)
-    split_report = _available_file(db, item.candidate_split_report_file_id)
-    allowance_report = _available_file(
-        db, item.candidate_weld_allowance_report_file_id
-    )
-    return bool(
-        normal is not None
-        and allowance is not None
-        and normal.id != allowance.id
-        and split_report is not None
-        and allowance_report is not None
-        and split_report.file_ext.casefold() == ".json"
-        and allowance_report.file_ext.casefold() == ".json"
-    )
+    return split_candidate_files(db, item) is not None
 
 
 def list_split_review_items(
@@ -269,6 +252,7 @@ def complete_split_review(
     *,
     workflow: WorkflowRun,
     run_id: int,
+    actor_id: int,
 ) -> DxfSplitRun:
     run = _current_review_run(db, workflow=workflow, run_id=run_id)
     items = list(
@@ -352,8 +336,28 @@ def complete_split_review(
                 file_id=file_id,
                 metadata={**metadata, "role": role},
             )
+    final_manifest = persist_review_completion_manifest(
+        db,
+        run=run,
+        actor_user_id=actor_id,
+    )
     run.status = "completed"
-    run.auto_accepted_count = run.input_count
+    run.split_manifest_file_id = final_manifest.id
+    manifest_artifact = attach_artifact(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        artifact_type="split_manifest",
+        file_id=final_manifest.id,
+        metadata={
+            "job_id": run.job_id,
+            "job_attempt": run.job_attempt,
+            "run_id": run.id,
+            "role": "final_split_manifest",
+            "final_review": True,
+        },
+    )
+    manifest_artifact.version = 2
     stage.output_json = {
         "split_status": run.status,
         "job_id": run.job_id,

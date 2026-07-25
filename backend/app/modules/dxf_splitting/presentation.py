@@ -72,11 +72,7 @@ def build_dxf_split_run_read(
         input_manifest_sha256=run.input_manifest_sha256,
         input_count=run.input_count,
         processed_count=run.processed_count,
-        failed_count=sum(
-            item.candidate_normal_dxf_file_id is None
-            or item.candidate_weld_allowance_dxf_file_id is None
-            for item in manual_items
-        ),
+        failed_count=run.failed_count,
         reviewed_count=sum(item.review_decision is not None for item in manual_items),
         elapsed_seconds=elapsed_seconds,
         throughput_per_minute=throughput_per_minute,

@@ -309,6 +309,20 @@ def validate_split_results(
                     diagnostics=["SPLITTER_MANUAL_REVIEW", *diagnostics],
                 )
             )
+        elif route == "failed":
+            error_type = raw_result.get("error_type")
+            diagnostics = ["SPLITTER_FILE_FAILED"]
+            if isinstance(error_type, str) and error_type:
+                diagnostics.append(error_type)
+            validated.append(
+                _manual_item(
+                    source,
+                    family=None,
+                    disposition="splitter_failed",
+                    diagnostics=diagnostics,
+                    checks={"splitter_error": str(raw_result.get("error") or "unknown")},
+                )
+            )
         else:
             raise DxfSplitError("拆板逐图结果包含未知业务路由。")
     if seen != set(by_path):
@@ -325,6 +339,7 @@ def build_validation_report(
     items: list[ValidatedSplitItem],
 ) -> dict[str, object]:
     manual_count = sum(item.automation_route == "manual_review" for item in items)
+    failed_count = sum(item.disposition == "splitter_failed" for item in items)
     return {
         "schema": VALIDATION_SCHEMA,
         "workflow_id": workflow_id,
@@ -335,6 +350,7 @@ def build_validation_report(
         "input_count": len(items),
         "auto_accepted_count": len(items) - manual_count,
         "manual_review_count": manual_count,
+        "failed_count": failed_count,
         "results": [
             {
                 "classification_item_id": item.source.semantic.classification_item_id,

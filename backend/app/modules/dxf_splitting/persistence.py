@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
@@ -265,6 +266,7 @@ def finish_split_run(
     *,
     auto_accepted_count: int,
     manual_review_count: int,
+    failed_count: int,
     ledger_file: StoredFile,
     manifest_file: StoredFile,
     validation_file: StoredFile,
@@ -274,6 +276,7 @@ def finish_split_run(
     run.validation_schema = VALIDATION_SCHEMA
     run.auto_accepted_count = auto_accepted_count
     run.manual_review_count = manual_review_count
+    run.failed_count = failed_count
     run.processed_count = run.input_count
     run.bh_split_ledger_file_id = ledger_file.id
     run.split_manifest_file_id = manifest_file.id
@@ -373,6 +376,33 @@ def manual_review_archive_members(
     return members
 
 
+def split_candidate_files(
+    db: Session,
+    item: DxfSplitItem,
+) -> tuple[StoredFile, StoredFile, StoredFile, StoredFile] | None:
+    files = tuple(
+        db.get(StoredFile, file_id) if file_id is not None else None
+        for file_id in (
+            item.candidate_normal_dxf_file_id,
+            item.candidate_weld_allowance_dxf_file_id,
+            item.candidate_split_report_file_id,
+            item.candidate_weld_allowance_report_file_id,
+        )
+    )
+    if any(stored is None or stored.status == "deleted" for stored in files):
+        return None
+    normal, allowance, split_report, allowance_report = files
+    if (
+        normal.file_ext.casefold() != ".dxf"
+        or allowance.file_ext.casefold() != ".dxf"
+        or normal.id == allowance.id
+        or split_report.file_ext.casefold() != ".json"
+        or allowance_report.file_ext.casefold() != ".json"
+    ):
+        return None
+    return normal, allowance, split_report, allowance_report
+
+
 def review_candidate_archive_members(
     db: Session,
     run: DxfSplitRun,
@@ -381,24 +411,27 @@ def review_candidate_archive_members(
     for item in run.items:
         if item.automation_route != "manual_review":
             continue
-        files = (
-            (item.source_file_id, "source"),
-            (item.candidate_normal_dxf_file_id, "candidate"),
-            (item.candidate_weld_allowance_dxf_file_id, "candidate"),
-            (item.candidate_split_report_file_id, "reports"),
-            (item.candidate_weld_allowance_report_file_id, "reports"),
-        )
-        for file_id, directory in files:
-            stored = db.get(StoredFile, file_id) if file_id is not None else None
-            if stored is None or stored.status == "deleted":
-                if directory == "source":
-                    raise AppHTTPException(
-                        409,
-                        "DXF_SPLIT_REVIEW_SOURCE_MISSING",
-                        "待人工处理的原始 DXF 不可用。",
-                        {"split_item_id": item.id, "file_id": file_id},
-                    )
-                continue
+        source = db.get(StoredFile, item.source_file_id)
+        if source is None or source.status == "deleted":
+            raise AppHTTPException(
+                409,
+                "DXF_SPLIT_REVIEW_SOURCE_MISSING",
+                "待人工处理的原始 DXF 不可用。",
+                {"split_item_id": item.id, "file_id": item.source_file_id},
+            )
+        files: list[tuple[StoredFile, str]] = [(source, "source")]
+        candidates = split_candidate_files(db, item)
+        if candidates is not None:
+            normal, allowance, split_report, allowance_report = candidates
+            files.extend(
+                (
+                    (normal, "candidate"),
+                    (allowance, "candidate"),
+                    (split_report, "reports"),
+                    (allowance_report, "reports"),
+                )
+            )
+        for stored, directory in files:
             members.append(
                 (
                     stored.id,
@@ -491,6 +524,112 @@ def find_split_file_workflow_id(db: Session, file_id: int) -> int | None:
         )
         .limit(1)
     )
+
+
+def persist_review_completion_manifest(
+    db: Session,
+    *,
+    run: DxfSplitRun,
+    actor_user_id: int,
+) -> StoredFile:
+    relative_path = "batch/dxf-split-final-manifest.json"
+    payload = json.dumps(
+        {
+            "schema": MANIFEST_SCHEMA,
+            "workflow_id": run.workflow_run_id,
+            "split_run_id": run.id,
+            "job_id": run.job_id,
+            "job_attempt": run.job_attempt,
+            "status": "completed",
+            "splitter_version": run.splitter_version,
+            "input_manifest_sha256": run.input_manifest_sha256,
+            "input_count": run.input_count,
+            "machine_outcome": {
+                "auto_accepted_count": run.auto_accepted_count,
+                "manual_review_count": run.manual_review_count,
+                "failed_count": run.failed_count,
+            },
+            "reviewed_count": sum(
+                item.review_decision is not None
+                for item in run.items
+                if item.automation_route == "manual_review"
+            ),
+            "items": [
+                {
+                    "split_item_id": item.id,
+                    "classification_item_id": item.classification_item_id,
+                    "source_file_id": item.source_file_id,
+                    "part_type": item.part_type,
+                    "machine_automation_route": item.automation_route,
+                    "machine_disposition": item.disposition,
+                    "review_decision": (
+                        item.review_decision.decision
+                        if item.review_decision is not None
+                        else None
+                    ),
+                    "review_decision_id": (
+                        item.review_decision.id
+                        if item.review_decision is not None
+                        else None
+                    ),
+                    "normal_dxf_file_id": item.normal_dxf_file_id,
+                    "weld_allowance_dxf_file_id": item.weld_allowance_dxf_file_id,
+                    "split_report_file_id": item.split_report_file_id,
+                    "weld_allowance_report_file_id": (
+                        item.weld_allowance_report_file_id
+                    ),
+                }
+                for item in run.items
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8")
+    batch_name = (
+        f"workflow-{run.workflow_run_id}-split-attempt-{run.job_attempt}"
+    )
+    transfer_uid = prepare_generated_file_transfer(
+        db,
+        actor_user_id=actor_user_id,
+        request_id=split_request_id(
+            job_id=run.job_id,
+            attempt=run.job_attempt,
+            relative_path=relative_path,
+        ),
+        batch_ref=batch_name,
+        bucket=settings.minio_bucket_reports,
+        storage_key=(
+            f"workflows/{run.workflow_run_id}/drawing-processing/"
+            f"attempt-{run.job_attempt}/{relative_path}"
+        ),
+        original_name="dxf-split-final-manifest.json",
+        expected_bytes=len(payload),
+    )
+    stored = save_bytes_as_file(
+        db,
+        bucket=settings.minio_bucket_reports,
+        storage_key=(
+            f"workflows/{run.workflow_run_id}/drawing-processing/"
+            f"attempt-{run.job_attempt}/{relative_path}"
+        ),
+        original_name="dxf-split-final-manifest.json",
+        file_ext=".json",
+        content_type="application/json",
+        payload=payload,
+        uploaded_by=actor_user_id,
+        batch_name=batch_name,
+        transfer_uid=transfer_uid,
+    )
+    complete_transfer_in_transaction(
+        db,
+        transfer_uid,
+        file_id=stored.id,
+        bucket=stored.bucket,
+        storage_key=stored.storage_key,
+        original_name=stored.original_name,
+        transferred_bytes=stored.size_bytes,
+    )
+    return stored
 
 
 def get_excel_split_handoff(
@@ -598,10 +737,12 @@ __all__ = [
     "load_split_run",
     "manual_review_archive_members",
     "review_candidate_archive_members",
+    "split_candidate_files",
     "split_results_archive_members",
     "mark_split_failed",
     "mark_split_interrupted",
     "persist_split_output",
+    "persist_review_completion_manifest",
     "record_split_analysis",
     "record_split_item",
 ]

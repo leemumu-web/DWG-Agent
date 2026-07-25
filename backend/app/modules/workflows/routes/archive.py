@@ -65,10 +65,26 @@ def _collect_archive_members(
             and outcome in {"completed", "completed_with_review"}
         )
     artifacts = []
+    final_split_manifest_stage_ids = {
+        artifact.stage_run_id
+        for artifact in workflow.artifacts
+        if artifact.artifact_type == "split_manifest"
+        and isinstance(artifact.metadata_json, dict)
+        and artifact.metadata_json.get("final_review") is True
+    }
     for artifact in workflow.artifacts:
         if selected_stage is not None and artifact.stage_run_id != selected_stage.id:
             continue
         artifact_stage = stage_by_id.get(artifact.stage_run_id)
+        if (
+            artifact.artifact_type == "split_manifest"
+            and artifact.stage_run_id in final_split_manifest_stage_ids
+            and (
+                not isinstance(artifact.metadata_json, dict)
+                or artifact.metadata_json.get("final_review") is not True
+            )
+        ):
+            continue
         if artifact_stage is not None and artifact_stage.stage_code == "drawing_processing":
             if not exportable_drawing_attempts.get(artifact_stage.id, False):
                 continue

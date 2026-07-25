@@ -91,6 +91,12 @@ def split_results_archive_members(db, run: DxfSplitRun) -> list[tuple[int, str]]
     return members(db, run)
 
 
+def split_candidate_available(db, item: DxfSplitItem) -> bool:
+    from app.modules.dxf_splitting.persistence import split_candidate_files
+
+    return split_candidate_files(db, item) is not None
+
+
 def get_excel_split_handoff(db, workflow_id: int) -> DxfSplitExcelHandoff:
     from app.modules.dxf_splitting.persistence import get_excel_split_handoff as handoff
 
@@ -136,5 +142,6 @@ __all__ = [
     "manual_review_archive_members",
     "review_candidate_archive_members",
     "split_results_archive_members",
+    "split_candidate_available",
     "run_dxf_splitting",
 ]

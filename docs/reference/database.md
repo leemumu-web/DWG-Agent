@@ -661,8 +661,9 @@ analysis_results ──< workflow_artifacts
 | `d6f3a8c2e710` | 为 DXF 分类条目增加权威截面、类型来源、分组键和下游资格字段 | 2026-07-25 |
 | `f9c4b7e2a610` | 新增 DXF 拆板 run/item 账本、attempt 唯一约束、逐图产物与人工复核语义 | 2026-07-25 |
 | `a7d9e4c1b620` | 新增 DXF 拆板进度、候选产物引用与逐次人工复核决定账本 | 2026-07-25 |
+| `b4e8c2a7d910` | 新增 DXF 拆板失败数量，区分处理完成与失败告警 | 2026-07-25 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610` 与 `a7d9e4c1b620`。**`a7d9e4c1b620` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620` 与 `b4e8c2a7d910`。**`b4e8c2a7d910` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 

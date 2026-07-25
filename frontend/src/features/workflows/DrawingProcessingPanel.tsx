@@ -165,6 +165,10 @@ export function DrawingProcessingPanel({
       comment: string;
     }) => {
       if (!run || !isCurrent) throw new Error('当前拆板阶段已变化，请刷新后重试');
+      const workflow = await getWorkflow(workflowId);
+      if (workflow.current_stage !== 'drawing_processing') {
+        throw new Error('当前拆板阶段已变化，请刷新后重试');
+      }
       return decideDxfSplitReviewItem(workflowId, run.id, item.id, {
         decision,
         comment,
@@ -184,8 +188,12 @@ export function DrawingProcessingPanel({
     ),
   });
   const completeReviewM = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!run || !isCurrent) throw new Error('当前拆板阶段已变化，请刷新后重试');
+      const workflow = await getWorkflow(workflowId);
+      if (workflow.current_stage !== 'drawing_processing') {
+        throw new Error('当前拆板阶段已变化，请刷新后重试');
+      }
       return completeDxfSplitReview(workflowId, run.id);
     },
     onSuccess: async () => {
@@ -281,6 +289,13 @@ export function DrawingProcessingPanel({
                   {speedText} · {etaText}
                 </Typography.Text>
               </div>
+              {run && (
+                <Space size={6} wrap>
+                  <Tag color="success">自动完成 {run.auto_accepted_count}</Tag>
+                  <Tag color="warning">待人工 {run.manual_review_count}</Tag>
+                  <Tag color="error">失败 {run.failed_count}</Tag>
+                </Space>
+              )}
             </div>
           )}
           action={(
@@ -328,6 +343,7 @@ export function DrawingProcessingPanel({
               ['本批次图纸', run.input_count],
               ['自动完成', run.auto_accepted_count],
               ['待人工处理', run.manual_review_count],
+              ['失败', run.failed_count],
             ].map(([label, value]) => (
               <div key={label}>
                 <small>{label}</small>
