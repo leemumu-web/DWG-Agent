@@ -23,8 +23,8 @@ def test_runtime_contract_matches_committed_snapshot() -> None:
 def test_contract_snapshot_locks_every_public_surface() -> None:
     snapshot = build_contract_snapshot()
 
-    assert len(snapshot["http_paths"]) == 161
-    assert len(snapshot["http_operations"]) == 186
+    assert len(snapshot["http_paths"]) == 162
+    assert len(snapshot["http_operations"]) == 190
     assert len(snapshot["orm_tables"]) == 45
     assert len(snapshot["celery_tasks"]) == 14
     assert len(snapshot["celery_task_routes"]) == 13
@@ -40,7 +40,7 @@ def test_contract_snapshot_locks_every_public_surface() -> None:
     assert "/files/dwg2dxf" in snapshot["frontend_routes"]
     assert "backend-api" in snapshot["compose_services"]
     assert "worker-dxf-split" in snapshot["compose_services"]
-    assert "cloudbeaver" in snapshot["compose_services"]
+    assert "nginx" in snapshot["compose_services"]
 
 
 def test_snapshot_lists_are_sorted_and_unique() -> None:

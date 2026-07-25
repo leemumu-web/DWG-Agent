@@ -425,7 +425,7 @@ def test_data_console_has_two_url_controlled_workspaces_and_api_contracts():
         "/api/v1/data-admin/objects",
         "/api/v1/data-admin/objects/tree",
         "/api/v1/data-admin/objects/moves",
-        "/api/v1/data-admin/mysql-sessions",
+        "/api/v1/data-admin/mysql/tables",
         "/api/v1/data-admin/transfers",
         "/api/v1/data-admin/scans",
         "/api/v1/data-admin/remediations/preview",
@@ -445,11 +445,13 @@ def test_data_console_has_two_url_controlled_workspaces_and_api_contracts():
     assert "uploadDataAdminObject" in objects_panel
     assert "moveDataAdminObject" in objects_panel
     assert "deleteDataAdminObject" in objects_panel
-    assert "createMySqlConsoleSession" in mysql_panel
-    assert "onSuccess: ({ url }) => setConsoleUrl(url)" in mysql_panel
-    assert "src={consoleUrl}" in mysql_panel
-    assert 'src="/dba/mysql/"' not in mysql_panel
-    assert "MySQL 数据库管理器" in mysql_panel
+    assert "listMySqlTables" in mysql_panel
+    assert "getMySqlTable" in mysql_panel
+    assert "listMySqlRows" in mysql_panel
+    assert "createMySqlRow" in mysql_panel
+    assert "updateMySqlRow" in mysql_panel
+    assert "deleteMySqlRow" in mysql_panel
+    assert "<iframe" not in mysql_panel
     assert "listStorageScans" in consistency_panel
     assert "处置预检" in consistency_panel
     assert "RemediationDrawer" in consistency_panel

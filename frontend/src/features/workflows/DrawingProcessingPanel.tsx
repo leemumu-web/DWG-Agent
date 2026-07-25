@@ -120,6 +120,9 @@ export function DrawingProcessingPanel({
       await queryClient.invalidateQueries({
         queryKey: ['workflow-dxf-split', workflowId],
       });
+      message.success(run?.status === 'completed_with_review'
+        ? '新一轮整批拆板已提交'
+        : '整批拆板任务已提交');
       onChanged();
     },
     onError: (error) => {
@@ -342,7 +345,10 @@ export function DrawingProcessingPanel({
             {[
               ['本批次图纸', run.input_count],
               ['自动完成', run.auto_accepted_count],
-              ['待人工处理', run.manual_review_count],
+              [
+                run.status === 'completed' ? '人工复核' : '需人工复核',
+                run.status === 'completed' ? run.reviewed_count : run.manual_review_count,
+              ],
               ['失败', run.failed_count],
             ].map(([label, value]) => (
               <div key={label}>
@@ -391,6 +397,14 @@ export function DrawingProcessingPanel({
                       onClick={() => reviewArchiveM.mutate()}
                     >
                       仅下载未通过原图 ZIP
+                    </Button>
+                    <Button
+                      icon={<ThunderboltOutlined />}
+                      loading={executeM.isPending}
+                      disabled={!isCurrent}
+                      onClick={() => executeM.mutate()}
+                    >
+                      重新整批拆板
                     </Button>
                   </Space>
                 )}

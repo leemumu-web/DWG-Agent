@@ -175,3 +175,37 @@ export interface DailyArchiveRun {
   updated_at: string;
   reused: boolean;
 }
+
+export type MySqlValue =
+  | string
+  | number
+  | boolean
+  | null
+  | MySqlValue[]
+  | { [key: string]: MySqlValue };
+
+export interface MySqlTableSummary {
+  name: string;
+  column_count: number;
+  primary_key: string[];
+}
+
+export interface MySqlColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  primary_key: boolean;
+  autoincrement: boolean;
+  default?: string | null;
+  sensitive: boolean;
+  required: boolean;
+}
+
+export interface MySqlTable {
+  name: string;
+  row_count: number;
+  primary_key: string[];
+  columns: MySqlColumn[];
+}
+
+export type MySqlRow = Record<string, MySqlValue>;

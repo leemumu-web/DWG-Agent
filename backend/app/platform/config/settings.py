@@ -68,8 +68,6 @@ class Settings(BaseSettings):
     # by the browser, breaking the refresh flow. Never set False on public TLS
     # frontends — the 14-day refresh token must not travel in cleartext there.
     refresh_cookie_secure: bool | None = None
-    dba_session_ttl_seconds: int = Field(default=300, ge=60, le=900)
-
     super_admin_username: str = "admin"
     super_admin_password: str = "SuperAdminPass1"
     super_admin_real_name: str = "系统管理员"

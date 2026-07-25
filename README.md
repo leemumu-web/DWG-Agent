@@ -29,7 +29,7 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、161 个 OpenAPI path 和 186 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、162 个 OpenAPI path 和 190 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 45 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 46 张表；Celery runtime 全部初始化后最多 54 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
@@ -181,13 +181,11 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-首次启用数据控制台时，先运行 `./scripts/configure-dba-console.sh`，再以
-`docker compose --env-file .env.docker up -d --build` 启动。脚本生成的 DBA
-密钥只保存在本机忽略文件中，不打印也不提交。MySQL 管理器位于
-`/dba/mysql/`，只能由平台签发的短时会话经 Nginx 进入。详见
+数据控制台随主服务启动。MySQL 表结构与数据行由平台原生 API 提供，管理员
+写操作进入审计日志，其他登录用户只读。详见
 [数据控制台运行手册](docs/operations/data-console.md)。
 
-核心集合为 `nginx/backend-api/mysql/minio/cloudbeaver/worker-report`，并由一次性 `dba-bootstrap` 幂等校正数据库控制台账号；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
+核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
 
 ## 🧪 开发与验证
 

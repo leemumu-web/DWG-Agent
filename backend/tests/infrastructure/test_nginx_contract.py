@@ -7,15 +7,11 @@ import pytest
 from tests.support.paths import REPO_ROOT
 
 
-def test_cloudbeaver_proxy_requires_platform_gateway_session():
+def test_native_mysql_console_has_no_external_database_upstream():
     text = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text(encoding="utf-8")
-    assert "upstream cloudbeaver" in text
-    assert "location = /_dba_auth" in text
-    assert "proxy_pass http://backend/api/v1/data-admin/mysql-session;" in text
-    assert "location /dba/mysql/" in text
-    assert "auth_request /_dba_auth;" in text
-    assert "proxy_set_header X-User $dba_user;" in text
-    assert "proxy_set_header X-Team $dba_team;" in text
+    assert "upstream cloudbeaver" not in text
+    assert "location = /_dba_auth" not in text
+    assert "location /dba/mysql/" not in text
 
 NGINX_CONFIGS = (
     REPO_ROOT / "infra/gateway/nginx/nginx.conf",

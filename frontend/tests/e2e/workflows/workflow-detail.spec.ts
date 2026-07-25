@@ -670,6 +670,7 @@ test('manual review downloads only the current split batch original DXFs', async
   };
   let reviewArchiveRequests = 0;
   let candidateArchiveRequests = 0;
+  let rerunRequests = 0;
   let reviewState = {
     items: [{
       id: 501,
@@ -784,6 +785,21 @@ test('manual review downloads only the current split batch original DXFs', async
       });
     },
   );
+  await page.route(
+    '**/api/v1/workflows/43/stages/drawing_processing/executions',
+    async (route) => {
+      rerunRequests += 1;
+      expect(route.request().postDataJSON()).toEqual({
+        execution_kind: 'drawing_processing',
+      });
+      await json(route, {
+        job_id: 930,
+        job_attempt: 2,
+        reused: true,
+        retried: true,
+      });
+    },
+  );
   await page.route('**/api/v1/workflows/43', (route) => json(route, workflow));
 
   await page.goto('/');
@@ -796,7 +812,7 @@ test('manual review downloads only the current split batch original DXFs', async
   await expect(page.getByRole('heading', { name: '图纸拆板与独立校验' })).toBeVisible();
   await expect(page.getByText('本批次图纸')).toBeVisible();
   await expect(page.getByText('自动完成')).toBeVisible();
-  await expect(page.getByText('待人工处理')).toBeVisible();
+  await expect(page.getByText('需人工复核')).toBeVisible();
   await expect(page.getByText('1 张图纸未通过自动处理')).toBeVisible();
   await expect(page.getByText('BH-REVIEW_拆板前.dxf')).toBeVisible();
   await expect(page.getByText('候选图需人工确认轮廓与孔位')).toBeVisible();
@@ -818,6 +834,9 @@ test('manual review downloads only the current split batch original DXFs', async
   const download = await downloadPromise;
   await expect.poll(() => reviewArchiveRequests).toBe(1);
   expect(download.suggestedFilename()).toBe('workflow-43-split-run-88-manual-review.zip');
+
+  await page.getByRole('button', { name: '重新整批拆板' }).click();
+  await expect.poll(() => rerunRequests).toBe(1);
 
   await page.getByRole('button', { name: '采用候选' }).click();
   await page.getByPlaceholder(/填写核对结论/).fill('已核对候选轮廓和孔位');

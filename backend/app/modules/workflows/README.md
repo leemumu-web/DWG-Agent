@@ -56,11 +56,16 @@ Excel Job。DXF→Excel 仅保留为独立工具，不属于生产主流程。�
 Stage、MySQL、对象存储和真实样本约束。新建流程使用 `definition_revision 4`，历史流程保留原 revision；图纸链固定为
 `source_dwg → canonical_dxf → classified_dxf → processed_dxf → cam_input_dxf →
 cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保持各自格式。
+`drawing_processing` 已接入 Steel DXF Split 1.5.2：从当前分类 attempt 冻结整批输入，
+通过专用 worker 执行 BH/BOX 拆板和独立校验，在 MySQL 登记 run/item/复核决定，在 MinIO
+登记正常图、余量增长图、报告、批次清单和 `BH拆板信息表.xlsx`。技术失败最多自动执行三个
+完整 attempt；业务待确认项通过候选复核或整批重跑处理，全部固化后才允许进入 Excel。
+前端展示真实进度、速度、剩余时间、逐图复核和当前 attempt 的 ZIP 下载，不生成模拟指标。
+
 `excel_stage2` 消费 `stage1_excel` 与 `processed_dxf` 并预留 `stage2_excel`；它与
-`drawing_processing`、`cam_packaging`、`windows_cam`
-与 `result_acceptance` 只有稳定输入、产物和 501/人工交接契约；自动拆板、CAM 打包、Windows
-Node Agent/SinoCAM 和结果接纳算法尚未实现。目录整理不能被解释为生产闭环已经完成。
-`drawing_processing` 当前不产生进度或速度；前端只说明输入输出边界，不显示模拟指标。
+`cam_packaging`、`windows_cam`、`result_acceptance` 仍只有稳定输入、产物和
+501/人工交接契约。CAM 打包、Windows Node Agent/SinoCAM 和结果接纳算法尚未实现，
+目录整理不能被解释为这些后续阶段已形成生产闭环。
 Workflow 列表在服务端聚合 Project 编号/名称，并返回忽略状态筛选、但遵守项目权限与
 Workflow 类型范围的全局状态统计，避免前端用独立分页做不完整关联。
 

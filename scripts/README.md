@@ -16,7 +16,6 @@
 | `docs/` | API 文档生成与仓库文档契约检查。 |
 | `storage/` | 对象回收与数据库/对象存储事务探针。 |
 | `windows/` | Linux 侧访问 Windows 节点的通信脚本。 |
-| `configure-dba-console.sh` | 只向本机 `.env.docker` 补齐随机 DBA/CloudBeaver 密钥，不打印密钥。 |
 
 ## 常用闭环
 

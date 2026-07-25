@@ -302,7 +302,7 @@
         "backend/tests/operations/test_control_plane_api.py",
         "backend/tests/operations/test_daily_archive.py",
         "backend/tests/operations/test_data_admin_api.py",
-        "backend/tests/operations/test_data_admin_mysql_gateway.py",
+        "backend/tests/operations/test_data_admin_mysql_native.py",
         "backend/tests/operations/test_storage_reconciliation.py"
       ],
       "docs": [

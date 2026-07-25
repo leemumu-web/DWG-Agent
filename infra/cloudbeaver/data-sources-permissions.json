@@ -1,4 +1,0 @@
-{
-  "mysql8-dwg-admin": ["dba-admin"],
-  "mysql8-dwg-reader": ["dba-reader"]
-}

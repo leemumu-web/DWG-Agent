@@ -12,6 +12,9 @@ import type {
   StorageObjectTree,
   StorageScanFinding,
   StorageScanRun,
+  MySqlRow,
+  MySqlTable,
+  MySqlTableSummary,
 } from '../types/dataAdmin';
 
 export interface PageQuery {
@@ -24,12 +27,53 @@ export async function getDataAdminOverview() {
   return response.data.data;
 }
 
-export async function createMySqlConsoleSession() {
-  const response = await apiClient.post<ApiEnvelope<{
-    team: 'dba-admin' | 'dba-reader';
-    expires_in: number;
-    url: string;
-  }>>('/api/v1/data-admin/mysql-sessions');
+export async function listMySqlTables() {
+  const response = await apiClient.get<ApiEnvelope<MySqlTableSummary[]>>(
+    '/api/v1/data-admin/mysql/tables',
+  );
+  return response.data.data;
+}
+
+export async function getMySqlTable(tableName: string) {
+  const response = await apiClient.get<ApiEnvelope<MySqlTable>>(
+    `/api/v1/data-admin/mysql/tables/${encodeURIComponent(tableName)}`,
+  );
+  return response.data.data;
+}
+
+export async function listMySqlRows(tableName: string, params: PageQuery) {
+  const response = await apiClient.get<PageEnvelope<MySqlRow>>(
+    `/api/v1/data-admin/mysql/tables/${encodeURIComponent(tableName)}/rows`,
+    { params },
+  );
+  return response.data;
+}
+
+export async function createMySqlRow(tableName: string, values: MySqlRow) {
+  const response = await apiClient.post<ApiEnvelope<{ primary_key: MySqlRow }>>(
+    `/api/v1/data-admin/mysql/tables/${encodeURIComponent(tableName)}/rows`,
+    { values },
+  );
+  return response.data.data;
+}
+
+export async function updateMySqlRow(
+  tableName: string,
+  primaryKey: MySqlRow,
+  values: MySqlRow,
+) {
+  const response = await apiClient.patch<ApiEnvelope<MySqlRow>>(
+    `/api/v1/data-admin/mysql/tables/${encodeURIComponent(tableName)}/rows`,
+    { primary_key: primaryKey, values },
+  );
+  return response.data.data;
+}
+
+export async function deleteMySqlRow(tableName: string, primaryKey: MySqlRow) {
+  const response = await apiClient.delete<ApiEnvelope<{ deleted: boolean }>>(
+    `/api/v1/data-admin/mysql/tables/${encodeURIComponent(tableName)}/rows`,
+    { data: { primary_key: primaryKey } },
+  );
   return response.data.data;
 }
 

@@ -186,7 +186,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 161 个 path、186 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 162 个 path、190 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -231,7 +231,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 
 ## 16. Compose 与发布边界
 
-核心服务为 `nginx/backend-api/mysql/minio/cloudbeaver/dba-bootstrap/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance/worker-dispatch`，总计 18 个 Compose 服务。
+核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance/worker-dispatch`，总计 16 个 Compose 服务。
 
 - backend 与 worker 共用非 root `appuser` 镜像。
 - MySQL 和 MinIO 使用命名卷且不发布宿主端口。

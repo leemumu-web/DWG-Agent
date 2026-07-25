@@ -72,6 +72,20 @@
   border: 0;
   background: #f4f7f9;
 }
+.mysql-table-list { height: 100%; }
+.mysql-table-list .ant-card-body { padding: 10px; }
+.mysql-table-list .ant-list { margin-top: 10px; max-height: 650px; overflow: auto; }
+.mysql-table-item {
+  margin-bottom: 3px;
+  padding: 8px 10px !important;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: background .16s ease, color .16s ease;
+}
+.mysql-table-item:hover { background: #f1f6f8; }
+.mysql-table-item--active { color: #145c73; background: #e8f3f6; font-weight: 600; }
+.mysql-browser .ant-table-cell { vertical-align: top; }
+.mysql-browser .ant-table-cell .ant-typography { margin-bottom: 0; }
 .storage-tree-card { height: 100%; }
 .storage-tree-card .ant-card-body { padding: 10px; }
 .storage-tree-item {
