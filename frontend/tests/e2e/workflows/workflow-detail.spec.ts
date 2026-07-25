@@ -390,6 +390,15 @@ test('production route inspects stages safely and keeps classification output co
   await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
   await page.route('**/api/v1/workflows/42/dxf-classification', (route) => json(route, classification));
   await page.route('**/api/v1/workflows/42/drawing-processing', (route) => json(route, null));
+  await page.route('**/api/v1/workflows/42/batch-exports/preview', (route) => json(route, {
+    workflow_id: 42,
+    categories: [
+      { key: 'classified_dxf', label: '原 DXF', file_count: 49, size_bytes: 4096, available: true },
+      { key: 'processed_dxf', label: '正常拆板 DXF', file_count: 0, size_bytes: 0, available: false },
+      { key: 'source_excel', label: '原 Excel', file_count: 1, size_bytes: 2048, available: true },
+      { key: 'stage1_excel', label: '产出 Excel', file_count: 0, size_bytes: 0, available: false },
+    ],
+  }));
   await page.route(
     /\/api\/v1\/workflows\/42\/dxf-classification\/groups\/type(?:%3A|:)PX\?page=1&page_size=20$/,
     (route) => json(route, pxDetails),
@@ -445,6 +454,18 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByText('实时速度')).toHaveCount(0);
   await expect(page.getByText('未接入', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /开始整批拆板|确认当前阶段/ })).toHaveCount(0);
+  const splitCard = page.locator('.workflow-dxf-split-panel');
+  await expect(splitCard.getByRole('button', { name: '分批导出' })).toBeVisible();
+  await expect(
+    page.locator('.workflow-artifact-summary').getByRole('button', { name: '分批导出' }),
+  ).toHaveCount(0);
+  await splitCard.getByRole('button', { name: '分批导出' }).click();
+  const exportDialog = page.getByRole('dialog', { name: '分批导出并释放服务器空间' });
+  await expect(exportDialog.getByText('原 DXF', { exact: true })).toBeVisible();
+  await expect(exportDialog.getByText('正常拆板 DXF', { exact: true })).toBeVisible();
+  await expect(exportDialog.getByText('原 Excel', { exact: true })).toBeVisible();
+  await expect(exportDialog.getByText('产出 Excel', { exact: true })).toBeVisible();
+  await exportDialog.getByRole('button', { name: '取消' }).click();
 
   await page.getByRole('button', { name: '返回当前阶段' }).click();
   await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();

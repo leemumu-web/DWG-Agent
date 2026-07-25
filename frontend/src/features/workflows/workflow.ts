@@ -250,3 +250,56 @@ export interface DxfSplitReviewPage {
   pending_count: number;
   manual_processing_count: number;
 }
+
+export type WorkflowExportCategory =
+  | 'classified_dxf'
+  | 'processed_dxf'
+  | 'source_excel'
+  | 'stage1_excel';
+
+export interface WorkflowBatchExportCategory {
+  key: WorkflowExportCategory;
+  label: string;
+  file_count: number;
+  size_bytes: number;
+  available: boolean;
+}
+
+export interface WorkflowBatchExportPreview {
+  workflow_id: number;
+  categories: WorkflowBatchExportCategory[];
+}
+
+export type WorkflowBatchExportStatus =
+  | 'prepared'
+  | 'downloading'
+  | 'downloaded'
+  | 'download_failed'
+  | 'purged';
+
+export interface WorkflowBatchExport {
+  export_uid: string;
+  workflow_run_id: number;
+  status: WorkflowBatchExportStatus;
+  categories: WorkflowExportCategory[];
+  file_count: number;
+  source_size_bytes: number;
+  filename: string;
+  download_url?: string | null;
+  token_expires_at: string;
+  downloaded_at?: string | null;
+  purged_at?: string | null;
+  purged_file_count: number;
+  purged_size_bytes: number;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowBatchExportPurgeResult {
+  export_uid: string;
+  status: 'purged';
+  purged_file_count: number;
+  released_bytes: number;
+}

@@ -156,6 +156,7 @@
       ],
       "tables": [
         "workflow_artifacts",
+        "workflow_batch_exports",
         "workflow_input_batches",
         "workflow_input_items",
         "workflow_runs",

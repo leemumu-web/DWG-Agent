@@ -28,6 +28,7 @@
 - `lifecycle.py` 在业务事务内执行软删除状态转换，不直接永久移除对象。
 - `access.py` 组合上传者、全局角色、项目成员与冻结输入保护；删除检查需要 DB session。
 - `exports.py` 负责签名下载、Result 映射、ZIP 可用性预检和流式 ZIP 构建。
+- `streaming_zip.py` 负责从 Local/MinIO 对象分块直接产出不可 seek ZIP，不落服务器临时文件。
 - `interface.py` 聚合跨域可用能力；`routes/` 才装配 HTTP，二者不能反向替代。
 
 ## 依赖、测试与差距

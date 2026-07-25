@@ -53,6 +53,7 @@ export function FilesPanel() {
         { key: 'name', label: '登记名称', children: detail.data.original_name },
         { key: 'status', label: '状态', children: stateTag(detail.data.status) },
         { key: 'deleted', label: '软删除时间', children: detail.data.deleted_at ? new Date(detail.data.deleted_at).toLocaleString() : '—' },
+        { key: 'purged', label: '物理释放时间', children: detail.data.purged_at ? new Date(detail.data.purged_at).toLocaleString() : '—' },
         { key: 'location', label: '对象位置', children: <Typography.Text code copyable>{`${detail.data.bucket}/${detail.data.storage_key}`}</Typography.Text> },
         { key: 'size', label: '大小', children: bytes(detail.data.size_bytes) },
         { key: 'sha', label: 'SHA-256', children: <Typography.Text code copyable>{detail.data.sha256}</Typography.Text> },
