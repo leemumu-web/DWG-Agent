@@ -30,7 +30,7 @@ PR #7 基于当前生产流程主线增量接入，未覆盖以下既有能力�
    - 分类运行已结束且没有未解决的分类复核项；
    - 输入文件全部为已登记、可读取的 DXF。
 4. 后端创建不可变拆板 run，Job 投递到 `dxf_split` 队列。
-5. Worker 按图执行 Steel DXF Split 1.5.2，持续写入拆板 item、Job 进度、速度和预计剩余时间。
+5. Worker 按图执行 Steel DXF Split 1.5.2。CLI 每完成一张图就原子更新进度 sidecar，平台适配器读取后持续写入批次已处理数量和 Job 进度；速度与预计剩余时间由真实处理数量和耗时计算。
 6. 每张图进入以下结果之一：
    - `auto_accepted`：自动拆板和独立校验通过；
    - `review_required`：已生成候选结果，但必须人工决定；
@@ -63,7 +63,8 @@ PR #7 基于当前生产流程主线增量接入，未覆盖以下既有能力�
 
 - `split_item_id`
 - `decision`：`accept_candidate` 或 `manual_processing`
-- `final_dxf_file_id`：采用候选时绑定正式 DXF；转人工处理时允许为空
+- `final_normal_dxf_file_id`：采用候选时绑定正式正常拆板 DXF；转人工处理时为空
+- `final_weld_allowance_dxf_file_id`：采用候选时绑定正式余量增长 DXF；转人工处理时为空
 - `comment`：必填
 - `decided_by`
 - `decided_at`
@@ -71,7 +72,7 @@ PR #7 基于当前生产流程主线增量接入，未覆盖以下既有能力�
 
 每个 item 只允许存在一个当前有效决定。更新使用行锁和版本校验，重复提交保持幂等；历史批次和非当前 attempt 禁止修改。
 
-只有确实存在且已通过平台独立校验的候选 DXF 才能选择 `accept_candidate`。没有候选结果的失败项只能选择 `manual_processing`。
+独立校验失败但仍形成结构可读的成对 DXF 时，候选文件单独入库，不登记为正式工作流产物。人工可通过候选复核 ZIP 核对原图、候选 DXF、报告和失败诊断，并以显式决定覆盖自动校验结论。只有候选文件成对存在时才能选择 `accept_candidate`；没有候选结果的失败项只能选择 `manual_processing`。
 
 ### 阶段完成条件
 
@@ -102,16 +103,20 @@ PR #7 基于当前生产流程主线增量接入，未覆盖以下既有能力�
   - 校验所有待处理项均有决定且不存在 `manual_processing` 阻断项，再同步工作流阶段。
 - `GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/results-archive`
   - 下载当前 run 的全部正式拆板结果 ZIP。
+- `GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/review-candidates-archive`
+  - 下载当前 run 的人工复核材料 ZIP；只包含待处理原图、候选 DXF、候选报告和诊断 manifest，不把候选提前登记为正式产物。
 
 所有写接口必须同时校验项目成员权限、写角色、服务器当前阶段、当前 Job attempt 和 run 归属。所有下载均生成 ZIP，并记录审计事件。
 
 ## ZIP 合同
 
-拆板阶段提供三种压缩包：
+拆板阶段提供四种压缩包：
 
 - 全部拆板结果 ZIP：包含正式 normal DXF、余量 DXF、拆板报告、验证报告、台账和 manifest。
 - 待复核原图 ZIP：只包含当前 run 中待处理项进入拆板前的分类 DXF。
 - 通用阶段结果 ZIP：沿用现有阶段产物归档，内容与工作流 artifact 登记一致。
+
+人工候选复核 ZIP 是复核材料而非生产结果。ZIP 中按 item 分目录包含原图、存在的候选 DXF、候选报告和诊断 manifest；没有候选的 item 只包含原图和诊断。
 
 归档路径必须稳定、去重并包含 manifest。任何上述文件通过 Files 单文件下载或任意单文件 ZIP 绕过时，继续返回 `WORKFLOW_ARCHIVE_DOWNLOAD_REQUIRED`。
 
@@ -144,6 +149,7 @@ PR #7 基于当前生产流程主线增量接入，未覆盖以下既有能力�
 ### 待人工处理
 
 - 保留“下载待处理原图 ZIP”。
+- 提供“下载候选复核材料 ZIP”，用于核对成对候选 DXF 与失败诊断。
 - 显示紧凑异常清单，可按失败类型筛选。
 - 点击一项打开复核抽屉，展示原图名称、类型、诊断、候选结果是否存在。
 - 选择“采用自动拆板结果”或“转人工处理”，填写说明后提交。
@@ -180,6 +186,7 @@ PR #7 基于当前生产流程主线增量接入，未覆盖以下既有能力�
 ## 非目标
 
 - 不修改 Steel DXF Split 1.5.2 的 BH/BOX 几何算法。
+- 允许扩展 CLI 的平台进度 sidecar 合同，但不改变单图几何算法、判定或产物内容。
 - 不让非 BH/BOX 类型绕过人工复核。
 - 不新增生产单文件上传或下载。
 - 不在本轮实现人工制作 DXF 的回传。
