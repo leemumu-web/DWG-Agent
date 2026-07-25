@@ -44,6 +44,7 @@ WORKFLOW_DXF_CANONICAL_REVISION = (
 DXF_CLASSIFICATION_SEMANTICS_REVISION = (
     VERSIONS_DIR / "d6f3a8c2e710_add_dxf_classification_semantics.py"
 )
+DXF_SPLIT_REVISION = VERSIONS_DIR / "f9c4b7e2a610_add_dxf_split_pipeline.py"
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -249,6 +250,34 @@ def test_dxf_classification_semantics_migration_adds_authoritative_fields():
         assert f'op.drop_column("dxf_classification_items", "{column}")' in source
 
 
+def test_dxf_split_migration_adds_attempt_aware_runs_and_items():
+    source = DXF_SPLIT_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "f9c4b7e2a610"' in source
+    assert 'down_revision: str | None = "d6f3a8c2e710"' in source
+    for table in ("dxf_split_runs", "dxf_split_items"):
+        assert f'"{table}"' in source
+        assert f'op.drop_table("{table}")' in source
+    for constraint in (
+        "uq_dxf_split_job_attempt",
+        "uq_dxf_split_run_classification_item",
+    ):
+        assert f'"{constraint}"' in source
+    for index in (
+        "ix_dxf_split_workflow_attempt",
+        "ix_dxf_split_items_route",
+        "ix_dxf_split_items_part_type",
+    ):
+        assert f'"{index}"' in source
+    for column in (
+        "normal_dxf_file_id",
+        "weld_allowance_dxf_file_id",
+        "bh_split_ledger_file_id",
+        "input_manifest_sha256",
+    ):
+        assert f'"{column}"' in source
+
+
 def test_control_plane_migration_extends_head_with_persisted_observability():
     source = CONTROL_PLANE_REVISION.read_text(encoding="utf-8")
     assert 'down_revision: str | None = "a9e4c7d2f610"' in source
@@ -451,6 +480,8 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
         "workflow_artifacts",
         "dxf_classification_runs",
         "dxf_classification_items",
+        "dxf_split_runs",
+        "dxf_split_items",
         "daily_archive_runs",
         "workflow_input_batches",
         "workflow_input_items",

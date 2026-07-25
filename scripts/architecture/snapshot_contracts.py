@@ -158,7 +158,7 @@ def main() -> int:
 
     if args.write:
         SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        SNAPSHOT_PATH.write_text(render_snapshot(), encoding="utf-8")
+        SNAPSHOT_PATH.write_text(render_snapshot(), encoding="utf-8", newline="\n")
         print(f"Wrote {SNAPSHOT_PATH.relative_to(REPO_ROOT)}")
         return 0
     if args.check:

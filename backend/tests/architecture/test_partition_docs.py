@@ -7,6 +7,7 @@ from tests.support.paths import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.architecture.check_partition_docs import (  # noqa: E402
+    IMMUTABLE_PARTITION_SOURCE_EXCEPTIONS,
     PARTITIONS,
     ROOT,
     _direct_source_files,
@@ -42,6 +43,8 @@ def test_partition_readmes_name_every_directly_owned_source_file() -> None:
             source.name
             for source in _direct_source_files(directory)
             if source.name not in content
+            and source.name
+            not in IMMUTABLE_PARTITION_SOURCE_EXCEPTIONS.get(relative, set())
         ]
         if absent:
             missing[relative] = absent

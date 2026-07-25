@@ -87,9 +87,12 @@ def test_conversion_submission_preserves_partial_chunk_results():
     assert "errors" in source
     assert "Promise.allSettled" in source
     assert "createConversionBatches" in source
-    assert "retry" not in source.split("export async function createConversionBatches", 1)[1].split(
-        "export async function createDxf2ExcelJob", 1
-    )[0]
+    assert (
+        "retry"
+        not in source.split("export async function createConversionBatches", 1)[1].split(
+            "export async function createDxf2ExcelJob", 1
+        )[0]
+    )
 
 
 def test_folder_bulk_delete_uses_atomic_batch_endpoint():
@@ -241,7 +244,7 @@ def test_dashboard_turns_existing_task_and_review_state_into_next_actions():
     assert "failed > 0" in source
     assert "reviewsQ.data" in source
     assert "navigate(action.to)" in source
-    assert 'aria-label={`查看任务 ${j.id} 详情`}' in source
+    assert "aria-label={`查看任务 ${j.id} 详情`}" in source
 
 
 def test_workflow_console_uses_backend_templates_files_and_stage_execution():
@@ -308,9 +311,7 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
 
 
 def test_workflow_stage_mutations_recheck_authoritative_current_stage():
-    classification_source = _frontend_source(
-        "features/workflows/DxfClassificationPanel.tsx"
-    )
+    classification_source = _frontend_source("features/workflows/DxfClassificationPanel.tsx")
 
     assert "getWorkflow" in classification_source
     assert "workflow.current_stage !== 'dxf_classification'" in classification_source
@@ -318,9 +319,7 @@ def test_workflow_stage_mutations_recheck_authoritative_current_stage():
 
 def test_production_project_drawer_uses_atomic_project_contract():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
-    drawer_source = _frontend_source(
-        "features/workflows/ProductionProjectCreateDrawer.tsx"
-    )
+    drawer_source = _frontend_source("features/workflows/ProductionProjectCreateDrawer.tsx")
     api_source = _frontend_source("features/workflows/workflows.api.ts")
 
     assert "新建生产项目" in page_source
@@ -339,9 +338,7 @@ def test_production_submission_navigates_to_one_dedicated_detail_workspace():
     page_source = _frontend_source("features/workflows/WorkflowsPage.tsx")
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     rail_source = _frontend_source("features/workflows/WorkflowStageRail.tsx")
-    success_handler = page_source.split("onSuccess: ({ workflow })", 1)[1].split(
-        "onError:", 1
-    )[0]
+    success_handler = page_source.split("onSuccess: ({ workflow })", 1)[1].split("onError:", 1)[0]
 
     assert "setCreateOpen(false)" in success_handler
     assert "navigate(`/workflows/${workflow.id}`)" in success_handler
@@ -380,13 +377,36 @@ def test_dxf_classification_has_dedicated_guarded_frontend_console():
     assert "DxfClassificationGroup" in type_source
 
 
+def test_dxf_split_has_guarded_batch_console_and_original_only_review_download():
+    detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
+    panel_source = _frontend_source("features/workflows/DrawingProcessingPanel.tsx")
+    api_source = _frontend_source("features/workflows/workflows.api.ts")
+    type_source = _frontend_source("features/workflows/workflow.ts")
+
+    assert "<DrawingProcessingPanel" in detail_source
+    assert "selectedStage.stage_code === 'drawing_processing'" in detail_source
+    assert "['dxf_classification', 'drawing_processing'].includes" in detail_source
+    assert "isCurrent={selectedIsCurrent}" in detail_source
+    assert "开始整批拆板" in panel_source
+    assert "drawing_processing" in panel_source
+    assert "正常拆板" in panel_source
+    assert "余量增长" in panel_source
+    assert "下载未通过原图 ZIP" in panel_source
+    assert "候选图" not in panel_source
+    assert "上传" not in panel_source
+    assert "确认当前阶段" not in panel_source
+    assert "getDxfSplitRun" in api_source
+    assert "downloadDxfSplitManualReviewArchive" in api_source
+    assert "/drawing-processing/runs/${runId}/manual-review-archive" in api_source
+    assert "DxfSplitRun" in type_source
+    assert "automation_route: 'auto_accepted' | 'manual_review'" in type_source
+
+
 def test_data_console_has_five_url_controlled_tabs_and_api_contracts():
     page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
     api_source = _frontend_source("features/operations/api/dataAdmin.ts")
     type_source = _frontend_source("features/operations/types/dataAdmin.ts")
-    files_panel = _frontend_source(
-        "features/operations/components/data-console/FilesPanel.tsx"
-    )
+    files_panel = _frontend_source("features/operations/components/data-console/FilesPanel.tsx")
     transfers_panel = _frontend_source(
         "features/operations/components/data-console/TransfersPanel.tsx"
     )

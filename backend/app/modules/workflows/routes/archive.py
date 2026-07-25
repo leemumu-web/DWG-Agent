@@ -8,18 +8,18 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.modules.dxf_splitting.interface import get_dxf_split_outcome
 from app.modules.files.interface import (
     StoredFile,
     TransferSpec,
     build_registered_files_zip_to_path,
     prepare_transfer_in_transaction,
-    require_file_read_access,
     sanitize_filename,
     session_factory_for,
     settle_stream,
 )
 from app.modules.identity.interface import CurrentUser
-from app.modules.jobs.interface import AnalysisResult
+from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member
 from app.modules.workflows.access import load_workflow_detail
@@ -44,19 +44,48 @@ def _collect_archive_members(
     )
     if stage_code is not None and selected_stage is None:
         return [], None
-    artifacts = [
-        artifact
-        for artifact in workflow.artifacts
-        if selected_stage is None or artifact.stage_run_id == selected_stage.id
-    ]
+    exportable_drawing_attempts: dict[int, bool] = {}
+    for stage in workflow.stages:
+        if stage.stage_code != "drawing_processing" or stage.job_id is None:
+            continue
+        job = db.get(Job, stage.job_id)
+        outcome = (
+            get_dxf_split_outcome(
+                db,
+                job_id=stage.job_id,
+                attempt=stage.job_attempt,
+            )
+            if stage.job_attempt is not None
+            else None
+        )
+        exportable_drawing_attempts[stage.id] = bool(
+            job is not None
+            and job.project_id == workflow.project_id
+            and job.status == "succeeded"
+            and outcome in {"completed", "completed_with_review"}
+        )
+    artifacts = []
+    for artifact in workflow.artifacts:
+        if selected_stage is not None and artifact.stage_run_id != selected_stage.id:
+            continue
+        artifact_stage = stage_by_id.get(artifact.stage_run_id)
+        if artifact_stage is not None and artifact_stage.stage_code == "drawing_processing":
+            if not exportable_drawing_attempts.get(artifact_stage.id, False):
+                continue
+            metadata = artifact.metadata_json
+            if (
+                not isinstance(metadata, dict)
+                or metadata.get("job_id") != artifact_stage.job_id
+                or metadata.get("job_attempt") != artifact_stage.job_attempt
+            ):
+                continue
+        artifacts.append(artifact)
     members: list[tuple[int, str]] = []
     seen_paths: set[str] = set()
     for artifact in sorted(
         artifacts,
         key=lambda value: (
-            stage_by_id[value.stage_run_id].sequence
-            if value.stage_run_id in stage_by_id
-            else 999,
+            stage_by_id[value.stage_run_id].sequence if value.stage_run_id in stage_by_id else 999,
             value.id,
         ),
     ):
@@ -72,14 +101,21 @@ def _collect_archive_members(
                 "A registered workflow artifact is unavailable.",
                 {"artifact_id": artifact.id, "file_id": file_id},
             )
-        require_file_read_access(db, current_user, stored)
         stage = stage_by_id.get(artifact.stage_run_id)
+        if stage is not None and stage.stage_code == "drawing_processing":
+            job = db.get(Job, stage.job_id) if stage.job_id is not None else None
+            if job is None or job.project_id != workflow.project_id:
+                raise AppHTTPException(
+                    409,
+                    "WORKFLOW_ARCHIVE_JOB_MISMATCH",
+                    "拆板产物没有绑定当前项目的正式 Job。",
+                    {"artifact_id": artifact.id, "job_id": stage.job_id},
+                )
         sequence = stage.sequence if stage is not None else 99
         code = stage.stage_code if stage is not None else "workflow"
         original_name = sanitize_filename(stored.original_name)
         relative_path = (
-            f"workflow-{workflow.id}/{sequence:02d}_{code}/"
-            f"{artifact.artifact_type}/{original_name}"
+            f"workflow-{workflow.id}/{sequence:02d}_{code}/{artifact.artifact_type}/{original_name}"
         )
         if relative_path.casefold() in seen_paths:
             relative_path = (
@@ -172,8 +208,7 @@ def stream_registered_workflow_archive(
         }
     },
     description=(
-        "把当前所有已登记生产 artifact 按阶段和类型写入一个 ZIP；"
-        "工作流不提供单个 artifact 下载。"
+        "把当前所有已登记生产 artifact 按阶段和类型写入一个 ZIP；工作流不提供单个 artifact 下载。"
     ),
 )
 def download_workflow_archive(

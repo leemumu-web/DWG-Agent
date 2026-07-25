@@ -38,6 +38,7 @@ JOB_QUEUE_NAMES = (
     "dxf2dwg",
     "dxf2excel",
     "dxf_classification",
+    "dxf_split",
     "excel_final",
     "report",
     "maintenance",
@@ -67,6 +68,7 @@ celery_app = Celery(
     include=[
         "app.modules.cad_processing.tasks",
         "app.modules.dxf_classification.tasks",
+        "app.modules.dxf_splitting.tasks",
         "app.modules.excel_processing.tasks",
         "app.modules.jobs.tasks",
         "app.modules.operations.daily_archive.tasks",
@@ -115,6 +117,7 @@ celery_app.conf.update(
         "app.workers.tasks_dxf2dwg.*": {"queue": "dxf2dwg"},
         "app.workers.tasks_dxf2excel.*": {"queue": "dxf2excel"},
         "app.workers.tasks_dxf_classification.*": {"queue": "dxf_classification"},
+        "app.workers.tasks_dxf_split.*": {"queue": "dxf_split"},
         "app.workers.tasks_excel_final.*": {"queue": "excel_final"},
         "app.workers.tasks_report.*": {"queue": "report"},
         "app.workers.tasks_maintenance.*": {"queue": "maintenance"},

@@ -18,6 +18,11 @@ STAGE_PRODUCTS = {
         "1.2.0",
         "steel-dxf-classify",
     ),
+    "Stages/steel_dxf_split_v1.5.2": (
+        "steel-dxf-split",
+        "1.5.2",
+        "steel-dxf-split",
+    ),
 }
 
 CAD_PUBLIC_CONTRACT = {
@@ -60,6 +65,30 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "run_dxf_classification",
 }
 
+SPLIT_PUBLIC_CONTRACT = {
+    "BH_SOURCE_CONTRACT",
+    "BOX_SOURCE_CONTRACT",
+    "CLI_SCHEMA",
+    "MANIFEST_SCHEMA",
+    "MAX_AUTOMATIC_ATTEMPTS",
+    "SPLITTER_VERSION",
+    "VALIDATION_SCHEMA",
+    "DxfSplitError",
+    "DxfSplitExcelHandoff",
+    "DxfSplitHandoffDrawing",
+    "DxfSplitItem",
+    "DxfSplitItemRead",
+    "DxfSplitRun",
+    "DxfSplitRunRead",
+    "build_dxf_split_run_read",
+    "enqueue_dxf_splitting_job",
+    "get_dxf_split_outcome",
+    "get_excel_split_handoff",
+    "latest_dxf_split_run",
+    "manual_review_archive_members",
+    "run_dxf_splitting",
+}
+
 EXPECTED_TASKS = {
     "app.workers.tasks_dxf.convert_dwg_to_dxf": "dxf",
     "app.workers.tasks_dxf.convert_dwg_to_dxf_batch": "dxf",
@@ -67,6 +96,7 @@ EXPECTED_TASKS = {
     "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg_batch": "dxf2dwg",
     "app.workers.tasks_dxf2excel.extract_dxf_to_excel": "dxf2excel",
     "app.workers.tasks_dxf_classification.classify_steel_dxf": "dxf_classification",
+    "app.workers.tasks_dxf_split.split_steel_dxf": "dxf_split",
 }
 
 EXPECTED_INTERNAL_LAYERS = {
@@ -94,6 +124,12 @@ EXPECTED_INTERNAL_LAYERS = {
         "adapter.py",
         "execution.py",
         "persistence.py",
+    },
+    "modules/dxf_splitting": {
+        "adapter.py",
+        "execution.py",
+        "persistence.py",
+        "validation.py",
     },
 }
 
@@ -126,6 +162,36 @@ def test_stage_products_keep_paths_package_versions_and_cli_names() -> None:
     classifier_root = REPO_ROOT / "Stages/steel_dxf_classifier_v1.1.0"
     assert (classifier_root / "VERSION").read_text(encoding="utf-8").strip() == "1.2.0"
     assert (classifier_root / "docs/IO_CONTRACT.md").is_file()
+    splitter_root = REPO_ROOT / "Stages/steel_dxf_split_v1.5.2"
+    assert (splitter_root / "VERSION").read_text(encoding="utf-8").strip() == "1.5.2"
+
+
+def test_split_stage_vendors_runtime_slice_not_development_corpus() -> None:
+    splitter_root = REPO_ROOT / "Stages/steel_dxf_split_v1.5.2"
+    package_root = splitter_root / "src/steel_dxf_split"
+
+    assert {
+        path.name for path in (package_root / "release_evidence").glob("*.json")
+    } == {
+        "box_build_contract.json",
+        "box_release_attestation.json",
+        "project_tekla_bh_dxf_v1.json",
+    }
+
+    excluded = {
+        ".python-version",
+        "CONTEXT.md",
+        "requirements-preview.txt",
+        "uv.lock",
+        "docs",
+        "release",
+        "samples",
+        "scripts",
+        "tests",
+        "tools",
+    }
+    assert not {path.name for path in splitter_root.iterdir()} & excluded
+    assert not list(splitter_root.rglob("*.dxf"))
 
 
 def test_cad_processing_interface_is_exact() -> None:
@@ -144,9 +210,20 @@ def test_classification_interface_is_exact_and_owns_two_tables() -> None:
     } == {"dxf_classification_runs", "dxf_classification_items"}
 
 
-def test_conversion_and_classification_tasks_keep_public_names_and_queues() -> None:
+def test_split_interface_is_exact_and_owns_two_tables() -> None:
+    interface = importlib.import_module("app.modules.dxf_splitting.interface")
+
+    assert set(interface.__all__) == SPLIT_PUBLIC_CONTRACT
+    assert {
+        interface.DxfSplitRun.__table__.name,
+        interface.DxfSplitItem.__table__.name,
+    } == {"dxf_split_runs", "dxf_split_items"}
+
+
+def test_conversion_classification_and_split_tasks_keep_public_names_and_queues() -> None:
     cad_tasks = importlib.import_module("app.modules.cad_processing.tasks")
     classification_tasks = importlib.import_module("app.modules.dxf_classification.tasks")
+    split_tasks = importlib.import_module("app.modules.dxf_splitting.tasks")
     task_objects = (
         cad_tasks.convert_dwg_to_dxf_task,
         cad_tasks.convert_dwg_to_dxf_batch_task,
@@ -154,6 +231,7 @@ def test_conversion_and_classification_tasks_keep_public_names_and_queues() -> N
         cad_tasks.convert_dxf_to_dwg_batch_task,
         cad_tasks.extract_dxf_to_excel_task,
         classification_tasks.classify_steel_dxf_task,
+        split_tasks.split_steel_dxf_task,
     )
 
     assert {task.name for task in task_objects} == set(EXPECTED_TASKS)
@@ -177,6 +255,7 @@ def test_task_registry_uses_domain_modules_not_legacy_worker_files() -> None:
 
     assert "app.modules.cad_processing.tasks" in names
     assert "app.modules.dxf_classification.tasks" in names
+    assert "app.modules.dxf_splitting.tasks" in names
     assert not names & {
         "app.workers.tasks_dxf",
         "app.workers.tasks_dxf2dwg",
@@ -204,14 +283,19 @@ def test_processing_internals_are_split_by_traceable_responsibility() -> None:
     assert "ezdxf" not in _imports(APP_ROOT / "modules/cad_processing/preview.py")
 
 
-def test_other_business_modules_use_only_cad_and_classification_interfaces() -> None:
-    protected = ("app.modules.cad_processing", "app.modules.dxf_classification")
+def test_other_business_modules_use_only_processing_interfaces() -> None:
+    protected = (
+        "app.modules.cad_processing",
+        "app.modules.dxf_classification",
+        "app.modules.dxf_splitting",
+    )
     violations: list[str] = []
     for path in sorted(APP_ROOT.rglob("*.py")):
         relative = path.relative_to(APP_ROOT)
         if relative.parts[:2] in {
             ("modules", "cad_processing"),
             ("modules", "dxf_classification"),
+            ("modules", "dxf_splitting"),
         } or relative.parts[:1] == ("bootstrap",):
             continue
         for imported in _imports(path):

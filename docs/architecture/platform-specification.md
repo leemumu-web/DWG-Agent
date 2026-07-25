@@ -82,7 +82,7 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 - Pydantic Settings 从当前进程工作目录的 `.env` 读取；本地根脚本同时维护根 `.env` 和 `backend/.env`，数据库字段必须一致。
 - `DATABASE_URL` 是可选兼容覆盖；未设置时由 `MYSQL_*` 生成 DSN。运行时应使用 MySQL；SQLite 只允许测试 fixture 显式覆盖。
 - Celery broker/result 始终从有效 MySQL DSN 派生，不提供独立 `CELERY_BROKER_URL` 配置口径。
-- 功能开关默认全部关闭：`AGENT_ENABLED`、`DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`、`CAD_WORKER_ENABLED`。
+- 功能开关默认全部关闭：`AGENT_ENABLED`、`REMNANT_INVENTORY_ENABLED`、`DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`、`CAD_WORKER_ENABLED`。
 - `APP_ENV=production` 且 `DEBUG=false` 时禁用 OpenAPI、Swagger 和 ReDoc，并使用通用 500 消息。
 - `REFRESH_COOKIE_SECURE` 默认随 `APP_ENV`；公网只能使用 TLS + Secure cookie。HTTP 私网覆盖为 `false` 是风险接受，不是推荐生产配置。
 
@@ -90,8 +90,8 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `e2f4b8c6a130`，SQLAlchemy/Alembic 管理 36 张模型表。
-- 空迁移 schema 加 `alembic_version` 为 26 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 34 张。不能把 34 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
+- 当前 Alembic head 为 `f9c4b7e2a610`，SQLAlchemy/Alembic 管理 44 张模型表。
+- 空迁移 schema 加 `alembic_version` 为 45 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 53 张。不能把 53 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
 - `kombu_message` 需要 `(queue_id, timestamp, id, visible)` 索引，降低跨队列扫描和锁范围。
@@ -129,7 +129,7 @@ failed/cancelled  -> retry -> queued (attempt + 1)
 - `source_intake` 分步接收一个 `.xls`/`.xlsx` 单文件与一个 DWG 文件夹，人工 DXF 被拒绝；混合文件夹确认后只上传 DWG，DXF 必须由服务器转换并登记后才能冻结；
 - 通用 completion 不能绕过输入冻结或自动阶段执行；placeholder/external 阶段必须提交符合契约的交接产物；
 - 取消工作流会协调活动 Job，但外部子进程的强制终止能力仍取决于具体 Stage；
-- 拆板、CAM、Windows/SinoCAM、结果接纳和确定性交付清单完成前，不得称为生产自动闭环。
+- 拆板虽已形成默认关闭的服务器纵向切片，但真实 MinIO/MySQL、代表性 BH/BOX、人工复核和 Excel 交接验收尚未完成；CAM、Windows/SinoCAM、结果接纳和确定性交付清单完成前，整体不得称为生产自动闭环。
 
 ## 8. Celery 队列边界
 
@@ -139,7 +139,10 @@ failed/cancelled  -> retry -> queued (attempt + 1)
 | `dxf` | DWG -> DXF 已实现 | `workers` profile、本地脚本 |
 | `dxf2dwg` | DXF -> DWG 已实现 | `workers` profile、本地脚本 |
 | `dxf2excel` | DXF -> Excel task 与普通跟踪 Stage 已实现 | `workers` profile、本地脚本 |
+| `dxf_classification` | Steel DXF Classifier 1.2.0 task 已实现 | `workers` profile、本地脚本；flag 默认关闭 |
+| `dxf_split` | Steel DXF Split 1.5.2 整批 task 已实现 | `workers` profile、本地脚本；无入站端口，flag 默认关闭 |
 | `excel_final` | Excel Final task 已实现 | `workers` profile、本地脚本 |
+| `remnant_convert` / `remnant_parse` | 余料转换与解析 task 已实现 | `workers` profile |
 | `agent` | module 仅占位，无 Celery task | Compose 有占位 worker；本地脚本不启动 |
 | `cad` | module 仅占位，无 Celery task | 无 Compose/local worker |
 
@@ -183,7 +186,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 150 个 path、174 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 152 个 path、176 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -201,6 +204,8 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 | `dwg2dxf` | 普通跟踪目录 | ODA、Xvfb/FUSE | 源码和 ODA AppImage 已跟踪；仍需许可与真实样本验证 |
 | `dxf2dwg` | 普通跟踪目录 | ODA、Xvfb/FUSE | 同上 |
 | `dxf2excel` | 普通跟踪目录 | ezdxf/pandas/openpyxl | 源码与锁文件可从干净 clone 重放；历史外部验证 corpus 不随仓库分发 |
+| `steel_dxf_classifier_v1.1.0` | 普通跟踪目录 | ezdxf | 平台锁定 1.2.0 I/O 契约；真实分类准确率仍需代表性样本 |
+| `steel_dxf_split_v1.5.2` | 受控运行时源码切片 | ezdxf/shapely/matplotlib/openpyxl | 平台按不可变 CLI 子进程调用；包内发布证据保留，DXF corpus、上游测试和报告不随父仓库分发；BH/BOX 来源合同与中文输出后缀由适配层复核 |
 | `excel_final` | 普通跟踪目录 | pandas/openpyxl/xlrd、手册 MySQL | backend 通过隔离子进程调用，不作为包导入 |
 
 Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清单 schema 的真实工作簿。legacy 二进制 `.xls` 通过锁定的 `xlrd` 读取；文本探测失败必须进入 Excel fallback。子进程 stdout 用结构化 JSON 与 backend 通信，完整 stderr 只进入 worker log。成功后同时写结果对象、`files`/`analysis_results` 和 Excel Final batch/part/component；客户端错误不得包含 traceback、DSN 或主机路径。
@@ -210,7 +215,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - Axios 对 401 只执行一次共享 refresh 请求，避免并发刷新风暴；登录和 refresh 请求自身不循环重试。
 - React Query 默认 query retry 为 2 次，指数退避上限 10 秒；这与下载的一次重签名重试是两个独立机制。
 - Jobs/转换页面使用定时 refetch；打开 Job 详情时可同时使用 SSE。
-- 生产项目工作台以“新建生产项目”为主入口；服务端在同一事务内创建 Project、项目所有者关系及其唯一 `linux_production` Workflow 并启动，随后进入独立工作流详情 URL。详情页按当前阶段完成生产文件夹整批上传、服务器转换、冻结、DXF 分类和冻结 Excel 第一阶段处理，后续留白阶段只展示契约、交接产物和可恢复错误。
+- 生产项目工作台以“新建生产项目”为主入口；服务端在同一事务内创建 Project、项目所有者关系及其唯一 `linux_production` Workflow 并启动，随后进入独立工作流详情 URL。详情页按当前阶段完成生产文件夹整批上传、服务器转换、冻结、DXF 分类、整批拆板和冻结 Excel 第一阶段处理；拆板人工复核只提供当前 attempt 未通过分类原始 DXF ZIP，后续留白阶段只展示契约、交接产物和可恢复错误。
 - EventSource 在 CONNECTING 状态交给浏览器自动重连；明确关闭或终态后停止。
 - UI 权限守卫只控制显示，不替代 API 授权。
 
@@ -226,13 +231,13 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 
 ## 16. Compose 与发布边界
 
-核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-excel-final`。
+核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance/worker-dispatch`，总计 16 个 Compose 服务。
 
 - backend 与 worker 共用非 root `appuser` 镜像。
 - MySQL 和 MinIO 使用命名卷且不发布宿主端口。
 - MinIO 固定 registry digest；MySQL 使用 8.4 tag，未固定 digest。
 - backend 在 Gunicorn 前执行 Alembic upgrade 和 seed。
-- Docker build 依赖 `Stages/dxf2excel` 实体源码；该 Stage 已作为普通跟踪目录纳入构建上下文。
+- Docker build 依赖各普通跟踪 Stage 实体源码；`Stages/dxf2excel` 与 `Stages/steel_dxf_split_v1.5.2` 均纳入构建上下文。
 - Compose 没有 TLS、证书、监控、备份调度、滚动升级或多副本协调，不应直接标记为完整生产方案。仓库虽提供手工 backup/restore 命令，但没有跨 MySQL/MinIO 原子快照或自动演练。
 
 ## 17. 数据保护与审计边界
@@ -280,7 +285,7 @@ cd frontend && npm run build && npx playwright test
 | 未完成领域 | 完成所需证据 |
 |---|---|
 | TLS | 受控 TLS termination、80 跳转、HSTS、浏览器/openssl 握手和续期演练 |
-| Linux 生产工作流闭环 | 已实现阶段需真实 MySQL/Celery/MinIO/browser E2E；拆板、CAM、Windows/SinoCAM、结果接纳与交付清单需完成实现和故障恢复 |
+| Linux 生产工作流闭环 | 已实现阶段需真实 MySQL/Celery/MinIO/browser E2E；拆板还需代表性 BH/BOX、人工复核与 Excel 交接验收，CAM、Windows/SinoCAM、结果接纳与交付清单仍需完成实现和故障恢复 |
 | 运维 | 指标、告警、集中日志、备份调度、恢复演练、容量和保留策略 |
 | RabbitMQ / Outbox / Beat | Compose 服务、持久卷、健康检查、事务投递、重连/恢复测试、周期调度和运行手册 |
 | Windows 执行面 | Node Agent 认证与租约、fencing token、CAM Runner/Adapter、命令/结果协议和真实 Windows 故障恢复 |

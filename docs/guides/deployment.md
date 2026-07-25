@@ -51,7 +51,7 @@ bash scripts/docker.sh check
 - `HTTP_PORT`：宿主 HTTP 端口，默认 `80`。
 - `DWG_AGENT_IMAGE`、`DWG_AGENT_FRONTEND_IMAGE`：默认本地 tag；CI/CD 可改为不可变 registry tag/digest。
 - `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
-- `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false；分类 worker 使用独立 `dxf_classification` 队列。
+- `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false；分类与拆板 worker 分别使用独立 `dxf_classification`、`dxf_split` 队列。
 - `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
 
 ## 构建与启动
@@ -82,6 +82,7 @@ Compose 只构建一个共享后端镜像和一个前端镜像。所有 worker �
 | `backend-api` | 默认 | `app_var` 运行目录 | `/health/ready` 可连接 MySQL 与 MinIO |
 | `worker-report` | 默认 | `app_var` | 启动 marker + Celery PID 1 |
 | 转换 workers | `workers` | `app_var` | worker 已连接；不等于功能已验收 |
+| `worker-dxf-split` | `workers` | `app_var` | 只出站访问 MySQL/MinIO；进程健康不代表拆板 Stage 或真实图纸已通过 |
 | `worker-agent` | `workers` | `app_var` | 仅队列进程，没有 Agent task |
 | `mysql` | 默认 | `mysql_data` | root ping 可用 |
 | `minio` | 默认 | `minio_data` | MinIO 进程存活 |
@@ -161,3 +162,4 @@ bash scripts/docker.sh smoke
 - 镜像漏洞/SBOM/签名策略，以及全部基础/运行镜像 digest 固定。
 - 多副本 rolling deployment 与 schema 兼容。
 - Agent 执行与 Windows Node Agent/CAM worker 尚未实现；保持其 flag 关闭并避免把占位队列当成已交付执行面。
+- Steel DXF Split 虽已接入 Linux worker、MySQL 与 MinIO 合同，仍须保持默认关闭，直到真实 BH/BOX 批次、人工复核 ZIP、Excel 交接和恢复路径完成验收。

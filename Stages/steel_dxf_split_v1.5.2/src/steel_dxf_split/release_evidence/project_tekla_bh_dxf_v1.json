@@ -1,0 +1,37 @@
+{
+  "compiler_version": "1.5.2",
+  "dialect_fingerprint": "289f9f765eb92346039c3e4af21d29f87d05cf44463d45c87b611982e7178fa5",
+  "evidence_note": "Generated only from a complete source-first candidate summary; manual split drawings were post-hoc diagnostics. The artifact's exact SHA-256 is pinned in compiler code.",
+  "ontology_version": "BH-MFG-3.1",
+  "profile_id": "project_tekla_bh_dxf_v1",
+  "schema": "BH-RELEASE-CAPABILITY-1.0",
+  "source_contract": {
+    "drawing_kind": "single_part_drawing",
+    "export_profile": "project_tekla_bh_dxf_v1",
+    "member_family": "welded_bh",
+    "source_system": "tekla_structures"
+  },
+  "source_corpus": {
+    "digest_algorithm": "sha256-canonical-name-and-content-sha256-v1",
+    "manual_result_used_for_decision": false,
+    "source_count": 20,
+    "source_set_sha256": "1c8afedaf1ebaebac886a3a74a4d7596d69c6d207f3cb7ba184b3ad0b19223d3"
+  },
+  "verified_capabilities": {
+    "automation_policy": "all_applicable_critical_proofs_pass",
+    "production_member_axis": "horizontal_x",
+    "source_only_routes": {
+      "auto_accept": 20,
+      "rejected": 0,
+      "review_required": 0
+    },
+    "strict_representation_invariants": [
+      "translate",
+      "mirror_x",
+      "mirror_y",
+      "uppercase_layers",
+      "explode"
+    ],
+    "unresolved_inputs_are_quarantined": true
+  }
+}

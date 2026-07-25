@@ -31,6 +31,7 @@ def bind_stage_job(db: Session, workflow: WorkflowRun, *, stage_code: str, job: 
     stage.progress = job.progress
     stage.error_code = None
     stage.error_message = None
+    stage.output_json = None
     stage.finished_at = None
     stage.started_at = job.started_at or datetime.now(UTC)
     workflow.current_stage = stage.stage_code
@@ -66,6 +67,13 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                     )
                 ).all()
             )
+            if stage.stage_code == "drawing_processing":
+                results = [
+                    result
+                    for result in results
+                    if isinstance(result.result_json, dict)
+                    and result.result_json.get("job_attempt") == job.attempt
+                ]
             for result in results:
                 requested_artifact_type = (
                     result.result_json.get("workflow_artifact_type")
@@ -89,6 +97,25 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                     result_id=result.id,
                     metadata={"job_id": job.id, "job_attempt": job.attempt},
                 )
+            if stage.stage_code == "drawing_processing":
+                from app.modules.dxf_splitting.interface import get_dxf_split_outcome
+
+                split_outcome = get_dxf_split_outcome(
+                    db,
+                    job_id=job.id,
+                    attempt=job.attempt,
+                )
+                if split_outcome == "completed_with_review":
+                    stage.status = "waiting_review"
+                    stage.progress = 100
+                    stage.error_code = None
+                    stage.error_message = None
+                    stage.output_json = {
+                        "split_status": split_outcome,
+                        "job_id": job.id,
+                        "job_attempt": job.attempt,
+                    }
+                    continue
             try:
                 require_stage_outputs(workflow, stage.stage_code)
             except AppHTTPException as exc:

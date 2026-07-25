@@ -9,7 +9,10 @@ from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_role
 from app.modules.workflows.access import WORKFLOW_WRITE_ROLES, load_workflow_detail
 from app.modules.workflows.schemas import WorkflowDetail, WorkflowStageExecutionCreate
-from app.modules.workflows.stage_execution import prepare_stage_execution
+from app.modules.workflows.stage_execution import (
+    dispatch_stage_execution,
+    prepare_stage_execution,
+)
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 
@@ -32,7 +35,9 @@ def execute_workflow_stage(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
-    workflow = load_workflow_detail(db, workflow_id)
+    # Serialize the first Job binding so concurrent project members cannot
+    # create separate logical executions for the same workflow stage.
+    workflow = load_workflow_detail(db, workflow_id, for_update=True)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     plan = prepare_stage_execution(
         db,
@@ -62,7 +67,12 @@ def execute_workflow_stage(
     )
     db.commit()
     if plan.should_dispatch:
-        dispatch_committed_job(db, plan.job)
+        plan = dispatch_stage_execution(
+            db,
+            workflow,
+            plan,
+            dispatcher=dispatch_committed_job,
+        )
     return ok(
         {
             "workflow": WorkflowDetail.model_validate(load_workflow_detail(db, workflow.id)),

@@ -28,6 +28,8 @@ APP_SERVICE_NAMES = (
     "worker-dxf",
     "worker-dxf2dwg",
     "worker-dxf2excel",
+    "worker-dxf-classification",
+    "worker-dxf-split",
     "worker-excel-final",
     "worker-report",
     "worker-remnant-convert",
@@ -83,6 +85,14 @@ class TestAppServices:
 
         for stage in ("dwg2dxf", "dxf2dwg", "dxf2excel"):
             assert f"COPY Stages/{stage} ./Stages/{stage}" in dockerfile
+        assert (
+            "COPY Stages/steel_dxf_classifier_v1.1.0 "
+            "./Stages/steel_dxf_classifier_v1.1.0"
+        ) in dockerfile
+        assert (
+            "COPY Stages/steel_dxf_split_v1.5.2 "
+            "./Stages/steel_dxf_split_v1.5.2"
+        ) in dockerfile
         assert "COPY Stages/excel_final /app/Stages/excel_final" in dockerfile
         assert "COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh" in dockerfile
 
@@ -122,6 +132,8 @@ class TestComposeYamlValid:
             "worker-dxf",
             "worker-dxf2dwg",
             "worker-dxf2excel",
+            "worker-dxf-classification",
+            "worker-dxf-split",
             "worker-excel-final",
             "worker-report",
             "worker-remnant-convert",
@@ -180,6 +192,8 @@ class TestDevelopmentCompose:
             "worker-dxf",
             "worker-dxf2dwg",
             "worker-dxf2excel",
+            "worker-dxf-classification",
+            "worker-dxf-split",
             "worker-excel-final",
         )
         for worker in workers:
@@ -189,6 +203,14 @@ class TestDevelopmentCompose:
         assert "./Stages/dwg2dxf:/app/Stages/dwg2dxf" in data["services"]["worker-dxf"]["volumes"]
         assert "./Stages/dxf2dwg:/app/Stages/dxf2dwg" in data["services"]["worker-dxf2dwg"]["volumes"]
         assert "./Stages/dxf2excel:/app/Stages/dxf2excel" in data["services"]["worker-dxf2excel"]["volumes"]
+        assert (
+            "./Stages/steel_dxf_classifier_v1.1.0:"
+            "/app/Stages/steel_dxf_classifier_v1.1.0"
+        ) in data["services"]["worker-dxf-classification"]["volumes"]
+        assert (
+            "./Stages/steel_dxf_split_v1.5.2:"
+            "/app/Stages/steel_dxf_split_v1.5.2"
+        ) in data["services"]["worker-dxf-split"]["volumes"]
         assert "./Stages/excel_final:/app/Stages/excel_final" in data["services"]["worker-excel-final"]["volumes"]
 
     def test_dev_override_does_not_publish_mysql_or_minio(self):
@@ -413,5 +435,7 @@ class TestDockerignore:
             "Stages/dxf2excel/original_dxf/",
             "Stages/dwg2dxf/convert/",
             "Stages/dxf2dwg/tools/oda/",
+            "Stages/steel_dxf_split_v1.5.2/samples/",
+            "Stages/steel_dxf_split_v1.5.2/tests/",
         ):
             assert path in content

@@ -1,0 +1,39 @@
+[project]
+name = "steel-dxf-split"
+version = "1.5.2"
+description = "Manufacturing semantic compiler for BH and BOX DXF plate splitting"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "ezdxf==1.4.4",
+  "matplotlib>=3.9,<4",
+  "openpyxl>=3.1,<4",
+  "pillow>=10,<12",
+  "shapely>=2.1,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3,<10",
+]
+
+[project.scripts]
+steel-dxf-split = "steel_dxf_split.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+steel_dxf_split = ["release_evidence/*.json"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.ruff.lint.per-file-ignores]
+"src/steel_dxf_split/box/manufacturing_ir.py" = ["UP038"]

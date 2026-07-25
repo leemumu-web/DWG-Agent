@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-11 个 owner 为 automation、cad-processing、dashboard、excel-processing、files、identity、jobs、operations、projects、reviews、workflows。每个目录同时拥有该业务需要的页面、API、类型、hook/组件和局部样式，并通过 `index.ts` 公开允许复用的符号。
+12 个 owner 为 automation、cad-processing、dashboard、excel-processing、files、identity、jobs、operations、projects、remnant-inventory、reviews、workflows。每个目录同时拥有该业务需要的页面、API、类型、hook/组件和局部样式，并通过 `index.ts` 公开允许复用的符号。
 
 ## 业务规则
 

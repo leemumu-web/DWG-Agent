@@ -62,7 +62,7 @@ def test_model_registry_loads_every_contract_table() -> None:
 
     modules = load_models()
 
-    assert len(modules) == 16
+    assert len(modules) == 17
     assert sorted(Base.metadata.tables) == SNAPSHOT["orm_tables"]
 
 
@@ -75,7 +75,7 @@ def test_task_registry_loads_every_stable_task_name() -> None:
         name for name in celery_app.tasks if name.startswith("app.workers.tasks_")
     )
 
-    assert len(modules) == 8
+    assert len(modules) == 9
     assert names == SNAPSHOT["celery_tasks"]
 
 

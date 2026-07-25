@@ -32,10 +32,16 @@ Stages/*/convert/tmp/
 Stages/dwg2dxf/convert/
 Stages/dxf2excel/original_dxf/
 Stages/dxf2excel/output/
+Stages/steel_dxf_split_v1.5.2/docs/
+Stages/steel_dxf_split_v1.5.2/release/
+Stages/steel_dxf_split_v1.5.2/samples/
+Stages/steel_dxf_split_v1.5.2/scripts/
+Stages/steel_dxf_split_v1.5.2/tests/
+Stages/steel_dxf_split_v1.5.2/tools/
 # Runtime uses the single ODA binary copied from dwg2dxf via ODA_HOME.
 Stages/dxf2dwg/tools/oda/
 
-# Optional preview/splitting applications are deployed separately.
+# Optional third-party applications are deployed separately.
 third_parts/
 
 # ── Frontend 构建缓存（源码由 frontend Dockerfile 构建）───────────
@@ -71,4 +77,5 @@ Thumbs.db
 # ── 文档 / 报告（镜像不需要；但保留 backend/README.md —— Dockerfile 显式 COPY）
 *.md
 !backend/README.md
+!Stages/steel_dxf_split_v1.5.2/README.md
 docs/
