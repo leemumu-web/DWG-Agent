@@ -2,7 +2,7 @@
 
 ## 现有业务 owner
 
-`identity` 管用户/角色/token，`projects` 管项目/图纸，`files` 管文件登记与存储事务，`jobs` 管 attempt/结果/复核，`cad_processing` 与 `dxf_classification` 管三条 CAD 管线和分流，`excel_processing` 管 Excel Final，`workflows` 管生产批次，`operations` 管审计/归档/对账/控制面，`automation` 管已交付 Agent 账本和未实现执行合同。
+`identity` 管用户/角色/token，`projects` 管项目/图纸，`files` 管文件登记与存储事务，`jobs` 管 attempt/结果/复核，`cad_processing`、`dxf_classification` 与 `dxf_splitting` 管三条 CAD 管线、分类分流和拆板，`excel_processing` 管 Excel Final，`workflows` 管生产批次，`operations` 管审计/归档/对账/控制面，`automation` 管已交付 Agent 账本和未实现执行合同。
 
 ## 调用与输出
 

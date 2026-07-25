@@ -23,6 +23,7 @@ from app.platform.config.constants import (
     PIPELINE_DXF2EXCEL,
     PIPELINE_EXCEL_FINAL,
     PIPELINE_STEEL_DXF_CLASSIFIER,
+    PIPELINE_STEEL_DXF_SPLIT,
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
@@ -75,6 +76,13 @@ def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
     return enqueue_dxf_classification_job(job_id, attempt)
 
 
+def enqueue_dxf_split_job(job_id: int, attempt: int) -> str:
+    """投递冻结分类 DXF 的成对拆板任务。"""
+    from app.modules.dxf_splitting.interface import enqueue_dxf_splitting_job
+
+    return enqueue_dxf_splitting_job(job_id, attempt)
+
+
 def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
     """按 pipeline 投递到对应 Celery 队列。
 
@@ -90,6 +98,8 @@ def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
         return enqueue_excel_final_job(job_id, attempt)
     if pipeline == PIPELINE_STEEL_DXF_CLASSIFIER:
         return enqueue_dxf_classification_job(job_id, attempt)
+    if pipeline == PIPELINE_STEEL_DXF_SPLIT:
+        return enqueue_dxf_split_job(job_id, attempt)
     return enqueue_stub_job(job_id, attempt)
 
 

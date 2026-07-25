@@ -17,6 +17,7 @@ DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"
 WORKER_SPECS=(
     "report|1|report|"
     "dxf_classification|1|dxf-classification|"
+    "dxf_split|1|dxf-split|"
     "dxf|${DXF_WORKER_CONCURRENCY}|dxf|${DXF_WORKER_DISPLAY}"
     "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
     "dxf2excel|1|dxf2excel|"

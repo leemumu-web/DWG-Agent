@@ -2,11 +2,13 @@
 
 > 本文保留原始逐项调研证据，并作为目标差距的历史基线。2026-07-21 起，仓库结构重构的实时设计与计划见[领域重构设计](../superpowers/specs/2026-07-21-repository-domain-reorganization-design.md)和[实施计划](../superpowers/plans/2026-07-21-repository-domain-reorganization.md)。文中旧路径或旧排除声明仅代表调研时点，不应解释为当前完成状态。
 
+> 2026-07-25 拆板接入更新：`Stages/steel_dxf_split_v1.5.2` 以版本锁定源码进入父仓库，新增 `dxf_splitting` 领域、`dxf_split_runs/items` 两张 attempt 账本、`dxf_split` Celery 队列和默认关闭的 `DXF_SPLIT_PIPELINE_ENABLED`。`drawing_processing` 已升级为自动阶段：只消费分类登记，整批处理 BH/BOX，独立重开校验，向现有 MinIO bucket 登记正常拆板、余量增长、报告、manifest 和 `BH拆板信息表.xlsx`；非 BH/BOX 或未通过图纸进入 `manual_review`，但不阻断同批其他图纸。前端仅能按当前 run 即时下载未通过的分类原始 DXF ZIP。该更新表示代码纵向切片已经接通，不表示真实 MinIO/MySQL、代表性图纸、算法质量或人工操作已经完成生产验收；功能开关必须保持 false，直到[当前验证证据](../verification/current.md)记录这些外部门禁。
+
 > 2026-07-22 余料库更新：独立 `remnant_inventory` 后端领域、DXF 确定性解析 Stage、六张业务表、21 个 API 操作、`remnant_convert`/`remnant_parse` 专用队列（默认并发 2/4）以及 Web 检索、批量导入、刷新恢复、人工校正、部分确认、预占和原图下载界面已实现。功能仍默认关闭，只有完成[余料库上线与运行手册](../operations/remnant-inventory.md)中的真实样本、材质、权限、备份和回滚门禁后才允许启用。该纵向功能不代表历史审计所述自动拆板或 Windows/SinoCAM 闭环已经实现。
 
 ## 历史审计说明
 
-> 2026-07-25 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。新建 `linux_production` 为 revision 4 十阶段框架，在 Excel 第一阶段与设计屏障之间加入 `excel_stage2`，预留 `stage2_excel` 且当前等待上线；历史流程保持原 revision。Steel DXF Classifier 和冻结 Excel `excel_stage1` 已接通，图纸拆板不显示模拟指标，Excel 第二阶段、CAM 工作包、Windows Node Agent/SinoCAM、结果接纳与交付归档在前端统一弱化为等待上线。本报告其余较早日期章节作为当时审计快照保留。
+> 2026-07-25 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、dxf_splitting、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。新建 `linux_production` 为 revision 4 十阶段框架，在 Excel 第一阶段与设计屏障之间加入 `excel_stage2`，预留 `stage2_excel` 且当前等待上线；历史流程保持原 revision。Steel DXF Classifier、默认关闭的 Steel DXF Split 1.5.2 和冻结 Excel `excel_stage1` 已接通，Excel 第二阶段、CAM 工作包、Windows Node Agent/SinoCAM、结果接纳与交付归档在前端统一弱化为等待上线。本报告其余较早日期章节作为当时审计快照保留。
 
 > 审计日期：2026-07-18
 > 审计对象：`/home/Creeken/Paper/CAD_research/complete_framework`

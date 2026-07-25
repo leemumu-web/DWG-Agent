@@ -16,7 +16,7 @@
 
 ## 当前 Compose
 
-核心服务为 `nginx`、`backend-api`、`mysql`、`minio` 与 `worker-report`。`workers` profile 增加 `worker-maintenance`、`worker-dispatch`、`worker-dxf`、`worker-dxf2dwg`、`worker-dxf2excel`、`worker-dxf-classification`、`worker-excel-final` 与占位 `worker-agent`。
+核心服务为 `nginx`、`backend-api`、`mysql`、`minio` 与 `worker-report`。`workers` profile 增加 `worker-maintenance`、`worker-dispatch`、`worker-dxf`、`worker-dxf2dwg`、`worker-dxf2excel`、`worker-dxf-classification`、`worker-dxf-split`、`worker-excel-final`、`worker-remnant-convert`、`worker-remnant-parse` 与占位 `worker-agent`。所有 worker 只出站访问 MySQL 与 MinIO，不新增 HTTP 监听端口。
 
 ```bash
 docker compose up -d

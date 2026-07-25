@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.dxf binary
+*.py text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+src/steel_dxf_split/release_evidence/project_tekla_bh_dxf_v1.json text eol=lf

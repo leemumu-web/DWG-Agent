@@ -1,0 +1,254 @@
+{
+  "schema": "BOX-V1-RELEASE-GATE-1.0",
+  "passed": true,
+  "core": {
+    "version": "1.0.0",
+    "tag": "v1.0.0",
+    "commit": "5a2be1a82eb7235bcff62d97a13d2937f9ad026b"
+  },
+  "pair_count": 20,
+  "calibration_count": 10,
+  "acceptance_count": 10,
+  "manifest_file_sha256": "e15368bb1b0f23ae294cfdfc097139845f165825cda4930bb0d3f452db65df5a",
+  "manifest_fingerprint": "1868255635eb27ed4cc2eb851ede2882447ede375732b535ce0586d47ae4e157",
+  "acceptance_schema": "BOX-V1-FUSION-ACCEPTANCE-1.0",
+  "thresholds": {
+    "boundary_hausdorff_mm": 2.0,
+    "bbox_tolerance_mm": 2.0,
+    "area_relative_tolerance": 1e-05,
+    "hole_center_tolerance_mm": 2.0,
+    "hole_radius_tolerance_mm": 0.1,
+    "basis": "项目所有者确认：20 组只读 BOX 前后 DXF，连续几何允许 2 mm；结构、角色、孔归属和唯一解仍为硬门。"
+  },
+  "checks": {
+    "frozen_manifest_approved": true,
+    "manifest_files_match": true,
+    "acceptance_report_complete": true,
+    "all_pair_verdicts_pass": true,
+    "ground_truth_firewall": true,
+    "read_only_corpus_unchanged": true
+  },
+  "verdicts": [
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-56",
+      "member": "2b1-cb-56",
+      "partition": "calibration",
+      "before_sha256": "6f2d8431724b3c125d41c43729e4cc46c59a5424d4b5ba83013acba95cf69970",
+      "after_sha256": "4991d23cba149395fdd06ad0cf8780079babe61a93f0c3aa7311a53cc2503971",
+      "source_geometry_fingerprint": "2157f1d53e09a4bfefce4403f617dbb0f1ca1924756f137546d968fa4714fff1",
+      "manufacturing_fingerprint": "dc33cc167961d42c15954e16f52bcd704c8590e806678a5676b208a97a742a40",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-86",
+      "member": "2b1-cb-86",
+      "partition": "calibration",
+      "before_sha256": "be4930d3a2ad38782a22fbeee5fac02b82b1af63fca54b816d1614d3fae54242",
+      "after_sha256": "db4c852497f8f9032f7b2e048b666590c783af3004537b987c2baba1f3933810",
+      "source_geometry_fingerprint": "3c6a9689b48527c9c1bf5bf5a0d9dbf6be44ca4b0e2029316cb6f147378466c8",
+      "manufacturing_fingerprint": "d29e2eb88c6a352751b669f28f7508d88d32db50cb444c4947f1efd58c98a6af",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-91",
+      "member": "2b1-cb-91",
+      "partition": "calibration",
+      "before_sha256": "a1b704544148e5417909e950805f099ae1b7bc662366e9b3cf70a8731f5160a3",
+      "after_sha256": "634819c948592f3593127b925002def623ad4cecedaad47fd77932430fea3aaf",
+      "source_geometry_fingerprint": "9696a6665c744454ab012f0f83c33baf320d76baa5d5319da8e95239399fdcb0",
+      "manufacturing_fingerprint": "f5aee1c78b802c30e4f6308830c1701f9fd97c4160b3dcf4508c3f04e1a39c0a",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-92",
+      "member": "2b1-cb-92",
+      "partition": "calibration",
+      "before_sha256": "4172f4d172f9f9f388a63f335a3f175d37f66645cf732305f43b1b1b86d8e7d1",
+      "after_sha256": "f639ddf3412c44f32200a4304ed6b3b2854106292e321e630046508188bb2665",
+      "source_geometry_fingerprint": "ebed9ca72f6cf3dfc425b1fa22fa6b644d7580c0e4f78232e855bbb411fec94f",
+      "manufacturing_fingerprint": "b38e063d2ddc748f5364ff4556e37e657c5f8989e03b30787f10c487c9e7b41b",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-145",
+      "member": "2b2-cb-145",
+      "partition": "calibration",
+      "before_sha256": "f551a808d97cc7be403a85053b0b7120dee42d0baa4847669c262a82ebdebbe1",
+      "after_sha256": "5dfec37c9ab4de1b15b15aebac4fb2b4db714f520ae4ba64714fd4ed6d57fbc2",
+      "source_geometry_fingerprint": "244856328d2337f2e4872002b946fd55ad1cd2947436014f00709f20bef8e5ab",
+      "manufacturing_fingerprint": "4c2fdaf74248bf93f71a27784186ff4de71ff8db2be64a793c3f5d1fd1c16846",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-155",
+      "member": "2b2-cb-155",
+      "partition": "calibration",
+      "before_sha256": "ae5a2402550cbc16d20b6162091b9034b747a46893c920e8d90c94a8d09cba8b",
+      "after_sha256": "535502ae879c2573c36be0432ba6ff0c0282872e7efb58a19bdc4d119c77d41f",
+      "source_geometry_fingerprint": "b3f7b02823fa3069f60eebafa4110361c58cc31009cbc40edd1886cab3a163bf",
+      "manufacturing_fingerprint": "812b317b46d2b16f29f7f90913d99fd851cda7d1a369a9ea21ca94b6cb602a99",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-2",
+      "member": "2b2-cb-2",
+      "partition": "calibration",
+      "before_sha256": "a520769d7356fa6f7a8e2178a78927f97e892936835309ffe5c73f6b88a35d0a",
+      "after_sha256": "db079ff548402b87f5001093e81ae4f11cf0170062006724c14e24d874633d18",
+      "source_geometry_fingerprint": "5bc4899c257b771d5a004b34e7de35fded3be0443c7a7f0e73325016be4fd952",
+      "manufacturing_fingerprint": "97b58e1d2758c863a8e689f2a51a3f8e95046fc107d5fb34b2985fdf29e92ae8",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2t1-cb-95",
+      "member": "2t1-cb-95",
+      "partition": "calibration",
+      "before_sha256": "5ac04db6f4973466f37e4fa8c3cafeb2a0fc30e353c9f310d0cdfc698306b1db",
+      "after_sha256": "3fc35db521e67e1545c6290159daf22ce341d31f103be9b28ff54ef9b5046829",
+      "source_geometry_fingerprint": "7dbcd36bafd0e4c89778ecfcc97ed3c492d354f052a724ce209a6053df10d97b",
+      "manufacturing_fingerprint": "e32d7d3fe87941899bde1e1e986625bb010408b413567f8b8a75299f9c804689",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/3t2-cb-117",
+      "member": "3t2-cb-117",
+      "partition": "calibration",
+      "before_sha256": "9acb0e2d24b89cfd4f888c1585b7b1655909a62d2384c995feecc76fb596cb48",
+      "after_sha256": "6d1f08906fe15a03eacb0d94ff145090b32f3b7cc95d714a6dc9069fe3a48105",
+      "source_geometry_fingerprint": "64a078d70ff9810256703ff74dda70f2dc40a8282b1a7d3f053c0ae3eeb9e511",
+      "manufacturing_fingerprint": "9584e41d2dedf6692185c6381ebf969b1c7b1cc159340c8549fb842debb09718",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-3-cb-2",
+      "member": "h-3-cb-2",
+      "partition": "calibration",
+      "before_sha256": "88120395718583023e900ea91feedc65ece3c7224ca43dd757e2e7820fc7421e",
+      "after_sha256": "bedb406e383ca86ec7e39fb14328ee12800b649c0a8131842de4661e9a721738",
+      "source_geometry_fingerprint": "65ece81020381be572c03709cd21a6b3113762b7bf9b4b220b8f94a92326abbf",
+      "manufacturing_fingerprint": "e72e9d1ad0773f35adc6db015fea5ad9254e77b35489f03f1b710ba7d24294f3",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-4-cb-37",
+      "member": "h-4-cb-37",
+      "partition": "acceptance",
+      "before_sha256": "bc6e9963975edb15b889325de0cd91056de1e2056dc35306524c8c2c8dcb5b15",
+      "after_sha256": "292dda3892ad1839ac971ccbcc3ced31dc684077fc5ad9ad69f0c5f871c9c4fb",
+      "source_geometry_fingerprint": "6eac3b2dee39886d428d01d881aac9f45d582cd546fccb168edd23e252b9079d",
+      "manufacturing_fingerprint": "3557e0ee762b54c86e8175ed3f469b250d352a6a5fae24bcc1215f836ab6acbc",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-4-cb-38",
+      "member": "h-4-cb-38",
+      "partition": "acceptance",
+      "before_sha256": "a553d636df15494957b83ac5f4209b94855283cdaf772d5da7a67708f41a405b",
+      "after_sha256": "114b52a08de0d58ec4b551fc960f90be339358fad16f29b0aaedefe47b1c199f",
+      "source_geometry_fingerprint": "677f69a3a022dac8b5d6d760c53fabc73dfa072052c4b16db3d347b56b3910f2",
+      "manufacturing_fingerprint": "e6af982e19d70a9a952d09df6e5be2b718b31b6a5eeb4fef609afbaae0647154",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-116",
+      "member": "h-9-cb-116",
+      "partition": "acceptance",
+      "before_sha256": "820ca59ec5dab708fd1a629d5283ab244f64a6c86dfb7d531a1a98833ae194be",
+      "after_sha256": "9e52a736e2435f07d25a0cdc95a4e518c5dc10cc6d1d8fdd76300b4263a91d51",
+      "source_geometry_fingerprint": "032776d62cf375e38ce117cda82413224abcf4f23af27e5b885ee5d80c38b526",
+      "manufacturing_fingerprint": "4b9307aef5d3d71e18a95d8ee16651c1949c2407bc3ec7530e12ac2603ea8a89",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-124",
+      "member": "h-9-cb-124",
+      "partition": "acceptance",
+      "before_sha256": "2b36e732f0b7b96ddf33c2a8eb6fe540c308ee139174b23afaa82c28e37f1849",
+      "after_sha256": "26ba26d0988a92ebdd6baa347482fe093675dcd324bf2b257df3fe9b91bd6bfb",
+      "source_geometry_fingerprint": "f710246fc536e21f3745d8fc5946fca61c91d0dcbb44af07a6bf6002fb18abfc",
+      "manufacturing_fingerprint": "54255d85f82d605885e1e2ffa8a4130e223d0c7d69ed54c63acc0c7a6849aaa9",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-133",
+      "member": "h-9-cb-133",
+      "partition": "acceptance",
+      "before_sha256": "e82181ba9f14559c68e95afd4a5f6471fdafa97000e78bc73f3ce20278c9f144",
+      "after_sha256": "d8240607a153e3a3f0af9ba5ebe21f35b8bf0fd27415a3548157a64a6c42aabd",
+      "source_geometry_fingerprint": "e6b69cc059e86a4757ca49d9cdf5d63cf7ae95f0e3cea39d150f66fa813b594d",
+      "manufacturing_fingerprint": "ef0f21fcd844e7b2abe7168f82f6c35955c4c18b849eede3ffc4c2722d796b0f",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-279",
+      "member": "h-9-cb-279",
+      "partition": "acceptance",
+      "before_sha256": "6cb1c672519134f4afd1cfab21ecae90c3447370c1a7316126c044b51a0c4e46",
+      "after_sha256": "6b733647056007715004d31c53435244fbb49abd48d2e89a539cb00f16f082d8",
+      "source_geometry_fingerprint": "4c95f5773c6d9312d032ceed8f30a8a2457941278b9d05362549e6326e0f5ab8",
+      "manufacturing_fingerprint": "8ef2598fd62e0edb7cffae92db15be63299d40f2ed576c944ab4213cccf09f53",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-69",
+      "member": "h-9-cb-69",
+      "partition": "acceptance",
+      "before_sha256": "c7cd250bb6369958ecaf1a44b50edeba663bd9ff66deb3e72135d840a8e582c0",
+      "after_sha256": "f51567d2d10b1c8d4cecd0636a0431dd7669517c05113f20b92f36b57fb2146c",
+      "source_geometry_fingerprint": "78621280d1065d364c3d90bbc7c4b1d10483bc61fda0253a6a55aa70240038ca",
+      "manufacturing_fingerprint": "362aec6299bca7c6abb8dd2e2567abca737d91422027e2dc399a4d130c5661e9",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-72",
+      "member": "h-9-cb-72",
+      "partition": "acceptance",
+      "before_sha256": "a58ee7dd59ee1e5b7e8f892a86ab83a9f42245d5c67f6ccaa157c96b82cd3f28",
+      "after_sha256": "ed558dfb6e1d34408e775ef946dfc292a0756c9f6a5ffac8c2a4d61249aa4b89",
+      "source_geometry_fingerprint": "19010b23f6eefabfd6259c9961d5094f96d2e8509e841dcd8e1cd6c1bf19b94e",
+      "manufacturing_fingerprint": "30ed9a8e5b74dd1904c7c54eb93fee0e8fad6c4c8d1d03554d016e398ec4ad54",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-73",
+      "member": "h-9-cb-73",
+      "partition": "acceptance",
+      "before_sha256": "729bb9cbc05ba0f75955adc8e34e320cca9c32ca971429f8c2f67ecab9609b19",
+      "after_sha256": "3ad1e78262b3c2022598b2ded720c5cb9734f3110bd3ea43ee8572b6ee0f32cf",
+      "source_geometry_fingerprint": "bef65fb8bc86958e4787dc9cc0761a258378bf10dc91190a9e0af188ec764b1c",
+      "manufacturing_fingerprint": "a5eb5ffb30e498f8d1748ce0f615dc06b6619125edf26961c0fdd5ffa3b0dc2c",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-94",
+      "member": "h-9-cb-94",
+      "partition": "acceptance",
+      "before_sha256": "b2f44cf1114523a2eb06025f284fa083634456d838b8951c42f0ca341d47a976",
+      "after_sha256": "7c30a47e2c6c77f1be00bede69f5205e7077f59438419b9fb5862afcb40da337",
+      "source_geometry_fingerprint": "73eaadd1603c94858a374aaa3d829ca7fc7c61cc6b38350d5909be5e36ab0b86",
+      "manufacturing_fingerprint": "465758f17860fb10f6606b572fc3a395bf7cb318fdf4d6744fea9859f78500e3",
+      "proof_disposition": "auto_accept",
+      "passed": true
+    }
+  ],
+  "gate_fingerprint": "4681edad60a6ddba1626c9ad344e314187344f0e839c4fc5368889418ce7f6a8"
+}

@@ -8,6 +8,7 @@ import type {
   WorkflowTemplate,
   DxfClassificationGroupPage,
   DxfClassificationRun,
+  DxfSplitRun,
 } from './workflow';
 
 export interface WorkflowListParams {
@@ -196,5 +197,23 @@ export async function downloadAllDxfClassificationArchive(workflowId: number) {
     `/api/v1/workflows/${workflowId}/dxf-classification/download-archive`,
     `workflow-${workflowId}-all-classified-dxf.zip`,
     '全部 DXF 下载失败',
+  );
+}
+
+export async function getDxfSplitRun(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<DxfSplitRun | null>>(
+    `/api/v1/workflows/${workflowId}/drawing-processing`,
+  );
+  return response.data.data;
+}
+
+export async function downloadDxfSplitManualReviewArchive(
+  workflowId: number,
+  runId: number,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/drawing-processing/runs/${runId}/manual-review-archive`,
+    `workflow-${workflowId}-split-run-${runId}-manual-review.zip`,
+    '未通过原图压缩包下载失败',
   );
 }

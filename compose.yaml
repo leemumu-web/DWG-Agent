@@ -141,6 +141,18 @@ services:
       DWG_WORKER_QUEUE: dxf_classification
       DWG_WORKER_CONCURRENCY: "1"
 
+  worker-dxf-split:
+    <<: *worker
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_split -n dxf-split@%h --concurrency=1
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      DWG_WORKER_QUEUE: dxf_split
+      DWG_WORKER_CONCURRENCY: "1"
+
   worker-remnant-convert:
     <<: *worker
     command: celery -A app.platform.messaging.celery_app:celery_app worker -Q remnant_convert -n remnant-convert@%h --concurrency=${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}

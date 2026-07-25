@@ -403,7 +403,7 @@ def test_workflow_stage_download_is_one_zip_with_only_stage_artifacts(
 ):
     _use_storage(monkeypatch, tmp_path)
     client = workflow_test_api.client()
-    admin_headers, owner_headers, _, workflow_id = _setup(
+    admin_headers, owner_headers, project_id, workflow_id = _setup(
         client, "workflow-stage-archive"
     )
     source_id = _upload(
@@ -486,6 +486,24 @@ def test_workflow_stage_download_is_one_zip_with_only_stage_artifacts(
         assert any("/classification_manifest/" in name for name in names)
         assert not any("/source_intake/" in name for name in names)
         assert not any(name.lower().endswith(".dwg") for name in names)
+
+    member_id, member_headers = workflow_test_api.create_engineer_user(
+        client,
+        admin_headers,
+        "workflow-stage-archive-member",
+    )
+    workflow_test_api.add_project_member(
+        client,
+        project_id,
+        member_id,
+        "project_engineer",
+        admin_headers,
+    )
+    member_response = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/dxf_classification/download-archive",
+        headers=member_headers,
+    )
+    assert member_response.status_code == 200, member_response.text
 
     empty = client.get(
         f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/download-archive",

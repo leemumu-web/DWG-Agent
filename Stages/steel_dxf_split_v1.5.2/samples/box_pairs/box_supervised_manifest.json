@@ -1,0 +1,176 @@
+{
+  "schema_version": "BOX-SUPERVISED-MANIFEST-1.0",
+  "status": "frozen",
+  "approved_by": "项目所有者（本任务批准）",
+  "approved_at": "2026-07-19T15:09:52.2425641+08:00",
+  "thresholds": {
+    "boundary_hausdorff_mm": 2.0,
+    "bbox_tolerance_mm": 2.0,
+    "area_relative_tolerance": 0.00001,
+    "hole_center_tolerance_mm": 2.0,
+    "hole_radius_tolerance_mm": 0.1,
+    "basis": "项目所有者确认：20 组只读 BOX 前后 DXF，连续几何允许 2 mm；结构、角色、孔归属和唯一解仍为硬门。"
+  },
+  "entries": [
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-56",
+      "before_path": "BOX_拆板前_dxf/2b1-cb-56_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b1-cb-56_拆板后.dxf",
+      "before_sha256": "6f2d8431724b3c125d41c43729e4cc46c59a5424d4b5ba83013acba95cf69970",
+      "after_sha256": "4991d23cba149395fdd06ad0cf8780079babe61a93f0c3aa7311a53cc2503971",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-86",
+      "before_path": "BOX_拆板前_dxf/2b1-cb-86_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b1-cb-86_拆板后.dxf",
+      "before_sha256": "be4930d3a2ad38782a22fbeee5fac02b82b1af63fca54b816d1614d3fae54242",
+      "after_sha256": "db4c852497f8f9032f7b2e048b666590c783af3004537b987c2baba1f3933810",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-91",
+      "before_path": "BOX_拆板前_dxf/2b1-cb-91_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b1-cb-91_拆板后.dxf",
+      "before_sha256": "a1b704544148e5417909e950805f099ae1b7bc662366e9b3cf70a8731f5160a3",
+      "after_sha256": "634819c948592f3593127b925002def623ad4cecedaad47fd77932430fea3aaf",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-92",
+      "before_path": "BOX_拆板前_dxf/2b1-cb-92_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b1-cb-92_拆板后.dxf",
+      "before_sha256": "4172f4d172f9f9f388a63f335a3f175d37f66645cf732305f43b1b1b86d8e7d1",
+      "after_sha256": "f639ddf3412c44f32200a4304ed6b3b2854106292e321e630046508188bb2665",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-145",
+      "before_path": "BOX_拆板前_dxf/2b2-cb-145_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b2-cb-145_拆板后.dxf",
+      "before_sha256": "f551a808d97cc7be403a85053b0b7120dee42d0baa4847669c262a82ebdebbe1",
+      "after_sha256": "5dfec37c9ab4de1b15b15aebac4fb2b4db714f520ae4ba64714fd4ed6d57fbc2",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-155",
+      "before_path": "BOX_拆板前_dxf/2b2-cb-155_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b2-cb-155_拆板后.dxf",
+      "before_sha256": "ae5a2402550cbc16d20b6162091b9034b747a46893c920e8d90c94a8d09cba8b",
+      "after_sha256": "535502ae879c2573c36be0432ba6ff0c0282872e7efb58a19bdc4d119c77d41f",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-2",
+      "before_path": "BOX_拆板前_dxf/2b2-cb-2_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2b2-cb-2_拆板后.dxf",
+      "before_sha256": "a520769d7356fa6f7a8e2178a78927f97e892936835309ffe5c73f6b88a35d0a",
+      "after_sha256": "db079ff548402b87f5001093e81ae4f11cf0170062006724c14e24d874633d18",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2t1-cb-95",
+      "before_path": "BOX_拆板前_dxf/2t1-cb-95_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/2t1-cb-95_拆板后.dxf",
+      "before_sha256": "5ac04db6f4973466f37e4fa8c3cafeb2a0fc30e353c9f310d0cdfc698306b1db",
+      "after_sha256": "3fc35db521e67e1545c6290159daf22ce341d31f103be9b28ff54ef9b5046829",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/3t2-cb-117",
+      "before_path": "BOX_拆板前_dxf/3t2-cb-117_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/3t2-cb-117_拆板后.dxf",
+      "before_sha256": "9acb0e2d24b89cfd4f888c1585b7b1655909a62d2384c995feecc76fb596cb48",
+      "after_sha256": "6d1f08906fe15a03eacb0d94ff145090b32f3b7cc95d714a6dc9069fe3a48105",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-3-cb-2",
+      "before_path": "BOX_拆板前_dxf/h-3-cb-2_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-3-cb-2_拆板后.dxf",
+      "before_sha256": "88120395718583023e900ea91feedc65ece3c7224ca43dd757e2e7820fc7421e",
+      "after_sha256": "bedb406e383ca86ec7e39fb14328ee12800b649c0a8131842de4661e9a721738",
+      "partition": "calibration"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-4-cb-37",
+      "before_path": "BOX_拆板前_dxf/h-4-cb-37_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-4-cb-37_拆板后.dxf",
+      "before_sha256": "bc6e9963975edb15b889325de0cd91056de1e2056dc35306524c8c2c8dcb5b15",
+      "after_sha256": "292dda3892ad1839ac971ccbcc3ced31dc684077fc5ad9ad69f0c5f871c9c4fb",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-4-cb-38",
+      "before_path": "BOX_拆板前_dxf/h-4-cb-38_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-4-cb-38_拆板后.dxf",
+      "before_sha256": "a553d636df15494957b83ac5f4209b94855283cdaf772d5da7a67708f41a405b",
+      "after_sha256": "114b52a08de0d58ec4b551fc960f90be339358fad16f29b0aaedefe47b1c199f",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-116",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-116_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-116_拆板后.dxf",
+      "before_sha256": "820ca59ec5dab708fd1a629d5283ab244f64a6c86dfb7d531a1a98833ae194be",
+      "after_sha256": "9e52a736e2435f07d25a0cdc95a4e518c5dc10cc6d1d8fdd76300b4263a91d51",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-124",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-124_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-124_拆板后.dxf",
+      "before_sha256": "2b36e732f0b7b96ddf33c2a8eb6fe540c308ee139174b23afaa82c28e37f1849",
+      "after_sha256": "26ba26d0988a92ebdd6baa347482fe093675dcd324bf2b257df3fe9b91bd6bfb",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-133",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-133_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-133_拆板后.dxf",
+      "before_sha256": "e82181ba9f14559c68e95afd4a5f6471fdafa97000e78bc73f3ce20278c9f144",
+      "after_sha256": "d8240607a153e3a3f0af9ba5ebe21f35b8bf0fd27415a3548157a64a6c42aabd",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-279",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-279_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-279_拆板后.dxf",
+      "before_sha256": "6cb1c672519134f4afd1cfab21ecae90c3447370c1a7316126c044b51a0c4e46",
+      "after_sha256": "6b733647056007715004d31c53435244fbb49abd48d2e89a539cb00f16f082d8",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-69",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-69_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-69_拆板后.dxf",
+      "before_sha256": "c7cd250bb6369958ecaf1a44b50edeba663bd9ff66deb3e72135d840a8e582c0",
+      "after_sha256": "f51567d2d10b1c8d4cecd0636a0431dd7669517c05113f20b92f36b57fb2146c",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-72",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-72_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-72_拆板后.dxf",
+      "before_sha256": "a58ee7dd59ee1e5b7e8f892a86ab83a9f42245d5c67f6ccaa157c96b82cd3f28",
+      "after_sha256": "ed558dfb6e1d34408e775ef946dfc292a0756c9f6a5ffac8c2a4d61249aa4b89",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-73",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-73_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-73_拆板后.dxf",
+      "before_sha256": "729bb9cbc05ba0f75955adc8e34e320cca9c32ca971429f8c2f67ecab9609b19",
+      "after_sha256": "3ad1e78262b3c2022598b2ded720c5cb9734f3110bd3ea43ee8572b6ee0f32cf",
+      "partition": "acceptance"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-94",
+      "before_path": "BOX_拆板前_dxf/h-9-cb-94_拆板前.dxf",
+      "after_path": "BOX_拆板后_dxf/h-9-cb-94_拆板后.dxf",
+      "before_sha256": "b2f44cf1114523a2eb06025f284fa083634456d838b8951c42f0ca341d47a976",
+      "after_sha256": "7c30a47e2c6c77f1be00bede69f5205e7077f59438419b9fb5862afcb40da337",
+      "partition": "acceptance"
+    }
+  ]
+}

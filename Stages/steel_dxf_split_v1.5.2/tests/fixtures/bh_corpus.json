@@ -1,0 +1,885 @@
+{
+  "schema_version": "BH-CORPUS-1.0",
+  "cases": [
+    {
+      "sample_id": "2b1-cb-18",
+      "source_file": "2b1-cb-18_拆板前.dxf",
+      "manual_file": "2b1-cb-18_拆板后.dxf",
+      "source_sha256": "c5a4aa302f6da79aeb4943059f2f3a8374894f82eee3fcdd52da5c500566b2c4",
+      "manual_sha256": "0c9a204fa44c5957cbc2961371a7f4f3b03ab9de4ed0c2eeff17edec5f413a51",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            11460.01,
+            1590.0
+          ],
+          "circular_cut_count": 64,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            4476.339711,
+            500.074691
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            4276.662,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b1-cb-26",
+      "source_file": "2b1-cb-26_拆板前.dxf",
+      "manual_file": "2b1-cb-26_拆板后.dxf",
+      "source_sha256": "757138c525cf3c3bd30bce8290222fa770570d743b894c5559f85799bb4784ac",
+      "manual_sha256": "aba0257d36afc8217e30ba91defd54e8b758632a7ad74ab4118e0db0cb367ae8",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            1032.176,
+            1440.0
+          ],
+          "circular_cut_count": 32,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            600.000005,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            600.000005,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b1-cb-29",
+      "source_file": "2b1-cb-29_拆板前.dxf",
+      "manual_file": "2b1-cb-29_拆板后.dxf",
+      "source_sha256": "ee4624f15d5d5acda289d7ba5ac005ad9e84e93c395c7cf7f13f4853518df1e4",
+      "manual_sha256": "1f928d16fd6614f08451eedead8c38b63ffcfa078e11f071dc1b6688cb731285",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*50",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            9939.995,
+            1400.0
+          ],
+          "circular_cut_count": 48,
+          "inner_contour_count": 1
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            9939.995103,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            9939.995103,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b1-cb-35",
+      "source_file": "2b1-cb-35_拆板前.dxf",
+      "manual_file": "2b1-cb-35_拆板后.dxf",
+      "source_sha256": "df68b8f1749c779d5bf660353bf4fa1421c34ed7ae8e4c99c3b1a98ea0e5c400",
+      "manual_sha256": "68081885c42407d5f0ad505cf72e27dc4f81e7b808b8da8baaaa5697589c047d",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*50",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            8515.0,
+            1400.0
+          ],
+          "circular_cut_count": 48,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            2770.574508,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            2744.425512,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b1-cb-40",
+      "source_file": "2b1-cb-40_拆板前.dxf",
+      "manual_file": "2b1-cb-40_拆板后.dxf",
+      "source_sha256": "7ee18dfa13f1b0617bf41b34b7df8b5615e023b9709a362d24921108ed006962",
+      "manual_sha256": "7f16ed75d76c14ed522d4c6b83401485f9ed302001c4ef441a9713e955050953",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500-750*500*30*40",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            2147.961,
+            1417.63
+          ],
+          "circular_cut_count": 14,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 40.0,
+          "bbox_mm": [
+            2538.0,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 40.0,
+          "bbox_mm": [
+            2383.037,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b1-cb-44",
+      "source_file": "2b1-cb-44_拆板前.dxf",
+      "manual_file": "2b1-cb-44_拆板后.dxf",
+      "source_sha256": "3e3a3490368ff2fb18b4f8aeb4d0b13109a7d6528dae5ce939884e43e0db8029",
+      "manual_sha256": "1aa05da62a53c2b489e4a27d56408887141542b4ddb36226f88beb2121c9091f",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*600*30*50",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            8903.653,
+            1400.0
+          ],
+          "circular_cut_count": 24,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            9188.745,
+            600.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            9188.745,
+            600.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b1-cb-46",
+      "source_file": "2b1-cb-46_拆板前.dxf",
+      "manual_file": "2b1-cb-46_拆板后.dxf",
+      "source_sha256": "0b5f027a077d2b642822d3e9fa971fd41723b86cf8b12e29fcd293e4161459ee",
+      "manual_sha256": "394acd953bfbba2800239813f3fc28af47278564345b7e4585b52acd963876f1",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*600*30*50",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            8102.807,
+            1400.0
+          ],
+          "circular_cut_count": 24,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            8387.898,
+            600.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            8387.898,
+            600.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2b2-cb-10",
+      "source_file": "2b2-cb-10_拆板前.dxf",
+      "manual_file": "2b2-cb-10_拆板后.dxf",
+      "source_sha256": "3bd838c740eee83d4cba4f269192c96d9fd42a2ab3fbb2cd6c10e85b5114ec53",
+      "manual_sha256": "86f18eed0f6c12366f80330a18e02b0e197858aa0d694d03baf580f0df4fa4a6",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            11230.002,
+            1840.0
+          ],
+          "circular_cut_count": 64,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            11294.0,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            11294.0,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2t1-cb-4",
+      "source_file": "2t1-cb-4_拆板前.dxf",
+      "manual_file": "2t1-cb-4_拆板后.dxf",
+      "source_sha256": "2c95cf3f0d5882d6c5a4d9df77ad21ab6d3f6bbadcadcbf6a24ac73eb5e58e40",
+      "manual_sha256": "ec9a85430bfdff4e47568d41e4a12587dfef4a3c01cc2788924641134dc67e07",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            9989.977,
+            1440.0
+          ],
+          "circular_cut_count": 64,
+          "inner_contour_count": 2
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            9989.976833,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            9989.976833,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2t2-cb-159",
+      "source_file": "2t2-cb-159_拆板前.dxf",
+      "manual_file": "2t2-cb-159_拆板后.dxf",
+      "source_sha256": "8c125de697d98ac1efb9c6c3d71e9509d5546ca46a5a125cc9448b889fbd20b6",
+      "manual_sha256": "35b69b3b7c420656bf5e252d49a60724cc2d4c6c96bd0fd948f9f150e04c05c2",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*800*40*60",
+      "material": "Q390GJC-Z25",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 40.0,
+          "bbox_mm": [
+            14527.329,
+            1380.0
+          ],
+          "circular_cut_count": 24,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 60.0,
+          "bbox_mm": [
+            14527.329,
+            800.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 60.0,
+          "bbox_mm": [
+            14527.329,
+            800.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2t2-cb-37",
+      "source_file": "2t2-cb-37_拆板前.dxf",
+      "manual_file": "2t2-cb-37_拆板后.dxf",
+      "source_sha256": "35d2d1c0045d3aeb11e14bfcf98b83a665f7a03b882b4303530151796ef7d7ff",
+      "manual_sha256": "60fad4fc6e8f16bd65bb68356ff02b78e343096827ceebff71faa1f29f6df448",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*50",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            11608.863,
+            1400.0
+          ],
+          "circular_cut_count": 48,
+          "inner_contour_count": 1
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            11678.863445,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            11678.863445,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "2t2-cb-46",
+      "source_file": "2t2-cb-46_拆板前.dxf",
+      "manual_file": "2t2-cb-46_拆板后.dxf",
+      "source_sha256": "8bac7b26fcea28172613f5db4a976b889a4dd9409fb2f8366e7974e04eb80db0",
+      "manual_sha256": "8e2e02c204475c748b1b1ff2315449ef2eb28f7e24fc7cc7b5a76f1f996ec53e",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*50",
+      "material": "Q390GJC-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            5431.217,
+            1400.0
+          ],
+          "circular_cut_count": 24,
+          "inner_contour_count": 1
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            5491.21696,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            5491.21696,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "3b1-cb-15",
+      "source_file": "3b1-cb-15_拆板前.dxf",
+      "manual_file": "3b1-cb-15_拆板后.dxf",
+      "source_sha256": "8b55d4b79762c347f89036bdbeacd54e486e15a9445cd30972332d251d2cb749",
+      "manual_sha256": "2168b4c0cb6ae88cb0323014cc681b30daf71337fc56b89a0b3284e1e0d7e4ad",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            1494.905,
+            1440.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            1329.47,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            1329.47,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "3b2-cb-86",
+      "source_file": "3b2-cb-86_拆板前.dxf",
+      "manual_file": "3b2-cb-86_拆板后.dxf",
+      "source_sha256": "00b1d4f69cfec2f8cff7ad0169956bce3af01ae37618f051b0c13cabde659f16",
+      "manual_sha256": "a4ad60e1796d60845cdd5dbfbaf0bb90d7d0640e280e734a22a0799e4b367ef8",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH800*300*16*20",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 16.0,
+          "bbox_mm": [
+            1290.092,
+            760.0
+          ],
+          "circular_cut_count": 32,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 20.0,
+          "bbox_mm": [
+            1080.379,
+            300.0
+          ],
+          "circular_cut_count": 2,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 20.0,
+          "bbox_mm": [
+            1440.965,
+            300.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "3t2-cb-13",
+      "source_file": "3t2-cb-13_拆板前.dxf",
+      "manual_file": "3t2-cb-13_拆板后.dxf",
+      "source_sha256": "f85f8d3bcfc22d4afdd9367c364c751e40baa4f5ea89be63d7e1e81a5b38e69e",
+      "manual_sha256": "99ae82b7854aad4c8dc629b94878cc747d2385578bdcdfce9442144b2da57382",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            5420.343,
+            1440.0
+          ],
+          "circular_cut_count": 64,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            5420.343246,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            5420.343246,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "3t2-cb-6",
+      "source_file": "3t2-cb-6_拆板前.dxf",
+      "manual_file": "3t2-cb-6_拆板后.dxf",
+      "source_sha256": "809d2df137c6bf8c077cffc00d9dad968bae4fd9e8de667d039501ccf9293c9d",
+      "manual_sha256": "9e11c16157177fd7ddd255fdfd9141e6aea04e9c940e28680d7c82ca3288a028",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1500*500*30*30",
+      "material": "Q390B",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            984.999,
+            1440.0
+          ],
+          "circular_cut_count": 32,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            749.999092,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            749.999092,
+            500.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "h-3-cb-53",
+      "source_file": "h-3-cb-53_拆板前.dxf",
+      "manual_file": "h-3-cb-53_拆板后.dxf",
+      "source_sha256": "8213846c5068cee191b1eea067b91cd34d1eae69c89b19482c82862a6c69c697",
+      "manual_sha256": "8fe271381732fdcc4c3aa64016e2560554e1a8a38aeb865654657f29a52ed83d",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1800*700*30*50",
+      "material": "Q355B-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            6972.0,
+            1700.0
+          ],
+          "circular_cut_count": 34,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            4592.0,
+            700.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            4592.0,
+            700.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "h-6-cb-48",
+      "source_file": "h-6-cb-48_拆板前.dxf",
+      "manual_file": "h-6-cb-48_拆板后.dxf",
+      "source_sha256": "3c7dc0b404b30f466409005ea9a30445ecd2642ed0ccdeee43ff9faee608ef9d",
+      "manual_sha256": "abe6cd57a56e0c8a3960af784c21854503dff87a41f7ac406521924a84e42336",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH2000*1200*30*60",
+      "material": "Q355B-Z25",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            8429.082,
+            1880.0
+          ],
+          "circular_cut_count": 126,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 60.0,
+          "bbox_mm": [
+            8429.081605,
+            1200.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 60.0,
+          "bbox_mm": [
+            8429.081605,
+            1200.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "h-6-cb-9",
+      "source_file": "h-6-cb-9_拆板前.dxf",
+      "manual_file": "h-6-cb-9_拆板后.dxf",
+      "source_sha256": "abdc41c9a600ccd129922531d6203c51440d80cdfcfe8f82ed12e2b153cc93db",
+      "manual_sha256": "feed35dbda90a1b2ac0b2349e51bd047ff0cfdd35184213cb84237aee131db5b",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1800*700*30*50",
+      "material": "Q355B-Z15",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 30.0,
+          "bbox_mm": [
+            6492.0,
+            1700.0
+          ],
+          "circular_cut_count": 54,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            6492.0,
+            700.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            6492.0,
+            700.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    },
+    {
+      "sample_id": "z-4-cb-42",
+      "source_file": "z-4-cb-42_拆板前.dxf",
+      "manual_file": "z-4-cb-42_拆板后.dxf",
+      "source_sha256": "9bbceebca319ff2c947191fc73ad7b4d007f072d66eb314a1a91e863f8ad3182",
+      "manual_sha256": "0ec6b23684205dd238c74bc4ce5d4e3f0f537327d909516a1ce477399b1a7c92",
+      "export_profile": "project_tekla_bh_dxf_v1",
+      "profile": "BH1800*1000*50*75",
+      "material": "Q355GJC-Z25",
+      "physical_plates": [
+        {
+          "role": "web",
+          "thickness_mm": 50.0,
+          "bbox_mm": [
+            6842.0,
+            1650.0
+          ],
+          "circular_cut_count": 114,
+          "inner_contour_count": 4
+        },
+        {
+          "role": "upper_flange",
+          "thickness_mm": 75.0,
+          "bbox_mm": [
+            6842.0,
+            1000.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        },
+        {
+          "role": "lower_flange",
+          "thickness_mm": 75.0,
+          "bbox_mm": [
+            6842.0,
+            1000.0
+          ],
+          "circular_cut_count": 0,
+          "inner_contour_count": 0
+        }
+      ],
+      "blocking_proof_ids": [],
+      "disposition": "auto_accept"
+    }
+  ]
+}

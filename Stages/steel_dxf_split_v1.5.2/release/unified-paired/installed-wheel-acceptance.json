@@ -1,0 +1,90 @@
+{
+  "schema": "STEEL-DXF-INSTALLED-WHEEL-ACCEPTANCE-1.0",
+  "wheel": {
+    "path": "release/unified-paired/steel_dxf_split-1.5.2-py3-none-any.whl",
+    "sha256": "901debdc1172d28ca79c477441887a1d3bbd80f9953361f6a3274667fa7b4608",
+    "python_version": "3.12.13",
+    "uv_install_mode": "offline --no-python-downloads",
+    "console_script": "steel-dxf-split"
+  },
+  "packaged_box_attestation": {
+    "verified": true,
+    "pair_count": 20,
+    "calibration_count": 10,
+    "acceptance_count": 10,
+    "core_version": "1.0.0"
+  },
+  "installed_cli": {
+    "exit_code": 0,
+    "source_authorizations": {
+      "bh": "project_tekla_bh_dxf_v1",
+      "box": "project_tekla_box_dxf_v1"
+    },
+    "auto_accepted_dxf_count": 4,
+    "bh_dxf_count": 2,
+    "box_dxf_count": 2
+  },
+  "visible_acceptance": {
+    "output_root": "output/unified-paired-acceptance",
+    "all_checks_passed": true,
+    "tasks": [
+      {
+        "family": "BH",
+        "member": "2b1-cb-29",
+        "route": "auto_accepted",
+        "dxf_files": [
+          "2b1-cb-29_normal.dxf",
+          "2b1-cb-29_weld_allowance.dxf"
+        ],
+        "report_files": [
+          "2b1-cb-29_report.json",
+          "2b1-cb-29_weld_allowance_report.json"
+        ],
+        "allowance_report_bound": true,
+        "positive_extension_count": 2,
+        "cut_hole_geometry_and_aci_identical": true,
+        "cut_hole_circles": {
+          "normal": {
+            "total": 48,
+            "aci_1": 24,
+            "aci_7": 24
+          },
+          "weld_allowance": {
+            "total": 48,
+            "aci_1": 24,
+            "aci_7": 24
+          }
+        }
+      },
+      {
+        "family": "BOX",
+        "member": "2b1-cb-56",
+        "route": "auto_accepted",
+        "dxf_files": [
+          "2b1-cb-56_normal.dxf",
+          "2b1-cb-56_weld_allowance.dxf"
+        ],
+        "report_files": [
+          "2b1-cb-56_report.json",
+          "2b1-cb-56_weld_allowance_report.json"
+        ],
+        "allowance_report_bound": true,
+        "positive_extension_count": 2,
+        "cut_hole_geometry_and_aci_identical": true,
+        "cut_hole_entities": {
+          "normal": {
+            "total": 0,
+            "circle_count": 0,
+            "all_explicit_aci_7": true
+          },
+          "weld_allowance": {
+            "total": 0,
+            "circle_count": 0,
+            "all_explicit_aci_7": true
+          }
+        },
+        "circle_evidence": "none: this real sample produced no CUT_HOLE circles, so no symmetric-circle claim is made"
+      }
+    ]
+  }
+}

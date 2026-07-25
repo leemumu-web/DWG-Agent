@@ -58,6 +58,13 @@ STEP_STAGE_CLASSIFIER_INPUT = "stage_classifier_input"
 STEP_RUN_STEEL_DXF_CLASSIFIER = "run_steel_dxf_classifier"
 STEP_PERSIST_CLASSIFICATION = "persist_classification_outputs"
 
+# Steel DXF split pipeline
+PIPELINE_STEEL_DXF_SPLIT = "steel_dxf_split"
+TASK_STEEL_DXF_SPLIT = "split_steel_dxf"
+STEP_RUN_STEEL_DXF_SPLIT = "run_steel_dxf_split"
+STEP_VALIDATE_STEEL_DXF_SPLIT = "validate_steel_dxf_split"
+STEP_PERSIST_STEEL_DXF_SPLIT = "persist_steel_dxf_split"
+
 # Excel→final part-list pipeline (excel_final)
 PIPELINE_EXCEL_FINAL = "excel_final"
 TASK_EXCEL_FINAL = "process_excel_final"

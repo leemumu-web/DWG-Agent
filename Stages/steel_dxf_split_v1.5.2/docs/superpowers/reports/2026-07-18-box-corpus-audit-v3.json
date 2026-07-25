@@ -1,0 +1,4951 @@
+{
+  "schema_version": "BOX-CORPUS-AUDIT-3.0",
+  "status": "superseded",
+  "superseded_at": "2026-07-19",
+  "superseded_by": "docs/superpowers/reports/2026-07-19-box-region-proof-correction.md",
+  "superseded_reason": "REGION 读取器曾在 2b2-cb-145 和 2b2-cb-155 各静默漏掉一张有标签的真实成品板；本报告的 20/20 结论不得再作为验收证据。",
+  "root": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据",
+  "audit_complete": false,
+  "production_gate": "invalidated",
+  "threshold_status": "user_directed_manufacturing_tolerance",
+  "thresholds": {
+    "boundary_hausdorff_mm": 2.0,
+    "bbox_tolerance_mm": 2.0,
+    "area_relative_tolerance": 0.001,
+    "hole_center_tolerance_mm": 2.0,
+    "hole_radius_tolerance_mm": 2.0,
+    "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+  },
+  "expected_pair_count": 20,
+  "pair_count": 20,
+  "status_counts": {
+    "exploratory_match": 20
+  },
+  "pairs": [
+    {
+      "pair_id": "2b1-cb-56",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-56_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-56_拆板后.dxf",
+      "facts_fingerprint": "ef9e1516caa7f322d97eec1684de77e84506e4d1e5d3f5292ec35e087f5ee2c2",
+      "profile": "BOX1100*1100*60*60",
+      "nominal_length_mm": 7092.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 8,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 7033.999975,
+          "transverse_mm": 1100.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 7034.000094,
+          "transverse_mm": 1100.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 7092.000036,
+          "transverse_mm": 1100.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 7092.000036,
+          "transverse_mm": 1100.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7034.000094,
+          "transverse_mm": 980.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7034.000094,
+          "transverse_mm": 980.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7092.000036,
+          "transverse_mm": 980.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7092.000036,
+          "transverse_mm": 980.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 3.2712883082675894,
+      "truth_archetypes": [
+        {
+          "area_mm2": 7801200.000010501,
+          "bounds_mm": [
+            615.7227252594312,
+            2222.4726682242,
+            7707.722725268977,
+            3322.4726682242
+          ],
+          "width_mm": 7092.000000009546,
+          "height_mm": 1100.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 6950160.000009425,
+          "bounds_mm": [
+            380.7227252595476,
+            422.47266822419806,
+            7472.722725269152,
+            1402.4726682241999
+          ],
+          "width_mm": 7092.000000009604,
+          "height_mm": 980.0000000000018,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-56_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 3.599045430746628e-05,
+          "max_boundary_hausdorff_mm": 3.599045430746628e-05,
+          "max_area_relative_difference": 5.074796192209375e-09,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 3.599045430746628e-05,
+              "boundary_hausdorff_mm": 3.599045430746628e-05,
+              "area_relative_difference": 5.074796192209375e-09,
+              "area_absolute_difference_mm2": 0.039589500054717064,
+              "area_allowed_difference_mm2": 32780.566370652545,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 3.5990396099805366e-05,
+              "boundary_hausdorff_mm": 3.5990396099805366e-05,
+              "area_relative_difference": 5.0747861105243145e-09,
+              "area_absolute_difference_mm2": 0.0352705754339695,
+              "area_allowed_difference_mm2": 32300.566370652785,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b1-cb-86",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-86_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-86_拆板后.dxf",
+      "facts_fingerprint": "eb272b4e25ecba661d91436a4ed756a62d258363f10bdecbb2b8df9d6ddb32e0",
+      "profile": "BOX750*850*20*20",
+      "nominal_length_mm": 1329.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 25,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1163.032576,
+          "transverse_mm": 850.000041
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1163.032636,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405858,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 519.951117,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 831.934303,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 851.885456,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 977.235613,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 977.235613,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 977.235613,
+          "transverse_mm": 710.000003
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 997.284598,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 997.284598,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 997.284598,
+          "transverse_mm": 710.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.003999999999936055,
+      "truth_archetypes": [
+        {
+          "area_mm2": 944092.427356264,
+          "bounds_mm": [
+            307.7055985589977,
+            381.90759783499925,
+            1637.111436255218,
+            1231.9075978385426
+          ],
+          "width_mm": 1329.4058376962203,
+          "height_mm": 850.0000000035434,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 751014.9819839762,
+          "bounds_mm": [
+            446.8290450067726,
+            1406.4990919558568,
+            1609.8616624753922,
+            2256.4990919593984
+          ],
+          "width_mm": 1163.0326174686197,
+          "height_mm": 850.0000000035416,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 708072.0220993265,
+          "bounds_mm": [
+            549.1106692748144,
+            2516.667687804142,
+            1546.3952362317941,
+            3226.6676878047383
+          ],
+          "width_mm": 997.2845669569797,
+          "height_mm": 710.0000000005962,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 594880.6134268864,
+          "bounds_mm": [
+            746.8293721236987,
+            3379.9405211487233,
+            1598.7148018891457,
+            4089.9405211491157
+          ],
+          "width_mm": 851.885429765447,
+          "height_mm": 710.0000000003924,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-86_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 3.104302015799476e-05,
+          "max_boundary_hausdorff_mm": 3.10430202716816e-05,
+          "max_area_relative_difference": 3.494983947542379e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 1.8531520936448942e-05,
+              "boundary_hausdorff_mm": 1.973504275978813e-05,
+              "area_relative_difference": 3.494983947542379e-08,
+              "area_absolute_difference_mm2": 0.026247853063978255,
+              "area_allowed_difference_mm2": 7069.547223890092,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 2.0304219106037635e-05,
+              "boundary_hausdorff_mm": 2.358013610378767e-05,
+              "area_relative_difference": 7.543636983110518e-09,
+              "area_absolute_difference_mm2": 0.007121890550479293,
+              "area_allowed_difference_mm2": 7734.564406855715,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 2,
+              "bbox_difference_mm": 3.104302015799476e-05,
+              "boundary_hausdorff_mm": 3.10430202716816e-05,
+              "area_relative_difference": 3.0414524025576304e-08,
+              "area_absolute_difference_mm2": 0.02153567352797836,
+              "area_allowed_difference_mm2": 6841.7045232868795,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 3,
+              "bbox_difference_mm": 2.6234655706502963e-05,
+              "boundary_hausdorff_mm": 2.6234862161800265e-05,
+              "area_relative_difference": 3.427770567340971e-08,
+              "area_absolute_difference_mm2": 0.02039114257786423,
+              "area_allowed_difference_mm2": 6260.107930727329,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b1-cb-91",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-91_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-91_拆板后.dxf",
+      "facts_fingerprint": "29842ccc03d5ad8bc9fdd43214621d2416120c6fde676fc5c24b1a0195de41f7",
+      "profile": "BOX780*800*20*20",
+      "nominal_length_mm": 1825.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 12,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 899.765123,
+          "transverse_mm": 799.999972
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.495126,
+          "transverse_mm": 799.999972
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.506841,
+          "transverse_mm": 799.999972
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.236904,
+          "transverse_mm": 779.999992
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.236904,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 0.034542,
+          "transverse_mm": 760.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 899.764232,
+          "transverse_mm": 739.999973
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.494295,
+          "transverse_mm": 739.999973
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.494299,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.50601,
+          "transverse_mm": 739.999973
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.506841,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.236013,
+          "transverse_mm": 739.999973
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 8.050972648698629,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1460189.5306405376,
+          "bounds_mm": [
+            458.04175654175924,
+            2412.769861415607,
+            2283.2786698354757,
+            3212.7698614186556
+          ],
+          "width_mm": 1825.2369132937165,
+          "height_mm": 800.0000000030486,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 974235.2817111106,
+          "bounds_mm": [
+            368.18443077564007,
+            1459.357248766677,
+            2169.691298007907,
+            2199.3572487775837
+          ],
+          "width_mm": 1801.5068672322668,
+          "height_mm": 740.0000000109067,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 738796.1303345017,
+          "bounds_mm": [
+            1193.486560198653,
+            379.694957631953,
+            2116.9817231146153,
+            1179.6949576338284
+          ],
+          "width_mm": 923.4951629159623,
+          "height_mm": 800.0000000018754,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-91_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 3.691596225507965e-05,
+          "max_boundary_hausdorff_mm": 0.13573881608408556,
+          "max_area_relative_difference": 1.963756198467032e-05,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 9.29371640268073e-06,
+              "boundary_hausdorff_mm": 9.293716447955208e-06,
+              "area_relative_difference": 5.095597037903632e-09,
+              "area_absolute_difference_mm2": 0.0074405374471098185,
+              "area_allowed_difference_mm2": 10513.51402380142,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 2,
+              "bbox_difference_mm": 3.691596225507965e-05,
+              "boundary_hausdorff_mm": 0.034510999967840565,
+              "area_relative_difference": 1.875996816055937e-05,
+              "area_absolute_difference_mm2": 13.859791882219724,
+              "area_allowed_difference_mm2": 6906.54702228571,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 1,
+              "bbox_difference_mm": 2.6232480422549997e-05,
+              "boundary_hausdorff_mm": 0.13573881608408556,
+              "area_relative_difference": 1.963756198467032e-05,
+              "area_absolute_difference_mm2": 19.131605732254684,
+              "area_allowed_difference_mm2": 11697.613901606657,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b1-cb-92",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-92_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-92_拆板后.dxf",
+      "facts_fingerprint": "f7c945f742991ebca54dfc919939dcb6367001e113f5122ad94207f7ba70cf41",
+      "profile": "BOX780*800*20*20",
+      "nominal_length_mm": 1825.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 12,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 899.999991,
+          "transverse_mm": 799.999972
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.72845,
+          "transverse_mm": 799.999972
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.68124,
+          "transverse_mm": 799.999972
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.409698,
+          "transverse_mm": 779.999992
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.409698,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1849.13816,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 899.999991,
+          "transverse_mm": 739.999973
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.72845,
+          "transverse_mm": 739.999973
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.728455,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.68124,
+          "transverse_mm": 739.999973
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.68124,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.409698,
+          "transverse_mm": 739.999973
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 3.0857850216991123,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1460327.7528141057,
+          "bounds_mm": [
+            257.0649685745593,
+            2517.0221315991093,
+            2082.474659618456,
+            3317.022131587599
+          ],
+          "width_mm": 1825.4096910438966,
+          "height_mm": 799.9999999884894,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1008401.5861208815,
+          "bounds_mm": [
+            240.58884573326213,
+            1388.1249749667877,
+            2042.2700831770198,
+            2128.124974973569
+          ],
+          "width_mm": 1801.6812374437577,
+          "height_mm": 740.0000000067812,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 738982.7638216817,
+          "bounds_mm": [
+            1084.4800150628434,
+            332.4919666336118,
+            2008.2084698466351,
+            1132.4919666278183
+          ],
+          "width_mm": 923.7284547837917,
+          "height_mm": 799.9999999942065,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-92_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 2.799420656174334e-05,
+          "max_boundary_hausdorff_mm": 2.840000454069626e-05,
+          "max_area_relative_difference": 4.017154375252171e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 2,
+              "bbox_difference_mm": 2.799420656174334e-05,
+              "boundary_hausdorff_mm": 2.840000454069626e-05,
+              "area_relative_difference": 4.017154375252171e-08,
+              "area_absolute_difference_mm2": 0.029686078429222107,
+              "area_allowed_difference_mm2": 6907.480189726352,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 6.956103334232466e-06,
+              "boundary_hausdorff_mm": 6.956112857740694e-06,
+              "area_relative_difference": 3.8250962571078526e-09,
+              "area_absolute_difference_mm2": 0.005585894221439958,
+              "area_allowed_difference_mm2": 10514.205134743903,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 1,
+              "bbox_difference_mm": 2.5557233129802626e-06,
+              "boundary_hausdorff_mm": 3.071324757440233e-06,
+              "area_relative_difference": 8.140423239982662e-10,
+              "area_absolute_difference_mm2": 0.0008208815706893802,
+              "area_allowed_difference_mm2": 9239.81871823829,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b2-cb-145",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-145_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-145_拆板后.dxf",
+      "facts_fingerprint": "e7ccbf37d950c41d6629e4ced6c658b8001f7a3a82919dc40c7759ea97aaa3c7",
+      "profile": "BOX1800*800*40*60",
+      "nominal_length_mm": 5875.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 12,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5816.998282,
+          "transverse_mm": 800.000032
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5874.998224,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5811.998249,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5836.998262,
+          "transverse_mm": 1679.999983
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5836.998262,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5836.998262,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5841.522997,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5874.998224,
+          "transverse_mm": 1679.999983
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5874.998224,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5874.998224,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5874.998224,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5874.998224,
+          "transverse_mm": 1680.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.13647603818823123,
+      "truth_archetypes": [
+        {
+          "area_mm2": 9381610.042373901,
+          "bounds_mm": [
+            420.55024891439825,
+            398.13362599068205,
+            6295.548498040589,
+            2078.133625990682
+          ],
+          "width_mm": 5874.998249126191,
+          "height_mm": 1680.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4699998.599300953,
+          "bounds_mm": [
+            438.9586521121091,
+            4764.231302775763,
+            6313.9569012383,
+            5564.231302775763
+          ],
+          "width_mm": 5874.998249126191,
+          "height_mm": 800.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-145_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 2.512619084882317e-05,
+          "max_boundary_hausdorff_mm": 0.10748921801806426,
+          "max_area_relative_difference": 6.753016949129003e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 2.512619084882317e-05,
+              "boundary_hausdorff_mm": 2.512619084882317e-05,
+              "area_relative_difference": 4.276799797429305e-09,
+              "area_absolute_difference_mm2": 0.020100953057408333,
+              "area_allowed_difference_mm2": 26712.559367119124,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 2.512619084882317e-05,
+              "boundary_hausdorff_mm": 0.10748921801806426,
+              "area_relative_difference": 6.753016949129003e-08,
+              "area_absolute_difference_mm2": 0.6335417162626982,
+              "area_allowed_difference_mm2": 30202.512350159202,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b2-cb-155",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-155_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-155_拆板后.dxf",
+      "facts_fingerprint": "017a8c44b7c09a30c36623627c4080b8b22650e37ac98f480b1e63fa8dc0e27a",
+      "profile": "BOX1800*1400*40*80",
+      "nominal_length_mm": 8192.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 11,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 8113.999964,
+          "transverse_mm": 1400.000026
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 8192.000005,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5.475206,
+          "transverse_mm": 1605.215454
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8108.999999,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8154.000043,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8154.000043,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8154.000043,
+          "transverse_mm": 1640.000023
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8192.000005,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8192.000005,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8192.000005,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8192.000005,
+          "transverse_mm": 1640.000023
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.106882667345921,
+      "truth_archetypes": [
+        {
+          "area_mm2": 12926392.981691271,
+          "bounds_mm": [
+            259.0275140919839,
+            306.6778309313959,
+            8451.027512780624,
+            1946.6778309313959
+          ],
+          "width_mm": 8191.99999868864,
+          "height_mm": 1640.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 11468799.998164095,
+          "bounds_mm": [
+            417.00403078098316,
+            4567.188653445643,
+            8609.004029469623,
+            5967.188653445643
+          ],
+          "width_mm": 8191.99999868864,
+          "height_mm": 1400.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-155_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 6.311360266408883e-06,
+          "max_boundary_hausdorff_mm": 0.10743658176465243,
+          "max_area_relative_difference": 5.5437231863844235e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 6.311360266408883e-06,
+              "boundary_hausdorff_mm": 6.311360266408883e-06,
+              "area_relative_difference": 7.70429713799813e-10,
+              "area_absolute_difference_mm2": 0.00883590430021286,
+              "area_allowed_difference_mm2": 38380.56636536892,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 6.311360266408883e-06,
+              "boundary_hausdorff_mm": 0.10743658176465243,
+              "area_relative_difference": 5.5437231863844235e-08,
+              "area_absolute_difference_mm2": 0.7166034448891878,
+              "area_allowed_difference_mm2": 39310.51934840894,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b2-cb-2",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-2_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-2_拆板后.dxf",
+      "facts_fingerprint": "b3f159d8afa3aa69811bbb9a74e7b25cfb2cf9875bd92b754d258277c4ac24fb",
+      "profile": "BOX1500*600*30*50",
+      "nominal_length_mm": 12755.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 25,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 12707.016637,
+          "transverse_mm": 599.999935
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 12755.016589,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12699.016704,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12699.016704,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12702.016709,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12702.267963,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12702.267963,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12703.541558,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12703.541558,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12727.016735,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12730.267994,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12730.267994,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12731.54159,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12731.54159,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12755.016767,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12755.016767,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12755.016767,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12755.016767,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12755.016767,
+          "transverse_mm": 1400.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.0015153335045839933,
+      "truth_archetypes": [
+        {
+          "area_mm2": 17854473.30748474,
+          "bounds_mm": [
+            483.73481066623935,
+            2204.9438261624546,
+            13238.751517989323,
+            3604.9438261624528
+          ],
+          "width_mm": 12755.016707323084,
+          "height_mm": 1399.9999999999982,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 17348540.32361895,
+          "bounds_mm": [
+            398.42384688393213,
+            398.8711727250284,
+            13153.440554207715,
+            1798.8711727250266
+          ],
+          "width_mm": 12755.016707323783,
+          "height_mm": 1399.9999999999982,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 7653010.024202049,
+          "bounds_mm": [
+            480.4212999717565,
+            3885.161717780018,
+            13235.438007296238,
+            4485.161717764915
+          ],
+          "width_mm": 12755.016707324481,
+          "height_mm": 599.9999999848969,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-2_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 0.00011832448035420384,
+          "max_boundary_hausdorff_mm": 0.11138305070472276,
+          "max_area_relative_difference": 1.8834596481362386e-07,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 2,
+              "bbox_difference_mm": 0.00011832448035420384,
+              "boundary_hausdorff_mm": 0.00011832448035420384,
+              "area_relative_difference": 9.251529601570895e-09,
+              "area_absolute_difference_mm2": 0.07080204878002405,
+              "area_allowed_difference_mm2": 53432.63319985187,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 5.9676915043382905e-05,
+              "boundary_hausdorff_mm": 0.11138305027177793,
+              "area_relative_difference": 1.3467119325153217e-07,
+              "area_absolute_difference_mm2": 2.4044832251966,
+              "area_allowed_difference_mm2": 56572.31430982676,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 1,
+              "bbox_difference_mm": 5.9676216551451944e-05,
+              "boundary_hausdorff_mm": 0.11138305070472276,
+              "area_relative_difference": 1.8834596481362386e-07,
+              "area_absolute_difference_mm2": 3.2675275653600693,
+              "area_allowed_difference_mm2": 56602.361330561944,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2t1-cb-95",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\2t1-cb-95_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2t1-cb-95_拆板后.dxf",
+      "facts_fingerprint": "ed9bd905fd6ae5712ac6dcfb2137abcafd972600151d21927d06e8b32723485f",
+      "profile": "BOX750*850*20*20",
+      "nominal_length_mm": 1758.0,
+      "view_count": 2,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 15,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1283.746385,
+          "transverse_mm": 850.082904
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1757.942881,
+          "transverse_mm": 850.082904
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 20.035579,
+          "transverse_mm": 700.000001
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 487.294066,
+          "transverse_mm": 699.999999
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 906.429328,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 906.429328,
+          "transverse_mm": 710.000003
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 926.464948,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 926.464948,
+          "transverse_mm": 710.000003
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1263.710874,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1737.907261,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1737.907261,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1737.907261,
+          "transverse_mm": 710.000003
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1757.942881,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1757.942881,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1757.942881,
+          "transverse_mm": 710.000003
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 1.322407985911421,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1243401.5024182443,
+          "bounds_mm": [
+            414.6498750396422,
+            3788.7277213488014,
+            2172.592770935502,
+            4498.733969246085
+          ],
+          "width_mm": 1757.9428958958597,
+          "height_mm": 710.0062478972832,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1132358.1992835873,
+          "bounds_mm": [
+            414.64987512113294,
+            368.63175661671994,
+            2172.5927710208343,
+            1218.6317566376747
+          ],
+          "width_mm": 1757.9428958997014,
+          "height_mm": 850.0000000209548,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 729309.678084814,
+          "bounds_mm": [
+            414.64987512113294,
+            1772.5900607315416,
+            1698.3962386451312,
+            2622.6729592416086
+          ],
+          "width_mm": 1283.7463635239983,
+          "height_mm": 850.082898510067,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 653050.5851052348,
+          "bounds_mm": [
+            414.6498750396422,
+            2901.7420370064356,
+            1341.1148265685188,
+            3611.7527500811775
+          ],
+          "width_mm": 926.4649515288766,
+          "height_mm": 710.010713074742,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\2t1-cb-95_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 0.08290399286954653,
+          "max_boundary_hausdorff_mm": 0.0829039928706834,
+          "max_area_relative_difference": 1.5805716442883124e-05,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 0.08290399286954653,
+              "boundary_hausdorff_mm": 0.0829039928706834,
+              "area_relative_difference": 1.5805716442883124e-05,
+              "area_absolute_difference_mm2": 17.89773260965012,
+              "area_allowed_difference_mm2": 9447.615340421531,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 2,
+              "bbox_difference_mm": 2.1476001620612806e-05,
+              "boundary_hausdorff_mm": 2.1476001620612806e-05,
+              "area_relative_difference": 1.687345770644489e-08,
+              "area_absolute_difference_mm2": 0.012305976008065045,
+              "area_allowed_difference_mm2": 7550.8986624793115,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 3,
+              "bbox_difference_mm": 0.01071307202346361,
+              "boundary_hausdorff_mm": 0.010713078819567921,
+              "area_relative_difference": 3.705338204176724e-06,
+              "area_absolute_difference_mm2": 2.4197732822503895,
+              "area_allowed_difference_mm2": 6558.447127462075,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 0,
+              "bbox_difference_mm": 0.006247889858968847,
+              "boundary_hausdorff_mm": 0.006247890157789209,
+              "area_relative_difference": 3.2305182774189225e-06,
+              "area_absolute_difference_mm2": 4.016831279732287,
+              "area_allowed_difference_mm2": 9884.350449950689,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "3t2-cb-117",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\3t2-cb-117_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\3t2-cb-117_拆板后.dxf",
+      "facts_fingerprint": "46a904661ce3db383f28a1a0254d13948325cd762fc2c952b5473853d9294a55",
+      "profile": "BOX600*600*30*30",
+      "nominal_length_mm": 5870.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 8,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5841.997128,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5841.997128,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5869.9971,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5869.997219,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5841.997128,
+          "transverse_mm": 540.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5841.997128,
+          "transverse_mm": 540.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5869.9971,
+          "transverse_mm": 540.000054
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5869.9971,
+          "transverse_mm": 540.000054
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 1.908005930019888,
+      "truth_archetypes": [
+        {
+          "area_mm2": 3521998.273669915,
+          "bounds_mm": [
+            580.3204820106039,
+            1704.5321304915124,
+            6450.3176047937595,
+            2304.532130491516
+          ],
+          "width_mm": 5869.997122783156,
+          "height_mm": 600.0000000000036,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 3169798.446302904,
+          "bounds_mm": [
+            345.3204820107785,
+            374.53213049151236,
+            6215.317604793934,
+            914.5321304915124
+          ],
+          "width_mm": 5869.997122783156,
+          "height_mm": 540.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\3t2-cb-117_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 9.621684421290411e-05,
+          "max_boundary_hausdorff_mm": 9.621684421290411e-05,
+          "max_area_relative_difference": 9.611871052023048e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 9.621684421290411e-05,
+              "boundary_hausdorff_mm": 9.621684421290411e-05,
+              "area_relative_difference": 1.6391287198533458e-08,
+              "area_absolute_difference_mm2": 0.05773008521646261,
+              "area_allowed_difference_mm2": 25892.554861746998,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 5.3999999977349944e-05,
+              "boundary_hausdorff_mm": 5.3999999977349944e-05,
+              "area_relative_difference": 9.611871052023048e-08,
+              "area_absolute_difference_mm2": 0.30467693926766515,
+              "area_allowed_difference_mm2": 25652.554861746983,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-3-cb-2",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-3-cb-2_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-3-cb-2_拆板后.dxf",
+      "facts_fingerprint": "bf7211b17412cc044642b0d347893be70dcae5a154fb4f06ac4031a328257bb4",
+      "profile": "BOX1000*1000*45*45",
+      "nominal_length_mm": 3700.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 4,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3699.999983,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3699.999983,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3699.999983,
+          "transverse_mm": 910.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3699.999983,
+          "transverse_mm": 910.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.2724594955450883,
+      "truth_archetypes": [
+        {
+          "area_mm2": 3634600.001263692,
+          "bounds_mm": [
+            471.440973584482,
+            446.0741637233659,
+            4171.440973584482,
+            1446.074163723366
+          ],
+          "width_mm": 3700.0,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 3160455.298481507,
+          "bounds_mm": [
+            471.440973584482,
+            1992.7686781397933,
+            4171.440973584482,
+            2902.7686781397897
+          ],
+          "width_mm": 3700.0,
+          "height_mm": 909.9999999999964,
+          "hole_count": 8
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-3-cb-2_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 1.699999984339229e-05,
+          "max_boundary_hausdorff_mm": 9.651925711296239e-05,
+          "max_area_relative_difference": 7.069760901488955e-05,
+          "max_hole_center_difference_mm": 0.01431260766548803,
+          "max_hole_radius_difference_mm": 1.3656681403517723e-06,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 1.699999984339229e-05,
+              "boundary_hausdorff_mm": 2.186952497140811e-05,
+              "area_relative_difference": 5.3063082499364456e-09,
+              "area_absolute_difference_mm2": 0.019286307971924543,
+              "area_allowed_difference_mm2": 27532.566372938447,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 1.699999984339229e-05,
+              "boundary_hausdorff_mm": 9.651925711296239e-05,
+              "area_relative_difference": 7.069760901488955e-05,
+              "area_absolute_difference_mm2": 223.43663300108165,
+              "area_allowed_difference_mm2": 27172.56614429353,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 8,
+              "manual_hole_count": 8,
+              "max_hole_center_difference_mm": 0.01431260766548803,
+              "max_hole_radius_difference_mm": 1.3656681403517723e-06,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-4-cb-37",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-4-cb-37_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-37_拆板后.dxf",
+      "facts_fingerprint": "420809d31125d3dbc01834f50be3a4f9ddec50a6b5bf5d1c96aa57cbc21e1f2f",
+      "profile": "BOX800*300*20*30",
+      "nominal_length_mm": 14048.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 11,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13381.167017,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 13833.388321,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166206,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166206,
+          "transverse_mm": 300.000175
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 13846.122151,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 4597.493322,
+          "transverse_mm": 742.748535
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5561.040802,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 13445.781047,
+          "transverse_mm": 2023.435291
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 13827.349879,
+          "transverse_mm": 2233.139436
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13837.727448,
+          "transverse_mm": 2289.501177
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13842.762308,
+          "transverse_mm": 2289.501177
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": null,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10236099.237946272,
+          "bounds_mm": [
+            391.3948335276918,
+            2414.696284477163,
+            14210.89327293355,
+            4723.290057294595
+          ],
+          "width_mm": 13819.49843940586,
+          "height_mm": 2308.5937728174317,
+          "hole_count": 14
+        },
+        {
+          "area_mm2": 9919225.10909448,
+          "bounds_mm": [
+            391.3948335276918,
+            3802.8843290797377,
+            13831.254160487442,
+            5898.30030268032
+          ],
+          "width_mm": 13439.859326959751,
+          "height_mm": 2095.415973600582,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4154099.999471263,
+          "bounds_mm": [
+            291.47957040334586,
+            354.61836866408703,
+            14138.479570403346,
+            654.6183686259028
+          ],
+          "width_mm": 13847.0,
+          "height_mm": 299.9999999618158,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4149899.999487499,
+          "bounds_mm": [
+            340.4630612207111,
+            886.5612026199524,
+            14173.463061220711,
+            1186.5612025829032
+          ],
+          "width_mm": 13833.0,
+          "height_mm": 299.9999999629508,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-37_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 0.877849000000424,
+          "max_boundary_hausdorff_mm": 0.877849000000424,
+          "max_area_relative_difference": 6.339620406263063e-05,
+          "max_hole_center_difference_mm": 2.7926218238940313e-05,
+          "max_hole_radius_difference_mm": 0.0030163892996597497,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 2,
+              "bbox_difference_mm": 0.877849000000424,
+              "boundary_hausdorff_mm": 0.877849000000424,
+              "area_relative_difference": 6.339620406263063e-05,
+              "area_absolute_difference_mm2": 263.354171263054,
+              "area_allowed_difference_mm2": 56600.56637046162,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 3,
+              "bbox_difference_mm": 0.3883210000003601,
+              "boundary_hausdorff_mm": 0.3883210000003618,
+              "area_relative_difference": 2.8072197526649708e-05,
+              "area_absolute_difference_mm2": 116.49681250145659,
+              "area_allowed_difference_mm2": 56544.566370466164,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 1,
+              "bbox_difference_mm": 0.00010207949139839911,
+              "boundary_hausdorff_mm": 0.00012029214896544896,
+              "area_relative_difference": 2.2466737696451725e-08,
+              "area_absolute_difference_mm2": 0.22285262867808342,
+              "area_allowed_difference_mm2": 56807.36848729819,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 0,
+              "bbox_difference_mm": 0.00010187738371314481,
+              "boundary_hausdorff_mm": 0.0001254039394240752,
+              "area_relative_difference": 2.0083233434262456e-07,
+              "area_absolute_difference_mm2": 2.0557397045195103,
+              "area_allowed_difference_mm2": 58548.95686477542,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 14,
+              "manual_hole_count": 14,
+              "max_hole_center_difference_mm": 2.7926218238940313e-05,
+              "max_hole_radius_difference_mm": 0.0030163892996597497,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-4-cb-38",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-4-cb-38_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-38_拆板后.dxf",
+      "facts_fingerprint": "b2e02323c3a54a037f86ae8f9286236d79c1025543f37d0737c9227cb1c37ec4",
+      "profile": "BOX800*300*20*30",
+      "nominal_length_mm": 14048.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 11,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13381.167017,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 13833.38836,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166206,
+          "transverse_mm": 299.999938
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166206,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 13846.122277,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 4597.493322,
+          "transverse_mm": 742.748534
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5561.040802,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 13445.781149,
+          "transverse_mm": 2023.435339
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 13827.350003,
+          "transverse_mm": 2233.139515
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13837.727448,
+          "transverse_mm": 2289.500939
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13842.762308,
+          "transverse_mm": 2289.500939
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": null,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10236099.213525534,
+          "bounds_mm": [
+            1304.1701790388906,
+            2132.159310345043,
+            15123.668570266454,
+            4440.7530829629395
+          ],
+          "width_mm": 13819.498391227564,
+          "height_mm": 2308.5937726178963,
+          "hole_count": 14
+        },
+        {
+          "area_mm2": 9919225.08460837,
+          "bounds_mm": [
+            1150.699453110923,
+            3969.336427637041,
+            14590.55873187154,
+            6064.752400963829
+          ],
+          "width_mm": 13439.859278760618,
+          "height_mm": 2095.415973326788,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4154100.0012315703,
+          "bounds_mm": [
+            365.23424383823294,
+            387.8079717097862,
+            14212.234243838233,
+            687.8079717987275
+          ],
+          "width_mm": 13847.0,
+          "height_mm": 300.0000000889413,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4149900.00119067,
+          "bounds_mm": [
+            380.6431695895735,
+            1111.7670178493863,
+            14213.643169589574,
+            1411.767017935461
+          ],
+          "width_mm": 13833.0,
+          "height_mm": 300.0000000860746,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-38_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 0.8777229999996052,
+          "max_boundary_hausdorff_mm": 0.8777229999996098,
+          "max_area_relative_difference": 6.338752834360569e-05,
+          "max_hole_center_difference_mm": 9.207410352638912e-05,
+          "max_hole_radius_difference_mm": 0.0030163892954533367,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 3,
+              "bbox_difference_mm": 0.38836000000083004,
+              "boundary_hausdorff_mm": 0.38836000000083004,
+              "area_relative_difference": 2.8074606447653626e-05,
+              "area_absolute_difference_mm2": 116.50680933054537,
+              "area_allowed_difference_mm2": 56544.56637095866,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 2,
+              "bbox_difference_mm": 0.8777229999996052,
+              "boundary_hausdorff_mm": 0.8777229999996098,
+              "area_relative_difference": 6.338752834360569e-05,
+              "area_absolute_difference_mm2": 263.3181315702386,
+              "area_allowed_difference_mm2": 56600.566370970126,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 1,
+              "bbox_difference_mm": 0.00019597717073338572,
+              "boundary_hausdorff_mm": 0.00019597914951464276,
+              "area_relative_difference": 1.5447153084919763e-08,
+              "area_absolute_difference_mm2": 0.1532237883657217,
+              "area_allowed_difference_mm2": 56807.36832515974,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 0,
+              "bbox_difference_mm": 0.00019900922052329406,
+              "boundary_hausdorff_mm": 0.0001990111690641127,
+              "area_relative_difference": 1.8362729292267877e-07,
+              "area_absolute_difference_mm2": 1.879627188667655,
+              "area_allowed_difference_mm2": 58548.95670272485,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 14,
+              "manual_hole_count": 14,
+              "max_hole_center_difference_mm": 9.207410352638912e-05,
+              "max_hole_radius_difference_mm": 0.0030163892954533367,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-116",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-116_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-116_拆板后.dxf",
+      "facts_fingerprint": "6d252c9d44117f11ea0bed8a8c5028a5e022f2c77ce4506e5657849d3caf1589",
+      "profile": "BOX300*1000*16*16",
+      "nominal_length_mm": 5824.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 4,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5785.815776,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5804.802511,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5823.789246,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5785.817202,
+          "transverse_mm": 268.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 8.013040439972528,
+      "truth_archetypes": [
+        {
+          "area_mm2": 5823790.393082833,
+          "bounds_mm": [
+            349.3134496958228,
+            381.1700511006493,
+            6173.103842778655,
+            1381.1700511006493
+          ],
+          "width_mm": 5823.790393082832,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1502583.3514178041,
+          "bounds_mm": [
+            345.3204820107786,
+            1920.5264837272116,
+            6131.137756341137,
+            2188.5264837272116
+          ],
+          "width_mm": 5785.8172743303585,
+          "height_mm": 268.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-116_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 0.0011470828321762383,
+          "max_boundary_hausdorff_mm": 0.0011470828321762383,
+          "max_area_relative_difference": 1.969649927655946e-07,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 0.0011470828321762383,
+              "boundary_hausdorff_mm": 0.0011470828321762383,
+              "area_relative_difference": 1.969649927655946e-07,
+              "area_absolute_difference_mm2": 1.1470828326418996,
+              "area_allowed_difference_mm2": 27307.72794294569,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 7.233035830722656e-05,
+              "boundary_hausdorff_mm": 7.233035739773186e-05,
+              "area_relative_difference": 2.1658102744786137e-09,
+              "area_absolute_difference_mm2": 0.0032543104607611895,
+              "area_allowed_difference_mm2": 26172.030285847628,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-124",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-124_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-124_拆板后.dxf",
+      "facts_fingerprint": "3d0e60276788d559f0066bbce9737e588003b30f208c0adb08f0180359b03646",
+      "profile": "BOX300*1000*16*16",
+      "nominal_length_mm": 5816.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 9,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 318.025937,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5441.04,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5460.026616,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5479.012638,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5778.052553,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5797.039169,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5816.025785,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5460.025882,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5778.052553,
+          "transverse_mm": 268.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 4.158272284678768,
+      "truth_archetypes": [
+        {
+          "area_mm2": 5816025.750783738,
+          "bounds_mm": [
+            270.8282618415542,
+            384.12023803804186,
+            6086.854012625292,
+            1384.1202380380419
+          ],
+          "width_mm": 5816.025750783738,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 5479012.630503275,
+          "bounds_mm": [
+            661.7918954291963,
+            2573.4113424711104,
+            6140.804525932472,
+            3573.4113424711104
+          ],
+          "width_mm": 5479.012630503275,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1481894.7741437305,
+          "bounds_mm": [
+            563.8393521218095,
+            1929.6522301912773,
+            6341.891913609172,
+            2197.6522301912773
+          ],
+          "width_mm": 5778.052561487362,
+          "height_mm": 268.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-124_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 4.999999998744897e-05,
+          "max_boundary_hausdorff_mm": 7.8232945681756e-05,
+          "max_area_relative_difference": 4.8631738027085914e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 4.999999998744897e-05,
+              "boundary_hausdorff_mm": 4.999999998744897e-05,
+              "area_relative_difference": 4.8631738027085914e-08,
+              "area_absolute_difference_mm2": 0.26645390689373016,
+              "area_allowed_difference_mm2": 25928.616892627462,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 3.421626206545625e-05,
+              "boundary_hausdorff_mm": 3.421626206545625e-05,
+              "area_relative_difference": 5.883100224502873e-09,
+              "area_absolute_difference_mm2": 0.0342162624001503,
+              "area_allowed_difference_mm2": 27276.66937374931,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 2,
+              "bbox_difference_mm": 8.487361810693983e-06,
+              "boundary_hausdorff_mm": 7.8232945681756e-05,
+              "area_relative_difference": 1.3541114419947367e-09,
+              "area_absolute_difference_mm2": 0.0020066506695002317,
+              "area_allowed_difference_mm2": 24828.60220901028,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-133",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-133_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-133_拆板后.dxf",
+      "facts_fingerprint": "826a4790c0e428782c06f3cfc8cf5bbed38d7795a1efedb6a25935296d74f85a",
+      "profile": "BOX300*1000*16*16",
+      "nominal_length_mm": 1697.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 19,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1284.809882,
+          "transverse_mm": 967.999982
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1327.956498,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1341.956484,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1346.870408,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1360.870394,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1663.678467,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1677.678453,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1682.592377,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1696.592354,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1696.592363,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 376.868526,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 663.676556,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 677.676542,
+          "transverse_mm": 268.000029
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 679.6766,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 693.676586,
+          "transverse_mm": 268.000029
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1647.678424,
+          "transverse_mm": 268.000029
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1661.67841,
+          "transverse_mm": 268.000029
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1663.678467,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1677.678453,
+          "transverse_mm": 268.000029
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.06551078051839965,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1196591.4170410833,
+          "bounds_mm": [
+            360.37234091811115,
+            2185.68750495158,
+            2056.9647104699397,
+            3185.68750495158
+          ],
+          "width_mm": 1696.5923695518286,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 860869.4482119172,
+          "bounds_mm": [
+            557.001603014709,
+            377.48231742890493,
+            1917.8720037374296,
+            1377.482317428905
+          ],
+          "width_mm": 1360.8704007227207,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 407165.54677715537,
+          "bounds_mm": [
+            337.94501466728997,
+            1491.2805059256207,
+            2015.6234704865492,
+            1759.2805059522507
+          ],
+          "width_mm": 1677.6784558192592,
+          "height_mm": 268.00000002663,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 143453.0443997736,
+          "bounds_mm": [
+            1304.9853063596531,
+            1837.8145300200415,
+            1998.661887637747,
+            2105.8145300312317
+          ],
+          "width_mm": 693.6765812780939,
+          "height_mm": 268.0000000111902,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-133_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 2.8999618905345415e-05,
+          "max_boundary_hausdorff_mm": 2.9011147315940036e-05,
+          "max_area_relative_difference": 1.1338295824721682e-07,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 9.999999974752427e-06,
+              "boundary_hausdorff_mm": 9.999999974752427e-06,
+              "area_relative_difference": 1.28152165011833e-09,
+              "area_absolute_difference_mm2": 0.0011032228358089924,
+              "area_allowed_difference_mm2": 8284.473982316895,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 1.555182871015859e-05,
+              "boundary_hausdorff_mm": 1.555182871015859e-05,
+              "area_relative_difference": 1.131638030929963e-08,
+              "area_absolute_difference_mm2": 0.013541083550080657,
+              "area_allowed_difference_mm2": 9627.361857633394,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 3,
+              "bbox_difference_mm": 2.89995347770855e-05,
+              "boundary_hausdorff_mm": 2.9011147315940036e-05,
+              "area_relative_difference": 1.1338295824721682e-07,
+              "area_absolute_difference_mm2": 0.01626513054361567,
+              "area_allowed_difference_mm2": 3519.5754822326367,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 2,
+              "bbox_difference_mm": 2.8999618905345415e-05,
+              "boundary_hausdorff_mm": 2.8999644371197064e-05,
+              "area_relative_difference": 1.0506734488080284e-07,
+              "area_absolute_difference_mm2": 0.042779802926816046,
+              "area_allowed_difference_mm2": 7455.5829803973365,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-279",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-279_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-279_拆板后.dxf",
+      "facts_fingerprint": "fee3dcd5fa73c12b1756dc9e20530a5d702e544a554853be8900d385b831ebc8",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 10023.0,
+      "view_count": 2,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 7,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9013.254575,
+          "transverse_mm": 1000.00004
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9947.25468,
+          "transverse_mm": 1000.00004
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9985.254642,
+          "transverse_mm": 1000.00004
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254604,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 432.414381,
+          "transverse_mm": 214.999898
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8943.254511,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254604,
+          "transverse_mm": 220.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 8.00000004,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10023254.608493997,
+          "bounds_mm": [
+            371.6527435442549,
+            422.4726682242035,
+            10394.907352038252,
+            1422.4726682242035
+          ],
+          "width_mm": 10023.254608493997,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 9013254.495849542,
+          "bounds_mm": [
+            810.9293185634888,
+            1972.6500181407173,
+            9824.18381441303,
+            2972.6500181407173
+          ],
+          "width_mm": 9013.254495849542,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 2192899.394210321,
+          "bounds_mm": [
+            292.2171171376831,
+            1666.6034487392317,
+            10315.471697577217,
+            1886.6034487419674
+          ],
+          "width_mm": 10023.254580439534,
+          "height_mm": 220.00000000273576,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-279_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 0.00014447323906097154,
+          "max_boundary_hausdorff_mm": 0.409197267911614,
+          "max_area_relative_difference": 1.5141730973130813e-05,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 7.915045898698736e-05,
+              "boundary_hausdorff_mm": 8.868368028995834e-05,
+              "area_relative_difference": 4.8781562943719044e-08,
+              "area_absolute_difference_mm2": 0.4396806415170431,
+              "area_allowed_difference_mm2": 40065.58435401253,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 4.4939970393897966e-06,
+              "boundary_hausdorff_mm": 4.4939970393897966e-06,
+              "area_relative_difference": 4.4835701341564145e-10,
+              "area_absolute_difference_mm2": 0.004493996500968933,
+              "area_allowed_difference_mm2": 44105.58480459035,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 2,
+              "bbox_difference_mm": 0.00014447323906097154,
+              "boundary_hausdorff_mm": 0.409197267911614,
+              "area_relative_difference": 1.5141730973130813e-05,
+              "area_absolute_difference_mm2": 33.204292678274214,
+              "area_allowed_difference_mm2": 40989.09055805321,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-69",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-69_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-69_拆板后.dxf",
+      "facts_fingerprint": "b543c02c0fa19a87bc5a7213c354fb86678b43520e744f77748e325bad03299c",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 3458.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 10,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3094.980511,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3101.859743,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3126.022713,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3142.446991,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3149.326224,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3173.489134,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3220.955555,
+          "transverse_mm": 1000.00001
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3457.85814,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 2912.423647,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3403.512486,
+          "transverse_mm": 220.000018
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 2.621220862129403,
+      "truth_archetypes": [
+        {
+          "area_mm2": 3220955.57905486,
+          "bounds_mm": [
+            266.0957236873144,
+            1396.269720690122,
+            3487.051302742177,
+            2396.269720690121
+          ],
+          "width_mm": 3220.955579054863,
+          "height_mm": 999.9999999999991,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 3149326.2117080735,
+          "bounds_mm": [
+            18.57085703656031,
+            6.003293552727193,
+            3167.897068744635,
+            1006.003293552727
+          ],
+          "width_mm": 3149.3262117080744,
+          "height_mm": 999.9999999999998,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 697692.7719192496,
+          "bounds_mm": [
+            28.98177383685089,
+            1083.187347101499,
+            3432.494242385052,
+            1303.187347128304
+          ],
+          "width_mm": 3403.512468548201,
+          "height_mm": 220.00000002680508,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-69_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 2.4054862933553522e-05,
+          "max_boundary_hausdorff_mm": 2.405486247880617e-05,
+          "max_area_relative_difference": 8.25448202334136e-08,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 2.4054862933553522e-05,
+              "boundary_hausdorff_mm": 2.405486247880617e-05,
+              "area_relative_difference": 2.531762760392538e-09,
+              "area_absolute_difference_mm2": 0.008154695387929678,
+              "area_allowed_difference_mm2": 16896.38868683381,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 1.2291925486351829e-05,
+              "boundary_hausdorff_mm": 1.58458644597773e-05,
+              "area_relative_difference": 1.3903033666161184e-08,
+              "area_absolute_difference_mm2": 0.04378518834710121,
+              "area_allowed_difference_mm2": 16609.871217446656,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 2,
+              "bbox_difference_mm": 1.7999343356223108e-05,
+              "boundary_hausdorff_mm": 1.8247494525381247e-05,
+              "area_relative_difference": 8.25448202334136e-08,
+              "area_absolute_difference_mm2": 0.05759092443622649,
+              "area_allowed_difference_mm2": 13977.179984979395,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-72",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-72_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-72_拆板后.dxf",
+      "facts_fingerprint": "c3290e6a83d748263c9cac3d9335dffc530052a7d9a4d7939f0605ffafc426e8",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 10023.0,
+      "view_count": 2,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 8,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9013.254575,
+          "transverse_mm": 1000.00004
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9947.25468,
+          "transverse_mm": 1000.00004
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9985.254642,
+          "transverse_mm": 1000.00004
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254604,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 35.0,
+          "transverse_mm": 219.999899
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 432.414313,
+          "transverse_mm": 215.000001
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8943.254511,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254604,
+          "transverse_mm": 220.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "transverse_out_of_tolerance"
+      ],
+      "solver_score_margin": 8.00000004,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10023254.608493414,
+          "bounds_mm": [
+            425.3886250873911,
+            372.3194902884643,
+            10448.643233580806,
+            1372.3194902884643
+          ],
+          "width_mm": 10023.254608493415,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 9013254.495920915,
+          "bounds_mm": [
+            916.3305794383632,
+            2575.1040033642785,
+            9929.585075287207,
+            3575.1040033722747
+          ],
+          "width_mm": 9013.254495848843,
+          "height_mm": 1000.0000000079963,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 2195493.3642032365,
+          "bounds_mm": [
+            382.9353654626175,
+            1951.2401960439965,
+            10406.18994637992,
+            2171.811123317071
+          ],
+          "width_mm": 10023.254580917303,
+          "height_mm": 220.57092727307463,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-72_拆板后.dxf",
+          "generated_plate_count": 3,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3,
+          "max_bbox_difference_mm": 0.5407300016754562,
+          "max_boundary_hausdorff_mm": 0.6153706737619383,
+          "max_area_relative_difference": 0.0011657511959872846,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 7.915115747891832e-05,
+              "boundary_hausdorff_mm": 8.868069735811696e-05,
+              "area_relative_difference": 4.877364429010262e-08,
+              "area_absolute_difference_mm2": 0.4396092686802149,
+              "area_allowed_difference_mm2": 40065.58435404172,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 4.493414962780662e-06,
+              "boundary_hausdorff_mm": 4.493414962780662e-06,
+              "area_relative_difference": 4.482988478841629e-10,
+              "area_absolute_difference_mm2": 0.004493413493037224,
+              "area_allowed_difference_mm2": 44105.58480458802,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 2,
+              "bbox_difference_mm": 0.5407300016754562,
+              "boundary_hausdorff_mm": 0.6153706737619383,
+              "area_relative_difference": 0.0011657511959872846,
+              "area_absolute_difference_mm2": 2559.39901510207,
+              "area_allowed_difference_mm2": 40989.600624778905,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-73",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-73_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-73_拆板后.dxf",
+      "facts_fingerprint": "e6bf4c7eafdffb4d4a9578edbef568637d066c7d352cfc35ced2a3e7a6b210ba",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 8281.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 7,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 7787.637,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 8037.514624,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 8281.047258,
+          "transverse_mm": 999.99995
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 50.321965,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 6766.197459,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7327.610255,
+          "transverse_mm": 220.000018
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8281.047614,
+          "transverse_mm": 220.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": null,
+      "truth_archetypes": [
+        {
+          "area_mm2": 7534294.599752653,
+          "bounds_mm": [
+            355.7247291566455,
+            333.9670601023099,
+            8393.238980489201,
+            1333.9670606585714
+          ],
+          "width_mm": 8037.514251332555,
+          "height_mm": 1000.0000005562615,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 7284417.043479918,
+          "bounds_mm": [
+            331.27657274360536,
+            2301.7345366817826,
+            8118.913245273288,
+            3301.734536733835
+          ],
+          "width_mm": 7787.636672529683,
+          "height_mm": 1000.0000000520522,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1794135.62528699,
+          "bounds_mm": [
+            324.66917344904505,
+            1512.01194588629,
+            8605.716726270737,
+            1732.011945886581
+          ],
+          "width_mm": 8281.047552821692,
+          "height_mm": 220.00000000029104,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1583207.5820745178,
+          "bounds_mm": [
+            330.3808145583607,
+            1952.6424669782064,
+            7657.991074941121,
+            2172.6424669801418
+          ],
+          "width_mm": 7327.61026038276,
+          "height_mm": 220.0000000019354,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-73_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 0.00037259820783219766,
+          "max_boundary_hausdorff_mm": 0.6495790773485908,
+          "max_area_relative_difference": 6.410381216333001e-06,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 0.00037259820783219766,
+              "boundary_hausdorff_mm": 0.0003725982078322642,
+              "area_relative_difference": 6.034725409093883e-09,
+              "area_absolute_difference_mm2": 0.045467399060726166,
+              "area_allowed_difference_mm2": 34987.2930556155,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 0.00032747031673352467,
+              "boundary_hausdorff_mm": 0.00032747031673352467,
+              "area_relative_difference": 5.65601689905301e-09,
+              "area_absolute_difference_mm2": 0.041200785897672176,
+              "area_allowed_difference_mm2": 33987.782767922494,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 3,
+              "bbox_difference_mm": 1.799965167492701e-05,
+              "boundary_hausdorff_mm": 0.6495790773485908,
+              "area_relative_difference": 6.410381216333001e-06,
+              "area_absolute_difference_mm2": 10.148964145686477,
+              "area_allowed_difference_mm2": 30013.914678149275,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 2,
+              "bbox_difference_mm": 6.117834891483653e-05,
+              "boundary_hausdorff_mm": 0.11582084648167004,
+              "area_relative_difference": 1.419873834150519e-06,
+              "area_absolute_difference_mm2": 2.5474462292622775,
+              "area_allowed_difference_mm2": 33827.7030723962,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-9-cb-94",
+      "before": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-94_拆板前.dxf",
+      "after": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-94_拆板后.dxf",
+      "facts_fingerprint": "d066f6e9fe795b629b380c70c984db99381a04a036c76bc4cf96bd972f84903e",
+      "profile": "BOX300*930*16*16",
+      "nominal_length_mm": 2296.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 142,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 275.120426,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2004.286264,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2004.286264,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2004.286264,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2004.286264,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2004.286264,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2004.286264,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2005.507409,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2005.507409,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2005.507409,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2005.507409,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2005.507409,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2005.507409,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2008.73574,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.001787,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.415405,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.415448,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.415448,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2015.415448,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.038196,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.451874,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2018.643779,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2021.680247,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2035.13882,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 2038.175212,
+          "transverse_mm": 930.00002
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 2296.195031,
+          "transverse_mm": 929.999961
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 817.740486,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1406.731887,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1423.226911,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 2290.122212,
+          "transverse_mm": 268.000029
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.27544634029236015,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1512459.5605500157,
+          "bounds_mm": [
+            316.4439853441436,
+            1729.4002690165362,
+            2334.4821981687564,
+            2659.400269016536
+          ],
+          "width_mm": 2018.0382128246129,
+          "height_mm": 930.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1449673.5570502384,
+          "bounds_mm": [
+            281.89146285678726,
+            376.74477069455304,
+            2320.0666790440446,
+            1306.7447706945532
+          ],
+          "width_mm": 2038.1752161872573,
+          "height_mm": 930.0000000000001,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 555949.9619711961,
+          "bounds_mm": [
+            319.4804242035607,
+            2983.8103872662905,
+            2609.6026151732076,
+            3251.8103872835636
+          ],
+          "width_mm": 2290.122190969647,
+          "height_mm": 268.0000000172731,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 306143.79983580735,
+          "bounds_mm": [
+            905.0993583939271,
+            1426.2072649945767,
+            2328.326252669678,
+            1694.2072650016198
+          ],
+          "width_mm": 1423.226894275751,
+          "height_mm": 268.0000000070431,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\Dev\\Projects\\dxf agent\\.codex-golden\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-94_拆板后.dxf",
+          "generated_plate_count": 4,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4,
+          "max_bbox_difference_mm": 2.900160660601614e-05,
+          "max_boundary_hausdorff_mm": 2.9001772134051862e-05,
+          "max_area_relative_difference": 1.0669419703218395e-07,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 1.999999972213118e-05,
+              "boundary_hausdorff_mm": 2.7950242880105915e-05,
+              "area_relative_difference": 3.303884327858905e-08,
+              "area_absolute_difference_mm2": 0.04789553745649755,
+              "area_allowed_difference_mm2": 10779.159610626893,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 1.6824612885102397e-05,
+              "boundary_hausdorff_mm": 2.0712900284839314e-05,
+              "area_relative_difference": 1.627923466280999e-08,
+              "area_absolute_difference_mm2": 0.024621684104204178,
+              "area_allowed_difference_mm2": 10804.829404280676,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 2,
+              "manual_index": 3,
+              "bbox_difference_mm": 1.672711300670926e-05,
+              "boundary_hausdorff_mm": 2.317558212955992e-05,
+              "area_relative_difference": 2.6222139829455256e-08,
+              "area_absolute_difference_mm2": 0.008027745527215302,
+              "area_allowed_difference_mm2": 6135.406550423081,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 3,
+              "manual_index": 2,
+              "bbox_difference_mm": 2.900160660601614e-05,
+              "boundary_hausdorff_mm": 2.9001772134051862e-05,
+              "area_relative_difference": 1.0669419703218395e-07,
+              "area_absolute_difference_mm2": 0.05931663478258997,
+              "area_allowed_difference_mm2": 9671.43125657282,
+              "area_within_boundary_band": true,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 2.0,
+            "bbox_tolerance_mm": 2.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 2.0,
+            "hole_radius_tolerance_mm": 2.0,
+            "basis": "用户于 2026-07-18 明确：焊接制造允许 1–2 mm 连续几何误差；采用上限 2 mm 比较轮廓、bbox、孔中心和孔半径，面积允许量取 0.1% 与轮廓 2 mm 边界带面积中的较大值，避免长薄板被与制造公差矛盾的相对面积阈值误杀；板数、孔数、拓扑、角色与唯一解门禁不放宽。"
+          }
+        }
+      },
+      "structural_match": true,
+      "status": "exploratory_match"
+    }
+  ]
+}

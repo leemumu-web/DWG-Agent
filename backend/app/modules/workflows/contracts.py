@@ -17,6 +17,7 @@ DXF_ARTIFACT_TYPES = frozenset(
         "canonical_dxf",
         "classified_dxf",
         "processed_dxf",
+        "weld_allowance_dxf",
         "cam_input_dxf",
         "cam_output_dxf",
         "accepted_dxf",
@@ -25,7 +26,7 @@ DXF_ARTIFACT_TYPES = frozenset(
 )
 DWG_ARTIFACT_TYPES = frozenset({"source_dwg"})
 EXCEL_ARTIFACT_TYPES = frozenset(
-    {"source_excel", "stage1_excel", "delivery_excel"}
+    {"source_excel", "stage1_excel", "delivery_excel", "bh_split_ledger"}
 )
 
 
@@ -138,7 +139,16 @@ def require_stage_outputs(workflow: WorkflowRun, stage_code: str) -> None:
     stage = next(
         value for value in workflow.stages if value.stage_code == stage_code
     )
-    available = {artifact.artifact_type for artifact in stage.artifacts}
+    artifacts = stage.artifacts
+    if stage_code == "drawing_processing":
+        artifacts = [
+            artifact
+            for artifact in artifacts
+            if isinstance(artifact.metadata_json, dict)
+            and artifact.metadata_json.get("job_id") == stage.job_id
+            and artifact.metadata_json.get("job_attempt") == stage.job_attempt
+        ]
+    available = {artifact.artifact_type for artifact in artifacts}
     missing = [
         value for value in capability.required_outputs if value not in available
     ]
@@ -163,7 +173,16 @@ def verify_required_dxf_objects(
     stage = next(
         value for value in workflow.stages if value.stage_code == stage_code
     )
-    for artifact in stage.artifacts:
+    artifacts = stage.artifacts
+    if stage_code == "drawing_processing":
+        artifacts = [
+            artifact
+            for artifact in artifacts
+            if isinstance(artifact.metadata_json, dict)
+            and artifact.metadata_json.get("job_id") == stage.job_id
+            and artifact.metadata_json.get("job_attempt") == stage.job_attempt
+        ]
+    for artifact in artifacts:
         if artifact.artifact_type not in required_dxf:
             continue
         file_id = artifact.file_id

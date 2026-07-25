@@ -1,0 +1,2909 @@
+{
+  "schema_version": "BOX-CORPUS-AUDIT-2.0",
+  "status": "superseded",
+  "superseded_at": "2026-07-19",
+  "superseded_by": "docs/superpowers/reports/2026-07-19-box-region-proof-correction.md",
+  "superseded_reason": "REGION 读取器曾在 2b2-cb-145 和 2b2-cb-155 各静默漏掉一张有标签的真实成品板；本报告的 20/20 结论不得再作为验收证据。",
+  "root": "D:\\DevData\\BOX拆板前后数据",
+  "production_gate": "invalidated",
+  "threshold_status": "exploratory_not_calibrated",
+  "thresholds": {
+    "boundary_hausdorff_mm": 1.0,
+    "bbox_tolerance_mm": 1.0,
+    "area_relative_tolerance": 0.001,
+    "hole_center_tolerance_mm": 1.0,
+    "hole_radius_tolerance_mm": 1.0,
+    "basis": "仅用于 2026-07-18 架构探索，不是已标定或批准的生产阈值；任何未通过项都保持 fail-closed。"
+  },
+  "pair_count": 20,
+  "status_counts": {
+    "exploratory_match": 2,
+    "fail_closed_manual_review": 14,
+    "topology_mismatch": 4
+  },
+  "pairs": [
+    {
+      "pair_id": "2b1-cb-56",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-56_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-56_拆板后.dxf",
+      "facts_fingerprint": "ef9e1516caa7f322d97eec1684de77e84506e4d1e5d3f5292ec35e087f5ee2c2",
+      "profile": "BOX1100*1100*60*60",
+      "nominal_length_mm": 7092.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 4,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 7033.999975,
+          "transverse_mm": 1100.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 7092.000067,
+          "transverse_mm": 1100.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7033.999975,
+          "transverse_mm": 980.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 7092.0,
+          "transverse_mm": 980.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.016356446136491915,
+      "truth_archetypes": [
+        {
+          "area_mm2": 7801200.000010501,
+          "bounds_mm": [
+            615.7227252594312,
+            2222.4726682242,
+            7707.722725268977,
+            3322.4726682242
+          ],
+          "width_mm": 7092.000000009546,
+          "height_mm": 1100.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 6950160.000009425,
+          "bounds_mm": [
+            380.7227252595476,
+            422.47266822419806,
+            7472.722725269152,
+            1402.4726682241999
+          ],
+          "width_mm": 7092.000000009604,
+          "height_mm": 980.0000000000018,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-56_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 6.699045388813829e-05,
+          "max_boundary_hausdorff_mm": 6.699045388813829e-05,
+          "max_area_relative_difference": 9.445918440563105e-09,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 6.699045388813829e-05,
+              "boundary_hausdorff_mm": 6.699045388813829e-05,
+              "area_relative_difference": 9.445918440563105e-09,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 9.604264050722122e-09,
+              "boundary_hausdorff_mm": 9.604264222974904e-09,
+              "area_relative_difference": 1.3560816520908672e-12,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 1.0,
+            "bbox_tolerance_mm": 1.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 1.0,
+            "hole_radius_tolerance_mm": 1.0,
+            "basis": "仅用于 2026-07-18 架构探索，不是已标定或批准的生产阈值；任何未通过项都保持 fail-closed。"
+          }
+        }
+      },
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "2b1-cb-86",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-86_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-86_拆板后.dxf",
+      "facts_fingerprint": "eb272b4e25ecba661d91436a4ed756a62d258363f10bdecbb2b8df9d6ddb32e0",
+      "profile": "BOX750*850*20*20",
+      "nominal_length_mm": 1329.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 5,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 519.951115,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1329.405865,
+          "transverse_mm": 849.999988
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 519.951117,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1329.405865,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1329.405865,
+          "transverse_mm": 749.999993
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 944092.427356264,
+          "bounds_mm": [
+            307.7055985589977,
+            381.90759783499925,
+            1637.111436255218,
+            1231.9075978385426
+          ],
+          "width_mm": 1329.4058376962203,
+          "height_mm": 850.0000000035434,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 751014.9819839762,
+          "bounds_mm": [
+            446.8290450067726,
+            1406.4990919558568,
+            1609.8616624753922,
+            2256.4990919593984
+          ],
+          "width_mm": 1163.0326174686197,
+          "height_mm": 850.0000000035416,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 708072.0220993265,
+          "bounds_mm": [
+            549.1106692748144,
+            2516.667687804142,
+            1546.3952362317941,
+            3226.6676878047383
+          ],
+          "width_mm": 997.2845669569797,
+          "height_mm": 710.0000000005962,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 594880.6134268864,
+          "bounds_mm": [
+            746.8293721236987,
+            3379.9405211487233,
+            1598.7148018891457,
+            4089.9405211491157
+          ],
+          "width_mm": 851.885429765447,
+          "height_mm": 710.0000000003924,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "2b1-cb-91",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-91_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-91_拆板后.dxf",
+      "facts_fingerprint": "29842ccc03d5ad8bc9fdd43214621d2416120c6fde676fc5c24b1a0195de41f7",
+      "profile": "BOX780*800*20*20",
+      "nominal_length_mm": 1825.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 20,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 0.003846,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 0.034542,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 597.664097,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 661.68918,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.494299,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.473188,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 779.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 779.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 779.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 0.034542,
+          "transverse_mm": 760.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.494299,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.473188,
+          "transverse_mm": 760.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 779.99995
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 779.99995
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.23692,
+          "transverse_mm": 779.99995
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1460189.5306405376,
+          "bounds_mm": [
+            458.04175654175924,
+            2412.769861415607,
+            2283.2786698354757,
+            3212.7698614186556
+          ],
+          "width_mm": 1825.2369132937165,
+          "height_mm": 800.0000000030486,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 974235.2817111106,
+          "bounds_mm": [
+            368.18443077564007,
+            1459.357248766677,
+            2169.691298007907,
+            2199.3572487775837
+          ],
+          "width_mm": 1801.5068672322668,
+          "height_mm": 740.0000000109067,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 738796.1303345017,
+          "bounds_mm": [
+            1193.486560198653,
+            379.694957631953,
+            2116.9817231146153,
+            1179.6949576338284
+          ],
+          "width_mm": 923.4951629159623,
+          "height_mm": 800.0000000018754,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "2b1-cb-92",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-92_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-92_拆板后.dxf",
+      "facts_fingerprint": "f7c945f742991ebca54dfc919939dcb6367001e113f5122ad94207f7ba70cf41",
+      "profile": "BOX780*800*20*20",
+      "nominal_length_mm": 1825.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 9,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.728455,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.681237,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.409672,
+          "transverse_mm": 779.99995
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.409672,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 923.728455,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1801.681237,
+          "transverse_mm": 760.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.409672,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1825.409672,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1825.409672,
+          "transverse_mm": 779.99995
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1460327.7528141057,
+          "bounds_mm": [
+            257.0649685745593,
+            2517.0221315991093,
+            2082.474659618456,
+            3317.022131587599
+          ],
+          "width_mm": 1825.4096910438966,
+          "height_mm": 799.9999999884894,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1008401.5861208815,
+          "bounds_mm": [
+            240.58884573326213,
+            1388.1249749667877,
+            2042.2700831770198,
+            2128.124974973569
+          ],
+          "width_mm": 1801.6812374437577,
+          "height_mm": 740.0000000067812,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 738982.7638216817,
+          "bounds_mm": [
+            1084.4800150628434,
+            332.4919666336118,
+            2008.2084698466351,
+            1132.4919666278183
+          ],
+          "width_mm": 923.7284547837917,
+          "height_mm": 799.9999999942065,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "2b2-cb-145",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-145_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-145_拆板后.dxf",
+      "facts_fingerprint": "e7ccbf37d950c41d6629e4ced6c658b8001f7a3a82919dc40c7759ea97aaa3c7",
+      "profile": "BOX1800*800*40*60",
+      "nominal_length_mm": 5875.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 3,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5874.99823,
+          "transverse_mm": 800.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5811.998249,
+          "transverse_mm": 1680.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5874.99823,
+          "transverse_mm": 1680.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.021446802042553167,
+      "truth_archetypes": [
+        {
+          "area_mm2": 9381610.042373901,
+          "bounds_mm": [
+            420.55024891439825,
+            398.13362599068205,
+            6295.548498040589,
+            2078.133625990682
+          ],
+          "width_mm": 5874.998249126191,
+          "height_mm": 1680.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4699998.599300953,
+          "bounds_mm": [
+            438.9586521121091,
+            4764.231302775763,
+            6313.9569012383,
+            5564.231302775763
+          ],
+          "width_mm": 5874.998249126191,
+          "height_mm": 800.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": false,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": false,
+          "plate_areas_match": false,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-145_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 1.912619063659804e-05,
+          "max_boundary_hausdorff_mm": 484.99998087380936,
+          "max_area_relative_difference": 0.052057907099122856,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 1.912619063659804e-05,
+              "boundary_hausdorff_mm": 1.912619063659804e-05,
+              "area_relative_difference": 3.255522848814536e-09,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 1.912619063659804e-05,
+              "boundary_hausdorff_mm": 484.99998087380936,
+              "area_relative_difference": 0.052057907099122856,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 1.0,
+            "bbox_tolerance_mm": 1.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 1.0,
+            "hole_radius_tolerance_mm": 1.0,
+            "basis": "仅用于 2026-07-18 架构探索，不是已标定或批准的生产阈值；任何未通过项都保持 fail-closed。"
+          }
+        }
+      },
+      "status": "topology_mismatch"
+    },
+    {
+      "pair_id": "2b2-cb-155",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-155_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-155_拆板后.dxf",
+      "facts_fingerprint": "017a8c44b7c09a30c36623627c4080b8b22650e37ac98f480b1e63fa8dc0e27a",
+      "profile": "BOX1800*1400*40*80",
+      "nominal_length_mm": 8192.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 5,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 78.0,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 8191.999953,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5.475206,
+          "transverse_mm": 1605.215454
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8108.999999,
+          "transverse_mm": 1640.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8191.999953,
+          "transverse_mm": 1640.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.020263660644531223,
+      "truth_archetypes": [
+        {
+          "area_mm2": 12926392.981691271,
+          "bounds_mm": [
+            259.0275140919839,
+            306.6778309313959,
+            8451.027512780624,
+            1946.6778309313959
+          ],
+          "width_mm": 8191.99999868864,
+          "height_mm": 1640.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 11468799.998164095,
+          "bounds_mm": [
+            417.00403078098316,
+            4567.188653445643,
+            8609.004029469623,
+            5967.188653445643
+          ],
+          "width_mm": 8191.99999868864,
+          "height_mm": 1400.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": false,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": false,
+          "plate_areas_match": false,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-155_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 4.568864005705109e-05,
+          "max_boundary_hausdorff_mm": 504.99995431135903,
+          "max_area_relative_difference": 0.03933710989205892,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 1,
+              "bbox_difference_mm": 4.568864005705109e-05,
+              "boundary_hausdorff_mm": 4.568864005705109e-05,
+              "area_relative_difference": 5.577226473291824e-09,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 0,
+              "bbox_difference_mm": 4.568864005705109e-05,
+              "boundary_hausdorff_mm": 504.99995431135903,
+              "area_relative_difference": 0.03933710989205892,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 1.0,
+            "bbox_tolerance_mm": 1.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 1.0,
+            "hole_radius_tolerance_mm": 1.0,
+            "basis": "仅用于 2026-07-18 架构探索，不是已标定或批准的生产阈值；任何未通过项都保持 fail-closed。"
+          }
+        }
+      },
+      "status": "topology_mismatch"
+    },
+    {
+      "pair_id": "2b2-cb-2",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-2_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-2_拆板后.dxf",
+      "facts_fingerprint": "b3f159d8afa3aa69811bbb9a74e7b25cfb2cf9875bd92b754d258277c4ac24fb",
+      "profile": "BOX1500*600*30*50",
+      "nominal_length_mm": 12755.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 5,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 53.000001,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 12720.016707,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 12755.016689,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12702.016709,
+          "transverse_mm": 1400.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 12755.016689,
+          "transverse_mm": 1400.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.005482807369658844,
+      "truth_archetypes": [
+        {
+          "area_mm2": 17854473.30748474,
+          "bounds_mm": [
+            483.73481066623935,
+            2204.9438261624546,
+            13238.751517989323,
+            3604.9438261624528
+          ],
+          "width_mm": 12755.016707323084,
+          "height_mm": 1399.9999999999982,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 17348540.32361895,
+          "bounds_mm": [
+            398.42384688393213,
+            398.8711727250284,
+            13153.440554207715,
+            1798.8711727250266
+          ],
+          "width_mm": 12755.016707323783,
+          "height_mm": 1399.9999999999982,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 7653010.024202049,
+          "bounds_mm": [
+            480.4212999717565,
+            3885.161717780018,
+            13235.438007296238,
+            4485.161717764915
+          ],
+          "width_mm": 12755.016707324481,
+          "height_mm": 599.9999999848969,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": false,
+        "checks": {
+          "plate_geometry_count_matches": false,
+          "plate_bbox_matches": false,
+          "plate_boundaries_match": false,
+          "plate_areas_match": false,
+          "hole_counts_match": false,
+          "hole_centers_match": false,
+          "hole_radii_match": false,
+          "hole_shapes_supported": false
+        },
+        "values": {
+          "manual_reference": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-2_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 3,
+          "selected_manual_plate_count": 3
+        }
+      },
+      "status": "topology_mismatch"
+    },
+    {
+      "pair_id": "2t1-cb-95",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2t1-cb-95_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2t1-cb-95_拆板后.dxf",
+      "facts_fingerprint": "ed9bd905fd6ae5712ac6dcfb2137abcafd972600151d21927d06e8b32723485f",
+      "profile": "BOX750*850*20*20",
+      "nominal_length_mm": 1758.0,
+      "view_count": 2,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 7,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 432.234242,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 452.269833,
+          "transverse_mm": 850.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1757.942864,
+          "transverse_mm": 850.08289
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 20.035579,
+          "transverse_mm": 700.000001
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 487.294066,
+          "transverse_mm": 699.999999
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1263.710874,
+          "transverse_mm": 710.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1757.942924,
+          "transverse_mm": 710.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": null,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1243401.5024182443,
+          "bounds_mm": [
+            414.6498750396422,
+            3788.7277213488014,
+            2172.592770935502,
+            4498.733969246085
+          ],
+          "width_mm": 1757.9428958958597,
+          "height_mm": 710.0062478972832,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1132358.1992835873,
+          "bounds_mm": [
+            414.64987512113294,
+            368.63175661671994,
+            2172.5927710208343,
+            1218.6317566376747
+          ],
+          "width_mm": 1757.9428958997014,
+          "height_mm": 850.0000000209548,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 729309.678084814,
+          "bounds_mm": [
+            414.64987512113294,
+            1772.5900607315416,
+            1698.3962386451312,
+            2622.6729592416086
+          ],
+          "width_mm": 1283.7463635239983,
+          "height_mm": 850.082898510067,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 653050.5851052348,
+          "bounds_mm": [
+            414.6498750396422,
+            2901.7420370064356,
+            1341.1148265685188,
+            3611.7527500811775
+          ],
+          "width_mm": 926.4649515288766,
+          "height_mm": 710.010713074742,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": false,
+        "checks": {
+          "plate_geometry_count_matches": false,
+          "plate_bbox_matches": false,
+          "plate_boundaries_match": false,
+          "plate_areas_match": false,
+          "hole_counts_match": false,
+          "hole_centers_match": false,
+          "hole_radii_match": false,
+          "hole_shapes_supported": false
+        },
+        "values": {
+          "manual_reference": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2t1-cb-95_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 4,
+          "selected_manual_plate_count": 4
+        }
+      },
+      "status": "topology_mismatch"
+    },
+    {
+      "pair_id": "3t2-cb-117",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\3t2-cb-117_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\3t2-cb-117_拆板后.dxf",
+      "facts_fingerprint": "46a904661ce3db383f28a1a0254d13948325cd762fc2c952b5473853d9294a55",
+      "profile": "BOX600*600*30*30",
+      "nominal_length_mm": 5870.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 4,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5841.997163,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5869.997179,
+          "transverse_mm": 600.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5841.997163,
+          "transverse_mm": 540.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5869.997179,
+          "transverse_mm": 540.0
+        }
+      ],
+      "solver_disposition": "pass",
+      "solver_reason_codes": [],
+      "solver_score_margin": 0.009540039522998282,
+      "truth_archetypes": [
+        {
+          "area_mm2": 3521998.273669915,
+          "bounds_mm": [
+            580.3204820106039,
+            1704.5321304915124,
+            6450.3176047937595,
+            2304.532130491516
+          ],
+          "width_mm": 5869.997122783156,
+          "height_mm": 600.0000000000036,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 3169798.446302904,
+          "bounds_mm": [
+            345.3204820107785,
+            374.53213049151236,
+            6215.317604793934,
+            914.5321304915124
+          ],
+          "width_mm": 5869.997122783156,
+          "height_mm": 540.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": {
+        "ok": true,
+        "checks": {
+          "plate_geometry_count_matches": true,
+          "plate_bbox_matches": true,
+          "plate_boundaries_match": true,
+          "plate_areas_match": true,
+          "hole_counts_match": true,
+          "hole_centers_match": true,
+          "hole_radii_match": true,
+          "hole_shapes_supported": true
+        },
+        "values": {
+          "manual_reference": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\3t2-cb-117_拆板后.dxf",
+          "generated_plate_count": 2,
+          "manual_face_count": 2,
+          "selected_manual_plate_count": 2,
+          "max_bbox_difference_mm": 5.62168443138944e-05,
+          "max_boundary_hausdorff_mm": 5.62168443138944e-05,
+          "max_area_relative_difference": 9.576980006296481e-09,
+          "max_hole_center_difference_mm": 0.0,
+          "max_hole_radius_difference_mm": 0.0,
+          "plate_results": [
+            {
+              "generated_index": 0,
+              "manual_index": 0,
+              "bbox_difference_mm": 5.62168443138944e-05,
+              "boundary_hausdorff_mm": 5.62168443138944e-05,
+              "area_relative_difference": 9.576973748115917e-09,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            },
+            {
+              "generated_index": 1,
+              "manual_index": 1,
+              "bbox_difference_mm": 5.62168443138944e-05,
+              "boundary_hausdorff_mm": 5.62168443138944e-05,
+              "area_relative_difference": 9.576980006296481e-09,
+              "generated_hole_count": 0,
+              "manual_hole_count": 0,
+              "max_hole_center_difference_mm": 0.0,
+              "max_hole_radius_difference_mm": 0.0,
+              "holes_circle_like": true
+            }
+          ],
+          "thresholds": {
+            "boundary_hausdorff_mm": 1.0,
+            "bbox_tolerance_mm": 1.0,
+            "area_relative_tolerance": 0.001,
+            "hole_center_tolerance_mm": 1.0,
+            "hole_radius_tolerance_mm": 1.0,
+            "basis": "仅用于 2026-07-18 架构探索，不是已标定或批准的生产阈值；任何未通过项都保持 fail-closed。"
+          }
+        }
+      },
+      "status": "exploratory_match"
+    },
+    {
+      "pair_id": "h-3-cb-2",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-3-cb-2_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-3-cb-2_拆板后.dxf",
+      "facts_fingerprint": "bf7211b17412cc044642b0d347893be70dcae5a154fb4f06ac4031a328257bb4",
+      "profile": "BOX1000*1000*45*45",
+      "nominal_length_mm": 3700.0,
+      "view_count": 3,
+      "view_pairing_count": 2,
+      "view_rejection_codes": [],
+      "hypothesis_count": 8,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3699.999998,
+          "transverse_mm": 999.999951
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3699.999998,
+          "transverse_mm": 1000.000011
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3700.0,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3699.999998,
+          "transverse_mm": 910.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3699.999998,
+          "transverse_mm": 910.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3699.999998,
+          "transverse_mm": 999.999951
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3699.999998,
+          "transverse_mm": 1000.000011
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3700.0,
+          "transverse_mm": 910.0
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions"
+      ],
+      "solver_score_margin": 1.0810812012563032e-09,
+      "truth_archetypes": [
+        {
+          "area_mm2": 3634600.001263692,
+          "bounds_mm": [
+            471.440973584482,
+            446.0741637233659,
+            4171.440973584482,
+            1446.074163723366
+          ],
+          "width_mm": 3700.0,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 3160455.298481507,
+          "bounds_mm": [
+            471.440973584482,
+            1992.7686781397933,
+            4171.440973584482,
+            2902.7686781397897
+          ],
+          "width_mm": 3700.0,
+          "height_mm": 909.9999999999964,
+          "hole_count": 8
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-4-cb-37",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-4-cb-37_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-37_拆板后.dxf",
+      "facts_fingerprint": "420809d31125d3dbc01834f50be3a4f9ddec50a6b5bf5d1c96aa57cbc21e1f2f",
+      "profile": "BOX800*300*20*30",
+      "nominal_length_mm": 14048.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 9,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 4792.329301,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 8231.999683,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13381.167143,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166254,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166254,
+          "transverse_mm": 300.000045
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 4597.493322,
+          "transverse_mm": 742.748535
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5561.040802,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13837.727535,
+          "transverse_mm": 2289.501008
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13842.762116,
+          "transverse_mm": 2289.501008
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 3.000000000016878e-07,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10236099.237946272,
+          "bounds_mm": [
+            391.3948335276918,
+            2414.696284477163,
+            14210.89327293355,
+            4723.290057294595
+          ],
+          "width_mm": 13819.49843940586,
+          "height_mm": 2308.5937728174317,
+          "hole_count": 14
+        },
+        {
+          "area_mm2": 9919225.10909448,
+          "bounds_mm": [
+            391.3948335276918,
+            3802.8843290797377,
+            13831.254160487442,
+            5898.30030268032
+          ],
+          "width_mm": 13439.859326959751,
+          "height_mm": 2095.415973600582,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4154099.999471263,
+          "bounds_mm": [
+            291.47957040334586,
+            354.61836866408703,
+            14138.479570403346,
+            654.6183686259028
+          ],
+          "width_mm": 13847.0,
+          "height_mm": 299.9999999618158,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4149899.999487499,
+          "bounds_mm": [
+            340.4630612207111,
+            886.5612026199524,
+            14173.463061220711,
+            1186.5612025829032
+          ],
+          "width_mm": 13833.0,
+          "height_mm": 299.9999999629508,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-4-cb-38",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-4-cb-38_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-38_拆板后.dxf",
+      "facts_fingerprint": "b2e02323c3a54a037f86ae8f9286236d79c1025543f37d0737c9227cb1c37ec4",
+      "profile": "BOX800*300*20*30",
+      "nominal_length_mm": 14048.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 9,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 4792.3293,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 8231.999683,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13381.167143,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166254,
+          "transverse_mm": 300.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13835.166254,
+          "transverse_mm": 300.000045
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 4597.493322,
+          "transverse_mm": 742.748534
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5561.040802,
+          "transverse_mm": 740.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13837.727535,
+          "transverse_mm": 2289.501008
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 13842.762116,
+          "transverse_mm": 2289.501008
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 3.000000000016878e-07,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10236099.213525534,
+          "bounds_mm": [
+            1304.1701790388906,
+            2132.159310345043,
+            15123.668570266454,
+            4440.7530829629395
+          ],
+          "width_mm": 13819.498391227564,
+          "height_mm": 2308.5937726178963,
+          "hole_count": 14
+        },
+        {
+          "area_mm2": 9919225.08460837,
+          "bounds_mm": [
+            1150.699453110923,
+            3969.336427637041,
+            14590.55873187154,
+            6064.752400963829
+          ],
+          "width_mm": 13439.859278760618,
+          "height_mm": 2095.415973326788,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4154100.0012315703,
+          "bounds_mm": [
+            365.23424383823294,
+            387.8079717097862,
+            14212.234243838233,
+            687.8079717987275
+          ],
+          "width_mm": 13847.0,
+          "height_mm": 300.0000000889413,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 4149900.00119067,
+          "bounds_mm": [
+            380.6431695895735,
+            1111.7670178493863,
+            14213.643169589574,
+            1411.767017935461
+          ],
+          "width_mm": 13833.0,
+          "height_mm": 300.0000000860746,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-116",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-116_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-116_拆板后.dxf",
+      "facts_fingerprint": "6d252c9d44117f11ea0bed8a8c5028a5e022f2c77ce4506e5657849d3caf1589",
+      "profile": "BOX300*1000*16*16",
+      "nominal_length_mm": 5824.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 5,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5785.817274,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5823.78936,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5785.815752,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5823.790438,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5823.790438,
+          "transverse_mm": 300.000045
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 5823790.393082833,
+          "bounds_mm": [
+            349.3134496958228,
+            381.1700511006493,
+            6173.103842778655,
+            1381.1700511006493
+          ],
+          "width_mm": 5823.790393082832,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1502583.3514178041,
+          "bounds_mm": [
+            345.3204820107786,
+            1920.5264837272116,
+            6131.137756341137,
+            2188.5264837272116
+          ],
+          "width_mm": 5785.8172743303585,
+          "height_mm": 268.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-124",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-124_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-124_拆板后.dxf",
+      "facts_fingerprint": "3d0e60276788d559f0066bbce9737e588003b30f208c0adb08f0180359b03646",
+      "profile": "BOX300*1000*16*16",
+      "nominal_length_mm": 5816.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 5,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5460.026659,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5816.025841,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5460.025882,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 5816.025721,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 5816.025721,
+          "transverse_mm": 300.000045
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 5816025.750783738,
+          "bounds_mm": [
+            270.8282618415542,
+            384.12023803804186,
+            6086.854012625292,
+            1384.1202380380419
+          ],
+          "width_mm": 5816.025750783738,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 5479012.630503275,
+          "bounds_mm": [
+            661.7918954291963,
+            2573.4113424711104,
+            6140.804525932472,
+            3573.4113424711104
+          ],
+          "width_mm": 5479.012630503275,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1481894.7741437305,
+          "bounds_mm": [
+            563.8393521218095,
+            1929.6522301912773,
+            6341.891913609172,
+            2197.6522301912773
+          ],
+          "width_mm": 5778.052561487362,
+          "height_mm": 268.0,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-133",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-133_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-133_拆板后.dxf",
+      "facts_fingerprint": "826a4790c0e428782c06f3cfc8cf5bbed38d7795a1efedb6a25935296d74f85a",
+      "profile": "BOX300*1000*16*16",
+      "nominal_length_mm": 1697.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 8,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 376.868526,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1682.592378,
+          "transverse_mm": 1000.000011
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1696.592326,
+          "transverse_mm": 1000.000011
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 376.868526,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1682.592378,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1682.592378,
+          "transverse_mm": 299.999985
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 1696.592385,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 1696.592385,
+          "transverse_mm": 299.999985
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1196591.4170410833,
+          "bounds_mm": [
+            360.37234091811115,
+            2185.68750495158,
+            2056.9647104699397,
+            3185.68750495158
+          ],
+          "width_mm": 1696.5923695518286,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 860869.4482119172,
+          "bounds_mm": [
+            557.001603014709,
+            377.48231742890493,
+            1917.8720037374296,
+            1377.482317428905
+          ],
+          "width_mm": 1360.8704007227207,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 407165.54677715537,
+          "bounds_mm": [
+            337.94501466728997,
+            1491.2805059256207,
+            2015.6234704865492,
+            1759.2805059522507
+          ],
+          "width_mm": 1677.6784558192592,
+          "height_mm": 268.00000002663,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 143453.0443997736,
+          "bounds_mm": [
+            1304.9853063596531,
+            1837.8145300200415,
+            1998.661887637747,
+            2105.8145300312317
+          ],
+          "width_mm": 693.6765812780939,
+          "height_mm": 268.0000000111902,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-279",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-279_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-279_拆板后.dxf",
+      "facts_fingerprint": "fee3dcd5fa73c12b1756dc9e20530a5d702e544a554853be8900d385b831ebc8",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 10023.0,
+      "view_count": 2,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 38,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 0.477354,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 34.522646,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9013.254496,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 432.414381,
+          "transverse_mm": 214.999898
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8943.254511,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10023254.608493997,
+          "bounds_mm": [
+            371.6527435442549,
+            422.4726682242035,
+            10394.907352038252,
+            1422.4726682242035
+          ],
+          "width_mm": 10023.254608493997,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 9013254.495849542,
+          "bounds_mm": [
+            810.9293185634888,
+            1972.6500181407173,
+            9824.18381441303,
+            2972.6500181407173
+          ],
+          "width_mm": 9013.254495849542,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 2192899.394210321,
+          "bounds_mm": [
+            292.2171171376831,
+            1666.6034487392317,
+            10315.471697577217,
+            1886.6034487419674
+          ],
+          "width_mm": 10023.254580439534,
+          "height_mm": 220.00000000273576,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-69",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-69_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-69_拆板后.dxf",
+      "facts_fingerprint": "b543c02c0fa19a87bc5a7213c354fb86678b43520e744f77748e325bad03299c",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 3458.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 6,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 261.065481,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 3173.489128,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3457.858142,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 2912.423647,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 3457.858142,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 3457.858142,
+          "transverse_mm": 299.999985
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 3220955.57905486,
+          "bounds_mm": [
+            266.0957236873144,
+            1396.269720690122,
+            3487.051302742177,
+            2396.269720690121
+          ],
+          "width_mm": 3220.955579054863,
+          "height_mm": 999.9999999999991,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 3149326.2117080735,
+          "bounds_mm": [
+            18.57085703656031,
+            6.003293552727193,
+            3167.897068744635,
+            1006.003293552727
+          ],
+          "width_mm": 3149.3262117080744,
+          "height_mm": 999.9999999999998,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 697692.7719192496,
+          "bounds_mm": [
+            28.98177383685089,
+            1083.187347101499,
+            3432.494242385052,
+            1303.187347128304
+          ],
+          "width_mm": 3403.512468548201,
+          "height_mm": 220.00000002680508,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-72",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-72_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-72_拆板后.dxf",
+      "facts_fingerprint": "c3290e6a83d748263c9cac3d9335dffc530052a7d9a4d7939f0605ffafc426e8",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 10023.0,
+      "view_count": 2,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 72,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 0.477354,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 25.993696,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 34.522646,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 9047.777141,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 35.0,
+          "transverse_mm": 219.999899
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 432.414313,
+          "transverse_mm": 215.000001
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8943.254511,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 10023.254637,
+          "transverse_mm": 300.000015
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 10023254.608493414,
+          "bounds_mm": [
+            425.3886250873911,
+            372.3194902884643,
+            10448.643233580806,
+            1372.3194902884643
+          ],
+          "width_mm": 10023.254608493415,
+          "height_mm": 1000.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 9013254.495920915,
+          "bounds_mm": [
+            916.3305794383632,
+            2575.1040033642785,
+            9929.585075287207,
+            3575.1040033722747
+          ],
+          "width_mm": 9013.254495848843,
+          "height_mm": 1000.0000000079963,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 2195493.3642032365,
+          "bounds_mm": [
+            382.9353654626175,
+            1951.2401960439965,
+            10406.18994637992,
+            2171.811123317071
+          ],
+          "width_mm": 10023.254580917303,
+          "height_mm": 220.57092727307463,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-73",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-73_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-73_拆板后.dxf",
+      "facts_fingerprint": "e6bf4c7eafdffb4d4a9578edbef568637d066c7d352cfc35ced2a3e7a6b210ba",
+      "profile": "BOX300*1000*30*40",
+      "nominal_length_mm": 8281.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 10,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 5.475207,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 41.355844,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 6811.390887,
+          "transverse_mm": 1000.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 8281.047173,
+          "transverse_mm": 1000.000071
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 50.321965,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 6766.197459,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8037.514499,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 8037.514499,
+          "transverse_mm": 300.000045
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 8281.047533,
+          "transverse_mm": 220.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 8281.047533,
+          "transverse_mm": 300.000045
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 7534294.599752653,
+          "bounds_mm": [
+            355.7247291566455,
+            333.9670601023099,
+            8393.238980489201,
+            1333.9670606585714
+          ],
+          "width_mm": 8037.514251332555,
+          "height_mm": 1000.0000005562615,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 7284417.043479918,
+          "bounds_mm": [
+            331.27657274360536,
+            2301.7345366817826,
+            8118.913245273288,
+            3301.734536733835
+          ],
+          "width_mm": 7787.636672529683,
+          "height_mm": 1000.0000000520522,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1794135.62528699,
+          "bounds_mm": [
+            324.66917344904505,
+            1512.01194588629,
+            8605.716726270737,
+            1732.011945886581
+          ],
+          "width_mm": 8281.047552821692,
+          "height_mm": 220.00000000029104,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1583207.5820745178,
+          "bounds_mm": [
+            330.3808145583607,
+            1952.6424669782064,
+            7657.991074941121,
+            2172.6424669801418
+          ],
+          "width_mm": 7327.61026038276,
+          "height_mm": 220.0000000019354,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    },
+    {
+      "pair_id": "h-9-cb-94",
+      "before": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-94_拆板前.dxf",
+      "after": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-94_拆板后.dxf",
+      "facts_fingerprint": "d066f6e9fe795b629b380c70c984db99381a04a036c76bc4cf96bd972f84903e",
+      "profile": "BOX300*930*16*16",
+      "nominal_length_mm": 2296.0,
+      "view_count": 3,
+      "view_pairing_count": 1,
+      "view_rejection_codes": [],
+      "hypothesis_count": 5,
+      "hypotheses": [
+        {
+          "role_family": "flange",
+          "mode": "multi_view",
+          "longitudinal_mm": 1148.106477,
+          "transverse_mm": 930.0
+        },
+        {
+          "role_family": "flange",
+          "mode": "direct_contour",
+          "longitudinal_mm": 2296.195039,
+          "transverse_mm": 930.000032
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 817.740486,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "multi_view",
+          "longitudinal_mm": 2296.195039,
+          "transverse_mm": 268.0
+        },
+        {
+          "role_family": "web",
+          "mode": "direct_contour",
+          "longitudinal_mm": 2296.195039,
+          "transverse_mm": 299.999985
+        }
+      ],
+      "solver_disposition": "manual_review",
+      "solver_reason_codes": [
+        "ambiguous_complete_solutions",
+        "length_out_of_tolerance"
+      ],
+      "solver_score_margin": 0.0,
+      "truth_archetypes": [
+        {
+          "area_mm2": 1512459.5605500157,
+          "bounds_mm": [
+            316.4439853441436,
+            1729.4002690165362,
+            2334.4821981687564,
+            2659.400269016536
+          ],
+          "width_mm": 2018.0382128246129,
+          "height_mm": 930.0,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 1449673.5570502384,
+          "bounds_mm": [
+            281.89146285678726,
+            376.74477069455304,
+            2320.0666790440446,
+            1306.7447706945532
+          ],
+          "width_mm": 2038.1752161872573,
+          "height_mm": 930.0000000000001,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 555949.9619711961,
+          "bounds_mm": [
+            319.4804242035607,
+            2983.8103872662905,
+            2609.6026151732076,
+            3251.8103872835636
+          ],
+          "width_mm": 2290.122190969647,
+          "height_mm": 268.0000000172731,
+          "hole_count": 0
+        },
+        {
+          "area_mm2": 306143.79983580735,
+          "bounds_mm": [
+            905.0993583939271,
+            1426.2072649945767,
+            2328.326252669678,
+            1694.2072650016198
+          ],
+          "width_mm": 1423.226894275751,
+          "height_mm": 268.0000000070431,
+          "hole_count": 0
+        }
+      ],
+      "comparison": null,
+      "status": "fail_closed_manual_review"
+    }
+  ]
+}

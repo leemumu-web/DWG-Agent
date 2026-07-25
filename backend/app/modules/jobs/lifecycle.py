@@ -379,3 +379,60 @@ def retry_job(db: Session, job: Job) -> Job:
         )
     db.expire(job)
     return db.get(Job, job.id, populate_existing=True) or job
+
+
+def rerun_succeeded_job(db: Session, job: Job) -> Job:
+    """Enqueue a new immutable attempt after a business-level review outcome.
+
+    Callers must first prove that the succeeded Job's domain run is waiting for
+    review. This primitive deliberately does not make all succeeded Jobs retryable.
+    """
+    if job.status != JOB_SUCCEEDED:
+        raise AppHTTPException(
+            409,
+            "JOB_NOT_RERUNNABLE",
+            f"当前 Job 状态为 {job.status}，不能创建新的完整尝试。",
+        )
+    previous_attempt = job.attempt
+    next_attempt = previous_attempt + 1
+    now = datetime.now(UTC)
+    payload = make_event(
+        type_="status",
+        status=JOB_QUEUED,
+        progress=0,
+        message="人工复核批次已创建新的完整尝试",
+        attempt=next_attempt,
+    )
+    payload["job_id"] = job.id
+    result = execute_guarded_job_update(
+        db,
+        update(Job)
+        .where(
+            Job.id == job.id,
+            Job.status == JOB_SUCCEEDED,
+            Job.attempt == previous_attempt,
+        )
+        .values(
+            status=JOB_QUEUED,
+            attempt=next_attempt,
+            progress=0,
+            error_code=None,
+            error_message=None,
+            progress_data=payload,
+            started_at=None,
+            finished_at=None,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False),
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        current = db.get(Job, job.id, populate_existing=True)
+        current_status = current.status if current is not None else "missing"
+        raise AppHTTPException(
+            409,
+            "JOB_NOT_RERUNNABLE",
+            f"当前 Job 状态为 {current_status}，不能创建新的完整尝试。",
+        )
+    db.expire(job)
+    return db.get(Job, job.id, populate_existing=True) or job

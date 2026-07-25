@@ -26,12 +26,20 @@ WORKFLOW_STATUSES = {
 }
 
 
-def load_workflow_detail(db: Session, workflow_id: int) -> WorkflowRun:
-    workflow = db.scalar(
+def load_workflow_detail(
+    db: Session,
+    workflow_id: int,
+    *,
+    for_update: bool = False,
+) -> WorkflowRun:
+    statement = (
         select(WorkflowRun)
         .where(WorkflowRun.id == workflow_id)
         .options(selectinload(WorkflowRun.stages), selectinload(WorkflowRun.artifacts))
     )
+    if for_update:
+        statement = statement.with_for_update()
+    workflow = db.scalar(statement)
     if workflow is None:
         return get_workflow_or_404(db, workflow_id)
     return workflow

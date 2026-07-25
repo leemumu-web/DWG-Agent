@@ -4,7 +4,7 @@
 
 [简体中文](README.md) | [English](README_EN.md)
 
-**交付级别：v0.1 技术预览版。当前文档基线：2026-07-21。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；[开发指南](docs/guides/development.md)给出首次安装和验收路径，[实现状态](docs/architecture/implementation-status.md)记录证据与剩余风险，[企业平台技术规范](docs/architecture/platform-specification.md)给出规范性边界。仓库只维护中文项目文档。
+**交付级别：v0.1 技术预览版。当前文档基线：2026-07-25。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；[开发指南](docs/guides/development.md)给出首次安装和验收路径，[实现状态](docs/architecture/implementation-status.md)记录证据与剩余风险，[企业平台技术规范](docs/architecture/platform-specification.md)给出规范性边界。仓库只维护中文项目文档。
 
 > [!IMPORTANT]
 > 本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。详细项目文档仅维护[中文版本](docs/README.md)，英文 README 用于提供项目概览。
@@ -29,8 +29,8 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、150 个 OpenAPI path 和 174 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 42 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 43 张表；Celery runtime 全部初始化后最多 51 张；SQLite 只用于 pytest |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、152 个 OpenAPI path 和 176 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 44 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 45 张表；Celery runtime 全部初始化后最多 53 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
@@ -41,10 +41,10 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、十阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | Excel 第二阶段、图纸拆板、CAM 工作包、Windows/SinoCAM、结果接纳为等待上线接口 |
+| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、Steel DXF Split 1.5.2 整批拆板与独立校验、十阶段、冻结 Excel 第一阶段 Job、attempt 同步和独立批次详情页 | 拆板默认关闭且仍需真实 MinIO/MySQL 与业务样本验收；Excel 第二阶段、CAM 工作包、Windows/SinoCAM、结果接纳为等待上线接口 |
 | 转换管线 | ⚠️ | report、DWG → DXF、DXF → DWG、DXF → Excel、Excel Final 服务路径；DXF 鉴权 SVG 预览 | 四条业务管线默认关闭，分别受 ODA、Stage 完整性和手册库约束；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和机器可读能力契约已归 `automation` | 核心执行留白；无 Agent task、LLM/LangGraph/MCP 执行器，`AGENT_ENABLED=false` |
-| Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、拆板、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；已交付的 Steel DXF 分类属于 Linux 流程 |
+| Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；Steel DXF 分类与拆板属于 Linux 流程 |
 | Redis/Valkey | ❌ | 当前运行时不使用 | 业务状态、SSE、token 吊销、Agent memory、broker/result 均直接使用 MySQL |
 
 ## 🏗️ 系统架构
@@ -85,6 +85,7 @@ Celery workers（无入站监听端口）
 | DXF → DWG / `dxf2dwg` | ⚠️ 服务、task、测试和 ODA 适配存在 | `DXF2DWG_PIPELINE_ENABLED=false` | 同上，并要求有效 DXF |
 | DXF → Excel / `dxf2excel` | ⚠️ Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
 | Steel DXF 分类 / `dxf_classification` | ⚠️ Classifier 1.2.0、PX/安全新类型、逐图数据库语义、目录详情和 DXF-only 分类/全量下载已接通；JSON/CSV 仅作审计登记 | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | 需要冻结的服务器派生 DXF 与代表性业务样本；分类不等于自动拆板 |
+| Steel DXF 拆板 / `dxf_split` | ⚠️ Split 1.5.2 整批处理 BH/BOX，独立重开校验并登记正常拆板、余量增长、报告、manifest 与 `BH拆板信息表.xlsx`；未通过原图按当前 attempt 即时打 ZIP | `DXF_SPLIT_PIPELINE_ENABLED=false` | 只消费已登记分类 DXF；非 BH/BOX 和未通过校验的图纸进入人工复核；正式启用前仍需真实 MinIO/MySQL 与前端业务样本验收 |
 | Excel Final / `excel_final` | ⚠️ backend 适配、隔离子进程、关系化导入和 Stage 测试存在 | `EXCEL_FINAL_PIPELINE_ENABLED=false` | 有效 Tekla/初始表 schema、`hardware_handbook` 只读库、足够超时 |
 | Agent / `agent` | ⏸️ API/持久化与队列名保留，没有注册 Celery task | `AGENT_ENABLED=false` | 缺少真实执行器；运行一个空闲 queue worker 也不代表能力可用 |
 | Windows / `cad` | ⏸️ `windows/` 按 Node Agent/CAM Runner/Adapter/协议保留外部合同，没有注册 Celery task | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
@@ -97,7 +98,7 @@ Celery workers（无入站监听端口）
 
 工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。新建 `linux_production` 使用 revision 4，接收多个 DWG 与唯一 Excel，源 DWG 全部留档并转换为 canonical DXF；冻结后图纸只按 classified/processed/CAM/accepted/delivery DXF 流通。`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`；`excel_stage2` 位于其后并预留 `stage2_excel` 合同，当前等待上线。历史流程保持原 revision，不被自动改写。
 
-这仍不是 SinoCAM 完整生产闭环：图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`，同时暴露输入输出契约；操作员绑定外部交接产物后才可确认推进。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
+这仍不是 SinoCAM 完整生产闭环：拆板已经接入服务器工作流，但默认关闭；一批图纸全部处理完后，只要存在未通过图纸，流程保持 `waiting_review`，前端仅提供该 attempt 的未通过分类原始 DXF 压缩包。CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳仍返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
 
 ## 🎯 范围边界
 
@@ -111,7 +112,7 @@ Celery workers（无入站监听端口）
 
 ### 不在当前交付范围
 
-- CAD 图纸构件提取、自动/交互拆板和左右进业务算法（Steel DXF 预处理与分类分流已经实现，不在此列）；
+- CAD 图纸构件提取、交互拆板和左右进业务算法（Steel DXF 预处理、分类分流及 BH/BOX 自动拆板已形成默认关闭的服务器纵向切片，不在此列）；
 - 中望 CAD 二次开发及 Windows CAD Worker；
 - Agent 执行、模型调用、MCP 工具编排和已交付会话 memory 的产品化编排。
 
@@ -146,7 +147,7 @@ bash scripts/db.sh init
 bash scripts/start-dev.sh
 ```
 
-`start-dev.sh` 启动 8 组本地 worker：`report`、`dxf_classification`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`（不启动 `agent/cad`），并启动 FastAPI `8010` 和 Vite。`start-all.sh` 还会构建前端并启动本地 Nginx `8080`。`dispatch` 当前是可观察的队列身份预留；功能开关关闭时 worker 可以存活，但对应 API 会拒绝创建任务。
+`start-dev.sh` 启动 9 组本地 worker：`report`、`dxf_classification`、`dxf_split`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`（不启动 `agent/cad`），并启动 FastAPI `8010` 和 Vite。`start-all.sh` 还会构建前端并启动本地 Nginx `8080`。`dispatch` 当前是可观察的队列身份预留；功能开关关闭时 worker 可以存活，但对应 API 会拒绝创建任务。
 
 需要复用容器内 MySQL/MinIO 并热更新 API 时，可运行：
 
@@ -180,7 +181,7 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 5 组 CAD/Excel worker、`dispatch`、`maintenance` 和 contract-only `worker-agent`，Compose 总计 13 个服务。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
+核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`，Compose 总计 16 个服务。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
 
 ## 🧪 开发与验证
 

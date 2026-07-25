@@ -18,6 +18,7 @@ from app.modules.workflows.routes.queries import (
     collection_router as query_collection_router,
 )
 from app.modules.workflows.routes.queries import detail_router as query_detail_router
+from app.modules.workflows.routes.splitting import router as splitting_router
 from app.modules.workflows.routes.templates import router as templates_router
 
 router = APIRouter()
@@ -38,6 +39,7 @@ _mount(artifacts_router, tag="workflows")
 _mount(archive_router, tag="workflows")
 _mount(execution_router, tag="workflows")
 _mount(classification_router, tag="workflows")
+_mount(splitting_router, tag="workflows")
 _mount(query_detail_router, tag="workflows")
 _mount(command_detail_router, tag="workflows")
 _mount(intake_router, tag="workflow-inputs")

@@ -219,6 +219,13 @@ def test_excel_final_pipeline_is_disabled_by_default():
     assert Settings(_env_file=None).excel_final_pipeline_enabled is False
 
 
+def test_dxf_split_pipeline_is_disabled_by_default():
+    configured = Settings(_env_file=None)
+
+    assert configured.dxf_split_pipeline_enabled is False
+    assert configured.dxf_split_timeout_seconds == 3600
+
+
 def test_handbook_database_defaults_to_platform_mysql_connection():
     configured = Settings(
         _env_file=None,

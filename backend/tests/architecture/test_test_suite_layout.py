@@ -11,6 +11,7 @@ EXPECTED_TEST_DOMAINS = {
     "cad_processing",
     "contracts",
     "dxf_classification",
+    "dxf_splitting",
     "excel_processing",
     "files",
     "identity",

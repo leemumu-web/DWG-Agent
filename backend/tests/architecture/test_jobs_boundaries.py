@@ -73,6 +73,7 @@ PUBLIC_JOB_CONTRACT = {
     "require_job_write_access",
     "require_result_read_access",
     "require_result_review_access",
+    "rerun_succeeded_job",
     "retry_job",
     "run_local_stub_job",
     "summarize_job_execution",

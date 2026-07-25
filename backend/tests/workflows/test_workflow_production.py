@@ -7,16 +7,27 @@ from uuid import uuid4
 import openpyxl
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
 
+from app.modules.dxf_classification.interface import (
+    DxfClassificationItem,
+    DxfClassificationRun,
+)
+from app.modules.dxf_splitting.interface import DxfSplitItem, DxfSplitRun
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
+from app.modules.workflows.contracts import require_stage_outputs
 from app.modules.workflows.intake import registration as workflow_input_registration
 from app.modules.workflows.interface import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
 from app.modules.workflows.schemas import WorkflowCreate, WorkflowStageExecutionCreate
-from app.modules.workflows.stage_execution import prepare_stage_execution
+from app.modules.workflows.stage_execution import (
+    StageExecutionPlan,
+    dispatch_stage_execution,
+    prepare_stage_execution,
+)
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
 from tests.support import workflow_api as workflow_test_api
@@ -89,7 +100,11 @@ def test_linux_production_template_exposes_honest_capabilities():
     ]
     assert stages["excel_stage1"].implementation_status == "implemented"
     assert stages["excel_stage1"].execution_kind == "excel_stage1"
-    assert stages["excel_stage1"].required_inputs == ["source_excel"]
+    assert stages["excel_stage1"].required_inputs == [
+        "source_excel",
+        "processed_dxf",
+        "bh_split_ledger",
+    ]
     assert stages["excel_stage1"].artifact_types == ["stage1_excel"]
     assert stages["excel_stage2"].execution_mode == "placeholder"
     assert stages["excel_stage2"].implementation_status == "placeholder"
@@ -102,16 +117,26 @@ def test_linux_production_template_exposes_honest_capabilities():
     assert "stage2_excel" in stages["delivery_archive"].required_inputs
     assert "excel_final" not in stages
     assert all(stage.execution_kind != "dxf_to_excel" for stage in production.stages)
-    assert stages["drawing_processing"].implementation_status == "placeholder"
+    assert stages["drawing_processing"].implementation_status == "implemented"
+    assert stages["drawing_processing"].execution_mode == "automated"
+    assert stages["drawing_processing"].artifact_types == [
+        "processed_dxf",
+        "weld_allowance_dxf",
+        "split_report",
+        "weld_allowance_report",
+        "validation_report",
+        "bh_split_ledger",
+        "split_manifest",
+    ]
     assert stages["cam_packaging"].implementation_status == "placeholder"
     assert stages["windows_cam"].implementation_status == "external"
     assert stages["result_acceptance"].implementation_status == "placeholder"
 
 
 def test_workflow_stage_execution_request_is_closed_and_parameter_free():
-    assert WorkflowStageExecutionCreate(
-        execution_kind="excel_stage1"
-    ).model_dump() == {"execution_kind": "excel_stage1"}
+    assert WorkflowStageExecutionCreate(execution_kind="excel_stage1").model_dump() == {
+        "execution_kind": "excel_stage1"
+    }
     for extra in (
         {"file_id": 1},
         {"batch_name": "legacy"},
@@ -268,26 +293,94 @@ def _attach_source_intake_outputs(
     return outputs
 
 
-def _complete_classification_fixture(db, workflow: WorkflowRun) -> None:
+def _complete_classification_fixture(
+    db,
+    workflow: WorkflowRun,
+) -> DxfClassificationRun:
     """Advance the newly implemented automated classifier in downstream state-machine tests."""
+    artifacts: dict[str, StoredFile] = {}
     for artifact_type, name in (
         ("classified_dxf", "classified.dxf"),
         ("classification_report", "classification-report.json"),
         ("classification_manifest", "classification-manifest.json"),
     ):
+        stored = _stored_file(db, name=name)
+        stored.uploaded_by = workflow.created_by
+        artifacts[artifact_type] = stored
         workflow_service.attach_artifact(
             db,
             workflow,
             stage_code="dxf_classification",
             artifact_type=artifact_type,
-            file_id=_stored_file(db, name=name).id,
+            file_id=stored.id,
         )
+    job = Job(
+        project_id=workflow.project_id,
+        created_by=workflow.created_by,
+        task_type="classify_steel_dxf",
+        pipeline="steel_dxf_classifier",
+        status="succeeded",
+        attempt=1,
+        progress=100,
+        precision_level="normal",
+        params_json={
+            "workflow_id": workflow.id,
+            "input_manifest_sha256": "f" * 64,
+        },
+    )
+    db.add(job)
+    db.flush()
+    run = DxfClassificationRun(
+        workflow_run_id=workflow.id,
+        project_id=workflow.project_id,
+        job_id=job.id,
+        job_attempt=1,
+        status="completed",
+        classifier_version="1.2.0",
+        report_schema="STEEL-DXF-CLASSIFICATION-1.2",
+        cli_schema="STEEL-DXF-CLI-1.2",
+        project_name=f"fixture-workflow-{workflow.id}",
+        input_manifest_sha256="f" * 64,
+        input_count=1,
+        classified_count=1,
+        review_required_count=0,
+        unreadable_count=0,
+        type_counts_json={"BH": 1},
+        report_file_id=artifacts["classification_report"].id,
+        manifest_file_id=artifacts["classification_manifest"].id,
+    )
+    db.add(run)
+    db.flush()
+    classified = artifacts["classified_dxf"]
+    db.add(
+        DxfClassificationItem(
+            run=run,
+            source_file_id=classified.id,
+            output_file_id=classified.id,
+            source_name=classified.original_name,
+            output_name="fixture_拆板前.dxf",
+            output_directory=f"{run.project_name}_BH_dxf",
+            disposition="classified",
+            part_type="BH",
+            profile_raw="BH500*300*12*20",
+            profile_normalized="BH500*300*12*20",
+            type_source="catalog",
+            group_key="type:BH",
+            next_stage_eligible=True,
+            diagnostics_json=[],
+            evidence_json={},
+        )
+    )
+    db.flush()
     stage = next(item for item in workflow.stages if item.stage_code == "dxf_classification")
     drawing = next(item for item in workflow.stages if item.stage_code == "drawing_processing")
+    stage.job_id = job.id
+    stage.job_attempt = job.attempt
     stage.status = "succeeded"
     stage.progress = 100
     drawing.status = "waiting_input"
     workflow_service.recompute_workflow(workflow)
+    return run
 
 
 def _advance_to_drawing_processing(db, workflow: WorkflowRun) -> None:
@@ -304,21 +397,117 @@ def _complete_drawing_processing_fixture(
     processed_dxf: StoredFile | None = None,
 ) -> StoredFile:
     processed = processed_dxf or _stored_file(db, name="processed.dxf")
-    workflow_service.attach_artifact(
-        db,
-        workflow,
-        stage_code="drawing_processing",
-        artifact_type="processed_dxf",
-        file_id=processed.id,
+    processed.uploaded_by = workflow.created_by
+    allowance = _stored_file(db, name="fixture_余量增长.dxf")
+    split_report = _stored_file(db, name="split-report.json")
+    allowance_report = _stored_file(db, name="weld-allowance-report.json")
+    validation_report = _stored_file(db, name="validation-report.json")
+    ledger = _stored_file(db, name="BH拆板信息表.xlsx")
+    manifest = _stored_file(db, name="split-manifest.json")
+    for stored in (
+        allowance,
+        split_report,
+        allowance_report,
+        validation_report,
+        ledger,
+        manifest,
+    ):
+        stored.uploaded_by = workflow.created_by
+
+    classification = db.scalar(
+        select(DxfClassificationRun)
+        .where(DxfClassificationRun.workflow_run_id == workflow.id)
+        .order_by(DxfClassificationRun.id.desc())
     )
-    workflow_service.attach_artifact(
-        db,
-        workflow,
-        stage_code="drawing_processing",
-        artifact_type="validation_report",
-        file_id=_stored_file(db, name="validation-report.json").id,
+    assert classification is not None
+    classification_item = classification.items[0]
+    job = Job(
+        project_id=workflow.project_id,
+        created_by=workflow.created_by,
+        task_type="split_steel_dxf",
+        pipeline="steel_dxf_split",
+        status="succeeded",
+        attempt=1,
+        progress=100,
+        precision_level="normal",
+        params_json={
+            "workflow_id": workflow.id,
+            "classification_run_id": classification.id,
+            "input_manifest_sha256": classification.input_manifest_sha256,
+        },
     )
-    workflow_service.complete_manual_stage(db, workflow, "drawing_processing")
+    db.add(job)
+    db.flush()
+    run = DxfSplitRun(
+        workflow_run_id=workflow.id,
+        project_id=workflow.project_id,
+        classification_run_id=classification.id,
+        job_id=job.id,
+        job_attempt=1,
+        status="completed",
+        splitter_version="1.5.2",
+        cli_schema="DWG-AGENT-STEEL-DXF-SPLIT-CLI-1.0",
+        validation_schema="DWG-AGENT-DXF-SPLIT-VALIDATION-1.0",
+        input_manifest_sha256=classification.input_manifest_sha256,
+        input_count=1,
+        auto_accepted_count=1,
+        manual_review_count=0,
+        source_contracts_json={
+            "BH": "project_tekla_bh_dxf_v1",
+            "BOX": "project_tekla_box_dxf_v1",
+        },
+        bh_split_ledger_file_id=ledger.id,
+        split_manifest_file_id=manifest.id,
+        validation_report_file_id=validation_report.id,
+    )
+    db.add(run)
+    db.flush()
+    db.add(
+        DxfSplitItem(
+            run=run,
+            classification_item_id=classification_item.id,
+            source_file_id=classification_item.output_file_id,
+            source_name=classification_item.output_name,
+            part_type="BH",
+            profile_normalized=classification_item.profile_normalized,
+            family="BH",
+            source_contract_id="project_tekla_bh_dxf_v1",
+            automation_route="auto_accepted",
+            disposition="auto_accepted",
+            normal_dxf_file_id=processed.id,
+            weld_allowance_dxf_file_id=allowance.id,
+            split_report_file_id=split_report.id,
+            weld_allowance_report_file_id=allowance_report.id,
+            diagnostics_json=[],
+            validation_json={"status": "passed"},
+        )
+    )
+    metadata = {"job_id": job.id, "job_attempt": job.attempt, "split_run_id": run.id}
+    for artifact_type, stored in (
+        ("processed_dxf", processed),
+        ("weld_allowance_dxf", allowance),
+        ("split_report", split_report),
+        ("weld_allowance_report", allowance_report),
+        ("validation_report", validation_report),
+        ("bh_split_ledger", ledger),
+        ("split_manifest", manifest),
+    ):
+        workflow_service.attach_artifact(
+            db,
+            workflow,
+            stage_code="drawing_processing",
+            artifact_type=artifact_type,
+            file_id=stored.id,
+            metadata=metadata,
+        )
+    drawing = next(item for item in workflow.stages if item.stage_code == "drawing_processing")
+    excel = next(item for item in workflow.stages if item.stage_code == "excel_stage1")
+    drawing.job_id = job.id
+    drawing.job_attempt = job.attempt
+    drawing.status = "succeeded"
+    drawing.progress = 100
+    excel.status = "waiting_input"
+    workflow_service.recompute_workflow(workflow)
     return processed
 
 
@@ -331,9 +520,7 @@ def _mark_api_input_batch_frozen(
         assert workflow is not None
         _mark_input_batch_frozen(db, workflow)
         canonical_dxf = (
-            db.get(StoredFile, canonical_dxf_file_id)
-            if canonical_dxf_file_id is not None
-            else None
+            db.get(StoredFile, canonical_dxf_file_id) if canonical_dxf_file_id is not None else None
         )
         _attach_source_intake_outputs(
             db,
@@ -411,17 +598,11 @@ def _mark_api_classification_complete(workflow_id: int) -> None:
         db.commit()
 
 
-def _mark_api_validation_report_attached(workflow_id: int) -> None:
+def _mark_api_drawing_processing_complete(workflow_id: int) -> None:
     with open_test_session() as db:
         workflow = db.get(WorkflowRun, workflow_id)
         assert workflow is not None
-        workflow_service.attach_artifact(
-            db,
-            workflow,
-            stage_code="drawing_processing",
-            artifact_type="validation_report",
-            file_id=_stored_file(db, name="validation-report.json").id,
-        )
+        _complete_drawing_processing_fixture(db, workflow)
         db.commit()
 
 
@@ -533,6 +714,8 @@ def _workflow_at_excel_stage_with_frozen_excel(
             artifact_type="source_excel",
             file_id=source.id,
         )
+    _complete_classification_fixture(db, workflow)
+    _complete_drawing_processing_fixture(db, workflow)
     return user, project, workflow, batch, item, source, storage
 
 
@@ -543,8 +726,8 @@ def test_excel_stage1_resolves_frozen_source_excel_internally(
 ):
     from app.platform.config.settings import settings
 
-    user, project, workflow, batch, _, source, _ = (
-        _workflow_at_excel_stage_with_frozen_excel(db, tmp_path, monkeypatch)
+    user, project, workflow, batch, _, source, _ = _workflow_at_excel_stage_with_frozen_excel(
+        db, tmp_path, monkeypatch
     )
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
 
@@ -558,11 +741,18 @@ def test_excel_stage1_resolves_frozen_source_excel_internally(
 
     assert plan.job.task_type == "process_excel_final"
     assert plan.job.project_id == project.id
-    assert plan.job.params_json == {
-        "file_id": source.id,
-        "workflow_id": workflow.id,
-        "input_manifest_sha256": batch.manifest_sha256,
-    }
+    params = plan.job.params_json
+    assert params is not None
+    assert params["file_id"] == source.id
+    assert params["workflow_id"] == workflow.id
+    assert params["input_manifest_sha256"] == batch.manifest_sha256
+    handoff = params["dxf_split_handoff"]
+    assert handoff["workflow_id"] == workflow.id
+    assert handoff["job_attempt"] == 1
+    assert handoff["bh_split_ledger_file_id"]
+    assert len(handoff["drawings"]) == 1
+    assert handoff["drawings"][0]["normal_dxf_file_id"]
+    assert handoff["drawings"][0]["weld_allowance_dxf_file_id"]
 
 
 def test_excel_stage1_rejects_missing_frozen_source_artifact(
@@ -600,8 +790,8 @@ def test_excel_stage1_rejects_source_changed_after_freeze(
 ):
     from app.platform.config.settings import settings
 
-    user, _, workflow, _, item, source, storage = (
-        _workflow_at_excel_stage_with_frozen_excel(db, tmp_path, monkeypatch)
+    user, _, workflow, _, item, source, storage = _workflow_at_excel_stage_with_frozen_excel(
+        db, tmp_path, monkeypatch
     )
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
     changed = _canonical_xlsx_bytes() + b"changed"
@@ -637,8 +827,8 @@ def test_excel_stage1_rejects_duplicate_frozen_source_items(
 ):
     from app.platform.config.settings import settings
 
-    user, _, workflow, batch, item, source, storage = (
-        _workflow_at_excel_stage_with_frozen_excel(db, tmp_path, monkeypatch)
+    user, _, workflow, batch, item, source, storage = _workflow_at_excel_stage_with_frozen_excel(
+        db, tmp_path, monkeypatch
     )
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
     duplicate_key = f"inputs/{uuid4().hex}/duplicate.xlsx"
@@ -697,8 +887,8 @@ def test_excel_stage1_rejects_deleted_frozen_source(
 ):
     from app.platform.config.settings import settings
 
-    user, _, workflow, _, _, source, _ = (
-        _workflow_at_excel_stage_with_frozen_excel(db, tmp_path, monkeypatch)
+    user, _, workflow, _, _, source, _ = _workflow_at_excel_stage_with_frozen_excel(
+        db, tmp_path, monkeypatch
     )
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
     source.status = "deleted"
@@ -723,8 +913,8 @@ def test_excel_stage1_rejects_inaccessible_frozen_source(
 ):
     from app.platform.config.settings import settings
 
-    user, _, workflow, _, _, source, _ = (
-        _workflow_at_excel_stage_with_frozen_excel(db, tmp_path, monkeypatch)
+    user, _, workflow, _, _, source, _ = _workflow_at_excel_stage_with_frozen_excel(
+        db, tmp_path, monkeypatch
     )
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
     stranger = User(
@@ -758,8 +948,8 @@ def test_excel_stage1_returns_specific_invalid_table_failure(
 ):
     from app.platform.config.settings import settings
 
-    user, _, workflow, _, item, source, storage = (
-        _workflow_at_excel_stage_with_frozen_excel(db, tmp_path, monkeypatch)
+    user, _, workflow, _, item, source, storage = _workflow_at_excel_stage_with_frozen_excel(
+        db, tmp_path, monkeypatch
     )
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
     invalid = _component_only_xlsx_bytes()
@@ -829,7 +1019,9 @@ def test_repeated_file_binding_is_idempotent(db):
 def test_artifact_api_reuses_files_and_is_idempotent():
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
-    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-artifact")
+    _, owner_headers = workflow_test_api.create_engineer_user(
+        client, admin_headers, "prod-artifact"
+    )
     project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
@@ -874,7 +1066,9 @@ def test_non_member_cannot_bind_workflow_artifact():
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
     _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-owner")
-    _, stranger_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-stranger")
+    _, stranger_headers = workflow_test_api.create_engineer_user(
+        client, admin_headers, "prod-stranger"
+    )
     project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
@@ -957,27 +1151,7 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
         == 200
     )
     _mark_api_classification_complete(workflow_id)
-    assert (
-        client.post(
-            f"/api/v1/workflows/{workflow_id}/artifacts",
-            headers=owner_headers,
-            json={
-                "stage_code": "drawing_processing",
-                "artifact_type": "processed_dxf",
-                "file_id": file_id,
-                "metadata": {"handoff": "test-fixture"},
-            },
-        ).status_code
-        == 201
-    )
-    _mark_api_validation_report_attached(workflow_id)
-    assert (
-        client.post(
-            f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/completion",
-            headers=owner_headers,
-        ).status_code
-        == 200
-    )
+    _mark_api_drawing_processing_complete(workflow_id)
     return workflow_id, excel_file_id
 
 
@@ -989,9 +1163,7 @@ def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     admin_headers = workflow_test_api.admin_headers(client)
     _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-exec")
     project_id = workflow_test_api.create_project(client, owner_headers)
-    workflow_id, excel_file_id = _api_workflow_at_excel_stage(
-        client, owner_headers, project_id
-    )
+    workflow_id, excel_file_id = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     dispatched: list[int] = []
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
     monkeypatch.setattr(
@@ -1170,10 +1342,12 @@ def test_cancelled_bound_job_stays_on_its_recoverable_workflow_stage(db):
     assert workflow.error_code == "WORKFLOW_STAGE_CANCELLED"
 
 
-def test_placeholder_execution_exposes_complete_contract():
+def test_drawing_processing_execution_honors_disabled_feature_gate():
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
-    _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-placeholder")
+    _, owner_headers = workflow_test_api.create_engineer_user(
+        client, admin_headers, "prod-placeholder"
+    )
     project_id = workflow_test_api.create_project(client, owner_headers)
     created = client.post(
         "/api/v1/workflows",
@@ -1211,37 +1385,320 @@ def test_placeholder_execution_exposes_complete_contract():
         json={"execution_kind": "drawing_processing"},
     )
 
-    assert response.status_code == 501, response.text
+    assert response.status_code == 503, response.text
     error = response.json()["error"]
-    assert error["code"] == "WORKFLOW_STAGE_NOT_IMPLEMENTED"
-    assert error["details"]["implementation_status"] == "placeholder"
-    assert error["details"]["required_inputs"] == ["classified_dxf"]
-    assert error["details"]["artifact_types"] == [
-        "processed_dxf",
-        "validation_report",
-    ]
+    assert error["code"] == "DXF_SPLIT_PIPELINE_DISABLED"
+
+
+def test_drawing_processing_rejects_unresolved_classification_mapping(
+    db,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow = _production_workflow(db)
+    _advance_to_drawing_processing(db, workflow)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(DxfClassificationRun.workflow_run_id == workflow.id)
+    )
+    assert classification is not None
+    classification.status = "completed_with_review"
+    classification.review_required_count = 1
+    db.flush()
+    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
+
+    with pytest.raises(AppHTTPException) as exc_info:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="drawing_processing",
+            payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
+            current_user=user,
+        )
+
+    assert exc_info.value.detail["code"] == "DXF_CLASSIFICATION_REVIEW_UNRESOLVED"
+
+
+def test_project_engineer_can_launch_split_from_another_members_classification(
+    db,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    _, project, workflow = _production_workflow(db)
+    _advance_to_drawing_processing(db, workflow)
+    engineer = User(
+        username=f"split-launcher-{uuid4().hex[:8]}",
+        password_hash="x",
+        real_name="Split Project Engineer",
+        status="active",
+    )
+    db.add(engineer)
+    db.flush()
+    db.add(
+        ProjectMember(
+            project_id=project.id,
+            user_id=engineer.id,
+            project_role="project_engineer",
+        )
+    )
+    db.flush()
+    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
+
+    plan = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
+        current_user=engineer,
+    )
+
+    assert plan.job.project_id == project.id
+    assert plan.job.created_by == engineer.id
+    assert plan.job.task_type == "split_steel_dxf"
+
+
+def test_bound_split_job_is_reused_across_project_members(
+    db,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    owner, project, workflow = _production_workflow(db)
+    _advance_to_drawing_processing(db, workflow)
+    engineer = User(
+        username=f"split-reuser-{uuid4().hex[:8]}",
+        password_hash="x",
+        real_name="Split Project Engineer",
+        status="active",
+    )
+    db.add(engineer)
+    db.flush()
+    db.add(
+        ProjectMember(
+            project_id=project.id,
+            user_id=engineer.id,
+            project_role="project_engineer",
+        )
+    )
+    db.flush()
+    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
+    payload = WorkflowStageExecutionCreate(execution_kind="drawing_processing")
+
+    first = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        payload=payload,
+        current_user=owner,
+    )
+    second = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        payload=payload,
+        current_user=engineer,
+    )
+
+    split_jobs = db.scalars(
+        select(Job).where(
+            Job.project_id == project.id,
+            Job.task_type == "split_steel_dxf",
+        )
+    ).all()
+    assert second.job.id == first.job.id
+    assert second.job.created_by == owner.id
+    assert second.reused is True
+    assert len(split_jobs) == 1
+
+
+def test_drawing_processing_dispatch_uses_three_attempt_technical_budget(
+    db,
+    monkeypatch,
+):
+    user, project, workflow = _production_workflow(db)
+    _advance_to_drawing_processing(db, workflow)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(DxfClassificationRun.workflow_run_id == workflow.id)
+    )
+    assert classification is not None
+    job = Job(
+        project_id=project.id,
+        created_by=workflow.created_by,
+        task_type="split_steel_dxf",
+        pipeline="steel_dxf_split",
+        status="queued",
+        attempt=1,
+        progress=0,
+        precision_level="normal",
+        params_json={
+            "workflow_id": workflow.id,
+            "classification_run_id": classification.id,
+            "input_manifest_sha256": classification.input_manifest_sha256,
+        },
+    )
+    db.add(job)
+    db.flush()
+    workflow_service.bind_stage_job(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        job=job,
+    )
+    db.commit()
+    attempts: list[int] = []
+
+    def flaky_dispatch(session, dispatched_job):
+        attempts.append(dispatched_job.attempt)
+        if dispatched_job.attempt < 3:
+            dispatched_job.status = "failed"
+            dispatched_job.error_code = "JOB_ENQUEUE_FAILED"
+            dispatched_job.error_message = "fixture broker failure"
+            session.commit()
+            raise AppHTTPException(
+                503,
+                "JOB_ENQUEUE_FAILED",
+                "fixture broker failure",
+            )
+        return "task-3"
+
+    dispatched = dispatch_stage_execution(
+        db,
+        workflow,
+        StageExecutionPlan(job=job, reused=False, retried=False),
+        dispatcher=flaky_dispatch,
+    )
+
+    db.expire_all()
+    current_job = db.get(Job, job.id)
+    drawing_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
+    )
+    assert attempts == [1, 2, 3]
+    assert current_job is not None and current_job.status == "queued"
+    assert current_job.attempt == 3
+    assert drawing_stage.job_id == job.id
+    assert drawing_stage.job_attempt == 3
+    assert dispatched.job.attempt == 3
+    assert dispatched.retried is True
+
+    from app.platform.config.settings import settings
+
+    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
+    current_job.status = "failed"
+    db.commit()
+    with pytest.raises(AppHTTPException) as exc_info:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="drawing_processing",
+            payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
+            current_user=user,
+        )
+    assert exc_info.value.detail["code"] == "DXF_SPLIT_ATTEMPTS_EXHAUSTED"
+
+
+def test_review_outcome_can_only_rerun_as_a_whole_new_attempt(
+    db,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    user, project, workflow = _production_workflow(db)
+    _advance_to_drawing_processing(db, workflow)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(DxfClassificationRun.workflow_run_id == workflow.id)
+    )
+    assert classification is not None
+    job = Job(
+        project_id=project.id,
+        created_by=user.id,
+        task_type="split_steel_dxf",
+        pipeline="steel_dxf_split",
+        status="succeeded",
+        attempt=1,
+        progress=100,
+        precision_level="normal",
+        request_key=f"workflow-{workflow.id}-drawing_processing",
+        params_json={
+            "workflow_id": workflow.id,
+            "classification_run_id": classification.id,
+            "input_manifest_sha256": classification.input_manifest_sha256,
+        },
+    )
+    db.add(job)
+    db.flush()
+    prior_run = DxfSplitRun(
+        workflow_run_id=workflow.id,
+        project_id=project.id,
+        classification_run_id=classification.id,
+        job_id=job.id,
+        job_attempt=1,
+        status="completed_with_review",
+        splitter_version="1.5.2",
+        input_manifest_sha256=classification.input_manifest_sha256,
+        input_count=1,
+        auto_accepted_count=0,
+        manual_review_count=1,
+    )
+    db.add(prior_run)
+    workflow_service.bind_stage_job(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        job=job,
+    )
+    drawing_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
+    )
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+    assert drawing_stage.status == "waiting_review"
+    assert workflow.current_stage == "drawing_processing"
+    db.commit()
+    monkeypatch.setattr(settings, "dxf_split_pipeline_enabled", True)
+
+    plan = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="drawing_processing",
+        payload=WorkflowStageExecutionCreate(execution_kind="drawing_processing"),
+        current_user=user,
+    )
+
+    assert plan.job.id == job.id
+    assert plan.job.attempt == 2
+    assert plan.job.status == "queued"
+    assert plan.reused is True
+    assert plan.retried is True
+    assert prior_run.job_attempt == 1
+    assert prior_run.status == "completed_with_review"
+    assert drawing_stage.output_json is None
 
 
 def test_automated_stage_cannot_be_manually_completed(db):
     _, _, workflow = _production_workflow(db)
     _advance_to_drawing_processing(db, workflow)
-    _complete_drawing_processing_fixture(db, workflow)
 
     with pytest.raises(AppHTTPException, match="execution endpoint"):
-        workflow_service.complete_manual_stage(db, workflow, "excel_stage1")
+        workflow_service.complete_manual_stage(db, workflow, "drawing_processing")
 
 
-def test_placeholder_handoff_requires_all_outputs(db):
+def test_drawing_processing_contract_requires_all_current_attempt_outputs(db):
     _, _, workflow = _production_workflow(db)
     _advance_to_drawing_processing(db, workflow)
 
     with pytest.raises(AppHTTPException) as caught:
-        workflow_service.complete_manual_stage(db, workflow, "drawing_processing")
+        require_stage_outputs(workflow, "drawing_processing")
 
     assert caught.value.detail["code"] == "WORKFLOW_STAGE_OUTPUT_INCOMPLETE"
     assert caught.value.detail["details"]["missing_outputs"] == [
         "processed_dxf",
+        "weld_allowance_dxf",
+        "split_report",
+        "weld_allowance_report",
         "validation_report",
+        "bh_split_ledger",
+        "split_manifest",
     ]
 
 
@@ -1390,7 +1847,12 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         "classification_report",
         "classification_manifest",
         "processed_dxf",
+        "weld_allowance_dxf",
+        "split_report",
+        "weld_allowance_report",
         "validation_report",
+        "bh_split_ledger",
+        "split_manifest",
         "stage1_excel",
         "stage2_excel",
         "review_record",

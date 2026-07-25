@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **150 个 path、174 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **152 个 path、176 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -188,6 +188,8 @@
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}` |
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}/download-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}/dxf-classification/download-archive` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing` |
+| `GET` | `/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive` |
 | `GET` | `/api/v1/workflows/{workflow_id}` |
 | `POST` | `/api/v1/workflows/{workflow_id}/start` |
 | `POST` | `/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion` |
@@ -413,13 +415,17 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 
 `linux_production` 对每阶段强制执行模板声明的 artifact type 白名单；不匹配返回 `422 WORKFLOW_ARTIFACT_TYPE_INVALID`。因此 placeholder/external 阶段必须提交约定类型的真实交接产物，不能用任意文件满足 completion。旧模板未声明白名单，保持兼容。
 
-`POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 只执行当前阶段。`dxf_classification` 接收 `execution_kind=steel_dxf_classification` 并从冻结清单确定输入；`excel_stage1` 接收 `execution_kind=excel_stage1`，服务端自动读取冻结 `source_excel`。两者以工作流/阶段幂等键创建或复用 Job，同事务绑定 attempt，commit 后才投递。自动阶段不能通过 completion 绕过。若绑定 Job 已失败或被单独取消，重放同一 executions 请求会复用 Job、递增 attempt、清除阶段错误并重新投递；响应以 `retried=true` 明确区分普通幂等复用。显式取消整个流程后不可重开。
+`POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 只执行当前阶段。`dxf_classification` 接收 `execution_kind=steel_dxf_classification` 并从冻结清单确定输入；`drawing_processing` 接收 `execution_kind=drawing_processing` 并从最新分类 run 冻结整批输入；`excel_stage1` 接收 `execution_kind=excel_stage1`，由服务端解析唯一冻结 Excel 与当前拆板交接。三者以工作流/阶段幂等键创建或复用 Job，同事务绑定 attempt，commit 后才投递。执行端先锁定工作流行；拆板阶段一旦绑定 Job，后续项目成员始终复用该 Job，不因操作者变化重置 attempt 预算。自动阶段不能通过 completion 绕过。一般自动阶段的失败或单独取消 Job 可由相同 executions 请求复用 Job、递增 attempt、清除阶段错误并重投；响应以 `retried=true` 明确区分普通幂等复用。拆板技术失败由 worker 自动执行最多 3 个不可变整批 attempt，业务人工复核不触发技术重试；公共 Job 创建/重试端点以 `409 DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED` 拒绝绕过阶段绑定和 attempt 预算。显式取消整个流程后不可重开。
 
 `GET /api/v1/workflows/{workflow_id}/dxf-classification` 返回最新 attempt 的分类器/schema 版本、冻结清单摘要、Job、类型汇总、逐图来源/分流 DXF 登记以及 JSON 报告和 CSV 清单。每个输出先在 MinIO 保存并建立 `files` 记录；待确认/无法读取也是明确处置，不伪装为自动分类。
 
-Excel 第二阶段、图纸拆板、CAM 工作包、Windows CAM 和结果接纳保留同一 executions 路径，但返回 HTTP 501 `WORKFLOW_STAGE_NOT_IMPLEMENTED`；`details` 包含 `implementation_status`、`execution_mode`、`required_inputs` 和 `artifact_types`。这不代表平台执行了留白算法。
+`drawing_processing` 只消费已登记分类 DXF，BH/BOX 分别要求 `project_tekla_bh_dxf_v1`、`project_tekla_box_dxf_v1` 来源合同；其他类型与独立校验未通过图纸进入 `manual_review`，但整批仍处理到底。正常拆板、余量增长、两类算法报告、独立校验报告、批次 manifest 和 `BH拆板信息表.xlsx` 写入现有 MinIO bucket，并以当前 Job attempt 元数据登记。全部通过时推进 Excel；存在人工复核时 Job 成功、run 为 `completed_with_review`，工作流保持 `waiting_review`，自动产物保留。
 
-详情查询同步匹配 attempt 的 Job，成功时幂等挂接 AnalysisResult/File 并推进下一阶段。取消流程会先取消当前 active Job。feature flag 关闭分别返回 `DXF2EXCEL_PIPELINE_DISABLED` 或 `EXCEL_FINAL_PIPELINE_DISABLED`。
+`GET /api/v1/workflows/{workflow_id}/drawing-processing` 只返回工作流当前拆板 Job/attempt 对应的 run；尚未创建时返回 `data: null`。`GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive` 即时生成 ZIP，只包含当前 run 未通过图纸进入拆板前的分类原始 DXF，不包含候选图、报告、预览、Excel 或旧 attempt，也不把 ZIP 保存到 MinIO。
+
+CAM 工作包、Windows CAM 和结果接纳保留同一 executions 路径，但返回 HTTP 501 `WORKFLOW_STAGE_NOT_IMPLEMENTED`；`details` 包含 `implementation_status`、`execution_mode`、`required_inputs` 和 `artifact_types`。绑定外部交接产物后，owner/engineer 可通过 completion 明确确认交接；这不代表平台执行了留白算法。
+
+详情查询同步匹配 attempt 的 Job，成功时幂等挂接 AnalysisResult/File；拆板 `completed_with_review` 不推进。取消流程会先取消当前 active Job。分类、拆板或 Excel 功能开关关闭分别返回 `DXF_CLASSIFICATION_PIPELINE_DISABLED`、`DXF_SPLIT_PIPELINE_DISABLED` 或 `EXCEL_FINAL_PIPELINE_DISABLED`。
 
 ## 运行时文档
 

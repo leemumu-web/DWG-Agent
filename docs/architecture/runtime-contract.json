@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "d6f3a8c2e710"
+    "f9c4b7e2a610"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -10,6 +10,7 @@
     "app.workers.tasks_dxf2dwg.* -> dxf2dwg",
     "app.workers.tasks_dxf2excel.* -> dxf2excel",
     "app.workers.tasks_dxf_classification.* -> dxf_classification",
+    "app.workers.tasks_dxf_split.* -> dxf_split",
     "app.workers.tasks_excel_final.* -> excel_final",
     "app.workers.tasks_maintenance.* -> maintenance",
     "app.workers.tasks_remnant_convert.* -> remnant_convert",
@@ -23,6 +24,7 @@
     "app.workers.tasks_dxf2dwg.convert_dxf_to_dwg_batch",
     "app.workers.tasks_dxf2excel.extract_dxf_to_excel",
     "app.workers.tasks_dxf_classification.classify_steel_dxf",
+    "app.workers.tasks_dxf_split.split_steel_dxf",
     "app.workers.tasks_excel_final.process_excel_final",
     "app.workers.tasks_maintenance.create_daily_archive",
     "app.workers.tasks_maintenance.reconcile_stale_jobs",
@@ -40,6 +42,7 @@
     "worker-dispatch",
     "worker-dxf",
     "worker-dxf-classification",
+    "worker-dxf-split",
     "worker-dxf2dwg",
     "worker-dxf2excel",
     "worker-excel-final",
@@ -160,6 +163,8 @@
     "GET /api/v1/workflows/templates get_workflow_templates_api_v1_workflows_templates_get",
     "GET /api/v1/workflows/{workflow_id} get_workflow_api_v1_workflows__workflow_id__get",
     "GET /api/v1/workflows/{workflow_id}/download-archive download_workflow_archive_api_v1_workflows__workflow_id__download_archive_get",
+    "GET /api/v1/workflows/{workflow_id}/drawing-processing get_drawing_processing_api_v1_workflows__workflow_id__drawing_processing_get",
+    "GET /api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive download_manual_review_archive_api_v1_workflows__workflow_id__drawing_processing_runs__run_id__manual_review_archive_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification get_dxf_classification_api_v1_workflows__workflow_id__dxf_classification_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification/download-archive download_all_dxf_classification_archive_api_v1_workflows__workflow_id__dxf_classification_download_archive_get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key} get_dxf_classification_group_api_v1_workflows__workflow_id__dxf_classification_groups__group_key__get",
@@ -381,6 +386,8 @@
     "/api/v1/workflows/{workflow_id}/artifacts",
     "/api/v1/workflows/{workflow_id}/cancellation-requests",
     "/api/v1/workflows/{workflow_id}/download-archive",
+    "/api/v1/workflows/{workflow_id}/drawing-processing",
+    "/api/v1/workflows/{workflow_id}/drawing-processing/runs/{run_id}/manual-review-archive",
     "/api/v1/workflows/{workflow_id}/dxf-classification",
     "/api/v1/workflows/{workflow_id}/dxf-classification/download-archive",
     "/api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}",
@@ -410,6 +417,8 @@
     "drawings",
     "dxf_classification_items",
     "dxf_classification_runs",
+    "dxf_split_items",
+    "dxf_split_runs",
     "excel_final_batches",
     "excel_final_components",
     "excel_final_parts",

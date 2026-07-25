@@ -1,0 +1,114 @@
+{
+  "schema_version": "BOX-SUPERVISED-DISCOVERY-1.0",
+  "root": "D:\\DevData\\BOX拆板前后数据",
+  "complete_pair_count": 20,
+  "box_pair_count": 20,
+  "non_box_pair_count": 0,
+  "unreadable_pair_count": 0,
+  "box_pairs": [
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-56",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-56_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-56_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-86",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-86_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-86_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-91",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-91_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-91_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b1-cb-92",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b1-cb-92_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b1-cb-92_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-145",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-145_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-145_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-155",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-155_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-155_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2b2-cb-2",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2b2-cb-2_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2b2-cb-2_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/2t1-cb-95",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\2t1-cb-95_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\2t1-cb-95_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/3t2-cb-117",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\3t2-cb-117_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\3t2-cb-117_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-3-cb-2",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-3-cb-2_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-3-cb-2_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-4-cb-37",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-4-cb-37_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-37_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-4-cb-38",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-4-cb-38_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-4-cb-38_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-116",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-116_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-116_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-124",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-124_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-124_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-133",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-133_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-133_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-279",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-279_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-279_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-69",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-69_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-69_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-72",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-72_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-72_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-73",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-73_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-73_拆板后.dxf"
+    },
+    {
+      "pair_id": "BOX_拆板_dxf/h-9-cb-94",
+      "before_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板前_dxf\\h-9-cb-94_拆板前.dxf",
+      "after_path": "D:\\DevData\\BOX拆板前后数据\\BOX_拆板后_dxf\\h-9-cb-94_拆板后.dxf"
+    }
+  ],
+  "non_box_pairs": [],
+  "unreadable_pairs": [],
+  "missing_before": [],
+  "missing_after": []
+}

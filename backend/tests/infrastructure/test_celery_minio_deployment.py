@@ -399,6 +399,8 @@ def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default
         "worker-dxf",
         "worker-dxf2dwg",
         "worker-dxf2excel",
+        "worker-dxf-classification",
+        "worker-dxf-split",
         "worker-excel-final",
         "worker-report",
     ):
@@ -441,7 +443,14 @@ def test_infra_docs_match_current_core_and_profile_worker_topology():
     nginx = (REPO_ROOT / "infra/gateway/nginx/README.md").read_text()
 
     assert "worker-report" in infra
-    for worker in ("worker-dxf", "worker-dxf2dwg", "worker-dxf2excel", "worker-excel-final"):
+    for worker in (
+        "worker-dxf",
+        "worker-dxf2dwg",
+        "worker-dxf2excel",
+        "worker-dxf-classification",
+        "worker-dxf-split",
+        "worker-excel-final",
+    ):
         assert worker in infra
     assert "Agent 功能保持禁用" in infra
     assert "docker compose up -d" in infra

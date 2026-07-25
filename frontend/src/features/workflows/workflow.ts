@@ -150,3 +150,48 @@ export interface DxfClassificationRun {
   created_at: string;
   updated_at: string;
 }
+
+export interface DxfSplitItem {
+  id: number;
+  drawing_id?: number | null;
+  classification_item_id: number;
+  source_file_id: number;
+  source_name: string;
+  part_type: string;
+  profile_normalized?: string | null;
+  family?: string | null;
+  source_contract_id?: string | null;
+  automation_route: 'auto_accepted' | 'manual_review';
+  disposition: string;
+  normal_dxf_file_id?: number | null;
+  weld_allowance_dxf_file_id?: number | null;
+  split_report_file_id?: number | null;
+  weld_allowance_report_file_id?: number | null;
+  diagnostics: string[];
+  validation: Record<string, unknown>;
+}
+
+export interface DxfSplitRun {
+  id: number;
+  workflow_run_id: number;
+  status: 'running' | 'completed' | 'completed_with_review' | 'failed';
+  splitter_version: string;
+  cli_schema?: string | null;
+  validation_schema?: string | null;
+  input_manifest_sha256: string;
+  input_count: number;
+  auto_accepted_count: number;
+  manual_review_count: number;
+  source_contracts: Record<string, string>;
+  bh_split_ledger_file?: import('../files').StoredFile | null;
+  split_manifest_file?: import('../files').StoredFile | null;
+  validation_report_file?: import('../files').StoredFile | null;
+  job: import('../jobs').Job;
+  items: DxfSplitItem[];
+  error_code?: string | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}

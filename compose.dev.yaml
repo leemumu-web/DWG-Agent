@@ -17,6 +17,7 @@ services:
       - ./Stages/dxf2dwg:/app/Stages/dxf2dwg
       - ./Stages/dxf2excel:/app/Stages/dxf2excel
       - ./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0
+      - ./Stages/steel_dxf_split_v1.5.2:/app/Stages/steel_dxf_split_v1.5.2
       - ./Stages/excel_final:/app/Stages/excel_final
       - ./Stages/remnant_drawing_reader:/app/Stages/remnant_drawing_reader
 
@@ -43,6 +44,11 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0
+
+  worker-dxf-split:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages/steel_dxf_split_v1.5.2:/app/Stages/steel_dxf_split_v1.5.2
 
   worker-excel-final:
     volumes:

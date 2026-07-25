@@ -34,6 +34,7 @@ from app.modules.jobs.lifecycle import (
     commit_job_progress,
     complete_job_attempt,
     fail_job_attempt,
+    rerun_succeeded_job,
     retry_job,
 )
 from app.modules.jobs.models import AnalysisResult, Job, JobStep, ReviewRecord
@@ -121,6 +122,7 @@ __all__ = [
     "require_result_read_access",
     "require_result_review_access",
     "retry_job",
+    "rerun_succeeded_job",
     "run_local_stub_job",
     "summarize_job_execution",
 ]

@@ -23,7 +23,7 @@ Celery workers（无入站监听端口）
 |---|---|---|---|
 | `frontend/src/app` | Router、Provider、应用壳 | 只经 feature `index.ts` 装配 | production build + 前端合同/E2E |
 | `frontend/src/shared` | HTTP、认证会话、通用 UI/样式 | 不得反向依赖 feature | Node 架构检查 |
-| `frontend/src/features/*` | 11 个页面/API/type/组件 owner | 跨 feature 只经公共入口 | 后端合同 + Playwright |
+| `frontend/src/features/*` | 12 个页面/API/type/组件 owner | 跨 feature 只经公共入口 | 后端合同 + Playwright |
 | `backend/app/bootstrap` | FastAPI、router、model/task registry、seed | 唯一 composition root | OpenAPI/ORM/Celery 快照 |
 | `backend/app/platform` | config、database、http、messaging、observability、security、storage seam | 不得导入业务 module | AST 边界测试 |
 | `backend/app/modules/*` | 业务 route/model/schema/use case/task 与公开 interface | 跨域只经目标 `interface.py` | 表/operation/task 唯一 owner |
@@ -66,9 +66,9 @@ Compose 在网络隔离、非 root backend/frontend、健康依赖和持久卷�
 
 后端代码按三个方向分层：`app/bootstrap` 是唯一 composition root，负责 FastAPI、HTTP router、seed、模型与 Celery 任务装配；`app/platform` 只提供配置、数据库、HTTP、消息、日志、token 与 Local/MinIO 技术 seam；`app/modules` 拥有业务规则和数据。平台层有 AST 门禁禁止导入业务模块，其他业务模块只能经目标模块的 `interface.py` 使用能力。
 
-前端采用同一领域词汇做纵向切片：`src/app` 只装配 Router、Provider 和应用壳层，`src/shared` 只放无业务归属的 HTTP/认证/错误边界/通用 UI，`src/features` 下的 11 个功能目录共同拥有页面、API、类型、领域 hook 和组件。跨功能调用只能经过目标目录的 `index.ts`，shared 不得反向依赖 feature；Node 架构门禁在每次 production build 前拒绝旧横向目录和私有深层导入。URL、请求字段、React Query 行为与 FastAPI 授权边界不因目录迁移改变。
+前端采用同一领域词汇做纵向切片：`src/app` 只装配 Router、Provider 和应用壳层，`src/shared` 只放无业务归属的 HTTP/认证/错误边界/通用 UI，`src/features` 下的 12 个功能目录共同拥有页面、API、类型、领域 hook 和组件。跨功能调用只能经过目标目录的 `index.ts`，shared 不得反向依赖 feature；Node 架构门禁在每次 production build 前拒绝旧横向目录和私有深层导入。URL、请求字段、React Query 行为与 FastAPI 授权边界不因目录迁移改变。
 
-identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类、Excel Final 和生产工作流分别进入 `cad_processing`、`dxf_classification`、`excel_processing` 与 `workflows`。operations 进一步按 audit、daily archive、data catalog、storage reconciliation、control plane 分层；automation 把已交付的三张表/会话记忆/API 与未实现执行契约分开。跨域调用只经各模块 `interface.py`；旧 `api/models/schemas/services/workers` 横向业务源码和空 Agent/MCP/ZWCAD 适配器已经退出。HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 callback seam，由 bootstrap 注册 Job 恢复和控制平面 observer，不反向导入业务模块。
+identity 已集中 `/auth`、`/users`、`/roles`、六张 RBAC/token 表和认证/用户逻辑；projects 已集中 `/projects`、`/drawings`、四张目录表、成员权限和版本服务；files 已集中 `/files`、四张登记/流转/扫描事实表、项目范围访问、登记、导出和补偿；jobs 已集中 `/jobs`、`/results`、`/reviews`、四张任务/结果/复核表、attempt 状态机、投递补偿、当前状态 SSE 和 stale 恢复。CAD 转换/预览、Steel DXF 分类、Steel DXF 拆板、Excel Final 和生产工作流分别进入 `cad_processing`、`dxf_classification`、`dxf_splitting`、`excel_processing` 与 `workflows`。operations 进一步按 audit、daily archive、data catalog、storage reconciliation、control plane 分层；automation 把已交付的三张表/会话记忆/API 与未实现执行契约分开。跨域调用只经各模块 `interface.py`；旧 `api/models/schemas/services/workers` 横向业务源码和空 Agent/MCP/ZWCAD 适配器已经退出。HTTP method/path/function 集合、表名与权限结果由机器契约锁定。Local/MinIO adapter 及其选择/健康仍是 platform seam，不导入 ORM 或文件权限；Celery platform 只提供通用 callback seam，由 bootstrap 注册 Job 恢复和控制平面 observer，不反向导入业务模块。
 
 ## 同步请求路径
 
@@ -95,7 +95,7 @@ Browser -> Nginx -> FastAPI dependency auth -> service -> MySQL -> envelope resp
 后 files 删除保护经工作流公开接口查询不可变引用。早期结构图中的人工 DXF 上传文字已被此
 后续确认规则取代。
 
-公开 route 已接通 Steel DXF Classifier 与唯一 `excel_stage1` Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。Excel 阶段只读取冻结清单的 `source_excel`，浏览器不能另选文件；DXF→Excel 只保留独立工具。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；图纸拆板、CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
+公开 route 已接通 Steel DXF Classifier、Steel DXF Split 与唯一 `excel_stage1` Job，按工作流/阶段幂等创建、commit 后投递、详情查询同步 Job 并幂等挂接结果产物。Excel 阶段只读取冻结清单的 `source_excel` 和当前拆板交接，浏览器不能另选文件；DXF→Excel 只保留独立工具。分类分流逐图保存 MySQL 来源/输出关系，并把命名规范化 DXF、JSON 报告和 CSV 清单存入 MinIO；拆板再按冻结分类清单整批处理 BH/BOX，登记正常拆板、余量增长、报告、manifest 与 BH ledger。存在人工复核时整批完成但保持 `waiting_review`，前端只即时下载未通过分类原始 DXF。CAM 工作包、Windows Node Agent/SinoCAM 和结果接纳保持带输入输出契约的 placeholder/external 阶段。详见[Linux 生产工作流框架](workflow.md)。
 
 Excel Final 的创建边界由客户端 `Idempotency-Key`、端点作用域后的 `jobs.request_key` 和 `(created_by, task_type, request_key)` 唯一约束组成。普通重放返回原 Job 且不重复 dispatch；唯一键竞态在数据库层收敛；同键不同参数被拒绝。MySQL `REPEATABLE READ` 下，唯一键竞争失败者回滚 savepoint 后必须用锁定 current read 读取胜者，不能复用竞争前已经固定的 consistent snapshot。`upload-and-process` 先以同一逻辑键复用 files transfer saga 与 StoredFile，再创建或复用 Job，因此响应丢失不会制造第二个对象。执行成功同时登记结果对象、File、AnalysisResult 和 batch/part/component；失败、取消或 stale 恢复通过 Excel 公开清理接口移除本 attempt 的临时关系行。失败 Job 的业务重试仍在原 Job 上递增 attempt，不与请求重放混用。这是单文件 Excel Final 切片；跨全部图纸的最终屏障、左右进合并和自动汇总仍未实现。
 
@@ -175,6 +175,7 @@ worker 启动时的恢复是分层的。`task_acks_late` 配合 `task_reject_on_
 | DXF -> DWG | `dxf2dwg` | ODA service/task | flag 关闭；外部 ODA/runtime/样本兼容性 |
 | DXF -> Excel | `dxf2excel` | service/task 与父仓库跟踪 Stage | flag 关闭；大规模验证 corpus 不随源码分发 |
 | Steel DXF classification | `dxf_classification` | 1.2.0 Stage、task、两张账本表、显式逐图语义、Workflow 分类目录与 DXF-only 下载；DXF/JSON/CSV 均登记 | flag 关闭；分类准确率需真实样本，且不等于拆板 |
+| Steel DXF split | `dxf_split` | 1.5.2 Stage、task、两张账本表、BH/BOX 来源合同、整批 attempt、独立重开校验、7 类正式 artifact 和未通过原图 ZIP | flag 关闭；真实 MinIO/MySQL、代表性图纸、Excel 交接与人工操作仍需验收 |
 | Excel Final | `excel_final` | 隔离 Stage + 关系化导入 | flag 关闭；需要内容 schema 和手册库 |
 | Agent | `agent` | 三张表、会话 memory、API 与 capability contract | 无注册 task/执行器；queue/process 只能是 contract-only |
 | Windows CAD | `cad` | 配置与外部 Node/CAM/协议合同 | 无 task、worker、service 或 Compose node |
@@ -199,8 +200,8 @@ access token 位于 `sessionStorage`，因此同源 XSS 仍是威胁。refresh/S
 
 - MySQL/storage 失败时禁止增加进程内正确性 fallback。
 - 没有显式迁移设计时，禁止让 broker 凭据脱离权威 MySQL DSN。
-- 尚未实现的 Agent/CAD/拆板/Windows 能力保持 flag 关闭，但保留目标接口、输入输出和错误契约；不得把占位写成完成，也不得在重构中删除目标边界。
-- 生产 workflow 只能把唯一 `excel_stage1` 描述为已接线 Excel 自动阶段；独立 DXF→Excel 不能写成 workflow 阶段，placeholder/external 阶段在真实实现与验证前禁止描述为生产闭环。
+- 尚未实现的 Agent/CAD/Windows 能力保持 flag 关闭，但保留目标接口、输入输出和错误契约；Steel DXF 拆板虽有纵向实现也须在外部门禁完成前保持默认关闭，不得写成生产验收完成。
+- 生产 workflow 的已接线自动阶段为 DXF 分类、DXF 拆板与唯一 `excel_stage1`；独立 DXF→Excel 不能写成 workflow 阶段，placeholder/external 阶段在真实实现与验证前禁止描述为生产闭环。
 - 修复 `Stages/dxf2excel` 归属前，禁止声称 clean-clone/Docker 可复现。
 - Nginx 有已测试 TLS listener 和证书生命周期前，禁止声称 HTTPS。
 - worker 规模超过有界 SQL transport 时评估 RabbitMQ，同时保持 MySQL 为业务事实。

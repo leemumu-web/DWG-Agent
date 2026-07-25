@@ -339,6 +339,7 @@ def list_next_stage_inputs(
             raise ClassificationError("下一阶段分类输出文件不可用。")
         inputs.append(
             DxfNextStageInput(
+                classification_item_id=item.id,
                 drawing_id=item.drawing_id,
                 part_type=item.part_type,
                 profile_normalized=item.profile_normalized,
