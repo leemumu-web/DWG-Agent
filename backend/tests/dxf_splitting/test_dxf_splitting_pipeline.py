@@ -1090,6 +1090,24 @@ def test_split_run_projection_reports_real_speed_and_eta(db, monkeypatch, tmp_pa
     assert read.estimated_remaining_seconds == 180
 
 
+def test_split_run_projection_accepts_mysql_naive_timestamps(db, monkeypatch, tmp_path):
+    _, run, _ = _review_run_fixture(
+        db,
+        monkeypatch,
+        tmp_path,
+        with_candidate=False,
+    )
+    now = datetime(2026, 7, 25, 10, 0, tzinfo=UTC)
+    run.status = "running"
+    run.started_at = datetime(2026, 7, 25, 9, 58)
+    run.finished_at = None
+    db.flush()
+
+    read = build_dxf_split_run_read(db, run, now=now)
+
+    assert read.elapsed_seconds == 120
+
+
 def test_completed_batch_persists_exact_pairs_minio_ledger_and_excel_handoff(
     db,
     monkeypatch,

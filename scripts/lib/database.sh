@@ -48,8 +48,9 @@ EOF
 
 ensure_db_ready() {
     bash "$PROJECT_ROOT/scripts/db.sh" start
+    bash "$PROJECT_ROOT/scripts/db.sh" migrate
     if bash "$PROJECT_ROOT/scripts/db.sh" check >/dev/null 2>&1; then
-        ok "MySQL 已就绪，跳过初始化"
+        ok "MySQL 已迁移到最新版本，跳过种子初始化"
     else
         info "MySQL 需要初始化..."
         bash "$PROJECT_ROOT/scripts/db.sh" init

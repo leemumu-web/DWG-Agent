@@ -6,12 +6,18 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.modules.dxf_classification.models import DxfClassificationRun
 from app.modules.dxf_splitting.models import DxfSplitRun
 from app.modules.dxf_splitting.schemas import DxfSplitItemRead, DxfSplitRunRead
-from app.modules.dxf_classification.models import DxfClassificationRun
 from app.modules.files.interface import FileRead, StoredFile
 from app.modules.jobs.interface import Job, JobRead
 from app.platform.http.exceptions import AppHTTPException, not_found
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _optional_file(db: Session, file_id: int | None) -> StoredFile | None:
@@ -40,10 +46,10 @@ def build_dxf_split_run_read(
     ledger = _optional_file(db, run.bh_split_ledger_file_id)
     manifest = _optional_file(db, run.split_manifest_file_id)
     validation = _optional_file(db, run.validation_report_file_id)
-    current_time = now or datetime.now(UTC)
-    end_time = run.finished_at or current_time
+    current_time = _as_utc(now or datetime.now(UTC))
+    end_time = _as_utc(run.finished_at) if run.finished_at is not None else current_time
     elapsed_seconds = (
-        max(0, int((end_time - run.started_at).total_seconds()))
+        max(0, int((end_time - _as_utc(run.started_at)).total_seconds()))
         if run.started_at is not None
         else 0
     )
