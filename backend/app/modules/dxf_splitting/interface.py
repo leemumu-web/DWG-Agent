@@ -82,6 +82,12 @@ def reconcile_dxf_split_run_for_terminal_job(
     return reconcile(db, job_id=job_id, attempt=attempt)
 
 
+def reconcile_orphan_dxf_split_runs(db) -> int:
+    from app.modules.dxf_splitting.persistence import reconcile_orphan_split_runs
+
+    return reconcile_orphan_split_runs(db)
+
+
 def manual_review_archive_members(db, run: DxfSplitRun) -> list[tuple[int, str]]:
     from app.modules.dxf_splitting.persistence import manual_review_archive_members as members
 
@@ -154,6 +160,7 @@ __all__ = [
     "list_split_review_items",
     "manual_review_archive_members",
     "reconcile_dxf_split_run_for_terminal_job",
+    "reconcile_orphan_dxf_split_runs",
     "review_candidate_archive_members",
     "split_results_archive_members",
     "split_candidate_available",

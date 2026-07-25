@@ -109,6 +109,16 @@ def reconcile_stale_running_jobs(
                     attempt=attempt,
                 )
             recovered += updated
+        from app.modules.dxf_splitting.interface import (
+            reconcile_orphan_dxf_split_runs,
+        )
+
+        orphan_splits = reconcile_orphan_dxf_split_runs(db)
+        if orphan_splits:
+            logger.warning(
+                "Marked %s orphan running DXF split run(s) as failed",
+                orphan_splits,
+            )
         db.commit()
     return recovered
 

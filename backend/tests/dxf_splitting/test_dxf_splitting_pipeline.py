@@ -1726,6 +1726,51 @@ def test_stale_worker_recovery_also_closes_running_split_run(
     assert recovered_run.finished_at is not None
 
 
+def test_worker_ready_recovery_closes_preexisting_terminal_job_orphan(
+    db,
+    tmp_path,
+):
+    workflow_id, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BOX-PREEXISTING-ORPHAN", "BOX"),),
+    )
+    job = db.get(Job, job_id)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(
+            DxfClassificationRun.workflow_run_id == workflow_id
+        )
+    )
+    assert job is not None
+    assert classification is not None
+    job.status = "cancelled"
+    run = DxfSplitRun(
+        workflow_run_id=workflow_id,
+        project_id=job.project_id,
+        classification_run_id=classification.id,
+        job_id=job.id,
+        job_attempt=job.attempt,
+        status="running",
+        splitter_version="1.5.2",
+        input_manifest_sha256=classification.input_manifest_sha256,
+        input_count=1,
+        processed_count=0,
+        started_at=datetime.now(UTC) - timedelta(hours=3),
+    )
+    db.add(run)
+    db.commit()
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+
+    assert reconcile_stale_running_jobs(factory, timeout_seconds=3600) == 0
+
+    db.expire_all()
+    recovered_run = db.get(DxfSplitRun, run.id)
+    assert recovered_run is not None
+    assert recovered_run.status == "failed"
+    assert recovered_run.error_code == "DXF_SPLIT_ATTEMPT_INTERRUPTED"
+    assert recovered_run.finished_at is not None
+
+
 def test_split_http_contract_is_exposed():
     paths = app.openapi()["paths"]
     assert "/api/v1/workflows/{workflow_id}/drawing-processing" in paths

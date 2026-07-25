@@ -376,6 +376,39 @@ def reconcile_split_run_for_terminal_job(
     return True
 
 
+def reconcile_orphan_split_runs(db: Session) -> int:
+    """Close every running split projection whose owning Job attempt is inactive."""
+
+    active_statuses = (
+        JOB_PENDING,
+        JOB_QUEUED,
+        JOB_RUNNING,
+        JOB_VALIDATING,
+        JOB_WAITING_CAD_WORKER,
+    )
+    candidates = db.execute(
+        select(DxfSplitRun.job_id, DxfSplitRun.job_attempt)
+        .join(Job, Job.id == DxfSplitRun.job_id)
+        .where(
+            DxfSplitRun.status == "running",
+            or_(
+                Job.attempt != DxfSplitRun.job_attempt,
+                Job.status.not_in(active_statuses),
+            ),
+        )
+    ).all()
+    reconciled = 0
+    for job_id, attempt in candidates:
+        reconciled += int(
+            reconcile_split_run_for_terminal_job(
+                db,
+                job_id=job_id,
+                attempt=attempt,
+            )
+        )
+    return reconciled
+
+
 def mark_split_interrupted(db: Session, job_id: int, attempt: int) -> None:
     """Close one run after execution observes that its Job attempt is inactive."""
 
@@ -800,5 +833,6 @@ __all__ = [
     "persist_review_completion_manifest",
     "record_split_analysis",
     "record_split_item",
+    "reconcile_orphan_split_runs",
     "reconcile_split_run_for_terminal_job",
 ]
