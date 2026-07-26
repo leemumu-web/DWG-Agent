@@ -87,7 +87,7 @@ def test_admin_cannot_delete_super_admin():
 
     resp = client.delete(f"/api/v1/users/{super_admin_id}", headers=admin2_headers)
     assert resp.status_code == 400, resp.text
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
 def test_admin_cannot_disable_super_admin():
@@ -107,7 +107,7 @@ def test_admin_cannot_disable_super_admin():
         f"/api/v1/users/{super_admin_id}/disable-requests", headers=admin2_headers
     )
     assert resp.status_code == 400, resp.text
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
 def test_admin_cannot_reset_super_admin_password():
@@ -124,14 +124,16 @@ def test_admin_cannot_reset_super_admin_password():
     admin2_headers = _login(client, admin2_user, admin2_pass)
 
     resp = client.post(
-        f"/api/v1/users/{super_admin_id}/password-reset-requests", headers=admin2_headers
+        f"/api/v1/users/{super_admin_id}/password-reset-requests",
+        headers=admin2_headers,
+        json={"new_password": "DeniedSuperReset123"},
     )
     assert resp.status_code == 400, resp.text
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
-def test_admin_cannot_enable_super_admin():
-    """An admin user cannot re-enable a disabled super_admin account."""
+def test_admin_can_apply_non_destructive_enable_to_super_admin():
+    """Re-enabling is protective, so admin keeps the same ability as super_admin."""
     client = _client()
     admin_headers = _login(client, "admin", "SuperAdminPass1")
 
@@ -146,8 +148,103 @@ def test_admin_cannot_enable_super_admin():
     resp = client.post(
         f"/api/v1/users/{super_admin_id}/enable-requests", headers=admin2_headers
     )
-    assert resp.status_code == 400, resp.text
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["status"] == "active"
+
+
+def test_super_admin_account_is_singleton_and_cannot_be_destroyed():
+    """No second super_admin may be assigned and the sole account is indestructible."""
+    client = _client()
+    root_headers = _login(client, "admin", "SuperAdminPass1")
+    protected = client.get("/api/v1/auth/me", headers=root_headers).json()["data"]
+    protected_id = protected["id"]
+    super_role_id = next(role["id"] for role in protected["roles"] if role["code"] == "super_admin")
+
+    second_username = _unique("second-super")
+    second_password = "SecondSuperPass1234"
+    second_id = _create_user(
+        client,
+        root_headers,
+        second_username,
+        second_password,
+        "Second Super Candidate",
+        [],
+    )
+    singleton = client.post(
+        f"/api/v1/users/{second_id}/roles",
+        headers=root_headers,
+        json={"role_code": "super_admin"},
+    )
+    assert singleton.status_code == 409, singleton.text
+    assert singleton.json()["error"]["code"] == "SUPER_ADMIN_SINGLETON"
+
+    attempts = (
+        client.delete(f"/api/v1/users/{protected_id}", headers=root_headers),
+        client.post(f"/api/v1/users/{protected_id}/disable-requests", headers=root_headers),
+        client.patch(
+            f"/api/v1/users/{protected_id}",
+            headers=root_headers,
+            json={"status": "disabled"},
+        ),
+        client.delete(
+            f"/api/v1/users/{protected_id}/roles/{super_role_id}",
+            headers=root_headers,
+        ),
+    )
+    assert [response.status_code for response in attempts] == [400, 400, 400, 400]
+    assert {response.json()["error"]["code"] for response in attempts} == {
+        "SUPER_ADMIN_ACCOUNT_PROTECTED"
+    }
+
+    # The original credentials and sole privilege remain usable after every rejected attempt.
+    me = client.get("/api/v1/auth/me", headers=_login(client, "admin", "SuperAdminPass1"))
+    assert me.status_code == 200
+    assert "super_admin" in {role["code"] for role in me.json()["data"]["roles"]}
+    second = client.get(f"/api/v1/users/{second_id}", headers=root_headers).json()["data"]
+    assert "super_admin" not in {role["code"] for role in second["roles"]}
+
+
+def test_admin_can_update_non_destructive_super_admin_profile_fields():
+    """Admin and super_admin stay equivalent outside the protected privilege boundary."""
+    client = _client()
+    root_headers = _login(client, "admin", "SuperAdminPass1")
+    root_id = client.get("/api/v1/auth/me", headers=root_headers).json()["data"]["id"]
+
+    admin_username = _unique("peer-admin")
+    admin_password = "PeerAdminPass1234"
+    _create_user(
+        client,
+        root_headers,
+        admin_username,
+        admin_password,
+        "Peer Admin",
+        ["admin"],
+    )
+    admin_headers = _login(client, admin_username, admin_password)
+
+    updated = client.patch(
+        f"/api/v1/users/{root_id}",
+        headers=admin_headers,
+        json={"real_name": "Super Admin Account"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["data"]["real_name"] == "Super Admin Account"
+
+
+def test_super_admin_role_permissions_are_immutable():
+    """Changing the built-in super_admin role must not become a privilege-kill bypass."""
+    client = _client()
+    root_headers = _login(client, "admin", "SuperAdminPass1")
+    roles = client.get("/api/v1/roles?page_size=200", headers=root_headers).json()["data"]
+    super_role_id = next(role["id"] for role in roles if role["code"] == "super_admin")
+
+    response = client.put(
+        f"/api/v1/roles/{super_role_id}/permissions",
+        headers=root_headers,
+        json={"permission_codes": []},
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "SUPER_ADMIN_ROLE_PROTECTED"
 
 
 # ---------------------------------------------------------------------------
@@ -725,7 +822,11 @@ def test_user_lifecycle_operations_are_audited():
 
     client.post(f"/api/v1/users/{user_id}/disable-requests", headers=admin_headers)
     client.post(f"/api/v1/users/{user_id}/enable-requests", headers=admin_headers)
-    client.post(f"/api/v1/users/{user_id}/password-reset-requests", headers=admin_headers)
+    client.post(
+        f"/api/v1/users/{user_id}/password-reset-requests",
+        headers=admin_headers,
+        json={"new_password": "LifecycleReset123"},
+    )
 
     logs = client.get("/api/v1/audit-logs?page_size=50", headers=admin_headers)
     assert logs.status_code == 200, logs.text

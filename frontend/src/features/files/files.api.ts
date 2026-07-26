@@ -1,5 +1,16 @@
 import axios from 'axios';
-import { apiClient, fetchAllPages, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
+import {
+  apiClient,
+  completedTransferProgress,
+  downloadBlob,
+  fetchAllPages,
+  initialTransferProgress,
+  transferProgressFromAxios,
+  triggerBlobDownload,
+  type ApiEnvelope,
+  type PageEnvelope,
+  type TransferProgressHandler,
+} from '../../shared/api';
 import type {
   BatchInfo,
   DxfPreviewResponse,
@@ -8,6 +19,21 @@ import type {
 } from './file';
 import type { Job } from '../jobs';
 import { describeApiError, describeApiErrorAsync } from '../../shared/api';
+
+export const MAX_FOLDER_FILES = 1000;
+
+export interface LimitedFolderSelection {
+  files: File[];
+  omittedCount: number;
+}
+
+/** Apply the operator-visible folder limit before any extension filtering. */
+export function limitFolderUploadFiles(files: File[]): LimitedFolderSelection {
+  return {
+    files: files.slice(0, MAX_FOLDER_FILES),
+    omittedCount: Math.max(0, files.length - MAX_FOLDER_FILES),
+  };
+}
 
 /** Fetch ALL files, optionally filtered by batch_name and/or file_ext. */
 export async function listFiles(batchName?: string, fileExt?: string, standaloneOnly = false) {
@@ -33,6 +59,12 @@ export async function listFilesPage(params: FileListParams) {
   return res.data;
 }
 
+/** Read the authoritative file record before presenting or downloading a result. */
+export async function getFile(fileId: number): Promise<StoredFile> {
+  const res = await apiClient.get<ApiEnvelope<StoredFile>>(`/api/v1/files/${fileId}`);
+  return res.data.data;
+}
+
 /** List distinct batches (folder names), optionally filtered by file_ext. */
 export async function listBatches(fileExt?: string, standaloneOnly = false) {
   const params: Record<string, unknown> = {};
@@ -42,19 +74,31 @@ export async function listBatches(fileExt?: string, standaloneOnly = false) {
   return res.data.data;
 }
 
-export async function uploadFile(file: File, batchName?: string, idempotencyKey?: string): Promise<StoredFile> {
+export async function uploadFile(
+  file: File,
+  batchName?: string,
+  idempotencyKey?: string,
+  onProgress?: TransferProgressHandler,
+): Promise<StoredFile> {
   const form = new FormData();
   form.append('upload', file);
+  onProgress?.(initialTransferProgress(file.size));
   const res = await apiClient.post<ApiEnvelope<StoredFile>>('/api/v1/files', form, {
     params: batchName ? { batch_name: batchName } : undefined,
     headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
     timeout: 120_000,
+    onUploadProgress: (event) => onProgress?.(transferProgressFromAxios(event, file.size)),
   });
+  onProgress?.(completedTransferProgress(file.size, file.size));
   return res.data.data;
 }
 
-export async function uploadFileAndConvert(file: File, batchName?: string) {
-  const stored = await uploadFile(file, batchName);
+export async function uploadFileAndConvert(
+  file: File,
+  batchName?: string,
+  onProgress?: TransferProgressHandler,
+) {
+  const stored = await uploadFile(file, batchName, undefined, onProgress);
   const res = await apiClient.post<ApiEnvelope<Job>>('/api/v1/workflows/jobs', {
     task_type: 'convert_dwg_to_dxf',
     precision_level: 'normal',
@@ -73,13 +117,20 @@ export interface ZipUploadResult {
 }
 
 /** Upload a .zip archive — backend extracts matching files and returns them as a batch. */
-export async function uploadZip(file: File, fileExt: string): Promise<ZipUploadResult> {
+export async function uploadZip(
+  file: File,
+  fileExt: string,
+  onProgress?: TransferProgressHandler,
+): Promise<ZipUploadResult> {
   const form = new FormData();
   form.append('upload', file);
+  onProgress?.(initialTransferProgress(file.size));
   const res = await apiClient.post<ApiEnvelope<ZipUploadResult>>('/api/v1/files/upload-zip', form, {
     params: { file_ext: fileExt },
     timeout: 300_000,
+    onUploadProgress: (event) => onProgress?.(transferProgressFromAxios(event, file.size)),
   });
+  onProgress?.(completedTransferProgress(file.size, file.size));
   return res.data.data;
 }
 
@@ -121,38 +172,21 @@ export async function downloadFile(fileId: number, filename: string): Promise<vo
   throw await downloadError(lastError);
 }
 
-function triggerBlobDownload(blob: Blob, filename: string) {
-  const blobUrl = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = blobUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(blobUrl);
-  }, 100);
-}
-
 /** POST zip-download payload, receive streaming zip, trigger browser save. */
 export async function downloadZip(
   fileIds: number[],
   formats: string[],
   folderName: string,
+  onProgress?: TransferProgressHandler,
 ): Promise<void> {
-  try {
-    const res = await apiClient.post<Blob>('/api/v1/files/download-zip', {
-      file_ids: fileIds,
-      formats,
-      folder_name: folderName,
-    }, {
-      responseType: 'blob',
-      timeout: 300_000,
-    });
-    triggerBlobDownload(res.data, `${folderName}.zip`);
-  } catch (error) {
-    throw await downloadError(error);
-  }
+  return downloadBlob({
+    url: '/api/v1/files/download-zip',
+    method: 'POST',
+    data: { file_ids: fileIds, formats, folder_name: folderName },
+    fallbackName: `${folderName}.zip`,
+    errorMessage: '打包下载失败',
+    onProgress,
+  });
 }
 
 export interface ZipFormatAvailability {
@@ -212,8 +246,13 @@ export async function uploadFolder(
   opts?: {
     fileExt?: string;
     concurrency?: number;
-    onFile?: (file: File, batchName: string) => Promise<unknown>;
+    onFile?: (
+      file: File,
+      batchName: string,
+      onProgress?: TransferProgressHandler,
+    ) => Promise<unknown>;
     onProgress?: (processed: number, total: number, success: number) => void;
+    onTransferProgress?: TransferProgressHandler;
   },
 ): Promise<{
   total: number;
@@ -222,8 +261,13 @@ export async function uploadFolder(
   failures: Array<{ file_name: string; reason: string }>;
 }> {
   const ext = opts?.fileExt || '.dwg';
-  const onFile = opts?.onFile || ((f: File, bn: string) => uploadFileAndConvert(f, bn));
-  const matched = files.filter((f) => f.name.toLowerCase().endsWith(ext));
+  const onFile = opts?.onFile || ((
+    f: File,
+    bn: string,
+    onProgress?: TransferProgressHandler,
+  ) => uploadFileAndConvert(f, bn, onProgress));
+  const limited = limitFolderUploadFiles(files);
+  const matched = limited.files.filter((f) => f.name.toLowerCase().endsWith(ext));
   if (matched.length === 0) return { total: 0, success: 0, results: [], failures: [] };
 
   const queue = [...matched];
@@ -231,14 +275,32 @@ export async function uploadFolder(
   let processed = 0;
   const results: unknown[] = [];
   const failures: Array<{ file_name: string; reason: string }> = [];
+  const totalBytes = matched.reduce((total, file) => total + file.size, 0);
+  const loadedByFile = new Map<File, number>();
+  const reportTransfer = (file: File, loadedBytes: number) => {
+    loadedByFile.set(file, Math.min(file.size, Math.max(0, loadedBytes)));
+    const loaded = Array.from(loadedByFile.values()).reduce((total, value) => total + value, 0);
+    opts?.onTransferProgress?.({
+      loadedBytes: loaded,
+      totalBytes,
+      percent: totalBytes > 0 ? Math.min(99, Math.round((loaded / totalBytes) * 100)) : 100,
+      completed: false,
+      totalIsEstimated: false,
+    });
+  };
+  opts?.onTransferProgress?.(initialTransferProgress(totalBytes));
 
   const worker = async () => {
     while (queue.length > 0) {
       const f = queue.shift()!;
       try {
-        results.push(await onFile(f, batchName));
+        results.push(await onFile(f, batchName, (progress) => {
+          reportTransfer(f, progress.loadedBytes);
+        }));
+        reportTransfer(f, f.size);
         success++;
       } catch (error) {
+        reportTransfer(f, f.size);
         failures.push({ file_name: f.name, reason: describeApiError(error, '上传失败') });
       }
       processed++;
@@ -249,6 +311,7 @@ export async function uploadFolder(
   await Promise.all(
     Array.from({ length: Math.min(opts?.concurrency ?? 4, matched.length) }, () => worker()),
   );
+  opts?.onTransferProgress?.(completedTransferProgress(totalBytes, totalBytes));
 
   return { total: matched.length, success, results, failures };
 }
@@ -259,12 +322,16 @@ export async function deleteBatch(batchName: string): Promise<void> {
 }
 
 /** Download all files in a batch as a ZIP archive. */
-export async function downloadBatchZip(batchName: string): Promise<void> {
-  const res = await apiClient.get<Blob>(
-    `/api/v1/files/batches/${encodeURIComponent(batchName)}/download-zip`,
-    { responseType: 'blob', timeout: 300_000 },
-  );
-  triggerBlobDownload(res.data, `${batchName}.zip`);
+export async function downloadBatchZip(
+  batchName: string,
+  onProgress?: TransferProgressHandler,
+): Promise<void> {
+  return downloadBlob({
+    url: `/api/v1/files/batches/${encodeURIComponent(batchName)}/download-zip`,
+    fallbackName: `${batchName}.zip`,
+    errorMessage: '批次下载失败',
+    onProgress,
+  });
 }
 
 /** Fetch Excel file preview data (sheets, headers, rows) from backend. */

@@ -118,7 +118,7 @@ export function ExcelFinalBatchDrawer({ batchId, open, onClose }: ExcelFinalBatc
     <>
       <Drawer
         className="excel-final-batch-drawer"
-        title={`批次 #${batchId ?? ''} · MySQL 明细`}
+        title={`批次 #${batchId ?? ''} · 数据明细`}
         open={open}
         size="min(1180px, 96vw)"
         onClose={onClose}

@@ -67,7 +67,7 @@ export function ProductionProjectCreateDrawer({
       >
         <section className="production-create-hero" aria-label="创建引导">
           <Typography.Text className="production-create-eyebrow">
-            PROJECT / ONE COMPLETE ROUTE
+            项目 / 一条完整流程
           </Typography.Text>
           <Typography.Title level={4}>一个项目，一条完整生产流程</Typography.Title>
           <Typography.Paragraph>

@@ -23,6 +23,7 @@ from app.modules.workflows.access import WORKFLOW_WRITE_ROLES
 from app.modules.workflows.intake.conversion import prepare_input_conversions
 from app.modules.workflows.intake.freeze import freeze_input_batch
 from app.modules.workflows.intake.presentation import describe_input_batch
+from app.modules.workflows.intake.recovery import restore_cleared_input_files
 from app.modules.workflows.intake.registration import (
     create_input_batch,
     get_input_batch,
@@ -336,6 +337,7 @@ def clear_input_folder_api(
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     batch = get_input_batch(db, workflow_id)
     item_ids = [item.id for item in batch.items]
+    file_ids = [item.file_id for item in batch.items]
     for item_id in item_ids:
         remove_input_item(db, batch, item_id)
     write_audit_log(
@@ -344,11 +346,43 @@ def clear_input_folder_api(
         action="workflow_input_folders.clear",
         resource_type="workflow_input_batch",
         resource_id=batch.id,
-        after_json={"removed_item_ids": item_ids},
+        after_json={
+            "removed_item_ids": item_ids,
+            "removed_file_ids": file_ids,
+        },
         request=request,
     )
     db.commit()
     return None
+
+
+@router.post(
+    "/{workflow_id}/input-folder/restore",
+    response_model=WorkflowInputBatchEnvelope,
+    summary="恢复最近清空的生产输入",
+    description="仅按最近一次清空审计保存的精确文件编号重新校验并登记源文件。",
+)
+def restore_input_folder_api(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = get_workflow_or_404(db, workflow_id)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    batch = lock_input_batch(db, get_input_batch(db, workflow_id))
+    restored_file_ids = restore_cleared_input_files(db, batch)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="workflow_input_folders.restore",
+        resource_type="workflow_input_batch",
+        resource_id=batch.id,
+        after_json={"restored_file_ids": restored_file_ids},
+        request=request,
+    )
+    db.commit()
+    return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
 
 
 @router.post(

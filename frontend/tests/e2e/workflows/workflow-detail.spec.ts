@@ -41,12 +41,14 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
     stage_code: code,
     name,
     sequence: index + 1,
-    status: index < 3 ? 'succeeded' : index === 3 ? 'waiting_input' : 'pending',
+    status: index < 2 ? 'succeeded' : index === 2 ? 'skipped' : index === 3 ? 'waiting_input' : 'pending',
     job_id: null,
     job_attempt: null,
-    progress: index < 3 ? 100 : 0,
+    progress: index < 4 ? 100 : 0,
     input_json: null,
-    output_json: null,
+    output_json: code === 'drawing_processing'
+      ? { reason: 'no_split_candidates' }
+      : null,
     error_code: null,
     error_message: null,
     started_at: index < 4 ? now : null,
@@ -123,14 +125,14 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
       source_file_id: 701,
       source_file_name: '体育馆构件清单.xlsx',
       input_contract_version: 1,
-      split_run_id: 88,
-      official_pair_count: 40,
+      split_run_id: null,
+      official_pair_count: 0,
       checks: [
         { code: 'input_batch_frozen', label: '冻结输入清单有效' },
         { code: 'source_excel_unique', label: '唯一 Excel 来源一致' },
         { code: 'source_object_verified', label: '对象摘要与冻结记录一致' },
         { code: 'excel_contract_verified', label: 'Excel 表结构符合输入合同' },
-        { code: 'split_handoff_verified', label: '正式拆板结果成对且可用' },
+        { code: 'split_handoff_verified', label: '分类结果无需拆板，已按空交接继续' },
       ],
     }),
   );
@@ -185,7 +187,8 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
   await expect(page.getByText(/冻结输入中的 Excel/)).toBeVisible();
   await expect(page.getByRole('combobox', { name: 'Excel 输入文件' })).toHaveCount(0);
   await expect(page.getByText('运行前检查通过')).toBeVisible();
-  await expect(page.getByText('正式拆板：40 对图纸')).toBeVisible();
+  await expect(page.getByText('无需拆板：本批没有可拆板图纸')).toBeVisible();
+  await expect(page.getByText('本批无可拆板图纸，已正常进入下一步')).toBeVisible();
 
   await page.getByRole('button', { name: '运行 Excel 第一阶段' }).click();
   await expect.poll(() => executionBody).toEqual({ execution_kind: 'excel_stage1' });
@@ -974,9 +977,9 @@ test('partial split keeps downloads recoverable with operator guidance', async (
   await page.getByRole('button', { name: '分类图纸导出' }).click();
   const selectiveDialog = page.getByRole('dialog', { name: '选择要导出的图纸' });
   await expect(selectiveDialog.getByText('可导出图纸统计失败')).toBeVisible();
-  await expect(selectiveDialog.getByText(/对象存储暂时不可用/)).toBeVisible();
-  await expect(selectiveDialog.getByText(/DRAWING_SELECTIVE_EXPORT_STORAGE_UNAVAILABLE/)).toBeVisible();
-  await expect(selectiveDialog.getByText(/请求 selective-preview-503/)).toBeVisible();
+  await expect(selectiveDialog.getByText(/文件存储暂时不可用/)).toBeVisible();
+  await expect(selectiveDialog.getByText(/DRAWING_SELECTIVE_EXPORT_STORAGE_UNAVAILABLE/)).toHaveCount(0);
+  await expect(selectiveDialog.getByText(/请求编号 selective-preview-503/)).toBeVisible();
   await expect(selectiveDialog.getByText(/处理建议：服务器暂时无法完成操作/)).toBeVisible();
   await selectiveDialog.getByRole('button', { name: '重新检查' }).click();
   await expect(selectiveDialog.getByText('未通过的 BH', { exact: true })).toBeVisible();
@@ -987,15 +990,18 @@ test('partial split keeps downloads recoverable with operator guidance', async (
   await selectiveDialog.getByRole('button', { name: '下载所选 DXF' }).click();
   const selectiveDownload = await selectiveDownloadPromise;
   await expect.poll(() => selectiveExportRequests).toBe(1);
-  expect(selectiveDownload.url()).toContain('/selective-exports/e2e/download');
   expect(selectiveDownload.suggestedFilename()).toBe(
     'workflow-43-split-run-88-selected-dxf.zip',
   );
+  await expect(selectiveDialog.getByLabel('分类图纸下载进度')).toHaveAttribute(
+    'aria-valuenow',
+    '100',
+  );
   await expect(selectiveDialog).toBeVisible();
-  await expect(selectiveDialog.getByText('下载已准备')).toBeVisible();
+  await expect(selectiveDialog.getByText('分类图纸 ZIP 已准备')).toBeVisible();
   await expect(selectiveDialog.getByText('6 个 DXF', { exact: true })).toBeVisible();
-  await expect(selectiveDialog.getByRole('button', { name: '再次开始下载' })).toBeVisible();
-  await selectiveDialog.getByRole('button', { name: '下载已开始，关闭' }).click();
+  await expect(selectiveDialog.getByRole('button', { name: '重新下载' })).toBeVisible();
+  await selectiveDialog.getByRole('button', { name: /关\s*闭/ }).click();
   await expect(selectiveDialog).toBeHidden();
 
   await page.getByRole('button', { name: '分类图纸导出' }).click();

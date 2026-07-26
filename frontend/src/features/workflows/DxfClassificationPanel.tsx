@@ -29,8 +29,8 @@ import {
   getDxfClassificationGroup,
   getWorkflow,
 } from './workflows.api';
-import { describeApiError } from '../../shared/api';
-import { ApiErrorAlert, fmtSize } from '../../shared/components';
+import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
+import { ApiErrorAlert, fmtSize, TransferProgressBar } from '../../shared/components';
 import type {
   DxfClassificationGroup,
   DxfClassificationGroupItem,
@@ -84,6 +84,10 @@ export function DxfClassificationPanel({
   const queryClient = useQueryClient();
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>();
   const [detailPage, setDetailPage] = useState(1);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    label: string;
+    progress: TransferProgress;
+  } | null>(null);
 
   const runQ = useQuery({
     queryKey: ['workflow-dxf-classification', workflowId],
@@ -136,12 +140,21 @@ export function DxfClassificationPanel({
     },
   });
   const allDownload = useMutation({
-    mutationFn: () => downloadAllDxfClassificationArchive(workflowId),
+    mutationFn: () => downloadAllDxfClassificationArchive(
+      workflowId,
+      (progress) => setDownloadProgress({ label: '全部分类图纸下载', progress }),
+      run?.groups.reduce((total, group) => total + group.total_size_bytes, 0),
+    ),
     onError: (error) => message.error(describeApiError(error, '全部 DXF 下载失败')),
   });
   const groupDownload = useMutation({
     mutationFn: (group: DxfClassificationGroup) => (
-      downloadDxfClassificationGroupArchive(workflowId, group.group_key)
+      downloadDxfClassificationGroupArchive(
+        workflowId,
+        group.group_key,
+        (progress) => setDownloadProgress({ label: `${group.label} 类图纸下载`, progress }),
+        group.total_size_bytes,
+      )
     ),
     onError: (error) => message.error(describeApiError(error, '分类文件夹下载失败')),
   });
@@ -199,7 +212,7 @@ export function DxfClassificationPanel({
             <Tag color={status.color}>{status.label}</Tag>
             {item.diagnostics.map((diagnostic) => (
               <Typography.Text type="secondary" key={diagnostic}>
-                {DIAGNOSTICS[diagnostic] ?? diagnostic}
+                {DIAGNOSTICS[diagnostic] ?? '存在未识别的分类依据，请人工核对'}
               </Typography.Text>
             ))}
           </Space>
@@ -282,8 +295,12 @@ export function DxfClassificationPanel({
         <Alert
           type="error"
           showIcon
-          message={`${run.error_code ?? 'DXF_CLASSIFICATION_FAILED'} · 分类失败`}
-          description={run.error_message ?? '请检查诊断后重试；旧 attempt 不会覆盖新结果。'}
+          message="图纸分类未完成"
+          description={operatorErrorMessage(
+            run.error_code,
+            run.error_message,
+            '请核对本批输入图纸和待确认项后重新分类。',
+          )}
           action={canExecute && (
             <Button
               type="primary"
@@ -346,6 +363,12 @@ export function DxfClassificationPanel({
               </div>
             ))}
           </div>
+          {downloadProgress && (
+            <TransferProgressBar
+              label={downloadProgress.label}
+              progress={downloadProgress.progress}
+            />
+          )}
 
           {warningCount > 0 && (
             <Alert

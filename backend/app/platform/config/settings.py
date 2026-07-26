@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -150,6 +151,30 @@ class Settings(BaseSettings):
     def sqlalchemy_database_url(self) -> str:
         """Return the authoritative SQLAlchemy DSN for the application database."""
         return self.database_url or self.mysql_url
+
+    @model_validator(mode="after")
+    def validate_production_super_admin_password(self) -> "Settings":
+        """Refuse to boot production with a guessable seed administrator secret."""
+        if self.app_env.casefold() not in {"production", "prod"}:
+            return self
+
+        password = self.super_admin_password
+        password_is_strong = (
+            len(password) >= 16
+            and bool(re.search(r"[A-Z]", password))
+            and bool(re.search(r"[a-z]", password))
+            and bool(re.search(r"\d", password))
+            and bool(re.search(r"[^A-Za-z0-9]", password))
+            and self.super_admin_username.casefold() not in password.casefold()
+            and password not in {"SuperAdminPass1", "CHANGE_ME_SUPER_ADMIN_PASSWORD"}
+        )
+        if not password_is_strong:
+            raise ValueError(
+                "SUPER_ADMIN_PASSWORD must be at least 16 characters and contain "
+                "upper/lowercase letters, a digit, and a special character; "
+                "do not use a placeholder, default, or username-derived value."
+            )
+        return self
 
     @property
     def celery_database_url(self) -> str:

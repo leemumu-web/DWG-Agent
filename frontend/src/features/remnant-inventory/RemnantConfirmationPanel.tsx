@@ -3,6 +3,7 @@ import { Alert, App, AutoComplete, Button, Card, Checkbox, Descriptions, Form, I
 import { CheckOutlined, CloseCircleOutlined, EditOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DxfPreviewModal } from '../files';
+import { operatorErrorMessage } from '../../shared/api';
 import {
   bulkApplyProject,
   bulkApplyOptionalMetadata,
@@ -316,7 +317,7 @@ export function RemnantConfirmationPanel({ batch, materials }: Props) {
         {editing && <div className="remnant-confirm-editor">
           <div>
             <Button icon={<EyeOutlined />} disabled={!editing.dxf_file_id} onClick={() => setPreview(editing)}>打开图形预览</Button>
-            {editing.warnings.map((warning) => <Alert key={warning.code} type="warning" showIcon title={warningTitle(warning.code)} description={warning.message} style={{ marginTop: 12 }} />)}
+            {editing.warnings.map((warning) => <Alert key={warning.code} type="warning" showIcon title={warningTitle(warning.code)} description={operatorErrorMessage(undefined, warning.message, '请核对图纸文字和候选信息。')} style={{ marginTop: 12 }} />)}
             <Descriptions size="small" column={1} style={{ marginTop: 16 }} items={[
               { key: 'material', label: '材质证据', children: editing.material_candidates.flatMap((item) => item.evidence).map((item) => `${item.layer}: ${item.raw_text}`).join('；') || '无' },
               { key: 'project', label: '项目证据', children: editing.project_candidates.flatMap((item) => item.evidence).map((item) => item.raw_text).join('；') || '无' },

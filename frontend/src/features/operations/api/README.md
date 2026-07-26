@@ -2,8 +2,8 @@
 
 ## 现有实现
 
-`system.ts` 查询健康、基础设施和统计；`dataAdmin.ts` 查询 files、objects、transfers、scans 并执行扫描/处置；`controlPlane.ts` 查询 worker、queue、message、task 与通信状态；`auditLogs.ts` 查询审计记录。
+`dataAdmin.ts` 只调用后端已经发布的数据概览、文件登记和对象存储接口；`auditLogs.ts` 查询审计记录。生产项目与处理任务复用 `workflows`、`jobs` 已发布接口，不建立绕过业务规则的数据库直改入口。
 
 ## 输入、输出与边界
 
-输入是分页/筛选、预检 token、幂等键和管理员动作，输出是类型化后端响应。本区不拼接 SQL/object key，不把未部署服务标为 online，也不绕过后端二次确认和权限。
+输入是分页、筛选、文件路径和管理员动作，输出是类型化后端响应。本区不拼接 SQL，不把未部署服务标为正常，也不绕过后端状态机、审计和权限。文件上传由后端根据文件类型自动选择存储区，界面不承诺写入当前浏览目录。

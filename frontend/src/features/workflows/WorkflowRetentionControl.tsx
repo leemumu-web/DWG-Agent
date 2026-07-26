@@ -21,8 +21,13 @@ import {
   Typography,
 } from 'antd';
 
-import { describeApiError } from '../../shared/api';
-import { ApiErrorAlert, fmtDateTime, fmtSize } from '../../shared/components';
+import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
+import {
+  ApiErrorAlert,
+  fmtDateTime,
+  fmtSize,
+  TransferProgressBar,
+} from '../../shared/components';
 import type { WorkflowRetentionExport } from './workflow';
 import {
   createWorkflowRetentionExport,
@@ -30,7 +35,7 @@ import {
   getWorkflowRetentionExport,
   getWorkflowRetentionPreview,
   queueWorkflowRetentionPurge,
-  startNativeWorkflowRetentionDownload,
+  downloadWorkflowRetentionExport,
 } from './workflows.api';
 
 const POLLED_STATUSES = new Set(['prepared', 'downloading', 'purge_queued', 'purging']);
@@ -56,6 +61,7 @@ export function WorkflowRetentionControl({
   const [created, setCreated] = useState<WorkflowRetentionExport | null>(null);
   const [backupChecked, setBackupChecked] = useState(false);
   const [confirmation, setConfirmation] = useState('');
+  const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
   const purgedNoticeRef = useRef<string | null>(null);
 
   const previewQ = useQuery({
@@ -113,6 +119,19 @@ export function WorkflowRetentionControl({
       message.info('永久清理已进入维护队列，可以关闭窗口后稍后回来查看');
     },
   });
+  const downloadM = useMutation({
+    mutationFn: (row: WorkflowRetentionExport) => (
+      downloadWorkflowRetentionExport(row, setDownloadProgress)
+    ),
+    onSuccess: () => {
+      message.success('完整备份已下载到浏览器');
+      setTimeout(() => { void statusQ.refetch(); }, 300);
+    },
+    onError: (error) => {
+      message.error(describeApiError(error, '完整备份下载未能完成'));
+      void statusQ.refetch();
+    },
+  });
 
   useEffect(() => {
     if (!exportRow || exportRow.status !== 'purged') return;
@@ -127,16 +146,12 @@ export function WorkflowRetentionControl({
 
   const startDownload = () => {
     if (!exportRow) return;
-    try {
-      startNativeWorkflowRetentionDownload(exportRow);
-      message.info('浏览器已开始接收完整备份；服务器确认发送完毕后才会开放清理');
-      setTimeout(() => { void statusQ.refetch(); }, 600);
-    } catch (error) {
-      message.error(describeApiError(error, '完整备份下载未能启动'));
-    }
+    setDownloadProgress(null);
+    downloadM.mutate(exportRow);
   };
 
   const close = () => {
+    if (downloadM.isPending || purgeM.isPending) return;
     setOpen(false);
     setBackupChecked(false);
     setConfirmation('');
@@ -163,9 +178,9 @@ export function WorkflowRetentionControl({
         title={`生产批次 #${workflowId} · 完整备份与释放空间`}
         width={760}
         maskClosable={false}
-        closable={!purgeM.isPending}
+        closable={!purgeM.isPending && !downloadM.isPending}
         onCancel={close}
-        footer={<Button onClick={close} disabled={purgeM.isPending}>关闭</Button>}
+        footer={<Button onClick={close} disabled={purgeM.isPending || downloadM.isPending}>关闭</Button>}
       >
         <Space orientation="vertical" size={16} style={{ width: '100%' }}>
           <Alert
@@ -224,7 +239,11 @@ export function WorkflowRetentionControl({
                 <Space orientation="vertical" size={4}>
                   {previewQ.data.blockers.map((blocker) => (
                     <Typography.Text key={blocker.code}>
-                      {blocker.message} <Tag color="red">{blocker.code}</Tag>
+                      {operatorErrorMessage(
+                        blocker.code,
+                        blocker.message,
+                        '当前生产文件不满足清理条件，请先完成下载和状态核对。',
+                      )}
                     </Typography.Text>
                   ))}
                 </Space>
@@ -237,7 +256,7 @@ export function WorkflowRetentionControl({
               type="info"
               showIcon
               message="第 1 步：锁定完整备份清单"
-              description="服务器会逐个核对对象是否存在、大小是否与 MySQL 登记一致；核对通过后才生成下载入口。"
+              description="服务器会逐个核对文件是否存在、大小是否与系统登记一致；核对通过后才生成下载入口。"
               action={(
                 <Button
                   type="primary"
@@ -272,33 +291,39 @@ export function WorkflowRetentionControl({
           )}
 
           {exportRow && ['prepared', 'downloading', 'download_failed'].includes(exportRow.status) && (
-            <Alert
-              type={exportRow.status === 'download_failed' ? 'error' : 'info'}
-              showIcon
-              message={exportRow.status === 'downloading'
-                ? '第 2 步：完整备份正在传输'
-                : exportRow.status === 'download_failed'
-                  ? '完整备份没有完整传输，服务器文件仍全部保留'
-                  : '第 2 步：下载完整备份'}
-              description={`${exportRow.filename} · ${exportRow.file_count} 个文件 · ${fmtSize(exportRow.source_size_bytes)}`}
-              action={(
-                <Space wrap>
-                  <Button
-                    type="primary"
-                    icon={exportRow.status === 'download_failed' ? <ReloadOutlined /> : <CloudDownloadOutlined />}
-                    disabled={exportRow.status === 'downloading' || !exportRow.download_url}
-                    onClick={startDownload}
-                  >
-                    {exportRow.status === 'download_failed' ? '重新下载' : '下载完整备份'}
-                  </Button>
-                  {exportRow.status !== 'downloading' && (
-                    <Button loading={createM.isPending} onClick={() => createM.mutate()}>
-                      重新生成凭据
+            <Space orientation="vertical" size={10} style={{ width: '100%' }}>
+              <Alert
+                type={exportRow.status === 'download_failed' ? 'error' : 'info'}
+                showIcon
+                message={exportRow.status === 'downloading'
+                  ? '第 2 步：完整备份正在传输'
+                  : exportRow.status === 'download_failed'
+                    ? '完整备份没有完整传输，服务器文件仍全部保留'
+                    : '第 2 步：下载完整备份'}
+                description={`${exportRow.filename} · ${exportRow.file_count} 个文件 · ${fmtSize(exportRow.source_size_bytes)}`}
+                action={(
+                  <Space wrap>
+                    <Button
+                      type="primary"
+                      icon={exportRow.status === 'download_failed' ? <ReloadOutlined /> : <CloudDownloadOutlined />}
+                      loading={downloadM.isPending}
+                      disabled={downloadM.isPending || exportRow.status === 'downloading' || !exportRow.download_url}
+                      onClick={startDownload}
+                    >
+                      {exportRow.status === 'download_failed' ? '重新下载' : '下载完整备份'}
                     </Button>
-                  )}
-                </Space>
+                    {exportRow.status !== 'downloading' && (
+                      <Button loading={createM.isPending} disabled={downloadM.isPending} onClick={() => createM.mutate()}>
+                        重新生成凭据
+                      </Button>
+                    )}
+                  </Space>
+                )}
+              />
+              {downloadProgress && (
+                <TransferProgressBar label="完整备份下载" progress={downloadProgress} />
               )}
-            />
+            </Space>
           )}
 
           {exportRow && ['downloaded', 'purge_failed'].includes(exportRow.status) && (
@@ -311,7 +336,11 @@ export function WorkflowRetentionControl({
                   ? '服务端已确认完整备份发送完毕'
                   : '上次永久清理未完成，生产关系仍保留，可安全重试'}
                 description={exportRow.error_message
-                  ? `${exportRow.error_message}${exportRow.error_code ? ` [${exportRow.error_code}]` : ''}`
+                  ? operatorErrorMessage(
+                    exportRow.error_code,
+                    exportRow.error_message,
+                    '上次服务器空间清理未完成，生产文件仍按当前状态保留。',
+                  )
                   : `发送完成时间：${fmtDateTime(exportRow.downloaded_at)}`}
               />
               {!isAdmin ? (

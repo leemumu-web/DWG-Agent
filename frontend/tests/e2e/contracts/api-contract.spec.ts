@@ -5,13 +5,19 @@
  * These run against the real backend. No browser needed — pure HTTP.
  */
 import { test, expect } from '@playwright/test';
-import { API_BASE as BASE } from '../support/test-env';
+import {
+  ADMIN_PASSWORD,
+  ADMIN_USERNAME,
+  API_BASE as BASE,
+  DXF2DWG_PIPELINE_ENABLED,
+  DXF_PIPELINE_ENABLED,
+} from '../support/test-env';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 async function getSessionAuth(request: any): Promise<{ token: string; sseCookie: string }> {
   const r = await request.post(`${BASE}/api/v1/auth/sessions`, {
-    data: { username: 'admin', password: 'SuperAdminPass1' },
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
   });
   const body = await r.json();
   const setCookie = r.headers()['set-cookie'] || '';
@@ -54,7 +60,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   // ── Auth ─────────────────────────────────────────────────────────────
   test('POST /api/v1/auth/sessions — login', async ({ request }) => {
     const r = await request.post(`${BASE}/api/v1/auth/sessions`, {
-      data: { username: 'admin', password: 'SuperAdminPass1' },
+      data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
     });
     expect(r.status()).toBe(201);
     const body = await r.json();
@@ -75,7 +81,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     // Login first to get cookies
     const loginR = await request.post(
       `${BASE}/api/v1/auth/sessions`,
-      { data: { username: 'admin', password: 'SuperAdminPass1' } },
+      { data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD } },
     );
     // Use the same request context which should have cookies
     const r = await request.post(`${BASE}/api/v1/auth/tokens/refresh`);
@@ -241,6 +247,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   test('POST /api/v1/workflows/jobs (convert_dwg_to_dxf) — create DXF job', async ({ request }) => {
+    test.skip(!DXF_PIPELINE_ENABLED, 'DWG→DXF pipeline is disabled in this deployment');
     // First get a valid file_id
     const filesR = await request.get(`${BASE}/api/v1/files?page_size=1`, {
       headers: auth(token),
@@ -262,6 +269,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
   });
 
   test('POST /api/v1/workflows/jobs (convert_dxf_to_dwg) — create DXF→DWG job', async ({ request }) => {
+    test.skip(!DXF2DWG_PIPELINE_ENABLED, 'DXF→DWG pipeline is disabled in this deployment');
     const filesR = await request.get(`${BASE}/api/v1/files?page_size=1`, {
       headers: auth(token),
     });

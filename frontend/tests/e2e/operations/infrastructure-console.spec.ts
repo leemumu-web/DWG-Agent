@@ -2,6 +2,10 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 
 const now = '2026-07-20T00:00:00Z';
 const envelope = (data: unknown) => ({ data, meta: { request_id: 'infra-e2e', timestamp: now } });
+const pageEnvelope = (data: unknown[]) => ({
+  ...envelope(data),
+  pagination: { page: 1, page_size: 20, total: data.length },
+});
 const user = { id: 1, username: 'admin', real_name: '系统管理员', status: 'active', roles: [{ id: 1, code: 'super_admin', name: '系统管理员', is_system: true }], created_at: now, updated_at: now };
 
 async function json(route: Route, data: unknown, status = 200) {
@@ -9,35 +13,134 @@ async function json(route: Route, data: unknown, status = 200) {
 }
 
 async function mockConsole(page: Page) {
-  const storage = {
-    status: 'ok', checked_at: now,
-    database: { status: 'ok', engine: 'mysql', database: 'dwg_agent', latency_ms: 2, table_count: 45, pool: { size: 2, max_overflow: 2, recycle_seconds: 3600 } },
-    storage: { status: 'ok', backend: 'minio', latency_ms: 3, buckets: [{ name: 'dwg-original', tracked_files: 3, object_count: 3 }, { name: 'dxf-derived', tracked_files: 2, object_count: 2 }] },
-    catalog: { available_files: 5, tracked_bytes: 1024, extensions: { '.dwg': 3 } }, capacity: { status: 'unknown', disk_total_bytes: null, disk_used_bytes: null, disk_free_bytes: null }, recovery: { consistency_rule: 'MySQL metadata and object storage must be backed up and restored as one recovery set.', automated_backup: false },
-  };
-  const dataOverview = { status: 'ok', environment: { app_env: 'production', database_engine: 'mysql', database: 'dwg_agent', storage_backend: 'minio' }, database: { status: 'ok' }, storage: { status: 'ok', capacity: { status: 'warning', total_bytes: 1000, used_bytes: 820, free_bytes: 180, used_percent: 82, reason: null, checked_at: now } }, catalog: { available_files: 5, deleted_files: 0, tracked_bytes: 1024 }, transfers_today: { inbound_succeeded: 2, outbound_succeeded: 1, attention_required: 0 }, latest_scan: null };
-  const control = { checked_at: now, broker: { kind: 'mysql_sqlalchemy', url_scheme: 'sqla+mysql', ready_count_source: 'kombu_message.visible', limitations: ['ready counts exclude reserved or in-flight tasks'] }, queues: [{ name: 'maintenance', business_jobs: { queued: 0, running: 0, failed: 0 }, broker_ready_messages: 0, mode: 'contract_only' }], workers: [{ id: 1, worker_name: 'maintenance@host', hostname: 'host', process_id: 10, queues: ['maintenance'], concurrency: 1, status: 'online', started_at: now, last_seen_at: now, stopped_at: null }], summary: { registered_workers: 1, online_workers: 1, stale_workers: 0, unread_messages: 0 }, implementation: { rabbitmq: 'pending', celery_beat: 'pending', durable_outbox: 'pending', windows_node_agent: 'pending' } };
+  const dataOverview = { status: 'ok', environment: { app_env: 'production', database_engine: 'mysql', database: 'dwg_agent', storage_backend: 'minio' }, database: { status: 'ok' }, storage: { status: 'ok', areas: [{ bucket: 'factory-source', purpose_codes: ['source_dwg'] }, { bucket: 'factory-results', purpose_codes: ['derived_dwg', 'derived_dxf'] }], capacity: { status: 'warning', total_bytes: 1000, used_bytes: 820, free_bytes: 180, used_percent: 82, reason: null, checked_at: now } }, catalog: { available_files: 5, deleted_files: 0, tracked_bytes: 1024 }, transfers_today: { inbound_succeeded: 2, outbound_succeeded: 1, attention_required: 0 }, latest_scan: null };
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'infra-token', user }, 201));
   await page.route('**/api/v1/data-admin/overview', (route) => json(route, dataOverview));
-  await page.route('**/api/v1/system/infrastructure', (route) => json(route, storage));
-  await page.route('**/api/v1/control-plane/overview', (route) => json(route, control));
-  await page.route('**/api/v1/control-plane/events?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...envelope([]), pagination: { page: 1, page_size: 20, total: 0 } }) }));
-  await page.route('**/api/v1/control-plane/messages?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...envelope([]), pagination: { page: 1, page_size: 20, total: 0 } }) }));
-  await page.route('**/api/v1/control-plane/contracts/windows-node-agent', (route) => json(route, { version: 'v1-draft', status: 'pending', transport: 'HTTPS draft', endpoints: [], not_available: ['lease fencing'] }));
-  await page.route('**/api/v1/control-plane/maintenance/reconcile-stale-jobs', (route) => json(route, { operation: 'reconcile_stale_jobs', queue: 'maintenance', task_id: 'maintenance-task-001' }, 202));
+  await page.route('**/api/v1/workflows/templates', (route) => json(route, [{
+    code: 'linux_production', name: '生产流程', description: '正式生产', stages: [],
+  }]));
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(pageEnvelope([])),
+  }));
+  await page.route('**/api/v1/workflows?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ...pageEnvelope([]), summary: { total: 0, running: 0, waiting: 0, completed: 0 } }),
+  }));
+  await page.route('**/api/v1/data-admin/objects/tree?**', (route) => json(route, {
+    bucket: 'factory-source',
+    prefix: '',
+    folders: [],
+    objects: [],
+    truncated: false,
+  }));
 }
 
-test('legacy infrastructure route resolves to the focused MySQL and MinIO console', async ({ page }) => {
+async function mockConsoleWithFailedJob(page: Page) {
+  await mockConsole(page);
+  await page.unroute('**/api/v1/workflows/jobs?**');
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(pageEnvelope([{
+      id: 91,
+      project_id: 7,
+      drawing_id: null,
+      created_by: 1,
+      task_type: 'split_steel_dxf',
+      precision_level: 'normal',
+      pipeline: 'steel_dxf_split',
+      status: 'failed',
+      attempt: 1,
+      priority: 0,
+      progress: 63,
+      params_json: { workflow_id: 31 },
+      error_code: 'DXF_SPLIT_SOURCE_MISSING',
+      error_message: 'Traceback: SQLAlchemy Exception in /app/private/worker.py',
+      progress_data: null,
+      created_at: now,
+      updated_at: now,
+      started_at: now,
+      finished_at: now,
+    }])) ,
+  }));
+}
+
+test('legacy infrastructure route resolves to the focused task and storage console', async ({ page }) => {
+  const requested = new Set<string>();
+  page.on('request', (request) => {
+    if (request.url().includes('/api/v1/')) requested.add(new URL(request.url()).pathname);
+  });
   await mockConsole(page);
   await page.goto('/');
   await page.evaluate(({ token, savedUser }) => { sessionStorage.setItem('dwg_access_token', token); sessionStorage.setItem('dwg_user', JSON.stringify(savedUser)); }, { token: 'infra-token', savedUser: user });
   await page.goto('/admin/infrastructure');
   await expect(page).toHaveURL(/\/data-console$/);
-  await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
-  await expect(page.locator('.data-console-hero').getByText('MySQL 正常')).toBeVisible();
-  await expect(page.locator('.data-console-hero').getByText('MinIO 正常')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '数据管理台' })).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('业务数据库 正常')).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('文件存储 正常')).toBeVisible();
   await expect(page.locator('.data-console-hero').getByText('容量 82.0%')).toBeVisible();
-  await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /生产任务/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /文件存储/ })).toBeVisible();
   await expect(page.getByRole('tab', { name: '运行与通信' })).toHaveCount(0);
+  const [treeResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/v1/data-admin/objects/tree')),
+    page.getByRole('tab', { name: /文件存储/ }).click(),
+  ]);
+  expect(treeResponse.status()).toBe(200);
+  await expect(page.locator('.storage-tree-card').getByText('原始 DWG')).toBeVisible();
+  await expect(page.getByText('转换后 DWG / 处理后 DXF')).toBeVisible();
+  expect(requested).toEqual(new Set([
+    '/api/v1/auth/tokens/refresh',
+    '/api/v1/data-admin/overview',
+    '/api/v1/workflows',
+    '/api/v1/workflows/templates',
+    '/api/v1/workflows/jobs',
+    '/api/v1/data-admin/objects/tree',
+  ]));
+});
+
+test('task errors show an operator action without backend logs or codes', async ({ page }) => {
+  await mockConsoleWithFailedJob(page);
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'infra-token', savedUser: user });
+  await page.goto('/data-console');
+  await page.getByRole('tab', { name: /处理任务/ }).click();
+  await page.getByRole('button', { name: '查看原因' }).click();
+
+  await expect(page.getByRole('dialog', { name: '任务处理说明' })).toBeVisible();
+  await expect(page.getByText('分类后的拆板图纸已缺失，请返回图纸分类阶段核对并重新确认。')).toBeVisible();
+  await expect(page.getByText(/进入所属生产项目，返回图纸分类阶段/)).toBeVisible();
+  await expect(page.getByText(/Traceback|SQLAlchemy|Exception|\/app\/private|DXF_SPLIT_SOURCE_MISSING/)).toHaveCount(0);
+});
+
+test('API failures hide technical response details and retain the request number', async ({ page }) => {
+  await mockConsole(page);
+  await page.unroute('**/api/v1/data-admin/overview');
+  await page.route('**/api/v1/data-admin/overview', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      error: {
+        code: 'STORAGE_LIST_FAILED',
+        message: 'Traceback: pymysql OperationalError at /app/backend.py',
+      },
+      meta: { request_id: 'worker-visible-request', timestamp: now },
+    }),
+  }));
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'infra-token', savedUser: user });
+  await page.goto('/data-console');
+
+  await expect(page.getByText(/文件存储暂时无法读取/)).toBeVisible();
+  await expect(page.getByText(/请求编号 worker-visible-request/)).toBeVisible();
+  await expect(page.getByText(/Traceback|pymysql|OperationalError|\/app\/backend|STORAGE_LIST_FAILED/)).toHaveCount(0);
 });

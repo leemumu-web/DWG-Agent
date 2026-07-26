@@ -25,11 +25,16 @@ backend/tests/
 tests/
 
 # ── Stages 子包：样本 / 日志 / 临时产物（不进镜像）────────────
+Stages/*/tests/
+Stages/*/test/
 Stages/*/samples/
+Stages/*/data/
+Stages/*/output/
 Stages/*/logs/
 Stages/*/convert/output/
 Stages/*/convert/tmp/
 Stages/dwg2dxf/convert/
+Stages/dxf2excel/convert/
 Stages/dxf2excel/original_dxf/
 Stages/dxf2excel/output/
 Stages/steel_dxf_split_v1.5.2/docs/

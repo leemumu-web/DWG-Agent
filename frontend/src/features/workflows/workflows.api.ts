@@ -1,4 +1,10 @@
-import { apiClient, describeApiErrorAsync, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
+import {
+  apiClient,
+  downloadBlob,
+  type ApiEnvelope,
+  type PageEnvelope,
+  type TransferProgressHandler,
+} from '../../shared/api';
 import type { Job } from '../jobs';
 import type { Project } from '../projects';
 import type {
@@ -89,58 +95,52 @@ async function downloadArchive(
   url: string,
   fallbackName: string,
   errorMessage: string,
+  onProgress?: TransferProgressHandler,
+  expectedBytes?: number,
 ) {
-  try {
-    const response = await apiClient.get<Blob>(
-      url,
-      { responseType: 'blob', timeout: 300_000 },
-    );
-    const disposition = (
-      typeof response.headers.get === 'function'
-        ? response.headers.get('content-disposition')
-        : response.headers['content-disposition']
-    ) as string | undefined;
-    const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-    const filename = encoded ? decodeURIComponent(encoded) : fallbackName;
-    const objectUrl = URL.createObjectURL(response.data);
-    const anchor = document.createElement('a');
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    setTimeout(() => {
-      document.body.removeChild(anchor);
-      URL.revokeObjectURL(objectUrl);
-    }, 100);
-  } catch (error) {
-    throw new Error(await describeApiErrorAsync(error, errorMessage));
-  }
+  return downloadBlob({
+    url,
+    fallbackName,
+    errorMessage,
+    onProgress,
+    expectedBytes,
+  });
 }
 
-export async function downloadWorkflowArchive(workflowId: number) {
+export async function downloadWorkflowArchive(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/download-archive`,
     `workflow-${workflowId}.zip`,
     '生产压缩包下载失败',
+    onProgress,
   );
 }
 
 export async function downloadWorkflowStageArchive(
   workflowId: number,
   stageCode: string,
+  onProgress?: TransferProgressHandler,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/stages/${stageCode}/download-archive`,
     `workflow-${workflowId}-${stageCode}.zip`,
     '阶段结果压缩包下载失败',
+    onProgress,
   );
 }
 
-export async function downloadWorkflowExcelStageResult(workflowId: number) {
+export async function downloadWorkflowExcelStageResult(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/stages/excel_stage1/download-result`,
     `workflow-${workflowId}-excel-stage1.xlsx`,
     'Excel 结果下载失败',
+    onProgress,
   );
 }
 
@@ -209,19 +209,29 @@ export async function getDxfClassificationGroup(
 export async function downloadDxfClassificationGroupArchive(
   workflowId: number,
   groupKey: string,
+  onProgress?: TransferProgressHandler,
+  expectedBytes?: number,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/dxf-classification/groups/${encodeURIComponent(groupKey)}/download-archive`,
     `workflow-${workflowId}-dxf-group.zip`,
     '分类文件夹下载失败',
+    onProgress,
+    expectedBytes,
   );
 }
 
-export async function downloadAllDxfClassificationArchive(workflowId: number) {
+export async function downloadAllDxfClassificationArchive(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+  expectedBytes?: number,
+) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/dxf-classification/download-archive`,
     `workflow-${workflowId}-all-classified-dxf.zip`,
     '全部 DXF 下载失败',
+    onProgress,
+    expectedBytes,
   );
 }
 
@@ -254,24 +264,20 @@ export async function createDrawingSelectiveExport(
   return response.data.data;
 }
 
-export function startNativeDrawingSelectiveExportDownload(
+export async function downloadDrawingSelectiveExport(
   prepared: DrawingSelectiveExport,
+  onProgress?: TransferProgressHandler,
 ) {
   if (!prepared.download_url) {
     throw new Error('本次选择导出没有可用的下载地址');
   }
-  const apiBase = new URL(
-    import.meta.env.VITE_API_BASE_URL || '/',
-    window.location.origin,
+  return downloadArchive(
+    prepared.download_url,
+    prepared.filename,
+    '选择导出下载失败',
+    onProgress,
+    prepared.source_size_bytes,
   );
-  const anchor = document.createElement('a');
-  anchor.href = new URL(prepared.download_url, apiBase).toString();
-  anchor.download = prepared.filename;
-  anchor.rel = 'noopener';
-  anchor.style.display = 'none';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
 }
 export async function getWorkflowBatchExportPreview(workflowId: number) {
   const response = await apiClient.get<ApiEnvelope<WorkflowBatchExportPreview>>(
@@ -301,23 +307,20 @@ export async function getWorkflowBatchExport(
   return response.data.data;
 }
 
-export function startNativeWorkflowBatchExportDownload(
+export async function downloadWorkflowBatchExport(
   exportRow: WorkflowBatchExport,
+  onProgress?: TransferProgressHandler,
 ) {
   if (!exportRow.download_url) {
     throw new Error('本次分批导出没有可用的下载地址');
   }
-  const apiBase = new URL(
-    import.meta.env.VITE_API_BASE_URL || '/',
-    window.location.origin,
+  return downloadArchive(
+    exportRow.download_url,
+    exportRow.filename,
+    '分批导出下载失败',
+    onProgress,
+    exportRow.source_size_bytes,
   );
-  const anchor = document.createElement('a');
-  anchor.href = new URL(exportRow.download_url, apiBase).toString();
-  anchor.download = exportRow.filename;
-  anchor.style.display = 'none';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
 }
 
 export async function purgeWorkflowBatchExport(
@@ -361,24 +364,20 @@ export async function getWorkflowRetentionExport(
   return response.data.data;
 }
 
-export function startNativeWorkflowRetentionDownload(
+export async function downloadWorkflowRetentionExport(
   exportRow: WorkflowRetentionExport,
+  onProgress?: TransferProgressHandler,
 ) {
   if (!exportRow.download_url) {
     throw new Error('本次完整备份没有可用的下载地址，请重新生成备份凭据');
   }
-  const apiBase = new URL(
-    import.meta.env.VITE_API_BASE_URL || '/',
-    window.location.origin,
+  return downloadArchive(
+    exportRow.download_url,
+    exportRow.filename,
+    '完整备份下载失败',
+    onProgress,
+    exportRow.source_size_bytes,
   );
-  const anchor = document.createElement('a');
-  anchor.href = new URL(exportRow.download_url, apiBase).toString();
-  anchor.download = exportRow.filename;
-  anchor.rel = 'noopener';
-  anchor.style.display = 'none';
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
 }
 
 export async function queueWorkflowRetentionPurge(

@@ -15,7 +15,7 @@ bash scripts/doctor.sh --since-minutes 60
 bash scripts/stop-all.sh
 ```
 
-`start-all.sh` 按需构建前端，启动已实现队列 worker、`dispatch` 框架预留 worker和承载有界运维/每日归档任务的 `maintenance` worker、FastAPI `8010` 与本地 Nginx `8080`。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。每个启动脚本还传入队列/并发环境元数据，供控制平面写入 MySQL 活动记录；它不构成分布式 lease。
+`start-all.sh` 按需构建前端，启动已实现队列 worker和承载有界运维/每日归档任务的 `maintenance` worker、FastAPI `8010` 与本地 Nginx `8080`。`agent`、`cad`、`dispatch` 只有预留路由，不启动空 worker。`start-dev.sh` 用 Vite 替代 Nginx/静态服务。脚本按 Celery app、queue 和 node name 识别 worker；pidfile 只是跟踪辅助，不是唯一进程身份。每个启动脚本还传入队列/并发环境元数据，供控制平面写入 MySQL 活动记录；它不构成分布式 lease。
 
 后端代码晚于当前 Uvicorn 进程时，`status.sh` 报告“运行代码已过期”并返回非零。此时使用 `bash scripts/start-all.sh --restart-backend`；它只优雅停止 cwd 为本仓库 `backend/` 的 Uvicorn，未知进程占用 8010 时拒绝操作。前端源码、依赖清单或构建配置晚于 `dist/index.html` 时，普通 `start-all.sh` 会重新构建，也可用 `--rebuild` 强制执行。
 
@@ -30,7 +30,21 @@ bash scripts/docker.sh smoke
 bash scripts/docker.sh logs
 ```
 
-仅需要转换 worker 时才执行第二个 `up`。它也会启动占位 `worker-agent`；其健康不表示 Agent task 存在。
+仅需要转换 worker 时才执行第二个 `up`。预留队列没有 task，也没有常驻消费者。
+
+离线服务器发布不保留仓库，使用安装目录中的稳定入口：
+
+```bash
+/opt/dwg-agent/scripts/server-deploy.sh up /opt/dwg-agent
+/opt/dwg-agent/scripts/server-deploy.sh status /opt/dwg-agent
+/opt/dwg-agent/scripts/server-deploy.sh smoke /opt/dwg-agent
+/opt/dwg-agent/scripts/server-deploy.sh down /opt/dwg-agent
+```
+
+`install` 升级会保留既有 0600 `.env.docker`，但更新固定 Compose、SQL 初始化资源和镜像清单；
+`down` 保留 MySQL、MinIO 和应用命名卷。不得在服务器安装目录解密并长期保留明文包；部署器只
+在 `/tmp` 创建受控临时目录，并在成功或失败退出时清理。Docker 镜像内是可执行字节码而非
+原始业务源码，这不改变运行功能，也不等于能对抗宿主 root 逆向。
 
 ## 健康信号解释
 
@@ -68,9 +82,11 @@ docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg work
 
 ## HTTP 4xx、499 与上传拥塞
 
-仓库前端统一解析 API 错误信封：弹窗显示 `error.message`、`error.code` 和 `meta.request_id`；422 还会展开最多三项 `details.errors` 字段原因。文件夹上传保留每个失败文件的名称和原因，不再只报告失败数量。Blob 下载若返回 JSON 错误，也按相同规则解析。
+仓库前端统一解析 API 错误信封：工人界面只显示经过过滤的中文原因、建议动作和“请求编号”；`error.code` 只供页面内部选择恢复动作，不展示给工人。422 会把字段名翻译成业务中文并展开最多三项原因。文件夹上传保留每个失败文件的名称和原因，不再只报告失败数量；下载返回 JSON 错误时使用同一规则。Traceback、数据库驱动、容器名、本机路径、URL 和后端响应原文不得进入前端。
 
-若生产页面仍只显示状态码，通常表示网关返回了非 JSON 页面或运行中的前端构建已过期。先运行 `bash scripts/status.sh`，再按提示执行 `bash scripts/start-all.sh --rebuild`。用弹窗中的 request ID 对照 `doctor.sh` 输出；不得向用户展示 traceback、DSN、本机路径或未过滤的响应原文。
+若生产页面仍只显示状态码，通常表示网关返回了非 JSON 页面或运行中的前端构建已过期。先运行 `bash scripts/status.sh`，再按提示执行 `bash scripts/start-all.sh --rebuild`。维护人员使用弹窗中的请求编号对照 `doctor.sh` 输出；后台日志只供维护人员查看，不得复制到工人界面。
+
+ODA 容器继续把 `/tmp` 作为加固临时文件系统。`worker-dxf` 与 `worker-dxf2dwg` 必须设置 `TMPDIR=/app/var/appimage-tmp`，启动脚本会创建该目录，使 AppImage 在应用工作卷内解包执行。若任务在 70% 左右以返回码 127 失败，应先检查该环境变量、目录写权限和 Xvfb，不要反复重提同一图纸。
 
 ```bash
 bash scripts/doctor.sh --since-minutes 60
@@ -146,7 +162,7 @@ bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 
 bash scripts/docker.sh backup /secure/backups/dwg-agent-YYYY-MM-DD
 ```
 
-该命令导出 `dwg_agent` 与 `hardware_handbook`，归档 MinIO volume 并生成 `SHA256SUMS`。它不停止 writer，也不生成数据库与对象的原子快照；严格恢复点必须在维护窗口先停止写入。Compose service name 不支持 `worker-*` wildcard，人工停服时必须逐个列出服务。
+该命令导出 `dwg_agent` 与 `hardware_handbook`，归档 MinIO volume 并生成 `SHA256SUMS`。MinIO Server 极简镜像不提供 `tar`；脚本使用无网络的临时后端工具容器继承数据卷，不新增常驻服务。它不停止 writer，也不生成数据库与对象的原子快照；严格恢复点必须在维护窗口先停止写入。Compose service name 不支持 `worker-*` wildcard，人工停服时必须逐个列出服务。
 
 只在隔离或维护环境恢复；脚本要求全部 Compose 服务已停止，并会清空目标 MinIO volume 后解包：
 
@@ -237,17 +253,15 @@ attempt 对应的分类后原始 DXF，不删除服务器文件。弹窗提供�
 
 ## 数据控制台运行手册
 
-入口为 `/admin/infrastructure`，包含总览、文件登记、存储对象、流转流水、每日归档、一致性和运行通信七个页签。管理员可提交归档、扫描和执行处置；审计员可读取并生成归档/处置预检，但不能提交归档、启动扫描或执行处置。
+入口为 `/data-console`；旧 `/admin/infrastructure` 会跳转到该入口。页面只保留“生产任务”和“文件存储”两个页签，供生产人员管理现有任务与已登记文件，不展示数据库表结构或内部队列。
 
-1. 先看总览的数据库/存储健康、今日入库/出库、失败或待补偿流水、最近扫描计数。
-2. 在“文件登记”按名称/ID/SHA-256、状态、bucket、格式定位 MySQL 行，并从详情复制 bucket/key 与摘要。
-3. 在“存储对象”按 bucket 和前缀游标分页，核对对象大小、修改时间及关联 file ID；对象枚举期间 API 不长期占用 MySQL 连接。
-4. 在“流转流水”按方向、状态和操作筛选；`failed` 表示操作已终止，`compensation_required` 表示自动补偿没有恢复一致性，必须人工核查对象和登记。
-5. 在“每日归档”选择业务日期和可选 Bucket，先预检文件数、总量、格式/Bucket 分布、带时区的业务日窗口和清单 SHA-256。签名预检默认 10 分钟有效；历史 `daily-archives/` 对象自动排除。确认后由 maintenance worker 生成 ZIP/manifest，页面自动轮询并复用已有活动/成功结果。失败时从历史行带回日期/范围重新预检，不能手工把 run 改为 succeeded。
-6. 每日归档成功后分别下载 ZIP 和 JSON 清单，并在“文件登记”核对两个 `files` 行、在“流转流水”核对 `daily_archive`/`daily_archive_manifest`。它只整理每日可用登记，不移动或删除源对象，也不替代数据库与 MinIO 恢复集合。
-7. 启动一致性扫描后轮询 run，不刷新总览触发全量扫描。按 finding 类型和 `待处置/已处置` 筛选；每次最多选择 100 项且总量不超过 1 GiB。
-8. 四种动作分别为：恢复软删除登记、补登记现有对象、软删除缺失登记、永久清理未登记对象。执行前必须预检；预检 token 绑定操作人、目标摘要和 5 分钟有效期，执行时再次锁定并重检。
-9. 永久清理要求输入 `PURGE`，字节不可恢复。若对象已删而 MySQL 提交失败，流水为 `compensation_required`；保留 request ID/transfer UID，重新扫描并按事故流程处理，不能把旧 finding 手工改成 resolved。
+1. 在“生产任务”核对生产项目、当前阶段和进度；进入所属项目继续上传、分类、拆板或 Excel 整理。
+2. 在“处理任务”查看所有真实 Job 状态与错误。管理员只能取消后台状态机允许取消的活动任务；失败或取消任务才显示重试。拆板必须回所属工作流重开，页面不提供后台会拒绝的直接重试。
+3. 在“文件存储”按中文存储区和目录核对对象、大小及登记关系。上传由后端按文件类型自动归档，不承诺写进当前目录。
+4. 只有已登记且有权限的文件显示下载、更改路径和软删除。未登记对象只作异常提示，不允许从页面直接处置。
+5. 操作失败时保留页面给出的错误原因和请求编号。不要直接修改 MySQL 行或对象路径规避业务规则。
+
+每日归档、存储一致性扫描和控制平面接口仍是后台维护能力，但不在生产人员的数据管理台展示；需要维护时按对应脚本/API 运维流程执行。完整页面字段和接口对应见[数据管理台使用说明](../operations/data-console.md)。
 
 DXF 在线预览对象会以 `operation=preview_generate` 登记内部生成流水，并发生成的锁内缓存复用写 `preview_cache_reuse`；源文件变化、缓存对象丢失或源 DXF 软删除时写 `preview_invalidate`，浏览器读取写 `direction=outbound, operation=preview`。源删除后 SVG 物理对象仍处于保留期，但登记和内容端点必须不可用。排查预览时应同时核对源 DXF、SVG `files` 行、对象 `stat` 和流水；不要把弹窗能打开当作登记一致性的充分证据。
 
@@ -272,7 +286,7 @@ STORAGE_BACKEND=minio MINIO_ENDPOINT="http://$MINIO_IP:9000" \
 
 ## Worker 与队列事故
 
-管理员可在“数据与存储 → 运行与通信”手动提交一次「恢复超时运行任务」。该操作仅投递 `maintenance` queue 的 `reconcile_stale_jobs`，只会处理超过 `CELERY_STALE_JOB_TIMEOUT_SECONDS` 且仍为 running 的 Job；每次投递和完成都会写入 `control_plane_events`。它不会自动启动周期维护，不会删除对象，也不会修复业务格式错误。若维护队列不可用，API 返回 503 并保留 enqueue_failed 事件，先恢复 worker 后再由管理员重试。
+超时任务恢复是受保护的后台维护接口，不在生产人员的数据管理台提供按钮。管理员通过 `POST /api/v1/control-plane/maintenance/reconcile-stale-jobs` 手动提交一次恢复；该操作仅投递 `maintenance` queue 的 `reconcile_stale_jobs`，只会处理超过 `CELERY_STALE_JOB_TIMEOUT_SECONDS` 且仍为 running 的 Job。每次投递和完成都会写入 `control_plane_events`，不会自动启动周期维护、删除对象或修复业务格式错误。若维护队列不可用，API 返回 503 并保留 `enqueue_failed` 事件，先恢复 worker 后再按维护流程重试。
 
 ```bash
 bash scripts/status.sh

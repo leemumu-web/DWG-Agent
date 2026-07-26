@@ -133,6 +133,66 @@ def test_browser_e2e_uses_session_storage_and_cookie_sse_auth():
     assert "?token=" not in sources
 
 
+def test_browser_e2e_api_defaults_to_the_configured_same_origin_gateway():
+    source = _e2e_source("support/test-env.ts")
+
+    assert "process.env.PLAYWRIGHT_API_BASE_URL" in source
+    assert "process.env.PLAYWRIGHT_FRONTEND_BASE_URL" in source
+    assert source.index("PLAYWRIGHT_API_BASE_URL") < source.index(
+        "PLAYWRIGHT_FRONTEND_BASE_URL"
+    )
+
+
+def test_every_reachable_bulk_drawing_transfer_has_visible_shared_progress():
+    shared_api = _frontend_source("shared/api/transfer.ts")
+    files_api = _frontend_source("features/files/files.api.ts")
+    workflow_api = _frontend_source("features/workflows/workflows.api.ts")
+    workflow_input_api = _frontend_source(
+        "features/workflows/workflow-inputs.api.ts"
+    )
+    remnant_api = _frontend_source("features/remnant-inventory/api.ts")
+
+    assert "onDownloadProgress" in shared_api
+    assert "transferProgressFromAxios" in shared_api
+    for contract in (
+        "uploadFile(",
+        "uploadZip(",
+        "uploadFolder(",
+        "downloadZip(",
+        "downloadBatchZip(",
+    ):
+        assert contract in files_api
+    assert "onTransferProgress" in files_api
+    assert "onUploadProgress" in files_api
+    assert "downloadBlob" in files_api
+    assert "downloadArchive" in workflow_api
+    assert "onProgress" in workflow_api
+    assert "onUploadProgress" in workflow_input_api
+    assert "onUploadProgress" in remnant_api
+
+    visible_surfaces = {
+        "features/files/FileUpload.tsx": "图纸批量上传",
+        "features/files/ZipDownloadModal.tsx": "图纸打包下载",
+        "features/cad-processing/components/conversion/ConversionUploadPanel.tsx": "图纸文件夹上传",
+        "features/cad-processing/components/dxf2excel/DxfUploadPanel.tsx": "DXF 文件夹上传",
+        "features/cad-processing/Dxf2ExcelPage.tsx": "批次下载",
+        "features/workflows/ProductionInputPanel.tsx": "DWG 文件夹上传",
+        "features/workflows/WorkflowStageArchiveCard.tsx": "阶段图纸结果下载",
+        "features/workflows/WorkflowArtifactSummary.tsx": "全部生产产物下载",
+        "features/workflows/DxfClassificationPanel.tsx": "分类图纸下载",
+        "features/workflows/DrawingProcessingPanel.tsx": "拆板结果下载",
+        "features/workflows/DrawingSelectiveExportControl.tsx": "分类图纸下载",
+        "features/workflows/WorkflowBatchExportControl.tsx": "分批图纸下载",
+        "features/workflows/WorkflowRetentionControl.tsx": "完整备份下载",
+        "features/remnant-inventory/RemnantImportPanel.tsx": "余料图纸批量上传",
+        "features/remnant-inventory/RemnantAutoImportPanel.tsx": "余料图纸文件夹上传",
+    }
+    for path, label in visible_surfaces.items():
+        source = _frontend_source(path)
+        assert "TransferProgressBar" in source, path
+        assert label in source, path
+
+
 def test_excel_final_has_frontend_api_types_route_and_tab():
     api_source = _frontend_source("features/excel-processing/api.ts")
     router_source = _frontend_source("app/router.tsx")
@@ -182,16 +242,12 @@ def test_dxf_to_excel_result_bridges_to_excel_final_without_dynamic_imports():
     assert "'Idempotency-Key': requestKey" in api_source
 
 
-def test_frontend_system_health_lists_every_pipeline_flag():
-    source = _frontend_source("features/operations/api/system.ts")
+def test_retired_system_health_console_has_no_orphaned_frontend_surface():
+    page = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
 
-    for feature in (
-        "dxf_pipeline",
-        "dxf2dwg_pipeline",
-        "dxf2excel_pipeline",
-        "excel_final_pipeline",
-    ):
-        assert feature in source
+    assert "系统通信" not in page
+    assert "RuntimeCommunicationPanel" not in page
+    assert not (REPO_ROOT / "frontend/src/features/operations/api/system.ts").exists()
 
 
 def test_frontend_has_global_recovery_and_connectivity_feedback():
@@ -216,46 +272,144 @@ def test_workflow_batch_cleanup_keeps_four_visible_categories_separate_from_spli
     assert "提供六类生产文件下载" not in readme
 
 
-def test_runtime_console_consumes_maintenance_and_real_storage_contracts():
-    api_source = _frontend_source("features/operations/api/controlPlane.ts")
-    runtime_panel = _frontend_source(
-        "features/operations/components/data-console/RuntimeCommunicationPanel.tsx"
+def test_task_console_uses_business_apis_instead_of_direct_database_crud():
+    panel = _frontend_source(
+        "features/operations/components/data-console/ProductionTaskPanel.tsx"
     )
-    overview_panel = _frontend_source(
-        "features/operations/components/data-console/OverviewPanel.tsx"
-    )
+    backend_constants = (
+        REPO_ROOT / "backend/app/platform/config/constants.py"
+    ).read_text(encoding="utf-8")
+    backend_commands = (
+        REPO_ROOT / "backend/app/modules/jobs/routes/commands.py"
+    ).read_text(encoding="utf-8")
 
-    assert "/maintenance/reconcile-stale-jobs" in api_source
-    assert "恢复超时运行任务" in runtime_panel
-    assert "getInfrastructureOverview" in overview_panel
-    assert "MinIO" in overview_panel
+    for contract in ("listWorkflows", "listJobsPage", "cancelJob", "retryJob"):
+        assert contract in panel
+    for label in ("当前生产任务", "生产项目", "处理任务", "继续生产", "查看原因"):
+        assert label in panel
+    assert "createMySqlRow" not in panel
+    assert "deleteMySqlRow" not in panel
+    for task_type in (
+        "convert_remnant_dwg",
+        "parse_remnant_drawing",
+        "convert_dwg_to_dxf",
+        "convert_dxf_to_dwg",
+        "extract_dxf_to_excel",
+        "classify_steel_dxf",
+        "split_steel_dxf",
+        "process_excel_final",
+    ):
+        assert task_type in backend_constants
+        assert task_type in panel
+    for status in (
+        "pending",
+        "queued",
+        "running",
+        "waiting_cad_worker",
+        "validating",
+        "need_review",
+        "succeeded",
+        "failed",
+        "cancelled",
+    ):
+        assert status in panel
+    assert '"/{job_id}/cancellation-requests"' in backend_commands
+    assert '"/{job_id}/retry-requests"' in backend_commands
+    assert "DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED" in backend_commands
+    assert "job.task_type !== 'split_steel_dxf'" in panel
 
 
-def test_daily_archive_console_uses_preview_queue_poll_and_signed_download_contracts():
-    panel = _frontend_source("features/operations/components/DailyArchivePanel.tsx")
-    data_api = _frontend_source("features/operations/api/dataAdmin.ts")
-    files_api = _frontend_source("features/files/files.api.ts")
+def test_retired_daily_archive_console_has_no_orphaned_frontend_surface():
     infrastructure = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
 
-    assert "/daily-archives/preview" in data_api
-    assert "/daily-archives/${archiveId}" in data_api
-    assert "preview_token" in data_api
-    assert "idempotency_key" in data_api
     assert "每日归档" not in infrastructure
-    assert "非破坏式每日整理" in panel
-    assert "refetchInterval" in panel
-    assert "downloadFile" in panel
-    assert "/download-url" in files_api
+    assert "DailyArchivePanel" not in infrastructure
+    assert not (
+        REPO_ROOT
+        / "frontend/src/features/operations/components/DailyArchivePanel.tsx"
+    ).exists()
 
 
-def test_dashboard_turns_existing_task_and_review_state_into_next_actions():
+def test_dashboard_is_a_real_linux_production_workbench():
     source = _frontend_source("features/dashboard/DashboardPage.tsx")
 
-    assert "今日工作建议" in source
-    assert "failed > 0" in source
-    assert "reviewsQ.data" in source
-    assert "navigate(action.to)" in source
-    assert "aria-label={`查看任务 ${j.id} 详情`}" in source
+    assert "listWorkflows" in source
+    assert "listWorkflowTemplates" in source
+    assert "workflow_type: 'linux_production'" in source
+    assert "生产工作台" in source
+    assert "新建生产项目" in source
+    assert "生产操作手册" in source
+    assert "资料入库" in source
+    assert "图纸分类" in source
+    assert "整批拆板" in source
+    assert "Excel 整理" in source
+    assert "listFilesPage" not in source
+    assert "listJobsPage" not in source
+    assert "listPendingReviews" not in source
+
+
+def test_reachable_frontend_has_no_development_stage_badge():
+    sources = "\n".join(
+        _frontend_source(path)
+        for path in (
+            "app/layout.tsx",
+            "features/dashboard/DashboardPage.tsx",
+            "features/identity/LoginPage.tsx",
+        )
+    )
+
+    for retired_label in ("Stage 1", "本机开发版", "生产就绪骨架", "本机开发骨架"):
+        assert retired_label not in sources
+
+
+def test_data_console_presents_current_tables_and_storage_areas_in_chinese():
+    presentation = _frontend_source(
+        "features/operations/components/data-console/presentation.tsx"
+    )
+    page = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
+    tasks = _frontend_source(
+        "features/operations/components/data-console/ProductionTaskPanel.tsx"
+    )
+    objects = _frontend_source(
+        "features/operations/components/data-console/ObjectsPanel.tsx"
+    )
+    overview_query = (
+        REPO_ROOT / "backend/app/modules/operations/data_catalog/queries.py"
+    ).read_text(encoding="utf-8")
+
+    for label in (
+        "当前生产任务",
+        "生产图纸转 DXF",
+        "生产图纸分类",
+        "生产图纸整批拆板",
+        "生产 Excel 整理",
+    ):
+        assert label in tasks
+    for bucket_label in (
+        "原始 DWG",
+        "转换后 DWG",
+        "生产报告",
+        "临时文件",
+        "原始 DXF",
+        "处理后 DXF",
+    ):
+        assert bucket_label in presentation
+    assert "数据管理台" in page
+    assert "生产任务" in page
+    assert "文件存储" in page
+    assert "DATA CONSOLE" not in page
+    assert "MySQL 表结构" not in tasks
+    assert ">NULL<" not in tasks
+    assert ">PK<" not in tasks
+    assert "MinIO 结构" not in objects
+    assert 'title="Bucket"' not in objects
+    assert ">Bucket<" not in objects
+    assert "areas={overview.data?.storage.areas ?? []}" in page
+    assert "dataSource={areas}" in objects
+    assert "enabled: Boolean(bucket)" in objects
+    assert "configured_areas" in overview_query
+    assert '"purpose_codes"' in overview_query
+    assert "'dwg-original'" not in presentation
 
 
 def test_workflow_console_uses_backend_templates_files_and_stage_execution():
@@ -297,6 +451,7 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     detail_source = _frontend_source("features/workflows/WorkflowDetailPage.tsx")
     panel_source = _frontend_source("features/workflows/ProductionInputPanel.tsx")
     api_source = _frontend_source("features/workflows/workflow-inputs.api.ts")
+    files_api_source = _frontend_source("features/files/files.api.ts")
 
     assert "<ProductionInputPanel" in detail_source
     assert "selectedStage.stage_code === 'source_intake'" in detail_source
@@ -306,7 +461,8 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     assert "选择 DWG 文件夹" in panel_source
     assert 'accept=".xls,.xlsx"' in panel_source
     assert "确认，仅上传 DWG" in panel_source
-    assert "MAX_FOLDER_FILES = 1000" in panel_source
+    assert "MAX_FOLDER_FILES = 1000" in files_api_source
+    assert "limitFolderUploadFiles(selected)" in panel_source
     assert "仅取前 ${MAX_FOLDER_FILES} 个文件上传" in panel_source
     assert "downloadFile" not in panel_source
     assert "冻结后不可修改" in panel_source
@@ -317,6 +473,7 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
         "/input-excel",
         "/input-dwg-folder",
         "/input-folder",
+        "/input-folder/restore",
         "/input-batch/conversion-requests",
         "/input-batch/freeze",
     ):
@@ -438,7 +595,8 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "下载后不会删除服务器文件" in selective_export_source
     assert "分类图纸导出" in selective_export_source
     assert "当前没有可导出的文件" in selective_export_source
-    assert "再次开始下载" in selective_export_source
+    assert "重新下载" in selective_export_source
+    assert "TransferProgressBar" in selective_export_source
     assert "ApiErrorAlert" in selective_export_source
     assert "ApiErrorAlert" in export_source
     assert "ApiErrorAlert" in panel_source
@@ -448,18 +606,21 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "上传" not in panel_source
     assert "确认当前阶段" not in panel_source
     assert "getDxfSplitRun" in api_source
-    assert "startNativeWorkflowBatchExportDownload" in api_source
-    assert "startNativeDrawingSelectiveExportDownload" in api_source
+    assert "downloadWorkflowBatchExport" in api_source
+    assert "downloadDrawingSelectiveExport" in api_source
+    assert "onProgress" in api_source
     assert "/selective-export-preview" in api_source
     assert "/selective-exports" in api_source
     assert "/batch-exports/preview" in api_source
     assert "/purge" in api_source
     batch_download_source = api_source.split(
-        "export function startNativeWorkflowBatchExportDownload",
+        "export async function downloadWorkflowBatchExport",
         1,
     )[1].split("export async function purgeWorkflowBatchExport", 1)[0]
-    assert "document.createElement('a')" in batch_download_source
-    assert "responseType: 'blob'" not in batch_download_source
+    assert "downloadArchive" in batch_download_source
+    assert "onProgress" in batch_download_source
+    assert "source_size_bytes" in batch_download_source
+    assert "document.createElement('a')" not in batch_download_source
     assert "downloadAllDxfClassificationArchive" in api_source
     assert "downloadDxfSplitManualReviewArchive" not in api_source
     assert "/drawing-processing/runs/${runId}/manual-review-archive" not in api_source
@@ -492,69 +653,110 @@ def test_workflow_primary_read_failures_share_operator_recovery_feedback():
     assert "返回前序阶段补齐必需产物" in error_source
 
 
-def test_drawing_native_download_recovers_when_browser_launch_fails():
+def test_operator_errors_are_chinese_and_hide_backend_diagnostics():
+    error_source = _frontend_source("shared/api/error.ts")
+    boundary_source = _frontend_source("shared/components/AppErrorBoundary.tsx")
+    task_source = _frontend_source(
+        "features/operations/components/data-console/ProductionTaskPanel.tsx"
+    )
+    input_source = _frontend_source("features/workflows/ProductionInputPanel.tsx")
+    stage_sources = [
+        _frontend_source("features/workflows/WorkflowDetailPage.tsx"),
+        _frontend_source("features/workflows/DxfClassificationPanel.tsx"),
+        _frontend_source("features/workflows/DrawingProcessingPanel.tsx"),
+        _frontend_source("features/workflows/WorkflowRetentionControl.tsx"),
+        _frontend_source("features/excel-processing/ExcelFinalPage.tsx"),
+    ]
+
+    assert "TECHNICAL_MESSAGE" in error_source
+    assert "safeOperatorText" in error_source
+    assert "operatorErrorMessage" in error_source
+    assert "请求编号" in error_source
+    assert "codePart" not in error_source
+    assert "console.error" not in boundary_source
+    assert "Request ID" not in boundary_source
+    assert "错误编号" not in task_source
+    assert "其他处理任务（${taskType}）" not in task_source
+    assert "${issue.file_name ? `${issue.file_name} · ` : ''}${issue.code}" not in input_source
+    for source in stage_sources:
+        assert "operatorErrorMessage" in source
+
+
+def test_dashboard_contains_complete_operator_manual():
+    dashboard = _frontend_source("features/dashboard/DashboardPage.tsx")
+
+    assert "生产操作手册" in dashboard
+    for section in (
+        "1. 建立项目与准备资料",
+        "2. 资料上传与入库冻结",
+        "3. 图纸分类与数量核对",
+        "4. BH、BOX 整批拆板",
+        "5. Excel 整理与重量核验",
+        "6. 下载交付与异常处理",
+    ):
+        assert section in dashboard
+    for rule in (
+        "只处理第一张",
+        "前 1000 个",
+        "原始 DWG 只负责留档",
+        "原长版和余量增长版",
+        "板材统一按 7.85",
+        "BH、BOX、BT 拆板后的腹板与翼板重量要合并",
+        "只会解锁下一阶段",
+    ):
+        assert rule in dashboard
+
+
+def test_drawing_progress_download_recovers_when_transfer_fails():
     panel = _frontend_source("features/workflows/DrawingProcessingPanel.tsx")
 
     assert "const [launchFailed, setLaunchFailed]" in panel
     assert "if (launchFailed) return false" in panel
-    assert "const launch = (next: WorkflowBatchExport)" in panel
+    assert "const launch = async (next: WorkflowBatchExport)" in panel
+    assert "setProgress" in panel
+    assert "TransferProgressBar" in panel
     assert "setLaunchFailed(true)" in panel
     assert "!launchFailed && ACTIVE_EXPORT_STATUSES.has" in panel
 
 
-def test_data_console_has_two_url_controlled_workspaces_and_api_contracts():
+def test_data_console_has_two_focused_task_and_storage_workspaces():
     page_source = _frontend_source("features/operations/pages/InfrastructurePage.tsx")
     api_source = _frontend_source("features/operations/api/dataAdmin.ts")
     type_source = _frontend_source("features/operations/types/dataAdmin.ts")
     objects_panel = _frontend_source(
         "features/operations/components/data-console/ObjectsPanel.tsx"
     )
-    mysql_panel = _frontend_source(
-        "features/operations/components/data-console/MySqlWorkspace.tsx"
-    )
-    consistency_panel = _frontend_source(
-        "features/operations/components/data-console/ConsistencyPanel.tsx"
+    task_panel = _frontend_source(
+        "features/operations/components/data-console/ProductionTaskPanel.tsx"
     )
 
     assert "useSearchParams" in page_source
-    for key in ("mysql", "minio"):
+    for key in ("tasks", "storage"):
         assert f"key: '{key}'" in page_source
     for path in (
         "/api/v1/data-admin/overview",
-        "/api/v1/data-admin/files",
-        "/api/v1/data-admin/objects",
         "/api/v1/data-admin/objects/tree",
         "/api/v1/data-admin/objects/moves",
-        "/api/v1/data-admin/mysql/tables",
-        "/api/v1/data-admin/transfers",
-        "/api/v1/data-admin/scans",
-        "/api/v1/data-admin/remediations/preview",
-        "/api/v1/data-admin/remediations/execute",
     ):
         assert path in api_source
     for contract in (
         "DataAdminOverview",
         "DataAdminFile",
         "StorageObject",
-        "FileTransfer",
-        "StorageScanRun",
-        "StorageScanFinding",
     ):
         assert f"interface {contract}" in type_source
     assert "getStorageObjectTree" in objects_panel
     assert "uploadDataAdminObject" in objects_panel
     assert "moveDataAdminObject" in objects_panel
     assert "deleteDataAdminObject" in objects_panel
-    assert "listMySqlTables" in mysql_panel
-    assert "getMySqlTable" in mysql_panel
-    assert "listMySqlRows" in mysql_panel
-    assert "createMySqlRow" in mysql_panel
-    assert "updateMySqlRow" in mysql_panel
-    assert "deleteMySqlRow" in mysql_panel
-    assert "<iframe" not in mysql_panel
-    assert "listStorageScans" in consistency_panel
-    assert "处置预检" in consistency_panel
-    assert "RemediationDrawer" in consistency_panel
+    assert "listWorkflows" in task_panel
+    assert "listJobsPage" in task_panel
+    assert "mysql/tables" not in api_source
+    assert "remediations" not in api_source
+    assert not (
+        REPO_ROOT
+        / "frontend/src/features/operations/components/data-console/MySqlWorkspace.tsx"
+    ).exists()
     assert "destroyOnHidden" in page_source
 
 

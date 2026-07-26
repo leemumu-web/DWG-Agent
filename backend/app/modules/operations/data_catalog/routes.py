@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 import app.modules.files.interface as storage_service
 from app.modules.files.interface import FileRead, FileTransfer, StoredFile
-from app.modules.identity.interface import get_current_user
+from app.modules.identity.interface import get_current_user, is_admin
 from app.modules.operations.data_catalog.presentation import (
     storage_object_data,
     transfer_data,
@@ -20,7 +20,7 @@ from app.platform.config.settings import settings
 from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
-from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.http.exceptions import AppHTTPException, forbidden, not_found
 from app.platform.storage.base import StorageError
 
 router = APIRouter()
@@ -31,9 +31,15 @@ data_reader = get_current_user
 def get_data_overview(
     request: Request,
     db: DbSession,
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
-    return ok(data_overview(db), request.state.request_id)
+    return ok(
+        data_overview(
+            db,
+            owner_user_id=None if is_admin(current_user) else current_user.id,
+        ),
+        request.state.request_id,
+    )
 
 
 @router.get("/files")
@@ -46,7 +52,7 @@ def list_data_files(
     status: str | None = Query(default=None),
     bucket: str | None = Query(default=None),
     file_ext: str | None = Query(default=None),
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
     rows, total = query_data_files(
         db,
@@ -56,6 +62,7 @@ def list_data_files(
         status=status,
         bucket=bucket,
         file_ext=file_ext,
+        owner_user_id=None if is_admin(current_user) else current_user.id,
     )
     return page_response(
         [FileRead.model_validate(row) for row in rows],
@@ -71,9 +78,12 @@ def get_data_file(
     file_id: int,
     request: Request,
     db: DbSession,
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
-    row = db.get(StoredFile, file_id)
+    statement = select(StoredFile).where(StoredFile.id == file_id)
+    if not is_admin(current_user):
+        statement = statement.where(StoredFile.uploaded_by == current_user.id)
+    row = db.scalar(statement)
     if row is None:
         raise not_found("StoredFile")
     return ok(FileRead.model_validate(row), request.state.request_id)
@@ -87,8 +97,10 @@ def list_storage_objects(
     prefix: str = Query("", max_length=512),
     cursor: str | None = Query(default=None, max_length=512),
     page_size: int = Query(50, ge=1, le=200),
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
+    if not is_admin(current_user):
+        raise forbidden("Only administrators can inspect raw storage objects.")
     if bucket not in settings.minio_bucket_names:
         raise AppHTTPException(422, "INVALID_BUCKET", "Bucket is not configured.")
     # Release the auth/RBAC transaction before potentially slow object listing.
@@ -126,8 +138,10 @@ def get_storage_object_tree(
     db: DbSession,
     bucket: str = Query(...),
     prefix: str = Query("", max_length=512),
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
+    if not is_admin(current_user):
+        raise forbidden("Only administrators can inspect raw storage objects.")
     if bucket not in settings.minio_bucket_names:
         raise AppHTTPException(422, "INVALID_BUCKET", "Bucket is not configured.")
     normalized_prefix = prefix.strip().lstrip("/")
@@ -197,7 +211,7 @@ def list_transfers(
     status: str | None = Query(default=None),
     operation: str | None = Query(default=None),
     file_id: int | None = Query(default=None),
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
     rows, total = query_transfers(
         db,
@@ -207,6 +221,7 @@ def list_transfers(
         status=status,
         operation=operation,
         file_id=file_id,
+        actor_user_id=None if is_admin(current_user) else current_user.id,
     )
     return page_response(
         [transfer_data(row) for row in rows],
@@ -222,9 +237,12 @@ def get_transfer(
     transfer_uid: str,
     request: Request,
     db: DbSession,
-    _current_user=Depends(data_reader),
+    current_user=Depends(data_reader),
 ):
-    row = db.scalar(select(FileTransfer).where(FileTransfer.transfer_uid == transfer_uid))
+    statement = select(FileTransfer).where(FileTransfer.transfer_uid == transfer_uid)
+    if not is_admin(current_user):
+        statement = statement.where(FileTransfer.actor_user_id == current_user.id)
+    row = db.scalar(statement)
     if row is None:
         raise not_found("FileTransfer")
     return ok(transfer_data(row), request.state.request_id)

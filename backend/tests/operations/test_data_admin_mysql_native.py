@@ -38,19 +38,28 @@ def _viewer(client: TestClient, admin: dict[str, str]) -> dict[str, str]:
     return _login(client, username, "ViewerPass1234")
 
 
-def test_native_mysql_catalog_lists_structure_and_rows_for_authenticated_users():
+def test_native_mysql_catalog_is_complete_for_admin_and_forbidden_to_viewer():
     init_db()
     client = TestClient(app)
     admin = _login(client, "admin", "SuperAdminPass1")
     viewer = _viewer(client, admin)
 
-    listed = client.get("/api/v1/data-admin/mysql/tables", headers=viewer)
+    assert client.get("/api/v1/data-admin/mysql/tables", headers=viewer).status_code == 403
+    assert client.get(
+        "/api/v1/data-admin/mysql/tables/projects", headers=viewer
+    ).status_code == 403
+    assert client.get(
+        "/api/v1/data-admin/mysql/tables/sys_users/rows?page=1&page_size=20",
+        headers=viewer,
+    ).status_code == 403
+
+    listed = client.get("/api/v1/data-admin/mysql/tables", headers=admin)
     assert listed.status_code == 200, listed.text
     assert "projects" in [row["name"] for row in listed.json()["data"]]
 
     described = client.get(
         "/api/v1/data-admin/mysql/tables/projects",
-        headers=viewer,
+        headers=admin,
     )
     assert described.status_code == 200, described.text
     columns = {row["name"]: row for row in described.json()["data"]["columns"]}
@@ -59,7 +68,7 @@ def test_native_mysql_catalog_lists_structure_and_rows_for_authenticated_users()
 
     rows = client.get(
         "/api/v1/data-admin/mysql/tables/sys_users/rows?page=1&page_size=20",
-        headers=viewer,
+        headers=admin,
     )
     assert rows.status_code == 200, rows.text
     assert rows.json()["pagination"]["total"] >= 2
@@ -141,8 +150,8 @@ def test_native_mysql_write_contract_protects_managed_columns_and_bad_values():
             "values": {"password_hash": "must-not-be-written"},
         },
     )
-    assert protected.status_code == 422, protected.text
-    assert protected.json()["error"]["code"] == "PROTECTED_DATABASE_COLUMNS"
+    assert protected.status_code == 409, protected.text
+    assert protected.json()["error"]["code"] == "IDENTITY_TABLE_READ_ONLY"
 
     primary_key = client.post(
         "/api/v1/data-admin/mysql/tables/projects/rows",
@@ -173,3 +182,35 @@ def test_native_mysql_write_contract_protects_managed_columns_and_bad_values():
     )
     assert invalid_number.status_code == 422, invalid_number.text
     assert invalid_number.json()["error"]["code"] == "INVALID_DATABASE_VALUE"
+
+
+def test_identity_tables_are_read_only_in_native_mysql_console():
+    """Raw database writes must not bypass the sole super-admin invariant."""
+    init_db()
+    client = TestClient(app)
+    admin = _login(client, "admin", "SuperAdminPass1")
+    me = client.get("/api/v1/auth/me", headers=admin).json()["data"]
+    super_role_id = next(role["id"] for role in me["roles"] if role["code"] == "super_admin")
+
+    requests = (
+        client.patch(
+            "/api/v1/data-admin/mysql/tables/sys_users/rows",
+            headers=admin,
+            json={"primary_key": {"id": me["id"]}, "values": {"status": "disabled"}},
+        ),
+        client.request(
+            "DELETE",
+            "/api/v1/data-admin/mysql/tables/sys_user_roles/rows",
+            headers=admin,
+            json={"primary_key": {"user_id": me["id"], "role_id": super_role_id}},
+        ),
+        client.patch(
+            "/api/v1/data-admin/mysql/tables/sys_roles/rows",
+            headers=admin,
+            json={"primary_key": {"id": super_role_id}, "values": {"code": "disabled_role"}},
+        ),
+    )
+    assert [response.status_code for response in requests] == [409, 409, 409]
+    assert {response.json()["error"]["code"] for response in requests} == {
+        "IDENTITY_TABLE_READ_ONLY"
+    }

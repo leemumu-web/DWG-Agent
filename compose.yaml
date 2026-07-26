@@ -9,6 +9,7 @@ x-app-image: &app-image
   build:
     context: .
     dockerfile: backend/Dockerfile
+    target: protected
 
 x-app-environment: &app-environment
   MYSQL_ROOT_PASSWORD: ""
@@ -31,6 +32,12 @@ x-app-service: &app-service
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp:size=768m,mode=1777
+    - /home/appuser:size=128m,mode=0700,uid=1000,gid=1000
   logging: *service-logging
 
 x-worker: &worker
@@ -67,6 +74,8 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -102,6 +111,10 @@ services:
   worker-dxf:
     <<: *worker
     command: ["/app/scripts/run-cad-worker.sh", "dxf", "${DXF_WORKER_CONCURRENCY:-8}", "dxf@%h", "${DXF_WORKER_DISPLAY:-:91}"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      TMPDIR: /app/var/appimage-tmp
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery-dxf.pid && kill -0 $$(cat /tmp/dwg-celery-dxf.pid)"]
       interval: 15s
@@ -115,6 +128,10 @@ services:
   worker-dxf2dwg:
     <<: *worker
     command: ["/app/scripts/run-cad-worker.sh", "dxf2dwg", "${DXF2DWG_WORKER_CONCURRENCY:-8}", "dxf2dwg@%h", "${DXF2DWG_WORKER_DISPLAY:-:92}"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      TMPDIR: /app/var/appimage-tmp
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/dwg-celery-ready && test -s /tmp/dwg-celery-dxf2dwg.pid && kill -0 $$(cat /tmp/dwg-celery-dxf2dwg.pid)"]
       interval: 15s
@@ -198,19 +215,6 @@ services:
       DWG_WORKER_QUEUE: excel_final
       DWG_WORKER_CONCURRENCY: "1"
 
-  # Framework-only workers: their queues are observable but no core task is routed yet.
-  worker-dispatch:
-    <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dispatch -n dispatch@%h --concurrency=1
-    volumes:
-      - app_var:/app/var
-    profiles: [workers]
-    environment:
-      MYSQL_ROOT_PASSWORD: ""
-      MINIO_ROOT_PASSWORD: ""
-      DWG_WORKER_QUEUE: dispatch
-      DWG_WORKER_CONCURRENCY: "1"
-
   worker-maintenance:
     <<: *worker
     command: celery -A app.platform.messaging.celery_app:celery_app worker -Q maintenance -n maintenance@%h --concurrency=1
@@ -222,14 +226,6 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: maintenance
       DWG_WORKER_CONCURRENCY: "1"
-
-  # Placeholder queue only. AGENT_ENABLED must remain false until an Agent task exists.
-  worker-agent:
-    <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q agent -n agent@%h --concurrency=2
-    volumes:
-      - app_var:/app/var
-    profiles: [workers]
 
   mysql:
     image: ${MYSQL_IMAGE:-container-registry.oracle.com/mysql/community-server:8.4}
@@ -251,7 +247,7 @@ services:
       - ./infra/database/mysql/init.sql:/docker-entrypoint-initdb.d/01-platform.sql:ro
       - ./infra/database/mysql/hardware_handbook.sql:/docker-entrypoint-initdb.d/02-hardware-handbook.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      test: ["CMD-SHELL", "env -u MYSQL_HOST -u MYSQL_PORT mysql -S \"$${MYSQL_UNIX_PORT}\" -u root -p\"$${MYSQL_ROOT_PASSWORD}\" -Nse 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 12

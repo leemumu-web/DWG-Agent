@@ -206,6 +206,21 @@ compose_up_workers() {
     compose_smoke
 }
 
+compose_service_container_id() {
+    local service=$1 container_id
+    container_id=$("${COMPOSE_CMD[@]}" ps -aq "$service")
+    [[ -n "$container_id" ]] || compose_die "Compose service has no container: $service"
+    printf '%s' "$container_id"
+}
+
+compose_service_image_id() {
+    local service=$1 container_id image_id
+    container_id=$(compose_service_container_id "$service")
+    image_id=$(docker inspect --format '{{.Image}}' "$container_id")
+    [[ -n "$image_id" ]] || compose_die "Compose service has no image: $service"
+    printf '%s' "$image_id"
+}
+
 compose_backup() {
     local destination=${1:-}
     [[ -n "$destination" ]] || compose_die "backup requires a destination directory"
@@ -216,23 +231,29 @@ compose_backup() {
     local storage_backend
     storage_backend=$(grep -E '^STORAGE_BACKEND=' "$DOCKER_ENV_FILE" | tail -n1 | cut -d= -f2- || echo "minio")
 
-    local backup_start backup_end
+    local backup_start backup_end backend_container backend_image
     backup_start=$(date -u +%s)
+    backend_container=$(compose_service_container_id "backend-api")
+    backend_image=$(compose_service_image_id "backend-api")
 
     compose_info "creating consistent MySQL dump"
     "${COMPOSE_CMD[@]}" exec -T mysql sh -c \
-        'exec mysqldump -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events --triggers --databases "$MYSQL_DATABASE" hardware_handbook' \
+        'exec env -u MYSQL_HOST -u MYSQL_PORT mysqldump -S "$MYSQL_UNIX_PORT" -u root -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events --triggers --databases "$MYSQL_DATABASE" hardware_handbook' \
         | gzip -9 > "$destination/mysql.sql.gz"
 
     if [[ "$storage_backend" == "minio" ]]; then
         compose_info "archiving MinIO object data"
-        "${COMPOSE_CMD[@]}" run --rm --no-deps -T --entrypoint sh minio -c \
+        local minio_container
+        minio_container=$(compose_service_container_id "minio")
+        docker run --rm --network none --read-only --user 0:0 \
+            --volumes-from "$minio_container":ro --entrypoint sh "$backend_image" -c \
             'cd /data && tar -czf - .' > "$destination/minio-data.tar.gz"
     else
         compose_warn "STORAGE_BACKEND=$storage_backend — MinIO archive skipped; objects in app_var volume"
         compose_info "archiving app_var/storage (local backend)"
-        "${COMPOSE_CMD[@]}" run --rm --no-deps -T -v app_var:/appvar --entrypoint sh minio -c \
-            'cd /appvar && tar -czf - storage' > "$destination/app-var-storage.tar.gz" 2>/dev/null || \
+        docker run --rm --network none --read-only --user 0:0 \
+            --volumes-from "$backend_container":ro --entrypoint sh "$backend_image" -c \
+            'cd /app/var && tar -czf - storage' > "$destination/app-var-storage.tar.gz" 2>/dev/null || \
             compose_warn "app_var archive failed — volume may be empty or unmounted"
     fi
 
@@ -270,26 +291,36 @@ compose_restore() {
     [[ -f "$source/minio-data.tar.gz" ]] && has_minio=true
     [[ -f "$source/app-var-storage.tar.gz" ]] && has_appvar=true
 
+    compose_info "creating stopped volume helper containers"
+    "${COMPOSE_CMD[@]}" create --no-deps backend-api minio >/dev/null
+    local backend_container backend_image
+    backend_container=$(compose_service_container_id "backend-api")
+    backend_image=$(compose_service_image_id "backend-api")
+
     if $has_minio; then
         compose_info "restoring MinIO volume"
-        "${COMPOSE_CMD[@]}" run --rm --no-deps -T --entrypoint sh minio -c \
+        local minio_container
+        minio_container=$(compose_service_container_id "minio")
+        docker run --rm --network none --user 0:0 \
+            --volumes-from "$minio_container" --entrypoint sh "$backend_image" -c \
             'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; tar -xzf - -C /data' \
             < "$source/minio-data.tar.gz"
     fi
 
     if $has_appvar; then
         compose_info "restoring app_var storage"
-        "${COMPOSE_CMD[@]}" run --rm --no-deps -T -v app_var:/appvar --entrypoint sh minio -c \
-            'rm -rf /appvar/storage; tar -xzf - -C /appvar' \
+        docker run --rm --network none --user 0:0 \
+            --volumes-from "$backend_container" --entrypoint sh "$backend_image" -c \
+            'rm -rf /app/var/storage; tar -xzf - -C /app/var' \
             < "$source/app-var-storage.tar.gz"
     fi
 
     compose_info "starting MySQL for database restore"
     "${COMPOSE_CMD[@]}" up -d mysql
     "${COMPOSE_CMD[@]}" exec -T mysql sh -c \
-        'until mysqladmin ping -h 127.0.0.1 -u root -p"$MYSQL_ROOT_PASSWORD" --silent; do sleep 2; done'
+        'until env -u MYSQL_HOST -u MYSQL_PORT mysql -S "$MYSQL_UNIX_PORT" -u root -p"$MYSQL_ROOT_PASSWORD" -Nse "SELECT 1"; do sleep 2; done'
     gzip -dc "$source/mysql.sql.gz" | "${COMPOSE_CMD[@]}" exec -T mysql sh -c \
-        'exec mysql -u root -p"$MYSQL_ROOT_PASSWORD"'
+        'exec env -u MYSQL_HOST -u MYSQL_PORT mysql -S "$MYSQL_UNIX_PORT" -u root -p"$MYSQL_ROOT_PASSWORD"'
 
     if [[ -f "$source/BACKUP_WINDOW" ]]; then
         compose_info "backup window markers — objects created within this window may be inconsistent"

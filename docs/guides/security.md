@@ -14,6 +14,7 @@ Nginx 和 React 不是授权边界。所有业务 route 在 FastAPI 认证，并
 - 登出把可用 token JTI 存入 MySQL `token_blacklist`。
 - 改密写入 `password_changed_at`；拒绝更早的 access/refresh token。
 - 每个认证请求重新读取用户，并拒绝 disabled/deleted 用户。
+- 生产启动会拒绝弱的初始 `SUPER_ADMIN_PASSWORD`：至少 16 位，必须同时含大写、小写、数字和特殊字符，且不能使用占位符、默认值或用户名派生值；开发/测试默认值不作为生产凭据。
 - Refresh 为 HttpOnly、SameSite=Lax、path `/api/v1/auth`；SSE cookie 为 HttpOnly、SameSite=Lax、path `/api/v1/workflows/jobs`。
 
 Secure cookie 默认值跟随 `APP_ENV=production`。公网部署需要真实 TLS 和 Secure cookie。设置 `REFRESH_COOKIE_SECURE=false` 只是私有 HTTP 网络的显式风险接受；当前 Compose 只发布 HTTP 且不发布 443。
@@ -40,7 +41,9 @@ Axios interceptor 把并发 401 refresh 合并为一个请求，并对每个原�
 
 文件删除仅限上传者或管理员。文件列表和 batch metadata 在 SQL 中应用访问过滤。结果、result download path 和复核继承父 Job 边界；无项目 Job 仅管理员或创建者可读。即使 Agent 执行仍关闭，Agent run 详情/步骤也使用 creator/admin/linked-project 检查。
 
-数据控制台使用独立的管理边界：`super_admin/admin/auditor` 可以读取总览、文件登记、对象清单、流转流水、扫描和异常；只有 `super_admin/admin` 可以启动扫描和执行处置。处置必须先生成绑定当前操作人、动作、finding 集合、实时摘要、数量、字节上限和五分钟有效期的签名预检 token，再使用幂等键执行。服务端会锁定相关行并重新检查对象状态；前端隐藏按钮不构成授权。
+数据控制台使用独立的管理边界：`super_admin/admin` 可读取全部登记数据、原始 MySQL 和对象目录，并可启动扫描和执行处置；非管理员只能读取自己上传的文件及自己产生的流转记录，不能读取原始 MySQL 或对象目录。身份、角色、权限和 token 表对管理员也只读，防止绕过唯一超级管理员保护和用户管理审计。处置必须先生成绑定当前操作人、动作、finding 集合、实时摘要、数量、字节上限和五分钟有效期的签名预检 token，再使用幂等键执行。服务端会锁定相关行并重新检查对象状态；前端隐藏按钮不构成授权。
+
+系统恰有一个 `super_admin`。它与 `admin` 的业务权限相同，但账号和角色是权限根：不能删除、禁用、降级、由他人重置密码或修改角色权限，也不能授予第二个 `super_admin`。启动种子会恢复配置账号的启用状态和保护角色；历史额外持有者保留账号并归一为 `admin`。
 
 ## 任务完整性
 

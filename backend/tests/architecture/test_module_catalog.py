@@ -24,7 +24,7 @@ def test_module_catalog_owns_every_runtime_contract_once() -> None:
     coverage = build_catalog_coverage(load_catalog(CATALOG_PATH))
 
     assert len(coverage["tables"]) == 47
-    assert len(coverage["http_operations"]) == 206
+    assert len(coverage["http_operations"]) == 207
     assert len(coverage["celery_tasks"]) == 15
     assert coverage["duplicate_table_owners"] == {}
     assert coverage["duplicate_operation_owners"] == {}

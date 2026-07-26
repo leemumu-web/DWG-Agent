@@ -128,8 +128,9 @@ class DxfSplitHandoffDrawing(BaseModel):
 
 class DxfSplitExcelHandoff(BaseModel):
     workflow_id: int
-    split_run_id: int
-    job_attempt: int
     input_manifest_sha256: str
-    bh_split_ledger_file_id: int
-    drawings: list[DxfSplitHandoffDrawing]
+    mode: Literal["split_results", "no_split_candidates"] = "split_results"
+    split_run_id: int | None = None
+    job_attempt: int | None = None
+    bh_split_ledger_file_id: int | None = None
+    drawings: list[DxfSplitHandoffDrawing] = Field(default_factory=list)

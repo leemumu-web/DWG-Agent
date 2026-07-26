@@ -124,6 +124,13 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                 )
                 stage.finished_at = now
                 continue
+            if stage.stage_code == "dxf_classification" and _skip_empty_split_stage(
+                db,
+                workflow,
+                classification_job=job,
+                now=now,
+            ):
+                continue
             next_stage = _next_stage(workflow, stage.sequence)
             if next_stage is not None and next_stage.status == "pending":
                 next_stage.status = (
@@ -133,6 +140,63 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
     recompute_workflow(workflow)
     db.flush()
     return workflow
+
+
+def _skip_empty_split_stage(
+    db: Session,
+    workflow: WorkflowRun,
+    *,
+    classification_job: Job,
+    now: datetime,
+) -> bool:
+    """Complete the split stage as an explicit no-op when BH/BOX input is empty."""
+    from app.modules.dxf_classification.interface import (
+        latest_classification_run,
+        list_split_candidate_inputs,
+    )
+
+    classification = latest_classification_run(db, workflow.id)
+    if (
+        classification is None
+        or classification.job_id != classification_job.id
+        or classification.job_attempt != classification_job.attempt
+        or classification.status not in {"completed", "completed_with_review"}
+        or list_split_candidate_inputs(db, workflow.id)
+    ):
+        return False
+    classification_stage = next(
+        (
+            stage
+            for stage in workflow.stages
+            if stage.stage_code == "dxf_classification"
+        ),
+        None,
+    )
+    drawing_stage = (
+        _next_stage(workflow, classification_stage.sequence)
+        if classification_stage is not None
+        else None
+    )
+    if drawing_stage is None or drawing_stage.stage_code != "drawing_processing":
+        return False
+    drawing_stage.status = "skipped"
+    drawing_stage.progress = 100
+    drawing_stage.error_code = None
+    drawing_stage.error_message = None
+    drawing_stage.started_at = drawing_stage.started_at or now
+    drawing_stage.finished_at = now
+    drawing_stage.output_json = {
+        "reason": "no_split_candidates",
+        "classification_run_id": classification.id,
+        "classification_job_id": classification.job_id,
+        "classification_job_attempt": classification.job_attempt,
+        "input_manifest_sha256": classification.input_manifest_sha256,
+    }
+    excel_stage = _next_stage(workflow, drawing_stage.sequence)
+    if excel_stage is not None and excel_stage.status == "pending":
+        excel_stage.status = "waiting_input"
+        excel_stage.started_at = now
+    return True
 
 
 def _next_stage(workflow: WorkflowRun, sequence: int):

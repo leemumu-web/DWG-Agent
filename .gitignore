@@ -67,6 +67,10 @@ Thumbs.db
 # --- Binary archives (use git-lfs or external storage) ---
 *.zip
 *.tar.gz
+*.tar.gz.gpg
+*.tar.gz.gpg.sha256
+*.tar.gz.gpg.asc
+/dwg-agent-*-deploy.sh
 *.7z
 
 # --- Local working data (test files, docs, CAD samples — never commit) ---

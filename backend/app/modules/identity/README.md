@@ -21,6 +21,9 @@
 
 ## 边界
 
+- `super_admin` 是唯一且受保护的权限根：启动种子确保配置账号启用并独占该角色；历史额外持有者保留账号并归一为 `admin`。任何 HTTP 或数据控制台入口都不能删除、禁用、降级或代重置唯一超级管理员，也不能修改保护角色权限。
+- `admin` 与 `super_admin` 的业务管理和数据可见权限相同；差别仅是前者不能授予 `super_admin`，而系统单例规则也不允许后者创建第二个超级管理员。
+- 身份领域六张表在原始 MySQL 数据控制台中可查看但不可写；用户、角色、状态和密码必须走领域接口，防止绕过审计与安全不变量。
 - 密码/JWT 算法原语属于 `app.platform.security`；本模块决定 token 类型、吊销和密码变更失效语义。
 - 数据库 Session 属于 `app.platform.database`，FastAPI 的通用 DB dependency 属于 `app.platform.http`。
 - 项目成员和项目角色属于 `app.modules.projects`，不在全局 RBAC 中伪造。

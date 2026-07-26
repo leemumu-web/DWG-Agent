@@ -2,8 +2,8 @@
 
 ## 现有实现
 
-`DailyArchivePanel.tsx` 选择归档日期、预检文件范围、创建/查询归档并下载 manifest/ZIP；`RemediationDrawer.tsx` 对 missing、orphan、hash mismatch 等 finding 展示影响范围、确认词、签名和执行反馈；`data-console/` 保存六个查询面板。
+`data-console/ProductionTaskPanel.tsx` 展示后端生产流程和 Job 状态，并复用任务取消、重试接口；`data-console/ObjectsPanel.tsx` 按数据概览返回的真实存储区浏览已登记对象。中文用途映射集中在 `data-console/presentation.tsx`，不会替代后端存储键或任务状态。
 
-## 业务流与边界
+## 能力边界
 
-输入是运维 API、当前角色和用户显式确认，输出是可追溯 archive、scan、remediation 记录。所有破坏性操作必须显示数量、字节、对象样本和服务端 request ID；页面不得默认确认。
+本目录只提供精简的生产任务和文件存储组件。底层数据库结构、消息队列、每日归档与一致性处置不直接暴露给生产人员；未知任务和状态在界面统一标为未识别，原始标识仅留在服务器登记和审计中。任务失败页只展示中文业务原因和下一步动作，不展示错误码、堆栈或服务器路径。所有写操作仍由后端权限、状态机、文件引用和审计规则最终裁决。

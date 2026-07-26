@@ -174,7 +174,7 @@ def test_refresh_cookie_persists_but_not_rotated():
 
 
 def test_admin_can_modify_super_admin_real_name():
-    """FIXED: admin can NO LONGER change super_admin's real_name via PATCH."""
+    """Admin and super_admin have equal rights for non-destructive profile fields."""
     client = _client()
     admin_headers = _login(client)
 
@@ -204,22 +204,21 @@ def test_admin_can_modify_super_admin_real_name():
     )
     admin2_headers = {"Authorization": f"Bearer {admin2_login.json()['data']['access_token']}"}
 
-    # Admin2 tries to change super_admin's real_name — NOW BLOCKED
+    # Profile maintenance is not a privilege-destruction path.
     resp = client.patch(
         f"/api/v1/users/{super_admin_id}",
         headers=admin2_headers,
         json={"real_name": "HACKED_NAME"},
     )
-    assert resp.status_code == 400, f"Expected rejection: {resp.text}"
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["real_name"] == "HACKED_NAME"
 
 
 def test_admin_cannot_disable_super_admin_via_patch_status():
     """VERIFIED (now FIXED): admin can NO LONGER disable super_admin via PATCH.
 
-    After adding ``_require_super_admin_target`` to ``update_user_api``,
-    the PATCH endpoint correctly rejects non-super_admin users from modifying
-    super_admin accounts.
+    The PATCH endpoint rejects the destructive status transition regardless of
+    whether the caller is admin or super_admin.
     """
     client = _client()
     admin_headers = _login(client)
@@ -258,11 +257,11 @@ def test_admin_cannot_disable_super_admin_via_patch_status():
     assert resp.status_code == 400, (
         f"Expected PATCH status=disabled on super_admin to be rejected: {resp.text}"
     )
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
-def test_admin_cannot_modify_super_admin_name_via_patch():
-    """VERIFIED (now FIXED): admin cannot change super_admin's real_name via PATCH."""
+def test_admin_can_modify_super_admin_name_via_patch():
+    """Non-destructive profile maintenance remains available to admin."""
     client = _client()
     admin_headers = _login(client)
 
@@ -296,11 +295,8 @@ def test_admin_cannot_modify_super_admin_name_via_patch():
         headers=admin2_headers,
         json={"real_name": "HACKED"},
     )
-    # NOW correctly rejected
-    assert resp.status_code == 400, (
-        f"Expected PATCH real_name on super_admin to be rejected: {resp.text}"
-    )
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["real_name"] == "HACKED"
 
 
 # ===========================================================================

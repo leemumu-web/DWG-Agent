@@ -44,6 +44,7 @@ export interface WorkflowInputBatch {
   items: WorkflowInputItem[];
   issues: WorkflowInputIssue[];
   freeze_ready: boolean;
+  recoverable_file_count: number;
   created_at: string;
   updated_at: string;
 }

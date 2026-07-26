@@ -46,10 +46,12 @@ export async function removeRole(userId: number, roleId: number) {
   await apiClient.delete(`/api/v1/users/${userId}/roles/${roleId}`);
 }
 
-export async function resetUserPassword(userId: number) {
+export async function resetUserPassword(userId: number, newPassword: string) {
   const res = await apiClient.post<
-    ApiEnvelope<{ user_id: number; temp_password: string; message: string }>
-  >(`/api/v1/users/${userId}/password-reset-requests`);
+    ApiEnvelope<{ user_id: number; message: string }>
+  >(`/api/v1/users/${userId}/password-reset-requests`, {
+    new_password: newPassword,
+  });
   return res.data.data;
 }
 

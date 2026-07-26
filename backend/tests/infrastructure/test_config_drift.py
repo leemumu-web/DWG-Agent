@@ -42,6 +42,9 @@ class TestNetworkIsolation:
             "backend-api",
         }
 
+    def test_backend_tmpfs_has_excel_upload_headroom(self):
+        assert "/tmp:size=768m,mode=1777" in _compose()["x-app-service"]["tmpfs"]
+
 
 # ───────────────────────── backend port unification ─────────────────────────
 class TestBackendPortUnification:

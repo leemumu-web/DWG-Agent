@@ -6,14 +6,20 @@ import { useMutation } from '@tanstack/react-query';
 import { createRemnantImportBatch } from './api';
 import { describeRemnantError } from './errors';
 import type { RemnantImportBatch } from './types';
+import type { TransferProgress } from '../../shared/api';
+import { TransferProgressBar } from '../../shared/components';
 
 interface Props { onCreated: (batch: RemnantImportBatch) => void }
 
 export function RemnantImportPanel({ onCreated }: Props) {
   const { message } = App.useApp();
   const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<TransferProgress | null>(null);
   const create = useMutation({
-    mutationFn: () => createRemnantImportBatch(fileList.map((item) => item.originFileObj!).filter(Boolean)),
+    mutationFn: () => createRemnantImportBatch(
+      fileList.map((item) => item.originFileObj!).filter(Boolean),
+      setUploadProgress,
+    ),
     onSuccess: (batch) => {
       message.success(`已登记 ${batch.total_count} 张图纸`);
       setFileList([]);
@@ -50,6 +56,9 @@ export function RemnantImportPanel({ onCreated }: Props) {
         >批量导入 {fileList.length ? `（${fileList.length}）` : ''}</Button>
         <Typography.Text type="secondary">每张图纸独立显示转换、解析和失败状态</Typography.Text>
       </Space>
+      {uploadProgress && (
+        <TransferProgressBar label="余料图纸批量上传" progress={uploadProgress} />
+      )}
     </Card>
   );
 }

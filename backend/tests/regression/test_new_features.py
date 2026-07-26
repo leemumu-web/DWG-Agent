@@ -151,6 +151,7 @@ def test_viewer_cannot_reset_another_users_password():
     r = client.post(
         f"/api/v1/users/{target_id}/password-reset-requests",
         headers=viewer_headers,
+        json={"new_password": "DeniedResetPass123"},
     )
     assert r.status_code == 403, r.text
 
@@ -175,23 +176,29 @@ def test_viewer_cannot_reset_own_password():
     r = client.post(
         f"/api/v1/users/{viewer_id}/password-reset-requests",
         headers=viewer_headers,
+        json={"new_password": "DeniedSelfReset123"},
     )
     assert r.status_code == 400, r.text
     assert r.json()["error"]["code"] == "SELF_RESET_NOT_IMPLEMENTED"
 
 
-def test_admin_can_reset_user_password():
-    """Admin-initiated password reset must work and generate a valid temp password."""
+def test_admin_can_reset_user_password_to_explicit_value():
+    """Admin reset uses the supplied password and never returns plaintext."""
     client = _client()
     headers = _admin(client)
 
     username = _unique("pwr-admin-reset")
     uid = _create_user(client, headers, username, "OldPassword123", roles=["viewer"])
 
-    r = client.post(f"/api/v1/users/{uid}/password-reset-requests", headers=headers)
+    new_password = "ChosenResetPass123"
+    r = client.post(
+        f"/api/v1/users/{uid}/password-reset-requests",
+        headers=headers,
+        json={"new_password": new_password},
+    )
     assert r.status_code == 200, r.text
-    temp_password = r.json()["data"]["temp_password"]
-    assert len(temp_password) > 10  # f"temp-{uuid4().hex[:12]}"
+    assert "temp_password" not in r.json()["data"]
+    assert "password" not in r.json()["data"]
 
     # Old password no longer works
     old = client.post(
@@ -200,12 +207,19 @@ def test_admin_can_reset_user_password():
     )
     assert old.status_code == 401
 
-    # Temp password works
+    # The explicitly selected password works
     new = client.post(
         "/api/v1/auth/sessions",
-        json={"username": username, "password": temp_password},
+        json={"username": username, "password": new_password},
     )
     assert new.status_code == 201, new.text
+
+    weak = client.post(
+        f"/api/v1/users/{uid}/password-reset-requests",
+        headers=headers,
+        json={"new_password": "weak"},
+    )
+    assert weak.status_code == 422
 
 
 # =============================================================================

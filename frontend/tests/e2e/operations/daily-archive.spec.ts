@@ -10,40 +10,25 @@ async function json(route: Route, data: unknown, status = 200) {
 }
 
 async function openArchiveConsole(page: Page) {
-  const overview = { status: 'ok', environment: { app_env: 'production', database_engine: 'mysql', database: 'dwg_agent', storage_backend: 'minio' }, catalog: { available_files: 12, deleted_files: 0, tracked_bytes: 8192 }, transfers_today: { inbound_succeeded: 4, outbound_succeeded: 1, attention_required: 0 }, latest_scan: null };
-  const preview = {
-    archive_date: '2026-07-20', timezone: 'Asia/Shanghai', scope_bucket: null,
-    window_start: '2026-07-19T16:00:00Z', window_end: '2026-07-20T16:00:00Z',
-    file_count: 3, total_bytes: 7340032, excluded_archive_files: 1,
-    bucket_counts: { 'dwg-original': 2, 'dxf-derived': 1 }, format_counts: { '.dwg': 2, '.dxf': 1 },
-    source_manifest_sha256: 'a'.repeat(64), can_archive: true, block_reason: null,
-    expires_at: '2099-07-20T01:10:00Z', preview_token: 'signed.preview',
+  const overview = {
+    status: 'ok',
+    environment: { app_env: 'production', database_engine: 'mysql', database: 'dwg_agent', storage_backend: 'minio' },
+    database: { status: 'ok' },
+    storage: { status: 'ok', areas: [{ bucket: 'dwg-original', purpose_codes: ['source_dwg'] }], capacity: { status: 'ok', total_bytes: 1000, used_bytes: 100, free_bytes: 900, used_percent: 10, reason: null, checked_at: now } },
+    catalog: { available_files: 12, deleted_files: 0, tracked_bytes: 8192 },
+    transfers_today: { inbound_succeeded: 4, outbound_succeeded: 1, attention_required: 0 },
+    latest_scan: null,
   };
-  const queued = {
-    id: 41, archive_date: '2026-07-20', timezone: 'Asia/Shanghai', scope_bucket: null,
-    status: 'queued', actor_user_id: 1, source_manifest_sha256: 'a'.repeat(64),
-    file_count: 3, total_bytes: 7340032, bucket_counts: preview.bucket_counts,
-    format_counts: preview.format_counts, task_id: 'daily-task-41', archive_file_id: null,
-    manifest_file_id: null, error_code: null, error_message: null, started_at: null,
-    finished_at: null, created_at: now, updated_at: now, reused: false,
-  };
-  const succeeded = { ...queued, status: 'succeeded', archive_file_id: 901, manifest_file_id: 902, started_at: now, finished_at: '2026-07-20T01:00:03Z' };
-  let detailCalls = 0;
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'archive-token', user }, 201));
   await page.route('**/api/v1/data-admin/overview', (route) => json(route, overview));
-  await page.route('**/api/v1/data-admin/daily-archives/preview', (route) => json(route, preview));
-  await page.route('**/api/v1/data-admin/daily-archives?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageEnvelope(detailCalls ? [succeeded] : [])) }));
-  await page.route('**/api/v1/data-admin/daily-archives/41', (route) => {
-    detailCalls += 1;
-    return json(route, detailCalls > 1 ? succeeded : queued);
-  });
-  await page.route('**/api/v1/data-admin/daily-archives', async (route) => {
-    if (route.request().method() === 'POST') return json(route, queued, 202);
-    return route.fallback();
-  });
-  await page.route('**/api/v1/files/901/download-url', (route) => json(route, { url: '/api/v1/files/901/download?signature=test', expires_in: 60 }));
-  await page.route('**/api/v1/files/901/download?signature=test', (route) => route.fulfill({ status: 200, contentType: 'application/zip', body: 'archive-bytes', headers: { 'Content-Disposition': 'attachment; filename="daily-archive-2026-07-20.zip"' } }));
+  await page.route('**/api/v1/workflows/templates', (route) => json(route, []));
+  await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageEnvelope([])) }));
+  await page.route('**/api/v1/workflows?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ...pageEnvelope([]), summary: { total: 0, running: 0, waiting: 0, completed: 0 } }),
+  }));
 
   await page.goto('/');
   await page.evaluate(({ token, savedUser }) => {
@@ -53,11 +38,11 @@ async function openArchiveConsole(page: Page) {
   await page.goto('/admin/infrastructure?tab=daily-archive');
 }
 
-test('legacy daily archive route resolves to the focused MySQL and MinIO console', async ({ page }) => {
+test('legacy daily archive route resolves to the focused task and storage console', async ({ page }) => {
   await openArchiveConsole(page);
   await expect(page).toHaveURL(/\/data-console$/);
-  await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '数据管理台' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /生产任务/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /文件存储/ })).toBeVisible();
   await expect(page.getByText('非破坏式每日整理')).toHaveCount(0);
 });

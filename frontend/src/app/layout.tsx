@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { App, Avatar, Breadcrumb, Button, Drawer, Dropdown, Grid, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd';
+import { App, Avatar, Breadcrumb, Button, Drawer, Dropdown, Grid, Layout, Menu, Space, Tag, Typography } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -189,12 +189,6 @@ export function AppLayout() {
           </Space>
 
           <Space size={isMobile ? 4 : 'middle'} align="center">
-            {!isMobile && (
-              <Tooltip title="Stage 1 · 生产就绪骨架 · 本机开发版">
-                <Tag color="blue" style={{ margin: 0 }}>Stage 1</Tag>
-              </Tooltip>
-            )}
-
             <Dropdown
               placement="bottomRight"
               menu={{

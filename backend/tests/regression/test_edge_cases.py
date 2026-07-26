@@ -211,7 +211,7 @@ def test_admin_cannot_set_own_status_to_disabled_via_patch():
         json={"status": "disabled"},
     )
     assert resp.status_code == 400, resp.text
-    assert resp.json()["error"]["code"] == "CANNOT_DISABLE_SELF"
+    assert resp.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
 def test_admin_can_set_own_status_to_active_via_patch():
@@ -236,8 +236,8 @@ def test_admin_can_set_own_status_to_active_via_patch():
 # ---------------------------------------------------------------------------
 
 
-def test_admin_cannot_modify_super_admin_via_patch():
-    """FIXED: admin must not be able to modify a super_admin user via PATCH."""
+def test_admin_can_modify_non_destructive_super_admin_profile_via_patch():
+    """Admin stays equivalent for profile fields that cannot remove privilege."""
     client = _client()
     admin_headers = _admin_headers(client)
 
@@ -271,8 +271,8 @@ def test_admin_cannot_modify_super_admin_via_patch():
         headers=admin2_headers,
         json={"email": "hacked@evil.com"},
     )
-    assert resp.status_code == 400, f"Expected rejection: {resp.text}"
-    assert resp.json()["error"]["code"] == "CANNOT_MANAGE_SUPER_ADMIN"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["email"] == "hacked@evil.com"
 
 
 # ---------------------------------------------------------------------------
@@ -422,9 +422,13 @@ def test_user_password_reset_makes_old_password_invalid():
     old_headers = {"Authorization": f"Bearer {r1.json()['data']['access_token']}"}
 
     # Admin resets password
-    reset = client.post(f"/api/v1/users/{user_id}/password-reset-requests", headers=headers)
+    new_password = "ManualResetPass123"
+    reset = client.post(
+        f"/api/v1/users/{user_id}/password-reset-requests",
+        headers=headers,
+        json={"new_password": new_password},
+    )
     assert reset.status_code == 200
-    temp_password = reset.json()["data"]["temp_password"]
 
     # The already-issued access token is revoked by the persisted password-change marker.
     assert client.get("/api/v1/auth/me", headers=old_headers).status_code == 401
@@ -433,8 +437,8 @@ def test_user_password_reset_makes_old_password_invalid():
     r2 = client.post("/api/v1/auth/sessions", json={"username": username, "password": old_password})
     assert r2.status_code == 401
 
-    # New temp password works
-    r3 = client.post("/api/v1/auth/sessions", json={"username": username, "password": temp_password})
+    # Administrator-selected new password works
+    r3 = client.post("/api/v1/auth/sessions", json={"username": username, "password": new_password})
     assert r3.status_code == 201, r3.text
     new_headers = {"Authorization": f"Bearer {r3.json()['data']['access_token']}"}
     assert client.get("/api/v1/auth/me", headers=new_headers).status_code == 200

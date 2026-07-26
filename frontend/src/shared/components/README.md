@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`AppErrorBoundary.tsx` 捕获 React render 异常并提供恢复入口；`ConnectivityBanner.tsx` 监听 online/offline；`ApiErrorAlert.tsx` 把安全解析后的 API 错误、处理建议和重试动作组合为常驻操作员提示；`ExcelInputFailurePanel.tsx` 与 `ExcelInputFailurePanel.css` 只渲染经过白名单解析、有界截断的表格输入问题；`ui.tsx` 提供页面标题、状态/时间格式化、错误反馈与复制 request ID 等通用原语；`index.ts` 统一导出。
+`AppErrorBoundary.tsx` 捕获页面显示异常并提供中文恢复入口，不把异常对象写入工人可见界面；`ConnectivityBanner.tsx` 监听 online/offline；`ApiErrorAlert.tsx` 把安全解析后的 API 错误、处理建议和重试动作组合为常驻操作员提示；`ExcelInputFailurePanel.tsx` 与 `ExcelInputFailurePanel.css` 只渲染经过白名单解析、有界截断的表格输入问题；`TransferProgressBar.tsx` 统一展示批量上传/下载的字节数、总量与完成状态；`ui.tsx` 提供页面标题、状态和时间格式化等通用原语；`index.ts` 统一导出。
 
 ## 输入与输出
 

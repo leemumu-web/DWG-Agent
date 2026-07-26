@@ -122,8 +122,25 @@ def require_stage_inputs(workflow: WorkflowRun, stage_code: str) -> None:
     if stage_code == "source_intake":
         return
     available = _artifact_types_before_stage(workflow, stage_code)
+    required_inputs = capability.required_inputs
+    if stage_code == "excel_stage1":
+        drawing_stage = next(
+            (
+                stage
+                for stage in workflow.stages
+                if stage.stage_code == "drawing_processing"
+            ),
+            None,
+        )
+        if (
+            drawing_stage is not None
+            and drawing_stage.status == "skipped"
+            and isinstance(drawing_stage.output_json, dict)
+            and drawing_stage.output_json.get("reason") == "no_split_candidates"
+        ):
+            required_inputs = ["source_excel"]
     missing = [
-        value for value in capability.required_inputs if value not in available
+        value for value in required_inputs if value not in available
     ]
     if missing:
         missing_text = "、".join(missing)

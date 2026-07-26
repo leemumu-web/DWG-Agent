@@ -19,6 +19,7 @@ export interface ExcelFinalHealth {
   storage_backend: 'local' | 'minio';
   storage_available: boolean;
   storage_bucket: string;
+  max_upload_size_bytes: number;
   degraded_components: string[];
   ready: boolean;
 }

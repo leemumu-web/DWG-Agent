@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircleFilled, CloseCircleFilled, InboxOutlined, LoadingOutlined } from '@ant-design/icons';
 import { Button, Progress, Typography } from 'antd';
+import type { TransferProgress, TransferProgressHandler } from '../../shared/api';
+import { completedTransferProgress, describeApiError, initialTransferProgress } from '../../shared/api';
+import { TransferProgressBar } from '../../shared/components';
 const { Text } = Typography;
 
 // ── toast types ─────────────────────────────────────────────────────────────
@@ -30,7 +33,11 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
   onUploaded?: () => void;
   batchName?: string;
   acceptExt?: string;
-  uploadFn: (file: File, batchName?: string) => Promise<unknown>;
+  uploadFn: (
+    file: File,
+    batchName?: string,
+    onProgress?: TransferProgressHandler,
+  ) => Promise<unknown>;
   label?: string;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
@@ -38,6 +45,7 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
   const [active, setActive] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [transferProgress, setTransferProgress] = useState<TransferProgress | null>(null);
   const timerRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -77,7 +85,21 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
     setActive(true);
     onBusyChange?.(true);
     const total = files.length;
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    const loadedByFile = new Map<File, number>();
+    const updateTransfer = (file: File, loadedBytes: number) => {
+      loadedByFile.set(file, Math.min(file.size, Math.max(0, loadedBytes)));
+      const loaded = Array.from(loadedByFile.values()).reduce((sum, value) => sum + value, 0);
+      setTransferProgress({
+        loadedBytes: loaded,
+        totalBytes,
+        percent: totalBytes > 0 ? Math.min(99, Math.round((loaded / totalBytes) * 100)) : 100,
+        completed: false,
+        totalIsEstimated: false,
+      });
+    };
     setProgress({ done: 0, total });
+    setTransferProgress(initialTransferProgress(totalBytes));
 
     let done = 0;
     const worker = async () => {
@@ -91,11 +113,14 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
         done++;
 
         try {
-          await uploadFn(file, batchName);
+          await uploadFn(file, batchName, (next) => {
+            updateTransfer(file, next.loadedBytes);
+          });
+          updateTransfer(file, file.size);
           addToast(file.name);
         } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          addToast(file.name, msg || '上传失败');
+          updateTransfer(file, file.size);
+          addToast(file.name, describeApiError(err, '上传失败'));
         }
         setProgress((p) => ({ ...p, done: p.done + 1 }));
       }
@@ -105,6 +130,7 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
       Array.from({ length: Math.min(3, total) }, () => worker()),
     );
 
+    setTransferProgress(completedTransferProgress(totalBytes, totalBytes));
     setActive(false);
     onBusyChange?.(false);
     onUploaded?.();
@@ -162,6 +188,9 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
           style={{ width: 120, display: 'inline-flex', marginLeft: 12 }}
           strokeColor="#1677ff"
         />
+      )}
+      {transferProgress && progress.total > 1 && (
+        <TransferProgressBar label="图纸批量上传" progress={transferProgress} />
       )}
 
       {/* per-file toast stack */}

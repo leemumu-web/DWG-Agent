@@ -299,7 +299,9 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     assert last_file_persist < first_artifact_attach
     workflow = db.get(WorkflowRun, workflow_id)
     workflow_service.sync_workflow_from_jobs(db, workflow)
-    assert workflow.current_stage == "drawing_processing"
+    # PX is not a BH/BOX splitter candidate: the split stage is an explicit
+    # no-op and Excel is unlocked instead of leaving the workflow stuck.
+    assert workflow.current_stage == "excel_stage1"
     classified_files = {
         artifact.file_id
         for artifact in workflow.artifacts

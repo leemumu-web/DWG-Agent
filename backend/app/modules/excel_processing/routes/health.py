@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.modules.excel_processing.stage_adapter import (
     ExcelFinalIntegrationError,
     excel_final_dependencies_available,
+    excel_final_stage_file_available,
     get_excel_final_stage_root,
     handbook_database_available,
 )
@@ -40,7 +41,10 @@ def health_check(
         stage_available = False
     dependencies_available = excel_final_dependencies_available()
     package_available = stage_available and dependencies_available
-    handbook_available = bool(stage_root and (stage_root / "handbook.py").is_file())
+    handbook_available = bool(
+        stage_root
+        and excel_final_stage_file_available(stage_root, "handbook.py")
+    )
     handbook_db_available = handbook_database_available() if handbook_available else False
 
     database_backend = db.get_bind().dialect.name
@@ -94,6 +98,7 @@ def health_check(
             "storage_backend": settings.storage_backend,
             "storage_available": storage_available,
             "storage_bucket": settings.minio_bucket_reports,
+            "max_upload_size_bytes": settings.max_upload_size_mb * 1024 * 1024,
             "degraded_components": degraded_components,
             "ready": ready,
         },

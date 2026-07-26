@@ -395,7 +395,6 @@ def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default
     data = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text())
 
     for service_name in (
-        "worker-agent",
         "worker-dxf",
         "worker-dxf2dwg",
         "worker-dxf2excel",

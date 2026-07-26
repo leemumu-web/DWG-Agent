@@ -157,7 +157,7 @@ export function DxfPreviewModal({
     try {
       await downloadFile(fileId, fileName);
     } catch (downloadError) {
-      message.error(describeApiError(downloadError, 'DXF 预览加载失败'));
+      message.error(describeApiError(downloadError, 'DXF 下载失败'));
     }
   }, [fileId, fileName, message]);
 
@@ -187,7 +187,7 @@ export function DxfPreviewModal({
             重新加载
           </Button>
           <Button icon={<DownloadOutlined />} disabled={fileId === null} onClick={handleDownload}>
-            下载源文件
+            下载此 DXF
           </Button>
           <Button type="primary" aria-label="关闭预览" onClick={onClose}>关闭</Button>
         </Space>

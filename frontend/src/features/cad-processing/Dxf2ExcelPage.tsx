@@ -29,6 +29,8 @@ import { cancelJob, createDxf2ExcelJob, getJobResults, listJobsPage, retryJob } 
 import type { Job } from '../jobs';
 import { DxfBatchCard } from './components/dxf2excel/DxfBatchCard';
 import { DxfUploadPanel } from './components/dxf2excel/DxfUploadPanel';
+import { describeApiError, type TransferProgress } from '../../shared/api';
+import { TransferProgressBar } from '../../shared/components';
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,11 @@ export function Dxf2ExcelPage() {
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewFileName, setPreviewFileName] = useState<string>('');
   const [finalSubmittingBatches, setFinalSubmittingBatches] = useState<Set<string>>(new Set());
+  const [batchDownloadBusy, setBatchDownloadBusy] = useState(false);
+  const [batchDownloadProgress, setBatchDownloadProgress] = useState<{
+    label: string;
+    progress: TransferProgress;
+  } | null>(null);
 
   // ── data ──────────────────────────────────────────────────────────────────
   const batchesQ = useQuery({
@@ -124,7 +131,7 @@ export function Dxf2ExcelPage() {
       });
       message.success(`已提交提取任务: ${batchName}`);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
+    } catch (err) { message.error(describeApiError(err, '提交失败')); }
   }, [refresh]);
 
   const handlePreviewExcel = useCallback(async (batchName: string) => {
@@ -136,7 +143,7 @@ export function Dxf2ExcelPage() {
       if (!excel?.result_file_id) { message.error('Excel 结果未找到'); return; }
       setPreviewFileId(excel.result_file_id);
       setPreviewFileName(`${batchName}.xlsx`);
-    } catch (err) { message.error(err instanceof Error ? err.message : '获取预览失败'); }
+    } catch (err) { message.error(describeApiError(err, '获取预览失败')); }
   }, [jobsByBatch]);
 
   const handleDownloadExcel = useCallback(async (batchName: string) => {
@@ -147,7 +154,7 @@ export function Dxf2ExcelPage() {
       const excel = results.find((r) => r.result_type === 'extract_dxf_to_excel');
       if (!excel?.result_file_id) { message.error('Excel 结果未找到'); return; }
       await downloadFile(excel.result_file_id, `${batchName}.xlsx`);
-    } catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
+    } catch (err) { message.error(describeApiError(err, '下载失败')); }
   }, [jobsByBatch]);
 
   const handleProcessExcelFinal = useCallback(async (batchName: string) => {
@@ -171,7 +178,7 @@ export function Dxf2ExcelPage() {
       );
       navigate(`/files/excel-final?job_id=${finalJob.job_id}`);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '零件清单任务登记失败');
+      message.error(describeApiError(err, '零件清单任务登记失败'));
     } finally {
       finalSubmissionRef.current.delete(batchName);
       setFinalSubmittingBatches((current) => {
@@ -189,7 +196,7 @@ export function Dxf2ExcelPage() {
       await retryJob(job.id);
       message.success('已重新提交');
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '重试失败'); }
+    } catch (err) { message.error(describeApiError(err, '重试失败')); }
   }, [jobsByBatch, refresh]);
 
   const handleCancel = useCallback(async (batchName: string) => {
@@ -199,7 +206,7 @@ export function Dxf2ExcelPage() {
       await cancelJob(job.id);
       message.success(`已暂停: ${batchName}（可点击"重试提取"重新开始）`);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '暂停失败'); }
+    } catch (err) { message.error(describeApiError(err, '暂停失败')); }
   }, [jobsByBatch, refresh]);
 
   const handleClear = useCallback(async (batchName: string) => {
@@ -214,7 +221,7 @@ export function Dxf2ExcelPage() {
         return next;
       });
       message.success(`已取消: ${batchName}`);
-    } catch (err) { message.error(err instanceof Error ? err.message : '取消失败'); }
+    } catch (err) { message.error(describeApiError(err, '取消失败')); }
   }, [jobsByBatch]);
 
   const handleDeleteBatch = useCallback(async (batchName: string) => {
@@ -238,7 +245,7 @@ export function Dxf2ExcelPage() {
       });
       message.success(`已删除批次: ${batchName}`);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '删除失败'); }
+    } catch (err) { message.error(describeApiError(err, '删除失败')); }
   }, [jobsByBatch, refresh]);
 
   // ── bulk actions ──────────────────────────────────────────────────────────
@@ -259,33 +266,41 @@ export function Dxf2ExcelPage() {
       message.success(`已删除 ${count} 个批次`);
       setSelectedBatches(new Set());
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '批量删除失败'); }
+    } catch (err) { message.error(describeApiError(err, '批量删除失败')); }
   }, [selectedArr, jobsByBatch, refresh]);
 
   const handleBulkDownload = useCallback(async () => {
+    setBatchDownloadBusy(true);
+    setBatchDownloadProgress(null);
     if (selectedArr.length === 1) {
       // Single batch — download directly
       try {
-        await downloadBatchZip(selectedArr[0]);
-      } catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
+        const batchName = selectedArr[0];
+        await downloadBatchZip(batchName, (progress) => {
+          setBatchDownloadProgress({ label: `${batchName} 批次下载`, progress });
+        });
+      } catch (err) { message.error(describeApiError(err, '下载失败')); }
     } else {
       // Multiple batches — download each one sequentially
       let count = 0;
       for (const bn of selectedArr) {
         try {
-          await downloadBatchZip(bn);
+          await downloadBatchZip(bn, (progress) => {
+            setBatchDownloadProgress({ label: `${bn} 批次下载`, progress });
+          });
           count++;
         } catch { /* continue */ }
       }
       if (count > 0) message.success(`已下载 ${count} 个批次`);
     }
+    setBatchDownloadBusy(false);
   }, [selectedArr]);
 
   // ── error state ───────────────────────────────────────────────────────────
   if (batchesQ.isError && !batchesQ.data) {
     return (
       <Alert type="error" message="加载批次列表失败"
-        description={(batchesQ.error as Error)?.message || '请检查后端服务是否正常运行'}
+        description={describeApiError(batchesQ.error, '请检查服务器连接后重试')}
         showIcon action={<Button size="small" onClick={() => batchesQ.refetch()}>重试</Button>} />
     );
   }
@@ -345,6 +360,8 @@ export function Dxf2ExcelPage() {
             已选 {selectedBatches.size} 个批次
           </Typography.Text>
           <Button type="primary" size="small" icon={<DownloadOutlined />}
+            loading={batchDownloadBusy}
+            disabled={batchDownloadBusy}
             onClick={handleBulkDownload}>
             打包下载 (.zip)
           </Button>
@@ -358,6 +375,14 @@ export function Dxf2ExcelPage() {
           >
             <Button size="small" danger icon={<DeleteOutlined />}>删除批次</Button>
           </Popconfirm>
+        </div>
+      )}
+      {batchDownloadProgress && (
+        <div style={{ maxWidth: 560, marginBottom: 12 }}>
+          <TransferProgressBar
+            label={batchDownloadProgress.label}
+            progress={batchDownloadProgress.progress}
+          />
         </div>
       )}
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.modules.operations.audit.models import AuditLog
@@ -44,3 +45,26 @@ def write_audit_log(
     db.add(log)
     db.flush()
     return log
+
+
+def latest_audit_log(
+    db: Session,
+    *,
+    actions: set[str],
+    resource_type: str,
+    resource_id: int,
+) -> AuditLog | None:
+    """Read the latest matching event without exposing audit persistence internals."""
+    return db.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action.in_(actions),
+            AuditLog.resource_type == resource_type,
+            AuditLog.resource_id == resource_id,
+        )
+        .order_by(AuditLog.id.desc())
+        .limit(1)
+    )
+
+
+__all__ = ["latest_audit_log", "write_audit_log"]

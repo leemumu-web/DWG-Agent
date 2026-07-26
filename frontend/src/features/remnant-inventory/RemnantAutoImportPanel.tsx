@@ -5,6 +5,8 @@ import { useMutation } from '@tanstack/react-query';
 import { createAutoRemnantImportBatch, type AutoImportFile } from './api';
 import { describeRemnantError } from './errors';
 import type { RemnantImportBatch } from './types';
+import type { TransferProgress } from '../../shared/api';
+import { TransferProgressBar } from '../../shared/components';
 
 interface Props {
   onCreated: (batch: RemnantImportBatch) => void;
@@ -81,6 +83,7 @@ export function RemnantAutoImportPanel({ onCreated }: Props) {
   const [folderName, setFolderName] = useState<string>();
   const [projectError, setProjectError] = useState('');
   const [notice, setNotice] = useState<string>();
+  const [uploadProgress, setUploadProgress] = useState<TransferProgress | null>(null);
 
   useEffect(() => {
     folderInput.current?.setAttribute('webkitdirectory', '');
@@ -108,7 +111,12 @@ export function RemnantAutoImportPanel({ onCreated }: Props) {
   };
 
   const create = useMutation({
-    mutationFn: () => createAutoRemnantImportBatch(entries, projectNo.trim(), folderName),
+    mutationFn: () => createAutoRemnantImportBatch(
+      entries,
+      projectNo.trim(),
+      folderName,
+      setUploadProgress,
+    ),
     onSuccess: (batch) => {
       message.success(`已提交 ${batch.total_count} 张图纸自动解析`);
       onCreated(batch);
@@ -244,6 +252,9 @@ export function RemnantAutoImportPanel({ onCreated }: Props) {
         </Button>
         <Typography.Text type="secondary"><FolderOpenOutlined /> 相对路径统一使用“/”分隔</Typography.Text>
       </Space>
+      {uploadProgress && (
+        <TransferProgressBar label="余料图纸文件夹上传" progress={uploadProgress} />
+      )}
     </Card>
   );
 }

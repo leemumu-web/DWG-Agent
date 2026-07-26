@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.modules.identity.interface import Permission, Role, User
 from app.platform.config.constants import (
+    ACTIVE,
     ROLE_ADMIN,
     ROLE_OPERATOR,
     ROLE_SUPER_ADMIN,
@@ -89,11 +90,27 @@ def init_db() -> None:
                 real_name=settings.super_admin_real_name,
                 password_hash=hash_password(settings.super_admin_password),
                 password_algo="argon2id",
-                status="active",
+                status=ACTIVE,
             )
-            if super_role:
-                admin.roles.append(super_role)
             db.add(admin)
+        # The configured account is the sole recoverable privilege root.  Keep
+        # it active and repair the protected role idempotently on every start.
+        admin.status = ACTIVE
+        admin.deleted_at = None
+        if super_role and super_role not in admin.roles:
+            admin.roles.append(super_role)
+        db.flush()
+
+        # Historical databases may predate the singleton rule.  Preserve any
+        # additional accounts and their management ability, but normalize them
+        # to admin so exactly one user retains the protected super_admin role.
+        if super_role and admin_role:
+            for legacy_super_admin in list(super_role.users):
+                if legacy_super_admin.id == admin.id:
+                    continue
+                legacy_super_admin.roles.remove(super_role)
+                if admin_role not in legacy_super_admin.roles:
+                    legacy_super_admin.roles.append(admin_role)
         db.commit()
         print("Database initialized.")
         print(f"Super admin username: {settings.super_admin_username}")

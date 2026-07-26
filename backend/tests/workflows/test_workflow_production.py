@@ -14,13 +14,17 @@ from app.modules.dxf_classification.interface import (
     DxfClassificationItem,
     DxfClassificationRun,
 )
-from app.modules.dxf_splitting.interface import DxfSplitItem, DxfSplitRun
+from app.modules.dxf_splitting.interface import (
+    DxfSplitItem,
+    DxfSplitRun,
+    get_excel_split_handoff,
+)
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
-from app.modules.workflows.contracts import require_stage_outputs
+from app.modules.workflows.contracts import require_stage_inputs, require_stage_outputs
 from app.modules.workflows.intake import registration as workflow_input_registration
 from app.modules.workflows.interface import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
 from app.modules.workflows.schemas import WorkflowCreate, WorkflowStageExecutionCreate
@@ -1279,9 +1283,9 @@ def test_excel_stage1_result_download_streams_one_xlsx_not_zip(monkeypatch):
             created_by=workflow.created_by,
             task_type="process_excel_final",
             pipeline="excel_final",
-            status="succeeded",
+            status="queued",
             attempt=1,
-            progress=100,
+            progress=0,
             precision_level="normal",
             params_json={"workflow_id": workflow.id},
         )
@@ -1293,6 +1297,10 @@ def test_excel_stage1_result_download_streams_one_xlsx_not_zip(monkeypatch):
             stage_code="excel_stage1",
             job=job,
         )
+        # Reproduce the real worker/UI race: the Job and AnalysisResult commit
+        # before any workflow detail read has projected them into the stage.
+        job.status = "succeeded"
+        job.progress = 100
         result = AnalysisResult(
             job_id=job.id,
             result_type="process_excel_final",
@@ -1301,7 +1309,6 @@ def test_excel_stage1_result_download_streams_one_xlsx_not_zip(monkeypatch):
         )
         db.add(result)
         db.flush()
-        workflow_service.sync_workflow_from_jobs(db, workflow)
         db.commit()
 
     response = client.get(
@@ -1776,6 +1783,62 @@ def test_partial_split_outcome_with_deliverables_advances_to_excel(db):
     assert excel_stage.status == "waiting_input"
     assert workflow.current_stage == "excel_stage1"
     assert workflow.status == "waiting_input"
+
+
+def test_classification_with_no_split_candidates_skips_split_and_unlocks_excel(db):
+    """A valid classification with no BH/BOX work is a no-op, not a dead end."""
+    _, _, workflow = _production_workflow(db)
+    _advance_to_drawing_processing(db, workflow)
+    classification = db.scalar(
+        select(DxfClassificationRun).where(
+            DxfClassificationRun.workflow_run_id == workflow.id
+        )
+    )
+    assert classification is not None
+    classification.items[0].part_type = "PX"
+    classification.items[0].profile_raw = "PX100"
+    classification.items[0].profile_normalized = "PX100"
+    classification.items[0].group_key = "type:PX"
+    classification.type_counts_json = {"PX": 1}
+
+    classification_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "dxf_classification"
+    )
+    drawing_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
+    )
+    excel_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "excel_stage1"
+    )
+    drawing_stage.status = "pending"
+    drawing_stage.progress = 0
+    excel_stage.status = "pending"
+    workflow.current_stage = classification_stage.stage_code
+    workflow.status = "running"
+    db.flush()
+
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+
+    assert drawing_stage.status == "skipped"
+    assert drawing_stage.progress == 100
+    assert drawing_stage.output_json == {
+        "reason": "no_split_candidates",
+        "classification_run_id": classification.id,
+        "classification_job_id": classification.job_id,
+        "classification_job_attempt": classification.job_attempt,
+        "input_manifest_sha256": classification.input_manifest_sha256,
+    }
+    assert excel_stage.status == "waiting_input"
+    assert workflow.current_stage == "excel_stage1"
+    assert workflow.status == "waiting_input"
+
+    # Excel may proceed with an explicit empty handoff instead of fabricated split files.
+    require_stage_inputs(workflow, "excel_stage1")
+    handoff = get_excel_split_handoff(db, workflow.id)
+    assert handoff.mode == "no_split_candidates"
+    assert handoff.split_run_id is None
+    assert handoff.bh_split_ledger_file_id is None
+    assert handoff.drawings == []
 
 
 def test_automated_stage_cannot_be_manually_completed(db):

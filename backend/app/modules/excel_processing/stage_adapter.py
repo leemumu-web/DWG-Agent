@@ -160,6 +160,13 @@ class ExcelFinalInputError(ExcelFinalIntegrationError):
         self.failure = failure
 
 
+def excel_final_stage_file_available(stage_root: Path, source_name: str) -> bool:
+    """Accept a development source module or its protected legacy bytecode peer."""
+    source_path = stage_root / source_name
+    bytecode_path = source_path.with_suffix(".pyc")
+    return source_path.is_file() or bytecode_path.is_file()
+
+
 def get_excel_final_stage_root() -> Path:
     """Resolve the tracked standalone Stage in source and container layouts."""
     integration_file = Path(__file__).resolve()
@@ -179,7 +186,10 @@ def get_excel_final_stage_root() -> Path:
         if resolved in checked:
             continue
         checked.add(resolved)
-        if all((resolved / filename).is_file() for filename in _REQUIRED_STAGE_FILES):
+        if all(
+            excel_final_stage_file_available(resolved, filename)
+            for filename in _REQUIRED_STAGE_FILES
+        ):
             return resolved
 
     raise ExcelFinalUnavailableError("Excel Final Stage is unavailable in configured locations")

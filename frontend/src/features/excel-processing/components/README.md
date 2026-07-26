@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`ExcelFinalOverview.tsx` 汇总状态和关键计数；`ExcelFinalBatchDrawer.tsx` 展示 batch、part、component 明细及重试/下载；`ExcelFinalTools.tsx` 提供重量查询和辅助工具；`ExcelFinalPage.css` 只服务这些界面块。
+`ExcelFinalOverview.tsx` 汇总状态和关键计数；`ExcelFinalBatchDrawer.tsx` 展示 batch、part、component 明细及重试/下载；`ExcelFinalUploadActions.tsx` 按后端上限预检 Excel 类型与大小；`ExcelFinalTools.tsx` 提供重量查询和辅助工具；`ExcelFinalPage.css` 只服务这些界面块。
 
 ## 输入、输出与边界
 

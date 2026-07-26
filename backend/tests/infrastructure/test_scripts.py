@@ -154,6 +154,47 @@ def test_stable_compose_startup_orders_health_gate_before_smoke():
     assert "up-workers) compose_up_workers" in content
 
 
+def test_compose_backup_and_restore_use_tar_capable_helper_for_minio_volume():
+    content = _read("scripts/lib/compose.sh")
+    backup = content[content.index("compose_backup()") : content.index("compose_restore()")]
+    restore = content[content.index("compose_restore()") : content.index("compose_main()")]
+
+    assert 'compose_service_container_id "minio"' in backup
+    assert 'compose_service_image_id "backend-api"' in backup
+    assert '--volumes-from "$minio_container":ro' in backup
+    assert '--entrypoint sh "$backend_image"' in backup
+    assert 'run --rm --no-deps -T --entrypoint sh minio' not in backup
+
+    assert 'create --no-deps backend-api minio' in restore
+    assert '--volumes-from "$minio_container"' in restore
+    assert '--entrypoint sh "$backend_image"' in restore
+    assert 'run --rm --no-deps -T --entrypoint sh minio' not in restore
+
+
+def test_compose_root_database_operations_force_local_unix_socket():
+    content = _read("scripts/lib/compose.sh")
+    backup = content[content.index("compose_backup()") : content.index("compose_restore()")]
+    restore = content[content.index("compose_restore()") : content.index("compose_main()")]
+
+    for section in (backup, restore):
+        assert "env -u MYSQL_HOST -u MYSQL_PORT" in section
+        assert '"$MYSQL_UNIX_PORT"' in section
+    assert "mysqldump" in backup
+    assert "mysqladmin ping" not in restore
+
+
+def test_infrastructure_verifier_does_not_require_reserved_empty_workers():
+    content = _read("infra/verification/verify.sh")
+    compose_checks = content[
+        content.index("COMPOSE_CHECKS=") : content.index("# ── Section 3")
+    ]
+
+    assert '"worker-agent"' not in compose_checks
+    assert '"worker-dispatch"' not in compose_checks
+    for service in ("worker-dxf", "worker-dxf-split", "worker-report"):
+        assert f'"{service}"' in compose_checks
+
+
 def _run_compose_storage_probe(tmp_path, *, probe_fails: bool = False):
     env_file = tmp_path / ".env.docker"
     env_file.write_text(
@@ -391,6 +432,8 @@ def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
     assert '"worker-remnant-parse": "remnant_parse"' in content
     assert 'ALL_CHECKS_PASSED:{len(svcs)}' in content
     assert '${COMPOSE_SERVICE_COUNT} services' in content
+    assert "COPY backend/app /app/app" in content
+    assert "COPY backend/app ./app" not in content
 
 
 def test_start_scripts_delegate_database_startup_to_db_script():

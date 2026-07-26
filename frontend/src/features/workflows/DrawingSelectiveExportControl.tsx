@@ -12,8 +12,13 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { describeApiError } from '../../shared/api';
-import { ApiErrorAlert, fmtDateTime, fmtSize } from '../../shared/components';
+import { describeApiError, type TransferProgress } from '../../shared/api';
+import {
+  ApiErrorAlert,
+  fmtDateTime,
+  fmtSize,
+  TransferProgressBar,
+} from '../../shared/components';
 import type {
   DrawingSelectiveExport,
   DrawingSelectiveExportCategory,
@@ -21,7 +26,7 @@ import type {
 import {
   createDrawingSelectiveExport,
   getDrawingSelectiveExportPreview,
-  startNativeDrawingSelectiveExportDownload,
+  downloadDrawingSelectiveExport,
 } from './workflows.api';
 
 export function DrawingSelectiveExportControl({
@@ -40,6 +45,7 @@ export function DrawingSelectiveExportControl({
   const [selectionInitialized, setSelectionInitialized] = useState(false);
   const [selected, setSelected] = useState<DrawingSelectiveExportCategory[]>([]);
   const [prepared, setPrepared] = useState<DrawingSelectiveExport | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
 
   const previewQ = useQuery({
     queryKey: ['drawing-selective-export-preview', workflowId, runId],
@@ -64,14 +70,13 @@ export function DrawingSelectiveExportControl({
     setSelectionInitialized(true);
   }, [open, previewQ.data, previewQ.isFetching, selectionInitialized]);
 
-  const startDownload = (next: DrawingSelectiveExport) => {
-    try {
-      startNativeDrawingSelectiveExportDownload(next);
-      message.info(`浏览器已开始接收 ${next.file_count} 个 DXF，请查看下载栏`);
-    } catch (error) {
-      message.error(describeApiError(error, '选择导出下载启动失败'));
-    }
-  };
+  const downloadM = useMutation({
+    mutationFn: (next: DrawingSelectiveExport) => (
+      downloadDrawingSelectiveExport(next, setDownloadProgress)
+    ),
+    onSuccess: (_data, next) => message.success(`已下载 ${next.file_count} 个 DXF`),
+    onError: (error) => message.error(describeApiError(error, '选择导出下载失败')),
+  });
 
   const createM = useMutation({
     mutationFn: () => {
@@ -80,7 +85,8 @@ export function DrawingSelectiveExportControl({
     },
     onSuccess: (next) => {
       setPrepared(next);
-      startDownload(next);
+      setDownloadProgress(null);
+      downloadM.mutate(next);
     },
     onError: (error) => message.error(
       describeApiError(error, '选择导出创建失败'),
@@ -91,11 +97,12 @@ export function DrawingSelectiveExportControl({
     setPrepared(null);
     setSelectionInitialized(false);
     setSelected([]);
+    setDownloadProgress(null);
     setOpen(true);
   };
 
   const close = () => {
-    if (createM.isPending) return;
+    if (createM.isPending || downloadM.isPending) return;
     setOpen(false);
     setPrepared(null);
     setSelectionInitialized(false);
@@ -124,17 +131,21 @@ export function DrawingSelectiveExportControl({
         title="选择要导出的图纸"
         width={620}
         maskClosable={false}
-        closable={!createM.isPending}
+        closable={!createM.isPending && !downloadM.isPending}
         onCancel={close}
         footer={prepared ? (
           <Space wrap>
-            <Button onClick={close}>下载已开始，关闭</Button>
+            <Button onClick={close} disabled={downloadM.isPending}>关闭</Button>
             <Button
               type="primary"
               icon={<DownloadOutlined />}
-              onClick={() => startDownload(prepared)}
+              loading={downloadM.isPending}
+              onClick={() => {
+                setDownloadProgress(null);
+                downloadM.mutate(prepared);
+              }}
             >
-              再次开始下载
+              重新下载
             </Button>
           </Space>
         ) : (
@@ -210,8 +221,8 @@ export function DrawingSelectiveExportControl({
             <Alert
               type="success"
               showIcon
-              message="下载已准备"
-              description={`浏览器已开始接收 ${prepared.file_count} 个 DXF。若下载栏没有任务，可在凭据有效期内再次开始下载。`}
+              message={downloadM.isPending ? '正在下载分类图纸 ZIP' : '分类图纸 ZIP 已准备'}
+              description={`${prepared.file_count} 个 DXF；下载失败可在凭据有效期内重试。`}
             />
             <div className="workflow-batch-export-summary">
               <div>
@@ -227,6 +238,9 @@ export function DrawingSelectiveExportControl({
                 <strong title={prepared.filename}>{prepared.filename}</strong>
               </div>
             </div>
+            {downloadProgress && (
+              <TransferProgressBar label="分类图纸下载" progress={downloadProgress} />
+            )}
             <Typography.Text type="secondary">
               下载凭据有效至 {fmtDateTime(prepared.token_expires_at)}；下载不会删除服务器文件。
             </Typography.Text>

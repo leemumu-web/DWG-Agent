@@ -18,7 +18,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { parseApiError } from '../../shared/api';
 import {
@@ -26,6 +26,7 @@ import {
   PageHeader,
   StatCard,
   StatGrid,
+  statusOf,
   StatusChip,
 } from '../../shared/components';
 import { ProductionProjectCreateDrawer } from './ProductionProjectCreateDrawer';
@@ -41,11 +42,12 @@ import type { WorkflowRun, WorkflowTemplate } from './workflow';
 export function WorkflowsPage() {
   const { message, modal } = App.useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [status, setStatus] = useState<string>();
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(searchParams.get('new') === '1');
   const [codeError, setCodeError] = useState<string>();
 
   const workflowsQ = useQuery({
@@ -72,9 +74,20 @@ export function WorkflowsPage() {
   );
   const workflows = workflowsQ.data?.data ?? [];
 
+  const setCreateQuery = (open: boolean) => {
+    const next = new URLSearchParams(searchParams);
+    if (open) next.set('new', '1');
+    else next.delete('new');
+    setSearchParams(next, { replace: true });
+  };
+  const openCreate = () => {
+    setCreateOpen(true);
+    setCreateQuery(true);
+  };
   const closeCreate = () => {
     if (createM.isPending) return;
     setCreateOpen(false);
+    setCreateQuery(false);
     setCodeError(undefined);
   };
   const createM = useMutation({
@@ -84,6 +97,7 @@ export function WorkflowsPage() {
     onMutate: () => setCodeError(undefined),
     onSuccess: ({ workflow }) => {
       setCreateOpen(false);
+      setCreateQuery(false);
       void queryClient.invalidateQueries({ queryKey: ['workflows'] });
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
       message.success('生产项目与完整工作流已创建');
@@ -127,7 +141,7 @@ export function WorkflowsPage() {
               {record.project_code ?? `#${projectId}`}
             </Typography.Text>
             <Typography.Text>{record.project_name ?? record.name}</Typography.Text>
-            <small>Workflow #{record.id} · {templateName}</small>
+            <small>流程 #{record.id} · {templateName}</small>
           </div>
         );
       },
@@ -137,7 +151,7 @@ export function WorkflowsPage() {
       dataIndex: 'status',
       width: 138,
       render: (value: string) => (
-        <StatusChip style={WORKFLOW_STATUS[value] ?? WORKFLOW_STATUS.draft} />
+        <StatusChip style={statusOf(WORKFLOW_STATUS, value)} />
       ),
     },
     {
@@ -199,7 +213,7 @@ export function WorkflowsPage() {
               type="primary"
               size="large"
               icon={<PlusOutlined />}
-              onClick={() => setCreateOpen(true)}
+              onClick={openCreate}
             >
               新建生产项目
             </Button>
@@ -284,7 +298,7 @@ export function WorkflowsPage() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => setCreateOpen(true)}
+                onClick={openCreate}
               >
                 创建第一个生产项目
               </Button>

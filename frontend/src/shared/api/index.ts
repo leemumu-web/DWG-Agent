@@ -5,6 +5,7 @@ export {
   describeApiError,
   describeApiErrorAsync,
   enrichApiError,
+  operatorErrorMessage,
   parseApiError,
 } from './error';
 export type {
@@ -12,3 +13,11 @@ export type {
   ExcelInputIssue,
   ParsedApiError,
 } from './error';
+export {
+  completedTransferProgress,
+  downloadBlob,
+  initialTransferProgress,
+  transferProgressFromAxios,
+  triggerBlobDownload,
+} from './transfer';
+export type { TransferProgress, TransferProgressHandler } from './transfer';

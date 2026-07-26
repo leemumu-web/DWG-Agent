@@ -110,6 +110,12 @@ def replace_role_permissions(
     role = db.get(Role, role_id)
     if not role:
         raise not_found("Role")
+    if role.code == ROLE_SUPER_ADMIN:
+        raise AppHTTPException(
+            400,
+            "SUPER_ADMIN_ROLE_PROTECTED",
+            "The protected super_admin role permissions cannot be changed.",
+        )
     permissions = list(
         db.scalars(select(Permission).where(Permission.code.in_(payload.permission_codes))).all()
     )

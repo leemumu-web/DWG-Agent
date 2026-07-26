@@ -2,8 +2,9 @@
 
 ## 现有实现
 
-`AuditLogsPage.tsx` 管理 actor、action、resource、time 筛选、分页和详情；`InfrastructurePage.tsx` 只组合 overview、runtime、files、objects、transfers、consistency 六个面板及 URL tab。
+`AuditLogsPage.tsx` 管理操作人、动作、对象、时间筛选、分页和详情；`InfrastructurePage.tsx` 只组合生产任务、文件存储两个真实业务面板及 URL 页签。
 
 ## 输入、输出与边界
 
-输入是路由查询参数、当前权限与子面板，输出是稳定 `/audit-logs` 和 `/infrastructure` 页面。页面层不复制 API 查询、扫描处置或状态格式化逻辑；管理员/审计员限制仍由后端最终执行。
+输入是路由查询参数、当前权限与子面板，输出是稳定 `/audit-logs` 和 `/data-console` 页面。页面层不复制任务状态机、文件权限或状态格式化逻辑；管理员限制仍由后端最终执行。
+旧 `/admin/infrastructure` 只负责兼容跳转，不恢复已删除的多页签控制台。概览接口失败时页面显示后端错误和请求编号，不用红色“加载中”或默认零值冒充真实状态。

@@ -38,10 +38,10 @@ function describeError(e: ApiError): string {
 }
 
 const HIGHLIGHTS = [
-  { icon: <ThunderboltOutlined />, title: '多流水线', desc: 'ODA 转换 + 表格提取' },
-  { icon: <ApartmentOutlined />, title: '项目级 RBAC', desc: '全局角色 + 项目角色' },
-  { icon: <AuditOutlined />, title: '完整留痕', desc: '关键操作审计可追溯' },
-  { icon: <SafetyOutlined />, title: '安全凭证', desc: '短时令牌 + 刷新 Cookie' },
+  { icon: <ApartmentOutlined />, title: '项目生产流程', desc: '资料入库后按阶段推进' },
+  { icon: <ThunderboltOutlined />, title: '服务器统一处理', desc: '转换、分类、拆板和表格整理' },
+  { icon: <AuditOutlined />, title: '过程完整留痕', desc: '输入、结果和关键操作可追溯' },
+  { icon: <SafetyOutlined />, title: '账号权限保护', desc: '按岗位控制查看和操作范围' },
 ];
 
 export function LoginPage() {
@@ -161,7 +161,7 @@ export function LoginPage() {
         </div>
 
         <div style={{ position: 'relative', color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-          Stage 1 · 生产就绪骨架 · 本机开发版
+          生产流程 · 图纸分类 · 整批拆板 · Excel 整理
         </div>
       </div>
 

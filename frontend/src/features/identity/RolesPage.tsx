@@ -19,7 +19,7 @@ const ROLE_CONFIG: Record<string, { color: string; icon: React.ReactNode; tier: 
     color: 'magenta',
     icon: <CrownOutlined />,
     tier: 1,
-    desc: '全部管理权限：用户管理、角色分配、系统配置、审计日志、生产流程',
+    desc: '唯一且受保护的系统账号；业务权限与管理员相同，不能删除、禁用、降级或转授',
   },
   admin: {
     color: 'red',

@@ -17,6 +17,7 @@ import {
 
 import type { BatchInfo } from '../../../files';
 import type { Job } from '../../../jobs';
+import { operatorErrorMessage } from '../../../../shared/api';
 
 const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
   succeeded: { color: '#52c41a', bg: '#f6ffed', label: '已完成', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> },
@@ -112,9 +113,9 @@ export function DxfBatchCard({
             {isFailed && status && (
               <Tag style={{ color: status.color, background: status.bg, border: 'none', borderRadius: 6 }}>
                 {status.icon} <span style={{ marginLeft: 4 }}>{status.label}</span>
-                {job?.error_code && (
-                  <Tooltip title={job.error_message || job.error_code}>
-                    <span style={{ marginLeft: 4, fontSize: 11, color: '#8c8c8c' }}>({job.error_code})</span>
+                {job && (job.error_code || job.error_message) && (
+                  <Tooltip title={operatorErrorMessage(job.error_code, job.error_message, '表格提取未完成，请重新提交。')}>
+                    <span style={{ marginLeft: 4, fontSize: 11, color: '#8c8c8c' }}>（查看原因）</span>
                   </Tooltip>
                 )}
               </Tag>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { operatorErrorMessage } from '../../shared/api';
 import { bulkArchiveRemnants, deleteArchivedRemnant, exportAllRemnants, listAllRemnants } from './api';
 import { describeRemnantError, describeRemnantErrorAsync } from './errors';
 import { StatusTag } from './RemnantDetailDrawer';
@@ -144,7 +145,7 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
         showIcon
         type={archiveResult.failed.length ? 'warning' : 'success'}
         message={`已归档 ${archiveResult.archived.length} 张，${archiveResult.failed.length} 张未处理`}
-        description={archiveResult.failed.map((item) => <div key={item.remnant_id}>余料 #{item.remnant_id}：{item.message}</div>)}
+        description={archiveResult.failed.map((item) => <div key={item.remnant_id}>余料 #{item.remnant_id}：{operatorErrorMessage(undefined, item.message, '当前状态不能归档，请刷新后核对。')}</div>)}
         onClose={() => setArchiveResult(undefined)}
         style={{ marginBottom: 16 }}
       />}

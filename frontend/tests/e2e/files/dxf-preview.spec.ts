@@ -66,7 +66,7 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
   const row = page.getByRole('row').filter({ hasText: fileName });
   await expect(row).toBeVisible({ timeout: 15_000 });
 
-  await row.getByRole('button', { name: '预览 DXF' }).click();
+  await row.getByRole('button', { name: '预览原始 DXF' }).click();
   await expect.poll(() => previewRequests).toBe(1);
 
   const dialog = page.getByRole('dialog', { name: /DXF 在线预览/ });
@@ -160,7 +160,7 @@ test('DXF online preview uses a full-width light canvas without telemetry and su
   await expectFitted();
   await dialog.getByRole('button', { name: '缩小预览' }).click();
   await expect(dialog.getByRole('button', { name: '重新加载' })).toBeVisible();
-  await expect(dialog.getByRole('button', { name: '下载源文件' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '下载此 DXF' })).toBeVisible();
   await dialog.getByRole('button', { name: '重新加载' }).click();
   await expect.poll(() => previewRequests).toBe(2);
   await dialog.getByRole('button', { name: '关闭预览' }).click();

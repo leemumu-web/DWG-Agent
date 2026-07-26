@@ -75,6 +75,9 @@ cam_output_dxf → accepted_dxf → delivery_dxf`；Excel、报告和清单保�
 attempt；每 30 张和尾批分别核对输入数、完成数与业务分流数，单图问题直接保留明确诊断。
 前端展示真实进度、速度、剩余时间和生产结果数量，只提供正式拆板 DXF 与本批原图两个
 ZIP 入口，不展示候选、报告或逐图人工复核工作台。
+若分类结果中没有任何可拆的 BH/BOX 图纸，流程不会创建空的拆板 Job，也不会锁住后续阶段。
+系统将 `drawing_processing` 明确标记为“无需处理”，保存 `no_split_candidates` 原因，
+并直接把 Excel 第一阶段置为可输入；分类结果和原图清单仍然保留，便于追溯。
 Stage A3 的“图纸拆板与独立校验”卡片标题栏提供“分批导出”：`原 DXF`、
 `正常拆板 DXF`、`原 Excel`、`产出 Excel` 分别映射当前 attempt 的
 `classified_dxf`、`processed_dxf`、冻结 `source_excel` 与成功 `stage1_excel`。

@@ -12,6 +12,7 @@ import {
 
 import type { StoredFile } from '../../../files';
 import type { Job } from '../../../jobs';
+import { operatorErrorMessage } from '../../../../shared/api';
 
 const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
   succeeded: { color: '#52c41a', bg: '#f6ffed', label: '已完成', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> },
@@ -41,17 +42,24 @@ export interface ConversionColumnsOptions {
   jobsByFileId: Map<number, Job>;
   onPreviewSource: (file: StoredFile) => void;
   onDownloadSource: (file: StoredFile) => void;
-  onPreviewResult: (job: Job, sourceName: string) => void;
-  onDownloadResult: (job: Job, sourceName: string) => void;
+  onPreviewResult: (job: Job) => void;
+  onDownloadResult: (job: Job) => void;
   onRetry: (jobId: number) => void;
   onResubmit: (fileId: number) => void;
+}
+
+export function convertedOriginalName(sourceName: string, resultExt: string): string {
+  const extensionIndex = sourceName.lastIndexOf('.');
+  const sourceStem = extensionIndex > 0 ? sourceName.slice(0, extensionIndex) : sourceName;
+  return `${sourceStem}${resultExt}`;
 }
 
 export function buildConversionColumns(options: ConversionColumnsOptions) {
   return [
     {
-      title: '文件名',
+      title: '原文件名',
       dataIndex: 'original_name',
+      width: 300,
       render: (name: string) => (
         <Space>
           <Tag style={{ margin: 0, borderRadius: 4, fontSize: 11, lineHeight: '18px', padding: '0 6px' }} color="processing">
@@ -63,6 +71,24 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
           <Tooltip title={name}><Typography.Text style={{ maxWidth: 400 }} ellipsis>{name}</Typography.Text></Tooltip>
         </Space>
       ),
+    },
+    {
+      title: '转换后文件名',
+      dataIndex: 'original_name',
+      width: 300,
+      render: (name: string) => {
+        const convertedName = convertedOriginalName(name, options.resultExt);
+        return (
+          <Space>
+            <Tag style={{ margin: 0, borderRadius: 4, fontSize: 11, lineHeight: '18px', padding: '0 6px' }} color="success">
+              {options.tagDone}
+            </Tag>
+            <Tooltip title={convertedName}>
+              <Typography.Text style={{ maxWidth: 220 }} ellipsis>{convertedName}</Typography.Text>
+            </Tooltip>
+          </Space>
+        );
+      },
     },
     {
       title: '大小',
@@ -89,7 +115,7 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
               resultUnavailable
                 ? '历史转换结果文件已释放，源文件仍可用，可重新提交转换'
                 : job.status === 'failed'
-                  ? `${job.error_code || '转换失败'}；可使用“重新提交”再次处理`
+                  ? `${operatorErrorMessage(job.error_code, job.error_message, '图纸转换未完成')}；可使用“重新提交”再次处理`
                   : undefined
             }>
               <Tag style={{ color: status.color, background: status.bg, border: 'none', borderRadius: 6 }}>
@@ -125,7 +151,7 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
     },
     {
       title: '操作',
-      width: 140,
+      width: 170,
       align: 'center' as const,
       render: (_: unknown, record: StoredFile) => {
         const job = options.jobsByFileId.get(record.id);
@@ -135,8 +161,8 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
         return (
           <Space size={2}>
             {record.file_ext === '.dxf' && (
-              <Tooltip title="预览 DXF">
-                <Button aria-label="预览 DXF" type="text" size="small" icon={<EyeOutlined style={{ color: '#0891b2' }} />} onClick={() => options.onPreviewSource(record)} />
+              <Tooltip title="预览原始 DXF">
+                <Button aria-label="预览原始 DXF" type="text" size="small" icon={<EyeOutlined style={{ color: '#0891b2' }} />} onClick={() => options.onPreviewSource(record)} />
               </Tooltip>
             )}
             <Tooltip title={`下载 ${options.tagPending}`}>
@@ -145,12 +171,12 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
             {succeeded && job && (
               <>
                 {options.resultExt === '.dxf' && (
-                  <Tooltip title="预览 DXF">
-                    <Button aria-label="预览 DXF" type="text" size="small" icon={<EyeOutlined style={{ color: '#2563eb' }} />} onClick={() => options.onPreviewResult(job, record.original_name)} />
+                  <Tooltip title="预览转换后 DXF">
+                    <Button aria-label="预览转换后 DXF" type="text" size="small" icon={<EyeOutlined style={{ color: '#2563eb' }} />} onClick={() => options.onPreviewResult(job)} />
                   </Tooltip>
                 )}
                 <Tooltip title={options.downloadResultLabel}>
-                  <Button aria-label={options.downloadResultLabel} type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />} onClick={() => options.onDownloadResult(job, record.original_name)} />
+                  <Button aria-label={options.downloadResultLabel} type="text" size="small" icon={<FileTextOutlined style={{ color: '#1677ff' }} />} onClick={() => options.onDownloadResult(job)} />
                 </Tooltip>
               </>
             )}

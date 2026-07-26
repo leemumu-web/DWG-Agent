@@ -29,6 +29,16 @@ SENSITIVE_MARKERS = (
     "token_hash",
     "api_key",
 )
+READ_ONLY_IDENTITY_TABLES = frozenset(
+    {
+        "sys_users",
+        "sys_roles",
+        "sys_user_roles",
+        "sys_permissions",
+        "sys_role_permissions",
+        "token_blacklist",
+    }
+)
 
 
 class RowCreate(BaseModel):
@@ -188,6 +198,16 @@ def _require_admin(user: User) -> None:
         raise forbidden("Only administrators can change database rows.")
 
 
+def _require_writable_table(table: Table) -> None:
+    if table.name in READ_ONLY_IDENTITY_TABLES:
+        raise AppHTTPException(
+            409,
+            "IDENTITY_TABLE_READ_ONLY",
+            "Identity and access-control tables are read-only in the database console.",
+            {"table": table.name},
+        )
+
+
 def _database_error(exc: SQLAlchemyError) -> AppHTTPException:
     if isinstance(exc, IntegrityError):
         return AppHTTPException(
@@ -208,6 +228,7 @@ def list_mysql_tables(
     db: DbSession,
     current_user: CurrentUser,
 ):
+    _require_admin(current_user)
     inspector = inspect(db.get_bind())
     rows = []
     for name in sorted(inspector.get_table_names()):
@@ -219,6 +240,7 @@ def list_mysql_tables(
                 "primary_key": inspector.get_pk_constraint(name).get(
                     "constrained_columns", []
                 ),
+                "writable": name not in READ_ONLY_IDENTITY_TABLES,
             }
         )
     return ok(rows, request.state.request_id)
@@ -231,6 +253,7 @@ def get_mysql_table(
     db: DbSession,
     current_user: CurrentUser,
 ):
+    _require_admin(current_user)
     table = _table(db, table_name)
     total = db.scalar(select(func.count()).select_from(table)) or 0
     return ok(
@@ -239,6 +262,7 @@ def get_mysql_table(
             "row_count": total,
             "primary_key": [column.name for column in table.primary_key.columns],
             "columns": [_column_data(column) for column in table.columns],
+            "writable": table.name not in READ_ONLY_IDENTITY_TABLES,
         },
         request.state.request_id,
     )
@@ -253,6 +277,7 @@ def list_mysql_rows(
     page_no: int = Query(1, alias="page", ge=1),
     page_size: int = Query(50, ge=1, le=200),
 ):
+    _require_admin(current_user)
     table = _table(db, table_name)
     total = db.scalar(select(func.count()).select_from(table)) or 0
     ordering = list(table.primary_key.columns) or list(table.columns)[:1]
@@ -282,6 +307,7 @@ def create_mysql_row(
 ):
     _require_admin(current_user)
     table = _table(db, table_name)
+    _require_writable_table(table)
     values = _validated_values(table, payload.values, for_create=True)
     try:
         result = db.execute(insert(table).values(**values))
@@ -318,6 +344,7 @@ def update_mysql_row(
 ):
     _require_admin(current_user)
     table = _table(db, table_name)
+    _require_writable_table(table)
     values = _validated_values(table, payload.values, for_create=False)
     clause = _primary_key_clause(table, payload.primary_key)
     before = db.execute(select(table).where(clause)).first()
@@ -353,6 +380,7 @@ def delete_mysql_row(
 ):
     _require_admin(current_user)
     table = _table(db, table_name)
+    _require_writable_table(table)
     clause = _primary_key_clause(table, payload.primary_key)
     before = db.execute(select(table).where(clause)).first()
     if before is None:

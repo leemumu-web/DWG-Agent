@@ -69,6 +69,21 @@ def test_data_admin_overview_identifies_environment_without_secrets(tmp_path, mo
     assert isinstance(data["storage"]["capacity"]["used_percent"], float)
     assert data["storage"]["capacity"]["reason"] is None
     assert data["storage"]["capacity"]["checked_at"]
+    configured_areas = data["storage"]["areas"]
+    assert [area["bucket"] for area in configured_areas] == settings.minio_bucket_names
+    purposes = {
+        purpose
+        for area in configured_areas
+        for purpose in area["purpose_codes"]
+    }
+    assert purposes == {
+        "source_dwg",
+        "derived_dwg",
+        "reports",
+        "temporary",
+        "source_dxf",
+        "derived_dxf",
+    }
     serialized = json.dumps(data)
     assert "database_url" not in serialized
     assert settings.mysql_password not in serialized or not settings.mysql_password
@@ -155,11 +170,10 @@ def test_data_admin_object_tree_returns_direct_folders_and_files(tmp_path, monke
     monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
     client = TestClient(app)
     admin = _admin_headers(client)
-    viewer = _viewer_headers(client, admin)
 
     root = client.get(
         "/api/v1/data-admin/objects/tree",
-        headers=viewer,
+        headers=admin,
         params={"bucket": "dwg-original", "prefix": ""},
     )
     assert root.status_code == 200, root.text
@@ -168,7 +182,7 @@ def test_data_admin_object_tree_returns_direct_folders_and_files(tmp_path, monke
 
     jobs = client.get(
         "/api/v1/data-admin/objects/tree",
-        headers=viewer,
+        headers=admin,
         params={"bucket": "dwg-original", "prefix": "jobs/"},
     )
     assert jobs.status_code == 200
@@ -216,7 +230,9 @@ def test_object_enumeration_releases_database_connection_first(tmp_path, monkeyp
     assert response.status_code == 200, response.text
 
 
-def test_data_admin_allows_viewer_to_inspect_catalog(tmp_path, monkeypatch):
+def test_data_admin_scopes_viewer_to_own_records_and_raw_objects_to_admin(
+    tmp_path, monkeypatch
+):
     storage = LocalFileStorage(tmp_path / "storage")
     storage.put_fileobj(
         "dwg-original",
@@ -230,16 +246,47 @@ def test_data_admin_allows_viewer_to_inspect_catalog(tmp_path, monkeypatch):
     admin = _admin_headers(client)
     viewer = _viewer_headers(client, admin)
 
-    assert client.get("/api/v1/data-admin/overview", headers=viewer).status_code == 200
-    assert client.get("/api/v1/data-admin/files", headers=viewer).status_code == 200
+    admin_upload = client.post(
+        "/api/v1/files",
+        headers={**admin, "Idempotency-Key": "admin-private-source"},
+        files={"upload": ("admin.dwg", BytesIO(_DWG), "application/acad")},
+    )
+    viewer_upload = client.post(
+        "/api/v1/files",
+        headers={**viewer, "Idempotency-Key": "viewer-own-source"},
+        files={"upload": ("viewer.dwg", BytesIO(_DWG), "application/acad")},
+    )
+    assert admin_upload.status_code == 201, admin_upload.text
+    assert viewer_upload.status_code == 201, viewer_upload.text
+
+    overview = client.get("/api/v1/data-admin/overview", headers=viewer)
+    assert overview.status_code == 200
+    assert overview.json()["data"]["catalog"]["available_files"] == 1
+    files = client.get("/api/v1/data-admin/files", headers=viewer)
+    assert files.status_code == 200
+    assert [row["id"] for row in files.json()["data"]] == [
+        viewer_upload.json()["data"]["id"]
+    ]
+    hidden = client.get(
+        f"/api/v1/data-admin/files/{admin_upload.json()['data']['id']}",
+        headers=viewer,
+    )
+    assert hidden.status_code == 404
+    transfers = client.get("/api/v1/data-admin/transfers", headers=viewer)
+    assert transfers.status_code == 200
+    assert transfers.json()["pagination"]["total"] == 1
     objects = client.get(
         "/api/v1/data-admin/objects",
         headers=viewer,
         params={"bucket": "dwg-original", "page_size": 20},
     )
-    assert objects.status_code == 200
-    assert objects.json()["data"][0]["storage_key"] == "viewer/inspect.dwg"
-    assert client.get("/api/v1/data-admin/transfers", headers=viewer).status_code == 200
+    assert objects.status_code == 403
+
+    admin_files = client.get("/api/v1/data-admin/files", headers=admin)
+    assert admin_files.status_code == 200
+    visible_ids = {row["id"] for row in admin_files.json()["data"]}
+    assert admin_upload.json()["data"]["id"] in visible_ids
+    assert viewer_upload.json()["data"]["id"] in visible_ids
 
 
 def test_data_admin_transfers_are_server_paginated(tmp_path, monkeypatch):
@@ -401,7 +448,7 @@ def test_data_admin_scans_are_server_paginated(tmp_path, monkeypatch):
     assert payload["data"][0]["scope_bucket"] == "dwg-derived"
 
 
-def test_viewer_can_inspect_but_cannot_mutate_remediation_data(
+def test_viewer_cannot_inspect_or_mutate_global_remediation_data(
     tmp_path,
     monkeypatch,
 ):
@@ -434,7 +481,7 @@ def test_viewer_can_inspect_but_cannot_mutate_remediation_data(
         f"/api/v1/data-admin/scans/{scan_id}/findings",
         headers=viewer,
     )
-    assert viewer_findings.status_code == 200
+    assert viewer_findings.status_code == 403
     findings = client.get(
         f"/api/v1/data-admin/scans/{scan_id}/findings",
         headers=admin,

@@ -64,7 +64,8 @@ def _parse_args() -> argparse.Namespace:
 def _configure_stage_imports(stage_root: Path) -> Path:
     root = stage_root.resolve()
     for filename in _REQUIRED_STAGE_FILES:
-        if not (root / filename).is_file():
+        source_path = root / filename
+        if not source_path.is_file() and not source_path.with_suffix(".pyc").is_file():
             raise RuntimeError(f"Excel Final Stage file is missing: {root / filename}")
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))

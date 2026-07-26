@@ -121,6 +121,31 @@ class UserSelfUpdate(BaseModel):
         return v
 
 
+class AdminPasswordResetRequest(BaseModel):
+    """Administrator-selected replacement password; never generated or returned."""
+
+    new_password: str = Field(
+        min_length=12,
+        description="Password — minimum 12 characters, must contain upper + lower + digit.",
+    )
+
+    @field_validator("new_password")
+    @classmethod
+    def _enforce_password_complexity(cls, v: str) -> str:
+        if v.lower() in _COMMON_PASSWORDS:
+            raise ValueError("This password is too common — choose a stronger one.")
+        if not (
+            any(c.islower() for c in v)
+            and any(c.isupper() for c in v)
+            and any(c.isdigit() for c in v)
+        ):
+            raise ValueError(
+                "Password must contain at least one uppercase letter, "
+                "one lowercase letter, and one digit."
+            )
+        return v
+
+
 class RoleCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=64)

@@ -314,7 +314,7 @@
         "docs/guides/operations.md",
         "docs/verification/current.md"
       ],
-      "notes": "Audit, daily archive, authenticated MySQL and MinIO data console, storage reconciliation and control-plane use cases are grouped by owner. Data-console writes remain admin-only and preserve the file registry and transfer ledger. Periodic scheduling, automated off-site backup and full observability remain absent."
+      "notes": "Audit, daily archive, authenticated data catalog, storage reconciliation and control-plane use cases are grouped by owner. The production data console exposes workflows, jobs and registered storage objects only; generic MySQL mutation and high-risk maintenance endpoints remain backend-only. File writes remain admin-only and preserve the registry and transfer ledger. Periodic scheduling, automated off-site backup and full observability remain absent."
     },
     {
       "code": "automation",
@@ -348,7 +348,7 @@
       "status": "placeholder",
       "architecture_nodes": ["BEAT", "OUTBOX", "RABBIT", "SCHEDULER"],
       "backend_paths": ["backend/app/platform/messaging/celery_app.py", "compose.yaml"],
-      "frontend_paths": ["frontend/src/features/operations/pages/InfrastructurePage.tsx"],
+      "frontend_paths": [],
       "tables": [],
       "http_prefixes": [],
       "celery_tasks": [],
@@ -371,7 +371,7 @@
         "backend/app/modules/automation/contracts",
         "windows/README.md"
       ],
-      "frontend_paths": ["frontend/src/features/operations/api/controlPlane.ts"],
+      "frontend_paths": [],
       "tables": [],
       "http_prefixes": [],
       "celery_tasks": [],

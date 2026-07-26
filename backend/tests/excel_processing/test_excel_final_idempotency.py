@@ -461,6 +461,7 @@ def test_excel_final_health_reports_actual_database_and_storage_backends(
     assert data["storage_backend"] == "local"
     assert data["storage_available"] is True
     assert data["storage_bucket"] == "dwg-reports"
+    assert data["max_upload_size_bytes"] == 512 * 1024 * 1024
     assert data["degraded_components"] == []
     assert data["ready"] is True
 

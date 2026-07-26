@@ -4,13 +4,18 @@ import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { API_BASE } from '../support/test-env';
+import {
+  ADMIN_PASSWORD,
+  ADMIN_USERNAME,
+  API_BASE,
+  EXCEL_FINAL_PIPELINE_ENABLED,
+} from '../support/test-env';
 
 const VALID_SAMPLE = process.env.PLAYWRIGHT_EXCEL_SAMPLE_PATH;
 
 async function login(page: Page): Promise<string> {
   const response = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
-    data: { username: 'admin', password: 'SuperAdminPass1' },
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
   });
   expect(response.status()).toBe(201);
   const body = await response.json();
@@ -75,6 +80,7 @@ test.describe('Excel Final retry and download closure', () => {
           storage_backend: 'local',
           storage_available: true,
           storage_bucket: 'dwg-reports',
+          max_upload_size_bytes: 512 * 1024 * 1024,
           degraded_components: [],
           ready: true,
         }) });
@@ -164,6 +170,7 @@ test.describe('Excel Final retry and download closure', () => {
         storage_backend: 'local',
         storage_available: true,
         storage_bucket: 'dwg-reports',
+        max_upload_size_bytes: 512 * 1024 * 1024,
         degraded_components: [],
         ready: true,
       }),
@@ -227,6 +234,59 @@ test.describe('Excel Final retry and download closure', () => {
     await expect(failure).toContainText('原表 · 第 6 行 · 数量');
     await expect(failure).toContainText('请求 excel-input-guidance');
     await expect(page.getByText(/\/home\/private|Traceback/)).toHaveCount(0);
+  });
+
+  test('oversized Excel is rejected before upload with the actual server limit', async ({ page }) => {
+    const envelope = (data: unknown) => ({ data, meta: { request_id: 'excel-size-preflight' } });
+    const paged = (data: unknown[]) => ({
+      ...envelope(data),
+      pagination: { page: 1, page_size: 50, total: data.length, total_pages: 1 },
+    });
+    let uploadRequests = 0;
+    await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+    await page.route('**/api/v1/excel-final/health', (route) => route.fulfill({
+      json: envelope({
+        pipeline_enabled: true,
+        stage_available: true,
+        dependencies_available: true,
+        package_available: true,
+        handbook_available: true,
+        handbook_database_available: true,
+        database_backend: 'mysql',
+        database_available: true,
+        storage_backend: 'local',
+        storage_available: true,
+        storage_bucket: 'dwg-reports',
+        max_upload_size_bytes: 16,
+        degraded_components: [],
+        ready: true,
+      }),
+    }));
+    await page.route('**/api/v1/excel-final/overview', (route) => route.fulfill({
+      json: envelope({
+        batch_count: 0,
+        part_count: 0,
+        component_count: 0,
+        total_net_weight: 0,
+        total_gross_weight: 0,
+        latest_created_at: null,
+      }),
+    }));
+    await page.route('**/api/v1/excel-final/upload-and-process', (route) => {
+      uploadRequests += 1;
+      return route.fulfill({ status: 500 });
+    });
+
+    await login(page);
+    await page.locator('.ant-upload input[type="file"]').setInputFiles({
+      name: 'unexpected-large.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.alloc(17),
+    });
+
+    await expect(page.getByText('所选 Excel 为 17 B，超过服务器允许的 16 B。')).toBeVisible();
+    await expect(page.getByRole('button', { name: '提交处理' })).toBeDisabled();
+    expect(uploadRequests).toBe(0);
   });
 
   test('real XLS upload succeeds and download retry obtains a fresh signature', async ({ page }) => {
@@ -298,6 +358,7 @@ test.describe('Excel Final retry and download closure', () => {
   });
 
   test('corrupt XLS is rejected before job creation with safe guidance', async ({ page }) => {
+    test.skip(!EXCEL_FINAL_PIPELINE_ENABLED, 'Excel Final pipeline is disabled in this deployment');
     const token = await login(page);
     const jobsBeforeResponse = await page.request.get(
       `${API_BASE}/api/v1/workflows/jobs?task_type=excel_final&page_size=1`,
@@ -492,8 +553,8 @@ test('Excel Final data console exposes exact overview, tools, details and URL jo
   await expect(page.getByText('12,840')).toBeVisible();
   await expect(page.getByText('204,850.75')).toBeVisible();
   await expect(page.getByText('数据管道就绪')).toBeVisible();
-  await expect(page.getByText('SQLite 权威数据')).toBeVisible();
-  await expect(page.getByText('本地对象存储')).toBeVisible();
+  await expect(page.getByText('业务数据库')).toBeVisible();
+  await expect(page.getByText('文件存储')).toBeVisible();
   await expect(page.getByText(/MinIO/)).toHaveCount(0);
   const heroDescription = page.getByText('校验原始 Tekla 清单，生成规范整理表和 part 表，并保留可追溯的计算痕迹。');
   await expect(heroDescription).toHaveCSS('color', 'rgb(185, 206, 216)');

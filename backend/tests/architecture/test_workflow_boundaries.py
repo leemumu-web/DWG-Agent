@@ -225,6 +225,11 @@ EXPECTED_ROUTES = [
     ),
     (
         ("POST",),
+        "/{workflow_id}/input-folder/restore",
+        "restore_input_folder_api",
+    ),
+    (
+        ("POST",),
         "/{workflow_id}/input-batch/conversion-requests",
         "convert_batch_api",
     ),
@@ -365,6 +370,7 @@ EXPECTED_INTERNAL_LAYERS = {
         "conversion.py",
         "freeze.py",
         "presentation.py",
+        "recovery.py",
         "registration.py",
     },
     "modules/workflows/routes": {

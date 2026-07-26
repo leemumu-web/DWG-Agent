@@ -17,18 +17,18 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { describeApiError } from '../../shared/api';
-import { ApiErrorAlert, fmtSize } from '../../shared/components';
+import { describeApiError, type TransferProgress } from '../../shared/api';
+import { ApiErrorAlert, fmtSize, TransferProgressBar } from '../../shared/components';
 import type {
   WorkflowBatchExport,
   WorkflowExportCategory,
 } from './workflow';
 import {
   createWorkflowBatchExport,
+  downloadWorkflowBatchExport,
   getWorkflowBatchExport,
   getWorkflowBatchExportPreview,
   purgeWorkflowBatchExport,
-  startNativeWorkflowBatchExportDownload,
 } from './workflows.api';
 
 const ACTIVE_DOWNLOAD_STATUSES = new Set(['prepared', 'downloading']);
@@ -50,6 +50,7 @@ export function WorkflowBatchExportControl({
   const [selectionInitialized, setSelectionInitialized] = useState(false);
   const [selected, setSelected] = useState<WorkflowExportCategory[]>([]);
   const [createdExport, setCreatedExport] = useState<WorkflowBatchExport | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
 
   const previewQ = useQuery({
     queryKey: ['workflow-batch-export-preview', workflowId],
@@ -92,6 +93,20 @@ export function WorkflowBatchExportControl({
   });
   const exportRow = statusQ.data ?? createdExport;
 
+  const downloadM = useMutation({
+    mutationFn: (row: WorkflowBatchExport) => (
+      downloadWorkflowBatchExport(row, setDownloadProgress)
+    ),
+    onSuccess: () => {
+      message.success('分批导出 ZIP 已下载到浏览器');
+      setTimeout(() => { void statusQ.refetch(); }, 300);
+    },
+    onError: (error) => {
+      message.error(describeApiError(error, '分批导出下载失败'));
+      void statusQ.refetch();
+    },
+  });
+
   const createM = useMutation({
     mutationFn: () => createWorkflowBatchExport(workflowId, selected),
     onSuccess: (next) => {
@@ -100,12 +115,8 @@ export function WorkflowBatchExportControl({
         ['workflow-batch-export', workflowId, next.export_uid],
         next,
       );
-      try {
-        startNativeWorkflowBatchExportDownload(next);
-        message.info('浏览器已开始接收分批导出 ZIP，请保存到本地');
-      } catch (error) {
-        message.error(describeApiError(error, '分批导出下载启动失败'));
-      }
+      setDownloadProgress(null);
+      downloadM.mutate(next);
     },
     onError: (error) => message.error(
       describeApiError(error, '分批导出创建失败'),
@@ -139,28 +150,23 @@ export function WorkflowBatchExportControl({
     setCreatedExport(null);
     setSelectionInitialized(false);
     setSelected([]);
+    setDownloadProgress(null);
     setOpen(true);
   };
 
   const closeAndRetain = () => {
-    if (purgeM.isPending) return;
+    if (purgeM.isPending || downloadM.isPending) return;
     setOpen(false);
     setCreatedExport(null);
     setSelectionInitialized(false);
     setSelected([]);
+    setDownloadProgress(null);
   };
 
   const retryDownload = () => {
     if (!exportRow) return;
-    try {
-      startNativeWorkflowBatchExportDownload(exportRow);
-      message.info('已重新发起浏览器下载');
-      setTimeout(() => {
-        void statusQ.refetch();
-      }, 500);
-    } catch (error) {
-      message.error(describeApiError(error, '重新下载失败'));
-    }
+    setDownloadProgress(null);
+    downloadM.mutate(exportRow);
   };
 
   const confirmPurge = () => {
@@ -212,7 +218,7 @@ export function WorkflowBatchExportControl({
           message="ZIP 未完整传输，服务器文件未删除"
           description="可重新下载；只有服务端确认传输完成后，永久删除按钮才会启用。"
           action={(
-            <Button icon={<ReloadOutlined />} onClick={retryDownload}>
+            <Button icon={<ReloadOutlined />} loading={downloadM.isPending} onClick={retryDownload}>
               重新下载
             </Button>
           )}
@@ -261,15 +267,15 @@ export function WorkflowBatchExportControl({
         title="分批导出并释放服务器空间"
         width={660}
         maskClosable={false}
-        closable={!purgeM.isPending}
+        closable={!purgeM.isPending && !downloadM.isPending}
         onCancel={closeAndRetain}
         footer={exportRow ? (
           <Space wrap>
-            <Button onClick={closeAndRetain} disabled={purgeM.isPending}>
+            <Button onClick={closeAndRetain} disabled={purgeM.isPending || downloadM.isPending}>
               暂不删除
             </Button>
             {exportRow.status === 'download_failed' && (
-              <Button icon={<ReloadOutlined />} onClick={retryDownload}>
+              <Button icon={<ReloadOutlined />} loading={downloadM.isPending} onClick={retryDownload}>
                 重新下载
               </Button>
             )}
@@ -277,7 +283,7 @@ export function WorkflowBatchExportControl({
               danger
               type="primary"
               icon={<DeleteOutlined />}
-              disabled={exportRow.status !== 'downloaded'}
+              disabled={exportRow.status !== 'downloaded' || downloadM.isPending}
               loading={purgeM.isPending}
               onClick={confirmPurge}
             >
@@ -370,6 +376,9 @@ export function WorkflowBatchExportControl({
               </div>
             </div>
             {downloadStatus}
+            {downloadProgress && (
+              <TransferProgressBar label="分批图纸下载" progress={downloadProgress} />
+            )}
           </Space>
         )}
       </Modal>

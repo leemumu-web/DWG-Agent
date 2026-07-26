@@ -1,5 +1,41 @@
 # 全栈工作流验证
 
+## 2026-07-26 生产工作台、Excel 第一阶段与加密服务器发布验收
+
+本轮把工人工作台收敛为真实生产项目入口，并补充六段可展开操作手册；所有页面错误统一为
+中文原因、建议动作和请求编号，不显示后端错误码、Traceback、数据库驱动、容器名或本机路径。
+数据控制台只管理当前生产任务与已登记文件。服务器模板只启用主流程所需的 DWG→DXF、分类、
+拆板和 Excel 第一阶段，DXF→DWG 与通用 DXF→Excel 继续关闭。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| 真实生产流程 | **pass** | 临时项目上传真实 BH DWG 与真实 Tekla XLSX；DWG Job `5` 生成规范 DXF，分类 Job `6` 以 `TITLE_PROFILE_PROVED` 确认为 `BH250*200*8*14`，拆板 Job `7` 形成原长/余量两份 DXF并通过独立复开，Excel Job `8` 完成并登记唯一 `stage1_excel`。另一张仅文件名含 BH、标题字段缺失的整理图正确进入人工确认，没有误投拆板。 |
+| Excel 第一阶段 | **pass** | 生产预检的冻结清单、唯一来源、对象摘要、表结构和正式拆板配对五项均通过；单文件下载为有效 XLSX。结果有 3637 个公式，part 共 122 条，J 备注与 K 文件全空，类型仅 `BOX腹` 42、`BOX翼` 42、空 38，报告为“无”。独立 Excel 工作中心的真实上传、异步处理和下载重签同时通过。 |
+| ODA 容器稳定性 | **pass** | 真实任务首次复现 AppImage 在加固 `/tmp` 解包后被拒绝、返回码 127；改为两个 ODA worker 使用 `/app/var/appimage-tmp` 后，同一任务 attempt 2 成功，下载 DXF 的 SHA-256 与登记值一致。合同测试锁定专用目录、持久卷和启动建目录。 |
+| 工人前端 | **pass** | 最终加密容器的文件模块为 59 passed、2 skipped，覆盖 DWG/DXF 上传、原名、单文件与 ZIP 流式下载、文件夹/批量操作和字段级中文错误；生产工作流 6 passed。最终 r7 再跑上传、单文件下载和 ZIP 下载冒烟 10/10，并重跑工作流 6/6。 |
+| Backend 全量 | **1574 passed，10 skipped** | API、工作流、Excel、拆板、MySQL/MinIO 事务、容器、发布和安全回归零失败；23 条为依赖弃用或测试短密钥 warning。生产初始超级管理员强密码门禁及 RBAC 聚焦另为 91 passed。 |
+| 基础设施聚焦 | **128 passed** | Compose、Celery/MinIO、脚本、服务器发布和无源码镜像合同通过。 |
+| 受保护镜像 | **pass** | 后端镜像中业务 `.py` 为 0、Excel 样本为 0，核心包可导入且 Alembic 只有一个 head；运行功能依靠字节码保留。 |
+| 加密发布包 | **pass** | 最终 `server-production-20260726-r7` 为 794500355-byte PGP RSA 加密包；外层 SHA-256、内层成员清单、固定生产开关和 RELEASE 清单均通过。实际解密安装到 18080 后 14/14 服务健康，数据库文件 210 条与 MinIO 对象 210 个一致，旧应用镜像已精确删除，仅保留 r7。当前验收包使用本机验收公钥；推送另一台服务器前必须用该服务器持有私钥所对应的公钥重新加密，不能把私钥打进包。 |
+
+## 2026-07-26 批量传输进度与容器存储稳定性收口
+
+当前所有可达的大批量图纸入口统一按实际字节显示进度：文件夹/多文件/ZIP 上传、工作流输入、
+分类与拆板 ZIP、阶段/全流程归档、完整备份、DXF 批次下载和余料批量导入均复用同一传输模型。
+未知响应总量显示已传输字节；有响应长度时显示百分比；文件名以服务端
+`Content-Disposition` 为准。单个 Excel 和单张图纸下载不伪装为批量进度。
+
+| 门禁 | 结果 | 当前证据 |
+|---|---|---|
+| Backend 全量 | **1544 passed，10 skipped** | API、MySQL 事务、MinIO、Celery SQL broker、拆板/工作流、完整备份清理、Compose 与脚本合同零失败。 |
+| Frontend 全量 | **110 passed，14 skipped** | 共 124 个 Playwright 场景，零失败；上传、文件打包、拆板选择导出和完整备份均验证真实传输期间进度。跳过项来自当前明确关闭的可选转换管线或缺少实时批次/样本，测试从部署开关读取能力。 |
+| 前端生产构建 | **pass** | 135 个源码文件、12 个 feature 边界、TypeScript 与 Vite production build 通过；仅保留既有大 chunk 提示。 |
+| 运行时合同 | **pass** | Alembic head `b7e2c9a4d610`；179 个 HTTP path、207 个 operation、47 张 ORM 表、15 个 Celery task、13 条 route、14 个 Compose service。 |
+| 活动容器 | **14 / 14 healthy** | 整栈重启后 MySQL 表数、可用文件、登记字节和各 MinIO Bucket 对象/登记计数与重启前完全一致。 |
+| MinIO 故障恢复 | **pass** | 受控停止时 readiness 为 503、database `ok`、storage `error`；启动后无需重启 FastAPI 即恢复 200，后端容器 ID 与启动时间不变。 |
+| 存储事务 | **pass** | 真实 MySQL+MinIO 探针完成 Excel 幂等登记、DXF 上传、SVG 预览、授权读取、transfer 流水和唯一探针对象清理。 |
+| 备份探针 | **pass** | `dwg_agent`、`hardware_handbook` 与 MinIO volume 完整归档；SHA-256、gzip 和 tar 均可读。极简 MinIO 镜像不含 tar，脚本改由临时后端工具容器继承同一 volume；不新增常驻服务。 |
+
 ## 2026-07-25 生产工作流、拆板交付与转换结果生命周期收口
 
 本轮吸收远端 BH 余量链实现，并在统一主线完成拆板、工作流前端、Excel 第一阶段和独立转换

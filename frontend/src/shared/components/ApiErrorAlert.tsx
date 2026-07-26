@@ -23,6 +23,7 @@ export function ApiErrorAlert({
   const parsed = parseApiError(error, fallback);
   return (
     <Alert
+      className="operator-error-alert"
       type="error"
       showIcon
       message={title}

@@ -32,7 +32,6 @@ WORKER_SPECS=(
     "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
     "dxf2excel|1|dxf2excel|"
     "excel_final|1|excel-final|"
-    "dispatch|1|dispatch|"
     "maintenance|1|maintenance|"
 )
 
@@ -284,6 +283,12 @@ cad_worker_main() {
         echo "display 必须使用 :N 格式: $display" >&2
         return 2
     }
+
+    # The hardened container mounts /tmp as a non-executable tmpfs. AppImage
+    # must extract onto the dedicated application volume before ODA starts.
+    if [ -n "${TMPDIR:-}" ]; then
+        mkdir -p "$TMPDIR"
+    fi
 
     display_number="${display#:}"
     x_socket="/tmp/.X11-unix/X${display_number}"

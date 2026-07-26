@@ -16,7 +16,6 @@ import {
 import {
   ArrowLeftOutlined,
   ClockCircleOutlined,
-  DownloadOutlined,
   FileExcelOutlined,
   ReloadOutlined,
   StopOutlined,
@@ -25,7 +24,12 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Navigate, useParams } from 'react-router-dom';
 
-import { describeApiError, parseApiError, type ParsedApiError } from '../../shared/api';
+import {
+  describeApiError,
+  operatorErrorMessage,
+  parseApiError,
+  type ParsedApiError,
+} from '../../shared/api';
 import { useAuthStore } from '../../shared/auth';
 import {
   ApiErrorAlert,
@@ -40,12 +44,11 @@ import { FutureStageNotice } from './FutureStageNotice';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
 import { WorkflowRetentionControl } from './WorkflowRetentionControl';
+import { WorkflowStageArchiveCard } from './WorkflowStageArchiveCard';
 import { stageStateLabel, WorkflowStageRail } from './WorkflowStageRail';
 import {
   cancelWorkflow,
   completeWorkflowStage,
-  downloadWorkflowExcelStageResult,
-  downloadWorkflowStageArchive,
   executeWorkflowStage,
   getWorkflowExcelStagePreflight,
   getWorkflow,
@@ -61,61 +64,6 @@ import {
   WORKFLOW_STATUS,
 } from './model/workflowPresentation';
 import type { WorkflowArtifact, WorkflowStage } from './workflow';
-
-function StageArchiveCard({
-  workflowId,
-  stage,
-  artifacts,
-}: {
-  workflowId: number;
-  stage: WorkflowStage;
-  artifacts: WorkflowArtifact[];
-}) {
-  const { message } = App.useApp();
-  const archiveM = useMutation({
-    mutationFn: () => stage.stage_code === 'excel_stage1'
-      ? downloadWorkflowExcelStageResult(workflowId)
-      : downloadWorkflowStageArchive(workflowId, stage.stage_code),
-    onError: (error) => message.error(describeApiError(
-      error,
-      stage.stage_code === 'excel_stage1' ? 'Excel 结果下载失败' : '阶段结果压缩包下载失败',
-    )),
-  });
-  const downloadLabel = stage.stage_code === 'dxf_classification'
-    ? '下载分流结果压缩包'
-    : stage.stage_code === 'excel_stage1'
-      ? '下载 Excel 结果'
-    : '下载本阶段结果压缩包';
-  return (
-    <Card className="workflow-stage-archive-card">
-      <div>
-        <span>STAGE OUTPUT</span>
-        <Typography.Text strong>
-          {artifacts.length
-            ? stage.stage_code === 'excel_stage1'
-              ? '已生成 1 个 Excel 文件'
-              : `已登记 ${artifacts.length} 项阶段产物`
-            : '本阶段尚无可下载产物'}
-        </Typography.Text>
-        {artifacts.length > 0 && (
-          <Space wrap size={[4, 6]}>
-            {Array.from(new Set(artifacts.map((artifact) => artifact.artifact_type)))
-              .map((artifactType) => <Tag key={artifactType}>{artifactType}</Tag>)}
-          </Space>
-        )}
-      </div>
-      <Button
-        type={stage.stage_code === 'dxf_classification' ? 'primary' : 'default'}
-        icon={<DownloadOutlined />}
-        loading={archiveM.isPending}
-        disabled={!artifacts.length}
-        onClick={() => archiveM.mutate()}
-      >
-        {downloadLabel}
-      </Button>
-    </Card>
-  );
-}
 
 export function WorkflowDetailPage() {
   const { message } = App.useApp();
@@ -417,8 +365,12 @@ export function WorkflowDetailPage() {
                 <Alert
                   type="error"
                   showIcon
-                  message={selectedStage.error_code ?? '阶段执行失败'}
-                  description={selectedStage.error_message}
+                  message="阶段处理未完成"
+                  description={operatorErrorMessage(
+                    selectedStage.error_code,
+                    selectedStage.error_message,
+                    '当前阶段未能完成，请刷新状态并按本阶段提示处理。',
+                  )}
                 />
               )}
               {selectedIsCurrent && executionError?.failure && (
@@ -431,7 +383,7 @@ export function WorkflowDetailPage() {
               {!['dxf_classification', 'drawing_processing'].includes(
                 selectedStage.stage_code,
               ) && !isWaitingLaunchStage(selectedStage.stage_code) && (
-                <StageArchiveCard
+                <WorkflowStageArchiveCard
                   workflowId={detail.id}
                   stage={selectedStage}
                   artifacts={selectedArtifacts}
@@ -516,7 +468,9 @@ export function WorkflowDetailPage() {
                             源表：{excelPreflightQ.data.source_file_name}
                           </Typography.Text>
                           <Typography.Text>
-                            正式拆板：{excelPreflightQ.data.official_pair_count} 对图纸
+                            {excelPreflightQ.data.official_pair_count === 0
+                              ? '无需拆板：本批没有可拆板图纸'
+                              : `正式拆板：${excelPreflightQ.data.official_pair_count} 对图纸`}
                           </Typography.Text>
                           <Space wrap size={[4, 4]}>
                             {excelPreflightQ.data.checks.map((check) => (

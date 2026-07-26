@@ -145,6 +145,30 @@ def test_input_folder_manifest_accepts_regular_unicode_engineering_names():
     assert folder == "生产图纸（一期）"
 
 
+def test_input_folder_manifest_accepts_1000_dwg_files():
+    names = [f"drawing-{index:04d}.dwg" for index in range(1000)]
+
+    folder = validate_input_dwg_folder_manifest(
+        names,
+        [f"生产图纸/{name}" for name in names],
+    )
+
+    assert folder == "生产图纸"
+
+
+def test_input_folder_manifest_rejects_more_than_1000_files():
+    names = [f"drawing-{index:04d}.dwg" for index in range(1001)]
+
+    with pytest.raises(AppHTTPException) as raised:
+        validate_input_dwg_folder_manifest(
+            names,
+            [f"生产图纸/{name}" for name in names],
+        )
+
+    assert raised.value.detail["code"] == "INPUT_FOLDER_TOO_MANY_FILES"
+    assert raised.value.detail["details"]["maximum_files"] == 1000
+
+
 @pytest.mark.parametrize("name", ["parts.xls", "parts.xlsx", "PARTS.XLSX"])
 def test_excel_upload_name_accepts_supported_extensions(name):
     validate_input_excel_name(name)
@@ -295,7 +319,7 @@ def test_separate_uploads_register_one_excel_and_all_dwgs(
     assert "/api/v1/workflows/{workflow_id}/input-batch/files" not in paths
 
 
-def test_dwg_folder_rejects_any_unapproved_file_before_storage(monkeypatch, tmp_path):
+def test_dwg_folder_rejects_any_unapproved_file_before_storage(monkeypatch, tmp_path, caplog):
     _use_storage(monkeypatch, tmp_path)
     client = workflow_test_api.client()
     _, owner_headers, _, workflow_id = _setup(client, "input-folder-invalid")
@@ -306,7 +330,7 @@ def test_dwg_folder_rejects_any_unapproved_file_before_storage(monkeypatch, tmp_
 
     response = client.post(
         f"/api/v1/workflows/{workflow_id}/input-dwg-folder",
-        headers=owner_headers,
+        headers={**owner_headers, "X-Request-ID": "folder-invalid-request"},
         data={
             "relative_paths": json.dumps(
                 [
@@ -324,6 +348,11 @@ def test_dwg_folder_rejects_any_unapproved_file_before_storage(monkeypatch, tmp_
 
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "INPUT_DWG_FOLDER_FILE_TYPE_NOT_ALLOWED"
+    assert any(
+        "request_id=folder-invalid-request" in record.message
+        and "code=INPUT_DWG_FOLDER_FILE_TYPE_NOT_ALLOWED" in record.message
+        for record in caplog.records
+    )
     detail = client.get(
         f"/api/v1/workflows/{workflow_id}/input-batch",
         headers=owner_headers,
@@ -335,6 +364,90 @@ def test_dwg_folder_rejects_any_unapproved_file_before_storage(monkeypatch, tmp_
         params={"batch_name": f"workflow-input-{batch['id']}"},
     ).json()
     assert files["pagination"]["total"] == 0
+
+
+def test_dwg_folder_persists_30_files_in_one_request(monkeypatch, tmp_path):
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "input-folder-thirty")
+    client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+    entries = [
+        (f"drawing-{index:02d}.dwg", b"AC1027" + bytes(2048))
+        for index in range(30)
+    ]
+
+    response = _upload_dwg_folder(
+        client,
+        owner_headers,
+        workflow_id,
+        entries,
+    )
+
+    assert response.status_code == 201, response.text
+    data = response.json()["data"]
+    assert data["counts"]["dwg"] == 30
+    source_items = [item for item in data["items"] if item["role"] == "source_dwg"]
+    assert len(source_items) == 30
+    assert {item["original_name"] for item in source_items} == {
+        name for name, _payload in entries
+    }
+
+
+def test_cleared_input_folder_can_restore_exact_registered_sources(monkeypatch, tmp_path):
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "input-folder-restore")
+    client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+    imported = _upload_inputs(
+        client,
+        owner_headers,
+        workflow_id,
+        [
+            ("A.dwg", b"AC1027" + bytes(2048)),
+            ("B.dwg", b"AC1027" + bytes(2048)),
+            ("parts.xlsx", _xlsx()),
+        ],
+    )
+    assert imported.status_code == 201, imported.text
+    imported_ids = {item["file"]["id"] for item in imported.json()["data"]["items"]}
+
+    cleared = client.delete(
+        f"/api/v1/workflows/{workflow_id}/input-folder",
+        headers=owner_headers,
+    )
+    empty = client.get(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+
+    assert cleared.status_code == 204, cleared.text
+    assert empty.json()["data"]["items"] == []
+    assert empty.json()["data"]["recoverable_file_count"] == 3
+
+    restored = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-folder/restore",
+        headers=owner_headers,
+    )
+
+    assert restored.status_code == 200, restored.text
+    data = restored.json()["data"]
+    assert data["counts"]["dwg"] == 2
+    assert data["counts"]["excel"] == 1
+    assert data["recoverable_file_count"] == 0
+    assert {item["file"]["id"] for item in data["items"]} == imported_ids
+
+    duplicate = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-folder/restore",
+        headers=owner_headers,
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "INPUT_RESTORE_NOT_AVAILABLE"
 
 
 def test_workflow_download_is_one_zip_with_stage_folders(monkeypatch, tmp_path):
@@ -669,6 +782,7 @@ def test_input_batch_openapi_exposes_complete_guarded_surface():
         "/api/v1/workflows/{workflow_id}/input-excel": {"post"},
         "/api/v1/workflows/{workflow_id}/input-dwg-folder": {"post"},
         "/api/v1/workflows/{workflow_id}/input-folder": {"delete"},
+        "/api/v1/workflows/{workflow_id}/input-folder/restore": {"post"},
         "/api/v1/workflows/{workflow_id}/input-batch/conversion-requests": {"post"},
         "/api/v1/workflows/{workflow_id}/input-batch/freeze": {"post"},
         "/api/v1/workflows/{workflow_id}/download-archive": {"get"},

@@ -173,6 +173,7 @@ async function mockWorkflow(page: Page) {
   });
   await page.route('**/api/v1/workflows/41/input-dwg-folder', async (route) => {
     dwgUploadBody = route.request().postData() ?? '';
+    await new Promise((resolve) => setTimeout(resolve, 300));
     items.push({ id: 1301, role: 'source_dwg', status: 'validated', original_name: 'panel-A.dwg', normalized_stem: 'panel-a', file: storedFile(701, 'panel-A.dwg'), conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null });
     await json(route, batch(), 201);
   });
@@ -242,6 +243,7 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   await expect(ignoreDialog.getByText('生产批次/图纸/manual.dxf')).toBeVisible();
   expect(state.dwgUploadBody()).toBe('');
   await ignoreDialog.getByRole('button', { name: '确认，仅上传 DWG' }).click();
+  await expect(page.getByLabel('DWG 文件夹上传进度')).toBeVisible();
   await expect(page.getByText('panel-A.dwg', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '选择 DWG 文件夹' })).toBeDisabled();
   expect(state.dwgUploadBody()).toContain('panel-A.dwg');
@@ -249,7 +251,7 @@ test('production source intake prevents DXF mistakes and freezes server-generate
   expect(state.dwgUploadBody()).not.toContain('manual.dxf');
 
   await page.getByRole('button', { name: '生成并校验 DXF' }).click();
-  await expect(page.getByText('已配对')).toBeVisible();
+  await expect(page.getByText('已配对', { exact: true })).toBeVisible();
   await expect(page.getByText('完整性检查通过，可以冻结')).toBeVisible();
   await page.getByRole('button', { name: '冻结输入版本' }).click();
   await expect(page.getByText(/冻结后不可修改/)).toBeVisible();

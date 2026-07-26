@@ -17,18 +17,27 @@ from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageConfigurationError, StorageError
 
 
-def data_overview(db: Session) -> dict:
-    counts = dict(
-        db.execute(
-            select(StoredFile.status, func.count(StoredFile.id)).group_by(StoredFile.status)
-        ).all()
-    )
-    tracked_bytes = db.scalar(
-        select(func.coalesce(func.sum(StoredFile.size_bytes), 0)).where(
-            StoredFile.status == "available"
+def data_overview(db: Session, *, owner_user_id: int | None = None) -> dict:
+    file_count_statement = select(
+        StoredFile.status, func.count(StoredFile.id)
+    ).group_by(StoredFile.status)
+    tracked_bytes_statement = select(
+        func.coalesce(func.sum(StoredFile.size_bytes), 0)
+    ).where(StoredFile.status == "available")
+    latest_scan_statement = select(StorageScanRun).order_by(StorageScanRun.id.desc()).limit(1)
+    if owner_user_id is not None:
+        file_count_statement = file_count_statement.where(
+            StoredFile.uploaded_by == owner_user_id
         )
-    )
-    latest_scan = db.scalar(select(StorageScanRun).order_by(StorageScanRun.id.desc()).limit(1))
+        tracked_bytes_statement = tracked_bytes_statement.where(
+            StoredFile.uploaded_by == owner_user_id
+        )
+        latest_scan_statement = latest_scan_statement.where(
+            StorageScanRun.actor_user_id == owner_user_id
+        )
+    counts = dict(db.execute(file_count_statement).all())
+    tracked_bytes = db.scalar(tracked_bytes_statement)
+    latest_scan = db.scalar(latest_scan_statement)
     today_start = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
     transfer_counts = {
         (direction, status): int(count)
@@ -38,7 +47,14 @@ def data_overview(db: Session) -> dict:
                 FileTransfer.status,
                 func.count(FileTransfer.id),
             )
-            .where(FileTransfer.created_at >= today_start)
+            .where(
+                FileTransfer.created_at >= today_start,
+                *(
+                    (FileTransfer.actor_user_id == owner_user_id,)
+                    if owner_user_id is not None
+                    else ()
+                ),
+            )
             .group_by(FileTransfer.direction, FileTransfer.status)
         ).all()
     }
@@ -50,6 +66,17 @@ def data_overview(db: Session) -> dict:
     except (AppHTTPException, StorageConfigurationError, StorageError):
         storage_status = "error"
     capacity = storage.capacity() if storage is not None else None
+    area_purposes = (
+        (settings.minio_bucket_original, "source_dwg"),
+        (settings.minio_bucket_derived, "derived_dwg"),
+        (settings.minio_bucket_reports, "reports"),
+        (settings.minio_bucket_temp, "temporary"),
+        (settings.minio_bucket_dxf_original, "source_dxf"),
+        (settings.minio_bucket_dxf_derived, "derived_dxf"),
+    )
+    configured_areas: dict[str, list[str]] = {}
+    for bucket, purpose in area_purposes:
+        configured_areas.setdefault(bucket, []).append(purpose)
 
     return {
         "status": "ok" if storage_status == "ok" else "degraded",
@@ -62,6 +89,10 @@ def data_overview(db: Session) -> dict:
         "database": {"status": "ok"},
         "storage": {
             "status": storage_status,
+            "areas": [
+                {"bucket": bucket, "purpose_codes": purpose_codes}
+                for bucket, purpose_codes in configured_areas.items()
+            ],
             "capacity": {
                 "status": capacity.status if capacity else "unknown",
                 "total_bytes": capacity.total_bytes if capacity else None,
@@ -115,8 +146,11 @@ def query_data_files(
     status: str | None,
     bucket: str | None,
     file_ext: str | None,
+    owner_user_id: int | None = None,
 ) -> tuple[list[StoredFile], int]:
     statement = select(StoredFile)
+    if owner_user_id is not None:
+        statement = statement.where(StoredFile.uploaded_by == owner_user_id)
     if search.strip():
         term = f"%{search.strip()}%"
         conditions = [
@@ -168,8 +202,11 @@ def query_transfers(
     status: str | None,
     operation: str | None,
     file_id: int | None,
+    actor_user_id: int | None = None,
 ) -> tuple[list[FileTransfer], int]:
     statement = select(FileTransfer)
+    if actor_user_id is not None:
+        statement = statement.where(FileTransfer.actor_user_id == actor_user_id)
     if direction:
         statement = statement.where(FileTransfer.direction == direction)
     if status:

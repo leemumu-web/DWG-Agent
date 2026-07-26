@@ -63,3 +63,15 @@ def test_local_nginx_buffers_uploads_inside_the_owned_runtime_directory():
     expected = REPO_ROOT / "infra/gateway/nginx/logs/client-body"
     assert f"client_body_temp_path {expected} 1 2;" in content
     assert "client_body_temp_path /var/lib/nginx/client-body" not in content
+
+
+@pytest.mark.parametrize("config_path", NGINX_CONFIGS)
+def test_nginx_streams_large_api_uploads_with_multipart_headroom(config_path: Path):
+    content = config_path.read_text(encoding="utf-8")
+    route_start = content.index("location /api/")
+    route_end = content.index("}", route_start)
+    route = content[route_start:route_end]
+
+    assert "client_max_body_size 520m;" in content
+    assert "proxy_request_buffering off;" in route
+    assert "rl=$request_length rid=$request_id" in content

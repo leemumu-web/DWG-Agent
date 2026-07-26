@@ -9,13 +9,11 @@ import {
   Tabs,
   Tag,
   Typography,
-  Upload,
 } from 'antd';
 import {
   CloudUploadOutlined,
   DownloadOutlined,
   EyeOutlined,
-  FileExcelOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
@@ -32,6 +30,7 @@ import {
 import { downloadFile } from '../files';
 import {
   describeApiError,
+  operatorErrorMessage,
   parseApiError,
   type ParsedApiError,
 } from '../../shared/api';
@@ -43,6 +42,10 @@ import type { Job } from '../jobs';
 import { ExcelFinalBatchDrawer } from './components/ExcelFinalBatchDrawer';
 import { ExcelFinalOverview } from './components/ExcelFinalOverview';
 import { ExcelFinalTools } from './components/ExcelFinalTools';
+import {
+  ExcelFinalUploadActions,
+  excelUploadSizeMessage,
+} from './components/ExcelFinalUploadActions';
 import {
   DEFAULT_BATCH_PAGE_SIZE,
   mergeExcelFinalParams,
@@ -159,6 +162,8 @@ export function ExcelFinalPage() {
       message.error('请选择 .xlsx 或 .xls 文件');
       return;
     }
+    const sizeMessage = excelUploadSizeMessage(selectedFile, healthQ.data?.max_upload_size_bytes);
+    if (sizeMessage) { message.error(sizeMessage); return; }
     setSubmitting(true);
     setSubmissionError(null);
     try {
@@ -399,38 +404,22 @@ export function ExcelFinalPage() {
                 <span>独立处理入口；生产主流程会自动使用已冻结的唯一 Excel，无需在这里重复选择。</span>
               </div>
             </div>
-            <div className="excel-final-ingest-actions">
-              <Upload
-                accept=".xlsx,.xls"
-                maxCount={1}
-                fileList={selectedFile
-                  ? [{ uid: 'selected', name: selectedFile.name, status: 'done' }]
-                  : []}
-                beforeUpload={(file) => {
-                  setSelectedFile(file);
-                  setSelectedRequestKey(crypto.randomUUID());
-                  setSubmissionError(null);
-                  return false;
-                }}
-                onRemove={() => {
-                  setSelectedFile(null);
-                  setSelectedRequestKey(null);
-                  setSubmissionError(null);
-                  return true;
-                }}
-              >
-                <Button icon={<FileExcelOutlined />}>选择 Excel</Button>
-              </Upload>
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                disabled={!selectedFile}
-                loading={submitting}
-                onClick={() => void submit()}
-              >
-                提交处理
-              </Button>
-            </div>
+            <ExcelFinalUploadActions
+              file={selectedFile}
+              maximumBytes={healthQ.data?.max_upload_size_bytes}
+              submitting={submitting}
+              onSelect={(file) => {
+                setSelectedFile(file);
+                setSelectedRequestKey(crypto.randomUUID());
+                setSubmissionError(null);
+              }}
+              onRemove={() => {
+                setSelectedFile(null);
+                setSelectedRequestKey(null);
+                setSubmissionError(null);
+              }}
+              onSubmit={() => void submit()}
+            />
           </section>
 
           {submissionError?.failure && (
@@ -491,7 +480,16 @@ export function ExcelFinalPage() {
               {activeStatus.failure
                 ? <ExcelInputFailurePanel failure={activeStatus.failure} />
                 : activeStatus.error_message && (
-                  <Alert type="error" showIcon message={activeStatus.error_message} />
+                  <Alert
+                    type="error"
+                    showIcon
+                    message="Excel 整理未完成"
+                    description={operatorErrorMessage(
+                      activeStatus.error_code,
+                      activeStatus.error_message,
+                      '请核对源表和正式拆板结果后重新处理。',
+                    )}
+                  />
                 )}
             </section>
           )}

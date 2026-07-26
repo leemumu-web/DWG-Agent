@@ -81,6 +81,7 @@ def preflight_excel_stage1(
     handoff = params["dxf_split_handoff"]
     assert isinstance(handoff, dict)
     drawings = handoff.get("drawings")
+    no_split_candidates = handoff.get("mode") == "no_split_candidates"
     return {
         "ready": True,
         "source_file_id": source.id,
@@ -93,7 +94,14 @@ def preflight_excel_stage1(
             {"code": "source_excel_unique", "label": "唯一 Excel 来源一致"},
             {"code": "source_object_verified", "label": "对象摘要与冻结记录一致"},
             {"code": "excel_contract_verified", "label": "Excel 表结构符合输入合同"},
-            {"code": "split_handoff_verified", "label": "正式拆板结果成对且可用"},
+            {
+                "code": "split_handoff_verified",
+                "label": (
+                    "分类结果无需拆板，已按空交接继续"
+                    if no_split_candidates
+                    else "正式拆板结果成对且可用"
+                ),
+            },
         ],
     }
 

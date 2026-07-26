@@ -1,4 +1,12 @@
-import { apiClient, type ApiEnvelope, type PageEnvelope } from '../../shared/api';
+import {
+  apiClient,
+  completedTransferProgress,
+  initialTransferProgress,
+  transferProgressFromAxios,
+  type ApiEnvelope,
+  type PageEnvelope,
+  type TransferProgressHandler,
+} from '../../shared/api';
 import type {
   BulkArchiveResult,
   ImportConfirmationResult,
@@ -183,14 +191,26 @@ export async function downloadOriginal(remnantId: number): Promise<void> {
   URL.revokeObjectURL(href);
 }
 
-export async function createRemnantImportBatch(files: File[]): Promise<RemnantImportBatch> {
+export async function createRemnantImportBatch(
+  files: File[],
+  onProgress?: TransferProgressHandler,
+): Promise<RemnantImportBatch> {
   const form = new FormData();
+  const totalBytes = files.reduce((total, file) => total + file.size, 0);
   files.forEach((file) => form.append('files', file));
+  onProgress?.(initialTransferProgress(totalBytes));
   const response = await apiClient.post<ApiEnvelope<RemnantImportBatch>>(
     '/api/v1/remnant-import-batches',
     form,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300_000,
+      onUploadProgress: (event) => onProgress?.(
+        transferProgressFromAxios(event, totalBytes),
+      ),
+    },
   );
+  onProgress?.(completedTransferProgress(totalBytes, totalBytes));
   return response.data.data;
 }
 
@@ -207,19 +227,29 @@ export async function createAutoRemnantImportBatch(
   entries: AutoImportFile[],
   projectNo: string,
   folderName?: string,
+  onProgress?: TransferProgressHandler,
 ): Promise<RemnantImportBatch> {
   const form = new FormData();
+  const totalBytes = entries.reduce((total, entry) => total + entry.file.size, 0);
   entries.forEach(({ file, relativePath }) => {
     form.append('files', file);
     form.append('relative_paths', relativePath);
   });
   form.append('project_no', projectNo);
   if (folderName) form.append('folder_name', folderName);
+  onProgress?.(initialTransferProgress(totalBytes));
   const response = await apiClient.post<ApiEnvelope<RemnantImportBatch>>(
     '/api/v1/remnant-import-batches/auto',
     form,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300_000,
+      onUploadProgress: (event) => onProgress?.(
+        transferProgressFromAxios(event, totalBytes),
+      ),
+    },
   );
+  onProgress?.(completedTransferProgress(totalBytes, totalBytes));
   return response.data.data;
 }
 

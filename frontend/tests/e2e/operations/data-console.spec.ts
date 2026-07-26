@@ -1,10 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 import path from 'node:path';
-import { API_BASE } from '../support/test-env';
+import {
+  ADMIN_PASSWORD,
+  ADMIN_USERNAME,
+  API_BASE,
+} from '../support/test-env';
 
 async function login(page: Page) {
   const response = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
-    data: { username: 'admin', password: 'SuperAdminPass1' },
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
   });
   expect(response.status()).toBe(201);
   const body = await response.json();
@@ -18,32 +22,32 @@ async function login(page: Page) {
   );
 }
 
-test('data console inspects MySQL structure and MinIO folders', async ({ page }) => {
+test('data console manages current production tasks and registered file storage', async ({ page }) => {
   const consoleErrors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   await login(page);
 
-  const [tablesResponse] = await Promise.all([
-    page.waitForResponse((response) => response.url().includes('/api/v1/data-admin/mysql/tables')),
+  const [tasksResponse] = await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/v1/workflows?')),
     page.goto('/data-console'),
   ]);
-  expect(tablesResponse.status()).toBe(200);
-  await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
-  await expect(page.locator('.data-console-hero').getByText('MySQL 正常')).toBeVisible();
-  await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
-  await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
-  await expect(page.getByText('MySQL 表结构')).toBeVisible();
-  await expect(page.getByPlaceholder('查找数据表')).toBeVisible();
-  await expect(page.getByText('可增删改查')).toBeVisible();
+  expect(tasksResponse.status()).toBe(200);
+  await expect(page.getByRole('heading', { name: '数据管理台' })).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('业务数据库 正常')).toBeVisible();
+  await expect(page.getByRole('tab', { name: /生产任务/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /文件存储/ })).toBeVisible();
+  await expect(page.getByText('当前生产任务', { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '生产项目' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '处理任务' })).toBeVisible();
 
   const [treeResponse] = await Promise.all([
     page.waitForResponse((response) => response.url().includes('/api/v1/data-admin/objects/tree')),
-    page.getByRole('tab', { name: /MinIO/ }).click(),
+    page.getByRole('tab', { name: /文件存储/ }).click(),
   ]);
   expect(treeResponse.status()).toBe(200);
-  await expect(page.getByText('MinIO 结构')).toBeVisible();
+  await expect(page.getByText('文件存储区')).toBeVisible();
   await expect(page.getByRole('button', { name: '刷新' }).first()).toBeVisible();
 
   await page.screenshot({

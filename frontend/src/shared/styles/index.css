@@ -77,6 +77,23 @@ button, input, textarea, select { font: inherit; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 22px; }
 .page-header-title { margin: 0 !important; letter-spacing: -.02em; }
 .page-header-subtitle { display: block; margin-top: 5px; font-size: 13px; }
+
+.operator-error-alert {
+  border: 1px solid #f0b6ac;
+  border-left: 4px solid #cf3f2e;
+  border-radius: 5px;
+  background: #fff8f6;
+}
+
+.operator-error-alert .ant-alert-message {
+  color: #8f271c;
+  font-weight: 700;
+}
+
+.operator-error-alert .ant-alert-description {
+  color: #5e3d38;
+  line-height: 1.65;
+}
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 14px; margin-bottom: 20px; }
 .stat-card {
   height: 100%;

@@ -68,6 +68,10 @@ export function WorkflowStageRail({
                     {stageStateLabel(stage)}
                     {current ? ' · 当前阶段' : ''}
                   </small>
+                  {stage.status === 'skipped'
+                    && stage.output_json?.reason === 'no_split_candidates' && (
+                    <small>本批无可拆板图纸，已正常进入下一步</small>
+                  )}
                   {waitingLaunch ? (
                     <small>等待上线</small>
                   ) : capability && capability.implementation_status !== 'implemented' && (

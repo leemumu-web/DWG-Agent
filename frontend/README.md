@@ -1,6 +1,6 @@
 # 前端
 
-前端使用 React 19、TypeScript 6、Vite 8、Ant Design 和 React Query，覆盖认证、仪表盘、项目、用户/角色/审计、文件、四条转换页面、Job、复核、生产流程、预览、重试、下载和管理员基础设施概览。
+前端使用 React 19、TypeScript 6、Vite 8、Ant Design 和 React Query，覆盖认证、生产工作台、用户/角色/审计、文件转换、Job、生产流程、预览、重试、下载和精简的数据管理台。
 
 ```bash
 npm ci
@@ -23,7 +23,7 @@ src/
     ├── workflows/       # 生产流程、输入冻结、分类阶段
     ├── cad-processing/  # DWG/DXF 转换与 DXF→Excel
     ├── excel-processing/# Excel Final 导入、查询与预览
-    ├── operations/      # 审计、存储、归档与控制平面
+    ├── operations/      # 审计、生产任务与已登记文件存储
     └── ...              # dashboard、reviews、automation
 ```
 
@@ -34,7 +34,7 @@ API、类型、领域 hook 和页面随其 feature 放置；跨 feature 只允�
 大型页面进一步按职责细分：`cad-processing/components/conversion` 保存通用转换的上传、
 文件夹、进度和表格模型，`components/dxf2excel` 保存 DXF 批次上传与动作卡片；
 `excel-processing/model` 保存 Excel 预览解析模型；`operations/components/data-console`
-保存六类运维面板。源码文件不得超过 600 行，防止页面重新退化成单体。
+只保存生产任务与文件存储两个业务面板。源码文件不得超过 600 行，防止页面重新退化成单体。
 
 经本地 Nginx `http://127.0.0.1:8080` 时保持 `VITE_API_BASE_URL` 为空；Vite 直连 FastAPI 时使用 `http://127.0.0.1:8010`。access token 位于 `sessionStorage`，refresh/SSE token 使用 HttpOnly cookie。UI 权限与按钮隐藏只是交互辅助，FastAPI 才是授权边界。
 

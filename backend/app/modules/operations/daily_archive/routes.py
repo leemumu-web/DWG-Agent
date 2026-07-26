@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.modules.identity.interface import get_current_user, require_roles
+from app.modules.identity.interface import require_roles
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.operations.daily_archive.models import DailyArchiveRun
 from app.modules.operations.daily_archive.planning import (
@@ -22,7 +22,7 @@ from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, not_found
 
 router = APIRouter()
-data_reader = get_current_user
+data_reader = require_roles(ROLE_ADMIN)
 data_writer = require_roles(ROLE_ADMIN)
 
 

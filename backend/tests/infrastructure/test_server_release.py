@@ -1,0 +1,230 @@
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+import yaml
+
+from tests.support.paths import REPO_ROOT
+
+RENDERER = REPO_ROOT / "scripts/release/render_server_compose.py"
+RELEASE_SCRIPT = REPO_ROOT / "scripts/release.sh"
+SERVER_SCRIPT = REPO_ROOT / "scripts/release/server-deploy.sh"
+ARCHIVE_VERIFIER = REPO_ROOT / "scripts/release/verify_image_archive.py"
+
+
+def _write_legacy_image_archive(
+    archive: Path,
+    *,
+    image: str,
+    layer_members: tuple[str, ...],
+) -> None:
+    layer_buffer = io.BytesIO()
+    with tarfile.open(fileobj=layer_buffer, mode="w") as layer:
+        for member_name in layer_members:
+            payload = b"test payload"
+            member = tarfile.TarInfo(member_name)
+            member.size = len(payload)
+            layer.addfile(member, io.BytesIO(payload))
+    layer_payload = layer_buffer.getvalue()
+    manifest_payload = json.dumps(
+        [{"Config": "config.json", "RepoTags": [image], "Layers": ["layer/layer.tar"]}]
+    ).encode()
+
+    with tarfile.open(archive, mode="w") as outer:
+        for member_name, payload in (
+            ("manifest.json", manifest_payload),
+            ("layer/layer.tar", layer_payload),
+        ):
+            member = tarfile.TarInfo(member_name)
+            member.size = len(payload)
+            outer.addfile(member, io.BytesIO(payload))
+
+
+def _write_nested_oci_image_archive(archive: Path, *, image: str, member_name: str) -> None:
+    layer_buffer = io.BytesIO()
+    with tarfile.open(fileobj=layer_buffer, mode="w") as layer:
+        payload = b"compiled payload"
+        member = tarfile.TarInfo(member_name)
+        member.size = len(payload)
+        layer.addfile(member, io.BytesIO(payload))
+    layer_payload = layer_buffer.getvalue()
+
+    def descriptor(payload: bytes, media_type: str) -> dict[str, object]:
+        return {
+            "mediaType": media_type,
+            "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+            "size": len(payload),
+        }
+
+    layer_descriptor = descriptor(layer_payload, "application/vnd.oci.image.layer.v1.tar")
+    manifest_payload = json.dumps(
+        {"schemaVersion": 2, "layers": [layer_descriptor]}, separators=(",", ":")
+    ).encode()
+    manifest_descriptor = descriptor(
+        manifest_payload, "application/vnd.oci.image.manifest.v1+json"
+    )
+    nested_payload = json.dumps(
+        {"schemaVersion": 2, "manifests": [manifest_descriptor]}, separators=(",", ":")
+    ).encode()
+    nested_descriptor = descriptor(nested_payload, "application/vnd.oci.image.index.v1+json")
+    nested_descriptor["annotations"] = {
+        "io.containerd.image.name": f"docker.io/library/{image}",
+        "org.opencontainers.image.ref.name": image.rsplit(":", maxsplit=1)[-1],
+    }
+    index_payload = json.dumps(
+        {"schemaVersion": 2, "manifests": [nested_descriptor]}, separators=(",", ":")
+    ).encode()
+
+    blobs = (layer_payload, manifest_payload, nested_payload)
+    with tarfile.open(archive, mode="w") as outer:
+        member = tarfile.TarInfo("index.json")
+        member.size = len(index_payload)
+        outer.addfile(member, io.BytesIO(index_payload))
+        for payload in blobs:
+            digest = hashlib.sha256(payload).hexdigest()
+            member = tarfile.TarInfo(f"blobs/sha256/{digest}")
+            member.size = len(payload)
+            outer.addfile(member, io.BytesIO(payload))
+
+
+def test_server_compose_renderer_freezes_complete_no_build_stack(tmp_path: Path):
+    output = tmp_path / "compose.server.yaml"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RENDERER),
+            "--source",
+            str(REPO_ROOT / "compose.yaml"),
+            "--output",
+            str(output),
+            "--backend-image",
+            "dwg-agent-backend:release-test",
+            "--frontend-image",
+            "dwg-agent-frontend:release-test",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = yaml.safe_load(output.read_text(encoding="utf-8"))
+    services = payload["services"]
+    assert payload["name"] == "dwg-agent"
+    assert len(services) == 14
+    assert all("build" not in service for service in services.values())
+    assert all("profiles" not in service for service in services.values())
+    assert all(service["pull_policy"] == "never" for service in services.values())
+    assert services["backend-api"]["image"] == "dwg-agent-backend:release-test"
+    assert services["worker-dxf-split"]["image"] == "dwg-agent-backend:release-test"
+    assert services["nginx"]["image"] == "dwg-agent-frontend:release-test"
+
+
+def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
+    release = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+    verifier = ARCHIVE_VERIFIER.read_text(encoding="utf-8")
+
+    assert "--recipient" in release
+    assert "gpg --batch --yes --encrypt" in release
+    assert "docker image save" in release
+    assert "render_server_compose.py" in release
+    assert "images.manifest" in release
+    assert "business Python source remains" in release
+    assert "verify_image_archive.py" in release
+    assert 'deploy.sh"' in release
+    assert "business Python source exists in an image layer" in verifier
+    assert "cp \"$PROJECT_ROOT/.env.docker\"" not in release
+    assert ".env.docker.example" in release
+
+    assert "gpg --batch --decrypt" in server
+    assert "sha256sum -c SHA256SUMS" in server
+    assert "docker image load" in server
+    assert "docker image inspect" in server
+    assert "--no-build" in server
+    assert "CHANGE_ME_" in server
+
+
+def test_protected_runtime_and_context_exclude_business_source_and_samples():
+    dockerfile = (REPO_ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
+    dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+    compose = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text(encoding="utf-8"))
+
+    assert "FROM runtime-base AS protected" in dockerfile
+    assert "FROM runtime AS bytecode-compiler" in dockerfile
+    assert "COPY --from=bytecode-compiler /app/app /app/app" in dockerfile
+    protected_section = dockerfile.split("FROM runtime-base AS protected", maxsplit=1)[1]
+    assert "COPY backend/app" not in protected_section
+    assert "COPY Stages/" not in protected_section
+    assert "python -m compileall" in dockerfile
+    assert "-type f -name '*.py' -delete" in dockerfile
+    assert "Stages/*/data/" in dockerignore
+    assert "Stages/*/tests/" in dockerignore
+    assert "Stages/dxf2excel/convert/" in dockerignore
+    assert compose["x-app-image"]["build"]["target"] == "protected"
+    assert compose["x-app-service"]["read_only"] is True
+    assert compose["x-app-service"]["cap_drop"] == ["ALL"]
+
+
+def test_image_archive_verifier_rejects_source_hidden_in_old_layer(tmp_path: Path):
+    archive = tmp_path / "images.tar"
+    image = "dwg-agent-backend:layer-test"
+    _write_legacy_image_archive(
+        archive,
+        image=image,
+        layer_members=("app/app/main.py", "app/app/main.pyc"),
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(ARCHIVE_VERIFIER), "--archive", str(archive), "--image", image],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "app/app/main.py" in result.stderr
+
+
+def test_image_archive_verifier_accepts_sourceless_business_layers(tmp_path: Path):
+    archive = tmp_path / "images.tar"
+    image = "dwg-agent-backend:layer-test"
+    _write_legacy_image_archive(
+        archive,
+        image=image,
+        layer_members=("app/app/main.pyc", "app/Stages/excel_final/main.pyc"),
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(ARCHIVE_VERIFIER), "--archive", str(archive), "--image", image],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_image_archive_verifier_accepts_docker_normalized_nested_oci_tag(tmp_path: Path):
+    archive = tmp_path / "images.tar"
+    image = "dwg-agent-backend:layer-test"
+    _write_nested_oci_image_archive(
+        archive,
+        image=image,
+        member_name="app/app/main.pyc",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(ARCHIVE_VERIFIER), "--archive", str(archive), "--image", image],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr

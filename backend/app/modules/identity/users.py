@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import secrets
 from datetime import UTC, datetime
 
 from sqlalchemy import select, update
@@ -84,13 +83,7 @@ def transition_user_status(
     return result.rowcount > 0
 
 
-def reset_user_password(db: Session, user: User) -> str:
-    """Reset a user's password to a cryptographically random temporary value.
-
-    Returns the plain-text temporary password — the caller MUST communicate
-    it to the user through a secure channel.
-    """
-    temp_password = secrets.token_urlsafe(16)
-    user.password_hash = hash_password(temp_password)
+def reset_user_password(db: Session, user: User, new_password: str) -> None:
+    """Set the exact validated administrator-supplied replacement password."""
+    user.password_hash = hash_password(new_password)
     user.password_algo = "argon2id"
-    return temp_password

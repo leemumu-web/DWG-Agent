@@ -65,7 +65,7 @@ Agent/MCP/ZWCAD/Windows 执行契约物理分开。旧 `app/api`、`models`、`s
 `npm run check:architecture` 与 production build 会阻止这些目录或私有跨域导入重新出现。
 
 前端第二层分区也已落地：CAD 通用转换拆为上传、文件夹、总览和表格列模型，DXF→Excel
-拆为上传与批次卡片，Excel 预览解析进入 model，数据控制台拆为六个面板；共享/feature 样式
+拆为上传与批次卡片，Excel 预览解析进入 model，数据管理台只保留生产任务与文件存储两个面板；共享/feature 样式
 按 owner 分文件。架构门禁同时限制 TypeScript 单文件不超过 600 行。Playwright 的 9 个
 spec 按 7 个工作区归档，当前可收集 98 个浏览器用例。
 

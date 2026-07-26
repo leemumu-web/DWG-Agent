@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Exercise registered upload, idempotent Job, DXF preview, and outbound ledgers.
 
-Run from ``backend`` so the application package and its selected storage/database
-configuration are authoritative. This classified storage probe soft-deletes its files, removes the
-queued synthetic Job, and physically removes only the objects it created.
+The script bootstraps the repository/application root from its own path, so its behavior does not
+depend on the caller's working directory. This classified storage probe soft-deletes its files,
+removes the queued synthetic Job, and physically removes only the objects it created.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from io import BytesIO, StringIO
+from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import ezdxf
 from fastapi.testclient import TestClient
@@ -57,8 +61,10 @@ def _xlsx_bytes() -> bytes:
     stream = BytesIO()
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["零件号", "规格", "材质"])
-    sheet.append(["VERIFY-P-1", "L50x5", "Q235"])
+    sheet.title = "原表"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["VERIFY-C-1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "VERIFY-P-1", "PL10*200", 100, "Q355B", 2])
     workbook.save(stream)
     return stream.getvalue()
 
@@ -78,9 +84,14 @@ def main() -> None:
 
     excel_key = f"verify-excel-{probe_id}"
     workbook = _xlsx_bytes()
-    with patch(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, _job: None,
+    # This is an isolated validation process: exercise registration even when the optional
+    # production pipeline is disabled, while suppressing all task dispatch.
+    with (
+        patch.object(settings, "excel_final_pipeline_enabled", True),
+        patch(
+            "app.modules.excel_processing.routes.processing.dispatch_committed_job",
+            lambda _db, _job: None,
+        ),
     ):
         first = _require(
             client.post(

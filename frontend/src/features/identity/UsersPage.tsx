@@ -35,6 +35,8 @@ import {
 } from './users.api';
 import { listRoles } from './roles.api';
 import type { User } from '../../shared/auth';
+import { useAuthStore } from '../../shared/auth';
+import { describeApiError } from '../../shared/api';
 import {
   fmtDateTime,
   PageHeader,
@@ -49,6 +51,7 @@ import {
 export function UsersPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore((state) => state.user);
   const usersQ = useQuery({ queryKey: ['users'], queryFn: listUsers });
   const rolesQ = useQuery({ queryKey: ['roles'], queryFn: listRoles });
 
@@ -56,8 +59,9 @@ export function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [roleForm] = Form.useForm();
+  const [resetForm] = Form.useForm();
   const [editing, setEditing] = useState<User | null>(null);
-  const [tempPwd, setTempPwd] = useState<{ user: User; pwd: string } | null>(null);
+  const [resetTarget, setResetTarget] = useState<User | null>(null);
 
   const users = usersQ.data ?? [];
 
@@ -87,29 +91,32 @@ export function UsersPage() {
       createForm.resetFields();
       invalidate();
     },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '创建失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '创建失败')),
   });
 
   const toggleMut = useMutation({
     mutationFn: async (u: User) => (u.status === 'disabled' ? enableUser(u.id) : disableUser(u.id)),
     onSuccess: () => { message.success('状态已更新'); invalidate(); },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '操作失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '操作失败')),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteUser(id),
     onSuccess: () => { message.success('用户已删除'); invalidate(); },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '删除失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '删除失败')),
   });
 
   const resetMut = useMutation({
-    mutationFn: (id: number) => resetUserPassword(id),
-    onSuccess: (data, id: number) => {
-      const u = users.find((x) => x.id === id);
-      if (u) setTempPwd({ user: u, pwd: data.temp_password });
+    mutationFn: ({ id, newPassword }: { id: number; newPassword: string }) => (
+      resetUserPassword(id, newPassword)
+    ),
+    onSuccess: () => {
+      message.success('密码已按指定内容重置，该用户原有登录已失效');
+      setResetTarget(null);
+      resetForm.resetFields();
       invalidate();
     },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '重置失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '重置失败')),
   });
 
   const assignRoleMut = useMutation({
@@ -127,7 +134,7 @@ export function UsersPage() {
         }, 200);
       }
     },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '分配失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '分配失败')),
   });
 
   const removeRoleMut = useMutation({
@@ -143,7 +150,7 @@ export function UsersPage() {
         }, 200);
       }
     },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '移除失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '移除失败')),
   });
 
   const columns = [
@@ -190,39 +197,35 @@ export function UsersPage() {
     },
     {
       title: '操作', width: 200, align: 'center' as const,
-      render: (_: unknown, r: User) => (
+      render: (_: unknown, r: User) => {
+        const protectedSuperAdmin = r.roles.some((role) => role.code === 'super_admin');
+        const protectedTip = protectedSuperAdmin ? '唯一超级管理员受系统保护' : undefined;
+        return (
         <Space size={2}>
           <Tooltip title="角色管理"><Button type="text" size="small" icon={<KeyOutlined />} onClick={() => setEditing(r)} /></Tooltip>
           <Popconfirm
             title={r.status === 'disabled' ? '启用该用户？' : '禁用该用户？'}
             onConfirm={() => toggleMut.mutate(r)}
             okText="确定" cancelText="取消"
-            disabled={r.status === 'deleted'}
+            disabled={r.status === 'deleted' || protectedSuperAdmin}
           >
-            <Tooltip title={r.status === 'disabled' ? '启用' : '禁用'}>
-              <Button type="text" size="small" danger={r.status !== 'disabled'} icon={r.status === 'disabled' ? <CheckCircleOutlined /> : <StopOutlined />} disabled={r.status === 'deleted'} />
+            <Tooltip title={protectedTip ?? (r.status === 'disabled' ? '启用' : '禁用')}>
+              <Button type="text" size="small" danger={r.status !== 'disabled'} icon={r.status === 'disabled' ? <CheckCircleOutlined /> : <StopOutlined />} disabled={r.status === 'deleted' || protectedSuperAdmin} />
             </Tooltip>
           </Popconfirm>
-          <Popconfirm
-            title="重置密码"
-            description="将生成临时密码并使该用户所有会话失效。"
-            onConfirm={() => resetMut.mutate(r.id)}
-            okText="重置" cancelText="取消"
-            disabled={r.status === 'deleted'}
-          >
-            <Tooltip title="重置密码"><Button type="text" size="small" icon={<KeyOutlined />} disabled={r.status === 'deleted'} /></Tooltip>
-          </Popconfirm>
+          <Tooltip title={protectedTip ?? '重置密码'}><Button type="text" size="small" icon={<KeyOutlined />} disabled={r.status === 'deleted' || protectedSuperAdmin} onClick={() => { resetForm.resetFields(); setResetTarget(r); }} /></Tooltip>
           <Popconfirm
             title="删除用户"
             description="软删除，不可恢复自身。"
             onConfirm={() => deleteMut.mutate(r.id)}
             okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
-            disabled={r.status === 'deleted'}
+            disabled={r.status === 'deleted' || protectedSuperAdmin}
           >
-            <Tooltip title="删除"><Button type="text" size="small" danger icon={<DeleteOutlined />} disabled={r.status === 'deleted'} /></Tooltip>
+            <Tooltip title={protectedTip ?? '删除'}><Button type="text" size="small" danger icon={<DeleteOutlined />} disabled={r.status === 'deleted' || protectedSuperAdmin} /></Tooltip>
           </Popconfirm>
         </Space>
-      ),
+        );
+      },
     },
   ];
 
@@ -308,7 +311,7 @@ export function UsersPage() {
             ) : (
               <Space size={8} wrap style={{ marginBottom: 8 }}>
                 {editing.roles.map((r) => (
-                  <Tag key={r.code} color={roleColor(r.code)} closable onClose={() => removeRoleMut.mutate({ userId: editing.id, roleId: r.id })}>
+                  <Tag key={r.code} color={roleColor(r.code)} closable={r.code !== 'super_admin'} onClose={() => removeRoleMut.mutate({ userId: editing.id, roleId: r.id })}>
                     {r.name || r.code}
                   </Tag>
                 ))}
@@ -325,39 +328,74 @@ export function UsersPage() {
               <Form.Item name="roleCode" rules={[{ required: true, message: '选择角色' }]} style={{ marginBottom: 0 }}>
                 <select className="ant-input" style={{ width: 220 }} defaultValue="">
                   <option value="" disabled>选择角色…</option>
-                  {(rolesQ.data ?? []).map((r) => <option key={r.code} value={r.code}>{r.name} ({r.code})</option>)}
+                  {(rolesQ.data ?? [])
+                    .filter((r) => r.code !== 'super_admin')
+                    .map((r) => <option key={r.code} value={r.code}>{r.name} ({r.code})</option>)}
                 </select>
               </Form.Item>
               <Button type="primary" htmlType="submit" loading={assignRoleMut.isPending} icon={<PlusOutlined />}>分配</Button>
             </Form>
+            {currentUser?.roles.some((role) => role.code === 'super_admin') && (
+              <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
+                系统只允许一个超级管理员，该保护角色不能再分配、移除或降级。
+              </Typography.Paragraph>
+            )}
           </>
         )}
       </Drawer>
 
-      {/* temp password modal (drawer-as-modal) */}
+      {/* administrator-selected password reset */}
       <Drawer
-        title="临时密码"
-        open={tempPwd !== null}
-        onClose={() => setTempPwd(null)}
+        title={resetTarget ? `重置密码 · ${resetTarget.real_name}` : '重置密码'}
+        open={resetTarget !== null}
+        onClose={() => { setResetTarget(null); resetForm.resetFields(); }}
         width={420}
+        destroyOnHidden
+        extra={<Button type="primary" danger loading={resetMut.isPending} onClick={() => resetForm.submit()}>确认重置</Button>}
       >
-        {tempPwd && (
-          <div>
-            <Typography.Paragraph>
-              用户 <Typography.Text strong>{tempPwd.user.real_name}</Typography.Text> 的密码已重置。
-              其所有活动会话已被注销。请将下方临时密码安全地传达给用户，登录后需修改。
+        {resetTarget && (
+          <Form
+            form={resetForm}
+            layout="vertical"
+            requiredMark={false}
+            onFinish={(values: { newPassword: string }) => resetMut.mutate({
+              id: resetTarget.id,
+              newPassword: values.newPassword,
+            })}
+          >
+            <Typography.Paragraph type="secondary">
+              请人工指定新密码。确认后，该用户所有现有登录立即失效；系统不会生成或回显临时密码。
             </Typography.Paragraph>
-            <Input.Search
-              value={tempPwd.pwd}
-              readOnly
-              enterButton="复制"
-              onSearch={() => { navigator.clipboard?.writeText(tempPwd.pwd); message.success('已复制到剪贴板'); }}
-              style={{ marginBottom: 12 }}
-            />
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              此密码仅显示一次，关闭后无法再次获取。
-            </Typography.Text>
-          </div>
+            <Form.Item
+              name="newPassword"
+              label="新密码"
+              rules={[
+                { required: true, message: '请输入新密码' },
+                { min: 12, message: '至少 12 位' },
+                { pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/, message: '必须同时包含大写字母、小写字母和数字' },
+              ]}
+              extra="至少 12 位，须同时包含大写字母、小写字母和数字"
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+            <Form.Item
+              name="confirmPassword"
+              label="再次输入新密码"
+              dependencies={['newPassword']}
+              rules={[
+                { required: true, message: '请再次输入新密码' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    return !value || getFieldValue('newPassword') === value
+                      ? Promise.resolve()
+                      : Promise.reject(new Error('两次输入的密码不一致'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password autoComplete="new-password" />
+            </Form.Item>
+          </Form>
         )}
       </Drawer>
     </>

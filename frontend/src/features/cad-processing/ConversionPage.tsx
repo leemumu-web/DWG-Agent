@@ -18,6 +18,7 @@ import {
   listFiles,
   listFilesPage,
   listBatches,
+  getFile,
   downloadFile,
   bulkDeleteFiles,
   bulkDeleteBatches,
@@ -31,6 +32,7 @@ import {
 } from '../jobs';
 import { useConversionEvents } from './hooks/useConversionEvents';
 import { DxfPreviewModal, ZipDownloadModal } from '../files';
+import { describeApiError } from '../../shared/api';
 import type { StoredFile } from '../files';
 import type { ConversionBatchSubmission, Job } from '../jobs';
 import { ConversionFoldersPanel } from './components/conversion/ConversionFoldersPanel';
@@ -232,37 +234,44 @@ export function ConversionPage(props: ConversionPageProps) {
 
   // ── single file actions ───────────────────────────────────────────────────
   const handleDownload = useCallback(async (file: StoredFile) => {
-    try { await downloadFile(file.id, file.original_name); } catch (err) { message.error(err instanceof Error ? err.message : '下载失败'); }
+    try { await downloadFile(file.id, file.original_name); } catch (err) { message.error(describeApiError(err, '下载失败')); }
   }, []);
 
-  const handleDownloadResult = useCallback(async (job: Job, sourceName: string) => {
-    try {
-      const results = await getJobResults(job.id);
-      const result = results.find((r) => r.result_type === p.resultType);
-      if (!result?.result_file_id) { message.error(`${p.tagDone} 结果未找到`); return; }
-      await downloadFile(result.result_file_id, sourceName.replace(new RegExp('\\' + p.fileExt + '$', 'i'), p.resultExt));
-    } catch (err) { message.error(err instanceof Error ? err.message : `获取 ${p.tagDone} 失败`); }
-  }, []);
-
-  const handlePreviewResult = useCallback(async (job: Job, sourceName: string) => {
-    try {
-      const results = await getJobResults(job.id);
-      const result = results.find((item) => item.result_type === p.resultType);
-      if (!result?.result_file_id) {
-        message.error(`${p.tagDone} 结果未找到`);
-        return;
-      }
-      setPreviewFileId(result.result_file_id);
-      setPreviewFileName(
-        sourceName.replace(new RegExp(`\\${p.fileExt}$`, 'i'), p.resultExt),
-      );
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '获取 DXF 预览失败');
+  const resolveResultFile = useCallback(async (job: Job): Promise<StoredFile | null> => {
+    const results = await getJobResults(job.id);
+    const result = results.find((item) => item.result_type === p.resultType);
+    if (!result?.result_file_id) {
+      message.error(`${p.tagDone}结果未登记，请刷新后重试`); return null;
     }
-  }, [p.fileExt, p.resultExt, p.resultType, p.tagDone]);
+    const resultFile = await getFile(result.result_file_id);
+    if (resultFile.file_ext.toLowerCase() !== p.resultExt.toLowerCase()) {
+      message.error(`${p.tagDone}结果格式异常：应为 ${p.resultExt.toUpperCase()}，实际为 ${resultFile.file_ext.toUpperCase()}`);
+      return null;
+    }
+    return resultFile;
+  }, [p.resultExt, p.resultType, p.tagDone]);
+
+  const handleDownloadResult = useCallback(async (job: Job) => {
+    try {
+      const resultFile = await resolveResultFile(job);
+      if (!resultFile) return;
+      await downloadFile(resultFile.id, resultFile.original_name);
+    } catch (err) { message.error(describeApiError(err, `获取 ${p.tagDone} 失败`)); }
+  }, [p.tagDone, resolveResultFile]);
+
+  const handlePreviewResult = useCallback(async (job: Job) => {
+    try {
+      const resultFile = await resolveResultFile(job);
+      if (!resultFile) return;
+      setPreviewFileId(resultFile.id);
+      setPreviewFileName(resultFile.original_name);
+    } catch (error) {
+      message.error(describeApiError(error, '获取 DXF 预览失败'));
+    }
+  }, [resolveResultFile]);
 
   const handleRetry = useCallback(async (jobId: number) => {
-    try { await retryJob(jobId); message.success('已重新提交'); refresh(); } catch (err) { message.error(err instanceof Error ? err.message : '重试失败'); }
+    try { await retryJob(jobId); message.success('已重新提交'); refresh(); } catch (err) { message.error(describeApiError(err, '重试失败')); }
   }, [refresh]);
 
   const handleResubmit = useCallback(async (fileId: number) => {
@@ -271,14 +280,14 @@ export function ConversionPage(props: ConversionPageProps) {
       reportSubmission('结果已释放，已重新提交', submission);
       refresh();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '重新提交失败');
+      message.error(describeApiError(err, '重新提交失败'));
     }
   }, [p.taskType, refresh]);
 
   // ── bulk actions ──────────────────────────────────────────────────────────
   const handleBulkDelete = useCallback(async () => {
     try { await bulkDeleteFiles(selectedRowKeys); message.success(`已删除 ${selectedRowKeys.length} 个文件`); setSelectedRowKeys([]); refresh(); }
-    catch (err) { message.error(err instanceof Error ? err.message : '批量删除失败'); }
+    catch (err) { message.error(describeApiError(err, '批量删除失败')); }
   }, [selectedRowKeys, refresh]);
 
   const handlePauseAll = useCallback(async () => {
@@ -290,7 +299,7 @@ export function ConversionPage(props: ConversionPageProps) {
       const res = await cancelJobs(activeJobIds);
       message.success(`已暂停 ${res.cancelled_count} 个任务`);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '暂停失败'); }
+    } catch (err) { message.error(describeApiError(err, '暂停失败')); }
     setPauseLoading(false);
   }, [scopeJobs, refresh]);
 
@@ -307,7 +316,7 @@ export function ConversionPage(props: ConversionPageProps) {
       const submission = await createConversionBatches(p.taskType, targets.map((file) => file.id));
       reportSubmission('提交完成', submission);
       refresh();
-    } catch (err) { message.error(err instanceof Error ? err.message : '提交失败'); }
+    } catch (err) { message.error(describeApiError(err, '提交失败')); }
     setPauseLoading(false);
   }, [p.taskType, pendingFiles, refresh]);
 
@@ -335,7 +344,7 @@ export function ConversionPage(props: ConversionPageProps) {
       setBatchZipFileIds(allIds);
       setBatchZipModalOpen(true);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '收集打包文件失败，请重试');
+      message.error(describeApiError(err, '收集打包文件失败，请重试'));
     } finally {
       setOperation(null);
     }
@@ -352,7 +361,7 @@ export function ConversionPage(props: ConversionPageProps) {
       setSelectedBatchNames([]);
       refresh();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除失败，已保留选择，请重试');
+      message.error(describeApiError(err, '删除失败，已保留选择，请重试'));
       refresh();
     } finally {
       setOperation(null);
@@ -423,7 +432,7 @@ export function ConversionPage(props: ConversionPageProps) {
   if (filesQ.isError && !filesQ.data) {
     return (
       <Alert type="error" message="加载文件列表失败"
-        description={(filesQ.error as Error)?.message || '请检查后端服务是否正常运行'}
+        description={describeApiError(filesQ.error, '请检查服务器连接后重试')}
         showIcon action={<Button size="small" onClick={() => filesQ.refetch()}>重试</Button>} />
     );
   }
@@ -557,7 +566,7 @@ export function ConversionPage(props: ConversionPageProps) {
             </div>
           ),
         }}
-        scroll={{ x: 860 }}
+        scroll={{ x: 1120 }}
       />
 
       <ZipDownloadModal

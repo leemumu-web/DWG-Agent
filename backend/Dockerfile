@@ -50,8 +50,11 @@ COPY Stages/remnant_drawing_reader ./Stages/remnant_drawing_reader
 WORKDIR /app/backend
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
-# ── Stage 2: runtime ─────────────────────────────────────────────
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
+# ── Stage 2: source-free runtime base ────────────────────────────
+# This stage deliberately never receives application or Stage source.  The
+# protected release inherits from it so source cannot survive in a lower image
+# layer after an apparent deletion.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime-base
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -88,15 +91,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Copy virtualenv from builder (single layer)
 COPY --from=builder /app/.venv /app/.venv
 
-# editable 安装的 .pth 指向 /app/Stages/*，runtime 必须带源码，否则 import 失败。
-COPY --from=builder /app/Stages /app/Stages
-# 独立 Excel Final Stage 由 excel_processing.stage_runner 在子进程中执行。
-COPY Stages/excel_final /app/Stages/excel_final
-
-# Copy application code
-COPY backend/app ./app
-COPY backend/alembic.ini ./
-COPY backend/migrations ./migrations
+# Only operational launch/probe scripts enter the source-free base.  Business
+# Python is introduced later in disposable compilation/development stages.
 COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh
 COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh
 COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh
@@ -127,3 +123,56 @@ HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
 # --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120
 CMD ["sh", "-c", \
      "alembic upgrade head && python -m app.bootstrap.seed && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
+
+# ── Stage 3: development/source runtime ──────────────────────────
+# Kept as an explicit diagnostic target.  Production Compose never selects it.
+FROM runtime-base AS runtime
+
+# editable 安装的 .pth 指向 /app/Stages/*，runtime 必须带业务文件。
+COPY --from=builder /app/Stages /app/Stages
+# 独立 Excel Final Stage 由 excel_processing.stage_runner 在子进程中执行。
+COPY Stages/excel_final /app/Stages/excel_final
+COPY backend/app /app/app
+COPY backend/alembic.ini /app/alembic.ini
+COPY backend/migrations /app/migrations
+
+# ── Stage 4: disposable bytecode compiler ────────────────────────
+# This stage is not an ancestor of the protected image.  Deleting source here
+# prepares a clean copy tree without relying on Docker layer deletion.
+FROM runtime AS bytecode-compiler
+
+USER root
+
+RUN python -m compileall \
+        --invalidation-mode checked-hash \
+        -b -q -f \
+        -s /app -p /opt/dwg-agent \
+        /app/app /app/migrations /app/Stages && \
+    find /app/app /app/migrations /app/Stages \
+        -type f -name '*.py' -delete && \
+    find /app/Stages \
+        -type d \( -name tests -o -name test -o -name samples -o -name data \
+        -o -name output -o -name logs -o -name __pycache__ -o -name .pytest_cache \
+        -o -name .ruff_cache \) -prune -exec rm -rf -- {} + && \
+    find /app/app /app/migrations /app/Stages \
+        -type f \( -name '*.pyi' -o -name 'pyproject.toml' -o -name 'uv.lock' \
+        -o -name '*.md' -o -name '.gitignore' \) -delete && \
+    find /app/app /app/migrations /app/Stages \
+        -type d -name __pycache__ -prune -exec rm -rf -- {} +
+
+USER appuser
+
+# ── Stage 5: protected server runtime ────────────────────────────
+# The encrypted release protects the package at rest/in transit.  The final
+# image separately prevents ordinary source browsing by inheriting only the
+# source-free base and copying compiled runtime trees from the disposable
+# compiler.  Bytecode remains executable and is not claimed to resist a host
+# administrator performing dedicated reverse engineering.
+FROM runtime-base AS protected
+
+COPY --from=bytecode-compiler /app/app /app/app
+COPY --from=bytecode-compiler /app/migrations /app/migrations
+COPY --from=bytecode-compiler /app/Stages /app/Stages
+COPY --from=bytecode-compiler /app/alembic.ini /app/alembic.ini
+
+USER appuser

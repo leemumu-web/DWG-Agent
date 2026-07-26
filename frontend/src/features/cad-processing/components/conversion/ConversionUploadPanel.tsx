@@ -2,8 +2,18 @@ import { useRef, useState } from 'react';
 import { Button, Progress, Tag, Typography, message } from 'antd';
 import { FileZipOutlined, FolderOpenOutlined } from '@ant-design/icons';
 
-import { FileUpload, uploadFile, uploadFolder, uploadZip, type StoredFile } from '../../../files';
+import {
+  FileUpload,
+  limitFolderUploadFiles,
+  MAX_FOLDER_FILES,
+  uploadFile,
+  uploadFolder,
+  uploadZip,
+  type StoredFile,
+} from '../../../files';
 import { createConversionBatches, type ConversionBatchSubmission } from '../../../jobs';
+import { describeApiError, type TransferProgress } from '../../../../shared/api';
+import { TransferProgressBar } from '../../../../shared/components';
 
 export type ConversionOperation =
   | 'file-upload'
@@ -49,6 +59,10 @@ export function ConversionUploadPanel({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
+  const [transferProgress, setTransferProgress] = useState<{
+    label: string;
+    progress: TransferProgress;
+  } | null>(null);
 
   return (
     <div className="upload-toolbar">
@@ -64,17 +78,31 @@ export function ConversionUploadPanel({
           const raw = event.target.files;
           if (raw && raw.length > 0) {
             onOperationChange('folder-upload');
-            const files = Array.from(raw);
+            const selected = Array.from(raw);
+            const limited = limitFolderUploadFiles(selected);
+            const files = limited.files;
+            if (limited.omittedCount > 0) {
+              message.error(
+                `文件夹包含 ${selected.length} 个文件，超过上限；仅取前 ${MAX_FOLDER_FILES} 个文件上传，后 ${limited.omittedCount} 个文件已忽略。`,
+              );
+            }
             const firstPath = (files[0] as { webkitRelativePath?: string }).webkitRelativePath || '';
             const folderName = selectedBatch || firstPath.split('/')[0] || `导入_${Date.now()}`;
             const matchedCount = files.filter((file) => file.name.toLowerCase().endsWith(acceptExt)).length;
             setUploadProgress({ processed: 0, total: matchedCount });
+            setTransferProgress(null);
             try {
               const result = await uploadFolder(files, folderName, {
                 fileExt: acceptExt,
                 concurrency: 4,
-                onFile: (file: File, batchName: string) => uploadFile(file, batchName),
+                onFile: (file, batchName, onProgress) => (
+                  uploadFile(file, batchName, undefined, onProgress)
+                ),
                 onProgress: (processed, total) => setUploadProgress({ processed, total }),
+                onTransferProgress: (progress) => setTransferProgress({
+                  label: '图纸文件夹上传',
+                  progress,
+                }),
               });
               const uploaded = result.results as StoredFile[];
               if (uploaded.length > 0) {
@@ -97,7 +125,7 @@ export function ConversionUploadPanel({
                 message.warning(`文件夹中没有 ${fileExt} 文件`);
               }
             } catch (error) {
-              message.error(error instanceof Error ? error.message : '文件夹导入失败');
+              message.error(describeApiError(error, '文件夹导入失败'));
             } finally {
               setUploadProgress(null);
               onOperationChange(null);
@@ -113,8 +141,8 @@ export function ConversionUploadPanel({
         label={`上传 ${tagPending} 文件`}
         disabled={operation !== null}
         onBusyChange={(busy) => onOperationChange(busy ? 'file-upload' : null)}
-        uploadFn={async (file: File, batchName?: string) => {
-          const stored = await uploadFile(file, batchName);
+        uploadFn={async (file, batchName, onProgress) => {
+          const stored = await uploadFile(file, batchName, undefined, onProgress);
           const submission = await createConversionBatches(taskType, [stored.id]);
           if (submission.unsubmittedFileIds.length > 0) {
             throw new Error('文件已上传，但转换任务未提交；请使用“提交/重试”补交');
@@ -141,8 +169,11 @@ export function ConversionUploadPanel({
           const file = event.target.files?.[0];
           if (!file) return;
           onOperationChange('zip-upload');
+          setTransferProgress(null);
           try {
-            const result = await uploadZip(file, acceptExt);
+            const result = await uploadZip(file, acceptExt, (progress) => {
+              setTransferProgress({ label: '图纸压缩包上传', progress });
+            });
             if (result.success_count > 0) {
               const submission = await createConversionBatches(
                 taskType,
@@ -157,7 +188,7 @@ export function ConversionUploadPanel({
               message.warning(`压缩包中没有 ${acceptExt} 文件`);
             }
           } catch (error) {
-            message.error(error instanceof Error ? error.message : '解压失败');
+            message.error(describeApiError(error, '压缩包解压失败'));
           } finally {
             onOperationChange(null);
           }
@@ -184,6 +215,12 @@ export function ConversionUploadPanel({
             format={() => `${uploadProgress.processed}/${uploadProgress.total}`}
           />
         </div>
+      )}
+      {transferProgress && (
+        <TransferProgressBar
+          label={transferProgress.label}
+          progress={transferProgress.progress}
+        />
       )}
       {selectedBatch && <Tag color="purple" style={{ marginLeft: 'auto' }}>当前：{selectedBatch}</Tag>}
     </div>

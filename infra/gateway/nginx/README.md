@@ -14,7 +14,7 @@ Browser -> Nginx -> /api/v1/*、/health*、/docs、/redoc、/openapi.json -> Fas
 | 登录限速 | `2r/s`，burst 3，网关 429 |
 | 通用 API 限速 | `100r/s`，burst 20，网关 429 |
 | 每 IP connection | 20 |
-| request body | 512 MiB；登录 1 KiB |
+| request body | 520 MiB（为 512 MiB 业务文件上限预留 multipart 封装空间）；登录 1 KiB |
 | 本地上传缓冲 | `logs/client-body/`；由仓库用户创建，避免依赖 `/var/lib/nginx` 权限 |
 | 请求追踪 | 生成/转发 `X-Request-ID` |
 | SSE | buffering/cache 关闭；read/send timeout 一小时 |

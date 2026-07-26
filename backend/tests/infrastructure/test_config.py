@@ -289,3 +289,24 @@ def test_storage_capacity_thresholds_must_be_ordered():
             storage_capacity_warning_percent=90,
             storage_capacity_critical_percent=90,
         )
+
+
+def test_production_requires_strong_initial_super_admin_password():
+    with pytest.raises(ValueError, match="SUPER_ADMIN_PASSWORD"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            super_admin_username="admin",
+            super_admin_password="admin123456",
+        )
+
+
+def test_production_accepts_complex_initial_super_admin_password():
+    configured = Settings(
+        _env_file=None,
+        app_env="production",
+        super_admin_username="admin",
+        super_admin_password="N7!vQ2@kL9#pR4$x",
+    )
+
+    assert configured.super_admin_password == "N7!vQ2@kL9#pR4$x"

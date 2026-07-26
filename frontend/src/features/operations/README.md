@@ -1,15 +1,10 @@
-# 运维与数据控制台
+# 数据管理与审计
 
 ## 现有实现
 
-`pages/` 提供审计页和数据控制台；`api/` 调用 system、data-admin、control-plane、audit；`types/` 保存运维 DTO；`components/data-console/` 拆分六个面板；`DailyArchivePanel`、`RemediationDrawer` 承担受控维护动作；`styles.css` 保存局部布局。
+`pages/` 提供审计页和数据管理台；`api/` 调用现有文件管理与审计接口；`types/` 只保存当前界面实际使用的响应对象；`components/data-console/` 只保留生产任务与文件存储两个面板。`index.ts` 是跨功能引用的唯一公开入口，`styles.css` 只保存这两个页面仍在使用的响应式样式。
 
-`index.ts` 仅重导出管理员页面和必要运维合同，防止普通业务 feature 深层耦合扫描、处置或基础设施组件。
+## 数据流与边界
 
-## 业务流
-
-管理员先查看 MySQL、MinIO、Worker 和通信事实，再对归档或一致性 finding 执行预检、确认和有界处置。输出包含 run、finding、transfer、archive 记录及 request ID。
-
-## 安全与未完成边界
-
-页面不得绕过签名 token、actor 绑定、幂等键、数量/字节上限或永久删除确认词；RabbitMQ、Beat、Outbox 与 Windows Agent 只能显示未部署合同。
+数据管理台不直接增删数据库行。项目和阶段数据来自生产流程接口，任务取消/重试来自任务状态机接口，文件操作来自已登记文件接口；权限和审计仍由后端裁决。
+后台每日归档、存储对账、控制平面和通用 MySQL 接口不等于生产人员前端能力，不得仅因后端存在路由就在本功能区增加按钮。

@@ -15,8 +15,8 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeApiError } from '../../shared/api';
-import { ApiErrorAlert } from '../../shared/components';
+import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
+import { ApiErrorAlert, TransferProgressBar } from '../../shared/components';
 import type {
   WorkflowBatchExport,
   WorkflowExportCategory,
@@ -24,11 +24,11 @@ import type {
 } from './workflow';
 import {
   createWorkflowBatchExport,
+  downloadWorkflowBatchExport,
   executeWorkflowStage,
   getDxfSplitRun,
   getWorkflowBatchExport,
   getWorkflow,
-  startNativeWorkflowBatchExportDownload,
 } from './workflows.api';
 import { DrawingProcessingExportActions } from './DrawingProcessingExportActions';
 
@@ -50,10 +50,14 @@ function useNativeWorkflowDownload({
   const { message } = App.useApp();
   const [created, setCreated] = useState<WorkflowBatchExport | null>(null);
   const [launchFailed, setLaunchFailed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState<TransferProgress | null>(null);
   const notifiedStatus = useRef<string | null>(null);
   useEffect(() => {
     setCreated(null);
     setLaunchFailed(false);
+    setDownloading(false);
+    setProgress(null);
     notifiedStatus.current = null;
   }, [workflowId]);
   const statusQ = useQuery({
@@ -81,21 +85,26 @@ function useNativeWorkflowDownload({
       message.error(`${errorText}；服务器文件仍保留，可点击按钮重试`);
     }
   }, [completedText, errorText, message, row]);
-  const launch = (next: WorkflowBatchExport) => {
+  const launch = async (next: WorkflowBatchExport) => {
+    setDownloading(true);
+    setProgress(null);
     try {
-      startNativeWorkflowBatchExportDownload(next);
+      await downloadWorkflowBatchExport(next, setProgress);
       setLaunchFailed(false);
-      message.info(preparingText);
+      setTimeout(() => { void statusQ.refetch(); }, 300);
     } catch (error) {
       setLaunchFailed(true);
       message.error(describeApiError(error, errorText));
+    } finally {
+      setDownloading(false);
     }
   };
   const createM = useMutation({
     mutationFn: () => createWorkflowBatchExport(workflowId, categories),
     onSuccess: (next) => {
       setCreated(next);
-      launch(next);
+      message.info(preparingText);
+      void launch(next);
     },
     onError: (error) => message.error(describeApiError(error, errorText)),
   });
@@ -109,7 +118,8 @@ function useNativeWorkflowDownload({
       return;
     }
     notifiedStatus.current = null;
-    launch(row);
+    message.info(preparingText);
+    void launch(row);
     setTimeout(() => {
       void statusQ.refetch();
     }, 500);
@@ -117,8 +127,10 @@ function useNativeWorkflowDownload({
   return {
     start,
     loading: createM.isPending
+      || downloading
       || (!launchFailed && ACTIVE_EXPORT_STATUSES.has(row?.status ?? '')),
     failed: launchFailed || row?.status === 'download_failed',
+    progress,
   };
 }
 
@@ -314,8 +326,12 @@ export function DrawingProcessingPanel({
         <Alert
           type="error"
           showIcon
-          message={`${run.error_code ?? 'DXF_SPLIT_FAILED'} · 拆板失败`}
-          description={run.error_message ?? '请按错误中指出的图纸和缺失内容人工处理。'}
+          message="图纸拆板未完成"
+          description={operatorErrorMessage(
+            run.error_code,
+            run.error_message,
+            '请进入本批图纸明细，按页面指出的缺失内容处理。',
+          )}
         />
       )}
 
@@ -423,6 +439,18 @@ export function DrawingProcessingPanel({
                 )}
               />
             </>
+          )}
+          {splitResultsDownload.progress && (
+            <TransferProgressBar
+              label="拆板结果下载"
+              progress={splitResultsDownload.progress}
+            />
+          )}
+          {allDrawingsDownload.progress && (
+            <TransferProgressBar
+              label="本批原图下载"
+              progress={allDrawingsDownload.progress}
+            />
           )}
           {run.items.length > 0 && (
             <details className="workflow-dxf-split-ledger">

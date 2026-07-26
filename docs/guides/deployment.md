@@ -38,6 +38,7 @@ Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 的 `in
 ```bash
 cp .env.docker.example .env.docker
 # 替换全部 CHANGE_ME_*。
+# SUPER_ADMIN_PASSWORD 必须使用至少 16 位、含大小写/数字/特殊字符且不含用户名的随机口令；生产服务会在启动时拒绝弱口令。
 # 当前可信内网纯 HTTP 场景还应加入：
 # REFRESH_COOKIE_SECURE=false
 
@@ -51,7 +52,8 @@ bash scripts/docker.sh check
 - `HTTP_PORT`：宿主 HTTP 端口，默认 `80`。
 - `DWG_AGENT_IMAGE`、`DWG_AGENT_FRONTEND_IMAGE`：默认本地 tag；CI/CD 可改为不可变 registry tag/digest。
 - `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
-- `DXF_PIPELINE_ENABLED`、`DXF2DWG_PIPELINE_ENABLED`、`DXF2EXCEL_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`：在各自真实样本验收前保持 false；分类与拆板 worker 分别使用独立 `dxf_classification`、`dxf_split` 队列。
+- `MAX_UPLOAD_SIZE_MB`：单个业务文件上限，服务器模板为 512 MiB。Excel 工作台会显示并提前执行同一上限；Nginx 使用 520 MiB 请求上限并流式转发，以免 multipart 封装或代理临时目录提前拒绝合法文件。
+- 服务器模板默认开启生产流程所需的 `DXF_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED` 和 `EXCEL_FINAL_PIPELINE_ENABLED`；它们已完成真实 DWG、BH 拆板、Tekla Excel、MySQL 与 MinIO 联调。`DXF2DWG_PIPELINE_ENABLED=true` 仅启用独立的 DXF→DWG 工作台，不进入主生产流程；`DXF2EXCEL_PIPELINE_ENABLED` 继续保持 false。各转换、分类、拆板和 Excel 使用独立队列。
 - `DXF_CLASSIFICATION_AUTOSCALE_MIN=1`、`DXF_CLASSIFICATION_AUTOSCALE_MAX=3`：分类队列按不同项目自动伸缩；`prefetch=1` 保证排队公平，不会加速单个项目内部的文件处理。提高上限前必须在部署机器上复测内存和 MySQL 负载。
 - `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
 
@@ -64,7 +66,7 @@ bash scripts/docker.sh build
 # 核心服务：Nginx、API、MySQL、MinIO、report worker
 bash scripts/docker.sh up
 
-# 核心服务 + 转换 workers + 禁用的 Agent 占位队列
+# 核心服务 + 已实现的转换 workers
 bash scripts/docker.sh up-workers
 
 bash scripts/docker.sh status
@@ -75,6 +77,52 @@ bash scripts/docker.sh verify-storage
 对应 Make target：`docker-check`、`docker-build`、`docker-up`、`docker-up-workers`、`docker-status`、`docker-smoke`、`docker-down`。
 
 Compose 只构建一个共享后端镜像和一个前端镜像。所有 worker 复用 `DWG_AGENT_IMAGE`。前端镜像用 Node 22 执行锁定的 `npm ci` 构建，再由非特权 Nginx 提供静态文件。
+
+## 加密离线服务器发布
+
+服务器不需要仓库工作树。发布机从已经验收的主线构建受保护镜像，并把后端、前端、MySQL、
+MinIO、固定的 14 服务 Compose 和数据库初始化资源封装为一份 GPG 加密包。必须使用服务器方
+持有私钥的 GPG 收件人；命令拒绝生成明文发布包。
+
+```bash
+# 发布机：RECIPIENT 使用服务器部署密钥的完整指纹。
+bash scripts/release.sh bundle \
+  --recipient RECIPIENT \
+  --output /secure/releases \
+  --version 2026.07.26
+
+# 把同版本的三个文件一起传到服务器：
+# dwg-agent-2026.07.26.tar.gz.gpg
+# dwg-agent-2026.07.26.tar.gz.gpg.sha256
+# dwg-agent-2026.07.26-deploy.sh
+```
+
+打包门禁会在加密前检查：运行目录无业务 `.py`、镜像任意历史层无业务 `.py`、Stage 测试和
+Excel 样本未进入镜像、运行 UID 为 1000、核心模块可导入且 Alembic 只有一个 head。发布包
+不含 `.env.docker`；旁车部署器只负责校验、解密、装载和编排，不含业务算法。若需要来源
+认证，可再传 `--signing-key KEY` 生成 detached signature。
+
+```bash
+# 服务器：先导入/解锁对应 GPG 私钥，再执行旁车部署器。
+chmod 0755 dwg-agent-2026.07.26-deploy.sh
+./dwg-agent-2026.07.26-deploy.sh install \
+  dwg-agent-2026.07.26.tar.gz.gpg /opt/dwg-agent
+
+# 首次安装会生成 0600 的占位配置；替换全部 CHANGE_ME_*，不要复制发布机密钥。
+vi /opt/dwg-agent/.env.docker
+/opt/dwg-agent/scripts/server-deploy.sh up /opt/dwg-agent
+/opt/dwg-agent/scripts/server-deploy.sh status /opt/dwg-agent
+```
+
+安装按顺序验证外层 SHA-256、可选 GPG 签名、解密后的逐文件 SHA-256、四类镜像 ID；任何一步
+不一致都停止。`up` 固定 `--no-build` 和 `pull_policy: never`，因此服务器不会下载替代镜像或
+现场重建源码，必须恰好启动 14 个服务并全部健康。
+
+保护边界要如实理解：加密保证交付包在存储和传输期间不可读；加载后的后端镜像不含原始业务
+Python 源码，应用/worker 以非 root、只读根文件系统、`cap_drop: ALL` 运行。Python 字节码仍
+可被具备宿主 root 权限且专门逆向的人分析，Docker 本身也不提供对宿主管理员保密的执行环境。
+生产服务器应同时使用全盘加密、限制 root/Docker 组、审计 SSH、私有镜像存储和最小权限；
+不要用代码保护代替主机访问控制。该保护只改变交付形态，不改变 Excel、拆板或转换算法。
 
 `verify-storage` 是有副作用但自清理的发布验收门：只在健康 `backend-api` 内执行，
 通过应用路径验证 MySQL 登记、MinIO 写入/读取/SHA、鉴权出库、DXF 预览与 transfer
@@ -92,11 +140,13 @@ Compose 只构建一个共享后端镜像和一个前端镜像。所有 worker �
 | `worker-report` | 默认 | `app_var` | 启动 marker + Celery PID 1 |
 | 转换 workers | `workers` | `app_var` | worker 已连接；不等于功能已验收 |
 | `worker-dxf-split` | `workers` | `app_var` | 只出站访问 MySQL/MinIO；进程健康不代表拆板 Stage 或真实图纸已通过 |
-| `worker-agent` | `workers` | `app_var` | 仅队列进程，没有 Agent task |
-| `mysql` | 默认 | `mysql_data` | root ping 可用 |
+| `mysql` | 默认 | `mysql_data` | 使用本地 Unix socket 以 root 真正执行 `SELECT 1` |
 | `minio` | 默认 | `minio_data` | MinIO 进程存活 |
 
-容器设置 `no-new-privileges`；应用与 Nginx 镜像以非 root 运行。Nginx 根文件系统只读，`/tmp` 使用 tmpfs。MySQL 与 MinIO 有两分钟停止宽限。后端启动时先执行 Alembic migration 和幂等 seed，再启动 Gunicorn；worker 和 Nginx 等待其 ready。
+`agent`、`cad`、`dispatch` 只保留未来兼容所需的路由名称，不启动空 worker，避免浪费
+常驻内存并产生误导性健康信号。增加真实 task 后，才应同时补回消费者、健康检查和端到端验收。
+
+容器设置 `no-new-privileges`；应用与 Nginx 镜像以非 root 运行并移除全部 Linux capabilities。应用与 Nginx 根文件系统只读，运行时临时目录使用 tmpfs，业务持久数据只进入命名卷。MySQL 与 MinIO 有两分钟停止宽限。后端启动时先执行 Alembic migration 和幂等 seed，再启动 Gunicorn；worker 和 Nginx 等待其 ready。
 
 数据控制台的一致性扫描由默认启用的 `worker-report` 异步执行，API 总览和清单请求不会在请求线程中全量枚举 MinIO。空库首次启动时，worker 会先提交并关闭 Kombu `queue_declare` 使用的 session，再维护 SQL transport 索引；这避免同一进程的后续 DDL 被自身 metadata lock 阻塞。部署健康检查必须确认 worker ready marker，而不能只看容器进程存活。
 
@@ -124,7 +174,7 @@ bash scripts/docker.sh down       # preserves named volumes
 bash scripts/docker.sh backup /secure/backups/dwg-agent-2026-07-11
 ```
 
-MySQL dump 自身使用 `--single-transaction`，但随后执行的 MinIO tar 与数据库不是同一原子快照，因此这是有边界的在线单机备份，不是严格跨系统一致备份或 PITR。若要求一致恢复点，先暂停 API/worker 写入并确认队列静止。备份目录必须离机复制并设置保留/加密策略。
+MySQL dump 自身使用 `--single-transaction`。MinIO Server 是不含 `tar` 的极简镜像；脚本不会要求存储容器安装工具，而是启动无网络、只读根文件系统的临时后端工具容器，并只读继承同一 `minio_data` volume 完成归档。随后执行的 MinIO tar 与数据库不是同一原子快照，因此这是有边界的在线单机备份，不是严格跨系统一致备份或 PITR。若要求一致恢复点，先暂停 API/worker 写入并确认队列静止。备份目录必须离机复制并设置保留/加密策略。
 
 ## 恢复
 

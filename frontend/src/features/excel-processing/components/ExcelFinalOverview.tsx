@@ -21,7 +21,7 @@ function format(value: number, digits = 0): string {
 
 const DEGRADED_LABELS: Record<string, string> = {
   pipeline_disabled: '处理管道未启用',
-  stage: 'Stage 工程不可用',
+  stage: 'Excel 处理程序不可用',
   dependencies: '处理依赖不完整',
   handbook_module: '五金手册模块不可用',
   handbook_database: '五金手册数据库不可用',
@@ -30,15 +30,12 @@ const DEGRADED_LABELS: Record<string, string> = {
 };
 
 function databaseLabel(backend: string | undefined): string {
-  if (backend === 'mysql') return 'MySQL';
-  if (backend === 'sqlite') return 'SQLite';
-  return backend ? backend.toUpperCase() : '数据库';
+  return backend ? '业务数据库' : '数据库';
 }
 
 function storageLabel(backend: ExcelFinalHealth['storage_backend'] | undefined): string {
-  if (backend === 'minio') return 'MinIO 对象存储';
-  if (backend === 'local') return '本地对象存储';
-  return '对象存储';
+  if (backend === 'local') return '本机文件存储';
+  return '文件存储';
 }
 
 export function ExcelFinalOverview({ health, overview, loading, error }: ExcelFinalOverviewProps) {
@@ -66,7 +63,7 @@ export function ExcelFinalOverview({ health, overview, loading, error }: ExcelFi
           </span>
         </div>
         <Tag color={health?.ready ? 'success' : 'warning'}>
-          {health?.ready ? 'ONLINE' : 'DEGRADED'}
+          {health?.ready ? '运行正常' : '需要检查'}
         </Tag>
       </div>
       {error && <Alert type="error" showIcon message="概览加载失败" description={error} />}

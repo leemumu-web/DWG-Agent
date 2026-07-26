@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Checkbox, Input, Modal, Space, Tooltip, Typography, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
+import { describeApiError, type TransferProgress } from '../../shared/api';
+import { TransferProgressBar } from '../../shared/components';
 import {
   downloadZip,
   previewZip,
@@ -32,6 +34,7 @@ export function ZipDownloadModal({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
   const [preview, setPreview] = useState<ZipAvailabilityPreview | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
 
   const refreshPreview = useCallback(async (resetSelection: boolean) => {
     if (fileIds.length === 0) {
@@ -57,7 +60,7 @@ export function ZipDownloadModal({
       if (!complete.get('dxf')) setDxf(false);
     } catch (error) {
       setPreview(null);
-      setPreviewError(error instanceof Error ? error.message : '无法检查打包内容');
+      setPreviewError(describeApiError(error, '无法检查打包内容'));
     } finally {
       setPreviewLoading(false);
     }
@@ -102,13 +105,14 @@ export function ZipDownloadModal({
     if (dwg) formats.push('dwg');
     if (dxf) formats.push('dxf');
     setLoading(true);
+    setDownloadProgress(null);
     try {
-      await downloadZip(fileIds, formats, folderName.trim());
+      await downloadZip(fileIds, formats, folderName.trim(), setDownloadProgress);
       message.success('打包下载完成');
       onDone();
       onClose();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '打包下载失败');
+      message.error(describeApiError(err, '打包下载失败'));
       await refreshPreview(false);
     } finally {
       setLoading(false);
@@ -193,6 +197,9 @@ export function ZipDownloadModal({
             description={previewError}
             action={<Button size="small" onClick={() => void refreshPreview(false)}>重新检查</Button>}
           />
+        )}
+        {downloadProgress && (
+          <TransferProgressBar label="图纸打包下载" progress={downloadProgress} />
         )}
         <div style={{ background: '#fafafa', borderRadius: 6, padding: '8px 12px' }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>

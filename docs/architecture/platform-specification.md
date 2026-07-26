@@ -143,8 +143,10 @@ failed/cancelled  -> retry -> queued (attempt + 1)
 | `dxf_split` | Steel DXF Split 1.5.2 整批 task 已实现 | `workers` profile、本地脚本；无入站端口，flag 默认关闭 |
 | `excel_final` | Excel Final task 已实现 | `workers` profile、本地脚本 |
 | `remnant_convert` / `remnant_parse` | 余料转换与解析 task 已实现 | `workers` profile |
-| `agent` | module 仅占位，无 Celery task | Compose 有占位 worker；本地脚本不启动 |
+| `agent` | module 仅占位，无 Celery task | 不启动空 worker |
 | `cad` | module 仅占位，无 Celery task | 无 Compose/local worker |
+
+`dispatch` 同样只保留路由名称，不启动空 worker；预留路由不是已交付能力。
 
 SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect` 作为健康检查。Compose worker ready 条件是 PID 1 命令行含 Celery 且 `worker_ready` 信号已写 `/tmp/dwg-celery-ready`。这只证明进程已连接 broker，不证明特定业务 task 存在或依赖可用。
 
@@ -186,7 +188,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 178 个 path、206 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 179 个 path、207 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。
@@ -233,13 +235,18 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 
 ## 16. Compose 与发布边界
 
-核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-agent/worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance/worker-dispatch`，总计 16 个 Compose 服务。
+核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance`，总计 14 个 Compose 服务。
 
-- backend 与 worker 共用非 root `appuser` 镜像。
+- backend 与 worker 共用非 root `appuser` 镜像；生产 target 从未包含业务源码的 runtime base
+  复制编译字节码，最终镜像任意历史层均不得出现 `app/`、`migrations/` 或 `Stages/` 下业务
+  `.py`。应用容器只读根文件系统、移除全部 Linux capabilities。
 - MySQL 和 MinIO 使用命名卷且不发布宿主端口。
 - MinIO 固定 registry digest；MySQL 使用 8.4 tag，未固定 digest。
 - backend 在 Gunicorn 前执行 Alembic upgrade 和 seed。
 - Docker build 依赖各普通跟踪 Stage 实体源码；`Stages/dxf2excel` 与 `Stages/steel_dxf_split_v1.5.2` 均纳入构建上下文。
+- 离线服务器发布使用 GPG 收件人加密完整镜像包，固定 14 服务且禁止现场 build/pull；包内不含
+  运行密钥或仓库源码。加密保护交付包，字节码保护普通源码浏览，但两者都不能对抗宿主 root
+  的专门逆向，主机仍需全盘加密和最小权限。
 - Compose 没有 TLS、证书、监控、备份调度、滚动升级或多副本协调，不应直接标记为完整生产方案。仓库虽提供手工 backup/restore 命令，但没有跨 MySQL/MinIO 原子快照或自动演练。
 
 ## 17. 数据保护与审计边界

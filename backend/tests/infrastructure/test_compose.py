@@ -17,6 +17,7 @@ DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"
 DOCKERIGNORE_PATH = REPO_ROOT / ".dockerignore"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 DOCKER_ENV_EXAMPLE_PATH = REPO_ROOT / ".env.docker.example"
+STORAGE_PROBE_PATH = REPO_ROOT / "scripts" / "storage" / "verify_transactions.py"
 APP_SECRET_KEYS = {
     "JWT_SECRET_KEY",
     "SUPER_ADMIN_PASSWORD",
@@ -24,7 +25,6 @@ APP_SECRET_KEYS = {
 }
 APP_SERVICE_NAMES = (
     "backend-api",
-    "worker-agent",
     "worker-dxf",
     "worker-dxf2dwg",
     "worker-dxf2excel",
@@ -80,6 +80,12 @@ class TestAppServices:
         data = _load()
         assert "flower" not in data["services"]
 
+    def test_contract_only_queues_do_not_run_zombie_workers(self):
+        services = _load()["services"]
+
+        for queue in ("agent", "cad", "dispatch"):
+            assert f"worker-{queue}" not in services
+
     def test_stage_dependencies_and_standalone_excel_runner_are_copied_into_image(self):
         dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
@@ -120,6 +126,19 @@ class TestAppServices:
             health = " ".join(service["healthcheck"]["test"])
             assert f"/tmp/dwg-celery-{queue}.pid" in health
 
+    def test_conversion_workers_extract_appimage_outside_hardened_tmpfs(self):
+        data = _load()
+        worker_script = (REPO_ROOT / "scripts" / "lib" / "cad_worker.sh").read_text(
+            encoding="utf-8"
+        )
+
+        for service_name in ("worker-dxf", "worker-dxf2dwg"):
+            service = data["services"][service_name]
+            assert service["environment"]["TMPDIR"] == "/app/var/appimage-tmp"
+            assert "app_var:/app/var" in service["volumes"]
+
+        assert 'mkdir -p "$TMPDIR"' in worker_script
+
     def test_classification_worker_uses_configurable_autoscale(self):
         service = _load()["services"]["worker-dxf-classification"]
         command = service["command"]
@@ -150,7 +169,6 @@ class TestComposeYamlValid:
         required = {
             "nginx",
             "backend-api",
-            "worker-agent",
             "worker-dxf",
             "worker-dxf2dwg",
             "worker-dxf2excel",
@@ -285,7 +303,10 @@ class TestMysqlService:
         data = _load()
         hc = data["services"]["mysql"]["healthcheck"]
         test_cmd = " ".join(hc["test"])
-        assert "mysqladmin" in test_cmd
+        assert "mysqladmin" not in test_cmd
+        assert "env -u MYSQL_HOST -u MYSQL_PORT mysql" in test_cmd
+        assert "MYSQL_UNIX_PORT" in test_cmd
+        assert "SELECT 1" in test_cmd
         assert "$${MYSQL_ROOT_PASSWORD}" in test_cmd
         assert "${MYSQL_ROOT_PASSWORD:-" not in test_cmd
 
@@ -381,6 +402,23 @@ class TestDockerEnvironmentFiles:
         content = GITIGNORE_PATH.read_text(encoding="utf-8")
         assert ".env.docker" in content
 
+    def test_server_example_enables_approved_shipping_pipelines(self):
+        values = {
+            line.split("=", 1)[0]: line.split("=", 1)[1]
+            for line in DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#") and "=" in line
+        }
+
+        for key in (
+            "DXF_PIPELINE_ENABLED",
+            "DXF2DWG_PIPELINE_ENABLED",
+            "DXF_CLASSIFICATION_PIPELINE_ENABLED",
+            "DXF_SPLIT_PIPELINE_ENABLED",
+            "EXCEL_FINAL_PIPELINE_ENABLED",
+        ):
+            assert values[key] == "true"
+        assert values["DXF2EXCEL_PIPELINE_ENABLED"] == "false"
+
 
 # ── Dockerfile static checks ──────────────────────────────────────
 
@@ -396,6 +434,18 @@ class TestDockerfile:
             "COPY scripts/storage/verify_transactions.py "
             "/app/scripts/storage/verify_transactions.py"
         ) in content
+
+    def test_storage_probe_bootstraps_packaged_app_before_importing_it(self):
+        content = STORAGE_PROBE_PATH.read_text(encoding="utf-8")
+
+        bootstrap = "sys.path.insert(0, str(Path(__file__).resolve().parents[2]))"
+        assert bootstrap in content
+        assert content.index(bootstrap) < content.index("from app.main import app")
+
+    def test_storage_probe_is_independent_of_optional_excel_feature_flag(self):
+        content = STORAGE_PROBE_PATH.read_text(encoding="utf-8")
+
+        assert 'patch.object(settings, "excel_final_pipeline_enabled", True)' in content
 
     def test_is_multi_stage(self):
         content = DOCKERFILE_PATH.read_text(encoding="utf-8")

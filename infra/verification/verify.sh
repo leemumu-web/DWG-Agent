@@ -115,7 +115,8 @@ assert_grep "$NGINX_DOCKER" 'X-Content-Type-Options'     "nginx.conf: nosniff"
 assert_grep "$NGINX_DOCKER" 'Referrer-Policy'             "nginx.conf: Referrer-Policy"
 
 # 1.9 关键指令 — 上传限制
-assert_grep "$NGINX_DOCKER" 'client_max_body_size 512m'  "nginx.conf: 上传 512MB"
+assert_grep "$NGINX_DOCKER" 'client_max_body_size 520m'  "nginx.conf: 512MB 上传加 multipart 余量"
+assert_grep "$NGINX_DOCKER" 'proxy_request_buffering off' "nginx.conf: 大文件上传流式转发"
 
 # 1.10 关键指令 — server_name
 assert_grep "$NGINX_DOCKER"   'dwg-agent\.company\.local'   "nginx.conf: server_name 规范 §2.1"
@@ -150,8 +151,6 @@ with open("compose.yaml") as f:
 svcs = data.get("services", {})
 errors = []
 workers = {
-    "worker-agent": "agent",
-    "worker-dispatch": "dispatch",
     "worker-dxf": "dxf",
     "worker-dxf-classification": "dxf_classification",
     "worker-dxf-split": "dxf_split",
@@ -301,7 +300,7 @@ assert_grep "$DOCKERFILE" 'ghcr.io/astral-sh/uv'   "Dockerfile: uv 安装"
 assert_grep "$DOCKERFILE" 'uv sync --frozen --no-dev'  "Dockerfile: uv sync"
 
 # 3.5 应用代码 (build context = 仓库根, 故源路径带 backend/ 前缀)
-assert_grep "$DOCKERFILE" 'COPY backend/app ./app'      "Dockerfile: COPY app"
+assert_grep "$DOCKERFILE" 'COPY backend/app /app/app'   "Dockerfile: COPY app 到编译阶段"
 assert_grep "$DOCKERFILE" 'COPY backend/alembic.ini'    "Dockerfile: COPY alembic.ini"
 assert_grep "$DOCKERFILE" 'COPY backend/migrations'     "Dockerfile: COPY migrations"
 

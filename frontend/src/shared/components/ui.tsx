@@ -23,7 +23,7 @@ export const JOB_STATUS: Record<string, StatusStyle> = {
   pending: { color: '#8c8c8c', bg: '#fafafa', border: '#f0f0f0', label: '待处理' },
   queued: { color: '#faad14', bg: '#fffbe6', border: '#fff1b8', label: '排队中' },
   running: { color: '#1677ff', bg: '#e6f4ff', border: '#bae0ff', label: '运行中' },
-  waiting_cad_worker: { color: '#722ed1', bg: '#f9f0ff', border: '#d3adf7', label: '等待 CAD Worker' },
+  waiting_cad_worker: { color: '#722ed1', bg: '#f9f0ff', border: '#d3adf7', label: '等待 CAD 处理' },
   validating: { color: '#08979c', bg: '#e6fffb', border: '#87e8de', label: '校验中' },
   need_review: { color: '#d48806', bg: '#fffbe6', border: '#ffe58f', label: '待复核' },
   succeeded: { color: '#52c41a', bg: '#f6ffed', border: '#b7eb8f', label: '成功' },

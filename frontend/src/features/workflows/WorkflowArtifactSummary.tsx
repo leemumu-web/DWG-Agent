@@ -1,9 +1,10 @@
 import { App, Button, Card, Tag, Typography } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
-import { describeApiError } from '../../shared/api';
+import { describeApiError, type TransferProgress } from '../../shared/api';
+import { TransferProgressBar } from '../../shared/components';
 import { downloadWorkflowArchive } from './workflows.api';
 import type { WorkflowArtifact } from './workflow';
 
@@ -15,6 +16,7 @@ export function WorkflowArtifactSummary({
   artifacts: WorkflowArtifact[];
 }) {
   const { message } = App.useApp();
+  const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
   const groups = useMemo(() => {
     const counts = new Map<string, number>();
     artifacts.forEach((artifact) => {
@@ -23,7 +25,7 @@ export function WorkflowArtifactSummary({
     return Array.from(counts.entries()).sort(([left], [right]) => left.localeCompare(right));
   }, [artifacts]);
   const archiveM = useMutation({
-    mutationFn: () => downloadWorkflowArchive(workflowId),
+    mutationFn: () => downloadWorkflowArchive(workflowId, setDownloadProgress),
     onError: (error) => message.error(describeApiError(error, '生产压缩包下载失败')),
   });
 
@@ -51,6 +53,9 @@ export function WorkflowArtifactSummary({
             <Tag key={artifactType}>{artifactType} × {count}</Tag>
           ))}
         </div>
+      )}
+      {downloadProgress && (
+        <TransferProgressBar label="全部生产产物下载" progress={downloadProgress} />
       )}
     </Card>
   );

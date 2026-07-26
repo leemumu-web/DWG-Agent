@@ -91,6 +91,7 @@ test('terminal workflow restores, downloads and asynchronously purges complete b
   let retention: Record<string, unknown> | null = null;
   let purgeStatusReads = 0;
   let submittedConfirmation: unknown;
+  let downloadRequested = false;
 
   const prepared = () => ({
     export_uid: '6ce11618-965c-4fc6-8310-f66cd184dfad',
@@ -159,6 +160,20 @@ test('terminal workflow restores, downloads and asynchronously purges complete b
     }
     await json(route, retention);
   });
+  await page.route(/\/api\/v1\/workflows\/51\/retention-exports\/[0-9a-f-]{36}\/download$/, async (route) => {
+    downloadRequested = true;
+    retention = { ...retention, status: 'downloading', updated_at: now };
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/zip',
+      headers: {
+        'content-disposition': "attachment; filename*=UTF-8''workflow-51-%E5%AE%8C%E6%95%B4%E5%A4%87%E4%BB%BD.zip",
+        'content-length': '8192',
+      },
+      body: Buffer.alloc(8192, 65),
+    });
+  });
   await page.route(/\/api\/v1\/workflows\/51$/, (route) => json(route, workflow));
 
   await page.goto('/');
@@ -186,7 +201,8 @@ test('terminal workflow restores, downloads and asynchronously purges complete b
   await restored.getByRole('button', { name: '下载完整备份' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toContain('workflow-51-完整备份.zip');
-  expect(download.url()).toContain('/download');
+  expect(downloadRequested).toBe(true);
+  await expect(restored.getByLabel('完整备份下载进度')).toHaveAttribute('aria-valuenow', '100');
   retention = {
     ...retention,
     status: 'downloaded',

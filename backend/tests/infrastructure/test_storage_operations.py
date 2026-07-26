@@ -242,6 +242,30 @@ class TestSeedIdempotency:
             code for code, *_ in PERMISSION_SEEDS
         }
 
+    def test_reseed_normalizes_legacy_extra_super_admin_to_admin(self, db):
+        init_db()
+        super_role = db.scalar(select(Role).where(Role.code == "super_admin"))
+        legacy = User(
+            username="legacy-extra-super-admin",
+            real_name="Legacy Extra Super Admin",
+            password_hash="not-used-in-this-test",
+            password_algo="argon2id",
+            status="active",
+        )
+        legacy.roles.append(super_role)
+        db.add(legacy)
+        db.commit()
+
+        init_db()
+        db.expire_all()
+        super_users = db.scalars(
+            select(User).join(User.roles).where(Role.code == "super_admin")
+        ).all()
+        assert [user.username for user in super_users] == [settings.super_admin_username]
+        normalized = db.scalar(select(User).where(User.username == legacy.username))
+        assert normalized is not None
+        assert {role.code for role in normalized.roles} == {"admin"}
+
 
 # ── requirement 3: reaper dry-run makes no changes ───────────────────────────
 

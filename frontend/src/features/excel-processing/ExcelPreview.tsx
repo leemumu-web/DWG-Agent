@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { downloadFile, fetchExcelPreview } from '../files';
 import type { ExcelPreviewResponse } from '../files';
+import { describeApiError } from '../../shared/api';
 import {
   buildFastColumns,
   isSummaryRow,
@@ -47,7 +48,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
         setActiveSheet(result.sheet || result.sheets[0]);
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '加载预览失败');
+      message.error(describeApiError(err, '加载预览失败'));
     } finally {
       setFastLoading(false);
     }
@@ -99,7 +100,7 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
     try {
       await downloadFile(fileId, fileName);
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '下载失败');
+      message.error(describeApiError(err, '下载失败'));
     }
   }, [fileId, fileName]);
 

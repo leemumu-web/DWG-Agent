@@ -22,6 +22,20 @@ from app.platform.observability.logging import configure_logging
 
 configure_logging()
 load_models()
+logger = logging.getLogger(__name__)
+
+
+def _log_http_failure(request: Request, *, status_code: int, code: str) -> None:
+    """Record only routing metadata needed to trace an operator request safely."""
+    logger.warning(
+        "Request rejected: request_id=%s method=%s path=%s status=%s code=%s content_length=%s",
+        getattr(request.state, "request_id", "unknown"),
+        request.method,
+        request.url.path,
+        status_code,
+        code,
+        request.headers.get("content-length", "unknown"),
+    )
 
 
 @asynccontextmanager
@@ -80,6 +94,11 @@ async def app_http_exception_handler(request: Request, exc: AppHTTPException):
         if isinstance(exc.detail, dict)
         else {"code": "ERROR", "message": str(exc.detail), "details": {}}
     )
+    _log_http_failure(
+        request,
+        status_code=exc.status_code,
+        code=str(detail.get("code", "ERROR")),
+    )
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": detail, "meta": meta(request.state.request_id)},
@@ -88,6 +107,7 @@ async def app_http_exception_handler(request: Request, exc: AppHTTPException):
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    _log_http_failure(request, status_code=exc.status_code, code="HTTP_ERROR")
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -99,6 +119,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    _log_http_failure(request, status_code=422, code="VALIDATION_ERROR")
     return JSONResponse(
         status_code=422,
         content={
@@ -115,7 +136,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     """Catch-all handler — logs the full traceback but never leaks it to clients."""
-    logging.getLogger(__name__).exception("Unhandled exception: %s", exc)
+    logger.exception(
+        "Unhandled exception: request_id=%s method=%s path=%s",
+        getattr(request.state, "request_id", "unknown"),
+        request.method,
+        request.url.path,
+    )
     return JSONResponse(
         status_code=500,
         content={

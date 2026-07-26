@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import {
   CheckCircleOutlined,
   CloudUploadOutlined,
@@ -27,23 +27,29 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { describeApiError } from '../../shared/api';
+import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
 import {
   clearWorkflowInputFolder,
   createWorkflowInputBatch,
   freezeWorkflowInputBatch,
   getWorkflowInputBatch,
   requestWorkflowInputConversions,
+  restoreWorkflowInputFolder,
   uploadWorkflowInputDwgFolder,
   uploadWorkflowInputExcel,
 } from './workflow-inputs.api';
 import { getWorkflow } from './workflows.api';
-import { ApiErrorAlert, fmtDateTime, fmtSize } from '../../shared/components';
+import {
+  ApiErrorAlert,
+  fmtDateTime,
+  fmtSize,
+  TransferProgressBar,
+} from '../../shared/components';
 import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
+import { limitFolderUploadFiles, MAX_FOLDER_FILES } from '../files';
 
 const ACTIVE_BATCH = new Set(['converting']);
 const ACTIVE_JOB = new Set(['queued', 'running', 'retrying']);
-const MAX_FOLDER_FILES = 1000;
 
 function itemStatus(item: WorkflowInputItem) {
   if (item.status === 'paired') return <Tag color="success">已配对</Tag>;
@@ -58,7 +64,9 @@ function inspectionWarnings(item: WorkflowInputItem): string[] {
   if (!inspection || typeof inspection !== 'object') return [];
   const warnings = (inspection as Record<string, unknown>).warnings;
   return Array.isArray(warnings)
-    ? warnings.filter((warning): warning is string => typeof warning === 'string')
+    ? warnings
+      .filter((warning): warning is string => typeof warning === 'string')
+      .map((warning) => operatorErrorMessage(undefined, warning, '输入内容需要人工核对。'))
     : [];
 }
 
@@ -75,6 +83,7 @@ export function ProductionInputPanel({
   const queryClient = useQueryClient();
   const excelInput = useRef<HTMLInputElement>(null);
   const dwgFolderInput = useRef<HTMLInputElement>(null);
+  const [dwgUploadProgress, setDwgUploadProgress] = useState<TransferProgress | null>(null);
 
   const requireCurrentSourceIntake = async () => {
     if (!sourceIntakeActive) {
@@ -107,8 +116,23 @@ export function ProductionInputPanel({
       await requireCurrentSourceIntake();
       return clearWorkflowInputFolder(workflowId);
     },
-    onSuccess: () => { message.success('生产输入文件夹已清空，可重新选择完整文件夹'); refresh(); },
+    onSuccess: () => {
+      setDwgUploadProgress(null);
+      message.success('生产输入文件夹已清空，可重新选择完整文件夹');
+      refresh();
+    },
     onError: (error) => message.error(describeApiError(error, '清空失败')),
+  });
+  const restoreM = useMutation({
+    mutationFn: async () => {
+      await requireCurrentSourceIntake();
+      return restoreWorkflowInputFolder(workflowId);
+    },
+    onSuccess: (result) => {
+      refresh(result);
+      message.success(`已恢复 ${result.counts.dwg} 个 DWG 和 ${result.counts.excel} 个 Excel，并重新核验源文件`);
+    },
+    onError: (error) => message.error(describeApiError(error, '恢复最近清空失败')),
   });
   const convertM = useMutation({
     mutationFn: async () => {
@@ -143,13 +167,16 @@ export function ProductionInputPanel({
   const uploadDwgFolderM = useMutation({
     mutationFn: async (files: File[]) => {
       await requireCurrentSourceIntake();
-      return uploadWorkflowInputDwgFolder(workflowId, files);
+      return uploadWorkflowInputDwgFolder(workflowId, files, setDwgUploadProgress);
     },
     onSuccess: (result) => {
       refresh(result);
       message.success(`DWG 文件夹已上传并校验，共 ${result.counts.dwg} 张图纸`);
     },
-    onError: (error) => message.error(describeApiError(error, 'DWG 文件夹上传失败')),
+    onError: (error) => {
+      setDwgUploadProgress(null);
+      message.error(describeApiError(error, 'DWG 文件夹上传失败'));
+    },
   });
 
   const handleExcel = (file: File | undefined) => {
@@ -169,8 +196,9 @@ export function ProductionInputPanel({
       message.error('请选择一个至少包含一个 DWG 的完整文件夹');
       return;
     }
-    const limitedSelection = selected.slice(0, MAX_FOLDER_FILES);
-    const omittedCount = selected.length - limitedSelection.length;
+    const limited = limitFolderUploadFiles(selected);
+    const limitedSelection = limited.files;
+    const omittedCount = limited.omittedCount;
     if (omittedCount > 0) {
       message.error(`文件夹包含 ${selected.length} 个文件，超过上限；仅取前 ${MAX_FOLDER_FILES} 个文件上传，后 ${omittedCount} 个文件已忽略。`);
     }
@@ -237,7 +265,11 @@ export function ProductionInputPanel({
     {
       title: '反馈', key: 'feedback',
       render: (_: unknown, item: WorkflowInputItem) => item.error_code
-        ? <Typography.Text type="danger">{item.error_code}：{item.error_message}</Typography.Text>
+        ? <Typography.Text type="danger">{operatorErrorMessage(
+          item.error_code,
+          item.error_message,
+          '该文件未能完成入库处理，请核对文件后重新上传。',
+        )}</Typography.Text>
         : <>
           {item.drawing_id ? <Typography.Link href="/drawings">图纸 #{item.drawing_id}</Typography.Link> : <Typography.Text type="secondary">{item.role === 'source_dwg' ? `将配对为 ${item.normalized_stem}.dxf` : '批次级数据表'}</Typography.Text>}
           {inspectionWarnings(item).map((warning) => <Alert key={warning} style={{ marginTop: 8 }} type="warning" showIcon message="输入提醒" description={warning} />)}
@@ -264,12 +296,33 @@ export function ProductionInputPanel({
         <input ref={dwgFolderInput} type="file" multiple hidden {...{ webkitdirectory: '', directory: '' }} onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ''; handleDwgFolder(files); }} />
         <Button type="primary" icon={<FileExcelOutlined />} loading={uploadExcelM.isPending} disabled={excelExists || uploadDwgFolderM.isPending} onClick={() => excelInput.current?.click()}>上传 Excel 文件</Button>
         <Button type="primary" icon={<CloudUploadOutlined />} loading={uploadDwgFolderM.isPending} disabled={Boolean(batch?.counts.dwg) || uploadExcelM.isPending} onClick={() => dwgFolderInput.current?.click()}>选择 DWG 文件夹</Button>
-        {Boolean(batch?.items.length) && <Popconfirm title="清空整个生产输入文件夹？" description="冻结前可整批清空后重新选择；不支持逐个替换。" onConfirm={() => clearM.mutate()}><Button danger loading={clearM.isPending}>整批清空</Button></Popconfirm>}
+        {Boolean(batch?.items.length) && <Popconfirm title="确认从当前流程移除全部输入？" description="将移除本批 Excel、全部 DWG 及其处理关联；原始文件仍保留，可用“恢复最近清空”重新核验并登记。" okText="确认整批清空" cancelText="保留当前输入" onConfirm={() => clearM.mutate()}><Button danger loading={clearM.isPending}>整批清空</Button></Popconfirm>}
+        {Boolean(batch?.recoverable_file_count) && !batch?.items.length && <Button icon={<ReloadOutlined />} loading={restoreM.isPending} onClick={() => restoreM.mutate()}>恢复最近清空（{batch?.recoverable_file_count} 个文件）</Button>}
         <Button icon={<SyncOutlined spin={convertM.isPending} />} loading={convertM.isPending} disabled={uploadExcelM.isPending || uploadDwgFolderM.isPending || !batch?.counts.dwg || !excelExists} onClick={() => convertM.mutate()}>{batch?.counts.failed ? '重试失败转换' : '生成并校验 DXF'}</Button>
         <Popconfirm title="确认冻结本批输入？" description="冻结后不可修改；系统将创建图纸处理单元并进入下一阶段。" okText="确认冻结" cancelText="继续检查" onConfirm={() => freezeM.mutate()}><Button type="primary" icon={<LockOutlined />} loading={freezeM.isPending} disabled={!batch?.freeze_ready}>冻结输入版本</Button></Popconfirm>
       </Space>}
+      {dwgUploadProgress && (
+        <div style={{ maxWidth: 560, marginTop: 14 }}>
+          <TransferProgressBar label="DWG 文件夹上传" progress={dwgUploadProgress} />
+        </div>
+      )}
       <div aria-live="polite">
-        {batch?.issues.map((issue) => <Alert key={`${issue.item_id ?? 'batch'}-${issue.code}`} style={{ marginTop: 12 }} type="error" showIcon message={`${issue.file_name ? `${issue.file_name} · ` : ''}${issue.code}`} description={<><div>{issue.message}</div><Typography.Text strong>建议：{issue.recommended_action}</Typography.Text></>} />)}
+        {batch?.issues.map((issue) => <Alert
+          key={`${issue.item_id ?? 'batch'}-${issue.code}`}
+          className="operator-error-alert"
+          style={{ marginTop: 12 }}
+          type="error"
+          showIcon
+          message={issue.file_name ? `${issue.file_name} · 文件处理提醒` : '本批输入处理提醒'}
+          description={<>
+            <div>{operatorErrorMessage(issue.code, issue.message, '输入文件未通过检查。')}</div>
+            <Typography.Text strong>建议：{operatorErrorMessage(
+              undefined,
+              issue.recommended_action,
+              '按当前文件提示修正后重新上传。',
+            )}</Typography.Text>
+          </>}
+        />)}
       </div>
 
       <Table style={{ marginTop: 16 }} rowKey="id" size="small" pagination={false} dataSource={batch?.items ?? []} columns={columns} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未上传生产输入" /> }} scroll={{ x: 880 }} />

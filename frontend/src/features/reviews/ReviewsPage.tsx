@@ -41,6 +41,7 @@ import {
   StatCard,
   StatGrid,
 } from '../../shared/components';
+import { describeApiError } from '../../shared/api';
 
 type Decision = 'approved' | 'rejected' | 'needs_revision';
 
@@ -106,7 +107,7 @@ export function ReviewsPage() {
       setDetail(null);
       reviewForm.resetFields();
     } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : '提交失败');
+      message.error(describeApiError(e, '提交失败'));
     }
     setSubmitting(false);
   }

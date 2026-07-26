@@ -797,6 +797,36 @@ def get_excel_split_handoff(
 ) -> DxfSplitExcelHandoff:
     run = latest_split_run(db, workflow_id)
     if run is None:
+        workflow = db.get(WorkflowRun, workflow_id)
+        drawing_stage = (
+            next(
+                (
+                    stage
+                    for stage in workflow.stages
+                    if stage.stage_code == "drawing_processing"
+                ),
+                None,
+            )
+            if workflow is not None
+            else None
+        )
+        skip = drawing_stage.output_json if drawing_stage is not None else None
+        if (
+            drawing_stage is not None
+            and drawing_stage.status == "skipped"
+            and isinstance(skip, dict)
+            and skip.get("reason") == "no_split_candidates"
+            and isinstance(skip.get("input_manifest_sha256"), str)
+        ):
+            return DxfSplitExcelHandoff(
+                workflow_id=workflow_id,
+                mode="no_split_candidates",
+                split_run_id=None,
+                job_attempt=None,
+                input_manifest_sha256=str(skip["input_manifest_sha256"]),
+                bh_split_ledger_file_id=None,
+                drawings=[],
+            )
         raise AppHTTPException(
             409,
             "DXF_SPLIT_RUN_REQUIRED",
@@ -890,6 +920,7 @@ def get_excel_split_handoff(
         )
     return DxfSplitExcelHandoff(
         workflow_id=workflow_id,
+        mode="split_results",
         split_run_id=run.id,
         job_attempt=run.job_attempt,
         input_manifest_sha256=run.input_manifest_sha256,

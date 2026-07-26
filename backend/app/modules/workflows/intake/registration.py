@@ -34,6 +34,7 @@ from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError, StorageObjectNotFound
 
 _WHITESPACE = re.compile(r"\s+")
+MAX_INPUT_DWG_FILES = 1000
 ACTIVE_INPUT_JOB_STATUSES = {
     "pending",
     "queued",
@@ -79,6 +80,16 @@ def validate_input_dwg_folder_manifest(
             422,
             "INPUT_FOLDER_MANIFEST_INVALID",
             "The folder manifest must describe every uploaded file exactly once.",
+        )
+    if len(upload_names) > MAX_INPUT_DWG_FILES:
+        raise AppHTTPException(
+            413,
+            "INPUT_FOLDER_TOO_MANY_FILES",
+            f"The selected folder may contain at most {MAX_INPUT_DWG_FILES} uploaded files.",
+            {
+                "maximum_files": MAX_INPUT_DWG_FILES,
+                "selected_files": len(upload_names),
+            },
         )
 
     roots: set[str] = set()

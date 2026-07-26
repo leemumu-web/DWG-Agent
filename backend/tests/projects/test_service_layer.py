@@ -422,9 +422,10 @@ class TestUserServiceAPI:
         resp = client.post(
             f"/api/v1/users/{uid}/password-reset-requests",
             headers=admin_h,
+            json={"new_password": "ServiceResetPass123"},
         )
         assert resp.status_code == 200
-        assert "temp_password" in resp.json()["data"]
+        assert "temp_password" not in resp.json()["data"]
 
     def test_reset_password_audit_log_has_ip(self):
         client = _client()
@@ -437,7 +438,11 @@ class TestUserServiceAPI:
         )
         uid = resp.json()["data"]["id"]
 
-        client.post(f"/api/v1/users/{uid}/password-reset-requests", headers=admin_h)
+        client.post(
+            f"/api/v1/users/{uid}/password-reset-requests",
+            headers=admin_h,
+            json={"new_password": "AuditResetPass123"},
+        )
         audit = client.get("/api/v1/audit-logs", headers=admin_h)
         logs = audit.json()["data"]
         reset_log = next((log for log in logs if log["action"] == "users.password_reset"), None)

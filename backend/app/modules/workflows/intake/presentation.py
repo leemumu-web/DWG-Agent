@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.modules.files.interface import FileRead, StoredFile
 from app.modules.jobs.interface import Job, JobRead
 from app.modules.workflows.intake.conversion import sync_input_batch
+from app.modules.workflows.intake.recovery import recoverable_input_file_ids
 from app.modules.workflows.models import WorkflowInputBatch
 from app.modules.workflows.schemas import (
     WorkflowInputBatchRead,
@@ -111,6 +112,9 @@ def describe_input_batch(
         items=item_reads,
         issues=issues,
         freeze_ready=batch.status in {"ready_to_freeze", "frozen"},
+        recoverable_file_count=(
+            0 if batch.items else len(recoverable_input_file_ids(db, batch))
+        ),
         created_at=batch.created_at,
         updated_at=batch.updated_at,
     )

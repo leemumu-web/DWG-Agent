@@ -14,7 +14,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
-import { API_BASE } from '../support/test-env';
+import {
+  ADMIN_PASSWORD,
+  ADMIN_USERNAME,
+  API_BASE,
+  DXF2DWG_PIPELINE_ENABLED,
+  DXF_PIPELINE_ENABLED,
+} from '../support/test-env';
 
 // ── direction matrix ─────────────────────────────────────────────────────────
 
@@ -29,6 +35,7 @@ const DIRECTIONS = [
     uploadBtnPattern: /上传 DWG 文件/,
     downloadSourceBtn: /下载 DWG/,
     downloadResultBtn: '下载 DXF',
+    pipelineEnabled: DXF_PIPELINE_ENABLED,
   },
   {
     name: 'DXF→DWG',
@@ -40,6 +47,7 @@ const DIRECTIONS = [
     uploadBtnPattern: /上传 DXF 文件/,
     downloadSourceBtn: /下载 DXF/,
     downloadResultBtn: '下载 DWG',
+    pipelineEnabled: DXF2DWG_PIPELINE_ENABLED,
   },
 ] as const;
 
@@ -50,7 +58,7 @@ type Direction = (typeof DIRECTIONS)[number];
 /** Log in by injecting a valid token into this tab's sessionStorage. */
 async function login(page: Page, route: string) {
   const apiResp = await page.request.post(`${API_BASE}/api/v1/auth/sessions`, {
-    data: { username: 'admin', password: 'SuperAdminPass1' },
+    data: { username: ADMIN_USERNAME, password: ADMIN_PASSWORD },
   });
   const body = await apiResp.json();
   await page.goto('/');
@@ -152,13 +160,14 @@ async function createRetryableFixture(page: Page, dir: Direction): Promise<numbe
 async function ensureSourceFixture(page: Page, dir: Direction): Promise<boolean> {
   const token = await page.evaluate(() => sessionStorage.getItem('dwg_access_token'));
   expect(token).toBeTruthy();
-  const listed = await page.request.get(`${API_BASE}/api/v1/files`, {
-    headers: { Authorization: `Bearer ${token}` },
-    params: { file_ext: dir.fileExt, page: 1, page_size: 1 },
-  });
-  expect(listed.status()).toBe(200);
-  const body = await listed.json();
-  if ((body.pagination?.total ?? body.data?.length ?? 0) > 0) return false;
+  const rows = page.locator('.ant-table-row');
+  const emptyState = page.getByText(dir.emptyFileText, { exact: true });
+  await expect.poll(async () => {
+    if (await rows.count() > 0) return 'row';
+    if (await emptyState.isVisible().catch(() => false)) return 'empty';
+    return 'loading';
+  }, { timeout: 10_000 }).not.toBe('loading');
+  if (await rows.count() > 0) return false;
 
   const fixture = minimalSourceFixture(dir);
   const uploaded = await page.request.post(`${API_BASE}/api/v1/files`, {
@@ -297,11 +306,13 @@ for (const dir of DIRECTIONS) {
       if (await ensureSourceFixture(page, dir)) {
         await page.reload({ waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('button', { name: dir.uploadBtnPattern })).toBeVisible();
+        await expect(page.locator('.ant-table-row').first()).toBeVisible();
       }
     });
 
     // ── 1. Upload single file ────────────────────────────────────────
   test('upload single file → file created + job enqueued', async ({ page }) => {
+    test.skip(!dir.pipelineEnabled, `${dir.name} pipeline is disabled in this deployment`);
     const samples = findSamples(dir.samplesDir, dir.fileExt);
     test.skip(samples.length === 0, `No sample ${dir.fileExt} files found`);
 
@@ -403,6 +414,95 @@ for (const dir of DIRECTIONS) {
     ]);
 
     expect(delResp.status()).toBe(204);
+  });
+
+  test('source and converted original names stay visible with an explicit preview origin', async ({ page }) => {
+    await mockConversionState(page, dir);
+    await page.reload();
+
+    await expect(page.getByRole('columnheader', { name: '原文件名' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: '转换后文件名' })).toBeVisible();
+    const row = page.locator('.ant-table-row[data-row-key="91001"]');
+    await expect(row.getByText(`state-1${dir.fileExt}`, { exact: true })).toBeVisible();
+    const convertedName = `state-1${dir.fileExt === '.dwg' ? '.dxf' : '.dwg'}`;
+    await expect(row.getByText(convertedName, { exact: true })).toBeVisible();
+    if (dir.fileExt === '.dxf') {
+      await expect(row.getByRole('button', { name: '预览原始 DXF' })).toBeVisible();
+    } else {
+      await expect(row.getByRole('button', { name: '预览转换后 DXF' })).toBeVisible();
+    }
+  });
+
+  test('result download resolves the registered result original name', async ({ page }) => {
+    await mockConversionState(page, dir);
+    const resultFileId = dir.fileExt === '.dwg' ? 94_001 : 94_002;
+    const resultExt = dir.fileExt === '.dwg' ? '.dxf' : '.dwg';
+    const registeredName = `服务端登记结果${resultExt}`;
+    let metadataRequests = 0;
+    const now = new Date().toISOString();
+    await page.route('**/api/v1/workflows/jobs/92001/results?**', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: [{
+          id: 95_001,
+          job_id: 92_001,
+          result_type: dir.taskType,
+          result_file_id: resultFileId,
+          status: 'succeeded',
+          created_at: now,
+          updated_at: now,
+        }],
+        pagination: { page: 1, page_size: 200, total: 1, total_pages: 1 },
+        meta: { request_id: 'registered-result', timestamp: now },
+      }),
+    }));
+    await page.route(`**/api/v1/files/${resultFileId}`, (route) => {
+      metadataRequests += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            id: resultFileId,
+            bucket: 'playwright',
+            storage_key: `playwright/${registeredName}`,
+            original_name: registeredName,
+            file_ext: resultExt,
+            content_type: 'application/octet-stream',
+            size_bytes: 32,
+            sha256: 'a'.repeat(64),
+            status: 'available',
+            created_at: now,
+            updated_at: now,
+          },
+          meta: { request_id: 'registered-result-file', timestamp: now },
+        }),
+      });
+    });
+    await page.route(`**/api/v1/files/${resultFileId}/download-url`, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: { url: `/api/v1/files/${resultFileId}/download`, expires_in: 300 },
+        meta: { request_id: 'registered-result-download', timestamp: now },
+      }),
+    }));
+    await page.route(`**/api/v1/files/${resultFileId}/download`, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/octet-stream',
+      headers: { 'content-disposition': `attachment; filename="${registeredName}"` },
+      body: Buffer.alloc(32, 65),
+    }));
+    await page.reload();
+
+    const row = page.locator('.ant-table-row[data-row-key="91001"]');
+    const download = page.waitForEvent('download');
+    await row.getByRole('button', { name: dir.downloadResultBtn }).click();
+    const downloaded = await download;
+    expect(downloaded.suggestedFilename()).toBe(registeredName);
+    expect(metadataRequests).toBe(1);
+    await downloaded.delete();
   });
 
   // ── 6. Zip modal: format checkboxes control download button ─────────
@@ -540,8 +640,9 @@ for (const dir of DIRECTIONS) {
     await expect(dialog).toBeVisible();
     await expect(nameInput).toHaveValue('保留名称');
     await expect(page.getByText(
-      '所选格式当前不完整，请重新检查。 [FILE_EXPORT_FORMAT_UNAVAILABLE]（请求 playwright-zip-conflict）',
+      '所选格式当前不完整，请重新检查。（请求编号 playwright-zip-conflict）',
     )).toBeVisible();
+    await expect(page.getByText(/FILE_EXPORT_FORMAT_UNAVAILABLE/)).toHaveCount(0);
   });
 
   // ── 8. Zip download → POST /files/download-zip → 200 + blob ──────
@@ -560,11 +661,23 @@ for (const dir of DIRECTIONS) {
     // Source format is selected by default. The target format is enabled only
     // when every selected source has a registered conversion result.
     await expect(dialog.getByRole('button', { name: /开始下载/ })).toBeEnabled();
+    await page.route('**/api/v1/files/download-zip', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: {
+          'content-disposition': 'attachment; filename="e2e_test.zip"',
+          'content-length': '8192',
+        },
+        body: Buffer.alloc(8192, 65),
+      });
+    });
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 30_000 }),
-      dialog.getByRole('button', { name: /开始下载/ }).click(),
-    ]);
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
+    await dialog.getByRole('button', { name: /开始下载/ }).click();
+    await expect(dialog.getByLabel('图纸打包下载进度')).toBeVisible();
+    const download = await downloadPromise;
 
     expect(download.suggestedFilename()).toMatch(/e2e_test\.zip$/);
     await download.delete();
@@ -613,6 +726,7 @@ for (const dir of DIRECTIONS) {
 
   // ── 11. "重新提交" button → POST /jobs/{id}/retry-requests ──────
   test('"重新提交" → POST /jobs/{id}/retry-requests', async ({ page }) => {
+    test.skip(!dir.pipelineEnabled, `${dir.name} pipeline is disabled in this deployment`);
     const fileId = await createRetryableFixture(page, dir);
     await page.reload();
     const row = page.locator(`.ant-table-row[data-row-key="${fileId}"]`);
@@ -680,9 +794,9 @@ for (const dir of DIRECTIONS) {
   // ── 13. Batch cards → navigate into batch detail ─────────────────
   test('batch card click → batch detail with breadcrumb', async ({ page }) => {
     const cards = page.locator('.folder-card');
-    await expect(cards.first()).toBeVisible({ timeout: 10_000 });
     const cardCount = await cards.count();
     test.skip(cardCount === 0, 'No batch cards');
+    await expect(cards.first()).toBeVisible({ timeout: 10_000 });
 
     await cards.first().locator('.ant-card-meta-title').click();
 
@@ -855,7 +969,8 @@ for (const dir of DIRECTIONS) {
     await page.getByRole('button', { name: '全选 2 个文件夹' }).click();
     await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
     await page.getByRole('button', { name: '确认删除' }).click();
-    await expect(page.getByText('删除失败，请重试 [DELETE_FAILED]（请求 playwright-delete-failed）')).toBeVisible();
+    await expect(page.getByText('删除失败，请重试（请求编号 playwright-delete-failed）')).toBeVisible();
+    await expect(page.getByText(/DELETE_FAILED/)).toHaveCount(0);
     await expect(page.getByText('已选 2 个文件夹')).toBeVisible();
     await expect(page.locator('.folder-card input[type="checkbox"]:checked')).toHaveCount(2);
   });
@@ -880,8 +995,9 @@ for (const dir of DIRECTIONS) {
     await page.getByRole('button', { name: '删除 2 个文件夹' }).click();
     await page.getByRole('button', { name: '确认删除' }).click();
     await expect(page.getByText(
-      '请求参数错误：batch_names[1]：文件夹名称不能为空 [VALIDATION_ERROR]（请求 playwright-validation）',
+      '请求参数错误：文件夹名称不能为空（请求编号 playwright-validation）',
     )).toBeVisible();
+    await expect(page.getByText(/VALIDATION_ERROR|batch_names/)).toHaveCount(0);
   });
   });
 }

@@ -42,7 +42,7 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 |---:|---|---|---|
 | 1 | `source_intake` | guarded | 登记 `source_dwg` 与 `source_excel`；服务器生成 `canonical_dxf`，创建指向 DXF 的 DrawingVersion 后冻结输入清单 |
 | 2 | `dxf_classification` | automated | 消费 `canonical_dxf`；产出 `classified_dxf`、JSON 报告和清单 |
-| 3 | `drawing_processing` | automated | 整批消费 `classified_dxf`；BH/BOX 通过 Steel DXF Split 1.5.2 生成正常拆板与余量增长 DXF，并由独立步骤重开校验；其他类型或未通过图纸保留明确原因且不进入正式交接；产出 7 类正式 artifact |
+| 3 | `drawing_processing` | automated | 整批消费 `classified_dxf`；BH/BOX 通过 Steel DXF Split 1.5.2 生成正常拆板与余量增长 DXF，并由独立步骤重开校验；其他类型或未通过图纸保留明确原因且不进入正式交接；若没有任何 BH/BOX 候选则明确跳过本阶段并以 `no_split_candidates` 解锁 Excel；产出 7 类正式 artifact |
 | 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，同时接收当前拆板 run 的 `processed_dxf` 与 `BH拆板信息表.xlsx` 交接，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
 | 5 | `excel_stage2` | placeholder | 消费 `stage1_excel` 与 `processed_dxf`，预留 `stage2_excel`；当前等待上线 |
 | 6 | `design_barrier` | manual | 人工确认图纸和 `stage2_excel` 已满足后续生产条件 |
@@ -288,7 +288,7 @@ maintenance queue 后立即返回 202；前端轮询持久状态，不把长删�
 | 409 | `EXCEL_STAGE_SINGLE_FILE_DOWNLOAD_REQUIRED` | 试图通过通用阶段 ZIP 入口下载 Excel；应改用唯一结果下载端点 |
 | 409 | `WORKFLOW_EXPORT_CATEGORY_EMPTY` / `WORKFLOW_EXPORT_FILENAME_INVALID` / `WORKFLOW_EXPORT_FILENAME_CONFLICT` | 选中类别为空、登记名不适合安全 ZIP 路径，或保留原文件名会产生路径冲突 |
 | 409 | `DXF_SPLIT_EXPORT_PAIR_REQUIRED` / `DXF_SPLIT_EXPORT_INCOMPLETE` | 正式拆板 ZIP 没有同时选择两类配对文件，或配对文件引用/可用数量与自动通过数不一致 |
-| 403/410 | `WORKFLOW_EXPORT_TOKEN_INVALID` / `WORKFLOW_EXPORT_TOKEN_EXPIRED` | 原生下载的路径级能力无效或过期；源文件不删除 |
+| 403/410 | `WORKFLOW_EXPORT_TOKEN_INVALID` / `WORKFLOW_EXPORT_TOKEN_EXPIRED` | 下载的路径级能力无效或过期；源文件不删除 |
 | 409 | `WORKFLOW_EXPORT_MANIFEST_STALE` / `WORKFLOW_EXPORT_NOT_DOWNLOADED` / `WORKFLOW_EXPORT_PURGE_ACTIVE_STAGE` | 冻结登记变化、服务端尚未完整发送 ZIP，或仍有 queued/running stage |
 | 503 | `WORKFLOW_EXPORT_PURGE_FAILED` | 对象清理未完整完成；查看 `workflow_export_purge` 流水和一致性扫描后重试 |
 
@@ -309,8 +309,8 @@ React `生产流程` 页面读取模板，提供：
 - 冻结后服务端解锁 DXF 分类，但详情工作区保留在刚完成的输入阶段；操作员主动点击已解锁阶段后进入分类控制台；
 - 分类开始/重试、Job 进度、类型汇总、逐图处置/诊断以及分类/全量 DXF-only 下载；JSON/CSV 只进入审计产物；
 - 拆板整批启动、当前 Job/attempt 进度、输入/正式配对/未形成正式结果汇总和逐图原因展示；
-- Stage A3 拆板卡片标题栏右侧的“分批导出”：四类勾选、原生浏览器流式下载、下载完成状态、明确“暂不删除”和第二次不可恢复清理确认；该入口不出现在全局“生产产物与证据”区；
-- 拆板卡片提供正式配对结果和本批全部分类原图两个异步原生下载入口；不展示候选图、算法报告或逐图人工复核工作台；
+- Stage A3 拆板卡片标题栏右侧的“分批导出”：四类勾选、受认证 Blob 下载、字节进度、下载完成状态、明确“暂不删除”和第二次不可恢复清理确认；该入口不出现在全局“生产产物与证据”区；
+- 拆板卡片提供正式配对结果和本批全部分类原图两个异步进度下载入口；不展示候选图、算法报告或逐图人工复核工作台；
 - Excel 第一阶段先显示五层预检；预检通过后只提交 `execution_kind`，正式执行再次运行同一门禁。服务端自动使用冻结 `source_excel`，页面不存在第二个文件选择器；成功结果只下载一个 `.xlsx`；
 - Excel 第二阶段及 CAM/归档节点只展示等待上线和输入/产物合同，不发送必然失败的探测请求；
 - Job/attempt/进度/错误展示；
@@ -320,7 +320,7 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、Excel 同规则预检与单 `.xlsx` 下载、严格执行体、拆板整批单次执行、当前 attempt 产物过滤、正式配对结果数量守恒、流式 ZIP、下载中断保留、确认后对象与预览缓存物理删除、迁移和 Excel 交接，以及 `excel_stage2` 未实现门禁和产物挂接；前端合同和真实浏览器验收锁定阶段完成后只解锁且不自动切换、第三阶段异步原生下载、40 张原图完整保留，以及正式包仅含 `原长/`、`余量增长后短文件/` 各 40 张 DXF。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
+新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、Excel 同规则预检与单 `.xlsx` 下载、严格执行体、拆板整批单次执行、当前 attempt 产物过滤、正式配对结果数量守恒、流式 ZIP、下载中断保留、确认后对象与预览缓存物理删除、迁移和 Excel 交接，以及 `excel_stage2` 未实现门禁和产物挂接；前端合同和真实浏览器验收锁定阶段完成后只解锁且不自动切换、第三阶段异步字节进度下载、40 张原图完整保留，以及正式包仅含 `原长/`、`余量增长后短文件/` 各 40 张 DXF。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 

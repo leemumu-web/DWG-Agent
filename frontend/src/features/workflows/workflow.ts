@@ -87,7 +87,7 @@ export interface WorkflowExcelStagePreflight {
   source_file_id: number;
   source_file_name: string;
   input_contract_version: number;
-  split_run_id: number;
+  split_run_id: number | null;
   official_pair_count: number;
   checks: WorkflowExcelPreflightCheck[];
 }

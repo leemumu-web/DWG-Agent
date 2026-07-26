@@ -110,7 +110,7 @@ def test_admin_cannot_disable_self_via_user_patch():
     )
 
     assert response.status_code == 400, response.text
-    assert response.json()["error"]["code"] == "CANNOT_DISABLE_SELF"
+    assert response.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
 def test_admin_cannot_remove_own_role():
@@ -127,7 +127,7 @@ def test_admin_cannot_remove_own_role():
     )
 
     assert response.status_code == 400, response.text
-    assert response.json()["error"]["code"] == "CANNOT_REMOVE_OWN_ROLE"
+    assert response.json()["error"]["code"] == "SUPER_ADMIN_ACCOUNT_PROTECTED"
 
 
 def test_create_user_integrity_error_returns_conflict():

@@ -358,6 +358,22 @@ def test_excel_final_stage_root_resolves_tracked_standalone_layout():
     assert (stage_root / "material_routing.py").is_file()
 
 
+def test_excel_final_stage_root_accepts_protected_bytecode_layout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    stage_root = tmp_path / "protected-excel-final"
+    stage_root.mkdir()
+    for source_name in excel_final._REQUIRED_STAGE_FILES:
+        (stage_root / Path(source_name).with_suffix(".pyc")).write_bytes(b"protected")
+
+    monkeypatch.setattr(excel_final.settings, "excel_final_stage_root", stage_root)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+
+    assert excel_final.get_excel_final_stage_root() == stage_root.resolve()
+    assert stage_runner._configure_stage_imports(stage_root) == stage_root.resolve()
+
+
 def test_excel_final_stage_root_failure_does_not_disclose_checked_paths(
     monkeypatch,
     tmp_path: Path,

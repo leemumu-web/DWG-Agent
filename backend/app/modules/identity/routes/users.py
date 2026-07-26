@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 from app.modules.identity.access import is_admin, require_roles, user_role_codes
 from app.modules.identity.authentication import record_password_change
 from app.modules.identity.dependencies import get_current_user
-from app.modules.identity.models.role import Role
+from app.modules.identity.models.role import Role, user_roles
 from app.modules.identity.models.user import User
 from app.modules.identity.schemas.user import (
+    AdminPasswordResetRequest,
     AssignRoleRequest,
     UserCreate,
     UserRead,
@@ -37,24 +38,20 @@ from app.platform.http.exceptions import AppHTTPException, forbidden, not_found
 router = APIRouter()
 
 
-def _require_super_admin_role_manager(current_user: User, role_code: str) -> None:
-    if role_code == ROLE_SUPER_ADMIN and ROLE_SUPER_ADMIN not in user_role_codes(current_user):
-        raise forbidden("Only super_admin can manage the super_admin role.")
-
-
-_CANNOT_MANAGE_SUPER_ADMIN = AppHTTPException(
+_SUPER_ADMIN_ACCOUNT_PROTECTED = AppHTTPException(
     400,
-    "CANNOT_MANAGE_SUPER_ADMIN",
-    "Only super_admin can manage super_admin accounts.",
+    "SUPER_ADMIN_ACCOUNT_PROTECTED",
+    "The sole super_admin account cannot be disabled, deleted, demoted, or taken over.",
 )
 
 
-def _require_super_admin_target(db: Session, current_user: User, target_user: User) -> None:
-    """Raise if *current_user* is not super_admin but *target_user* is."""
-    if ROLE_SUPER_ADMIN not in user_role_codes(current_user) and ROLE_SUPER_ADMIN in user_role_codes(
-        target_user
-    ):
-        raise _CANNOT_MANAGE_SUPER_ADMIN
+def _is_super_admin(user: User) -> bool:
+    return ROLE_SUPER_ADMIN in user_role_codes(user)
+
+
+def _protect_super_admin_account(target_user: User) -> None:
+    if _is_super_admin(target_user):
+        raise _SUPER_ADMIN_ACCOUNT_PROTECTED
 
 
 @router.get("")
@@ -157,7 +154,8 @@ def update_user_api(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     user = get_user_or_404(db, user_id, for_update=True)
-    _require_super_admin_target(db, current_user, user)
+    if payload.status == DISABLED:
+        _protect_super_admin_account(user)
     if user.id == current_user.id and payload.status is not None and payload.status != ACTIVE:
         raise AppHTTPException(
             400, "CANNOT_DISABLE_SELF", "Admin cannot disable their own account."
@@ -186,7 +184,7 @@ def delete_user_api(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     user = get_user_or_404(db, user_id)
-    _require_super_admin_target(db, current_user, user)
+    _protect_super_admin_account(user)
     if user.id == current_user.id:
         raise AppHTTPException(400, "CANNOT_DELETE_SELF", "Admin cannot delete their own account.")
     if not transition_user_status(db, user_id, DELETED, set_deleted_at=True):
@@ -212,10 +210,30 @@ def assign_role(
     current_user: User = Depends(require_roles(ROLE_ADMIN)),
 ):
     user = get_user_or_404(db, user_id)
-    role = db.scalar(select(Role).where(Role.code == payload.role_code))
+    # Serialize grants of the singleton role to close the concurrent-request gap.
+    role = db.scalar(
+        select(Role).where(Role.code == payload.role_code).with_for_update()
+    )
     if not role:
         raise not_found("Role")
-    _require_super_admin_role_manager(current_user, role.code)
+    if role.code == ROLE_SUPER_ADMIN:
+        if not _is_super_admin(current_user):
+            raise AppHTTPException(
+                403,
+                "SUPER_ADMIN_ASSIGNMENT_FORBIDDEN",
+                "Only the sole super_admin may manage this protected role.",
+            )
+        existing_user_id = db.scalar(
+            select(user_roles.c.user_id)
+            .where(user_roles.c.role_id == role.id)
+            .limit(1)
+        )
+        if existing_user_id is not None and int(existing_user_id) != user.id:
+            raise AppHTTPException(
+                409,
+                "SUPER_ADMIN_SINGLETON",
+                "The system permits exactly one super_admin account.",
+            )
     if role not in user.roles:
         user.roles.append(role)
     write_audit_log(
@@ -243,7 +261,8 @@ def remove_role(
     role = db.get(Role, role_id)
     if not role:
         raise not_found("Role")
-    _require_super_admin_role_manager(current_user, role.code)
+    if role.code == ROLE_SUPER_ADMIN:
+        raise _SUPER_ADMIN_ACCOUNT_PROTECTED
     if user.id == current_user.id:
         raise AppHTTPException(
             400, "CANNOT_REMOVE_OWN_ROLE", "Admin cannot remove roles from their own account."
@@ -266,11 +285,12 @@ def remove_role(
 @router.post("/{user_id}/password-reset-requests", status_code=status.HTTP_200_OK)
 def reset_user_password(
     user_id: int,
+    payload: AdminPasswordResetRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Admin-initiated password reset. Sets a temporary password that user must change."""
+    """Reset to the exact validated password supplied by an administrator."""
     user = get_user_or_404(db, user_id)
     # Authorisation: only admin/super_admin may reset passwords (§8.3)
     if not is_admin(current_user):
@@ -281,10 +301,11 @@ def reset_user_password(
                 "Self-service password reset is not yet implemented. Please contact an administrator.",
             )
         raise forbidden()
-    _require_super_admin_target(db, current_user, user)
+    if _is_super_admin(user) and current_user.id != user.id:
+        raise _SUPER_ADMIN_ACCOUNT_PROTECTED
     if user.status == DELETED:
         raise AppHTTPException(400, "USER_DELETED", "Cannot reset password for a deleted user.")
-    temp_password = _reset_user_password_svc(db, user)
+    _reset_user_password_svc(db, user, payload.new_password)
     write_audit_log(
         db,
         actor_user_id=current_user.id,
@@ -300,8 +321,7 @@ def reset_user_password(
     return ok(
         {
             "user_id": user.id,
-            "temp_password": temp_password,
-            "message": "Password has been reset. User must change on next login.",
+            "message": "Password has been reset and existing sessions were revoked.",
         },
         request.state.request_id,
     )
@@ -316,7 +336,7 @@ def disable_user(
 ):
     """Disable a user account. Disabled users cannot authenticate."""
     user = get_user_or_404(db, user_id)
-    _require_super_admin_target(db, current_user, user)
+    _protect_super_admin_account(user)
     if user.id == current_user.id:
         raise AppHTTPException(
             400, "CANNOT_DISABLE_SELF", "Admin cannot disable their own account."
@@ -348,7 +368,6 @@ def enable_user(
 ):
     """Re-enable a previously disabled user account."""
     user = get_user_or_404(db, user_id)
-    _require_super_admin_target(db, current_user, user)
     before = {"status": user.status}
     if not transition_user_status(db, user_id, ACTIVE):
         raise AppHTTPException(400, "USER_DELETED", "Cannot enable a deleted user.")

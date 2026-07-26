@@ -7,6 +7,7 @@ import { changePassword } from '../../shared/auth';
 import { updateSelf } from './users.api';
 import { useAuthStore } from '../../shared/auth';
 import { PageHeader, roleColor, StatusChip, statusOf, USER_STATUS } from '../../shared/components';
+import { describeApiError } from '../../shared/api';
 
 export function ProfilePage() {
   const { message } = App.useApp();
@@ -33,7 +34,7 @@ export function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ['auth', 'me'] });
       message.success('资料已更新');
     },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '更新失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '更新失败')),
   });
 
   const passwordMut = useMutation({
@@ -45,7 +46,7 @@ export function ProfilePage() {
       clearSession();
       navigate('/login', { replace: true });
     },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : '修改失败'),
+    onError: (e: unknown) => message.error(describeApiError(e, '修改失败')),
   });
 
   if (!user) return null;

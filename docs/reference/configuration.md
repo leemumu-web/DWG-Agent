@@ -60,7 +60,7 @@ Celery broker/result URL 分别计算为 `sqla+<effective-mysql-dsn>` 和 `db+<e
 |---|---|---|
 | `STORAGE_BACKEND` | `local` | 只能是 `local` 或 `minio` |
 | `LOCAL_STORAGE_ROOT` | `./var/storage` | 相对于 backend 进程工作目录 |
-| `MAX_UPLOAD_SIZE_MB` | 512 | 单次上传流式限制 |
+| `MAX_UPLOAD_SIZE_MB` | 512 | 单个业务文件上限；Excel 工作台从健康接口读取该值并在上传前校验。Nginx 请求体上限须略高于此值以容纳 multipart 封装，且 API 上传保持流式转发。 |
 | `MAX_ZIP_EXTRACT_MB` | 2048 | ZIP 总解压大小限制 |
 | `MAX_ZIP_ENTRY_COUNT` | 1000 | ZIP entry 数量限制 |
 | `BUSINESS_TIMEZONE` | `Asia/Shanghai` | 每日归档自然日边界；修改后旧预检令牌失效 |

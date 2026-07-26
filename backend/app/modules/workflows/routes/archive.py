@@ -24,6 +24,7 @@ from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member
 from app.modules.workflows.access import load_workflow_detail
+from app.modules.workflows.job_sync import sync_workflow_from_jobs
 from app.modules.workflows.models import WorkflowArtifact, WorkflowRun, WorkflowStageRun
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.platform.http.dependencies import get_db
@@ -363,6 +364,14 @@ def download_excel_stage1_result(
         (item for item in workflow.stages if item.stage_code == "excel_stage1"),
         None,
     )
+    if stage is not None and stage.status != "succeeded" and stage.job_id is not None:
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
+        workflow = load_workflow_detail(db, workflow_id)
+        stage = next(
+            (item for item in workflow.stages if item.stage_code == "excel_stage1"),
+            None,
+        )
     if (
         stage is None
         or stage.status != "succeeded"
