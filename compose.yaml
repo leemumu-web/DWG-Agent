@@ -21,6 +21,11 @@ x-service-logging: &service-logging
     max-size: "20m"
     max-file: "5"
 
+x-service-ulimits: &service-ulimits
+  nofile:
+    soft: 65536
+    hard: 65536
+
 x-app-service: &app-service
   <<: *app-image
   env_file:
@@ -38,6 +43,7 @@ x-app-service: &app-service
   tmpfs:
     - /tmp:size=768m,mode=1777
     - /home/appuser:size=128m,mode=0700,uid=1000,gid=1000
+  ulimits: *service-ulimits
   logging: *service-logging
 
 x-worker: &worker
@@ -79,6 +85,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    ulimits: *service-ulimits
     logging: *service-logging
 
   backend-api:
@@ -99,14 +106,14 @@ services:
 
   worker-report:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q report -n report@%h --concurrency=2
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q report -n report@%h --concurrency=${REPORT_WORKER_CONCURRENCY:-2}
     volumes:
       - app_var:/app/var
     environment:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: report
-      DWG_WORKER_CONCURRENCY: "2"
+      DWG_WORKER_CONCURRENCY: "${REPORT_WORKER_CONCURRENCY:-2}"
 
   worker-dxf:
     <<: *worker
@@ -169,7 +176,7 @@ services:
 
   worker-dxf-split:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_split -n dxf-split@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_split -n dxf-split@%h --concurrency=${DXF_SPLIT_WORKER_CONCURRENCY:-1}
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -177,7 +184,7 @@ services:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf_split
-      DWG_WORKER_CONCURRENCY: "1"
+      DWG_WORKER_CONCURRENCY: "${DXF_SPLIT_WORKER_CONCURRENCY:-1}"
 
   worker-remnant-convert:
     <<: *worker
@@ -205,7 +212,7 @@ services:
 
   worker-excel-final:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=1
+    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=${EXCEL_FINAL_WORKER_CONCURRENCY:-1}
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -213,7 +220,7 @@ services:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: excel_final
-      DWG_WORKER_CONCURRENCY: "1"
+      DWG_WORKER_CONCURRENCY: "${EXCEL_FINAL_WORKER_CONCURRENCY:-1}"
 
   worker-maintenance:
     <<: *worker
@@ -242,6 +249,10 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --transaction-isolation=READ-COMMITTED
+      - --innodb-buffer-pool-size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}
+      - --max-connections=${MYSQL_MAX_CONNECTIONS:-200}
+      - --table-open-cache=${MYSQL_TABLE_OPEN_CACHE:-2000}
+      - --thread-cache-size=${MYSQL_THREAD_CACHE_SIZE:-50}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./infra/database/mysql/init.sql:/docker-entrypoint-initdb.d/01-platform.sql:ro
@@ -258,6 +269,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    ulimits: *service-ulimits
     logging: *service-logging
 
   minio:
@@ -288,6 +300,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    ulimits: *service-ulimits
     logging: *service-logging
 
 volumes:

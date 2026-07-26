@@ -158,6 +158,56 @@ class TestAppServices:
             "${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
         )
 
+    def test_api_and_independent_job_workers_have_configurable_concurrency(self):
+        data = _load()
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        env_example = DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8")
+
+        assert "--workers ${WEB_CONCURRENCY:-4}" in dockerfile
+        expected = {
+            "worker-report": ("REPORT_WORKER_CONCURRENCY", "2"),
+            "worker-dxf-split": ("DXF_SPLIT_WORKER_CONCURRENCY", "1"),
+            "worker-excel-final": ("EXCEL_FINAL_WORKER_CONCURRENCY", "1"),
+        }
+        for service_name, (variable, default) in expected.items():
+            service = data["services"][service_name]
+            command = service["command"]
+            assert f"--concurrency=${{{variable}:-{default}}}" in command
+            assert (
+                service["environment"]["DWG_WORKER_CONCURRENCY"]
+                == f"${{{variable}:-{default}}}"
+            )
+            assert f"{variable}={default}" in env_example
+        assert "WEB_CONCURRENCY=4" in env_example
+
+    def test_long_lived_containers_raise_open_file_limit(self):
+        data = _load()
+        expected = {"soft": 65536, "hard": 65536}
+
+        for service_name, service in data["services"].items():
+            assert service.get("ulimits", {}).get("nofile") == expected, (
+                f"{service_name} must tolerate concurrent uploads and downloads"
+            )
+
+    def test_mysql_capacity_is_configurable_without_exposing_database_port(self):
+        data = _load()
+        mysql = data["services"]["mysql"]
+        command = mysql["command"]
+        env_example = DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8")
+
+        assert "--innodb-buffer-pool-size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}" in command
+        assert "--max-connections=${MYSQL_MAX_CONNECTIONS:-200}" in command
+        assert "--table-open-cache=${MYSQL_TABLE_OPEN_CACHE:-2000}" in command
+        assert "--thread-cache-size=${MYSQL_THREAD_CACHE_SIZE:-50}" in command
+        assert "ports" not in mysql
+        for setting in (
+            "MYSQL_INNODB_BUFFER_POOL_SIZE=2G",
+            "MYSQL_MAX_CONNECTIONS=200",
+            "MYSQL_TABLE_OPEN_CACHE=2000",
+            "MYSQL_THREAD_CACHE_SIZE=50",
+        ):
+            assert setting in env_example
+
 
 class TestComposeYamlValid:
     def test_is_parseable_yaml(self):
