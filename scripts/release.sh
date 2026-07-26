@@ -58,6 +58,7 @@ import importlib
 import sys
 import dxf2excel
 import dwg_converter, dxf_converter
+from numpy._core import _multiarray_umath
 import remnant_drawing_reader
 import steel_dxf_classifier, steel_dxf_split
 from app.modules.excel_processing.stage_adapter import get_excel_final_stage_root
@@ -71,6 +72,10 @@ for module_name in (\"config\", \"handbook\", \"material_routing\", \"pipeline\"
 assert check_dwg_environment().ok
 assert check_dxf_environment().ok
 load_verified_box_release_attestation()
+cpu_baseline = set(_multiarray_umath.__cpu_baseline__)
+assert cpu_baseline <= {"SSE", "SSE2", "SSE3"}, (
+    f"NumPy wheel requires an unsupported CPU baseline: {sorted(cpu_baseline)}"
+)
 "
         test "$(alembic heads | wc -l)" = "1"
         python -m dxf2excel --help | grep -q "extract"

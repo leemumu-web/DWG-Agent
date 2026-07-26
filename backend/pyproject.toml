@@ -23,7 +23,7 @@ dependencies = [
     "celery[sqlalchemy]>=5.4,<6",
     "minio>=7.2,<8",
     # Excel Final Stage 是独立脚本工程，通过隔离子进程执行；依赖由平台显式锁定。
-    "numpy>=1.24",
+    "numpy>=1.24,<2.4",
     "openpyxl>=3.1",
     "pandas>=2.0",
     "xlrd>=2.0,<3",

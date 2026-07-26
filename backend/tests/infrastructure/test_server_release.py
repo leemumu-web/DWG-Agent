@@ -18,6 +18,7 @@ SERVER_SCRIPT = REPO_ROOT / "scripts/release/server-deploy.sh"
 ARCHIVE_VERIFIER = REPO_ROOT / "scripts/release/verify_image_archive.py"
 LIVE_REMNANT_VERIFIER = REPO_ROOT / "scripts/release/verify_live_remnant.py"
 ODA_SMOKE_FIXTURE = REPO_ROOT / "scripts/release/fixtures/oda_runtime_smoke.dxf"
+PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
 
 def _write_legacy_image_archive(
@@ -169,6 +170,8 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "remnant-drawing-read --help" in release
     assert "material_routing" in release
     assert "remnant_drawing_reader" in release
+    assert "__cpu_baseline__" in release
+    assert '{"SSE", "SSE2", "SSE3"}' in release
     assert "verify_image_archive.py" in release
     assert 'deploy.sh"' in release
     assert "--profile workers build" not in release
@@ -185,6 +188,12 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "CHANGE_ME_" in server
     assert "verify_live_remnant.py" in server
     assert "oda_runtime_smoke.dxf" in server
+
+
+def test_backend_numpy_stays_compatible_with_baseline_x86_64_servers():
+    pyproject = PYPROJECT.read_text(encoding="utf-8")
+
+    assert '"numpy>=1.24,<2.4"' in pyproject
 
 
 def test_oda_release_smoke_fixture_is_portable_and_nonempty():
