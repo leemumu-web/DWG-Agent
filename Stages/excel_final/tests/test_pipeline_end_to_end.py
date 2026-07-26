@@ -792,6 +792,52 @@ def test_blank_spec_m_series_part_is_an_explicit_skipped_bolt(
         values.close()
 
 
+def test_stacked_studs_with_blank_spec_and_length_remain_blank_without_report_noise(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "stacked-studs.xlsx"
+    output = tmp_path / "stacked-studs-output.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "导出"
+    sheet.append([
+        "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)",
+    ])
+    sheet.append(["C1", None, "H100", 1000, "Q355B", 1])
+    sheet.append([
+        None,
+        "M19X100\nM19X100",
+        None,
+        None,
+        "STUD\nSTUD",
+        "42\n350",
+    ])
+    workbook.save(source)
+    workbook.close()
+
+    handbook = FakeHandbook()
+    outcome = run_auto_pipeline(source, output, handbook_repository=handbook)
+
+    assert outcome.quality_status == "ok"
+    assert not handbook.requests
+    rows = _organized(output)
+    assert [row["零件号"] for row in rows] == ["M19X100", "M19X100"]
+    assert [row["原数量"] for row in rows] == [42, 350]
+    assert all(row["截面型材"] is None for row in rows)
+    assert all(row["长度(mm)"] is None for row in rows)
+    assert all(row["下料长度(mm)"] is None for row in rows)
+    assert all(row["比重"] is None for row in rows)
+    assert all(row["理单重(kg)"] is None for row in rows)
+
+    values = load_workbook(output, data_only=True, read_only=True)
+    try:
+        assert values["part"].max_row == 1
+        assert values["处理报告"]["A2"].value == "无"
+    finally:
+        values.close()
+
+
 def test_conflicting_component_identity_blocks_flat_steel_from_part(
     tmp_path: Path,
 ) -> None:

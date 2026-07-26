@@ -131,6 +131,171 @@ def _has_part_payload(row: tuple[Any, ...], columns: Any) -> bool:
     )
 
 
+_STACKED_PART_FIELDS = (
+    "零件号",
+    "规格",
+    "零件长度",
+    "材质",
+    "数量",
+    "单净重",
+    "总净重",
+    "单毛重",
+    "总毛重",
+    "单表面积",
+    "总表面积",
+)
+
+
+def _cell_items(value: Any) -> tuple[Any, ...]:
+    """Return logical items from a cell while preserving internal blank lines."""
+    if value in (None, ""):
+        return ()
+    if not isinstance(value, str) or "\n" not in value and "\r" not in value:
+        return (value,)
+    lines = value.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    while lines and lines[0] == "":
+        lines.pop(0)
+    while lines and lines[-1] == "":
+        lines.pop()
+    return tuple(lines)
+
+
+def _stacked_part_count_failure(
+    *,
+    sheet_name: str,
+    source_row: int,
+    reference_field: str = "零件号",
+    reference_count: int,
+    mismatches: tuple[tuple[str, int, Any], ...],
+) -> InputContractError:
+    details = "、".join(f"{field}有 {count} 条" for field, count, _ in mismatches)
+    failure = input_failure(
+        "EXCEL_INPUT_MULTILINE_ROW_AMBIGUOUS",
+        "同一行中的多条零件无法一一对应。",
+        (
+            f"请检查 {sheet_name} 第 {source_row} 行："
+            f"{reference_field}有 {reference_count} 条，但{details}；"
+            "请让各换行字段的条目数一致，或仅保留一个明确的共用值。"
+        ),
+        issues=tuple(
+            ExcelInputIssue.create(
+                sheet=sheet_name,
+                row=source_row,
+                field=field,
+                value=value,
+                reason="multiline_item_count_mismatch",
+            )
+            for field, _, value in mismatches
+        ),
+    )
+    return InputContractError(
+        failure,
+        diagnostic=(
+            f"row {source_row} stacked part item counts do not match: "
+            f"{reference_field}={reference_count}, "
+            + ", ".join(f"{field}={count}" for field, count, _ in mismatches)
+        ),
+    )
+
+
+def _expand_stacked_part_row(
+    row: tuple[Any, ...],
+    columns: Any,
+    *,
+    sheet_name: str,
+    source_row: int,
+) -> tuple[tuple[Any, ...], ...]:
+    """Expand Tekla cells that stack several part lines in one physical row.
+
+    A single non-empty value is an explicit shared attribute. Empty cells remain
+    empty. Itemized fields must otherwise have exactly as many entries as the
+    itemized part-number cell; inconsistent rows are rejected instead of paired
+    by guesswork.
+    """
+    field_items = {
+        field: _cell_items(_row_value(row, columns, field))
+        for field in _STACKED_PART_FIELDS
+        if columns.get(field) is not None
+    }
+    multiline_counts = {
+        field: len(items)
+        for field, items in field_items.items()
+        if len(items) > 1
+    }
+    if not multiline_counts:
+        return (row,)
+
+    part_items = field_items.get("零件号", ())
+    part_count = len(part_items)
+    if part_count < 2:
+        reference_field = max(multiline_counts, key=multiline_counts.get)
+        reference_count = multiline_counts[reference_field]
+        mismatch_value = _row_value(row, columns, "零件号")
+        raise _stacked_part_count_failure(
+            sheet_name=sheet_name,
+            source_row=source_row,
+            reference_field=reference_field,
+            reference_count=reference_count,
+            mismatches=(("零件号", part_count, mismatch_value),),
+        )
+
+    mismatches = tuple(
+        (
+            field,
+            len(items),
+            _row_value(row, columns, field),
+        )
+        for field, items in field_items.items()
+        if len(items) not in (0, 1, part_count)
+    )
+    if mismatches:
+        raise _stacked_part_count_failure(
+            sheet_name=sheet_name,
+            source_row=source_row,
+            reference_count=part_count,
+            mismatches=mismatches,
+        )
+
+    expanded: list[tuple[Any, ...]] = []
+    for item_index in range(part_count):
+        values = list(row)
+        for field, items in field_items.items():
+            column = columns.get(field)
+            if column is None:
+                continue
+            if not items:
+                value = None
+            elif len(items) == 1:
+                value = items[0]
+            else:
+                value = items[item_index]
+            values[column - 1] = value
+        expanded.append(tuple(values))
+    return tuple(expanded)
+
+
+def _iter_canonical_rows(
+    *,
+    working_values: tuple[tuple[Any, ...], ...],
+    header: HeaderDetection,
+    sheet_name: str,
+):
+    for source_row, row in enumerate(
+        working_values[header.row_number:],
+        start=header.row_number + 1,
+    ):
+        if is_repeated_canonical_header(row, header.columns):
+            yield source_row, row
+            continue
+        for expanded in _expand_stacked_part_row(
+            row,
+            header.columns,
+            sheet_name=sheet_name,
+            source_row=source_row,
+        ):
+            yield source_row, expanded
+
+
 def _component_source_row(
     row: tuple[Any, ...],
     columns: Any,
@@ -366,7 +531,11 @@ def _canonicalize_values(
     issues: list[QualityIssue] = []
     current: ComponentSourceRow | None = None
 
-    for source_row, row in enumerate(working_values[header.row_number:], start=header.row_number + 1):
+    for source_row, row in _iter_canonical_rows(
+        working_values=working_values,
+        header=header,
+        sheet_name=sheet_name,
+    ):
         if is_repeated_canonical_header(row, columns):
             continue
         batch = _text(_row_value(row, columns, "批次"))

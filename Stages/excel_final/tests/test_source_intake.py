@@ -221,6 +221,108 @@ def test_invalid_numeric_cell_reports_sheet_row_field_and_value(tmp_path: Path) 
     assert failure.issues[0].reason == "not_numeric"
 
 
+def test_standard_workbook_expands_stacked_part_lines_without_inventing_blanks(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "stacked-parts.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "导出"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "M19X100\nM19X100", None, None, "STUD\nSTUD", "42\n350"])
+    workbook.save(source)
+    workbook.close()
+
+    result = read_production_source(source)
+
+    assert [part.part_no for part in result.parts] == ["M19X100", "M19X100"]
+    assert [part.material for part in result.parts] == ["STUD", "STUD"]
+    assert [part.original_qty for part in result.parts] == [
+        Decimal("42"),
+        Decimal("350"),
+    ]
+    assert [part.source_row for part in result.parts] == [3, 3]
+    assert [part.source_seq for part in result.parts] == [2, 2]
+    assert [part.original_spec for part in result.parts] == ["", ""]
+    assert [part.length for part in result.parts] == [Decimal("0"), Decimal("0")]
+    assert all(part.invalid_fields == ("规格", "长度") for part in result.parts)
+
+
+def test_stacked_part_lines_repeat_shared_single_value_fields(tmp_path: Path) -> None:
+    source = tmp_path / "stacked-shared-fields.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "导出"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P1\nP2", "PL10*100", "100\n200", "Q355B", "2\n3"])
+    workbook.save(source)
+    workbook.close()
+
+    result = read_production_source(source)
+
+    assert [part.original_spec for part in result.parts] == [
+        "PL10*100",
+        "PL10*100",
+    ]
+    assert [part.material for part in result.parts] == ["Q355B", "Q355B"]
+    assert [part.length for part in result.parts] == [
+        Decimal("100"),
+        Decimal("200"),
+    ]
+
+
+def test_stacked_part_lines_reject_mismatched_item_counts(tmp_path: Path) -> None:
+    source = tmp_path / "stacked-count-mismatch.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "导出"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P1\nP2", "PL10*100", "100\n200\n300", "Q355B", "2\n3"])
+    workbook.save(source)
+    workbook.close()
+
+    with pytest.raises(InputContractError) as caught:
+        read_production_source(source)
+
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_MULTILINE_ROW_AMBIGUOUS"
+    assert failure.message == "同一行中的多条零件无法一一对应。"
+    assert failure.action == (
+        "请检查 导出 第 3 行：零件号有 2 条，但零件长度有 3 条；"
+        "请让各换行字段的条目数一致，或仅保留一个明确的共用值。"
+    )
+    assert failure.issues[0].field == "零件长度"
+    assert failure.issues[0].reason == "multiline_item_count_mismatch"
+
+
+def test_multiline_values_without_itemized_part_numbers_are_rejected(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "stacked-without-part-numbers.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "导出"
+    sheet.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    sheet.append(["C1", None, "BH500*300*12*20", 1000, "Q355B", 1])
+    sheet.append([None, "P1", "PL10*100", "100\n200", "Q355B", "2\n3"])
+    workbook.save(source)
+    workbook.close()
+
+    with pytest.raises(InputContractError) as caught:
+        read_production_source(source)
+
+    failure = caught.value.failure
+    assert failure.code == "EXCEL_INPUT_MULTILINE_ROW_AMBIGUOUS"
+    assert failure.action == (
+        "请检查 导出 第 3 行：零件长度有 2 条，但零件号有 1 条；"
+        "请让各换行字段的条目数一致，或仅保留一个明确的共用值。"
+    )
+    assert failure.issues[0].field == "零件号"
+
+
 def test_part_before_component_reports_structured_relationship_error(tmp_path: Path) -> None:
     source = tmp_path / "orphan-part.xlsx"
     workbook = Workbook()

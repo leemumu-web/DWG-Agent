@@ -358,16 +358,16 @@ def _source_issue(
 
 def _validate_source_row(source: SourcePart) -> tuple[QualityIssue, ...]:
     issues: list[QualityIssue] = []
-    blank_spec_is_explicit_skip = (
-        not source.original_spec.strip()
-        and classify_normalized_spec(
+    explicit_skip = (
+        classify_normalized_spec(
             source.original_spec,
             material=source.material,
             part_no=source.part_no,
-        ).lookup_policy is LookupPolicy.SKIP
+        ).lookup_policy
+        is LookupPolicy.SKIP
     )
     for field in source.invalid_fields:
-        if field == "规格" and blank_spec_is_explicit_skip:
+        if field in {"规格", "长度"} and explicit_skip:
             continue
         issues.append(_source_issue(
             source,
@@ -513,6 +513,7 @@ def _organized_row(
     source = resolved.source
     evidence = resolved.evidence
     total_count = quantity * source.component_qty
+    source_length = None if "长度" in source.invalid_fields else source.length
     density: object = None
     density_source: str | None = None
     material_utilization: Decimal | None = None
@@ -556,15 +557,15 @@ def _organized_row(
         "截面型材": source.original_spec,
         "规格": spec,
         "宽度": width,
-        "长度(mm)": source.length,
+        "长度(mm)": source_length,
         "左进(mm)": None,
         "右进(mm)": None,
-        "下料长度(mm)": source.length,
+        "下料长度(mm)": source_length,
         "材质": source.material,
         "原数量": source.original_qty,
         "数量": quantity,
         "总数": total_count,
-        "总长(mm)": source.length * total_count,
+        "总长(mm)": None if source_length is None else source_length * total_count,
         "比重": density,
         "比重来源": density_source,
         "理单重(kg)": _rounded(theory_unit),
