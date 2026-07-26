@@ -120,11 +120,11 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
     CMD curl -f http://localhost:8010/health || exit 1
 
-# CMD: 迁移 → 幂等超管/角色种子（init_db 按 code 查重，已存在则跳过）→ gunicorn。
+# CMD: 迁移 → 幂等超管/角色种子 → 单写者初始化 SQL broker → gunicorn。
 # 规范 §17.4 CMD 字面量保留：alembic upgrade head && ... gunicorn app.main:app
 # --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120
 CMD ["sh", "-c", \
-     "alembic upgrade head && python -m app.bootstrap.seed && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
+     "alembic upgrade head && python -m app.bootstrap.seed && python -m app.platform.messaging.prepare && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers 4 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
 
 # ── Stage 3: development/source runtime ──────────────────────────
 # Kept as an explicit diagnostic target.  Production Compose never selects it.

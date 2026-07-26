@@ -2,7 +2,9 @@
 
 ## 现有实现
 
-`celery_app.py` 创建官方入口 `app.platform.messaging.celery_app:celery_app`，显式加载 7 个真实 task module、注册 11 个稳定公共任务名，并为 10 个队列族保留确定路由。`agent`、`cad`、`dispatch` 的路由只是未来消息的 transport seam，没有注册 task；其余 7 个路由族承载当前任务。该文件还初始化 Kombu SQL 表/索引、清理有界 runtime 结果、发布 Worker 就绪信号并支持 bootstrap 注册恢复 callback。
+`celery_app.py` 创建官方入口 `app.platform.messaging.celery_app:celery_app`，显式加载真实 task module，并为各执行队列保留确定路由。`agent`、`cad`、`dispatch` 的路由只是未来消息的 transport seam，没有注册 task；其余路由族承载当前任务。该文件还以 MySQL advisory lock 保护 Kombu SQL 表/索引初始化，提供已就绪快路径，清理有界 runtime 结果，发布 Worker 就绪信号并支持 bootstrap 注册恢复 callback。
+
+`prepare.py` 是后端启动健康门之前运行的一次性初始化入口。它由单个 API 容器先准备 SQL broker schema；独立启动的 Worker 仍复用 `celery_app.py` 的锁作为并发兜底，避免全新数据库上并发 DDL。
 
 ## 业务运行
 

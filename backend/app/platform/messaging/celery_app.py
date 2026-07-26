@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 import os
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from app.platform.database.session import engine
 logger = logging.getLogger(__name__)
 
 SQL_BROKER_MESSAGE_INDEX = "ix_kombu_message_queue_timestamp_id_visible"
+SQL_BROKER_SCHEMA_LOCK = "dwg-agent:sql-broker-schema"
+SQL_BROKER_SCHEMA_LOCK_TIMEOUT_SECONDS = 60
 WORKER_READY_MARKER = Path("/tmp/dwg-celery-ready")
 
 RESERVED_EXECUTION_QUEUES = ("agent", "cad", "dispatch")
@@ -165,25 +168,69 @@ def ensure_sql_broker_message_index(
     return True
 
 
+def _sql_broker_schema_is_ready(db_engine: Engine) -> bool:
+    inspector = inspect(db_engine)
+    if not inspector.has_table("kombu_queue") or not inspector.has_table("kombu_message"):
+        return False
+    return SQL_BROKER_MESSAGE_INDEX in {
+        item["name"] for item in inspector.get_indexes("kombu_message")
+    }
+
+
+@contextmanager
+def _sql_broker_schema_lock(db_engine: Engine) -> Iterator[None]:
+    """Serialize Kombu's lazy MySQL DDL across independently started workers."""
+    if db_engine.dialect.name != "mysql":
+        yield
+        return
+
+    parameters = {
+        "lock_name": SQL_BROKER_SCHEMA_LOCK,
+        "timeout_seconds": SQL_BROKER_SCHEMA_LOCK_TIMEOUT_SECONDS,
+    }
+    with db_engine.connect() as connection:
+        acquired = connection.scalar(
+            text("SELECT GET_LOCK(:lock_name, :timeout_seconds)"),
+            parameters,
+        )
+        if acquired != 1:
+            raise RuntimeError("Timed out acquiring the SQL broker schema lock.")
+        try:
+            yield
+        finally:
+            released = connection.scalar(
+                text("SELECT RELEASE_LOCK(:lock_name)"),
+                {"lock_name": SQL_BROKER_SCHEMA_LOCK},
+            )
+            if released != 1:
+                logger.warning("SQL broker schema lock was not owned during release")
+
+
 def prepare_sql_broker_schema(
     app: Celery = celery_app,
     db_engine: Engine = engine,
 ) -> bool:
     """Create Kombu tables, close the bootstrap channel, then add claim index."""
-    with app.connection_for_write() as connection:
-        channel = connection.channel()
-        channel_session = None
-        try:
-            # Channel construction is lazy; declaring a harmless default queue
-            # forces Kombu to create and commit its SQL tables on an empty DB.
-            channel.queue_declare(queue="default", durable=True)
-            channel_session = channel.session
-            channel_session.commit()
-        finally:
-            if channel_session is not None:
-                channel_session.close()
-            channel.close()
-    return ensure_sql_broker_message_index(db_engine)
+    if _sql_broker_schema_is_ready(db_engine):
+        return False
+
+    with _sql_broker_schema_lock(db_engine):
+        if _sql_broker_schema_is_ready(db_engine):
+            return False
+        with app.connection_for_write() as connection:
+            channel = connection.channel()
+            channel_session = None
+            try:
+                # Channel construction is lazy; declaring a harmless default queue
+                # forces Kombu to create and commit its SQL tables on an empty DB.
+                channel.queue_declare(queue="default", durable=True)
+                channel_session = channel.session
+                channel_session.commit()
+            finally:
+                if channel_session is not None:
+                    channel_session.close()
+                channel.close()
+        return ensure_sql_broker_message_index(db_engine)
 
 
 def purge_queued_job_messages(

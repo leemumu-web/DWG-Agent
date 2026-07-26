@@ -268,6 +268,119 @@ def test_sql_broker_schema_is_opened_and_closed_before_index_maintenance():
     }
 
 
+def test_mysql_sql_broker_schema_uses_advisory_lock(monkeypatch):
+    from app.platform.messaging import celery_app as celery_module
+
+    lifecycle: list[str] = []
+
+    class FakeDialect:
+        name = "mysql"
+
+    class FakeLockConnection:
+        def __enter__(self):
+            lifecycle.append("lock_connection_open")
+            return self
+
+        def __exit__(self, *_args):
+            lifecycle.append("lock_connection_close")
+
+        def scalar(self, statement, parameters):
+            sql = str(statement)
+            if "GET_LOCK" in sql:
+                lifecycle.append(f"get_lock:{parameters['lock_name']}")
+                return 1
+            if "RELEASE_LOCK" in sql:
+                lifecycle.append(f"release_lock:{parameters['lock_name']}")
+                return 1
+            raise AssertionError(sql)
+
+    class FakeEngine:
+        dialect = FakeDialect()
+
+        def connect(self):
+            return FakeLockConnection()
+
+    class FakeSession:
+        def commit(self):
+            lifecycle.append("commit")
+
+        def close(self):
+            lifecycle.append("session_close")
+
+    class FakeChannel:
+        session = FakeSession()
+
+        def queue_declare(self, *, queue, durable):
+            assert queue == "default"
+            assert durable is True
+            lifecycle.append("queue_declare")
+
+        def close(self):
+            lifecycle.append("channel_close")
+
+    class FakeConnection:
+        def __enter__(self):
+            lifecycle.append("broker_connection_open")
+            return self
+
+        def __exit__(self, *_args):
+            lifecycle.append("broker_connection_close")
+
+        def channel(self):
+            return FakeChannel()
+
+    class FakeApp:
+        def connection_for_write(self):
+            return FakeConnection()
+
+    monkeypatch.setattr(
+        celery_module,
+        "_sql_broker_schema_is_ready",
+        lambda _engine: False,
+    )
+    monkeypatch.setattr(
+        celery_module,
+        "ensure_sql_broker_message_index",
+        lambda _engine: lifecycle.append("ensure_index") or False,
+    )
+
+    assert celery_module.prepare_sql_broker_schema(FakeApp(), FakeEngine()) is False
+    assert lifecycle == [
+        "lock_connection_open",
+        f"get_lock:{celery_module.SQL_BROKER_SCHEMA_LOCK}",
+        "broker_connection_open",
+        "queue_declare",
+        "commit",
+        "session_close",
+        "channel_close",
+        "broker_connection_close",
+        "ensure_index",
+        f"release_lock:{celery_module.SQL_BROKER_SCHEMA_LOCK}",
+        "lock_connection_close",
+    ]
+
+
+def test_ready_sql_broker_schema_skips_lock_and_broker_connection(monkeypatch):
+    from app.platform.messaging import celery_app as celery_module
+
+    class NeverEngine:
+        @property
+        def dialect(self):
+            raise AssertionError("ready schema must not acquire a lock")
+
+    class NeverApp:
+        def connection_for_write(self):
+            raise AssertionError("ready schema must not open a broker connection")
+
+    monkeypatch.setattr(
+        celery_module,
+        "_sql_broker_schema_is_ready",
+        lambda _engine: True,
+    )
+
+    assert celery_module.prepare_sql_broker_schema(NeverApp(), NeverEngine()) is False
+
+
 def test_worker_startup_cleans_expired_mysql_result_rows():
     from app.platform.messaging import celery_app as celery_module
 
