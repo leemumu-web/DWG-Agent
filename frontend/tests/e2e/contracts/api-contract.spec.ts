@@ -66,7 +66,7 @@ test.describe('API Contract — every endpoint used by the frontend', () => {
     const body = await r.json();
     expect(body.data).toHaveProperty('access_token');
     expect(body.data).toHaveProperty('user');
-    expect(body.data.user).toHaveProperty('username', 'admin');
+    expect(body.data.user).toHaveProperty('username', ADMIN_USERNAME);
   });
 
   test('GET /api/v1/auth/me — current user', async ({ request }) => {

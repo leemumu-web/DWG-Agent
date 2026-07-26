@@ -12,6 +12,10 @@ import pytest
 from app.platform.config.settings import Settings
 
 
+def test_super_admin_username_default_matches_production_account_contract():
+    assert Settings.model_fields["super_admin_username"].default == "super_admin"
+
+
 # ---------------------------------------------------------------------------
 # Agent memory configuration
 # ---------------------------------------------------------------------------

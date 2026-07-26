@@ -787,7 +787,7 @@ uv run alembic history
 
 | 字段 | 值 |
 |---|---|
-| `username` | 来自 `SUPER_ADMIN_USERNAME` 环境变量（默认: `admin`） |
+| `username` | 来自 `SUPER_ADMIN_USERNAME` 环境变量（默认: `super_admin`） |
 | `password_hash` | `SUPER_ADMIN_PASSWORD` 环境变量的 Argon2id 哈希值 |
 | `real_name` | 来自 `SUPER_ADMIN_REAL_NAME` 环境变量（默认: "系统管理员"） |
 | `status` | `active` |

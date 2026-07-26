@@ -89,7 +89,7 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | 30 | access 与 SSE cookie 生命周期 |
 | `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | 14 | refresh cookie 生命周期 |
 | `REFRESH_COOKIE_SECURE` | 自动 | `APP_ENV=production` 时 Secure；显式 false 是私有 HTTP 风险接受 |
-| `SUPER_ADMIN_USERNAME` | `admin` | 种子用户名 |
+| `SUPER_ADMIN_USERNAME` | `super_admin` | 唯一超级管理员的种子用户名 |
 | `SUPER_ADMIN_PASSWORD` | 不安全的开发值 | 仅在种子用户不存在时使用 |
 | `SUPER_ADMIN_REAL_NAME` | `系统管理员` | 种子显示名 |
 
