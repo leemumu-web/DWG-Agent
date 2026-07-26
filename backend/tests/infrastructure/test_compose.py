@@ -268,7 +268,7 @@ class TestComposeYamlValid:
         )
         assert (
             "quay.io/minio/minio@sha256:"
-            "1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3"
+            "14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
             in services["minio"]["image"]
         )
         assert ":latest" not in services["minio"]["image"]
