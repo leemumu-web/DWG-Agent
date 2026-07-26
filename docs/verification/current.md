@@ -604,7 +604,30 @@ uv run python ../scripts/cad/benchmark_conversion.py \
 
 以上四项仅作为 2026-07-11 的带日期历史证据保留。当时没有重启正在运行的本地 FastAPI，实时 `/openapi.json` 仍是旧进程加载的 71 path/88 operation，因此当时新增 route 只由 TestClient/OpenAPI 生成与迁移测试证明。2026-07-13 的当前证据见第 6 节：当前源码为 91 path/110 operation，并已用当前源码 API、真实浏览器和真实 MySQL/MinIO 验证预览与登记链路。通用工作流的自动 Job/产物接线仍是独立范围；DXF→Excel 页面的显式 Excel Final 桥接不改变该边界。
 
-## 13. 故障定位
+## 13. 2026-07-27 生产服务器连续并发验收
+
+受保护版本 `server-production-20260727-r29` 部署到 `192.168.188.50`，运行配置为 DWG worker concurrency 4、单批最多 4 个 ODA 分片、分类固定 prefork concurrency 4、拆板固定 concurrency 2。拆板工作目录为 app volume 中的 `/app/var/dxf-split-work`，不再使用 768 MiB 的容器 `/tmp` tmpfs。
+
+现场先复现并定位了两个连续批次之间的分类卡死：旧 autoscale worker 在首轮缩容后，下一轮扩容出的 Billiard 子进程阻塞于 ACK 队列共享信号量，broker 消息已取走但业务 Job 一直为 `queued`。r29 取消运行中扩缩容，改为启动时一次性建立 4 个固定子进程；Compose、本地启停脚本、状态检查、环境模板和配置文档使用同一个固定并发变量。
+
+同一组 r29 容器未重启，连续运行两轮，每轮由两个不同账号同时提交 40 张 DWG：
+
+| 证据 | 第一轮 | 第二轮 |
+|---|---:|---:|
+| 成功项目 | 2/2 | 2/2 |
+| 每项目源 DWG / 转换 DXF | 40 / 40 | 40 / 40 |
+| 每项目分类 / 自动拆板 / 失败 | 40 / 40 / 0 | 40 / 40 / 0 |
+| 每项目正式 ZIP DXF 数 | 80 | 80 |
+| 转换 p50 | 21.123 s | 20.866 s |
+| 分类 p50 | 42.061 s | 41.659 s |
+| 拆板 p50 | 966.168 s | 964.676 s |
+| 整流程 p50 | 1040.651 s | 1038.413 s |
+
+连续 2118.106 秒资源采样共 1039 个样本，采样错误为 0。宿主机 CPU 峰值 50.558%，内存使用峰值 8,831,594,496 bytes，交换区使用峰值 0；MySQL 连接峰值 57。14 个容器全部 restart 0、OOM false。拆板 worker 内存峰值 2,282,775,118 bytes；两个并行拆板任务完成后 `/tmp` 和 `/app/var/dxf-split-work` 均为 4 KiB，且工作目录没有残留子目录。
+
+验收结束后直接清除全部压力测试数据：六个 MinIO 业务桶合计删除 3076 个对象、约 3.49 GB；项目、流程、Job、文件、传输、余料和审计记录均为 0。保留 5 个账号、4 个角色、迁移版本、队列定义和独立 `hardware_handbook` 数据库。清理后 14/14 服务重新健康，网关、MySQL、MinIO 与受保护余料读写/解析/预览回环再次通过。
+
+## 14. 故障定位
 
 1. 记录 revision、request ID、Job ID/attempt、时间、flag、sample digest 和准确 entry URL。
 2. 不先重启，先检查 `bash scripts/status.sh`、`/health` 和 `/health/ready`。

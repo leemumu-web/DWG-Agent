@@ -99,14 +99,14 @@ bash scripts/verify.sh quick
 
 Expected: both commands pass.
 
-- [ ] **Step 2: Commit the fixed-pool change**
+- [x] **Step 2: Commit the fixed-pool change**
 
 Commit the implementation, tests, design, plan, and documentation as one root-cause fix.
 
-- [ ] **Step 3: Build a new encrypted release and deploy**
+- [x] **Step 3: Build a new encrypted release and deploy**
 
 Use the one-time GPG release flow, set the server's fixed classification concurrency to 4, deploy all 14 services, run readiness and protected remnant smoke checks, and destroy the temporary private key at both ends.
 
-- [ ] **Step 4: Repeat two-account production validation**
+- [x] **Step 4: Repeat two-account production validation**
 
 Run two consecutive 40-DWG workflows through the public HTTP API. Require conversion, classification, split, and official ZIP download to succeed for both accounts, with zero restart/OOM evidence and clean split work directories.
