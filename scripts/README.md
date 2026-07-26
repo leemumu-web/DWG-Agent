@@ -85,6 +85,7 @@ MySQL、核对预览与传输流水，最后软删除登记并物理移除本次
 |---|---|
 | `windows/forward_to_win11.sh` | 管理 Win11 到本地 `:8080` 的 SSH remote-forward；`status` 未运行返回 3。 |
 | `run-cad-worker.sh` | 为本地 ODA worker 管理独立 Xvfb、DISPLAY、PID 和退出清理。 |
+| `run-worker.sh` | 容器 worker 启动前有界等待 MySQL，就绪后把原 worker 保持为 PID 1。 |
 | `cad/benchmark_conversion.py` | 对真实样本测量双向转换吞吐，不作为日常启动脚本。 |
 
 出现客户端 405 时先运行 `status.sh`；若提示运行代码过期，重新运行

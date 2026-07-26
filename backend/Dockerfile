@@ -93,6 +93,7 @@ COPY --from=builder /app/.venv /app/.venv
 
 # Only operational launch/probe scripts enter the source-free base.  Business
 # Python is introduced later in disposable compilation/development stages.
+COPY scripts/run-worker.sh /app/scripts/run-worker.sh
 COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh
 COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh
 COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh
@@ -107,7 +108,7 @@ COPY --chown=appuser:appuser Stages/dwg2dxf/tools/oda /app/oda
 
 # Create writable directories for runtime artifacts and user-level control/cache files.
 RUN mkdir -p /app/var /home/appuser && \
-    chmod 0755 /app/scripts/run-cad-worker.sh && \
+    chmod 0755 /app/scripts/run-worker.sh /app/scripts/run-cad-worker.sh && \
     chown -R appuser:appuser /app/var /home/appuser /app/oda
 
 USER appuser

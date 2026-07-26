@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = REPO_ROOT / "backend"
@@ -16,10 +19,6 @@ SNAPSHOT_PATH = REPO_ROOT / "docs" / "architecture" / "runtime-contract.json"
 HTTP_METHODS = {"delete", "get", "head", "options", "patch", "post", "put"}
 ROUTE_PATH_RE = re.compile(r"<Route\b[^>]*\bpath=\"([^\"]+)\"")
 COMPOSE_SERVICE_RE = re.compile(r"^  ([A-Za-z0-9][A-Za-z0-9_-]*):(?:\s*(?:#.*)?)?$")
-REMNANT_WORKER_RE = re.compile(
-    r"-Q\s+(remnant_(?:convert|parse)).*?--concurrency=\$\{[^:}]+:-(\d+)\}"
-)
-
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -99,9 +98,27 @@ def _compose_services() -> list[str]:
 
 
 def _worker_queue_concurrency() -> dict[str, int]:
-    source = (REPO_ROOT / "compose.yaml").read_text(encoding="utf-8")
-    values = {queue: int(value) for queue, value in REMNANT_WORKER_RE.findall(source)}
     expected = {"remnant_convert", "remnant_parse"}
+    payload = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text(encoding="utf-8"))
+    values: dict[str, int] = {}
+    for service in payload["services"].values():
+        raw_command = service.get("command", [])
+        command = shlex.split(raw_command) if isinstance(raw_command, str) else list(raw_command)
+        if "-Q" not in command:
+            continue
+        queue = command[command.index("-Q") + 1]
+        if queue not in expected:
+            continue
+        concurrency = next(
+            (item for item in command if item.startswith("--concurrency=")),
+            None,
+        )
+        if concurrency is None:
+            raise RuntimeError(f"missing concurrency argument for worker queue: {queue}")
+        match = re.fullmatch(r"--concurrency=\$\{[^:}]+:-(\d+)\}", concurrency)
+        if match is None:
+            raise RuntimeError(f"invalid concurrency contract for worker queue: {queue}")
+        values[queue] = int(match.group(1))
     if values.keys() != expected:
         raise RuntimeError(f"missing remnant worker concurrency contract: {expected - values.keys()}")
     return dict(sorted(values.items()))

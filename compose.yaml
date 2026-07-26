@@ -106,7 +106,7 @@ services:
 
   worker-report:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q report -n report@%h --concurrency=${REPORT_WORKER_CONCURRENCY:-2}
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "report", "-n", "report@%h", "--concurrency=${REPORT_WORKER_CONCURRENCY:-2}"]
     volumes:
       - app_var:/app/var
     environment:
@@ -117,7 +117,7 @@ services:
 
   worker-dxf:
     <<: *worker
-    command: ["/app/scripts/run-cad-worker.sh", "dxf", "${DXF_WORKER_CONCURRENCY:-8}", "dxf@%h", "${DXF_WORKER_DISPLAY:-:91}"]
+    command: ["/app/scripts/run-worker.sh", "/app/scripts/run-cad-worker.sh", "dxf", "${DXF_WORKER_CONCURRENCY:-8}", "dxf@%h", "${DXF_WORKER_DISPLAY:-:91}"]
     environment:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
@@ -134,7 +134,7 @@ services:
 
   worker-dxf2dwg:
     <<: *worker
-    command: ["/app/scripts/run-cad-worker.sh", "dxf2dwg", "${DXF2DWG_WORKER_CONCURRENCY:-8}", "dxf2dwg@%h", "${DXF2DWG_WORKER_DISPLAY:-:92}"]
+    command: ["/app/scripts/run-worker.sh", "/app/scripts/run-cad-worker.sh", "dxf2dwg", "${DXF2DWG_WORKER_CONCURRENCY:-8}", "dxf2dwg@%h", "${DXF2DWG_WORKER_DISPLAY:-:92}"]
     environment:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
@@ -151,7 +151,7 @@ services:
 
   worker-dxf2excel:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf2excel -n dxf2excel@%h --concurrency=1
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "dxf2excel", "-n", "dxf2excel@%h", "--concurrency=1"]
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -163,7 +163,7 @@ services:
 
   worker-dxf-classification:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_classification -n dxf-classification@%h --autoscale=${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3},${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "dxf_classification", "-n", "dxf-classification@%h", "--autoscale=${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3},${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}"]
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -176,7 +176,7 @@ services:
 
   worker-dxf-split:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q dxf_split -n dxf-split@%h --concurrency=${DXF_SPLIT_WORKER_CONCURRENCY:-1}
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "dxf_split", "-n", "dxf-split@%h", "--concurrency=${DXF_SPLIT_WORKER_CONCURRENCY:-1}"]
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -188,7 +188,7 @@ services:
 
   worker-remnant-convert:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q remnant_convert -n remnant-convert@%h --concurrency=${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "remnant_convert", "-n", "remnant-convert@%h", "--concurrency=${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}"]
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -200,7 +200,7 @@ services:
 
   worker-remnant-parse:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q remnant_parse -n remnant-parse@%h --concurrency=${REMNANT_PARSE_WORKER_CONCURRENCY:-4}
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "remnant_parse", "-n", "remnant-parse@%h", "--concurrency=${REMNANT_PARSE_WORKER_CONCURRENCY:-4}"]
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -212,7 +212,7 @@ services:
 
   worker-excel-final:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q excel_final -n excel_final@%h --concurrency=${EXCEL_FINAL_WORKER_CONCURRENCY:-1}
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "excel_final", "-n", "excel_final@%h", "--concurrency=${EXCEL_FINAL_WORKER_CONCURRENCY:-1}"]
     volumes:
       - app_var:/app/var
     profiles: [workers]
@@ -224,7 +224,7 @@ services:
 
   worker-maintenance:
     <<: *worker
-    command: celery -A app.platform.messaging.celery_app:celery_app worker -Q maintenance -n maintenance@%h --concurrency=1
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "maintenance", "-n", "maintenance@%h", "--concurrency=1"]
     volumes:
       - app_var:/app/var
     profiles: [workers]

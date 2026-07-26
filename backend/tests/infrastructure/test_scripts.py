@@ -532,6 +532,45 @@ def test_cad_worker_wrapper_owns_xvfb_and_celery_lifecycle():
     assert 'rm -f "$x_socket" "$display_lock"' in content
 
 
+def test_container_worker_wrapper_waits_for_database_before_exec(tmp_path):
+    calls = tmp_path / "calls"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'python:%s\\n' \"$*\" >> \"$WORKER_TEST_CALLS\"\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+    target = tmp_path / "target"
+    target.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'target:%s\\n' \"$*\" >> \"$WORKER_TEST_CALLS\"\n",
+        encoding="utf-8",
+    )
+    target.chmod(0o755)
+
+    result = subprocess.run(
+        [str(PROJECT_ROOT / "scripts/run-worker.sh"), str(target), "queue-name"],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+            "WORKER_TEST_CALLS": str(calls),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert calls.read_text(encoding="utf-8").splitlines() == [
+        "python:-m app.platform.database.wait",
+        "target:queue-name",
+    ]
+
+
 def test_local_cad_worker_concurrency_and_display_are_configurable():
     content = _read("scripts/lib/cad_worker.sh")
 
@@ -852,6 +891,7 @@ def test_scripts_readme_documents_every_operational_entrypoint():
         "db.sh",
         "docker.sh",
         "windows/forward_to_win11.sh",
+        "run-worker.sh",
         "run-cad-worker.sh",
         "storage/reap.py",
     ):

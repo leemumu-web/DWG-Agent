@@ -100,6 +100,7 @@ class TestAppServices:
             "./Stages/steel_dxf_split_v1.5.2"
         ) in dockerfile
         assert "COPY Stages/excel_final /app/Stages/excel_final" in dockerfile
+        assert "COPY scripts/run-worker.sh /app/scripts/run-worker.sh" in dockerfile
         assert "COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh" in dockerfile
         assert "COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh" in dockerfile
         assert "COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh" in dockerfile
@@ -119,10 +120,11 @@ class TestAppServices:
         for service_name, (queue, concurrency, display) in expected.items():
             service = data["services"][service_name]
             command = service["command"]
-            assert command[0] == "/app/scripts/run-cad-worker.sh"
-            assert command[1] == queue
-            assert command[2] == concurrency
-            assert command[4] == display
+            assert command[0] == "/app/scripts/run-worker.sh"
+            assert command[1] == "/app/scripts/run-cad-worker.sh"
+            assert command[2] == queue
+            assert command[3] == concurrency
+            assert command[5] == display
             health = " ".join(service["healthcheck"]["test"])
             assert f"/tmp/dwg-celery-{queue}.pid" in health
 
