@@ -11,6 +11,7 @@ from . import __version__
 from .bh_knowledge import BHSourceContract
 from .bh_project_ledger import publish_bh_project_ledger
 from .box.contracts import BOX_EXPORT_PROFILE, BoxSourceContract
+from .box.release import load_verified_box_release_attestation
 from .pipeline import SplitOptions, SplitResult, split_classified_dxf
 
 QUANTITY_CHECK_INTERVAL = 30
@@ -235,6 +236,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
         box_release_attestation=args.box_release_attestation,
     )
+    if "BOX" in classified_inputs.values():
+        try:
+            load_verified_box_release_attestation(
+                args.box_release_attestation,
+            )
+        except (OSError, ValueError) as exc:
+            print(f"错误：BOX 生产认证不可用：{exc}", file=sys.stderr)
+            return 3
     summaries: list[dict[str, object]] = []
     results: list[SplitResult] = []
     failures = 0

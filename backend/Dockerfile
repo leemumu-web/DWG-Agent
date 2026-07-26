@@ -148,6 +148,8 @@ RUN python -m compileall \
         -b -q -f \
         -s /app -p /opt/dwg-agent \
         /app/app /app/migrations /app/Stages && \
+    PYTHONPATH=/app/Stages/steel_dxf_split_v1.5.2/src \
+        python -c "from steel_dxf_split.box.release import write_protected_runtime_manifest; write_protected_runtime_manifest()" && \
     find /app/app /app/migrations /app/Stages \
         -type f -name '*.py' -delete && \
     find /app/Stages \

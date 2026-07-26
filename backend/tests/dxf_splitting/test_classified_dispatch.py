@@ -105,6 +105,47 @@ def test_cli_requires_classification_manifest() -> None:
         )
 
 
+def test_box_release_verification_fails_before_any_drawing_is_processed(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    source = input_directory / "box.dxf"
+    source.write_bytes(b"fixture")
+    manifest = _write_manifest(
+        tmp_path / "classified.json",
+        [{"file_name": source.name, "family": "BOX"}],
+    )
+    monkeypatch.setattr(
+        split_cli,
+        "load_verified_box_release_attestation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("受保护运行清单缺失")
+        ),
+    )
+    monkeypatch.setattr(
+        split_cli,
+        "split_classified_dxf",
+        lambda *_args, **_kwargs: pytest.fail("不得逐图尝试"),
+    )
+
+    exit_code = split_cli.main(
+        [
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--classification-manifest",
+            str(manifest),
+        ]
+    )
+
+    assert exit_code == 3
+    assert "BOX 生产认证不可用" in capsys.readouterr().err
+
+
 def test_package_exports_only_explicit_classified_dispatch() -> None:
     assert steel_dxf_split.split_classified_dxf is pipeline.split_classified_dxf
     assert "split_dxf" not in steel_dxf_split.__all__

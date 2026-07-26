@@ -49,7 +49,26 @@ release_verify_protected_image() {
             exit 43
         fi
         test "$(id -u)" = "1000"
-        python -c "import app.main, steel_dxf_classifier, steel_dxf_split, dxf2excel"
+        python -c "
+import app.main
+import importlib
+import sys
+import dxf2excel
+import dwg_converter, dxf_converter
+import remnant_drawing_reader
+import steel_dxf_classifier, steel_dxf_split
+from app.modules.excel_processing.stage_adapter import get_excel_final_stage_root
+from dwg_converter.check_env import check_environment as check_dwg_environment
+from dxf_converter.check_env import check_environment as check_dxf_environment
+from steel_dxf_split.box.release import load_verified_box_release_attestation
+excel_root = get_excel_final_stage_root()
+sys.path.insert(0, str(excel_root))
+for module_name in ('config', 'handbook', 'material_routing', 'pipeline', 'main'):
+    importlib.import_module(module_name)
+assert check_dwg_environment().ok
+assert check_dxf_environment().ok
+load_verified_box_release_attestation()
+"
         test "$(alembic heads | wc -l)" = "1"
     '
 }

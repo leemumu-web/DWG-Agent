@@ -137,6 +137,13 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "render_server_compose.py" in release
     assert "images.manifest" in release
     assert "business Python source remains" in release
+    assert "load_verified_box_release_attestation" in release
+    assert "get_excel_final_stage_root" in release
+    assert "dwg_converter, dxf_converter" in release
+    assert "check_dwg_environment().ok" in release
+    assert "check_dxf_environment().ok" in release
+    assert "material_routing" in release
+    assert "remnant_drawing_reader" in release
     assert "verify_image_archive.py" in release
     assert 'deploy.sh"' in release
     assert "--profile workers build" not in release
@@ -165,6 +172,7 @@ def test_protected_runtime_and_context_exclude_business_source_and_samples():
     assert "COPY backend/app" not in protected_section
     assert "COPY Stages/" not in protected_section
     assert "python -m compileall" in dockerfile
+    assert "write_protected_runtime_manifest" in dockerfile
     assert "-type f -name '*.py' -delete" in dockerfile
     assert "Stages/*/data/" in dockerignore
     assert "Stages/*/tests/" in dockerignore
