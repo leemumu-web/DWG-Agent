@@ -208,6 +208,19 @@ class TestAppServices:
         ):
             assert setting in env_example
 
+    def test_minio_bypasses_incompatible_glibc_entrypoint_and_uses_static_healthcheck(
+        self,
+    ):
+        minio = _load()["services"]["minio"]
+
+        assert minio["entrypoint"] == ["/usr/bin/minio"]
+        assert minio["healthcheck"]["test"] == ["CMD", "/usr/bin/mc", "ready", "local"]
+        assert (
+            minio["environment"]["MC_HOST_local"]
+            == "http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@127.0.0.1:9000"
+        )
+        assert "curl" not in " ".join(minio["healthcheck"]["test"])
+
 
 class TestComposeYamlValid:
     def test_is_parseable_yaml(self):
@@ -248,8 +261,16 @@ class TestComposeYamlValid:
 
         assert services["nginx"]["build"]["dockerfile"] == "frontend/Dockerfile"
         assert "dwg-agent-frontend:local" in services["nginx"]["image"]
-        assert "mysql/community-server:8.4" in services["mysql"]["image"]
-        assert "quay.io/minio/minio@sha256:" in services["minio"]["image"]
+        assert (
+            "public.ecr.aws/docker/library/mysql@sha256:"
+            "224bcb427d70a54ea2a5c8f47dfcf697ae4baefedd02ecf8d4229dd7b061293d"
+            in services["mysql"]["image"]
+        )
+        assert (
+            "quay.io/minio/minio@sha256:"
+            "1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3"
+            in services["minio"]["image"]
+        )
         assert ":latest" not in services["minio"]["image"]
         assert "${HTTP_PORT:-80}:8080" in services["nginx"]["ports"]
 

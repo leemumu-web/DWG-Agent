@@ -235,7 +235,7 @@ services:
       DWG_WORKER_CONCURRENCY: "1"
 
   mysql:
-    image: ${MYSQL_IMAGE:-container-registry.oracle.com/mysql/community-server:8.4}
+    image: ${MYSQL_IMAGE:-public.ecr.aws/docker/library/mysql@sha256:224bcb427d70a54ea2a5c8f47dfcf697ae4baefedd02ecf8d4229dd7b061293d}
     env_file:
       - .env.docker
     environment:
@@ -245,6 +245,7 @@ services:
       MINIO_ACCESS_KEY: ""
       MINIO_SECRET_KEY: ""
       MINIO_ROOT_PASSWORD: ""
+      MYSQL_UNIX_PORT: /var/run/mysqld/mysqld.sock
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -273,7 +274,8 @@ services:
     logging: *service-logging
 
   minio:
-    image: ${MINIO_IMAGE:-quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e}
+    image: ${MINIO_IMAGE:-quay.io/minio/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3}
+    entrypoint: ["/usr/bin/minio"]
     command: server /data --console-address ":9001"
     env_file:
       - .env.docker
@@ -286,10 +288,11 @@ services:
       MINIO_ACCESS_KEY: ""
       MINIO_SECRET_KEY: ""
       MINIO_PROMETHEUS_AUTH_TYPE: public
+      MC_HOST_local: http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@127.0.0.1:9000
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "/usr/bin/mc", "ready", "local"]
       interval: 10s
       timeout: 5s
       retries: 12
