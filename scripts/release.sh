@@ -92,7 +92,7 @@ release_bundle() {
     if ! $skip_build; then
         bash "$PROJECT_ROOT/scripts/docker.sh" check
         docker compose --project-directory "$PROJECT_ROOT" \
-            --env-file "$PROJECT_ROOT/.env.docker" --profile workers build
+            --env-file "$PROJECT_ROOT/.env.docker" build backend-api nginx
     fi
 
     local backend_source frontend_source backend_release frontend_release

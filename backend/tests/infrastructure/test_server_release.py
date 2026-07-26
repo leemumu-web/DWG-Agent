@@ -139,6 +139,8 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "business Python source remains" in release
     assert "verify_image_archive.py" in release
     assert 'deploy.sh"' in release
+    assert "--profile workers build" not in release
+    assert 'build backend-api nginx' in release
     assert "business Python source exists in an image layer" in verifier
     assert "cp \"$PROJECT_ROOT/.env.docker\"" not in release
     assert ".env.docker.example" in release
