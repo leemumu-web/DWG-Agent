@@ -71,9 +71,24 @@ from app.platform.config.constants import (
     STEP_VALIDATE_STEEL_DXF_SPLIT,
     TASK_STEEL_DXF_CLASSIFICATION,
 )
+from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _split_temporary_directory(job_id: int, attempt: int):
+    work_root = Path(settings.dxf_split_work_root)
+    try:
+        work_root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise DxfSplitError(
+            "服务器拆板工作空间不可用，请联系管理员检查存储空间后重试。"
+        ) from exc
+    return tempfile.TemporaryDirectory(
+        prefix=f"dxf-split-{job_id}-{attempt}-",
+        dir=work_root,
+    )
 
 
 def _add_step(
@@ -557,7 +572,7 @@ def run_dxf_splitting(
             input_count=len(inputs),
         )
 
-        with tempfile.TemporaryDirectory(prefix=f"dxf-split-{job.id}-{attempt}-") as raw_root:
+        with _split_temporary_directory(job.id, attempt) as raw_root:
             root = Path(raw_root)
             input_directory = root / "classified-input"
             output_directory = root / "split-output"

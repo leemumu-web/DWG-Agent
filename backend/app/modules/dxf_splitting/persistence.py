@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from app.modules.dxf_splitting.adapter import (
     BOX_SOURCE_CONTRACT,
     CLI_SCHEMA,
     ERROR_CODE_SPLIT_FAILED,
+    ERROR_CODE_SPLIT_STORAGE_FULL,
     MANIFEST_SCHEMA,
     SPLITTER_VERSION,
     VALIDATION_SCHEMA,
@@ -318,9 +320,17 @@ def finish_split_run(
 
 
 def mark_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) -> None:
-    if isinstance(exc, DxfSplitError):
+    if isinstance(exc, OSError) and exc.errno in {
+        errno.ENOSPC,
+        getattr(errno, "EDQUOT", -1),
+    }:
+        error_code = ERROR_CODE_SPLIT_STORAGE_FULL
+        message = "服务器拆板工作空间不足，请联系管理员清理存储后重试。"
+    elif isinstance(exc, DxfSplitError):
+        error_code = ERROR_CODE_SPLIT_FAILED
         message = str(exc) or exc.__class__.__name__
     else:
+        error_code = ERROR_CODE_SPLIT_FAILED
         message = exc.__class__.__name__
     run = db.scalar(
         select(DxfSplitRun).where(
@@ -330,14 +340,14 @@ def mark_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) ->
     )
     if run is not None:
         run.status = "failed"
-        run.error_code = ERROR_CODE_SPLIT_FAILED
+        run.error_code = error_code
         run.error_message = message
         run.finished_at = datetime.now(UTC)
     fail_job_attempt(
         db,
         job_id,
         attempt=attempt,
-        error_code=ERROR_CODE_SPLIT_FAILED,
+        error_code=error_code,
         error_message=message,
     )
 

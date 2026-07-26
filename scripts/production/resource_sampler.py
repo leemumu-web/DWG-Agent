@@ -16,7 +16,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-_SIZE_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?i?b)\s*$", re.I)
+_SIZE_PATTERN = re.compile(
+    r"^\s*(\d+(?:\.\d+)?(?:e[+-]?\d+)?)\s*([kmgt]?i?b)\s*$",
+    re.I,
+)
 _SIZE_FACTORS = {
     "b": 1,
     "kb": 1_000,

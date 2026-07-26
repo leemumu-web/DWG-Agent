@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import json
 import subprocess
 import zipfile
@@ -182,6 +183,7 @@ def _valid_dxf_bytes(tmp_path: Path, name: str) -> bytes:
 def _configure_local_storage(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(settings, "storage_backend", "local")
     monkeypatch.setattr(settings, "local_storage_root", tmp_path / "storage")
+    monkeypatch.setattr(settings, "dxf_split_work_root", tmp_path / "split-work")
     clear_storage_backend_cache()
 
 
@@ -2038,6 +2040,81 @@ def test_technical_failure_creates_one_immutable_attempt_without_automatic_retry
     assert job.error_code == "DXF_SPLIT_FAILED"
     assert [run.job_attempt for run in runs] == [1]
     assert [run.status for run in runs] == ["failed"]
+
+
+def test_split_execution_uses_durable_work_volume_instead_of_tmpfs(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_local_storage(monkeypatch, tmp_path)
+    work_root = tmp_path / "durable-split-work"
+    monkeypatch.setattr(
+        settings,
+        "dxf_split_work_root",
+        work_root,
+        raising=False,
+    )
+    _, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BH-DURABLE-WORK", "BH"),),
+    )
+    monkeypatch.setattr(
+        split_execution,
+        "_invoke_splitter",
+        _fake_splitter(family_by_member={"BH-DURABLE-WORK": "BH"}),
+    )
+    observed_parents: list[Path | None] = []
+    real_temporary_directory = split_execution.tempfile.TemporaryDirectory
+
+    def temporary_directory(*args, **kwargs):
+        parent = kwargs.get("dir")
+        observed_parents.append(Path(parent) if parent is not None else None)
+        return real_temporary_directory(*args, **kwargs)
+
+    monkeypatch.setattr(
+        split_execution.tempfile,
+        "TemporaryDirectory",
+        temporary_directory,
+    )
+
+    split_execution.run_dxf_splitting(job_id, worker_name="test-split")
+
+    assert observed_parents == [work_root]
+    assert work_root.is_dir()
+    assert list(work_root.iterdir()) == []
+
+
+def test_split_storage_exhaustion_records_actionable_safe_error(
+    db,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_local_storage(monkeypatch, tmp_path)
+    _, job_id, _ = _split_job_fixture(
+        db,
+        tmp_path,
+        parts=(("BH-STORAGE-FULL", "BH"),),
+    )
+
+    def storage_full(*_args, **_kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device", "/private/work")
+
+    monkeypatch.setattr(split_execution, "_invoke_splitter", storage_full)
+
+    split_execution.run_dxf_splitting(job_id, worker_name="test-split")
+
+    db.expire_all()
+    job = db.get(Job, job_id)
+    run = db.scalar(select(DxfSplitRun).where(DxfSplitRun.job_id == job_id))
+    assert job is not None and job.status == "failed"
+    assert run is not None and run.status == "failed"
+    assert job.error_code == "DXF_SPLIT_STORAGE_FULL"
+    assert run.error_code == "DXF_SPLIT_STORAGE_FULL"
+    assert job.error_message == "服务器拆板工作空间不足，请联系管理员清理存储后重试。"
+    assert run.error_message == job.error_message
+    assert "/private/work" not in job.error_message
 
 
 def test_cancelled_job_closes_running_split_attempt(

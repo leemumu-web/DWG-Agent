@@ -230,6 +230,8 @@ def test_dxf_split_pipeline_is_disabled_by_default():
 
     assert configured.dxf_split_pipeline_enabled is False
     assert configured.dxf_split_timeout_seconds == 3600
+    assert configured.dxf_split_work_root.name == "dxf-split-work"
+    assert configured.dxf_split_work_root.parent.name == "var"
 
 
 def test_oda_conversion_defaults_to_three_retries_in_both_directions():

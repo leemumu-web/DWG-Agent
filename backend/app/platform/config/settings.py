@@ -106,6 +106,9 @@ class Settings(BaseSettings):
     # Frozen classified DXF split processing
     dxf_split_pipeline_enabled: bool = False
     dxf_split_timeout_seconds: int = Field(default=3600, ge=30, le=14400)
+    # Split reports and paired DXFs can exceed the container's bounded /tmp
+    # tmpfs. Keep per-attempt scratch data on the writable app_var volume.
+    dxf_split_work_root: Path = _BACKEND_DIR / "var" / "dxf-split-work"
 
     # Excel→final part-list processing (excel_final pipeline)
     excel_final_pipeline_enabled: bool = False

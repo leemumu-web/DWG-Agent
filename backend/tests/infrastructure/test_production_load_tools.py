@@ -548,6 +548,7 @@ def test_split_archive_rejects_path_traversal_and_duplicate_names() -> None:
         ("1KiB", 1024),
         ("1.5MiB", 1_572_864),
         ("2GB", 2_000_000_000),
+        ("1e+03kB", 1_000_000),
     ],
 )
 def test_resource_sampler_parses_docker_sizes(raw: str, expected: int) -> None:

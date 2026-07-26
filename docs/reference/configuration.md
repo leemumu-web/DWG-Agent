@@ -63,6 +63,7 @@ Celery broker/result URL 分别计算为 `sqla+<effective-mysql-dsn>` 和 `db+<e
 | `MAX_UPLOAD_SIZE_MB` | 512 | 单个业务文件上限；Excel 工作台从健康接口读取该值并在上传前校验。Nginx 请求体上限须略高于此值以容纳 multipart 封装，且 API 上传保持流式转发。 |
 | `MAX_ZIP_EXTRACT_MB` | 2048 | ZIP 总解压大小限制 |
 | `MAX_ZIP_ENTRY_COUNT` | 1000 | ZIP entry 数量限制 |
+| `DXF_SPLIT_WORK_ROOT` | `./var/dxf-split-work` | 拆板每次运行的临时工作目录；生产容器固定使用 `/app/var/dxf-split-work` 持久卷，避免多个大批次耗尽 `/tmp` tmpfs。任务成功或失败后自动清理本次目录。 |
 | `BUSINESS_TIMEZONE` | `Asia/Shanghai` | 每日归档自然日边界；修改后旧预检令牌失效 |
 | `DAILY_ARCHIVE_PREVIEW_TTL_MINUTES` | 10 | 归档签名预检有效分钟数，限制 1-60 |
 | `DAILY_ARCHIVE_MAX_FILES` | 5000 | 单次归档冻结文件数上限，限制 1-50000 |

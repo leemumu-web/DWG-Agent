@@ -79,6 +79,7 @@ const CODE_MESSAGES: Record<string, string> = {
   DXF_SPLIT_ATTEMPTS_EXHAUSTED: '本批拆板已达到允许尝试次数，请下载未处理图纸并联系负责人。',
   DXF_SPLIT_INPUT_REQUIRED: '没有可供拆板的分类后图纸，请先完成图纸分类并核对数量。',
   DXF_SPLIT_SOURCE_MISSING: '分类后的拆板图纸已缺失，请返回图纸分类阶段核对并重新确认。',
+  DXF_SPLIT_STORAGE_FULL: '服务器拆板工作空间不足，请联系管理员清理存储后重试。',
   DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED: '拆板必须从所属生产项目重新处理，不能在任务列表中单独重试。',
   FILE_EMPTY: '上传的文件没有内容，请重新选择正确文件。',
   FILE_NOT_DWG: '所选文件不是有效的 DWG 图纸，请核对文件后重新上传。',
