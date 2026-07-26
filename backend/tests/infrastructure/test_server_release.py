@@ -173,6 +173,7 @@ def test_protected_runtime_and_context_exclude_business_source_and_samples():
     assert "COPY Stages/" not in protected_section
     assert "python -m compileall" in dockerfile
     assert "write_protected_runtime_manifest" in dockerfile
+    assert "chmod 0444" in dockerfile
     assert "-type f -name '*.py' -delete" in dockerfile
     assert "Stages/*/data/" in dockerignore
     assert "Stages/*/tests/" in dockerignore

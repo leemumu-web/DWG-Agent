@@ -150,6 +150,7 @@ RUN python -m compileall \
         /app/app /app/migrations /app/Stages && \
     PYTHONPATH=/app/Stages/steel_dxf_split_v1.5.2/src \
         python -c "from steel_dxf_split.box.release import write_protected_runtime_manifest; write_protected_runtime_manifest()" && \
+    chmod 0444 /app/Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/release_evidence/box_protected_runtime_manifest.json && \
     find /app/app /app/migrations /app/Stages \
         -type f -name '*.py' -delete && \
     find /app/Stages \
