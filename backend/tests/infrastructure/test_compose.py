@@ -551,8 +551,14 @@ class TestDockerfile:
 
     def test_runtime_runs_alembic_before_gunicorn(self):
         content = DOCKERFILE_PATH.read_text(encoding="utf-8")
-        assert content.index("alembic upgrade head") < content.index("python -m app.bootstrap.seed")
-        assert content.index("python -m app.bootstrap.seed") < content.index("exec gunicorn")
+        command = content.split('CMD ["sh", "-c",', maxsplit=1)[1]
+        assert command.index("python -m app.platform.database.wait") < command.index(
+            "alembic upgrade head"
+        )
+        assert command.index("alembic upgrade head") < command.index(
+            "python -m app.bootstrap.seed"
+        )
+        assert command.index("python -m app.bootstrap.seed") < command.index("exec gunicorn")
 
     def test_has_healthcheck(self):
         content = DOCKERFILE_PATH.read_text(encoding="utf-8")

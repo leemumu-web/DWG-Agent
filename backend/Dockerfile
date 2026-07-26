@@ -120,12 +120,14 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 --start-period=40s \
     CMD curl -f http://localhost:8010/health || exit 1
 
-# CMD: 迁移 → 幂等超管/角色种子 → 单写者初始化 SQL broker → gunicorn。
+# CMD: 等待 MySQL → 迁移 → 幂等超管/角色种子 → 单写者初始化 SQL broker → gunicorn。
+# 数据库等待必须属于容器自身：宿主机重启时 Docker 的 restart policy 不重放
+# Compose depends_on 顺序，不能让 Alembic 依赖一次失败后再由 Docker 重启恢复。
 # 规范 §17.4 CMD 字面量保留：alembic upgrade head && ... gunicorn app.main:app
 # --bind 0.0.0.0:8010 --workers ${WEB_CONCURRENCY:-4}
 # --worker-class uvicorn.workers.UvicornWorker --timeout 120
 CMD ["sh", "-c", \
-     "alembic upgrade head && python -m app.bootstrap.seed && python -m app.platform.messaging.prepare && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers ${WEB_CONCURRENCY:-4} --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
+     "python -m app.platform.database.wait && alembic upgrade head && python -m app.bootstrap.seed && python -m app.platform.messaging.prepare && exec gunicorn app.main:app --bind 0.0.0.0:8010 --workers ${WEB_CONCURRENCY:-4} --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile - --error-logfile -"]
 
 # ── Stage 3: development/source runtime ──────────────────────────
 # Kept as an explicit diagnostic target.  Production Compose never selects it.

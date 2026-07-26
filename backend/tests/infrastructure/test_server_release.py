@@ -269,12 +269,13 @@ def test_backend_initializes_sql_broker_before_becoming_healthy():
     dockerfile = (REPO_ROOT / "backend/Dockerfile").read_text(encoding="utf-8")
     command = dockerfile.split('CMD ["sh", "-c",', maxsplit=1)[1]
 
+    wait_at = command.index("python -m app.platform.database.wait")
     migrate_at = command.index("alembic upgrade head")
     seed_at = command.index("python -m app.bootstrap.seed")
     broker_at = command.index("python -m app.platform.messaging.prepare")
     serve_at = command.index("exec gunicorn")
 
-    assert migrate_at < seed_at < broker_at < serve_at
+    assert wait_at < migrate_at < seed_at < broker_at < serve_at
 
 
 def test_image_archive_verifier_rejects_source_hidden_in_old_layer(tmp_path: Path):

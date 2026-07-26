@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`base.py` 提供 declarative Base；`session.py` 创建 engine、SessionLocal 和请求 session；`mixins.py` 提供 UTC timestamp 列；`pagination.py` 提供有界 offset/limit 与 count/list 帮助器。
+`base.py` 提供 declarative Base；`session.py` 创建 engine、SessionLocal 和请求 session；`wait.py` 在容器迁移前有界等待数据库监听就绪；`mixins.py` 提供 UTC timestamp 列；`pagination.py` 提供有界 offset/limit 与 count/list 帮助器。
 
 ## 输入与输出
 
