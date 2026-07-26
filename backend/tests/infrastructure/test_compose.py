@@ -141,24 +141,19 @@ class TestAppServices:
 
         assert 'mkdir -p "$TMPDIR"' in worker_script
 
-    def test_classification_worker_uses_configurable_autoscale(self):
+    def test_classification_worker_uses_configurable_fixed_pool(self):
         service = _load()["services"]["worker-dxf-classification"]
         command = service["command"]
 
         assert (
-            "--autoscale=${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3},"
-            "${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}"
+            "--concurrency=${DXF_CLASSIFICATION_WORKER_CONCURRENCY:-3}"
         ) in command
-        assert "--concurrency=1" not in command
+        assert not any("--autoscale" in argument for argument in command)
         assert (
             service["environment"]["DWG_WORKER_CONCURRENCY"]
-            == "${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
+            == "${DXF_CLASSIFICATION_WORKER_CONCURRENCY:-3}"
         )
-        assert (
-            service["environment"]["DWG_WORKER_AUTOSCALE"]
-            == "${DXF_CLASSIFICATION_AUTOSCALE_MIN:-1}-"
-            "${DXF_CLASSIFICATION_AUTOSCALE_MAX:-3}"
-        )
+        assert "DWG_WORKER_AUTOSCALE" not in service["environment"]
 
     def test_api_and_independent_job_workers_have_configurable_concurrency(self):
         data = _load()

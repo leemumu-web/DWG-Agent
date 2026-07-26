@@ -21,25 +21,25 @@ fi
 step "基础设施"
 bash "$PROJECT_ROOT/scripts/db.sh" status || ALL_OK=false
 for spec in "${WORKER_SPECS[@]}"; do
-    IFS='|' read -r queue _concurrency label _display autoscale_min autoscale_max <<<"$spec"
+    IFS='|' read -r queue concurrency label _display <<<"$spec"
     mapfile -t worker_pids < <(celery_worker_pids "$queue" "$label")
     if ((${#worker_pids[@]} > 0)); then
         ok "Celery worker-${label} — pid(s) ${worker_pids[*]}"
-        if [ -n "$autoscale_min" ] && [ -n "$autoscale_max" ]; then
-            autoscale_expected="--autoscale=${autoscale_max},${autoscale_min}"
-            autoscale_ready=false
+        if [ "$queue" = "dxf_classification" ]; then
+            concurrency_expected="--concurrency=${concurrency}"
+            concurrency_ready=false
             mapfile -t parent_pids < <(celery_worker_parent_pids "$queue" "$label")
             for pid in "${parent_pids[@]}"; do
                 worker_args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
-                if [[ "$worker_args" == *"$autoscale_expected"* ]]; then
-                    autoscale_ready=true
+                if [[ "$worker_args" == *"$concurrency_expected"* ]]; then
+                    concurrency_ready=true
                     break
                 fi
             done
-            if $autoscale_ready; then
-                ok "Celery worker-${label} — autoscale=${autoscale_min}-${autoscale_max}"
+            if $concurrency_ready; then
+                ok "Celery worker-${label} — concurrency=${concurrency}"
             else
-                warn "Celery worker-${label} 未按 autoscale=${autoscale_min}-${autoscale_max} 运行"
+                warn "Celery worker-${label} 未按 concurrency=${concurrency} 运行"
                 ALL_OK=false
             fi
         fi

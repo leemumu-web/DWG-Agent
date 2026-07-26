@@ -32,35 +32,31 @@ def _load_worker_specs(**overrides: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_classification_worker_autoscales_from_one_to_three():
+def test_classification_worker_uses_fixed_concurrency_three():
     result = _load_worker_specs()
 
     assert result.returncode == 0
-    assert "dxf_classification|3|dxf-classification||1|3" in result.stdout
+    assert "dxf_classification|3|dxf-classification|" in result.stdout.splitlines()
+    assert "autoscale" not in result.stdout
 
 
-def test_classification_worker_autoscale_accepts_valid_override():
+def test_classification_worker_fixed_concurrency_accepts_valid_override():
     result = _load_worker_specs(
-        DXF_CLASSIFICATION_AUTOSCALE_MIN="2",
-        DXF_CLASSIFICATION_AUTOSCALE_MAX="4",
+        DXF_CLASSIFICATION_WORKER_CONCURRENCY="4",
     )
 
     assert result.returncode == 0
-    assert "dxf_classification|4|dxf-classification||2|4" in result.stdout
+    assert "dxf_classification|4|dxf-classification|" in result.stdout.splitlines()
 
 
-@pytest.mark.parametrize(
-    ("minimum", "maximum"),
-    [("0", "3"), ("2", "1"), ("one", "3")],
-)
-def test_classification_worker_autoscale_rejects_invalid_range(minimum, maximum):
+@pytest.mark.parametrize("concurrency", ["0", "-1", "one"])
+def test_classification_worker_fixed_concurrency_rejects_invalid_value(concurrency):
     result = _load_worker_specs(
-        DXF_CLASSIFICATION_AUTOSCALE_MIN=minimum,
-        DXF_CLASSIFICATION_AUTOSCALE_MAX=maximum,
+        DXF_CLASSIFICATION_WORKER_CONCURRENCY=concurrency,
     )
 
     assert result.returncode != 0
-    assert "DXF classification autoscale" in result.stderr
+    assert "DXF classification concurrency" in result.stderr
 
 
 def _write_fake_compose(tmp_path):

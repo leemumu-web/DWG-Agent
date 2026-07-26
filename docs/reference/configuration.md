@@ -113,8 +113,7 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `EXCEL_FINAL_STAGE_ROOT` | 自动探测 | 可选 Stage 路径覆盖；代码字段存在但模板未列出 |
 | `EXCEL_FINAL_TIMEOUT_SECONDS` | 1800 | 子进程超时，限制为 30-7200 秒 |
 | `DXF_CLASSIFICATION_TIMEOUT_SECONDS` | 1800 | 分类器 CLI 子进程超时，限制为 30-7200 秒 |
-| `DXF_CLASSIFICATION_AUTOSCALE_MIN` | 1 | 分类队列空闲时保留的最小项目级执行进程数 |
-| `DXF_CLASSIFICATION_AUTOSCALE_MAX` | 3 | 多项目排队时分类队列允许的最大并行 Job 数 |
+| `DXF_CLASSIFICATION_WORKER_CONCURRENCY` | 3 | 分类队列固定的项目级并发 Job 数；修改后必须重启分类 worker |
 | `DXF_SPLIT_TIMEOUT_SECONDS` | 3600 | 整批 BH/BOX 拆板 CLI 子进程超时，限制为 30-14400 秒；单张业务复核不提前终止整批 |
 | `DXF_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DWG -> DXF Celery prefork 数 |
 | `DXF2DWG_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DXF -> DWG Celery prefork 数 |
@@ -127,7 +126,7 @@ ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`O
 
 两个 CAD worker 由 `scripts/run-cad-worker.sh` 各自启动一个持久 Xvfb；已有 `DISPLAY` 时 Stage 不再为每次 ODA 调用执行 `xvfb-run -a`。`DXF_WORKER_CONCURRENCY=8` 与 `DXF2DWG_WORKER_CONCURRENCY=8` 是跨批次吞吐默认值，不表示单批次盲目启动 8 个 ODA。单批次按文件数和版本分组后自适应为最多 4 个目录分片；135 文件实测中 4 分片处于吞吐拐点。调整前必须用 `scripts/cad/benchmark_conversion.py` 在部署机器和代表性图纸上复测。
 
-DXF 分类 worker 使用 Celery 自动伸缩和 `prefetch=1`。默认空闲保留 1 个执行进程，多个项目排队时最多并行 3 个分类 Job；这不会并行拆分单个项目内部的 DXF。提高最大值前必须使用代表性项目检查内存、交换分区和 MySQL 负载。
+DXF 分类 worker 使用固定 Celery prefork 进程池和 `prefetch=1`。默认始终保留 3 个执行进程，最多并行 3 个分类 Job；这不会并行拆分单个项目内部的 DXF。固定池避免空闲缩容后再次扩容造成进程池锁死。提高并发前必须使用代表性项目连续执行至少两轮，并检查内存、交换分区和 MySQL 负载。
 
 同一队列只能有一套 worker topology。`scripts/status.sh` 报告“本地与 Compose 同时消费”时，基准、调度归属和取消结果均不可信，应停止其中一套后再验收。worker/Celery healthy 只证明进程与 broker 可达，不能证明 ODA 对具体 DWG/DXF 有效；必须检查终态、输出头、文件数和下载结果。
 

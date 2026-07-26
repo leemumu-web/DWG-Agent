@@ -54,7 +54,7 @@ bash scripts/docker.sh check
 - `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
 - `MAX_UPLOAD_SIZE_MB`：单个业务文件上限，服务器模板为 512 MiB。Excel 工作台会显示并提前执行同一上限；Nginx 使用 520 MiB 请求上限并流式转发，以免 multipart 封装或代理临时目录提前拒绝合法文件。
 - 服务器模板默认开启生产流程所需的 `DXF_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED` 和 `EXCEL_FINAL_PIPELINE_ENABLED`；它们已完成真实 DWG、BH 拆板、Tekla Excel、MySQL 与 MinIO 联调。`DXF2DWG_PIPELINE_ENABLED=true` 仅启用独立的 DXF→DWG 工作台，不进入主生产流程；`DXF2EXCEL_PIPELINE_ENABLED` 继续保持 false。各转换、分类、拆板和 Excel 使用独立队列。
-- `DXF_CLASSIFICATION_AUTOSCALE_MIN=1`、`DXF_CLASSIFICATION_AUTOSCALE_MAX=3`：分类队列按不同项目自动伸缩；`prefetch=1` 保证排队公平，不会加速单个项目内部的文件处理。提高上限前必须在部署机器上复测内存和 MySQL 负载。
+- `DXF_CLASSIFICATION_WORKER_CONCURRENCY=3`：分类队列固定保留的项目级执行进程数；`prefetch=1` 保证排队公平，不会加速单个项目内部的文件处理。修改后必须重启分类 worker；提高并发前必须在部署机器上复测连续批次、内存和 MySQL 负载。
 - `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
 
 ## 构建与启动
