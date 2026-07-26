@@ -16,6 +16,7 @@ interface JobEvent {
   error_message?: string;
   pipeline?: string;
   task_type?: string;
+  progress_data?: Record<string, unknown> | null;
   /** snapshot / terminal frames carry a steps[] array; progress frames do not. */
   steps?: { attempt: number; step_name: string; status: string; error_message?: string | null }[];
 }
@@ -83,6 +84,7 @@ export function useJobEvents(
         pipeline: event.pipeline,
         error_code: event.error_code,
         error_message: event.error_message ?? event.message,
+        progress_data: event.progress_data,
       };
       // Strip undefined keys so we don't blow away existing cache values.
       for (const k of Object.keys(jobPatch) as (keyof typeof jobPatch)[]) {

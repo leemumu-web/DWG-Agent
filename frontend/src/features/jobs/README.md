@@ -5,6 +5,8 @@
 独立任务页已并入生产流程；`useJobEvents.ts` 订阅 SSE 并回填 Query cache，`jobs.api.ts`、`results.api.ts` 与 `job.ts`、`result.ts` 为文件转换、Excel 整理、工作流和仪表盘定义任务传输合同。
 
 `index.ts` 是 Job hooks、请求和类型的稳定出口；跨 feature 只从这里引用 Job 能力，避免重新出现独立任务页或绑定私有查询键。
+`JobProgressBar.tsx` 统一解释确认里程碑、活动态和失败终止状态；
+`getJobDiagnostics` 读取安全的阶段与耗时，前端不请求或展示服务器原始日志。
 
 ## 业务流
 

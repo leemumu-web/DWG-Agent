@@ -12,6 +12,7 @@ import {
   Progress,
   Select,
   Space,
+  Steps,
   Table,
   Tabs,
   Typography,
@@ -33,6 +34,7 @@ import {
 import {
   fmtDateTime,
   JOB_STATUS,
+  ApiErrorAlert,
   StatCard,
   StatGrid,
   statusOf,
@@ -40,6 +42,8 @@ import {
 } from '../../../../shared/components';
 import {
   cancelJob,
+  getJobDiagnostics,
+  JobProgressBar,
   listJobsPage,
   retryJob,
   type Job,
@@ -92,7 +96,7 @@ export function ProductionTaskPanel({ canManage }: Props) {
   const [workflowPage, setWorkflowPage] = useState(1);
   const [jobPage, setJobPage] = useState(1);
   const [jobStatus, setJobStatus] = useState<string>();
-  const [errorJob, setErrorJob] = useState<Job>();
+  const [detailJob, setDetailJob] = useState<Job>();
 
   const workflowsQ = useQuery({
     queryKey: ['data-console', 'production-workflows', workflowPage],
@@ -124,6 +128,11 @@ export function ProductionTaskPanel({ canManage }: Props) {
     refetchInterval: (query) => (
       query.state.data?.data.some((job) => ACTIVE_JOB.has(job.status)) ? 3000 : false
     ),
+  });
+  const diagnosticsQ = useQuery({
+    queryKey: ['job-diagnostics', detailJob?.id],
+    queryFn: () => getJobDiagnostics(detailJob!.id),
+    enabled: Boolean(detailJob),
   });
   const stageNames = useMemo(() => {
     const production = templatesQ.data?.find((item) => item.code === 'linux_production');
@@ -232,7 +241,7 @@ export function ProductionTaskPanel({ canManage }: Props) {
       title: '进度',
       dataIndex: 'progress',
       width: 160,
-      render: (progress: number) => <Progress percent={progress} size="small" status={progress < 100 ? 'active' : 'normal'} />,
+      render: (_: number, job: Job) => <JobProgressBar job={job} />,
     },
     {
       title: '更新时间',
@@ -254,11 +263,9 @@ export function ProductionTaskPanel({ canManage }: Props) {
                 进入项目
               </Button>
             )}
-            {(job.error_message || job.error_code) && (
-              <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setErrorJob(job)}>
-                查看原因
-              </Button>
-            )}
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetailJob(job)}>
+              {job.error_message || job.error_code ? '查看原因' : '查看进度'}
+            </Button>
             {canManage && RETRYABLE_JOB.has(job.status) && job.task_type !== 'split_steel_dxf' && (
               <Button type="link" size="small" icon={<SyncOutlined />} loading={retryM.isPending} onClick={() => retryM.mutate(job.id)}>
                 重新处理
@@ -375,29 +382,66 @@ export function ProductionTaskPanel({ canManage }: Props) {
           ]}
         />
       </Card>
-      <Drawer title="任务处理说明" open={Boolean(errorJob)} onClose={() => setErrorJob(undefined)} size={520} destroyOnHidden>
-        {errorJob && (
+      <Drawer title="任务处理说明" open={Boolean(detailJob)} onClose={() => setDetailJob(undefined)} size={520} destroyOnHidden>
+        {detailJob && (
           <Space orientation="vertical" size={16} style={{ width: '100%' }}>
-            <Alert
-              className="operator-error-alert"
-              type="error"
-              showIcon
-              message={operatorErrorMessage(
-                errorJob.error_code,
-                errorJob.error_message,
-                '这项处理没有完成，请进入所属生产项目核对当前阶段。',
-              )}
-              description={apiErrorRecovery({
-                message: '',
-                code: errorJob.error_code ?? undefined,
-              })}
-            />
+            {(detailJob.error_message || detailJob.error_code) && (
+              <Alert
+                className="operator-error-alert"
+                type="error"
+                showIcon
+                message={operatorErrorMessage(
+                  detailJob.error_code,
+                  detailJob.error_message,
+                  '这项处理没有完成，请进入所属生产项目核对当前阶段。',
+                )}
+                description={apiErrorRecovery({
+                  message: '',
+                  code: detailJob.error_code ?? undefined,
+                })}
+              />
+            )}
             <Descriptions column={1} bordered size="small" items={[
-              { key: 'task', label: '处理任务', children: taskLabel(errorJob.task_type) },
-              { key: 'job', label: '任务编号', children: errorJob.id },
-              { key: 'attempt', label: '处理次数', children: `第 ${errorJob.attempt} 次` },
-              { key: 'updated', label: '最后更新', children: fmtDateTime(errorJob.updated_at) },
+              { key: 'task', label: '处理任务', children: taskLabel(detailJob.task_type) },
+              { key: 'job', label: '任务编号', children: detailJob.id },
+              { key: 'attempt', label: '处理次数', children: `第 ${detailJob.attempt} 次` },
+              { key: 'phase', label: '当前阶段', children: diagnosticsQ.data?.current_phase.label ?? '正在读取' },
+              { key: 'updated', label: '最后更新', children: fmtDateTime(detailJob.updated_at) },
             ]} />
+            {diagnosticsQ.isError && (
+              <ApiErrorAlert
+                title="任务阶段读取失败"
+                error={diagnosticsQ.error}
+                fallback="暂时无法读取任务阶段"
+                retryLoading={diagnosticsQ.isFetching}
+                onRetry={() => diagnosticsQ.refetch()}
+              />
+            )}
+            {diagnosticsQ.data && (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  message={diagnosticsQ.data.current_phase.label}
+                  description={diagnosticsQ.data.current_phase.message}
+                />
+                <Steps
+                  direction="vertical"
+                  size="small"
+                  current={diagnosticsQ.data.logs.filter((step) => step.status === 'succeeded').length}
+                  items={diagnosticsQ.data.logs.map((step) => ({
+                    title: step.label,
+                    status: step.status === 'succeeded'
+                      ? 'finish'
+                      : step.status === 'failed'
+                        ? 'error'
+                        : 'process',
+                    description: `${step.message}${step.duration_seconds == null ? '' : ` · ${step.duration_seconds.toFixed(2)} 秒`}`,
+                  }))}
+                />
+                <Typography.Text type="secondary">{diagnosticsQ.data.message}</Typography.Text>
+              </>
+            )}
           </Space>
         )}
       </Drawer>

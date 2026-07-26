@@ -119,6 +119,49 @@ test('task errors show an operator action without backend logs or codes', async 
   await expect(page.getByText(/Traceback|SQLAlchemy|Exception|\/app\/private|DXF_SPLIT_SOURCE_MISSING/)).toHaveCount(0);
 });
 
+test('storage console displays and downloads the registered original filename', async ({ page }) => {
+  await mockConsole(page);
+  await page.unroute('**/api/v1/data-admin/objects/tree?**');
+  await page.route('**/api/v1/data-admin/objects/tree?**', (route) => json(route, {
+    bucket: 'factory-source',
+    prefix: 'uploads/',
+    folders: [],
+    objects: [{
+      bucket: 'factory-source',
+      storage_key: 'uploads/6fc5163347f84ca0a198b42402497168.dwg',
+      original_name: '首体院-B7-钢梁原图.dwg',
+      size_bytes: 2048,
+      last_modified: now,
+      registered: true,
+      file_id: 501,
+      file_status: 'available',
+    }],
+    truncated: false,
+  }));
+  await page.route('**/api/v1/files/501/download-url', (route) => json(route, {
+    url: '/mock-download/501',
+    expires_in: 300,
+  }));
+  await page.route('**/mock-download/501', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/acad',
+    body: 'AC1027',
+  }));
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'infra-token', savedUser: user });
+  await page.goto('/data-console?tab=storage');
+
+  await expect(page.getByText('首体院-B7-钢梁原图.dwg')).toBeVisible();
+  await expect(page.getByText('6fc5163347f84ca0a198b42402497168.dwg')).toHaveCount(0);
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('首体院-B7-钢梁原图.dwg');
+});
+
 test('API failures hide technical response details and retain the request number', async ({ page }) => {
   await mockConsole(page);
   await page.unroute('**/api/v1/data-admin/overview');

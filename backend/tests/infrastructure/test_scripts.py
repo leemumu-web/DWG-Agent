@@ -834,9 +834,9 @@ def test_verify_script_exposes_quick_full_and_blocked_modes():
     assert "make docs-check" in content
     assert "npm run build" in content
     assert "DXF→Excel Stage" in content
-    assert "cd Stages/dxf2excel && uv run pytest -q" in content
+    assert "cd Stages/dxf2excel && uv run python -m pytest -q" in content
     assert "Steel DXF Classifier Stage" in content
-    assert "cd Stages/steel_dxf_classifier_v1.1.0 && uv run pytest -q" in content
+    assert "cd Stages/steel_dxf_classifier_v1.1.0 && uv run python -m pytest -q" in content
 
 
 def test_scripts_readme_documents_every_operational_entrypoint():

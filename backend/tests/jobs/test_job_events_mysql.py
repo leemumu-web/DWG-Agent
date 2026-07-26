@@ -59,6 +59,11 @@ def test_job_event_stream_observes_commits_from_another_session(db: Session):
     assert second["progress"] == 55
     assert second["step_name"] == "mysql_poll"
     assert second["message"] == "visible after commit"
+    assert second["progress_data"] == {
+        "type": "progress",
+        "step_name": "mysql_poll",
+        "message": "visible after commit",
+    }
 
     with factory() as writer:
         completed = writer.get(Job, job_id)

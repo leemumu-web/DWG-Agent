@@ -1,4 +1,4 @@
-import { Button, Card, Checkbox, Popconfirm, Progress, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Checkbox, Popconfirm, Space, Tag, Tooltip, Typography } from 'antd';
 import {
   CheckCircleFilled,
   CloseCircleFilled,
@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons';
 
 import type { BatchInfo } from '../../../files';
-import type { Job } from '../../../jobs';
+import { JobProgressBar, type Job } from '../../../jobs';
 import { operatorErrorMessage } from '../../../../shared/api';
 
 const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
@@ -99,7 +99,7 @@ export function DxfBatchCard({
                 <Tag style={{ color: status.color, background: status.bg, border: 'none', borderRadius: 6, marginBottom: 6 }}>
                   {status.icon} <span style={{ marginLeft: 4 }}>{status.label}</span>
                 </Tag>
-                <Progress percent={job.progress} size="small" strokeColor={status.color} />
+                <JobProgressBar job={job} />
                 <div style={{ marginTop: 6 }}>
                   <Button size="small" icon={<PauseCircleOutlined />} onClick={() => onCancel(batch.name)}>暂停</Button>
                 </div>

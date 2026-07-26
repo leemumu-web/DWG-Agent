@@ -21,6 +21,8 @@ tables remain platform infrastructure; result files remain in the files module.
 - `routes/commands.py`：公共 Job 命令；工作流管理的 DXF 拆板拒绝从这里创建或重试，避免绕过阶段血缘和三次 attempt 预算。
 - `dispatch.py`: pipeline routing and compensation after a definite broker error.
 - `event_stream.py`: latest-row event payloads and bounded short-session polling.
+- `diagnostics.py`: safe current-attempt projection for operator task diagnosis;
+  it whitelists business metrics and never returns raw worker logs or paths.
 - `access.py`: creator/project visibility and write/review authorization.
 - `stub_execution.py`: executable framework smoke path with an explicit placeholder result.
 - `recovery.py`: Celery return summaries and stale-running Job reconciliation.
@@ -56,3 +58,5 @@ Core regression lives in `backend/tests/jobs/test_job_*.py`,
 `backend/tests/jobs/test_jobs_module_contract.py`, Result/Review security tests and
 `backend/tests/architecture/test_jobs_boundaries.py`. Runtime HTTP, ORM and Celery
 names are also locked by `docs/architecture/runtime-contract.json`.
+The historical `/{job_id}/logs` route now returns structured, sanitized
+diagnostics under its compatibility key rather than a placeholder or server log.

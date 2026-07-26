@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.modules.cad_processing.batching import _convert_oda_group
+from app.modules.cad_processing.batching import (
+    OdaGroupConversionError,
+    _convert_oda_group,
+)
 from app.modules.cad_processing.dwg_to_dxf.contracts import (
     ERROR_CODE_DXF_FAILED,
     ERROR_CODE_SOURCE_MISSING,
@@ -23,10 +26,18 @@ from app.modules.cad_processing.dwg_to_dxf.execution import (
     _stage_source_dwg,
 )
 from app.modules.cad_processing.dwg_to_dxf.persistence import persist_dxf_conversion_result
+from app.modules.cad_processing.dwg_to_dxf.progress import (
+    CLAIMED,
+    ODA_CONVERTING,
+    ODA_RESULT_READY,
+    phase_data,
+    phase_event,
+    safe_convert_result_metadata,
+    safe_failure_message,
+)
 from app.modules.cad_processing.dwg_to_dxf.versions import detect_dwg_output_version
-from app.modules.jobs.interface import claim_queued_job, commit_job_progress, make_event
+from app.modules.jobs.interface import claim_queued_job, commit_job_progress
 from app.platform.config.constants import (
-    JOB_RUNNING,
     PIPELINE_DXF,
     STEP_DOWNLOAD_SOURCE,
     STEP_RUN_ODA_CONVERT,
@@ -96,9 +107,9 @@ def run_dwg_to_dxf_batch(
                     job_id,
                     expected_attempt=expected_attempt,
                     pipeline=PIPELINE_DXF,
-                    progress=10,
-                    message="批量转换任务已领取",
-                    event_data={"batch_size": len(jobs)},
+                    progress=CLAIMED.progress,
+                    message=CLAIMED.message,
+                    event_data=phase_data(CLAIMED, batch_size=len(jobs)),
                 )
                 if job is None:
                     summary["skipped"] += 1
@@ -124,13 +135,14 @@ def run_dwg_to_dxf_batch(
                 job_work_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     source_path = _stage_source_dwg(db, job, source_file_id, job_work_dir)
-                except Exception as exc:
+                except Exception:
+                    logger.exception("Failed to read DWG source for batch job %s", job_id)
                     _fail_dwg_item(
                         db,
                         job_id=job_id,
                         attempt=attempt,
                         worker_name=worker_name,
-                        message=f"读取 DWG 源文件失败: {exc}",
+                        message=safe_failure_message(ERROR_CODE_SOURCE_MISSING),
                         step_name=STEP_DOWNLOAD_SOURCE,
                         error_code=ERROR_CODE_SOURCE_MISSING,
                         started_at=stage_started,
@@ -151,11 +163,29 @@ def run_dwg_to_dxf_batch(
                     summary["failed"] += 1
                     continue
 
-                output_version = detect_dwg_output_version(source_path)
-                version_dir = root / "groups" / output_version / "input"
-                version_dir.mkdir(parents=True, exist_ok=True)
-                staged_path = version_dir / f"job-{job_id}.dwg"
-                shutil.copy2(source_path, staged_path)
+                try:
+                    output_version = detect_dwg_output_version(source_path)
+                    version_dir = root / "groups" / output_version / "input"
+                    version_dir.mkdir(parents=True, exist_ok=True)
+                    staged_path = version_dir / f"job-{job_id}.dwg"
+                    shutil.copy2(source_path, staged_path)
+                except Exception:
+                    logger.exception(
+                        "Failed to inspect/stage DWG job %s for batch conversion",
+                        job_id,
+                    )
+                    _fail_dwg_item(
+                        db,
+                        job_id=job_id,
+                        attempt=attempt,
+                        worker_name=worker_name,
+                        message=safe_failure_message(ERROR_CODE_DXF_FAILED),
+                        step_name=STEP_RUN_ODA_CONVERT,
+                        error_code=ERROR_CODE_DXF_FAILED,
+                        started_at=stage_started,
+                    )
+                    summary["failed"] += 1
+                    continue
                 _add_step(
                     db,
                     job_id,
@@ -171,14 +201,12 @@ def run_dwg_to_dxf_batch(
                     db,
                     job_id,
                     attempt=attempt,
-                    progress=30,
-                    event=make_event(
-                        type_="progress",
-                        status=JOB_RUNNING,
-                        progress=30,
+                    progress=ODA_CONVERTING.progress,
+                    event=phase_event(
+                        ODA_CONVERTING,
                         step_name=STEP_DOWNLOAD_SOURCE,
-                        message="源文件已加入批量转换组",
                         batch_group=output_version,
+                        batch_size=len(jobs),
                     ),
                 )
                 if current is None:
@@ -201,6 +229,39 @@ def run_dwg_to_dxf_batch(
                 input_dir = items[0].staged_path.parent
                 output_dir = input_dir.parent / "output"
                 convert_started = datetime.now(UTC)
+                item_by_name = {item.staged_path.name: item for item in items}
+
+                def record_completed_shard(
+                    shard_results: list,
+                    completed_shards: int,
+                    total_shards: int,
+                    *,
+                    item_lookup: dict[str, _DwgBatchItem] = item_by_name,
+                    group_version: str = output_version,
+                ) -> None:
+                    for shard_result in shard_results:
+                        item = item_lookup.get(shard_result.source.name)
+                        if item is None:
+                            continue
+                        commit_job_progress(
+                            db,
+                            item.job_id,
+                            attempt=item.attempt,
+                            progress=ODA_RESULT_READY.progress,
+                            event=phase_event(
+                                ODA_RESULT_READY,
+                                step_name=STEP_RUN_ODA_CONVERT,
+                                message=(
+                                    "ODA 已返回该图纸的转换结果"
+                                    if shard_result.success
+                                    else "ODA 已返回该图纸的失败结果"
+                                ),
+                                batch_group=group_version,
+                                completed_shards=completed_shards,
+                                total_shards=total_shards,
+                            ),
+                        )
+
                 try:
                     results = _convert_oda_group(
                         staged_paths=[item.staged_path for item in items],
@@ -212,14 +273,23 @@ def run_dwg_to_dxf_batch(
                             "timeout": settings.oda_converter_timeout,
                             "retries": settings.oda_converter_retries,
                         },
+                        on_shard_complete=record_completed_shard,
                     )
                     result_by_name = {result.source.name: result for result in results}
-                except Exception as exc:
+                except OdaGroupConversionError as exc:
+                    logger.error(
+                        "DWG batch ODA shard failure version=%s failed_sources=%s",
+                        output_version,
+                        exc.failed_source_names,
+                    )
+                    result_by_name = {result.source.name: result for result in exc.results}
+                    group_error = safe_failure_message(ERROR_CODE_DXF_FAILED)
+                except Exception:
                     logger.exception("DWG batch ODA call failed for version=%s", output_version)
                     result_by_name = {}
-                    group_error = f"ODA 批量转换异常: {exc}"
+                    group_error = safe_failure_message(ERROR_CODE_DXF_FAILED)
                 else:
-                    group_error = "ODA 批量转换未返回对应文件结果"
+                    group_error = "ODA 未返回该图纸的转换结果，请检查源图纸后重新处理。"
 
                 for item in items:
                     result = result_by_name.get(item.staged_path.name)
@@ -249,30 +319,14 @@ def run_dwg_to_dxf_batch(
                             "audit": settings.oda_converter_audit,
                             "batch_size": len(items),
                         },
-                        output_json=result.to_dict(),
-                        error_message=result.error if not result.success else None,
+                        output_json=safe_convert_result_metadata(result),
+                        error_message=(
+                            safe_failure_message(ERROR_CODE_DXF_FAILED)
+                            if not result.success
+                            else None
+                        ),
                         started_at=convert_started,
                     )
-                    current = commit_job_progress(
-                        db,
-                        item.job_id,
-                        attempt=item.attempt,
-                        progress=70,
-                        event=make_event(
-                            type_="progress",
-                            status=JOB_RUNNING,
-                            progress=70,
-                            step_name=STEP_RUN_ODA_CONVERT,
-                            message=(
-                                "ODA 批量转换完成"
-                                if result.success
-                                else f"ODA 批量转换失败: {result.error}"
-                            ),
-                        ),
-                    )
-                    if current is None:
-                        summary["skipped"] += 1
-                        continue
                     if not result.success:
                         _mark_job_failed(
                             db,

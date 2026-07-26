@@ -257,6 +257,9 @@ def test_run_dxf_conversion_oda_failure():
     jd = jobv.json()["data"]
     assert jd["status"] == JOB_FAILED, f"status={jd['status']}"
     assert jd["error_code"] == "DXF_CONVERSION_FAILED"
+    assert jd["error_message"] == (
+        "DWG 转 DXF 未完成。系统已完成自动重试，请检查源图纸是否损坏或格式不受支持。"
+    )
 
 
 def test_run_dxf_conversion_source_missing():

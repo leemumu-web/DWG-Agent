@@ -346,16 +346,71 @@ def test_oda_batch_group_uses_bounded_parallel_shards(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "cad_batch_max_shards", 4, raising=False)
     monkeypatch.setattr(settings, "cad_batch_min_files_per_shard", 2, raising=False)
 
+    completed_shards: list[tuple[int, int, list[str]]] = []
     results = cad_batch_service._convert_oda_group(
         staged_paths=files,
         output_root=tmp_path / "outputs",
         convert_directory=fake_convert_directory,
         converter_kwargs={"version": "ACAD2018"},
+        on_shard_complete=lambda shard_results, completed, total: completed_shards.append(
+            (completed, total, [result.source.name for result in shard_results])
+        ),
     )
 
     assert len(calls) == 4
     assert sorted(name for call in calls for name in call) == [path.name for path in files]
     assert len(results) == len(files)
+    assert [completed for completed, _, _ in completed_shards] == [1, 2, 3, 4]
+    assert {total for _, total, _ in completed_shards} == {4}
+    assert sorted(name for _, _, names in completed_shards for name in names) == [
+        path.name for path in files
+    ]
+
+
+def test_oda_batch_group_preserves_successful_shards_when_one_shard_fails(
+    tmp_path, monkeypatch
+):
+    from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
+
+    from app.modules.cad_processing import batching as cad_batch_service
+
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    files = []
+    for index in range(4):
+        source = input_dir / f"job-{index}.dwg"
+        source.write_bytes(b"AC1027")
+        files.append(source)
+
+    def fake_convert_directory(source_dir, target_dir, **_kwargs):
+        names = sorted(path.name for path in source_dir.glob("*.dwg"))
+        if "job-0.dwg" in names:
+            raise RuntimeError("/tmp/private/ODA shard failed")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        results = []
+        for name in names:
+            source = source_dir / name
+            target = target_dir / f"{source.stem}.dxf"
+            target.write_text("SECTION")
+            results.append(ConvertResult(source, target, True))
+        return BatchResult(results)
+
+    monkeypatch.setattr(settings, "cad_batch_max_shards", 2, raising=False)
+    monkeypatch.setattr(settings, "cad_batch_min_files_per_shard", 2, raising=False)
+
+    with pytest.raises(cad_batch_service.OdaGroupConversionError) as captured:
+        cad_batch_service._convert_oda_group(
+            staged_paths=files,
+            output_root=tmp_path / "outputs",
+            convert_directory=fake_convert_directory,
+            converter_kwargs={"version": "ACAD2018"},
+        )
+
+    assert sorted(result.source.name for result in captured.value.results) == [
+        "job-1.dwg",
+        "job-3.dwg",
+    ]
+    assert captured.value.failed_source_names == ("job-0.dwg", "job-2.dwg")
 
 
 def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(db, monkeypatch):
@@ -386,9 +441,21 @@ def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
     monkeypatch.setattr(cad_batch_service, "SessionLocal", test_sessions)
 
     calls: list[dict[str, object]] = []
+    progress_during_oda: list[tuple[int, str | None, bool | None]] = []
 
     def fake_convert_directory(source_dir, target_dir, **kwargs):
         calls.append({"source_dir": source_dir, "target_dir": target_dir, **kwargs})
+        with test_sessions() as progress_db:
+            progress_during_oda.extend(
+                (
+                    current.progress,
+                    (current.progress_data or {}).get("phase"),
+                    (current.progress_data or {}).get("indeterminate"),
+                )
+                for current in progress_db.scalars(
+                    select(Job).where(Job.id.in_([job["id"] for job in jobs])).order_by(Job.id)
+                ).all()
+            )
         target_dir.mkdir(parents=True, exist_ok=True)
         results = []
         for source in sorted(source_dir.glob("*.dwg")):
@@ -417,10 +484,19 @@ def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
     assert summary == {"total": 2, "succeeded": 2, "failed": 0, "skipped": 0}
     assert len(calls) == 1
     assert calls[0]["version"] == "ACAD2013"
+    assert progress_during_oda == [
+        (20, "oda_converting", True),
+        (20, "oda_converting", True),
+    ]
     for job in jobs:
         current = client.get(f"/api/v1/workflows/jobs/{job['id']}", headers=headers).json()["data"]
         assert current["status"] == "succeeded"
         assert current["progress"] == 100
+        steps = client.get(
+            f"/api/v1/workflows/jobs/{job['id']}/steps", headers=headers
+        ).json()["data"]
+        oda_step = next(step for step in steps if step["step_name"] == "run_oda_convert")
+        assert set(oda_step["output_json"]) == {"success", "duration_seconds"}
         results = client.get(f"/api/v1/workflows/jobs/{job['id']}/results", headers=headers).json()["data"]
         assert len(results) == 1
         assert results[0]["result_type"] == "convert_dwg_to_dxf"
@@ -533,3 +609,64 @@ def test_dwg_batch_missing_result_fails_only_the_unmatched_job(db, monkeypatch):
     ]
     assert summary == {"total": 2, "succeeded": 1, "failed": 1, "skipped": 0}
     assert states == ["succeeded", "failed"]
+
+
+def test_dwg_batch_invalid_header_fails_only_that_job(db, monkeypatch):
+    from dwg_converter.engines.oda_converter import BatchResult, ConvertResult
+
+    from app.modules.cad_processing.dwg_to_dxf import batch as cad_batch_service
+
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    file_ids = [
+        _upload_dwg(client, headers, "invalid-header.dwg"),
+        _upload_dwg(client, headers, "valid-header.dwg"),
+    ]
+    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+        created = _create_batch(
+            client,
+            headers,
+            task_type="convert_dwg_to_dxf",
+            file_ids=file_ids,
+        )
+    jobs = created.json()["data"]["jobs"]
+    test_sessions = sessionmaker(
+        bind=db.get_bind(), autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    monkeypatch.setattr(cad_batch_service, "SessionLocal", test_sessions)
+    detect_count = 0
+
+    def detect_version(_source_path):
+        nonlocal detect_count
+        detect_count += 1
+        if detect_count == 1:
+            raise ValueError("/tmp/private/header could not be parsed")
+        return "ACAD2013"
+
+    def fake_batch(source_dir, target_dir, **_kwargs):
+        target_dir.mkdir(parents=True, exist_ok=True)
+        results = []
+        for source in source_dir.glob("*.dwg"):
+            target = target_dir / f"{source.stem}.dxf"
+            target.write_text("  0\nEOF\n", encoding="ascii")
+            results.append(ConvertResult(source=source, target=target, success=True, returncode=0))
+        return BatchResult(results)
+
+    monkeypatch.setattr(cad_batch_service, "detect_dwg_output_version", detect_version)
+    monkeypatch.setattr("dwg_converter.convert_directory", fake_batch)
+
+    summary = cad_batch_service.run_dwg_to_dxf_batch(
+        [(job["id"], job["attempt"]) for job in jobs], worker_name="batch-test"
+    )
+
+    current = [
+        client.get(f"/api/v1/workflows/jobs/{job['id']}", headers=headers).json()["data"]
+        for job in jobs
+    ]
+    assert summary == {"total": 2, "succeeded": 1, "failed": 1, "skipped": 0}
+    assert [job["status"] for job in current] == ["failed", "succeeded"]
+    assert current[0]["error_code"] == "DXF_CONVERSION_FAILED"
+    assert current[0]["error_message"] == (
+        "DWG 转 DXF 未完成。系统已完成自动重试，请检查源图纸是否损坏或格式不受支持。"
+    )
+    assert "/tmp/" not in current[0]["error_message"]

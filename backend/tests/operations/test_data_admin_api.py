@@ -148,8 +148,35 @@ def test_data_admin_objects_mark_registration(tmp_path, monkeypatch):
     assert response.status_code == 200, response.text
     item = response.json()["data"][0]
     assert item["storage_key"] == "untracked/object.dwg"
+    assert item["original_name"] == "object.dwg"
     assert item["registered"] is False
     assert item["file_id"] is None
+
+
+def test_data_admin_tree_exposes_registered_original_name(tmp_path, monkeypatch):
+    storage = LocalFileStorage(tmp_path / "storage")
+    monkeypatch.setattr("app.platform.storage.factory.get_storage_backend", lambda: storage)
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    uploaded = client.post(
+        "/api/v1/files",
+        headers={**headers, "Idempotency-Key": "original-name-tree"},
+        files={"upload": ("钢梁构件原图.dwg", BytesIO(_DWG), "application/acad")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    stored = uploaded.json()["data"]
+    prefix = stored["storage_key"].rsplit("/", 1)[0] + "/"
+
+    response = client.get(
+        "/api/v1/data-admin/objects/tree",
+        headers=headers,
+        params={"bucket": stored["bucket"], "prefix": prefix},
+    )
+
+    assert response.status_code == 200, response.text
+    item = next(row for row in response.json()["data"]["objects"] if row["file_id"] == stored["id"])
+    assert item["original_name"] == "钢梁构件原图.dwg"
+    assert item["storage_key"] != item["original_name"]
 
 
 def test_data_admin_object_tree_returns_direct_folders_and_files(tmp_path, monkeypatch):

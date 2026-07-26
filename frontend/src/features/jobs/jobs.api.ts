@@ -66,6 +66,52 @@ export async function listJobsPage(params: JobListParams) {
   return res.data;
 }
 
+export interface JobDiagnosticDetail {
+  key: string;
+  label: string;
+  value: string | number | boolean | Record<string, unknown>;
+}
+
+export interface JobDiagnosticStep {
+  step: string;
+  label: string;
+  status: string;
+  status_label: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_seconds?: number | null;
+  details: JobDiagnosticDetail[];
+  message: string;
+}
+
+export interface JobDiagnostics {
+  job_id: number;
+  attempt: number;
+  task_type: string;
+  status: string;
+  status_label: string;
+  progress: number;
+  current_phase: {
+    code: string;
+    label: string;
+    message: string;
+    indeterminate: boolean;
+    basis: string;
+  };
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_seconds?: number | null;
+  logs: JobDiagnosticStep[];
+  message: string;
+}
+
+export async function getJobDiagnostics(jobId: number) {
+  const res = await apiClient.get<ApiEnvelope<JobDiagnostics>>(
+    `/api/v1/workflows/jobs/${jobId}/logs`,
+  );
+  return res.data.data;
+}
+
 export async function getJobResults(jobId: number) {
   const res = await apiClient.get<PageEnvelope<JobResult>>(`/api/v1/workflows/jobs/${jobId}/results`, {
     params: { page_size: 200 },

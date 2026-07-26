@@ -3,10 +3,30 @@
 from __future__ import annotations
 
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.platform.config.settings import settings
+
+
+@dataclass(frozen=True)
+class OdaShardFailure:
+    source_names: tuple[str, ...]
+    error: Exception
+
+
+class OdaGroupConversionError(RuntimeError):
+    """One or more ODA shards failed after other shards may have succeeded."""
+
+    def __init__(self, results: list, failures: list[OdaShardFailure]):
+        super().__init__(f"{len(failures)} ODA shard(s) failed")
+        self.results = results
+        self.failures = tuple(failures)
+        self.failed_source_names = tuple(
+            sorted(name for failure in failures for name in failure.source_names)
+        )
 
 
 def _convert_oda_group(
@@ -15,6 +35,7 @@ def _convert_oda_group(
     output_root: Path,
     convert_directory,
     converter_kwargs: dict,
+    on_shard_complete: Callable[[list, int, int], None] | None = None,
 ) -> list:
     """Convert one version group using a measured, bounded number of ODA shards."""
     if not staged_paths:
@@ -33,7 +54,10 @@ def _convert_oda_group(
             target_dir=output_root,
             **converter_kwargs,
         )
-        return list(batch.results)
+        results = list(batch.results)
+        if on_shard_complete is not None:
+            on_shard_complete(results, 1, 1)
+        return results
 
     shards: list[tuple[Path, Path]] = []
     for index in range(shard_count):
@@ -53,9 +77,39 @@ def _convert_oda_group(
             **converter_kwargs,
         )
 
+    results = []
+    failures: list[OdaShardFailure] = []
     with ThreadPoolExecutor(max_workers=shard_count) as pool:
-        batches = list(pool.map(run_shard, shards))
-    return [result for batch in batches for result in batch.results]
+        futures = {
+            pool.submit(run_shard, shard): shard
+            for shard in shards
+        }
+        for completed_count, future in enumerate(as_completed(futures), start=1):
+            source_dir, _ = futures[future]
+            try:
+                shard_results = list(future.result().results)
+            except Exception as exc:
+                failures.append(
+                    OdaShardFailure(
+                        source_names=tuple(
+                            sorted(path.name for path in source_dir.iterdir() if path.is_file())
+                        ),
+                        error=exc,
+                    )
+                )
+                continue
+            results.extend(shard_results)
+            if on_shard_complete is not None:
+                # This loop runs in the caller thread. The callback may safely use
+                # the caller's SQLAlchemy Session without crossing worker threads.
+                on_shard_complete(shard_results, completed_count, shard_count)
+    if failures:
+        raise OdaGroupConversionError(results, failures)
+    return results
 
 
-__all__ = ["_convert_oda_group"]
+__all__ = [
+    "OdaGroupConversionError",
+    "OdaShardFailure",
+    "_convert_oda_group",
+]

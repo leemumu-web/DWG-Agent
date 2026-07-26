@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.access import job_read_filter, require_job_read_access
+from app.modules.jobs.diagnostics import build_job_diagnostics
 from app.modules.jobs.models import AnalysisResult, Job, JobStep
 from app.modules.jobs.schemas import JobRead, JobStepRead
 from app.modules.projects.interface import has_global_project_access
@@ -173,11 +174,4 @@ def get_job_logs(
     if not job:
         raise not_found("Job")
     require_job_read_access(db, current_user, job)
-    return ok(
-        {
-            "job_id": job_id,
-            "logs": [],
-            "message": "Structured worker logs are not wired in stage 1.",
-        },
-        request.state.request_id,
-    )
+    return ok(build_job_diagnostics(db, job), request.state.request_id)

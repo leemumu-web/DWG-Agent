@@ -6,6 +6,7 @@ error codes, and concurrent operation guards.
 
 from __future__ import annotations
 
+import json
 import time
 from uuid import uuid4
 
@@ -346,14 +347,24 @@ class TestJobSteps:
         resp = client.get("/api/v1/workflows/jobs/1/steps")
         assert resp.status_code == 401
 
-    def test_job_logs_returns_placeholder(self):
+    def test_job_logs_returns_safe_structured_diagnostics(self):
         client = _client()
         headers = _login(client, "admin", "SuperAdminPass1")
         _, _, jid = _create_job(client, headers)
         resp = client.get(f"/api/v1/workflows/jobs/{jid}/logs", headers=headers)
         assert resp.status_code == 200
-        # Stage 1 placeholder
-        assert "logs" in resp.json()["data"]
+        data = resp.json()["data"]
+        assert data["job_id"] == jid
+        assert data["attempt"] >= 1
+        assert data["status"] in {"queued", "running", "succeeded"}
+        assert 0 <= data["progress"] <= 100
+        assert data["current_phase"]["label"]
+        assert data["message"] == "仅展示可安全核验的任务阶段，不包含服务器原始日志。"
+        assert isinstance(data["logs"], list)
+        serialized = json.dumps(data, ensure_ascii=False)
+        assert "Structured worker logs are not wired" not in serialized
+        assert "Traceback" not in serialized
+        assert "/tmp/" not in serialized
 
     def test_job_events_returns_placeholder(self):
         client = _client()

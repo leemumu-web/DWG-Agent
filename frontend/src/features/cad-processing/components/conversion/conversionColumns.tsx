@@ -1,4 +1,4 @@
-import { Button, Progress, Space, Tag, Tooltip, Typography } from 'antd';
+import { Button, Space, Tag, Tooltip, Typography } from 'antd';
 import {
   CheckCircleFilled,
   CloseCircleFilled,
@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 
 import type { StoredFile } from '../../../files';
-import type { Job } from '../../../jobs';
+import { JobProgressBar, type Job } from '../../../jobs';
 import { operatorErrorMessage } from '../../../../shared/api';
 
 const STATUS: Record<string, { color: string; bg: string; label: string; icon: React.ReactNode }> = {
@@ -122,19 +122,7 @@ export function buildConversionColumns(options: ConversionColumnsOptions) {
                 {status.icon} <span style={{ marginLeft: 4 }}>{status.label}</span>
               </Tag>
             </Tooltip>
-            <Progress
-              percent={job.progress}
-              size="small"
-              style={{ width: 120, margin: 0 }}
-              strokeColor={status.color}
-              status={
-                job.status === 'failed' || resultUnavailable
-                  ? 'exception'
-                  : job.status === 'succeeded'
-                    ? 'success'
-                    : undefined
-              }
-            />
+            <JobProgressBar job={job} width={150} />
           </Space>
         );
       },

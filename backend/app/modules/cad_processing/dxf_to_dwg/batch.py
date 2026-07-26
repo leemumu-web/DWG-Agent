@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.modules.cad_processing.batching import _convert_oda_group
+from app.modules.cad_processing.batching import (
+    OdaGroupConversionError,
+    _convert_oda_group,
+)
 from app.modules.cad_processing.dxf_to_dwg.contracts import (
     ERROR_CODE_DWG_FAILED,
 )
@@ -236,6 +239,14 @@ def run_dxf_to_dwg_batch(
                         },
                     )
                     result_by_name = {result.source.name: result for result in results}
+                except OdaGroupConversionError as exc:
+                    logger.error(
+                        "DXF batch ODA shard failure version=%s failed_sources=%s",
+                        output_version,
+                        exc.failed_source_names,
+                    )
+                    result_by_name = {result.source.name: result for result in exc.results}
+                    group_error = "ODA 批量转换分片异常"
                 except Exception as exc:
                     logger.exception("DXF batch ODA call failed for version=%s", output_version)
                     result_by_name = {}

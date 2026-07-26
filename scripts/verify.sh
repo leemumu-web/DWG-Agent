@@ -68,25 +68,25 @@ run_gate "架构契约与模块归属" bash -c \
     'cd backend && uv run python ../scripts/architecture/snapshot_contracts.py --check && uv run python ../scripts/architecture/check_module_catalog.py && uv run python ../scripts/architecture/check_partition_docs.py' \
     -- "$PROJECT_ROOT"
 run_gate "聚焦后端与脚本回归" bash -c \
-    'cd backend && uv run pytest -q tests/infrastructure/test_scripts.py tests/infrastructure/test_forward_to_win11_script.py tests/infrastructure/test_compose.py tests/files/test_file_service.py tests/files/test_file_transfer_service.py tests/files/test_adversarial_files.py tests/contracts/test_frontend_contract.py' \
+    'cd backend && uv run python -m pytest -q tests/infrastructure/test_scripts.py tests/infrastructure/test_forward_to_win11_script.py tests/infrastructure/test_compose.py tests/files/test_file_service.py tests/files/test_file_transfer_service.py tests/files/test_adversarial_files.py tests/contracts/test_frontend_contract.py' \
     -- "$PROJECT_ROOT"
 run_gate "API/文档一致性" bash -c 'make docs-check' -- "$PROJECT_ROOT"
 run_gate "前端生产构建" bash -c 'cd frontend && npm run build' -- "$PROJECT_ROOT"
 
 if [ "$MODE" = "full" ]; then
-    run_gate "完整后端 pytest" bash -c 'cd backend && uv run pytest -q' -- "$PROJECT_ROOT"
+    run_gate "完整后端 pytest" bash -c 'cd backend && uv run python -m pytest -q' -- "$PROJECT_ROOT"
     run_gate "Alembic 模型检查" bash -c 'cd backend && uv run alembic check' -- "$PROJECT_ROOT"
     run_gate "基础设施验证" bash infra/verification/verify.sh
     run_gate "Compose 配置" docker compose config --quiet
     run_optional_gate "隔离 MySQL 迁移" bash scripts/db.sh migration-test
-    run_optional_gate "DWG→DXF Stage" bash -c 'cd Stages/dwg2dxf && uv run pytest -q' -- "$PROJECT_ROOT"
-    run_optional_gate "DXF→DWG Stage" bash -c 'cd Stages/dxf2dwg && uv run pytest -q' -- "$PROJECT_ROOT"
-    run_gate "DXF→Excel Stage" bash -c 'cd Stages/dxf2excel && uv run pytest -q' -- "$PROJECT_ROOT"
+    run_optional_gate "DWG→DXF Stage" bash -c 'cd Stages/dwg2dxf && uv run python -m pytest -q' -- "$PROJECT_ROOT"
+    run_optional_gate "DXF→DWG Stage" bash -c 'cd Stages/dxf2dwg && uv run python -m pytest -q' -- "$PROJECT_ROOT"
+    run_gate "DXF→Excel Stage" bash -c 'cd Stages/dxf2excel && uv run python -m pytest -q' -- "$PROJECT_ROOT"
     run_gate "Steel DXF Classifier Stage" bash -c \
-        'cd Stages/steel_dxf_classifier_v1.1.0 && uv run pytest -q' -- "$PROJECT_ROOT"
+        'cd Stages/steel_dxf_classifier_v1.1.0 && uv run python -m pytest -q' -- "$PROJECT_ROOT"
     run_gate "Steel DXF Split runtime" bash -c \
         'cd backend && uv run python -m steel_dxf_split.cli --help >/dev/null' -- "$PROJECT_ROOT"
-    run_optional_gate "Excel Final Stage" bash -c 'cd Stages/excel_final && uv run pytest -q' -- "$PROJECT_ROOT"
+    run_optional_gate "Excel Final Stage" bash -c 'cd Stages/excel_final && uv run python -m pytest -q' -- "$PROJECT_ROOT"
     run_gate "前端浏览器回归" bash -c 'cd frontend && npx playwright test' -- "$PROJECT_ROOT"
 fi
 

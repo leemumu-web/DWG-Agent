@@ -11,8 +11,14 @@
 `persistence.py` owns MinIO/Files registration and AnalysisResult metadata.
 `execution.py` owns one Job attempt; `batch.py` groups files by output version.
 `contracts.py` centralizes failure and output metadata shared by those paths.
+`progress.py` defines the confirmed 5/20/70/85/100 milestones. ODA runtime is
+not converted into a guessed percentage: 20 means the source is staged and ODA
+is active, while 70 is written only after the corresponding ODA shard returns.
+One failed parallel shard does not discard results returned by other shards.
 
 Successful automated tests do not prove the deployment ODA AppImage can open
 every production drawing; representative DWG validation remains mandatory.
 This direction must not accept a browser-uploaded DXF as a substitute for the
 server-derived production input, and it does not own Workflow state changes.
+Temporary paths and subprocess output stay in server logs and are never stored
+in JobStep or AnalysisResult payloads.

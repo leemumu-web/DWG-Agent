@@ -17,6 +17,14 @@ from app.modules.cad_processing.dwg_to_dxf.contracts import (
     DXF_EXTENSION,
     ERROR_CODE_DXF_FAILED,
 )
+from app.modules.cad_processing.dwg_to_dxf.progress import (
+    COMPLETED,
+    PERSISTING,
+    phase_data,
+    phase_event,
+    safe_convert_result_metadata,
+    safe_failure_message,
+)
 from app.modules.cad_processing.execution import (
     CadProcessingError,
     add_job_step,
@@ -35,6 +43,7 @@ from app.modules.files.interface import (
 from app.modules.jobs.interface import (
     AnalysisResult,
     Job,
+    commit_job_progress,
     complete_job_attempt,
     make_event,
 )
@@ -73,7 +82,7 @@ def persist_dxf_conversion_result(
             db,
             job_id,
             attempt,
-            CadProcessingError(f"DXF 产物未生成: {dxf_path}"),
+            CadProcessingError(safe_failure_message(ERROR_CODE_DXF_FAILED)),
             error_code=ERROR_CODE_DXF_FAILED,
             logger=logger,
         )
@@ -82,6 +91,20 @@ def persist_dxf_conversion_result(
     dxf_bytes = dxf_path.read_bytes()
     dxf_stats = _count_dxf_stats(dxf_path)
     logger.info("DXF conversion stats for job %s: %s", job_id, dxf_entity_summary(dxf_stats))
+    job = commit_job_progress(
+        db,
+        job_id,
+        attempt=attempt,
+        progress=PERSISTING.progress,
+        event=phase_event(
+            PERSISTING,
+            step_name=STEP_PERSIST_DXF,
+            output_size_bytes=len(dxf_bytes),
+            total_entities=dxf_stats.get("total_entities", 0),
+        ),
+    )
+    if job is None:
+        return False
     source_file = db.get(StoredFile, source_file_id)
     source_base = source_file.original_name if source_file else source_path.name
     source_base = sanitize_filename(source_base)
@@ -144,7 +167,7 @@ def persist_dxf_conversion_result(
             "task_type": TASK_DWG_TO_DXF,
             "source_file_id": source_file_id,
             "dxf_file_id": dxf_file.id,
-            "convert_result": result.to_dict(),
+            "convert_result": safe_convert_result_metadata(result),
             "dxf_stats": dxf_stats,
         },
         confidence=Decimal("1.0000"),
@@ -178,9 +201,10 @@ def persist_dxf_conversion_result(
         event=make_event(
             type_="done",
             status=JOB_SUCCEEDED,
-            progress=100,
+            progress=COMPLETED.progress,
             step_name=STEP_PERSIST_DXF,
-            message="DXF 转换完成",
+            message=COMPLETED.message,
+            **phase_data(COMPLETED),
         ),
     )
     return completed_job is not None

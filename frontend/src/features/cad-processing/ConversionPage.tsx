@@ -381,16 +381,13 @@ export function ConversionPage(props: ConversionPageProps) {
     let succeeded = 0;
     let failed = 0;
     let processing = 0;
-    let progressPoints = 0;
     for (const file of scopeFiles) {
       const job = jobsByFileId.get(file.id);
       if (!job || isStuckJob(job)) continue;
       if (job.status === 'succeeded' && job.result_available !== false) {
         succeeded += 1;
-        progressPoints += 100;
       } else if (ACTIVE_JOB_STATUSES.has(job.status)) {
         processing += 1;
-        progressPoints += Math.max(0, Math.min(100, job.progress));
       } else if (job.status === 'failed' || job.status === 'cancelled') {
         failed += 1;
       }
@@ -400,7 +397,7 @@ export function ConversionPage(props: ConversionPageProps) {
       failed,
       processing,
       progress: scopeFiles.length > 0
-        ? Math.round(progressPoints / scopeFiles.length)
+        ? Math.round(((succeeded + failed) / scopeFiles.length) * 100)
         : 0,
     };
     // tick keeps stuck-queue classification current.

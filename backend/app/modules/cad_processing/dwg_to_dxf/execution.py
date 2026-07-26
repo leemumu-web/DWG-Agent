@@ -33,6 +33,15 @@ from app.modules.cad_processing.dwg_to_dxf.contracts import (
     ERROR_CODE_SOURCE_MISSING,
 )
 from app.modules.cad_processing.dwg_to_dxf.persistence import persist_dxf_conversion_result
+from app.modules.cad_processing.dwg_to_dxf.progress import (
+    CLAIMED,
+    ODA_CONVERTING,
+    ODA_RESULT_READY,
+    phase_data,
+    phase_event,
+    safe_convert_result_metadata,
+    safe_failure_message,
+)
 from app.modules.cad_processing.dwg_to_dxf.versions import (
     detect_dwg_output_version as _detect_dwg_output_version,
 )
@@ -41,9 +50,6 @@ from app.modules.cad_processing.execution import (
 )
 from app.modules.cad_processing.execution import (
     add_job_step as _add_step,
-)
-from app.modules.cad_processing.execution import (
-    exception_message as _exception_message,
 )
 from app.modules.cad_processing.execution import (
     mark_job_failed,
@@ -77,11 +83,18 @@ def _mark_job_failed(
     exc: Exception,
     error_code: str = ERROR_CODE_DXF_FAILED,
 ) -> None:
+    logger.error(
+        "DWG-to-DXF job %s attempt %s failed internally: %s",
+        job_id,
+        attempt,
+        exc,
+        exc_info=not isinstance(exc, AppError),
+    )
     mark_job_failed(
         db,
         job_id,
         attempt,
-        exc,
+        AppError(safe_failure_message(error_code)),
         error_code=error_code,
         logger=logger,
     )
@@ -112,8 +125,9 @@ def run_dxf_conversion(
             job_id,
             expected_attempt=expected_attempt,
             pipeline=PIPELINE_DXF,
-            progress=10,
-            message="开始转换",
+            progress=CLAIMED.progress,
+            message=CLAIMED.message,
+            event_data=phase_data(CLAIMED),
         )
         if job is None:
             logger.info("DXF job %s was not claimable", job_id)
@@ -190,19 +204,20 @@ def run_dxf_conversion(
                 worker_name,
                 "succeeded",
                 input_json={"file_id": source_file_id},
-                output_json={"source_path": str(source_path)},
+                output_json={
+                    "source_file_id": source_file_id,
+                    "source_size_bytes": source_path.stat().st_size,
+                },
                 started_at=started_at,
             )
             job = commit_job_progress(
                 db,
                 job_id,
                 attempt=attempt,
-                progress=30,
-                event=make_event(
-                    type_="progress",
-                    progress=30,
+                progress=ODA_CONVERTING.progress,
+                event=phase_event(
+                    ODA_CONVERTING,
                     step_name=STEP_DOWNLOAD_SOURCE,
-                    message="源文件已就绪",
                 ),
             )
             if job is None:
@@ -223,6 +238,7 @@ def run_dxf_conversion(
                 raise AppError(f"dwg_converter 包不可用: {exc}") from exc
 
             try:
+                output_version = "unknown"
                 output_version = _detect_dwg_output_version(source_path)
                 result = convert_file(
                     source=source_path,
@@ -246,7 +262,7 @@ def run_dxf_conversion(
                         "audit": settings.oda_converter_audit,
                         "timeout": settings.oda_converter_timeout,
                     },
-                    error_message=_exception_message(exc),
+                    error_message=safe_failure_message(ERROR_CODE_DXF_FAILED),
                     started_at=convert_started,
                 )
                 job = commit_job_progress(
@@ -282,20 +298,22 @@ def run_dxf_conversion(
                     "audit": settings.oda_converter_audit,
                     "timeout": settings.oda_converter_timeout,
                 },
-                output_json=result.to_dict(),
-                error_message=result.error if not result.success else None,
+                output_json=safe_convert_result_metadata(result),
+                error_message=(
+                    safe_failure_message(ERROR_CODE_DXF_FAILED)
+                    if not result.success
+                    else None
+                ),
                 started_at=convert_started,
             )
             job = commit_job_progress(
                 db,
                 job_id,
                 attempt=attempt,
-                progress=70,
-                event=make_event(
-                    type_="progress",
-                    progress=70,
+                progress=ODA_RESULT_READY.progress,
+                event=phase_event(
+                    ODA_RESULT_READY,
                     step_name=STEP_RUN_ODA_CONVERT,
-                    status=JOB_RUNNING,
                     message="ODA 转换完成" if result.success else f"ODA 转换失败: {result.error}",
                 ),
             )

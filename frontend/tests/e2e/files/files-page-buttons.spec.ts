@@ -221,7 +221,15 @@ async function mockConversionState(
     params_json: { file_id: job.fileId, batch_name: 'state-fixture' },
     error_code: job.status === 'failed' ? 'CONVERSION_FAILED' : null,
     error_message: job.status === 'failed' ? '测试转换失败，请重新提交' : null,
-    progress_data: null,
+    progress_data: job.status === 'running'
+      ? {
+          phase: 'oda_converting',
+          phase_label: 'ODA 转换中',
+          message: '源文件已就绪，转换程序正在处理',
+          indeterminate: true,
+          progress_basis: 'confirmed_milestone',
+        }
+      : null,
     result_available: job.status === 'succeeded' ? !releasedResult : null,
     created_at: now,
     updated_at: now,
@@ -882,8 +890,10 @@ for (const dir of DIRECTIONS) {
     await page.reload();
 
     await expect(page.getByText(/成功 1.*失败 1.*处理中 1.*待提交\/重试 2/)).toBeVisible();
+    await expect(page.getByText(/处理完成度/)).toBeVisible();
+    await expect(page.getByText('ODA 转换中')).toBeVisible();
     const aggregate = page.locator('.conversion-progress').getByRole('progressbar');
-    await expect(aggregate).toHaveAttribute('aria-valuenow', '38');
+    await expect(aggregate).toHaveAttribute('aria-valuenow', '50');
     await expect(page.getByRole('button', { name: /提交\/重试 2 个/ })).toBeVisible();
   });
 

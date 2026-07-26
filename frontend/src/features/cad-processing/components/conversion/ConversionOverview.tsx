@@ -63,7 +63,7 @@ export function ConversionOverview(props: ConversionOverviewProps) {
       </div>
       {(props.statusLoading || props.statusLoadFailed || props.scopeCount > 0) && (
         <div className="conversion-progress">
-          <SyncOutlined spin={props.statusLoading || props.processing > 0} style={{ fontSize: 20, color: props.statusLoadFailed ? '#ff4d4f' : props.processing > 0 ? '#1677ff' : '#52c41a' }} />
+          <SyncOutlined spin={props.statusLoading || props.processing > 0} style={{ fontSize: 20, color: props.statusLoadFailed || (props.failed > 0 && props.processing === 0) ? '#ff4d4f' : props.processing > 0 ? '#1677ff' : '#52c41a' }} />
           {props.statusLoading ? (
             <Typography.Text type="secondary">正在加载转换状态…</Typography.Text>
           ) : props.statusLoadFailed ? (
@@ -74,12 +74,18 @@ export function ConversionOverview(props: ConversionOverviewProps) {
           ) : (
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, gap: 12, flexWrap: 'wrap' }}>
-                <Typography.Text strong>{props.selectedBatch ? `文件夹“${props.selectedBatch}”` : '全部文件'}成功进度</Typography.Text>
+                <Typography.Text strong>{props.selectedBatch ? `文件夹“${props.selectedBatch}”` : '全部文件'}处理完成度</Typography.Text>
                 <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                   成功 {props.succeeded} / {props.scopeCount} · 失败 {props.failed} · 处理中 {props.processing} · 待提交/重试 {props.pendingCount} · {props.aggregateProgress}%
                 </Typography.Text>
               </div>
-              <Progress percent={props.aggregateProgress} strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }} size={8} showInfo={false} />
+              <Progress
+                percent={props.aggregateProgress}
+                strokeColor={{ '0%': '#1677ff', '100%': '#52c41a' }}
+                size={8}
+                showInfo={false}
+                status={props.failed > 0 && props.processing === 0 ? 'exception' : props.processing > 0 ? 'active' : 'normal'}
+              />
             </div>
           )}
         </div>

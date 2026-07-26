@@ -773,6 +773,8 @@ def test_data_console_has_two_focused_task_and_storage_workspaces():
     assert "uploadDataAdminObject" in objects_panel
     assert "moveDataAdminObject" in objects_panel
     assert "deleteDataAdminObject" in objects_panel
+    assert "record.original_name" in objects_panel
+    assert "record.storage_key.split('/').pop()" not in objects_panel
     assert "listWorkflows" in task_panel
     assert "listJobsPage" in task_panel
     assert "mysql/tables" not in api_source

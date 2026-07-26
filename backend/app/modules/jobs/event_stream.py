@@ -133,6 +133,7 @@ def job_event_from_row(job: Job) -> dict[str, Any]:
     payload["task_type"] = job.task_type
     payload["pipeline"] = job.pipeline
     payload["params_json"] = job.params_json
+    payload["progress_data"] = job.progress_data
 
     if job.error_code:
         payload["error_code"] = job.error_code

@@ -19,7 +19,6 @@ import {
   Descriptions,
   Empty,
   Popconfirm,
-  Progress,
   Row,
   Space,
   Steps,
@@ -47,6 +46,7 @@ import {
 } from '../../shared/components';
 import type { WorkflowInputBatch, WorkflowInputItem } from './workflow-input';
 import { limitFolderUploadFiles, MAX_FOLDER_FILES } from '../files';
+import { JobProgressBar } from '../jobs';
 
 const ACTIVE_BATCH = new Set(['converting']);
 const ACTIVE_JOB = new Set(['queued', 'running', 'retrying']);
@@ -260,7 +260,7 @@ export function ProductionInputPanel({
     { title: '类型', dataIndex: 'role', width: 86, render: (role: string) => role === 'source_excel' ? <Tag icon={<FileExcelOutlined />} color="green">Excel</Tag> : <Tag color="blue">DWG</Tag> },
     {
       title: '服务器处理', key: 'processing', width: 210,
-      render: (_: unknown, item: WorkflowInputItem) => <div>{itemStatus(item)}{item.conversion_job && <><Progress percent={item.conversion_job.progress ?? 0} size="small" /><Typography.Text type="secondary" style={{ fontSize: 12 }}>任务 #{item.conversion_job.id} · 尝试 #{item.conversion_job.attempt}</Typography.Text></>}{item.derived_dxf && <div><Typography.Text type="secondary">{item.derived_dxf.original_name} 已纳入生产压缩包</Typography.Text></div>}</div>,
+      render: (_: unknown, item: WorkflowInputItem) => <div>{itemStatus(item)}{item.conversion_job && <><JobProgressBar job={item.conversion_job} /><Typography.Text type="secondary" style={{ fontSize: 12 }}>任务 #{item.conversion_job.id} · 尝试 #{item.conversion_job.attempt}</Typography.Text></>}{item.derived_dxf && <div><Typography.Text type="secondary">{item.derived_dxf.original_name} 已纳入生产压缩包</Typography.Text></div>}</div>,
     },
     {
       title: '反馈', key: 'feedback',

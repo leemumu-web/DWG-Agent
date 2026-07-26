@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+
 from app.modules.files.interface import FileTransfer, StoredFile
 from app.platform.storage.base import ObjectInfo
 
@@ -35,6 +37,11 @@ def storage_object_data(
     return {
         "bucket": item.bucket,
         "storage_key": item.storage_key,
+        "original_name": (
+            row.original_name
+            if row is not None
+            else PurePosixPath(item.storage_key).name
+        ),
         "size_bytes": item.size_bytes,
         "last_modified": item.last_modified,
         "registered": row is not None,

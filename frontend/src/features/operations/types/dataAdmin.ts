@@ -67,6 +67,7 @@ export interface DataAdminFile {
 export interface StorageObject {
   bucket: string;
   storage_key: string;
+  original_name: string;
   size_bytes: number;
   last_modified?: string | null;
   registered: boolean;

@@ -202,9 +202,9 @@ export function ObjectsPanel({ canManage, areas }: Props) {
             columns={[
               {
                 title: '文件',
-                dataIndex: 'storage_key',
+                dataIndex: 'original_name',
                 ellipsis: true,
-                render: (value: string) => <Space><FileOutlined /><span>{value.split('/').pop()}</span></Space>,
+                render: (value: string) => <Space><FileOutlined /><span>{value}</span></Space>,
               },
               { title: '大小', dataIndex: 'size_bytes', width: 110, align: 'right', render: bytes },
               { title: '最后修改', dataIndex: 'last_modified', width: 190, render: (value?: string) => value ? new Date(value).toLocaleString() : '—' },
@@ -217,7 +217,7 @@ export function ObjectsPanel({ canManage, areas }: Props) {
                   <Space size={2}>
                     <Button type="link" onClick={() => setDetailId(record.file_id!)}>详情</Button>
                     {canManage && (
-                      <Button type="link" onClick={() => downloadFile(record.file_id!, record.storage_key.split('/').pop() || 'download')}>下载</Button>
+                      <Button type="link" onClick={() => downloadFile(record.file_id!, record.original_name)}>下载</Button>
                     )}
                     {canManage && <>
                       <Button type="link" onClick={() => {
