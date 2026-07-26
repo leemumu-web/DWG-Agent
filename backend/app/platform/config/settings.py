@@ -83,13 +83,13 @@ class Settings(BaseSettings):
     oda_converter_version: str = "ACAD2018"
     oda_converter_audit: bool = True
     oda_converter_timeout: int = 300
-    oda_converter_retries: int = 1
+    oda_converter_retries: int = Field(default=3, ge=0, le=5)
     oda_xvfb_run: bool = True
     # DXF→DWG — 同 ODA，输入输出互换
     dxf2dwg_converter_version: str = "ACAD2018"
     dxf2dwg_converter_audit: bool = True
     dxf2dwg_converter_timeout: int = 300
-    dxf2dwg_converter_retries: int = 1
+    dxf2dwg_converter_retries: int = Field(default=3, ge=0, le=5)
     # Large same-version batches are split across a small number of ODA processes.
     # The defaults were selected from the 135-file bidirectional benchmark.
     cad_batch_max_shards: int = Field(default=4, ge=1, le=8)

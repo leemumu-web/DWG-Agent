@@ -72,9 +72,12 @@ def test_explicit_xvfb_setting_wins_over_display(monkeypatch):
 # ---------------------------------------------------------------------- #
 def test_convert_file_missing_source(tmp_path: Path):
     conv = OdaConverter(executable=Path("/fake/oda"))
-    result = conv.convert_file(tmp_path / "nope.dwg", tmp_path / "out")
+    with mock.patch.object(conv, "_run_once") as run_once:
+        result = conv.convert_file(tmp_path / "nope.dwg", tmp_path / "out")
+
     assert not result.success
     assert "源文件不存在" in (result.error or "")
+    run_once.assert_not_called()
 
 
 def test_convert_file_success(tmp_path: Path):
@@ -139,6 +142,47 @@ def test_convert_file_timeout_returns_failure(tmp_path: Path):
     assert result.returncode == 124
     assert result.error and "超时" in result.error
     assert "1s" in result.error  # timeout 值进 error_hint
+
+
+def test_nonzero_exit_retries_three_times_with_bounded_backoff():
+    """生产配置允许 ODA 非零退出后再尝试三次，并在重试间短暂退避。"""
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    failures = [
+        subprocess.CompletedProcess(args=[], returncode=7, stdout="", stderr="busy"),
+        subprocess.CompletedProcess(args=[], returncode=8, stdout="", stderr="busy"),
+        subprocess.CompletedProcess(args=[], returncode=9, stdout="", stderr="busy"),
+        _fake_ok(),
+    ]
+
+    with (
+        mock.patch.object(conv, "_run_once", side_effect=failures) as run_once,
+        mock.patch("dwg_converter.engines.oda_converter.time.sleep") as sleep,
+    ):
+        result = conv._run_with_retries(["oda"], timeout=10, retries=3)
+
+    assert result.returncode == 0
+    assert run_once.call_count == 4
+    assert [call.args[0] for call in sleep.call_args_list] == [0.5, 1.0, 2.0]
+
+
+def test_nonzero_exit_exhaustion_reports_all_attempts(tmp_path: Path):
+    src = tmp_path / "a.dwg"
+    src.write_bytes(b"fake")
+    conv = OdaConverter(executable=Path("/fake/oda"))
+    failed = subprocess.CompletedProcess(
+        args=[], returncode=7, stdout="", stderr="busy",
+    )
+
+    with (
+        mock.patch.object(conv, "_run_once", return_value=failed) as run_once,
+        mock.patch("dwg_converter.engines.oda_converter.time.sleep"),
+    ):
+        result = conv.convert_file(src, tmp_path / "out", retries=3)
+
+    assert not result.success
+    assert run_once.call_count == 4
+    assert "已尝试 4 次" in (result.error or "")
+    assert "returncode=7" in (result.error or "")
 
 
 # ---------------------------------------------------------------------- #

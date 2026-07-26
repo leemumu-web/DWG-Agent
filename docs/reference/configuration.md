@@ -122,7 +122,7 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `CAD_BATCH_MAX_SHARDS` | 4 | 同版本大批次最多并行 ODA 目录分片数，限制 1-8 |
 | `CAD_BATCH_MIN_FILES_PER_SHARD` | 8 | 每增加一个 ODA 分片所需的最少文件数，限制 2-100 |
 
-ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`ODA_CONVERTER_TIMEOUT=300`、`ODA_CONVERTER_RETRIES=1`、`ODA_XVFB_RUN=true`、`DXF2DWG_CONVERTER_VERSION=ACAD2018`、`DXF2DWG_CONVERTER_AUDIT=true`、`DXF2DWG_CONVERTER_TIMEOUT=300`、`DXF2DWG_CONVERTER_RETRIES=1`，`ODA_HOME` 默认空。
+ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`ODA_CONVERTER_TIMEOUT=300`、`ODA_CONVERTER_RETRIES=3`、`ODA_XVFB_RUN=true`、`DXF2DWG_CONVERTER_VERSION=ACAD2018`、`DXF2DWG_CONVERTER_AUDIT=true`、`DXF2DWG_CONVERTER_TIMEOUT=300`、`DXF2DWG_CONVERTER_RETRIES=3`，`ODA_HOME` 默认空。重试次数不含首次执行，允许范围为 0–5；默认总共最多执行 4 次。ODA 非零退出或超时才在 0.5、1、2 秒的有界退避后重试，源文件缺失等预检错误不会启动 ODA。
 
 两个 CAD worker 由 `scripts/run-cad-worker.sh` 各自启动一个持久 Xvfb；已有 `DISPLAY` 时 Stage 不再为每次 ODA 调用执行 `xvfb-run -a`。`DXF_WORKER_CONCURRENCY=8` 与 `DXF2DWG_WORKER_CONCURRENCY=8` 是跨批次吞吐默认值，不表示单批次盲目启动 8 个 ODA。单批次按文件数和版本分组后自适应为最多 4 个目录分片；135 文件实测中 4 分片处于吞吐拐点。调整前必须用 `scripts/cad/benchmark_conversion.py` 在部署机器和代表性图纸上复测。
 

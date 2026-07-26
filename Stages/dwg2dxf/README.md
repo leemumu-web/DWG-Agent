@@ -23,7 +23,7 @@ DWG 文件/目录 → ODA File Converter (subprocess) → DXF
 - **目录隔离**：单文件转换会把文件复制进临时源目录再调 ODA，避免误转同目录其他文件。
 - **失败检测**：ODA 转换失败时进程退出码仍是 0，只在目标目录写 `<name>.dxf.err`。
   引擎会扫描该副产物，把它作为失败原因采集并自动清理，不依赖退出码判断成败。
-- **超时 / 重试**：`subprocess.run(timeout=...)` 单次超时；`retries` 控制失败重试次数。
+- **超时 / 重试**：`subprocess.run(timeout=...)` 单次超时；`retries` 控制失败重试次数。非零退出或超时按 0.5、1、2 秒有界退避，源文件缺失等预检错误不启动 ODA。Stage 独立调用默认不重试；平台生产入口默认传入 `retries=3`，即总共最多尝试 4 次。
 - **无头运行**：ODA 是 Qt GUI 程序，CLI 模式也要初始化 Qt 平台插件（仅有 xcb），
   无 X 服务器会崩溃。引擎默认自动探测并用 `xvfb-run -a` 包裹调用提供无头 X。
 - **结构化结果**：`ConvertResult`（单文件）/ `BatchResult`（批量，含 `ok/total/failed/all_success`），

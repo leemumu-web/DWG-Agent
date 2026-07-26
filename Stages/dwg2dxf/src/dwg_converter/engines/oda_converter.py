@@ -39,6 +39,19 @@ _OUTPUT_TYPE = "DXF"
 _OUTPUT_EXT = "dxf"
 # _run_with_retries 超时时构造的合成 CompletedProcess 用的退出码（约定）。
 _TIMEOUT_RETCODE = 124
+_RETRY_BASE_DELAY_SECONDS = 0.5
+_RETRY_MAX_DELAY_SECONDS = 2.0
+
+
+def _failure_hint(returncode: int, timeout: int, attempts: int) -> Optional[str]:
+    if returncode == _TIMEOUT_RETCODE:
+        return f"ODA 单次超时限制为 {timeout}s，已尝试 {attempts} 次"
+    if returncode != 0:
+        return (
+            f"ODA 已尝试 {attempts} 次，最后仍返回非零退出码"
+            f"（returncode={returncode}）"
+        )
+    return None
 
 
 class OdaConvertError(RuntimeError):
@@ -229,7 +242,15 @@ class OdaConverter:
                     stdout="", stderr=f"timeout after {timeout}s",
                 )
                 if attempt < retries:
-                    logger.warning("ODA 超时，重试 %d/%d", attempt + 1, retries)
+                    delay = min(
+                        _RETRY_BASE_DELAY_SECONDS * (2 ** attempt),
+                        _RETRY_MAX_DELAY_SECONDS,
+                    )
+                    logger.warning(
+                        "ODA 超时，%.1f 秒后重试 %d/%d",
+                        delay, attempt + 1, retries,
+                    )
+                    time.sleep(delay)
                     continue
                 logger.error("ODA 超时（%ss）: %s", timeout, e)
                 return last
@@ -238,10 +259,15 @@ class OdaConverter:
             if result.returncode == 0:
                 return result
             if attempt < retries:
-                logger.warning(
-                    "ODA 失败 returncode=%d，重试 %d/%d",
-                    result.returncode, attempt + 1, retries,
+                delay = min(
+                    _RETRY_BASE_DELAY_SECONDS * (2 ** attempt),
+                    _RETRY_MAX_DELAY_SECONDS,
                 )
+                logger.warning(
+                    "ODA 失败 returncode=%d，%.1f 秒后重试 %d/%d",
+                    result.returncode, delay, attempt + 1, retries,
+                )
+                time.sleep(delay)
                 continue
         assert last is not None
         return last
@@ -359,9 +385,7 @@ class OdaConverter:
                 )
             duration = time.monotonic() - start
 
-            error_hint = (
-                f"ODA 超时（{timeout}s）" if result.returncode == _TIMEOUT_RETCODE else None
-            )
+            error_hint = _failure_hint(result.returncode, timeout, retries + 1)
             return self._collect_result(
                 source, target_dir,
                 returncode=result.returncode, duration=duration,
@@ -438,9 +462,7 @@ class OdaConverter:
             ])
         duration = time.monotonic() - start
 
-        error_hint = (
-            f"ODA 超时（{timeout}s）" if result.returncode == _TIMEOUT_RETCODE else None
-        )
+        error_hint = _failure_hint(result.returncode, timeout, retries + 1)
         results = [
             self._collect_result(
                 s, target_dir,

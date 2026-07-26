@@ -228,6 +228,23 @@ def test_dxf_split_pipeline_is_disabled_by_default():
     assert configured.dxf_split_timeout_seconds == 3600
 
 
+def test_oda_conversion_defaults_to_three_retries_in_both_directions():
+    configured = Settings(_env_file=None)
+
+    assert configured.oda_converter_retries == 3
+    assert configured.dxf2dwg_converter_retries == 3
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["oda_converter_retries", "dxf2dwg_converter_retries"],
+)
+@pytest.mark.parametrize("invalid_value", [-1, 6])
+def test_oda_conversion_retry_count_is_bounded(field_name, invalid_value):
+    with pytest.raises(ValueError):
+        Settings(_env_file=None, **{field_name: invalid_value})
+
+
 def test_handbook_database_defaults_to_platform_mysql_connection():
     configured = Settings(
         _env_file=None,
