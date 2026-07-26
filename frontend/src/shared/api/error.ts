@@ -101,6 +101,7 @@ const CODE_MESSAGES: Record<string, string> = {
   SUPER_ADMIN_ASSIGNMENT_FORBIDDEN: '管理员不能授予超级管理员权限；系统只保留一个超级管理员账号。',
   SUPER_ADMIN_ROLE_PROTECTED: '超级管理员角色是系统保护角色，不能修改其权限。',
   SUPER_ADMIN_SINGLETON: '系统只能有一个超级管理员，不能再向其他账号授予该角色。',
+  USERNAME_EXISTS: '用户名已存在，请更换用户名后重新创建。',
   WORKFLOW_STAGE_INPUT_INCOMPLETE: '当前阶段缺少必需的上一步结果，请返回前序阶段补齐并确认。',
 };
 

@@ -682,6 +682,15 @@ def test_operator_errors_are_chinese_and_hide_backend_diagnostics():
         assert "operatorErrorMessage" in source
 
 
+def test_duplicate_username_has_a_specific_operator_message():
+    error_source = _frontend_source("shared/api/error.ts")
+
+    assert (
+        "USERNAME_EXISTS: '用户名已存在，请更换用户名后重新创建。'"
+        in error_source
+    )
+
+
 def test_dashboard_contains_complete_operator_manual():
     dashboard = _frontend_source("features/dashboard/DashboardPage.tsx")
 
