@@ -79,6 +79,20 @@ python3 scripts/production/workflow_load.py \
 5. 参数比较期间不得同时改镜像、样本或其他 worker 配置。
 6. 最优参数确认后执行至少 30 分钟混合负载，再做无活动 Job 条件下的受控重启。
 
+## 重启与恢复验收
+
+生产机启用 `dwg-agent.service` 后，重启验收必须在没有排队或运行任务时进行：
+
+1. 确认 Docker 与 `dwg-agent.service` 均为 `enabled`。
+2. 让一个 worker 主进程自行退出，确认 Docker 自动恢复且重启计数增加。
+3. 让 API 主进程自行退出，确认 API 恢复后网关 `/health/ready` 可用。
+4. 重启服务器，确认 MySQL/MinIO 先健康、API 随后健康、最后 14 个服务全部健康。
+5. 再次登录管理员与操作员，确认数据库用户、角色和已有业务数据没有因重启丢失。
+
+`docker stop`、`docker kill` 和 `docker compose down` 是管理员主动停止语义；对
+`unless-stopped` 而言，它们不能作为进程崩溃自动恢复测试。测试进程崩溃应让容器内
+PID 1 正常响应终止信号并退出，再观察 Docker 的实际重启行为。
+
 ## 判定与清理
 
 以下任一情况都不能发布：

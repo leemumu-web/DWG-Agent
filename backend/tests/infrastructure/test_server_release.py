@@ -191,6 +191,56 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "oda_runtime_smoke.dxf" in server
 
 
+def test_server_recovery_starts_dependency_tiers_before_the_full_stack():
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+
+    recovery = server[
+        server.index("server_recover()") : server.index("server_enable_service()")
+    ]
+    storage_up = recovery.index(
+        'server_compose "$target" up -d --no-build mysql minio'
+    )
+    storage_ready = recovery.index(
+        'server_wait_services "$target" 240 mysql minio'
+    )
+    api_up = recovery.index(
+        'server_compose "$target" up -d --no-build backend-api'
+    )
+    api_ready = recovery.index(
+        'server_wait_services "$target" 240 backend-api'
+    )
+    full_up = recovery.index(
+        'server_compose "$target" up -d --no-build --remove-orphans'
+    )
+    full_ready = recovery.index('server_wait_all_services "$target" 360')
+    smoke = recovery.index('server_smoke "$target"')
+
+    assert (
+        storage_up
+        < storage_ready
+        < api_up
+        < api_ready
+        < full_up
+        < full_ready
+        < smoke
+    )
+
+
+def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures():
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+
+    assert "server-deploy.sh enable-service TARGET_DIR" in server
+    assert "Requires=docker.service" in server
+    assert "After=docker.service network-online.target" in server
+    assert "Wants=network-online.target" in server
+    assert "Restart=on-failure" in server
+    assert "RestartSec=15s" in server
+    assert 'ExecStart=$target/scripts/server-deploy.sh recover $target' in server
+    assert 'ExecReload=$target/scripts/server-deploy.sh recover $target' in server
+    assert 'ExecStop=$target/scripts/server-deploy.sh down $target' in server
+    assert "systemctl enable --now dwg-agent.service" in server
+
+
 def test_backend_numpy_stays_compatible_with_baseline_x86_64_servers():
     pyproject = PYPROJECT.read_text(encoding="utf-8")
 
