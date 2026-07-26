@@ -276,8 +276,8 @@ def test_worker_ready_runs_domain_recovery_before_publishing_ready(monkeypatch):
     assert order == ["domain-recovery", "ready:True"]
 
 
-def test_task_lifecycle_signals_forward_the_celery_task_id(monkeypatch):
-    recorded: list[tuple[str, str, str | None]] = []
+def test_task_lifecycle_signals_forward_task_identity_and_correlation_id(monkeypatch):
+    recorded: list[tuple[str, str, object | None, str | None]] = []
 
     def record(
         status: str,
@@ -285,17 +285,30 @@ def test_task_lifecycle_signals_forward_the_celery_task_id(monkeypatch):
         sender=None,
         task_id: str | None = None,
     ) -> None:
-        recorded.append((status, event_type, task_id))
+        recorded.append((status, event_type, sender, task_id))
 
     monkeypatch.setattr(celery_runtime, "_emit_worker_signal", record)
 
-    celery_runtime._record_task_start(task_id="task-123")
-    celery_runtime._record_task_finish(task_id="task-123")
+    task = object()
+    celery_runtime._record_task_start(task_id="task-123", task=task)
+    celery_runtime._record_task_finish(task_id="task-123", task=task)
 
     assert recorded == [
-        ("online", "task.started", "task-123"),
-        ("online", "task.finished", "task-123"),
+        ("online", "task.started", task, "task-123"),
+        ("online", "task.finished", task, "task-123"),
     ]
+
+
+def test_worker_identity_uses_task_request_hostname_before_unknown_fallback(monkeypatch):
+    class Request:
+        hostname = "worker-dxf@production-node"
+
+    class Task:
+        request = Request()
+
+    monkeypatch.delenv("CELERY_WORKER_NODENAME", raising=False)
+
+    assert celery_runtime._worker_identity(Task()) == "worker-dxf@production-node"
 
 
 def test_purge_queued_job_messages_uses_transport_channel_and_reports_failures():

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.bootstrap.seed import init_db
 from app.main import app
@@ -56,6 +56,36 @@ def test_worker_activity_persists_event_and_stale_state(db):
     worker = next(item for item in overview["workers"] if item["worker_name"] == "dispatch@test")
     assert worker["status"] == "online"
     assert worker["queues"] == ["dispatch"]
+
+
+def test_worker_activity_uses_atomic_runtime_upsert(db):
+    statements: list[str] = []
+    engine = db.get_bind()
+
+    def capture_statement(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture_statement)
+    try:
+        record_worker_activity(
+            db,
+            worker_name="concurrent-worker@test",
+            status="online",
+            event_type="task.started",
+            queues=["dxf"],
+            concurrency=4,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", capture_statement)
+
+    runtime_writes = [
+        statement
+        for statement in statements
+        if "worker_runtimes" in statement.lower()
+    ]
+    assert runtime_writes
+    assert runtime_writes[0].lstrip().upper().startswith("INSERT")
+    assert "ON CONFLICT" in runtime_writes[0].upper()
 
 
 def test_control_plane_requires_privileged_role():

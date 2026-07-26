@@ -349,10 +349,12 @@ def update_worker_readiness_marker(
 
 
 def _worker_identity(sender=None) -> str:
+    request = getattr(sender, "request", None)
     return str(
         getattr(sender, "hostname", None)
+        or getattr(request, "hostname", None)
         or os.environ.get("CELERY_WORKER_NODENAME")
-        or f"unknown@{socket.gethostname()}"
+        or f"unknown@{socket.gethostname()}:{os.getpid()}"
     )
 
 
@@ -417,12 +419,12 @@ def _remove_worker_readiness_marker(sender=None, **_kwargs) -> None:
 
 @task_prerun.connect
 def _record_task_start(task_id=None, task=None, **_kwargs) -> None:
-    _emit_worker_signal("online", "task.started", task_id=task_id)
+    _emit_worker_signal("online", "task.started", sender=task, task_id=task_id)
 
 
 @task_postrun.connect
-def _record_task_finish(task_id=None, **_kwargs) -> None:
-    _emit_worker_signal("online", "task.finished", task_id=task_id)
+def _record_task_finish(task_id=None, task=None, **_kwargs) -> None:
+    _emit_worker_signal("online", "task.finished", sender=task, task_id=task_id)
 
 
 # Load the explicit task registry once so tests, workers and shell probes see

@@ -50,6 +50,53 @@ def _is_before(value: datetime, cutoff: datetime) -> bool:
     return value < cutoff
 
 
+def _upsert_worker_runtime(
+    db: Session,
+    *,
+    worker_name: str,
+    now: datetime,
+    status: str,
+) -> WorkerRuntime:
+    """Create the one runtime row without a concurrent SELECT/INSERT race."""
+    values = {
+        "worker_name": worker_name,
+        "started_at": now,
+        "last_seen_at": now,
+        "status": status,
+    }
+    dialect = db.get_bind().dialect.name
+    if dialect == "mysql":
+        from sqlalchemy.dialects.mysql import insert as dialect_insert
+
+        statement = dialect_insert(WorkerRuntime).values(**values)
+        statement = statement.on_duplicate_key_update(
+            last_seen_at=statement.inserted.last_seen_at,
+            updated_at=statement.inserted.updated_at,
+        )
+        db.execute(statement)
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+
+        statement = dialect_insert(WorkerRuntime).values(**values)
+        db.execute(
+            statement.on_conflict_do_nothing(
+                index_elements=[WorkerRuntime.worker_name],
+            )
+        )
+    else:
+        runtime = db.scalar(select(WorkerRuntime).where(WorkerRuntime.worker_name == worker_name))
+        if runtime is None:
+            runtime = WorkerRuntime(**values)
+            db.add(runtime)
+            db.flush()
+        return runtime
+
+    runtime = db.scalar(select(WorkerRuntime).where(WorkerRuntime.worker_name == worker_name))
+    if runtime is None:
+        raise RuntimeError(f"Worker runtime upsert did not return a row for {worker_name!r}.")
+    return runtime
+
+
 def record_worker_activity(
     db: Session,
     *,
@@ -63,12 +110,12 @@ def record_worker_activity(
 ) -> WorkerRuntime:
     """Persist a signal observation. Callers must treat failures as non-fatal."""
     now = _now()
-    runtime = db.scalar(select(WorkerRuntime).where(WorkerRuntime.worker_name == worker_name))
-    if runtime is None:
-        runtime = WorkerRuntime(
-            worker_name=worker_name, started_at=now, last_seen_at=now, status=status
-        )
-        db.add(runtime)
+    runtime = _upsert_worker_runtime(
+        db,
+        worker_name=worker_name,
+        now=now,
+        status=status,
+    )
     runtime.status = status
     runtime.hostname = socket.gethostname()
     runtime.process_id = os.getpid()
