@@ -75,3 +75,14 @@ def test_nginx_streams_large_api_uploads_with_multipart_headroom(config_path: Pa
     assert "client_max_body_size 520m;" in content
     assert "proxy_request_buffering off;" in route
     assert "rl=$request_length rid=$request_id" in content
+
+
+@pytest.mark.parametrize("config_path", NGINX_CONFIGS)
+def test_nginx_host_allowlist_accepts_private_lan_addresses(config_path: Path):
+    content = config_path.read_text(encoding="utf-8")
+
+    assert "map $host $host_is_allowed" in content
+    assert r"~^10\." in content
+    assert r"~^172\.(1[6-9]|2[0-9]|3[01])\." in content
+    assert r"~^192\.168\." in content
+    assert "if ($host_is_allowed = 0)" in content
