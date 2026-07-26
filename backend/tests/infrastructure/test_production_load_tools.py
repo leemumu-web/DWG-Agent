@@ -24,6 +24,7 @@ from scripts.production.resource_sampler import (  # noqa: E402
 )
 from scripts.production.workflow_load import (  # noqa: E402
     CountConservationError,
+    LoadApiError,
     LoadFixture,
     ProjectCounts,
     ProjectRunResult,
@@ -235,6 +236,48 @@ def _split_archive() -> bytes:
         archive.writestr("余量增长后短文件/panel-a.dxf", "DXF-A+")
         archive.writestr("余量增长后短文件/panel-b.dxf", "DXF-B+")
     return payload.getvalue()
+
+
+def test_batch_poll_waits_for_terminal_counts_before_reporting_failures() -> None:
+    polls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal polls
+        polls += 1
+        if polls == 1:
+            data = {
+                "status": "converting",
+                "freeze_ready": False,
+                "counts": {"converting": 3, "failed": 1},
+                "issues": [{"name": "partial.dwg"}],
+            }
+        else:
+            data = {
+                "status": "conversion_failed",
+                "freeze_ready": False,
+                "counts": {"converting": 0, "failed": 4},
+                "issues": [{"name": f"failed-{index}.dwg"} for index in range(4)],
+            }
+        return httpx.Response(200, json=_envelope(data, f"req-{polls}"))
+
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="http://testserver",
+        ) as client:
+            runner = WorkflowRunner(
+                client=client,
+                poll_interval_seconds=0,
+                stage_timeout_seconds=2,
+            )
+            with pytest.raises(LoadApiError) as captured:
+                await runner._poll_batch(41, "token")
+            assert captured.value.code == "DWG_CONVERSION_FAILED"
+            assert "failed-3.dwg" in captured.value.message
+
+    asyncio.run(run())
+
+    assert polls == 2
 
 
 def test_workflow_runner_uses_real_public_sequence_and_conserves_counts(

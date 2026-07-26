@@ -213,14 +213,29 @@ class OdaConverter:
         else:
             full_cmd = cmd
         logger.debug("执行命令: %s", " ".join(full_cmd))
-        result = subprocess.run(
-            full_cmd,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            check=False,
-        )
+        # AppImage 的 extract-and-run 模式会使用 TMPDIR 下由镜像哈希决定的
+        # 固定目录。并发调用若共享 TMPDIR，会在退出清理时互删文件，即使产物
+        # 已生成也可能返回 127。每次调用必须有独立的可执行临时目录；生产容器
+        # 把父目录放在 /app/var，避开 noexec 的 /tmp。
+        runtime_parent = os.environ.get("TMPDIR")
+        with tempfile.TemporaryDirectory(
+            prefix="oda_appimage_",
+            dir=runtime_parent,
+        ) as call_tmp:
+            xdg_runtime = Path(call_tmp) / "runtime"
+            xdg_runtime.mkdir(mode=0o700)
+            process_environment = os.environ.copy()
+            process_environment["TMPDIR"] = call_tmp
+            process_environment["XDG_RUNTIME_DIR"] = str(xdg_runtime)
+            result = subprocess.run(
+                full_cmd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=timeout,
+                check=False,
+                env=process_environment,
+            )
         if result.stdout:
             logger.debug("ODA stdout: %s", result.stdout[:500])
         if result.stderr:

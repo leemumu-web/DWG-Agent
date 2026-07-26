@@ -418,7 +418,11 @@ class WorkflowRunner:
             counts = data.get("counts", {})
             if data.get("freeze_ready") is True:
                 return data
-            if isinstance(counts, dict) and int(counts.get("failed", 0)) > 0:
+            if (
+                isinstance(counts, dict)
+                and int(counts.get("failed", 0)) > 0
+                and int(counts.get("converting", 0)) == 0
+            ):
                 issues = data.get("issues")
                 raise LoadApiError(
                     stage="等待 DWG 转换",

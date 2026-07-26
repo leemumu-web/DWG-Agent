@@ -67,6 +67,38 @@ def test_explicit_xvfb_setting_wins_over_display(monkeypatch):
     assert conv.xvfb_run is True
 
 
+def test_oda_call_uses_isolated_appimage_runtime(tmp_path: Path, monkeypatch):
+    """并发 AppImage 调用不得共享解包目录，否则彼此清理会返回 127。"""
+    runtime_root = tmp_path / "appimage-tmp"
+    runtime_root.mkdir()
+    monkeypatch.setenv("TMPDIR", str(runtime_root))
+    captured_environments: list[dict[str, str]] = []
+
+    def fake_run(*_args, **kwargs):
+        environment = kwargs["env"]
+        captured_environments.append(environment)
+        call_tmp = Path(environment["TMPDIR"])
+        xdg_runtime = Path(environment["XDG_RUNTIME_DIR"])
+        assert call_tmp.parent == runtime_root
+        assert call_tmp.is_dir()
+        assert xdg_runtime.parent == call_tmp
+        assert xdg_runtime.is_dir()
+        assert xdg_runtime.stat().st_mode & 0o777 == 0o700
+        return _fake_ok()
+
+    conv = OdaConverter(executable=Path("/fake/oda"), xvfb_run=False)
+    with mock.patch(
+        "dxf_converter.engines.oda_converter.subprocess.run",
+        side_effect=fake_run,
+    ):
+        conv._run_once(["/fake/oda"], timeout=10)
+        conv._run_once(["/fake/oda"], timeout=10)
+
+    call_dirs = [Path(environment["TMPDIR"]) for environment in captured_environments]
+    assert len(set(call_dirs)) == 2
+    assert all(not path.exists() for path in call_dirs)
+
+
 # ---------------------------------------------------------------------- #
 # 单文件转换
 # ---------------------------------------------------------------------- #
