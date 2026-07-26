@@ -12,7 +12,7 @@ import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,11 @@ class DockerStat:
     block_read_bytes: int
     block_write_bytes: int
     pids: int
+
+
+def utc_now() -> datetime:
+    """Return an aware UTC timestamp on Python 3.10 and newer."""
+    return datetime.now(timezone.utc)  # noqa: UP017 - server host uses Python 3.10
 
 
 def parse_size_bytes(value: str) -> int:
@@ -371,7 +376,7 @@ class ResourceSampler:
 
     def sample(self) -> dict[str, Any]:
         sample: dict[str, Any] = {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": utc_now().isoformat(),
             "monotonic_seconds": time.monotonic(),
             "errors": [],
         }

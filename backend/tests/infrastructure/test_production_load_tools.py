@@ -20,6 +20,7 @@ from scripts.production.resource_sampler import (  # noqa: E402
     parse_docker_stat,
     parse_size_bytes,
     summarize_samples,
+    utc_now,
 )
 from scripts.production.workflow_load import (  # noqa: E402
     CountConservationError,
@@ -28,6 +29,7 @@ from scripts.production.workflow_load import (  # noqa: E402
     ProjectRunResult,
     ScenarioResult,
     WorkflowRunner,
+    _run_matrix,
     inspect_split_archive,
     parse_positive_int_list,
     percentile,
@@ -347,7 +349,12 @@ def test_workflow_runner_uses_real_public_sequence_and_conserves_counts(
             )
         if request.url.path == "/api/v1/workflows/41/dxf-classification":
             classification_poll += 1
-            status = "running" if classification_poll == 1 else "completed"
+            if classification_poll == 1:
+                return httpx.Response(
+                    200,
+                    json=_envelope(None, request_id),
+                )
+            status = "running" if classification_poll == 2 else "completed"
             return httpx.Response(
                 200,
                 json=_envelope(
@@ -378,7 +385,12 @@ def test_workflow_runner_uses_real_public_sequence_and_conserves_counts(
             )
         if request.url.path == "/api/v1/workflows/41/drawing-processing":
             split_poll += 1
-            status = "running" if split_poll == 1 else "completed"
+            if split_poll == 1:
+                return httpx.Response(
+                    200,
+                    json=_envelope(None, request_id),
+                )
+            status = "running" if split_poll == 2 else "completed"
             return httpx.Response(
                 200,
                 json=_envelope(
@@ -395,7 +407,7 @@ def test_workflow_runner_uses_real_public_sequence_and_conserves_counts(
                     request_id,
                 ),
             )
-        if request.url.path.endswith("/stages/drawing_processing/download-archive"):
+        if request.url.path == "/api/v1/workflows/41/drawing-processing/runs/88/results-archive":
             return httpx.Response(
                 200,
                 content=_split_archive(),
@@ -458,10 +470,15 @@ def test_workflow_runner_uses_real_public_sequence_and_conserves_counts(
         ("POST", "/api/v1/workflows/41/stages/dxf_classification/executions"),
         ("GET", "/api/v1/workflows/41/dxf-classification"),
         ("GET", "/api/v1/workflows/41/dxf-classification"),
+        ("GET", "/api/v1/workflows/41/dxf-classification"),
         ("POST", "/api/v1/workflows/41/stages/drawing_processing/executions"),
         ("GET", "/api/v1/workflows/41/drawing-processing"),
         ("GET", "/api/v1/workflows/41/drawing-processing"),
-        ("GET", "/api/v1/workflows/41/stages/drawing_processing/download-archive"),
+        ("GET", "/api/v1/workflows/41/drawing-processing"),
+        (
+            "GET",
+            "/api/v1/workflows/41/drawing-processing/runs/88/results-archive",
+        ),
     ]
 
 
@@ -492,6 +509,13 @@ def test_split_archive_rejects_path_traversal_and_duplicate_names() -> None:
 )
 def test_resource_sampler_parses_docker_sizes(raw: str, expected: int) -> None:
     assert parse_size_bytes(raw) == expected
+
+
+def test_resource_sampler_utc_clock_is_python_310_compatible() -> None:
+    now = utc_now()
+
+    assert now.tzinfo is not None
+    assert now.utcoffset().total_seconds() == 0
 
 
 def test_resource_sampler_parses_docker_stat_without_locale_assumptions() -> None:
@@ -648,3 +672,50 @@ def test_workflow_load_summarizes_phase_latency_and_failure() -> None:
     assert summary["elapsed_seconds"]["p50"] == 15
     assert summary["phase_seconds"]["split"] == {"p50": 6, "p95": 7.8}
     assert summary["error_codes"] == {"HTTP_500": 1}
+
+
+def test_workflow_load_ignores_ambient_socks_proxy_for_lan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    excel = tmp_path / "parts.xlsx"
+    excel.write_bytes(b"xlsx")
+    dwg = tmp_path / "part.dwg"
+    dwg.write_bytes(b"dwg")
+    fixture = LoadFixture(excel=excel, dwg_files=(dwg,))
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:9")
+
+    async def fake_run_project(
+        _self: WorkflowRunner,
+        **kwargs: object,
+    ) -> ProjectRunResult:
+        return ProjectRunResult(
+            name=str(kwargs["name"]),
+            succeeded=True,
+            workflow_id=1,
+            counts=None,
+            archive_dxf_count=0,
+            job_attempts={},
+            request_ids=(),
+            elapsed_seconds=0,
+            phase_seconds={},
+        )
+
+    monkeypatch.setattr(WorkflowRunner, "run_project", fake_run_project)
+    scenarios = asyncio.run(
+        _run_matrix(
+            base_url="http://127.0.0.1:1",
+            fixture=fixture,
+            accounts=["operator01"],
+            credentials={"operator01": "secret"},
+            concurrency_levels=[1],
+            poll_interval=0,
+            stage_timeout=1,
+            request_timeout=1,
+            login_spacing=0,
+            verify_tls=True,
+            prefix="LOAD-TEST",
+        )
+    )
+
+    assert scenarios[0]["succeeded_count"] == 1

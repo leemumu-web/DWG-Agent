@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -364,8 +364,9 @@ class WorkflowRunner:
         *,
         stage: str,
         token: str | None = None,
+        allow_null: bool = False,
         **kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         response = await self._request(
             method,
             path,
@@ -382,14 +383,24 @@ class WorkflowRunner:
                 code="RESPONSE_JSON_INVALID",
                 message="服务器返回了无法解析的数据",
             ) from exc
-        if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+        if not isinstance(payload, dict) or "data" not in payload:
             raise LoadApiError(
                 stage=stage,
                 status_code=response.status_code,
                 code="RESPONSE_ENVELOPE_INVALID",
                 message="服务器返回结构不符合正式 API 契约",
             )
-        return payload["data"]
+        data = payload["data"]
+        if data is None and allow_null:
+            return None
+        if not isinstance(data, dict):
+            raise LoadApiError(
+                stage=stage,
+                status_code=response.status_code,
+                code="RESPONSE_ENVELOPE_INVALID",
+                message="服务器返回结构不符合正式 API 契约",
+            )
+        return data
 
     async def _poll_batch(
         self,
@@ -439,7 +450,18 @@ class WorkflowRunner:
                 f"/api/v1/workflows/{workflow_id}/{path}",
                 stage=stage,
                 token=token,
+                allow_null=True,
             )
+            if data is None:
+                if time.monotonic() >= deadline:
+                    raise LoadApiError(
+                        stage=stage,
+                        status_code=None,
+                        code="STAGE_TIMEOUT",
+                        message=f"{stage}超过测试超时",
+                    )
+                await asyncio.sleep(self.poll_interval_seconds)
+                continue
             status = str(data.get("status") or "")
             if status in self._TERMINAL_SUCCESS:
                 return data
@@ -632,6 +654,14 @@ class WorkflowRunner:
                 path="drawing-processing",
                 stage="拆板",
             )
+            split_run_id = split.get("id")
+            if not isinstance(split_run_id, int):
+                raise LoadApiError(
+                    stage="拆板",
+                    status_code=None,
+                    code="SPLIT_RUN_ID_MISSING",
+                    message="拆板终态响应缺少批次编号",
+                )
             finish_phase("split", phase_started)
 
             input_counts = batch.get("counts")
@@ -654,7 +684,10 @@ class WorkflowRunner:
             phase_started = time.monotonic()
             archive_response = await self._request(
                 "GET",
-                (f"/api/v1/workflows/{workflow_id}/stages/drawing_processing/download-archive"),
+                (
+                    f"/api/v1/workflows/{workflow_id}/drawing-processing/"
+                    f"runs/{split_run_id}/results-archive"
+                ),
                 stage="下载拆板结果",
                 token=token,
             )
@@ -875,6 +908,7 @@ async def _run_matrix(
         timeout=timeout,
         limits=limits,
         verify=verify_tls,
+        trust_env=False,
         follow_redirects=False,
     ) as client:
         project_serial = 0
@@ -931,7 +965,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         fixture.validate()
     except ValueError as exc:
         parser.error(str(exc))
-    started_at = datetime.now(UTC)
+    started_at = datetime.now(
+        timezone.utc  # noqa: UP017 - verifier supports Python 3.10 hosts
+    )
     prefix = f"LOAD-{started_at.strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(2).upper()}"
     try:
         scenarios = asyncio.run(
@@ -958,7 +994,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = {
         "schema": "production-workflow-load-report/v1",
         "started_at": started_at.isoformat(),
-        "finished_at": datetime.now(UTC).isoformat(),
+        "finished_at": datetime.now(
+            timezone.utc  # noqa: UP017 - verifier supports Python 3.10 hosts
+        ).isoformat(),
         "release_label": args.release_label,
         "base_url": args.base_url,
         "prefix": prefix,
