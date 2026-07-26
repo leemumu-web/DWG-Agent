@@ -1,6 +1,6 @@
 """Workflow-owned SQLAlchemy models."""
 
-from app.modules.workflows.models.exports import WorkflowBatchExport
+from app.modules.workflows.models.exports import WorkflowBatchExport, WorkflowRetentionExport
 from app.modules.workflows.models.intake import WorkflowInputBatch, WorkflowInputItem
 from app.modules.workflows.models.orchestration import (
     WorkflowArtifact,
@@ -14,5 +14,6 @@ __all__ = [
     "WorkflowInputBatch",
     "WorkflowInputItem",
     "WorkflowRun",
+    "WorkflowRetentionExport",
     "WorkflowStageRun",
 ]

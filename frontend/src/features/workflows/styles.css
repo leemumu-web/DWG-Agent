@@ -588,6 +588,38 @@
   white-space: nowrap;
 }
 
+.workflow-retention-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-retention-summary > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  background: #f4f9f9;
+  border: 1px solid #d7e4e6;
+  border-left: 3px solid var(--workflow-accent, #087e8b);
+}
+
+.workflow-retention-summary small {
+  color: var(--workflow-muted, #62747d);
+}
+
+.workflow-retention-summary strong {
+  color: var(--workflow-deep, #123c4a);
+  font-size: 18px;
+}
+
+.workflow-retention-confirmation {
+  width: 100%;
+  padding: 14px;
+  background: #fffafa;
+  border: 1px solid #f1c7c2;
+  border-radius: 6px;
+}
+
 .workflow-dxf-split-progress {
   display: grid;
   gap: 5px;
@@ -889,7 +921,8 @@
   }
 
   .workflow-batch-export-options,
-  .workflow-batch-export-summary {
+  .workflow-batch-export-summary,
+  .workflow-retention-summary {
     grid-template-columns: 1fr;
   }
 }

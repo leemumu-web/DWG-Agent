@@ -48,6 +48,9 @@ DXF_SPLIT_REVISION = VERSIONS_DIR / "f9c4b7e2a610_add_dxf_split_pipeline.py"
 WORKFLOW_BATCH_EXPORT_REVISION = (
     VERSIONS_DIR / "e9a1b2c3d4f5_add_workflow_batch_exports.py"
 )
+WORKFLOW_RETENTION_REVISION = (
+    VERSIONS_DIR / "b7e2c9a4d610_add_workflow_retention_exports.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -279,6 +282,19 @@ def test_dxf_split_migration_adds_attempt_aware_runs_and_items():
         "input_manifest_sha256",
     ):
         assert f'"{column}"' in source
+
+
+def test_workflow_retention_migration_extends_head_and_is_reversible():
+    source = WORKFLOW_RETENTION_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "b7e2c9a4d610"' in source
+    assert 'down_revision: str | None = "e9a1b2c3d4f5"' in source
+    assert '"workflow_retention_exports"' in source
+    assert '"manifest_sha256"' in source
+    assert '"reclaimable_size_bytes"' in source
+    assert '"purge_transfer_uid"' in source
+    assert '"ix_workflow_retention_exports_workflow_status"' in source
+    assert 'op.drop_table("workflow_retention_exports")' in source
 
 
 def test_control_plane_migration_extends_head_with_persisted_observability():

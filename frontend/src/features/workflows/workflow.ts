@@ -305,3 +305,54 @@ export interface WorkflowBatchExportPurgeResult {
   purged_file_count: number;
   released_bytes: number;
 }
+
+export interface WorkflowRetentionBlocker {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface WorkflowRetentionPreview {
+  workflow_id: number;
+  workflow_status: string;
+  terminal: boolean;
+  blocked: boolean;
+  blockers: WorkflowRetentionBlocker[];
+  file_count: number;
+  preview_cache_count: number;
+  source_size_bytes: number;
+  reclaimable_size_bytes: number;
+}
+
+export type WorkflowRetentionStatus =
+  | 'prepared'
+  | 'downloading'
+  | 'downloaded'
+  | 'download_failed'
+  | 'purge_queued'
+  | 'purging'
+  | 'purge_failed'
+  | 'purged';
+
+export interface WorkflowRetentionExport {
+  export_uid: string;
+  workflow_run_id: number;
+  status: WorkflowRetentionStatus;
+  file_count: number;
+  preview_cache_count: number;
+  source_size_bytes: number;
+  reclaimable_size_bytes: number;
+  filename: string;
+  download_url?: string | null;
+  token_expires_at: string;
+  downloaded_at?: string | null;
+  task_id?: string | null;
+  purge_started_at?: string | null;
+  purged_at?: string | null;
+  purged_file_count: number;
+  purged_size_bytes: number;
+  error_code?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}

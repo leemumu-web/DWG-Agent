@@ -2,6 +2,7 @@ import './styles.css';
 
 export { WorkflowsPage } from './WorkflowsPage';
 export { WorkflowDetailPage } from './WorkflowDetailPage';
+export { WorkflowRetentionControl } from './WorkflowRetentionControl';
 export { DrawingProcessingPanel } from './DrawingProcessingPanel';
 export * from './workflow-inputs.api';
 export * from './workflows.api';

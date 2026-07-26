@@ -1,6 +1,6 @@
 # Alembic 迁移
 
-Alembic 当前管理 42 张应用模型表，唯一 head 为 `8a6c1f4e2b90`。该 merge revision 汇合余料库 `6f4a8c2d1e90` 与 Linux Excel Stage `5f8d3b0c2e41` 两条迁移分支，本身不执行 DDL。Alembic 有意排除 Celery/Kombu 按需创建的 8 张 broker/result runtime 表，也不管理 `hardware_handbook` 参考数据；该库只由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并单独审计。
+Alembic 当前管理 47 张应用模型表，唯一 head 为 `b7e2c9a4d610`。该 revision 在现有线性 head 后新增 `workflow_retention_exports`，保存完整 Workflow 备份清单和异步清理状态。Alembic 有意排除 Celery/Kombu 按需创建的 8 张 broker/result runtime 表，也不管理 `hardware_handbook` 参考数据；该库只由唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 确定性生成并单独审计。
 
 ```bash
 # 仓库根目录：初始化和空 MySQL 迁移验证

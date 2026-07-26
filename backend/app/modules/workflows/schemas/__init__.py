@@ -44,6 +44,11 @@ from app.modules.workflows.schemas.production_projects import (
     ProductionProjectRead,
     ProductionProjectResponseMeta,
 )
+from app.modules.workflows.schemas.retention import (
+    WorkflowRetentionExportRead,
+    WorkflowRetentionPreviewRead,
+    WorkflowRetentionPurgeRequest,
+)
 
 __all__ = [
     "DrawingSelectiveExportCategory",
@@ -77,6 +82,9 @@ __all__ = [
     "WorkflowInputRegistrationRead",
     "WorkflowInputResponseMeta",
     "WorkflowRead",
+    "WorkflowRetentionExportRead",
+    "WorkflowRetentionPreviewRead",
+    "WorkflowRetentionPurgeRequest",
     "WorkflowStageCapability",
     "WorkflowStageExecutionCreate",
     "WorkflowStageRead",

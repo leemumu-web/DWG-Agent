@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "e9a1b2c3d4f5"
+    "b7e2c9a4d610"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -27,6 +27,7 @@
     "app.workers.tasks_dxf_split.split_steel_dxf",
     "app.workers.tasks_excel_final.process_excel_final",
     "app.workers.tasks_maintenance.create_daily_archive",
+    "app.workers.tasks_maintenance.purge_workflow_retention",
     "app.workers.tasks_maintenance.reconcile_stale_jobs",
     "app.workers.tasks_remnant_convert.convert_batch",
     "app.workers.tasks_remnant_parse.parse_item",
@@ -185,6 +186,10 @@
     "GET /api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key} get_dxf_classification_group_api_v1_workflows__workflow_id__dxf_classification_groups__group_key__get",
     "GET /api/v1/workflows/{workflow_id}/dxf-classification/groups/{group_key}/download-archive download_dxf_classification_group_archive_api_v1_workflows__workflow_id__dxf_classification_groups__group_key__download_archive_get",
     "GET /api/v1/workflows/{workflow_id}/input-batch get_batch_api_api_v1_workflows__workflow_id__input_batch_get",
+    "GET /api/v1/workflows/{workflow_id}/retention-exports/latest get_latest_workflow_retention_export_api_v1_workflows__workflow_id__retention_exports_latest_get",
+    "GET /api/v1/workflows/{workflow_id}/retention-exports/{export_uid} get_workflow_retention_export_api_v1_workflows__workflow_id__retention_exports__export_uid__get",
+    "GET /api/v1/workflows/{workflow_id}/retention-exports/{export_uid}/download download_workflow_retention_export_api_v1_workflows__workflow_id__retention_exports__export_uid__download_get",
+    "GET /api/v1/workflows/{workflow_id}/retention-preview preview_workflow_retention_api_v1_workflows__workflow_id__retention_preview_get",
     "GET /api/v1/workflows/{workflow_id}/stages/excel_stage1/download-result download_excel_stage1_result_api_v1_workflows__workflow_id__stages_excel_stage1_download_result_get",
     "GET /api/v1/workflows/{workflow_id}/stages/excel_stage1/preflight preflight_excel_stage1_api_api_v1_workflows__workflow_id__stages_excel_stage1_preflight_get",
     "GET /api/v1/workflows/{workflow_id}/stages/{stage_code}/download-archive download_workflow_stage_archive_api_v1_workflows__workflow_id__stages__stage_code__download_archive_get",
@@ -269,6 +274,8 @@
     "POST /api/v1/workflows/{workflow_id}/input-batch/freeze freeze_batch_api_api_v1_workflows__workflow_id__input_batch_freeze_post",
     "POST /api/v1/workflows/{workflow_id}/input-dwg-folder import_input_dwg_folder_api_api_v1_workflows__workflow_id__input_dwg_folder_post",
     "POST /api/v1/workflows/{workflow_id}/input-excel import_input_excel_api_api_v1_workflows__workflow_id__input_excel_post",
+    "POST /api/v1/workflows/{workflow_id}/retention-exports create_workflow_retention_export_api_v1_workflows__workflow_id__retention_exports_post",
+    "POST /api/v1/workflows/{workflow_id}/retention-exports/{export_uid}/purge queue_workflow_retention_purge_api_v1_workflows__workflow_id__retention_exports__export_uid__purge_post",
     "POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/completion complete_stage_api_api_v1_workflows__workflow_id__stages__stage_code__completion_post",
     "POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions execute_workflow_stage_api_v1_workflows__workflow_id__stages__stage_code__executions_post",
     "POST /api/v1/workflows/{workflow_id}/start start_workflow_api_api_v1_workflows__workflow_id__start_post",
@@ -441,6 +448,12 @@
     "/api/v1/workflows/{workflow_id}/input-dwg-folder",
     "/api/v1/workflows/{workflow_id}/input-excel",
     "/api/v1/workflows/{workflow_id}/input-folder",
+    "/api/v1/workflows/{workflow_id}/retention-exports",
+    "/api/v1/workflows/{workflow_id}/retention-exports/latest",
+    "/api/v1/workflows/{workflow_id}/retention-exports/{export_uid}",
+    "/api/v1/workflows/{workflow_id}/retention-exports/{export_uid}/download",
+    "/api/v1/workflows/{workflow_id}/retention-exports/{export_uid}/purge",
+    "/api/v1/workflows/{workflow_id}/retention-preview",
     "/api/v1/workflows/{workflow_id}/stages/excel_stage1/download-result",
     "/api/v1/workflows/{workflow_id}/stages/excel_stage1/preflight",
     "/api/v1/workflows/{workflow_id}/stages/{stage_code}/completion",
@@ -495,6 +508,7 @@
     "workflow_batch_exports",
     "workflow_input_batches",
     "workflow_input_items",
+    "workflow_retention_exports",
     "workflow_runs",
     "workflow_stage_runs"
   ],

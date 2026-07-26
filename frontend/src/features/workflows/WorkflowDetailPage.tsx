@@ -26,6 +26,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Navigate, useParams } from 'react-router-dom';
 
 import { describeApiError, parseApiError, type ParsedApiError } from '../../shared/api';
+import { useAuthStore } from '../../shared/auth';
 import {
   ApiErrorAlert,
   ExcelInputFailurePanel,
@@ -38,6 +39,7 @@ import { DrawingProcessingPanel } from './DrawingProcessingPanel';
 import { FutureStageNotice } from './FutureStageNotice';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
+import { WorkflowRetentionControl } from './WorkflowRetentionControl';
 import { stageStateLabel, WorkflowStageRail } from './WorkflowStageRail';
 import {
   cancelWorkflow,
@@ -118,6 +120,7 @@ function StageArchiveCard({
 export function WorkflowDetailPage() {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore((state) => state.user);
   const params = useParams();
   const workflowId = Number(params.workflowId);
   const [executionError, setExecutionError] = useState<ParsedApiError | null>(null);
@@ -135,6 +138,9 @@ export function WorkflowDetailPage() {
   });
   const projectsQ = useQuery({ queryKey: ['projects'], queryFn: listProjects });
   const detail = detailQ.data;
+  const isAdmin = currentUser?.roles.some(
+    (role) => ['admin', 'super_admin'].includes(role.code),
+  ) ?? false;
   const template = templatesQ.data?.find((item) => item.code === detail?.workflow_type);
   const capabilities = useMemo(
     () => new Map((template?.stages ?? []).map((stage) => [stage.code, stage])),
@@ -318,6 +324,13 @@ export function WorkflowDetailPage() {
           <Button icon={<ReloadOutlined />} loading={detailQ.isFetching} onClick={() => detailQ.refetch()}>
             刷新
           </Button>
+          {TERMINAL.has(detail.status) && (
+            <WorkflowRetentionControl
+              workflowId={detail.id}
+              isAdmin={isAdmin}
+              onPurged={refresh}
+            />
+          )}
           {detail.status === 'draft' && (
             <Button type="primary" loading={startM.isPending} onClick={() => startM.mutate()}>
               启动流程

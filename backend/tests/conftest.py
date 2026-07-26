@@ -102,6 +102,7 @@ def _isolate_test_db(monkeypatch):
         "app.modules.operations.storage_reconciliation.tasks.SessionLocal",
         TestSessionLocal,
     )
+    monkeypatch.setattr("app.modules.workflows.retention_tasks.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.modules.remnant_inventory.execution.SessionLocal", TestSessionLocal)
 
     # db_health() uses the module-level engine directly

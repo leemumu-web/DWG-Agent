@@ -75,6 +75,7 @@ celery_app = Celery(
         "app.modules.operations.storage_reconciliation.tasks",
         "app.modules.operations.control_plane.tasks",
         "app.modules.remnant_inventory.tasks",
+        "app.modules.workflows.retention_tasks",
     ],
 )
 

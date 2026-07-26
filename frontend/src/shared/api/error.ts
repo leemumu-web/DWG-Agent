@@ -196,6 +196,24 @@ export function apiErrorRecovery(error: ParsedApiError): string {
   if (error.code === 'WORKFLOW_STAGE_INPUT_INCOMPLETE') {
     return '返回前序阶段补齐必需产物，再回到当前阶段重新检查。';
   }
+  if (['WORKFLOW_RETENTION_NOT_TERMINAL', 'WORKFLOW_RETENTION_ACTIVE_STAGE', 'WORKFLOW_RETENTION_ACTIVE_JOB'].includes(error.code ?? '')) {
+    return '等待本批流程和任务完全结束，再重新执行完整备份预检。';
+  }
+  if (error.code === 'WORKFLOW_RETENTION_SHARED_FILES') {
+    return '这些文件仍被其他生产批次引用；不要删除，请联系管理员核对生产关系。';
+  }
+  if (['WORKFLOW_RETENTION_FILE_REGISTRATION_MISSING', 'WORKFLOW_RETENTION_FILES_UNAVAILABLE', 'WORKFLOW_RETENTION_MANIFEST_STALE'].includes(error.code ?? '')) {
+    return '停止清理并保留请求编号，请管理员先修复 MySQL 文件关系或重新生成完整备份。';
+  }
+  if (['WORKFLOW_RETENTION_OBJECT_MISSING', 'WORKFLOW_RETENTION_OBJECT_MISMATCH'].includes(error.code ?? '')) {
+    return '对象与 MySQL 登记不一致，未执行删除；请管理员先运行存储一致性检查。';
+  }
+  if (['WORKFLOW_RETENTION_ENQUEUE_FAILED', 'WORKFLOW_RETENTION_STORAGE_UNAVAILABLE'].includes(error.code ?? '')) {
+    return '服务器文件仍完整保留；等待维护队列或对象存储恢复后再重试一次。';
+  }
+  if (['WORKFLOW_RETENTION_PURGE_FAILED', 'WORKFLOW_RETENTION_PURGE_PARTIAL', 'WORKFLOW_RETENTION_METADATA_COMMIT_FAILED'].includes(error.code ?? '')) {
+    return '不要重新上传或手工删除对象；保留请求编号，由管理员核对补偿流水后从当前备份重试。';
+  }
   if (error.status === 401) return '重新登录后再执行；不要连续重复提交。';
   if (error.status === 403) return '确认当前账号属于该项目；如需提权，请联系管理员。';
   if (error.status === 404) return '刷新当前页面确认批次是否仍存在；若已切换 attempt，请使用最新批次。';

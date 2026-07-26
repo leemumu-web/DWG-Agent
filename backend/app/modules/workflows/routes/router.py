@@ -19,6 +19,7 @@ from app.modules.workflows.routes.queries import (
     collection_router as query_collection_router,
 )
 from app.modules.workflows.routes.queries import detail_router as query_detail_router
+from app.modules.workflows.routes.retention import router as retention_router
 from app.modules.workflows.routes.splitting import router as splitting_router
 from app.modules.workflows.routes.templates import router as templates_router
 
@@ -38,6 +39,7 @@ _mount(command_collection_router, tag="workflows")
 _mount(production_projects_router, tag="workflows")
 _mount(artifacts_router, tag="workflows")
 _mount(batch_exports_router, tag="workflows")
+_mount(retention_router, tag="workflows")
 _mount(archive_router, tag="workflows")
 _mount(execution_router, tag="workflows")
 _mount(classification_router, tag="workflows")

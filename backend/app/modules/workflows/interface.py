@@ -24,6 +24,7 @@ from app.modules.workflows.models import (
     WorkflowBatchExport,
     WorkflowInputBatch,
     WorkflowInputItem,
+    WorkflowRetentionExport,
     WorkflowRun,
     WorkflowStageRun,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "WorkflowBatchExport",
     "WorkflowInputBatch",
     "WorkflowInputItem",
+    "WorkflowRetentionExport",
     "WorkflowRun",
     "WorkflowStageRun",
     "attach_artifact",

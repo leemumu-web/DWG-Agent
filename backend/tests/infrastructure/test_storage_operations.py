@@ -50,7 +50,7 @@ DB_SCRIPT = SCRIPTS_DIR / "db.sh"
 DOCKER_SCRIPT = SCRIPTS_DIR / "docker.sh"
 COMPOSE_LIBRARY = SCRIPTS_DIR / "lib" / "compose.sh"
 
-EXPECTED_HEAD = "e9a1b2c3d4f5"
+EXPECTED_HEAD = "b7e2c9a4d610"
 
 
 # ── shared helpers ───────────────────────────────────────────────────────────
@@ -172,7 +172,7 @@ class TestMigrationChain:
         return chain
 
     def test_migration_file_count(self):
-        assert len(list(VERSIONS_DIR.glob("*.py"))) == 33
+        assert len(list(VERSIONS_DIR.glob("*.py"))) == 34
 
     def test_exactly_one_base_revision(self):
         chain = self._parse_chain()
@@ -207,7 +207,7 @@ class TestMigrationChain:
             visited.add(revision)
 
         visit(EXPECTED_HEAD)
-        assert len(visited) == len(chain) == 33
+        assert len(visited) == len(chain) == 34
         assert "40452ddd24e7" in visited
 
 

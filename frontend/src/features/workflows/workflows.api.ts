@@ -17,6 +17,8 @@ import type {
   WorkflowBatchExportPurgeResult,
   WorkflowExportCategory,
   WorkflowExcelStagePreflight,
+  WorkflowRetentionExport,
+  WorkflowRetentionPreview,
 } from './workflow';
 
 export interface WorkflowListParams {
@@ -324,6 +326,69 @@ export async function purgeWorkflowBatchExport(
 ) {
   const response = await apiClient.post<ApiEnvelope<WorkflowBatchExportPurgeResult>>(
     `/api/v1/workflows/${workflowId}/batch-exports/${encodeURIComponent(exportUid)}/purge`,
+  );
+  return response.data.data;
+}
+
+export async function getWorkflowRetentionPreview(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowRetentionPreview>>(
+    `/api/v1/workflows/${workflowId}/retention-preview`,
+  );
+  return response.data.data;
+}
+
+export async function createWorkflowRetentionExport(workflowId: number) {
+  const response = await apiClient.post<ApiEnvelope<WorkflowRetentionExport>>(
+    `/api/v1/workflows/${workflowId}/retention-exports`,
+  );
+  return response.data.data;
+}
+
+export async function getLatestWorkflowRetentionExport(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowRetentionExport | null>>(
+    `/api/v1/workflows/${workflowId}/retention-exports/latest`,
+  );
+  return response.data.data;
+}
+
+export async function getWorkflowRetentionExport(
+  workflowId: number,
+  exportUid: string,
+) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowRetentionExport>>(
+    `/api/v1/workflows/${workflowId}/retention-exports/${encodeURIComponent(exportUid)}`,
+  );
+  return response.data.data;
+}
+
+export function startNativeWorkflowRetentionDownload(
+  exportRow: WorkflowRetentionExport,
+) {
+  if (!exportRow.download_url) {
+    throw new Error('本次完整备份没有可用的下载地址，请重新生成备份凭据');
+  }
+  const apiBase = new URL(
+    import.meta.env.VITE_API_BASE_URL || '/',
+    window.location.origin,
+  );
+  const anchor = document.createElement('a');
+  anchor.href = new URL(exportRow.download_url, apiBase).toString();
+  anchor.download = exportRow.filename;
+  anchor.rel = 'noopener';
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+export async function queueWorkflowRetentionPurge(
+  workflowId: number,
+  exportUid: string,
+  confirmation: string,
+) {
+  const response = await apiClient.post<ApiEnvelope<WorkflowRetentionExport>>(
+    `/api/v1/workflows/${workflowId}/retention-exports/${encodeURIComponent(exportUid)}/purge`,
+    { confirmation },
   );
   return response.data.data;
 }

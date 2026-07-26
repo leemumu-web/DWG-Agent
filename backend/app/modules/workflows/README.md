@@ -1,8 +1,8 @@
 # Production workflows module
 
 本模块拥有项目级生产批次、十阶段流程、输入冻结和阶段产物引用。公开 HTTP 前缀保持为
-`/api/v1/workflows`；本模块拥有六张表、公开 operation、错误码、审计 action 和 Job
-幂等键。本模块不另建文件存储或任务队列。
+`/api/v1/workflows`；本模块拥有七张表、公开 operation、错误码、审计 action 和 Job
+幂等键。本模块不另建文件存储或队列，整批清理复用现有 `maintenance` worker。
 
 ## 已确定输入契约
 
@@ -23,8 +23,9 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
 
 - `models/orchestration.py`：`workflow_runs`、`workflow_stage_runs`、`workflow_artifacts`。
 - `models/intake.py`：`workflow_input_batches`、`workflow_input_items`。
-- `models/exports.py`：`workflow_batch_exports`，冻结四类文件的短期下载清单、能力摘要和
-  下载/物理清理状态。
+- `models/exports.py`：`workflow_batch_exports` 保存四类短期导出；
+  `workflow_retention_exports` 保存整条 Workflow 的完整备份清单、下载凭据摘要、异步清理和
+  补偿状态。
 - `templates.py`：三个模板和阶段能力的唯一事实源；未实现阶段保持 placeholder/external。
 - `contracts.py`：阶段输入/输出类型、文件归属和 DXF 对象结构的统一门禁。
 - `lifecycle.py`：创建、唯一生产流程约束、启动、人工交接、取消和整体状态重算。
@@ -40,6 +41,10 @@ Job，只接受当前 attempt 的成功 Result 和可读同名 DXF；`intake/fre
   `excel_stage1` 只下载经来源链校验的唯一 `.xlsx`，其阶段 ZIP 入口返回稳定错误。
 - `routes/batch_exports.py`：在不落服务器临时 ZIP 的前提下流式导出四类文件；只有出库
   流水成功且用户再次确认后，才物理删除所选对象及其 DXF 预览缓存。
+- `retention.py`、`retention_tasks.py` 与 `routes/retention.py`：从输入、全部 attempt 的
+  Result、分类、拆板、人工决定和 artifact 一次收齐完整范围；逐对象校验后流式备份，只有
+  完整下载成功、管理员输入精确确认词后才由维护队列整批清理。中断保留数据库关系和可重试
+  补偿流水。
 - `interface.py`：其他业务模块唯一允许导入的工作流边界。
 
 ## 依赖方向与事务边界
@@ -90,5 +95,5 @@ Workflow 类型范围的全局状态统计，避免前端用独立分页做不�
 
 行为回归位于 `backend/tests/workflows/`，分类集成位于
 `backend/tests/dxf_classification/`；结构边界位于
-`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照锁定 169 path、
-197 operation、46 张模型表、14 个 Celery task 和 13 条任务路由。
+`backend/tests/architecture/test_workflow_boundaries.py`。运行时快照锁定 178 path、
+206 operation、47 张模型表、15 个 Celery task 和 13 条任务路由。

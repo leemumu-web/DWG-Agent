@@ -14,9 +14,9 @@
 
 ### 1.1 代码归属与输入规则校正
 
-工作流正式实现位于 `backend/app/modules/workflows/`：`models/` 拥有六张表，`schemas/`
+工作流正式实现位于 `backend/app/modules/workflows/`：`models/` 拥有七张表，`schemas/`
 拥有 HTTP/展示契约，`templates.py` 是阶段事实源，`lifecycle.py` 与 `job_sync.py` 分别负责
-业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 70 个
+业务状态和 Job attempt 投影，`intake/` 按登记、转换、冻结和展示拆分，`routes/` 组合 81 个
 operation。其他业务模块只能导入 `workflows.interface`；旧的 workflow API/model/schema/service
 横向文件已经退出。
 
@@ -88,6 +88,18 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 `prepared → downloading → downloaded`，中断变为 `download_failed` 并允许重试；只有服务端
 出库流水已成功且用户二次确认后才能进入 `purged`。物理清理成功时清空 manifest 和 token
 摘要，记录对象/预览缓存数量与释放字节；`files` 行保留为带 `purged_at` 的外键墓碑。
+
+### 3.8 `workflow_retention_exports`
+
+完整批次释放与四类临时导出分表保存。每次完整备份冻结输入及派生 DXF、所有阶段 artifact、
+当前与历史 Job Result、分类 run/item、拆板 run/item、候选与人工决定最终文件的去重清单，保存
+清单 SHA-256、文件数、正式字节数、预览缓存和预计释放量。下载能力只保存摘要；ZIP 流式读取
+对象时逐文件核对登记大小与 SHA-256，不在 API 或 worker 容器落整包临时文件。
+
+清理状态覆盖 `prepared/downloading/downloaded/download_failed/purge_queued/purging/
+purge_failed/purged`。维护任务使用独立 `file_transfers(operation=workflow_retention_purge)`
+记录删除意图、实际字节和补偿状态；即使删除中断，Workflow、Job、输入、分类和拆板关系仍
+保留，登记行在全部对象完成且墓碑事务提交后才转为 `deleted + purged_at`。
 
 ## 4. 状态与执行
 
@@ -185,11 +197,25 @@ Local/MinIO 对象及其 DXF SVG 预览缓存，移除对应 workflow artifact �
 中间隔离目录，不改叶子文件名。该下载同样直接流式读取 Local/MinIO，不落服务器临时 ZIP，
 但它不提供删除动作，也不会改变文件登记或对象状态。
 
-### 4.6 取消
+### 4.6 完整备份与整批释放
+
+入口只在终态 Workflow 详情页显示。预检会拒绝未终态流程、活动 stage/Job、不存在或不可用
+登记、被其他 Workflow 共享的文件以及不安全文件名。创建完整备份前还逐个 `stat` 对象并核对
+大小；下载流只在服务器完整发送且出库流水成功后标记 `downloaded`。弹窗关闭或页面刷新后，
+最近一次服务器状态仍可恢复。
+
+永久清理仅限管理员，且必须先勾选已打开本地 ZIP、输入精确确认词
+`DELETE WORKFLOW <id>`。API 再次核对下载流水、当前完整范围与冻结清单摘要，提交到现有
+maintenance queue 后立即返回 202；前端轮询持久状态，不把长删除占用 HTTP 请求。入队失败
+时任何对象都不删；对象删除中断时流水标记 `compensation_required`，文件登记仍保持可重试，
+同一备份可在排障后重新入队。成功只移除对象字节、DXF SVG 预览缓存和失效 artifact 文件
+引用，保留 Workflow、输入、Job、分类、拆板及审计证据。
+
+### 4.7 取消
 
 取消流程时，如果当前阶段绑定 `pending`、`queued`、`running`、`validating` 或 `waiting_cad_worker` Job，先调用现有 guarded Job cancellation，再取消未终态阶段。已完成 Job 和历史 artifact 保留。
 
-### 4.7 失败恢复
+### 4.8 失败恢复
 
 一般自动阶段 Job 失败或被单独取消后，流程停留在原阶段并进入可恢复的 `failed` 状态。重新调用同一 executions 端点会复用原 Job、递增 `attempt`、刷新阶段绑定并重新投递，响应返回 `retried=true`。拆板整批只允许一次权威 attempt：明确的单图业务问题保留具体原因并继续同批其他图纸，不自动重做整批；技术失败保留原 Job 和错误，由操作员排障。旧 attempt 的 worker/result 仍由现有 fencing 规则拒绝；显式取消整个流程后不会自动重开。
 

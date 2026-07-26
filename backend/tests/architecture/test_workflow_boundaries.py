@@ -16,6 +16,7 @@ WORKFLOW_TABLES = {
     "workflow_batch_exports",
     "workflow_input_batches",
     "workflow_input_items",
+    "workflow_retention_exports",
     "workflow_runs",
     "workflow_stage_runs",
 }
@@ -26,6 +27,7 @@ WORKFLOW_PUBLIC_CONTRACT = {
     "WorkflowBatchExport",
     "WorkflowInputBatch",
     "WorkflowInputItem",
+    "WorkflowRetentionExport",
     "WorkflowRun",
     "WorkflowStageRun",
     "attach_artifact",
@@ -74,6 +76,36 @@ EXPECTED_ROUTES = [
         ("POST",),
         "/{workflow_id}/batch-exports/{export_uid}/purge",
         "purge_workflow_batch_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/retention-preview",
+        "preview_workflow_retention",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/retention-exports",
+        "create_workflow_retention_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/retention-exports/latest",
+        "get_latest_workflow_retention_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/retention-exports/{export_uid}",
+        "get_workflow_retention_export",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/retention-exports/{export_uid}/download",
+        "download_workflow_retention_export",
+    ),
+    (
+        ("POST",),
+        "/{workflow_id}/retention-exports/{export_uid}/purge",
+        "queue_workflow_retention_purge",
     ),
     (("GET",), "/{workflow_id}/download-archive", "download_workflow_archive"),
     (
@@ -317,11 +349,18 @@ EXPECTED_INTERNAL_LAYERS = {
         "interface.py",
         "job_sync.py",
         "lifecycle.py",
+        "retention.py",
+        "retention_tasks.py",
         "stage_execution.py",
         "templates.py",
     },
     "modules/workflows/models": {"exports.py", "intake.py", "orchestration.py"},
-    "modules/workflows/schemas": {"exports.py", "intake.py", "orchestration.py"},
+    "modules/workflows/schemas": {
+        "exports.py",
+        "intake.py",
+        "orchestration.py",
+        "retention.py",
+    },
     "modules/workflows/intake": {
         "conversion.py",
         "freeze.py",
@@ -336,6 +375,7 @@ EXPECTED_INTERNAL_LAYERS = {
         "execution.py",
         "intake.py",
         "queries.py",
+        "retention.py",
         "router.py",
         "splitting.py",
         "templates.py",
@@ -358,7 +398,7 @@ def _routes(router) -> list[tuple[tuple[str, ...], str, str]]:
     return [(tuple(sorted(route.methods or ())), route.path, route.name) for route in router.routes]
 
 
-def test_workflow_interface_is_exact_and_owns_six_tables() -> None:
+def test_workflow_interface_is_exact_and_owns_seven_tables() -> None:
     workflows = importlib.import_module("app.modules.workflows.interface")
 
     assert set(workflows.__all__) == WORKFLOW_PUBLIC_CONTRACT
@@ -367,6 +407,7 @@ def test_workflow_interface_is_exact_and_owns_six_tables() -> None:
         workflows.WorkflowBatchExport.__table__.name,
         workflows.WorkflowInputBatch.__table__.name,
         workflows.WorkflowInputItem.__table__.name,
+        workflows.WorkflowRetentionExport.__table__.name,
         workflows.WorkflowRun.__table__.name,
         workflows.WorkflowStageRun.__table__.name,
     } == WORKFLOW_TABLES

@@ -116,7 +116,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `e9a1b2c3d4f5` 和 46 张模型表，额外验证生产输入、分批导出、DXF 分类、DXF 拆板及复核决定、余料库存、控制平面与每日归档账本、`files.purged_at`、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `b7e2c9a4d610` 和 47 张模型表，额外验证生产输入、分批导出、完整备份留存、DXF 分类、DXF 拆板及复核决定、余料库存、控制平面与每日归档账本、`files.purged_at`、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 
@@ -195,6 +195,28 @@ bash scripts/docker.sh smoke
 关闭弹窗、下载中断、状态仍为 `prepared/downloading/download_failed`、未执行第二次确认，均不会删除服务器文件。清理期间若有 workflow stage 处于 queued/running，服务端拒绝删除。成功清理会物理删除所选对象及其 DXF SVG 预览缓存，清空短期导出清单和下载能力；`files` 小型墓碑与生产账本继续保留外键历史，但不包含可恢复字节。
 
 若接口返回 `WORKFLOW_EXPORT_PURGE_FAILED`、流水错误码为 `WORKFLOW_EXPORT_PURGE_PARTIAL`，或流水状态为 `compensation_required`，立即停止对该流程继续写入，保存 request ID、export UID 和 transfer UID，在“文件登记/存储对象”逐项核对清单范围并运行一致性扫描。对象删除不可回滚，不得通过直接 SQL 把墓碑改回 available；确认剩余对象后从同一导出记录安全重试或按存储事故流程处置。
+
+## 终态生产批次完整备份与整批释放
+
+存储水位接近阈值时，从已结束的生产批次详情页点击“完整备份与释放空间”。不要在 MinIO
+控制台按前缀猜测删除，也不要把每日归档当成该批完整备份。标准步骤：
+
+1. 核对页面列出的正式文件数、预览缓存数和预计释放量；存在活动任务、缺失登记、对象不一致
+   或跨批次共享引用时，预检会给出稳定错误码并禁止继续。
+2. 生成并下载完整备份。ZIP 从 Local/MinIO 直接流向浏览器，逐文件核对大小和 SHA-256；
+   必须等待页面显示“服务端已确认完整备份发送完毕”。
+3. 在本地真正打开 ZIP，抽查 `输入/`、`阶段产物/` 和 `其他结果/`。管理员勾选已核对，输入
+   `DELETE WORKFLOW <id>` 后才可提交永久清理。
+4. 清理由 maintenance worker 异步执行。弹窗可关闭；重新打开会读取 MySQL 中最近状态。
+   `purge_queued/purging` 时不要重复提交。
+5. 成功后在流转流水核对 `workflow_retention_export` 和 `workflow_retention_purge` 均为
+   `succeeded`，并核对对象已不存在、`files.purged_at` 已填写。Workflow、输入、Job、分类和
+   拆板关系必须仍可查询。
+
+入队失败表示删除尚未开始，所有对象应完整保留。删除中断或数据库墓碑提交失败时，页面显示
+`purge_failed`，流水可能为 `compensation_required`；保留 request ID、export UID 和 transfer
+UID，先运行一致性扫描，不得手工把登记改成已删除或直接清 bucket。确认存储恢复后从同一完整
+备份重试，幂等删除会跳过已经不存在的对象，并在全部目标完成后统一提交墓碑。
 
 ## 图纸分类选择导出
 
@@ -276,7 +298,7 @@ ps -ef | rg 'celery.*app.platform.messaging.celery_app'
 
 仓库没有经过测量的生产容量声明。MySQL 连接规划需计入 API worker、每个 Celery parent/child、Kombu/result backend、migration 和操作员 session。SQL broker 吞吐、ODA CPU/内存、Excel 工作簿大小、MinIO 带宽和 Nginx 上传并发都需要负载测试。
 
-Celery result 在 24 小时后过期，业务 Job/JobStep、audit、file 和对象字节没有自动保留策略。高容量使用前，先定义法律/运维保留期，并实现数据库/对象一致删除。对象侧回收已有手动工具 `bash scripts/db.sh reap-storage`（软删除对象 + 孤儿，见 database.md §6.5）；磁盘水位可经 `GET /api/v1/system/infrastructure` 的 `capacity`（local 后端上报 total/used/free 字节）观察。二者仍是手动/可调度手段，非自动保留。
+Celery result 在 24 小时后过期，业务 Job/JobStep、audit、file 和对象字节不会按时间自动删除。对象侧回收已有手动工具 `bash scripts/db.sh reap-storage`（软删除对象 + 孤儿，见 database.md §6.5）；磁盘水位可经 `GET /api/v1/system/infrastructure` 的 `capacity` 观察，Local 使用实际文件系统可用量，MinIO 使用集群原始总量/空闲量指标。达到 warning 时应主动完成终态批次完整备份与整批释放；critical 或 unknown 时先停止新增大批次并核对存储，不把 unknown 当成 0%。
 
 ## 发布与回滚检查表
 

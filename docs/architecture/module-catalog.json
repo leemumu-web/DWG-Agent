@@ -159,21 +159,24 @@
         "workflow_batch_exports",
         "workflow_input_batches",
         "workflow_input_items",
+        "workflow_retention_exports",
         "workflow_runs",
         "workflow_stage_runs"
       ],
       "http_prefixes": ["/api/v1/workflows"],
-      "celery_tasks": [],
+      "celery_tasks": ["app.workers.tasks_maintenance.purge_workflow_retention"],
       "queues": [],
       "stages": [],
       "tests": [
         "backend/tests/architecture/test_workflow_boundaries.py",
         "backend/tests/workflows/test_workflow_framework.py",
         "backend/tests/workflows/test_workflow_input_service.py",
-        "backend/tests/workflows/test_workflow_production.py"
+        "backend/tests/workflows/test_workflow_production.py",
+        "backend/tests/workflows/test_workflow_retention.py",
+        "backend/tests/workflows/test_workflow_retention_models.py"
       ],
       "docs": ["docs/architecture/workflow.md", "docs/verification/current.md"],
-      "notes": "DWG plus one Excel intake, server DXF conversion, freeze, classification and the drawing-processing orchestration seam are wired; dxf_splitting owns the split task and ledgers, while CAM and Windows stages remain truthful placeholders."
+      "notes": "DWG plus one Excel intake, server DXF conversion, freeze, classification, drawing processing and terminal whole-Workflow retention are wired; retention streams a verified complete backup before an admin-confirmed maintenance cleanup, while CAM and Windows stages remain truthful placeholders."
     },
     {
       "code": "cad_processing",

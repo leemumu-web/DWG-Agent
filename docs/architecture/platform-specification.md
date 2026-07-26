@@ -90,8 +90,8 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `e9a1b2c3d4f5`，SQLAlchemy/Alembic 管理 46 张模型表。
-- 空迁移 schema 加 `alembic_version` 为 47 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 55 张。不能把 55 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
+- 当前 Alembic head 为 `b7e2c9a4d610`，SQLAlchemy/Alembic 管理 47 张模型表。
+- 空迁移 schema 加 `alembic_version` 为 48 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 56 张。不能把 56 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
 - `kombu_message` 需要 `(queue_id, timestamp, id, visible)` 索引，降低跨队列扫描和锁范围。
@@ -186,7 +186,7 @@ SQLAlchemy transport 不支持 fanout remote control；不得用 `celery inspect
 
 ## 11. API 与错误契约
 
-- API 前缀为 `/api/v1`；当前 OpenAPI 为 169 个 path、197 个 operation。
+- API 前缀为 `/api/v1`；当前 OpenAPI 为 178 个 path、206 个 operation。
 - 成功 envelope 为 `{data, meta}`；分页增加 `{pagination}`，总数来自 SQL `COUNT(*)`。
 - 错误 envelope 为 `{error: {code, message, details}, meta}`。
 - request ID 接受传入 `X-Request-ID` 或由 API 生成，并写回响应。

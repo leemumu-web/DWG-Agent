@@ -29,8 +29,8 @@
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、172 个 OpenAPI path 和 200 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
-| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 46 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 47 张表；Celery runtime 全部初始化后最多 55 张；SQLite 只用于 pytest |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、178 个 OpenAPI path 和 206 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 47 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 48 张表；Celery runtime 全部初始化后最多 56 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |

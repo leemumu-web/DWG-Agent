@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`orchestration.py` 定义模板、run/stage/artifact、命令和能力状态 DTO；`production_projects.py` 定义项目与唯一完整工作流的原子创建 DTO；`intake.py` 定义输入登记、配对、转换、冻结和 drawing unit DTO；`exports.py` 定义四类分批导出、状态和物理释放 DTO；`__init__.py` 聚合公开 schema。
+`orchestration.py` 定义模板、run/stage/artifact、命令和能力状态 DTO；`production_projects.py` 定义项目与唯一完整工作流的原子创建 DTO；`intake.py` 定义输入登记、配对、转换、冻结和 drawing unit DTO；`exports.py` 定义四类分批导出；`retention.py` 定义完整备份范围、持久状态和精确清理确认词；`__init__.py` 聚合公开 schema。
 
 ## 输入、输出与边界
 
