@@ -22,6 +22,7 @@ export interface User {
   real_name: string;
   email?: string | null;
   status: string;
+  password_reset_required: boolean;
   roles: Role[];
   created_at: string;
   updated_at: string;

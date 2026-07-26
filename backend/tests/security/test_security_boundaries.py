@@ -697,12 +697,14 @@ def test_deleted_user_remains_visible_and_restores_as_disabled():
     )
     assert restored.status_code == 200, restored.text
     assert restored.json()["data"]["status"] == "disabled"
+    assert restored.json()["data"]["password_reset_required"] is True
 
     with open_test_session() as db:
         restored_user = db.get(User, user_id)
         assert restored_user is not None
         assert restored_user.status == "disabled"
         assert restored_user.deleted_at is None
+        assert restored_user.password_reset_required is True
 
     audit = client.get("/api/v1/audit-logs?page_size=100", headers=admin_headers)
     assert audit.status_code == 200, audit.text
@@ -711,11 +713,12 @@ def test_deleted_user_remains_visible_and_restores_as_disabled():
         for item in audit.json()["data"]
     )
 
-    enabled = client.post(
+    premature_enable = client.post(
         f"/api/v1/users/{user_id}/enable-requests",
         headers=admin_headers,
     )
-    assert enabled.status_code == 200, enabled.text
+    assert premature_enable.status_code == 409, premature_enable.text
+    assert premature_enable.json()["error"]["code"] == "PASSWORD_RESET_REQUIRED"
 
     old_password_login = client.post(
         "/api/v1/auth/sessions",
@@ -724,16 +727,27 @@ def test_deleted_user_remains_visible_and_restores_as_disabled():
     assert old_password_login.status_code == 401
     assert old_password_login.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
-    old_token_request = client.get("/api/v1/auth/me", headers=pre_delete_headers)
-    assert old_token_request.status_code == 401
-    assert old_token_request.json()["error"]["code"] == "TOKEN_REVOKED"
-
     reset = client.post(
         f"/api/v1/users/{user_id}/password-reset-requests",
         headers=admin_headers,
         json={"new_password": "RestoredPassword1234"},
     )
     assert reset.status_code == 200, reset.text
+    with open_test_session() as db:
+        restored_user = db.get(User, user_id)
+        assert restored_user is not None
+        assert restored_user.password_reset_required is False
+
+    enabled = client.post(
+        f"/api/v1/users/{user_id}/enable-requests",
+        headers=admin_headers,
+    )
+    assert enabled.status_code == 200, enabled.text
+
+    old_token_request = client.get("/api/v1/auth/me", headers=pre_delete_headers)
+    assert old_token_request.status_code == 401
+    assert old_token_request.json()["error"]["code"] == "TOKEN_REVOKED"
+
     new_password_login = client.post(
         "/api/v1/auth/sessions",
         json={"username": username, "password": "RestoredPassword1234"},

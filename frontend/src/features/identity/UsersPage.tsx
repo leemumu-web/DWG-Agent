@@ -201,7 +201,14 @@ export function UsersPage() {
     },
     {
       title: '状态', dataIndex: 'status', width: 100,
-      render: (v: string) => <StatusChip style={statusOf(USER_STATUS, v)} />,
+      render: (v: string, r: User) => (
+        <Space direction="vertical" size={2}>
+          <StatusChip style={statusOf(USER_STATUS, v)} />
+          {r.password_reset_required && (
+            <Typography.Text type="warning" style={{ fontSize: 12 }}>待重置密码</Typography.Text>
+          )}
+        </Space>
+      ),
     },
     {
       title: '创建时间', dataIndex: 'created_at', width: 150,
@@ -212,6 +219,7 @@ export function UsersPage() {
       render: (_: unknown, r: User) => {
         const protectedSuperAdmin = r.roles.some((role) => role.code === 'super_admin');
         const protectedTip = protectedSuperAdmin ? '唯一超级管理员受系统保护' : undefined;
+        const enableBlocked = r.status === 'disabled' && r.password_reset_required;
         if (r.status === 'deleted') {
           return (
             <Popconfirm
@@ -239,10 +247,10 @@ export function UsersPage() {
             title={r.status === 'disabled' ? '启用该用户？' : '禁用该用户？'}
             onConfirm={() => toggleMut.mutate(r)}
             okText="确定" cancelText="取消"
-            disabled={r.status === 'deleted' || protectedSuperAdmin}
+            disabled={enableBlocked || protectedSuperAdmin}
           >
-            <Tooltip title={protectedTip ?? (r.status === 'disabled' ? '启用' : '禁用')}>
-              <Button type="text" size="small" danger={r.status !== 'disabled'} icon={r.status === 'disabled' ? <CheckCircleOutlined /> : <StopOutlined />} disabled={r.status === 'deleted' || protectedSuperAdmin} />
+            <Tooltip title={protectedTip ?? (enableBlocked ? '请先重置密码，再启用账号' : (r.status === 'disabled' ? '启用' : '禁用'))}>
+              <Button type="text" size="small" danger={r.status !== 'disabled'} icon={r.status === 'disabled' ? <CheckCircleOutlined /> : <StopOutlined />} disabled={enableBlocked || protectedSuperAdmin} />
             </Tooltip>
           </Popconfirm>
           <Tooltip title={protectedTip ?? '重置密码'}><Button type="text" size="small" icon={<KeyOutlined />} disabled={r.status === 'deleted' || protectedSuperAdmin} onClick={() => { resetForm.resetFields(); setResetTarget(r); }} /></Tooltip>

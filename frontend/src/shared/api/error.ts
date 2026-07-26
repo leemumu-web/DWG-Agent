@@ -97,6 +97,7 @@ const CODE_MESSAGES: Record<string, string> = {
   INPUT_RESTORE_FILE_UNAVAILABLE: '最近清空中的源文件已不完整，系统没有猜测替代文件；请重新上传完整 Excel 和 DWG 文件夹。',
   INPUT_RESTORE_NOT_AVAILABLE: '当前没有可精确恢复的清空记录，或本批已经重新上传了文件。',
   IDENTITY_TABLE_READ_ONLY: '用户、角色和登录安全表只能查看，不能从数据控制台直接修改；请使用用户管理页面。',
+  PASSWORD_RESET_REQUIRED: '该账号由删除状态恢复，必须先重置密码，再启用登录。',
   SUPER_ADMIN_ACCOUNT_PROTECTED: '唯一的超级管理员账号受系统保护，不能删除、禁用、降级或由他人重置密码。',
   SUPER_ADMIN_ASSIGNMENT_FORBIDDEN: '管理员不能授予超级管理员权限；系统只保留一个超级管理员账号。',
   SUPER_ADMIN_ROLE_PROTECTED: '超级管理员角色是系统保护角色，不能修改其权限。',

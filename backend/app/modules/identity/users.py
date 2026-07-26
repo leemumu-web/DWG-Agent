@@ -99,6 +99,7 @@ def restore_deleted_user(db: Session, user_id: int) -> User:
     user.deleted_at = None
     user.password_hash = hash_password(secrets.token_urlsafe(48))
     user.password_algo = "argon2id"
+    user.password_reset_required = True
     db.flush()
     return user
 
@@ -107,3 +108,4 @@ def reset_user_password(db: Session, user: User, new_password: str) -> None:
     """Set the exact validated administrator-supplied replacement password."""
     user.password_hash = hash_password(new_password)
     user.password_algo = "argon2id"
+    user.password_reset_required = False

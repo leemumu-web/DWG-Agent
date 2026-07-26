@@ -673,8 +673,9 @@ analysis_results ──< workflow_artifacts
 | `c8f1d2e3a490` | 新增拆板逐图分类结论、分类类型与类型解析来源，明确分类账本到拆板账本的边界 | 2026-07-25 |
 | `e9a1b2c3d4f5` | 新增工作流四类分批导出账本与 `files.purged_at` 物理清理墓碑 | 2026-07-25 |
 | `b7e2c9a4d610` | 新增完整 Workflow 备份与异步整批清理状态账本 | 2026-07-26 |
+| `c9a1d4e7f620` | 用户恢复后必须先由管理员重置密码，才能重新启用登录 | 2026-07-26 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910`、`c8f1d2e3a490`、`e9a1b2c3d4f5` 与 `b7e2c9a4d610`。**`b7e2c9a4d610` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910`、`c8f1d2e3a490`、`e9a1b2c3d4f5`、`b7e2c9a4d610` 与 `c9a1d4e7f620`。**`c9a1d4e7f620` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 

@@ -42,7 +42,7 @@
 - Modify only if verification exposes a defect.
 
 - [x] Run identity, security, frontend-contract, lint, and build gates.
-- [ ] Commit the implementation without touching user-owned untracked data.
+- [x] Commit the implementation without touching user-owned untracked data.
 - [ ] Build and deploy the encrypted r9 application images while preserving MySQL, MinIO, and volumes.
 - [ ] Verify container health, database/object counts, and the recovery flow in a real browser.
 - [ ] Push the verified commit to `main`.

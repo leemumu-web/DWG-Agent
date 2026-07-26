@@ -503,7 +503,7 @@ expected_columns = {
     "files": {"deleted_at", "purged_at"},
     "jobs": {"progress_data", "attempt", "request_key"},
     "job_steps": {"attempt"},
-    "sys_users": {"password_changed_at"},
+    "sys_users": {"password_changed_at", "password_reset_required"},
     "workflow_batch_exports": {
         "export_uid",
         "workflow_run_id",

@@ -48,6 +48,7 @@ class UserRead(BaseModel):
     real_name: str
     email: str | None = None
     status: str
+    password_reset_required: bool
     roles: list[RoleRead] = []
     created_at: datetime
     updated_at: datetime

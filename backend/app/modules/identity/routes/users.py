@@ -394,6 +394,12 @@ def enable_user(
 ):
     """Re-enable a previously disabled user account."""
     user = get_user_or_404(db, user_id)
+    if user.password_reset_required:
+        raise AppHTTPException(
+            409,
+            "PASSWORD_RESET_REQUIRED",
+            "Reset this restored account's password before enabling it.",
+        )
     before = {"status": user.status}
     if not transition_user_status(db, user_id, ACTIVE):
         raise AppHTTPException(400, "USER_DELETED", "Cannot enable a deleted user.")

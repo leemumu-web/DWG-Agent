@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import Boolean, DateTime, String, false
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.modules.identity.models.role import user_roles
@@ -24,6 +24,12 @@ class User(TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(String(128))
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     password_algo: Mapped[str] = mapped_column(String(32), default="argon2id", nullable=False)
+    password_reset_required: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=false(),
+        nullable=False,
+    )
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

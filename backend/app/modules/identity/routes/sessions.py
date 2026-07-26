@@ -200,6 +200,7 @@ def change_password(
         )
     current_user.password_hash = hash_password(payload.new_password)
     current_user.password_algo = "argon2id"
+    current_user.password_reset_required = False
     write_audit_log(
         db,
         actor_user_id=current_user.id,

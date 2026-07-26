@@ -51,6 +51,9 @@ WORKFLOW_BATCH_EXPORT_REVISION = (
 WORKFLOW_RETENTION_REVISION = (
     VERSIONS_DIR / "b7e2c9a4d610_add_workflow_retention_exports.py"
 )
+USER_PASSWORD_RESET_REVISION = (
+    VERSIONS_DIR / "c9a1d4e7f620_add_user_password_reset_required.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -295,6 +298,17 @@ def test_workflow_retention_migration_extends_head_and_is_reversible():
     assert '"purge_transfer_uid"' in source
     assert '"ix_workflow_retention_exports_workflow_status"' in source
     assert 'op.drop_table("workflow_retention_exports")' in source
+
+
+def test_user_password_reset_requirement_extends_head_and_is_reversible():
+    source = USER_PASSWORD_RESET_REVISION.read_text(encoding="utf-8")
+
+    assert 'revision: str = "c9a1d4e7f620"' in source
+    assert 'down_revision: str | None = "b7e2c9a4d610"' in source
+    assert '"sys_users"' in source
+    assert '"password_reset_required"' in source
+    assert 'server_default=sa.false()' in source
+    assert 'op.drop_column("sys_users", "password_reset_required")' in source
 
 
 def test_control_plane_migration_extends_head_with_persisted_observability():

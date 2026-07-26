@@ -694,10 +694,16 @@ def test_duplicate_username_has_a_specific_operator_message():
 def test_deleted_users_have_a_visible_restore_action():
     api_source = _frontend_source("features/identity/users.api.ts")
     page_source = _frontend_source("features/identity/UsersPage.tsx")
+    auth_types = _frontend_source("shared/auth/types.ts")
+    error_source = _frontend_source("shared/api/error.ts")
 
     assert "/restore-requests" in api_source
     assert "恢复账号" in page_source
     assert "已删除账号" in page_source
+    assert "password_reset_required" in auth_types
+    assert "r.password_reset_required" in page_source
+    assert "请先重置密码" in page_source
+    assert "PASSWORD_RESET_REQUIRED" in error_source
 
 
 def test_dashboard_contains_complete_operator_manual():
