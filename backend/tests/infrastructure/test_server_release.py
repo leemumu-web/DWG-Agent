@@ -171,7 +171,8 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "material_routing" in release
     assert "remnant_drawing_reader" in release
     assert "__cpu_baseline__" in release
-    assert '{"SSE", "SSE2", "SSE3"}' in release
+    assert r'{\"SSE\", \"SSE2\", \"SSE3\"}' in release
+    assert r'f\"NumPy wheel requires an unsupported CPU baseline' in release
     assert "verify_image_archive.py" in release
     assert 'deploy.sh"' in release
     assert "--profile workers build" not in release

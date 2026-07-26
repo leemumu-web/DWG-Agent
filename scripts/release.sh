@@ -73,8 +73,8 @@ assert check_dwg_environment().ok
 assert check_dxf_environment().ok
 load_verified_box_release_attestation()
 cpu_baseline = set(_multiarray_umath.__cpu_baseline__)
-assert cpu_baseline <= {"SSE", "SSE2", "SSE3"}, (
-    f"NumPy wheel requires an unsupported CPU baseline: {sorted(cpu_baseline)}"
+assert cpu_baseline <= {\"SSE\", \"SSE2\", \"SSE3\"}, (
+    f\"NumPy wheel requires an unsupported CPU baseline: {sorted(cpu_baseline)}\"
 )
 "
         test "$(alembic heads | wc -l)" = "1"
