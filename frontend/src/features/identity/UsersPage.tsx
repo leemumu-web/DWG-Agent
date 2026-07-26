@@ -21,6 +21,7 @@ import {
   StopOutlined,
   KeyOutlined,
   DeleteOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -32,6 +33,7 @@ import {
   listUsers,
   removeRole,
   resetUserPassword,
+  restoreUser,
 } from './users.api';
 import { listRoles } from './roles.api';
 import type { User } from '../../shared/auth';
@@ -79,6 +81,7 @@ export function UsersPage() {
 
   const activeCount = users.filter((u) => u.status === 'active').length;
   const disabledCount = users.filter((u) => u.status === 'disabled').length;
+  const deletedCount = users.filter((u) => u.status === 'deleted').length;
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['users'] });
 
@@ -104,6 +107,15 @@ export function UsersPage() {
     mutationFn: (id: number) => deleteUser(id),
     onSuccess: () => { message.success('用户已删除'); invalidate(); },
     onError: (e: unknown) => message.error(describeApiError(e, '删除失败')),
+  });
+
+  const restoreMut = useMutation({
+    mutationFn: (id: number) => restoreUser(id),
+    onSuccess: () => {
+      message.success('账号已恢复为禁用状态；请重置密码并核对角色后再启用');
+      invalidate();
+    },
+    onError: (e: unknown) => message.error(describeApiError(e, '恢复失败')),
   });
 
   const resetMut = useMutation({
@@ -200,6 +212,26 @@ export function UsersPage() {
       render: (_: unknown, r: User) => {
         const protectedSuperAdmin = r.roles.some((role) => role.code === 'super_admin');
         const protectedTip = protectedSuperAdmin ? '唯一超级管理员受系统保护' : undefined;
+        if (r.status === 'deleted') {
+          return (
+            <Popconfirm
+              title="恢复账号"
+              description="恢复后账号保持禁用，旧密码和旧登录均失效。请重置密码、核对角色后再启用。"
+              onConfirm={() => restoreMut.mutate(r.id)}
+              okText="恢复"
+              cancelText="取消"
+            >
+              <Button
+                type="link"
+                size="small"
+                icon={<UndoOutlined />}
+                loading={restoreMut.isPending && restoreMut.variables === r.id}
+              >
+                恢复账号
+              </Button>
+            </Popconfirm>
+          );
+        }
         return (
         <Space size={2}>
           <Tooltip title="角色管理"><Button type="text" size="small" icon={<KeyOutlined />} onClick={() => setEditing(r)} /></Tooltip>
@@ -247,6 +279,7 @@ export function UsersPage() {
         <StatCard label="用户总数" value={users.length} icon={<TeamOutlined />} color="#1677ff" bg="#e6f4ff" />
         <StatCard label="正常" value={activeCount} icon={<CheckCircleOutlined />} color="#52c41a" bg="#f6ffed" />
         <StatCard label="已禁用" value={disabledCount} icon={<StopOutlined />} color="#faad14" bg="#fffbe6" />
+        <StatCard label="已删除账号" value={deletedCount} icon={<DeleteOutlined />} color="#ff4d4f" bg="#fff2f0" />
       </StatGrid>
 
       <Table

@@ -64,3 +64,8 @@ export async function enableUser(userId: number) {
   const res = await apiClient.post<ApiEnvelope<User>>(`/api/v1/users/${userId}/enable-requests`);
   return res.data.data;
 }
+
+export async function restoreUser(userId: number) {
+  const res = await apiClient.post<ApiEnvelope<User>>(`/api/v1/users/${userId}/restore-requests`);
+  return res.data.data;
+}

@@ -30,7 +30,7 @@
 | Backend 全量 | **1544 passed，10 skipped** | API、MySQL 事务、MinIO、Celery SQL broker、拆板/工作流、完整备份清理、Compose 与脚本合同零失败。 |
 | Frontend 全量 | **110 passed，14 skipped** | 共 124 个 Playwright 场景，零失败；上传、文件打包、拆板选择导出和完整备份均验证真实传输期间进度。跳过项来自当前明确关闭的可选转换管线或缺少实时批次/样本，测试从部署开关读取能力。 |
 | 前端生产构建 | **pass** | 135 个源码文件、12 个 feature 边界、TypeScript 与 Vite production build 通过；仅保留既有大 chunk 提示。 |
-| 运行时合同 | **pass** | Alembic head `b7e2c9a4d610`；179 个 HTTP path、207 个 operation、47 张 ORM 表、15 个 Celery task、13 条 route、14 个 Compose service。 |
+| 运行时合同 | **pass** | Alembic head `b7e2c9a4d610`；180 个 HTTP path、208 个 operation、47 张 ORM 表、15 个 Celery task、13 条 route、14 个 Compose service。 |
 | 活动容器 | **14 / 14 healthy** | 整栈重启后 MySQL 表数、可用文件、登记字节和各 MinIO Bucket 对象/登记计数与重启前完全一致。 |
 | MinIO 故障恢复 | **pass** | 受控停止时 readiness 为 503、database `ok`、storage `error`；启动后无需重启 FastAPI 即恢复 200，后端容器 ID 与启动时间不变。 |
 | 存储事务 | **pass** | 真实 MySQL+MinIO 探针完成 Excel 幂等登记、DXF 上传、SVG 预览、授权读取、transfer 流水和唯一探针对象清理。 |

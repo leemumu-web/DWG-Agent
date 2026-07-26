@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 
 from sqlalchemy import select, update
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.identity.models.user import User
 from app.modules.identity.schemas.user import UserCreate, UserSelfUpdate, UserUpdate
-from app.platform.config.constants import ACTIVE, DELETED
+from app.platform.config.constants import ACTIVE, DELETED, DISABLED
 from app.platform.http.exceptions import AppHTTPException, not_found
 from app.platform.security.tokens import hash_password
 
@@ -81,6 +82,25 @@ def transition_user_status(
         update(User).where(User.id == user_id, User.status != DELETED).values(**values)
     )
     return result.rowcount > 0
+
+
+def restore_deleted_user(db: Session, user_id: int) -> User:
+    """Restore a soft-deleted account without restoring its old credentials."""
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if user is None:
+        raise not_found("User")
+    if user.status != DELETED:
+        raise AppHTTPException(
+            409,
+            "USER_NOT_DELETED",
+            "Only a deleted user account can be restored.",
+        )
+    user.status = DISABLED
+    user.deleted_at = None
+    user.password_hash = hash_password(secrets.token_urlsafe(48))
+    user.password_algo = "argon2id"
+    db.flush()
+    return user
 
 
 def reset_user_password(db: Session, user: User, new_password: str) -> None:

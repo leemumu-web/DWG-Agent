@@ -16,7 +16,9 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.automation.agent.models.runs import AgentRun, AgentRunStep
 from app.modules.files.interface import StoredFile
+from app.modules.identity.models.user import User
 from app.modules.jobs.interface import AnalysisResult, Job
+from tests.support.database import open_test_session
 
 
 def _client() -> TestClient:
@@ -664,6 +666,132 @@ def test_delete_already_deleted_user_returns_404():
     # Second delete
     resp2 = client.delete(f"/api/v1/users/{user_id}", headers=admin_headers)
     assert resp2.status_code == 404, resp2.text
+
+
+def test_deleted_user_remains_visible_and_restores_as_disabled():
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    username = _unique("restore-visible")
+    user_id = _create_user(
+        client,
+        admin_headers,
+        username,
+        "RestoreUser1234",
+        "Restore Visible",
+        ["viewer"],
+    )
+    pre_delete_headers = _login(client, username, "RestoreUser1234")
+
+    deleted = client.delete(f"/api/v1/users/{user_id}", headers=admin_headers)
+    assert deleted.status_code == 204
+
+    listed = client.get("/api/v1/users?page_size=200", headers=admin_headers)
+    assert listed.status_code == 200, listed.text
+    deleted_row = next(item for item in listed.json()["data"] if item["id"] == user_id)
+    assert deleted_row["username"] == username
+    assert deleted_row["status"] == "deleted"
+
+    restored = client.post(
+        f"/api/v1/users/{user_id}/restore-requests",
+        headers=admin_headers,
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["data"]["status"] == "disabled"
+
+    with open_test_session() as db:
+        restored_user = db.get(User, user_id)
+        assert restored_user is not None
+        assert restored_user.status == "disabled"
+        assert restored_user.deleted_at is None
+
+    audit = client.get("/api/v1/audit-logs?page_size=100", headers=admin_headers)
+    assert audit.status_code == 200, audit.text
+    assert any(
+        item["action"] == "users.restore" and int(item["resource_id"]) == user_id
+        for item in audit.json()["data"]
+    )
+
+    enabled = client.post(
+        f"/api/v1/users/{user_id}/enable-requests",
+        headers=admin_headers,
+    )
+    assert enabled.status_code == 200, enabled.text
+
+    old_password_login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": username, "password": "RestoreUser1234"},
+    )
+    assert old_password_login.status_code == 401
+    assert old_password_login.json()["error"]["code"] == "INVALID_CREDENTIALS"
+
+    old_token_request = client.get("/api/v1/auth/me", headers=pre_delete_headers)
+    assert old_token_request.status_code == 401
+    assert old_token_request.json()["error"]["code"] == "TOKEN_REVOKED"
+
+    reset = client.post(
+        f"/api/v1/users/{user_id}/password-reset-requests",
+        headers=admin_headers,
+        json={"new_password": "RestoredPassword1234"},
+    )
+    assert reset.status_code == 200, reset.text
+    new_password_login = client.post(
+        "/api/v1/auth/sessions",
+        json={"username": username, "password": "RestoredPassword1234"},
+    )
+    assert new_password_login.status_code == 201, new_password_login.text
+
+
+def test_non_admin_cannot_restore_deleted_user():
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    viewer_username = _unique("restore-viewer")
+    _create_user(
+        client,
+        admin_headers,
+        viewer_username,
+        "RestoreViewer1234",
+        "Restore Viewer",
+        ["viewer"],
+    )
+    viewer_headers = _login(client, viewer_username, "RestoreViewer1234")
+    target_id = _create_user(
+        client,
+        admin_headers,
+        _unique("restore-target"),
+        "RestoreTarget1234",
+        "Restore Target",
+        ["viewer"],
+    )
+    assert client.delete(
+        f"/api/v1/users/{target_id}",
+        headers=admin_headers,
+    ).status_code == 204
+
+    response = client.post(
+        f"/api/v1/users/{target_id}/restore-requests",
+        headers=viewer_headers,
+    )
+    assert response.status_code == 403
+
+
+def test_restore_rejects_user_that_is_not_deleted():
+    client = _client()
+    admin_headers = _login(client, "admin", "SuperAdminPass1")
+    user_id = _create_user(
+        client,
+        admin_headers,
+        _unique("restore-active"),
+        "RestoreActive1234",
+        "Restore Active",
+        ["viewer"],
+    )
+
+    response = client.post(
+        f"/api/v1/users/{user_id}/restore-requests",
+        headers=admin_headers,
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "USER_NOT_DELETED"
 
 
 def test_get_nonexistent_resource_returns_404():

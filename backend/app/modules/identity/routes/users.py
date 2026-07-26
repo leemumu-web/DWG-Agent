@@ -22,6 +22,7 @@ from app.modules.identity.schemas.user import (
 from app.modules.identity.users import (
     create_user,
     get_user_or_404,
+    restore_deleted_user,
     transition_user_status,
     update_user,
 )
@@ -74,7 +75,7 @@ def list_users(
     tie_breaker = User.id.asc() if sort_dir_value == "asc" else User.id.desc()
     users, total = paginate_scalars(
         db,
-        select(User).where(User.status != DELETED).order_by(order_clause, tie_breaker),
+        select(User).order_by(order_clause, tie_breaker),
         page_no=page,
         page_size=page_size,
     )
@@ -199,6 +200,31 @@ def delete_user_api(
     )
     db.commit()
     return None
+
+
+@router.post("/{user_id}/restore-requests", status_code=status.HTTP_200_OK)
+def restore_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(ROLE_ADMIN)),
+):
+    """Restore a soft-deleted account in a safe, disabled state."""
+    user = restore_deleted_user(db, user_id)
+    record_password_change(db, user.id)
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="users.restore",
+        resource_type="user",
+        resource_id=user.id,
+        before_json={"status": DELETED},
+        after_json={"status": DISABLED},
+        request=request,
+    )
+    db.commit()
+    db.refresh(user)
+    return ok(UserRead.model_validate(user), request.state.request_id)
 
 
 @router.post("/{user_id}/roles", status_code=status.HTTP_201_CREATED)

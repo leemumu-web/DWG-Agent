@@ -1,6 +1,6 @@
 # API 参考
 
-本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **179 个 path、207 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
+本文件由 `cd backend && uv run python ../scripts/docs/generate_api.py` 从 FastAPI OpenAPI schema 生成。端点变更必须先修改代码和测试，再重新生成本文件。当前 OpenAPI 包含 **180 个 path、208 个 operation**。路由表只证明接口存在；功能开关、权限、外部依赖和真实样本仍可能阻止业务执行。
 
 ## 统一约定
 
@@ -66,6 +66,7 @@
 | `GET, POST` | `/api/v1/users` |
 | `GET, PATCH, DELETE` | `/api/v1/users/{user_id}` |
 | `PATCH` | `/api/v1/users/me` |
+| `POST` | `/api/v1/users/{user_id}/restore-requests` |
 | `POST` | `/api/v1/users/{user_id}/roles` |
 | `DELETE` | `/api/v1/users/{user_id}/roles/{role_id}` |
 | `POST` | `/api/v1/users/{user_id}/password-reset-requests` |

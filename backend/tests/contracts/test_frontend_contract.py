@@ -691,6 +691,15 @@ def test_duplicate_username_has_a_specific_operator_message():
     )
 
 
+def test_deleted_users_have_a_visible_restore_action():
+    api_source = _frontend_source("features/identity/users.api.ts")
+    page_source = _frontend_source("features/identity/UsersPage.tsx")
+
+    assert "/restore-requests" in api_source
+    assert "恢复账号" in page_source
+    assert "已删除账号" in page_source
+
+
 def test_dashboard_contains_complete_operator_manual():
     dashboard = _frontend_source("features/dashboard/DashboardPage.tsx")
 

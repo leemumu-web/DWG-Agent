@@ -23,8 +23,8 @@ def test_runtime_contract_matches_committed_snapshot() -> None:
 def test_contract_snapshot_locks_every_public_surface() -> None:
     snapshot = build_contract_snapshot()
 
-    assert len(snapshot["http_paths"]) == 179
-    assert len(snapshot["http_operations"]) == 207
+    assert len(snapshot["http_paths"]) == 180
+    assert len(snapshot["http_operations"]) == 208
     assert len(snapshot["orm_tables"]) == 47
     assert len(snapshot["celery_tasks"]) == 15
     assert len(snapshot["celery_task_routes"]) == 13
