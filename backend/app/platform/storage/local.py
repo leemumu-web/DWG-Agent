@@ -12,6 +12,7 @@ from app.platform.storage.base import (
     AbstractStorageBackend,
     ObjectInfo,
     ObjectPage,
+    StorageCapacity,
     StorageError,
     StorageObjectNotFound,
 )
@@ -30,8 +31,16 @@ def _fsync_parent_directory(path: Path) -> None:
 
 
 class LocalFileStorage(AbstractStorageBackend):
-    def __init__(self, root: Path):
+    def __init__(
+        self,
+        root: Path,
+        *,
+        warning_percent: int = 80,
+        critical_percent: int = 90,
+    ):
         self.root = root
+        self.warning_percent = warning_percent
+        self.critical_percent = critical_percent
 
     def _path(self, bucket: str, storage_key: str) -> Path:
         return ensure_within_root(self.root, self.root / bucket / storage_key)
@@ -43,6 +52,23 @@ class LocalFileStorage(AbstractStorageBackend):
                 pass
         except OSError as exc:
             raise StorageError("Local storage is not writable.") from exc
+
+    def capacity(self) -> StorageCapacity:
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            usage = shutil.disk_usage(self.root)
+            return StorageCapacity.from_values(
+                total_bytes=usage.total,
+                # ``free`` is the space available to this non-root process.
+                # Filesystem-reserved blocks make shutil's used + free smaller
+                # than total, so total - free is the conservative operator view.
+                used_bytes=usage.total - usage.free,
+                free_bytes=usage.free,
+                warning_percent=self.warning_percent,
+                critical_percent=self.critical_percent,
+            )
+        except (OSError, ValueError):
+            return StorageCapacity.unknown("local_capacity_unavailable")
 
     def put_fileobj(
         self,

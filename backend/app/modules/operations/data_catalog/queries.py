@@ -13,7 +13,8 @@ from app.modules.files.interface import (
 )
 from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
-from app.platform.storage.base import StorageError
+from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import StorageConfigurationError, StorageError
 
 
 def data_overview(db: Session) -> dict:
@@ -42,10 +43,13 @@ def data_overview(db: Session) -> dict:
         ).all()
     }
     storage_status = "ok"
+    storage = None
     try:
-        storage_service.get_storage_backend().check_health()
-    except StorageError:
+        storage = storage_service.get_storage_backend()
+        storage.check_health()
+    except (AppHTTPException, StorageConfigurationError, StorageError):
         storage_status = "error"
+    capacity = storage.capacity() if storage is not None else None
 
     return {
         "status": "ok" if storage_status == "ok" else "degraded",
@@ -56,7 +60,18 @@ def data_overview(db: Session) -> dict:
             "storage_backend": settings.storage_backend,
         },
         "database": {"status": "ok"},
-        "storage": {"status": storage_status},
+        "storage": {
+            "status": storage_status,
+            "capacity": {
+                "status": capacity.status if capacity else "unknown",
+                "total_bytes": capacity.total_bytes if capacity else None,
+                "used_bytes": capacity.used_bytes if capacity else None,
+                "free_bytes": capacity.free_bytes if capacity else None,
+                "used_percent": capacity.used_percent if capacity else None,
+                "reason": capacity.reason if capacity else "capacity_backend_unavailable",
+                "checked_at": capacity.checked_at.isoformat() if capacity else None,
+            },
+        },
         "catalog": {
             "available_files": int(counts.get("available", 0)),
             "deleted_files": int(counts.get("deleted", 0)),

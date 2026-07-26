@@ -23,6 +23,8 @@ Commands:
   status      Show containers and health
   logs        Follow service logs
   smoke       Check Nginx and backend readiness through the public port
+  verify-storage
+              Verify a real MySQL-registered MinIO write/read/delete transaction
   down        Stop containers while preserving data volumes
   backup DIR  Back up MySQL and MinIO into DIR
   restore DIR Restore a stopped stack from a backup created by this script
@@ -75,6 +77,28 @@ compose_smoke() {
     curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
     curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
     compose_info "public gateway and backend readiness checks passed"
+}
+
+compose_verify_storage() {
+    compose_require_env
+    local backend_state
+    if ! backend_state="$("${COMPOSE_CMD[@]}" ps --all \
+        --format '{{.Service}}|{{.State}}|{{.Health}}' backend-api)"; then
+        compose_die "cannot inspect backend-api before storage verification"
+    fi
+    if ! grep -qx 'backend-api|running|healthy' <<<"$backend_state"; then
+        compose_die "backend-api must be running and healthy before storage verification"
+    fi
+
+    compose_info "verifying the registered MySQL and object-storage transaction path"
+    local probe_status=0
+    "${COMPOSE_CMD[@]}" exec -T backend-api \
+        python /app/scripts/storage/verify_transactions.py || probe_status=$?
+    if [ "$probe_status" -ne 0 ]; then
+        compose_warn "storage transaction verification failed"
+        return "$probe_status"
+    fi
+    compose_info "storage transaction verification passed"
 }
 
 compose_startup_diagnostics() {
@@ -286,6 +310,7 @@ compose_main() {
         status) compose_require_env; "${COMPOSE_CMD[@]}" ps ;;
         logs) compose_require_env; "${COMPOSE_CMD[@]}" logs -f --tail=200 ;;
         smoke) compose_smoke ;;
+        verify-storage) compose_verify_storage ;;
         down) compose_require_env; "${COMPOSE_CMD[@]}" --profile workers down --remove-orphans ;;
         backup) compose_backup "${2:-}" ;;
         restore) compose_restore "${2:-}" ;;

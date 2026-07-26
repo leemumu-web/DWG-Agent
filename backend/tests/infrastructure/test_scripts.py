@@ -154,6 +154,99 @@ def test_stable_compose_startup_orders_health_gate_before_smoke():
     assert "up-workers) compose_up_workers" in content
 
 
+def _run_compose_storage_probe(tmp_path, *, probe_fails: bool = False):
+    env_file = tmp_path / ".env.docker"
+    env_file.write_text(
+        "\n".join(
+            [
+                "MYSQL_PASSWORD=mysql-secret",
+                "MYSQL_ROOT_PASSWORD=mysql-root-secret",
+                "MINIO_ROOT_USER=minio-admin",
+                "MINIO_ROOT_PASSWORD=minio-root-secret",
+                "JWT_SECRET_KEY=jwt-secret",
+                "SUPER_ADMIN_PASSWORD=admin-secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    calls_path = tmp_path / "calls.log"
+    fake = tmp_path / "fake-compose"
+    fake.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$FAKE_COMPOSE_CALLS"
+if [[ "$*" == *"ps --all --format"* ]]; then
+    printf 'backend-api|running|healthy\\n'
+elif [[ "$*" == *"exec -T backend-api python /app/scripts/storage/verify_transactions.py"* ]]; then
+    if [[ "${FAKE_PROBE_FAIL:-0}" == "1" ]]; then
+        printf 'probe failed safely\\n' >&2
+        exit 17
+    fi
+    printf '{"storage_backend":"minio","cleanup":"probe objects removed"}\\n'
+fi
+""",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f'set -u; source "{PROJECT_ROOT}/scripts/lib/compose.sh"; '
+                'DOCKER_ENV_FILE="$1"; COMPOSE_CMD=("$2"); compose_verify_storage'
+            ),
+            "bash",
+            str(env_file),
+            str(fake),
+        ],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "FAKE_COMPOSE_CALLS": str(calls_path),
+            "FAKE_PROBE_FAIL": "1" if probe_fails else "0",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result, calls_path.read_text(encoding="utf-8")
+
+
+def test_compose_verify_storage_runs_probe_only_in_healthy_backend(tmp_path):
+    result, calls = _run_compose_storage_probe(tmp_path)
+
+    assert result.returncode == 0
+    assert "ps --all --format" in calls
+    assert "exec -T backend-api python /app/scripts/storage/verify_transactions.py" in calls
+    assert "storage transaction verification passed" in result.stdout
+    for secret in (
+        "mysql-secret",
+        "mysql-root-secret",
+        "minio-root-secret",
+        "jwt-secret",
+        "admin-secret",
+    ):
+        assert secret not in result.stdout
+        assert secret not in result.stderr
+
+
+def test_compose_verify_storage_propagates_probe_failure(tmp_path):
+    result, calls = _run_compose_storage_probe(tmp_path, probe_fails=True)
+
+    assert result.returncode == 17
+    assert "exec -T backend-api python /app/scripts/storage/verify_transactions.py" in calls
+    assert "storage transaction verification passed" not in result.stdout
+
+
+def test_compose_verify_storage_is_a_public_command():
+    content = _read("scripts/lib/compose.sh")
+
+    assert "verify-storage) compose_verify_storage" in content
+    assert "verify-storage" in content[content.index("compose_usage()") : content.index("compose_die()")]
+
+
 def test_stable_startup_replaces_all_existing_managed_runtime():
     compose = _read("scripts/lib/compose.sh")
     compose_up_workers = compose[

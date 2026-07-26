@@ -15,7 +15,7 @@ async function mockConsole(page: Page) {
     storage: { status: 'ok', backend: 'minio', latency_ms: 3, buckets: [{ name: 'dwg-original', tracked_files: 3, object_count: 3 }, { name: 'dxf-derived', tracked_files: 2, object_count: 2 }] },
     catalog: { available_files: 5, tracked_bytes: 1024, extensions: { '.dwg': 3 } }, capacity: { status: 'unknown', disk_total_bytes: null, disk_used_bytes: null, disk_free_bytes: null }, recovery: { consistency_rule: 'MySQL metadata and object storage must be backed up and restored as one recovery set.', automated_backup: false },
   };
-  const dataOverview = { status: 'ok', environment: { app_env: 'production', database_engine: 'mysql', database: 'dwg_agent', storage_backend: 'minio' }, catalog: { available_files: 5, deleted_files: 0, tracked_bytes: 1024 }, transfers_today: { inbound_succeeded: 2, outbound_succeeded: 1, attention_required: 0 }, latest_scan: null };
+  const dataOverview = { status: 'ok', environment: { app_env: 'production', database_engine: 'mysql', database: 'dwg_agent', storage_backend: 'minio' }, database: { status: 'ok' }, storage: { status: 'ok', capacity: { status: 'warning', total_bytes: 1000, used_bytes: 820, free_bytes: 180, used_percent: 82, reason: null, checked_at: now } }, catalog: { available_files: 5, deleted_files: 0, tracked_bytes: 1024 }, transfers_today: { inbound_succeeded: 2, outbound_succeeded: 1, attention_required: 0 }, latest_scan: null };
   const control = { checked_at: now, broker: { kind: 'mysql_sqlalchemy', url_scheme: 'sqla+mysql', ready_count_source: 'kombu_message.visible', limitations: ['ready counts exclude reserved or in-flight tasks'] }, queues: [{ name: 'maintenance', business_jobs: { queued: 0, running: 0, failed: 0 }, broker_ready_messages: 0, mode: 'contract_only' }], workers: [{ id: 1, worker_name: 'maintenance@host', hostname: 'host', process_id: 10, queues: ['maintenance'], concurrency: 1, status: 'online', started_at: now, last_seen_at: now, stopped_at: null }], summary: { registered_workers: 1, online_workers: 1, stale_workers: 0, unread_messages: 0 }, implementation: { rabbitmq: 'pending', celery_beat: 'pending', durable_outbox: 'pending', windows_node_agent: 'pending' } };
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'infra-token', user }, 201));
   await page.route('**/api/v1/data-admin/overview', (route) => json(route, dataOverview));
@@ -34,6 +34,9 @@ test('legacy infrastructure route resolves to the focused MySQL and MinIO consol
   await page.goto('/admin/infrastructure');
   await expect(page).toHaveURL(/\/data-console$/);
   await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('MySQL 正常')).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('MinIO 正常')).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('容量 82.0%')).toBeVisible();
   await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
   await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
   await expect(page.getByRole('tab', { name: '运行与通信' })).toHaveCount(0);

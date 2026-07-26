@@ -7,6 +7,8 @@ isolated. The module-level ``settings`` singleton (cached by ``@lru_cache``) is
 
 from __future__ import annotations
 
+import pytest
+
 from app.platform.config.settings import Settings
 
 
@@ -261,3 +263,29 @@ def test_handbook_database_supports_independent_read_only_credentials():
     assert configured.handbook_database_config["database"] == "steel_reference"
     assert configured.handbook_database_config["user"] == "readonly"
     assert configured.handbook_database_config["password"] == "read-secret"
+def test_minio_metrics_url_defaults_to_configured_endpoint():
+    configured = Settings(_env_file=None, minio_endpoint="http://objects:9000/")
+
+    assert (
+        configured.effective_minio_metrics_url
+        == "http://objects:9000/minio/v2/metrics/cluster"
+    )
+
+
+def test_minio_metrics_url_accepts_explicit_proxy_path():
+    configured = Settings(
+        _env_file=None,
+        minio_endpoint="http://objects:9000",
+        minio_metrics_url="http://metrics-proxy/minio-capacity",
+    )
+
+    assert configured.effective_minio_metrics_url == "http://metrics-proxy/minio-capacity"
+
+
+def test_storage_capacity_thresholds_must_be_ordered():
+    with pytest.raises(ValueError, match="WARNING_PERCENT"):
+        Settings(
+            _env_file=None,
+            storage_capacity_warning_percent=90,
+            storage_capacity_critical_percent=90,
+        )

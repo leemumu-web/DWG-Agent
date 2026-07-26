@@ -275,6 +275,7 @@ dependencies = [
     { name = "ezdxf" },
     { name = "fastapi" },
     { name = "gunicorn" },
+    { name = "httpx" },
     { name = "minio" },
     { name = "numpy" },
     { name = "openpyxl" },
@@ -297,7 +298,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -313,6 +313,7 @@ requires-dist = [
     { name = "ezdxf", specifier = ">=1.4,<2" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "gunicorn", specifier = ">=22.0.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "minio", specifier = ">=7.2,<8" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "openpyxl", specifier = ">=3.1" },
@@ -335,7 +336,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.27.0" },
     { name = "pytest", specifier = ">=8.2.0" },
     { name = "ruff", specifier = ">=0.6.0" },
 ]

@@ -69,11 +69,19 @@ bash scripts/docker.sh up-workers
 
 bash scripts/docker.sh status
 bash scripts/docker.sh smoke
+bash scripts/docker.sh verify-storage
 ```
 
 对应 Make target：`docker-check`、`docker-build`、`docker-up`、`docker-up-workers`、`docker-status`、`docker-smoke`、`docker-down`。
 
 Compose 只构建一个共享后端镜像和一个前端镜像。所有 worker 复用 `DWG_AGENT_IMAGE`。前端镜像用 Node 22 执行锁定的 `npm ci` 构建，再由非特权 Nginx 提供静态文件。
+
+`verify-storage` 是有副作用但自清理的发布验收门：只在健康 `backend-api` 内执行，
+通过应用路径验证 MySQL 登记、MinIO 写入/读取/SHA、鉴权出库、DXF 预览与 transfer
+终态，并只清除本次唯一探针对象。它与无副作用的 `/health/ready` 分工，不应放进
+容器 healthcheck，也不得被改成扫描或回收业务对象。
+`MINIO_METRICS_URL` 未配置时由 `MINIO_ENDPOINT` 自动补成
+`/minio/v2/metrics/cluster`；只有经过反向代理或使用非标准指标路径时才需显式覆盖。
 
 ## 服务行为
 
@@ -104,6 +112,9 @@ bash scripts/docker.sh down       # preserves named volumes
 ```
 
 不要把 `docker compose down -v` 当作日常清理命令：它会删除数据库、对象和应用 volume。
+所有长期容器使用 Docker `json-file` 日志，每个文件上限 20 MiB、保留 5 个，避免
+宿主日志无限增长。MySQL 与 MinIO 仍不发布宿主端口；MinIO Prometheus 指标只在
+`internal` 网络供后端读取，不构成新的外部访问入口。
 
 ## 备份
 
@@ -124,6 +135,7 @@ bash scripts/docker.sh down
 bash scripts/docker.sh restore /secure/backups/dwg-agent-2026-07-11
 bash scripts/docker.sh up
 bash scripts/docker.sh smoke
+bash scripts/docker.sh verify-storage
 ```
 
 恢复会校验已有 checksum、替换 MinIO 内容、启动 MySQL，并导入应用库与五金手册库。之后验证登录、Job 状态、对象下载和 SHA-256。正式生产验收必须在独立恢复主机演练。

@@ -10,7 +10,7 @@ from app.main import app
 from app.modules.files.interface import StoredFile
 from app.modules.operations.data_catalog import infrastructure as infrastructure_service
 from app.platform.config.settings import settings
-from app.platform.storage.base import StorageConfigurationError
+from app.platform.storage.base import StorageCapacity, StorageConfigurationError
 from app.platform.storage.local import LocalFileStorage
 
 _DWG_STUB = b"AC1027" + b"\x00" * 1018  # >= 1024 bytes minimum file size
@@ -148,6 +148,30 @@ def test_capacity_reports_positive_disk_total_for_local(db):
     assert capacity["disk_total_bytes"] > 0
     assert isinstance(capacity["disk_used_bytes"], int)
     assert isinstance(capacity["disk_free_bytes"], int)
+    assert isinstance(capacity["used_percent"], float)
+    assert capacity["status"] in {"ok", "warning", "critical"}
+    assert capacity["reason"] is None
+    assert capacity["checked_at"]
+
+
+def test_capacity_state_is_independent_from_storage_connectivity(db, monkeypatch):
+    class _CapacityOnlyStorage(LocalFileStorage):
+        def check_health(self) -> None:
+            return None
+
+        def capacity(self) -> StorageCapacity:
+            return StorageCapacity.unknown("capacity_metrics_unavailable")
+
+    storage = _CapacityOnlyStorage(settings.local_storage_root)
+    monkeypatch.setattr(infrastructure_service, "get_storage_backend", lambda: storage)
+
+    overview = infrastructure_service.infrastructure_overview(db)
+
+    assert overview["storage"]["status"] == "ok"
+    assert overview["capacity"]["status"] == "unknown"
+    assert overview["capacity"]["disk_total_bytes"] is None
+    assert overview["capacity"]["used_percent"] is None
+    assert overview["capacity"]["reason"] == "capacity_metrics_unavailable"
 
 
 def test_bucket_object_counts_counts_files_and_zero_for_missing(tmp_path):

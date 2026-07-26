@@ -7,7 +7,18 @@ export interface DataAdminOverview {
     storage_backend: string;
   };
   database: { status: 'ok' | 'error' };
-  storage: { status: 'ok' | 'error' };
+  storage: {
+    status: 'ok' | 'error';
+    capacity: {
+      status: 'ok' | 'warning' | 'critical' | 'unknown';
+      total_bytes: number | null;
+      used_bytes: number | null;
+      free_bytes: number | null;
+      used_percent: number | null;
+      reason: string | null;
+      checked_at: string | null;
+    };
+  };
   catalog: {
     available_files: number;
     deleted_files: number;

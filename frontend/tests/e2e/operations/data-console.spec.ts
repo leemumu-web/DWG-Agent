@@ -31,7 +31,7 @@ test('data console inspects MySQL structure and MinIO folders', async ({ page })
   ]);
   expect(tablesResponse.status()).toBe(200);
   await expect(page.getByRole('heading', { name: '数据控制台' })).toBeVisible();
-  await expect(page.locator('.data-console-hero').getByText('正常', { exact: true })).toBeVisible();
+  await expect(page.locator('.data-console-hero').getByText('MySQL 正常')).toBeVisible();
   await expect(page.getByRole('tab', { name: /MySQL/ })).toBeVisible();
   await expect(page.getByRole('tab', { name: /MinIO/ })).toBeVisible();
   await expect(page.getByText('MySQL 表结构')).toBeVisible();

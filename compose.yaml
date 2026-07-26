@@ -14,6 +14,12 @@ x-app-environment: &app-environment
   MYSQL_ROOT_PASSWORD: ""
   MINIO_ROOT_PASSWORD: ""
 
+x-service-logging: &service-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 x-app-service: &app-service
   <<: *app-image
   env_file:
@@ -25,6 +31,7 @@ x-app-service: &app-service
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
+  logging: *service-logging
 
 x-worker: &worker
   <<: *app-service
@@ -63,6 +70,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
+    logging: *service-logging
 
   backend-api:
     <<: *app-service
@@ -254,6 +262,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    logging: *service-logging
 
   minio:
     image: ${MINIO_IMAGE:-quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e}
@@ -268,6 +277,7 @@ services:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ACCESS_KEY: ""
       MINIO_SECRET_KEY: ""
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes:
       - minio_data:/data
     healthcheck:
@@ -282,6 +292,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    logging: *service-logging
 
 volumes:
   app_var:

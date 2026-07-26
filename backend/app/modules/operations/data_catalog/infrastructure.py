@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import shutil
 from datetime import UTC, datetime
-from pathlib import Path
 from time import monotonic
 
 from sqlalchemy import func, inspect, select, text
@@ -118,21 +116,24 @@ def infrastructure_overview(db: Session) -> dict:
             .limit(8)
         ).all()
     )
-    # Disk capacity: available for local storage backend; unknown for remote.
-    capacity: dict = {"status": "unknown", "disk_total_bytes": None, "disk_free_bytes": None}
-    if settings.storage_backend == "local":
-        try:
-            root = Path(settings.local_storage_root)
-            root.mkdir(parents=True, exist_ok=True)
-            usage = shutil.disk_usage(root)
-            capacity = {
-                "status": "ok",
-                "disk_total_bytes": usage.total,
-                "disk_used_bytes": usage.used,
-                "disk_free_bytes": usage.free,
-            }
-        except OSError:
-            capacity["status"] = "error"
+    try:
+        observed_capacity = get_storage_backend().capacity()
+    except (AppHTTPException, StorageConfigurationError, StorageError):
+        observed_capacity = None
+    capacity = {
+        "status": observed_capacity.status if observed_capacity else "unknown",
+        "backend": settings.storage_backend,
+        "disk_total_bytes": observed_capacity.total_bytes if observed_capacity else None,
+        "disk_used_bytes": observed_capacity.used_bytes if observed_capacity else None,
+        "disk_free_bytes": observed_capacity.free_bytes if observed_capacity else None,
+        "used_percent": observed_capacity.used_percent if observed_capacity else None,
+        "reason": observed_capacity.reason if observed_capacity else "capacity_backend_unavailable",
+        "checked_at": (
+            observed_capacity.checked_at.isoformat()
+            if observed_capacity
+            else datetime.now(UTC).isoformat()
+        ),
+    }
 
     return {
         "status": "ok" if database["status"] == storage["status"] == "ok" else "degraded",

@@ -30,8 +30,14 @@ def _auth(client: TestClient) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/sessions",
         json={
-            "username": os.getenv("VERIFY_ADMIN_USERNAME", "admin"),
-            "password": os.getenv("VERIFY_ADMIN_PASSWORD", "SuperAdminPass1"),
+            "username": os.getenv(
+                "VERIFY_ADMIN_USERNAME",
+                os.getenv("SUPER_ADMIN_USERNAME", "admin"),
+            ),
+            "password": os.getenv(
+                "VERIFY_ADMIN_PASSWORD",
+                os.getenv("SUPER_ADMIN_PASSWORD", "SuperAdminPass1"),
+            ),
         },
     )
     response.raise_for_status()

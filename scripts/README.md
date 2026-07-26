@@ -59,7 +59,7 @@ bash scripts/verify.sh full --allow-blocked
 | 脚本 | 常用命令 | 说明 |
 |---|---|---|
 | `db.sh` | `start`、`check`、`status`、`migrate`、`migration-test`、`backup`、`restore`、`reap-storage` | `migration-test` 和部分系统操作可能需要 sudo；先在非生产 schema 验证。 |
-| `docker.sh` | `check`、`up`、`up-workers`、`status`、`smoke`、`logs`、`backup`、`restore`、`down` | Compose 与本地 worker 不应同时消费同一 CAD 队列。 |
+| `docker.sh` | `check`、`up`、`up-workers`、`status`、`smoke`、`verify-storage`、`logs`、`backup`、`restore`、`down` | Compose 与本地 worker 不应同时消费同一 CAD 队列。 |
 | `storage/reap.py` | 存储保留期回收实现 | 通常经 `bash scripts/db.sh reap-storage --dry-run` 调用，不直接猜测删除对象。 |
 | `storage/verify_transactions.py` | 存储事务验证 | 用于隔离验证，不替代真实对象恢复演练。 |
 
@@ -71,6 +71,12 @@ readiness smoke。服务退出、重启、不健康或超时会输出受影响�
 容器，同步锁文件限定的后端依赖，并无条件重建前端；成功摘要前执行
 `scripts/status.sh`，只有本地 MySQL、全部受管 worker、FastAPI、最新前端构建和
 Nginx API/SPA 探针全部通过才返回零。
+
+`bash scripts/docker.sh verify-storage` 只在 `backend-api` 运行且健康时执行。它在
+容器内创建本次唯一的 Excel 与 DXF 探针，经应用 Files 路径写入 MinIO、登记
+MySQL、核对预览与传输流水，最后软删除登记并物理移除本次探针对象。任一环节失败
+返回非零；命令不打印数据库 DSN、对象存储密钥或管理员密码，也不会扫描或删除既有
+业务对象。部署、升级和存储恢复后应执行一次。
 
 ## Windows 与 CAD worker
 

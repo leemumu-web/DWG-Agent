@@ -61,6 +61,14 @@ def test_data_admin_overview_identifies_environment_without_secrets(tmp_path, mo
     data = response.json()["data"]
     assert data["environment"]["app_env"] == settings.app_env
     assert data["environment"]["storage_backend"] == settings.storage_backend
+    assert data["database"]["status"] == "ok"
+    assert data["storage"]["status"] == "ok"
+    assert data["storage"]["capacity"]["status"] in {"ok", "warning", "critical"}
+    assert data["storage"]["capacity"]["total_bytes"] > 0
+    assert data["storage"]["capacity"]["free_bytes"] >= 0
+    assert isinstance(data["storage"]["capacity"]["used_percent"], float)
+    assert data["storage"]["capacity"]["reason"] is None
+    assert data["storage"]["capacity"]["checked_at"]
     serialized = json.dumps(data)
     assert "database_url" not in serialized
     assert settings.mysql_password not in serialized or not settings.mysql_password

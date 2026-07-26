@@ -33,15 +33,25 @@ def _get_storage_backend_cached(
     minio_endpoint: str,
     minio_access_key: str,
     minio_secret_key: str,
+    minio_metrics_url: str | None,
+    capacity_warning_percent: int,
+    capacity_critical_percent: int,
 ) -> AbstractStorageBackend:
     if backend_name == "local":
-        return LocalFileStorage(Path(local_root))
+        return LocalFileStorage(
+            Path(local_root),
+            warning_percent=capacity_warning_percent,
+            critical_percent=capacity_critical_percent,
+        )
     if backend_name == "minio":
         try:
             return MinioStorage(
                 endpoint=minio_endpoint,
                 access_key=minio_access_key,
                 secret_key=minio_secret_key,
+                metrics_url=minio_metrics_url,
+                warning_percent=capacity_warning_percent,
+                critical_percent=capacity_critical_percent,
             )
         except StorageConfigurationError as exc:
             raise AppHTTPException(
@@ -63,6 +73,9 @@ def get_storage_backend() -> AbstractStorageBackend:
         settings.minio_endpoint,
         settings.minio_access_key,
         settings.minio_secret_key,
+        settings.effective_minio_metrics_url,
+        settings.storage_capacity_warning_percent,
+        settings.storage_capacity_critical_percent,
     )
 
 

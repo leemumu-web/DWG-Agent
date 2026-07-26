@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import quote as url_quote
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Anchor to the backend/ package root so that relative storage paths are
@@ -174,6 +174,9 @@ class Settings(BaseSettings):
         return f"db+{self.celery_database_url}"
 
     minio_endpoint: str = "http://localhost:9000"
+    minio_metrics_url: str | None = None
+    storage_capacity_warning_percent: int = Field(default=80, ge=1, le=99)
+    storage_capacity_critical_percent: int = Field(default=90, ge=2, le=100)
     minio_access_key: str = ""
     minio_secret_key: str = ""
     # Bucket names per spec §10.2
@@ -184,6 +187,21 @@ class Settings(BaseSettings):
     # Direction-specific buckets for DXF uploads and DXF derived results
     minio_bucket_dxf_original: str = "dxf-original"
     minio_bucket_dxf_derived: str = "dxf-derived"
+
+    @model_validator(mode="after")
+    def validate_storage_capacity_thresholds(self) -> Settings:
+        if self.storage_capacity_warning_percent >= self.storage_capacity_critical_percent:
+            raise ValueError(
+                "STORAGE_CAPACITY_WARNING_PERCENT must be below "
+                "STORAGE_CAPACITY_CRITICAL_PERCENT."
+            )
+        return self
+
+    @property
+    def effective_minio_metrics_url(self) -> str:
+        return self.minio_metrics_url or (
+            f"{self.minio_endpoint.rstrip('/')}/minio/v2/metrics/cluster"
+        )
 
     @property
     def minio_bucket_names(self) -> list[str]:

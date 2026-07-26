@@ -165,6 +165,15 @@ class TestComposeYamlValid:
         }
         assert required <= actual, f"Missing services: {sorted(required - actual)}"
 
+    def test_every_long_lived_service_has_bounded_json_logs(self):
+        services = _load()["services"]
+
+        for name, service in services.items():
+            assert service.get("logging") == {
+                "driver": "json-file",
+                "options": {"max-size": "20m", "max-file": "5"},
+            }, f"{name} must not write unbounded Docker logs"
+
     def test_core_infra_images_do_not_depend_on_docker_hub(self):
         data = _load()
         services = data["services"]
@@ -298,6 +307,17 @@ class TestMinioService:
         )
         assert "MINIO_ROOT_PASSWORD" not in minio["environment"]
 
+    def test_minio_exposes_read_only_metrics_only_on_internal_network(self):
+        data = _load()
+        minio = data["services"]["minio"]
+
+        assert minio["environment"]["MINIO_PROMETHEUS_AUTH_TYPE"] == "public"
+        assert minio["networks"] == ["internal"]
+        assert "ports" not in minio
+
+        docker_env = DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8")
+        assert "MINIO_METRICS_URL=http://minio:9000/minio/v2/metrics/cluster" in docker_env
+
 
 class TestClassifiedInfrastructureLayout:
     def test_runtime_assets_live_under_explicit_owners(self):
@@ -368,6 +388,14 @@ class TestDockerEnvironmentFiles:
 class TestDockerfile:
     def test_exists(self):
         assert DOCKERFILE_PATH.exists(), "Dockerfile missing"
+
+    def test_storage_transaction_probe_is_available_in_runtime_image(self):
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        assert (
+            "COPY scripts/storage/verify_transactions.py "
+            "/app/scripts/storage/verify_transactions.py"
+        ) in content
 
     def test_is_multi_stage(self):
         content = DOCKERFILE_PATH.read_text(encoding="utf-8")

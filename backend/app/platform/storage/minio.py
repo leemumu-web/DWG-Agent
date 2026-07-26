@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+import re
+from collections.abc import Callable, Iterator
+from decimal import Decimal, InvalidOperation
 from itertools import islice
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import urlparse
+from urllib.request import urlopen
 
 from minio import Minio
 from minio.error import MinioException, S3Error
@@ -14,10 +17,56 @@ from app.platform.storage.base import (
     AbstractStorageBackend,
     ObjectInfo,
     ObjectPage,
+    StorageCapacity,
     StorageConfigurationError,
     StorageError,
     StorageObjectNotFound,
 )
+
+_METRICS_MAX_BYTES = 2 * 1024 * 1024
+_CAPACITY_METRIC_RE = re.compile(
+    r"^(minio_cluster_capacity_raw_(?:total|free)_bytes)(?:\{[^}]*\})?\s+(\S+)(?:\s+\d+)?$"
+)
+
+
+def _load_metrics(url: str) -> str:
+    with urlopen(url, timeout=3) as response:  # noqa: S310 - deployment-controlled URL
+        payload = response.read(_METRICS_MAX_BYTES + 1)
+    if len(payload) > _METRICS_MAX_BYTES:
+        raise ValueError("MinIO metrics response is too large.")
+    return payload.decode("utf-8")
+
+
+def _parse_capacity_metrics(payload: str) -> tuple[int, int]:
+    values: dict[str, Decimal] = {
+        "minio_cluster_capacity_raw_total_bytes": Decimal(0),
+        "minio_cluster_capacity_raw_free_bytes": Decimal(0),
+    }
+    counts = {name: 0 for name in values}
+    for raw_line in payload.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _CAPACITY_METRIC_RE.fullmatch(line)
+        if match is None:
+            continue
+        name, raw_value = match.groups()
+        try:
+            value = Decimal(raw_value)
+        except InvalidOperation as exc:
+            raise ValueError("MinIO capacity metric is not numeric.") from exc
+        if not value.is_finite() or value < 0 or value != value.to_integral_value():
+            raise ValueError("MinIO capacity metric must be a non-negative byte count.")
+        values[name] += value
+        counts[name] += 1
+
+    if any(count == 0 for count in counts.values()):
+        raise ValueError("MinIO capacity metrics are incomplete.")
+    total = int(values["minio_cluster_capacity_raw_total_bytes"])
+    free = int(values["minio_cluster_capacity_raw_free_bytes"])
+    if total <= 0 or free > total:
+        raise ValueError("MinIO capacity metrics are inconsistent.")
+    return total, free
 
 
 def _parse_minio_endpoint(endpoint: str) -> tuple[str, bool]:
@@ -39,6 +88,10 @@ class MinioStorage(AbstractStorageBackend):
         access_key: str,
         secret_key: str,
         client: Minio | None = None,
+        metrics_url: str | None = None,
+        metrics_loader: Callable[[str], str] | None = None,
+        warning_percent: int = 80,
+        critical_percent: int = 90,
     ):
         if client is None and (not access_key or not secret_key):
             raise StorageConfigurationError(
@@ -51,12 +104,37 @@ class MinioStorage(AbstractStorageBackend):
             secret_key=secret_key,
             secure=secure,
         )
+        self._metrics_url = metrics_url
+        self._metrics_loader = metrics_loader or _load_metrics
+        self.warning_percent = warning_percent
+        self.critical_percent = critical_percent
 
     def check_health(self) -> None:
         try:
             self._client.list_buckets()
         except (MinioException, HTTPError, OSError) as exc:
             raise StorageError("MinIO is unavailable.") from exc
+
+    def capacity(self) -> StorageCapacity:
+        if not self._metrics_url:
+            return StorageCapacity.unknown("capacity_metrics_not_configured")
+        try:
+            payload = self._metrics_loader(self._metrics_url)
+        except (OSError, TimeoutError):
+            return StorageCapacity.unknown("capacity_metrics_unavailable")
+        except (UnicodeError, ValueError):
+            return StorageCapacity.unknown("capacity_metrics_invalid")
+        try:
+            total, free = _parse_capacity_metrics(payload)
+            return StorageCapacity.from_values(
+                total_bytes=total,
+                used_bytes=total - free,
+                free_bytes=free,
+                warning_percent=self.warning_percent,
+                critical_percent=self.critical_percent,
+            )
+        except (UnicodeError, ValueError):
+            return StorageCapacity.unknown("capacity_metrics_invalid")
 
     def _ensure_bucket(self, bucket: str) -> None:
         try:

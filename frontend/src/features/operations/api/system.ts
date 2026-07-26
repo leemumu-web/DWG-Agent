@@ -32,10 +32,14 @@ export interface InfrastructureOverview {
   };
   catalog: { available_files: number; tracked_bytes: number; extensions: Record<string, number> };
   capacity: {
-    status: 'ok' | 'error' | 'unknown';
+    status: 'ok' | 'warning' | 'critical' | 'unknown';
+    backend: string;
     disk_total_bytes: number | null;
     disk_used_bytes: number | null;
     disk_free_bytes: number | null;
+    used_percent: number | null;
+    reason: string | null;
+    checked_at: string;
   };
   recovery: { consistency_rule: string; automated_backup: boolean };
 }
