@@ -16,6 +16,8 @@ RENDERER = REPO_ROOT / "scripts/release/render_server_compose.py"
 RELEASE_SCRIPT = REPO_ROOT / "scripts/release.sh"
 SERVER_SCRIPT = REPO_ROOT / "scripts/release/server-deploy.sh"
 ARCHIVE_VERIFIER = REPO_ROOT / "scripts/release/verify_image_archive.py"
+LIVE_REMNANT_VERIFIER = REPO_ROOT / "scripts/release/verify_live_remnant.py"
+ODA_SMOKE_FIXTURE = REPO_ROOT / "scripts/release/fixtures/oda_runtime_smoke.dxf"
 
 
 def _write_legacy_image_archive(
@@ -142,6 +144,19 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "dwg_converter, dxf_converter" in release
     assert "check_dwg_environment().ok" in release
     assert "check_dxf_environment().ok" in release
+    assert r'(\"config\", \"handbook\", \"material_routing\", \"pipeline\", \"main\")' in release
+    assert "release_verify_oda_roundtrip" in release
+    assert "scripts/release/fixtures/oda_runtime_smoke.dxf" in release
+    assert "APPIMAGE runtime failed DWG to DXF" in release
+    assert "APPIMAGE runtime failed DXF to DWG" in release
+    assert "--tmpfs /tmp:rw,noexec,nosuid,size=256m" in release
+    assert "type=volume,destination=/app/var" in release
+    assert "TMPDIR=/app/var/appimage-tmp" in release
+    assert "--tmpfs /home/appuser:rw,nosuid,size=128m,uid=1000,gid=1000,mode=0700" in release
+    assert 'python -m dxf2excel --help | grep -q "extract"' in release
+    assert 'steel-dxf-classify --version | grep -q "steel-dxf-classifier"' in release
+    assert "steel-dxf-split --help" in release
+    assert "remnant-drawing-read --help" in release
     assert "material_routing" in release
     assert "remnant_drawing_reader" in release
     assert "verify_image_archive.py" in release
@@ -158,6 +173,40 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "docker image inspect" in server
     assert "--no-build" in server
     assert "CHANGE_ME_" in server
+    assert "verify_live_remnant.py" in server
+    assert "oda_runtime_smoke.dxf" in server
+
+
+def test_oda_release_smoke_fixture_is_portable_and_nonempty():
+    payload = ODA_SMOKE_FIXTURE.read_bytes()
+
+    assert len(payload) > 1024
+    assert b"$ACADVER" in payload
+    assert payload.rstrip().endswith(b"EOF")
+
+
+def test_live_remnant_verifier_is_explicit_and_self_cleaning():
+    source = LIVE_REMNANT_VERIFIER.read_text(encoding="utf-8")
+
+    assert "--fixture" in source
+    assert "save_bytes_as_file" in source
+    assert "run_parse_item" in source
+    assert "confirm_import_items" in source
+    assert "find_available_remnants" in source
+    assert "remnant_file_access_decision" in source
+    assert "stat_object" in source
+    assert "iter_file" in source
+    assert "cleanup" in source
+    assert "delete_object" in source
+
+    result = subprocess.run(
+        [sys.executable, str(LIVE_REMNANT_VERIFIER), "--help"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "真实 MySQL/MinIO" in result.stdout
 
 
 def test_protected_runtime_and_context_exclude_business_source_and_samples():
@@ -178,6 +227,19 @@ def test_protected_runtime_and_context_exclude_business_source_and_samples():
     assert "Stages/*/data/" in dockerignore
     assert "Stages/*/tests/" in dockerignore
     assert "Stages/dxf2excel/convert/" in dockerignore
+    assert "Stages/dxf2dwg/convert/" in dockerignore
+    assert "*.pdf" in dockerignore
+    assert "-name '*.egg-info'" in dockerfile
+    assert "/app/Stages/dwg2dxf/tools" in dockerfile
+    assert (
+        "COPY scripts/release/verify_live_remnant.py "
+        "/app/scripts/release/verify_live_remnant.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/release/fixtures/oda_runtime_smoke.dxf "
+        "/app/scripts/release/fixtures/oda_runtime_smoke.dxf"
+    ) in dockerfile
+    assert "-name 'Makefile'" in dockerfile
     assert compose["x-app-image"]["build"]["target"] == "protected"
     assert compose["x-app-service"]["read_only"] is True
     assert compose["x-app-service"]["cap_drop"] == ["ALL"]

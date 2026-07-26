@@ -98,6 +98,8 @@ COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh
 COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh
 COPY scripts/lib/common.sh /app/scripts/lib/common.sh
 COPY scripts/storage/verify_transactions.py /app/scripts/storage/verify_transactions.py
+COPY scripts/release/verify_live_remnant.py /app/scripts/release/verify_live_remnant.py
+COPY scripts/release/fixtures/oda_runtime_smoke.dxf /app/scripts/release/fixtures/oda_runtime_smoke.dxf
 
 # ODA File Converter 二进制（85 MB AppImage）—— worker-dxf / worker-agent 转换链路用。
 # backend-api / worker-report 不调用，但共享镜像，统一内置以简化部署。
@@ -157,9 +159,14 @@ RUN python -m compileall \
         -type d \( -name tests -o -name test -o -name samples -o -name data \
         -o -name output -o -name logs -o -name __pycache__ -o -name .pytest_cache \
         -o -name .ruff_cache \) -prune -exec rm -rf -- {} + && \
+    find /app/Stages \
+        -type d -name '*.egg-info' -prune -exec rm -rf -- {} + && \
+    rm -rf -- /app/Stages/dwg2dxf/tools /app/Stages/dxf2dwg/convert && \
     find /app/app /app/migrations /app/Stages \
         -type f \( -name '*.pyi' -o -name 'pyproject.toml' -o -name 'uv.lock' \
-        -o -name '*.md' -o -name '.gitignore' \) -delete && \
+        -o -name '*.md' -o -name '*.pdf' -o -name '.gitignore' \
+        -o -name '.gitattributes' -o -name '.gitkeep' -o -name '.python-version' \
+        -o -name 'Makefile' -o -name '*.ps1' -o -name '*.sh' \) -delete && \
     find /app/app /app/migrations /app/Stages \
         -type d -name __pycache__ -prune -exec rm -rf -- {} +
 

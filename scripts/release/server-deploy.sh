@@ -128,6 +128,10 @@ server_smoke() {
     curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
     curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
     server_info "gateway, MySQL and MinIO readiness passed"
+    server_compose "$target" exec -T backend-api \
+        python /app/scripts/release/verify_live_remnant.py \
+        --fixture /app/scripts/release/fixtures/oda_runtime_smoke.dxf
+    server_info "protected remnant MySQL/MinIO round-trip passed"
 }
 
 server_down() {

@@ -16,8 +16,7 @@ import pandas as pd
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from .config import ALL_FIELD_KEYS, DrawingType
-from .models import ExtractedRow, TableResult, WarningInfo
+from .models import TableResult, WarningInfo
 
 # Styling constants
 HEADER_FILL = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")

@@ -19,7 +19,7 @@ from .decoder import decode_m5
 
 
 def normalize_text(raw: str) -> str:
-    """Full text normalization pipeline.
+    r"""Full text normalization pipeline.
 
     1. \M+5 GBK decode
     2. Mojibake repair (Latin-1 misinterpreted as UTF-8 bytes)

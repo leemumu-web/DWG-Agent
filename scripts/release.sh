@@ -31,7 +31,10 @@ release_env_value() {
 
 release_verify_protected_image() {
     local image=$1
-    docker run --rm --network none --read-only --entrypoint sh "$image" -c '
+    docker run --rm --network none --read-only \
+        --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+        --tmpfs /home/appuser:rw,nosuid,size=128m,uid=1000,gid=1000,mode=0700 \
+        --entrypoint sh "$image" -c '
         set -eu
         source_count=$(find /app/app /app/Stages -type f -name "*.py" | wc -l)
         if [ "$source_count" -ne 0 ]; then
@@ -63,14 +66,70 @@ from dxf_converter.check_env import check_environment as check_dxf_environment
 from steel_dxf_split.box.release import load_verified_box_release_attestation
 excel_root = get_excel_final_stage_root()
 sys.path.insert(0, str(excel_root))
-for module_name in ('config', 'handbook', 'material_routing', 'pipeline', 'main'):
+for module_name in (\"config\", \"handbook\", \"material_routing\", \"pipeline\", \"main\"):
     importlib.import_module(module_name)
 assert check_dwg_environment().ok
 assert check_dxf_environment().ok
 load_verified_box_release_attestation()
 "
         test "$(alembic heads | wc -l)" = "1"
+        python -m dxf2excel --help | grep -q "extract"
+        steel-dxf-classify --version | grep -q "steel-dxf-classifier"
+        steel-dxf-split --help >/dev/null
+        remnant-drawing-read --help >/dev/null
     '
+}
+
+release_verify_oda_roundtrip() {
+    local image=$1
+    local sample="$PROJECT_ROOT/scripts/release/fixtures/oda_runtime_smoke.dxf"
+    [[ -f "$sample" ]] || release_die "ODA release smoke sample is missing: $sample"
+
+    # Match the hardened production workers: /tmp stays noexec while the
+    # AppImage extracts onto the executable /app/var volume selected by TMPDIR.
+    # The anonymous volume is removed automatically with the container.
+    docker run --rm --network none --read-only \
+        --tmpfs /tmp:rw,noexec,nosuid,size=256m \
+        --tmpfs /work:rw,nosuid,size=64m,uid=1000,gid=1000,mode=0755 \
+        --tmpfs /home/appuser:rw,nosuid,size=128m,uid=1000,gid=1000,mode=0700 \
+        --mount type=volume,destination=/app/var \
+        --mount "type=bind,source=$sample,destination=/input/source.dxf,readonly" \
+        --env TMPDIR=/app/var/appimage-tmp \
+        --entrypoint python "$image" -c '
+import os
+from pathlib import Path
+
+from dxf_converter.service import convert_file as convert_dxf_to_dwg
+from dwg_converter.service import convert_file as convert_dwg_to_dxf
+
+Path(os.environ["TMPDIR"]).mkdir(parents=True, exist_ok=True)
+source = Path("/input/source.dxf")
+dwg_result = convert_dxf_to_dwg(
+    source,
+    Path("/work/dwg"),
+    version="ACAD2018",
+    audit=True,
+    timeout=120,
+    retries=0,
+)
+if not dwg_result.success or not dwg_result.target.is_file():
+    raise SystemExit(f"APPIMAGE runtime failed DXF to DWG: {dwg_result.error}")
+if dwg_result.target.stat().st_size < 1024:
+    raise SystemExit("APPIMAGE runtime produced an empty DWG")
+
+dxf_result = convert_dwg_to_dxf(
+    dwg_result.target,
+    Path("/work/dxf"),
+    version="ACAD2018",
+    audit=True,
+    timeout=120,
+    retries=0,
+)
+if not dxf_result.success or not dxf_result.target.is_file():
+    raise SystemExit(f"APPIMAGE runtime failed DWG to DXF: {dxf_result.error}")
+if dxf_result.target.stat().st_size < 1024:
+    raise SystemExit("APPIMAGE runtime produced an empty DXF")
+'
 }
 
 release_bundle() {
@@ -126,6 +185,7 @@ release_bundle() {
     docker image tag "$backend_source" "$backend_release"
     docker image tag "$frontend_source" "$frontend_release"
     release_verify_protected_image "$backend_release"
+    release_verify_oda_roundtrip "$backend_release"
 
     RELEASE_TMP=$(mktemp -d /tmp/dwg-agent-release.XXXXXX)
     trap release_cleanup EXIT

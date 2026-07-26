@@ -18,7 +18,7 @@ from loguru import logger
 from .assigner import assign_texts_to_cells, merge_cell_texts
 from .candidate import detect_drawing_type, identify_table_blocks
 from .classifier import classify_rows
-from .config import ALL_FIELD_KEYS, COLUMN_KEYS_9, RowType, WarnCode
+from .config import COLUMN_KEYS_9, RowType, WarnCode
 from .decoder import decode_all_texts
 from .excel_writer import write_excel
 from .grid import build_cells, compute_grid_score, estimate_data_columns, recover_grid
@@ -174,7 +174,6 @@ def process_file(
 
     for gr in grid_rows:
         cell_texts = [c.merged_text for c in gr.cells]
-        row_type_str = gr.row_type.value
 
         # Track component_no from component_summary rows
         if gr.row_type == RowType.COMPONENT_SUMMARY:

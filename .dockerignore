@@ -34,6 +34,7 @@ Stages/*/logs/
 Stages/*/convert/output/
 Stages/*/convert/tmp/
 Stages/dwg2dxf/convert/
+Stages/dxf2dwg/convert/
 Stages/dxf2excel/convert/
 Stages/dxf2excel/original_dxf/
 Stages/dxf2excel/output/
@@ -81,6 +82,7 @@ Thumbs.db
 
 # ── 文档 / 报告（镜像不需要；但保留 backend/README.md —— Dockerfile 显式 COPY）
 *.md
+*.pdf
 !backend/README.md
 !Stages/steel_dxf_split_v1.5.2/README.md
 docs/

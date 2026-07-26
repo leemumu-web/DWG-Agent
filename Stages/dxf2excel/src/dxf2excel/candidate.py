@@ -21,7 +21,6 @@ from .config import (
     SCORE_TEXT_MIN,
     X_CLUSTER_TOLERANCE_FLOOR,
     Y_CLUSTER_TOLERANCE_FLOOR,
-    WarnCode,
 )
 from .models import LineEntity, TextEntity
 
