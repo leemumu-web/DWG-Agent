@@ -245,7 +245,6 @@ services:
       MINIO_ACCESS_KEY: ""
       MINIO_SECRET_KEY: ""
       MINIO_ROOT_PASSWORD: ""
-      MYSQL_UNIX_PORT: /var/run/mysqld/mysqld.sock
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -259,7 +258,7 @@ services:
       - ./infra/database/mysql/init.sql:/docker-entrypoint-initdb.d/01-platform.sql:ro
       - ./infra/database/mysql/hardware_handbook.sql:/docker-entrypoint-initdb.d/02-hardware-handbook.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "env -u MYSQL_HOST -u MYSQL_PORT mysql -S \"$${MYSQL_UNIX_PORT}\" -u root -p\"$${MYSQL_ROOT_PASSWORD}\" -Nse 'SELECT 1'"]
+      test: ["CMD-SHELL", "env -u MYSQL_HOST -u MYSQL_PORT mysql --protocol=TCP -h 127.0.0.1 -P 3306 -u root -p\"$${MYSQL_ROOT_PASSWORD}\" -Nse 'SELECT 1'"]
       interval: 10s
       timeout: 5s
       retries: 12

@@ -376,7 +376,9 @@ class TestMysqlService:
         test_cmd = " ".join(hc["test"])
         assert "mysqladmin" not in test_cmd
         assert "env -u MYSQL_HOST -u MYSQL_PORT mysql" in test_cmd
-        assert "MYSQL_UNIX_PORT" in test_cmd
+        assert "--protocol=TCP" in test_cmd
+        assert "-h 127.0.0.1" in test_cmd
+        assert "MYSQL_UNIX_PORT" not in test_cmd
         assert "SELECT 1" in test_cmd
         assert "$${MYSQL_ROOT_PASSWORD}" in test_cmd
         assert "${MYSQL_ROOT_PASSWORD:-" not in test_cmd
