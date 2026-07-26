@@ -838,6 +838,44 @@ def test_stacked_studs_with_blank_spec_and_length_remain_blank_without_report_no
         values.close()
 
 
+def test_multi_sheet_workbook_processes_first_sheet_and_discards_ignored_sheets(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "multi-sheet.xlsx"
+    output = tmp_path / "multi-sheet-output.xlsx"
+    workbook = Workbook()
+    first = workbook.active
+    first.title = "导出"
+    first.append(["构件编号", "零件号", "规格", "长度(mm)", "材质", "数量"])
+    first.append(["C1", None, "H100", 1000, "Q355B", 1])
+    first.append([None, "P1", "PL10*100", 100, "Q355B", 2])
+    ignored = workbook.create_sheet("历史part")
+    ignored["A1"] = "不得进入规范结果"
+    workbook.save(source)
+    workbook.close()
+
+    outcome = run_auto_pipeline(source, output, handbook_repository=FakeHandbook())
+
+    assert outcome.quality_status == "warning"
+    result = load_workbook(output, data_only=True, read_only=True)
+    try:
+        assert result.sheetnames == [
+            "原表",
+            "清洗表",
+            "构件表",
+            "整理表",
+            "part",
+            "处理报告",
+        ]
+        assert result["原表"]["A1"].value == "构件编号"
+        report = list(result["处理报告"].iter_rows(min_row=2, values_only=True))
+        multi_sheet_rows = [row for row in report if row[1] == "多工作表输入"]
+        assert len(multi_sheet_rows) == 1
+        assert "历史part" in multi_sheet_rows[0][6]
+    finally:
+        result.close()
+
+
 def test_conflicting_component_identity_blocks_flat_steel_from_part(
     tmp_path: Path,
 ) -> None:

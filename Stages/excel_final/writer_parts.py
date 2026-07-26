@@ -692,11 +692,10 @@ def write_canonical_workbook(
         shutil.copy2(source, temp_path)
         workbook = load_workbook(temp_path)
         try:
-            if len(workbook.worksheets) != 1:
-                raise ValueError(
-                    f"规范输入必须恰好包含 1 张原表，实际为 {len(workbook.worksheets)} 张"
-                )
-            workbook.worksheets[0].title = "原表"
+            source_sheet = workbook.worksheets[0]
+            for ignored_sheet in workbook.worksheets[1:]:
+                workbook.remove(ignored_sheet)
+            source_sheet.title = "原表"
             clean_sheet = workbook.create_sheet("清洗表")
             component_sheet = workbook.create_sheet("构件表")
             organized_sheet = workbook.create_sheet("整理表")
