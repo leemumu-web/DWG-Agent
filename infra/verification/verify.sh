@@ -233,7 +233,7 @@ for name in workers.keys() - {"worker-report"}:
         errors.append(f"{name} 缺少 workers profile")
 
 mysql = svcs.get("mysql", {})
-if "mysql/community-server:8.4" not in mysql.get("image", ""):
+if "public.ecr.aws/docker/library/mysql@sha256:" not in mysql.get("image", ""):
     errors.append("mysql 镜像不匹配")
 mysql_hc = healthcheck_cmd(mysql)
 if "$${MYSQL_ROOT_PASSWORD}" not in mysql_hc:
