@@ -173,17 +173,32 @@ release_bundle() {
             --env-file "$PROJECT_ROOT/.env.docker" build backend-api nginx
     fi
 
-    local backend_source frontend_source backend_release frontend_release
+    local backend_source frontend_source mysql_source minio_source
+    local backend_release frontend_release mysql_release minio_release
     backend_source=$(release_env_value DWG_AGENT_IMAGE)
     frontend_source=$(release_env_value DWG_AGENT_FRONTEND_IMAGE)
     backend_source=${backend_source:-dwg-agent-backend:local}
     frontend_source=${frontend_source:-dwg-agent-frontend:local}
+    local -a compose_cmd=(docker compose --project-directory "$PROJECT_ROOT" \
+        --env-file "$PROJECT_ROOT/.env.docker")
+    mysql_source=$("${compose_cmd[@]}" config --format json \
+        | "$PROJECT_ROOT/backend/.venv/bin/python" -c \
+            'import json, sys; print(json.load(sys.stdin)["services"]["mysql"]["image"])')
+    minio_source=$("${compose_cmd[@]}" config --format json \
+        | "$PROJECT_ROOT/backend/.venv/bin/python" -c \
+            'import json, sys; print(json.load(sys.stdin)["services"]["minio"]["image"])')
     backend_release="dwg-agent-backend:${version}"
     frontend_release="dwg-agent-frontend:${version}"
+    mysql_release="dwg-agent-mysql:${version}"
+    minio_release="dwg-agent-minio:${version}"
     docker image inspect "$backend_source" >/dev/null
     docker image inspect "$frontend_source" >/dev/null
+    docker image inspect "$mysql_source" >/dev/null
+    docker image inspect "$minio_source" >/dev/null
     docker image tag "$backend_source" "$backend_release"
     docker image tag "$frontend_source" "$frontend_release"
+    docker image tag "$mysql_source" "$mysql_release"
+    docker image tag "$minio_source" "$minio_release"
     release_verify_protected_image "$backend_release"
     release_verify_oda_roundtrip "$backend_release"
 
@@ -197,7 +212,9 @@ release_bundle() {
         --source "$PROJECT_ROOT/compose.yaml" \
         --output "$payload/compose.server.yaml" \
         --backend-image "$backend_release" \
-        --frontend-image "$frontend_release"
+        --frontend-image "$frontend_release" \
+        --mysql-image "$mysql_release" \
+        --minio-image "$minio_release"
     install -m 0644 "$PROJECT_ROOT/.env.docker.example" "$payload/.env.docker.example"
     install -m 0644 "$PROJECT_ROOT/infra/database/mysql/init.sql" \
         "$payload/infra/database/mysql/init.sql"
@@ -206,18 +223,12 @@ release_bundle() {
     install -m 0755 "$PROJECT_ROOT/scripts/release/server-deploy.sh" \
         "$payload/scripts/server-deploy.sh"
 
-    local -a compose_cmd=(docker compose --project-directory "$PROJECT_ROOT" \
-        --env-file "$PROJECT_ROOT/.env.docker")
-    local -a configured_images images
-    mapfile -t configured_images < <("${compose_cmd[@]}" --profile workers config --images | sort -u)
-    images=("$backend_release" "$frontend_release")
-    local configured
-    for configured in "${configured_images[@]}"; do
-        case "$configured" in
-            "$backend_source"|"$frontend_source") ;;
-            *) images+=("$configured") ;;
-        esac
-    done
+    local -a images=(
+        "$backend_release"
+        "$frontend_release"
+        "$mysql_release"
+        "$minio_release"
+    )
 
     : > "$payload/images.manifest"
     local image_ref image_id

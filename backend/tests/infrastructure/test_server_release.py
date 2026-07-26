@@ -109,6 +109,10 @@ def test_server_compose_renderer_freezes_complete_no_build_stack(tmp_path: Path)
             "dwg-agent-backend:release-test",
             "--frontend-image",
             "dwg-agent-frontend:release-test",
+            "--mysql-image",
+            "dwg-agent-mysql:release-test",
+            "--minio-image",
+            "dwg-agent-minio:release-test",
         ],
         text=True,
         capture_output=True,
@@ -126,6 +130,8 @@ def test_server_compose_renderer_freezes_complete_no_build_stack(tmp_path: Path)
     assert services["backend-api"]["image"] == "dwg-agent-backend:release-test"
     assert services["worker-dxf-split"]["image"] == "dwg-agent-backend:release-test"
     assert services["nginx"]["image"] == "dwg-agent-frontend:release-test"
+    assert services["mysql"]["image"] == "dwg-agent-mysql:release-test"
+    assert services["minio"]["image"] == "dwg-agent-minio:release-test"
 
 
 def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
@@ -136,6 +142,10 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "--recipient" in release
     assert "gpg --batch --yes --encrypt" in release
     assert "docker image save" in release
+    assert 'mysql_release="dwg-agent-mysql:${version}"' in release
+    assert 'minio_release="dwg-agent-minio:${version}"' in release
+    assert "--mysql-image" in release
+    assert "--minio-image" in release
     assert "render_server_compose.py" in release
     assert "images.manifest" in release
     assert "business Python source remains" in release

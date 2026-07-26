@@ -10,15 +10,14 @@ from typing import Any
 import yaml
 
 
-INFRASTRUCTURE_SERVICES = {"mysql", "minio"}
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--backend-image", required=True)
     parser.add_argument("--frontend-image", required=True)
+    parser.add_argument("--mysql-image", required=True)
+    parser.add_argument("--minio-image", required=True)
     return parser.parse_args()
 
 
@@ -28,6 +27,8 @@ def render(
     *,
     backend_image: str,
     frontend_image: str,
+    mysql_image: str,
+    minio_image: str,
 ) -> None:
     payload: dict[str, Any] = yaml.safe_load(source.read_text(encoding="utf-8"))
     services: dict[str, dict[str, Any]] = payload["services"]
@@ -38,7 +39,11 @@ def render(
         service["pull_policy"] = "never"
         if name == "nginx":
             service["image"] = frontend_image
-        elif name not in INFRASTRUCTURE_SERVICES:
+        elif name == "mysql":
+            service["image"] = mysql_image
+        elif name == "minio":
+            service["image"] = minio_image
+        else:
             service["image"] = backend_image
 
     server_payload = {
@@ -66,6 +71,8 @@ def main() -> int:
         args.output,
         backend_image=args.backend_image,
         frontend_image=args.frontend_image,
+        mysql_image=args.mysql_image,
+        minio_image=args.minio_image,
     )
     return 0
 
