@@ -312,6 +312,75 @@ def mark_classification_failed(db: Session, job_id: int, attempt: int, exc: Exce
     )
 
 
+def reconcile_classification_run_for_terminal_job(
+    db: Session,
+    *,
+    job_id: int,
+    attempt: int,
+) -> bool:
+    """Close a classification projection after its exact Job attempt is terminal."""
+    run = db.scalar(
+        select(DxfClassificationRun).where(
+            DxfClassificationRun.job_id == job_id,
+            DxfClassificationRun.job_attempt == attempt,
+        )
+    )
+    if run is None or run.status != "running":
+        return False
+    job = db.get(Job, job_id)
+    active_statuses = {
+        "pending",
+        "queued",
+        "running",
+        "validating",
+        "waiting_cad_worker",
+    }
+    if job is not None and job.attempt == attempt and job.status in active_statuses:
+        return False
+    run.status = "cancelled" if job is not None and job.status == "cancelled" else "failed"
+    run.error_code = (
+        "CANCELLED_BY_ADMIN"
+        if run.status == "cancelled"
+        else "DXF_CLASSIFICATION_ATTEMPT_INTERRUPTED"
+    )
+    run.error_message = (
+        "分类 attempt 已被取消。"
+        if run.status == "cancelled"
+        else "分类 attempt 已中断或由新的 attempt 取代。"
+    )
+    run.finished_at = datetime.now(UTC)
+    db.flush()
+    return True
+
+
+def reconcile_orphan_classification_runs(db: Session) -> int:
+    """Close every running classification projection whose Job is inactive."""
+    active_statuses = (
+        "pending",
+        "queued",
+        "running",
+        "validating",
+        "waiting_cad_worker",
+    )
+    candidates = db.execute(
+        select(DxfClassificationRun.job_id, DxfClassificationRun.job_attempt)
+        .join(Job, Job.id == DxfClassificationRun.job_id)
+        .where(
+            DxfClassificationRun.status == "running",
+            (Job.attempt != DxfClassificationRun.job_attempt)
+            | (Job.status.not_in(active_statuses)),
+        )
+    ).all()
+    return sum(
+        int(
+            reconcile_classification_run_for_terminal_job(
+                db, job_id=job_id, attempt=attempt
+            )
+        )
+        for job_id, attempt in candidates
+    )
+
+
 def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificationRun | None:
     return db.scalar(
         select(DxfClassificationRun)

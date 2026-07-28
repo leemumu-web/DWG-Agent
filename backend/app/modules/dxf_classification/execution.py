@@ -73,6 +73,7 @@ from app.platform.config.constants import (
     STEP_RUN_STEEL_DXF_CLASSIFIER,
     STEP_STAGE_CLASSIFIER_INPUT,
 )
+from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,21 @@ _CLASSIFICATION_ARTIFACT_TYPES = {
     "classification_report",
     "classification_manifest",
 }
+
+
+def classification_work_root() -> Path:
+    """Return and create the disk-backed root for classifier scratch data."""
+    root = settings.dxf_classification_work_root
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def classification_temporary_directory(*, job_id: int, attempt: int):
+    """Create an auto-cleaned per-attempt directory outside the small /tmp tmpfs."""
+    return tempfile.TemporaryDirectory(
+        dir=classification_work_root(),
+        prefix=f"dxf-classification-{job_id}-{attempt}-",
+    )
 
 
 def _add_step(
@@ -227,8 +243,8 @@ def run_dxf_classification(
             input_count=len(sources),
         )
 
-        with tempfile.TemporaryDirectory(
-            prefix=f"dxf-classification-{job.id}-{attempt}-"
+        with classification_temporary_directory(
+            job_id=job.id, attempt=attempt
         ) as raw_root:
             root = Path(raw_root)
             input_directory = root / f"{project_name}_dxf"

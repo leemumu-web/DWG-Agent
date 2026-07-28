@@ -11,7 +11,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+from tests.support.paths import REPO_ROOT as PROJECT_ROOT
+
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.production.resource_sampler import (  # noqa: E402

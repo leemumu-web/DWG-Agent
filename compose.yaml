@@ -187,6 +187,7 @@ services:
 
   worker-remnant-convert:
     <<: *worker
+    # Dedicated queue: -Q remnant_convert; bounded by REMNANT_CONVERT_WORKER_CONCURRENCY.
     command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "remnant_convert", "-n", "remnant-convert@%h", "--concurrency=${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}"]
     volumes:
       - app_var:/app/var
@@ -199,6 +200,7 @@ services:
 
   worker-remnant-parse:
     <<: *worker
+    # Dedicated queue: -Q remnant_parse; bounded by REMNANT_PARSE_WORKER_CONCURRENCY.
     command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "remnant_parse", "-n", "remnant-parse@%h", "--concurrency=${REMNANT_PARSE_WORKER_CONCURRENCY:-4}"]
     volumes:
       - app_var:/app/var

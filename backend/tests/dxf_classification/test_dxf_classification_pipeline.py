@@ -17,7 +17,10 @@ from app.main import app
 from app.modules.dxf_classification import execution as dxf_classification_service
 from app.modules.dxf_classification import interface as classification_interface
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
-from app.modules.dxf_classification.persistence import classification_request_id
+from app.modules.dxf_classification.persistence import (
+    classification_request_id,
+    reconcile_classification_run_for_terminal_job,
+)
 from app.modules.files.interface import (
     FileTransfer,
     StoredFile,
@@ -376,6 +379,59 @@ def test_classification_transfer_request_id_is_bounded_stable_and_path_sensitive
         attempt=1,
         relative_path=f"{long_path}.other",
     )
+
+
+def test_classification_scratch_uses_configured_persistent_work_root(
+    tmp_path: Path, monkeypatch
+):
+    work_root = tmp_path / "classification-work"
+    monkeypatch.setattr(
+        dxf_classification_service.settings,
+        "dxf_classification_work_root",
+        work_root,
+    )
+
+    with dxf_classification_service.classification_temporary_directory(
+        job_id=268, attempt=6
+    ) as raw_root:
+        scratch = Path(raw_root)
+        assert scratch.parent == work_root
+        assert scratch.is_dir()
+
+    assert not scratch.exists()
+
+
+def test_cancelled_job_closes_running_classification_projection(db, tmp_path: Path):
+    workflow_id, job_id, _ = _frozen_classification_job(db, tmp_path)
+    job = db.get(Job, job_id)
+    workflow = db.get(WorkflowRun, workflow_id)
+    project = db.get(Project, workflow.project_id)
+    assert job is not None and workflow is not None and project is not None
+    run = DxfClassificationRun(
+        workflow_run_id=workflow.id,
+        project_id=project.id,
+        job_id=job.id,
+        job_attempt=job.attempt,
+        status="running",
+        classifier_version="1.2.0",
+        project_name="test-workflow",
+        input_manifest_sha256="a" * 64,
+        input_count=1,
+    )
+    db.add(run)
+    db.commit()
+
+    job.status = "cancelled"
+    db.commit()
+
+    assert reconcile_classification_run_for_terminal_job(
+        db, job_id=job.id, attempt=job.attempt
+    )
+    db.commit()
+    db.refresh(run)
+    assert run.status == "cancelled"
+    assert run.error_code == "CANCELLED_BY_ADMIN"
+    assert run.finished_at is not None
 
 
 def test_classification_openapi_exposes_paginated_group_details():

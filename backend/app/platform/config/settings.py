@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # Frozen production DXF classification and routing
     dxf_classification_pipeline_enabled: bool = False
     dxf_classification_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
+    # Classification input copies and classifier staging can exceed the bounded
+    # container /tmp tmpfs; keep per-attempt scratch on the writable app_var volume.
+    dxf_classification_work_root: Path = (
+        _BACKEND_DIR / "var" / "dxf-classification-work"
+    )
 
     # Frozen classified DXF split processing
     dxf_split_pipeline_enabled: bool = False

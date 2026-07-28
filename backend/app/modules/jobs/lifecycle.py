@@ -268,6 +268,14 @@ def cancel_active_jobs_in_transaction(db: Session) -> ActiveJobCancellation:
             updated_at=now,
         )
     )
+    from app.modules.dxf_classification.interface import (
+        reconcile_dxf_classification_run_for_terminal_job,
+    )
+
+    for job_id in job_ids:
+        reconcile_dxf_classification_run_for_terminal_job(
+            db, job_id=job_id, attempt=db.get(Job, job_id).attempt
+        )
     return ActiveJobCancellation(
         job_ids=job_ids,
         cancelled_count=result.rowcount or 0,
@@ -324,6 +332,13 @@ def cancel_job(db: Session, job: Job) -> Job:
             f"Job cannot be cancelled because it is already {current_status}.",
         )
     cleanup_excel_processing_rows(db, (job.id,))
+    from app.modules.dxf_classification.interface import (
+        reconcile_dxf_classification_run_for_terminal_job,
+    )
+
+    reconcile_dxf_classification_run_for_terminal_job(
+        db, job_id=job.id, attempt=job.attempt
+    )
     db.expire(job)
     return db.get(Job, job.id, populate_existing=True) or job
 

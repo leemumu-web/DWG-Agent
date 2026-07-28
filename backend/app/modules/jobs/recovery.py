@@ -99,11 +99,19 @@ def reconcile_stale_running_jobs(
             updated = result.rowcount or 0
             if updated:
                 cleanup_excel_processing_rows(db, (job_id,))
+                from app.modules.dxf_classification.interface import (
+                    reconcile_dxf_classification_run_for_terminal_job,
+                )
                 from app.modules.dxf_splitting.interface import (
                     reconcile_dxf_split_run_for_terminal_job,
                 )
 
                 reconcile_dxf_split_run_for_terminal_job(
+                    db,
+                    job_id=job_id,
+                    attempt=attempt,
+                )
+                reconcile_dxf_classification_run_for_terminal_job(
                     db,
                     job_id=job_id,
                     attempt=attempt,
@@ -118,6 +126,16 @@ def reconcile_stale_running_jobs(
             logger.warning(
                 "Marked %s orphan running DXF split run(s) as failed",
                 orphan_splits,
+            )
+        from app.modules.dxf_classification.interface import (
+            reconcile_orphan_dxf_classification_runs,
+        )
+
+        orphan_classifications = reconcile_orphan_dxf_classification_runs(db)
+        if orphan_classifications:
+            logger.warning(
+                "Marked %s orphan running DXF classification run(s) as terminal",
+                orphan_classifications,
             )
         db.commit()
     return recovered

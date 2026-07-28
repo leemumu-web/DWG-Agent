@@ -56,6 +56,26 @@ def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
     return str(classify_steel_dxf_task.delay(job_id, attempt).id)
 
 
+def reconcile_dxf_classification_run_for_terminal_job(
+    db, *, job_id: int, attempt: int
+) -> bool:
+    from app.modules.dxf_classification.persistence import (
+        reconcile_classification_run_for_terminal_job,
+    )
+
+    return reconcile_classification_run_for_terminal_job(
+        db, job_id=job_id, attempt=attempt
+    )
+
+
+def reconcile_orphan_dxf_classification_runs(db) -> int:
+    from app.modules.dxf_classification.persistence import (
+        reconcile_orphan_classification_runs,
+    )
+
+    return reconcile_orphan_classification_runs(db)
+
+
 __all__ = [
     "CLASSIFIER_VERSION",
     "CLI_SCHEMA",
