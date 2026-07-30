@@ -520,6 +520,175 @@ def test_cut_length_formula_basis_uses_p_for_totals_and_theoretical_weights(
         values.close()
 
 
+def test_part_formula_matching_keeps_ordered_stage2_setbacks_isolated(
+    tmp_path: Path,
+) -> None:
+    writer = _writer()
+    source = tmp_path / "source.xlsx"
+    source_part, component_rows = _source(source)
+    output = tmp_path / "output.xlsx"
+    organized = [
+        _organized_row(**{
+            "类型": "BH翼",
+            "导入零件号": "p1-BH翼",
+            "规格": Decimal("16"),
+            "宽度": Decimal("300"),
+            "左进(mm)": Decimal("100"),
+            "右进(mm)": Decimal("200"),
+            "下料长度(mm)": Decimal("700"),
+            "总长(mm)": Decimal("4200"),
+            "重量核验": "通过",
+        }),
+        _organized_row(**{
+            "类型": "BH翼",
+            "导入零件号": "p1-BH翼",
+            "规格": Decimal("16"),
+            "宽度": Decimal("300"),
+            "左进(mm)": Decimal("200"),
+            "右进(mm)": Decimal("100"),
+            "下料长度(mm)": Decimal("700"),
+            "总长(mm)": Decimal("4200"),
+            "重量核验": "通过",
+        }),
+    ]
+    parts = (
+        PartRow(
+            "C1", "p1-BH翼", Decimal("16"), Decimal("300"),
+            Decimal("700"), "Q355B", Decimal("6"), "", "", "BH翼",
+            model_length=Decimal("1000"),
+            left_setback=Decimal("100"),
+            right_setback=Decimal("200"),
+        ),
+        PartRow(
+            "C1", "p1-BH翼", Decimal("16"), Decimal("300"),
+            Decimal("700"), "Q355B", Decimal("6"), "", "", "BH翼",
+            model_length=Decimal("1000"),
+            left_setback=Decimal("200"),
+            right_setback=Decimal("100"),
+        ),
+    )
+
+    writer.write_canonical_workbook(
+        source,
+        output,
+        cleaned_parts=(source_part,),
+        component_rows=component_rows,
+        organized_rows=organized,
+        part_rows=parts,
+        issues=(),
+        formula_length_basis=writer.FormulaLengthBasis.CUT_LENGTH,
+    )
+
+    formulas = load_workbook(output, data_only=False, read_only=True)
+    try:
+        assert formulas["part"]["G2"].value == "=SUM('整理表'!T2)"
+        assert formulas["part"]["G3"].value == "=SUM('整理表'!T3)"
+    finally:
+        formulas.close()
+
+
+def test_stage2_missing_and_manual_rows_keep_auditable_formula_semantics(
+    tmp_path: Path,
+) -> None:
+    writer = _writer()
+    source = tmp_path / "source.xlsx"
+    source_part, component_rows = _source(source)
+    output = tmp_path / "output.xlsx"
+    missing = _organized_row(**{
+        "类型": "BH腹",
+        "导入零件号": "p-missing-BH腹",
+        "规格": Decimal("10"),
+        "宽度": Decimal("468"),
+        "左进(mm)": None,
+        "右进(mm)": None,
+        "下料长度(mm)": Decimal("1000"),
+        "总长(mm)": Decimal("6000"),
+        "比重": Decimal("7.85"),
+        "比重来源": "plate_constant:7.85",
+        "理单重(kg)": Decimal("36.738"),
+        "理总重(kg)": Decimal("220.428"),
+        "重量核验": "警告",
+        "_stage2_status": "missing",
+    })
+    manual = _organized_row(**{
+        "类型": "BH翼",
+        "导入零件号": "p-manual-BH翼",
+        "规格": Decimal("16"),
+        "宽度": Decimal("300"),
+        "左进(mm)": None,
+        "右进(mm)": None,
+        "下料长度(mm)": None,
+        "总长(mm)": None,
+        "比重": Decimal("7.85"),
+        "比重来源": "plate_constant:7.85",
+        "理单重(kg)": None,
+        "理总重(kg)": None,
+        "重量核验": "警告",
+        "_stage2_status": "manual",
+    })
+    parts = (
+        PartRow(
+            "C1", "p-missing-BH腹", Decimal("10"), Decimal("468"),
+            Decimal("1000"), "Q355B", Decimal("6"), "", "", "BH腹",
+        ),
+        PartRow(
+            "C1", "p-manual-BH翼", Decimal("16"), Decimal("300"),
+            None, "Q355B", Decimal("6"), "", "", "BH翼",
+            model_length=Decimal("1000"),
+        ),
+    )
+
+    writer.write_canonical_workbook(
+        source,
+        output,
+        cleaned_parts=(source_part,),
+        component_rows=component_rows,
+        organized_rows=(missing, manual),
+        part_rows=parts,
+        issues=(),
+        formula_length_basis=writer.FormulaLengthBasis.CUT_LENGTH,
+    )
+
+    formulas = load_workbook(output, data_only=False, read_only=True)
+    values = load_workbook(output, data_only=True, read_only=True)
+    try:
+        assert formulas["整理表"]["P2"].value == "=M2"
+        assert values["整理表"]["P2"].value == 1000
+        assert formulas["整理表"]["U2"].value == "=P2*T2"
+        for coordinate in ("N2", "O2", "P2"):
+            assert formulas["整理表"][coordinate].fill.fill_type == "solid"
+            assert formulas["整理表"][coordinate].font.color.rgb == "00FF0000"
+        assert formulas["整理表"]["P3"].value == (
+            '=IF(OR(N3="",O3=""),"",M3-N3-O3)'
+        )
+        assert formulas["整理表"]["U3"].value == '=IF(P3="","",P3*T3)'
+        assert formulas["整理表"]["W3"].value == (
+            '=IF(P3="","",ROUND(K3*L3*P3*V3/1000000,3))'
+        )
+        assert formulas["整理表"]["X3"].value == (
+            '=IF(P3="","",ROUND(K3*L3*P3*V3/1000000*T3,3))'
+        )
+        assert values["整理表"]["P3"].value is None
+        assert values["整理表"]["U3"].value is None
+        assert values["整理表"]["W3"].value is None
+        assert values["整理表"]["X3"].value is None
+        for coordinate in ("N3", "O3", "P3", "U3", "W3", "X3"):
+            assert formulas["整理表"][coordinate].fill.fill_type == "solid"
+            assert formulas["整理表"][coordinate].font.color.type == "rgb"
+            assert formulas["整理表"][coordinate].font.color.rgb == "00FF0000"
+        assert formulas["part"]["E3"].value == (
+            '=IF(\'整理表\'!P3="","",\'整理表\'!P3)'
+        )
+        assert values["part"]["E3"].value is None
+        assert formulas["part"]["E3"].fill.fill_type == "solid"
+        assert formulas["part"]["E3"].font.color.rgb == "00FF0000"
+        assert formulas["part"]["G3"].value == "=SUM('整理表'!T3)"
+        assert values["part"]["G3"].value == 6
+    finally:
+        formulas.close()
+        values.close()
+
+
 def test_canonical_writer_rejects_non_xlsx_output(tmp_path: Path) -> None:
     writer = _writer()
     source = tmp_path / "source.xlsx"

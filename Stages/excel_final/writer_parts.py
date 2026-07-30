@@ -232,7 +232,10 @@ def _theory_basis_formula(
     columns: Mapping[str, str],
     formula_length_basis: FormulaLengthBasis,
 ) -> str | None:
-    if item.get("理单重(kg)") in (None, ""):
+    if (
+        item.get("理单重(kg)") in (None, "")
+        and item.get("_stage2_status") != "manual"
+    ):
         return None
     length_header = (
         "下料长度(mm)"
@@ -286,6 +289,8 @@ def _apply_organized_formulas(
     )
     caches: dict[str, FormulaCache] = {}
     for row_number, item in enumerate(rows, start=2):
+        stage2_status = item.get("_stage2_status")
+        manual_stage2 = stage2_status == "manual"
         values = {
             "长度(mm)": ws[f"{length}{row_number}"].value,
             "左进(mm)": ws[f"{left_inset}{row_number}"].value,
@@ -293,12 +298,31 @@ def _apply_organized_formulas(
         }
         cached_value = _formula_cache_for_row(values)
         cell = ws[f"{cut_length}{row_number}"]
-        if cached_value is None:
+        if manual_stage2:
+            if values["长度(mm)"] in (None, ""):
+                raise ValueError("BH人工补录行缺少模型长度")
+            formula = (
+                f'=IF(OR({left_inset}{row_number}="",'
+                f'{right_inset}{row_number}=""),"",'
+                f'{length}{row_number}-{left_inset}{row_number}-'
+                f'{right_inset}{row_number})'
+            )
+            cell.value = formula
+            caches[cell.coordinate] = FormulaCache(formula, None)
+        elif cached_value is None:
             cell.value = None
             continue
-        formula = f"={length}{row_number}-{left_inset}{row_number}-{right_inset}{row_number}"
-        cell.value = formula
-        caches[cell.coordinate] = FormulaCache(formula, cached_value)
+        else:
+            formula = (
+                f"={length}{row_number}"
+                if stage2_status == "missing"
+                else (
+                    f"={length}{row_number}-{left_inset}{row_number}-"
+                    f"{right_inset}{row_number}"
+                )
+            )
+            cell.value = formula
+            caches[cell.coordinate] = FormulaCache(formula, cached_value)
 
         formula_specs: list[tuple[str, str, object]] = []
         density_formula = _density_formula(
@@ -313,7 +337,7 @@ def _apply_organized_formulas(
         total_count = f"{columns['总数']}{row_number}"
         if item.get("总数") not in (None, ""):
             formula_specs.append(("总数", f"={component_qty}*{quantity}", item["总数"]))
-        if item.get("总长(mm)") not in (None, ""):
+        if item.get("总长(mm)") not in (None, "") or manual_stage2:
             formula_specs.append((
                 "总长(mm)",
                 f"={formula_length}{row_number}*{total_count}",
@@ -369,6 +393,15 @@ def _apply_organized_formulas(
                 ))
 
         for header, formula, value in formula_specs:
+            if manual_stage2 and header in {
+                "总长(mm)",
+                "理单重(kg)",
+                "理总重(kg)",
+            }:
+                formula = (
+                    f'=IF({cut_length}{row_number}="","",'
+                    f'{formula.removeprefix("=")})'
+                )
             coordinate = f"{columns[header]}{row_number}"
             ws[coordinate] = formula
             caches[coordinate] = FormulaCache(formula, value)
@@ -386,6 +419,17 @@ def _part_matches_organized(part: PartRow, item: Mapping[str, object]) -> bool:
         or item.get("下料长度(mm)") != part.cut_length
         or item.get("材质") != part.material
         or (item.get("班组") or "") != part.team
+    ):
+        return False
+    stage2_identity = (
+        part.model_length,
+        part.left_setback,
+        part.right_setback,
+    )
+    if stage2_identity != (None, None, None) and stage2_identity != (
+        item.get("长度(mm)"),
+        item.get("左进(mm)"),
+        item.get("右进(mm)"),
     ):
         return False
     if part.part_type in _COMPONENT_SCOPED_TYPES:
@@ -408,6 +452,7 @@ def _apply_part_formulas(
         for cell in organized_ws[1]
     }
     total_count_column = organized_columns["总数"]
+    cut_length_column = organized_columns["下料长度(mm)"]
     caches: dict[str, FormulaCache] = {}
     for part_row_number, part in enumerate(parts, start=2):
         source_rows = [
@@ -435,6 +480,43 @@ def _apply_part_formulas(
         coordinate = f"{part_columns['汇总']}{part_row_number}"
         ws[coordinate] = formula
         caches[coordinate] = FormulaCache(formula, part.summary)
+        if part.cut_length is None and part.model_length is not None:
+            cut_references = [
+                f"'整理表'!{cut_length_column}{source_row_number}"
+                for source_row_number in source_rows
+            ]
+            if not cut_references:
+                raise ValueError(
+                    f"part {part.import_part_no!r} 的人工下料长度没有整理表来源行"
+                )
+            if any(
+                organized_rows[source_row_number - 2].get("_stage2_status")
+                != "manual"
+                for source_row_number in source_rows
+            ):
+                raise ValueError(
+                    f"part {part.import_part_no!r} 仅人工补录行可使用空下料长度"
+                )
+            first_reference = cut_references[0]
+            blank_checks = [
+                f'{reference}=""' for reference in cut_references
+            ]
+            equality_checks = [
+                f"{reference}<>{first_reference}"
+                for reference in cut_references[1:]
+            ]
+            conditions = blank_checks + equality_checks
+            condition = (
+                conditions[0]
+                if len(conditions) == 1
+                else f"OR({','.join(conditions)})"
+            )
+            cut_formula = f'=IF({condition},"",{first_reference})'
+            cut_coordinate = (
+                f"{part_columns['下料长度']}{part_row_number}"
+            )
+            ws[cut_coordinate] = cut_formula
+            caches[cut_coordinate] = FormulaCache(cut_formula, None)
     return caches
 
 
@@ -482,6 +564,17 @@ def _apply_quality_styles(
     column_by_header = {
         header: index for index, header in enumerate(ORGANIZED_HEADERS, start=1)
     }
+    for output_row, item in enumerate(rows, start=2):
+        stage2_status = item.get("_stage2_status")
+        if stage2_status not in {"missing", "manual"}:
+            continue
+        headers = ["左进(mm)", "右进(mm)", "下料长度(mm)"]
+        if stage2_status == "manual":
+            headers.extend(("总长(mm)", "理单重(kg)", "理总重(kg)"))
+        for header in headers:
+            cell = ws.cell(output_row, column_by_header[header])
+            cell.fill = _LIGHT_RED_FILL
+            cell.font = _RED_FONT
     issue_field_to_headers = {
         "构件编号": ("构件编号", "导入构件编号"),
         "零件号": ("零件号",),
@@ -517,6 +610,16 @@ def _apply_quality_styles(
             status_cell = ws.cell(output_row, column_by_header["重量核验"])
             status_cell.fill = _LIGHT_RED_FILL
             status_cell.font = _SEVERE_FONT
+
+
+def _apply_part_stage2_styles(ws, parts: Sequence[PartRow]) -> None:
+    cut_length_column = PART_HEADERS.index("下料长度") + 1
+    for output_row, part in enumerate(parts, start=2):
+        if part.cut_length is not None or part.model_length is None:
+            continue
+        cell = ws.cell(output_row, cut_length_column)
+        cell.fill = _LIGHT_RED_FILL
+        cell.font = _RED_FONT
 
 
 def _apply_clean_quality_styles(
@@ -639,6 +742,12 @@ def _verify_formula_caches(
             cached_value = values[sheet_name][coordinate].value
             if formula != cache.formula:
                 raise ValueError(f"公式回读失败: {coordinate}={formula!r}")
+            if cache.value is None:
+                if cached_value is not None:
+                    raise ValueError(
+                        f"公式缓存应为空: {coordinate}={cached_value!r}"
+                    )
+                continue
             if cached_value is None or not math.isclose(
                 float(cached_value),
                 float(cache.value),
@@ -729,6 +838,7 @@ def write_canonical_workbook(
             _write_report_sheet(report_sheet, ledger.report_rows())
             _apply_clean_quality_styles(clean_sheet, cleaned, issue_list)
             _apply_quality_styles(organized_sheet, organized, issue_list)
+            _apply_part_stage2_styles(part_sheet, parts)
             internal_organized_caches = _apply_organized_formulas(
                 organized_sheet,
                 organized,

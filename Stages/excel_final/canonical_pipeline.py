@@ -37,7 +37,7 @@ from weights import (
     round_weight_for_output,
     validate_parent_weights,
 )
-from writer_parts import write_canonical_workbook
+from writer_parts import FormulaLengthBasis, write_canonical_workbook
 
 
 class HandbookReader(Protocol):
@@ -756,6 +756,7 @@ def write_canonical_projection(
     *,
     projection: CanonicalProjection,
     internal_output_path: str | Path | None = None,
+    formula_length_basis: FormulaLengthBasis = FormulaLengthBasis.MODEL_LENGTH,
 ) -> PipelineOutcome:
     """Build part rows and atomically write a previously normalized projection."""
     organized_rows = [dict(row) for row in projection.organized_rows]
@@ -772,4 +773,5 @@ def write_canonical_projection(
         part_rows=part_result.rows,
         issues=issues,
         internal_output_path=internal_output_path,
+        formula_length_basis=formula_length_basis,
     )

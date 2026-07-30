@@ -24,7 +24,7 @@ _PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 @dataclass(frozen=True, slots=True)
 class FormulaCache:
     formula: str
-    value: Decimal | int | float
+    value: Decimal | int | float | None
 
 
 def _sheet_part(archive: ZipFile, sheet_name: str) -> str:
@@ -83,7 +83,9 @@ def _patched_sheet(xml: bytes, caches: dict[str, FormulaCache]) -> bytes:
         value = cell.find(f"{{{_MAIN_NS}}}v")
         if value is None:
             value = ET.SubElement(cell, f"{{{_MAIN_NS}}}v")
-        value.text = _numeric_text(cache.value)
+        value.text = (
+            None if cache.value is None else _numeric_text(cache.value)
+        )
         cell.attrib.pop("t", None)
     return ET.tostring(root, encoding="utf-8", xml_declaration=False)
 

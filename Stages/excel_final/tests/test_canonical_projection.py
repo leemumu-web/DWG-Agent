@@ -9,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 
 import canonical_pipeline
 from domain import ComponentRowKind, ComponentSourceRow, SourcePart
+from writer_parts import FormulaLengthBasis
 
 
 class NoLookupHandbook:
@@ -128,3 +129,36 @@ def test_write_canonical_projection_emits_the_existing_six_sheet_contract(
         assert workbook["part"]["G2"].value == "=SUM('整理表'!T2)"
     finally:
         workbook.close()
+
+
+def test_write_canonical_projection_forwards_the_formula_length_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = tmp_path / "source.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    _source_workbook(source_path)
+    projection = canonical_pipeline.build_canonical_projection(
+        parts=(_source_part(),),
+        component_rows=(_component_row(),),
+        reader_issues=(),
+        handbook=NoLookupHandbook(),
+    )
+    captured: dict[str, object] = {}
+    expected_outcome = object()
+
+    def capture_writer(*_args, **kwargs):
+        captured.update(kwargs)
+        return expected_outcome
+
+    monkeypatch.setattr(canonical_pipeline, "write_canonical_workbook", capture_writer)
+
+    outcome = canonical_pipeline.write_canonical_projection(
+        source_path,
+        output_path,
+        projection=projection,
+        formula_length_basis=FormulaLengthBasis.CUT_LENGTH,
+    )
+
+    assert outcome is expected_outcome
+    assert captured["formula_length_basis"] is FormulaLengthBasis.CUT_LENGTH
