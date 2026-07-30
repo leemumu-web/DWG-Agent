@@ -73,6 +73,10 @@ STEP_RUN_EXCEL_FINAL = "run_excel_final_pipeline"
 STEP_IMPORT_PARTS_DB = "import_parts_to_db"
 STEP_PERSIST_EXCEL_FINAL = "persist_excel_final_result"
 
+# Excel Stage2 BH left/right-setback enhancement pipeline
+PIPELINE_EXCEL_STAGE2 = "excel_stage2"
+TASK_EXCEL_STAGE2 = "process_excel_stage2"
+
 # Short-lived HttpOnly access-token cookie used only by the EventSource endpoint.
 JOB_EVENTS_COOKIE_NAME = "dwg_sse_token"
 

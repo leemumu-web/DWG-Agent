@@ -198,7 +198,7 @@ def _completed_classification_run_for_stage2(
         classifier_version="1.2.0",
         project_name=f"stage2-workflow-{workflow_id}",
         input_manifest_sha256=hashlib.sha256(
-            f"workflow:{workflow_id}".encode("utf-8")
+            f"workflow:{workflow_id}".encode()
         ).hexdigest(),
         input_count=3,
         classified_count=3,
@@ -310,6 +310,7 @@ def test_bh_stage2_batch_uses_only_the_exact_workflow_ledger_in_stable_order(
     assert batch.classification_job_id == first_job_id
     assert batch.classification_job_attempt == 1
     assert batch.input_manifest_sha256 == first_run.input_manifest_sha256
+    assert batch.bh_manifest_version == 1
     assert [item.input_name for item in batch.items] == [
         "BH-B_拆板前.dxf",
         "BH-A_拆板前.dxf",
@@ -322,8 +323,62 @@ def test_bh_stage2_batch_uses_only_the_exact_workflow_ledger_in_stable_order(
         first_outputs[0].id,
         first_outputs[1].id,
     ]
+    assert [item.input_sha256 for item in batch.items] == [
+        first_outputs[0].sha256,
+        first_outputs[1].sha256,
+    ]
+    manifest_payload = "".join(
+        f"{item.classification_item_id}\0{item.input_file_id}\0{item.input_sha256}\0"
+        f"{item.input_name}\0{item.profile_normalized}\n"
+        for item in batch.items
+    ).encode("utf-8")
+    assert batch.bh_manifest_sha256 == hashlib.sha256(manifest_payload).hexdigest()
     assert other_output.id not in {item.input_file_id for item in batch.items}
     assert len(select_statements) == 2
+
+
+def test_bh_stage2_manifest_changes_when_registered_object_digest_changes(
+    db,
+    tmp_path: Path,
+) -> None:
+    workflow_id, job_id, _source_id = _frozen_classification_job(db, tmp_path)
+    workflow = db.get(WorkflowRun, workflow_id)
+    run = _completed_classification_run_for_stage2(
+        db,
+        workflow_id=workflow_id,
+        job_id=job_id,
+        project_id=workflow.project_id,
+    )
+    output = _classified_output_file(db, "BH-DIGEST_拆板前.dxf")
+    db.add(DxfClassificationItem(
+        run=run,
+        source_file_id=output.id,
+        output_file_id=output.id,
+        source_name="source.dxf",
+        output_name=output.original_name,
+        output_directory="type-BH",
+        disposition="classified",
+        part_type="BH",
+        profile_raw="BH500*200*10*16",
+        profile_normalized="BH500*200*10*16",
+        type_source="catalog",
+        group_key="type:BH",
+        next_stage_eligible=True,
+        diagnostics_json=[],
+        evidence_json={},
+    ))
+    db.flush()
+    first = classification_interface.load_bh_stage2_classification_batch(
+        db, workflow_id
+    )
+    output.sha256 = "a" * 64
+    db.flush()
+
+    changed = classification_interface.load_bh_stage2_classification_batch(
+        db, workflow_id
+    )
+
+    assert first.bh_manifest_sha256 != changed.bh_manifest_sha256
 
 
 @pytest.mark.parametrize(

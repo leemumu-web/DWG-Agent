@@ -440,6 +440,7 @@ def load_bh_stage2_classification_batch(
             stored.status != "available"
             or stored.file_ext.casefold() != ".dxf"
             or item.output_name != stored.original_name
+            or not stored.sha256
         ):
             raise ClassificationError("BH 分类后的拆板前 DXF 文件不可用。")
         if stored.id in seen_input_file_ids:
@@ -450,10 +451,16 @@ def load_bh_stage2_classification_batch(
             drawing_id=item.drawing_id,
             source_file_id=item.source_file_id,
             input_file_id=stored.id,
+            input_sha256=stored.sha256,
             input_name=item.output_name,
             profile_normalized=profile,
             type_source=type_source,
         ))
+    manifest_payload = "".join(
+        f"{item.classification_item_id}\0{item.input_file_id}\0{item.input_sha256}\0"
+        f"{item.input_name}\0{item.profile_normalized}\n"
+        for item in inputs
+    ).encode("utf-8")
     return DxfBhStage2ClassificationBatch(
         workflow_run_id=run.workflow_run_id,
         project_id=run.project_id,
@@ -462,6 +469,8 @@ def load_bh_stage2_classification_batch(
         classification_job_attempt=run.job_attempt,
         classifier_version=run.classifier_version,
         input_manifest_sha256=run.input_manifest_sha256,
+        bh_manifest_version=1,
+        bh_manifest_sha256=hashlib.sha256(manifest_payload).hexdigest(),
         items=tuple(inputs),
     )
 

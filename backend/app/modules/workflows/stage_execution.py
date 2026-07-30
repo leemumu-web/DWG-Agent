@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.modules.dxf_classification.interface import (
+    ClassificationError,
     latest_classification_run,
     list_split_candidate_inputs,
+    load_bh_stage2_classification_batch,
 )
 from app.modules.dxf_splitting.interface import (
     MAX_AUTOMATIC_ATTEMPTS,
@@ -19,6 +21,7 @@ from app.modules.excel_processing.interface import ExcelFinalInputError
 from app.modules.files.interface import StoredFile, require_file_read_access
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import (
+    AnalysisResult,
     Job,
     JobCreate,
     create_or_reuse_job,
@@ -27,11 +30,12 @@ from app.modules.jobs.interface import (
 from app.modules.workflows.contracts import require_stage_inputs
 from app.modules.workflows.intake import registration
 from app.modules.workflows.job_sync import bind_stage_job
-from app.modules.workflows.models import WorkflowRun
+from app.modules.workflows.models import WorkflowInputBatch, WorkflowInputItem, WorkflowRun
 from app.modules.workflows.schemas import WorkflowStageExecutionCreate
 from app.modules.workflows.templates import require_stage_execution
 from app.platform.config.constants import (
     TASK_EXCEL_FINAL,
+    TASK_EXCEL_STAGE2,
     TASK_STEEL_DXF_CLASSIFICATION,
     TASK_STEEL_DXF_SPLIT,
 )
@@ -100,6 +104,56 @@ def preflight_excel_stage1(
                     "分类结果无需拆板，已按空交接继续"
                     if no_split_candidates
                     else "正式拆板结果成对且可用"
+                ),
+            },
+        ],
+    }
+
+
+def preflight_excel_stage2(
+    db: Session,
+    workflow: WorkflowRun,
+    *,
+    current_user: User,
+) -> dict[str, object]:
+    """Validate the exact Stage2 lineage without creating or binding a Job."""
+    require_stage_execution(
+        workflow,
+        stage_code="excel_stage2",
+        execution_kind="excel_stage2",
+    )
+    require_stage_inputs(workflow, "excel_stage2")
+    _, params = _prepare_excel_stage2(db, workflow, current_user)
+    source = db.get(StoredFile, int(params["stage1_excel_file_id"]))
+    if source is None:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE",
+            "Excel 第一阶段正式结果文件已不可用。",
+            {"file_id": params["stage1_excel_file_id"]},
+        )
+    bh_input_count = int(params["bh_input_count"])
+    return {
+        "ready": True,
+        "mode": "bh_enhancement" if bh_input_count else "no_bh_inputs",
+        "stage1_file_id": source.id,
+        "stage1_file_name": source.original_name,
+        "stage1_job_id": params["stage1_job_id"],
+        "stage1_job_attempt": params["stage1_job_attempt"],
+        "classification_run_id": params["classification_run_id"],
+        "classification_job_id": params["classification_job_id"],
+        "classification_job_attempt": params["classification_job_attempt"],
+        "bh_input_count": bh_input_count,
+        "checks": [
+            {"code": "stage1_job_verified", "label": "第一阶段正式任务来源一致"},
+            {"code": "stage1_workbook_verified", "label": "第一阶段唯一正式 Excel 可用"},
+            {"code": "classification_run_verified", "label": "当前分类账与正式任务一致"},
+            {
+                "code": "bh_batch_frozen",
+                "label": (
+                    f"已冻结 {bh_input_count} 张拆板前 BH 图纸"
+                    if bh_input_count
+                    else "当前分类账无 BH 图纸，将原样生成第二阶段结果"
                 ),
             },
         ],
@@ -177,6 +231,8 @@ def prepare_stage_execution(
 
     if payload.execution_kind == "excel_stage1":
         task_type, params = _prepare_excel_stage1(db, workflow, current_user)
+    elif payload.execution_kind == "excel_stage2":
+        task_type, params = _prepare_excel_stage2(db, workflow, current_user)
     elif payload.execution_kind == "steel_dxf_classification":
         task_type, params = _prepare_dxf_classification(db, workflow, current_user)
     elif payload.execution_kind == "drawing_processing":
@@ -189,16 +245,31 @@ def prepare_stage_execution(
             {"stage_code": stage_code, "execution_kind": payload.execution_kind},
         )
 
-    job = (
-        _bound_dxf_split_job(
-            db,
-            workflow,
-            stage_code=stage_code,
-            task_type=task_type,
-            params=params,
-        )
-        if stage_code == "drawing_processing"
-        else None
+    binding_errors = {
+        "drawing_processing": (
+            "DXF_SPLIT_JOB_BINDING_INVALID",
+            "当前拆板阶段绑定的 Job 与工作流冻结输入不一致。",
+        ),
+        "excel_stage2": (
+            "EXCEL_STAGE2_JOB_BINDING_INVALID",
+            "Excel 第二阶段绑定的任务与当前冻结输入不一致。",
+        ),
+    }
+    error_code, error_message = binding_errors.get(
+        stage_code,
+        (
+            "WORKFLOW_STAGE_JOB_BINDING_INVALID",
+            "当前自动阶段绑定的 Job 与工作流冻结输入不一致。",
+        ),
+    )
+    job = _bound_stage_job(
+        db,
+        workflow,
+        stage_code=stage_code,
+        task_type=task_type,
+        params=params,
+        error_code=error_code,
+        error_message=error_message,
     )
     reused = job is not None
     if job is None:
@@ -223,17 +294,22 @@ def prepare_stage_execution(
             )
         job = retry_job(db, job)
     bind_stage_job(db, workflow, stage_code=stage_code, job=job)
+    stage = next(item for item in workflow.stages if item.stage_code == stage_code)
+    stage.input_json = params
     return StageExecutionPlan(job=job, reused=reused, retried=retried)
 
 
-def _bound_dxf_split_job(
+def _bound_stage_job(
     db: Session,
     workflow: WorkflowRun,
     *,
     stage_code: str,
     task_type: str,
     params: dict[str, object],
+    error_code: str,
+    error_message: str,
 ) -> Job | None:
+    """Reuse only the Job already bound to this exact immutable stage input."""
     stage = next(
         (item for item in workflow.stages if item.stage_code == stage_code),
         None,
@@ -247,11 +323,12 @@ def _bound_dxf_split_job(
         or job.task_type != task_type
         or job.params_json != params
         or job.attempt != stage.job_attempt
+        or (stage.input_json is not None and stage.input_json != params)
     ):
         raise AppHTTPException(
             409,
-            "DXF_SPLIT_JOB_BINDING_INVALID",
-            "当前拆板阶段绑定的 Job 与工作流冻结输入不一致。",
+            error_code,
+            error_message,
             {
                 "workflow_id": workflow.id,
                 "stage_job_id": stage.job_id,
@@ -261,16 +338,14 @@ def _bound_dxf_split_job(
     return job
 
 
-def _prepare_excel_stage1(
+def _resolve_verified_source_excel(
     db: Session,
     workflow: WorkflowRun,
     current_user: User,
-) -> tuple[str, dict[str, object]]:
-    if not settings.excel_final_pipeline_enabled:
-        raise service_unavailable(
-            "EXCEL_STAGE1_PIPELINE_DISABLED",
-            "Excel 第一阶段处理服务当前未启用。",
-        )
+    *,
+    enforce_file_access: bool = True,
+) -> tuple[StoredFile, WorkflowInputItem, WorkflowInputBatch]:
+    """Resolve and revalidate the one frozen source workbook for this workflow."""
     batch = workflow.input_batch
     if batch is None or batch.status != "frozen":
         raise AppHTTPException(
@@ -326,7 +401,8 @@ def _prepare_excel_stage1(
             "冻结的 Excel 源文件已不可用。",
             {"file_id": item.file_id},
         )
-    require_file_read_access(db, current_user, stored)
+    if enforce_file_access:
+        require_file_read_access(db, current_user, stored)
     if (
         item.validated_sha256 is None
         or item.validation_contract_version is None
@@ -357,6 +433,24 @@ def _prepare_excel_stage1(
                 action="请返回输入阶段，重新登记并冻结 Excel。",
             )
         )
+    return stored, item, batch
+
+
+def _prepare_excel_stage1(
+    db: Session,
+    workflow: WorkflowRun,
+    current_user: User,
+) -> tuple[str, dict[str, object]]:
+    if not settings.excel_final_pipeline_enabled:
+        raise service_unavailable(
+            "EXCEL_STAGE1_PIPELINE_DISABLED",
+            "Excel 第一阶段处理服务当前未启用。",
+        )
+    stored, _item, batch = _resolve_verified_source_excel(
+        db,
+        workflow,
+        current_user,
+    )
     split_handoff = get_excel_split_handoff(db, workflow.id)
     # The split handoff already proves current workflow/run/attempt lineage and
     # file availability. Its server-generated files may have another member as
@@ -366,6 +460,172 @@ def _prepare_excel_stage1(
         "workflow_id": workflow.id,
         "input_manifest_sha256": batch.manifest_sha256,
         "dxf_split_handoff": split_handoff.model_dump(mode="json"),
+    }
+
+
+def _prepare_excel_stage2(
+    db: Session,
+    workflow: WorkflowRun,
+    current_user: User,
+) -> tuple[str, dict[str, object]]:
+    """Freeze the current formal Stage1 workbook and BH classification ledger."""
+    if not settings.excel_final_pipeline_enabled:
+        raise service_unavailable(
+            "EXCEL_STAGE2_PIPELINE_DISABLED",
+            "Excel 第二阶段处理服务当前未启用。",
+        )
+    # The execution route already enforces a writable project role. The frozen
+    # input item and source artifact below are project-owned workflow records,
+    # so a later project member need not be the original uploader.
+    source_excel, source_item, _source_batch = _resolve_verified_source_excel(
+        db,
+        workflow,
+        current_user,
+        enforce_file_access=False,
+    )
+
+    stage1 = next(
+        (stage for stage in workflow.stages if stage.stage_code == "excel_stage1"),
+        None,
+    )
+    stage1_job = db.get(Job, stage1.job_id) if stage1 is not None and stage1.job_id else None
+    if (
+        stage1 is None
+        or stage1.status != "succeeded"
+        or stage1.job_id is None
+        or stage1.job_attempt is None
+        or stage1_job is None
+        or stage1_job.project_id != workflow.project_id
+        or stage1_job.task_type != TASK_EXCEL_FINAL
+        or stage1_job.status != "succeeded"
+        or stage1_job.attempt != stage1.job_attempt
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_STAGE1_BINDING_INVALID",
+            "Excel 第一阶段尚未形成与当前项目和 attempt 一致的正式结果。",
+            {
+                "stage_job_id": stage1.job_id if stage1 is not None else None,
+                "stage_job_attempt": stage1.job_attempt if stage1 is not None else None,
+            },
+        )
+
+    current_artifacts = []
+    for artifact in workflow.artifacts:
+        metadata = artifact.metadata_json if isinstance(artifact.metadata_json, dict) else {}
+        if (
+            artifact.stage_run_id == stage1.id
+            and artifact.artifact_type == "stage1_excel"
+            and metadata.get("job_id") == stage1_job.id
+            and metadata.get("job_attempt") == stage1_job.attempt
+        ):
+            current_artifacts.append(artifact)
+    if len(current_artifacts) != 1:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_STAGE1_BINDING_INVALID",
+            "Excel 第一阶段当前 attempt 必须且只能有一个正式结果。",
+            {
+                "stage1_job_id": stage1_job.id,
+                "stage1_job_attempt": stage1_job.attempt,
+                "artifact_count": len(current_artifacts),
+            },
+        )
+    artifact = current_artifacts[0]
+    result = db.get(AnalysisResult, artifact.result_id) if artifact.result_id else None
+    stored = db.get(StoredFile, artifact.file_id) if artifact.file_id else None
+    if (
+        result is None
+        or result.job_id != stage1_job.id
+        or result.result_type != TASK_EXCEL_FINAL
+        or result.status != "succeeded"
+        or result.result_file_id != artifact.file_id
+        or stored is None
+        or stored.status != "available"
+        or stored.file_ext.casefold() != ".xlsx"
+        or not stored.sha256
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_STAGE1_BINDING_INVALID",
+            "Excel 第一阶段的产物、分析结果和正式文件来源链不一致。",
+            {
+                "artifact_id": artifact.id,
+                "artifact_file_id": artifact.file_id,
+                "result_id": artifact.result_id,
+            },
+        )
+
+    try:
+        classification = load_bh_stage2_classification_batch(db, workflow.id)
+    except ClassificationError as exc:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_CLASSIFICATION_INPUT_INVALID",
+            f"BH 左右进处理无法使用当前分类结果：{exc}",
+        ) from exc
+    classification_stage = next(
+        (
+            stage
+            for stage in workflow.stages
+            if stage.stage_code == "dxf_classification"
+        ),
+        None,
+    )
+    classification_job = db.get(Job, classification.classification_job_id)
+    classification_params = (
+        classification_job.params_json
+        if classification_job is not None
+        and isinstance(classification_job.params_json, dict)
+        else {}
+    )
+    if (
+        classification.workflow_run_id != workflow.id
+        or classification.project_id != workflow.project_id
+        or classification_stage is None
+        or classification_stage.status != "succeeded"
+        or classification_stage.job_id != classification.classification_job_id
+        or classification_stage.job_attempt
+        != classification.classification_job_attempt
+        or classification_job is None
+        or classification_job.project_id != workflow.project_id
+        or classification_job.task_type != TASK_STEEL_DXF_CLASSIFICATION
+        or classification_job.status != "succeeded"
+        or classification_job.attempt != classification.classification_job_attempt
+        or classification_params.get("workflow_id") != workflow.id
+        or classification_params.get("input_manifest_sha256")
+        != classification.input_manifest_sha256
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_CLASSIFICATION_BINDING_INVALID",
+            "当前 BH 分类账没有绑定本项目已成功的正式分类 Job attempt。",
+            {
+                "classification_run_id": classification.classification_run_id,
+                "classification_job_id": classification.classification_job_id,
+                "classification_job_attempt": classification.classification_job_attempt,
+            },
+        )
+
+    return TASK_EXCEL_STAGE2, {
+        "workflow_id": workflow.id,
+        "project_id": workflow.project_id,
+        "source_excel_file_id": source_excel.id,
+        "source_excel_sha256": source_item.validated_sha256,
+        "stage1_artifact_id": artifact.id,
+        "stage1_result_id": result.id,
+        "stage1_excel_file_id": stored.id,
+        "stage1_excel_sha256": stored.sha256,
+        "stage1_job_id": stage1_job.id,
+        "stage1_job_attempt": stage1_job.attempt,
+        "classification_run_id": classification.classification_run_id,
+        "classification_job_id": classification.classification_job_id,
+        "classification_job_attempt": classification.classification_job_attempt,
+        "classification_manifest_sha256": classification.input_manifest_sha256,
+        "classifier_version": classification.classifier_version,
+        "bh_input_count": len(classification.items),
+        "bh_manifest_version": classification.bh_manifest_version,
+        "bh_manifest_sha256": classification.bh_manifest_sha256,
     }
 
 

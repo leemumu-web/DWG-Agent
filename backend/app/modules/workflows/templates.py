@@ -124,13 +124,12 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "excel_stage2",
                 "Excel 第二阶段处理",
-                "预留第一阶段 Excel 与已处理图纸的最终合并和生产表生成接口。",
-                execution_mode="placeholder",
-                implementation_status="placeholder",
+                "读取分类阶段冻结的拆板前 BH 图纸，提取左右进并深化第一阶段 Excel。",
+                execution_mode="automated",
                 execution_kind="excel_stage2",
-                required_inputs=("stage1_excel", "processed_dxf"),
-                artifact_types=("stage2_excel",),
-                required_outputs=("stage2_excel",),
+                required_inputs=("stage1_excel", "classified_dxf"),
+                artifact_types=("bh_setback_excel", "stage2_excel"),
+                required_outputs=("bh_setback_excel", "stage2_excel"),
             ),
             _stage(
                 "design_barrier",

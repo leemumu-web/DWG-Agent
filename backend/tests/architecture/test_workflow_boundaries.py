@@ -124,6 +124,11 @@ EXPECTED_ROUTES = [
         "preflight_excel_stage1_api",
     ),
     (
+        ("GET",),
+        "/{workflow_id}/stages/excel_stage2/preflight",
+        "preflight_excel_stage2_api",
+    ),
+    (
         ("POST",),
         "/{workflow_id}/stages/{stage_code}/executions",
         "execute_workflow_stage",
@@ -291,12 +296,12 @@ EXPECTED_PRODUCTION_STAGES = [
     ),
     (
         "excel_stage2",
-        "placeholder",
-        "placeholder",
+        "automated",
+        "implemented",
         "excel_stage2",
-        ("stage1_excel", "processed_dxf"),
-        ("stage2_excel",),
-        ("stage2_excel",),
+        ("stage1_excel", "classified_dxf"),
+        ("bh_setback_excel", "stage2_excel"),
+        ("bh_setback_excel", "stage2_excel"),
     ),
     (
         "design_barrier",

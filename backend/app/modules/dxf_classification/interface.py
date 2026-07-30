@@ -4,6 +4,7 @@ from app.modules.dxf_classification.adapter import (
     CLASSIFIER_VERSION,
     CLI_SCHEMA,
     REPORT_SCHEMA,
+    ClassificationError,
     classifier_project_name,
 )
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
@@ -94,6 +95,7 @@ def reconcile_orphan_dxf_classification_runs(db) -> int:
 __all__ = [
     "CLASSIFIER_VERSION",
     "CLI_SCHEMA",
+    "ClassificationError",
     "REPORT_SCHEMA",
     "DxfClassificationItem",
     "DxfBhStage2ClassificationBatch",

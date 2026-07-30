@@ -12,6 +12,7 @@ from app.modules.workflows.schemas import WorkflowDetail, WorkflowStageExecution
 from app.modules.workflows.stage_execution import (
     dispatch_stage_execution,
     preflight_excel_stage1,
+    preflight_excel_stage2,
     prepare_stage_execution,
 )
 from app.platform.http.dependencies import get_db
@@ -34,6 +35,30 @@ def preflight_excel_stage1_api(
     workflow = load_workflow_detail(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
     result = preflight_excel_stage1(
+        db,
+        workflow,
+        current_user=current_user,
+    )
+    return ok(result, request.state.request_id)
+
+
+@router.get(
+    "/{workflow_id}/stages/excel_stage2/preflight",
+    summary="预检 Excel 第二阶段输入",
+    description=(
+        "核对当前第一阶段正式 Excel、分类 Job attempt 与拆板前 BH 图纸账本，"
+        "但不创建任务。"
+    ),
+)
+def preflight_excel_stage2_api(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    result = preflight_excel_stage2(
         db,
         workflow,
         current_user=current_user,

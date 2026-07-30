@@ -26,7 +26,14 @@ DXF_ARTIFACT_TYPES = frozenset(
 )
 DWG_ARTIFACT_TYPES = frozenset({"source_dwg"})
 EXCEL_ARTIFACT_TYPES = frozenset(
-    {"source_excel", "stage1_excel", "delivery_excel", "bh_split_ledger"}
+    {
+        "source_excel",
+        "stage1_excel",
+        "stage2_excel",
+        "bh_setback_excel",
+        "delivery_excel",
+        "bh_split_ledger",
+    }
 )
 
 

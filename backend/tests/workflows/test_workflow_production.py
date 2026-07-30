@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from io import BytesIO
 from urllib.parse import unquote
 from uuid import uuid4
@@ -13,6 +14,7 @@ from sqlalchemy import select
 from app.modules.dxf_classification.interface import (
     DxfClassificationItem,
     DxfClassificationRun,
+    load_bh_stage2_classification_batch,
 )
 from app.modules.dxf_splitting.interface import (
     DxfSplitItem,
@@ -31,6 +33,7 @@ from app.modules.workflows.schemas import WorkflowCreate, WorkflowStageExecution
 from app.modules.workflows.stage_execution import (
     StageExecutionPlan,
     dispatch_stage_execution,
+    preflight_excel_stage2,
     prepare_stage_execution,
 )
 from app.platform.http.exceptions import AppHTTPException
@@ -111,12 +114,21 @@ def test_linux_production_template_exposes_honest_capabilities():
         "bh_split_ledger",
     ]
     assert stages["excel_stage1"].artifact_types == ["stage1_excel"]
-    assert stages["excel_stage2"].execution_mode == "placeholder"
-    assert stages["excel_stage2"].implementation_status == "placeholder"
+    assert stages["excel_stage2"].execution_mode == "automated"
+    assert stages["excel_stage2"].implementation_status == "implemented"
     assert stages["excel_stage2"].execution_kind == "excel_stage2"
-    assert stages["excel_stage2"].required_inputs == ["stage1_excel", "processed_dxf"]
-    assert stages["excel_stage2"].artifact_types == ["stage2_excel"]
-    assert stages["excel_stage2"].required_outputs == ["stage2_excel"]
+    assert stages["excel_stage2"].required_inputs == [
+        "stage1_excel",
+        "classified_dxf",
+    ]
+    assert stages["excel_stage2"].artifact_types == [
+        "bh_setback_excel",
+        "stage2_excel",
+    ]
+    assert stages["excel_stage2"].required_outputs == [
+        "bh_setback_excel",
+        "stage2_excel",
+    ]
     assert stages["design_barrier"].required_inputs == ["processed_dxf", "stage2_excel"]
     assert "stage2_excel" in stages["cam_packaging"].required_inputs
     assert "stage2_excel" in stages["delivery_archive"].required_inputs
@@ -139,52 +151,19 @@ def test_linux_production_template_exposes_honest_capabilities():
 
 
 def test_workflow_stage_execution_request_is_closed_and_parameter_free():
-    assert WorkflowStageExecutionCreate(execution_kind="excel_stage1").model_dump() == {
-        "execution_kind": "excel_stage1"
-    }
-    for extra in (
-        {"file_id": 1},
-        {"batch_name": "legacy"},
-        {"unknown": "value"},
-    ):
-        with pytest.raises(ValidationError):
-            WorkflowStageExecutionCreate(execution_kind="excel_stage1", **extra)
-
-
-def test_excel_stage2_execution_is_rejected_without_creating_job(db):
-    user, project = _owner_project(db)
-    workflow = workflow_service.create_workflow(
-        db,
-        WorkflowCreate(
-            project_id=project.id,
-            name="Stage 2 placeholder",
-            workflow_type="linux_production",
-        ),
-        created_by=user.id,
-    )
-    for stage in workflow.stages:
-        if stage.stage_code == "excel_stage2":
-            stage.status = "waiting_input"
-        elif stage.sequence < 5:
-            stage.status = "succeeded"
-            stage.progress = 100
-    workflow.current_stage = "excel_stage2"
-    workflow.status = "waiting_input"
-    job_count = db.query(Job).count()
-
-    with pytest.raises(AppHTTPException) as caught:
-        prepare_stage_execution(
-            db,
-            workflow,
-            stage_code="excel_stage2",
-            payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
-            current_user=user,
-        )
-
-    assert caught.value.status_code == 501
-    assert caught.value.detail["code"] == "WORKFLOW_STAGE_NOT_IMPLEMENTED"
-    assert caught.value.detail["details"]["stage_code"] == "excel_stage2"
-    assert db.query(Job).count() == job_count
+    for execution_kind in ("excel_stage1", "excel_stage2"):
+        assert WorkflowStageExecutionCreate(
+            execution_kind=execution_kind
+        ).model_dump() == {"execution_kind": execution_kind}
+        for extra in (
+            {"file_id": 1},
+            {"run_id": 2},
+            {"project_id": 3},
+            {"batch_name": "legacy"},
+            {"unknown": "value"},
+        ):
+            with pytest.raises(ValidationError):
+                WorkflowStageExecutionCreate(execution_kind=execution_kind, **extra)
 
 
 def test_legacy_workflow_templates_keep_their_stage_order(db):
@@ -363,7 +342,7 @@ def _complete_classification_fixture(
             source_file_id=classified.id,
             output_file_id=classified.id,
             source_name=classified.original_name,
-            output_name="fixture_拆板前.dxf",
+            output_name=classified.original_name,
             output_directory=f"{run.project_name}_BH_dxf",
             disposition="classified",
             part_type="BH",
@@ -386,6 +365,489 @@ def _complete_classification_fixture(
     drawing.status = "waiting_input"
     workflow_service.recompute_workflow(workflow)
     return run
+
+
+def _complete_excel_stage1_fixture(
+    db,
+    workflow: WorkflowRun,
+    *,
+    attempt: int = 1,
+) -> tuple[Job, StoredFile, AnalysisResult]:
+    """Bind one exact formal Stage1 workbook to the workflow's current attempt."""
+    for prior in workflow.stages:
+        if prior.sequence < 5:
+            prior.status = "succeeded"
+            prior.progress = 100
+    job = Job(
+        project_id=workflow.project_id,
+        created_by=workflow.created_by,
+        task_type="process_excel_final",
+        pipeline="excel_final",
+        status="succeeded",
+        attempt=attempt,
+        progress=100,
+        precision_level="normal",
+        params_json={"workflow_id": workflow.id},
+    )
+    db.add(job)
+    db.flush()
+    output = _stored_file(db, name="stage1.xlsx")
+    output.uploaded_by = workflow.created_by
+    result = AnalysisResult(
+        job_id=job.id,
+        result_type="process_excel_final",
+        result_file_id=output.id,
+        status="succeeded",
+        result_json={
+            "workflow_artifact_type": "stage1_excel",
+            "job_attempt": attempt,
+        },
+    )
+    db.add(result)
+    db.flush()
+    stage = next(item for item in workflow.stages if item.stage_code == "excel_stage1")
+    stage.job_id = job.id
+    stage.job_attempt = attempt
+    stage.status = "succeeded"
+    stage.progress = 100
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="excel_stage1",
+        artifact_type="stage1_excel",
+        file_id=output.id,
+        result_id=result.id,
+        metadata={"job_id": job.id, "job_attempt": attempt},
+    )
+    stage2 = next(item for item in workflow.stages if item.stage_code == "excel_stage2")
+    stage2.status = "waiting_input"
+    workflow.current_stage = "excel_stage2"
+    workflow.status = "waiting_input"
+    workflow_service.recompute_workflow(workflow)
+    return job, output, result
+
+
+def _attach_valid_source_excel(db, workflow, tmp_path, monkeypatch) -> StoredFile:
+    payload = _canonical_xlsx_bytes()
+    storage = LocalFileStorage(tmp_path / f"stage2-source-{workflow.id}")
+    monkeypatch.setattr(workflow_input_registration, "get_storage_backend", lambda: storage)
+    bucket = "workflow-excel"
+    storage_key = f"inputs/{workflow.id}/source.xlsx"
+    storage.put_fileobj(bucket, storage_key, BytesIO(payload), length=len(payload))
+    source = StoredFile(
+        bucket=bucket,
+        storage_key=storage_key,
+        original_name="source.xlsx",
+        file_ext=".xlsx",
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        size_bytes=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+        uploaded_by=workflow.created_by,
+        status="available",
+    )
+    db.add(source)
+    db.flush()
+    batch = _mark_input_batch_frozen(db, workflow)
+    db.add(WorkflowInputItem(
+        batch=batch,
+        file_id=source.id,
+        role="source_excel",
+        original_name=source.original_name,
+        normalized_stem="source",
+        status="frozen",
+        validation_json={
+            "inspection": {
+                "protocol_version": 1,
+                "input_contract_version": 1,
+                "source_format": "standard_workbook",
+                "sheet_name": "原表",
+                "header_row": 1,
+                "part_count": 1,
+                "component_count": 1,
+            }
+        },
+        validation_contract_version=1,
+        validated_sha256=source.sha256,
+    ))
+    workflow_service.attach_artifact(
+        db,
+        workflow,
+        stage_code="source_intake",
+        artifact_type="source_excel",
+        file_id=source.id,
+    )
+    return source
+
+
+def _stage2_ready_workflow(db, tmp_path, monkeypatch):
+    user, project, workflow = _production_workflow(db)
+    _attach_valid_source_excel(db, workflow, tmp_path, monkeypatch)
+    classification = _complete_classification_fixture(db, workflow)
+    stage1_job, stage1_file, stage1_result = _complete_excel_stage1_fixture(db, workflow)
+    return (
+        user,
+        project,
+        workflow,
+        classification,
+        stage1_job,
+        stage1_file,
+        stage1_result,
+    )
+
+
+def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    (
+        user,
+        project,
+        workflow,
+        classification,
+        stage1_job,
+        stage1_file,
+        stage1_result,
+    ) = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    frozen_bh_batch = load_bh_stage2_classification_batch(db, workflow.id)
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
+
+    first = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=payload,
+        current_user=user,
+    )
+    second = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=payload,
+        current_user=user,
+    )
+
+    assert first.job.task_type == "process_excel_stage2"
+    assert first.job.pipeline == "excel_stage2"
+    assert first.job.project_id == project.id
+    assert first.reused is False
+    assert second.job.id == first.job.id
+    assert second.reused is True
+    assert second.retried is False
+    assert first.job.params_json == {
+        "workflow_id": workflow.id,
+        "project_id": workflow.project_id,
+        "source_excel_file_id": next(
+            artifact.file_id
+            for artifact in workflow.artifacts
+            if artifact.artifact_type == "source_excel"
+        ),
+        "source_excel_sha256": next(
+            item.validated_sha256
+            for item in workflow.input_batch.items
+            if item.role == "source_excel"
+        ),
+        "stage1_artifact_id": next(
+            artifact.id
+            for artifact in workflow.artifacts
+            if artifact.artifact_type == "stage1_excel"
+        ),
+        "stage1_result_id": stage1_result.id,
+        "stage1_excel_file_id": stage1_file.id,
+        "stage1_excel_sha256": stage1_file.sha256,
+        "stage1_job_id": stage1_job.id,
+        "stage1_job_attempt": stage1_job.attempt,
+        "classification_run_id": classification.id,
+        "classification_job_id": classification.job_id,
+        "classification_job_attempt": classification.job_attempt,
+        "classification_manifest_sha256": classification.input_manifest_sha256,
+        "classifier_version": classification.classifier_version,
+        "bh_input_count": 1,
+        "bh_manifest_version": 1,
+        "bh_manifest_sha256": frozen_bh_batch.bh_manifest_sha256,
+    }
+    assert "bh_inputs" not in first.job.params_json
+    stage2 = next(item for item in workflow.stages if item.stage_code == "excel_stage2")
+    assert stage2.job_id == first.job.id
+    assert stage2.job_attempt == 1
+
+
+def test_excel_stage2_preflight_is_read_only_and_allows_empty_bh_batch(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, classification, *_ = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    classification.items[0].part_type = "PX"
+    classification.type_counts_json = {"PX": 1}
+    db.flush()
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    before = db.query(Job).count()
+
+    result = preflight_excel_stage2(db, workflow, current_user=user)
+
+    assert db.query(Job).count() == before
+    assert result["ready"] is True
+    assert result["mode"] == "no_bh_inputs"
+    assert result["bh_input_count"] == 0
+    assert result["classification_run_id"] == classification.id
+    assert result["checks"][-1] == {
+        "code": "bh_batch_frozen",
+        "label": "当前分类账无 BH 图纸，将原样生成第二阶段结果",
+    }
+
+
+def test_excel_stage2_preflight_api_exposes_worker_facing_summary(
+    tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    client = workflow_test_api.client()
+    admin_headers = workflow_test_api.admin_headers(client)
+    _, owner_headers = workflow_test_api.create_engineer_user(
+        client, admin_headers, "stage2-preflight"
+    )
+    project_id = workflow_test_api.create_project(client, owner_headers)
+    created = client.post(
+        "/api/v1/workflows",
+        headers=owner_headers,
+        json={
+            "project_id": project_id,
+            "name": "Stage2 preflight",
+            "workflow_type": "linux_production",
+        },
+    )
+    assert created.status_code == 201, created.text
+    workflow_id = created.json()["data"]["id"]
+    with open_test_session() as db:
+        workflow = db.get(WorkflowRun, workflow_id)
+        assert workflow is not None
+        _attach_valid_source_excel(db, workflow, tmp_path, monkeypatch)
+        classification = _complete_classification_fixture(db, workflow)
+        _complete_excel_stage1_fixture(db, workflow)
+        expected_run_id = classification.id
+        before = db.query(Job).count()
+        db.commit()
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+
+    response = client.get(
+        f"/api/v1/workflows/{workflow_id}/stages/excel_stage2/preflight",
+        headers=owner_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["ready"] is True
+    assert data["mode"] == "bh_enhancement"
+    assert data["classification_run_id"] == expected_run_id
+    assert data["bh_input_count"] == 1
+    assert data["stage1_file_name"] == "stage1.xlsx"
+    with open_test_session() as db:
+        assert db.query(Job).count() == before
+
+
+def test_excel_stage2_rejects_cross_project_classification_without_job(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, classification, *_ = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    _, other_project = _owner_project(db)
+    classification.project_id = other_project.id
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    before = db.query(Job).count()
+
+    with pytest.raises(AppHTTPException) as caught:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="excel_stage2",
+            payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+            current_user=user,
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_CLASSIFICATION_BINDING_INVALID"
+    assert db.query(Job).count() == before
+
+
+def test_excel_stage2_rejects_stage1_attempt_metadata_drift(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    artifact = next(
+        item for item in workflow.artifacts if item.artifact_type == "stage1_excel"
+    )
+    artifact.metadata_json = {
+        "job_id": artifact.metadata_json["job_id"],
+        "job_attempt": 99,
+    }
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+
+    with pytest.raises(AppHTTPException) as caught:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="excel_stage2",
+            payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+            current_user=user,
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_STAGE1_BINDING_INVALID"
+
+
+def test_excel_stage2_rejects_bound_job_with_changed_frozen_params(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
+    plan = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=payload,
+        current_user=user,
+    )
+    plan.job.params_json = {**plan.job.params_json, "bh_input_count": 2}
+
+    with pytest.raises(AppHTTPException) as caught:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="excel_stage2",
+            payload=payload,
+            current_user=user,
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_JOB_BINDING_INVALID"
+
+
+def test_excel_stage2_reuses_bound_job_for_another_project_member(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    user, project, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    colleague = User(
+        username=f"stage2-colleague-{uuid4().hex[:8]}",
+        password_hash="x",
+        real_name="Stage2 Colleague",
+        status="active",
+    )
+    db.add(colleague)
+    db.flush()
+    db.add(
+        ProjectMember(
+            project_id=project.id,
+            user_id=colleague.id,
+            project_role="project_engineer",
+        )
+    )
+    db.flush()
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
+
+    first = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=payload,
+        current_user=user,
+    )
+    replay = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=payload,
+        current_user=colleague,
+    )
+
+    assert replay.job.id == first.job.id
+    assert replay.job.created_by == user.id
+    assert replay.reused is True
+
+
+def test_excel_stage2_job_params_stay_small_for_5000_bh_inputs(
+    db, tmp_path, monkeypatch
+):
+    from app.modules.workflows import stage_execution
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    batch = stage_execution.load_bh_stage2_classification_batch(db, workflow.id)
+    template = batch.items[0]
+    large_batch = batch.model_copy(
+        update={
+            "items": tuple(
+                template.model_copy(
+                    update={
+                        "classification_item_id": index,
+                        "source_file_id": 100_000 + index,
+                        "input_file_id": 200_000 + index,
+                        "input_name": f"BH-{index}.dxf",
+                    }
+                )
+                for index in range(1, 5001)
+            )
+        }
+    )
+    monkeypatch.setattr(
+        stage_execution,
+        "load_bh_stage2_classification_batch",
+        lambda _db, _workflow_id: large_batch,
+    )
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+
+    plan = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+        current_user=user,
+    )
+
+    assert plan.job.params_json["bh_input_count"] == 5000
+    assert len(
+        json.dumps(plan.job.params_json, ensure_ascii=False).encode("utf-8")
+    ) < 4096
+
+
+def test_excel_stage2_translates_invalid_classification_ledger(
+    db, tmp_path, monkeypatch
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, classification, *_ = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    classification.items[0].output_name = "与文件登记不一致.dxf"
+    db.flush()
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+
+    with pytest.raises(AppHTTPException) as caught:
+        prepare_stage_execution(
+            db,
+            workflow,
+            stage_code="excel_stage2",
+            payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+            current_user=user,
+        )
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_CLASSIFICATION_INPUT_INVALID"
+    assert "BH 分类后的拆板前 DXF 文件不可用" in caught.value.detail["message"]
 
 
 def _advance_to_drawing_processing(db, workflow: WorkflowRun) -> None:
@@ -1933,7 +2395,11 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
             )
         workflow_service.complete_manual_stage(db, workflow, stage_code)
 
-    def finish_job(stage_code: str, task_type: str, artifact_name: str) -> StoredFile:
+    def finish_job(
+        stage_code: str,
+        task_type: str,
+        artifact_name: str | tuple[tuple[str, str], ...],
+    ) -> StoredFile:
         job = Job(
             project_id=project.id,
             task_type=task_type,
@@ -1947,28 +2413,45 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         db.add(job)
         db.flush()
         workflow_service.bind_stage_job(db, workflow, stage_code=stage_code, job=job)
-        output = _stored_file(db, name=artifact_name)
-        db.add(
-            AnalysisResult(
+        requested = (
+            ((None, artifact_name),)
+            if isinstance(artifact_name, str)
+            else artifact_name
+        )
+        outputs: list[StoredFile] = []
+        for artifact_type, name in requested:
+            output = _stored_file(db, name=name)
+            outputs.append(output)
+            db.add(AnalysisResult(
                 job_id=job.id,
                 result_type=task_type,
                 result_file_id=output.id,
                 status="succeeded",
-            )
-        )
+                result_json=(
+                    {
+                        "workflow_artifact_type": artifact_type,
+                        "job_attempt": job.attempt,
+                    }
+                    if artifact_type is not None
+                    else None
+                ),
+            ))
         job.status = "succeeded"
         job.progress = 100
         db.flush()
         workflow_service.sync_workflow_from_jobs(db, workflow)
-        return output
+        return outputs[-1]
 
     _advance_to_drawing_processing(db, workflow)
     _complete_drawing_processing_fixture(db, workflow)
     finish_job("excel_stage1", "process_excel_final", "stage1.xlsx")
-    stage2 = _stored_file(db, name="stage2.xlsx")
-    bind_and_complete(
+    stage2 = finish_job(
         "excel_stage2",
-        (("stage2_excel", stage2),),
+        "process_excel_stage2",
+        (
+            ("bh_setback_excel", "BH左右进读取表.xlsx"),
+            ("stage2_excel", "stage2.xlsx"),
+        ),
     )
     bind_and_complete(
         "design_barrier",
@@ -2020,6 +2503,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         "bh_split_ledger",
         "split_manifest",
         "stage1_excel",
+        "bh_setback_excel",
         "stage2_excel",
         "review_record",
         "cam_input_dxf",

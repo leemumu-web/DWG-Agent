@@ -78,6 +78,7 @@ class DxfBhStage2Input(BaseModel):
     drawing_id: int | None
     source_file_id: int
     input_file_id: int
+    input_sha256: str
     input_name: str
     profile_normalized: str
     type_source: str
@@ -91,6 +92,8 @@ class DxfBhStage2ClassificationBatch(BaseModel):
     classification_job_attempt: int
     classifier_version: str
     input_manifest_sha256: str
+    bh_manifest_version: int
+    bh_manifest_sha256: str
     items: tuple[DxfBhStage2Input, ...]
 
 
