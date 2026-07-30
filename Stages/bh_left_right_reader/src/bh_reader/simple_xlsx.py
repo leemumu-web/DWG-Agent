@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from itertools import chain
 from pathlib import Path
+from typing import Iterable, Sequence
 from zipfile import ZIP_DEFLATED, ZipFile
 from xml.sax.saxutils import escape
 
@@ -25,7 +27,11 @@ def _cell(ref: str, value, style: int = 0) -> str:
     return f'<c r="{ref}" t="inlineStr"{style_attr}><is><t xml:space="preserve">{escape(str(value))}</t></is></c>'
 
 
-def write_results_xlsx(path: Path, result_rows: list[list[object]], diagnostic_rows: list[list[object]]) -> None:
+def write_results_xlsx(
+    path: Path,
+    result_rows: Iterable[Sequence[object]],
+    diagnostic_rows: Iterable[Sequence[object]],
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     headers = ["源文件", "零件名称", "规格", "左进(mm)", "右进(mm)", "原始左进(mm)", "原始右进(mm)", "状态", "置信度", "证据/警告", "校验图路径"]
     diag_headers = [
@@ -36,10 +42,16 @@ def write_results_xlsx(path: Path, result_rows: list[list[object]], diagnostic_r
         "上翼块数", "下翼块数", "腹板左进(mm)", "腹板右进(mm)", "警告", "校验图路径",
     ]
 
-    def sheet_xml(rows: list[list[object]], sheet_headers: list[str], warning_col: int, widths: list[float]) -> str:
+    def sheet_xml(
+        rows: Iterable[Sequence[object]],
+        sheet_headers: list[str],
+        warning_col: int,
+        widths: list[float],
+    ) -> str:
         xml_rows = []
-        all_rows = [sheet_headers] + rows
-        for row_index, row in enumerate(all_rows, 1):
+        last_row_index = 1
+        for row_index, row in enumerate(chain((sheet_headers,), rows), 1):
+            last_row_index = row_index
             cells = []
             warning = row_index > 1 and warning_col < len(row) and str(row[warning_col]).startswith(("WARNING", "ERROR"))
             review = row_index > 1 and warning_col < len(row) and str(row[warning_col]).startswith("REVIEW")
@@ -48,7 +60,7 @@ def write_results_xlsx(path: Path, result_rows: list[list[object]], diagnostic_r
                 cells.append(_cell(f"{_col_name(col_index)}{row_index}", value, style))
             xml_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
         cols = "".join(f'<col min="{i}" max="{i}" width="{width}" customWidth="1"/>' for i, width in enumerate(widths, 1))
-        last = f"{_col_name(len(sheet_headers))}{max(1, len(all_rows))}"
+        last = f"{_col_name(len(sheet_headers))}{last_row_index}"
         return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>

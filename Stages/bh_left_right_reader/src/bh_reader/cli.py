@@ -8,8 +8,8 @@ import tomllib
 
 from . import __version__
 from .analyzer import AnalyzerConfig, BHAnalyzer
-from .dxf_ascii import read_ascii_dxf
-from .dxf_ezdxf import read_ezdxf
+from .batch import BhInputEntry, analyze_manifest
+from .model import DrawingData, DrawingResult
 from .simple_xlsx import write_results_xlsx
 from .visualize import build_contact_sheets, render_three_step_sample
 
@@ -21,19 +21,6 @@ def _config(path: Path | None) -> AnalyzerConfig:
         data = tomllib.load(file).get("geometry", {})
     allowed = AnalyzerConfig.__dataclass_fields__.keys()
     return AnalyzerConfig(**{key: value for key, value in data.items() if key in allowed})
-
-
-def _read(path: Path, backend: str):
-    if backend == "ascii":
-        return read_ascii_dxf(path)
-    if backend == "ezdxf":
-        return read_ezdxf(path)
-    try:
-        return read_ezdxf(path)
-    except Exception as exc:
-        drawing = read_ascii_dxf(path)
-        drawing.audit_messages.insert(0, f"ezdxf backend unavailable, used ASCII fallback: {exc}")
-        return drawing
 
 
 def _expand_inputs(values: list[str]) -> list[Path]:
@@ -195,31 +182,30 @@ def main(argv: list[str] | None = None) -> int:
         config=args.config,
     )
     analyzer = BHAnalyzer(_config(args.config))
-    results = []
-    drawings = []
-    for path in paths:
-        try:
-            drawing = _read(path, args.backend)
-            drawings.append(drawing)
-            results.append(analyzer.analyze(drawing))
-        except Exception as exc:
-            from .model import DrawingData, DrawingResult
-            drawings.append(DrawingData(path, [], [], "failed", [repr(exc)]))
-            results.append(DrawingResult(path.name, path.stem, "", "ERROR_UNHANDLED", 0.0, [], [repr(exc)]))
-
-    # Render first so every tabular/JSON record contains the actual image path
-    # and any rendering failure is visible in the same delivered warnings.
     visualization_map: dict[str, str] = {}
     visualization_failed = False
-    if not args.no_visuals:
-        assert visual_dir is not None
-        individual_dir = visual_dir / "individual"
-        rendered: list[Path] = []
-        warning_rendered: list[Path] = []
-        for drawing, result in zip(drawings, results, strict=True):
-            if not drawing.primitives or not result.diagnostics.get("front_view"):
-                continue
-            image_path = individual_dir / f"{Path(result.file_name).stem}_左右进校验.png"
+    rendered: list[Path] = []
+    warning_rendered: list[Path] = []
+    payload: list[dict[str, object]] = []
+
+    def consume_result(
+        _entry: BhInputEntry,
+        drawing: DrawingData | None,
+        result: DrawingResult,
+    ) -> None:
+        nonlocal visualization_failed
+        if (
+            not args.no_visuals
+            and drawing is not None
+            and drawing.primitives
+            and result.diagnostics.get("front_view")
+        ):
+            assert visual_dir is not None
+            image_path = (
+                visual_dir
+                / "individual"
+                / f"{Path(result.file_name).stem}_左右进校验.png"
+            )
             try:
                 render_three_step_sample(drawing, result, analyzer, image_path)
                 rendered.append(image_path)
@@ -229,81 +215,56 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 visualization_failed = True
                 result.warnings.append(f"可视化生成失败：{exc!r}")
+
+        payload.append({
+            "file_name": result.file_name,
+            "part_number": result.part_number,
+            "specification": result.specification,
+            "status": result.status,
+            "confidence": result.confidence,
+            "warnings": result.warnings,
+            "visualization_file": visualization_map.get(result.file_name, ""),
+            "measurements": [
+                {
+                    slot: getattr(measurement, slot)
+                    for slot in measurement.__slots__
+                }
+                for measurement in result.measurements
+            ],
+            "diagnostics": result.diagnostics,
+        })
+
+    outcome = analyze_manifest(
+        (BhInputEntry(path=path, file_name=path.name) for path in paths),
+        backend=args.backend,
+        on_progress=lambda _progress: None,
+        on_analyzed=consume_result,
+        analyzer=analyzer,
+    )
+
+    if not args.no_visuals:
+        assert visual_dir is not None
         build_contact_sheets(rendered, visual_dir, prefix="全部图纸_左右进校验")
         build_contact_sheets(warning_rendered, visual_dir, prefix="异常图纸_左右进校验")
 
-    rows: list[list[object]] = []
-    diagnostic_rows: list[list[object]] = []
-    for result in results:
-        warning_text = " | ".join(result.warnings)
-        if result.measurements:
-            for measurement in result.measurements:
-                rows.append([
-                    result.file_name, result.part_number + measurement.role, result.specification,
-                    measurement.left_safe, measurement.right_safe,
-                    round(measurement.left_raw, 3), round(measurement.right_raw, 3),
-                    result.status, round(measurement.confidence, 3),
-                    measurement.evidence + (" | " + warning_text if warning_text else ""),
-                    visualization_map.get(result.file_name, ""),
-                ])
-        else:
-            rows.append([
-                result.file_name, result.part_number + "（未输出）", result.specification,
-                None, None, None, None, result.status,
-                round(result.confidence, 3), warning_text,
-                visualization_map.get(result.file_name, ""),
-            ])
-        front_diag = result.diagnostics.get("front_view") or {}
-        unit_diag = result.diagnostics.get("units") or {}
-        plate_diag = result.diagnostics.get("plate_identification") or {}
-        web_diag = plate_diag.get("web") or {}
-        diagnostic_rows.append([
-            result.file_name,
-            result.part_number,
-            result.status,
-            result.diagnostics.get("measurement_rule", ""),
-            result.diagnostics.get("output_unit", "mm"),
-            unit_diag.get("header_insunits_code"),
-            unit_diag.get("header_insunits_name", ""),
-            unit_diag.get("title_drawing_scale") or "",
-            "否" if unit_diag else "",
-            round(float(unit_diag.get("coordinate_unit_to_mm", 0.0)), 6) if unit_diag else None,
-            unit_diag.get("status", ""),
-            unit_diag.get("verification_mode", ""),
-            front_diag.get("id", ""),
-            round(float(front_diag.get("left_x_dxf", 0.0)), 6) if front_diag else None,
-            round(float(front_diag.get("right_x_dxf", 0.0)), 6) if front_diag else None,
-            round(float(front_diag.get("length_mm", 0.0)), 3) if front_diag else None,
-            round(float(front_diag.get("height_mm", 0.0)), 3) if front_diag else None,
-            plate_diag.get("upper_flange_count"),
-            plate_diag.get("lower_flange_count"),
-            round(float(web_diag.get("left_offset_mm", 0.0)), 3) if web_diag else None,
-            round(float(web_diag.get("right_offset_mm", 0.0)), 3) if web_diag else None,
-            warning_text,
-            visualization_map.get(result.file_name, ""),
-        ])
-    write_results_xlsx(args.output, rows, diagnostic_rows)
-
-    payload = [
-        {
-            "file_name": result.file_name, "part_number": result.part_number, "specification": result.specification,
-            "status": result.status, "confidence": result.confidence, "warnings": result.warnings,
-            "visualization_file": visualization_map.get(result.file_name, ""),
-            "measurements": [measurement.__dict__ if hasattr(measurement, "__dict__") else {slot: getattr(measurement, slot) for slot in measurement.__slots__} for measurement in result.measurements],
-            "diagnostics": result.diagnostics,
-        }
-        for result in results
-    ]
+    write_results_xlsx(
+        args.output,
+        outcome.iter_result_rows(visualization_map),
+        outcome.iter_diagnostic_rows(visualization_map),
+    )
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    ok = sum(result.status == "OK" for result in results)
-    print(f"processed={len(results)} ok={ok} review_or_error={len(results)-ok}")
+    print(
+        f"processed={outcome.processed_count} ok={outcome.ok_count} "
+        f"review_or_error={outcome.failure_count}"
+    )
     print(f"xlsx={args.output}")
     print(f"json={json_path}")
     if not args.no_visuals:
         print(f"visuals={visual_dir}")
     analyses_acceptable = all(
-        result.status in {"OK", "REVIEW_LOW_CONFIDENCE"} for result in results
+        item.status in {"OK", "REVIEW_LOW_CONFIDENCE"}
+        for item in outcome.items
     )
     return 0 if analyses_acceptable and not visualization_failed else 2
 

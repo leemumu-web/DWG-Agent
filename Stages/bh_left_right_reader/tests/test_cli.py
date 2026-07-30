@@ -9,6 +9,7 @@ from zipfile import ZipFile
 
 import ezdxf
 
+import bh_reader.cli as cli
 from bh_reader.cli import _expand_inputs, main
 
 
@@ -111,6 +112,29 @@ class CliIoTests(unittest.TestCase):
                 "--json", str(json_path), "--no-visuals",
             ])
             self.assertEqual(code, 0)
+            self.assertTrue(xlsx.is_file())
+            self.assertTrue(json_path.is_file())
+
+    def test_cli_reuses_the_streaming_batch_service(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "input" / "source.dxf"
+            source.parent.mkdir()
+            self._valid_dxf(source)
+            xlsx = root / "delivery" / "result.xlsx"
+            json_path = root / "delivery" / "result.json"
+
+            with patch(
+                "bh_reader.cli.analyze_manifest",
+                wraps=cli.analyze_manifest,
+            ) as analyze:
+                code = main([
+                    str(source), "--backend", "ascii", "--output", str(xlsx),
+                    "--json", str(json_path), "--no-visuals",
+                ])
+
+            self.assertEqual(code, 0)
+            self.assertEqual(analyze.call_count, 1)
             self.assertTrue(xlsx.is_file())
             self.assertTrue(json_path.is_file())
 
