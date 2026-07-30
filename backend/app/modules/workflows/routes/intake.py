@@ -2,8 +2,11 @@
 
 import json
 
-from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
+from starlette.datastructures import FormData
+from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.modules.files.interface import (
     TransferSnapshot,
@@ -25,6 +28,7 @@ from app.modules.workflows.intake.freeze import freeze_input_batch
 from app.modules.workflows.intake.presentation import describe_input_batch
 from app.modules.workflows.intake.recovery import restore_cleared_input_files
 from app.modules.workflows.intake.registration import (
+    MAX_INPUT_DWG_FILES,
     create_input_batch,
     get_input_batch,
     lock_input_batch,
@@ -47,10 +51,15 @@ from app.platform.http.exceptions import AppHTTPException
 
 router = APIRouter()
 
+# 5000 normal Windows-length relative paths need more than Starlette's default
+# 1 MiB text-field ceiling.  This remains a bounded metadata field and is far
+# below the 512 MiB request-body ceiling enforced at the gateway.
+MAX_INPUT_DWG_MANIFEST_BYTES = 4 * 1024 * 1024
+
 
 def _prepare_input_transfers(
     db: Session,
-    uploads: list[UploadFile],
+    uploads: list[StarletteUploadFile],
     *,
     actor_user_id: int,
     request_id: str,
@@ -74,6 +83,49 @@ def _prepare_input_transfers(
     ]
     db.commit()
     return transfers
+
+
+async def _read_dwg_folder_form(
+    request: Request,
+) -> tuple[FormData, list[StarletteUploadFile], str]:
+    """Read this one high-cardinality multipart route with an explicit bound.
+
+    FastAPI normally calls ``Request.form()`` before the endpoint and inherits
+    Starlette's default 1000-file ceiling.  This route is intentionally parsed
+    after authorization with a 5001-file parser ceiling: 5001 reaches the
+    domain validator for a precise error; 5002+ is rejected without accepting
+    an unbounded multipart body.
+    """
+    try:
+        form = await request.form(
+            max_files=MAX_INPUT_DWG_FILES + 1,
+            max_fields=16,
+            max_part_size=MAX_INPUT_DWG_MANIFEST_BYTES,
+        )
+    except StarletteHTTPException as exc:
+        if exc.status_code == 400 and str(exc.detail).startswith("Too many files."):
+            raise AppHTTPException(
+                413,
+                "INPUT_FOLDER_TOO_MANY_FILES",
+                f"The selected folder may contain at most {MAX_INPUT_DWG_FILES} uploaded files.",
+                {
+                    "maximum_files": MAX_INPUT_DWG_FILES,
+                    "selected_files_at_least": MAX_INPUT_DWG_FILES + 2,
+                },
+            ) from exc
+        raise
+
+    relative_paths = form.get("relative_paths")
+    raw_uploads = form.getlist("uploads")
+    uploads = [item for item in raw_uploads if isinstance(item, StarletteUploadFile)]
+    if not isinstance(relative_paths, str) or len(uploads) != len(raw_uploads):
+        await form.close()
+        raise AppHTTPException(
+            422,
+            "INPUT_FOLDER_MANIFEST_INVALID",
+            "The folder upload must contain one relative-path manifest and DWG file parts.",
+        )
+    return form, uploads, relative_paths
 
 
 def _settle_failed_input_transfers(
@@ -234,92 +286,94 @@ async def import_input_dwg_folder_api(
     workflow_id: int,
     request: Request,
     current_user: CurrentUser,
-    uploads: list[UploadFile] = File(...),
-    relative_paths: str = Form(...),
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
     require_project_role(db, current_user, workflow.project_id, WORKFLOW_WRITE_ROLES)
+    form, uploads, relative_paths = await _read_dwg_folder_form(request)
     try:
-        parsed_paths = json.loads(relative_paths)
-    except json.JSONDecodeError as exc:
-        raise AppHTTPException(
-            422,
-            "INPUT_FOLDER_MANIFEST_INVALID",
-            "The folder manifest is not valid JSON.",
-        ) from exc
-    if not isinstance(parsed_paths, list) or not all(
-        isinstance(value, str) for value in parsed_paths
-    ):
-        raise AppHTTPException(
-            422,
-            "INPUT_FOLDER_MANIFEST_INVALID",
-            "The folder manifest must be a JSON string array.",
-        )
-    upload_names = [upload.filename or "" for upload in uploads]
-    folder_name = validate_input_dwg_folder_manifest(upload_names, parsed_paths)
-
-    batch = lock_input_batch(db, get_input_batch(db, workflow_id))
-    if any(item.role == "source_dwg" for item in batch.items):
-        raise AppHTTPException(
-            409,
-            "INPUT_DWG_FOLDER_ALREADY_IMPORTED",
-            "Remove the current production input before uploading another DWG folder.",
-        )
-
-    transfers = _prepare_input_transfers(
-        db,
-        uploads,
-        actor_user_id=current_user.id,
-        request_id=request.state.request_id,
-        batch_id=batch.id,
-        operation="workflow_input_dwg_folder",
-    )
-    try:
-        imported_file_ids: list[int] = []
-        for upload, transfer in zip(uploads, transfers, strict=True):
-            stored = await save_upload_file(
-                db,
-                upload,
-                uploaded_by=current_user.id,
-                batch_name=f"workflow-input-{batch.id}",
-                transfer_uid=transfer.transfer_uid,
-                request_id=request.state.request_id,
-                advance_transfer_intent=False,
+        try:
+            parsed_paths = json.loads(relative_paths)
+        except json.JSONDecodeError as exc:
+            raise AppHTTPException(
+                422,
+                "INPUT_FOLDER_MANIFEST_INVALID",
+                "The folder manifest is not valid JSON.",
+            ) from exc
+        if not isinstance(parsed_paths, list) or not all(
+            isinstance(value, str) for value in parsed_paths
+        ):
+            raise AppHTTPException(
+                422,
+                "INPUT_FOLDER_MANIFEST_INVALID",
+                "The folder manifest must be a JSON string array.",
             )
-            complete_transfer_in_transaction(
-                db,
-                transfer.transfer_uid,
-                file_id=stored.id,
-                bucket=stored.bucket,
-                storage_key=stored.storage_key,
-                original_name=stored.original_name,
-                transferred_bytes=stored.size_bytes,
-            )
-            outcome = register_input_file(db, batch, stored)
-            if outcome.failure is not None:
-                raise_excel_failure(outcome.failure)
-            imported_file_ids.append(stored.id)
+        upload_names = [upload.filename or "" for upload in uploads]
+        folder_name = validate_input_dwg_folder_manifest(upload_names, parsed_paths)
 
-        write_audit_log(
+        batch = lock_input_batch(db, get_input_batch(db, workflow_id))
+        if any(item.role == "source_dwg" for item in batch.items):
+            raise AppHTTPException(
+                409,
+                "INPUT_DWG_FOLDER_ALREADY_IMPORTED",
+                "Remove the current production input before uploading another DWG folder.",
+            )
+
+        transfers = _prepare_input_transfers(
             db,
+            uploads,
             actor_user_id=current_user.id,
-            action="workflow_input_dwg_folders.import",
-            resource_type="workflow_input_batch",
-            resource_id=batch.id,
-            after_json={
-                "workflow_id": workflow.id,
-                "folder_name": folder_name,
-                "file_ids": imported_file_ids,
-                "relative_paths": parsed_paths,
-            },
-            request=request,
+            request_id=request.state.request_id,
+            batch_id=batch.id,
+            operation="workflow_input_dwg_folder",
         )
-        db.commit()
-    except Exception as exc:
-        _settle_failed_input_transfers(db, transfers, exc)
-        raise
-    return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
+        try:
+            imported_file_ids: list[int] = []
+            for upload, transfer in zip(uploads, transfers, strict=True):
+                stored = await save_upload_file(
+                    db,
+                    upload,
+                    uploaded_by=current_user.id,
+                    batch_name=f"workflow-input-{batch.id}",
+                    transfer_uid=transfer.transfer_uid,
+                    request_id=request.state.request_id,
+                    advance_transfer_intent=False,
+                )
+                complete_transfer_in_transaction(
+                    db,
+                    transfer.transfer_uid,
+                    file_id=stored.id,
+                    bucket=stored.bucket,
+                    storage_key=stored.storage_key,
+                    original_name=stored.original_name,
+                    transferred_bytes=stored.size_bytes,
+                )
+                outcome = register_input_file(db, batch, stored)
+                if outcome.failure is not None:
+                    raise_excel_failure(outcome.failure)
+                imported_file_ids.append(stored.id)
+
+            write_audit_log(
+                db,
+                actor_user_id=current_user.id,
+                action="workflow_input_dwg_folders.import",
+                resource_type="workflow_input_batch",
+                resource_id=batch.id,
+                after_json={
+                    "workflow_id": workflow.id,
+                    "folder_name": folder_name,
+                    "file_ids": imported_file_ids,
+                    "relative_paths": parsed_paths,
+                },
+                request=request,
+            )
+            db.commit()
+        except Exception as exc:
+            _settle_failed_input_transfers(db, transfers, exc)
+            raise
+        return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
+    finally:
+        await form.close()
 
 
 @router.delete(

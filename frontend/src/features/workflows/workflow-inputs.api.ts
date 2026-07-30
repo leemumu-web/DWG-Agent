@@ -11,6 +11,11 @@ import type {
   WorkflowInputConversion,
 } from './workflow-input';
 
+// A full 5000-drawing folder can take substantially longer than a normal form
+// submission while the API records each source file. This agrees with the
+// dedicated Nginx route and does not change the 512 MiB request-size boundary.
+const WORKFLOW_INPUT_DWG_FOLDER_TIMEOUT_MS = 1_800_000;
+
 export async function createWorkflowInputBatch(workflowId: number) {
   const response = await apiClient.post<ApiEnvelope<WorkflowInputBatch>>(
     `/api/v1/workflows/${workflowId}/input-batch`,
@@ -51,7 +56,7 @@ export async function uploadWorkflowInputDwgFolder(
     `/api/v1/workflows/${workflowId}/input-dwg-folder`,
     form,
     {
-      timeout: 300_000,
+      timeout: WORKFLOW_INPUT_DWG_FOLDER_TIMEOUT_MS,
       onUploadProgress: (event) => onProgress?.(
         transferProgressFromAxios(event, totalBytes),
       ),

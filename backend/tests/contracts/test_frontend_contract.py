@@ -461,9 +461,9 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
     assert "选择 DWG 文件夹" in panel_source
     assert 'accept=".xls,.xlsx"' in panel_source
     assert "确认，仅上传 DWG" in panel_source
-    assert "MAX_FOLDER_FILES = 1000" in files_api_source
-    assert "limitFolderUploadFiles(selected)" in panel_source
-    assert "仅取前 ${MAX_FOLDER_FILES} 个文件上传" in panel_source
+    assert "MAX_FOLDER_FILES = 5000" in files_api_source
+    assert "limitFolderUploadFiles(selectedDwgFiles)" in panel_source
+    assert "仅上传前 ${MAX_FOLDER_FILES} 张" in panel_source
     assert "downloadFile" not in panel_source
     assert "冻结后不可修改" in panel_source
     assert "getWorkflow" in panel_source
@@ -478,6 +478,25 @@ def test_workflow_source_intake_has_guarded_dwg_excel_frontend_contract():
         "/input-batch/freeze",
     ):
         assert path in api_source
+
+
+def test_large_dwg_folder_upload_has_end_to_end_timeout_contract():
+    api_source = _frontend_source("features/workflows/workflow-inputs.api.ts")
+    nginx_source = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text(
+        encoding="utf-8"
+    )
+    local_nginx_source = (REPO_ROOT / "infra/gateway/nginx/nginx.local.conf").read_text(
+        encoding="utf-8"
+    )
+
+    assert "WORKFLOW_INPUT_DWG_FOLDER_TIMEOUT_MS = 1_800_000" in api_source
+    assert "timeout: WORKFLOW_INPUT_DWG_FOLDER_TIMEOUT_MS" in api_source
+    for source in (nginx_source, local_nginx_source):
+        assert "^/api/v1/workflows/[0-9]+/input-dwg-folder$" in source
+        assert "client_body_timeout 30m;" in source
+        assert "proxy_read_timeout 30m;" in source
+        assert "proxy_send_timeout 30m;" in source
+        assert "proxy_request_buffering off;" in source
 
 
 def test_workflow_stage_mutations_recheck_authoritative_current_stage():
@@ -721,7 +740,7 @@ def test_dashboard_contains_complete_operator_manual():
         assert section in dashboard
     for rule in (
         "只处理第一张",
-        "前 1000 个",
+        "前 5000 张",
         "原始 DWG 只负责留档",
         "原长版和余量增长版",
         "板材统一按 7.85",

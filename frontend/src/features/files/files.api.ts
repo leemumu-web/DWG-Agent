@@ -20,14 +20,15 @@ import type {
 import type { Job } from '../jobs';
 import { describeApiError, describeApiErrorAsync } from '../../shared/api';
 
-export const MAX_FOLDER_FILES = 1000;
+/** One operator submission may contain up to 5000 drawings. */
+export const MAX_FOLDER_FILES = 5000;
 
 export interface LimitedFolderSelection {
   files: File[];
   omittedCount: number;
 }
 
-/** Apply the operator-visible folder limit before any extension filtering. */
+/** Return the operator-visible maximum number of files for a selected folder. */
 export function limitFolderUploadFiles(files: File[]): LimitedFolderSelection {
   return {
     files: files.slice(0, MAX_FOLDER_FILES),

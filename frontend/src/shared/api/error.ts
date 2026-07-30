@@ -93,7 +93,7 @@ const CODE_MESSAGES: Record<string, string> = {
   INPUT_FOLDER_DWG_REQUIRED: '所选文件夹中没有 DWG 图纸，请重新选择正确的图纸文件夹。',
   INPUT_FOLDER_MANIFEST_INVALID: '浏览器没有完整保留文件夹结构，或所选内容不是一个完整文件夹；请重新点击“选择 DWG 文件夹”。',
   INPUT_FOLDER_ROOT_MISMATCH: '本次选择混入了多个根文件夹，请一次只选择一个完整图纸文件夹。',
-  INPUT_FOLDER_TOO_MANY_FILES: '文件夹超过 1000 个文件；系统只接收浏览器顺序中的前 1000 个，请拆分文件夹后核对数量。',
+  INPUT_FOLDER_TOO_MANY_FILES: '单次最多上传 5000 张图纸；当前文件夹超出上限，系统只接收浏览器顺序中的前 5000 张，请拆分后重新核对数量。',
   INPUT_FILE_TYPE_NOT_ALLOWED: '生产输入只接收 DWG 图纸和一个 Excel 文件，请按当前入口重新选择。',
   INPUT_RESTORE_FILE_UNAVAILABLE: '最近清空中的源文件已不完整，系统没有猜测替代文件；请重新上传完整 Excel 和 DWG 文件夹。',
   INPUT_RESTORE_NOT_AVAILABLE: '当前没有可精确恢复的清空记录，或本批已经重新上传了文件。',

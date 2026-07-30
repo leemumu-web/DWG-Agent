@@ -145,8 +145,8 @@ def test_input_folder_manifest_accepts_regular_unicode_engineering_names():
     assert folder == "生产图纸（一期）"
 
 
-def test_input_folder_manifest_accepts_1000_dwg_files():
-    names = [f"drawing-{index:04d}.dwg" for index in range(1000)]
+def test_input_folder_manifest_accepts_5000_dwg_files():
+    names = [f"drawing-{index:04d}.dwg" for index in range(5000)]
 
     folder = validate_input_dwg_folder_manifest(
         names,
@@ -156,8 +156,66 @@ def test_input_folder_manifest_accepts_1000_dwg_files():
     assert folder == "生产图纸"
 
 
-def test_input_folder_manifest_rejects_more_than_1000_files():
-    names = [f"drawing-{index:04d}.dwg" for index in range(1001)]
+def test_input_folder_route_accepts_more_than_framework_default_file_parts(monkeypatch, tmp_path):
+    """The endpoint must override Starlette's default 1000 multipart-file limit."""
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "multipart-5000")
+    created = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    response = _upload_dwg_folder(
+        client,
+        owner_headers,
+        workflow_id,
+        [
+            (f"D{index:04d}.dwg", b"AC1027" + bytes(2048))
+            for index in range(1001)
+        ],
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["data"]["counts"]["dwg"] == 1001
+
+
+def test_input_folder_route_reports_domain_limit_for_a_large_path_manifest(monkeypatch, tmp_path):
+    """Long paths for 5000 drawings must not hit Starlette's 1 MiB field default."""
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "multipart-manifest")
+    created = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    names = [f"D{index:04d}.dwg" for index in range(5001)]
+    response = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-dwg-folder",
+        headers=owner_headers,
+        data={
+            "relative_paths": json.dumps(
+                [f"生产图纸/{'a' * 240}/{name}" for name in names],
+                ensure_ascii=False,
+            )
+        },
+        files=[
+            ("uploads", (name, b"AC1027" + bytes(8), "application/octet-stream"))
+            for name in names
+        ],
+    )
+
+    assert response.status_code == 413, response.text
+    detail = response.json()["error"]
+    assert detail["code"] == "INPUT_FOLDER_TOO_MANY_FILES"
+    assert detail["details"]["selected_files"] == 5001
+
+
+def test_input_folder_manifest_rejects_more_than_5000_files():
+    names = [f"drawing-{index:04d}.dwg" for index in range(5001)]
 
     with pytest.raises(AppHTTPException) as raised:
         validate_input_dwg_folder_manifest(
@@ -166,7 +224,7 @@ def test_input_folder_manifest_rejects_more_than_1000_files():
         )
 
     assert raised.value.detail["code"] == "INPUT_FOLDER_TOO_MANY_FILES"
-    assert raised.value.detail["details"]["maximum_files"] == 1000
+    assert raised.value.detail["details"]["maximum_files"] == 5000
 
 
 @pytest.mark.parametrize("name", ["parts.xls", "parts.xlsx", "PARTS.XLSX"])

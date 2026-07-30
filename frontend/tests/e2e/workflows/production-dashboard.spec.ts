@@ -82,7 +82,7 @@ test('production workbench is backed by workflows and opens the real project for
   await expect(page.getByRole('tab', { name: /1\. 建立项目与准备资料/ })).toBeVisible();
   await page.getByRole('tab', { name: /2\. 资料上传与入库冻结/ }).click();
   await expect(page.getByText('一个项目只上传一份 Tekla 原始表')).toBeVisible();
-  await expect(page.getByText(/超过 1000 个文件时，只接收浏览器列出的前 1000 个/)).toBeVisible();
+  await expect(page.getByText(/超过 5000 张图纸时，只接收浏览器列出的前 5000 张/)).toBeVisible();
   await page.getByRole('tab', { name: /3\. 图纸分类与数量核对/ }).click();
   await expect(page.getByText(/原始 DWG 只负责留档/)).toBeVisible();
   await page.getByRole('tab', { name: /4\. BH、BOX 整批拆板/ }).click();

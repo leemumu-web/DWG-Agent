@@ -236,6 +236,10 @@ def test_dxf_split_pipeline_is_disabled_by_default():
     assert configured.dxf_classification_work_root.parent.name == "var"
 
 
+def test_zip_entry_limit_matches_the_large_drawing_upload_contract():
+    assert Settings(_env_file=None).max_zip_entry_count == 5000
+
+
 def test_oda_conversion_defaults_to_three_retries_in_both_directions():
     configured = Settings(_env_file=None)
 

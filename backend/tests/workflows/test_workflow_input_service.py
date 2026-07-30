@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import openpyxl
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.modules.files.interface import StoredFile
@@ -191,6 +192,55 @@ def test_input_batch_model_has_one_batch_per_workflow_and_ordered_items(db):
     )
     with pytest.raises(IntegrityError):
         db.flush()
+
+
+def test_input_batch_database_persists_5000_dwg_items(db):
+    """The production intake limit must not exceed what one batch can persist."""
+    user, project, workflow = _workflow(db)
+    batch = WorkflowInputBatch(
+        workflow_run_id=workflow.id,
+        project_id=project.id,
+        created_by=user.id,
+        status="uploading",
+        version=1,
+    )
+    db.add(batch)
+    db.flush()
+
+    files = [
+        StoredFile(
+            bucket="test",
+            storage_key=f"inputs/large-batch/{index:04d}.dwg",
+            original_name=f"D{index:04d}.dwg",
+            file_ext=".dwg",
+            content_type="application/acad",
+            size_bytes=2048,
+            sha256=f"{index:064x}",
+            status="available",
+        )
+        for index in range(5000)
+    ]
+    db.add_all(files)
+    db.flush()
+    db.add_all(
+        WorkflowInputItem(
+            input_batch_id=batch.id,
+            file_id=stored.id,
+            role="source_dwg",
+            original_name=stored.original_name,
+            normalized_stem=f"d{index:04d}",
+            status="uploaded",
+        )
+        for index, stored in enumerate(files)
+    )
+    db.commit()
+
+    persisted = db.scalar(
+        select(func.count())
+        .select_from(WorkflowInputItem)
+        .where(WorkflowInputItem.input_batch_id == batch.id)
+    )
+    assert persisted == 5000
 
 
 def test_registers_multiple_real_dwgs_and_one_readable_excel(db, tmp_path, monkeypatch):

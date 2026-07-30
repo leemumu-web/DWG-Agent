@@ -196,16 +196,16 @@ export function ProductionInputPanel({
       message.error('请选择一个至少包含一个 DWG 的完整文件夹');
       return;
     }
-    const limited = limitFolderUploadFiles(selected);
-    const limitedSelection = limited.files;
+    const selectedDwgFiles = selected.filter((file) => /\.dwg$/i.test(file.name));
+    const ignoredFiles = selected.filter((file) => !/\.dwg$/i.test(file.name));
+    const limited = limitFolderUploadFiles(selectedDwgFiles);
+    const dwgFiles = limited.files;
     const omittedCount = limited.omittedCount;
     if (omittedCount > 0) {
-      message.error(`文件夹包含 ${selected.length} 个文件，超过上限；仅取前 ${MAX_FOLDER_FILES} 个文件上传，后 ${omittedCount} 个文件已忽略。`);
+      message.error(`文件夹包含 ${selectedDwgFiles.length} 张 DWG 图纸，超过单次 ${MAX_FOLDER_FILES} 张上限；仅上传前 ${MAX_FOLDER_FILES} 张，后 ${omittedCount} 张未上传。`);
     }
-    const dwgFiles = limitedSelection.filter((file) => /\.dwg$/i.test(file.name));
-    const ignoredFiles = limitedSelection.filter((file) => !/\.dwg$/i.test(file.name));
     if (dwgFiles.length < 1) {
-      message.error(`前 ${MAX_FOLDER_FILES} 个文件中没有 DWG，请调整文件夹顺序后重试`);
+      message.error(`所选文件夹中没有 DWG 图纸，请调整后重试`);
       return;
     }
     if (!ignoredFiles.length) {
