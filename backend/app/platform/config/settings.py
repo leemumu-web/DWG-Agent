@@ -122,6 +122,8 @@ class Settings(BaseSettings):
     # cannot collide with FastAPI/Celery modules.
     excel_final_stage_root: Path | None = None
     excel_final_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
+    excel_stage2_timeout_seconds: int = Field(default=7200, ge=300, le=14400)
+    excel_stage2_work_root: Path = _BACKEND_DIR / "var" / "excel-stage2-work"
 
     # Read-only steel handbook database used by the Excel Final pipeline. When
     # unset, connection fields inherit the platform MySQL endpoint/credentials.

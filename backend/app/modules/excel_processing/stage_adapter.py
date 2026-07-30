@@ -802,6 +802,11 @@ def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
     stage_root = get_excel_final_stage_root()
     if not excel_final_dependencies_available():
         raise ExcelFinalUnavailableError("Excel Final Python dependencies are unavailable")
+    timeout_seconds = (
+        settings.excel_stage2_timeout_seconds
+        if arguments and arguments[0] == "process-stage2"
+        else settings.excel_final_timeout_seconds
+    )
 
     command = [
         sys.executable,
@@ -818,12 +823,12 @@ def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
             env=_stage_environment(),
             capture_output=True,
             text=True,
-            timeout=settings.excel_final_timeout_seconds,
+            timeout=timeout_seconds,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
         raise ExcelFinalProcessError(
-            f"Excel Final Stage exceeded {settings.excel_final_timeout_seconds} seconds"
+            f"Excel Final Stage exceeded {timeout_seconds} seconds"
         ) from exc
     except OSError as exc:
         raise ExcelFinalUnavailableError("Unable to start Excel Final Stage") from exc

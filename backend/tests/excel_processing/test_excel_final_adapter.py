@@ -584,6 +584,34 @@ def test_excel_stage2_adapter_validates_protocol_and_publishes_both_workbooks(
     assert result.internal_output_path.read_bytes() == b"internal-stage2"
 
 
+@pytest.mark.parametrize(
+    ("operation", "expected_timeout"),
+    [("process", 111), ("process-stage2", 222)],
+)
+def test_excel_stage_runner_uses_operation_specific_timeout(
+    monkeypatch,
+    tmp_path: Path,
+    operation: str,
+    expected_timeout: int,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_subprocess_run(*_args, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(excel_final, "get_excel_final_stage_root", lambda: tmp_path)
+    monkeypatch.setattr(excel_final, "excel_final_dependencies_available", lambda: True)
+    monkeypatch.setattr(excel_final, "_stage_environment", lambda: {})
+    monkeypatch.setattr(excel_final.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(excel_final.settings, "excel_final_timeout_seconds", 111)
+    monkeypatch.setattr(excel_final.settings, "excel_stage2_timeout_seconds", 222)
+
+    excel_final._run_stage(operation)
+
+    assert captured["timeout"] == expected_timeout
+
+
 def test_stage_runner_process_stage2_emits_the_strict_result_protocol(
     monkeypatch,
     tmp_path: Path,

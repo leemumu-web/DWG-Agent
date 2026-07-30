@@ -79,6 +79,9 @@ class DxfBhStage2Input(BaseModel):
     source_file_id: int
     input_file_id: int
     input_sha256: str
+    input_bucket: str
+    input_storage_key: str
+    input_size_bytes: int
     input_name: str
     profile_normalized: str
     type_source: str

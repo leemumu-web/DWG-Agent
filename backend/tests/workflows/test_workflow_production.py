@@ -573,6 +573,38 @@ def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(
     assert stage2.job_attempt == 1
 
 
+def test_excel_stage2_worker_resolves_the_exact_job_frozen_by_workflow(
+    db, tmp_path, monkeypatch
+):
+    from app.modules.excel_processing.stage2_execution import (
+        resolve_excel_stage2_worker_inputs,
+    )
+    from app.platform.config.settings import settings
+
+    user, _, workflow, classification, _, stage1_file, _ = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
+    plan = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+        current_user=user,
+    )
+
+    resolved = resolve_excel_stage2_worker_inputs(db, plan.job)
+
+    assert resolved.source_excel.id == plan.job.params_json["source_excel_file_id"]
+    assert resolved.stage1_excel.id == stage1_file.id
+    assert resolved.classification_batch.classification_run_id == classification.id
+    assert len(resolved.classification_batch.items) == 1
+    item = resolved.classification_batch.items[0]
+    assert item.input_bucket == "test-bucket"
+    assert item.input_storage_key
+    assert item.input_size_bytes == 128
+
+
 def test_excel_stage2_preflight_is_read_only_and_allows_empty_bh_batch(
     db, tmp_path, monkeypatch
 ):

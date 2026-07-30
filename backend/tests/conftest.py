@@ -87,6 +87,10 @@ def _isolate_test_db(monkeypatch):
         TestSessionLocal,
     )
     monkeypatch.setattr(
+        "app.modules.excel_processing.stage2_execution.SessionLocal",
+        TestSessionLocal,
+    )
+    monkeypatch.setattr(
         "app.modules.operations.control_plane.tasks.SessionLocal",
         TestSessionLocal,
     )

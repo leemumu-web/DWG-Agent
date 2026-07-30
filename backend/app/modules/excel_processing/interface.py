@@ -42,6 +42,22 @@ def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
     return str(process_excel_final_task.delay(job_id, attempt).id)
 
 
+def run_excel_stage2_processing(job_id: int, **kwargs) -> None:
+    """Execute one attempt of the isolated BH Reader and Excel Stage2 pipeline."""
+    from app.modules.excel_processing.stage2_execution import (
+        run_excel_stage2_processing as run,
+    )
+
+    run(job_id, **kwargs)
+
+
+def enqueue_excel_stage2_job(job_id: int, attempt: int) -> str:
+    """Enqueue one Excel Stage2 attempt through its stable task boundary."""
+    from app.modules.excel_processing.tasks import process_excel_stage2_task
+
+    return str(process_excel_stage2_task.delay(job_id, attempt).id)
+
+
 def inspect_excel_stage1_bytes(
     *,
     file_name: str,
@@ -69,6 +85,8 @@ __all__ = [
     "ExcelStage1Inspection",
     "cleanup_excel_processing_rows",
     "enqueue_excel_final_job",
+    "enqueue_excel_stage2_job",
     "inspect_excel_stage1_bytes",
     "run_excel_final_processing",
+    "run_excel_stage2_processing",
 ]

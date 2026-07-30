@@ -25,8 +25,10 @@ EXCEL_PUBLIC_CONTRACT = {
     "ExcelFinalPart",
     "cleanup_excel_processing_rows",
     "enqueue_excel_final_job",
+    "enqueue_excel_stage2_job",
     "inspect_excel_stage1_bytes",
     "run_excel_final_processing",
+    "run_excel_stage2_processing",
 }
 
 EXPECTED_ROUTES = [
@@ -57,6 +59,7 @@ EXPECTED_INTERNAL_FILES = {
     "presentation.py",
     "schemas.py",
     "stage_adapter.py",
+    "stage2_execution.py",
     "stage_runner.py",
     "staging.py",
     "tasks.py",
@@ -110,6 +113,14 @@ def test_excel_task_keeps_public_name_and_queue() -> None:
     assert celery_app.conf.task_routes["app.workers.tasks_excel_final.*"] == {
         "queue": "excel_final"
     }
+
+
+def test_excel_stage2_task_has_stable_public_name() -> None:
+    tasks = importlib.import_module("app.modules.excel_processing.tasks")
+
+    assert tasks.process_excel_stage2_task.name == (
+        "app.workers.tasks_excel_stage2.process_excel_stage2"
+    )
 
 
 def test_excel_internal_responsibilities_are_traceable() -> None:

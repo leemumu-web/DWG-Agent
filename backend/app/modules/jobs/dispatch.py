@@ -22,6 +22,7 @@ from app.platform.config.constants import (
     PIPELINE_DXF2DWG,
     PIPELINE_DXF2EXCEL,
     PIPELINE_EXCEL_FINAL,
+    PIPELINE_EXCEL_STAGE2,
     PIPELINE_STEEL_DXF_CLASSIFIER,
     PIPELINE_STEEL_DXF_SPLIT,
     PIPELINE_STUB,
@@ -69,6 +70,13 @@ def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
     return enqueue(job_id, attempt)
 
 
+def enqueue_excel_stage2_job(job_id: int, attempt: int) -> str:
+    """投递 BH 左右进与 Excel 第二阶段深化任务。"""
+    from app.modules.excel_processing.interface import enqueue_excel_stage2_job as enqueue
+
+    return enqueue(job_id, attempt)
+
+
 def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
     """投递冻结 DXF 分类分流任务。"""
     from app.modules.dxf_classification.interface import enqueue_dxf_classification_job
@@ -96,6 +104,8 @@ def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
         return enqueue_dxf2excel_job(job_id, attempt)
     if pipeline == PIPELINE_EXCEL_FINAL:
         return enqueue_excel_final_job(job_id, attempt)
+    if pipeline == PIPELINE_EXCEL_STAGE2:
+        return enqueue_excel_stage2_job(job_id, attempt)
     if pipeline == PIPELINE_STEEL_DXF_CLASSIFIER:
         return enqueue_dxf_classification_job(job_id, attempt)
     if pipeline == PIPELINE_STEEL_DXF_SPLIT:

@@ -253,14 +253,18 @@
       ],
       "tables": ["excel_final_batches", "excel_final_components", "excel_final_parts"],
       "http_prefixes": ["/api/v1/excel-final"],
-      "celery_tasks": ["app.workers.tasks_excel_final.process_excel_final"],
+      "celery_tasks": [
+        "app.workers.tasks_excel_final.process_excel_final",
+        "app.workers.tasks_excel_stage2.process_excel_stage2"
+      ],
       "queues": ["excel_final"],
       "stages": ["Stages/excel_final"],
       "tests": [
         "backend/tests/architecture/test_excel_processing_boundaries.py",
         "backend/tests/excel_processing/test_excel_final_adapter.py",
         "backend/tests/excel_processing/test_excel_final_import.py",
-        "backend/tests/excel_processing/test_excel_final_retry.py"
+        "backend/tests/excel_processing/test_excel_final_retry.py",
+        "backend/tests/excel_processing/test_excel_stage2_execution.py"
       ],
       "docs": [
         "Stages/excel_final/PROCESS.md",

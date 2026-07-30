@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.modules.excel_processing.execution import run_excel_final_processing
+from app.modules.excel_processing.stage2_execution import run_excel_stage2_processing
 from app.modules.jobs.interface import summarize_job_execution
 from app.platform.messaging.celery_app import celery_app
 
@@ -16,3 +17,18 @@ def process_excel_final_task(self, job_id: int, attempt: int = 1) -> dict[str, i
     worker_name = self.request.hostname or "celery_excel_final"
     run_excel_final_processing(job_id, worker_name=worker_name, expected_attempt=attempt)
     return summarize_job_execution(job_id, "excel_final")
+
+
+@celery_app.task(name="app.workers.tasks_excel_stage2.process_excel_stage2", bind=True)
+def process_excel_stage2_task(self, job_id: int, attempt: int = 1) -> dict[str, int | str]:
+    """Run one immutable Excel Stage2 attempt on its dedicated execution plane."""
+    worker_name = self.request.hostname or "celery_excel_stage2"
+    run_excel_stage2_processing(
+        job_id,
+        worker_name=worker_name,
+        expected_attempt=attempt,
+    )
+    return summarize_job_execution(job_id, "excel_stage2")
+
+
+__all__ = ["process_excel_final_task", "process_excel_stage2_task"]
