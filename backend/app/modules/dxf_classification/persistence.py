@@ -23,6 +23,8 @@ from app.modules.dxf_classification.models import (
     DxfClassificationRun,
 )
 from app.modules.dxf_classification.schemas import (
+    DxfBhStage2ClassificationBatch,
+    DxfBhStage2Input,
     DxfNextStageInput,
     DxfSplitCandidateInput,
 )
@@ -390,6 +392,77 @@ def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificatio
             DxfClassificationRun.job_attempt.desc(),
             DxfClassificationRun.id.desc(),
         )
+    )
+
+
+def load_bh_stage2_classification_batch(
+    db: Session,
+    workflow_id: int,
+    *,
+    expected_run_id: int | None = None,
+) -> DxfBhStage2ClassificationBatch:
+    """Load one immutable BH input batch from the workflow classification ledger."""
+    run = db.scalar(
+        select(DxfClassificationRun)
+        .where(DxfClassificationRun.workflow_run_id == workflow_id)
+        .order_by(
+            DxfClassificationRun.job_attempt.desc(),
+            DxfClassificationRun.id.desc(),
+        )
+    )
+    if run is None:
+        raise ClassificationError("当前工作流没有 DXF 分类运行账本。")
+    if expected_run_id is not None and run.id != expected_run_id:
+        raise ClassificationError("当前 DXF 分类运行已变化，请刷新后重试。")
+    if run.status not in {"completed", "completed_with_review"}:
+        raise ClassificationError("当前 DXF 分类运行尚未形成正式输出。")
+
+    rows = db.execute(
+        select(DxfClassificationItem, StoredFile)
+        .join(StoredFile, StoredFile.id == DxfClassificationItem.output_file_id)
+        .where(
+            DxfClassificationItem.run_id == run.id,
+            DxfClassificationItem.disposition == "classified",
+            DxfClassificationItem.part_type == "BH",
+        )
+        .order_by(DxfClassificationItem.id)
+    ).all()
+    inputs: list[DxfBhStage2Input] = []
+    seen_input_file_ids: set[int] = set()
+    for item, stored in rows:
+        if not item.next_stage_eligible:
+            raise ClassificationError("BH 分类记录未获准进入下一阶段。")
+        profile = str(item.profile_normalized or "").strip()
+        type_source = str(item.type_source or "").strip()
+        if not profile or type_source not in {"catalog", "auto_discovered"}:
+            raise ClassificationError("BH 分类记录缺少规格或类型来源。")
+        if (
+            stored.status != "available"
+            or stored.file_ext.casefold() != ".dxf"
+            or item.output_name != stored.original_name
+        ):
+            raise ClassificationError("BH 分类后的拆板前 DXF 文件不可用。")
+        if stored.id in seen_input_file_ids:
+            raise ClassificationError("BH 分类账重复引用同一个输入 DXF。")
+        seen_input_file_ids.add(stored.id)
+        inputs.append(DxfBhStage2Input(
+            classification_item_id=item.id,
+            drawing_id=item.drawing_id,
+            source_file_id=item.source_file_id,
+            input_file_id=stored.id,
+            input_name=item.output_name,
+            profile_normalized=profile,
+            type_source=type_source,
+        ))
+    return DxfBhStage2ClassificationBatch(
+        workflow_run_id=run.workflow_run_id,
+        project_id=run.project_id,
+        classification_run_id=run.id,
+        classification_job_id=run.job_id,
+        classification_job_attempt=run.job_attempt,
+        classifier_version=run.classifier_version,
+        input_manifest_sha256=run.input_manifest_sha256,
+        items=tuple(inputs),
     )
 
 

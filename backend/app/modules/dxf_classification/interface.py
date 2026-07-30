@@ -12,6 +12,8 @@ from app.modules.dxf_classification.presentation import (
     build_classification_run_read,
 )
 from app.modules.dxf_classification.schemas import (
+    DxfBhStage2ClassificationBatch,
+    DxfBhStage2Input,
     DxfClassificationGroupItemRead,
     DxfClassificationGroupPage,
     DxfClassificationGroupRead,
@@ -50,6 +52,19 @@ def list_split_candidate_inputs(db, workflow_id: int) -> list[DxfSplitCandidateI
     return list_inputs(db, workflow_id)
 
 
+def load_bh_stage2_classification_batch(
+    db,
+    workflow_id: int,
+    *,
+    expected_run_id: int | None = None,
+) -> DxfBhStage2ClassificationBatch:
+    from app.modules.dxf_classification.persistence import (
+        load_bh_stage2_classification_batch as load_batch,
+    )
+
+    return load_batch(db, workflow_id, expected_run_id=expected_run_id)
+
+
 def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
     from app.modules.dxf_classification.tasks import classify_steel_dxf_task
 
@@ -81,6 +96,8 @@ __all__ = [
     "CLI_SCHEMA",
     "REPORT_SCHEMA",
     "DxfClassificationItem",
+    "DxfBhStage2ClassificationBatch",
+    "DxfBhStage2Input",
     "DxfClassificationItemRead",
     "DxfClassificationGroupItemRead",
     "DxfClassificationGroupPage",
@@ -94,6 +111,7 @@ __all__ = [
     "classifier_project_name",
     "enqueue_dxf_classification_job",
     "latest_classification_run",
+    "load_bh_stage2_classification_batch",
     "list_next_stage_inputs",
     "list_split_candidate_inputs",
     "run_dxf_classification",

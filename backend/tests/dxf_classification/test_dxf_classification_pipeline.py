@@ -9,13 +9,14 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.exc import OperationalError
 
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.dxf_classification import execution as dxf_classification_service
 from app.modules.dxf_classification import interface as classification_interface
+from app.modules.dxf_classification.adapter import ClassificationError
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.dxf_classification.persistence import (
     classification_request_id,
@@ -161,6 +162,236 @@ def _frozen_classification_job(db, tmp_path: Path):
     workflow_service.bind_stage_job(db, workflow, stage_code="dxf_classification", job=job)
     db.commit()
     return workflow.id, job.id, stored.id
+
+
+def _classified_output_file(db, name: str) -> StoredFile:
+    stored = StoredFile(
+        bucket="dxf-derived",
+        storage_key=f"tests/bh-stage2/{uuid4().hex}.dxf",
+        original_name=name,
+        file_ext=".dxf",
+        content_type="application/dxf",
+        size_bytes=128,
+        sha256=hashlib.sha256(name.encode("utf-8")).hexdigest(),
+        status="available",
+    )
+    db.add(stored)
+    db.flush()
+    return stored
+
+
+def _completed_classification_run_for_stage2(
+    db,
+    *,
+    workflow_id: int,
+    job_id: int,
+    project_id: int,
+) -> DxfClassificationRun:
+    job = db.get(Job, job_id)
+    job.status = "succeeded"
+    run = DxfClassificationRun(
+        workflow_run_id=workflow_id,
+        project_id=project_id,
+        job_id=job_id,
+        job_attempt=job.attempt,
+        status="completed",
+        classifier_version="1.2.0",
+        project_name=f"stage2-workflow-{workflow_id}",
+        input_manifest_sha256=hashlib.sha256(
+            f"workflow:{workflow_id}".encode("utf-8")
+        ).hexdigest(),
+        input_count=3,
+        classified_count=3,
+        review_required_count=0,
+        unreadable_count=0,
+        type_counts_json={"BH": 2, "PX": 1},
+    )
+    db.add(run)
+    db.flush()
+    return run
+
+
+def test_bh_stage2_batch_uses_only_the_exact_workflow_ledger_in_stable_order(
+    db,
+    tmp_path: Path,
+) -> None:
+    first_workflow_id, first_job_id, _first_source_id = _frozen_classification_job(
+        db,
+        tmp_path,
+    )
+    first_workflow = db.get(WorkflowRun, first_workflow_id)
+    first_run = _completed_classification_run_for_stage2(
+        db,
+        workflow_id=first_workflow_id,
+        job_id=first_job_id,
+        project_id=first_workflow.project_id,
+    )
+    first_outputs = [
+        _classified_output_file(db, "BH-B_拆板前.dxf"),
+        _classified_output_file(db, "BH-A_拆板前.dxf"),
+        _classified_output_file(db, "PX-1_拆板前.dxf"),
+    ]
+    for index, (output, part_type) in enumerate(
+        zip(first_outputs, ("BH", "BH", "PX"), strict=True),
+    ):
+        db.add(DxfClassificationItem(
+            run=first_run,
+            source_file_id=output.id,
+            output_file_id=output.id,
+            source_name=f"source-{index}.dxf",
+            output_name=output.original_name,
+            output_directory=f"type-{part_type}",
+            disposition="classified",
+            part_type=part_type,
+            profile_raw=(
+                "BH500*200*10*16" if part_type == "BH" else "PX300*150*8"
+            ),
+            profile_normalized=(
+                "BH500*200*10*16" if part_type == "BH" else "PX300*150*8"
+            ),
+            type_source="catalog",
+            group_key=f"type:{part_type}",
+            next_stage_eligible=True,
+            diagnostics_json=[],
+            evidence_json={},
+        ))
+
+    other_workflow_id, other_job_id, _other_source_id = _frozen_classification_job(
+        db,
+        tmp_path,
+    )
+    other_workflow = db.get(WorkflowRun, other_workflow_id)
+    other_run = _completed_classification_run_for_stage2(
+        db,
+        workflow_id=other_workflow_id,
+        job_id=other_job_id,
+        project_id=other_workflow.project_id,
+    )
+    other_output = _classified_output_file(db, "OTHER-BH_拆板前.dxf")
+    db.add(DxfClassificationItem(
+        run=other_run,
+        source_file_id=other_output.id,
+        output_file_id=other_output.id,
+        source_name="other-source.dxf",
+        output_name=other_output.original_name,
+        output_directory="type-BH",
+        disposition="classified",
+        part_type="BH",
+        profile_raw="BH600*300*12*20",
+        profile_normalized="BH600*300*12*20",
+        type_source="catalog",
+        group_key="type:BH",
+        next_stage_eligible=True,
+        diagnostics_json=[],
+        evidence_json={},
+    ))
+    first_run_id = first_run.id
+    db.commit()
+
+    select_statements: list[str] = []
+
+    def count_selects(_connection, _cursor, statement, *_args):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_statements.append(statement)
+
+    event.listen(db.bind, "before_cursor_execute", count_selects)
+    try:
+        batch = classification_interface.load_bh_stage2_classification_batch(
+            db,
+            first_workflow_id,
+            expected_run_id=first_run_id,
+        )
+    finally:
+        event.remove(db.bind, "before_cursor_execute", count_selects)
+
+    assert batch.workflow_run_id == first_workflow_id
+    assert batch.project_id == first_workflow.project_id
+    assert batch.classification_run_id == first_run.id
+    assert batch.classification_job_id == first_job_id
+    assert batch.classification_job_attempt == 1
+    assert batch.input_manifest_sha256 == first_run.input_manifest_sha256
+    assert [item.input_name for item in batch.items] == [
+        "BH-B_拆板前.dxf",
+        "BH-A_拆板前.dxf",
+    ]
+    assert [item.input_file_id for item in batch.items] == [
+        first_outputs[0].id,
+        first_outputs[1].id,
+    ]
+    assert [item.source_file_id for item in batch.items] == [
+        first_outputs[0].id,
+        first_outputs[1].id,
+    ]
+    assert other_output.id not in {item.input_file_id for item in batch.items}
+    assert len(select_statements) == 2
+
+
+@pytest.mark.parametrize(
+    ("fault", "message"),
+    [
+        ("stale_run", "已变化"),
+        ("run_not_ready", "尚未形成正式输出"),
+        ("not_eligible", "未获准"),
+        ("missing_profile", "缺少规格"),
+        ("deleted_file", "文件不可用"),
+        ("wrong_extension", "文件不可用"),
+    ],
+)
+def test_bh_stage2_batch_fails_closed_on_invalid_ledger_rows(
+    db,
+    tmp_path: Path,
+    fault: str,
+    message: str,
+) -> None:
+    workflow_id, job_id, _source_id = _frozen_classification_job(db, tmp_path)
+    workflow = db.get(WorkflowRun, workflow_id)
+    run = _completed_classification_run_for_stage2(
+        db,
+        workflow_id=workflow_id,
+        job_id=job_id,
+        project_id=workflow.project_id,
+    )
+    output = _classified_output_file(db, "BH-INVALID_拆板前.dxf")
+    item = DxfClassificationItem(
+        run=run,
+        source_file_id=output.id,
+        output_file_id=output.id,
+        source_name="source.dxf",
+        output_name=output.original_name,
+        output_directory="type-BH",
+        disposition="classified",
+        part_type="BH",
+        profile_raw="BH500*200*10*16",
+        profile_normalized="BH500*200*10*16",
+        type_source="catalog",
+        group_key="type:BH",
+        next_stage_eligible=True,
+        diagnostics_json=[],
+        evidence_json={},
+    )
+    db.add(item)
+    db.flush()
+    expected_run_id = run.id
+    if fault == "stale_run":
+        expected_run_id += 1000
+    elif fault == "run_not_ready":
+        run.status = "running"
+    elif fault == "not_eligible":
+        item.next_stage_eligible = False
+    elif fault == "missing_profile":
+        item.profile_normalized = None
+    elif fault == "deleted_file":
+        output.status = "deleted"
+    elif fault == "wrong_extension":
+        output.file_ext = ".dwg"
+    db.commit()
+
+    with pytest.raises(ClassificationError, match=message):
+        classification_interface.load_bh_stage2_classification_batch(
+            db,
+            workflow_id,
+            expected_run_id=expected_run_id,
+        )
 
 
 @pytest.mark.parametrize("inject_mysql_1020", [False, True])

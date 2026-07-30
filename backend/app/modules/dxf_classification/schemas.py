@@ -73,6 +73,27 @@ class DxfSplitCandidateInput(BaseModel):
     classifier_version: str
 
 
+class DxfBhStage2Input(BaseModel):
+    classification_item_id: int
+    drawing_id: int | None
+    source_file_id: int
+    input_file_id: int
+    input_name: str
+    profile_normalized: str
+    type_source: str
+
+
+class DxfBhStage2ClassificationBatch(BaseModel):
+    workflow_run_id: int
+    project_id: int
+    classification_run_id: int
+    classification_job_id: int
+    classification_job_attempt: int
+    classifier_version: str
+    input_manifest_sha256: str
+    items: tuple[DxfBhStage2Input, ...]
+
+
 class DxfClassificationRunRead(BaseModel):
     id: int
     workflow_run_id: int
