@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from enum import Enum
+from enum import Enum, StrEnum
 import logging
 import math
 import os
@@ -87,6 +87,11 @@ _COMPONENT_SCOPED_TYPES = frozenset({
     "BT腹",
     "BT翼",
 })
+
+
+class FormulaLengthBasis(StrEnum):
+    MODEL_LENGTH = "model_length"
+    CUT_LENGTH = "cut_length"
 
 
 def _thin_border() -> Border:
@@ -225,10 +230,16 @@ def _theory_basis_formula(
     *,
     row_number: int,
     columns: Mapping[str, str],
+    formula_length_basis: FormulaLengthBasis,
 ) -> str | None:
     if item.get("理单重(kg)") in (None, ""):
         return None
-    length = f"{columns['长度(mm)']}{row_number}"
+    length_header = (
+        "下料长度(mm)"
+        if formula_length_basis is FormulaLengthBasis.CUT_LENGTH
+        else "长度(mm)"
+    )
+    length = f"{columns[length_header]}{row_number}"
     density = f"{columns['比重']}{row_number}"
     source = str(item.get("比重来源") or "")
     if source == "plate_constant:7.85":
@@ -257,6 +268,8 @@ def _density_formula(
 def _apply_organized_formulas(
     ws,
     rows: Sequence[Mapping[str, object]],
+    *,
+    formula_length_basis: FormulaLengthBasis = FormulaLengthBasis.MODEL_LENGTH,
 ) -> dict[str, FormulaCache]:
     columns = {
         cell.value: get_column_letter(cell.column)
@@ -266,6 +279,11 @@ def _apply_organized_formulas(
     left_inset = columns["左进(mm)"]
     right_inset = columns["右进(mm)"]
     cut_length = columns["下料长度(mm)"]
+    formula_length = (
+        cut_length
+        if formula_length_basis is FormulaLengthBasis.CUT_LENGTH
+        else length
+    )
     caches: dict[str, FormulaCache] = {}
     for row_number, item in enumerate(rows, start=2):
         values = {
@@ -298,7 +316,7 @@ def _apply_organized_formulas(
         if item.get("总长(mm)") not in (None, ""):
             formula_specs.append((
                 "总长(mm)",
-                f"={length}{row_number}*{total_count}",
+                f"={formula_length}{row_number}*{total_count}",
                 item["总长(mm)"],
             ))
 
@@ -306,6 +324,7 @@ def _apply_organized_formulas(
             item,
             row_number=row_number,
             columns=columns,
+            formula_length_basis=formula_length_basis,
         )
         if theory_basis is not None:
             formula_specs.append((
@@ -642,6 +661,7 @@ def write_canonical_workbook(
     part_rows: Iterable[PartRow],
     issues: Iterable[QualityIssue],
     internal_output_path: str | Path | None = None,
+    formula_length_basis: FormulaLengthBasis = FormulaLengthBasis.MODEL_LENGTH,
 ) -> PipelineOutcome:
     """Write and verify the fixed six-sheet normalized workbook atomically."""
     source = Path(source_path).resolve()
@@ -712,6 +732,7 @@ def write_canonical_workbook(
             internal_organized_caches = _apply_organized_formulas(
                 organized_sheet,
                 organized,
+                formula_length_basis=formula_length_basis,
             )
             internal_part_caches = _apply_part_formulas(
                 part_sheet,
@@ -725,6 +746,7 @@ def write_canonical_workbook(
             final_organized_caches = _apply_organized_formulas(
                 workbook["整理表"],
                 organized,
+                formula_length_basis=formula_length_basis,
             )
             final_part_caches = _apply_part_formulas(
                 workbook["part"],

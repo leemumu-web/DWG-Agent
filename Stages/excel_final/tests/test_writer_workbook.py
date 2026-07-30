@@ -455,6 +455,71 @@ def test_writer_formula_cache_is_immediately_readable_data_only(tmp_path: Path) 
         values.close()
 
 
+def test_cut_length_formula_basis_uses_p_for_totals_and_theoretical_weights(
+    tmp_path: Path,
+) -> None:
+    writer = _writer()
+    assert hasattr(writer, "FormulaLengthBasis")
+    source = tmp_path / "source.xlsx"
+    part, component_rows = _source(source)
+    output = tmp_path / "output.xlsx"
+
+    writer.write_canonical_workbook(
+        source,
+        output,
+        cleaned_parts=(part,),
+        component_rows=component_rows,
+        organized_rows=[
+            _organized_row(
+                **{
+                    "左进(mm)": Decimal("10"),
+                    "右进(mm)": Decimal("5"),
+                    "下料长度(mm)": Decimal("985"),
+                    "总长(mm)": Decimal("5910"),
+                    "比重": Decimal("7.85"),
+                    "比重来源": "plate_constant:7.85",
+                    "理单重(kg)": Decimal("7.732"),
+                    "理总重(kg)": Decimal("46.394"),
+                    "重量核验": "通过",
+                }
+            )
+        ],
+        part_rows=(
+            PartRow(
+                "",
+                "p1",
+                Decimal("10"),
+                Decimal("100"),
+                Decimal("985"),
+                "Q355B",
+                Decimal("6"),
+                "",
+                "",
+                "板材",
+            ),
+        ),
+        issues=(),
+        formula_length_basis=writer.FormulaLengthBasis.CUT_LENGTH,
+    )
+
+    formulas = load_workbook(output, data_only=False, read_only=True)
+    values = load_workbook(output, data_only=True, read_only=True)
+    try:
+        assert formulas["整理表"]["P2"].value == "=M2-N2-O2"
+        assert formulas["整理表"]["U2"].value == "=P2*T2"
+        assert formulas["整理表"]["W2"].value == "=ROUND(K2*L2*P2*V2/1000000,3)"
+        assert formulas["整理表"]["X2"].value == (
+            "=ROUND(K2*L2*P2*V2/1000000*T2,3)"
+        )
+        assert values["整理表"]["P2"].value == 985
+        assert values["整理表"]["U2"].value == 5910
+        assert values["整理表"]["W2"].value == 7.732
+        assert values["整理表"]["X2"].value == 46.394
+    finally:
+        formulas.close()
+        values.close()
+
+
 def test_canonical_writer_rejects_non_xlsx_output(tmp_path: Path) -> None:
     writer = _writer()
     source = tmp_path / "source.xlsx"
