@@ -6,7 +6,8 @@ from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 import re
-from typing import Iterable, Protocol
+from types import MappingProxyType
+from typing import Iterable, Mapping, Protocol
 
 from domain import ComponentSourceRow, ParentPartEvidence, PipelineOutcome, SourcePart
 from fabricated_profile import FabricatedProfileError, parse_fabricated_profile
@@ -55,6 +56,15 @@ class _ResolvedParent:
     classification: ClassificationResult
     evidence: ParentPartEvidence
     lookup_problem: LookupStatus | None
+    issues: tuple[QualityIssue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalProjection:
+    cleaned_parts: tuple[SourcePart, ...]
+    component_rows: tuple[ComponentSourceRow, ...]
+    organized_rows: tuple[Mapping[str, object], ...]
+    part_candidates: tuple[PartCandidate, ...]
     issues: tuple[QualityIssue, ...]
 
 
@@ -625,17 +635,14 @@ def _apply_final_issue_status(
             row["重量核验"] = "警告"
 
 
-def process_canonical_records(
-    source_path: str | Path,
-    output_path: str | Path,
+def build_canonical_projection(
     *,
     parts: Iterable[SourcePart],
     component_rows: Iterable[ComponentSourceRow],
     reader_issues: Iterable[QualityIssue],
     handbook: HandbookReader,
-    internal_output_path: str | Path | None = None,
-) -> PipelineOutcome:
-    """Process canonical records and atomically emit the six-sheet workbook."""
+) -> CanonicalProjection:
+    """Build the normalized business projection without writing a workbook."""
     initial_issues = list(reader_issues)
     issues = list(initial_issues)
     blocked = _blocked_components(initial_issues)
@@ -706,14 +713,61 @@ def process_canonical_records(
                 identity_consistent=identity_consistent,
             ))
 
-    part_result = build_part_rows(candidates)
+    return CanonicalProjection(
+        cleaned_parts=tuple(cleaned_parts),
+        component_rows=tuple(component_rows),
+        organized_rows=tuple(
+            MappingProxyType(dict(row))
+            for row in organized_rows
+        ),
+        part_candidates=tuple(candidates),
+        issues=tuple(issues),
+    )
+
+
+def process_canonical_records(
+    source_path: str | Path,
+    output_path: str | Path,
+    *,
+    parts: Iterable[SourcePart],
+    component_rows: Iterable[ComponentSourceRow],
+    reader_issues: Iterable[QualityIssue],
+    handbook: HandbookReader,
+    internal_output_path: str | Path | None = None,
+) -> PipelineOutcome:
+    """Process canonical records and atomically emit the six-sheet workbook."""
+    projection = build_canonical_projection(
+        parts=parts,
+        component_rows=component_rows,
+        reader_issues=reader_issues,
+        handbook=handbook,
+    )
+    return write_canonical_projection(
+        source_path,
+        output_path,
+        projection=projection,
+        internal_output_path=internal_output_path,
+    )
+
+
+def write_canonical_projection(
+    source_path: str | Path,
+    output_path: str | Path,
+    *,
+    projection: CanonicalProjection,
+    internal_output_path: str | Path | None = None,
+) -> PipelineOutcome:
+    """Build part rows and atomically write a previously normalized projection."""
+    organized_rows = [dict(row) for row in projection.organized_rows]
+    issues = list(projection.issues)
+    part_result = build_part_rows(projection.part_candidates)
     issues.extend(part_result.issues)
     _apply_final_issue_status(organized_rows, issues)
     return write_canonical_workbook(
         source_path,
         output_path,
-        cleaned_parts=cleaned_parts,
-        component_rows=component_rows,
+        cleaned_parts=projection.cleaned_parts,
+        component_rows=projection.component_rows,
         organized_rows=organized_rows,
         part_rows=part_result.rows,
         issues=issues,
