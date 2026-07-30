@@ -191,3 +191,52 @@ def test_same_component_and_part_id_with_conflicting_geometry_is_severe_and_excl
     assert issue.level.value == "严重"
     assert issue.category == "导入零件身份冲突"
     assert issue.affects_part is True
+
+
+def test_stage2_parameterized_identity_uses_ordered_setbacks_without_changing_stage1() -> None:
+    builder = _builder()
+    shared = {
+        "import_component_no": "C1",
+        "import_part_no": "P-1-BH翼",
+        "part_type": "BH翼",
+        "spec": Decimal("16"),
+        "width": Decimal("300"),
+        "cut_length": Decimal("700"),
+        "model_length": Decimal("1000"),
+    }
+    result = builder.build_part_rows([
+        _candidate(
+            builder,
+            source_row=8,
+            child_quantity=Decimal("1"),
+            left_setback=Decimal("100"),
+            right_setback=Decimal("200"),
+            **shared,
+        ),
+        _candidate(
+            builder,
+            source_row=9,
+            child_quantity=Decimal("1"),
+            left_setback=Decimal("100"),
+            right_setback=Decimal("200"),
+            **shared,
+        ),
+        _candidate(
+            builder,
+            source_row=10,
+            child_quantity=Decimal("2"),
+            left_setback=Decimal("200"),
+            right_setback=Decimal("100"),
+            **shared,
+        ),
+    ])
+
+    assert result.issues == ()
+    assert len(result.rows) == 2
+    assert [
+        (row.left_setback, row.right_setback, row.summary)
+        for row in result.rows
+    ] == [
+        (Decimal("100"), Decimal("200"), Decimal("6")),
+        (Decimal("200"), Decimal("100"), Decimal("6")),
+    ]

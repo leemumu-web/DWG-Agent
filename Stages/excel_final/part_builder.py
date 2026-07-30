@@ -39,7 +39,7 @@ class PartCandidate:
     import_part_no: str
     spec: Decimal | str
     width: Decimal | None
-    cut_length: Decimal
+    cut_length: Decimal | None
     material: str
     child_quantity: Decimal
     component_quantity: Decimal
@@ -47,6 +47,9 @@ class PartCandidate:
     team: str
     graphic: str
     excluded: bool
+    model_length: Decimal | None = None
+    left_setback: Decimal | None = None
+    right_setback: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,12 +58,15 @@ class PartRow:
     import_part_no: str
     spec: Decimal | str
     width: Decimal | None
-    cut_length: Decimal
+    cut_length: Decimal | None
     material: str
     summary: Decimal
     team: str
     graphic: str
     part_type: str
+    model_length: Decimal | None = None
+    left_setback: Decimal | None = None
+    right_setback: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,6 +185,17 @@ def _is_component_scoped(part_type: str) -> bool:
     raise ValueError(f"part type has no aggregation scope: {part_type}")
 
 
+def _parameterized_identity(
+    candidate: PartCandidate,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None] | tuple[()]:
+    values = (
+        candidate.model_length,
+        candidate.left_setback,
+        candidate.right_setback,
+    )
+    return () if values == (None, None, None) else values
+
+
 def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
     source_candidates = [
         candidate
@@ -189,14 +206,18 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
     for candidate in source_candidates:
         component_order.setdefault(candidate.import_component_no, len(component_order))
 
-    by_identity: dict[tuple[str, str], list[PartCandidate]] = {}
+    by_identity: dict[tuple[object, ...], list[PartCandidate]] = {}
     for candidate in source_candidates:
         if _is_component_scoped(candidate.part_type):
             by_identity.setdefault(
-                (candidate.import_component_no, candidate.import_part_no),
+                (
+                    candidate.import_component_no,
+                    candidate.import_part_no,
+                    *_parameterized_identity(candidate),
+                ),
                 [],
             ).append(candidate)
-    conflicts: set[tuple[str, str]] = set()
+    conflicts: set[tuple[object, ...]] = set()
     issues: list[QualityIssue] = []
     for identity, identity_candidates in by_identity.items():
         signatures = {
@@ -215,7 +236,11 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
 
     grouped: dict[tuple[object, ...], PartRow] = {}
     for candidate in source_candidates:
-        identity = (candidate.import_component_no, candidate.import_part_no)
+        identity = (
+            candidate.import_component_no,
+            candidate.import_part_no,
+            *_parameterized_identity(candidate),
+        )
         if identity in conflicts:
             continue
         output_component_no = (
@@ -232,6 +257,9 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
             candidate.material,
             candidate.part_type,
             candidate.team,
+            candidate.model_length,
+            candidate.left_setback,
+            candidate.right_setback,
         )
         contribution = candidate.child_quantity * candidate.component_quantity
         current = grouped.get(key)
@@ -247,6 +275,9 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
                 team=candidate.team,
                 graphic=candidate.graphic,
                 part_type=candidate.part_type,
+                model_length=candidate.model_length,
+                left_setback=candidate.left_setback,
+                right_setback=candidate.right_setback,
             )
         else:
             grouped[key] = replace(current, summary=current.summary + contribution)
@@ -261,6 +292,9 @@ def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
             _sort_value(row.spec),
             _sort_value(row.width),
             _sort_value(row.cut_length),
+            _sort_value(row.model_length),
+            _sort_value(row.left_setback),
+            _sort_value(row.right_setback),
             row.material,
         ),
     )

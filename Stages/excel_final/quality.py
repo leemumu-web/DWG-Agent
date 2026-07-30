@@ -37,6 +37,9 @@ _ACTION_BY_CATEGORY = {
     "导入零件身份冲突": "统一冲突的零件身份和几何数据后重新处理",
     "拆板几何异常": "修正 BH/BOX/BT 截面尺寸后重新处理",
     "拆板重量守恒异常": "检查拆板规格和数量倍率后重新处理",
+    "BH图纸未进入Excel": "核对Excel零件号和当前项目图纸；确认无需进入时可忽略该图",
+    "BH缺图沿用原长度": "补充唯一正确的拆板前BH图后重试，或确认本批按原长度生产",
+    "BH读取失败需补录": "在整理表补录该BH各板左右进并核对下料长度后再生产",
     "源重量链异常": "核对单重、总重、数量及净毛重关系后重新处理",
     "净重大于毛重": "核对单重、总重、数量及净毛重关系后重新处理",
     "几何理论重与毛重": "抽查轮廓、切割和毛坯口径；仅在源毛重用于下料或采购时人工确认",
@@ -52,6 +55,11 @@ _SECONDARY_WEIGHT_REVIEW_CATEGORIES = frozenset(
         "净重大于理论重",
     }
 )
+_STAGE2_AGGREGATE_CATEGORIES = frozenset({
+    "BH图纸未进入Excel",
+    "BH缺图沿用原长度",
+    "BH读取失败需补录",
+})
 _REPRESENTATIVE_LIMIT = 3
 _FABRICATED_THEORY_BASIS = {
     "BH": "BH拆板合计父理论重（腹板×1+翼板×2）",
@@ -129,7 +137,13 @@ class QualityLedger:
             ):
                 continue
             action = _ACTION_BY_CATEGORY.get(issue.category, _DEFAULT_ACTION)
-            if issue.category == "几何理论重与毛重":
+            if issue.category in _STAGE2_AGGREGATE_CATEGORIES:
+                key = (
+                    issue.level,
+                    issue.category,
+                    action,
+                )
+            elif issue.category == "几何理论重与毛重":
                 key = (
                     issue.level,
                     issue.category,
