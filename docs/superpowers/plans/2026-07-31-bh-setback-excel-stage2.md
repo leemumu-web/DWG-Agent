@@ -10,6 +10,8 @@
 
 **设计依据：** [BH 左右进 Excel 第二阶段设计规格](../specs/2026-07-31-bh-setback-excel-stage2-design.md)
 
+**兼容性总原则：** Stage2 使用独立 task、pipeline、queue、Artifact 和前端组件；第一阶段公共代码的所有新参数必须有保持旧行为的默认值。每次修改共享模块时，同一提交必须同时运行该模块原有测试和新增 Stage2 测试，不能先破坏现有功能再留到最后修复。
+
 ---
 
 ## Task 1：冻结第一阶段输出合同和重建接缝
@@ -47,7 +49,9 @@ cd /home/Creeken/Paper/CAD_research/complete_framework/Stages/excel_final
 
 预期：全部通过；第一阶段真实 ground truth 行数和公式不变。
 
-- [ ] 1.7 提交：`refactor(excel): expose canonical projection before workbook write`
+- [ ] 1.7 对当前两个主仓库 Stage1 样本生成修改前后规范签名；公开列、公式缓存、处理报告摘要和数据库导入统计必须一致。
+
+- [ ] 1.8 提交：`refactor(excel): expose canonical projection before workbook write`
 
 ## Task 2：让公共 writer 明确支持模型长度和下料长度两种公式策略
 
@@ -159,22 +163,25 @@ time uv run bh-reader --backend ascii --no-visuals \
 - 修改：`Stages/excel_final/quality.py`
 
 - [ ] 5.1 写表驱动测试覆盖 `腹`、`翼`、`翼-1`、`上翼`、`下翼`、`上翼-N`、`下翼-N` 的类型、导入零件号、数量倍率和稳定顺序。
-- [ ] 5.2 写失败测试：一个图纸结果可扇出到多个构件出现，各自使用自己的构件数、长度和原数量。
-- [ ] 5.3 写失败测试：同名但分类规格、Reader 规格或 Excel 重建规格不同必须失败。
-- [ ] 5.4 写失败测试：重复腹板、缺腹板、上下翼组合不完整、负左右进、非有限值、下料长度 `<=0` 全部失败关闭。
-- [ ] 5.5 写失败测试：源净毛重和面积只留在腹板；新翼板行为空。
-- [ ] 5.6 写失败测试：原数量守恒；左右进后理论重量下降量等于截面积 × 扣减长度 × 比重 × 总数。
-- [ ] 5.7 实现紧凑测量合同 `bh_setback_measurements/v1` 的解析和严格字段校验。
-- [ ] 5.8 实现 `enhance_bh_projection()`：只替换当前 projection 的 BH organized rows 和 PartCandidate，非 BH 对象不变。
-- [ ] 5.9 新增聚合警告类别“BH图纸未进入Excel”及明确人工建议；正常图不写报告。
-- [ ] 5.10 运行：
+- [ ] 5.2 写失败测试：板件仅在规格、宽度、原长度、有序左右进和材质全部相同时合并；100/200 与 200/100 必须分行，参数相同的不同角色合并并累计数量。
+- [ ] 5.3 写失败测试：一个图纸结果可扇出到多个构件出现，各自使用自己的构件数、长度和原数量。
+- [ ] 5.4 写失败测试：同一项目 Reader 零件号重复时不比较内容、整批失败；不同项目同名不冲突。
+- [ ] 5.5 写失败测试：分类规格、Reader 规格或 Excel 重建规格不一致时不套值，生成红色失败占位。
+- [ ] 5.6 写失败测试：缺图 BH 保留第一阶段长度；Reader 失败、角色不完整、负/非有限左右进或下料长度 `<=0` 时，整理表和 `part` 保留红色空值占位。
+- [ ] 5.7 写失败测试：失败占位使用不隔离 part 的 warning 类别，保留规格、材质、构件和数量；下料长度及依赖重量为空，人工补入左右进后条件公式可计算。
+- [ ] 5.8 写失败测试：源净毛重和面积只留在腹板；新翼板行为空。
+- [ ] 5.9 写失败测试：完整行原数量守恒；左右进后理论重量下降量等于截面积 × 扣减长度 × 比重 × 总数；失败占位不按 0 重量通过。
+- [ ] 5.10 实现紧凑测量合同 `bh_setback_measurements/v1` 的解析和严格字段校验。
+- [ ] 5.11 实现 `enhance_bh_projection()`：只替换当前 projection 的 BH organized rows 和 PartCandidate，非 BH 对象不变。
+- [ ] 5.12 新增聚合问题类别“BH图纸未进入Excel”“BH缺图沿用原长度”“BH读取失败需补录”及明确人工建议；正常图不写报告。
+- [ ] 5.13 运行：
 
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework/Stages/excel_final
 ../../backend/.venv/bin/pytest -q tests/test_bh_stage2.py tests/test_part_builder.py tests/test_domain_quality.py
 ```
 
-- [ ] 5.11 提交：`feat(excel): model BH setback row expansion and invariants`
+- [ ] 5.14 提交：`feat(excel): model BH setback row expansion and invariants`
 
 ## Task 6：实现第一阶段基线核验和整表重建
 
@@ -191,8 +198,11 @@ cd /home/Creeken/Paper/CAD_research/complete_framework/Stages/excel_final
 - [ ] 6.2 写失败测试：从冻结源表重建的非 BH 整理行签名、BH 基线对、part 资格和可见值必须与 Stage 1 正式 Excel 一致。
 - [ ] 6.3 写失败测试：任一非 BH 值、BH 基线身份或 part 资格漂移时报 `EXCEL_STAGE2_BASELINE_DRIFT`，不写正式输出。
 - [ ] 6.4 写失败测试：重建使用 Stage 1 workbook 的第一张 `原表`，删除并重新生成其余五张，最终没有隐藏列、隐藏行或历史辅助 sheet。
-- [ ] 6.5 实现规范化 `CanonicalBaselineSignature`，忽略 xlsx 元数据时间，但不忽略业务值、公式或 part 身份。
-- [ ] 6.6 在 `main.py` 增加独立操作：
+- [ ] 6.5 写工作簿测试：缺图行的左右进为空、`P=M` 且红色；读取失败行的 N/O/P 和依赖重量显示为空、保留条件公式及红色 `part` 占位；其全部整理表贡献行补齐且 P 相等后，part 下料长度引用公式才显示值。
+- [ ] 6.6 写兼容测试：Stage2 人工处理 warning 按类别着红但不隔离 part；Stage1 原有 warning/severe 的颜色、计数和排除语义不变。
+- [ ] 6.7 写工作簿测试：无 BH 时输出与 Stage1 业务签名一致、`处理报告!A2` 为“无”，并生成空左右进审计表。
+- [ ] 6.8 实现规范化 `CanonicalBaselineSignature`，忽略 xlsx 元数据时间，但不忽略业务值、公式或 part 身份。
+- [ ] 6.9 在 `main.py` 增加独立操作：
 
 ```text
 process-stage2 --input <frozen-source> --stage1 <stage1.xlsx>
@@ -200,9 +210,9 @@ process-stage2 --input <frozen-source> --stage1 <stage1.xlsx>
                --internal-output <internal.xlsx>
 ```
 
-- [ ] 6.7 Stage2 流程调用 `build_canonical_projection()`、`enhance_bh_projection()`、`write_canonical_projection(..., CUT_LENGTH)`。
-- [ ] 6.8 backend adapter 验证进程协议、正式输出和 internal 输出；错误只向上返回稳定代码和中文业务信息。
-- [ ] 6.9 运行：
+- [ ] 6.10 Stage2 流程调用 `build_canonical_projection()`、`enhance_bh_projection()`、`write_canonical_projection(..., CUT_LENGTH)`。
+- [ ] 6.11 backend adapter 验证进程协议、`complete/partial/noop`、正式输出和 internal 输出；错误只向上返回稳定代码和中文业务信息。
+- [ ] 6.12 运行：
 
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework
@@ -210,7 +220,7 @@ backend/.venv/bin/pytest -q Stages/excel_final/tests/test_stage2_workbook.py \
   backend/tests/excel_processing/test_excel_final_adapter.py
 ```
 
-- [ ] 6.10 提交：`feat(excel): rebuild stage2 workbook from verified stage1 baseline`
+- [ ] 6.13 提交：`feat(excel): rebuild stage2 workbook from verified stage1 baseline`
 
 ## Task 7：建立当前分类 Run 的 BH 批量查询和清单摘要
 
@@ -228,14 +238,16 @@ backend/.venv/bin/pytest -q Stages/excel_final/tests/test_stage2_workbook.py \
 - [ ] 7.4 写失败测试：5000 项只进行固定数量 SQL 查询；禁止循环 `db.get(StoredFile)`。
 - [ ] 7.5 实现 `list_bh_setback_inputs(db, *, run_id)` 的 join/bulk query，并复用同一批量文件加载器消除现有 split candidate 的 N+1。
 - [ ] 7.6 实现版本化 canonical manifest hash；测试输入顺序变化不改变摘要、任一业务字段变化必改变摘要。
-- [ ] 7.7 运行：
+- [ ] 7.7 回归现有分类详情、分组分页、分组 ZIP、全量 ZIP 和拆板候选顺序；性能重构不能改变任何公开分类结果。
+- [ ] 7.8 运行：
 
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework/backend
 uv run pytest -q tests/dxf_classification/test_bh_stage2_inputs.py tests/dxf_classification
 ```
 
-- [ ] 7.8 提交：`perf(classification): bulk-load BH stage2 inputs with manifest hash`
+- [ ] 7.9 运行后确认原分类 pipeline 测试与新增 BH 查询测试同时通过。
+- [ ] 7.10 提交：`perf(classification): bulk-load BH stage2 inputs with manifest hash`
 
 ## Task 8：实现 Stage2 预检、项目隔离和幂等 Job 绑定
 
@@ -252,20 +264,21 @@ uv run pytest -q tests/dxf_classification/test_bh_stage2_inputs.py tests/dxf_cla
 - [ ] 8.1 将 `excel_stage2` 标为 automated/implemented，改正 required inputs 和两个正式 artifact。
 - [ ] 8.2 抽取 `_resolve_verified_source_excel()`，第一、二阶段复用同一冻结源表核验，不复制一套易漂移逻辑。
 - [ ] 8.3 实现 `preflight_excel_stage2()`，返回 Stage 1 文件、分类版本、BH 图数、Excel BH 唯一零件/出现数、预计匹配/缺失/多余和 checks。
-- [ ] 8.4 写越权测试：两个项目具有相同文件名和零件号，项目 A 预检和执行不能读取项目 B 的 Run、Artifact 或 StoredFile。
-- [ ] 8.5 写恶意 payload 测试：额外传 file/run/project ID 返回 422。
-- [ ] 8.6 写损坏数据库绑定测试：Stage1 Job、classification Job、attempt 或 project 被替换时返回 409。
-- [ ] 8.7 将 `_bound_dxf_split_job()` 泛化为当前自动阶段的 `_bound_stage_job()`；工作流行锁下，两名项目成员并发提交只能得到一个逻辑 Job。
-- [ ] 8.8 Job params 只保存摘要和少量 ID；5000 项测试断言序列化参数保持小于 4 KiB。
-- [ ] 8.9 无 BH 时预检仍 ready，执行生成空读取表和与 Stage1 等价的 Stage2 正式表，不锁住下一步。
-- [ ] 8.10 运行：
+- [ ] 8.4 写预检测试：Excel 缺图是可执行的红色警告，不把按钮锁死；同项目重复 BH 零件号是阻断项，并列出冲突原名。
+- [ ] 8.5 写越权测试：两个项目具有相同文件名和零件号，项目 A 预检和执行不能读取项目 B 的 Run、Artifact 或 StoredFile。
+- [ ] 8.6 写恶意 payload 测试：额外传 file/run/project ID 返回 422。
+- [ ] 8.7 写损坏数据库绑定测试：Stage1 Job、classification Job、attempt 或 project 被替换时返回 409。
+- [ ] 8.8 将 `_bound_dxf_split_job()` 泛化为当前自动阶段的 `_bound_stage_job()`；工作流行锁下，两名项目成员并发提交只能得到一个逻辑 Job。
+- [ ] 8.9 Job params 只保存摘要和少量 ID；5000 项测试断言序列化参数保持小于 4 KiB。
+- [ ] 8.10 无 BH 时预检仍 ready，执行生成空读取表和与 Stage1 等价的 Stage2 正式表，不锁住下一步。
+- [ ] 8.11 运行：
 
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework/backend
 uv run pytest -q tests/workflows/test_workflow_production.py tests/workflows/test_workflow_dxf_contracts.py
 ```
 
-- [ ] 8.11 提交：`feat(workflow): bind isolated Excel stage2 inputs and preflight`
+- [ ] 8.12 提交：`feat(workflow): bind isolated Excel stage2 inputs and preflight`
 
 ## Task 9：实现专用 Stage2 Worker 执行状态机
 
@@ -284,14 +297,15 @@ uv run pytest -q tests/workflows/test_workflow_production.py tests/workflows/tes
 
 - [ ] 9.1 新增 task/pipeline/step 常量和 `app.workers.tasks_excel_stage2.process_excel_stage2` Celery task。
 - [ ] 9.2 写执行测试：claim exact attempt、重算 manifest、逐文件 SHA-256、Reader 进度、Stage 子进程、公式验证、MySQL 导入、两个文件保存、Job 完成。
-- [ ] 9.3 写失败测试：对象缺失/摘要变化、Reader 非 OK、Stage2 规则失败、DB 导入失败、第二个对象保存失败都不得把阶段标成功。
-- [ ] 9.4 写 stale attempt 测试：attempt 改变后立即停止，清理工作目录和未结 transfer，不附加旧结果。
-- [ ] 9.5 实现有界预取：最多 2 张待分析，单张完成立即 unlink；存储客户端不共享 SQLAlchemy Session。
-- [ ] 9.6 实现节流进度：每秒或每约 0.5%，在 `progress_data` 写 phase、processed_files、total_files、current_file_name 和 message。
-- [ ] 9.7 Reader 表先保存为带当前 `job_attempt` 的 AnalysisResult；Reader 有失败时该 Result 状态为 failed、可供诊断下载，但不创建 WorkflowArtifact，也不创建 `stage2_excel`。
-- [ ] 9.8 成功时先完成两个 MinIO transfer 和 StoredFile，再添加两个当前 attempt AnalysisResult；最后完成 Job。
-- [ ] 9.9 第二阶段 internal workbook 进入 `import_workbook_for_job(... source_type="stage2_bh")`，公共 xlsx 才作为下载结果。
-- [ ] 9.10 运行：
+- [ ] 9.3 写状态测试：全部适用 BH 成功为 `complete`；缺图或 Reader 非 OK 但占位成功为 `partial`；无 BH 为 `noop`，三者都必须有同 attempt 的两个正式对象。
+- [ ] 9.4 写失败测试：重复 BH 零件号、对象缺失/摘要变化、基线损坏、数量/part 不变量失败、DB 导入失败或第二个对象保存失败都不得把阶段标成功。
+- [ ] 9.5 写 stale attempt 测试：attempt 改变后立即停止，清理工作目录和未结 transfer，不附加旧结果。
+- [ ] 9.6 实现有界预取：最多 2 张待分析，单张完成立即 unlink；存储客户端不共享 SQLAlchemy Session。
+- [ ] 9.7 实现节流进度：每秒或每约 0.5%，在 `progress_data` 写 phase、processed_files、total_files、current_file_name 和 message。
+- [ ] 9.8 Reader 表先保存为带当前 `job_attempt` 的 AnalysisResult；部分读取失败时继续构建正式占位结果，整批阻断错误时该表只作为诊断下载且不创建 WorkflowArtifact。
+- [ ] 9.9 完成时先完成两个 MinIO transfer 和 StoredFile，再添加两个当前 attempt AnalysisResult；最后写 `complete/partial/noop` 并完成 Job。
+- [ ] 9.10 第二阶段 internal workbook 进入 `import_workbook_for_job(... source_type="stage2_bh")`，公共 xlsx 才作为下载结果。
+- [ ] 9.11 运行：
 
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework/backend
@@ -300,7 +314,7 @@ uv run pytest -q tests/excel_processing/test_excel_stage2_execution.py \
   tests/infrastructure/test_celery_recovery.py
 ```
 
-- [ ] 9.11 提交：`feat(stage2): execute BH reader and Excel rebuild atomically`
+- [ ] 9.12 提交：`feat(stage2): execute BH reader and Excel rebuild atomically`
 
 ## Task 10：让 Workflow 只认当前 attempt 的两个产物
 
@@ -315,24 +329,25 @@ uv run pytest -q tests/excel_processing/test_excel_stage2_execution.py \
 
 - [ ] 10.1 抽取 `_current_attempt_artifacts(stage)`，所有 Job-backed 阶段按 metadata `job_id/job_attempt` 过滤，不再只特判拆板。
 - [ ] 10.2 写回归：旧 attempt 两个产物存在、新 attempt 只有一个时，阶段必须失败为 outputs incomplete，不能误用旧文件补齐。
-- [ ] 10.3 将 `stage2_excel`、`bh_setback_excel` 加入 Excel Artifact 格式合同。
-- [ ] 10.4 新增参数化单文件下载 helper，供 Stage1 结果、Stage2 结果、Reader 表复用完整 lineage、对象 stat、Transfer 和审计校验。
-- [ ] 10.5 新增端点；Reader 端点允许读取当前 attempt 的成功审计表或失败诊断表，正式 Stage2 端点仍只允许完整成功阶段：
+- [ ] 10.3 为分类、拆板和 Excel Stage1 分别增加当前 attempt 回归，证明泛化过滤没有隐藏其现有正式产物。
+- [ ] 10.4 将 `stage2_excel`、`bh_setback_excel` 加入 Excel Artifact 格式合同。
+- [ ] 10.5 新增参数化单文件下载 helper，供 Stage1 结果、Stage2 结果、Reader 表复用完整 lineage、对象 stat、Transfer 和审计校验；Stage1 现有 URL、响应头和错误代码保持不变。
+- [ ] 10.6 新增端点；Reader 端点允许读取当前 attempt 的正式审计表或整批失败诊断表，Stage2 端点允许 `complete/partial/noop` 且必须具有当前 attempt 的完整双产物：
 
 ```text
 GET /api/v1/workflows/{id}/stages/excel_stage2/download-result
 GET /api/v1/workflows/{id}/stages/excel_stage2/download-reader-result
 ```
 
-- [ ] 10.6 通用阶段 ZIP 对 Stage1/Stage2 返回明确提示，要求使用单文件下载；不把两个 Excel 打成 ZIP。
-- [ ] 10.7 运行：
+- [ ] 10.7 通用阶段 ZIP 对 Stage1/Stage2 返回明确提示，要求使用单文件下载；不把两个 Excel 打成 ZIP。
+- [ ] 10.8 运行：
 
 ```bash
 cd /home/Creeken/Paper/CAD_research/complete_framework/backend
 uv run pytest -q tests/workflows/test_workflow_production.py tests/workflows/test_workflow_input_api.py
 ```
 
-- [ ] 10.8 提交：`fix(workflow): enforce current-attempt Excel stage artifacts`
+- [ ] 10.9 提交：`fix(workflow): enforce current-attempt Excel stage artifacts`
 
 ## Task 11：增加专用 worker、工作目录和生产配置
 
@@ -394,9 +409,9 @@ docker compose --profile workers config >/tmp/complete-framework-stage2-compose.
 - [ ] 12.3 面板显示 Stage1 文件、分类版本、BH 图数、Excel 唯一零件/出现数、预计缺失/多余和 checks。
 - [ ] 12.4 按钮文本固定为“处理 BH 的左右进”；preflight 未 ready、Job queued/running 时禁止重复提交。
 - [ ] 12.5 复用 `JobProgressBar`、`useJobEvents` 和 2.5 秒 Query fallback；SSE 同时更新 `['job', jobId]` cache。
-- [ ] 12.6 进度条显示“已读取 X / Y 张”，终态后刷新 workflow、preflight 和 artifact；失败显示中文错误及有限文件示例。
-- [ ] 12.7 成功后显示“下载处理后的 Excel”和“下载左右进读取表”，两个按钮均显示 `TransferProgressBar`。
-- [ ] 12.8 Reader 失败但当前 attempt 已保存诊断表时，显示“下载左右进诊断表”；它不能被误显示为正式阶段产物。
+- [ ] 12.6 进度条显示“已读取 X / Y 张”，终态后刷新 workflow、preflight 和 artifact；整批失败显示中文错误及有限文件示例。
+- [ ] 12.7 `complete` 显示“全部 BH 已深化”，`partial` 红色显示“部分完成，需人工补录”，`noop` 显示“本项目无 BH，无需深化”；三者都显示两个带 `TransferProgressBar` 的下载按钮。
+- [ ] 12.8 整批失败但当前 attempt 已保存诊断表时，只显示“下载左右进诊断表”；它不能被误显示为正式阶段产物。
 - [ ] 12.9 当前 attempt 没有完整 Artifact 时正式 Excel 下载按钮必须禁用；旧 attempt Artifact 不可见。
 - [ ] 12.10 完成后保持选择 Stage2，不自动跳到下一阶段。
 - [ ] 12.11 数据控制台新增 `process_excel_stage2: BH左右进与Excel深化` 中文标签。
@@ -421,9 +436,9 @@ npx playwright test tests/e2e/workflows/workflow-detail.spec.ts
 - 修改：`frontend/tests/e2e/workflows/workflow-detail.spec.ts`
 
 - [ ] 13.1 将设计规格第 12 节全部错误代码加入后端稳定错误和前端中文映射。
-- [ ] 13.2 每个错误携带结构化 details：总失败数、最多 20 个文件名、缺失零件最多 20 个、建议操作；禁止传 traceback 和本机路径。
+- [ ] 13.2 每个阻断错误和部分完成问题携带结构化 details：总数、最多 20 个文件名/缺失零件、建议操作；禁止传 traceback 和本机路径。
 - [ ] 13.3 错误 Blob 下载和普通 JSON 错误都经过现有 `describeApiError/parseApiError`。
-- [ ] 13.4 Playwright 覆盖：缺 Stage1、分类 stale、缺 BH 图、Reader 失败、规格冲突、结果未就绪、对象缺失。
+- [ ] 13.4 Playwright 覆盖：缺 Stage1、分类 stale、重复 BH 图整批失败、缺 BH 图部分完成、Reader 失败红色占位、规格冲突、无 BH 空操作、结果未就绪和对象缺失。
 - [ ] 13.5 运行：
 
 ```bash
@@ -453,7 +468,8 @@ npx playwright test tests/e2e/workflows/workflow-detail.spec.ts
 - [ ] 14.6 对两个最终 xlsx 逐字段检查：非 BH 整理行/part 不变；BH 左右进、下料长度、数量、公式、缓存、源重量归属正确；J/K 空；L 类型正确；报告精炼。
 - [ ] 14.7 明确证明 workflow 5 的四层/三层多余图纸没有出现在 workflow 6 输出，反之亦然。
 - [ ] 14.8 关闭并清理测试任务时只清理本次新建数据，不删除 workflow 5/6 原有输入。
-- [ ] 14.9 提交：`test(stage2): validate workflows 5 and 6 end to end`
+- [ ] 14.9 基于副本分别移除一张 BH、注入一张无法读取 BH、构造零 BH；核验 `partial/partial/noop`、红色占位、公式和下载行为，不修改原 workflow 5/6 数据。
+- [ ] 14.10 提交：`test(stage2): validate workflows 5 and 6 end to end`
 
 ## Task 15：5000 张、并发项目和故障恢复压力门
 
@@ -519,9 +535,10 @@ git status --short
 ```
 
 - [ ] 16.7 构建 protected 镜像，验证 Reader/Stage2 pyc、无源码、MySQL/MinIO 联通、专用 worker healthy，并在本机 18080 做一次最终 smoke。
-- [ ] 16.8 审查无用兼容代码、临时脚本、测试输出和僵尸分支；只删除本功能确认无引用的代码。
-- [ ] 16.9 提交：`docs(stage2): publish BH Excel processing contract and validation`
-- [ ] 16.10 最终发布提交只在全部门通过、worktree 无意外修改、workflow 5/6 和压力证据齐全后创建。
+- [ ] 16.8 逐项复测旁路：独立 Excel 第一阶段、工作流第一阶段、分类分组下载、拆板结果下载、余料交接、数据控制台和原有 Job 重试。
+- [ ] 16.9 审查无用兼容代码、临时脚本、测试输出和僵尸分支；只删除本功能确认无引用的代码。
+- [ ] 16.10 提交：`docs(stage2): publish BH Excel processing contract and validation`
+- [ ] 16.11 最终发布提交只在全部门通过、worktree 无意外修改、workflow 5/6、兼容性矩阵和压力证据齐全后创建。
 
 ---
 
@@ -530,11 +547,13 @@ git status --short
 以下任一项未满足，任务不得标记完成：
 
 - 不同项目、不同 workflow、不同 attempt 的图纸和 Excel 没有交叉；
-- Reader 正式 Excel 完整，失败图明确且不污染正式 Stage2；
+- Reader 审计 Excel 完整；缺图与失败图按批准规则形成部分完成结果和红色占位，不能伪装为成功数值；
 - 整理表增行、数量、下料长度、理论重量、源重量和公式缓存都符合物理含义；
 - `part` 与最终整理表逐行可追溯，参数不同绝不合并；
+- 同项目重复 BH 零件号整批失败；左右进互换不得合并；无 BH 空操作成功；
 - workflow 5/6 的真实行数和差异结论通过；
 - 5000 张批次无大 Job JSON、N+1、内存/磁盘无界增长或虚假进度；
 - 前端只显示中文业务提示，两个单文件下载都有真实进度；
 - 本机 protected 容器在 18080 可用且没有加密后丢功能；
+- 独立 Excel 第一阶段、分类、拆板、余料、数据控制台和现有下载没有兼容回归；
 - 全量测试、完整验证脚本和 Git 检查全部通过。
