@@ -5,6 +5,7 @@ These are lightweight static checks — no Docker daemon required.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import yaml
@@ -14,6 +15,7 @@ from tests.support.paths import REPO_ROOT
 COMPOSE_PATH = REPO_ROOT / "compose.yaml"
 DEV_COMPOSE_PATH = REPO_ROOT / "compose.dev.yaml"
 DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"
+BACKEND_PYPROJECT_PATH = REPO_ROOT / "backend" / "pyproject.toml"
 DOCKERIGNORE_PATH = REPO_ROOT / ".dockerignore"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 DOCKER_ENV_EXAMPLE_PATH = REPO_ROOT / ".env.docker.example"
@@ -105,6 +107,41 @@ class TestAppServices:
         assert "COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh" in dockerfile
         assert "COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh" in dockerfile
         assert "COPY scripts/lib/common.sh /app/scripts/lib/common.sh" in dockerfile
+
+    def test_bh_reader_is_version_locked_path_dependency_and_copied_into_image(self):
+        pyproject = BACKEND_PYPROJECT_PATH.read_text(encoding="utf-8")
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        reader_root = REPO_ROOT / "Stages" / "bh_left_right_reader"
+
+        assert reader_root.is_dir()
+        assert '"bh-left-right-reader==1.2.7"' in pyproject
+        assert (
+            'bh-left-right-reader = { path = "../Stages/bh_left_right_reader", '
+            "editable = true }"
+        ) in pyproject
+        assert (
+            "COPY Stages/bh_left_right_reader ./Stages/bh_left_right_reader"
+        ) in dockerfile
+        assert (
+            "./Stages/bh_left_right_reader:/app/Stages/bh_left_right_reader"
+            in _load_dev()["services"]["backend-api"]["volumes"]
+        )
+
+    def test_bh_reader_core_matches_the_v127_source_manifest(self):
+        reader_root = REPO_ROOT / "Stages" / "bh_left_right_reader"
+        manifest_path = reader_root / "SOURCE_MANIFEST.sha256"
+
+        assert manifest_path.is_file()
+        entries = [
+            line.split(maxsplit=1)
+            for line in manifest_path.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        ]
+        assert entries
+        for expected_sha256, relative_name in entries:
+            source_path = reader_root / relative_name
+            assert source_path.is_file(), relative_name
+            assert hashlib.sha256(source_path.read_bytes()).hexdigest() == expected_sha256
 
     def test_conversion_workers_use_persistent_xvfb_and_configurable_concurrency(self):
         data = _load()

@@ -1,0 +1,51 @@
+[geometry]
+endpoint_tolerance_mm = 0.20
+layer_name_regex = "(?i)(^part$|part(?!mark)|profile|outline|contour|构件|零件轮廓)"
+minimum_view_segments = 4
+spec_dimension_tolerance_ratio = 0.12
+same_flange_tolerance_mm = 0.50
+web_boundary_min_span_ratio = 0.22
+# 腹板端边必须是横向切断边：允许垂直或较陡斜边，禁止把长斜翼缘边当作腹板端点。
+web_boundary_min_steepness_ratio = 0.75
+web_end_window_ratio = 0.10
+web_end_window_min_mm = 250.0
+minimum_confidence_to_emit = 0.72
+
+# 翼板连续轮廓追踪：沿构件长度方向做截面采样，但端点最终从原 DXF 矢量线段回收。
+trace_target_samples = 2200
+trace_min_step_mm = 1.0
+trace_max_step_mm = 5.0
+flange_pair_projection_tolerance_ratio = 0.20
+flange_gap_bridge_ratio = 0.01
+flange_gap_bridge_thickness_factor = 3.0
+flange_min_piece_ratio = 0.03
+flange_min_piece_thickness_factor = 4.0
+
+# 多块翼板只由完整翼厚材料区间的真实中断产生；内部线、焊缝线和投影线不分板。
+four_flange_gap_overlap_ratio = 0.60
+unit_verification_tolerance_ratio = 0.02
+
+# 严格向下取整：不允许因浮点误差把左右进向上抬高。
+numerical_floor_epsilon_mm = 0.0
+dimension_corroboration_tolerance_mm = 0.50
+
+# 上下翼独立轨迹：先用同时存在两翼的可靠截面建立上下轨迹，再按局部轨迹分别识别。
+# 这样一侧翼板更长时，不会污染另一侧的端点。
+flange_anchor_depth_error_ratio = 0.16
+flange_track_assignment_depth_ratio = 0.06
+flange_track_assignment_thickness_factor = 2.5
+flange_track_fit_min_anchors = 5
+flange_shape_delta_tolerance_mm = 5.0
+flange_shape_delta_tolerance_depth_ratio = 0.05
+unit_contradiction_tolerance_ratio = 0.25
+# $INSUNITS 是坐标单位的首要声明；标题栏 1:10/1:20 只属于纸面显示比例。
+header_unit_match_tolerance_ratio = 1e-9
+header_unit_score_bonus = 1.50
+
+[output]
+include_raw_values = true
+include_diagnostics = true
+
+# Endpoint recovery: a covering line must align with the sampled material edge.
+flange_end_alignment_step_factor = 2.5
+flange_end_alignment_thickness_factor = 0.75

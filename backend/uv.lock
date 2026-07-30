@@ -98,6 +98,25 @@ wheels = [
 ]
 
 [[package]]
+name = "bh-left-right-reader"
+version = "1.2.7"
+source = { editable = "../Stages/bh_left_right_reader" }
+dependencies = [
+    { name = "ezdxf" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ezdxf", specifier = ">=1.4,<2" },
+    { name = "matplotlib", specifier = ">=3.10,<4" },
+    { name = "numpy", specifier = ">=2,<3" },
+    { name = "pillow", specifier = ">=11,<13" },
+]
+
+[[package]]
 name = "billiard"
 version = "4.2.4"
 source = { registry = "https://pypi.org/simple" }
@@ -267,6 +286,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "bh-left-right-reader" },
     { name = "celery", extra = ["sqlalchemy"] },
     { name = "dwg-converter" },
     { name = "dxf-converter" },
@@ -305,6 +325,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13.1" },
+    { name = "bh-left-right-reader", editable = "../Stages/bh_left_right_reader" },
     { name = "celery", extras = ["sqlalchemy"], specifier = ">=5.4,<6" },
     { name = "dwg-converter", editable = "../Stages/dwg2dxf" },
     { name = "dxf-converter", editable = "../Stages/dxf2dwg" },

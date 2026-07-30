@@ -18,6 +18,7 @@ services:
       - ./Stages/dxf2excel:/app/Stages/dxf2excel
       - ./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0
       - ./Stages/steel_dxf_split_v1.5.2:/app/Stages/steel_dxf_split_v1.5.2
+      - ./Stages/bh_left_right_reader:/app/Stages/bh_left_right_reader
       - ./Stages/excel_final:/app/Stages/excel_final
       - ./Stages/remnant_drawing_reader:/app/Stages/remnant_drawing_reader
 
