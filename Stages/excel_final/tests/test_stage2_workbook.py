@@ -10,7 +10,7 @@ from openpyxl import Workbook, load_workbook
 from canonical_pipeline import build_canonical_projection, write_canonical_projection
 from bh_stage2 import parse_bh_measurement_contract
 from domain import SourcePart
-from pipeline import run_auto_pipeline
+from pipeline import run_auto_pipeline, run_stage2_pipeline
 from stage2_workbook import (
     Stage2BaselineError,
     read_canonical_baseline_signature,
@@ -414,3 +414,21 @@ def test_stage2_reader_failure_publishes_partial_manual_formulas(
     finally:
         formulas.close()
         values.close()
+
+
+def test_stage2_pipeline_reuses_an_injected_handbook_repository(
+    tmp_path: Path,
+) -> None:
+    stage1 = _bh_stage1_workbook(tmp_path)
+    stage2 = tmp_path / "stage2-through-pipeline.xlsx"
+    handbook = _NoHandbookLookup()
+
+    outcome = run_stage2_pipeline(
+        stage1,
+        stage2,
+        measurements=_complete_contract(),
+        handbook_repository=handbook,
+    )
+
+    assert outcome.status == "complete"
+    assert outcome.output_path == stage2.resolve()

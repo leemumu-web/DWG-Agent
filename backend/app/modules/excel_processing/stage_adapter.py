@@ -11,7 +11,7 @@ import sys
 import tempfile
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -38,6 +38,8 @@ _REQUIRED_STAGE_FILES = (
     "handbook.py",
     "config.py",
     "material_routing.py",
+    "bh_stage2.py",
+    "stage2_workbook.py",
 )
 _QUALITY_STATUSES = {"ok", "warning", "severe_warning"}
 _LOOKUP_STATUSES = {"hit", "not_found", "skipped", "conflict"}
@@ -60,6 +62,13 @@ _PROCESS_RESULT_FIELDS = {
     "warning_count",
     "severe_warning_count",
     "report_summary",
+}
+_PROCESS_STAGE2_RESULT_FIELDS = _PROCESS_RESULT_FIELDS | {
+    "status",
+    "matched_occurrence_count",
+    "missing_drawing_count",
+    "unmatched_drawing_count",
+    "manual_occurrence_count",
 }
 _LOOKUP_RESULT_FIELDS = {
     "protocol_version",
@@ -127,6 +136,22 @@ class ExcelFinalProcessResult:
             "warning_count": self.warning_count,
             "severe_warning_count": self.severe_warning_count,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelStage2ProcessResult:
+    protocol_version: int
+    output_path: Path
+    internal_output_path: Path
+    status: str
+    matched_occurrence_count: int
+    missing_drawing_count: int
+    unmatched_drawing_count: int
+    manual_occurrence_count: int
+    quality_status: str
+    warning_count: int
+    severe_warning_count: int
+    report_summary: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +306,66 @@ def run_excel_final_pipeline(
     )
 
 
+def run_excel_stage2_pipeline(
+    formal_stage1_path: Path,
+    measurements_path: Path,
+    output_path: Path,
+) -> ExcelStage2ProcessResult:
+    """Run the isolated BH Stage 2 and publish both validated workbooks."""
+    if not formal_stage1_path.is_file():
+        raise ExcelFinalProcessError("Excel Stage 1 formal workbook does not exist")
+    if not measurements_path.is_file():
+        raise ExcelFinalProcessError("BH measurement contract does not exist")
+    if output_path.suffix.lower() != ".xlsx":
+        raise ValueError("Excel Stage 2 output must use the .xlsx extension")
+
+    output_path = output_path.resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    internal_output_path = output_path.with_name(
+        f".{output_path.stem}.internal.xlsx"
+    )
+    publish_token = uuid.uuid4().hex
+    stage_output_path = output_path.with_name(
+        f".{output_path.stem}.{publish_token}.xlsx"
+    )
+    stage_internal_output_path = output_path.with_name(
+        f".{output_path.stem}.{publish_token}.internal.xlsx"
+    )
+    try:
+        completed = _run_stage(
+            "process-stage2",
+            "--stage1",
+            str(formal_stage1_path.resolve()),
+            "--measurements",
+            str(measurements_path.resolve()),
+            "--output",
+            str(stage_output_path),
+            "--internal-output",
+            str(stage_internal_output_path),
+        )
+        _raise_for_failed_stage(completed, operation="process-stage2")
+        payload = _result_payload(completed, operation="process-stage2")
+        result = _stage2_process_result(
+            payload,
+            expected_output=stage_output_path,
+            internal_output=internal_output_path,
+        )
+        if not stage_output_path.is_file():
+            raise ExcelFinalProcessError(
+                "Excel Stage 2 exited successfully without an output file"
+            )
+        if not stage_internal_output_path.is_file():
+            raise ExcelFinalProcessError(
+                "Excel Stage 2 exited successfully without its internal import file"
+            )
+        stage_internal_output_path.replace(internal_output_path)
+        stage_output_path.replace(output_path)
+    finally:
+        stage_output_path.unlink(missing_ok=True)
+        stage_internal_output_path.unlink(missing_ok=True)
+    return replace(result, output_path=output_path)
+
+
 def lookup_excel_final_weight(
     *,
     category: str,
@@ -419,7 +504,7 @@ def _normalize_lookup_request(
 def _result_payload(
     completed: subprocess.CompletedProcess[str],
     *,
-    operation: Literal["process", "lookup", "inspect"],
+    operation: Literal["process", "process-stage2", "lookup", "inspect"],
 ) -> dict[str, object]:
     result_lines = [
         line
@@ -603,6 +688,66 @@ def _process_result(
     )
 
 
+def _stage2_process_result(
+    payload: dict[str, object],
+    *,
+    expected_output: Path,
+    internal_output: Path,
+) -> ExcelStage2ProcessResult:
+    try:
+        if set(payload) != _PROCESS_STAGE2_RESULT_FIELDS:
+            raise ValueError("invalid fields")
+        stage2_status = payload["status"]
+        if stage2_status not in {"complete", "partial", "noop"}:
+            raise ValueError("invalid Stage 2 status")
+        counts = {
+            field: _non_negative_int(payload[field])
+            for field in (
+                "matched_occurrence_count",
+                "missing_drawing_count",
+                "unmatched_drawing_count",
+                "manual_occurrence_count",
+            )
+        }
+        problem_count = (
+            counts["missing_drawing_count"]
+            + counts["unmatched_drawing_count"]
+            + counts["manual_occurrence_count"]
+        )
+        if counts["manual_occurrence_count"] > counts["matched_occurrence_count"]:
+            raise ValueError("manual occurrences exceed matched occurrences")
+        if stage2_status == "noop" and any(counts.values()):
+            raise ValueError("noop Stage 2 has non-zero counts")
+        if stage2_status == "complete" and problem_count:
+            raise ValueError("complete Stage 2 has unresolved counts")
+        if stage2_status == "partial" and problem_count == 0:
+            raise ValueError("partial Stage 2 has no unresolved counts")
+        base_payload = {
+            field: payload[field]
+            for field in _PROCESS_RESULT_FIELDS
+        }
+        base_payload["operation"] = "process"
+        base = _process_result(base_payload, expected_output=expected_output)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ExcelFinalProcessError(
+            "Excel Final returned an invalid process-stage2 result"
+        ) from exc
+    return ExcelStage2ProcessResult(
+        protocol_version=base.protocol_version,
+        output_path=base.output_path,
+        internal_output_path=internal_output.resolve(),
+        status=stage2_status,
+        matched_occurrence_count=counts["matched_occurrence_count"],
+        missing_drawing_count=counts["missing_drawing_count"],
+        unmatched_drawing_count=counts["unmatched_drawing_count"],
+        manual_occurrence_count=counts["manual_occurrence_count"],
+        quality_status=base.quality_status,
+        warning_count=base.warning_count,
+        severe_warning_count=base.severe_warning_count,
+        report_summary=base.report_summary,
+    )
+
+
 def _lookup_result(
     payload: dict[str, object],
     *,
@@ -710,7 +855,7 @@ def _stage_environment() -> dict[str, str]:
 def _raise_for_failed_stage(
     completed: subprocess.CompletedProcess[str],
     *,
-    operation: Literal["process", "lookup", "inspect"],
+    operation: Literal["process", "process-stage2", "lookup", "inspect"],
 ) -> None:
     if completed.returncode == 0:
         return

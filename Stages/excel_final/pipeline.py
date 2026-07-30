@@ -12,11 +12,13 @@ from typing import Iterator
 from openpyxl import Workbook
 
 import config as cfg
+from bh_stage2 import BhMeasurementContract
 from canonical_pipeline import HandbookReader, process_canonical_records
 from config import OUTPUT_DIR
 from domain import PipelineOutcome
 from handbook import close_handbook, init_handbook
 from source_intake import SourceIntakeResult, read_production_source
+from stage2_workbook import Stage2WorkbookOutcome, run_stage2_workbook
 
 
 log = logging.getLogger(__name__)
@@ -155,3 +157,28 @@ def run_auto_pipeline(
         handbook_repository=handbook_repository,
         internal_output_file=internal_output_file,
     )
+
+
+def run_stage2_pipeline(
+    formal_stage1_file: str | Path,
+    output_file: str | Path,
+    *,
+    measurements: BhMeasurementContract,
+    handbook_repository: HandbookReader | None = None,
+    internal_output_file: str | Path | None = None,
+) -> Stage2WorkbookOutcome:
+    """Run the validated BH setback Stage 2 with one handbook repository."""
+    owned_repository = handbook_repository is None
+    repository = handbook_repository or init_handbook(cfg.DB_CONFIG)
+    try:
+        return run_stage2_workbook(
+            formal_stage1_file,
+            output_file,
+            measurements=measurements,
+            handbook=repository,
+            internal_output_path=internal_output_file,
+        )
+    finally:
+        repository.log_stats()
+        if owned_repository:
+            close_handbook()

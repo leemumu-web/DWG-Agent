@@ -6,6 +6,7 @@ import runpy
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from openpyxl import Workbook
@@ -88,6 +89,18 @@ def _process_payload(output_path: Path) -> dict[str, object]:
             "category_counts": {"手册查无": 1},
             "representative_messages": ["规格查无"],
         },
+    }
+
+
+def _stage2_process_payload(output_path: Path) -> dict[str, object]:
+    return {
+        **_process_payload(output_path),
+        "operation": "process-stage2",
+        "status": "partial",
+        "matched_occurrence_count": 12,
+        "missing_drawing_count": 2,
+        "unmatched_drawing_count": 1,
+        "manual_occurrence_count": 3,
     }
 
 
@@ -514,6 +527,171 @@ def test_excel_final_pipeline_runs_in_isolated_subprocess(monkeypatch, tmp_path:
     assert result.report_summary["category_counts"] == {
         "手册查无": 1,
     }
+
+
+def test_excel_stage2_adapter_validates_protocol_and_publishes_both_workbooks(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    stage1 = tmp_path / "stage1.xlsx"
+    measurements = tmp_path / "bh-measurements.json"
+    output = tmp_path / "stage2.xlsx"
+    stage1.write_bytes(b"stage1")
+    measurements.write_text(
+        '{"schema":"bh_setback_measurements/v1","items":[]}',
+        encoding="utf-8",
+    )
+    captured: tuple[str, ...] | None = None
+
+    def fake_run(*arguments: str):
+        nonlocal captured
+        captured = arguments
+        stage_output = Path(arguments[arguments.index("--output") + 1])
+        stage_internal = Path(arguments[arguments.index("--internal-output") + 1])
+        stage_output.write_bytes(b"formal-stage2")
+        stage_internal.write_bytes(b"internal-stage2")
+        return subprocess.CompletedProcess(
+            arguments,
+            0,
+            stdout=_protocol_line(_stage2_process_payload(stage_output)),
+            stderr="",
+        )
+
+    monkeypatch.setattr(excel_final, "_run_stage", fake_run)
+
+    result = excel_final.run_excel_stage2_pipeline(
+        stage1,
+        measurements,
+        output,
+    )
+
+    assert captured is not None
+    assert captured[0] == "process-stage2"
+    assert captured[captured.index("--stage1") + 1] == str(stage1.resolve())
+    assert captured[captured.index("--measurements") + 1] == str(
+        measurements.resolve()
+    )
+    assert result.status == "partial"
+    assert result.matched_occurrence_count == 12
+    assert result.missing_drawing_count == 2
+    assert result.unmatched_drawing_count == 1
+    assert result.manual_occurrence_count == 3
+    assert result.output_path == output.resolve()
+    assert result.internal_output_path == output.with_name(
+        ".stage2.internal.xlsx"
+    ).resolve()
+    assert output.read_bytes() == b"formal-stage2"
+    assert result.internal_output_path.read_bytes() == b"internal-stage2"
+
+
+def test_stage_runner_process_stage2_emits_the_strict_result_protocol(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    stage1 = tmp_path / "stage1.xlsx"
+    measurements = tmp_path / "measurements.json"
+    output = tmp_path / "stage2.xlsx"
+    internal = tmp_path / "stage2-internal.xlsx"
+    stage1.write_bytes(b"stage1")
+    measurements.write_text(
+        '{"schema":"bh_setback_measurements/v1","items":[]}',
+        encoding="utf-8",
+    )
+    output.write_bytes(b"stage2")
+    internal.write_bytes(b"internal")
+    pipeline_outcome = SimpleNamespace(
+        output_path=output.resolve(),
+        quality_status="warning",
+        warning_count=1,
+        severe_warning_count=0,
+        report_summary={
+            "info_count": 0,
+            "warning_count": 1,
+            "severe_warning_count": 0,
+            "category_counts": {"BH缺图沿用原长度": 1},
+            "representative_messages": ["缺图"],
+        },
+    )
+    stage2_outcome = SimpleNamespace(
+        output_path=output.resolve(),
+        status="partial",
+        matched_occurrence_count=1,
+        missing_drawing_count=1,
+        unmatched_drawing_count=0,
+        manual_occurrence_count=0,
+        pipeline_outcome=pipeline_outcome,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_pipeline(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return stage2_outcome
+
+    monkeypatch.syspath_prepend(str(excel_final.get_excel_final_stage_root()))
+    import pipeline as excel_pipeline
+
+    monkeypatch.setattr(stage_runner, "_configure_handbook_database", lambda: {})
+    monkeypatch.setattr(excel_pipeline, "run_stage2_pipeline", fake_pipeline)
+
+    stage_runner._process_stage2(SimpleNamespace(
+        stage1=stage1,
+        measurements=measurements,
+        output=output,
+        internal_output=internal,
+    ))
+
+    payload = _sentinel_payload(
+        capsys.readouterr().out,
+        "DWG_EXCEL_FINAL_RESULT=",
+    )
+    assert payload == _stage2_process_payload(output) | {
+        "matched_occurrence_count": 1,
+        "missing_drawing_count": 1,
+        "unmatched_drawing_count": 0,
+        "manual_occurrence_count": 0,
+        "report_summary": pipeline_outcome.report_summary,
+    }
+    contract = captured["kwargs"]["measurements"]
+    assert contract.schema == "bh_setback_measurements/v1"
+    assert captured["kwargs"]["internal_output_file"] == internal.resolve()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda payload: payload.update(status="noop", matched_occurrence_count=1),
+        lambda payload: payload.update(status="complete", missing_drawing_count=1),
+        lambda payload: payload.update(
+            status="partial",
+            missing_drawing_count=0,
+            unmatched_drawing_count=0,
+            manual_occurrence_count=0,
+        ),
+        lambda payload: payload.update(
+            matched_occurrence_count=1,
+            manual_occurrence_count=2,
+        ),
+    ],
+)
+def test_stage2_protocol_rejects_contradictory_status_counts(
+    tmp_path: Path,
+    mutation,
+) -> None:
+    expected_output = tmp_path / "candidate.xlsx"
+    payload = _stage2_process_payload(expected_output)
+    mutation(payload)
+
+    with pytest.raises(
+        excel_final.ExcelFinalProcessError,
+        match="invalid process-stage2 result",
+    ):
+        excel_final._stage2_process_result(
+            payload,
+            expected_output=expected_output,
+            internal_output=tmp_path / "internal.xlsx",
+        )
 
 
 def test_excel_final_pipeline_does_not_accept_preexisting_output_as_new_result(

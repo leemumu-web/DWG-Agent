@@ -19,7 +19,10 @@ _REQUIRED_STAGE_FILES = (
     "handbook.py",
     "config.py",
     "material_routing.py",
+    "bh_stage2.py",
+    "stage2_workbook.py",
 )
+_MAX_STAGE2_MEASUREMENTS_BYTES = 64 * 1024 * 1024
 _LOOKUP_CATEGORIES = (
     "flat_steel",
     "round_bar",
@@ -48,6 +51,13 @@ def _parse_args() -> argparse.Namespace:
     process_parser.add_argument("--input", required=True, type=Path)
     process_parser.add_argument("--output", required=True, type=Path)
     process_parser.add_argument("--internal-output", required=True, type=Path)
+
+    stage2_parser = subparsers.add_parser("process-stage2")
+    stage2_parser.add_argument("--stage-root", required=True, type=Path)
+    stage2_parser.add_argument("--stage1", required=True, type=Path)
+    stage2_parser.add_argument("--measurements", required=True, type=Path)
+    stage2_parser.add_argument("--output", required=True, type=Path)
+    stage2_parser.add_argument("--internal-output", required=True, type=Path)
 
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("--stage-root", required=True, type=Path)
@@ -113,6 +123,52 @@ def _process(args: argparse.Namespace) -> None:
             "quality_status": result.quality_status,
             "warning_count": result.warning_count,
             "severe_warning_count": result.severe_warning_count,
+            "report_summary": summary,
+        }
+    )
+
+
+def _process_stage2(args: argparse.Namespace) -> None:
+    _configure_handbook_database()
+    measurement_path = args.measurements.resolve()
+    if not measurement_path.is_file():
+        raise FileNotFoundError("BH measurement contract does not exist")
+    if measurement_path.stat().st_size > _MAX_STAGE2_MEASUREMENTS_BYTES:
+        raise ValueError("BH measurement contract exceeds the 64 MiB limit")
+    from bh_stage2 import parse_bh_measurement_contract
+    from pipeline import run_stage2_pipeline
+
+    payload = json.loads(measurement_path.read_text(encoding="utf-8"))
+    contract = parse_bh_measurement_contract(payload)
+    result = run_stage2_pipeline(
+        args.stage1.resolve(),
+        args.output.resolve(),
+        measurements=contract,
+        internal_output_file=args.internal_output.resolve(),
+    )
+    if not result.output_path.is_file():
+        raise RuntimeError(
+            f"Excel Stage 2 did not create its output: {result.output_path}"
+        )
+    pipeline_outcome = result.pipeline_outcome
+    summary = dict(pipeline_outcome.report_summary)
+    summary["category_counts"] = dict(summary.get("category_counts", {}))
+    summary["representative_messages"] = list(
+        summary.get("representative_messages", [])
+    )
+    _emit_result(
+        {
+            "protocol_version": _PROTOCOL_VERSION,
+            "operation": "process-stage2",
+            "output_path": str(result.output_path),
+            "status": result.status,
+            "matched_occurrence_count": result.matched_occurrence_count,
+            "missing_drawing_count": result.missing_drawing_count,
+            "unmatched_drawing_count": result.unmatched_drawing_count,
+            "manual_occurrence_count": result.manual_occurrence_count,
+            "quality_status": pipeline_outcome.quality_status,
+            "warning_count": pipeline_outcome.warning_count,
+            "severe_warning_count": pipeline_outcome.severe_warning_count,
             "report_summary": summary,
         }
     )
@@ -215,6 +271,8 @@ def main() -> None:
     try:
         if args.command == "process":
             _process(args)
+        elif args.command == "process-stage2":
+            _process_stage2(args)
         elif args.command == "inspect":
             _inspect(args)
         else:
