@@ -20,6 +20,7 @@ import openpyxl
 from domain import SourcePart
 from input_contract import InputContractError, InputKind, inspect_production_input
 from input_errors import ExcelInputIssue, input_failure
+from header_normalization import normalize_header
 from legacy_xls import open_legacy_workbook
 from utils import safe_float, safe_str
 
@@ -226,8 +227,7 @@ def read_init_canonical(filepath: str | Path) -> tuple[SourcePart, ...]:
 
 
 def _normalized_initial_header(value: Any) -> str:
-    compact = "".join(str(value or "").split())
-    return re.sub(r"[（(][^）)]*[）)]", "", compact)
+    return normalize_header(value)
 
 
 def _initial_columns(values: tuple[Any, ...]) -> tuple[dict[str, int], tuple[str, ...]]:

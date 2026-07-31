@@ -70,6 +70,40 @@ def test_source_intake_detects_standard_workbook(tmp_path: Path) -> None:
     assert result.component_rows[0].component_qty == Decimal("2")
 
 
+def test_source_intake_accepts_units_with_non_parenthetical_separators(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "unit-suffixed.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(
+        [
+            "批次/批号",
+            "构件编号(号)",
+            "零件号",
+            "规格",
+            "长度/mm",
+            "材质",
+            "数量-件",
+            "单毛重[kg]",
+            "总毛重【kg】",
+        ]
+    )
+    sheet.append(["B1", "C1", None, "PL10*100", 200, "Q355B", 1, None, None])
+    sheet.append([None, None, "P1", "PL10*100", 200, "Q355B", 2, 1.5, 3.0])
+    workbook.save(source)
+    workbook.close()
+
+    result = read_production_source(source)
+
+    assert len(result.parts) == 1
+    assert result.parts[0].length == Decimal("200")
+    assert result.parts[0].original_qty == Decimal("2")
+    assert result.parts[0].source_unit_gross == Decimal("1.5")
+    assert result.parts[0].source_total_gross == Decimal("3.0")
+
+
 def test_multi_sheet_workbook_keeps_first_sheet_and_records_warning(tmp_path: Path) -> None:
     source = _standard_workbook(tmp_path / "multi.xlsx")
     workbook = Workbook()

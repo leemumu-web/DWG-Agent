@@ -17,6 +17,7 @@ from input_errors import (
     InputContractError,
     input_failure,
 )
+from header_normalization import normalize_header
 from legacy_xls import open_legacy_workbook
 
 
@@ -97,10 +98,7 @@ _REQUIRED_HEADERS = (
 
 
 def _normalized_header(value: Any) -> str:
-    if value is None:
-        return ""
-    compact = "".join(str(value).split())
-    return re.sub(r"[（(][^）)]*[）)]", "", compact)
+    return normalize_header(value)
 
 
 def _columns_for_header_row(

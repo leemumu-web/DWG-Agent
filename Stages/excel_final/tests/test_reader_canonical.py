@@ -162,6 +162,21 @@ def test_initial_table_maps_unit_and_total_weight_to_gross_only(tmp_path: Path) 
     assert part.source_total_gross == Decimal("3.14")
 
 
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        ("长度/mm", "长度"),
+        ("数量-件", "数量"),
+        ("单重[kg]", "单重"),
+        ("总面积【㎡】", "总面积"),
+    ],
+)
+def test_initial_table_header_units_are_ignored(header: str, expected: str) -> None:
+    reader_init = _reader_init()
+
+    assert reader_init._normalized_initial_header(header) == expected
+
+
 def test_tekla_text_xls_adapts_to_the_same_canonical_records(tmp_path: Path) -> None:
     reader = _reader()
     source = tmp_path / "tekla.xls"

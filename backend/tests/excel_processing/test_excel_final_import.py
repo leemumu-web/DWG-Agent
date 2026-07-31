@@ -227,6 +227,33 @@ def test_excel_final_import_skips_totals_row(db: Session, tmp_path: Path):
     assert part.material == "Q355B"
 
 
+def test_excel_final_import_accepts_separated_unit_suffixes(
+    db: Session,
+    tmp_path: Path,
+) -> None:
+    batch = _batch(db)
+    output_path = tmp_path / "result-with-unit-separators.xlsx"
+    _workbook(
+        output_path,
+        [
+            "序号",
+            "构件编号",
+            "零件号",
+            "规格",
+            "长度/mm",
+            "材质",
+            "数量-件",
+            "单毛重[kg]",
+            "总毛重(kg)",
+        ],
+        [[1, "C-1", "P-1", "PL10*100", 200, "Q355B", 2, 1.5, 3.0]],
+    )
+
+    stats = import_parts_to_db(db, batch.id, output_path)
+
+    assert stats == {"parts_imported": 1}
+
+
 def test_excel_final_import_rejects_missing_core_headers(db: Session, tmp_path: Path):
     batch = _batch(db)
     output_path = tmp_path / "invalid.xlsx"

@@ -131,6 +131,26 @@ def test_incomplete_duplicate_weight_pair_stays_ambiguous() -> None:
     assert conflicts == ("单毛重 columns=[3, 5]",)
 
 
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        ("长度/mm", "长度"),
+        ("数量-件", "数量"),
+        ("单毛重[kg]", "单毛重"),
+        ("总表面积【㎡】", "总表面积"),
+        ("材质 kg", "材质"),
+        ("规格-自定义", "规格-自定义"),
+    ],
+)
+def test_header_units_after_canonical_name_are_ignored(
+    header: str,
+    expected: str,
+) -> None:
+    contract = _contract()
+
+    assert contract._normalized_header(header) == expected
+
+
 def test_header_detection_resolves_duplicate_length_by_group_semantics(tmp_path: Path) -> None:
     contract = _contract()
     source = tmp_path / "grouped-header.xlsx"

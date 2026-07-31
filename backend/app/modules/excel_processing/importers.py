@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
+from .header_normalization import normalize_header
 from sqlalchemy.orm import Session
 
 from app.modules.excel_processing.models import ExcelFinalComponent, ExcelFinalPart
@@ -67,8 +68,7 @@ _MAX_REPRESENTATIVE_MESSAGE_LENGTH = 500
 
 
 def _canonical_header(value: object) -> str:
-    text = "" if value is None else str(value).strip().replace(" ", "")
-    return re.split(r"[（(]", text, maxsplit=1)[0]
+    return normalize_header(value)
 
 
 def _number(value: object) -> Decimal | None:
