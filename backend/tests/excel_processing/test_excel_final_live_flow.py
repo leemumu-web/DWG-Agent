@@ -21,7 +21,7 @@ from app.modules.excel_processing.models import (
 )
 from app.modules.files.interface import FileTransfer, StoredFile
 from app.modules.identity.interface import User
-from app.modules.jobs.interface import AnalysisResult, Job
+from app.modules.jobs.interface import AnalysisResult, Job, JobDispatch
 from app.platform.storage.local import LocalFileStorage
 from tests.support.paths import STAGES_ROOT
 
@@ -69,11 +69,6 @@ def test_live_upload_worker_catalog_and_download_flow(
         "app.modules.excel_processing.availability.settings.excel_final_pipeline_enabled",
         True,
     )
-    dispatched: list[int] = []
-    monkeypatch.setattr(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, job: dispatched.append(job.id),
-    )
     client, headers, _admin = _admin_client(db)
 
     submitted = client.post(
@@ -89,7 +84,10 @@ def test_live_upload_worker_catalog_and_download_flow(
     )
     assert submitted.status_code == 202, submitted.text
     job_id = submitted.json()["data"]["job_id"]
-    assert dispatched == [job_id]
+    db.expire_all()
+    dispatch = db.scalar(select(JobDispatch).where(JobDispatch.job_id == job_id))
+    assert dispatch is not None
+    assert dispatch.job_attempt == 1
 
     run_excel_final_processing(
         job_id,

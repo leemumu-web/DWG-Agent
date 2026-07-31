@@ -355,6 +355,8 @@ def test_infrastructure_verifier_does_not_require_reserved_empty_workers():
     assert '"worker-dispatch"' not in compose_checks
     for service in ("worker-dxf", "worker-dxf-split", "worker-report"):
         assert f'"{service}"' in compose_checks
+    assert '"dispatcher"' in compose_checks
+    assert '["python", "-m", "app.modules.jobs.dispatcher"]' in compose_checks
 
 
 def _run_compose_storage_probe(
@@ -590,6 +592,11 @@ def test_database_script_runs_alembic_and_checks_timestamp_schema():
         assert table in content
     assert "created_at" in content
     assert "updated_at" in content
+    assert '"job_dispatches"' in content
+    assert '"operation_key"' in content
+    assert '"uq_jobs_task_operation_key"' in content
+    assert '"uq_job_dispatch_attempt"' in content
+    assert '"ix_job_dispatch_pending"' in content
 
 
 def test_database_script_exposes_isolated_mysql_migration_test():

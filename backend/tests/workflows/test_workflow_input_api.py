@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import select
 
 from app.modules.files.interface import save_bytes_as_file
+from app.modules.jobs.interface import JobDispatch
 from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.intake.registration import (
     validate_input_dwg_folder_manifest,
@@ -252,12 +253,7 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
     _use_storage(monkeypatch, tmp_path)
     client = workflow_test_api.client()
     _, owner_headers, _, workflow_id = _setup(client)
-    dispatched: list[tuple[str, list[tuple[int, int]]]] = []
     monkeypatch.setattr("app.platform.config.settings.settings.dxf_pipeline_enabled", True)
-    monkeypatch.setattr(
-        "app.modules.workflows.routes.intake.dispatch_committed_conversion_batch",
-        lambda *, task_type, jobs: dispatched.append((task_type, jobs)),
-    )
 
     created = client.post(f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers)
     replay = client.post(f"/api/v1/workflows/{workflow_id}/input-batch", headers=owner_headers)
@@ -292,7 +288,12 @@ def test_create_register_list_and_prepare_conversion(monkeypatch, tmp_path):
     }
     assert data["freeze_ready"] is False
     assert len(data["items"]) == 2
-    assert dispatched and dispatched[0][0] == "convert_dwg_to_dxf"
+    job_id = conversion.json()["data"]["jobs"][0]["id"]
+    with open_test_session() as db:
+        dispatch = db.scalar(select(JobDispatch).where(JobDispatch.job_id == job_id))
+        assert dispatch is not None
+        assert dispatch.task_type == "convert_dwg_to_dxf"
+        assert dispatch.dispatch_mode == "conversion_batch"
 
 
 def test_conversion_rejects_dwg_only_input(monkeypatch, tmp_path):

@@ -12,10 +12,6 @@ from app.modules.files.interface import StoredFile, require_file_read_access
 from app.modules.identity.interface import CurrentUser
 from app.modules.jobs.access import PROJECT_JOB_WRITE_ROLES, require_job_write_access
 from app.modules.jobs.creation import create_conversion_jobs, create_job
-from app.modules.jobs.dispatch import (
-    dispatch_committed_conversion_batch,
-    dispatch_committed_job,
-)
 from app.modules.jobs.lifecycle import (
     cancel_active_jobs_in_transaction,
 )
@@ -26,6 +22,11 @@ from app.modules.jobs.lifecycle import (
     retry_job as transition_job_to_queued,
 )
 from app.modules.jobs.models import Job
+from app.modules.jobs.outbox import (
+    drain_eager_dispatches,
+    stage_conversion_dispatch,
+    stage_job_dispatch,
+)
 from app.modules.jobs.schemas import ConversionBatchCreate, JobBulkCancellation, JobCreate, JobRead
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import Drawing, has_global_project_access, require_project_role
@@ -102,8 +103,9 @@ def create_job_api(
         after_json=payload.model_dump(),
         request=request,
     )
+    stage_job_dispatch(db, job)
     db.commit()
-    dispatch_committed_job(db, job)
+    drain_eager_dispatches(db)
     return ok(JobRead.model_validate(job), request.state.request_id)
 
 
@@ -154,11 +156,9 @@ def create_conversion_batch(
             },
             request=request,
         )
+    stage_conversion_dispatch(db, task_type=payload.task_type, jobs=jobs)
     db.commit()
-    dispatch_committed_conversion_batch(
-        task_type=payload.task_type,
-        jobs=[(job.id, job.attempt) for job in jobs],
-    )
+    drain_eager_dispatches(db)
     return ok(
         {"jobs": [JobRead.model_validate(job) for job in jobs]},
         request.state.request_id,
@@ -310,6 +310,7 @@ def retry_job(
         resource_id=job.id,
         request=request,
     )
+    stage_job_dispatch(db, job)
     db.commit()
-    dispatch_committed_job(db, job)
+    drain_eager_dispatches(db)
     return ok(JobRead.model_validate(job), request.state.request_id)

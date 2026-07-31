@@ -19,7 +19,11 @@ from app.modules.files.interface import (
     settle_transfer,
 )
 from app.modules.identity.interface import CurrentUser
-from app.modules.jobs.interface import JobRead, dispatch_committed_conversion_batch
+from app.modules.jobs.interface import (
+    JobRead,
+    drain_eager_dispatches,
+    stage_conversion_dispatch,
+)
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member, require_project_role
 from app.modules.workflows.access import WORKFLOW_WRITE_ROLES
@@ -468,9 +472,20 @@ def convert_batch_api(
         },
         request=request,
     )
+    if plan.dispatch:
+        dispatch_attempts = set(plan.dispatch)
+        stage_conversion_dispatch(
+            db,
+            task_type=TASK_DWG_TO_DXF,
+            jobs=[
+                job
+                for job in plan.jobs
+                if (job.id, job.attempt) in dispatch_attempts
+            ],
+        )
     db.commit()
     if plan.dispatch:
-        dispatch_committed_conversion_batch(task_type=TASK_DWG_TO_DXF, jobs=plan.dispatch)
+        drain_eager_dispatches(db)
     result = WorkflowInputConversionRead(
         batch=describe_input_batch(db, batch),
         jobs=[JobRead.model_validate(job) for job in plan.jobs],

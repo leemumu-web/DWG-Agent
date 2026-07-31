@@ -125,7 +125,7 @@
       "code": "jobs",
       "title": "异步任务、结果与复核",
       "status": "implemented",
-      "architecture_nodes": ["API", "MYSQL", "SSE"],
+      "architecture_nodes": ["API", "MYSQL", "OUTBOX", "SSE"],
       "backend_paths": ["backend/app/modules/jobs"],
       "frontend_paths": [
         "frontend/src/features/jobs",
@@ -349,9 +349,9 @@
     },
     {
       "code": "messaging_target",
-      "title": "RabbitMQ、Outbox 与周期调度目标",
+      "title": "RabbitMQ 与周期调度目标",
       "status": "placeholder",
-      "architecture_nodes": ["BEAT", "OUTBOX", "RABBIT", "SCHEDULER"],
+      "architecture_nodes": ["BEAT", "RABBIT", "SCHEDULER"],
       "backend_paths": ["backend/app/platform/messaging/celery_app.py", "compose.yaml"],
       "frontend_paths": [],
       "tables": [],
@@ -365,7 +365,7 @@
         "docs/guides/deployment.md",
         "infra/messaging/rabbitmq/README.md"
       ],
-      "notes": "Current broker is MySQL SQLAlchemy transport; RabbitMQ, transactional Outbox and Beat are not deployed."
+      "notes": "Current broker is MySQL SQLAlchemy transport and Job delivery uses a transactional Outbox; RabbitMQ and Beat are not deployed."
     },
     {
       "code": "windows_execution",

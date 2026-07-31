@@ -26,7 +26,8 @@ from app.modules.jobs.interface import (
     Job,
     JobCreate,
     create_or_reuse_job,
-    dispatch_committed_job,
+    drain_eager_dispatches,
+    stage_job_dispatch,
 )
 from app.modules.operations.audit.interface import write_audit_log
 from app.platform.config.constants import EXCEL_FILE_EXTENSIONS, TASK_EXCEL_FINAL
@@ -112,9 +113,10 @@ def process_file(
             after_json={"file_id": file_id},
             request=request,
         )
+        stage_job_dispatch(db, job)
     db.commit()
     if not reused:
-        dispatch_committed_job(db, job)
+        drain_eager_dispatches(db)
     return ok(
         {
             "job_id": job.id,
@@ -196,9 +198,10 @@ async def upload_and_process(
             after_json={"file_id": stored.id, "original_name": stored.original_name},
             request=request,
         )
+        stage_job_dispatch(db, job)
     db.commit()
     if not reused:
-        dispatch_committed_job(db, job)
+        drain_eager_dispatches(db)
     return ok(
         {
             "job_id": job.id,

@@ -27,10 +27,10 @@
 | 架构节点 | 模块 | 当前事实 | 不得误报的目标差距 |
 |---|---|---|---|
 | `NGINX/API/WEB` | 多模块入口 | implemented | Compose 当前仅 HTTP，没有完成 TLS |
-| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 47 张模型表 |
+| `MYSQL` | platform + 所有业务模块 | implemented | MySQL 是业务事实源；迁移管理 48 张模型表 |
 | `MINIO` | `files` | implemented in Compose | 本地开发可用 local；跨 MySQL/对象不存在单一 ACID 事务 |
 | `RABBIT` | `messaging_target` | placeholder | 当前 broker 是 MySQL SQLAlchemy transport |
-| `OUTBOX` | `messaging_target` | placeholder | 当前 commit 后投递有补偿，不是事务 Outbox |
+| `OUTBOX` | `jobs` | implemented | Job 与投递意图同事务提交；独立 dispatcher 使用 lease 和稳定 task ID 重试发布 |
 | `BEAT/SCHEDULER` | `messaging_target` | placeholder | maintenance 由 API 显式提交，不是周期任务 |
 | `Q_* / W_*` | CAD、Excel、operations | partial | worker ready 只证明连接，不证明 Stage/样本可用 |
 | `BACKUP/MONITOR` | `operations` | partial | 有手动工具和控制台；没有自动离机备份、指标告警或 RPO/RTO |
@@ -65,9 +65,9 @@
 | 运行接口 | 正式实现 | 兼容或装配边界 |
 |---|---|---|
 | `app.main:app` | `app/bootstrap/application.py` | `main.py` 只重导出 ASGI app。 |
-| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载模型 owner 和 47 张表；files、jobs、workflows、dxf_splitting 与 remnant_inventory 分别通过领域模型包装配其多张表。 |
+| SQLAlchemy metadata/session/mixin | `app/platform/database/` | `bootstrap/model_registry.py` 显式加载模型 owner 和 48 张表；files、jobs、workflows、dxf_splitting 与 remnant_inventory 分别通过领域模型包装配其多张表。 |
 | 初始角色、权限和管理员 seed | `app/bootstrap/seed.py` | composition 层组合 identity model、platform Session 和 password primitive。 |
-| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 9 个真实 task module，并注册 jobs stale-recovery 与 control-plane observer；14 个 `app.workers.tasks_*` 公共名和 13 条 `pattern -> queue` 路由由运行时快照锁定，其中 agent/cad/dispatch 仅为无 task 的预留 seam。 |
+| Celery application | `app/platform/messaging/celery_app.py` | `bootstrap/task_registry.py` 显式加载 9 个真实 task module，并注册 jobs stale-recovery 与 control-plane observer；16 个 `app.workers.tasks_*` 公共名和 14 条 `pattern -> queue` 路由由运行时快照锁定，其中 agent/cad/dispatch 仅为无 task 的预留 seam。 |
 | Settings、HTTP envelope/error/dependency、JWT/password、logging | `app/platform/{config,http,security,observability}/` | 业务权限不进入 token primitive；通用 DB dependency 不认识身份或项目。 |
 | Local/MinIO 字节接口 | `app/platform/storage/` | adapter、安全路径、选择缓存和健康检查；不导入 ORM 或文件业务。 |
 
@@ -78,7 +78,7 @@
 | `/auth`、`/users`、`/roles`、`/permissions` | `app/modules/identity/` | 其他模块只导入 `identity.interface`；拥有六张 RBAC/token 表。 |
 | `/projects`、`/drawings` | `app/modules/projects/` | 其他模块只导入 `projects.interface`；拥有四张项目/图纸表。 |
 | `/files` | `app/modules/files/` | 其他模块只导入 `files.interface`；拥有文件、传输和扫描四张表，与 platform byte adapter 解耦。 |
-| `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Step/Result/Review 四张表，attempt 状态机与 Celery transport 解耦。 |
+| `/jobs`、`/results`、`/reviews` | `app/modules/jobs/` | 其他模块只导入 `jobs.interface`；拥有 Job/Dispatch/Step/Result/Review 五张表，attempt 状态机与 Celery transport 解耦。 |
 | CAD 转换、预览解释与 DXF 材料表 | `app/modules/cad_processing/` | 无自有表和 HTTP 前缀；`files`/`jobs` 只经 `cad_processing.interface` 调用，Stage 代码保持独立产品。 |
 | Steel DXF 分类 | `app/modules/dxf_classification/` | 拥有 run/item 两张表；其他模块只经 `dxf_classification.interface` 调用，1.2.0 CLI、类型分组和输出命名由 adapter 校验。 |
 | Steel DXF 拆板 | `app/modules/dxf_splitting/` | 拥有 run/item 两张表与 `dxf_split` task；其他模块只经 `dxf_splitting.interface` 调用，1.5.2 CLI、来源合同、中文产物后缀和独立校验由 adapter/validation 校验。 |

@@ -28,6 +28,7 @@ APP_SECRET_KEYS = {
 }
 APP_SERVICE_NAMES = (
     "backend-api",
+    "dispatcher",
     "worker-dxf",
     "worker-dxf2dwg",
     "worker-dxf2excel",
@@ -68,7 +69,9 @@ class TestAppServices:
 
     def test_worker_services_use_process_healthchecks_without_remote_control(self):
         data = _load()
-        for service_name in APP_SERVICE_NAMES[1:]:
+        for service_name in APP_SERVICE_NAMES:
+            if not service_name.startswith("worker-"):
+                continue
             command = " ".join(data["services"][service_name]["healthcheck"]["test"])
             assert "/tmp/dwg-celery-ready" in command
             assert "inspect" not in command
@@ -79,6 +82,17 @@ class TestAppServices:
                 assert "kill -0" in command
             else:
                 assert "/proc/1/cmdline" in command
+
+    def test_dispatcher_is_independent_bounded_and_waits_for_schema_migration(self):
+        dispatcher = _load()["services"]["dispatcher"]
+
+        assert dispatcher["command"] == ["python", "-m", "app.modules.jobs.dispatcher"]
+        assert dispatcher["depends_on"] == {"backend-api": {"condition": "service_healthy"}}
+        assert dispatcher["cpus"] == "${DISPATCHER_CPU_LIMIT:-0.5}"
+        assert dispatcher["mem_limit"] == "${DISPATCHER_MEMORY_LIMIT:-512m}"
+        assert dispatcher["pids_limit"] == "${DISPATCHER_PIDS_LIMIT:-64}"
+        health = " ".join(dispatcher["healthcheck"]["test"])
+        assert "app.modules.jobs.dispatcher" in health
 
     def test_unsupported_flower_service_is_absent(self):
         data = _load()
@@ -273,6 +287,7 @@ class TestComposeYamlValid:
         required = {
             "nginx",
             "backend-api",
+            "dispatcher",
             "worker-dxf",
             "worker-dxf2dwg",
             "worker-dxf2excel",
@@ -359,6 +374,7 @@ class TestDevelopmentCompose:
     def test_dev_override_mounts_backend_source_into_every_implemented_worker(self):
         data = _load_dev()
         workers = (
+            "dispatcher",
             "worker-report",
             "worker-dxf",
             "worker-dxf2dwg",

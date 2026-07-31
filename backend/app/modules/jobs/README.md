@@ -43,7 +43,8 @@ in the files module.
 Workers may mutate a Job only when both status and attempt match. Pending Step,
 Result and file rows share the caller transaction, so losing an attempt guard
 rolls them back. Each new Job attempt stages one `job_dispatches` intent in that
-transaction. The dispatcher commits a short lease before broker I/O; ambiguous
+transaction. The dispatcher first commits expired-lease recovery, then commits
+a pure `SKIP LOCKED` claim lease before broker I/O; ambiguous
 delivery may repeat a stable task ID, while the worker's status/attempt claim
 keeps business side effects effective once.
 

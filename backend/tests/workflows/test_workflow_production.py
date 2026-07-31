@@ -23,7 +23,7 @@ from app.modules.dxf_splitting.interface import (
 )
 from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
-from app.modules.jobs.interface import AnalysisResult, Job
+from app.modules.jobs.interface import AnalysisResult, Job, JobDispatch
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
 from app.modules.workflows.contracts import require_stage_inputs, require_stage_outputs
@@ -529,7 +529,6 @@ def test_excel_stage2_is_always_available_even_with_obsolete_disabled_setting(
 
 
 def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     (
         user,
@@ -607,7 +606,6 @@ def test_excel_stage2_worker_resolves_the_exact_job_frozen_by_workflow(db, tmp_p
     from app.modules.excel_processing.stage2_execution import (
         resolve_excel_stage2_worker_inputs,
     )
-    from app.platform.config.settings import settings
 
     user, _, workflow, classification, _, stage1_file, _ = _stage2_ready_workflow(
         db, tmp_path, monkeypatch
@@ -633,7 +631,6 @@ def test_excel_stage2_worker_resolves_the_exact_job_frozen_by_workflow(db, tmp_p
 
 
 def test_excel_stage2_preflight_is_read_only_and_allows_empty_bh_batch(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     user, _, workflow, classification, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     classification.items[0].part_type = "PX"
@@ -655,7 +652,6 @@ def test_excel_stage2_preflight_is_read_only_and_allows_empty_bh_batch(db, tmp_p
 
 
 def test_excel_stage2_preflight_api_exposes_worker_facing_summary(tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
@@ -705,7 +701,6 @@ def test_excel_stage2_preflight_rejects_classification_from_old_frozen_manifest(
     tmp_path,
     monkeypatch,
 ):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     workflow.input_batch.manifest_sha256 = "a" * 64
@@ -734,7 +729,6 @@ def test_excel_stage2_preflight_rejects_stage1_result_metadata_drift(
     field,
     value,
 ):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_, stage1_result = _stage2_ready_workflow(
         db, tmp_path, monkeypatch
@@ -754,7 +748,6 @@ def test_excel_stage2_preflight_rejects_missing_stage1_storage_object(
     tmp_path,
     monkeypatch,
 ):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_, stage1_file, _ = _stage2_ready_workflow(
         db, tmp_path, monkeypatch
@@ -778,7 +771,6 @@ def test_excel_stage2_preflight_rejects_stage1_storage_size_drift(
     tmp_path,
     monkeypatch,
 ):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_, stage1_file, _ = _stage2_ready_workflow(
         db, tmp_path, monkeypatch
@@ -804,7 +796,6 @@ def test_excel_stage2_preflight_distinguishes_temporary_stage1_storage_failure(
     tmp_path,
     monkeypatch,
 ):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     storage = workflow_input_registration.get_storage_backend()
@@ -823,7 +814,6 @@ def test_excel_stage2_preflight_distinguishes_temporary_stage1_storage_failure(
 
 
 def test_excel_stage2_rejects_cross_project_classification_without_job(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     user, _, workflow, classification, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     _, other_project = _owner_project(db)
@@ -845,7 +835,6 @@ def test_excel_stage2_rejects_cross_project_classification_without_job(db, tmp_p
 
 
 def test_excel_stage2_rejects_stage1_attempt_metadata_drift(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     artifact = next(item for item in workflow.artifacts if item.artifact_type == "stage1_excel")
@@ -868,7 +857,6 @@ def test_excel_stage2_rejects_stage1_attempt_metadata_drift(db, tmp_path, monkey
 
 
 def test_excel_stage2_rejects_bound_job_with_changed_frozen_params(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
@@ -895,7 +883,6 @@ def test_excel_stage2_rejects_bound_job_with_changed_frozen_params(db, tmp_path,
 
 
 def test_excel_stage2_reuses_bound_job_for_another_project_member(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     user, project, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     colleague = User(
@@ -938,7 +925,6 @@ def test_excel_stage2_reuses_bound_job_for_another_project_member(db, tmp_path, 
 
 def test_excel_stage2_job_params_stay_small_for_5000_bh_inputs(db, tmp_path, monkeypatch):
     from app.modules.workflows import stage_execution
-    from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     batch = stage_execution.load_bh_stage2_classification_batch(db, workflow.id)
@@ -977,7 +963,6 @@ def test_excel_stage2_job_params_stay_small_for_5000_bh_inputs(db, tmp_path, mon
 
 
 def test_excel_stage2_translates_invalid_classification_ledger(db, tmp_path, monkeypatch):
-    from app.platform.config.settings import settings
 
     user, _, workflow, classification, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     classification.items[0].output_name = "与文件登记不一致.dxf"
@@ -1776,7 +1761,6 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
 
 
 def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
-    from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
 
     client = workflow_test_api.client()
@@ -1784,14 +1768,7 @@ def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-exec")
     project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, excel_file_id = _api_workflow_at_excel_stage(client, owner_headers, project_id)
-    dispatched: list[int] = []
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
-    monkeypatch.setattr(
-        workflows_api,
-        "dispatch_committed_job",
-        lambda _db, job: dispatched.append(job.id),
-        raising=False,
-    )
     payload = {"execution_kind": "excel_stage1"}
 
     first = client.post(
@@ -1818,7 +1795,17 @@ def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     assert first_data["workflow"]["status"] == "running"
     assert second_data["job"]["id"] == first_data["job"]["id"]
     assert second_data["reused"] is True
-    assert dispatched == [first_data["job"]["id"]]
+    with open_test_session() as db:
+        dispatches = list(
+            db.scalars(
+                select(JobDispatch).where(
+                    JobDispatch.job_id == first_data["job"]["id"]
+                )
+            )
+        )
+        assert [(row.job_attempt, row.dispatch_mode) for row in dispatches] == [
+            (1, "single")
+        ]
 
 
 def test_excel_stage1_preflight_reuses_the_execution_gate(monkeypatch):
@@ -2341,7 +2328,6 @@ def test_excel_stage1_execution_honors_pipeline_feature_gate(monkeypatch):
 
 def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch):
     from app.modules.jobs.interface import Job
-    from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
 
     client = workflow_test_api.client()
@@ -2349,13 +2335,7 @@ def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch
     _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-retry")
     project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, _ = _api_workflow_at_excel_stage(client, owner_headers, project_id)
-    dispatched: list[tuple[int, int]] = []
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
-    monkeypatch.setattr(
-        workflows_api,
-        "dispatch_committed_job",
-        lambda _db, job: dispatched.append((job.id, job.attempt)),
-    )
     payload = {"execution_kind": "excel_stage1"}
     first = client.post(
         f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
@@ -2388,7 +2368,18 @@ def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch
     assert data["workflow"]["status"] == "running"
     assert data["workflow"]["stages"][3]["job_attempt"] == 2
     assert data["retried"] is True
-    assert dispatched == [(job_id, 1), (job_id, 2)]
+    with open_test_session() as db:
+        dispatches = list(
+            db.scalars(
+                select(JobDispatch)
+                .where(JobDispatch.job_id == job_id)
+                .order_by(JobDispatch.job_attempt)
+            )
+        )
+        assert [(row.job_id, row.job_attempt) for row in dispatches] == [
+            (job_id, 1),
+            (job_id, 2),
+        ]
 
 
 def test_successful_job_sync_attaches_result_once_and_advances(db):
@@ -2964,16 +2955,15 @@ def test_linux_stage_rejects_artifact_type_outside_declared_contract(db):
 
 
 def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
-    from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
 
+    monkeypatch.setattr(settings, "celery_task_always_eager", False)
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
     _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-cancel")
     project_id = workflow_test_api.create_project(client, owner_headers)
     workflow_id, _ = _api_workflow_at_excel_stage(client, owner_headers, project_id)
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
-    monkeypatch.setattr(workflows_api, "dispatch_committed_job", lambda _db, _job: None)
     executed = client.post(
         f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/executions",
         headers=owner_headers,

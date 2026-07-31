@@ -132,7 +132,7 @@ bash scripts/db.sh clean          # 清理 migration-test 残留临时库 + 退�
 bash scripts/db.sh reap-storage --dry-run   # 预览软删除对象回收（见 database.md §6.5）
 ```
 
-`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `c9a1d4e7f620` 和 47 张模型表，额外验证用户恢复密码门禁、生产输入、分批导出、完整备份留存、DXF 分类、DXF 拆板及复核决定、余料库存、控制平面与每日归档账本、`files.purged_at`、`jobs.request_key`/唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
+`migration-test` 创建并删除临时 schema，并顺带清理历史崩溃残留的临时库；当前目标为 `e6b1f9a2c470` 和 48 张模型表，额外验证用户恢复密码门禁、Job 投递 outbox、生产输入、分批导出、完整备份留存、DXF 分类、DXF 拆板及复核决定、余料库存、控制平面与每日归档账本、`files.purged_at`、`jobs.request_key`/`operation_key` 唯一约束及种子数据兼容；它不测试 downgrade 或生产数据迁移时长。需 `sudo mariadb` 的子命令先经 `ensure_sudo` 预检，无 TTY 且凭据未缓存时快速失败而非挂起。
 
 迁移前：
 

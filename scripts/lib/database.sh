@@ -443,6 +443,7 @@ expected_tables = {
     "excel_final_parts",
     "file_transfers",
     "files",
+    "job_dispatches",
     "job_steps",
     "jobs",
     "project_members",
@@ -477,6 +478,7 @@ timestamp_tables = (
     "drawing_versions",
     "review_records",
     "agent_run_steps",
+    "job_dispatches",
 )
 
 expected_columns = {
@@ -501,7 +503,24 @@ expected_columns = {
         "version",
     },
     "files": {"deleted_at", "purged_at"},
-    "jobs": {"progress_data", "attempt", "request_key"},
+    "jobs": {"progress_data", "attempt", "request_key", "operation_key"},
+    "job_dispatches": {
+        "dispatch_uid",
+        "job_id",
+        "job_attempt",
+        "task_type",
+        "pipeline",
+        "dispatch_mode",
+        "status",
+        "delivery_attempts",
+        "available_at",
+        "lease_token",
+        "lease_expires_at",
+        "celery_task_id",
+        "delivered_at",
+        "last_error_code",
+        "last_error_message",
+    },
     "job_steps": {"attempt"},
     "sys_users": {"password_changed_at", "password_reset_required"},
     "workflow_batch_exports": {
@@ -614,6 +633,23 @@ with engine.connect() as conn:
     }
     if "uq_jobs_actor_task_request_key" not in job_unique_names:
         raise SystemExit("jobs idempotency request key is not unique")
+    if "uq_jobs_task_operation_key" not in job_unique_names:
+        raise SystemExit("jobs operation key is not unique")
+    dispatch_unique_names = {
+        item["name"] for item in inspector.get_unique_constraints("job_dispatches")
+    }
+    if "uq_job_dispatch_attempt" not in dispatch_unique_names:
+        raise SystemExit("job dispatch attempt is not unique")
+    dispatch_index_names = {
+        item["name"] for item in inspector.get_indexes("job_dispatches")
+    }
+    for required_index in (
+        "ix_job_dispatch_pending",
+        "ix_job_dispatch_lease",
+        "ix_job_dispatch_uid",
+    ):
+        if required_index not in dispatch_index_names:
+            raise SystemExit(f"job dispatch index is missing: {required_index}")
     review_unique_columns = {
         tuple(item["column_names"])
         for item in inspector.get_unique_constraints("dxf_split_review_decisions")

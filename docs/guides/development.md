@@ -127,7 +127,7 @@ FastAPI lifespan 通过 `app.bootstrap.seed` 执行 best-effort 初始数据装�
 
 ## Worker 变更
 
-当前配置声明 `report`、`dxf_classification`、`dxf_split`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`remnant_convert`、`remnant_parse`、`agent` 和 `cad` 队列。任务 registry 显式加载 9 个真实 task module 并锁定 14 个公共任务名；运行时快照另锁定 13 条 `app.workers.tasks_* -> queue` 路由。CAD 转换的 5 个历史任务名由一个领域 module 注册，分类、拆板与 Excel Final 各一个，Job stub、余料转换/解析、归档、存储对账和 stale recovery 由各自 owner 注册。`agent`、`cad`、`dispatch` 只有确定路由和队列身份，没有对应 task module 或执行器，不能描述成核心处理能力。
+当前配置声明 `report`、`dxf_classification`、`dxf_split`、`dxf`、`dxf2dwg`、`dxf2excel`、`excel_final`、`dispatch`、`maintenance`、`remnant_convert`、`remnant_parse`、`agent` 和 `cad` 队列。任务 registry 显式加载 9 个真实 task module 并锁定 16 个公共任务名；运行时快照另锁定 14 条 `app.workers.tasks_* -> queue` 路由。CAD 转换的 5 个历史任务名由一个领域 module 注册，分类、拆板与 Excel Final 各一个，Job stub、余料转换/解析、归档、存储对账和 stale recovery 由各自 owner 注册。`agent`、`cad`、`dispatch` 只有确定路由和队列身份，没有对应 task module 或执行器，不能描述成核心处理能力。
 
 MySQL SQL transport 缺少 fanout remote control。健康使用进程身份和 worker-ready marker。增加 task 时，应分别测试 routing、eager execution、真实 broker dispatch、attempt claim、failure mapping、stale execution、cancellation 和 object cleanup。
 
@@ -144,7 +144,7 @@ bash scripts/db.sh migration-test
 cd backend && uv run alembic check
 ```
 
-Alembic 当前拥有 47 张 SQLAlchemy 模型表，其中包含工作流、生产输入、分批导出、完整备份留存、DXF 分类、DXF 拆板及复核决定、控制平面、每日归档和余料库存账本；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
+Alembic 当前拥有 48 张 SQLAlchemy 模型表，其中包含 Job 投递 outbox、工作流、生产输入、分批导出、完整备份留存、DXF 分类、DXF 拆板及复核决定、控制平面、每日归档和余料库存账本；8 张 Celery runtime-owned 表不纳入应用迁移生成。测试从空 MySQL upgrade；破坏性变更还需测试代表性已填充副本。`migration-test` 不验证 downgrade。
 
 ## 测试层级
 

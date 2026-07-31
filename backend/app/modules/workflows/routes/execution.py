@@ -4,13 +4,12 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.modules.identity.interface import CurrentUser
-from app.modules.jobs.interface import JobRead, dispatch_committed_job
+from app.modules.jobs.interface import JobRead, drain_eager_dispatches, stage_job_dispatch
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_role
 from app.modules.workflows.access import WORKFLOW_WRITE_ROLES, load_workflow_detail
 from app.modules.workflows.schemas import WorkflowDetail, WorkflowStageExecutionCreate
 from app.modules.workflows.stage_execution import (
-    dispatch_stage_execution,
     preflight_excel_stage1,
     preflight_excel_stage2,
     prepare_stage_execution,
@@ -112,14 +111,11 @@ def execute_workflow_stage(
         },
         request=request,
     )
+    if plan.should_dispatch:
+        stage_job_dispatch(db, plan.job)
     db.commit()
     if plan.should_dispatch:
-        plan = dispatch_stage_execution(
-            db,
-            workflow,
-            plan,
-            dispatcher=dispatch_committed_job,
-        )
+        drain_eager_dispatches(db)
     return ok(
         {
             "workflow": WorkflowDetail.model_validate(load_workflow_detail(db, workflow.id)),

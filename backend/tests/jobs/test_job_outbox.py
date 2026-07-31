@@ -65,6 +65,7 @@ def test_stage_conversion_dispatch_is_atomic_and_unique(db):
     }
     assert all(row.dispatch_mode == "conversion_batch" for row in first)
     assert all(row.status == "pending" for row in first)
+    assert all(row.available_at.microsecond == 0 for row in first)
 
 
 def test_rollback_removes_job_and_dispatch(db):
@@ -75,6 +76,24 @@ def test_rollback_removes_job_and_dispatch(db):
     db.rollback()
 
     assert db.scalar(select(func.count()).select_from(JobDispatch)) == 0
+
+
+def test_eager_runtime_drains_committed_dispatch_through_outbox(db, monkeypatch):
+    job = _queued_jobs(db, count=1)[0]
+    row = stage_job_dispatch(db, job)
+    db.commit()
+    monkeypatch.setattr(outbox.settings, "celery_task_always_eager", True)
+    monkeypatch.setattr(
+        outbox,
+        "publish_dispatch",
+        lambda lease: lease.dispatch_uid,
+    )
+
+    assert outbox.drain_eager_dispatches(db) == 1
+
+    db.refresh(row)
+    assert row.status == "delivered"
+    assert row.celery_task_id == row.dispatch_uid
 
 
 def test_partial_existing_conversion_dispatch_is_rejected(db):

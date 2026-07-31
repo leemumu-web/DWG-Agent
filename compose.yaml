@@ -117,6 +117,22 @@ services:
     volumes:
       - app_var:/app/var
 
+  dispatcher:
+    <<: *app-service
+    command: ["python", "-m", "app.modules.jobs.dispatcher"]
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "grep -aq 'app.modules.jobs.dispatcher' /proc/1/cmdline"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    cpus: "${DISPATCHER_CPU_LIMIT:-0.5}"
+    mem_limit: "${DISPATCHER_MEMORY_LIMIT:-512m}"
+    pids_limit: ${DISPATCHER_PIDS_LIMIT:-64}
+
   worker-report:
     <<: *worker
     command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "report", "-n", "report@%h", "--concurrency=${REPORT_WORKER_CONCURRENCY:-1}"]

@@ -30,7 +30,7 @@ from app.modules.files.interface import (
     save_bytes_as_file,
 )
 from app.modules.identity.interface import User
-from app.modules.jobs.interface import Job
+from app.modules.jobs.interface import Job, JobDispatch
 from app.modules.operations.audit.models import AuditLog
 from app.modules.projects.interface import Project, ProjectMember
 from app.modules.workflows import interface as workflow_service
@@ -1019,9 +1019,9 @@ def test_classification_downloads_category_and_all_dxf_without_audit_files(
 
 
 def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatch):
-    from app.modules.workflows.routes import execution as workflows_api
     from app.platform.config.settings import settings
 
+    monkeypatch.setattr(settings, "celery_task_always_eager", False)
     init_db()
     client = TestClient(app)
     login = client.post(
@@ -1085,12 +1085,6 @@ def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatc
     db.commit()
 
     monkeypatch.setattr(settings, "dxf_classification_pipeline_enabled", True)
-    dispatched: list[tuple[int, int]] = []
-    monkeypatch.setattr(
-        workflows_api,
-        "dispatch_committed_job",
-        lambda _db, job: dispatched.append((job.id, job.attempt)) or "task-1",
-    )
     payload = {"execution_kind": "steel_dxf_classification"}
     first = client.post(
         f"/api/v1/workflows/{workflow.id}/stages/dxf_classification/executions",
@@ -1115,6 +1109,16 @@ def test_workflow_execution_api_creates_idempotent_classifier_job(db, monkeypatc
     }
     assert second_data["job"]["id"] == first_data["job"]["id"]
     assert second_data["reused"] is True
-    assert dispatched == [(first_data["job"]["id"], 1)]
+    db.expire_all()
+    dispatches = list(
+        db.scalars(
+            select(JobDispatch).where(
+                JobDispatch.job_id == first_data["job"]["id"]
+            )
+        )
+    )
+    assert [(row.job_id, row.job_attempt) for row in dispatches] == [
+        (first_data["job"]["id"], 1)
+    ]
     empty = client.get(f"/api/v1/workflows/{workflow.id}/dxf-classification", headers=headers)
     assert empty.status_code == 200 and empty.json()["data"] is None

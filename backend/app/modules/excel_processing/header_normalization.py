@@ -6,7 +6,6 @@ import re
 import unicodedata
 from typing import Any
 
-
 _HEADER_BASES = frozenset(
     {
         "序号", "批次", "构件编号", "构件号", "零件号", "零件编号",

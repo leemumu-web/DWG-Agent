@@ -18,9 +18,9 @@
 | `excel_processing` | partial | 3 | 14 | 2 | Excel Final、BH 左右进深化与关系化导入 |
 | `operations` | partial | 5 | 38 | 3 | 审计、数据控制台、控制平面、归档、扫描 |
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |
-| `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Outbox、Beat 的目标边界 |
+| `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Beat 的目标边界 |
 | `windows_execution` | external | 0 | 0 | 0 | Node Agent、CAM Runner、SinoCAM Adapter |
-| **合计** |  | **47** | **211** | **16** | 所有运行契约唯一归属 |
+| **合计** |  | **48** | **211** | **16** | 所有运行契约唯一归属 |
 
 “HTTP operation 为 0”不表示模块不可用。例如 CAD 转换与分类由 Job/Workflow 公共端点触发，模块拥有任务和 Stage，而 HTTP 入口由 `jobs` 或 `workflows` 拥有。归属只设一个主 owner，避免同一契约由多个目录同时负责。
 
@@ -37,7 +37,7 @@
 `cad_processing.tasks`，分类、拆板各一个，Excel 处理两个，report stub 归 `jobs.tasks`；余料转换/解析、归档、对账与
 stale recovery 分别归 daily archive、storage reconciliation 和 control plane，Workflow 整批清理由
 `workflows.retention_tasks` 复用 maintenance queue。历史
-`app.workers.tasks_*` 名称与队列不变；13 条 `pattern -> queue` 映射也进入
+`app.workers.tasks_*` 名称与队列不变；14 条 `pattern -> queue` 映射也进入
 `runtime-contract.json`。空 Agent/CAD/dispatch task module 已删除，但对应路由仍保留，路由不
 等于任务注册或核心实现。
 
@@ -93,4 +93,4 @@ cd backend && .venv/bin/pytest -q tests/architecture
 cd ../frontend && npm run check:architecture
 ```
 
-检查器验证路径存在、数组确定性排序、47 张 ORM 表唯一归属、206 个 HTTP operation 唯一归属、15 个 Celery 任务唯一归属、13 条任务路由稳定，以及目标能力的显式状态。
+检查器验证路径存在、数组确定性排序、48 张 ORM 表唯一归属、211 个 HTTP operation 唯一归属、16 个 Celery 任务唯一归属、14 条任务路由稳定，以及目标能力的显式状态。

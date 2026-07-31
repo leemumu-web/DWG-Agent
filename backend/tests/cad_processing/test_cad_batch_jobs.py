@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.files.interface import StoredFile
-from app.modules.jobs.models import AnalysisResult, Job
+from app.modules.jobs.models import AnalysisResult, Job, JobDispatch
 from app.modules.jobs.routes.commands import _job_cancellation_lock_statement
 from app.platform.config.settings import settings
 
@@ -76,7 +76,7 @@ def _create_batch(
     )
 
 
-def test_create_conversion_batch_returns_ordered_jobs_and_dispatches_once():
+def test_create_conversion_batch_returns_ordered_jobs_and_stages_one_dispatch(db):
     client = TestClient(app)
     headers = _admin_headers(client)
     file_ids = [
@@ -84,25 +84,23 @@ def test_create_conversion_batch_returns_ordered_jobs_and_dispatches_once():
         _upload_dwg(client, headers, "second.dwg"),
     ]
 
-    with patch(
-        "app.modules.jobs.routes.commands.dispatch_committed_conversion_batch",
-        create=True,
-    ) as dispatch:
-        response = _create_batch(
-            client,
-            headers,
-            task_type="convert_dwg_to_dxf",
-            file_ids=file_ids,
-        )
+    response = _create_batch(
+        client,
+        headers,
+        task_type="convert_dwg_to_dxf",
+        file_ids=file_ids,
+    )
 
     assert response.status_code == 202, response.text
     jobs = response.json()["data"]["jobs"]
     assert [job["params_json"]["file_id"] for job in jobs] == file_ids
     assert [job["status"] for job in jobs] == ["queued", "queued"]
-    dispatch.assert_called_once_with(
-        task_type="convert_dwg_to_dxf",
-        jobs=[(job["id"], job["attempt"]) for job in jobs],
-    )
+    rows = list(db.scalars(select(JobDispatch).order_by(JobDispatch.job_id)))
+    assert [(row.job_id, row.job_attempt) for row in rows] == [
+        (job["id"], job["attempt"]) for job in jobs
+    ]
+    assert len({row.dispatch_uid for row in rows}) == 1
+    assert {row.dispatch_mode for row in rows} == {"conversion_batch"}
 
 
 def test_create_conversion_batch_rejects_wrong_extension_without_partial_jobs():
@@ -130,7 +128,7 @@ def test_scoped_cancellation_only_changes_requested_jobs():
     headers = _admin_headers(client)
     file_ids = [_upload_dwg(client, headers, f"source-{index}.dwg") for index in range(3)]
     with patch(
-        "app.modules.jobs.routes.commands.dispatch_committed_conversion_batch",
+        "app.modules.jobs.routes.commands.stage_conversion_dispatch",
         create=True,
     ):
         created = _create_batch(
@@ -177,7 +175,7 @@ def test_conversion_events_stream_returns_ordered_terminal_snapshot():
     client = TestClient(app)
     headers = _admin_headers(client)
     file_ids = [_upload_dwg(client, headers, f"stream-{index}.dwg") for index in range(2)]
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         created = _create_batch(
             client,
             headers,
@@ -230,7 +228,7 @@ def test_list_jobs_latest_per_file_omits_superseded_attempt_rows():
     client = TestClient(app)
     headers = _admin_headers(client)
     file_id = _upload_dwg(client, headers, "latest-only.dwg")
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         first = _create_batch(
             client,
             headers,
@@ -264,7 +262,7 @@ def test_list_latest_conversion_job_reports_whether_its_result_file_is_available
     client = TestClient(app)
     headers = _admin_headers(client)
     file_id = _upload_dwg(client, headers, "result-lifecycle.dwg")
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         created = _create_batch(
             client,
             headers,
@@ -424,7 +422,7 @@ def test_dwg_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
         _upload_dwg(client, headers, "batch-first.dwg"),
         _upload_dwg(client, headers, "batch-second.dwg"),
     ]
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         created = _create_batch(
             client,
             headers,
@@ -513,7 +511,7 @@ def test_dxf_batch_groups_same_version_into_one_oda_call_and_completes_each_job(
         _upload_dxf(client, headers, "batch-first.dxf"),
         _upload_dxf(client, headers, "batch-second.dxf"),
     ]
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         created = _create_batch(
             client,
             headers,
@@ -578,7 +576,7 @@ def test_dwg_batch_missing_result_fails_only_the_unmatched_job(db, monkeypatch):
         _upload_dwg(client, headers, "matched.dwg"),
         _upload_dwg(client, headers, "missing.dwg"),
     ]
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         created = _create_batch(
             client,
             headers,
@@ -622,7 +620,7 @@ def test_dwg_batch_invalid_header_fails_only_that_job(db, monkeypatch):
         _upload_dwg(client, headers, "invalid-header.dwg"),
         _upload_dwg(client, headers, "valid-header.dwg"),
     ]
-    with patch("app.modules.jobs.routes.commands.dispatch_committed_conversion_batch"):
+    with patch("app.modules.jobs.routes.commands.stage_conversion_dispatch"):
         created = _create_batch(
             client,
             headers,

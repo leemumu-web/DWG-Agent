@@ -38,7 +38,11 @@ from app.modules.jobs.lifecycle import (
     retry_job,
 )
 from app.modules.jobs.models import AnalysisResult, Job, JobDispatch, JobStep, ReviewRecord
-from app.modules.jobs.outbox import stage_conversion_dispatch, stage_job_dispatch
+from app.modules.jobs.outbox import (
+    drain_eager_dispatches,
+    stage_conversion_dispatch,
+    stage_job_dispatch,
+)
 from app.modules.jobs.reviews import create_review
 from app.modules.jobs.schemas import (
     AnalysisResultRead,
@@ -108,6 +112,7 @@ __all__ = [
     "create_job",
     "create_or_reuse_job",
     "create_review",
+    "drain_eager_dispatches",
     "dispatch_committed_conversion_batch",
     "dispatch_committed_job",
     "fail_job_attempt",

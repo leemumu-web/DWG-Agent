@@ -17,7 +17,7 @@ Docker Compose 是最终部署路径。MySQL 与 MinIO 仅位于 Compose 的 `in
 - 当前 Celery broker 是 **MySQL SQLAlchemy transport**，地址从有效 MySQL DSN 派生为 `sqla+mysql+pymysql://...`。
 - 当前 Celery result backend 同样从有效 DSN 派生为 `db+mysql+pymysql://...`；这些 Result Backend 行是有界清理的运行时数据，不是业务 Job、结果或审计的正式事实源。
 - RabbitMQ 是目标消息基础设施，当前 `compose.yaml` 尚未部署 RabbitMQ，也没有经过持久消息、故障恢复或 worker 重连验收。
-- 目标 Outbox 与 Celery Beat 尚未实现；当前维护任务由已认证 API 显式提交，不得写成周期调度已经存在。
+- Job 事务 Outbox 已实现并由独立 dispatcher 投递；Celery Beat 尚未实现，当前维护任务仍由已认证 API 显式提交，不得写成周期调度已经存在。
 - 生产 Compose 的对象适配器是 MinIO；本地开发默认可使用 local storage。两者都必须通过 `files` 与 `file_transfers` 保持登记和补偿语义。
 - 当前 Compose 仅发布 HTTP，**不发布 443**，没有可用 HTTPS；TLS、证书生命周期和可信代理配置仍是生产阻断项。
 
@@ -119,7 +119,7 @@ vi /opt/dwg-agent/.env.docker
 
 安装按顺序验证外层 SHA-256、可选 GPG 签名、解密后的逐文件 SHA-256、四类镜像 ID；任何一步
 不一致都停止。`up` 固定 `--no-build` 和 `pull_policy: never`，因此服务器不会下载替代镜像或
-现场重建源码，必须恰好启动 15 个服务并全部健康。
+现场重建源码，必须恰好启动 16 个服务并全部健康。
 
 保护边界要如实理解：加密保证交付包在存储和传输期间不可读；加载后的后端镜像不含原始业务
 Python 源码，应用/worker 以非 root、只读根文件系统、`cap_drop: ALL` 运行。Python 字节码仍
@@ -143,14 +143,15 @@ Python 源码，应用/worker 以非 root、只读根文件系统、`cap_drop: A
 |---|---|---|---|
 | `nginx` | 默认 | 镜像内 SPA | Nginx 响应 `/nginx-health` |
 | `backend-api` | 默认 | `app_var` 运行目录 | `/health/ready` 可连接 MySQL 与 MinIO |
+| `dispatcher` | 默认 | MySQL `job_dispatches` | 独立进程存活；投递失败由持久 lease 延迟重试 |
 | `worker-report` | 默认 | `app_var` | 启动 marker + Celery PID 1 |
 | 转换 workers | `workers` | `app_var` | worker 已连接；不等于功能已验收 |
 | `worker-dxf-split` | `workers` | `app_var` | 只出站访问 MySQL/MinIO；进程健康不代表拆板 Stage 或真实图纸已通过 |
 | `mysql` | 默认 | `mysql_data` | 使用本地 Unix socket 以 root 真正执行 `SELECT 1` |
 | `minio` | 默认 | `minio_data` | MinIO 进程存活 |
 
-`agent`、`cad`、`dispatch` 只保留未来兼容所需的路由名称，不启动空 worker，避免浪费
-常驻内存并产生误导性健康信号。增加真实 task 后，才应同时补回消费者、健康检查和端到端验收。
+`agent`、`cad`、`dispatch` 只保留未来兼容所需的 Celery 路由名称，不启动对应空 worker，避免浪费
+常驻内存并产生误导性健康信号。独立 `dispatcher` 不是 `dispatch` queue worker，而是扫描事务 outbox 并向已有业务队列发布。增加新 task 后，才应同时补回消费者、健康检查和端到端验收。
 
 容器设置 `no-new-privileges`；应用与 Nginx 镜像以非 root 运行并移除全部 Linux capabilities。应用与 Nginx 根文件系统只读，运行时临时目录使用 tmpfs，业务持久数据只进入命名卷。MySQL 与 MinIO 有两分钟停止宽限。后端启动时先执行 Alembic migration 和幂等 seed，再启动 Gunicorn；worker 和 Nginx 等待其 ready。
 

@@ -16,7 +16,7 @@ from app.main import app
 from app.modules.excel_processing.stage_adapter import ExcelFinalLookupResult
 from app.modules.files.interface import FileTransfer, StoredFile
 from app.modules.identity.interface import User
-from app.modules.jobs.interface import Job
+from app.modules.jobs.interface import Job, JobDispatch
 from app.platform.config.constants import TASK_EXCEL_FINAL
 from app.platform.storage.base import StorageError
 from app.platform.storage.local import LocalFileStorage
@@ -159,11 +159,6 @@ def test_process_replay_returns_same_job(
     client, headers, admin = _admin_client(db)
     stored = _excel_file(db, owner_id=admin.id, suffix="replay")
     _allow_registered_file_preflight(monkeypatch)
-    dispatched: list[int] = []
-    monkeypatch.setattr(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, job: dispatched.append(job.id),
-    )
     request_headers = {**headers, "Idempotency-Key": "process-1"}
 
     first = client.post(
@@ -177,7 +172,11 @@ def test_process_replay_returns_same_job(
     assert first.json()["data"]["job_id"] == second.json()["data"]["job_id"]
     assert first.json()["data"]["reused"] is False
     assert second.json()["data"]["reused"] is True
-    assert dispatched == [first.json()["data"]["job_id"]]
+    assert db.scalar(
+        select(func.count()).select_from(JobDispatch).where(
+            JobDispatch.job_id == first.json()["data"]["job_id"]
+        )
+    ) == 1
     assert db.scalar(select(func.count()).select_from(Job)) == 1
 
 
@@ -189,10 +188,6 @@ def test_process_rejects_same_key_for_different_file(
     first_file = _excel_file(db, owner_id=admin.id, suffix="first")
     second_file = _excel_file(db, owner_id=admin.id, suffix="second")
     _allow_registered_file_preflight(monkeypatch)
-    monkeypatch.setattr(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, _job: None,
-    )
     request_headers = {**headers, "Idempotency-Key": "process-conflict"}
     first = client.post(
         f"/api/v1/excel-final/process?file_id={first_file.id}", headers=request_headers
@@ -255,17 +250,16 @@ def test_upload_and_process_replay_reuses_file_and_job(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    monkeypatch.setattr(
+        "app.modules.jobs.outbox.settings.celery_task_always_eager",
+        False,
+    )
     storage = LocalFileStorage(tmp_path / "storage")
     monkeypatch.setattr(
         "app.platform.storage.factory.get_storage_backend",
         lambda: storage,
     )
     client, headers, _admin = _admin_client(db)
-    dispatched: list[int] = []
-    monkeypatch.setattr(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, job: dispatched.append(job.id),
-    )
     request_headers = {**headers, "Idempotency-Key": "upload-1"}
     workbook = _workbook_bytes()
 
@@ -277,7 +271,11 @@ def test_upload_and_process_replay_reuses_file_and_job(
     assert first.json()["data"]["job_id"] == second.json()["data"]["job_id"]
     assert first.json()["data"]["reused"] is False
     assert second.json()["data"]["reused"] is True
-    assert dispatched == [first.json()["data"]["job_id"]]
+    assert db.scalar(
+        select(func.count()).select_from(JobDispatch).where(
+            JobDispatch.job_id == first.json()["data"]["job_id"]
+        )
+    ) == 1
     assert db.scalar(select(func.count()).select_from(StoredFile)) == 1
     assert db.scalar(select(func.count()).select_from(FileTransfer)) == 1
     assert db.scalar(select(func.count()).select_from(Job)) == 1
@@ -409,10 +407,6 @@ def test_process_rejects_non_excel_stored_file(
     )
     db.add(stored)
     db.commit()
-    monkeypatch.setattr(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, _job: None,
-    )
 
     response = client.post(
         f"/api/v1/excel-final/process?file_id={stored.id}",
@@ -443,11 +437,6 @@ def test_process_accepts_macro_enabled_excel_source(
     db.add(stored)
     db.commit()
     _allow_registered_file_preflight(monkeypatch)
-    dispatched: list[int] = []
-    monkeypatch.setattr(
-        "app.modules.excel_processing.routes.processing.dispatch_committed_job",
-        lambda _db, job: dispatched.append(job.id),
-    )
 
     response = client.post(
         f"/api/v1/excel-final/process?file_id={stored.id}",
@@ -455,7 +444,11 @@ def test_process_accepts_macro_enabled_excel_source(
     )
 
     assert response.status_code == 202, response.text
-    assert dispatched == [response.json()["data"]["job_id"]]
+    assert db.scalar(
+        select(func.count()).select_from(JobDispatch).where(
+            JobDispatch.job_id == response.json()["data"]["job_id"]
+        )
+    ) == 1
 
 
 def _ready_excel_final_dependencies(

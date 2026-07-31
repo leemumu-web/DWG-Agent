@@ -62,4 +62,4 @@ make docs-check
 - `placeholder`：只保留 API、schema、输入输出或错误契约，核心算法留白。
 - `external`：能力由仓库外系统承担，当前只定义交接协议。
 
-RabbitMQ、Outbox、Celery Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 当前属于目标能力；除非 Compose、实现、恢复测试和运维证据同时存在，不得写成已部署。
+RabbitMQ、Celery Beat、Windows Node Agent、CAM Runner 与 SinoCAM Adapter 当前属于目标能力；Job 事务 Outbox 已由独立 dispatcher 部署。其他能力除非 Compose、实现、恢复测试和运维证据同时存在，不得写成已部署。

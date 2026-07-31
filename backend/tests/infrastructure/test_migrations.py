@@ -57,6 +57,9 @@ USER_PASSWORD_RESET_REVISION = (
 FILE_TRANSFER_OPERATION_REVISION = (
     VERSIONS_DIR / "d1e7f3a9c520_expand_file_transfer_operation.py"
 )
+DURABLE_JOB_DISPATCH_REVISION = (
+    VERSIONS_DIR / "e6b1f9a2c470_add_durable_job_dispatch.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -175,6 +178,22 @@ def test_job_step_model_keeps_attempt_lookup_index_in_metadata():
     }
 
     assert ("job_id", "attempt") in indexed_columns
+
+
+def test_durable_job_dispatch_migration_extends_beijing_head_and_backfills_queue():
+    source = DURABLE_JOB_DISPATCH_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "a4c8e1f2b730"' in source
+    assert 'op.add_column("jobs"' in source
+    assert '"operation_key"' in source
+    assert '"uq_jobs_task_operation_key"' in source
+    assert 'op.create_table(\n        "job_dispatches"' in source
+    assert '"uq_job_dispatch_attempt"' in source
+    assert '"ix_job_dispatch_pending"' in source
+    assert 'JobDispatch.status == "queued"' not in source
+    assert 'sa.column("status"' in source
+    assert '"queued"' in source
+    assert 'op.drop_table("job_dispatches")' in source
 
 
 def test_data_console_migration_adds_ledger_and_file_retention_fields():
@@ -559,7 +578,10 @@ def test_mysql_migration_smoke_script_checks_current_business_tables():
     assert "version != expected_head" in source
     assert 'version != "e2f4b8c6a130"' not in source
     assert '"files": {"deleted_at", "purged_at"}' in source
-    assert '"jobs": {"progress_data", "attempt", "request_key"}' in source
+    assert (
+        '"jobs": {"progress_data", "attempt", "request_key", "operation_key"}'
+        in source
+    )
     assert '"uq_jobs_actor_task_request_key"' in source
     assert '"job_steps": {"attempt"}' in source
     assert "identifier types are not BIGINT" in source

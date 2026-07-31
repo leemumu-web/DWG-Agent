@@ -65,6 +65,7 @@ PUBLIC_JOB_CONTRACT = {
     "create_job",
     "create_or_reuse_job",
     "create_review",
+    "drain_eager_dispatches",
     "dispatch_committed_conversion_batch",
     "dispatch_committed_job",
     "fail_job_attempt",

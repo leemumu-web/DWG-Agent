@@ -158,11 +158,12 @@ def test_server_compose_renderer_freezes_complete_no_build_stack(tmp_path: Path)
     payload = yaml.safe_load(output.read_text(encoding="utf-8"))
     services = payload["services"]
     assert payload["name"] == "dwg-agent"
-    assert len(services) == 15
+    assert len(services) == 16
     assert all("build" not in service for service in services.values())
     assert all("profiles" not in service for service in services.values())
     assert all(service["pull_policy"] == "never" for service in services.values())
     assert services["backend-api"]["image"] == "dwg-agent-backend:release-test"
+    assert services["dispatcher"]["image"] == "dwg-agent-backend:release-test"
     assert services["worker-dxf-split"]["image"] == "dwg-agent-backend:release-test"
     assert services["nginx"]["image"] == "dwg-agent-frontend:release-test"
     assert services["mysql"]["image"] == "dwg-agent-mysql:release-test"
@@ -232,7 +233,7 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
 
 def test_server_recovery_starts_dependency_tiers_before_the_full_stack():
     server = SERVER_SCRIPT.read_text(encoding="utf-8")
-    assert "exactly 15 services" in server
+    assert "exactly 16 services" in server
 
     recovery = server[server.index("server_recover()") : server.index("server_enable_service()")]
     storage_up = recovery.index('server_compose "$target" up -d --no-build mysql minio')

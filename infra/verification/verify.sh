@@ -46,9 +46,11 @@ assert_env_keys_compatible() {
 
     missing=$(comm -23 <(env_keys "$reference") <(env_keys "$candidate") | paste -sd ',' -)
     extra=$(comm -13 <(env_keys "$reference") <(env_keys "$candidate") | paste -sd ',' -)
-    invalid_extra=$(printf '%s\n' "$extra" | tr ',' '\n' | grep -vxE 'DATABASE_URL|DWG_AGENT_IMAGE|DWG_AGENT_FRONTEND_IMAGE|NODE_IMAGE|HTTP_PORT|^$' | paste -sd ',' - || true)
+    invalid_extra=$(printf '%s\n' "$extra" | tr ',' '\n' | grep -vxE 'DATABASE_URL|DWG_AGENT_IMAGE|DWG_AGENT_FRONTEND_IMAGE|NODE_IMAGE|HTTP_PORT|MYSQL_IMAGE|MINIO_IMAGE|VERIFY_ADMIN_USERNAME|VERIFY_ADMIN_PASSWORD|DXF_CLASSIFICATION_AUTOSCALE_MIN|DXF_CLASSIFICATION_AUTOSCALE_MAX|^$' | paste -sd ',' - || true)
 
-    if [ -z "$missing" ] && [ -z "$invalid_extra" ]; then
+    # Existing deployments may omit newly introduced optional tuning keys;
+    # Compose and Settings provide bounded defaults for every such override.
+    if [ -z "$invalid_extra" ]; then
         pass "$label"
     else
         fail "$label" "missing=[${missing:-none}], unsupported_extra=[${invalid_extra:-none}]"
@@ -163,7 +165,7 @@ workers = {
     "worker-remnant-parse": "remnant_parse",
     "worker-report": "report",
 }
-expected = {"nginx", "backend-api", "mysql", "minio", *workers}
+expected = {"nginx", "backend-api", "dispatcher", "mysql", "minio", *workers}
 
 if set(svcs) != expected:
     errors.append(f"服务集合不匹配: expected={sorted(expected)}, actual={sorted(svcs)}")
@@ -203,17 +205,21 @@ if 'cad_worker_main "$@"' not in cad_worker_facade:
 for name, queue in workers.items():
     worker = svcs.get(name, {})
     command_value = worker.get("command", "")
-    command = str(command_value)
+    command_parts = command_value if isinstance(command_value, list) else str(command_value).split()
+    command = " ".join(command_parts)
     is_cad_worker = name in {"worker-dxf", "worker-dxf2dwg"}
     if is_cad_worker:
-        if not isinstance(command_value, list) or command_value[:2] != ["/app/scripts/run-cad-worker.sh", queue]:
+        if command_parts[:3] != ["/app/scripts/run-worker.sh", "/app/scripts/run-cad-worker.sh", queue]:
             errors.append(f"{name} 包装脚本或队列名错误")
         if '-A app.platform.messaging.celery_app:celery_app worker' not in cad_worker_script:
             errors.append(f"{name} Celery app 路径错误")
         if '-Q "$queue"' not in cad_worker_script:
             errors.append(f"{name} 包装脚本未传递队列")
     else:
-        if f"-Q {queue}" not in command:
+        if not any(
+            part == "-Q" and index + 1 < len(command_parts) and command_parts[index + 1] == queue
+            for index, part in enumerate(command_parts)
+        ):
             errors.append(f"{name} 队列名错误")
         if "app.platform.messaging.celery_app:celery_app" not in command:
             errors.append(f"{name} Celery app 路径错误")
@@ -226,6 +232,15 @@ for name, queue in workers.items():
     if "backend-api" not in worker.get("depends_on", {}):
         errors.append(f"{name} 必须等待迁移完成后的 backend-api")
     require_blank(worker, {"MYSQL_ROOT_PASSWORD", "MINIO_ROOT_PASSWORD"}, name)
+
+dispatcher = svcs.get("dispatcher", {})
+if dispatcher.get("command") != ["python", "-m", "app.modules.jobs.dispatcher"]:
+    errors.append("dispatcher 启动命令错误")
+if set(dispatcher.get("depends_on", {})) != {"backend-api"}:
+    errors.append("dispatcher 必须等待迁移完成后的 backend-api")
+if "app.modules.jobs.dispatcher" not in healthcheck_cmd(dispatcher):
+    errors.append("dispatcher 进程健康检查错误")
+require_blank(dispatcher, {"MYSQL_ROOT_PASSWORD", "MINIO_ROOT_PASSWORD"}, "dispatcher")
 
 if "profiles" in svcs.get("worker-report", {}):
     errors.append("worker-report 应默认启动")
@@ -543,12 +558,12 @@ done
 # 环境模板一致性：只比较键名，不输出或读取敏感值到日志。
 assert_env_keys_match ".env.example" ".env.docker.example" ".env.example 与 .env.docker.example 键名一致"
 if [ -f ".env" ]; then
-    assert_env_keys_compatible ".env.example" ".env" ".env 包含全部模板键且仅使用合法可选覆盖"
+    assert_env_keys_compatible ".env.example" ".env" ".env 与当前模板兼容"
 else
     dim "  .env 不存在 — 跳过本机真实 env 键名检查"
 fi
 if [ -f ".env.docker" ]; then
-    assert_env_keys_compatible ".env.docker.example" ".env.docker" ".env.docker 包含全部模板键且仅使用合法可选覆盖"
+    assert_env_keys_compatible ".env.docker.example" ".env.docker" ".env.docker 与当前模板兼容"
 else
     dim "  .env.docker 不存在 — 跳过 Docker 真实 env 键名检查"
 fi

@@ -697,8 +697,9 @@ analysis_results ──< workflow_artifacts
 | `c9a1d4e7f620` | 用户恢复后必须先由管理员重置密码，才能重新启用登录 | 2026-07-26 |
 | `d1e7f3a9c520` | 扩展 `file_transfers.operation` 至 128 字符，容纳可解释的下载与阶段操作名 | 2026-07-31 |
 | `a4c8e1f2b730` | 将迁移前已审计的 126 个业务 `DATETIME` 列从 UTC 墙上值转换为北京时间墙上值；3 个 Celery UTC 协议列保持不变 | 2026-08-01 |
+| `e6b1f9a2c470` | 新增 `jobs.operation_key` 与事务性 `job_dispatches` 投递账本，并为迁移时仍排队的 Job attempt 回填稳定投递意图 | 2026-08-01 |
 
-迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910`、`c8f1d2e3a490`、`e9a1b2c3d4f5`、`b7e2c9a4d610`、`c9a1d4e7f620`、`d1e7f3a9c520` 与 `a4c8e1f2b730`。**`a4c8e1f2b730` 是当前唯一 head。**
+迁移在 `e2f4b8c6a130` 后分为 Excel Final（`f3a7c9d2e6b1 → 2f6b8c1d4e90`）与余料库（`2b7e91d4c830`）两条分支，由 `7c4d9e2a1b60` 汇合；之后再次分为余料自动导入与附加信息（`9d6e4a1b2c70 → 6f4a8c2d1e90`）以及工作流 Excel 输入验证与 Linux Stage 归一（`4e7c2a9b1d30 → 5f8d3b0c2e41`），由 `8a6c1f4e2b90` 汇合，再依次经过 `c7b2d4e9f601`、`d6f3a8c2e710`、`f9c4b7e2a610`、`a7d9e4c1b620`、`b4e8c2a7d910`、`c8f1d2e3a490`、`e9a1b2c3d4f5`、`b7e2c9a4d610`、`c9a1d4e7f620`、`d1e7f3a9c520`、`a4c8e1f2b730` 与 `e6b1f9a2c470`。**`e6b1f9a2c470` 是当前唯一 head。**
 
 ### 4.2 如何创建新迁移
 
@@ -749,7 +750,7 @@ uv run alembic history
 
 1. 创建一个**临时** MySQL schema（utf8mb4），并授予应用用户访问权限。
 2. 通过限定作用域的 `DATABASE_URL`，对该空 schema 运行 `alembic upgrade head`。
-3. 验证生成的 schema：断言全部 **47 张预期业务表** 存在，检查当前 Alembic head、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、分批导出、完整备份留存、DXF 分类、拆板与复核决定、控制平面、每日归档与余料库存账本、`files.purged_at`、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
+3. 验证生成的 schema：断言全部 **48 张预期业务表** 存在，检查当前 Alembic head、Job 投递 outbox、attempt 列/索引相关类型、Excel Final 外键/唯一约束、生产输入、分批导出、完整备份留存、DXF 分类、拆板与复核决定、控制平面、每日归档与余料库存账本、`files.purged_at`、文件对象位置唯一约束、流转/扫描表，以及历史表后期回填的时间戳列。
 4. 删除临时 schema（出错时也会通过 `EXIT` trap 删除）。
 
 这验证了完整的迁移链能从零重建 schema，且 `TimestampMixin` 列保持一致。（它不执行降级路径。）
@@ -838,7 +839,7 @@ bash scripts/db.sh init
 
 | 组件 | 必要内容 | 一致性风险 |
 |---|---|---|
-| MySQL `dwg_agent` | 47 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker row |
+| MySQL `dwg_agent` | 48 张模型表、`alembic_version`、实际存在的 Celery runtime 表 | 只恢复 DB 会引用缺失对象或重放 broker/outbox row |
 | 对象存储 | 每个已配置 original/derived/report/temp/DXF bucket 或 local root | 只恢复 storage 会产生孤儿字节 |
 | `hardware_handbook` | 唯一可信 `/home/Creeken/Paper/CAD_research/五金手册.xls` 的确定性生成物；每条语义记录可追溯到源 Sheet/行 | Excel Final 重量查找可能变化或失败 |
 | 配置/密钥 | Git 跟踪配置加加密 live value | `.env.docker` 禁止存入 Git |

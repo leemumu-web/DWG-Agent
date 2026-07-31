@@ -12,7 +12,7 @@ import app.modules.jobs.dispatch as job_dispatch
 import app.modules.jobs.stub_execution as job_stub
 from app.bootstrap.seed import init_db
 from app.main import app
-from app.modules.jobs.interface import AnalysisResult, Job, run_local_stub_job
+from app.modules.jobs.interface import AnalysisResult, Job, JobDispatch, run_local_stub_job
 from app.platform.config.constants import JOB_CANCELLED, JOB_FAILED, JOB_QUEUED
 from app.platform.http.exceptions import AppHTTPException
 from tests.support.paths import REPO_ROOT
@@ -400,7 +400,7 @@ def test_worker_startup_cleans_expired_mysql_result_rows():
     assert calls == ["cleanup"]
 
 
-def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
+def test_jobs_api_stages_durable_dispatch_not_fastapi_background_task():
     api_sources = "\n".join(
         (REPO_ROOT / path).read_text()
         for path in (
@@ -411,11 +411,13 @@ def test_jobs_api_enqueues_celery_task_not_fastapi_background_task():
 
     assert "BackgroundTasks" not in api_sources
     assert "background_tasks.add_task" not in api_sources
-    assert "dispatch_committed_job" in api_sources
+    assert "dispatch_committed_job" not in api_sources
+    assert "stage_job_dispatch" in api_sources
+    assert "stage_conversion_dispatch" in api_sources
     assert "enqueue_job" not in api_sources
 
 
-def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
+def test_job_create_keeps_durable_pending_intent_when_broker_is_unavailable(monkeypatch):
     init_db()
     client = TestClient(app, raise_server_exceptions=False)
     login = client.post(
@@ -432,7 +434,7 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
     )
     assert project.status_code == 201, project.text
 
-    def fail_enqueue(job_id: int, pipeline: str, attempt: int) -> str:
+    def fail_enqueue(job_id: int, pipeline: str, attempt: int, **_kwargs) -> str:
         raise RuntimeError("mysql broker unavailable")
 
     monkeypatch.setattr(job_dispatch, "enqueue_job", fail_enqueue)
@@ -447,22 +449,23 @@ def test_job_create_marks_job_failed_when_celery_dispatch_fails(monkeypatch):
         },
     )
 
-    assert response.status_code == 503, response.text
-    assert response.json()["error"]["code"] == "JOB_ENQUEUE_FAILED"
+    assert response.status_code == 202, response.text
 
     db = job_dispatch.SessionLocal()
     try:
         job = db.query(Job).order_by(Job.id.desc()).first()
         assert job is not None
-        assert job.status == JOB_FAILED
-        assert job.error_code == "JOB_ENQUEUE_FAILED"
-        assert job.error_message == "The task could not be dispatched to the queue."
-        assert "mysql broker unavailable" not in job.error_message
+        assert job.status == JOB_QUEUED
+        dispatch = db.query(JobDispatch).filter_by(job_id=job.id).one()
+        assert dispatch.status == "pending"
+        assert dispatch.delivery_attempts == 1
+        assert dispatch.last_error_code == "JOB_DISPATCH_TEMPORARY_FAILURE"
+        assert "mysql broker unavailable" not in dispatch.last_error_message
     finally:
         db.close()
 
 
-def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
+def test_job_retry_keeps_new_attempt_queued_for_durable_redelivery(monkeypatch):
     init_db()
     client = TestClient(app, raise_server_exceptions=False)
     login = client.post(
@@ -488,20 +491,26 @@ def test_job_retry_does_not_leave_queued_row_when_dispatch_fails(monkeypatch):
     finally:
         db.close()
 
-    def fail_enqueue(job_id: int, pipeline: str, attempt: int) -> str:
+    def fail_enqueue(job_id: int, pipeline: str, attempt: int, **_kwargs) -> str:
         raise RuntimeError("mysql://user:secret@broker/internal")
 
     monkeypatch.setattr(job_dispatch, "enqueue_job", fail_enqueue)
 
     response = client.post(f"/api/v1/workflows/jobs/{job_id}/retry-requests", headers=headers)
 
-    assert response.status_code == 503, response.text
+    assert response.status_code == 202, response.text
     db = job_dispatch.SessionLocal()
     try:
         retried = db.get(Job, job_id)
-        assert retried.status == JOB_FAILED
-        assert retried.error_code == "JOB_ENQUEUE_FAILED"
-        assert "secret" not in retried.error_message
+        assert retried.status == JOB_QUEUED
+        assert retried.attempt == 2
+        dispatch = db.query(JobDispatch).filter_by(
+            job_id=job_id,
+            job_attempt=2,
+        ).one()
+        assert dispatch.status == "pending"
+        assert dispatch.delivery_attempts == 1
+        assert "secret" not in dispatch.last_error_message
     finally:
         db.close()
 

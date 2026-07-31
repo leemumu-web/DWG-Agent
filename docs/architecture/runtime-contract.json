@@ -1,6 +1,6 @@
 {
   "alembic_heads": [
-    "a4c8e1f2b730"
+    "e6b1f9a2c470"
   ],
   "celery_task_routes": [
     "app.workers.tasks_agent.* -> agent",
@@ -38,6 +38,7 @@
   ],
   "compose_services": [
     "backend-api",
+    "dispatcher",
     "minio",
     "mysql",
     "nginx",

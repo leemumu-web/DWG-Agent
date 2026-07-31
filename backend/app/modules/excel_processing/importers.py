@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
 import openpyxl
-from .header_normalization import normalize_header
 from sqlalchemy.orm import Session
 
 from app.modules.excel_processing.models import ExcelFinalComponent, ExcelFinalPart
@@ -21,6 +19,8 @@ from app.modules.excel_processing.schemas import (
     WeightValidationStatus,
     WorkbookImportStats,
 )
+
+from .header_normalization import normalize_header
 
 _PART_TYPE_ALIASES = {
     "零件": ExcelFinalPartType.PART,

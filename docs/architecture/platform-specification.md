@@ -90,8 +90,8 @@ Compose 当前只发布 `${HTTP_PORT:-80}:8080`，不发布 443，也没有 Ngin
 
 ## 6. 数据库与连接
 
-- 当前 Alembic head 为 `c9a1d4e7f620`，SQLAlchemy/Alembic 管理 47 张模型表。
-- 空迁移 schema 加 `alembic_version` 为 48 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 56 张。不能把 56 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
+- 当前 Alembic head 为 `e6b1f9a2c470`，SQLAlchemy/Alembic 管理 48 张模型表。
+- 空迁移 schema 加 `alembic_version` 为 49 张；Celery/Kombu 按需创建 8 张 runtime 表，全部存在时最多 57 张。不能把 57 当成每个时刻的固定表数；Celery 表不由 Alembic 所有。
 - API 进程池由 `DB_POOL_SIZE=2`、`DB_POOL_MAX_OVERFLOW=2`、`DB_POOL_TIMEOUT_SECONDS=30` 和 `DB_POOL_RECYCLE_SECONDS=3600` 控制。
 - Celery 自有 engine 每进程使用更小的 pool，并启用 `pool_pre_ping`、LIFO、recycle 和 `READ COMMITTED`。
 - `kombu_message` 需要 `(queue_id, timestamp, id, visible)` 索引，降低跨队列扫描和锁范围。
@@ -235,7 +235,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 
 ## 16. Compose 与发布边界
 
-核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-excel-stage2/worker-remnant-convert/worker-remnant-parse/worker-maintenance`，总计 15 个 Compose 服务。
+核心服务为 `nginx/backend-api/dispatcher/mysql/minio/worker-report`；`workers` profile 增加 `worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-excel-stage2/worker-remnant-convert/worker-remnant-parse/worker-maintenance`，总计 16 个 Compose 服务。
 
 - backend 与 worker 共用非 root `appuser` 镜像；生产 target 从未包含业务源码的 runtime base
   复制编译字节码，最终镜像任意历史层均不得出现 `app/`、`migrations/` 或 `Stages/` 下业务

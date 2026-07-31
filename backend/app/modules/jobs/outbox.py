@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.jobs.models import Job, JobDispatch
 from app.platform.config.constants import JOB_FAILED, JOB_QUEUED, PIPELINE_STUB
+from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.time import business_now
 
@@ -137,7 +138,7 @@ def _stage_dispatch(
             dispatch_mode=dispatch_mode,
             status="pending",
             delivery_attempts=0,
-            available_at=business_now(),
+            available_at=business_now().replace(microsecond=0),
         )
         for job in jobs
     ]
@@ -198,6 +199,9 @@ def lease_next_dispatch(
     if lease_seconds <= 0:
         raise ValueError("lease_seconds must be positive")
     now = business_now()
+    # Keep expiry recovery out of the SKIP LOCKED claim transaction. On MySQL,
+    # concurrent zero-row UPDATE scans can otherwise hide every pending leader
+    # from both claimers until their transactions end.
     with factory() as db:
         db.execute(
             update(JobDispatch)
@@ -213,6 +217,8 @@ def lease_next_dispatch(
             )
             .execution_options(synchronize_session=False)
         )
+        db.commit()
+    with factory() as db:
         leader_ids = select(func.min(JobDispatch.id)).group_by(JobDispatch.dispatch_uid)
         leader = db.scalar(
             select(JobDispatch)
@@ -419,8 +425,39 @@ def drain_once(factory: sessionmaker[Session]) -> bool:
     return True
 
 
+def drain_eager_dispatches(db: Session, *, max_groups: int = 32) -> int:
+    """Synchronously drain committed intents only for Celery's eager runtime.
+
+    Production Compose always uses the dedicated dispatcher. Tests and the
+    single-process development runtime have no dispatcher process, so their
+    eager Celery tasks must still pass through the same lease and settlement
+    path after the caller commits the outbox row.
+    """
+    if not settings.celery_task_always_eager:
+        return 0
+    if max_groups <= 0:
+        raise ValueError("max_groups must be positive")
+    factory = sessionmaker(
+        bind=db.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    drained = 0
+    for _ in range(max_groups):
+        try:
+            if not drain_once(factory):
+                break
+        except Exception:
+            logger.exception("Eager Job dispatch drain failed after durable commit")
+            break
+        drained += 1
+    return drained
+
+
 __all__ = [
     "DispatchLease",
+    "drain_eager_dispatches",
     "drain_once",
     "lease_next_dispatch",
     "mark_dispatch_delivered",

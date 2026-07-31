@@ -22,6 +22,10 @@ services:
       - ./Stages/excel_final:/app/Stages/excel_final
       - ./Stages/remnant_drawing_reader:/app/Stages/remnant_drawing_reader
 
+  dispatcher:
+    volumes:
+      - ./backend/app:/app/app
+
   worker-report:
     volumes:
       - ./backend/app:/app/app
