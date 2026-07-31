@@ -78,9 +78,7 @@ def preflight_excel_stage1(
         )
     batch = workflow.input_batch
     source_item = next(
-        item
-        for item in batch.items
-        if item.role == "source_excel" and item.file_id == source.id
+        item for item in batch.items if item.role == "source_excel" and item.file_id == source.id
     )
     handoff = params["dxf_split_handoff"]
     assert isinstance(handoff, dict)
@@ -471,7 +469,7 @@ def _prepare_excel_stage2(
     current_user: User,
 ) -> tuple[str, dict[str, object]]:
     """Freeze the current formal Stage1 workbook and BH classification ledger."""
-    if not settings.excel_final_pipeline_enabled:
+    if not settings.excel_stage2_pipeline_enabled:
         raise service_unavailable(
             "EXCEL_STAGE2_PIPELINE_DISABLED",
             "Excel 第二阶段处理服务当前未启用。",
@@ -567,18 +565,13 @@ def _prepare_excel_stage2(
             f"BH 左右进处理无法使用当前分类结果：{exc}",
         ) from exc
     classification_stage = next(
-        (
-            stage
-            for stage in workflow.stages
-            if stage.stage_code == "dxf_classification"
-        ),
+        (stage for stage in workflow.stages if stage.stage_code == "dxf_classification"),
         None,
     )
     classification_job = db.get(Job, classification.classification_job_id)
     classification_params = (
         classification_job.params_json
-        if classification_job is not None
-        and isinstance(classification_job.params_json, dict)
+        if classification_job is not None and isinstance(classification_job.params_json, dict)
         else {}
     )
     if (
@@ -587,8 +580,7 @@ def _prepare_excel_stage2(
         or classification_stage is None
         or classification_stage.status != "succeeded"
         or classification_stage.job_id != classification.classification_job_id
-        or classification_stage.job_attempt
-        != classification.classification_job_attempt
+        or classification_stage.job_attempt != classification.classification_job_attempt
         or classification_job is None
         or classification_job.project_id != workflow.project_id
         or classification_job.task_type != TASK_STEEL_DXF_CLASSIFICATION
@@ -740,11 +732,7 @@ def _prepare_dxf_splitting(
         )
     for item in inputs:
         stored = db.get(StoredFile, item.output_file_id)
-        if (
-            stored is None
-            or stored.status == "deleted"
-            or stored.file_ext.casefold() != ".dxf"
-        ):
+        if stored is None or stored.status == "deleted" or stored.file_ext.casefold() != ".dxf":
             raise AppHTTPException(
                 409,
                 "DXF_SPLIT_SOURCE_MISSING",

@@ -9,6 +9,7 @@ from app.modules.excel_processing.models import ExcelFinalBatch
 from app.modules.jobs.interface import Job, reconcile_stale_running_jobs, summarize_job_execution
 from app.platform.messaging import celery_app as celery_runtime
 from app.platform.messaging.celery_app import (
+    JOB_QUEUE_NAMES,
     cleanup_consumed_broker_messages,
     dispose_inherited_resources,
     purge_queued_job_messages,
@@ -109,6 +110,10 @@ def test_cleanup_preserves_reserved_message_within_stale_window(db: Session):
     remaining = db.execute(text("SELECT id, visible FROM test_kombu_message ORDER BY id")).all()
     assert deleted == 0
     assert remaining == [(1, 0), (2, 0)]
+
+
+def test_excel_stage2_queue_participates_in_broker_recovery():
+    assert "excel_stage2" in JOB_QUEUE_NAMES
 
 
 def test_reconcile_marks_only_stale_running_jobs_failed(db: Session):

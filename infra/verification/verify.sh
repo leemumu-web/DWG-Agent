@@ -157,6 +157,7 @@ workers = {
     "worker-dxf2dwg": "dxf2dwg",
     "worker-dxf2excel": "dxf2excel",
     "worker-excel-final": "excel_final",
+    "worker-excel-stage2": "excel_stage2",
     "worker-maintenance": "maintenance",
     "worker-remnant-convert": "remnant_convert",
     "worker-remnant-parse": "remnant_parse",

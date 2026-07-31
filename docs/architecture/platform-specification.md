@@ -235,7 +235,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 
 ## 16. Compose 与发布边界
 
-核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-remnant-convert/worker-remnant-parse/worker-maintenance`，总计 14 个 Compose 服务。
+核心服务为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 `worker-dxf/worker-dxf2dwg/worker-dxf2excel/worker-dxf-classification/worker-dxf-split/worker-excel-final/worker-excel-stage2/worker-remnant-convert/worker-remnant-parse/worker-maintenance`，总计 15 个 Compose 服务。
 
 - backend 与 worker 共用非 root `appuser` 镜像；生产 target 从未包含业务源码的 runtime base
   复制编译字节码，最终镜像任意历史层均不得出现 `app/`、`migrations/` 或 `Stages/` 下业务
@@ -244,7 +244,7 @@ Excel Final 接受 Tekla 制表符/空白文本导出，或包含目标钢构清
 - MinIO 固定 registry digest；MySQL 使用 8.4 tag，未固定 digest。
 - backend 在 Gunicorn 前执行 Alembic upgrade 和 seed。
 - Docker build 依赖各普通跟踪 Stage 实体源码；`Stages/dxf2excel` 与 `Stages/steel_dxf_split_v1.5.2` 均纳入构建上下文。
-- 离线服务器发布使用 GPG 收件人加密完整镜像包，固定 14 服务且禁止现场 build/pull；包内不含
+- 离线服务器发布使用 GPG 收件人加密完整镜像包，固定 15 服务且禁止现场 build/pull；包内不含
   运行密钥或仓库源码。加密保护交付包，字节码保护普通源码浏览，但两者都不能对抗宿主 root
   的专门逆向，主机仍需全盘加密和最小权限。
 - Compose 没有 TLS、证书、监控、备份调度、滚动升级或多副本协调，不应直接标记为完整生产方案。仓库虽提供手工 backup/restore 命令，但没有跨 MySQL/MinIO 原子快照或自动演练。

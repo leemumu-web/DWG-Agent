@@ -84,10 +84,11 @@ def test_agent_boundary_is_explicitly_disabled_in_stage1():
     assert response.json()["error"]["code"] == "AGENT_DISABLED"
 
 
-def test_remnant_worker_queues_and_default_concurrency_are_runtime_contracts():
+def test_bounded_worker_queues_and_default_concurrency_are_runtime_contracts():
     snapshot = build_contract_snapshot()
 
     assert snapshot["worker_queue_concurrency"] == {
+        "excel_stage2": 1,
         "remnant_convert": 2,
         "remnant_parse": 4,
     }

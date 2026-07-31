@@ -223,6 +223,18 @@ services:
       DWG_WORKER_QUEUE: excel_final
       DWG_WORKER_CONCURRENCY: "${EXCEL_FINAL_WORKER_CONCURRENCY:-1}"
 
+  worker-excel-stage2:
+    <<: *worker
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "excel_stage2", "-n", "excel_stage2@%h", "--concurrency=${EXCEL_STAGE2_WORKER_CONCURRENCY:-1}"]
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      DWG_WORKER_QUEUE: excel_stage2
+      DWG_WORKER_CONCURRENCY: "${EXCEL_STAGE2_WORKER_CONCURRENCY:-1}"
+
   worker-maintenance:
     <<: *worker
     command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "maintenance", "-n", "maintenance@%h", "--concurrency=1"]

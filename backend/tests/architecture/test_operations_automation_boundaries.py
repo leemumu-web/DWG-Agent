@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import importlib
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.routing import APIRoute
 
@@ -235,6 +236,29 @@ def test_reserved_execution_queues_keep_deterministic_routes_without_fake_tasks(
     routes = celery_app.conf.task_routes
     for queue in RESERVED_EXECUTION_QUEUES:
         assert routes[f"app.workers.tasks_{queue}.*"] == {"queue": queue}
+
+
+def test_excel_stage2_is_visible_to_control_plane_and_chinese_system_status(
+    monkeypatch,
+) -> None:
+    from app.modules.operations.control_plane.service import PIPELINE_QUEUE_MAP
+    from app.modules.operations.data_catalog import system_routes
+
+    monkeypatch.setattr(system_routes.settings, "excel_stage2_pipeline_enabled", True)
+    response = system_routes.get_system_health(
+        SimpleNamespace(state=SimpleNamespace(request_id="system-health-test")),
+        current_user=None,
+    )
+
+    assert PIPELINE_QUEUE_MAP["excel_stage2"] == "excel_stage2"
+    assert response["data"]["features"]["excel_stage2_pipeline"] is True
+    assert response["data"]["services"] == [
+        {
+            "code": "excel_stage2",
+            "name": "Excel 第二阶段服务",
+            "enabled": True,
+        }
+    ]
 
 
 def test_automation_contract_is_explicit_and_non_executable() -> None:

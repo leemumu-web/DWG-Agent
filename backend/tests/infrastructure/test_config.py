@@ -50,8 +50,12 @@ class TestCeleryUrls:
     def test_with_password(self, monkeypatch):
         monkeypatch.setenv("MYSQL_PASSWORD", "s3cret")
         s = Settings()
-        assert "sqla+mysql+pymysql://dwg_user:s3cret@127.0.0.1:3306/dwg_agent" == s.celery_broker_url
-        assert "db+mysql+pymysql://dwg_user:s3cret@127.0.0.1:3306/dwg_agent" == s.celery_result_backend
+        assert (
+            "sqla+mysql+pymysql://dwg_user:s3cret@127.0.0.1:3306/dwg_agent" == s.celery_broker_url
+        )
+        assert (
+            "db+mysql+pymysql://dwg_user:s3cret@127.0.0.1:3306/dwg_agent" == s.celery_result_backend
+        )
 
     def test_password_encoded_for_url_safety(self, monkeypatch):
         monkeypatch.setenv("MYSQL_PASSWORD", "p@ss!")
@@ -225,6 +229,25 @@ def test_excel_final_pipeline_is_disabled_by_default():
     assert Settings(_env_file=None).excel_final_pipeline_enabled is False
 
 
+def test_excel_stage2_has_isolated_bounded_runtime_defaults():
+    configured = Settings(_env_file=None)
+
+    assert configured.excel_stage2_pipeline_enabled is False
+    assert configured.excel_stage2_timeout_seconds == 7200
+    assert configured.excel_stage2_worker_concurrency == 1
+    assert configured.excel_stage2_work_root.name == "excel-stage2-work"
+    assert configured.excel_stage2_work_root.parent.name == "var"
+
+
+@pytest.mark.parametrize("invalid_value", [0, 3])
+def test_excel_stage2_worker_concurrency_is_safety_bounded(invalid_value):
+    with pytest.raises(ValueError):
+        Settings(
+            _env_file=None,
+            excel_stage2_worker_concurrency=invalid_value,
+        )
+
+
 def test_dxf_split_pipeline_is_disabled_by_default():
     configured = Settings(_env_file=None)
 
@@ -292,13 +315,12 @@ def test_handbook_database_supports_independent_read_only_credentials():
     assert configured.handbook_database_config["database"] == "steel_reference"
     assert configured.handbook_database_config["user"] == "readonly"
     assert configured.handbook_database_config["password"] == "read-secret"
+
+
 def test_minio_metrics_url_defaults_to_configured_endpoint():
     configured = Settings(_env_file=None, minio_endpoint="http://objects:9000/")
 
-    assert (
-        configured.effective_minio_metrics_url
-        == "http://objects:9000/minio/v2/metrics/cluster"
-    )
+    assert configured.effective_minio_metrics_url == "http://objects:9000/minio/v2/metrics/cluster"
 
 
 def test_minio_metrics_url_accepts_explicit_proxy_path():

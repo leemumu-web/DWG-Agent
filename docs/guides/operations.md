@@ -75,7 +75,7 @@ Compose 日志：
 
 ```bash
 docker compose logs --since=15m backend-api worker-report mysql minio nginx
-docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg worker-dxf2excel worker-dxf-classification worker-excel-final
+docker compose --profile workers logs --since=15m worker-dxf worker-dxf2dwg worker-dxf2excel worker-dxf-classification worker-excel-final worker-excel-stage2
 ```
 
 重启前保留首个异常、request ID、Job ID/attempt、worker node、依赖状态和时间戳。当前日志没有集中保留或关联后端；`/tmp` 日志会在重启时丢失，容器日志保留取决于 Docker logging driver。

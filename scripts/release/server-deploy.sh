@@ -126,7 +126,7 @@ server_wait_all_services() {
     local target=$1 timeout=$2
     local -a services
     mapfile -t services < <(server_compose "$target" config --services)
-    [[ "${#services[@]}" -eq 14 ]] || server_die "server release must contain exactly 14 services"
+    [[ "${#services[@]}" -eq 15 ]] || server_die "server release must contain exactly 15 services"
     server_wait_services "$target" "$timeout" "${services[@]}"
 }
 

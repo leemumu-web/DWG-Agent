@@ -142,10 +142,7 @@ def test_stable_compose_startup_orders_health_gate_before_smoke():
     content = _read("scripts/lib/compose.sh")
 
     assert "compose_up_workers()" in content
-    body = content[
-        content.index("compose_up_workers()")
-        : content.index("compose_backup()")
-    ]
+    body = content[content.index("compose_up_workers()") : content.index("compose_backup()")]
     assert body.index("compose_wait_for_healthy_services") < body.index("compose_smoke")
     assert "up-workers) compose_up_workers" in content
 
@@ -159,12 +156,12 @@ def test_compose_backup_and_restore_use_tar_capable_helper_for_minio_volume():
     assert 'compose_service_image_id "backend-api"' in backup
     assert '--volumes-from "$minio_container":ro' in backup
     assert '--entrypoint sh "$backend_image"' in backup
-    assert 'run --rm --no-deps -T --entrypoint sh minio' not in backup
+    assert "run --rm --no-deps -T --entrypoint sh minio" not in backup
 
-    assert 'create --no-deps backend-api minio' in restore
+    assert "create --no-deps backend-api minio" in restore
     assert '--volumes-from "$minio_container"' in restore
     assert '--entrypoint sh "$backend_image"' in restore
-    assert 'run --rm --no-deps -T --entrypoint sh minio' not in restore
+    assert "run --rm --no-deps -T --entrypoint sh minio" not in restore
 
 
 def test_compose_root_database_operations_force_local_unix_socket():
@@ -181,9 +178,7 @@ def test_compose_root_database_operations_force_local_unix_socket():
 
 def test_infrastructure_verifier_does_not_require_reserved_empty_workers():
     content = _read("infra/verification/verify.sh")
-    compose_checks = content[
-        content.index("COMPOSE_CHECKS=") : content.index("# ── Section 3")
-    ]
+    compose_checks = content[content.index("COMPOSE_CHECKS=") : content.index("# ── Section 3")]
 
     assert '"worker-agent"' not in compose_checks
     assert '"worker-dispatch"' not in compose_checks
@@ -281,14 +276,16 @@ def test_compose_verify_storage_is_a_public_command():
     content = _read("scripts/lib/compose.sh")
 
     assert "verify-storage) compose_verify_storage" in content
-    assert "verify-storage" in content[content.index("compose_usage()") : content.index("compose_die()")]
+    assert (
+        "verify-storage"
+        in content[content.index("compose_usage()") : content.index("compose_die()")]
+    )
 
 
 def test_stable_startup_replaces_all_existing_managed_runtime():
     compose = _read("scripts/lib/compose.sh")
     compose_up_workers = compose[
-        compose.index("compose_up_workers()")
-        : compose.index("compose_backup()")
+        compose.index("compose_up_workers()") : compose.index("compose_backup()")
     ]
     compose_main = compose[compose.index("compose_main()") :]
     host = _read("scripts/start-all.sh")
@@ -296,9 +293,7 @@ def test_stable_startup_replaces_all_existing_managed_runtime():
     assert "--force-recreate" in compose_up_workers
     assert '"${COMPOSE_CMD[@]}" --profile workers down --remove-orphans' in compose_main
     assert 'bash "$PROJECT_ROOT/scripts/stop-all.sh"' in host
-    assert host.index('bash "$PROJECT_ROOT/scripts/stop-all.sh"') < host.index(
-        "start_all_workers"
-    )
+    assert host.index('bash "$PROJECT_ROOT/scripts/stop-all.sh"') < host.index("start_all_workers")
     assert "uv sync --frozen" in host
     assert host.index("npm ci --silent") < host.index("npm run build")
 
@@ -426,8 +421,8 @@ def test_infrastructure_verifier_does_not_require_root_for_mysql_evidence():
     assert "application path was verified" in content
     assert '"worker-remnant-convert": "remnant_convert"' in content
     assert '"worker-remnant-parse": "remnant_parse"' in content
-    assert 'ALL_CHECKS_PASSED:{len(svcs)}' in content
-    assert '${COMPOSE_SERVICE_COUNT} services' in content
+    assert "ALL_CHECKS_PASSED:{len(svcs)}" in content
+    assert "${COMPOSE_SERVICE_COUNT} services" in content
     assert "COPY backend/app /app/app" in content
     assert "COPY backend/app ./app" not in content
 
@@ -466,6 +461,7 @@ def test_start_stop_status_scripts_manage_report_worker():
         "dxf2dwg",
         "dxf2excel",
         "excel-final",
+        "excel-stage2",
     ):
         assert label in lib_content
 
@@ -486,6 +482,7 @@ def test_local_scripts_manage_every_implemented_pipeline_worker():
         "dxf2dwg": "dxf2dwg",
         "dxf2excel": "dxf2excel",
         "excel_final": "excel-final",
+        "excel_stage2": "excel-stage2",
     }
     assert "start_celery_worker" in lib_content
     assert "WORKER_SPECS" in lib_content
@@ -534,15 +531,13 @@ def test_container_worker_wrapper_waits_for_database_before_exec(tmp_path):
     fake_bin.mkdir()
     fake_python = fake_bin / "python"
     fake_python.write_text(
-        "#!/usr/bin/env bash\n"
-        "printf 'python:%s\\n' \"$*\" >> \"$WORKER_TEST_CALLS\"\n",
+        '#!/usr/bin/env bash\nprintf \'python:%s\\n\' "$*" >> "$WORKER_TEST_CALLS"\n',
         encoding="utf-8",
     )
     fake_python.chmod(0o755)
     target = tmp_path / "target"
     target.write_text(
-        "#!/usr/bin/env bash\n"
-        "printf 'target:%s\\n' \"$*\" >> \"$WORKER_TEST_CALLS\"\n",
+        '#!/usr/bin/env bash\nprintf \'target:%s\\n\' "$*" >> "$WORKER_TEST_CALLS"\n',
         encoding="utf-8",
     )
     target.chmod(0o755)
@@ -591,7 +586,7 @@ def test_status_warns_when_local_and_compose_consume_the_same_cad_queue():
 
     assert "docker compose ps --status running --services" in content
     assert "本地与 Compose 同时消费" in content
-    assert 'worker-${label}' in content
+    assert "worker-${label}" in content
 
 
 def test_stop_all_does_not_kill_unowned_backend_port():
@@ -691,8 +686,8 @@ def test_nginx_liveness_check_does_not_require_sudo_credentials():
     lib_content = _read("scripts/lib/common.sh")
 
     assert "process_exists" in lib_content
-    assert "process_exists \"$NGINX_PID\"" in start_all
-    assert "process_exists \"$NGINX_PID\"" in stop_all
+    assert 'process_exists "$NGINX_PID"' in start_all
+    assert 'process_exists "$NGINX_PID"' in stop_all
     assert "sudo kill -0" not in start_all
 
 

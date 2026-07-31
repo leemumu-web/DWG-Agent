@@ -12,6 +12,7 @@
     "app.workers.tasks_dxf_classification.* -> dxf_classification",
     "app.workers.tasks_dxf_split.* -> dxf_split",
     "app.workers.tasks_excel_final.* -> excel_final",
+    "app.workers.tasks_excel_stage2.* -> excel_stage2",
     "app.workers.tasks_maintenance.* -> maintenance",
     "app.workers.tasks_remnant_convert.* -> remnant_convert",
     "app.workers.tasks_remnant_parse.* -> remnant_parse",
@@ -46,6 +47,7 @@
     "worker-dxf2dwg",
     "worker-dxf2excel",
     "worker-excel-final",
+    "worker-excel-stage2",
     "worker-maintenance",
     "worker-remnant-convert",
     "worker-remnant-parse",
@@ -522,6 +524,7 @@
     "workflow_stage_runs"
   ],
   "worker_queue_concurrency": {
+    "excel_stage2": 1,
     "remnant_convert": 2,
     "remnant_parse": 4
   }

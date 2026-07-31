@@ -13,9 +13,14 @@ DXF2DWG_WORKER_CONCURRENCY="${DXF2DWG_WORKER_CONCURRENCY:-8}"
 DXF_WORKER_DISPLAY="${DXF_WORKER_DISPLAY:-:91}"
 DXF2DWG_WORKER_DISPLAY="${DXF2DWG_WORKER_DISPLAY:-:92}"
 DXF_CLASSIFICATION_WORKER_CONCURRENCY="${DXF_CLASSIFICATION_WORKER_CONCURRENCY:-3}"
+EXCEL_STAGE2_WORKER_CONCURRENCY="${EXCEL_STAGE2_WORKER_CONCURRENCY:-1}"
 
 if ! [[ "$DXF_CLASSIFICATION_WORKER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
     echo "DXF classification concurrency 配置无效: ${DXF_CLASSIFICATION_WORKER_CONCURRENCY}" >&2
+    return 2 2>/dev/null || exit 2
+fi
+if ! [[ "$EXCEL_STAGE2_WORKER_CONCURRENCY" =~ ^[12]$ ]]; then
+    echo "Excel 第二阶段 concurrency 配置无效: ${EXCEL_STAGE2_WORKER_CONCURRENCY}" >&2
     return 2 2>/dev/null || exit 2
 fi
 
@@ -28,6 +33,7 @@ WORKER_SPECS=(
     "dxf2dwg|${DXF2DWG_WORKER_CONCURRENCY}|dxf2dwg|${DXF2DWG_WORKER_DISPLAY}"
     "dxf2excel|1|dxf2excel|"
     "excel_final|1|excel-final|"
+    "excel_stage2|${EXCEL_STAGE2_WORKER_CONCURRENCY}|excel-stage2|"
     "maintenance|1|maintenance|"
 )
 

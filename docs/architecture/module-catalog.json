@@ -257,7 +257,7 @@
         "app.workers.tasks_excel_final.process_excel_final",
         "app.workers.tasks_excel_stage2.process_excel_stage2"
       ],
-      "queues": ["excel_final"],
+      "queues": ["excel_final", "excel_stage2"],
       "stages": ["Stages/excel_final"],
       "tests": [
         "backend/tests/architecture/test_excel_processing_boundaries.py",

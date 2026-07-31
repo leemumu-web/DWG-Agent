@@ -607,6 +607,24 @@ def _reader_progress_callback(db: Session, *, job_id: int, attempt: int):
     return report
 
 
+def _rebuild_progress_callback(db: Session, *, job_id: int, attempt: int):
+    """Keep the active attempt alive while the isolated workbook rebuild runs."""
+
+    def report() -> None:
+        _commit_progress(
+            db,
+            job_id=job_id,
+            attempt=attempt,
+            progress=80,
+            step_name=STEP_RUN_EXCEL_STAGE2,
+            message="正在深化整理表和 part 表",
+            phase="rebuild_excel",
+            activity="running",
+        )
+
+    return report
+
+
 def _persist_workbook(
     db: Session,
     *,
@@ -864,6 +882,11 @@ def run_excel_stage2_processing(
             stage1_path,
             reader.measurements_path,
             output_path,
+            on_heartbeat=_rebuild_progress_callback(
+                db,
+                job_id=job.id,
+                attempt=attempt,
+            ),
         )
         _add_step(
             db,

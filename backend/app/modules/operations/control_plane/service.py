@@ -23,6 +23,7 @@ CONTROL_QUEUE_NAMES = (
     "dxf2dwg",
     "dxf2excel",
     "excel_final",
+    "excel_stage2",
     "agent",
     "cad",
     "dispatch",
@@ -35,6 +36,7 @@ PIPELINE_QUEUE_MAP = {
     "dxf2dwg_open_source": "dxf2dwg",
     "dxf2excel": "dxf2excel",
     "excel_final": "excel_final",
+    "excel_stage2": "excel_stage2",
     "zwcad_worker": "cad",
 }
 

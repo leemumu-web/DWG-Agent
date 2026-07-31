@@ -9,8 +9,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
@@ -118,6 +119,7 @@ _SUMMARY_FIELDS = {
     "category_counts",
     "representative_messages",
 }
+_STAGE_HEARTBEAT_INTERVAL_SECONDS = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +312,8 @@ def run_excel_stage2_pipeline(
     formal_stage1_path: Path,
     measurements_path: Path,
     output_path: Path,
+    *,
+    on_heartbeat: Callable[[], None] | None = None,
 ) -> ExcelStage2ProcessResult:
     """Run the isolated BH Stage 2 and publish both validated workbooks."""
     if not formal_stage1_path.is_file():
@@ -332,7 +336,7 @@ def run_excel_stage2_pipeline(
         f".{output_path.stem}.{publish_token}.internal.xlsx"
     )
     try:
-        completed = _run_stage(
+        arguments = (
             "process-stage2",
             "--stage1",
             str(formal_stage1_path.resolve()),
@@ -342,6 +346,11 @@ def run_excel_stage2_pipeline(
             str(stage_output_path),
             "--internal-output",
             str(stage_internal_output_path),
+        )
+        completed = (
+            _run_stage(*arguments, on_heartbeat=on_heartbeat)
+            if on_heartbeat is not None
+            else _run_stage(*arguments)
         )
         _raise_for_failed_stage(completed, operation="process-stage2")
         payload = _result_payload(completed, operation="process-stage2")
@@ -798,7 +807,10 @@ def _lookup_result(
     )
 
 
-def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
+def _run_stage(
+    *arguments: str,
+    on_heartbeat: Callable[[], None] | None = None,
+) -> subprocess.CompletedProcess[str]:
     stage_root = get_excel_final_stage_root()
     if not excel_final_dependencies_available():
         raise ExcelFinalUnavailableError("Excel Final Python dependencies are unavailable")
@@ -816,22 +828,64 @@ def _run_stage(*arguments: str) -> subprocess.CompletedProcess[str]:
         "--stage-root",
         str(stage_root),
     ]
+    if on_heartbeat is None:
+        try:
+            return subprocess.run(
+                command,
+                cwd=stage_root,
+                env=_stage_environment(),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ExcelFinalProcessError(
+                f"Excel Final Stage exceeded {timeout_seconds} seconds"
+            ) from exc
+        except OSError as exc:
+            raise ExcelFinalUnavailableError("Unable to start Excel Final Stage") from exc
+
     try:
-        return subprocess.run(
+        process = subprocess.Popen(
             command,
             cwd=stage_root,
             env=_stage_environment(),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout_seconds,
-            check=False,
         )
+    except OSError as exc:
+        raise ExcelFinalUnavailableError("Unable to start Excel Final Stage") from exc
+
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout_seconds)
+            try:
+                stdout, stderr = process.communicate(
+                    timeout=min(_STAGE_HEARTBEAT_INTERVAL_SECONDS, remaining)
+                )
+                return subprocess.CompletedProcess(
+                    command,
+                    process.returncode,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+            except subprocess.TimeoutExpired:
+                on_heartbeat()
     except subprocess.TimeoutExpired as exc:
+        process.kill()
+        process.communicate()
         raise ExcelFinalProcessError(
             f"Excel Final Stage exceeded {timeout_seconds} seconds"
         ) from exc
-    except OSError as exc:
-        raise ExcelFinalUnavailableError("Unable to start Excel Final Stage") from exc
+    except BaseException:
+        process.kill()
+        process.communicate()
+        raise
 
 
 def _stage_environment() -> dict[str, str]:

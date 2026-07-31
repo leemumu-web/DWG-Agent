@@ -91,9 +91,7 @@ def test_minio_storage_backend_creates_bucket_and_streams_objects():
 
 
 def test_files_api_uses_storage_backend_instead_of_local_path_only():
-    content = (
-        REPO_ROOT / "backend/app/modules/files/routes/downloads.py"
-    ).read_text()
+    content = (REPO_ROOT / "backend/app/modules/files/routes/downloads.py").read_text()
 
     assert "get_local_file_path" not in content
     assert "StreamingResponse" in content
@@ -134,7 +132,9 @@ def test_result_download_url_is_signed_and_downloads_generated_file():
     assert results.status_code == 200, results.text
     result_id = results.json()["data"][0]["id"]
 
-    download_url = client.get(f"/api/v1/workflows/results/{result_id}/download-url", headers=headers)
+    download_url = client.get(
+        f"/api/v1/workflows/results/{result_id}/download-url", headers=headers
+    )
     assert download_url.status_code == 200, download_url.text
     url = download_url.json()["data"]["url"]
     assert "expires=" in url
@@ -195,7 +195,9 @@ def test_sql_broker_maintenance_adds_queue_ordering_index():
         )
 
     assert ensure_sql_broker_message_index(engine) is True
-    indexes = {item["name"]: item["column_names"] for item in inspect(engine).get_indexes("kombu_message")}
+    indexes = {
+        item["name"]: item["column_names"] for item in inspect(engine).get_indexes("kombu_message")
+    }
     assert indexes[SQL_BROKER_MESSAGE_INDEX] == [
         "queue_id",
         "timestamp",
@@ -514,6 +516,7 @@ def test_compose_workers_use_runtime_celery_command_and_report_worker_is_default
         "worker-dxf-classification",
         "worker-dxf-split",
         "worker-excel-final",
+        "worker-excel-stage2",
         "worker-report",
     ):
         command = data["services"][service_name]["command"]
@@ -563,6 +566,7 @@ def test_infra_docs_match_current_core_and_profile_worker_topology():
         "worker-dxf-classification",
         "worker-dxf-split",
         "worker-excel-final",
+        "worker-excel-stage2",
     ):
         assert worker in infra
     assert "Agent 功能保持禁用" in infra

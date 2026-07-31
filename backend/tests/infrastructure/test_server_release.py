@@ -69,9 +69,7 @@ def _write_nested_oci_image_archive(archive: Path, *, image: str, member_name: s
     manifest_payload = json.dumps(
         {"schemaVersion": 2, "layers": [layer_descriptor]}, separators=(",", ":")
     ).encode()
-    manifest_descriptor = descriptor(
-        manifest_payload, "application/vnd.oci.image.manifest.v1+json"
-    )
+    manifest_descriptor = descriptor(manifest_payload, "application/vnd.oci.image.manifest.v1+json")
     nested_payload = json.dumps(
         {"schemaVersion": 2, "manifests": [manifest_descriptor]}, separators=(",", ":")
     ).encode()
@@ -124,7 +122,7 @@ def test_server_compose_renderer_freezes_complete_no_build_stack(tmp_path: Path)
     payload = yaml.safe_load(output.read_text(encoding="utf-8"))
     services = payload["services"]
     assert payload["name"] == "dwg-agent"
-    assert len(services) == 14
+    assert len(services) == 15
     assert all("build" not in service for service in services.values())
     assert all("profiles" not in service for service in services.values())
     assert all(service["pull_policy"] == "never" for service in services.values())
@@ -155,7 +153,7 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "dwg_converter, dxf_converter" in release
     assert "check_dwg_environment().ok" in release
     assert "check_dxf_environment().ok" in release
-    assert r'(\"config\", \"handbook\", \"material_routing\", \"pipeline\", \"main\")' in release
+    assert r"(\"config\", \"handbook\", \"material_routing\", \"pipeline\", \"main\")" in release
     assert "release_verify_oda_roundtrip" in release
     assert "scripts/release/fixtures/oda_runtime_smoke.dxf" in release
     assert "APPIMAGE runtime failed DWG to DXF" in release
@@ -171,14 +169,14 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "material_routing" in release
     assert "remnant_drawing_reader" in release
     assert "__cpu_baseline__" in release
-    assert r'{\"SSE\", \"SSE2\", \"SSE3\"}' in release
-    assert r'f\"NumPy wheel requires an unsupported CPU baseline' in release
+    assert r"{\"SSE\", \"SSE2\", \"SSE3\"}" in release
+    assert r"f\"NumPy wheel requires an unsupported CPU baseline" in release
     assert "verify_image_archive.py" in release
     assert 'deploy.sh"' in release
     assert "--profile workers build" not in release
-    assert 'build backend-api nginx' in release
+    assert "build backend-api nginx" in release
     assert "business Python source exists in an image layer" in verifier
-    assert "cp \"$PROJECT_ROOT/.env.docker\"" not in release
+    assert 'cp "$PROJECT_ROOT/.env.docker"' not in release
     assert ".env.docker.example" in release
 
     assert "gpg --batch --decrypt" in server
@@ -193,37 +191,18 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
 
 def test_server_recovery_starts_dependency_tiers_before_the_full_stack():
     server = SERVER_SCRIPT.read_text(encoding="utf-8")
+    assert "exactly 15 services" in server
 
-    recovery = server[
-        server.index("server_recover()") : server.index("server_enable_service()")
-    ]
-    storage_up = recovery.index(
-        'server_compose "$target" up -d --no-build mysql minio'
-    )
-    storage_ready = recovery.index(
-        'server_wait_services "$target" 240 mysql minio'
-    )
-    api_up = recovery.index(
-        'server_compose "$target" up -d --no-build backend-api'
-    )
-    api_ready = recovery.index(
-        'server_wait_services "$target" 240 backend-api'
-    )
-    full_up = recovery.index(
-        'server_compose "$target" up -d --no-build --remove-orphans'
-    )
+    recovery = server[server.index("server_recover()") : server.index("server_enable_service()")]
+    storage_up = recovery.index('server_compose "$target" up -d --no-build mysql minio')
+    storage_ready = recovery.index('server_wait_services "$target" 240 mysql minio')
+    api_up = recovery.index('server_compose "$target" up -d --no-build backend-api')
+    api_ready = recovery.index('server_wait_services "$target" 240 backend-api')
+    full_up = recovery.index('server_compose "$target" up -d --no-build --remove-orphans')
     full_ready = recovery.index('server_wait_all_services "$target" 360')
     smoke = recovery.index('server_smoke "$target"')
 
-    assert (
-        storage_up
-        < storage_ready
-        < api_up
-        < api_ready
-        < full_up
-        < full_ready
-        < smoke
-    )
+    assert storage_up < storage_ready < api_up < api_ready < full_up < full_ready < smoke
 
 
 def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures():
@@ -235,9 +214,9 @@ def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures(
     assert "Wants=network-online.target" in server
     assert "Restart=on-failure" in server
     assert "RestartSec=15s" in server
-    assert 'ExecStart=$target/scripts/server-deploy.sh recover $target' in server
-    assert 'ExecReload=$target/scripts/server-deploy.sh recover $target' in server
-    assert 'ExecStop=$target/scripts/server-deploy.sh down $target' in server
+    assert "ExecStart=$target/scripts/server-deploy.sh recover $target" in server
+    assert "ExecReload=$target/scripts/server-deploy.sh recover $target" in server
+    assert "ExecStop=$target/scripts/server-deploy.sh down $target" in server
     assert "systemctl enable --now dwg-agent.service" in server
 
 
@@ -302,8 +281,7 @@ def test_protected_runtime_and_context_exclude_business_source_and_samples():
     assert "-name '*.egg-info'" in dockerfile
     assert "/app/Stages/dwg2dxf/tools" in dockerfile
     assert (
-        "COPY scripts/release/verify_live_remnant.py "
-        "/app/scripts/release/verify_live_remnant.py"
+        "COPY scripts/release/verify_live_remnant.py /app/scripts/release/verify_live_remnant.py"
     ) in dockerfile
     assert (
         "COPY scripts/release/fixtures/oda_runtime_smoke.dxf "

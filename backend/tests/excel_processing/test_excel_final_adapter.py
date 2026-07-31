@@ -584,6 +584,53 @@ def test_excel_stage2_adapter_validates_protocol_and_publishes_both_workbooks(
     assert result.internal_output_path.read_bytes() == b"internal-stage2"
 
 
+def test_excel_stage2_adapter_forwards_activity_heartbeat_to_stage_runner(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    stage1 = tmp_path / "stage1.xlsx"
+    measurements = tmp_path / "bh-measurements.json"
+    output = tmp_path / "stage2.xlsx"
+    stage1.write_bytes(b"stage1")
+    measurements.write_text(
+        '{"schema":"bh_setback_measurements/v1","items":[]}',
+        encoding="utf-8",
+    )
+    received_heartbeat = None
+
+    def fake_run(*arguments: str, on_heartbeat=None):
+        nonlocal received_heartbeat
+        received_heartbeat = on_heartbeat
+        stage_output = Path(arguments[arguments.index("--output") + 1])
+        stage_internal = Path(arguments[arguments.index("--internal-output") + 1])
+        stage_output.write_bytes(b"formal-stage2")
+        stage_internal.write_bytes(b"internal-stage2")
+        return subprocess.CompletedProcess(
+            arguments,
+            0,
+            stdout=_protocol_line(_stage2_process_payload(stage_output)),
+            stderr="",
+        )
+
+    heartbeat_calls = 0
+
+    def heartbeat() -> None:
+        nonlocal heartbeat_calls
+        heartbeat_calls += 1
+
+    monkeypatch.setattr(excel_final, "_run_stage", fake_run)
+
+    excel_final.run_excel_stage2_pipeline(
+        stage1,
+        measurements,
+        output,
+        on_heartbeat=heartbeat,
+    )
+
+    assert received_heartbeat is heartbeat
+    assert heartbeat_calls == 0
+
+
 @pytest.mark.parametrize(
     ("operation", "expected_timeout"),
     [("process", 111), ("process-stage2", 222)],
@@ -610,6 +657,55 @@ def test_excel_stage_runner_uses_operation_specific_timeout(
     excel_final._run_stage(operation)
 
     assert captured["timeout"] == expected_timeout
+
+
+def test_excel_stage2_runner_emits_heartbeat_while_process_is_still_running(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class StillRunningProcess:
+        returncode = 0
+
+        def __init__(self) -> None:
+            self.communicate_calls = 0
+
+        def communicate(self, *, timeout: float):
+            self.communicate_calls += 1
+            if self.communicate_calls == 1:
+                raise subprocess.TimeoutExpired(["stage"], timeout)
+            return "stage stdout", "stage stderr"
+
+        def kill(self) -> None:
+            pytest.fail("completed process must not be killed")
+
+    process = StillRunningProcess()
+    heartbeat_calls: list[str] = []
+
+    monkeypatch.setattr(excel_final, "get_excel_final_stage_root", lambda: tmp_path)
+    monkeypatch.setattr(excel_final, "excel_final_dependencies_available", lambda: True)
+    monkeypatch.setattr(excel_final, "_stage_environment", lambda: {})
+    monkeypatch.setattr(
+        excel_final.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail(
+            "heartbeating stage execution must not use one blocking subprocess.run call"
+        ),
+    )
+    monkeypatch.setattr(
+        excel_final.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: process,
+    )
+
+    completed = excel_final._run_stage(
+        "process-stage2",
+        on_heartbeat=lambda: heartbeat_calls.append("alive"),
+    )
+
+    assert heartbeat_calls == ["alive"]
+    assert process.communicate_calls == 2
+    assert completed.stdout == "stage stdout"
+    assert completed.stderr == "stage stderr"
 
 
 def test_stage_runner_process_stage2_emits_the_strict_result_protocol(

@@ -98,7 +98,9 @@ def test_excel_router_preserves_operations_and_static_precedence() -> None:
 
     routes = _routes(module.router)
     assert routes == EXPECTED_ROUTES
-    first_parameter = next(index for index, (_methods, path, _name) in enumerate(routes) if "{" in path)
+    first_parameter = next(
+        index for index, (_methods, path, _name) in enumerate(routes) if "{" in path
+    )
     assert all("{" not in path for _methods, path, _name in routes[:first_parameter])
 
 
@@ -121,6 +123,11 @@ def test_excel_stage2_task_has_stable_public_name() -> None:
     assert tasks.process_excel_stage2_task.name == (
         "app.workers.tasks_excel_stage2.process_excel_stage2"
     )
+    from app.platform.messaging.celery_app import celery_app
+
+    assert celery_app.conf.task_routes["app.workers.tasks_excel_stage2.*"] == {
+        "queue": "excel_stage2"
+    }
 
 
 def test_excel_internal_responsibilities_are_traceable() -> None:
@@ -161,12 +168,8 @@ def test_registries_use_excel_domain_modules() -> None:
     from app.bootstrap.model_registry import load_models
     from app.bootstrap.task_registry import load_tasks
 
-    assert "app.modules.excel_processing.models" in {
-        module.__name__ for module in load_models()
-    }
-    assert "app.modules.excel_processing.tasks" in {
-        module.__name__ for module in load_tasks()
-    }
+    assert "app.modules.excel_processing.models" in {module.__name__ for module in load_models()}
+    assert "app.modules.excel_processing.tasks" in {module.__name__ for module in load_tasks()}
 
 
 def test_legacy_excel_implementation_files_are_retired() -> None:

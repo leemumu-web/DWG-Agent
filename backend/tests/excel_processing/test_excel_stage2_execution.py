@@ -28,7 +28,7 @@ from app.modules.files.interface import StoredFile
 from app.modules.identity.interface import User
 from app.modules.jobs.interface import AnalysisResult, Job, JobStep
 from app.modules.projects.interface import Project
-from app.platform.config.constants import TASK_EXCEL_STAGE2
+from app.platform.config.constants import STEP_RUN_EXCEL_STAGE2, TASK_EXCEL_STAGE2
 
 
 def _stored(db: Session, name: str, *, digest: str) -> StoredFile:
@@ -176,7 +176,15 @@ def test_stage2_worker_publishes_two_attempt_bound_results_and_mysql_projection(
             failure_count=0,
         )
 
-    def fake_pipeline(_stage1, _measurements, output):
+    rebuild_activity: list[dict[str, object]] = []
+
+    def fake_pipeline(_stage1, _measurements, output, *, on_heartbeat=None):
+        assert on_heartbeat is not None
+        on_heartbeat()
+        with service.SessionLocal() as observer:
+            active = observer.get(Job, job.id)
+            assert active is not None
+            rebuild_activity.append(dict(active.progress_data))
         output.write_bytes(b"stage2-xlsx")
         internal = output.with_name("stage2.internal.xlsx")
         internal.write_bytes(b"stage2-internal")
@@ -258,6 +266,19 @@ def test_stage2_worker_publishes_two_attempt_bound_results_and_mysql_projection(
     batch = db.scalar(select(ExcelFinalBatch).where(ExcelFinalBatch.job_id == job.id))
     assert persisted.status == "succeeded"
     assert persisted.progress == 100
+    assert rebuild_activity == [
+        {
+            "type": "progress",
+            "status": "running",
+            "progress": 80,
+            "step_name": STEP_RUN_EXCEL_STAGE2,
+            "message": "正在深化整理表和 part 表",
+            "phase": "rebuild_excel",
+            "activity": "running",
+            "job_id": job.id,
+            "attempt": 1,
+        }
+    ]
     assert persisted.progress_data["stage2_status"] == stage2_status
     assert [result.result_json["workflow_artifact_type"] for result in results] == [
         "bh_setback_excel",
@@ -680,7 +701,7 @@ def test_stage2_failure_after_reader_keeps_only_diagnostic_and_cleans_projection
         monkeypatch.setattr(
             service,
             "run_excel_stage2_pipeline",
-            lambda *_: (_ for _ in ()).throw(
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 Stage2WorkerError(
                     "EXCEL_STAGE2_BASELINE_INVALID",
                     "Excel 第一阶段基线核验失败。",
@@ -691,7 +712,7 @@ def test_stage2_failure_after_reader_keeps_only_diagnostic_and_cleans_projection
         monkeypatch.setattr(
             service,
             "run_excel_stage2_pipeline",
-            lambda _stage1, _measurements, output: _fake_stage2_result(output),
+            lambda _stage1, _measurements, output, **_kwargs: _fake_stage2_result(output),
         )
 
     if failure_phase == "database":

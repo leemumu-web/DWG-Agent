@@ -33,6 +33,7 @@ APP_SERVICE_NAMES = (
     "worker-dxf-classification",
     "worker-dxf-split",
     "worker-excel-final",
+    "worker-excel-stage2",
     "worker-report",
     "worker-remnant-convert",
     "worker-remnant-parse",
@@ -94,13 +95,9 @@ class TestAppServices:
         for stage in ("dwg2dxf", "dxf2dwg", "dxf2excel"):
             assert f"COPY Stages/{stage} ./Stages/{stage}" in dockerfile
         assert (
-            "COPY Stages/steel_dxf_classifier_v1.1.0 "
-            "./Stages/steel_dxf_classifier_v1.1.0"
+            "COPY Stages/steel_dxf_classifier_v1.1.0 ./Stages/steel_dxf_classifier_v1.1.0"
         ) in dockerfile
-        assert (
-            "COPY Stages/steel_dxf_split_v1.5.2 "
-            "./Stages/steel_dxf_split_v1.5.2"
-        ) in dockerfile
+        assert ("COPY Stages/steel_dxf_split_v1.5.2 ./Stages/steel_dxf_split_v1.5.2") in dockerfile
         assert "COPY Stages/excel_final /app/Stages/excel_final" in dockerfile
         assert "COPY scripts/run-worker.sh /app/scripts/run-worker.sh" in dockerfile
         assert "COPY scripts/run-cad-worker.sh /app/scripts/run-cad-worker.sh" in dockerfile
@@ -116,18 +113,15 @@ class TestAppServices:
         assert reader_root.is_dir()
         assert '"bh-left-right-reader==1.2.7"' in pyproject
         assert (
-            'bh-left-right-reader = { path = "../Stages/bh_left_right_reader", '
-            "editable = true }"
+            'bh-left-right-reader = { path = "../Stages/bh_left_right_reader", editable = true }'
         ) in pyproject
-        assert (
-            "COPY Stages/bh_left_right_reader ./Stages/bh_left_right_reader"
-        ) in dockerfile
+        assert ("COPY Stages/bh_left_right_reader ./Stages/bh_left_right_reader") in dockerfile
         assert (
             "./Stages/bh_left_right_reader:/app/Stages/bh_left_right_reader"
             in _load_dev()["services"]["backend-api"]["volumes"]
         )
 
-    def test_bh_reader_core_matches_the_v127_source_manifest(self):
+    def test_bh_reader_delivered_source_matches_the_locked_manifest(self):
         reader_root = REPO_ROOT / "Stages" / "bh_left_right_reader"
         manifest_path = reader_root / "SOURCE_MANIFEST.sha256"
 
@@ -182,9 +176,7 @@ class TestAppServices:
         service = _load()["services"]["worker-dxf-classification"]
         command = service["command"]
 
-        assert (
-            "--concurrency=${DXF_CLASSIFICATION_WORKER_CONCURRENCY:-3}"
-        ) in command
+        assert ("--concurrency=${DXF_CLASSIFICATION_WORKER_CONCURRENCY:-3}") in command
         assert not any("--autoscale" in argument for argument in command)
         assert (
             service["environment"]["DWG_WORKER_CONCURRENCY"]
@@ -202,15 +194,13 @@ class TestAppServices:
             "worker-report": ("REPORT_WORKER_CONCURRENCY", "2"),
             "worker-dxf-split": ("DXF_SPLIT_WORKER_CONCURRENCY", "1"),
             "worker-excel-final": ("EXCEL_FINAL_WORKER_CONCURRENCY", "1"),
+            "worker-excel-stage2": ("EXCEL_STAGE2_WORKER_CONCURRENCY", "1"),
         }
         for service_name, (variable, default) in expected.items():
             service = data["services"][service_name]
             command = service["command"]
             assert f"--concurrency=${{{variable}:-{default}}}" in command
-            assert (
-                service["environment"]["DWG_WORKER_CONCURRENCY"]
-                == f"${{{variable}:-{default}}}"
-            )
+            assert service["environment"]["DWG_WORKER_CONCURRENCY"] == f"${{{variable}:-{default}}}"
             assert f"{variable}={default}" in env_example
         assert "WEB_CONCURRENCY=4" in env_example
 
@@ -272,6 +262,7 @@ class TestComposeYamlValid:
             "worker-dxf-classification",
             "worker-dxf-split",
             "worker-excel-final",
+            "worker-excel-stage2",
             "worker-report",
             "worker-remnant-convert",
             "worker-remnant-parse",
@@ -349,23 +340,33 @@ class TestDevelopmentCompose:
             "worker-dxf-classification",
             "worker-dxf-split",
             "worker-excel-final",
+            "worker-excel-stage2",
         )
         for worker in workers:
             volumes = data["services"][worker]["volumes"]
             assert "./backend/app:/app/app" in volumes
 
         assert "./Stages/dwg2dxf:/app/Stages/dwg2dxf" in data["services"]["worker-dxf"]["volumes"]
-        assert "./Stages/dxf2dwg:/app/Stages/dxf2dwg" in data["services"]["worker-dxf2dwg"]["volumes"]
-        assert "./Stages/dxf2excel:/app/Stages/dxf2excel" in data["services"]["worker-dxf2excel"]["volumes"]
         assert (
-            "./Stages/steel_dxf_classifier_v1.1.0:"
-            "/app/Stages/steel_dxf_classifier_v1.1.0"
+            "./Stages/dxf2dwg:/app/Stages/dxf2dwg" in data["services"]["worker-dxf2dwg"]["volumes"]
+        )
+        assert (
+            "./Stages/dxf2excel:/app/Stages/dxf2excel"
+            in data["services"]["worker-dxf2excel"]["volumes"]
+        )
+        assert (
+            "./Stages/steel_dxf_classifier_v1.1.0:/app/Stages/steel_dxf_classifier_v1.1.0"
         ) in data["services"]["worker-dxf-classification"]["volumes"]
+        assert ("./Stages/steel_dxf_split_v1.5.2:/app/Stages/steel_dxf_split_v1.5.2") in data[
+            "services"
+        ]["worker-dxf-split"]["volumes"]
         assert (
-            "./Stages/steel_dxf_split_v1.5.2:"
-            "/app/Stages/steel_dxf_split_v1.5.2"
-        ) in data["services"]["worker-dxf-split"]["volumes"]
-        assert "./Stages/excel_final:/app/Stages/excel_final" in data["services"]["worker-excel-final"]["volumes"]
+            "./Stages/excel_final:/app/Stages/excel_final"
+            in data["services"]["worker-excel-final"]["volumes"]
+        )
+        stage2_volumes = data["services"]["worker-excel-stage2"]["volumes"]
+        assert "./Stages/excel_final:/app/Stages/excel_final" in stage2_volumes
+        assert "./Stages/bh_left_right_reader:/app/Stages/bh_left_right_reader" in stage2_volumes
 
     def test_dev_override_does_not_publish_mysql_or_minio(self):
         services = _load_dev()["services"]
@@ -381,8 +382,7 @@ class TestMysqlService:
         assert mysql["env_file"] == [".env.docker"]
         _assert_blank_environment(
             mysql,
-            APP_SECRET_KEYS
-            | {"MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
+            APP_SECRET_KEYS | {"MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD"},
         )
         assert "MYSQL_PASSWORD" not in mysql["environment"]
         assert "MYSQL_ROOT_PASSWORD" not in mysql["environment"]
@@ -399,9 +399,7 @@ class TestMysqlService:
 
         assert any("01-platform.sql" in str(volume) for volume in volumes)
         assert any("02-hardware-handbook.sql" in str(volume) for volume in volumes)
-        init_sql = (REPO_ROOT / "infra/database/mysql/init.sql").read_text(
-            encoding="utf-8"
-        )
+        init_sql = (REPO_ROOT / "infra/database/mysql/init.sql").read_text(encoding="utf-8")
         assert "GRANT SELECT ON hardware_handbook.*" in init_sql
 
     def test_mysql_has_healthcheck(self):
@@ -589,9 +587,7 @@ class TestDockerfile:
         assert command.index("python -m app.platform.database.wait") < command.index(
             "alembic upgrade head"
         )
-        assert command.index("alembic upgrade head") < command.index(
-            "python -m app.bootstrap.seed"
-        )
+        assert command.index("alembic upgrade head") < command.index("python -m app.bootstrap.seed")
         assert command.index("python -m app.bootstrap.seed") < command.index("exec gunicorn")
 
     def test_has_healthcheck(self):

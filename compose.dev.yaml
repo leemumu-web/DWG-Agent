@@ -56,6 +56,12 @@ services:
       - ./backend/app:/app/app
       - ./Stages/excel_final:/app/Stages/excel_final
 
+  worker-excel-stage2:
+    volumes:
+      - ./backend/app:/app/app
+      - ./Stages/excel_final:/app/Stages/excel_final
+      - ./Stages/bh_left_right_reader:/app/Stages/bh_left_right_reader
+
   worker-remnant-convert:
     volumes:
       - ./backend/app:/app/app

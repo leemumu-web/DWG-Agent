@@ -1,15 +1,21 @@
-# Source: 3d7b7d8 (tag v1.2.7)
+# Source baseline: 3d7b7d8 (tag v1.2.7).
+# The CLI/XLSX writer and batch module have the reviewed stream-adapter from
+# complete_framework commit 5f58460; the backend calls the same batch analyzer
+# directly. Every entry below is the exact delivered source checksum, not an
+# assumed upstream copy.
 9d6fbf87655b05768b1e75d78859baed215df43d9a598b43a16a146a866424d4  pyproject.toml
 bd6b5dd60066a3674837d0c7f33a825304652a97524f5765550f4c6094f042b1  config/default.toml
 2140442d5b32c3085962a3c8c9e134144038ad52b4aa73e57bb6bbc6f49cb2f8  src/bh_reader/analyzer.py
-abd0119fb8784643769c8296ec2d6435d66abd9a13ccc54ddb9cd366c205f161  src/bh_reader/cli.py
+c18c18a3b5d864c30ce75205fa2e211dc27d0d9aa81f433ecb9dc696702773ac  src/bh_reader/cli.py
+ce32285ec0f7e60067ed9ba69e629d17fa01355ba61b7fa84a3ffa3e0306c372  src/bh_reader/batch.py
 226e4abe9a1ebd966ebe8a6bd247218ef6ca331fb904b48ce6be38e3d38532c7  src/bh_reader/dxf_ascii.py
 3b6d559ff2f04457aa931402b6eb4d02104ed3e9def80c7ff050ef6025c69970  src/bh_reader/dxf_ezdxf.py
 10d3111e69829d533df31cfc02d84f20c83bbc38e7309aa366468b44e9e85f58  src/bh_reader/dxf_geometry.py
 99e536d5b1369f163aef70a90fc743e47df23a7fce996b0d47d0a627d9ba1ba4  src/bh_reader/__init__.py
 66196283629bd426b7bf90dabd853ea5f291a9256b422ea3df12305943f0a826  src/bh_reader/model.py
-29bb632f9834db4fb6d8ca41bd4faf3b5753da5b8313810c1a7d8fd2d4ed86b8  src/bh_reader/simple_xlsx.py
+9bab3dff7936e44950316d760e7f11421888eaf18a0fd7de7367855ce8630f01  src/bh_reader/simple_xlsx.py
 ff72c0c1dff2620bd478228c3bf6be88686d4bc88c6ea2439cf88fb4b3cc6a96  src/bh_reader/units.py
 47a3a1925b0d9cdaeb2d1f5adb455bed455642e926557a81142fa3131177e646  src/bh_reader/visualize.py
-a4bd7c45989c087344e7832e7d6e1ad31b7ee2fe49474a25d3391a80f9829024  tests/test_cli.py
+ef00bcbcc316f4b2e5886735f31a602771336e59d6663569683bc50e0851f2b1  tests/test_cli.py
+38e393b0186c7ed1233235d8824bc1cddec56a17d73dfa9e0cba3c91a0b5b0a6  tests/test_batch.py
 c266a69da74aa2711ba60a84675e1ac6f047bf1b08d5ae735fab5eac2387ea7f  tests/test_samples.py

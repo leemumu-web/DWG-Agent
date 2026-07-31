@@ -104,9 +104,7 @@ class Settings(BaseSettings):
     dxf_classification_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
     # Classification input copies and classifier staging can exceed the bounded
     # container /tmp tmpfs; keep per-attempt scratch on the writable app_var volume.
-    dxf_classification_work_root: Path = (
-        _BACKEND_DIR / "var" / "dxf-classification-work"
-    )
+    dxf_classification_work_root: Path = _BACKEND_DIR / "var" / "dxf-classification-work"
 
     # Frozen classified DXF split processing
     dxf_split_pipeline_enabled: bool = False
@@ -122,7 +120,11 @@ class Settings(BaseSettings):
     # cannot collide with FastAPI/Celery modules.
     excel_final_stage_root: Path | None = None
     excel_final_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
+    excel_stage2_pipeline_enabled: bool = False
     excel_stage2_timeout_seconds: int = Field(default=7200, ge=300, le=14400)
+    # Stage2 can scan 5000 BH drawings. Keep production serial by default and
+    # reject unsafe fan-out until a deployment has passed the concurrency gate.
+    excel_stage2_worker_concurrency: int = Field(default=1, ge=1, le=2)
     excel_stage2_work_root: Path = _BACKEND_DIR / "var" / "excel-stage2-work"
 
     # Read-only steel handbook database used by the Excel Final pipeline. When
@@ -227,8 +229,7 @@ class Settings(BaseSettings):
     def validate_storage_capacity_thresholds(self) -> Settings:
         if self.storage_capacity_warning_percent >= self.storage_capacity_critical_percent:
             raise ValueError(
-                "STORAGE_CAPACITY_WARNING_PERCENT must be below "
-                "STORAGE_CAPACITY_CRITICAL_PERCENT."
+                "STORAGE_CAPACITY_WARNING_PERCENT must be below STORAGE_CAPACITY_CRITICAL_PERCENT."
             )
         return self
 

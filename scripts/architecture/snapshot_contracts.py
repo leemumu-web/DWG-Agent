@@ -35,7 +35,9 @@ def _http_contract() -> tuple[list[str], list[str]]:
                 continue
             operation_id = operation.get("operationId")
             if not operation_id:
-                raise RuntimeError(f"OpenAPI operation has no operationId: {method} {path}")
+                raise RuntimeError(
+                    f"OpenAPI operation has no operationId: {method} {path}"
+                )
             operations.append(f"{method.upper()} {path} {operation_id}")
     return paths, sorted(operations)
 
@@ -81,7 +83,9 @@ def _compose_services() -> list[str]:
     compose_path = REPO_ROOT / "compose.yaml"
     lines = compose_path.read_text(encoding="utf-8").splitlines()
     try:
-        start = next(index for index, line in enumerate(lines) if line == "services:") + 1
+        start = (
+            next(index for index, line in enumerate(lines) if line == "services:") + 1
+        )
     except StopIteration as exc:
         raise RuntimeError("compose.yaml has no top-level services section") from exc
 
@@ -98,12 +102,16 @@ def _compose_services() -> list[str]:
 
 
 def _worker_queue_concurrency() -> dict[str, int]:
-    expected = {"remnant_convert", "remnant_parse"}
+    expected = {"excel_stage2", "remnant_convert", "remnant_parse"}
     payload = yaml.safe_load((REPO_ROOT / "compose.yaml").read_text(encoding="utf-8"))
     values: dict[str, int] = {}
     for service in payload["services"].values():
         raw_command = service.get("command", [])
-        command = shlex.split(raw_command) if isinstance(raw_command, str) else list(raw_command)
+        command = (
+            shlex.split(raw_command)
+            if isinstance(raw_command, str)
+            else list(raw_command)
+        )
         if "-Q" not in command:
             continue
         queue = command[command.index("-Q") + 1]
@@ -114,13 +122,19 @@ def _worker_queue_concurrency() -> dict[str, int]:
             None,
         )
         if concurrency is None:
-            raise RuntimeError(f"missing concurrency argument for worker queue: {queue}")
+            raise RuntimeError(
+                f"missing concurrency argument for worker queue: {queue}"
+            )
         match = re.fullmatch(r"--concurrency=\$\{[^:}]+:-(\d+)\}", concurrency)
         if match is None:
-            raise RuntimeError(f"invalid concurrency contract for worker queue: {queue}")
+            raise RuntimeError(
+                f"invalid concurrency contract for worker queue: {queue}"
+            )
         values[queue] = int(match.group(1))
     if values.keys() != expected:
-        raise RuntimeError(f"missing remnant worker concurrency contract: {expected - values.keys()}")
+        raise RuntimeError(
+            f"missing bounded worker concurrency contract: {expected - values.keys()}"
+        )
     return dict(sorted(values.items()))
 
 
@@ -150,7 +164,10 @@ def build_contract_snapshot() -> dict[str, Any]:
 
 
 def render_snapshot(snapshot: dict[str, Any] | None = None) -> str:
-    return json.dumps(snapshot or build_contract_snapshot(), ensure_ascii=False, indent=2) + "\n"
+    return (
+        json.dumps(snapshot or build_contract_snapshot(), ensure_ascii=False, indent=2)
+        + "\n"
+    )
 
 
 def check_snapshot(path: Path = SNAPSHOT_PATH) -> list[str]:
@@ -169,8 +186,12 @@ def check_snapshot(path: Path = SNAPSHOT_PATH) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--write", action="store_true", help="replace the committed snapshot")
-    mode.add_argument("--check", action="store_true", help="compare runtime with the snapshot")
+    mode.add_argument(
+        "--write", action="store_true", help="replace the committed snapshot"
+    )
+    mode.add_argument(
+        "--check", action="store_true", help="compare runtime with the snapshot"
+    )
     args = parser.parse_args()
 
     if args.write:
@@ -184,7 +205,9 @@ def main() -> int:
             for error in errors:
                 print(f"ERROR: {error}", file=sys.stderr)
             return 1
-        print("Runtime contract snapshot matches HTTP, ORM, Celery, frontend and Compose surfaces.")
+        print(
+            "Runtime contract snapshot matches HTTP, ORM, Celery, frontend and Compose surfaces."
+        )
         return 0
     print(render_snapshot(), end="")
     return 0
