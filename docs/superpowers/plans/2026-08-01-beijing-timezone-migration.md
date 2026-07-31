@@ -310,7 +310,7 @@ Expected: FAIL，指出 TZ、MySQL 参数、zoneinfo 和 Celery 配置缺失。
 
 Run: `docker compose --env-file .env.docker config --format json | jq -r '.services | to_entries[] | [.key,.value.environment.TZ] | @tsv'`
 
-Expected: 15 个服务均输出 `Asia/Shanghai`；任何空值都视为失败。
+Expected: 最终 16 个服务（包含 dispatcher）均输出 `Asia/Shanghai`；任何空值都视为失败。
 
 - [ ] **Step 5: 运行测试**
 
@@ -395,7 +395,7 @@ git commit -m "feat: migrate stored datetimes to Beijing time"
 - Nginx 使用 `docker compose stop -t 180 nginx` 优雅停止后再次核对在途事务。
 - `mysqldump --single-transaction --routines --triggers --events`。
 - `gzip -t`、SHA-256、临时 schema 恢复和核心表计数比对。
-- 依赖顺序 MySQL/MinIO → backend-api → workers → Nginx。
+- 依赖顺序 MySQL/MinIO → backend-api → dispatcher → workers → Nginx。
 - 不出现 `docker compose down -v`、`docker volume rm`、`DROP DATABASE $MYSQL_DATABASE`。
 
 - [ ] **Step 2: 运行并确认测试失败**
@@ -406,7 +406,7 @@ Expected: FAIL，指出维护脚本和发布打包入口不存在。
 
 - [ ] **Step 3: 实现 `preflight`**
 
-`preflight TARGET_DIR` 输出但不修改：发布版本、15 服务健康、两个当前 workflow 的 Excel/DWG item 数、非终态 transfer/job 数、MySQL/MinIO 计数与字节数、Docker root/备份盘余量。任一 workflow 尚无 Excel 或 DWG、任何 transfer/job 活动、任何容器不健康都返回非零。
+`preflight TARGET_DIR` 输出但不修改：发布版本、旧版 15/最终版 16 服务健康、两个当前 workflow 的 Excel/DWG item 数、非终态 transfer/job/outbox/upload-session 数、MySQL/MinIO 计数与字节数、Docker root/备份盘余量。任一 workflow 尚无 Excel 或 DWG、任何传输/任务仍活动、任何容器不健康都返回非零。
 
 - [ ] **Step 4: 实现备份与恢复验证**
 

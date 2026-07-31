@@ -32,6 +32,8 @@
 - 相同 UI 操作的 stable key 在服务器确认前保留；成功、确定性业务失败或用户明确放弃后清除。
 - 409 版本冲突不自动覆盖。前端展示服务器当前版本并刷新权威资源；可收敛的“已执行”响应按成功复用展示。
 - 认证刷新仍保持单飞；刷新失败只清一次会话，不让并发请求触发重复跳转。
+- 所有可见 mutation 通过统一 `useAppMutation` 声明 `reliable_command`、`convergent_state`、`transfer_session`、`download` 或 `local_only`。架构检查禁止业务页面绕过该声明直接调用 React Query `useMutation`。
+- 覆盖目标是所有按钮都有确定策略，并让尽可能多的服务端 JSON 命令升级为 `reliable_command`；覆盖率不能通过把 multipart、未知副作用或无服务端幂等合同的动作错误标记为可重试来提高。
 
 ### 连接状态与反馈
 
