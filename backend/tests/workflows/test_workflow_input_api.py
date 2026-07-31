@@ -182,6 +182,52 @@ def test_input_folder_route_accepts_more_than_framework_default_file_parts(monke
     assert response.json()["data"]["counts"]["dwg"] == 1001
 
 
+def test_input_batch_items_are_server_paginated(monkeypatch, tmp_path):
+    _use_storage(monkeypatch, tmp_path)
+    client = workflow_test_api.client()
+    _, owner_headers, _, workflow_id = _setup(client, "input-pagination")
+    created = client.post(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+    )
+    assert created.status_code == 201, created.text
+    uploaded = _upload_dwg_folder(
+        client,
+        owner_headers,
+        workflow_id,
+        [
+            (f"D{index:03d}.dwg", b"AC1027" + bytes(2048))
+            for index in range(61)
+        ],
+    )
+    assert uploaded.status_code == 201, uploaded.text
+
+    first = client.get(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+        params={"item_page": 1, "item_page_size": 25},
+    )
+    second = client.get(
+        f"/api/v1/workflows/{workflow_id}/input-batch",
+        headers=owner_headers,
+        params={"item_page": 3, "item_page_size": 25},
+    )
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    first_data = first.json()["data"]
+    second_data = second.json()["data"]
+    assert first_data["item_total"] == 61
+    assert first_data["item_page"] == 1
+    assert first_data["item_page_size"] == 25
+    assert len(first_data["items"]) == 25
+    assert second_data["item_page"] == 3
+    assert len(second_data["items"]) == 11
+    assert {item["id"] for item in first_data["items"]}.isdisjoint(
+        item["id"] for item in second_data["items"]
+    )
+
+
 def test_input_folder_route_reports_domain_limit_for_a_large_path_manifest(monkeypatch, tmp_path):
     """Long paths for 5000 drawings must not hit Starlette's 1 MiB field default."""
     _use_storage(monkeypatch, tmp_path)

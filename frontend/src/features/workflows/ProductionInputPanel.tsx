@@ -50,6 +50,7 @@ import { JobProgressBar } from '../jobs';
 
 const ACTIVE_BATCH = new Set(['converting']);
 const ACTIVE_JOB = new Set(['queued', 'running', 'retrying']);
+const INPUT_ITEMS_PAGE_SIZE = 50;
 
 function itemStatus(item: WorkflowInputItem) {
   if (item.status === 'paired') return <Tag color="success">已配对</Tag>;
@@ -83,7 +84,9 @@ export function ProductionInputPanel({
   const queryClient = useQueryClient();
   const excelInput = useRef<HTMLInputElement>(null);
   const dwgFolderInput = useRef<HTMLInputElement>(null);
+  const batchInitialized = useRef(false);
   const [dwgUploadProgress, setDwgUploadProgress] = useState<TransferProgress | null>(null);
+  const [itemPage, setItemPage] = useState(1);
 
   const requireCurrentSourceIntake = async () => {
     if (!sourceIntakeActive) {
@@ -96,18 +99,29 @@ export function ProductionInputPanel({
   };
 
   const batchQ = useQuery({
-    queryKey: ['workflow-input-batch', workflowId],
+    queryKey: ['workflow-input-batch', workflowId, itemPage],
     queryFn: async () => {
-      if (!sourceIntakeActive) return getWorkflowInputBatch(workflowId);
+      if (!sourceIntakeActive) {
+        return getWorkflowInputBatch(workflowId, itemPage, INPUT_ITEMS_PAGE_SIZE);
+      }
       await requireCurrentSourceIntake();
-      return createWorkflowInputBatch(workflowId);
+      if (!batchInitialized.current) {
+        const result = await createWorkflowInputBatch(workflowId);
+        batchInitialized.current = true;
+        return result;
+      }
+      return getWorkflowInputBatch(workflowId, itemPage, INPUT_ITEMS_PAGE_SIZE);
     },
+    placeholderData: (previous) => previous,
     refetchInterval: (query) => ACTIVE_BATCH.has(query.state.data?.status ?? '') ? 2500 : false,
   });
   const batch = batchQ.data;
   const editable = Boolean(sourceIntakeActive && batch?.status !== 'frozen');
   const refresh = (next?: WorkflowInputBatch) => {
-    if (next) queryClient.setQueryData(['workflow-input-batch', workflowId], next);
+    if (next) {
+      setItemPage(1);
+      queryClient.setQueryData(['workflow-input-batch', workflowId, 1], next);
+    }
     else void batchQ.refetch();
   };
 
@@ -325,7 +339,24 @@ export function ProductionInputPanel({
         />)}
       </div>
 
-      <Table style={{ marginTop: 16 }} rowKey="id" size="small" pagination={false} dataSource={batch?.items ?? []} columns={columns} locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未上传生产输入" /> }} scroll={{ x: 880 }} />
+      <Table
+        style={{ marginTop: 16 }}
+        rowKey="id"
+        size="small"
+        loading={batchQ.isFetching && !batchQ.isLoading}
+        pagination={{
+          current: itemPage,
+          pageSize: INPUT_ITEMS_PAGE_SIZE,
+          total: batch?.item_total ?? batch?.items.length ?? 0,
+          showSizeChanger: false,
+          showTotal: (total) => `共 ${total} 个输入文件`,
+          onChange: (page) => setItemPage(page),
+        }}
+        dataSource={batch?.items ?? []}
+        columns={columns}
+        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚未上传生产输入" /> }}
+        scroll={{ x: 880 }}
+      />
       {batch?.status === 'frozen' && <Descriptions size="small" bordered column={2} style={{ marginTop: 16 }} items={[{ key: 'version', label: '冻结版本', children: `v${batch.version}` }, { key: 'time', label: '冻结时间', children: batch.frozen_at ? fmtDateTime(batch.frozen_at) : '—' }, { key: 'manifest', label: '清单 SHA-256', span: 2, children: <Typography.Text copyable code>{batch.manifest_sha256}</Typography.Text> }, { key: 'drawings', label: '图纸处理单元', span: 2, children: <Space wrap>{batch.items.filter((item) => item.drawing_id).map((item) => <Typography.Link key={item.id} href="/drawings">{item.normalized_stem} · #{item.drawing_id}</Typography.Link>)}</Space> }]} />}
       {batch?.freeze_ready && batch.status !== 'frozen' && <Alert style={{ marginTop: 12 }} type="success" showIcon icon={<CheckCircleOutlined />} message="完整性检查通过，可以冻结" description="冻结操作会再次读取对象并核对大小、SHA-256、真实格式和 DWG/DXF 文件名配对。" />}
     </Card>

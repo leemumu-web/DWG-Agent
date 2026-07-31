@@ -42,6 +42,9 @@ export interface WorkflowInputBatch {
   frozen_at?: string | null;
   counts: WorkflowInputCounts;
   items: WorkflowInputItem[];
+  item_total: number;
+  item_page: number;
+  item_page_size: number;
   issues: WorkflowInputIssue[];
   freeze_ready: boolean;
   recoverable_file_count: number;

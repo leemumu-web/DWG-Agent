@@ -17,14 +17,22 @@ from app.modules.workflows.schemas import (
 )
 from app.platform.http.exceptions import AppHTTPException
 
+INPUT_BATCH_SYNC_LIMIT = 100
+
 
 def describe_input_batch(
     db: Session,
     batch: WorkflowInputBatch,
+    *,
+    item_page: int = 1,
+    item_page_size: int = 50,
 ) -> WorkflowInputBatchRead:
-    sync_input_batch(db, batch)
+    sync_input_batch(db, batch, max_terminal_items=INPUT_BATCH_SYNC_LIMIT)
     dwg_items = [item for item in batch.items if item.role == "source_dwg"]
     excel_items = [item for item in batch.items if item.role == "source_excel"]
+    item_total = len(batch.items)
+    item_start = (item_page - 1) * item_page_size
+    visible_items = batch.items[item_start : item_start + item_page_size]
     issues: list[WorkflowInputIssueRead] = []
     if not dwg_items:
         issues.append(
@@ -43,7 +51,7 @@ def describe_input_batch(
             )
         )
     item_reads: list[WorkflowInputItemRead] = []
-    for item in batch.items:
+    for item in visible_items:
         stored = db.get(StoredFile, item.file_id)
         if stored is None:
             raise AppHTTPException(
@@ -110,6 +118,9 @@ def describe_input_batch(
         frozen_at=batch.frozen_at,
         counts=counts,
         items=item_reads,
+        item_total=item_total,
+        item_page=item_page,
+        item_page_size=item_page_size,
         issues=issues,
         freeze_ready=batch.status in {"ready_to_freeze", "frozen"},
         recoverable_file_count=(

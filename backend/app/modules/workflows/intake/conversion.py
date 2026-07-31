@@ -115,11 +115,19 @@ def _mark_item_error(item: WorkflowInputItem, code: str, message: str) -> None:
     item.derived_dxf_file_id = None
 
 
-def sync_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBatch:
+def sync_input_batch(
+    db: Session,
+    batch: WorkflowInputBatch,
+    *,
+    max_terminal_items: int | None = None,
+) -> WorkflowInputBatch:
     if batch.status == "frozen":
         return batch
     dwg_items = [item for item in batch.items if item.role == "source_dwg"]
+    terminal_items_synced = 0
     for item in dwg_items:
+        if item.status == "paired" and item.derived_dxf_file_id is not None:
+            continue
         if item.conversion_job_id is None:
             item.status = "uploaded"
             continue
@@ -136,6 +144,13 @@ def sync_input_batch(db: Session, batch: WorkflowInputBatch) -> WorkflowInputBat
             item.error_code = None
             item.error_message = None
             continue
+        if (
+            max_terminal_items is not None
+            and terminal_items_synced >= max_terminal_items
+        ):
+            item.status = "converting"
+            continue
+        terminal_items_synced += 1
         if job.status in {"failed", "cancelled"}:
             _mark_item_error(
                 item,

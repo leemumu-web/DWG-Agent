@@ -59,6 +59,9 @@ class WorkflowInputBatchRead(BaseModel):
     frozen_at: datetime | None = None
     counts: WorkflowInputCounts
     items: list[WorkflowInputItemRead]
+    item_total: int = Field(ge=0)
+    item_page: int = Field(ge=1)
+    item_page_size: int = Field(ge=1, le=100)
     issues: list[WorkflowInputIssueRead]
     freeze_ready: bool
     recoverable_file_count: int = Field(ge=0)

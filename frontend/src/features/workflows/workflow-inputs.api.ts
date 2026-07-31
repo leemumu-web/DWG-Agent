@@ -15,17 +15,29 @@ import type {
 // submission while the API records each source file. This agrees with the
 // dedicated Nginx route and does not change the 512 MiB request-size boundary.
 const WORKFLOW_INPUT_DWG_FOLDER_TIMEOUT_MS = 1_800_000;
+const WORKFLOW_INPUT_BATCH_TIMEOUT_MS = 120_000;
+const WORKFLOW_INPUT_FREEZE_TIMEOUT_MS = 300_000;
 
 export async function createWorkflowInputBatch(workflowId: number) {
   const response = await apiClient.post<ApiEnvelope<WorkflowInputBatch>>(
     `/api/v1/workflows/${workflowId}/input-batch`,
+    undefined,
+    { timeout: WORKFLOW_INPUT_BATCH_TIMEOUT_MS },
   );
   return response.data.data;
 }
 
-export async function getWorkflowInputBatch(workflowId: number) {
+export async function getWorkflowInputBatch(
+  workflowId: number,
+  itemPage = 1,
+  itemPageSize = 50,
+) {
   const response = await apiClient.get<ApiEnvelope<WorkflowInputBatch>>(
     `/api/v1/workflows/${workflowId}/input-batch`,
+    {
+      params: { item_page: itemPage, item_page_size: itemPageSize },
+      timeout: WORKFLOW_INPUT_BATCH_TIMEOUT_MS,
+    },
   );
   return response.data.data;
 }
@@ -87,6 +99,8 @@ export async function requestWorkflowInputConversions(workflowId: number) {
 export async function freezeWorkflowInputBatch(workflowId: number) {
   const response = await apiClient.post<ApiEnvelope<WorkflowInputBatch>>(
     `/api/v1/workflows/${workflowId}/input-batch/freeze`,
+    undefined,
+    { timeout: WORKFLOW_INPUT_FREEZE_TIMEOUT_MS },
   );
   return response.data.data;
 }

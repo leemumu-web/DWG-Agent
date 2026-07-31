@@ -539,6 +539,70 @@ def test_sync_pairs_only_successful_server_derived_dxf(db, tmp_path, monkeypatch
     assert batch.status == "ready_to_freeze"
 
 
+def test_sync_limits_new_terminal_items_without_rereading_paired_objects(
+    db, tmp_path, monkeypatch
+):
+    user, _, _, batch, storage = _registered_batch(
+        db,
+        tmp_path,
+        monkeypatch,
+        dwg_names=("A.dwg", "B.dwg", "C.dwg"),
+    )
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    plan = workflow_input_conversion.prepare_input_conversions(
+        db, batch, created_by=user.id
+    )
+    for item, job in zip(
+        [item for item in batch.items if item.role == "source_dwg"],
+        plan.jobs,
+        strict=True,
+    ):
+        derived = _stored_object(
+            db,
+            storage,
+            f"{item.normalized_stem.upper()}.dxf",
+            b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n",
+        )
+        db.add(
+            _conversion_result(
+                job,
+                source_file_id=item.file_id,
+                dxf_file_id=derived.id,
+            )
+        )
+        job.status = "succeeded"
+        job.progress = 100
+    db.flush()
+
+    original_read = workflow_input_registration.read_verified_input_object
+    read_file_ids: list[int] = []
+
+    def counted_read(stored):
+        read_file_ids.append(stored.id)
+        return original_read(stored)
+
+    monkeypatch.setattr(
+        workflow_input_registration,
+        "read_verified_input_object",
+        counted_read,
+    )
+    monkeypatch.setattr(workflow_input_conversion.registration, "read_verified_input_object", counted_read)
+
+    workflow_input_conversion.sync_input_batch(db, batch, max_terminal_items=1)
+    assert sum(item.status == "paired" for item in batch.items) == 1
+    assert batch.status == "converting"
+
+    workflow_input_conversion.sync_input_batch(db, batch, max_terminal_items=1)
+    assert sum(item.status == "paired" for item in batch.items) == 2
+
+    workflow_input_conversion.sync_input_batch(db, batch, max_terminal_items=1)
+    assert sum(item.status == "paired" for item in batch.items) == 3
+    assert batch.status == "ready_to_freeze"
+
+    workflow_input_conversion.sync_input_batch(db, batch, max_terminal_items=1)
+    assert len(read_file_ids) == 3
+
+
 def test_sync_reports_derived_name_mismatch(db, tmp_path, monkeypatch):
     user, _, _, batch, storage = _registered_batch(
         db, tmp_path, monkeypatch, dwg_names=("source.dwg",)

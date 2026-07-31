@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -186,7 +186,9 @@ def create_batch_api(
     db.commit()
     if reused:
         response.status_code = status.HTTP_200_OK
-    return ok(describe_input_batch(db, batch).model_dump(), request.state.request_id)
+    result = describe_input_batch(db, batch)
+    db.commit()
+    return ok(result.model_dump(), request.state.request_id)
 
 
 @router.get(
@@ -199,12 +201,19 @@ def get_batch_api(
     workflow_id: int,
     request: Request,
     current_user: CurrentUser,
+    item_page: int = Query(1, ge=1),
+    item_page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     workflow = get_workflow_or_404(db, workflow_id)
     require_project_member(db, current_user, workflow.project_id)
     batch = get_input_batch(db, workflow_id)
-    result = describe_input_batch(db, batch)
+    result = describe_input_batch(
+        db,
+        batch,
+        item_page=item_page,
+        item_page_size=item_page_size,
+    )
     db.commit()
     return ok(result.model_dump(), request.state.request_id)
 

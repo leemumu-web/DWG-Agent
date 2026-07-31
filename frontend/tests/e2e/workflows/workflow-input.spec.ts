@@ -63,7 +63,8 @@ async function mockWorkflow(page: Page) {
   let classificationStarted = false;
   let submittedProject: Record<string, unknown> | null = null;
   let dwgUploadBody = '';
-  const batch = () => ({
+  const inputBatchMethods: string[] = [];
+  const batch = (itemPage = 1, itemPageSize = 50) => ({
     id: 501, workflow_run_id: 41, project_id: 7, status: frozen ? 'frozen' : items.some((item) => item.derived_dxf) ? 'ready_to_freeze' : 'uploading',
     version: frozen ? 1 : 0, manifest_sha256: frozen ? 'a'.repeat(64) : null, frozen_at: frozen ? now : null,
     counts: {
@@ -72,7 +73,11 @@ async function mockWorkflow(page: Page) {
       paired: items.filter((item) => item.derived_dxf).length,
       converting: 0, failed: 0,
     },
-    items, issues: [], freeze_ready: items.some((item) => item.role === 'source_dwg') && items.some((item) => item.role === 'source_excel') && items.filter((item) => item.role === 'source_dwg').every((item) => item.derived_dxf),
+    items: items.slice((itemPage - 1) * itemPageSize, itemPage * itemPageSize),
+    item_total: items.length,
+    item_page: itemPage,
+    item_page_size: itemPageSize,
+    issues: [], freeze_ready: items.some((item) => item.role === 'source_dwg') && items.some((item) => item.role === 'source_excel') && items.filter((item) => item.role === 'source_dwg').every((item) => item.derived_dxf),
     created_at: now, updated_at: now,
   });
 
@@ -177,12 +182,70 @@ async function mockWorkflow(page: Page) {
     items.push({ id: 1301, role: 'source_dwg', status: 'validated', original_name: 'panel-A.dwg', normalized_stem: 'panel-a', file: storedFile(701, 'panel-A.dwg'), conversion_job: null, derived_dxf: null, drawing_id: null, error_code: null, error_message: null });
     await json(route, batch(), 201);
   });
-  await page.route('**/api/v1/workflows/41/input-batch', (route) => json(route, batch(), route.request().method() === 'POST' ? 201 : 200));
+  await page.route(/\/api\/v1\/workflows\/41\/input-batch(?:\?.*)?$/, (route) => {
+    const request = route.request();
+    inputBatchMethods.push(request.method());
+    const url = new URL(request.url());
+    const itemPage = Number(url.searchParams.get('item_page') ?? 1);
+    const itemPageSize = Number(url.searchParams.get('item_page_size') ?? 50);
+    return json(route, batch(itemPage, itemPageSize), request.method() === 'POST' ? 201 : 200);
+  });
   return {
     submittedProject: () => submittedProject,
     dwgUploadBody: () => dwgUploadBody,
+    inputBatchMethods: () => inputBatchMethods,
+    seedItems: (nextItems: Array<Record<string, unknown>>) => { items = nextItems; },
   };
 }
+
+test('large production input is paginated and refreshes with GET', async ({ page }) => {
+  const state = await mockWorkflow(page);
+  state.seedItems([
+    ...Array.from({ length: 120 }, (_, index) => ({
+      id: 2000 + index,
+      role: 'source_dwg',
+      status: 'paired',
+      original_name: `D${String(index).padStart(3, '0')}.dwg`,
+      normalized_stem: `d${String(index).padStart(3, '0')}`,
+      file: storedFile(2000 + index, `D${String(index).padStart(3, '0')}.dwg`),
+      conversion_job: null,
+      derived_dxf: storedFile(4000 + index, `D${String(index).padStart(3, '0')}.dxf`),
+      drawing_id: null,
+      error_code: null,
+      error_message: null,
+    })),
+    {
+      id: 3000,
+      role: 'source_excel',
+      status: 'uploaded',
+      original_name: 'parts.xlsx',
+      normalized_stem: 'parts',
+      file: storedFile(3000, 'parts.xlsx'),
+      conversion_job: null,
+      derived_dxf: null,
+      drawing_id: null,
+      error_code: null,
+      error_message: null,
+    },
+  ]);
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'e2e-token', savedUser: user });
+
+  await page.goto('/workflows/41');
+  await expect(page.getByText('D000.dwg', { exact: true })).toBeVisible();
+  await expect(page.locator('.ant-table-tbody > tr.ant-table-row')).toHaveCount(50);
+  await expect(page.locator('.ant-pagination-item-2')).toBeVisible();
+
+  await page.getByRole('button', { name: '刷新状态' }).click();
+  await expect.poll(() => state.inputBatchMethods().filter((method) => method === 'GET').length).toBeGreaterThan(0);
+
+  await page.locator('.ant-pagination-item-2').click();
+  await expect(page.getByText('D050.dwg', { exact: true })).toBeVisible();
+  await expect(page.locator('.ant-table-tbody > tr.ant-table-row')).toHaveCount(50);
+});
 
 test('production source intake prevents DXF mistakes and freezes server-generated pairs', async ({ page }) => {
   const state = await mockWorkflow(page);
