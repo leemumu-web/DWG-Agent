@@ -142,6 +142,10 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
 
     assert "--recipient" in release
     assert "gpg --batch --yes --encrypt" in release
+    assert "gpg --batch --list-secret-keys" in release
+    assert "encrypted bundle decryption verification passed" in release
+    assert 'gpg --batch --decrypt "$bundle"' in release
+    assert "gzip -dc | tar -tf -" in release
     assert "docker image save" in release
     assert 'mysql_release="dwg-agent-mysql:${version}"' in release
     assert 'minio_release="dwg-agent-minio:${version}"' in release

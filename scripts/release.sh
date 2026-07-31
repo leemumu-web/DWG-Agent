@@ -158,6 +158,8 @@ release_bundle() {
     command -v docker >/dev/null || release_die "docker is unavailable"
     command -v gpg >/dev/null || release_die "gpg is unavailable"
     command -v gzip >/dev/null || release_die "gzip is unavailable"
+    gpg --batch --list-secret-keys "$recipient" >/dev/null 2>&1 \
+        || release_die "the encryption recipient has no local secret key; export and secure a decryptable project key before release"
 
     if [[ -z "$version" ]]; then
         local commit_id release_time
@@ -278,6 +280,11 @@ release_bundle() {
         | gzip -9 \
         | gpg --batch --yes --encrypt "${gpg_extra_args[@]}" --trust-model always \
             --recipient "$recipient" --output "$bundle"
+    if ! gpg --batch --decrypt "$bundle" | gzip -dc | tar -tf - >/dev/null; then
+        rm -f -- "$bundle"
+        release_die "encrypted bundle failed immediate decryption and archive verification"
+    fi
+    release_info "encrypted bundle decryption verification passed"
     install -m 0755 "$PROJECT_ROOT/scripts/release/server-deploy.sh" "$installer"
     (
         cd "$output_dir"
