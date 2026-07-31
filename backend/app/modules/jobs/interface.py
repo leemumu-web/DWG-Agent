@@ -37,7 +37,8 @@ from app.modules.jobs.lifecycle import (
     rerun_succeeded_job,
     retry_job,
 )
-from app.modules.jobs.models import AnalysisResult, Job, JobStep, ReviewRecord
+from app.modules.jobs.models import AnalysisResult, Job, JobDispatch, JobStep, ReviewRecord
+from app.modules.jobs.outbox import stage_conversion_dispatch, stage_job_dispatch
 from app.modules.jobs.reviews import create_review
 from app.modules.jobs.schemas import (
     AnalysisResultRead,
@@ -90,6 +91,7 @@ __all__ = [
     "Job",
     "JobBulkCancellation",
     "JobCreate",
+    "JobDispatch",
     "JobRead",
     "JobStep",
     "JobStepRead",
@@ -125,4 +127,6 @@ __all__ = [
     "rerun_succeeded_job",
     "run_local_stub_job",
     "summarize_job_execution",
+    "stage_conversion_dispatch",
+    "stage_job_dispatch",
 ]

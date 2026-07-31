@@ -62,6 +62,41 @@ class Job(TimestampMixin, Base):
     )
 
 
+class JobDispatch(TimestampMixin, Base):
+    __tablename__ = "job_dispatches"
+    __table_args__ = (
+        UniqueConstraint(
+            "job_id",
+            "job_attempt",
+            name="uq_job_dispatch_attempt",
+        ),
+        Index("ix_job_dispatch_pending", "status", "available_at"),
+        Index("ix_job_dispatch_lease", "lease_expires_at"),
+        Index("ix_job_dispatch_uid", "dispatch_uid"),
+    )
+
+    id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
+    dispatch_uid: Mapped[str] = mapped_column(String(36), nullable=False)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    job_attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    task_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    pipeline: Mapped[str] = mapped_column(String(64), nullable=False)
+    dispatch_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    delivery_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_token: Mapped[str | None] = mapped_column(String(36))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    celery_task_id: Mapped[str | None] = mapped_column(String(64))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_code: Mapped[str | None] = mapped_column(String(64))
+    last_error_message: Mapped[str | None] = mapped_column(String(500))
+
+
 class JobStep(Base):
     __tablename__ = "job_steps"
     __table_args__ = (Index("ix_job_steps_job_id_attempt", "job_id", "attempt"),)
