@@ -66,10 +66,16 @@ def load_bh_stage2_classification_batch(
     return load_batch(db, workflow_id, expected_run_id=expected_run_id)
 
 
-def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_classification_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     from app.modules.dxf_classification.tasks import classify_steel_dxf_task
 
-    return str(classify_steel_dxf_task.delay(job_id, attempt).id)
+    return str(
+        classify_steel_dxf_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
 def reconcile_dxf_classification_run_for_terminal_job(

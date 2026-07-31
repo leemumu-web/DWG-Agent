@@ -131,7 +131,7 @@
         "frontend/src/features/jobs",
         "frontend/src/features/reviews"
       ],
-      "tables": ["analysis_results", "job_steps", "jobs", "review_records"],
+      "tables": ["analysis_results", "job_dispatches", "job_steps", "jobs", "review_records"],
       "http_prefixes": ["/api/v1/jobs", "/api/v1/results", "/api/v1/reviews"],
       "celery_tasks": ["app.workers.tasks_report.run_stub_job"],
       "queues": ["report"],
@@ -140,10 +140,11 @@
         "backend/tests/architecture/test_jobs_boundaries.py",
         "backend/tests/jobs/test_job_attempts.py",
         "backend/tests/jobs/test_job_lifecycle.py",
+        "backend/tests/jobs/test_job_outbox.py",
         "backend/tests/jobs/test_jobs_module_contract.py"
       ],
       "docs": ["docs/architecture/overview.md", "docs/reference/api.md"],
-      "notes": "Job and JobStep are attempt-fenced execution facts; dispatch is direct with guarded compensation, current SSE is latest-row polling rather than durable numbered replay, and Celery result rows are not business results."
+      "notes": "Job and JobStep are attempt-fenced execution facts; job_dispatches is the durable leased delivery intent, current SSE is latest-row polling rather than durable numbered replay, and Celery result rows are not business results."
     },
     {
       "code": "workflows",

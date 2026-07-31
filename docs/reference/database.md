@@ -98,9 +98,9 @@ mysql_url = f"mysql+pymysql://{user_part}@{host}:{port}/{database}"
 
 ## 2. 完整表目录
 
-Alembic/SQLAlchemy 管理 **47 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 48 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **56 张表**。
+Alembic/SQLAlchemy 管理 **48 张模型表**。空库执行 `alembic upgrade head` 后另有 `alembic_version`，因此迁移基础是 49 张表。Celery 按 broker/result 实际使用按需创建 8 张运行时表：`kombu_queue`、`kombu_message`、`celery_taskmeta`、`celery_tasksetmeta`、`message_id_sequence`、`queue_id_sequence`、`task_id_sequence`、`taskset_id_sequence`。全部 runtime 表都存在时最多为 **57 张表**。
 
-不能把 56 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 48 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
+不能把 57 当成每个时刻的固定表数：只运行 Alembic、尚未初始化 Celery channel/backend 的 schema 只有 49 张；Kombu broker 与 result backend 又可能分阶段建表。Alembic autogenerate 排除全部 8 张 Celery 自有表，Celery 升级也不经过应用 migration。
 
 ### 2.1 身份与访问管理 (IAM) -- 6 张表
 
@@ -315,7 +315,7 @@ Alembic/SQLAlchemy 管理 **47 张模型表**。空库执行 `alembic upgrade he
 | `created_at` | DATETIME | NOT NULL | |
 | `updated_at` | DATETIME | NOT NULL | |
 
-### 2.5 作业处理 -- 2 张表
+### 2.5 作业处理 -- 3 张表
 
 #### `jobs`
 
@@ -329,6 +329,7 @@ DWG 图纸的异步处理作业。
 | `created_by` | BIGINT | NULLABLE, FK → `sys_users.id` | 作业提交者 |
 | `task_type` | VARCHAR(64) | NOT NULL | 任务代码: `convert_dwg_to_dxf` / `convert_dxf_to_dwg` / `extract_dxf_to_excel` |
 | `request_key` | VARCHAR(128) | NULLABLE | API 作用域后的逻辑请求幂等键；旧任务和不要求幂等的通用任务为 NULL |
+| `operation_key` | VARCHAR(191) | NULLABLE | 跨账号共享业务资源上的逻辑动作键 |
 | `precision_level` | VARCHAR(32) | NOT NULL | `normal` / `high`（决定管道路由） |
 | `pipeline` | VARCHAR(64) | NULLABLE | 分配的管道: `local_stub` / `dxf_open_source` / `dxf2dwg_open_source` / `dxf2excel` / `zwcad_worker` |
 | `status` | VARCHAR(32) | NOT NULL, DEFAULT 'queued', INDEXED | `pending` → `queued` → `running` → `succeeded`/`failed`/`cancelled` |
@@ -346,7 +347,7 @@ DWG 图纸的异步处理作业。
 
 **索引:** `ix_jobs_project_id`, `ix_jobs_drawing_id`, `ix_jobs_status`
 
-**唯一约束:** `uq_jobs_actor_task_request_key` 建立在 `(created_by, task_type, request_key)` 上。认证 Excel Final 请求的 `created_by` 与 `request_key` 非空，唯一约束是多进程竞态的最终边界；多个 NULL 仍允许旧任务和非幂等任务共存。相同键若参数不同由 service 返回 409，不能静默指向另一输入文件。
+**唯一约束:** `uq_jobs_actor_task_request_key` 建立在 `(created_by, task_type, request_key)` 上；`uq_jobs_task_operation_key` 建立在 `(task_type, operation_key)` 上。前者保留单账号请求重放，后者让同一资源动作跨账号收敛。多个 NULL 仍允许旧任务和非幂等任务共存；相同键参数不一致返回 409。
 
 **作业生命周期状态:** `pending`（已创建，尚未入队）→ `queued`（已进入 MySQL 支撑的 Celery 队列）→ `running`（Worker 正在执行）→ `succeeded` / `failed` / `cancelled`。中间状态: `waiting_cad_worker`, `validating`, `need_review`。
 
@@ -369,6 +370,26 @@ DWG 图纸的异步处理作业。
 | `finished_at` | DATETIME | NULLABLE | |
 
 **索引:** `ix_job_steps_job_id`, `ix_job_steps_job_id_attempt`
+
+#### `job_dispatches`
+
+每个 Job attempt 的持久投递意图；批量转换的多行共享一个 `dispatch_uid`。
+
+| 列 | 类型 | 约束 | 描述 |
+|---|---|---|---|
+| `id` | BIGINT | PK, AUTO_INCREMENT | |
+| `dispatch_uid` | VARCHAR(36) | NOT NULL, INDEXED | 稳定 Celery task ID 与批次关联键 |
+| `job_id` | BIGINT | NOT NULL, FK → `jobs.id` | 目标 Job |
+| `job_attempt` | INT | NOT NULL | 目标执行代次 |
+| `task_type` / `pipeline` / `dispatch_mode` | VARCHAR | NOT NULL | 提交时冻结的发布快照 |
+| `status` | VARCHAR(16) | NOT NULL | `pending` / `leased` / `delivered` / `failed` |
+| `delivery_attempts` | INT | NOT NULL | 失败发布次数 |
+| `available_at` | DATETIME | NOT NULL | 下次可租用时间 |
+| `lease_token` / `lease_expires_at` | VARCHAR(36) / DATETIME | NULLABLE | 短事务租约与过期回收边界 |
+| `celery_task_id` / `delivered_at` | VARCHAR(64) / DATETIME | NULLABLE | 成功发布事实 |
+| `last_error_code` / `last_error_message` | VARCHAR | NULLABLE | 固定分类与脱敏错误摘要 |
+
+**唯一约束:** `(job_id, job_attempt)`，保证每个执行代次恰好一条投递意图。
 
 ### 2.6 Agent 执行 -- 3 张表
 

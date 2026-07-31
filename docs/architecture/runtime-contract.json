@@ -494,6 +494,7 @@
     "excel_final_parts",
     "file_transfers",
     "files",
+    "job_dispatches",
     "job_steps",
     "jobs",
     "platform_messages",

@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from sqlalchemy import func, select
 
 from app.modules.identity.interface import User
-from app.modules.jobs.interface import JobCreate, create_job
+from app.modules.jobs import outbox
+from app.modules.jobs.interface import JobCreate, claim_queued_job, create_job
 from app.modules.jobs.models import JobDispatch
-from app.modules.jobs.outbox import stage_conversion_dispatch, stage_job_dispatch
+from app.modules.jobs.outbox import (
+    drain_once,
+    lease_next_dispatch,
+    retry_delay,
+    stage_conversion_dispatch,
+    stage_job_dispatch,
+)
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
+from tests.support.database import get_test_session_factory
 
 
 def _user(db, suffix: str) -> User:
@@ -101,3 +112,158 @@ def test_stage_dispatch_rejects_non_queued_job(db):
         stage_job_dispatch(db, job)
 
     assert error.value.detail["code"] == "JOB_DISPATCH_STATE_INVALID"
+
+
+def test_retry_delay_is_jittered_and_bounded():
+    first = retry_delay(1)
+    saturated = retry_delay(100)
+
+    assert 0.5 <= first <= 1.0
+    assert 15.0 <= saturated <= 30.0
+
+
+def test_expired_lease_is_reclaimed(db):
+    job = _queued_jobs(db, count=1)[0]
+    staged = stage_job_dispatch(db, job)
+    db.commit()
+    factory = get_test_session_factory()
+
+    first = lease_next_dispatch(factory, lease_seconds=30)
+    assert first is not None
+    db.execute(
+        JobDispatch.__table__.update()
+        .where(JobDispatch.dispatch_uid == staged.dispatch_uid)
+        .values(lease_expires_at=business_now() - timedelta(seconds=1))
+    )
+    db.commit()
+    second = lease_next_dispatch(factory, lease_seconds=30)
+
+    assert second is not None
+    assert second.dispatch_uid == first.dispatch_uid
+    assert second.lease_token != first.lease_token
+
+
+def test_conversion_batch_is_leased_as_one_group(db):
+    jobs = _queued_jobs(db)
+    staged = stage_conversion_dispatch(
+        db, task_type="convert_dwg_to_dxf", jobs=jobs
+    )
+    db.commit()
+
+    lease = lease_next_dispatch(get_test_session_factory())
+
+    assert lease is not None
+    assert lease.dispatch_uid == staged[0].dispatch_uid
+    assert lease.mode == "conversion_batch"
+    assert lease.jobs == tuple((job.id, job.attempt) for job in jobs)
+
+
+def test_broker_io_happens_after_the_lease_transaction_commits(db, monkeypatch):
+    job = _queued_jobs(db, count=1)[0]
+    staged = stage_job_dispatch(db, job)
+    db.commit()
+    factory = get_test_session_factory()
+
+    def publish_after_commit(lease):
+        with factory() as observer:
+            persisted = observer.scalar(
+                select(JobDispatch).where(
+                    JobDispatch.dispatch_uid == lease.dispatch_uid
+                )
+            )
+            assert persisted is not None
+            assert persisted.status == "leased"
+            assert persisted.lease_token == lease.lease_token
+        return lease.dispatch_uid
+
+    monkeypatch.setattr(outbox, "publish_dispatch", publish_after_commit)
+
+    assert drain_once(factory) is True
+    db.expire_all()
+    delivered = db.get(JobDispatch, staged.id)
+    assert delivered is not None
+    assert delivered.status == "delivered"
+    assert delivered.celery_task_id == staged.dispatch_uid
+
+
+def test_publish_response_loss_retries_without_second_job_claim(db, monkeypatch):
+    job = _queued_jobs(db, count=1)[0]
+    staged = stage_job_dispatch(db, job)
+    db.commit()
+    factory = get_test_session_factory()
+    claims: list[bool] = []
+
+    def publish_then_maybe_raise(lease):
+        with factory() as worker_db:
+            claimed = claim_queued_job(
+                worker_db,
+                job.id,
+                expected_attempt=job.attempt,
+                pipeline=job.pipeline or "local_stub",
+                progress=1,
+                message="claimed from outbox test",
+            )
+            claims.append(claimed is not None)
+        if len(claims) == 1:
+            raise ConnectionError("response lost after broker accepted the task")
+        return lease.dispatch_uid
+
+    monkeypatch.setattr(outbox, "publish_dispatch", publish_then_maybe_raise)
+    monkeypatch.setattr(outbox, "retry_delay", lambda _attempt: 0.0)
+
+    assert drain_once(factory) is True
+    assert drain_once(factory) is True
+
+    db.expire_all()
+    current = db.get(JobDispatch, staged.id)
+    assert claims == [True, False]
+    assert current is not None
+    assert current.status == "delivered"
+    assert current.delivery_attempts == 1
+
+
+def test_transient_publish_error_is_sanitized_and_keeps_job_queued(db, monkeypatch):
+    job = _queued_jobs(db, count=1)[0]
+    staged = stage_job_dispatch(db, job)
+    db.commit()
+
+    def fail_with_sensitive_message(_lease):
+        raise RuntimeError("mysql://root:secret@database/internal")
+
+    monkeypatch.setattr(outbox, "publish_dispatch", fail_with_sensitive_message)
+
+    assert drain_once(get_test_session_factory()) is True
+
+    db.expire_all()
+    pending = db.get(JobDispatch, staged.id)
+    current_job = db.get(type(job), job.id)
+    assert pending is not None
+    assert pending.status == "pending"
+    assert pending.last_error_code == "JOB_DISPATCH_TEMPORARY_FAILURE"
+    assert "secret" not in (pending.last_error_message or "")
+    assert current_job is not None
+    assert current_job.status == "queued"
+
+
+def test_invalid_dispatch_mode_fails_queued_attempt_without_publishing(db, monkeypatch):
+    job = _queued_jobs(db, count=1)[0]
+    staged = stage_job_dispatch(db, job)
+    staged.dispatch_mode = "unsupported"
+    db.commit()
+    factory = get_test_session_factory()
+    monkeypatch.setattr(
+        "app.modules.jobs.dispatch.enqueue_job",
+        lambda *_args, **_kwargs: pytest.fail("invalid dispatch must not publish"),
+    )
+
+    assert drain_once(factory) is True
+
+    db.expire_all()
+    failed_dispatch = db.get(JobDispatch, staged.id)
+    failed_job = db.get(type(job), job.id)
+    assert failed_dispatch is not None
+    assert failed_dispatch.status == "failed"
+    assert failed_dispatch.last_error_code == "JOB_DISPATCH_UNSUPPORTED"
+    assert failed_job is not None
+    assert failed_job.status == "failed"
+    assert failed_job.attempt == 1

@@ -483,11 +483,13 @@ def test_batch_dispatch_failure_marks_queued_attempt_retryable(db, monkeypatch):
     db.add(job)
     db.commit()
 
-    def fail_dispatch(_serialized):
+    def fail_dispatch(*, args, task_id):
+        assert args == [[[job.id, job.attempt]]]
+        assert task_id is None
         raise RuntimeError("broker unavailable")
 
     monkeypatch.setattr(
-        "app.modules.cad_processing.tasks.convert_dwg_to_dxf_batch_task.delay",
+        "app.modules.cad_processing.tasks.convert_dwg_to_dxf_batch_task.apply_async",
         fail_dispatch,
     )
     with pytest.raises(AppHTTPException) as error:

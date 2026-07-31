@@ -4,22 +4,25 @@
 
 This module owns the authoritative lifecycle for asynchronous work: Job creation,
 attempt-fenced claim/progress/terminal transitions, Result registration, human
-Review records, current-state SSE polling, post-commit Celery dispatch and stale
+Review records, current-state SSE polling, durable Celery dispatch and stale
 worker recovery.
 
 ## Public boundary and owned data
 
 Other business modules import only `app.modules.jobs.interface`. HTTP composition
-is deliberately excluded from that interface. The module owns four MySQL tables:
-`jobs`, `job_steps`, `analysis_results` and `review_records`. Celery/Kombu transport
-tables remain platform infrastructure; result files remain in the files module.
+is deliberately excluded from that interface. The module owns five MySQL tables:
+`jobs`, `job_dispatches`, `job_steps`, `analysis_results` and `review_records`.
+Celery/Kombu transport tables remain platform infrastructure; result files remain
+in the files module.
 
 ## Internal layout
 
 - `creation.py`: pipeline selection, creation, batch creation and request-key reuse.
 - `lifecycle.py`: guarded status and attempt transitions, including cancel/retry.
 - `routes/commands.py`：公共 Job 命令；工作流管理的 DXF 拆板拒绝从这里创建或重试，避免绕过阶段血缘和三次 attempt 预算。
-- `dispatch.py`: pipeline routing and compensation after a definite broker error.
+- `outbox.py`: same-transaction staging, group leases, retry settlement and draining.
+- `dispatcher.py`: resilient single-purpose outbox process entry point.
+- `dispatch.py`: immutable message encoding and stable Celery task IDs.
 - `event_stream.py`: latest-row event payloads and bounded short-session polling.
 - `diagnostics.py`: safe current-attempt projection for operator task diagnosis;
   it whitelists business metrics and never returns raw worker logs or paths.
@@ -28,7 +31,7 @@ tables remain platform infrastructure; result files remain in the files module.
 - `recovery.py`: Celery return summaries and stale-running Job reconciliation.
 - `reviews.py`: Review record creation.
 - `routes/`: query, command, event, Result and Review HTTP use cases.
-- `models.py`: Job, JobStep, AnalysisResult and ReviewRecord ORM ownership.
+- `models.py`: Job, JobDispatch, JobStep, AnalysisResult and ReviewRecord ownership.
 - `schemas.py`: stable create/read/bulk-cancel/Result/Review HTTP data contracts.
 - `tasks.py`: the historical report-queue compatibility task that delegates to
   `stub_execution.py`; it does not contain a second Job state machine.
@@ -39,18 +42,18 @@ tables remain platform infrastructure; result files remain in the files module.
 
 Workers may mutate a Job only when both status and attempt match. Pending Step,
 Result and file rows share the caller transaction, so losing an attempt guard
-rolls them back. Dispatch occurs only after the Job commit; the current direct
-dispatch implementation conditionally marks a still-queued attempt failed when
-the broker call definitely raises. It does not claim atomic MySQL/broker delivery.
+rolls them back. Each new Job attempt stages one `job_dispatches` intent in that
+transaction. The dispatcher commits a short lease before broker I/O; ambiguous
+delivery may repeat a stable task ID, while the worker's status/attempt claim
+keeps business side effects effective once.
 
 ## Current versus target architecture
 
-The current broker is Celery's MySQL SQLAlchemy transport, not RabbitMQ. There is
-no transactional Outbox, lease/fencing-token model or durable SSE event table.
-SSE persists only the latest event in `jobs.progress_data`, polls with fresh MySQL
-sessions and cannot replay a numbered event history. These are explicit target
-gaps from `结构图/架构设计.txt`, not hidden implementations. The framework stub
-remains intentionally non-production and says so in its generated Result.
+The current broker is Celery's MySQL SQLAlchemy transport, not RabbitMQ. The
+transactional outbox and lease token absorb the application/broker dual-write
+window, but do not claim broker exactly-once delivery. SSE still persists only
+the latest event in `jobs.progress_data` and cannot replay numbered history. The
+framework stub remains intentionally non-production and says so in its Result.
 
 ## Verification
 

@@ -8,7 +8,13 @@ from tests.support.paths import REPO_ROOT
 
 APP_ROOT = REPO_ROOT / "backend" / "app"
 
-JOB_TABLES = {"analysis_results", "job_steps", "jobs", "review_records"}
+JOB_TABLES = {
+    "analysis_results",
+    "job_dispatches",
+    "job_steps",
+    "jobs",
+    "review_records",
+}
 
 EXPECTED_JOB_ROUTES = [
     (("GET",), "", "list_jobs"),
@@ -42,6 +48,7 @@ PUBLIC_JOB_CONTRACT = {
     "Job",
     "JobBulkCancellation",
     "JobCreate",
+    "JobDispatch",
     "JobRead",
     "JobStep",
     "JobStepRead",
@@ -77,6 +84,8 @@ PUBLIC_JOB_CONTRACT = {
     "retry_job",
     "run_local_stub_job",
     "summarize_job_execution",
+    "stage_conversion_dispatch",
+    "stage_job_dispatch",
 }
 
 
@@ -100,6 +109,7 @@ def test_jobs_interface_owns_exact_lifecycle_tables() -> None:
 
     owned = {
         jobs.Job.__table__.name,
+        jobs.JobDispatch.__table__.name,
         jobs.JobStep.__table__.name,
         jobs.AnalysisResult.__table__.name,
         jobs.ReviewRecord.__table__.name,

@@ -35,11 +35,17 @@ def run_excel_final_processing(job_id: int, **kwargs) -> None:
     run(job_id, **kwargs)
 
 
-def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
+def enqueue_excel_final_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """Enqueue an Excel Final attempt while hiding the concrete Celery module."""
     from app.modules.excel_processing.tasks import process_excel_final_task
 
-    return str(process_excel_final_task.delay(job_id, attempt).id)
+    return str(
+        process_excel_final_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
 def run_excel_stage2_processing(job_id: int, **kwargs) -> None:
@@ -51,11 +57,17 @@ def run_excel_stage2_processing(job_id: int, **kwargs) -> None:
     run(job_id, **kwargs)
 
 
-def enqueue_excel_stage2_job(job_id: int, attempt: int) -> str:
+def enqueue_excel_stage2_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """Enqueue one Excel Stage2 attempt through its stable task boundary."""
     from app.modules.excel_processing.tasks import process_excel_stage2_task
 
-    return str(process_excel_stage2_task.delay(job_id, attempt).id)
+    return str(
+        process_excel_stage2_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
 def inspect_excel_stage1_bytes(

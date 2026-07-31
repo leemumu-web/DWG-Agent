@@ -60,10 +60,16 @@ def run_dxf_splitting(job_id: int, **kwargs) -> None:
     run(job_id, **kwargs)
 
 
-def enqueue_dxf_splitting_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_splitting_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     from app.modules.dxf_splitting.tasks import split_steel_dxf_task
 
-    return str(split_steel_dxf_task.delay(job_id, attempt).id)
+    return str(
+        split_steel_dxf_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
 def latest_dxf_split_run(db, workflow_id: int) -> DxfSplitRun | None:

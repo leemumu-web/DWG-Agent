@@ -10,7 +10,7 @@
 | `projects` | implemented | 4 | 0 | 0 | 项目成员、图纸与版本目录；HTTP 当前由 `/workflows` 聚合前缀拥有 |
 | `files` | implemented | 4 | 17 | 0 | 上传、登记、下载、预览、对象补偿 |
 | `remnant_inventory` | partial | 6 | 32 | 2 | 材质目录、导入账本、异步解析与全厂共享余料状态 |
-| `jobs` | implemented | 4 | 0 | 1 | Job attempt、步骤、结果、复核、SSE；HTTP 当前由 `/workflows` 聚合前缀拥有 |
+| `jobs` | implemented | 5 | 0 | 1 | Job attempt、持久投递意图、步骤、结果、复核、SSE；HTTP 当前由 `/workflows` 聚合前缀拥有 |
 | `workflows` | partial | 7 | 85 | 1 | 生产批次、输入冻结、阶段、完整备份、异步整批清理和项目/Job 聚合路由 |
 | `cad_processing` | partial | 0 | 0 | 5 | DWG/DXF 格式转换、DXF 预览解释与材料表提取 |
 | `dxf_classification` | partial | 2 | 0 | 1 | Steel DXF Classifier 1.2.0 分类分流、目录浏览与 DXF-only 下载 |

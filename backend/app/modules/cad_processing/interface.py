@@ -39,34 +39,56 @@ def run_dxf_to_dwg_batch(jobs: list[tuple[int, int]], **kwargs) -> dict[str, int
     return run(jobs, **kwargs)
 
 
-def enqueue_dwg_to_dxf_job(job_id: int, attempt: int) -> str:
+def enqueue_dwg_to_dxf_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     from app.modules.cad_processing.tasks import convert_dwg_to_dxf_task
 
-    return str(convert_dwg_to_dxf_task.delay(job_id, attempt).id)
+    return str(
+        convert_dwg_to_dxf_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
-def enqueue_dwg_to_dxf_batch(jobs: list[list[int]]) -> str:
+def enqueue_dwg_to_dxf_batch(
+    jobs: list[list[int]], *, task_id: str | None = None
+) -> str:
     from app.modules.cad_processing.tasks import convert_dwg_to_dxf_batch_task
 
-    return str(convert_dwg_to_dxf_batch_task.delay(jobs).id)
+    return str(convert_dwg_to_dxf_batch_task.apply_async(args=[jobs], task_id=task_id).id)
 
 
-def enqueue_dxf_to_dwg_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_to_dwg_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     from app.modules.cad_processing.tasks import convert_dxf_to_dwg_task
 
-    return str(convert_dxf_to_dwg_task.delay(job_id, attempt).id)
+    return str(
+        convert_dxf_to_dwg_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
-def enqueue_dxf_to_dwg_batch(jobs: list[list[int]]) -> str:
+def enqueue_dxf_to_dwg_batch(
+    jobs: list[list[int]], *, task_id: str | None = None
+) -> str:
     from app.modules.cad_processing.tasks import convert_dxf_to_dwg_batch_task
 
-    return str(convert_dxf_to_dwg_batch_task.delay(jobs).id)
+    return str(convert_dxf_to_dwg_batch_task.apply_async(args=[jobs], task_id=task_id).id)
 
 
-def enqueue_dxf_to_excel_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_to_excel_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     from app.modules.cad_processing.tasks import extract_dxf_to_excel_task
 
-    return str(extract_dxf_to_excel_task.delay(job_id, attempt).id)
+    return str(
+        extract_dxf_to_excel_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
 
 
 def validate_dxf_source_size(size_bytes: int) -> None:

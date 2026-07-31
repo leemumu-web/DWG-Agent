@@ -1,12 +1,13 @@
-"""Post-commit Celery routing and definite-dispatch compensation.
+"""Celery message encoding plus transitional direct-dispatch compatibility.
 
-This is the currently implemented direct-dispatch seam. It is not the target
-transactional Outbox described by the architecture document.
+Durable delivery uses ``publish_dispatch`` after an outbox lease commits. The
+legacy committed-dispatch functions remain only until all routes are migrated.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -27,90 +28,184 @@ from app.platform.config.constants import (
     PIPELINE_STUB,
     TASK_DWG_TO_DXF,
     TASK_DXF_TO_DWG,
+    TASK_DXF_TO_EXCEL,
+    TASK_EXCEL_FINAL,
+    TASK_EXCEL_STAGE2,
+    TASK_STEEL_DXF_CLASSIFICATION,
+    TASK_STEEL_DXF_SPLIT,
 )
 from app.platform.database.session import SessionLocal
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.time import business_now
 
+if TYPE_CHECKING:
+    from app.modules.jobs.outbox import DispatchLease
+
 logger = logging.getLogger(__name__)
 
+TASK_PIPELINES = {
+    TASK_DWG_TO_DXF: PIPELINE_DXF,
+    TASK_DXF_TO_DWG: PIPELINE_DXF2DWG,
+    TASK_DXF_TO_EXCEL: PIPELINE_DXF2EXCEL,
+    TASK_EXCEL_FINAL: PIPELINE_EXCEL_FINAL,
+    TASK_EXCEL_STAGE2: PIPELINE_EXCEL_STAGE2,
+    TASK_STEEL_DXF_CLASSIFICATION: PIPELINE_STEEL_DXF_CLASSIFIER,
+    TASK_STEEL_DXF_SPLIT: PIPELINE_STEEL_DXF_SPLIT,
+}
 
-def enqueue_stub_job(job_id: int, attempt: int) -> str:
+
+class PermanentDispatchError(ValueError):
+    """A persisted dispatch snapshot cannot be handled by this release."""
+
+
+def enqueue_stub_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     from app.modules.jobs.tasks import run_stub_job_task
 
-    async_result = run_stub_job_task.delay(job_id, attempt)
+    async_result = run_stub_job_task.apply_async(
+        args=[job_id, attempt], task_id=task_id
+    )
     return str(async_result.id)
 
 
-def enqueue_dxf_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递 DWG→DXF 转换任务到 Celery dxf 队列。"""
     from app.modules.cad_processing.interface import enqueue_dwg_to_dxf_job
 
-    return enqueue_dwg_to_dxf_job(job_id, attempt)
+    return enqueue_dwg_to_dxf_job(job_id, attempt, task_id=task_id)
 
 
-def enqueue_dxf2dwg_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf2dwg_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递 DXF→DWG 转换任务到 Celery dxf2dwg 队列。"""
     from app.modules.cad_processing.interface import enqueue_dxf_to_dwg_job
 
-    return enqueue_dxf_to_dwg_job(job_id, attempt)
+    return enqueue_dxf_to_dwg_job(job_id, attempt, task_id=task_id)
 
 
-def enqueue_dxf2excel_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf2excel_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递 DXF→Excel 提取任务到 Celery dxf2excel 队列。"""
     from app.modules.cad_processing.interface import enqueue_dxf_to_excel_job
 
-    return enqueue_dxf_to_excel_job(job_id, attempt)
+    return enqueue_dxf_to_excel_job(job_id, attempt, task_id=task_id)
 
 
-def enqueue_excel_final_job(job_id: int, attempt: int) -> str:
+def enqueue_excel_final_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递 Excel→零件清单 处理任务到 Celery excel_final 队列。"""
     from app.modules.excel_processing.interface import enqueue_excel_final_job as enqueue
 
-    return enqueue(job_id, attempt)
+    return enqueue(job_id, attempt, task_id=task_id)
 
 
-def enqueue_excel_stage2_job(job_id: int, attempt: int) -> str:
+def enqueue_excel_stage2_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递 BH 左右进与 Excel 第二阶段深化任务。"""
     from app.modules.excel_processing.interface import enqueue_excel_stage2_job as enqueue
 
-    return enqueue(job_id, attempt)
+    return enqueue(job_id, attempt, task_id=task_id)
 
 
-def enqueue_dxf_classification_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_classification_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递冻结 DXF 分类分流任务。"""
     from app.modules.dxf_classification.interface import enqueue_dxf_classification_job
 
-    return enqueue_dxf_classification_job(job_id, attempt)
+    return enqueue_dxf_classification_job(job_id, attempt, task_id=task_id)
 
 
-def enqueue_dxf_split_job(job_id: int, attempt: int) -> str:
+def enqueue_dxf_split_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
     """投递冻结分类 DXF 的成对拆板任务。"""
     from app.modules.dxf_splitting.interface import enqueue_dxf_splitting_job
 
-    return enqueue_dxf_splitting_job(job_id, attempt)
+    return enqueue_dxf_splitting_job(job_id, attempt, task_id=task_id)
 
 
-def enqueue_job(job_id: int, pipeline: str, attempt: int) -> str:
+def enqueue_job(
+    job_id: int,
+    pipeline: str,
+    attempt: int,
+    *,
+    task_id: str | None = None,
+) -> str:
     """按 pipeline 投递到对应 Celery 队列。
 
     返回 Celery task_id。pipeline 未知时投递到 report 队列（兜底 stub）。
     """
+    kwargs = {} if task_id is None else {"task_id": task_id}
     if pipeline == PIPELINE_DXF:
-        return enqueue_dxf_job(job_id, attempt)
+        return enqueue_dxf_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_DXF2DWG:
-        return enqueue_dxf2dwg_job(job_id, attempt)
+        return enqueue_dxf2dwg_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_DXF2EXCEL:
-        return enqueue_dxf2excel_job(job_id, attempt)
+        return enqueue_dxf2excel_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_EXCEL_FINAL:
-        return enqueue_excel_final_job(job_id, attempt)
+        return enqueue_excel_final_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_EXCEL_STAGE2:
-        return enqueue_excel_stage2_job(job_id, attempt)
+        return enqueue_excel_stage2_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_STEEL_DXF_CLASSIFIER:
-        return enqueue_dxf_classification_job(job_id, attempt)
+        return enqueue_dxf_classification_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_STEEL_DXF_SPLIT:
-        return enqueue_dxf_split_job(job_id, attempt)
-    return enqueue_stub_job(job_id, attempt)
+        return enqueue_dxf_split_job(job_id, attempt, **kwargs)
+    return enqueue_stub_job(job_id, attempt, **kwargs)
+
+
+def publish_dispatch(lease: DispatchLease) -> str:
+    """Publish a leased immutable snapshot with its stable Celery task ID."""
+    known_pipelines = {
+        PIPELINE_DXF,
+        PIPELINE_DXF2DWG,
+        PIPELINE_DXF2EXCEL,
+        PIPELINE_EXCEL_FINAL,
+        PIPELINE_EXCEL_STAGE2,
+        PIPELINE_STEEL_DXF_CLASSIFIER,
+        PIPELINE_STEEL_DXF_SPLIT,
+        PIPELINE_STUB,
+    }
+    if lease.mode == "single":
+        expected_pipeline = TASK_PIPELINES.get(lease.task_type, PIPELINE_STUB)
+        if (
+            len(lease.jobs) != 1
+            or lease.pipeline not in known_pipelines
+            or lease.pipeline != expected_pipeline
+        ):
+            raise PermanentDispatchError("invalid single dispatch snapshot")
+        job_id, attempt = lease.jobs[0]
+        return enqueue_job(
+            job_id,
+            lease.pipeline,
+            attempt,
+            task_id=lease.dispatch_uid,
+        )
+    if lease.mode == "conversion_batch":
+        serialized = [[job_id, attempt] for job_id, attempt in lease.jobs]
+        if lease.task_type == TASK_DWG_TO_DXF and lease.pipeline == PIPELINE_DXF:
+            from app.modules.cad_processing.interface import enqueue_dwg_to_dxf_batch
+
+            return enqueue_dwg_to_dxf_batch(
+                serialized,
+                task_id=lease.dispatch_uid,
+            )
+        if lease.task_type == TASK_DXF_TO_DWG and lease.pipeline == PIPELINE_DXF2DWG:
+            from app.modules.cad_processing.interface import enqueue_dxf_to_dwg_batch
+
+            return enqueue_dxf_to_dwg_batch(
+                serialized,
+                task_id=lease.dispatch_uid,
+            )
+        raise PermanentDispatchError("unsupported conversion batch task type")
+    raise PermanentDispatchError("unsupported dispatch mode")
 
 
 def dispatch_committed_conversion_batch(
