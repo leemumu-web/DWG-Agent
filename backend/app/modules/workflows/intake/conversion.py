@@ -86,7 +86,8 @@ def prepare_input_conversions(
             db,
             payload,
             created_by=created_by,
-            request_key=f"workflow-input-{batch.id}-{stored.id}",
+            request_key=None,
+            operation_key=f"workflow-input:{batch.id}:item:{item.id}",
         )
         should_dispatch = not reused
         if reused and job.status in {"failed", "cancelled"}:

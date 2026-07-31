@@ -406,6 +406,55 @@ def test_conversion_jobs_are_project_bound_idempotent_and_retryable(db, tmp_path
     assert retried.dispatch == [(retried.jobs[0].id, 2)]
 
 
+def test_input_conversion_operation_key_is_shared_across_actors(
+    db, tmp_path, monkeypatch
+):
+    first_user, _, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
+    second_user = User(
+        username=f"input-collaborator-{uuid4().hex[:8]}",
+        password_hash="x",
+        real_name="Input Collaborator",
+        status="active",
+    )
+    db.add(second_user)
+    db.flush()
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+
+    first = workflow_input_conversion.prepare_input_conversions(
+        db, batch, created_by=first_user.id
+    )
+    db.commit()
+    second = workflow_input_conversion.prepare_input_conversions(
+        db, batch, created_by=second_user.id
+    )
+
+    assert [job.id for job in second.jobs] == [job.id for job in first.jobs]
+    assert second.dispatch == []
+    assert all(job.created_by == first_user.id for job in second.jobs)
+    assert all(job.operation_key for job in second.jobs)
+
+
+def test_input_conversion_operation_key_rejects_changed_parameters(
+    db, tmp_path, monkeypatch
+):
+    user, _, _, batch, _ = _registered_batch(
+        db, tmp_path, monkeypatch, dwg_names=("single.dwg",)
+    )
+    monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", True)
+    workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
+    db.commit()
+    item = next(item for item in batch.items if item.role == "source_dwg")
+    stored = db.get(StoredFile, item.file_id)
+    assert stored is not None
+    stored.batch_name = "changed-after-first-command"
+    db.flush()
+
+    with pytest.raises(AppHTTPException) as error:
+        workflow_input_conversion.prepare_input_conversions(db, batch, created_by=user.id)
+
+    assert error.value.detail["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
 def test_conversion_feature_gate_is_enforced(db, tmp_path, monkeypatch):
     user, _, _, batch, _ = _registered_batch(db, tmp_path, monkeypatch)
     monkeypatch.setattr(workflow_input_conversion.settings, "dxf_pipeline_enabled", False)

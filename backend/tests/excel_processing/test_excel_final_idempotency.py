@@ -44,7 +44,9 @@ def _create_user(db: Session, username: str) -> User:
     return user
 
 
-def _job(*, user_id: int, request_key: str | None) -> Job:
+def _job(
+    *, user_id: int, request_key: str | None, operation_key: str | None = None
+) -> Job:
     return Job(
         created_by=user_id,
         task_type=TASK_EXCEL_FINAL,
@@ -56,6 +58,7 @@ def _job(*, user_id: int, request_key: str | None) -> Job:
         progress=0,
         params_json={"file_id": 81},
         request_key=request_key,
+        operation_key=operation_key,
     )
 
 
@@ -65,6 +68,44 @@ def test_job_request_key_is_unique_per_actor_and_task(db: Session):
     db.commit()
 
     db.add(_job(user_id=user.id, request_key="process:key-1"))
+
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+
+def test_job_request_key_remains_scoped_to_each_actor(db: Session):
+    first_user = _create_user(db, "request-key-owner-a")
+    second_user = _create_user(db, "request-key-owner-b")
+    db.add_all(
+        [
+            _job(user_id=first_user.id, request_key="shared-client-key"),
+            _job(user_id=second_user.id, request_key="shared-client-key"),
+        ]
+    )
+
+    db.commit()
+
+    assert db.scalar(select(func.count()).select_from(Job)) == 2
+
+
+def test_job_operation_key_is_unique_across_actors(db: Session):
+    first_user = _create_user(db, "operation-key-owner-a")
+    second_user = _create_user(db, "operation-key-owner-b")
+    db.add(
+        _job(
+            user_id=first_user.id,
+            request_key=None,
+            operation_key="workflow-input:1:item:1",
+        )
+    )
+    db.commit()
+    db.add(
+        _job(
+            user_id=second_user.id,
+            request_key=None,
+            operation_key="workflow-input:1:item:1",
+        )
+    )
 
     with pytest.raises(IntegrityError):
         db.commit()

@@ -30,6 +30,11 @@ class Job(TimestampMixin, Base):
             "request_key",
             name="uq_jobs_actor_task_request_key",
         ),
+        UniqueConstraint(
+            "task_type",
+            "operation_key",
+            name="uq_jobs_task_operation_key",
+        ),
     )
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
@@ -38,6 +43,7 @@ class Job(TimestampMixin, Base):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_users.id"))
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     request_key: Mapped[str | None] = mapped_column(String(128))
+    operation_key: Mapped[str | None] = mapped_column(String(191))
     precision_level: Mapped[str] = mapped_column(String(32), nullable=False)
     pipeline: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)

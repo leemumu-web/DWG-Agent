@@ -1,4 +1,4 @@
-"""Job creation, pipeline selection and request-key idempotency."""
+"""Job creation, pipeline selection and request/resource idempotency."""
 
 from __future__ import annotations
 
@@ -64,6 +64,7 @@ def create_job(
     created_by: int | None,
     *,
     request_key: str | None = None,
+    operation_key: str | None = None,
 ) -> Job:
     project_id = payload.project_id
     if project_id is None and payload.drawing_id is not None:
@@ -76,6 +77,7 @@ def create_job(
         created_by=created_by,
         task_type=payload.task_type,
         request_key=request_key,
+        operation_key=operation_key,
         precision_level=payload.precision_level,
         pipeline=_pipeline_for(payload.task_type),
         status=JOB_QUEUED,
@@ -156,21 +158,28 @@ def create_or_reuse_job(
     *,
     created_by: int,
     request_key: str | None,
+    operation_key: str | None = None,
 ) -> tuple[Job, bool]:
-    """Create one logical request or return its already committed Job.
+    """Create one logical request/resource operation or return its Job.
 
-    The pre-read handles ordinary HTTP replays. The unique constraint plus
-    savepoint handles two processes that race between the pre-read and insert
-    without rolling back unrelated work in the caller's outer transaction.
+    A resource-level operation key takes precedence over the actor-scoped
+    request key. The pre-read handles ordinary replays. The unique constraint
+    plus savepoint handles two processes that race between the pre-read and
+    insert without rolling back unrelated work in the caller's transaction.
     """
-    if request_key is None:
+    if operation_key is not None:
+        conditions = (
+            Job.task_type == payload.task_type,
+            Job.operation_key == operation_key,
+        )
+    elif request_key is not None:
+        conditions = (
+            Job.created_by == created_by,
+            Job.task_type == payload.task_type,
+            Job.request_key == request_key,
+        )
+    else:
         return create_job(db, payload, created_by), False
-
-    conditions = (
-        Job.created_by == created_by,
-        Job.task_type == payload.task_type,
-        Job.request_key == request_key,
-    )
     existing = db.scalar(select(Job).where(*conditions))
     if existing is not None:
         _require_matching_idempotent_job(existing, payload)
@@ -183,6 +192,7 @@ def create_or_reuse_job(
                 payload,
                 created_by,
                 request_key=request_key,
+                operation_key=operation_key,
             )
     except IntegrityError:
         # Under MySQL REPEATABLE READ the ordinary pre-read fixes an older
