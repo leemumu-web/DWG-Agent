@@ -9,8 +9,8 @@ from app.modules.excel_processing.models import ExcelFinalBatch
 from app.modules.jobs.interface import Job, reconcile_stale_running_jobs, summarize_job_execution
 from app.platform.messaging import celery_app as celery_runtime
 from app.platform.messaging.celery_app import (
-    cleanup_consumed_broker_message,
     JOB_QUEUE_NAMES,
+    cleanup_consumed_broker_message,
     cleanup_consumed_broker_messages,
     dispose_inherited_resources,
     purge_queued_job_messages,
@@ -310,14 +310,77 @@ def test_worker_ready_runs_domain_recovery_before_publishing_ready(monkeypatch):
         "update_worker_readiness_marker",
         lambda ready: order.append(f"ready:{ready}"),
     )
+    monkeypatch.setattr(
+        celery_runtime,
+        "start_worker_heartbeat",
+        lambda sender: order.append(f"heartbeat:{sender.hostname}"),
+    )
     monkeypatch.setattr(celery_runtime, "_emit_worker_signal", lambda *args: None)
 
     class Sender:
         app = celery_runtime.celery_app
+        hostname = "worker@test"
 
     celery_runtime._maintain_mysql_runtime_on_worker_start(Sender())
 
-    assert order == ["domain-recovery", "ready:True"]
+    assert order == ["domain-recovery", "ready:True", "heartbeat:worker@test"]
+
+
+def test_idle_worker_heartbeat_refreshes_before_stale_cutoff(monkeypatch):
+    waits: list[float] = []
+    emitted: list[tuple[str, str, str]] = []
+
+    class StopAfterOneHeartbeat:
+        def wait(self, timeout: float) -> bool:
+            waits.append(timeout)
+            return len(waits) > 1
+
+    monkeypatch.setattr(
+        celery_runtime,
+        "_emit_worker_signal",
+        lambda status, event_type, *, worker_name: emitted.append(
+            (status, event_type, worker_name)
+        ),
+    )
+
+    celery_runtime.run_worker_heartbeat(
+        StopAfterOneHeartbeat(),
+        worker_name="excel_stage2@container",
+        interval_seconds=60,
+    )
+
+    assert waits == [60, 60]
+    assert emitted == [
+        ("online", "worker.heartbeat", "excel_stage2@container"),
+    ]
+
+
+def test_worker_shutdown_stops_heartbeat_before_publishing_stopped(monkeypatch):
+    order: list[str] = []
+    monkeypatch.setattr(
+        celery_runtime,
+        "stop_worker_heartbeat",
+        lambda: order.append("heartbeat:stopped"),
+    )
+    monkeypatch.setattr(
+        celery_runtime,
+        "_emit_worker_signal",
+        lambda status, event_type, _sender: order.append(f"signal:{status}:{event_type}"),
+    )
+    monkeypatch.setattr(
+        celery_runtime,
+        "update_worker_readiness_marker",
+        lambda ready: order.append(f"ready:{ready}"),
+    )
+
+    sender = object()
+    celery_runtime._remove_worker_readiness_marker(sender)
+
+    assert order == [
+        "heartbeat:stopped",
+        "signal:stopped:worker.stopped",
+        "ready:False",
+    ]
 
 
 def test_task_lifecycle_signals_forward_task_identity_and_correlation_id(monkeypatch):

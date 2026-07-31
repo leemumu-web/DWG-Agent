@@ -7,6 +7,7 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.identity.interface import Role, User
 from app.modules.operations.control_plane.interface import record_worker_activity
+from app.modules.operations.control_plane.models import ControlPlaneEvent, WorkerRuntime
 from app.platform.security.tokens import hash_password
 
 
@@ -56,6 +57,42 @@ def test_worker_activity_persists_event_and_stale_state(db):
     worker = next(item for item in overview["workers"] if item["worker_name"] == "dispatch@test")
     assert worker["status"] == "online"
     assert worker["queues"] == ["dispatch"]
+
+
+def test_worker_heartbeat_refreshes_runtime_without_growing_event_log(db):
+    record_worker_activity(
+        db,
+        worker_name="excel-stage2@test",
+        status="online",
+        event_type="worker.online",
+        queues=["excel_stage2"],
+        concurrency=1,
+    )
+    db.commit()
+    initial_event_count = db.query(ControlPlaneEvent).count()
+    initial_seen_at = db.scalar(
+        select(WorkerRuntime.last_seen_at).where(
+            WorkerRuntime.worker_name == "excel-stage2@test"
+        )
+    )
+
+    record_worker_activity(
+        db,
+        worker_name="excel-stage2@test",
+        status="online",
+        event_type="worker.heartbeat",
+        queues=["excel_stage2"],
+        concurrency=1,
+    )
+    db.commit()
+    refreshed_seen_at = db.scalar(
+        select(WorkerRuntime.last_seen_at).where(
+            WorkerRuntime.worker_name == "excel-stage2@test"
+        )
+    )
+
+    assert refreshed_seen_at >= initial_seen_at
+    assert db.query(ControlPlaneEvent).count() == initial_event_count
 
 
 def test_worker_activity_uses_atomic_runtime_upsert(db):

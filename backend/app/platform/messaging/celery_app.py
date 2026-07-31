@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event, Thread
 
 from celery import Celery
 from celery.signals import (
@@ -64,6 +65,8 @@ _celery_engine_options = {
 
 _worker_ready_callbacks: dict[str, Callable[[], None]] = {}
 _worker_signal_callbacks: dict[str, Callable[..., None]] = {}
+_worker_heartbeat_stop: Event | None = None
+_worker_heartbeat_thread: Thread | None = None
 
 celery_app = Celery(
     "dwg_agent",
@@ -412,13 +415,19 @@ def _worker_queues() -> list[str]:
 
 
 def _emit_worker_signal(
-    status: str, event_type: str, sender=None, task_id: str | None = None
+    status: str,
+    event_type: str,
+    sender=None,
+    task_id: str | None = None,
+    *,
+    worker_name: str | None = None,
 ) -> None:
     """Notify optional observers without letting them disrupt a Celery task."""
+    observed_worker_name = worker_name or _worker_identity(sender)
     for name, callback in tuple(_worker_signal_callbacks.items()):
         try:
             callback(
-                worker_name=_worker_identity(sender),
+                worker_name=observed_worker_name,
                 status=status,
                 event_type=event_type,
                 queues=_worker_queues(),
@@ -427,6 +436,58 @@ def _emit_worker_signal(
             )
         except Exception:
             logger.exception("Worker signal observer failed: %s", name)
+
+
+def run_worker_heartbeat(
+    stop_event: Event,
+    *,
+    worker_name: str,
+    interval_seconds: float,
+) -> None:
+    """Refresh an idle worker lease without relying on unsupported pidbox events."""
+    while not stop_event.wait(interval_seconds):
+        _emit_worker_signal(
+            "online",
+            "worker.heartbeat",
+            worker_name=worker_name,
+        )
+
+
+def stop_worker_heartbeat() -> None:
+    """Stop the parent-process heartbeat without delaying worker shutdown."""
+    global _worker_heartbeat_stop, _worker_heartbeat_thread
+    stop_event = _worker_heartbeat_stop
+    thread = _worker_heartbeat_thread
+    _worker_heartbeat_stop = None
+    _worker_heartbeat_thread = None
+    if stop_event is not None:
+        stop_event.set()
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=2)
+
+
+def start_worker_heartbeat(sender=None) -> None:
+    """Start one low-frequency liveness lease refresher in the worker parent."""
+    global _worker_heartbeat_stop, _worker_heartbeat_thread
+    stop_worker_heartbeat()
+    stop_event = Event()
+    interval_seconds = max(
+        10,
+        min(60, settings.control_plane_worker_stale_seconds // 3),
+    )
+    thread = Thread(
+        target=run_worker_heartbeat,
+        kwargs={
+            "stop_event": stop_event,
+            "worker_name": _worker_identity(sender),
+            "interval_seconds": interval_seconds,
+        },
+        name="dwg-worker-heartbeat",
+        daemon=True,
+    )
+    _worker_heartbeat_stop = stop_event
+    _worker_heartbeat_thread = thread
+    thread.start()
 
 
 @worker_process_init.connect
@@ -455,11 +516,13 @@ def _maintain_mysql_runtime_on_worker_start(sender=None, **_kwargs) -> None:
         logger.exception("Failed to clean stale SQL broker rows")
     run_worker_ready_callbacks()
     update_worker_readiness_marker(True)
+    start_worker_heartbeat(sender)
     _emit_worker_signal("online", "worker.online", sender)
 
 
 @worker_shutdown.connect
 def _remove_worker_readiness_marker(sender=None, **_kwargs) -> None:
+    stop_worker_heartbeat()
     _emit_worker_signal("stopped", "worker.stopped", sender)
     update_worker_readiness_marker(False)
 

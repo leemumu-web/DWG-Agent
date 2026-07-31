@@ -127,21 +127,22 @@ def record_worker_activity(
         runtime.queues_json = queues
     if concurrency is not None:
         runtime.concurrency = concurrency
-    event = ControlPlaneEvent(
-        source="worker",
-        direction="internal",
-        event_type=event_type,
-        severity="warning" if status == "stopped" else "info",
-        correlation_id=correlation_id,
-        target_kind="worker",
-        target_id=worker_name,
-        payload_json={
-            "queues": queues or runtime.queues_json or [],
-            "concurrency": concurrency or runtime.concurrency,
-        },
-        message=message,
-    )
-    db.add(event)
+    if event_type != "worker.heartbeat":
+        event = ControlPlaneEvent(
+            source="worker",
+            direction="internal",
+            event_type=event_type,
+            severity="warning" if status == "stopped" else "info",
+            correlation_id=correlation_id,
+            target_kind="worker",
+            target_id=worker_name,
+            payload_json={
+                "queues": queues or runtime.queues_json or [],
+                "concurrency": concurrency or runtime.concurrency,
+            },
+            message=message,
+        )
+        db.add(event)
     if status == "stopped":
         db.add(
             PlatformMessage(
