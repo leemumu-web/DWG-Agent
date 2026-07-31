@@ -236,6 +236,18 @@ def test_compose_smoke_checks_runtime_feature_matrix_after_readiness():
     assert readiness < runtime_features
 
 
+def test_compose_smoke_propagates_runtime_feature_probe_failure():
+    content = _read("scripts/lib/compose.sh")
+    smoke = content[content.index("compose_smoke()") : content.index("compose_verify_storage()")]
+
+    assert "runtime_status=0" in smoke
+    assert "|| runtime_status=$?" in smoke
+    assert 'return "$runtime_status"' in smoke
+    assert smoke.index('return "$runtime_status"') < smoke.index(
+        'production runtime feature matrix passed'
+    )
+
+
 def test_compose_backup_and_restore_use_tar_capable_helper_for_minio_volume():
     content = _read("scripts/lib/compose.sh")
     backup = content[content.index("compose_backup()") : content.index("compose_restore()")]

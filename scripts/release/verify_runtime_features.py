@@ -10,6 +10,14 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
+
+
+repository_root = Path(__file__).resolve().parents[2]
+application_root = (
+    repository_root if (repository_root / "app").is_dir() else repository_root / "backend"
+)
+sys.path.insert(0, str(application_root))
 
 from app.platform.config.settings import settings
 from app.modules.operations.control_plane.service import PIPELINE_QUEUE_MAP

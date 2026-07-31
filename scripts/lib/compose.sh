@@ -113,13 +113,23 @@ compose_public_port() {
 
 compose_smoke() {
     compose_require_env
-    local port
+    local port runtime_status=0
     port=$(compose_public_port)
-    curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
-    curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
+    if ! curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null; then
+        compose_warn "public gateway health check failed"
+        return 1
+    fi
+    if ! curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null; then
+        compose_warn "backend readiness check failed"
+        return 1
+    fi
     compose_info "public gateway and backend readiness checks passed"
     "${COMPOSE_CMD[@]}" exec -T backend-api \
-        python /app/scripts/release/verify_runtime_features.py
+        python /app/scripts/release/verify_runtime_features.py || runtime_status=$?
+    if [ "$runtime_status" -ne 0 ]; then
+        compose_warn "production runtime feature verification failed"
+        return "$runtime_status"
+    fi
     compose_info "production runtime feature matrix passed"
 }
 

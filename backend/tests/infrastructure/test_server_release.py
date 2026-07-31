@@ -23,6 +23,38 @@ ODA_SMOKE_FIXTURE = REPO_ROOT / "scripts/release/fixtures/oda_runtime_smoke.dxf"
 PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
 
+def test_runtime_feature_verifier_bootstraps_application_imports_from_any_cwd(tmp_path):
+    content = RUNTIME_FEATURE_VERIFIER.read_text(encoding="utf-8")
+    assert "Path(__file__).resolve().parents[2]" in content
+    assert "sys.path.insert" in content
+
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env.update(
+        {
+            "DXF_PIPELINE_ENABLED": "true",
+            "DXF2DWG_PIPELINE_ENABLED": "true",
+            "DXF2EXCEL_PIPELINE_ENABLED": "false",
+            "DXF_CLASSIFICATION_PIPELINE_ENABLED": "true",
+            "DXF_SPLIT_PIPELINE_ENABLED": "true",
+            "EXCEL_FINAL_PIPELINE_ENABLED": "true",
+            "REMNANT_INVENTORY_ENABLED": "true",
+        }
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(RUNTIME_FEATURE_VERIFIER)],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+
+
 def _write_legacy_image_archive(
     archive: Path,
     *,
