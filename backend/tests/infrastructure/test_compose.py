@@ -271,6 +271,15 @@ class TestComposeYamlValid:
         }
         assert required <= actual, f"Missing services: {sorted(required - actual)}"
 
+    def test_production_volumes_have_stable_names(self):
+        volumes = _load()["volumes"]
+
+        assert volumes == {
+            "app_var": {"name": "dwg-agent_app_var"},
+            "mysql_data": {"name": "dwg-agent_mysql_data"},
+            "minio_data": {"name": "dwg-agent_minio_data"},
+        }
+
     def test_every_long_lived_service_has_bounded_json_logs(self):
         services = _load()["services"]
 
@@ -373,6 +382,15 @@ class TestDevelopmentCompose:
 
         assert "mysql" not in services or "ports" not in services["mysql"]
         assert "minio" not in services or "ports" not in services["minio"]
+
+    def test_dev_override_keeps_persistent_data_isolated_from_production(self):
+        volumes = _load_dev()["volumes"]
+
+        assert volumes == {
+            "app_var": {"name": "dwg-agent-dev_app_var"},
+            "mysql_data": {"name": "dwg-agent-dev_mysql_data"},
+            "minio_data": {"name": "dwg-agent-dev_minio_data"},
+        }
 
 
 class TestMysqlService:

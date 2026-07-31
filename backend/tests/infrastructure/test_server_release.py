@@ -341,6 +341,20 @@ def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures(
     assert "systemctl enable --now dwg-agent.service" in server
 
 
+def test_server_release_checks_docker_root_space_before_install_and_recovery():
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+
+    assert "server_require_docker_disk_space()" in server
+    install = server[server.index("server_install()") : server.index("server_wait_services()")]
+    validate = server[
+        server.index("server_validate_runtime()") : server.index("server_recover()")
+    ]
+    assert install.index("server_require_docker_disk_space") < install.index(
+        "docker image load"
+    )
+    assert "server_require_docker_disk_space" in validate
+
+
 def test_backend_numpy_stays_compatible_with_baseline_x86_64_servers():
     pyproject = PYPROJECT.read_text(encoding="utf-8")
 

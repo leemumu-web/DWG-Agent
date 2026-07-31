@@ -363,8 +363,11 @@ services:
 
 volumes:
   app_var:
+    name: dwg-agent_app_var
   mysql_data:
+    name: dwg-agent_mysql_data
   minio_data:
+    name: dwg-agent_minio_data
 
 networks:
   public:

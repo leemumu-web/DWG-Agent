@@ -18,6 +18,37 @@ EOF
 server_die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 server_info() { printf '==> %s\n' "$*"; }
 
+server_env_value() {
+    local env_file=$1 key=$2
+    [[ -f "$env_file" ]] || return 0
+    awk -F= -v expected="$key" '
+        $1 == expected { value = substr($0, index($0, "=") + 1) }
+        END { sub(/\r$/, "", value); print value }
+    ' "$env_file"
+}
+
+server_require_docker_disk_space() {
+    local env_file=${1:-} minimum_gib docker_root available_kib available_gib
+    minimum_gib=$(server_env_value "$env_file" DOCKER_MIN_FREE_GIB)
+    minimum_gib=${minimum_gib:-20}
+    [[ "$minimum_gib" =~ ^[1-9][0-9]*$ ]] \
+        || server_die "DOCKER_MIN_FREE_GIB must be a positive integer"
+
+    docker_root=$(docker info --format '{{.DockerRootDir}}') \
+        || server_die "cannot determine the Docker data root"
+    [[ -n "$docker_root" ]] || server_die "Docker returned an empty data root"
+    available_kib=$(df -Pk -- "$docker_root" | awk 'END { print $4 }') \
+        || server_die "cannot determine free space for Docker data root: $docker_root"
+    [[ "$available_kib" =~ ^[0-9]+$ ]] \
+        || server_die "Docker data-root free-space result is invalid"
+    if (( available_kib < minimum_gib * 1024 * 1024 )); then
+        available_gib=$((available_kib / 1024 / 1024))
+        server_die "Docker data root $docker_root has ${available_gib} GiB free; deployment requires at least ${minimum_gib} GiB free"
+    fi
+    available_gib=$((available_kib / 1024 / 1024))
+    server_info "Docker data root $docker_root: ${available_gib} GiB available"
+}
+
 server_cleanup() {
     if [[ -n "${SERVER_TMP:-}" && "$SERVER_TMP" == /tmp/dwg-agent-install.* ]]; then
         find "$SERVER_TMP" -depth -delete 2>/dev/null || true
@@ -33,7 +64,7 @@ server_require_target() {
 server_compose() {
     local target=$1
     shift
-    docker compose --project-directory "$target" \
+    docker compose --project-name dwg-agent --project-directory "$target" \
         -f "$target/compose.server.yaml" \
         --env-file "$target/.env.docker" "$@"
 }
@@ -44,6 +75,7 @@ server_install() {
     [[ -n "$target" ]] || server_die "target directory is required"
     command -v gpg >/dev/null || server_die "gpg is unavailable"
     command -v docker >/dev/null || server_die "docker is unavailable"
+    server_require_docker_disk_space "$target/.env.docker"
 
     local checksum_file="${bundle}.sha256"
     [[ -f "$checksum_file" ]] || server_die "outer checksum is missing: $checksum_file"
@@ -133,6 +165,7 @@ server_wait_all_services() {
 server_validate_runtime() {
     local target=$1
     server_require_target "$target"
+    server_require_docker_disk_space "$target/.env.docker"
     grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=CHANGE_ME_' "$target/.env.docker" \
         && server_die "CHANGE_ME_* placeholders remain in .env.docker"
     local -a expected=(

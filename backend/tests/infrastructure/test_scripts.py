@@ -157,6 +157,76 @@ def test_compose_commands_use_a_stable_project_name_for_persistent_volumes():
     )
 
 
+def _run_compose_disk_gate(tmp_path, *, available_kib: int, minimum_gib: str = "20"):
+    env_file = tmp_path / ".env.docker"
+    env_file.write_text(f"DOCKER_MIN_FREE_GIB={minimum_gib}\n", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [[ \"$*\" == \"info --format {{.DockerRootDir}}\" ]]; then\n"
+        "  printf '/var/lib/docker\\n'\n"
+        "else\n"
+        "  exit 64\n"
+        "fi\n",
+        encoding="utf-8",
+    )
+    docker.chmod(0o755)
+    df = fake_bin / "df"
+    df.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n'\n"
+        f"printf '/dev/test 99999999 1 {available_kib} 1%% /\\n'\n",
+        encoding="utf-8",
+    )
+    df.chmod(0o755)
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f'set -u; source "{PROJECT_ROOT}/scripts/lib/compose.sh"; '
+                'DOCKER_ENV_FILE="$1"; compose_require_docker_disk_space'
+            ),
+            "bash",
+            str(env_file),
+        ],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_compose_disk_gate_accepts_sufficient_docker_root_space(tmp_path):
+    result = _run_compose_disk_gate(tmp_path, available_kib=30 * 1024 * 1024)
+
+    assert result.returncode == 0, result.stderr
+    assert "/var/lib/docker" in result.stdout
+    assert "30 GiB available" in result.stdout
+
+
+def test_compose_disk_gate_rejects_low_docker_root_space(tmp_path):
+    result = _run_compose_disk_gate(tmp_path, available_kib=19 * 1024 * 1024)
+
+    assert result.returncode != 0
+    assert "requires at least 20 GiB free" in result.stderr
+
+
+@pytest.mark.parametrize("minimum_gib", ["0", "-1", "twenty"])
+def test_compose_disk_gate_rejects_invalid_threshold(tmp_path, minimum_gib):
+    result = _run_compose_disk_gate(
+        tmp_path,
+        available_kib=30 * 1024 * 1024,
+        minimum_gib=minimum_gib,
+    )
+
+    assert result.returncode != 0
+    assert "DOCKER_MIN_FREE_GIB" in result.stderr
+
+
 APPROVED_PRODUCTION_FEATURES = {
     "DXF_PIPELINE_ENABLED": "true",
     "DXF2DWG_PIPELINE_ENABLED": "true",

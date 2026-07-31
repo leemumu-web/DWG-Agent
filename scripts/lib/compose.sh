@@ -88,6 +88,28 @@ compose_require_env() {
     compose_require_production_features
 }
 
+compose_require_docker_disk_space() {
+    local minimum_gib docker_root available_kib available_gib
+    minimum_gib=$(compose_env_value DOCKER_MIN_FREE_GIB)
+    minimum_gib=${minimum_gib:-20}
+    [[ "$minimum_gib" =~ ^[1-9][0-9]*$ ]] \
+        || compose_die "DOCKER_MIN_FREE_GIB must be a positive integer"
+
+    docker_root=$(docker info --format '{{.DockerRootDir}}') \
+        || compose_die "cannot determine the Docker data root"
+    [[ -n "$docker_root" ]] || compose_die "Docker returned an empty data root"
+    available_kib=$(df -Pk -- "$docker_root" | awk 'END { print $4 }') \
+        || compose_die "cannot determine free space for Docker data root: $docker_root"
+    [[ "$available_kib" =~ ^[0-9]+$ ]] \
+        || compose_die "Docker data-root free-space result is invalid"
+    if (( available_kib < minimum_gib * 1024 * 1024 )); then
+        available_gib=$((available_kib / 1024 / 1024))
+        compose_die "Docker data root $docker_root has ${available_gib} GiB free; deployment requires at least ${minimum_gib} GiB free"
+    fi
+    available_gib=$((available_kib / 1024 / 1024))
+    compose_info "Docker data root $docker_root: ${available_gib} GiB available"
+}
+
 compose_check_source() {
     [[ -f "$PROJECT_ROOT/Stages/dxf2excel/pyproject.toml" ]] || compose_die "Stages/dxf2excel source is absent"
     if git -C "$PROJECT_ROOT" ls-files -s Stages/dxf2excel | grep -q '^160000 '; then
@@ -99,6 +121,7 @@ compose_check() {
     command -v docker >/dev/null || compose_die "docker is not installed"
     docker info >/dev/null || compose_die "Docker daemon is unavailable"
     compose_require_env
+    compose_require_docker_disk_space
     compose_check_source
     "${COMPOSE_CMD[@]}" config --quiet
     "${COMPOSE_CMD[@]}" --profile workers config --quiet
