@@ -54,6 +54,9 @@ WORKFLOW_RETENTION_REVISION = (
 USER_PASSWORD_RESET_REVISION = (
     VERSIONS_DIR / "c9a1d4e7f620_add_user_password_reset_required.py"
 )
+FILE_TRANSFER_OPERATION_REVISION = (
+    VERSIONS_DIR / "d1e7f3a9c520_expand_file_transfer_operation.py"
+)
 MODEL_TABLES = (
     "agent_run_steps",
     "agent_runs",
@@ -220,6 +223,16 @@ def test_workflow_input_migration_extends_head_and_is_reversible():
         assert f'op.drop_table("{table}")' in source
     assert '"uq_workflow_input_batch_workflow"' in source
     assert '"uq_workflow_input_item_file"' in source
+
+
+def test_file_transfer_operation_migration_supports_long_download_names():
+    source = FILE_TRANSFER_OPERATION_REVISION.read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "c9a1d4e7f620"' in source
+    assert '"file_transfers"' in source
+    assert '"operation"' in source
+    assert "sa.String(length=128)" in source
+    assert "existing_type=sa.String(length=32)" in source
 
 
 def test_dxf_classification_migration_adds_ledger_and_stage_backfill():

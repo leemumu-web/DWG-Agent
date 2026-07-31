@@ -437,6 +437,107 @@ def _part_matches_organized(part: PartRow, item: Mapping[str, object]) -> bool:
     return not part.import_component_no
 
 
+def _part_match_key(
+    *,
+    import_component_no: object,
+    import_part_no: object,
+    spec: object,
+    width: object,
+    cut_length: object,
+    material: object,
+    part_type: object,
+    team: object,
+    model_length: object,
+    left_setback: object,
+    right_setback: object,
+) -> tuple[object, ...] | None:
+    """Return the exact identity used by ``_part_matches_organized``.
+
+    All canonical values are scalar.  The hashability guard keeps malformed
+    inputs on the old fail-closed matcher path instead of raising a surprising
+    ``TypeError`` while building the index.
+    """
+    key = (
+        import_component_no,
+        import_part_no,
+        spec,
+        width,
+        cut_length,
+        material,
+        part_type,
+        team or "",
+        model_length,
+        left_setback,
+        right_setback,
+    )
+    try:
+        hash(key)
+    except TypeError:
+        return None
+    return key
+
+
+def _organized_part_match_keys(
+    item: Mapping[str, object],
+) -> tuple[tuple[object, ...], ...]:
+    if item.get("重量核验") == "严重":
+        return ()
+    part_type = item.get("类型")
+    if part_type in _COMPONENT_SCOPED_TYPES:
+        import_component_no = item.get("导入构件编号")
+    else:
+        import_component_no = ""
+    common = {
+        "import_component_no": import_component_no,
+        "import_part_no": item.get("导入零件号"),
+        "spec": item.get("规格"),
+        "width": item.get("宽度"),
+        "cut_length": item.get("下料长度(mm)"),
+        "material": item.get("材质"),
+        "part_type": part_type,
+        "team": item.get("班组"),
+    }
+    keys = [
+        _part_match_key(
+            **common,
+            model_length=None,
+            left_setback=None,
+            right_setback=None,
+        ),
+    ]
+    stage2_key = _part_match_key(
+        **common,
+        model_length=item.get("长度(mm)"),
+        left_setback=item.get("左进(mm)"),
+        right_setback=item.get("右进(mm)"),
+    )
+    if stage2_key is not None and stage2_key != keys[0]:
+        keys.append(stage2_key)
+    return tuple(key for key in keys if key is not None)
+
+
+def _part_row_match_key(part: PartRow) -> tuple[object, ...] | None:
+    if part.part_type not in _COMPONENT_SCOPED_TYPES and part.import_component_no:
+        return None
+    return _part_match_key(
+        import_component_no=(
+            part.import_component_no
+            if part.part_type in _COMPONENT_SCOPED_TYPES
+            else ""
+        ),
+        import_part_no=part.import_part_no,
+        spec=part.spec,
+        width=part.width,
+        cut_length=part.cut_length,
+        material=part.material,
+        part_type=part.part_type,
+        team=part.team,
+        model_length=part.model_length,
+        left_setback=part.left_setback,
+        right_setback=part.right_setback,
+    )
+
+
 def _apply_part_formulas(
     ws,
     parts: Sequence[PartRow],
@@ -453,13 +554,21 @@ def _apply_part_formulas(
     }
     total_count_column = organized_columns["总数"]
     cut_length_column = organized_columns["下料长度(mm)"]
+    organized_index: dict[tuple[object, ...], list[int]] = {}
+    for source_row_number, item in enumerate(organized_rows, start=2):
+        for key in _organized_part_match_keys(item):
+            organized_index.setdefault(key, []).append(source_row_number)
     caches: dict[str, FormulaCache] = {}
     for part_row_number, part in enumerate(parts, start=2):
-        source_rows = [
-            source_row_number
-            for source_row_number, item in enumerate(organized_rows, start=2)
-            if _part_matches_organized(part, item)
-        ]
+        part_key = _part_row_match_key(part)
+        if part_key is None:
+            source_rows = [
+                source_row_number
+                for source_row_number, item in enumerate(organized_rows, start=2)
+                if _part_matches_organized(part, item)
+            ]
+        else:
+            source_rows = organized_index.get(part_key, [])
         contribution = sum(
             (
                 _decimal_or_zero(organized_rows[source_row_number - 2].get("总数"))
@@ -732,29 +841,45 @@ def _verify_formula_caches(
     sheet_name: str,
     caches: Mapping[str, FormulaCache],
 ) -> None:
-    # Normal mode indexes cells in memory. Read-only random access reparses the
-    # sheet for every coordinate and becomes quadratic for thousands of caches.
-    formulas = load_workbook(workbook_path, data_only=False, read_only=False)
-    values = load_workbook(workbook_path, data_only=True, read_only=False)
+    if not caches:
+        return
+    # Stream both views row-by-row instead of reopening random-access cells for
+    # every coordinate. This keeps the check linear in workbook size and avoids
+    # the long tail that shows up on larger stage2 runs.
+    formulas = load_workbook(workbook_path, data_only=False, read_only=True)
+    values = load_workbook(workbook_path, data_only=True, read_only=True)
     try:
-        for coordinate, cache in caches.items():
-            formula = formulas[sheet_name][coordinate].value
-            cached_value = values[sheet_name][coordinate].value
-            if formula != cache.formula:
-                raise ValueError(f"公式回读失败: {coordinate}={formula!r}")
-            if cache.value is None:
-                if cached_value is not None:
+        formula_sheet = formulas[sheet_name]
+        value_sheet = values[sheet_name]
+        for formula_row, value_row in zip(
+            formula_sheet.iter_rows(),
+            value_sheet.iter_rows(),
+            strict=True,
+        ):
+            for formula_cell, value_cell in zip(formula_row, value_row, strict=True):
+                cache = caches.get(formula_cell.coordinate)
+                if cache is None:
+                    continue
+                if formula_cell.value != cache.formula:
                     raise ValueError(
-                        f"公式缓存应为空: {coordinate}={cached_value!r}"
+                        f"公式回读失败: {formula_cell.coordinate}={formula_cell.value!r}"
                     )
-                continue
-            if cached_value is None or not math.isclose(
-                float(cached_value),
-                float(cache.value),
-                rel_tol=1e-12,
-                abs_tol=1e-12,
-            ):
-                raise ValueError(f"公式缓存回读失败: {coordinate}={cached_value!r}")
+                cached_value = value_cell.value
+                if cache.value is None:
+                    if cached_value is not None:
+                        raise ValueError(
+                            f"公式缓存应为空: {formula_cell.coordinate}={cached_value!r}"
+                        )
+                    continue
+                if cached_value is None or not math.isclose(
+                    float(cached_value),
+                    float(cache.value),
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                ):
+                    raise ValueError(
+                        f"公式缓存回读失败: {formula_cell.coordinate}={cached_value!r}"
+                    )
     finally:
         formulas.close()
         values.close()

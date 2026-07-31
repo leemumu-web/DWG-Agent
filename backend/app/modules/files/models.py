@@ -60,7 +60,7 @@ class FileTransfer(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)
     transfer_uid: Mapped[str] = mapped_column(String(36), nullable=False)
     direction: Mapped[str] = mapped_column(String(16), nullable=False)
-    operation: Mapped[str] = mapped_column(String(32), nullable=False)
+    operation: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="prepared")
     file_id: Mapped[int | None] = mapped_column(ForeignKey("files.id"), index=True)
     batch_ref: Mapped[str | None] = mapped_column(String(64), index=True)

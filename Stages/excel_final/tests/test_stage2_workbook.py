@@ -13,6 +13,7 @@ from domain import SourcePart
 from pipeline import run_auto_pipeline, run_stage2_pipeline
 from stage2_workbook import (
     Stage2BaselineError,
+    _formal_source_sheet_by_row,
     read_canonical_baseline_signature,
     run_stage2_workbook,
     verify_canonical_baseline,
@@ -25,6 +26,63 @@ class _NoHandbookLookup:
 
     def log_stats(self) -> None:
         return None
+
+
+def test_formal_source_sheet_map_streams_read_only_rows(monkeypatch, tmp_path: Path) -> None:
+    """The Stage 2 source map must stay linear for large read-only workbooks."""
+
+    class _Sheet:
+        max_row = 4
+
+        class _HeaderCell:
+            def __init__(self, value):
+                self.value = value
+
+        def __getitem__(self, key):
+            assert key == 1
+            return (
+                self._HeaderCell("来源sheet"),
+                self._HeaderCell("来源行"),
+            )
+
+        def iter_rows(self, *, min_row, values_only):
+            assert min_row == 2
+            assert values_only is True
+            return iter((
+                ("原表", 3),
+                ("原表", 4),
+                (None, None),
+            ))
+
+        def cell(self, *_args, **_kwargs):
+            raise AssertionError("read-only cell() causes quadratic rescans")
+
+    class _Workbook:
+        def __init__(self):
+            self.sheet = _Sheet()
+
+        def __getitem__(self, name):
+            assert name == "清洗表"
+            return self.sheet
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        "stage2_workbook.load_workbook",
+        lambda *_args, **_kwargs: _Workbook(),
+    )
+
+    mapping, default = _formal_source_sheet_by_row(tmp_path / "stage1.xlsx")
+
+    assert mapping == {3: "原表", 4: "原表"}
+    assert default == "原表"
 
 
 def _stage1_workbook(tmp_path: Path) -> Path:
@@ -154,6 +212,22 @@ def test_baseline_comparison_ignores_metadata_but_detects_business_drift(
     assert caught.value.changed_sheets == ("整理表",)
 
 
+def test_baseline_comparison_allows_stage_specific_report_rebuild(
+    tmp_path: Path,
+) -> None:
+    stage1 = _stage1_workbook(tmp_path)
+    report_changed = tmp_path / "report-changed.xlsx"
+    _copy_xlsx_with_replacement(
+        stage1,
+        report_changed,
+        entry_name="xl/worksheets/sheet6.xml",
+        old=b"<t>\xe6\x97\xa0</t>",
+        new=b"<t>\xe8\xad\xa6\xe5\x91\x8a</t>",
+    )
+
+    assert verify_canonical_baseline(stage1, report_changed).sheet_names
+
+
 def test_stage1_signature_rejects_a_formula_with_a_missing_cached_value(
     tmp_path: Path,
 ) -> None:
@@ -257,6 +331,21 @@ def test_stage2_rebuilds_from_the_formal_stage1_then_applies_bh_setbacks(
         )
         assert values["整理表"].cell(2, organized["下料长度(mm)"]).value == 970
         assert values["整理表"].cell(3, organized["下料长度(mm)"]).value == 700
+        assert values["整理表"].cell(2, organized["数量"]).value == 1
+        assert values["整理表"].cell(3, organized["数量"]).value == 2
+        assert formulas["整理表"].cell(2, organized["理单重(kg)"]).value == (
+            "=ROUND(K2*L2*P2*V2/1000000,3)"
+        )
+        assert values["整理表"].cell(2, organized["理单重(kg)"]).value == pytest.approx(
+            round(
+                values["整理表"].cell(2, organized["规格"]).value
+                * values["整理表"].cell(2, organized["宽度"]).value
+                * values["整理表"].cell(2, organized["下料长度(mm)"]).value
+                * values["整理表"].cell(2, organized["比重"]).value
+                / 1000000,
+                3,
+            )
+        )
         assert formulas["整理表"].cell(2, organized["总长(mm)"]).value == "=P2*T2"
         assert formulas["part"]["G2"].value == "=SUM('整理表'!T2)"
         assert formulas["part"]["G3"].value == "=SUM('整理表'!T3)"

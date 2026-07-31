@@ -53,6 +53,13 @@ _VISIBLE_HEADERS = {
     "part": tuple((*PART_HEADERS[:9], "备注", "文件", "类型")),
     "处理报告": tuple(REPORT_HEADERS),
 }
+_BASELINE_BUSINESS_SHEETS = (
+    "原表",
+    "清洗表",
+    "构件表",
+    "整理表",
+    "part",
+)
 
 
 class Stage2BaselineError(ValueError):
@@ -264,7 +271,7 @@ def verify_canonical_baseline(
     rebuilt = read_canonical_baseline_signature(rebuilt_stage1_path)
     changed_sheets = tuple(
         sheet_name
-        for sheet_name in formal.sheet_names
+        for sheet_name in _BASELINE_BUSINESS_SHEETS
         if (
             formal.sheet_hashes[sheet_name] != rebuilt.sheet_hashes[sheet_name]
             or formal.formula_cell_counts[sheet_name]
@@ -315,9 +322,17 @@ def _formal_source_sheet_by_row(stage1_path: Path) -> tuple[dict[int, str], str]
             raise Stage2BaselineError("Stage 1 清洗表缺少来源身份列") from exc
         source_sheet_by_row: dict[int, str] = {}
         source_names: list[str] = []
-        for row_number in range(2, sheet.max_row + 1):
-            source_name = sheet.cell(row_number, source_sheet_column).value
-            source_row = sheet.cell(row_number, source_row_column).value
+        for values in sheet.iter_rows(min_row=2, values_only=True):
+            source_name = (
+                values[source_sheet_column - 1]
+                if len(values) >= source_sheet_column
+                else None
+            )
+            source_row = (
+                values[source_row_column - 1]
+                if len(values) >= source_row_column
+                else None
+            )
             if source_name in (None, "") or source_row in (None, ""):
                 continue
             try:

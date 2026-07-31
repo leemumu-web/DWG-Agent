@@ -171,6 +171,61 @@ def test_display_width_counts_east_asian_characters_and_longest_line(
     assert _writer()._display_width(value) == expected
 
 
+def test_part_formula_projection_does_not_rescan_all_organized_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    writer = _writer()
+    organized_rows = tuple(
+        _organized_row(
+            序号=index,
+            零件号=f"p{index}",
+            导入零件号=f"p{index}",
+            总数=Decimal(index),
+            重量核验="通过",
+        )
+        for index in range(1, 4)
+    )
+    parts = tuple(
+        PartRow(
+            "",
+            f"p{index}",
+            Decimal("10"),
+            Decimal("100"),
+            Decimal("1000"),
+            "Q355B",
+            Decimal(index),
+            "",
+            "",
+            "板材",
+        )
+        for index in range(1, 4)
+    )
+    workbook = Workbook()
+    part_sheet = workbook.active
+    part_sheet.title = "part"
+    part_sheet.append(writer.PART_HEADERS)
+    organized_sheet = workbook.create_sheet("整理表")
+    organized_sheet.append(writer.ORGANIZED_HEADERS)
+
+    calls = 0
+    original_matcher = writer._part_matches_organized
+
+    def counting_matcher(part, item):
+        nonlocal calls
+        calls += 1
+        return original_matcher(part, item)
+
+    monkeypatch.setattr(writer, "_part_matches_organized", counting_matcher)
+    writer._apply_part_formulas(
+        part_sheet,
+        parts,
+        organized_rows,
+        organized_sheet,
+    )
+
+    assert calls == 0
+
+
 def test_canonical_writer_emits_six_sheets_with_adaptive_widths_and_audited_styles(
     tmp_path: Path,
 ) -> None:
