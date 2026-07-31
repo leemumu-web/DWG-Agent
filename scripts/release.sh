@@ -243,6 +243,8 @@ release_bundle() {
         "$payload/infra/database/mysql/hardware_handbook.sql"
     install -m 0755 "$PROJECT_ROOT/scripts/release/server-deploy.sh" \
         "$payload/scripts/server-deploy.sh"
+    install -m 0755 "$PROJECT_ROOT/scripts/release/server-timezone-migrate.sh" \
+        "$payload/scripts/server-timezone-migrate.sh"
 
     local -a images=(
         "$backend_release"

@@ -2,6 +2,10 @@
 # Install and operate an encrypted, offline DWG-Agent server release.
 set -Eeuo pipefail
 
+SERVER_TMP=""
+SERVER_ROLLBACK_TMP=""
+SERVER_MAINTENANCE_LOCK_TARGET=""
+
 server_usage() {
     cat <<'EOF'
 Usage:
@@ -53,6 +57,10 @@ server_cleanup() {
     if [[ -n "${SERVER_TMP:-}" && "$SERVER_TMP" == /tmp/dwg-agent-install.* ]]; then
         find "$SERVER_TMP" -depth -delete 2>/dev/null || true
     fi
+    if [[ -n "${SERVER_ROLLBACK_TMP:-}" \
+        && "$SERVER_ROLLBACK_TMP" == */.rollback-candidate.pending.* ]]; then
+        find "$SERVER_ROLLBACK_TMP" -depth -delete 2>/dev/null || true
+    fi
 }
 
 server_require_target() {
@@ -69,10 +77,60 @@ server_compose() {
         --env-file "$target/.env.docker" "$@"
 }
 
+server_acquire_maintenance_lock() {
+    local target=$1 resolved
+    [[ -d "$target" ]] || return 0
+    resolved=$(realpath -e -- "$target")
+    if [[ -n "$SERVER_MAINTENANCE_LOCK_TARGET" ]]; then
+        [[ "$SERVER_MAINTENANCE_LOCK_TARGET" == "$resolved" ]] \
+            || server_die "a different server target is already locked by this process"
+        return 0
+    fi
+    command -v flock >/dev/null || server_die "flock is unavailable"
+    exec 8>"$resolved/.timezone-migration.lock"
+    flock -n 8 || server_die "timezone maintenance is running; refusing concurrent server mutation"
+    SERVER_MAINTENANCE_LOCK_TARGET=$resolved
+}
+
+server_release_maintenance_lock() {
+    [[ -n "$SERVER_MAINTENANCE_LOCK_TARGET" ]] || return 0
+    flock -u 8
+    exec 8>&-
+    SERVER_MAINTENANCE_LOCK_TARGET=""
+}
+
+server_preserve_rollback_candidate() {
+    local target=$1 rollback_candidate="$1/.rollback-candidate"
+    [[ -f "$target/.env.docker" && -f "$target/RELEASE" \
+        && -f "$target/images.manifest" ]] \
+        || server_die "installed release is incomplete; refusing to overwrite rollback evidence"
+    if [[ -e "$rollback_candidate" ]]; then
+        [[ ! -L "$rollback_candidate" && -d "$rollback_candidate" \
+            && -f "$rollback_candidate/compose.server.yaml" \
+            && -f "$rollback_candidate/.env.docker" \
+            && -f "$rollback_candidate/RELEASE" \
+            && -f "$rollback_candidate/images.manifest" ]] \
+            || server_die "existing rollback candidate is unsafe or incomplete"
+        server_info "kept the existing immutable rollback candidate"
+        return 0
+    fi
+    SERVER_ROLLBACK_TMP=$(mktemp -d "$target/.rollback-candidate.pending.XXXXXX")
+    chmod 0700 "$SERVER_ROLLBACK_TMP"
+    install -m 0644 "$target/compose.server.yaml" \
+        "$SERVER_ROLLBACK_TMP/compose.server.yaml"
+    install -m 0600 "$target/.env.docker" "$SERVER_ROLLBACK_TMP/.env.docker"
+    install -m 0644 "$target/RELEASE" "$SERVER_ROLLBACK_TMP/RELEASE"
+    install -m 0644 "$target/images.manifest" "$SERVER_ROLLBACK_TMP/images.manifest"
+    mv -T -- "$SERVER_ROLLBACK_TMP" "$rollback_candidate"
+    SERVER_ROLLBACK_TMP=""
+    server_info "preserved the currently installed release as an immutable rollback candidate"
+}
+
 server_install() {
     local bundle=${1:-} target=${2:-}
     [[ -f "$bundle" ]] || server_die "encrypted bundle not found: $bundle"
     [[ -n "$target" ]] || server_die "target directory is required"
+    server_acquire_maintenance_lock "$target"
     command -v gpg >/dev/null || server_die "gpg is unavailable"
     command -v docker >/dev/null || server_die "docker is unavailable"
     server_require_docker_disk_space "$target/.env.docker"
@@ -101,6 +159,10 @@ server_install() {
             || server_die "loaded image ID mismatch: $image_ref"
     done < "$SERVER_TMP/images.manifest"
 
+    if [[ -f "$target/compose.server.yaml" ]]; then
+        server_preserve_rollback_candidate "$target"
+    fi
+
     mkdir -p "$target/infra/database/mysql" "$target/scripts"
     chmod 0750 "$target"
     install -m 0644 "$SERVER_TMP/compose.server.yaml" "$target/compose.server.yaml"
@@ -109,6 +171,8 @@ server_install() {
     install -m 0644 "$SERVER_TMP/infra/database/mysql/hardware_handbook.sql" \
         "$target/infra/database/mysql/hardware_handbook.sql"
     install -m 0755 "$SERVER_TMP/scripts/server-deploy.sh" "$target/scripts/server-deploy.sh"
+    install -m 0755 "$SERVER_TMP/scripts/server-timezone-migrate.sh" \
+        "$target/scripts/server-timezone-migrate.sh"
     install -m 0644 "$SERVER_TMP/RELEASE" "$target/RELEASE"
     install -m 0644 "$SERVER_TMP/images.manifest" "$target/images.manifest"
     if [[ ! -f "$target/.env.docker" ]]; then
@@ -194,6 +258,7 @@ server_validate_runtime() {
 
 server_recover() {
     local target=${1:-}
+    server_acquire_maintenance_lock "$target"
     server_validate_runtime "$target"
 
     server_compose "$target" up -d --no-build mysql minio
@@ -218,6 +283,7 @@ server_enable_service() {
     target=$(realpath -e "$target")
     [[ "$target" =~ ^/[A-Za-z0-9._/-]+$ ]] \
         || server_die "TARGET_DIR contains unsupported systemd path characters"
+    server_acquire_maintenance_lock "$target"
     server_validate_runtime "$target"
 
     local unit_tmp
@@ -248,7 +314,9 @@ EOF
     install -m 0644 "$unit_tmp" /etc/systemd/system/dwg-agent.service
     rm -f "$unit_tmp"
     systemctl daemon-reload
-    systemctl enable --now dwg-agent.service
+    systemctl enable dwg-agent.service
+    server_release_maintenance_lock
+    systemctl start dwg-agent.service
     server_info "dwg-agent.service is enabled and active"
 }
 
@@ -260,6 +328,7 @@ server_status() {
 
 server_smoke() {
     local target=${1:-} port
+    server_acquire_maintenance_lock "$target"
     server_require_target "$target"
     port=$(awk -F= '$1 == "HTTP_PORT" {print substr($0, index($0, "=") + 1); exit}' \
         "$target/.env.docker")
@@ -278,6 +347,7 @@ server_smoke() {
 
 server_down() {
     local target=${1:-}
+    server_acquire_maintenance_lock "$target"
     server_require_target "$target"
     server_compose "$target" down --remove-orphans
 }

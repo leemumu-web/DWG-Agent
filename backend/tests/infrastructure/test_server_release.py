@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import io
 import json
@@ -16,6 +17,7 @@ from tests.support.paths import REPO_ROOT
 RENDERER = REPO_ROOT / "scripts/release/render_server_compose.py"
 RELEASE_SCRIPT = REPO_ROOT / "scripts/release.sh"
 SERVER_SCRIPT = REPO_ROOT / "scripts/release/server-deploy.sh"
+TIMEZONE_SCRIPT = REPO_ROOT / "scripts/release/server-timezone-migrate.sh"
 ARCHIVE_VERIFIER = REPO_ROOT / "scripts/release/verify_image_archive.py"
 LIVE_REMNANT_VERIFIER = REPO_ROOT / "scripts/release/verify_live_remnant.py"
 RUNTIME_FEATURE_VERIFIER = REPO_ROOT / "scripts/release/verify_runtime_features.py"
@@ -244,6 +246,318 @@ def test_server_recovery_starts_dependency_tiers_before_the_full_stack():
     assert storage_up < storage_ready < api_up < api_ready < full_up < full_ready < smoke
 
 
+def test_timezone_cutover_is_guarded_backed_up_and_reversible():
+    source = TIMEZONE_SCRIPT.read_text(encoding="utf-8")
+
+    for command in ("preflight", "migrate", "rollback"):
+        assert f"server-timezone-migrate.sh {command}" in source
+    for activity in (
+        "workflow_input_dwg_folders.import",
+        "workflow_input_excel.import",
+        "file_transfers",
+        "jobs",
+        "job_dispatches",
+        "upload_sessions",
+    ):
+        assert activity in source
+    assert "docker info --format '{{.DockerRootDir}}'" in source
+    assert "df -Pk" in source
+    assert 'stop -t 180 nginx' in source
+    assert "mysqldump" in source
+    for option in ("--single-transaction", "--routines", "--triggers", "--events"):
+        assert option in source
+    assert "gzip -t" in source
+    assert "sha256sum" in source
+    assert "dwg_agent_timezone_verify_" in source
+    for table in (
+        "sys_users",
+        "projects",
+        "files",
+        "file_transfers",
+        "workflow_runs",
+        "jobs",
+        "audit_logs",
+    ):
+        assert table in source
+    assert "a4c8e1f2b730" in source
+    assert "d1e7f3a9c520" in source
+    assert "alembic current" in source
+    assert "alembic heads" in source
+    assert "@@session.time_zone" in source
+    assert "UTC_TIMESTAMP" in source
+    assert 'mkdir -p -- "$target/backups"' in source
+    assert "minio-before.jsonl" in source
+    assert "timezone_verify_restored_counts" in source
+    assert source.count("timezone_verify_restored_counts") >= 2
+    assert "timezone_verify_migrated_counts" in source
+    assert "file_bytes" in source
+    assert "timezone_require_previous_runtime" in source
+    assert "image_count == 4" in source
+    for marker_key in (
+        "counts_sha256",
+        "minio_summary_sha256",
+        "previous_compose_sha256",
+        "previous_env_sha256",
+        "previous_release_sha256",
+        "previous_images_sha256",
+    ):
+        assert marker_key in source
+    assert source.count('timezone_require_complete_inputs "$target"') >= 2
+    assert source.count('timezone_require_pre_migration_head "$target"') >= 2
+    assert source.count("/nginx-health") >= 2
+    assert "timezone_acquire_lock" in source
+    assert "flock -n" in source
+    assert '"$backup/VERIFIED"' in source
+    assert "VERIFIED_BACKUP_V1" in source
+    assert "metadata query failed while checking table" in source
+    assert "timezone_fail_closed" in source
+    assert "TIMEZONE_MAINTENANCE_ACTIVE=1" in source
+    assert "estimated * 2 / 1024" in source
+    assert "baseline RELEASE:" in source
+    assert "docker compose down -v" not in source
+    assert "docker volume rm" not in source
+    assert "DROP DATABASE $MYSQL_DATABASE" not in source
+
+    syntax = subprocess.run(
+        ["bash", "-n", str(TIMEZONE_SCRIPT)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert syntax.returncode == 0, syntax.stderr
+
+
+def test_release_preserves_previous_runtime_and_packages_timezone_cutover():
+    release = RELEASE_SCRIPT.read_text(encoding="utf-8")
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+
+    assert "server-timezone-migrate.sh" in release
+    assert '"$payload/scripts/server-timezone-migrate.sh"' in release
+    assert ".rollback-candidate" in server
+    assert 'chmod 0700 "$SERVER_ROLLBACK_TMP"' in server
+    assert '.rollback-candidate.pending.XXXXXX' in server
+    assert 'mv -T -- "$SERVER_ROLLBACK_TMP" "$rollback_candidate"' in server
+    assert '[[ -e "$rollback_candidate" ]]' in server
+    assert "server_acquire_maintenance_lock" in server
+    assert '.timezone-migration.lock' in server
+    assert 'install -m 0600 "$target/.env.docker"' in server
+    assert '"$SERVER_TMP/scripts/server-timezone-migrate.sh"' in server
+    assert '"$target/scripts/server-timezone-migrate.sh"' in server
+
+
+def test_repeated_install_preserves_the_original_rollback_candidate(tmp_path: Path):
+    target = tmp_path / "server"
+    target.mkdir()
+    installed = {
+        "compose.server.yaml": "old-compose\n",
+        ".env.docker": "MYSQL_DATABASE=dwg_agent\n",
+        "RELEASE": "release-a\n",
+        "images.manifest": "old-image\tsha256:a\n",
+    }
+    for name, content in installed.items():
+        (target / name).write_text(content, encoding="utf-8")
+
+    env = {**os.environ, "SERVER_SCRIPT": str(SERVER_SCRIPT), "TARGET": str(target)}
+    command = 'source "$SERVER_SCRIPT" >/dev/null; server_preserve_rollback_candidate "$TARGET"'
+    first = subprocess.run(
+        ["bash", "-c", command], env=env, text=True, capture_output=True, check=False
+    )
+    assert first.returncode == 0, first.stderr
+
+    (target / "RELEASE").write_text("release-b\n", encoding="utf-8")
+    second = subprocess.run(
+        ["bash", "-c", command], env=env, text=True, capture_output=True, check=False
+    )
+    assert second.returncode == 0, second.stderr
+    assert (target / ".rollback-candidate" / "RELEASE").read_text() == "release-a\n"
+
+
+def test_server_install_refuses_timezone_maintenance_lock(tmp_path: Path):
+    lock_path = tmp_path / ".timezone-migration.lock"
+    with lock_path.open("w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                'source "$SERVER_SCRIPT" >/dev/null; '
+                'server_acquire_maintenance_lock "$TARGET"',
+            ],
+            env={
+                **os.environ,
+                "SERVER_SCRIPT": str(SERVER_SCRIPT),
+                "TARGET": str(tmp_path),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    assert result.returncode != 0
+    assert "timezone maintenance is running" in result.stderr
+
+
+def test_all_mutating_server_commands_share_the_timezone_lock():
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+    boundaries = {
+        "server_install()": "server_validate_runtime()",
+        "server_recover()": "server_up()",
+        "server_enable_service()": "server_status()",
+        "server_smoke()": "server_down()",
+        "server_down()": 'case "${1:-}"',
+    }
+    for start, end in boundaries.items():
+        body = server[server.index(start) : server.index(end)]
+        assert "server_acquire_maintenance_lock" in body
+    enable = server[server.index("server_enable_service()") : server.index("server_status()")]
+    assert enable.index("server_acquire_maintenance_lock") < enable.index("systemctl daemon-reload")
+    assert enable.index("server_release_maintenance_lock") < enable.index("systemctl start")
+
+
+def test_timezone_table_probe_fails_closed_on_database_error(tmp_path: Path):
+    target = tmp_path / "server"
+    target.mkdir()
+    (target / ".env.docker").write_text("MYSQL_DATABASE=dwg_agent\n", encoding="utf-8")
+    env = {**os.environ, "TIMEZONE_SCRIPT": str(TIMEZONE_SCRIPT), "TARGET": str(target)}
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$TIMEZONE_SCRIPT" >/dev/null; '
+            "timezone_mysql_scalar() { return 23; }; "
+            'timezone_table_exists "$TARGET" jobs',
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "metadata query failed while checking table: jobs" in result.stderr
+
+
+def test_unverified_timezone_backup_is_rejected(tmp_path: Path):
+    target = tmp_path / "server"
+    backup = target / "backups" / "timezone-20260801-120000"
+    backup.mkdir(parents=True)
+    (target / ".env.docker").write_text("MYSQL_DATABASE=dwg_agent\n", encoding="utf-8")
+    (backup / "mysql-before.sql.gz").write_bytes(b"incomplete")
+    env = {
+        **os.environ,
+        "TIMEZONE_SCRIPT": str(TIMEZONE_SCRIPT),
+        "TARGET": str(target),
+        "BACKUP": str(backup),
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$TIMEZONE_SCRIPT" >/dev/null; '
+            'timezone_require_verified_backup "$TARGET" "$BACKUP"',
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "backup has no verified-complete marker" in result.stderr
+
+
+def test_timezone_maintenance_failure_stops_gateway_and_writers(tmp_path: Path):
+    call_log = tmp_path / "compose-calls"
+    env = {
+        **os.environ,
+        "TIMEZONE_SCRIPT": str(TIMEZONE_SCRIPT),
+        "TARGET": str(tmp_path),
+        "CALL_LOG": str(call_log),
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$TIMEZONE_SCRIPT" >/dev/null; '
+            "timezone_compose() { local target=$1; shift; "
+            "if [[ $1 == config ]]; then printf '%s\\n' backend-api nginx; "
+            'else printf \'%s\\n\' "$*" >>"$CALL_LOG"; fi; }; '
+            'TIMEZONE_TARGET="$TARGET"; TIMEZONE_MAINTENANCE_ACTIVE=1; false',
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "maintenance failed closed" in result.stderr
+    assert "stop -t 60 backend-api nginx" in call_log.read_text(encoding="utf-8")
+
+
+def test_timezone_count_manifest_requires_every_protected_measure(tmp_path: Path):
+    target = tmp_path / "server"
+    backup = target / "backups" / "timezone-20260801-120000"
+    backup.mkdir(parents=True)
+    (target / ".env.docker").write_text("MYSQL_DATABASE=dwg_agent\n", encoding="utf-8")
+    (backup / "pre-migration-counts.tsv").write_text(
+        "source_database\tdwg_agent\nalembic_head\td1e7f3a9c520\n",
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "TIMEZONE_SCRIPT": str(TIMEZONE_SCRIPT),
+        "TARGET": str(target),
+        "BACKUP": str(backup),
+    }
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$TIMEZONE_SCRIPT" >/dev/null; '
+            'timezone_verify_preserved_counts "$TARGET" "$BACKUP" test',
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "manifest is missing required key: sys_users" in result.stderr
+
+
+def test_timezone_cutover_verifies_database_before_async_writers_and_drains_rollback():
+    source = TIMEZONE_SCRIPT.read_text(encoding="utf-8")
+    migrate = source[
+        source.index("timezone_migrate()") : source.index("timezone_restore_database()")
+    ]
+    rollback = source[source.index("timezone_rollback()") :]
+
+    api_ready = migrate.index('timezone_wait_services "$target" 300 backend-api')
+    database_verified = migrate.index('timezone_verify_database_runtime "$target"')
+    counts_verified = migrate.index('timezone_verify_migrated_counts "$target" "$backup"')
+    dispatcher_start = migrate.index('force-recreate dispatcher')
+    workers_start = migrate.index('force-recreate "${workers[@]}"')
+    assert api_ready < database_verified < counts_verified < dispatcher_start < workers_start
+    backup_created = migrate.index('timezone_create_backup "$target" "$backup"')
+    rollback_runtime_ready = migrate.index('timezone_require_previous_runtime "$target" "$backup"')
+    new_mysql_start = migrate.index('force-recreate mysql minio')
+    assert backup_created < rollback_runtime_ready < new_mysql_start
+
+    gateway_stop = rollback.index('stop -t 180 nginx')
+    quiescent = rollback.index('timezone_require_quiescent "$target"')
+    application_stop = rollback.index('stop -t 180 "${services[@]}"')
+    assert gateway_stop < quiescent < application_stop
+    assert 'dirname -- "$backup"' in rollback
+    assert "^timezone-[0-9]{8}-[0-9]{6}$" in rollback
+    assert 'timezone_require_verified_backup "$target" "$backup"' in rollback
+    assert "('open','uploading','ready','finalizing')" in source
+    assert '[[ "$requested_backup" == /* ]]' in rollback
+    minio_verified = rollback.index('timezone_verify_minio_unchanged "$target" "$backup"')
+    database_restore = rollback.index('timezone_restore_database "$target" "$backup"')
+    assert minio_verified < database_restore
+    old_api_ready = rollback.index('timezone_wait_services "$target" 300 backend-api')
+    old_runtime_verified = rollback.index('timezone_verify_rollback_database_runtime "$target"')
+    workers_start = rollback.index('force-recreate "${workers[@]}"')
+    assert database_restore < old_api_ready < old_runtime_verified < workers_start
+
+
 def test_server_release_gates_env_and_runtime_feature_matrix_before_remnant_smoke():
     server = SERVER_SCRIPT.read_text(encoding="utf-8")
     validation = server[
@@ -338,7 +652,8 @@ def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures(
     assert "ExecStart=$target/scripts/server-deploy.sh recover $target" in server
     assert "ExecReload=$target/scripts/server-deploy.sh recover $target" in server
     assert "ExecStop=$target/scripts/server-deploy.sh down $target" in server
-    assert "systemctl enable --now dwg-agent.service" in server
+    assert "systemctl enable dwg-agent.service" in server
+    assert "systemctl start dwg-agent.service" in server
 
 
 def test_server_release_checks_docker_root_space_before_install_and_recovery():
