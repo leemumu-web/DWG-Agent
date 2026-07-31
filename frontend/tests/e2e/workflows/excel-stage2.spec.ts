@@ -141,6 +141,28 @@ function workflow(stage2Status: 'waiting_input' | 'queued' | 'running' | 'succee
   };
 }
 
+function workflowAtExcelStage1(): ReturnType<typeof workflow> {
+  const detail = workflow('waiting_input');
+  const stage1Index = stageDefinitions.findIndex(([code]) => code === 'excel_stage1');
+  return {
+    ...detail,
+    status: 'waiting_input',
+    current_stage: 'excel_stage1',
+    progress: 40,
+    stages: detail.stages.map((stage, index) => ({
+      ...stage,
+      status: index < stage1Index
+        ? 'succeeded'
+        : index === stage1Index ? 'waiting_input' : 'pending',
+      job_id: index < stage1Index ? stage.job_id : null,
+      job_attempt: index < stage1Index ? stage.job_attempt : null,
+      progress: index < stage1Index ? 100 : 0,
+      finished_at: index < stage1Index ? now : null,
+    })),
+    artifacts: detail.artifacts.filter((artifact) => artifact.artifact_type === 'source_excel'),
+  } as ReturnType<typeof workflow>;
+}
+
 const template = {
   code: 'linux_production',
   name: 'Linux 生产流程',
@@ -319,6 +341,69 @@ test('Excel 第二阶段预检失败时只展示工人可执行的修正信息',
   await expect(page.getByText('请求 excel-stage2-stale-result')).toBeVisible();
   await expect(page.getByRole('button', { name: '处理 BH 的左右进' })).toBeDisabled();
   await expect(page.getByText(/Traceback|SQLAlchemy|\/home\//i)).toHaveCount(0);
+});
+
+test('Excel 第二阶段未启用时不误导重试且只请求一次', async ({ page }) => {
+  const detail = workflow('waiting_input');
+  let preflightRequests = 0;
+  await mockSharedApis(page, detail);
+  await page.route('**/api/v1/workflows/81/stages/excel_stage2/preflight', async (route) => {
+    preflightRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'EXCEL_STAGE2_PIPELINE_DISABLED',
+          message: 'Excel 第二阶段处理服务当前未启用。',
+          details: {},
+        },
+        meta: { request_id: 'stage2-disabled-r36' },
+      }),
+    });
+  });
+
+  await authenticate(page);
+  await page.goto('/workflows/81');
+
+  await expect(page.getByText('Excel 第二阶段处理服务当前未启用。')).toBeVisible();
+  await expect(page.getByText('当前部署未开启 Excel 第二阶段处理，请联系管理员检查服务配置。')).toBeVisible();
+  await expect(page.getByText('EXCEL_STAGE2_PIPELINE_DISABLED')).toHaveCount(0);
+  await expect(page.getByText(/稍后重试一次/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重新检查' })).toHaveCount(0);
+  await expect.poll(() => preflightRequests).toBe(1);
+});
+
+test('Excel 第一阶段未启用时使用中文业务标题且不显示错误码', async ({ page }) => {
+  const detail = workflowAtExcelStage1();
+  let preflightRequests = 0;
+  await mockSharedApis(page, detail);
+  await page.route('**/api/v1/workflows/81/stages/excel_stage1/preflight', async (route) => {
+    preflightRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'EXCEL_STAGE1_PIPELINE_DISABLED',
+          message: 'Excel 第一阶段处理服务当前未启用。',
+          details: {},
+        },
+        meta: { request_id: 'stage1-disabled-r36' },
+      }),
+    });
+  });
+
+  await authenticate(page);
+  await page.goto('/workflows/81');
+
+  await expect(page.getByText('Excel 第一阶段运行前检查未通过')).toBeVisible();
+  await expect(page.getByText('Excel 第一阶段处理服务当前未启用。')).toBeVisible();
+  await expect(page.getByText('当前部署未开启 Excel 第一阶段处理，请联系管理员检查服务配置。')).toBeVisible();
+  await expect(page.getByText('EXCEL_STAGE1_PIPELINE_DISABLED')).toHaveCount(0);
+  await expect(page.getByText(/稍后重试一次/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重新检查' })).toHaveCount(0);
+  await expect.poll(() => preflightRequests).toBe(1);
 });
 
 test('Excel 第二阶段读取表与正式结果使用两个单独下载入口', async ({ page }) => {
