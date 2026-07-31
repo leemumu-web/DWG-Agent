@@ -502,6 +502,13 @@ timezone_application_services() {
     done < <(timezone_compose "$target" config --services)
 }
 
+timezone_service_exists() {
+    local target=$1 expected=$2 services
+    services=$(timezone_compose "$target" config --services) \
+        || timezone_die "cannot enumerate Compose services"
+    grep -Fxq -- "$expected" <<<"$services"
+}
+
 timezone_verify_database_runtime() {
     local target=$1 database head session_zone delta
     database=$(timezone_env_value "$target/.env.docker" MYSQL_DATABASE)
@@ -628,7 +635,7 @@ timezone_migrate() {
     timezone_verify_database_runtime "$target"
     timezone_verify_migrated_counts "$target" "$backup"
     timezone_verify_minio_unchanged "$target" "$backup"
-    if timezone_compose "$target" config --services | grep -qx dispatcher; then
+    if timezone_service_exists "$target" dispatcher; then
         timezone_compose "$target" up -d --no-build --force-recreate dispatcher
         timezone_wait_services "$target" 180 dispatcher
     fi

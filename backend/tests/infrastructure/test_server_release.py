@@ -438,6 +438,24 @@ def test_timezone_table_probe_fails_closed_on_database_error(tmp_path: Path):
     assert "metadata query failed while checking table: jobs" in result.stderr
 
 
+def test_timezone_service_probe_does_not_drop_dispatcher_under_pipefail():
+    env = {**os.environ, "TIMEZONE_SCRIPT": str(TIMEZONE_SCRIPT)}
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$TIMEZONE_SCRIPT" >/dev/null; '
+            "timezone_compose() { printf '%s\\n' backend-api dispatcher worker-report; }; "
+            'timezone_service_exists /unused dispatcher',
+        ],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_unverified_timezone_backup_is_rejected(tmp_path: Path):
     target = tmp_path / "server"
     backup = target / "backups" / "timezone-20260801-120000"
