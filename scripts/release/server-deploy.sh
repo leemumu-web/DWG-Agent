@@ -135,6 +135,28 @@ server_validate_runtime() {
     server_require_target "$target"
     grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=CHANGE_ME_' "$target/.env.docker" \
         && server_die "CHANGE_ME_* placeholders remain in .env.docker"
+    local -a expected=(
+        "DXF_PIPELINE_ENABLED=true"
+        "DXF2DWG_PIPELINE_ENABLED=true"
+        "DXF2EXCEL_PIPELINE_ENABLED=false"
+        "DXF_CLASSIFICATION_PIPELINE_ENABLED=true"
+        "DXF_SPLIT_PIPELINE_ENABLED=true"
+        "EXCEL_FINAL_PIPELINE_ENABLED=true"
+        "EXCEL_STAGE2_PIPELINE_ENABLED=true"
+        "REMNANT_INVENTORY_ENABLED=true"
+    )
+    local item key wanted actual
+    for item in "${expected[@]}"; do
+        key=${item%%=*}
+        wanted=${item#*=}
+        actual=$(awk -F= -v expected="$key" '
+            $1 == expected { value = substr($0, index($0, "=") + 1) }
+            END { sub(/\r$/, "", value); print value }
+        ' "$target/.env.docker")
+        actual=${actual,,}
+        [[ "$actual" == "$wanted" ]] \
+            || server_die "$key must be $wanted in the production .env.docker"
+    done
     server_compose "$target" config --quiet
 }
 
@@ -213,6 +235,9 @@ server_smoke() {
     curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
     curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
     server_info "gateway, MySQL and MinIO readiness passed"
+    server_compose "$target" exec -T backend-api \
+        python /app/scripts/release/verify_runtime_features.py
+    server_info "production runtime feature matrix passed"
     server_compose "$target" exec -T backend-api \
         python /app/scripts/release/verify_live_remnant.py \
         --fixture /app/scripts/release/fixtures/oda_runtime_smoke.dxf

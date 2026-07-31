@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -246,6 +247,46 @@ def test_runtime_feature_verifier_has_exact_public_contract():
         assert setting in source
     assert "model_dump" not in source
     assert "os.environ" not in source
+
+
+def _run_runtime_feature_verifier(**overrides: str) -> subprocess.CompletedProcess[str]:
+    feature_env = {
+        "APP_ENV": "development",
+        "MYSQL_PASSWORD": "mysql-runtime-secret",
+        "JWT_SECRET_KEY": "jwt-runtime-secret",
+        "DXF_PIPELINE_ENABLED": "true",
+        "DXF2DWG_PIPELINE_ENABLED": "true",
+        "DXF2EXCEL_PIPELINE_ENABLED": "false",
+        "DXF_CLASSIFICATION_PIPELINE_ENABLED": "true",
+        "DXF_SPLIT_PIPELINE_ENABLED": "true",
+        "EXCEL_FINAL_PIPELINE_ENABLED": "true",
+        "EXCEL_STAGE2_PIPELINE_ENABLED": "true",
+        "REMNANT_INVENTORY_ENABLED": "true",
+        **overrides,
+    }
+    return subprocess.run(
+        [sys.executable, str(RUNTIME_FEATURE_VERIFIER)],
+        cwd=REPO_ROOT / "backend",
+        env={**os.environ, **feature_env},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_runtime_feature_verifier_accepts_only_the_approved_matrix():
+    accepted = _run_runtime_feature_verifier()
+    rejected = _run_runtime_feature_verifier(EXCEL_STAGE2_PIPELINE_ENABLED="false")
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert json.loads(accepted.stdout)["status"] == "ok"
+    assert rejected.returncode == 1
+    assert "excel_stage2_pipeline_enabled" in rejected.stderr
+    for secret in ("mysql-runtime-secret", "jwt-runtime-secret"):
+        assert secret not in accepted.stdout
+        assert secret not in accepted.stderr
+        assert secret not in rejected.stdout
+        assert secret not in rejected.stderr
 
 
 def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures():

@@ -344,7 +344,7 @@ git commit -m "fix: show actionable workflow errors"
 - Modify: `backend/tests/infrastructure/test_scripts.py`
 - Modify: `backend/tests/infrastructure/test_server_release.py`
 
-- [ ] **Step 1: 先写生产模板和脚本失败测试**
+- [x] **Step 1: 先写生产模板和脚本失败测试**
 
 扩展 `test_server_example_enables_approved_shipping_pipelines()`，加入：
 
@@ -357,7 +357,7 @@ git commit -m "fix: show actionable workflow errors"
 
 在 `test_server_release.py` 断言 `server_validate_runtime` 验证完整批准矩阵，`server_smoke` 在余料库真实闭环前调用运行时功能核验脚本。
 
-- [ ] **Step 2: 运行测试确认缺口**
+- [x] **Step 2: 运行测试确认缺口**
 
 Run:
 
@@ -371,7 +371,7 @@ uv run pytest -q \
 
 Expected: 新增的 env-file 与运行时核验断言失败。
 
-- [ ] **Step 3: 实现容器内运行时核验脚本**
+- [x] **Step 3: 实现容器内运行时核验脚本**
 
 `verify_runtime_features.py` 导入 `settings`，检查：
 
@@ -390,11 +390,11 @@ EXPECTED = {
 
 不一致时把字段名、期望布尔值和实际布尔值写到 stderr 并返回非零；一致时只输出不含秘密的 JSON。不得输出整个环境或 Settings。
 
-- [ ] **Step 4: 实现 env-file 生产门禁**
+- [x] **Step 4: 实现 env-file 生产门禁**
 
 在两套 Bash 脚本分别实现逐项精确读取；值统一转小写，只接受上表精确值。`APP_ENV=production` 时必须执行；服务器发布始终按生产矩阵执行。错误信息指出变量和期望值，不打印秘密。
 
-- [ ] **Step 5: 把运行时核验加入镜像和 smoke**
+- [x] **Step 5: 把运行时核验加入镜像和 smoke**
 
 在 `backend/Dockerfile` 将脚本复制到 `/app/scripts/release/verify_runtime_features.py`。在 `compose_smoke` 与 `server_smoke` 中执行：
 
@@ -405,7 +405,7 @@ EXPECTED = {
 
 服务器 smoke 顺序为：网关/就绪 → 运行时功能矩阵 → 余料库 MySQL/MinIO 真实闭环。
 
-- [ ] **Step 6: 运行基础设施测试**
+- [x] **Step 6: 运行基础设施测试**
 
 Run:
 
@@ -419,7 +419,7 @@ uv run pytest -q tests/infrastructure/test_compose.py \
 
 Expected: 全部通过。
 
-- [ ] **Step 7: 提交生产门禁**
+- [x] **Step 7: 提交生产门禁**
 
 ```bash
 git add scripts/release/verify_runtime_features.py scripts/lib/compose.sh \

@@ -114,6 +114,7 @@ COPY scripts/lib/cad_worker.sh /app/scripts/lib/cad_worker.sh
 COPY scripts/lib/local_stack.sh /app/scripts/lib/local_stack.sh
 COPY scripts/lib/common.sh /app/scripts/lib/common.sh
 COPY scripts/storage/verify_transactions.py /app/scripts/storage/verify_transactions.py
+COPY scripts/release/verify_runtime_features.py /app/scripts/release/verify_runtime_features.py
 COPY scripts/release/verify_live_remnant.py /app/scripts/release/verify_live_remnant.py
 COPY scripts/release/fixtures/oda_runtime_smoke.dxf /app/scripts/release/fixtures/oda_runtime_smoke.dxf
 

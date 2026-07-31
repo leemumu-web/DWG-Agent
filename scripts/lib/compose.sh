@@ -35,6 +35,41 @@ compose_die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 compose_info() { printf '==> %s\n' "$*"; }
 compose_warn() { printf 'WARNING: %s\n' "$*" >&2; }
 
+compose_env_value() {
+    local key=$1
+    awk -F= -v expected="$key" '
+        $1 == expected { value = substr($0, index($0, "=") + 1) }
+        END { sub(/\r$/, "", value); print value }
+    ' "$DOCKER_ENV_FILE"
+}
+
+compose_require_production_features() {
+    local app_env
+    app_env=$(compose_env_value APP_ENV)
+    app_env=${app_env,,}
+    [[ "$app_env" == "production" || "$app_env" == "prod" ]] || return 0
+
+    local -a expected=(
+        "DXF_PIPELINE_ENABLED=true"
+        "DXF2DWG_PIPELINE_ENABLED=true"
+        "DXF2EXCEL_PIPELINE_ENABLED=false"
+        "DXF_CLASSIFICATION_PIPELINE_ENABLED=true"
+        "DXF_SPLIT_PIPELINE_ENABLED=true"
+        "EXCEL_FINAL_PIPELINE_ENABLED=true"
+        "EXCEL_STAGE2_PIPELINE_ENABLED=true"
+        "REMNANT_INVENTORY_ENABLED=true"
+    )
+    local item key wanted actual
+    for item in "${expected[@]}"; do
+        key=${item%%=*}
+        wanted=${item#*=}
+        actual=$(compose_env_value "$key")
+        actual=${actual,,}
+        [[ "$actual" == "$wanted" ]] \
+            || compose_die "$key must be $wanted in the production .env.docker"
+    done
+}
+
 compose_require_env() {
     [[ -f "$DOCKER_ENV_FILE" ]] || compose_die "missing .env.docker; copy .env.docker.example and replace placeholders"
     if grep -Eq '^[A-Za-z_][A-Za-z0-9_]*=CHANGE_ME_' "$DOCKER_ENV_FILE"; then
@@ -45,6 +80,7 @@ compose_require_env() {
     for key in "${required[@]}"; do
         grep -Eq "^${key}=.+" "$DOCKER_ENV_FILE" || compose_die "$key is missing or empty in .env.docker"
     done
+    compose_require_production_features
 }
 
 compose_check_source() {
@@ -77,6 +113,9 @@ compose_smoke() {
     curl -fsS "http://127.0.0.1:${port}/nginx-health" >/dev/null
     curl -fsS "http://127.0.0.1:${port}/health/ready" >/dev/null
     compose_info "public gateway and backend readiness checks passed"
+    "${COMPOSE_CMD[@]}" exec -T backend-api \
+        python /app/scripts/release/verify_runtime_features.py
+    compose_info "production runtime feature matrix passed"
 }
 
 compose_verify_storage() {
