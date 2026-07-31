@@ -9,9 +9,9 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.files.models import FileTransfer
-from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException, not_found
 from app.platform.storage.base import AbstractStorageBackend, StorageError
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 _PENDING_STORAGE_OBJECTS = "pending_storage_objects"
@@ -173,7 +173,7 @@ def mark_transfer_in_progress(
         row.bucket = bucket
         row.storage_key = storage_key
         row.expected_bytes = expected_bytes
-        row.started_at = row.started_at or utcnow()
+        row.started_at = row.started_at or business_now()
         db.flush()
         return TransferSnapshot.from_model(row)
 
@@ -204,8 +204,8 @@ def complete_transfer_in_transaction(
     row.original_name = original_name
     row.expected_bytes = row.expected_bytes if row.expected_bytes is not None else transferred_bytes
     row.transferred_bytes = transferred_bytes
-    row.started_at = row.started_at or utcnow()
-    row.finished_at = utcnow()
+    row.started_at = row.started_at or business_now()
+    row.finished_at = business_now()
     row.error_code = None
     row.error_message = None
     db.flush()
@@ -261,8 +261,8 @@ def settle_transfer(
             return TransferSnapshot.from_model(row)
         row.status = status
         row.transferred_bytes = transferred_bytes
-        row.started_at = row.started_at or utcnow()
-        row.finished_at = utcnow()
+        row.started_at = row.started_at or business_now()
+        row.finished_at = business_now()
         row.error_code = error_code
         row.error_message = error_message[:1000] if error_message else None
         db.flush()
@@ -346,7 +346,7 @@ def _prepare_storage_transfer(
         )
         assert row is not None
         row.status = "in_progress"
-        row.started_at = row.started_at or utcnow()
+        row.started_at = row.started_at or business_now()
         return row.transfer_uid, False
 
     factory = session_factory_for(db)
@@ -438,8 +438,8 @@ def _settle_storage_write_failure(
         row.status = "failed"
         row.error_code = "STORAGE_WRITE_FAILED"
         row.error_message = "Object storage rejected the write before metadata commit."
-        row.started_at = row.started_at or utcnow()
-        row.finished_at = utcnow()
+        row.started_at = row.started_at or business_now()
+        row.finished_at = business_now()
 
 
 def _register_pending_storage_object(
@@ -487,7 +487,7 @@ def prepare_destructive_transfer(
         snapshot = prepare_transfer_in_transaction(db, spec)
         row = _transfer_for_update(db, snapshot.transfer_uid)
         row.status = "in_progress"
-        row.started_at = row.started_at or utcnow()
+        row.started_at = row.started_at or business_now()
         db.flush()
         return TransferSnapshot.from_model(row), False
 

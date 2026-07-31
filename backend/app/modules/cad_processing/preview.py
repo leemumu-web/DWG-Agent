@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -40,6 +39,7 @@ from app.platform.storage.base import (
     StorageError,
     StorageObjectNotFound,
 )
+from app.platform.time import business_now
 
 __all__ = [
     "MAX_DXF_SIZE_BYTES",
@@ -118,7 +118,7 @@ def _invalidate_preview_file(
     if preview.status == "deleted":
         return
     preview.status = "deleted"
-    preview.deleted_at = datetime.now(UTC)
+    preview.deleted_at = business_now()
     transfer = prepare_transfer_in_transaction(
         db,
         TransferSpec(

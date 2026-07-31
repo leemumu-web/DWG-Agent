@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, inspect, select
@@ -15,6 +15,7 @@ from app.modules.operations.control_plane.models import (
     WorkerRuntime,
 )
 from app.platform.config.settings import settings
+from app.platform.time import as_business_time, business_now
 
 CONTROL_QUEUE_NAMES = (
     "report",
@@ -42,14 +43,12 @@ PIPELINE_QUEUE_MAP = {
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return business_now()
 
 
 def _is_before(value: datetime, cutoff: datetime) -> bool:
     """SQLite test doubles return naive datetimes despite timezone-aware columns."""
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value < cutoff
+    return as_business_time(value) < cutoff
 
 
 def _upsert_worker_runtime(

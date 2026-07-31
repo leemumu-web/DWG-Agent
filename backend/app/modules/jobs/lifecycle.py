@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
@@ -22,6 +21,7 @@ from app.platform.config.constants import (
     JOB_WAITING_CAD_WORKER,
 )
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def claim_queued_job(
     The conditional UPDATE is the cross-process idempotency boundary. Only the
     worker whose statement updates one row may perform external side effects.
     """
-    started_at = datetime.now(UTC)
+    started_at = business_now()
     event = make_event(
         type_="status",
         status=JOB_RUNNING,
@@ -117,7 +117,7 @@ def commit_job_progress(
     event: dict[str, object],
 ) -> Job | None:
     """Commit pending step data and progress only for the active execution attempt."""
-    now = datetime.now(UTC)
+    now = business_now()
     payload = dict(event)
     payload.update(
         {
@@ -153,7 +153,7 @@ def complete_job_attempt(
     event: dict[str, object],
 ) -> Job | None:
     """Commit pending result rows and succeed only the worker's own attempt."""
-    finished_at = datetime.now(UTC)
+    finished_at = business_now()
     payload = dict(event)
     payload.update(
         {
@@ -199,7 +199,7 @@ def fail_job_attempt(
     error_message: str,
 ) -> Job | None:
     """Fail only the execution generation that raised the error."""
-    finished_at = datetime.now(UTC)
+    finished_at = business_now()
     payload = {
         "job_id": job_id,
         "type": "error",
@@ -249,7 +249,7 @@ def cancel_active_jobs_in_transaction(db: Session) -> ActiveJobCancellation:
     if not job_ids:
         return ActiveJobCancellation(job_ids=(), cancelled_count=0)
 
-    now = datetime.now(UTC)
+    now = business_now()
     cleanup_excel_processing_rows(db, job_ids)
     result = db.execute(
         update(Job)
@@ -297,7 +297,7 @@ def cancel_job(db: Session, job: Job) -> Job:
             "JOB_NOT_CANCELLABLE",
             f"Job cannot be cancelled because it is already {job.status}.",
         )
-    finished_at = datetime.now(UTC)
+    finished_at = business_now()
     payload = make_event(
         type_="done",
         status=JOB_CANCELLED,
@@ -353,7 +353,7 @@ def retry_job(db: Session, job: Job) -> Job:
         )
     previous_attempt = job.attempt
     next_attempt = previous_attempt + 1
-    now = datetime.now(UTC)
+    now = business_now()
     payload = make_event(
         type_="status",
         status=JOB_QUEUED,
@@ -410,7 +410,7 @@ def rerun_succeeded_job(db: Session, job: Job) -> Job:
         )
     previous_attempt = job.attempt
     next_attempt = previous_attempt + 1
-    now = datetime.now(UTC)
+    now = business_now()
     payload = make_event(
         type_="status",
         status=JOB_QUEUED,

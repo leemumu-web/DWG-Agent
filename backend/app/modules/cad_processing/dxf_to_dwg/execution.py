@@ -17,12 +17,12 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.platform.config.settings import settings
+from app.platform.time import business_now
 
 # 如果配置了 ODA_HOME，注入环境变量供 dxf_converter.check_env 探测
 if settings.oda_home:
@@ -133,7 +133,7 @@ def run_dxf_to_dwg_conversion(
             return
 
         # ---- 1. queued → running，写 download_source_dwg 步 ----
-        started_at = job.started_at or datetime.now(UTC)
+        started_at = job.started_at or business_now()
 
         with tempfile.TemporaryDirectory(prefix=f"dxf_job_{job_id}_") as work_dir_str:
             work_dir = Path(work_dir_str)
@@ -221,7 +221,7 @@ def run_dxf_to_dwg_conversion(
                 return
 
             # ---- 2. 调 ODA 转换 ----
-            convert_started = datetime.now(UTC)
+            convert_started = business_now()
             out_dir = work_dir / "out"
             out_dir.mkdir(parents=True, exist_ok=True)
 

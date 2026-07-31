@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.modules.workflows.lifecycle import WORKFLOW_TERMINAL, recompute_workflo
 from app.modules.workflows.models import WorkflowRun
 from app.modules.workflows.templates import get_stage_capability
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 
 def bind_stage_job(db: Session, workflow: WorkflowRun, *, stage_code: str, job: Job) -> None:
@@ -33,7 +34,7 @@ def bind_stage_job(db: Session, workflow: WorkflowRun, *, stage_code: str, job: 
     stage.error_message = None
     stage.output_json = None
     stage.finished_at = None
-    stage.started_at = job.started_at or datetime.now(UTC)
+    stage.started_at = job.started_at or business_now()
     workflow.current_stage = stage.stage_code
     workflow.status = "running"
     workflow.error_code = None
@@ -44,7 +45,7 @@ def bind_stage_job(db: Session, workflow: WorkflowRun, *, stage_code: str, job: 
 
 
 def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
-    now = datetime.now(UTC)
+    now = business_now()
     for stage in workflow.stages:
         if stage.job_id is None:
             continue

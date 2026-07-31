@@ -8,7 +8,7 @@ import logging
 import shutil
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -63,6 +63,7 @@ from app.platform.config.constants import (
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 from app.platform.storage.base import StorageObjectNotFound
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -544,7 +545,7 @@ def _add_step(
         output_json=output_json,
         error_message=error_message,
         started_at=started_at,
-        finished_at=datetime.now(UTC),
+        finished_at=business_now(),
     ))
 
 
@@ -760,7 +761,7 @@ def run_excel_stage2_processing(
         if job is None:
             return
         attempt = job.attempt
-        validation_started = datetime.now(UTC)
+        validation_started = business_now()
         inputs = resolve_excel_stage2_worker_inputs(db, job)
         _add_step(
             db,
@@ -817,7 +818,7 @@ def run_excel_stage2_processing(
             bh_input_count=len(inputs.classification_batch.items),
         )
 
-        reader_started = datetime.now(UTC)
+        reader_started = business_now()
         try:
             reader = run_bh_reader_batch(
                 db,
@@ -875,7 +876,7 @@ def run_excel_stage2_processing(
             },
         )
 
-        stage_started = datetime.now(UTC)
+        stage_started = business_now()
         output_name = f"{Path(inputs.stage1_excel.original_name).stem}_BH左右进处理后.xlsx"
         output_path = work_dir / "stage2.xlsx"
         stage_result = run_excel_stage2_pipeline(
@@ -915,7 +916,7 @@ def run_excel_stage2_processing(
             stage2_status=stage_result.status,
         )
 
-        import_started = datetime.now(UTC)
+        import_started = business_now()
         batch, database_stats = import_workbook_for_job(
             db,
             job_id=job.id,
@@ -950,7 +951,7 @@ def run_excel_stage2_processing(
             stage2_status=stage_result.status,
         )
 
-        persist_started = datetime.now(UTC)
+        persist_started = business_now()
         result_payload = {
             "source": "excel_stage2_bh",
             "stage2_status": stage_result.status,

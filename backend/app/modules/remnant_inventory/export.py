@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from zoneinfo import ZoneInfo
 
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
@@ -20,9 +19,9 @@ from app.modules.remnant_inventory.models import (
     RemnantMaterial,
     RemnantPart,
 )
+from app.platform.time import as_business_time, business_now
 
 EXCEL_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-BEIJING = ZoneInfo("Asia/Shanghai")
 STATUS_LABELS = {
     "available": "可用",
     "reserved": "已预留",
@@ -72,8 +71,7 @@ class CleanupFileResponse(FileResponse):
 def _excel_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
-    aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    return aware.astimezone(BEIJING).replace(tzinfo=None)
+    return as_business_time(value).replace(tzinfo=None)
 
 
 def _excel_safe_value(value: object) -> object:
@@ -181,5 +179,5 @@ def build_remnant_export(db: Session) -> PreparedRemnantExport:
     except BaseException:
         path.unlink(missing_ok=True)
         raise
-    filename = f"余料库_{datetime.now(BEIJING):%Y%m%d_%H%M%S}.xlsx"
+    filename = f"余料库_{business_now():%Y%m%d_%H%M%S}.xlsx"
     return PreparedRemnantExport(path=path, filename=filename, row_count=len(remnants))

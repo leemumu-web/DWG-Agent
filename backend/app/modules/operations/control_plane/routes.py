@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, update
 
@@ -13,6 +11,7 @@ from app.platform.config.constants import ROLE_ADMIN
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok, page
+from app.platform.time import business_now
 
 router = APIRouter()
 reader = require_roles(ROLE_ADMIN)
@@ -98,7 +97,7 @@ def mark_message_read(message_id: int, request: Request, db: DbSession, _user=De
     if row is None:
         raise HTTPException(status_code=404, detail="Platform message not found")
     if row.status != "read":
-        row.status, row.read_at = "read", datetime.now(UTC)
+        row.status, row.read_at = "read", business_now()
         db.commit()
         db.refresh(row)
     return ok(_message(row), request.state.request_id)

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -62,6 +61,7 @@ from app.platform.config.constants import (
     STEP_RUN_DXF2EXCEL,
 )
 from app.platform.database.session import SessionLocal
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ def run_dxf2excel_extraction(
             work_dir = Path(work_dir_str)
 
             # ---- 2. 下载 batch 内所有 DXF ----
-            download_started = datetime.now(UTC)
+            download_started = business_now()
             dxf_paths, download_stats = _stage_dxf_batch(db, batch_name, work_dir)
 
             if not dxf_paths and download_stats["dxf_count"] == 0:
@@ -190,7 +190,7 @@ def run_dxf2excel_extraction(
                 return
 
             # ---- 3. 逐文件运行 dxf2excel pipeline（实时进度） ----
-            pipeline_started = datetime.now(UTC)
+            pipeline_started = business_now()
             output_path = work_dir / f"{batch_workbook_stem(batch_name)}.xlsx"
 
             try:

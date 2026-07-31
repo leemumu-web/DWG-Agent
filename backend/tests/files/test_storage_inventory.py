@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -59,6 +59,7 @@ def test_local_stat_and_exists_distinguish_missing_objects(tmp_path: Path):
     assert info.storage_key == "uploads/a.dwg"
     assert info.size_bytes == 3
     assert info.last_modified is not None
+    assert info.last_modified.utcoffset() == timedelta(hours=8)
     assert storage.object_exists("dwg-original", "uploads/a.dwg") is True
     assert storage.object_exists("dwg-original", "uploads/missing.dwg") is False
     with pytest.raises(StorageObjectNotFound):

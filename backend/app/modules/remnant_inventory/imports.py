@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unicodedata
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import or_, select
@@ -31,6 +30,7 @@ from app.modules.remnant_inventory.schemas import (
 from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 REMNANT_SOURCE_EXTENSIONS = {".dwg", ".dxf"}
 _ADMIN_ROLES = {ROLE_ADMIN, ROLE_SUPER_ADMIN}
@@ -466,7 +466,7 @@ def confirm_import_items(
             remark_2=item.corrected_remark_2,
             imported_by=db.get(RemnantImportBatch, item.batch_id).created_by,
             confirmed_by=actor.id,
-            confirmed_at=datetime.now(UTC),
+            confirmed_at=business_now(),
         )
         try:
             with db.begin_nested():

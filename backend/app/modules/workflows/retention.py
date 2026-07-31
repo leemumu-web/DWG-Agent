@@ -9,7 +9,7 @@ import re
 import secrets
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import PurePosixPath
 from typing import Any
 from uuid import uuid4
@@ -43,7 +43,6 @@ from app.modules.workflows.models import (
     WorkflowStageRun,
 )
 from app.platform.config.settings import settings
-from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage import factory as storage_factory
 from app.platform.storage.base import (
@@ -51,6 +50,7 @@ from app.platform.storage.base import (
     StorageError,
     StorageObjectNotFound,
 )
+from app.platform.time import as_business_time, business_now
 
 TERMINAL_WORKFLOW_STATUSES = {"succeeded", "failed", "cancelled"}
 ACTIVE_EXECUTION_STATUSES = {"queued", "running"}
@@ -651,7 +651,7 @@ def create_retention_export(
         manifest_json=list(scope.manifest),
         manifest_sha256=scope.manifest_sha256,
         token_digest=hashlib.sha256(token.encode()).hexdigest(),
-        token_expires_at=datetime.now(UTC)
+        token_expires_at=business_now()
         + timedelta(minutes=settings.workflow_batch_export_ttl_minutes),
         file_count=scope.file_count,
         preview_cache_count=scope.preview_cache_count,
@@ -674,10 +674,6 @@ def retention_download_path(workflow_id: int, export_uid: str) -> str:
     )
 
 
-def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
 def require_retention_token(row: WorkflowRetentionExport, token: str | None) -> None:
     if (
         not token
@@ -692,7 +688,7 @@ def require_retention_token(row: WorkflowRetentionExport, token: str | None) -> 
             "WORKFLOW_RETENTION_TOKEN_INVALID",
             "本次完整备份的下载凭据无效。",
         )
-    if _as_utc(row.token_expires_at) < datetime.now(UTC):
+    if as_business_time(row.token_expires_at) < business_now():
         raise AppHTTPException(
             410,
             "WORKFLOW_RETENTION_TOKEN_EXPIRED",
@@ -824,7 +820,7 @@ def mark_retention_download_result(
             return
         if succeeded:
             row.status = "downloaded"
-            row.downloaded_at = row.downloaded_at or utcnow()
+            row.downloaded_at = row.downloaded_at or business_now()
             row.error_code = None
             row.error_message = None
         else:
@@ -989,7 +985,7 @@ def execute_retention_purge(
             actor_user_id = row.created_by
             row.status = "purging"
             row.purge_transfer_uid = transfer_uid
-            row.purge_started_at = row.purge_started_at or utcnow()
+            row.purge_started_at = row.purge_started_at or business_now()
             row.error_code = None
             row.error_message = None
 
@@ -1050,7 +1046,7 @@ def execute_retention_purge(
                         .with_for_update()
                     ).all()
                 )
-                now = utcnow()
+                now = business_now()
                 for stored in stored_rows:
                     stored.status = "deleted"
                     stored.deleted_at = now

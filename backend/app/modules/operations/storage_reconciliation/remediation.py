@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import json
 import mimetypes
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,13 +23,13 @@ from app.modules.operations.storage_reconciliation.schemas import (
     RemediationResult,
 )
 from app.platform.config.settings import settings
-from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import (
     AbstractStorageBackend,
     StorageError,
     StorageObjectNotFound,
 )
+from app.platform.time import business_now
 
 REMEDIATION_ACTION_FINDING_TYPES = {
     "restore": "retained_deleted",
@@ -80,7 +80,7 @@ def _prepare_purge_transfer(
         )
         assert row is not None
         row.status = "in_progress"
-        row.started_at = row.started_at or utcnow()
+        row.started_at = row.started_at or business_now()
         return row.transfer_uid, False
 
     factory = session_factory_for(db)
@@ -340,7 +340,7 @@ def preview_remediation(
             "REMEDIATION_BYTE_LIMIT",
             "Selected findings exceed the remediation byte limit.",
         )
-    expires_at = datetime.now(UTC) + REMEDIATION_PREVIEW_TTL
+    expires_at = business_now() + REMEDIATION_PREVIEW_TTL
     payload = {
         "actor_user_id": actor_user_id,
         "action": action,
@@ -407,7 +407,7 @@ def execute_remediation(
             "REMEDIATION_PREVIEW_ACTOR_MISMATCH",
             "Remediation preview belongs to a different actor.",
         )
-    if int(payload.get("expires_at", 0)) < int(datetime.now(UTC).timestamp()):
+    if int(payload.get("expires_at", 0)) < int(business_now().timestamp()):
         raise AppHTTPException(
             409,
             "REMEDIATION_PREVIEW_EXPIRED",
@@ -503,7 +503,7 @@ def execute_remediation(
                         "File changed.",
                     )
                 stored_file.status = "deleted"
-                stored_file.deleted_at = utcnow()
+                stored_file.deleted_at = business_now()
                 affected_file_ids.append(stored_file.id)
             elif action == "register_existing":
                 if (
@@ -550,7 +550,7 @@ def execute_remediation(
             finding.resolution_status = "resolved"
             finding.resolution_action = action
             finding.resolved_by = actor_user_id
-            finding.resolved_at = utcnow()
+            finding.resolved_at = business_now()
     except StorageError as exc:
         if durable_purge_transfer and purge_transfer_uid is not None:
             from app.modules.files.interface import (
@@ -581,7 +581,7 @@ def execute_remediation(
             assert transfer is not None
             transfer.status = "succeeded"
             transfer.transferred_bytes = total_bytes
-            transfer.finished_at = utcnow()
+            transfer.finished_at = business_now()
     else:
         transfer = FileTransfer(
             transfer_uid=str(uuid4()),
@@ -598,8 +598,8 @@ def execute_remediation(
             original_name=(str(metadata.get("original_name")) if metadata else None),
             expected_bytes=total_bytes,
             transferred_bytes=total_bytes,
-            started_at=utcnow(),
-            finished_at=utcnow(),
+            started_at=business_now(),
+            finished_at=business_now(),
         )
         db.add(transfer)
         db.flush()

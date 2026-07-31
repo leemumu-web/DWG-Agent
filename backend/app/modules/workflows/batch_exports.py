@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import secrets
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import PurePosixPath
 from typing import Any
 from uuid import uuid4
@@ -36,9 +36,9 @@ from app.modules.workflows.models import (
     WorkflowRun,
 )
 from app.platform.config.settings import settings
-from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException, forbidden, not_found
 from app.platform.storage import factory as storage_factory
+from app.platform.time import as_business_time, business_now
 
 EXPORT_COOKIE_NAME = "dwg_workflow_export"
 VISIBLE_EXPORT_CATEGORY_ORDER = (
@@ -383,7 +383,7 @@ def create_export(
         categories_json=[category for category in EXPORT_CATEGORY_ORDER if category in categories],
         manifest_json=manifest,
         token_digest=hashlib.sha256(token.encode()).hexdigest(),
-        token_expires_at=datetime.now(UTC)
+        token_expires_at=business_now()
         + timedelta(minutes=settings.workflow_batch_export_ttl_minutes),
         file_count=len(manifest),
         source_size_bytes=sum(int(item["size_bytes"]) for item in manifest),
@@ -406,10 +406,6 @@ def export_download_path(workflow_id: int, export_uid: str) -> str:
     return f"{settings.api_v1_prefix}/workflows/{workflow_id}/batch-exports/{export_uid}/download"
 
 
-def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
 def require_export_token(row: WorkflowBatchExport, token: str | None) -> None:
     if (
         not token
@@ -424,7 +420,7 @@ def require_export_token(row: WorkflowBatchExport, token: str | None) -> None:
             "WORKFLOW_EXPORT_TOKEN_INVALID",
             "本次分批导出的下载凭据无效。",
         )
-    if _as_utc(row.token_expires_at) < datetime.now(UTC):
+    if as_business_time(row.token_expires_at) < business_now():
         raise AppHTTPException(
             410,
             "WORKFLOW_EXPORT_TOKEN_EXPIRED",
@@ -563,7 +559,7 @@ def mark_download_result(
             return
         if succeeded:
             row.status = "downloaded"
-            row.downloaded_at = row.downloaded_at or utcnow()
+            row.downloaded_at = row.downloaded_at or business_now()
             row.error_code = None
             row.error_message = None
         else:
@@ -718,7 +714,7 @@ def purge_export(
             transferred_bytes=released_bytes,
         )
 
-    now = utcnow()
+    now = business_now()
     for stored in targets:
         stored.status = "deleted"
         stored.deleted_at = now

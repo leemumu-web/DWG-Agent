@@ -22,13 +22,13 @@ from app.modules.files.interface import (
 from app.modules.operations.daily_archive.models import DailyArchiveRun
 from app.modules.operations.daily_archive.planning import (
     DAILY_ARCHIVE_TERMINAL,
+    _business_iso,
     _canonical_files,
     _manifest_sha256,
-    _utc_iso,
 )
 from app.platform.config.settings import settings
-from app.platform.database.mixins import utcnow
 from app.platform.storage.base import StorageError
+from app.platform.time import business_now
 
 
 def _safe_archive_name(row: StoredFile) -> str:
@@ -55,7 +55,7 @@ def _build_archive_files(
         "source_manifest_sha256": run.source_manifest_sha256,
         "file_count": run.file_count,
         "total_bytes": run.total_bytes,
-        "created_at": _utc_iso(utcnow()),
+        "created_at": _business_iso(business_now()),
         "files": canonical,
     }
     manifest_bytes = json.dumps(
@@ -135,7 +135,7 @@ def _prepare_sqlite_transfer(db: Session, spec: TransferSpec) -> str:
     row = db.scalar(select(FileTransfer).where(FileTransfer.transfer_uid == snapshot.transfer_uid))
     assert row is not None
     row.status = "in_progress"
-    row.started_at = row.started_at or utcnow()
+    row.started_at = row.started_at or business_now()
     return row.transfer_uid
 
 
@@ -239,7 +239,7 @@ def _persist_archive_outputs(
             run.status = "succeeded"
             run.error_code = None
             run.error_message = None
-            run.finished_at = utcnow()
+            run.finished_at = business_now()
     except Exception:
         for transfer_uid in transfer_uids:
             settle_transfer(
@@ -268,7 +268,7 @@ def execute_daily_archive_run(
         if run.status != "queued":
             return
         run.status = "running"
-        run.started_at = run.started_at or utcnow()
+        run.started_at = run.started_at or business_now()
         run.error_code = None
         run.error_message = None
     try:
@@ -307,7 +307,7 @@ def execute_daily_archive_run(
                     else "DAILY_ARCHIVE_EXECUTION_FAILED"
                 )
                 run.error_message = "归档未完成；源文件或对象存储在执行期间发生变化，请重新预检。"
-                run.finished_at = utcnow()
+                run.finished_at = business_now()
         raise
     finally:
         if archive_path is not None:

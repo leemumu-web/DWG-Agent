@@ -105,7 +105,7 @@ def _make_stored_file(*, storage_key: str, status: str, updated_at: datetime) ->
         md5="b" * 32,
         status=status,
     )
-    # created_at/updated_at carry an ``onupdate=utcnow`` default that only fires
+    # created_at/updated_at carry an ``onupdate=business_now`` default that only fires
     # on UPDATE, so an explicit value set at INSERT time is preserved verbatim —
     # letting us backdate rows for the retention-window assertions.
     row.created_at = updated_at

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import ezdxf
 import openpyxl
@@ -1537,7 +1538,7 @@ def test_split_run_projection_accepts_mysql_naive_timestamps(db, monkeypatch, tm
         tmp_path,
         with_candidate=False,
     )
-    now = datetime(2026, 7, 25, 10, 0, tzinfo=UTC)
+    now = datetime(2026, 7, 25, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
     run.status = "running"
     run.started_at = datetime(2026, 7, 25, 9, 58)
     run.finished_at = None

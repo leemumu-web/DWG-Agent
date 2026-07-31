@@ -5,9 +5,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO, Literal
+
+from app.platform.time import business_now
 
 
 class StorageError(Exception):
@@ -79,7 +81,7 @@ class StorageCapacity:
             used_bytes=used_bytes,
             free_bytes=free_bytes,
             used_percent=used_percent,
-            checked_at=datetime.now(UTC),
+            checked_at=business_now(),
         )
 
     @classmethod
@@ -90,7 +92,7 @@ class StorageCapacity:
             used_bytes=None,
             free_bytes=None,
             used_percent=None,
-            checked_at=datetime.now(UTC),
+            checked_at=business_now(),
             reason=reason,
         )
 

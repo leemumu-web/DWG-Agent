@@ -6,7 +6,6 @@ import hashlib
 import json
 import logging
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +74,7 @@ from app.platform.config.constants import (
 )
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 _CLASSIFICATION_ARTIFACT_TYPES = {
@@ -109,7 +109,7 @@ def _add_step(
     input_json: dict[str, Any] | None = None,
     output_json: dict[str, Any] | None = None,
 ) -> None:
-    now = datetime.now(UTC)
+    now = business_now()
     db.add(
         JobStep(
             job_id=job_id,

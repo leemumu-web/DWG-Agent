@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -21,6 +20,7 @@ from app.modules.jobs.models import AnalysisResult, JobStep
 from app.platform.config.constants import JOB_RUNNING, JOB_SUCCEEDED, PIPELINE_STUB
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
+from app.platform.time import business_now
 
 
 def _exception_message(exc: Exception) -> str:
@@ -62,7 +62,7 @@ def run_local_stub_job(
         if job is None:
             return
         attempt = job.attempt
-        started_at = job.started_at or datetime.now(UTC)
+        started_at = job.started_at or business_now()
         db.add(
             JobStep(
                 job_id=job.id,
@@ -73,7 +73,7 @@ def run_local_stub_job(
                 input_json={"pipeline": PIPELINE_STUB},
                 output_json={"message": "Celery framework stub accepted the job."},
                 started_at=started_at,
-                finished_at=datetime.now(UTC),
+                finished_at=business_now(),
             )
         )
         job = commit_job_progress(
@@ -134,8 +134,8 @@ def run_local_stub_job(
                 status="succeeded",
                 input_json={"result_file_id": result_file.id},
                 output_json={"analysis_result": "created"},
-                started_at=datetime.now(UTC),
-                finished_at=datetime.now(UTC),
+                started_at=business_now(),
+                finished_at=business_now(),
             )
         )
         complete_job_attempt(

@@ -22,9 +22,9 @@ from app.modules.operations.storage_reconciliation.remediation import (
     preview_remediation,
 )
 from app.modules.operations.storage_reconciliation.scanning import execute_scan_run
-from app.platform.database.mixins import utcnow
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.local import LocalFileStorage
+from app.platform.time import business_now
 
 
 def _factory(db):
@@ -268,7 +268,7 @@ def test_restore_clears_deleted_at_and_records_transfer(db, tmp_path):
         key="retained/restore.dwg",
         status="deleted",
     )
-    stored_file.deleted_at = utcnow()
+    stored_file.deleted_at = business_now()
     db.commit()
     _put(storage, stored_file.bucket, stored_file.storage_key, b"abc")
     run = _run(db, storage, ["dwg-original"])

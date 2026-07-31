@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -12,6 +11,7 @@ from app.modules.identity.schemas.user import UserCreate, UserSelfUpdate, UserUp
 from app.platform.config.constants import ACTIVE, DELETED, DISABLED
 from app.platform.http.exceptions import AppHTTPException, not_found
 from app.platform.security.tokens import hash_password
+from app.platform.time import business_now
 
 
 def create_user(db: Session, payload: UserCreate) -> User:
@@ -77,7 +77,7 @@ def transition_user_status(
     """
     values: dict = {"status": to_status}
     if set_deleted_at:
-        values["deleted_at"] = datetime.now(UTC)
+        values["deleted_at"] = business_now()
     result = db.execute(
         update(User).where(User.id == user_id, User.status != DELETED).values(**values)
     )

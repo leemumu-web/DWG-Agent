@@ -13,6 +13,28 @@ from app.platform.database import session as session_module
 from app.platform.database.session import SessionLocal, db_health, engine, get_db, pool_args
 
 
+class RecordingCursor:
+    def __init__(self, statements: list[str]):
+        self.statements = statements
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, statement: str):
+        self.statements.append(statement)
+
+
+class RecordingDbApiConnection:
+    def __init__(self):
+        self.statements: list[str] = []
+
+    def cursor(self):
+        return RecordingCursor(self.statements)
+
+
 class TestEngineConfiguration:
     def test_engine_uses_configured_url(self):
         """Engine URL matches the effective application database URL."""
@@ -129,3 +151,10 @@ class TestMySQLPoolConfiguration:
         assert s.db_pool_max_overflow == 2
         assert s.db_pool_timeout_seconds == 30
         assert s.db_pool_recycle_seconds == 3600
+
+    def test_mysql_connection_hook_sets_beijing_session_timezone(self):
+        connection = RecordingDbApiConnection()
+
+        session_module._configure_mysql_timezone(connection, None)
+
+        assert connection.statements == ["SET time_zone = '+08:00'"]

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -38,6 +37,7 @@ from app.modules.jobs.interface import AnalysisResult, Job, fail_job_attempt
 from app.modules.workflows.interface import WorkflowInputItem, WorkflowRun
 from app.platform.config.constants import TASK_STEEL_DXF_CLASSIFICATION
 from app.platform.config.settings import settings
+from app.platform.time import business_now
 
 
 def classification_request_id(*, job_id: int, attempt: int, relative_path: str) -> str:
@@ -96,7 +96,7 @@ def get_or_create_classification_run(
             project_name=project_name,
             input_manifest_sha256=manifest_sha256,
             input_count=input_count,
-            started_at=datetime.now(UTC),
+            started_at=business_now(),
         )
         db.add(run)
         db.commit()
@@ -289,7 +289,7 @@ def finish_classification_run(
     )
     run.report_file_id = report_file.id
     run.manifest_file_id = manifest_file.id
-    run.finished_at = datetime.now(UTC)
+    run.finished_at = business_now()
 
 
 def mark_classification_failed(db: Session, job_id: int, attempt: int, exc: Exception) -> None:
@@ -304,7 +304,7 @@ def mark_classification_failed(db: Session, job_id: int, attempt: int, exc: Exce
         run.status = "failed"
         run.error_code = ERROR_CODE_CLASSIFICATION_FAILED
         run.error_message = message
-        run.finished_at = datetime.now(UTC)
+        run.finished_at = business_now()
     fail_job_attempt(
         db,
         job_id,
@@ -350,7 +350,7 @@ def reconcile_classification_run_for_terminal_job(
         if run.status == "cancelled"
         else "分类 attempt 已中断或由新的 attempt 取代。"
     )
-    run.finished_at = datetime.now(UTC)
+    run.finished_at = business_now()
     db.flush()
     return True
 

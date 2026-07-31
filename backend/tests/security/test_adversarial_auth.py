@@ -283,13 +283,14 @@ class TestPasswordChangeStaleness:
         iat = float(decoded["iat"])
         # Set password_changed_at using the db fixture (verified to work in
         # test_token_issued_after_password_change_still_valid).
-        from datetime import UTC, datetime
+        from datetime import datetime
 
         from app.modules.identity.interface import User
+        from app.platform.time import BUSINESS_TIMEZONE
 
         user = db.get(User, 1)
         assert user is not None, "Admin user (id=1) not found in test DB"
-        user.password_changed_at = datetime.fromtimestamp(iat, tz=UTC)
+        user.password_changed_at = datetime.fromtimestamp(iat, tz=BUSINESS_TIMEZONE)
         db.commit()
         # Now the token must be rejected: iat <= pwd_change_ts (equal).
         resp = client.get("/api/v1/auth/me", headers=h)

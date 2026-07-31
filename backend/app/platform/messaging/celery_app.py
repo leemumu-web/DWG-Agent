@@ -5,7 +5,7 @@ import os
 import socket
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event, Thread
 
@@ -24,6 +24,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.platform.config.settings import settings
 from app.platform.database.session import engine
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ celery_app.conf.update(
     },
     task_serializer="json",
     task_track_started=True,
-    timezone="UTC",
+    timezone=settings.business_timezone,
     # Kombu's SQLAlchemy transport has no fanout exchange, so remote-control
     # and event-monitoring broadcasts are intentionally disabled.
     task_send_sent_event=False,
@@ -300,7 +301,7 @@ def cleanup_consumed_broker_messages(
     if "timestamp" not in message_table.c:
         raise RuntimeError(f"{table_name} has no timestamp column")
 
-    cutoff = (now or datetime.now(UTC)) - timedelta(
+    cutoff = (now or business_now()) - timedelta(
         seconds=settings.celery_stale_job_timeout_seconds * 2,
     )
     with db_engine.begin() as connection:

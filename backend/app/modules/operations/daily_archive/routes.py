@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
@@ -20,6 +20,7 @@ from app.platform.http.dependencies import DbSession
 from app.platform.http.envelopes import ok
 from app.platform.http.envelopes import page as page_response
 from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.time import business_now
 
 router = APIRouter()
 data_reader = require_roles(ROLE_ADMIN)
@@ -125,7 +126,7 @@ def create_daily_archive_run(
                     failed.status = "failed"
                     failed.error_code = "DAILY_ARCHIVE_ENQUEUE_FAILED"
                     failed.error_message = "维护队列暂不可用，归档未开始。"
-                    failed.finished_at = datetime.now(UTC)
+                    failed.finished_at = business_now()
             raise AppHTTPException(
                 503,
                 "DAILY_ARCHIVE_ENQUEUE_FAILED",

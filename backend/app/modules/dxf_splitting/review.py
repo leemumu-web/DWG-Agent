@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -29,6 +27,7 @@ from app.modules.workflows.interface import (
     sync_workflow_from_jobs,
 )
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 
 def _current_review_run(
@@ -225,7 +224,7 @@ def decide_split_item(
                 "current_version": current_version,
             },
         )
-    decided_at = datetime.now(UTC)
+    decided_at = business_now()
     if decision is None:
         decision = DxfSplitReviewDecision(
             split_item_id=item.id,

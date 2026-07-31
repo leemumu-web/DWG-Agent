@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import mimetypes
-from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import SpooledTemporaryFile
 from uuid import uuid4
@@ -31,6 +30,7 @@ from app.platform.config.constants import ALLOWED_UPLOAD_EXTENSIONS
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 router = APIRouter()
 
@@ -173,7 +173,7 @@ async def upload_zip(
         else zip_original.rsplit(".", 1)[0]
     )
     if not batch_name or batch_name == "unnamed":
-        batch_name = f"导入_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
+        batch_name = f"导入_{business_now().strftime('%Y%m%d_%H%M%S')}"
 
     # ── buffer the upload ──────────────────────────────────────────────────
     max_upload = settings.max_upload_size_mb * 1024 * 1024

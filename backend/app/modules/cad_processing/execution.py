@@ -8,7 +8,7 @@ their owning conversion package.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.modules.files.interface import StoredFile, get_storage_backend
 from app.modules.jobs.interface import Job, JobStep, fail_job_attempt
 from app.platform.storage.base import StorageObjectNotFound
+from app.platform.time import business_now
 
 
 class CadProcessingError(Exception):
@@ -117,7 +118,7 @@ def add_job_step(
             output_json=output_json,
             error_message=error_message,
             started_at=started_at,
-            finished_at=datetime.now(UTC),
+            finished_at=business_now(),
         )
     )
 

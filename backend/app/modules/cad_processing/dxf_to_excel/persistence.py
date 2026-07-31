@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -36,6 +35,7 @@ from app.platform.config.constants import (
     TASK_DXF_TO_EXCEL,
 )
 from app.platform.config.settings import settings
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def persist_excel_extraction_result(
         )
         return False
 
-    persist_started = datetime.now(UTC)
+    persist_started = business_now()
     excel_bytes = output_path.read_bytes()
     output_basename = sanitize_filename(batch_name)
     excel_file = save_bytes_as_file(

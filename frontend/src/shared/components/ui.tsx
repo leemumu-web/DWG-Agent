@@ -76,6 +76,7 @@ export function fmtSize(bytes: number): string {
 export function fmtDateTime(v?: string | null): string {
   if (!v) return '—';
   return new Date(v).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

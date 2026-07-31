@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -17,6 +15,7 @@ from app.modules.workflows.models import WorkflowRun, WorkflowStageRun
 from app.modules.workflows.schemas import WorkflowCreate
 from app.modules.workflows.templates import WORKFLOW_DEFINITIONS, get_stage_capability
 from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.time import business_now
 
 WORKFLOW_TERMINAL = {"succeeded", "failed", "cancelled"}
 STAGE_TERMINAL = {"succeeded", "failed", "cancelled", "skipped"}
@@ -88,7 +87,7 @@ def start_workflow(db: Session, workflow: WorkflowRun) -> WorkflowRun:
     if workflow.status != "draft":
         raise AppHTTPException(409, "WORKFLOW_NOT_DRAFT", "Only a draft workflow can start.")
     first = min(workflow.stages, key=lambda stage: stage.sequence)
-    now = datetime.now(UTC)
+    now = business_now()
     workflow.status = "waiting_input"
     workflow.current_stage = first.stage_code
     workflow.started_at = now
@@ -132,7 +131,7 @@ def complete_manual_stage(
     require_stage_outputs(workflow, stage_code)
     if workflow.workflow_type == "linux_production" and stage_code != "source_intake":
         verify_required_dxf_objects(db, workflow, stage_code)
-    now = datetime.now(UTC)
+    now = business_now()
     stage.status = "succeeded"
     stage.progress = 100
     stage.finished_at = now
@@ -147,7 +146,7 @@ def complete_manual_stage(
 def cancel_workflow(workflow: WorkflowRun) -> WorkflowRun:
     if workflow.status in WORKFLOW_TERMINAL:
         raise AppHTTPException(409, "WORKFLOW_TERMINAL", "Workflow is already terminal.")
-    now = datetime.now(UTC)
+    now = business_now()
     workflow.status = "cancelled"
     workflow.finished_at = now
     for stage in workflow.stages:
@@ -171,7 +170,7 @@ def recompute_workflow(workflow: WorkflowRun) -> None:
         workflow.current_stage = failed.stage_code
         workflow.error_code = failed.error_code
         workflow.error_message = failed.error_message
-        workflow.finished_at = failed.finished_at or datetime.now(UTC)
+        workflow.finished_at = failed.finished_at or business_now()
         return
     cancelled = next((stage for stage in stages if stage.status == "cancelled"), None)
     if cancelled is not None:
@@ -179,13 +178,13 @@ def recompute_workflow(workflow: WorkflowRun) -> None:
         workflow.current_stage = cancelled.stage_code
         workflow.error_code = "WORKFLOW_STAGE_CANCELLED"
         workflow.error_message = "The current stage job was cancelled and can be retried."
-        workflow.finished_at = cancelled.finished_at or datetime.now(UTC)
+        workflow.finished_at = cancelled.finished_at or business_now()
         return
     if all(stage.status in {"succeeded", "skipped"} for stage in stages):
         workflow.status = "succeeded"
         workflow.progress = 100
         workflow.current_stage = stages[-1].stage_code
-        workflow.finished_at = datetime.now(UTC)
+        workflow.finished_at = business_now()
         return
     current = next((stage for stage in stages if stage.status not in STAGE_TERMINAL), stages[-1])
     workflow.current_stage = current.stage_code

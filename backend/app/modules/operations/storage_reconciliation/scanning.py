@@ -8,8 +8,8 @@ from app.modules.files.interface import (
     StorageScanRun,
     StoredFile,
 )
-from app.platform.database.mixins import utcnow
 from app.platform.storage.base import AbstractStorageBackend, ObjectInfo
+from app.platform.time import business_now
 
 
 def _load_file_snapshot(
@@ -66,7 +66,7 @@ def execute_scan_run(
         if run.scope_bucket is not None:
             scoped_buckets = [run.scope_bucket]
         run.status = "running"
-        run.started_at = run.started_at or utcnow()
+        run.started_at = run.started_at or business_now()
         run.error_code = None
         run.error_message = None
 
@@ -163,7 +163,7 @@ def execute_scan_run(
             run.size_mismatch_count = size_mismatch_count
             run.error_count = 0
             run.status = "succeeded"
-            run.finished_at = utcnow()
+            run.finished_at = business_now()
     except Exception:
         with factory.begin() as db:
             run = db.get(StorageScanRun, scan_run_id)
@@ -172,7 +172,7 @@ def execute_scan_run(
                 run.error_count = 1
                 run.error_code = "STORAGE_SCAN_FAILED"
                 run.error_message = "Storage consistency scan could not be completed."
-                run.finished_at = utcnow()
+                run.finished_at = business_now()
         raise
 
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -18,6 +17,7 @@ from app.modules.remnant_inventory.materials import material_ids_for_search
 from app.modules.remnant_inventory.models import Remnant, RemnantMaterial, RemnantPart
 from app.platform.config.constants import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 ACTIVE_STATUSES = ("available", "reserved")
 ALL_STATUSES = {"available", "reserved", "used", "archived"}
@@ -235,7 +235,7 @@ def reserve_remnant(db: Session, remnant_id: int, *, actor: User, expected_versi
         .values(
             status="reserved",
             reserved_by=actor.id,
-            reserved_at=datetime.now(UTC),
+            reserved_at=business_now(),
             version=Remnant.version + 1,
         )
         .execution_options(synchronize_session=False)
@@ -311,7 +311,7 @@ def mark_remnant_used(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     before = {"status": row.status, "reserved_by": row.reserved_by, "version": row.version}
     row.status = "used"
     row.used_by = actor.id
-    row.used_at = datetime.now(UTC)
+    row.used_at = business_now()
     row.version += 1
     db.flush()
     _audit(
@@ -424,7 +424,7 @@ def archive_remnant(db: Session, remnant_id: int, *, actor: User) -> Remnant:
     before = {"status": row.status, "version": row.version}
     row.status = "archived"
     row.archived_by = actor.id
-    row.archived_at = datetime.now(UTC)
+    row.archived_at = business_now()
     row.version += 1
     db.flush()
     _audit(

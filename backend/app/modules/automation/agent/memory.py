@@ -12,20 +12,20 @@ called by any runtime endpoint (agent-runs still returns 503).
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.modules.automation.agent.models.memory import AgentMemory
 from app.platform.config.settings import settings
+from app.platform.time import as_business_time, business_now
 
 logger = logging.getLogger(__name__)
 
 
 def _is_expired(row: AgentMemory) -> bool:
     """Return True if the row's updated_at is older than agent_memory_ttl seconds."""
-    age = (datetime.now(UTC) - row.updated_at.replace(tzinfo=UTC)).total_seconds()
+    age = (business_now() - as_business_time(row.updated_at)).total_seconds()
     return age > settings.agent_memory_ttl
 
 

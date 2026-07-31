@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import zipfile
-from datetime import UTC, datetime
+from datetime import date, datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
@@ -19,6 +19,17 @@ from app.platform.storage.base import StorageObjectNotFound
 from app.platform.storage.local import LocalFileStorage
 
 _DWG = b"AC1027" + b"\x00" * 1018
+_BEIJING = ZoneInfo("Asia/Shanghai")
+
+
+def test_daily_archive_window_and_manifest_use_beijing_wall_time():
+    from app.modules.operations.daily_archive.planning import _business_iso, _day_window
+
+    start, end = _day_window(date(2026, 8, 1))
+
+    assert start.isoformat() == "2026-08-01T00:00:00+08:00"
+    assert end.isoformat() == "2026-08-02T00:00:00+08:00"
+    assert _business_iso(datetime(2026, 8, 1, 1, 2, 3)) == "2026-08-01T01:02:03+08:00"
 
 
 def _admin_headers(client: TestClient) -> dict[str, str]:
@@ -45,7 +56,7 @@ def test_daily_archive_preview_freezes_business_day_snapshot(tmp_path, monkeypat
         size_bytes=3,
         sha256="a" * 64,
         status="available",
-        created_at=datetime(2026, 7, 19, 16, 0, tzinfo=UTC),
+        created_at=datetime(2026, 7, 20, 0, 0, tzinfo=_BEIJING),
     )
     outside = StoredFile(
         bucket="dwg-original",
@@ -56,7 +67,7 @@ def test_daily_archive_preview_freezes_business_day_snapshot(tmp_path, monkeypat
         size_bytes=5,
         sha256="b" * 64,
         status="available",
-        created_at=datetime(2026, 7, 20, 16, 0, tzinfo=UTC),
+        created_at=datetime(2026, 7, 21, 0, 0, tzinfo=_BEIJING),
     )
     previous_archive = StoredFile(
         bucket="dwg-reports",
@@ -67,7 +78,7 @@ def test_daily_archive_preview_freezes_business_day_snapshot(tmp_path, monkeypat
         size_bytes=7,
         sha256="c" * 64,
         status="available",
-        created_at=datetime(2026, 7, 20, 2, 0, tzinfo=UTC),
+        created_at=datetime(2026, 7, 20, 10, 0, tzinfo=_BEIJING),
     )
     db.add_all([inside, outside, previous_archive])
     db.commit()

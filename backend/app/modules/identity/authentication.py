@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 
 import jwt
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from app.modules.identity.models.token_blacklist import TokenBlacklist
 from app.modules.identity.models.user import User
 from app.platform.config.constants import ACTIVE
 from app.platform.security.tokens import create_access_token, create_refresh_token, verify_password
+from app.platform.time import BUSINESS_TIMEZONE, as_business_time, business_now
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
         return None
     if not verify_password(password, user.password_hash):
         return None
-    user.last_login_at = datetime.now(UTC)
+    user.last_login_at = business_now()
     db.flush()
     return user
 
@@ -67,7 +68,7 @@ def record_password_change(db: Session, user_id: int) -> None:
     user = db.get(User, user_id)
     if user is None:
         return
-    user.password_changed_at = datetime.now(UTC)
+    user.password_changed_at = business_now()
     db.flush()
     logger.info("Password-change recorded: user=%d ts=%s", user_id, user.password_changed_at)
 
@@ -79,7 +80,7 @@ def is_token_stale_for_password_change(db: Session, user_id: int, token_iat: flo
     user = db.get(User, user_id)
     if user is None or user.password_changed_at is None:
         return False
-    return token_iat <= user.password_changed_at.replace(tzinfo=UTC).timestamp()
+    return token_iat <= as_business_time(user.password_changed_at).timestamp()
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +118,7 @@ def blacklist_access_token(db: Session, token: str) -> None:
         return
 
     cleanup_expired_blacklist(db)
-    expires_at = datetime.fromtimestamp(exp, tz=UTC)
+    expires_at = datetime.fromtimestamp(exp, tz=BUSINESS_TIMEZONE)
     existing = db.get(TokenBlacklist, jti)
     if existing:
         existing.expires_at = expires_at
@@ -132,10 +133,8 @@ def is_token_blacklisted(db: Session, jti: str) -> bool:
     row = db.get(TokenBlacklist, jti)
     if row is None:
         return False
-    expires_at = row.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at < datetime.now(UTC):
+    expires_at = as_business_time(row.expires_at)
+    if expires_at < business_now():
         return False
     return True
 
@@ -145,7 +144,7 @@ def cleanup_expired_blacklist(db: Session) -> int:
     from sqlalchemy import delete as sa_delete
 
     result = db.execute(
-        sa_delete(TokenBlacklist).where(TokenBlacklist.expires_at < datetime.now(UTC))
+        sa_delete(TokenBlacklist).where(TokenBlacklist.expires_at < business_now())
     )
     db.flush()
     return result.rowcount or 0

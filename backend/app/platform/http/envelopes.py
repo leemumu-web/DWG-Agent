@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime
 from typing import Any
+
+from app.platform.time import business_now
 
 
 def meta(request_id: str) -> dict[str, Any]:
-    return {"request_id": request_id, "timestamp": datetime.now(UTC).isoformat()}
+    return {"request_id": request_id, "timestamp": business_now().isoformat()}
 
 
 def ok(data: Any, request_id: str) -> dict[str, Any]:

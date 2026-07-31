@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
@@ -13,6 +13,7 @@ from app.modules.jobs.models import Job
 from app.platform.config.constants import JOB_FAILED, JOB_RUNNING
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def reconcile_stale_running_jobs(
     broker lease or the target fencing-token model.
     """
     timeout = timeout_seconds or settings.celery_stale_job_timeout_seconds
-    now = datetime.now(UTC)
+    now = business_now()
     cutoff = now - timedelta(seconds=timeout)
     recovered = 0
     with session_factory() as db:

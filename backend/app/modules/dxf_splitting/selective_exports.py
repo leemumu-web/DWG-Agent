@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Any
 from uuid import uuid4
@@ -15,6 +15,7 @@ from app.modules.dxf_splitting.models import DxfSplitRun
 from app.modules.files.interface import StorageZipMember, StoredFile
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 SELECTIVE_EXPORT_COOKIE_NAME = "dwg_drawing_selective_export"
 SELECTIVE_EXPORT_CATEGORY_ORDER = ("failed_bh", "failed_box", "pl", "other")
@@ -173,7 +174,7 @@ def create_download_token(
     categories: list[str],
     actor_user_id: int,
 ) -> tuple[str, str, datetime]:
-    now = datetime.now(UTC)
+    now = business_now()
     expires_at = now + timedelta(minutes=settings.workflow_batch_export_ttl_minutes)
     export_uid = str(uuid4())
     token = jwt.encode(

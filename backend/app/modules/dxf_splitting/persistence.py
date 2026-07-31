@@ -5,7 +5,6 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
@@ -56,6 +55,7 @@ from app.platform.config.constants import (
 )
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 
 def split_request_id(*, job_id: int, attempt: int, relative_path: str) -> str:
@@ -95,7 +95,7 @@ def get_or_create_split_run(
                 "BH": BH_SOURCE_CONTRACT,
                 "BOX": BOX_SOURCE_CONTRACT,
             },
-            started_at=datetime.now(UTC),
+            started_at=business_now(),
         )
         db.add(run)
         db.commit()
@@ -316,7 +316,7 @@ def finish_split_run(
     run.validation_report_file_id = validation_file.id
     run.error_code = None
     run.error_message = None
-    run.finished_at = datetime.now(UTC)
+    run.finished_at = business_now()
 
 
 def mark_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) -> None:
@@ -342,7 +342,7 @@ def mark_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) ->
         run.status = "failed"
         run.error_code = error_code
         run.error_message = message
-        run.finished_at = datetime.now(UTC)
+        run.finished_at = business_now()
     fail_job_attempt(
         db,
         job_id,
@@ -385,7 +385,7 @@ def reconcile_split_run_for_terminal_job(
     run.status = "failed"
     run.error_code = "DXF_SPLIT_ATTEMPT_INTERRUPTED"
     run.error_message = "拆板 attempt 已被取消或由新的 attempt 取代。"
-    run.finished_at = datetime.now(UTC)
+    run.finished_at = business_now()
     db.flush()
     return True
 

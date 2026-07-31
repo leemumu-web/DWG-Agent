@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
@@ -60,6 +60,7 @@ from app.platform.config.constants import (
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
 from app.platform.storage.base import StorageObjectNotFound
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ def _add_step(
             output_json=output_json,
             error_message=error_message,
             started_at=started_at,
-            finished_at=datetime.now(UTC),
+            finished_at=business_now(),
         )
     )
 
@@ -214,7 +215,7 @@ def run_excel_final_processing(
 
         with tempfile.TemporaryDirectory(prefix=f"excel_final_job_{job_id}_") as directory:
             work_dir = Path(directory)
-            download_started = datetime.now(UTC)
+            download_started = business_now()
             try:
                 source_path, source_file = stage_excel_source(db, file_id, work_dir)
             except FileNotFoundError:
@@ -291,7 +292,7 @@ def run_excel_final_processing(
                     input_json={"file_id": file_id},
                     output_json={"failure": failure},
                     error_message=exc.failure.message,
-                    started_at=datetime.now(UTC),
+                    started_at=business_now(),
                 )
                 _mark_job_failed(
                     db,
@@ -320,7 +321,7 @@ def run_excel_final_processing(
             )
             output_basename = sanitize_filename(source_file.original_name.rsplit(".", 1)[0])
             output_path = work_dir / f"{output_basename}_处理后.xlsx"
-            pipeline_started = datetime.now(UTC)
+            pipeline_started = business_now()
             try:
                 pipeline_result = run_excel_final_pipeline(
                     source_path,
@@ -415,7 +416,7 @@ def run_excel_final_processing(
                 )
                 return
 
-            import_started = datetime.now(UTC)
+            import_started = business_now()
             try:
                 database_import_path = (
                     pipeline_result.internal_output_path or output_path
@@ -487,7 +488,7 @@ def run_excel_final_processing(
             if job is None:
                 return
 
-            persist_started = datetime.now(UTC)
+            persist_started = business_now()
             excel_bytes = output_path.read_bytes()
             storage_key = f"jobs/{job.id}/{uuid4().hex}{_EXCEL_EXT}"
             result_name = f"{output_basename}_处理后{_EXCEL_EXT}"

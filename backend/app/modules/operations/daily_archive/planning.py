@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 from collections import Counter
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -17,6 +17,7 @@ from app.modules.operations.daily_archive.models import DailyArchiveRun
 from app.modules.operations.daily_archive.schemas import DailyArchivePreview
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import as_business_time, business_now
 
 DAILY_ARCHIVE_PREFIX = "daily-archives/"
 DAILY_ARCHIVE_ACTIVE = {"queued", "running"}
@@ -42,13 +43,11 @@ def current_business_date() -> date:
 def _day_window(archive_date: date) -> tuple[datetime, datetime]:
     zone = _business_zone()
     start = datetime.combine(archive_date, time.min, tzinfo=zone)
-    return start.astimezone(UTC), (start + timedelta(days=1)).astimezone(UTC)
+    return start, start + timedelta(days=1)
 
 
-def _utc_iso(value: datetime) -> str:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value.astimezone(UTC).isoformat()
+def _business_iso(value: datetime) -> str:
+    return as_business_time(value).isoformat()
 
 
 def _canonical_files(rows: list[StoredFile]) -> list[dict[str, Any]]:
@@ -61,7 +60,7 @@ def _canonical_files(rows: list[StoredFile]) -> list[dict[str, Any]]:
             "file_ext": row.file_ext,
             "size_bytes": row.size_bytes,
             "sha256": row.sha256,
-            "created_at": _utc_iso(row.created_at),
+            "created_at": _business_iso(row.created_at),
         }
         for row in sorted(rows, key=lambda item: item.id)
     ]
@@ -110,7 +109,7 @@ def _decode_preview(token: str) -> dict[str, Any]:
         payload = json.loads(_urlsafe_decode(encoded))
         if payload.get("kind") != _TOKEN_KIND:
             raise ValueError("wrong token kind")
-        if int(payload["expires_at"]) < int(datetime.now(UTC).timestamp()):
+        if int(payload["expires_at"]) < int(business_now().timestamp()):
             raise ValueError("expired")
         file_ids = payload.get("file_ids")
         if not isinstance(file_ids, list) or not all(
@@ -183,7 +182,7 @@ def preview_daily_archive(
         block_reason = f"文件数超过单次上限 {settings.daily_archive_max_files}"
     elif total_bytes > max_bytes:
         block_reason = f"源文件总量超过单次上限 {settings.daily_archive_max_source_gb} GiB"
-    expires_at = datetime.now(UTC) + timedelta(minutes=settings.daily_archive_preview_ttl_minutes)
+    expires_at = business_now() + timedelta(minutes=settings.daily_archive_preview_ttl_minutes)
     source_hash = _manifest_sha256(rows)
     token = _sign_preview(
         {

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 import jwt
 from pwdlib import PasswordHash
 
 from app.platform.config.settings import settings
+from app.platform.time import business_now
 
 password_hash = PasswordHash.recommended()
 
@@ -21,7 +22,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
-    now = datetime.now(UTC)
+    now = business_now()
     expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     payload: dict[str, Any] = {
         "sub": subject,
@@ -39,7 +40,7 @@ def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None
 
 
 def create_refresh_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
-    now = datetime.now(UTC)
+    now = business_now()
     expire = now + timedelta(days=settings.jwt_refresh_token_expire_days)
     payload: dict[str, Any] = {
         "sub": subject,

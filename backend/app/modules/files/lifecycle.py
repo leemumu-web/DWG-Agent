@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlalchemy.orm import Session
 
 from app.modules.files.models import StoredFile
@@ -12,6 +10,7 @@ from app.modules.files.storage_transactions import (
     complete_transfer_in_transaction,
     prepare_transfer_in_transaction,
 )
+from app.platform.time import business_now
 
 
 def soft_delete_file_in_transaction(
@@ -31,7 +30,7 @@ def soft_delete_file_in_transaction(
         request_id=request_id,
     )
     stored.status = "deleted"
-    stored.deleted_at = datetime.now(UTC)
+    stored.deleted_at = business_now()
     transfer = prepare_transfer_in_transaction(
         db,
         TransferSpec(

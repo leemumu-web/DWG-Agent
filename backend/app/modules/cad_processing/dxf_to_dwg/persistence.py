@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -44,6 +43,7 @@ from app.platform.config.constants import (
     TASK_DXF_TO_DWG,
 )
 from app.platform.config.settings import settings
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ def persist_dwg_conversion_result(
         db.rollback()
         return False
 
-    persist_started = datetime.now(UTC)
+    persist_started = business_now()
     dwg_path = result.target
     if not dwg_path.is_file():
         mark_job_failed(

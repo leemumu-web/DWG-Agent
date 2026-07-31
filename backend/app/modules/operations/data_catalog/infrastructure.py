@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from time import monotonic
 
 from sqlalchemy import func, inspect, select, text
@@ -10,6 +9,7 @@ from app.modules.files.interface import StoredFile, get_storage_backend
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageConfigurationError, StorageError
+from app.platform.time import business_now
 
 
 def _check_database(db: Session) -> dict:
@@ -131,13 +131,13 @@ def infrastructure_overview(db: Session) -> dict:
         "checked_at": (
             observed_capacity.checked_at.isoformat()
             if observed_capacity
-            else datetime.now(UTC).isoformat()
+            else business_now().isoformat()
         ),
     }
 
     return {
         "status": "ok" if database["status"] == storage["status"] == "ok" else "degraded",
-        "checked_at": datetime.now(UTC).isoformat(),
+        "checked_at": business_now().isoformat(),
         "database": database,
         "storage": storage,
         "catalog": {

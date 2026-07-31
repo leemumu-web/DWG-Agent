@@ -7,7 +7,8 @@ from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.platform.database.base import Base, PKType
-from app.platform.database.mixins import TimestampMixin, utcnow
+from app.platform.database.mixins import TimestampMixin
+from app.platform.time import business_now
 
 
 class WorkerRuntime(TimestampMixin, Base):
@@ -25,7 +26,7 @@ class WorkerRuntime(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), default="starting", nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
+        DateTime(timezone=True), default=business_now, nullable=False
     )
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
@@ -52,7 +53,7 @@ class ControlPlaneEvent(Base):
     payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, nullable=False
+        DateTime(timezone=True), default=business_now, nullable=False
     )
 
 

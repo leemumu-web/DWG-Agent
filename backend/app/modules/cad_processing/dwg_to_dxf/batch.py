@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from app.modules.cad_processing.batching import (
@@ -44,6 +44,7 @@ from app.platform.config.constants import (
 )
 from app.platform.config.settings import settings
 from app.platform.database.session import SessionLocal
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ def run_dwg_to_dxf_batch(
                     continue
                 attempt = job.attempt
                 source_file_id = _resolve_source_file_id(job)
-                stage_started = job.started_at or datetime.now(UTC)
+                stage_started = job.started_at or business_now()
                 if source_file_id is None:
                     _fail_dwg_item(
                         db,
@@ -228,7 +229,7 @@ def run_dwg_to_dxf_batch(
             for output_version, items in grouped.items():
                 input_dir = items[0].staged_path.parent
                 output_dir = input_dir.parent / "output"
-                convert_started = datetime.now(UTC)
+                convert_started = business_now()
                 item_by_name = {item.staged_path.name: item for item in items}
 
                 def record_completed_shard(

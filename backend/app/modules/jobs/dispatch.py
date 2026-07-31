@@ -7,7 +7,6 @@ transactional Outbox described by the architecture document.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -31,6 +30,7 @@ from app.platform.config.constants import (
 )
 from app.platform.database.session import SessionLocal
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ def dispatch_committed_conversion_batch(
     except Exception as exc:
         logger.exception("Celery batch dispatch failed for jobs=%s", [job[0] for job in jobs])
         message = "The conversion batch could not be dispatched to the queue."
-        finished_at = datetime.now(UTC)
+        finished_at = business_now()
         with SessionLocal() as compensation_db:
             for job_id, attempt in jobs:
                 event = make_event(
@@ -194,7 +194,7 @@ def dispatch_committed_job(db: Session, job: Job) -> str:
         logger.exception("Celery dispatch failed for job_id=%s", job_id)
         db.rollback()
         message = "The task could not be dispatched to the queue."
-        finished_at = datetime.now(UTC)
+        finished_at = business_now()
         event = make_event(
             type_="error",
             status=JOB_FAILED,

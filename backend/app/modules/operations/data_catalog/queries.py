@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -15,6 +15,16 @@ from app.platform.config.settings import settings
 from app.platform.database.pagination import paginate_scalars
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageConfigurationError, StorageError
+from app.platform.time import as_business_time, business_now
+
+
+def _business_day_start(now: datetime | None = None) -> datetime:
+    return as_business_time(now or business_now()).replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
 
 
 def data_overview(db: Session, *, owner_user_id: int | None = None) -> dict:
@@ -38,7 +48,7 @@ def data_overview(db: Session, *, owner_user_id: int | None = None) -> dict:
     counts = dict(db.execute(file_count_statement).all())
     tracked_bytes = db.scalar(tracked_bytes_statement)
     latest_scan = db.scalar(latest_scan_statement)
-    today_start = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
+    today_start = _business_day_start()
     transfer_counts = {
         (direction, status): int(count)
         for direction, status, count in db.execute(

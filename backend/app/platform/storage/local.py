@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import BinaryIO
@@ -17,6 +17,7 @@ from app.platform.storage.base import (
     StorageObjectNotFound,
 )
 from app.platform.storage.paths import ensure_within_root
+from app.platform.time import BUSINESS_TIMEZONE
 
 
 def _fsync_parent_directory(path: Path) -> None:
@@ -162,7 +163,7 @@ class LocalFileStorage(AbstractStorageBackend):
             bucket=bucket,
             storage_key=storage_key,
             size_bytes=stat.st_size,
-            last_modified=datetime.fromtimestamp(stat.st_mtime, UTC),
+            last_modified=datetime.fromtimestamp(stat.st_mtime, BUSINESS_TIMEZONE),
         )
 
     def list_objects(
@@ -210,7 +211,7 @@ class LocalFileStorage(AbstractStorageBackend):
                     bucket=bucket,
                     storage_key=key,
                     size_bytes=stat.st_size,
-                    last_modified=datetime.fromtimestamp(stat.st_mtime, UTC),
+                    last_modified=datetime.fromtimestamp(stat.st_mtime, BUSINESS_TIMEZONE),
                 )
             )
         next_cursor = items[-1].storage_key if has_more and items else None

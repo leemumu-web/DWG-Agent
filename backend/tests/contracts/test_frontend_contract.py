@@ -11,6 +11,15 @@ def _e2e_source(path: str) -> str:
     return (REPO_ROOT / "frontend/tests/e2e" / path).read_text(encoding="utf-8")
 
 
+def test_shared_datetime_formatter_always_renders_beijing_time():
+    source = _frontend_source("shared/components/ui.tsx")
+    formatter = source.split("export function fmtDateTime", 1)[1].split(
+        "export function fmtRelative", 1
+    )[0]
+
+    assert "timeZone: 'Asia/Shanghai'" in formatter
+
+
 def test_frontend_password_change_matches_backend_patch_contract():
     source = _frontend_source("shared/auth/api.ts")
 

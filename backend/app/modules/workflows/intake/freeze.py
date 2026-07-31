@@ -6,7 +6,6 @@ import hashlib
 import json
 import re
 import unicodedata
-from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -19,6 +18,7 @@ from app.modules.workflows.intake import conversion, registration
 from app.modules.workflows.lifecycle import complete_manual_stage
 from app.modules.workflows.models import WorkflowInputBatch, WorkflowInputItem
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 _WHITESPACE = re.compile(r"\s+")
 
@@ -219,7 +219,7 @@ def freeze_input_batch(
     ).encode()
     batch.manifest_sha256 = hashlib.sha256(canonical).hexdigest()
     batch.status = "frozen"
-    batch.frozen_at = datetime.now(UTC)
+    batch.frozen_at = business_now()
     batch.error_code = None
     batch.error_message = None
     for item in batch.items:

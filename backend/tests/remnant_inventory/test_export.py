@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -25,6 +25,7 @@ from app.modules.remnant_inventory.models import (
 )
 from app.platform.config.settings import settings
 from app.platform.security.tokens import hash_password
+from app.platform.time import BUSINESS_TIMEZONE
 from tests.support.database import get_test_session_factory
 
 HEADERS = [
@@ -114,7 +115,7 @@ def _seed_remnant() -> int:
         )
         db.add(item)
         db.flush()
-        timestamp = datetime(2026, 7, 23, 1, 2, 3, tzinfo=UTC)
+        timestamp = datetime(2026, 7, 23, 9, 2, 3, tzinfo=BUSINESS_TIMEZONE)
         remnant = Remnant(
             import_item_id=item.id,
             source_file_id=source.id,
