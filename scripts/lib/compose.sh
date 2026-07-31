@@ -135,7 +135,7 @@ compose_smoke() {
 
 compose_verify_storage() {
     compose_require_env
-    local backend_state
+    local backend_state verify_username verify_password
     if ! backend_state="$("${COMPOSE_CMD[@]}" ps --all \
         --format '{{.Service}}|{{.State}}|{{.Health}}' backend-api)"; then
         compose_die "cannot inspect backend-api before storage verification"
@@ -146,8 +146,22 @@ compose_verify_storage() {
 
     compose_info "verifying the registered MySQL and object-storage transaction path"
     local probe_status=0
-    "${COMPOSE_CMD[@]}" exec -T backend-api \
-        python /app/scripts/storage/verify_transactions.py || probe_status=$?
+    verify_username=$(compose_env_value VERIFY_ADMIN_USERNAME)
+    verify_password=$(compose_env_value VERIFY_ADMIN_PASSWORD)
+    if { [[ -n "$verify_username" ]] && [[ -z "$verify_password" ]]; } \
+        || { [[ -z "$verify_username" ]] && [[ -n "$verify_password" ]]; }; then
+        compose_die "VERIFY_ADMIN_USERNAME and VERIFY_ADMIN_PASSWORD must be configured together"
+    fi
+    if [[ -n "$verify_username" ]]; then
+        VERIFY_ADMIN_USERNAME="$verify_username" VERIFY_ADMIN_PASSWORD="$verify_password" \
+            "${COMPOSE_CMD[@]}" exec -T \
+            -e VERIFY_ADMIN_USERNAME -e VERIFY_ADMIN_PASSWORD \
+            backend-api python /app/scripts/storage/verify_transactions.py \
+            || probe_status=$?
+    else
+        "${COMPOSE_CMD[@]}" exec -T backend-api \
+            python /app/scripts/storage/verify_transactions.py || probe_status=$?
+    fi
     if [ "$probe_status" -ne 0 ]; then
         compose_warn "storage transaction verification failed"
         return "$probe_status"

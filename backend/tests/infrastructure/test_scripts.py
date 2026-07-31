@@ -287,7 +287,12 @@ def test_infrastructure_verifier_does_not_require_reserved_empty_workers():
         assert f'"{service}"' in compose_checks
 
 
-def _run_compose_storage_probe(tmp_path, *, probe_fails: bool = False):
+def _run_compose_storage_probe(
+    tmp_path,
+    *,
+    probe_fails: bool = False,
+    omit_verify_password: bool = False,
+):
     env_file = tmp_path / ".env.docker"
     env_file.write_text(
         "\n".join(
@@ -298,6 +303,12 @@ def _run_compose_storage_probe(tmp_path, *, probe_fails: bool = False):
                 "MINIO_ROOT_PASSWORD=minio-root-secret",
                 "JWT_SECRET_KEY=jwt-secret",
                 "SUPER_ADMIN_PASSWORD=admin-secret",
+                "VERIFY_ADMIN_USERNAME=release-verifier",
+                *(
+                    []
+                    if omit_verify_password
+                    else ["VERIFY_ADMIN_PASSWORD=release-verifier-secret"]
+                ),
             ]
         )
         + "\n",
@@ -311,7 +322,7 @@ set -eu
 printf '%s\\n' "$*" >> "$FAKE_COMPOSE_CALLS"
 if [[ "$*" == *"ps --all --format"* ]]; then
     printf 'backend-api|running|healthy\\n'
-elif [[ "$*" == *"exec -T backend-api python /app/scripts/storage/verify_transactions.py"* ]]; then
+elif [[ "$*" == *"verify_transactions.py"* ]]; then
     if [[ "${FAKE_PROBE_FAIL:-0}" == "1" ]]; then
         printf 'probe failed safely\\n' >&2
         exit 17
@@ -352,7 +363,10 @@ def test_compose_verify_storage_runs_probe_only_in_healthy_backend(tmp_path):
 
     assert result.returncode == 0
     assert "ps --all --format" in calls
-    assert "exec -T backend-api python /app/scripts/storage/verify_transactions.py" in calls
+    assert (
+        "exec -T -e VERIFY_ADMIN_USERNAME -e VERIFY_ADMIN_PASSWORD "
+        "backend-api python /app/scripts/storage/verify_transactions.py"
+    ) in calls
     assert "storage transaction verification passed" in result.stdout
     for secret in (
         "mysql-secret",
@@ -360,6 +374,7 @@ def test_compose_verify_storage_runs_probe_only_in_healthy_backend(tmp_path):
         "minio-root-secret",
         "jwt-secret",
         "admin-secret",
+        "release-verifier-secret",
     ):
         assert secret not in result.stdout
         assert secret not in result.stderr
@@ -369,8 +384,19 @@ def test_compose_verify_storage_propagates_probe_failure(tmp_path):
     result, calls = _run_compose_storage_probe(tmp_path, probe_fails=True)
 
     assert result.returncode == 17
-    assert "exec -T backend-api python /app/scripts/storage/verify_transactions.py" in calls
+    assert (
+        "exec -T -e VERIFY_ADMIN_USERNAME -e VERIFY_ADMIN_PASSWORD "
+        "backend-api python /app/scripts/storage/verify_transactions.py"
+    ) in calls
     assert "storage transaction verification passed" not in result.stdout
+
+
+def test_compose_verify_storage_rejects_partial_verification_credentials(tmp_path):
+    result, calls = _run_compose_storage_probe(tmp_path, omit_verify_password=True)
+
+    assert result.returncode != 0
+    assert "must be configured together" in result.stderr
+    assert "verify_transactions.py" not in calls
 
 
 def test_compose_verify_storage_is_a_public_command():

@@ -31,17 +31,21 @@ from app.platform.database.session import SessionLocal
 
 
 def _auth(client: TestClient) -> dict[str, str]:
+    username = (
+        os.getenv("VERIFY_ADMIN_USERNAME")
+        or os.getenv("SUPER_ADMIN_USERNAME")
+        or "admin"
+    )
+    password = (
+        os.getenv("VERIFY_ADMIN_PASSWORD")
+        or os.getenv("SUPER_ADMIN_PASSWORD")
+        or "SuperAdminPass1"
+    )
     response = client.post(
         "/api/v1/auth/sessions",
         json={
-            "username": os.getenv(
-                "VERIFY_ADMIN_USERNAME",
-                os.getenv("SUPER_ADMIN_USERNAME", "admin"),
-            ),
-            "password": os.getenv(
-                "VERIFY_ADMIN_PASSWORD",
-                os.getenv("SUPER_ADMIN_PASSWORD", "SuperAdminPass1"),
-            ),
+            "username": username,
+            "password": password,
         },
     )
     response.raise_for_status()

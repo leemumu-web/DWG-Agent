@@ -131,6 +131,9 @@ Python 源码，应用/worker 以非 root、只读根文件系统、`cap_drop: A
 通过应用路径验证 MySQL 登记、MinIO 写入/读取/SHA、鉴权出库、DXF 预览与 transfer
 终态，并只清除本次唯一探针对象。它与无副作用的 `/health/ready` 分工，不应放进
 容器 healthcheck，也不得被改成扫描或回收业务对象。
+升级并保留已有数据库时，若超管密码已经人工变更，可在 `.env.docker` 同时配置
+`VERIFY_ADMIN_USERNAME`、`VERIFY_ADMIN_PASSWORD` 指向现有管理员。它们只用于本次
+验收进程，不会修改账号；不得只配置其中一项。
 `MINIO_METRICS_URL` 未配置时由 `MINIO_ENDPOINT` 自动补成
 `/minio/v2/metrics/cluster`；只有经过反向代理或使用非标准指标路径时才需显式覆盖。
 
