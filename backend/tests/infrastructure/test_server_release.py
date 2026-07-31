@@ -269,6 +269,8 @@ def test_timezone_cutover_is_guarded_backed_up_and_reversible():
         assert option in source
     assert "gzip -t" in source
     assert "sha256sum" in source
+    assert "checksum=$(cd" not in source
+    assert "sha256sum -c mysql-before.sql.gz.sha256 >/dev/null" in source
     assert "dwg_agent_timezone_verify_" in source
     for table in (
         "sys_users",

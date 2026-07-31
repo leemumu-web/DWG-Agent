@@ -321,7 +321,7 @@ timezone_drop_verify_schema() {
 }
 
 timezone_create_backup() {
-    local target=$1 backup=$2 database dump checksum previous core_table original restored dump_sha marker_tmp original_head
+    local target=$1 backup=$2 database dump previous core_table original restored dump_sha marker_tmp original_head
     local counts_sha minio_summary_sha previous_compose_sha previous_env_sha previous_release_sha previous_images_sha
     local -a core_tables=(
         sys_users projects files file_transfers workflow_runs jobs audit_logs
@@ -352,8 +352,8 @@ timezone_create_backup() {
     chmod 0600 "$dump"
     gzip -t "$dump"
     (cd "$backup" && sha256sum mysql-before.sql.gz > mysql-before.sql.gz.sha256)
-    checksum=$(cd "$backup" && sha256sum -c mysql-before.sql.gz.sha256)
-    [[ "$checksum" == *": OK" ]] || timezone_die "backup checksum verification failed"
+    (cd "$backup" && sha256sum -c mysql-before.sql.gz.sha256 >/dev/null) \
+        || timezone_die "backup checksum verification failed"
 
     {
         printf 'source_database\t%s\n' "$database"
