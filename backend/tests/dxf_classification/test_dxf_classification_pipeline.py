@@ -16,6 +16,7 @@ from app.bootstrap.seed import init_db
 from app.main import app
 from app.modules.dxf_classification import execution as dxf_classification_service
 from app.modules.dxf_classification import interface as classification_interface
+from app.modules.dxf_classification import persistence as classification_persistence
 from app.modules.dxf_classification.adapter import ClassificationError
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.dxf_classification.persistence import (
@@ -425,6 +426,19 @@ def test_bh_stage2_batch_rejects_declared_bh_count_drift(
         classification_interface.load_bh_stage2_classification_batch(
             db,
             workflow_id,
+        )
+
+
+def test_bh_stage2_batch_enforces_the_5000_file_limit() -> None:
+    classification_persistence._validate_bh_stage2_count(
+        {"BH": 5000},
+        actual_count=5000,
+    )
+
+    with pytest.raises(ClassificationError, match="5000"):
+        classification_persistence._validate_bh_stage2_count(
+            {"BH": 5001},
+            actual_count=5001,
         )
 
 

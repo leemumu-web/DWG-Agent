@@ -41,6 +41,7 @@ from app.platform.config.constants import (
 )
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException, service_unavailable
+from app.platform.storage.base import StorageError, StorageObjectNotFound
 
 
 @dataclass(frozen=True)
@@ -144,8 +145,18 @@ def preflight_excel_stage2(
         "bh_input_count": bh_input_count,
         "checks": [
             {"code": "stage1_job_verified", "label": "第一阶段正式任务来源一致"},
-            {"code": "stage1_workbook_verified", "label": "第一阶段唯一正式 Excel 可用"},
-            {"code": "classification_run_verified", "label": "当前分类账与正式任务一致"},
+            {
+                "code": "stage1_workbook_verified",
+                "label": "第一阶段唯一正式 Excel 已登记且存储可用",
+            },
+            {
+                "code": "classification_run_verified",
+                "label": "当前分类账、正式任务与冻结输入一致",
+            },
+            {
+                "code": "bh_ledger_verified",
+                "label": "BH 文件登记账本已冻结；逐图读取将在正式任务中执行",
+            },
             {
                 "code": "bh_batch_frozen",
                 "label": (
@@ -477,7 +488,7 @@ def _prepare_excel_stage2(
     # The execution route already enforces a writable project role. The frozen
     # input item and source artifact below are project-owned workflow records,
     # so a later project member need not be the original uploader.
-    source_excel, source_item, _source_batch = _resolve_verified_source_excel(
+    source_excel, source_item, source_batch = _resolve_verified_source_excel(
         db,
         workflow,
         current_user,
@@ -534,12 +545,19 @@ def _prepare_excel_stage2(
     artifact = current_artifacts[0]
     result = db.get(AnalysisResult, artifact.result_id) if artifact.result_id else None
     stored = db.get(StoredFile, artifact.file_id) if artifact.file_id else None
+    result_metadata = (
+        result.result_json
+        if result is not None and isinstance(result.result_json, dict)
+        else {}
+    )
     if (
         result is None
         or result.job_id != stage1_job.id
         or result.result_type != TASK_EXCEL_FINAL
         or result.status != "succeeded"
         or result.result_file_id != artifact.file_id
+        or result_metadata.get("workflow_artifact_type") != "stage1_excel"
+        or result_metadata.get("job_attempt") != stage1_job.attempt
         or stored is None
         or stored.status != "available"
         or stored.file_ext.casefold() != ".xlsx"
@@ -554,6 +572,32 @@ def _prepare_excel_stage2(
                 "artifact_file_id": artifact.file_id,
                 "result_id": artifact.result_id,
             },
+        )
+    try:
+        stage1_object = registration.get_storage_backend().stat_object(
+            stored.bucket,
+            stored.storage_key,
+        )
+    except StorageObjectNotFound as exc:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE",
+            "Excel 第一阶段正式结果文件已从文件存储中丢失。",
+            {"file_id": stored.id},
+        ) from exc
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "EXCEL_STAGE2_STAGE1_STORAGE_UNAVAILABLE",
+            "当前无法核验 Excel 第一阶段正式结果文件，请稍后刷新状态。",
+            {"file_id": stored.id},
+        ) from exc
+    if stage1_object.size_bytes != stored.size_bytes:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE",
+            "Excel 第一阶段正式结果文件与系统登记大小不一致。",
+            {"file_id": stored.id},
         )
 
     try:
@@ -589,6 +633,7 @@ def _prepare_excel_stage2(
         or classification_params.get("workflow_id") != workflow.id
         or classification_params.get("input_manifest_sha256")
         != classification.input_manifest_sha256
+        or classification.input_manifest_sha256 != source_batch.manifest_sha256
     ):
         raise AppHTTPException(
             409,

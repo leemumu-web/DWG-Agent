@@ -42,23 +42,23 @@
 - Modify: `backend/tests/workflows/test_workflow_production.py`
 - Modify: `backend/tests/dxf_classification/test_dxf_classification_pipeline.py`
 
-- [ ] **Step 1: 先写冻结输入摘要漂移失败测试**
+- [x] **Step 1: 先写冻结输入摘要漂移失败测试**
 
 在 `_stage2_ready_workflow` 基础上修改当前 `workflow.input_batch.manifest_sha256`，调用 `preflight_excel_stage2()`，断言 409、`EXCEL_STAGE2_CLASSIFICATION_BINDING_INVALID`，并断言 Job 数量没有增加。
 
-- [ ] **Step 2: 写第一阶段正式对象缺失与大小漂移测试**
+- [x] **Step 2: 写第一阶段正式对象缺失与大小漂移测试**
 
 让测试存储删除 `stage1_excel` 对象，或写入与 `StoredFile.size_bytes` 不同的对象，断言预审核返回 `EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE`，错误消息明确“第一阶段正式结果文件在存储中不可用或大小不一致”，且不创建 Job。
 
-- [ ] **Step 3: 写 Stage1 result 元数据漂移测试**
+- [x] **Step 3: 写 Stage1 result 元数据漂移测试**
 
 分别修改 `AnalysisResult.result_json.workflow_artifact_type` 和 `job_attempt`，断言预审核以 `EXCEL_STAGE2_STAGE1_BINDING_INVALID` 失败，不接受只靠 artifact metadata 看似一致的结果。
 
-- [ ] **Step 4: 写 BH 分类账声明计数和 5000 上限测试**
+- [x] **Step 4: 写 BH 分类账声明计数和 5000 上限测试**
 
 将 `DxfClassificationRun.type_counts_json["BH"]` 改为与实际条目数不同，断言 `load_bh_stage2_classification_batch()` 抛出 `ClassificationError`。构造 5001 个 BH 条目，断言拒绝；5000 个仍允许并生成稳定 `bh_manifest_sha256`。
 
-- [ ] **Step 5: 运行目标测试确认当前实现失败**
+- [x] **Step 5: 运行目标测试确认当前实现失败**
 
 Run:
 
@@ -71,11 +71,11 @@ uv run pytest -q \
 
 Expected: 新增场景失败，证明当前门禁尚未覆盖这些漂移。
 
-- [ ] **Step 6: 先检查必需上游产物，再做深层准备**
+- [x] **Step 6: 保留精确血缘错误优先级，再检查模板产物集合**
 
-在 `preflight_excel_stage2()` 与 `prepare_stage_execution()` 的二阶段分支把 `require_stage_inputs(workflow, "excel_stage2")` 放到 `_prepare_excel_stage2()` 前面，确保缺少正式上游产物时优先返回清晰输入错误。
+`preflight_excel_stage2()` 与 `prepare_stage_execution()` 先运行 `_prepare_excel_stage2()` 的项目/attempt/result/分类账精确检查，再调用 `require_stage_inputs()` 核对模板产物集合。实测若反转顺序，Stage1 artifact attempt 漂移会从 `EXCEL_STAGE2_STAGE1_BINDING_INVALID` 退化成泛化的 `WORKFLOW_STAGE_INPUT_INCOMPLETE`，因此保留精确错误优先级。
 
-- [ ] **Step 7: 加固第一阶段正式来源链**
+- [x] **Step 7: 加固第一阶段正式来源链**
 
 在 `_prepare_excel_stage2()` 中：
 
@@ -83,9 +83,9 @@ Expected: 新增场景失败，证明当前门禁尚未覆盖这些漂移。
 result_meta = result.result_json if isinstance(result.result_json, dict) else {}
 ```
 
-要求 `workflow_artifact_type == "stage1_excel"`、`job_attempt == stage1_job.attempt`。通过存储 `stat_object()` 验证正式 Excel 对象存在且 `size_bytes` 与登记相同；缺失、存储异常或大小不一致统一映射为安全的 `EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE`，不暴露 bucket/key。
+要求 `workflow_artifact_type == "stage1_excel"`、`job_attempt == stage1_job.attempt`。通过存储 `stat_object()` 验证正式 Excel 对象存在且 `size_bytes` 与登记相同；缺失或大小不一致映射为 `EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE`，临时存储故障映射为可恢复的 `EXCEL_STAGE2_STAGE1_STORAGE_UNAVAILABLE`，两者都不暴露 bucket/key。
 
-- [ ] **Step 8: 绑定分类账到当前冻结输入**
+- [x] **Step 8: 绑定分类账到当前冻结输入**
 
 保留 `_source_batch`，并要求：
 
@@ -96,11 +96,11 @@ classification_params.get("input_manifest_sha256") == source_batch.manifest_sha2
 
 失败时返回 `EXCEL_STAGE2_CLASSIFICATION_BINDING_INVALID`。在成功预检 checks 中新增“分类账与当前冻结输入一致”和“BH 文件登记账本已冻结”，避免宣称几何已解析。
 
-- [ ] **Step 9: 在分类领域校验 BH 账本数量与上限**
+- [x] **Step 9: 在分类领域校验 BH 账本数量与上限**
 
 在 `load_bh_stage2_classification_batch()` 中定义 `MAX_BH_STAGE2_INPUTS = 5000`，要求 `type_counts_json["BH"]` 是非负整数且等于查询得到的 BH 行数，并拒绝超过上限。继续保留文件 ID 去重、规格/type source、状态、扩展名、文件名和 SHA-256 检查。
 
-- [ ] **Step 10: 运行二阶段后端回归**
+- [x] **Step 10: 运行二阶段后端回归**
 
 Run:
 

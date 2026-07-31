@@ -37,6 +37,7 @@ from app.modules.workflows.stage_execution import (
     prepare_stage_execution,
 )
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.storage.base import StorageError
 from app.platform.storage.local import LocalFileStorage
 from tests.support import workflow_api as workflow_test_api
 from tests.support.database import open_test_session
@@ -777,6 +778,57 @@ def test_excel_stage2_preflight_rejects_missing_stage1_storage_object(
     assert caught.value.status_code == 409
     assert caught.value.detail["code"] == "EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE"
     assert db.query(Job).count() == before
+
+
+def test_excel_stage2_preflight_rejects_stage1_storage_size_drift(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_, stage1_file, _ = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    replacement = b"changed-size"
+    workflow_input_registration.get_storage_backend().put_fileobj(
+        stage1_file.bucket,
+        stage1_file.storage_key,
+        BytesIO(replacement),
+        length=len(replacement),
+    )
+    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
+
+    with pytest.raises(AppHTTPException) as caught:
+        preflight_excel_stage2(db, workflow, current_user=user)
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE"
+    assert "大小不一致" in caught.value.detail["message"]
+
+
+def test_excel_stage2_preflight_distinguishes_temporary_stage1_storage_failure(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    storage = workflow_input_registration.get_storage_backend()
+
+    def fail_stat(*_args, **_kwargs):
+        raise StorageError("temporary storage outage")
+
+    monkeypatch.setattr(storage, "stat_object", fail_stat)
+    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
+
+    with pytest.raises(AppHTTPException) as caught:
+        preflight_excel_stage2(db, workflow, current_user=user)
+
+    assert caught.value.status_code == 503
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_STAGE1_STORAGE_UNAVAILABLE"
+    assert "temporary storage outage" not in caught.value.detail["message"]
 
 
 def test_excel_stage2_rejects_cross_project_classification_without_job(db, tmp_path, monkeypatch):

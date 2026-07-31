@@ -395,6 +395,30 @@ def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificatio
     )
 
 
+MAX_BH_STAGE2_INPUTS = 5000
+
+
+def _validate_bh_stage2_count(
+    type_counts: object,
+    *,
+    actual_count: int,
+) -> None:
+    if not isinstance(type_counts, dict):
+        raise ClassificationError("DXF 分类运行缺少可核验的类型数量统计。")
+    declared_count = type_counts.get("BH", 0)
+    if (
+        isinstance(declared_count, bool)
+        or not isinstance(declared_count, int)
+        or declared_count < 0
+        or declared_count != actual_count
+    ):
+        raise ClassificationError("BH 分类数量与正式分类账不一致。")
+    if actual_count > MAX_BH_STAGE2_INPUTS:
+        raise ClassificationError(
+            f"BH 分类账超过单批 {MAX_BH_STAGE2_INPUTS} 张处理上限。"
+        )
+
+
 def load_bh_stage2_classification_batch(
     db: Session,
     workflow_id: int,
@@ -427,6 +451,7 @@ def load_bh_stage2_classification_batch(
         )
         .order_by(DxfClassificationItem.id)
     ).all()
+    _validate_bh_stage2_count(run.type_counts_json, actual_count=len(rows))
     inputs: list[DxfBhStage2Input] = []
     seen_input_file_ids: set[int] = set()
     for item, stored in rows:
