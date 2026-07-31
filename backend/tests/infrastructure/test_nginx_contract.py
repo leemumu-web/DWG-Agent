@@ -82,6 +82,7 @@ def test_nginx_host_allowlist_accepts_private_lan_addresses(config_path: Path):
     content = config_path.read_text(encoding="utf-8")
 
     assert "map $host $host_is_allowed" in content
+    assert r"~^100\.(6[4-9]|[78][0-9]|9[0-9]|1[01][0-9]|12[0-7])\." in content
     assert r"~^10\." in content
     assert r"~^172\.(1[6-9]|2[0-9]|3[01])\." in content
     assert r"~^192\.168\." in content
