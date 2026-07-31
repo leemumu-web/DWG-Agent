@@ -120,7 +120,6 @@ class Settings(BaseSettings):
     # cannot collide with FastAPI/Celery modules.
     excel_final_stage_root: Path | None = None
     excel_final_timeout_seconds: int = Field(default=1800, ge=30, le=7200)
-    excel_stage2_pipeline_enabled: bool = False
     excel_stage2_timeout_seconds: int = Field(default=7200, ge=300, le=14400)
     # Stage2 can scan 5000 BH drawings. Keep production serial by default and
     # reject unsafe fan-out until a deployment has passed the concurrency gate.

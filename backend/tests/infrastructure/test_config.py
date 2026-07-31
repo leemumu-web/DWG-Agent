@@ -232,7 +232,7 @@ def test_excel_final_pipeline_is_disabled_by_default():
 def test_excel_stage2_has_isolated_bounded_runtime_defaults():
     configured = Settings(_env_file=None)
 
-    assert configured.excel_stage2_pipeline_enabled is False
+    assert not hasattr(configured, "excel_stage2_pipeline_enabled")
     assert configured.excel_stage2_timeout_seconds == 7200
     assert configured.excel_stage2_worker_concurrency == 1
     assert configured.excel_stage2_work_root.name == "excel-stage2-work"

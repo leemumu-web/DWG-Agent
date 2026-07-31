@@ -154,7 +154,6 @@ APPROVED_PRODUCTION_FEATURES = {
     "DXF_CLASSIFICATION_PIPELINE_ENABLED": "true",
     "DXF_SPLIT_PIPELINE_ENABLED": "true",
     "EXCEL_FINAL_PIPELINE_ENABLED": "true",
-    "EXCEL_STAGE2_PIPELINE_ENABLED": "true",
     "REMNANT_INVENTORY_ENABLED": "true",
 }
 
@@ -204,8 +203,6 @@ def test_production_env_gate_accepts_complete_approved_feature_matrix(tmp_path):
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("EXCEL_STAGE2_PIPELINE_ENABLED", None),
-        ("EXCEL_STAGE2_PIPELINE_ENABLED", "false"),
         ("REMNANT_INVENTORY_ENABLED", None),
         ("REMNANT_INVENTORY_ENABLED", "false"),
         ("DXF2EXCEL_PIPELINE_ENABLED", "true"),

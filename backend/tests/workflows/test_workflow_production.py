@@ -508,24 +508,24 @@ def _stage2_ready_workflow(db, tmp_path, monkeypatch):
     )
 
 
-def test_excel_stage2_requires_its_own_feature_gate(db, tmp_path, monkeypatch):
+def test_excel_stage2_is_always_available_even_with_obsolete_disabled_setting(
+    db, tmp_path, monkeypatch,
+):
     from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     monkeypatch.setattr(settings, "excel_final_pipeline_enabled", True)
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", False)
+    monkeypatch.setenv("EXCEL_STAGE2_PIPELINE_ENABLED", "false")
 
-    with pytest.raises(AppHTTPException) as caught:
-        prepare_stage_execution(
-            db,
-            workflow,
-            stage_code="excel_stage2",
-            payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
-            current_user=user,
-        )
+    execution = prepare_stage_execution(
+        db,
+        workflow,
+        stage_code="excel_stage2",
+        payload=WorkflowStageExecutionCreate(execution_kind="excel_stage2"),
+        current_user=user,
+    )
 
-    assert caught.value.status_code == 503
-    assert caught.value.detail["code"] == "EXCEL_STAGE2_PIPELINE_DISABLED"
+    assert execution.job.task_type == "process_excel_stage2"
 
 
 def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(db, tmp_path, monkeypatch):
@@ -541,7 +541,6 @@ def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(db, tmp_path,
         stage1_result,
     ) = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     frozen_bh_batch = load_bh_stage2_classification_batch(db, workflow.id)
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
 
     first = prepare_stage_execution(
@@ -613,7 +612,6 @@ def test_excel_stage2_worker_resolves_the_exact_job_frozen_by_workflow(db, tmp_p
     user, _, workflow, classification, _, stage1_file, _ = _stage2_ready_workflow(
         db, tmp_path, monkeypatch
     )
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     plan = prepare_stage_execution(
         db,
         workflow,
@@ -641,7 +639,6 @@ def test_excel_stage2_preflight_is_read_only_and_allows_empty_bh_batch(db, tmp_p
     classification.items[0].part_type = "PX"
     classification.type_counts_json = {"PX": 1}
     db.flush()
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     before = db.query(Job).count()
 
     result = preflight_excel_stage2(db, workflow, current_user=user)
@@ -686,7 +683,6 @@ def test_excel_stage2_preflight_api_exposes_worker_facing_summary(tmp_path, monk
         expected_run_id = classification.id
         before = db.query(Job).count()
         db.commit()
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     response = client.get(
         f"/api/v1/workflows/{workflow_id}/stages/excel_stage2/preflight",
@@ -714,7 +710,6 @@ def test_excel_stage2_preflight_rejects_classification_from_old_frozen_manifest(
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     workflow.input_batch.manifest_sha256 = "a" * 64
     db.flush()
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     before = db.query(Job).count()
 
     with pytest.raises(AppHTTPException) as caught:
@@ -746,7 +741,6 @@ def test_excel_stage2_preflight_rejects_stage1_result_metadata_drift(
     )
     stage1_result.result_json = {**stage1_result.result_json, field: value}
     db.flush()
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     with pytest.raises(AppHTTPException) as caught:
         preflight_excel_stage2(db, workflow, current_user=user)
@@ -769,7 +763,6 @@ def test_excel_stage2_preflight_rejects_missing_stage1_storage_object(
         stage1_file.bucket,
         stage1_file.storage_key,
     )
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     before = db.query(Job).count()
 
     with pytest.raises(AppHTTPException) as caught:
@@ -797,7 +790,6 @@ def test_excel_stage2_preflight_rejects_stage1_storage_size_drift(
         BytesIO(replacement),
         length=len(replacement),
     )
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     with pytest.raises(AppHTTPException) as caught:
         preflight_excel_stage2(db, workflow, current_user=user)
@@ -821,7 +813,6 @@ def test_excel_stage2_preflight_distinguishes_temporary_stage1_storage_failure(
         raise StorageError("temporary storage outage")
 
     monkeypatch.setattr(storage, "stat_object", fail_stat)
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     with pytest.raises(AppHTTPException) as caught:
         preflight_excel_stage2(db, workflow, current_user=user)
@@ -837,7 +828,6 @@ def test_excel_stage2_rejects_cross_project_classification_without_job(db, tmp_p
     user, _, workflow, classification, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     _, other_project = _owner_project(db)
     classification.project_id = other_project.id
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     before = db.query(Job).count()
 
     with pytest.raises(AppHTTPException) as caught:
@@ -863,7 +853,6 @@ def test_excel_stage2_rejects_stage1_attempt_metadata_drift(db, tmp_path, monkey
         "job_id": artifact.metadata_json["job_id"],
         "job_attempt": 99,
     }
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     with pytest.raises(AppHTTPException) as caught:
         prepare_stage_execution(
@@ -882,7 +871,6 @@ def test_excel_stage2_rejects_bound_job_with_changed_frozen_params(db, tmp_path,
     from app.platform.config.settings import settings
 
     user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
     plan = prepare_stage_execution(
         db,
@@ -926,7 +914,6 @@ def test_excel_stage2_reuses_bound_job_for_another_project_member(db, tmp_path, 
         )
     )
     db.flush()
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
     payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
 
     first = prepare_stage_execution(
@@ -976,7 +963,6 @@ def test_excel_stage2_job_params_stay_small_for_5000_bh_inputs(db, tmp_path, mon
         "load_bh_stage2_classification_batch",
         lambda _db, _workflow_id: large_batch,
     )
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     plan = prepare_stage_execution(
         db,
@@ -996,7 +982,6 @@ def test_excel_stage2_translates_invalid_classification_ledger(db, tmp_path, mon
     user, _, workflow, classification, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     classification.items[0].output_name = "与文件登记不一致.dxf"
     db.flush()
-    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
 
     with pytest.raises(AppHTTPException) as caught:
         prepare_stage_execution(

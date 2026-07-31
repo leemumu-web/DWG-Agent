@@ -395,7 +395,6 @@ Tekla 的单净重、总净重、单毛重、总毛重和表重量代表原模�
 
 | 代码 | 前端说明 |
 |---|---|
-| `EXCEL_STAGE2_PIPELINE_DISABLED` | Excel 第二阶段服务未启用，请联系管理员。 |
 | `EXCEL_STAGE2_STAGE1_NOT_READY` | 第一阶段尚未形成正式 Excel，请先完成第一阶段。 |
 | `EXCEL_STAGE2_STAGE1_BINDING_INVALID` | 第一阶段结果与当前项目或任务尝试不一致。 |
 | `EXCEL_STAGE2_CLASSIFICATION_NOT_READY` | 当前项目尚无可追溯的正式分类结果。 |

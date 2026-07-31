@@ -367,7 +367,7 @@ uv run pytest -q tests/workflows/test_workflow_production.py tests/workflows/tes
 - [ ] 11.1 增加配置：
 
 ```text
-EXCEL_STAGE2_PIPELINE_ENABLED=false
+# Excel 第二阶段为常开能力，不设置启停变量。
 EXCEL_STAGE2_TIMEOUT_SECONDS=7200
 EXCEL_STAGE2_WORK_ROOT=/app/var/excel-stage2-work
 EXCEL_STAGE2_WORKER_CONCURRENCY=1

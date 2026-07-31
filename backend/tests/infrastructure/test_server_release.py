@@ -222,7 +222,6 @@ def test_server_release_gates_env_and_runtime_feature_matrix_before_remnant_smok
         "DXF_CLASSIFICATION_PIPELINE_ENABLED",
         "DXF_SPLIT_PIPELINE_ENABLED",
         "EXCEL_FINAL_PIPELINE_ENABLED",
-        "EXCEL_STAGE2_PIPELINE_ENABLED",
         "REMNANT_INVENTORY_ENABLED",
     ):
         assert key in validation
@@ -241,12 +240,13 @@ def test_runtime_feature_verifier_has_exact_public_contract():
         "dxf_classification_pipeline_enabled",
         "dxf_split_pipeline_enabled",
         "excel_final_pipeline_enabled",
-        "excel_stage2_pipeline_enabled",
         "remnant_inventory_enabled",
     ):
         assert setting in source
     assert "model_dump" not in source
     assert "os.environ" not in source
+    assert 'PIPELINE_QUEUE_MAP.get("excel_stage2")' in source
+    assert 'WORKFLOW_TEMPLATES["linux_production"]' in source
 
 
 def _run_runtime_feature_verifier(**overrides: str) -> subprocess.CompletedProcess[str]:
@@ -260,7 +260,6 @@ def _run_runtime_feature_verifier(**overrides: str) -> subprocess.CompletedProce
         "DXF_CLASSIFICATION_PIPELINE_ENABLED": "true",
         "DXF_SPLIT_PIPELINE_ENABLED": "true",
         "EXCEL_FINAL_PIPELINE_ENABLED": "true",
-        "EXCEL_STAGE2_PIPELINE_ENABLED": "true",
         "REMNANT_INVENTORY_ENABLED": "true",
         **overrides,
     }
@@ -276,12 +275,14 @@ def _run_runtime_feature_verifier(**overrides: str) -> subprocess.CompletedProce
 
 def test_runtime_feature_verifier_accepts_only_the_approved_matrix():
     accepted = _run_runtime_feature_verifier()
-    rejected = _run_runtime_feature_verifier(EXCEL_STAGE2_PIPELINE_ENABLED="false")
+    rejected = _run_runtime_feature_verifier(REMNANT_INVENTORY_ENABLED="false")
 
     assert accepted.returncode == 0, accepted.stderr
-    assert json.loads(accepted.stdout)["status"] == "ok"
+    payload = json.loads(accepted.stdout)
+    assert payload["status"] == "ok"
+    assert payload["always_on_capabilities"] == {"excel_stage2": True}
     assert rejected.returncode == 1
-    assert "excel_stage2_pipeline_enabled" in rejected.stderr
+    assert "remnant_inventory_enabled" in rejected.stderr
     for secret in ("mysql-runtime-secret", "jwt-runtime-secret"):
         assert secret not in accepted.stdout
         assert secret not in accepted.stderr

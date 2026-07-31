@@ -23,14 +23,14 @@ def get_system_health(request: Request, current_user: CurrentUser):
         "dxf2dwg_pipeline": settings.dxf2dwg_pipeline_enabled,
         "dxf2excel_pipeline": settings.dxf2excel_pipeline_enabled,
         "excel_final_pipeline": settings.excel_final_pipeline_enabled,
-        "excel_stage2_pipeline": settings.excel_stage2_pipeline_enabled,
+        "excel_stage2_pipeline": True,
         "cad_worker": settings.cad_worker_enabled,
     }
     services = [
         {
             "code": "excel_stage2",
             "name": "Excel 第二阶段服务",
-            "enabled": settings.excel_stage2_pipeline_enabled,
+            "enabled": True,
         }
     ]
 

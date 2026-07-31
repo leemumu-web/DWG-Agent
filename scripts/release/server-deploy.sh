@@ -142,7 +142,6 @@ server_validate_runtime() {
         "DXF_CLASSIFICATION_PIPELINE_ENABLED=true"
         "DXF_SPLIT_PIPELINE_ENABLED=true"
         "EXCEL_FINAL_PIPELINE_ENABLED=true"
-        "EXCEL_STAGE2_PIPELINE_ENABLED=true"
         "REMNANT_INVENTORY_ENABLED=true"
     )
     local item key wanted actual

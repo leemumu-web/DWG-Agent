@@ -102,7 +102,6 @@ const CODE_MESSAGES: Record<string, string> = {
   DXF2EXCEL_PIPELINE_DISABLED: 'DXF 转 Excel 服务当前未启用。',
   EXCEL_FINAL_PIPELINE_DISABLED: 'Excel 整理服务当前未启用。',
   EXCEL_STAGE1_PIPELINE_DISABLED: 'Excel 第一阶段处理服务当前未启用。',
-  EXCEL_STAGE2_PIPELINE_DISABLED: 'Excel 第二阶段处理服务当前未启用。',
   FILE_EMPTY: '上传的文件没有内容，请重新选择正确文件。',
   FILE_NOT_DWG: '所选文件不是有效的 DWG 图纸，请核对文件后重新上传。',
   FILE_TOO_LARGE: '文件超过服务器允许的大小，请拆分后重新上传。',
@@ -141,7 +140,6 @@ const FEATURE_DISABLED_CODES = new Set([
   'DXF_SPLIT_PIPELINE_DISABLED',
   'EXCEL_FINAL_PIPELINE_DISABLED',
   'EXCEL_STAGE1_PIPELINE_DISABLED',
-  'EXCEL_STAGE2_PIPELINE_DISABLED',
   'REMNANT_INVENTORY_DISABLED',
 ]);
 
@@ -155,7 +153,6 @@ const FEATURE_LABELS: Record<string, string> = {
   DXF_SPLIT_PIPELINE_DISABLED: 'DXF 拆板服务',
   EXCEL_FINAL_PIPELINE_DISABLED: 'Excel 整理服务',
   EXCEL_STAGE1_PIPELINE_DISABLED: 'Excel 第一阶段处理',
-  EXCEL_STAGE2_PIPELINE_DISABLED: 'Excel 第二阶段处理',
   REMNANT_INVENTORY_DISABLED: '余料库',
 };
 

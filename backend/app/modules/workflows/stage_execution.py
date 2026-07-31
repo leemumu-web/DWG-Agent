@@ -480,11 +480,6 @@ def _prepare_excel_stage2(
     current_user: User,
 ) -> tuple[str, dict[str, object]]:
     """Freeze the current formal Stage1 workbook and BH classification ledger."""
-    if not settings.excel_stage2_pipeline_enabled:
-        raise service_unavailable(
-            "EXCEL_STAGE2_PIPELINE_DISABLED",
-            "Excel 第二阶段处理服务当前未启用。",
-        )
     # The execution route already enforces a writable project role. The frozen
     # input item and source artifact below are project-owned workflow records,
     # so a later project member need not be the original uploader.

@@ -343,37 +343,6 @@ test('Excel 第二阶段预检失败时只展示工人可执行的修正信息',
   await expect(page.getByText(/Traceback|SQLAlchemy|\/home\//i)).toHaveCount(0);
 });
 
-test('Excel 第二阶段未启用时不误导重试且只请求一次', async ({ page }) => {
-  const detail = workflow('waiting_input');
-  let preflightRequests = 0;
-  await mockSharedApis(page, detail);
-  await page.route('**/api/v1/workflows/81/stages/excel_stage2/preflight', async (route) => {
-    preflightRequests += 1;
-    await route.fulfill({
-      status: 503,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        error: {
-          code: 'EXCEL_STAGE2_PIPELINE_DISABLED',
-          message: 'Excel 第二阶段处理服务当前未启用。',
-          details: {},
-        },
-        meta: { request_id: 'stage2-disabled-r36' },
-      }),
-    });
-  });
-
-  await authenticate(page);
-  await page.goto('/workflows/81');
-
-  await expect(page.getByText('Excel 第二阶段处理服务当前未启用。')).toBeVisible();
-  await expect(page.getByText('当前部署未开启 Excel 第二阶段处理，请联系管理员检查服务配置。')).toBeVisible();
-  await expect(page.getByText('EXCEL_STAGE2_PIPELINE_DISABLED')).toHaveCount(0);
-  await expect(page.getByText(/稍后重试一次/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '重新检查' })).toHaveCount(0);
-  await expect.poll(() => preflightRequests).toBe(1);
-});
-
 test('Excel 第一阶段未启用时使用中文业务标题且不显示错误码', async ({ page }) => {
   const detail = workflowAtExcelStage1();
   let preflightRequests = 0;
@@ -406,22 +375,22 @@ test('Excel 第一阶段未启用时使用中文业务标题且不显示错误�
   await expect.poll(() => preflightRequests).toBe(1);
 });
 
-test('全局查询遇到确定性功能关闭时不自动重复请求', async ({ page }) => {
+test('全局查询遇到确定性权限错误时不自动重复请求', async ({ page }) => {
   const detail = workflow('waiting_input');
   let detailRequests = 0;
   await mockSharedApis(page, detail);
   await page.route('**/api/v1/workflows/81', async (route) => {
     detailRequests += 1;
     await route.fulfill({
-      status: 503,
+      status: 403,
       contentType: 'application/json',
       body: JSON.stringify({
         error: {
-          code: 'EXCEL_STAGE2_PIPELINE_DISABLED',
-          message: 'Excel 第二阶段处理服务当前未启用。',
+          code: 'PROJECT_ACCESS_DENIED',
+          message: '当前账号不属于该生产项目。',
           details: {},
         },
-        meta: { request_id: 'detail-disabled-r36' },
+        meta: { request_id: 'detail-forbidden-r36' },
       }),
     });
   });

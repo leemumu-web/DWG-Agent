@@ -239,12 +239,10 @@ def test_reserved_execution_queues_keep_deterministic_routes_without_fake_tasks(
 
 
 def test_excel_stage2_is_visible_to_control_plane_and_chinese_system_status(
-    monkeypatch,
 ) -> None:
     from app.modules.operations.control_plane.service import PIPELINE_QUEUE_MAP
     from app.modules.operations.data_catalog import system_routes
 
-    monkeypatch.setattr(system_routes.settings, "excel_stage2_pipeline_enabled", True)
     response = system_routes.get_system_health(
         SimpleNamespace(state=SimpleNamespace(request_id="system-health-test")),
         current_user=None,

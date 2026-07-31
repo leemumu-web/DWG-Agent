@@ -123,36 +123,33 @@ git add backend/app/modules/workflows/stage_execution.py \
 git commit -m "fix: harden BH stage2 preflight lineage"
 ```
 
-### Task 2: 用浏览器测试锁定“功能关闭不得重试”
+### Task 2: 用浏览器测试锁定“确定性错误不得重试”
 
 **Files:**
 - Modify: `frontend/tests/e2e/workflows/excel-stage2.spec.ts`
 - Modify: `frontend/tests/e2e/workflows/workflow-detail.spec.ts`
 
-- [x] **Step 1: 添加第二阶段确定性 503 回归**
+- [x] **Step 1: 添加并验证确定性错误回归**
 
-在 `excel-stage2.spec.ts` 增加场景，预检返回：
+最初用第二阶段 503 暴露了统一重试缺陷；在第二阶段被确认常开后，最终回归改用真实可发生的权限错误，并保留 Excel 第一阶段功能关闭场景：
 
 ```ts
 {
   error: {
-    code: 'EXCEL_STAGE2_PIPELINE_DISABLED',
-    message: 'Excel 第二阶段处理服务当前未启用。',
+    code: 'PROJECT_ACCESS_DENIED',
+    message: '当前账号不属于该生产项目。',
     details: {},
   },
-  meta: { request_id: 'stage2-disabled-r36' },
+  meta: { request_id: 'detail-forbidden-r36' },
 }
 ```
 
 记录预检请求数，并断言：
 
 ```ts
-await expect(page.getByText('Excel 第二阶段处理服务当前未启用。')).toBeVisible();
-await expect(page.getByText('当前部署未开启 Excel 第二阶段处理，请联系管理员检查服务配置。')).toBeVisible();
-await expect(page.getByText('EXCEL_STAGE2_PIPELINE_DISABLED')).toHaveCount(0);
-await expect(page.getByText(/稍后重试一次/)).toHaveCount(0);
-await expect(page.getByRole('button', { name: '重新检查' })).toHaveCount(0);
-await expect.poll(() => preflightRequests).toBe(1);
+await expect(page.getByText('生产批次加载失败')).toBeVisible();
+await expect(page.getByRole('button', { name: '重试' })).toHaveCount(0);
+await expect.poll(() => detailRequests).toBe(1);
 ```
 
 - [x] **Step 2: 添加第一阶段标题不泄漏错误码回归**
@@ -226,7 +223,6 @@ export interface ParsedApiError {
 
 ```ts
 EXCEL_STAGE1_PIPELINE_DISABLED: 'Excel 第一阶段处理服务当前未启用。',
-EXCEL_STAGE2_PIPELINE_DISABLED: 'Excel 第二阶段处理服务当前未启用。',
 DXF_CLASSIFICATION_PIPELINE_DISABLED: 'DXF 分类服务当前未启用。',
 DXF_SPLIT_PIPELINE_DISABLED: 'DXF 拆板服务当前未启用。',
 REMNANT_INVENTORY_DISABLED: '余料库功能当前未启用。',
@@ -349,11 +345,10 @@ git commit -m "fix: show actionable workflow errors"
 扩展 `test_server_example_enables_approved_shipping_pipelines()`，加入：
 
 ```python
-"EXCEL_STAGE2_PIPELINE_ENABLED",
 "REMNANT_INVENTORY_ENABLED",
 ```
 
-在 `test_scripts.py` 增加临时 env-file 场景：缺失 `EXCEL_STAGE2_PIPELINE_ENABLED`、设置为 `false`、余料库缺失或为 `false` 都必须非零退出；完整批准矩阵通过。断言 `compose_smoke` 调用 `/app/scripts/release/verify_runtime_features.py`。
+在 `test_scripts.py` 增加临时 env-file 场景：余料库缺失或为 `false`、废弃的 DXF→Excel 被误开等漂移都必须非零退出；完整批准矩阵通过。断言 `compose_smoke` 调用 `/app/scripts/release/verify_runtime_features.py`。Excel 第二阶段不使用启停设置，运行时核验其模板和队列路由。
 
 在 `test_server_release.py` 断言 `server_validate_runtime` 验证完整批准矩阵，`server_smoke` 在余料库真实闭环前调用运行时功能核验脚本。
 
@@ -383,7 +378,6 @@ EXPECTED = {
     "dxf_classification_pipeline_enabled": True,
     "dxf_split_pipeline_enabled": True,
     "excel_final_pipeline_enabled": True,
-    "excel_stage2_pipeline_enabled": True,
     "remnant_inventory_enabled": True,
 }
 ```
@@ -442,12 +436,11 @@ git commit -m "fix: gate production runtime feature drift"
 保留当前所有密钥和连接配置，只补齐：
 
 ```dotenv
-EXCEL_STAGE2_PIPELINE_ENABLED=true
 EXCEL_STAGE2_TIMEOUT_SECONDS=7200
 EXCEL_STAGE2_WORK_ROOT=/app/var/excel-stage2-work
 ```
 
-确认余料库为 `true`，设置 `HTTP_PORT=18080`，将四个发布镜像标签切换为 `server-production-20260731-r36`。
+确认余料库为 `true`，删除遗留的 Excel 第二阶段启停项，设置 `HTTP_PORT=18080`，将四个发布镜像标签切换为 `server-production-20260731-r36`。Excel 第二阶段通过模板、队列和健康 worker 证明为常开能力。
 
 - [ ] **Step 2: 运行完整代码门禁**
 
@@ -479,7 +472,7 @@ curl -fsS http://127.0.0.1:18080/nginx-health
 curl -fsS http://127.0.0.1:18080/health/ready
 ```
 
-并通过容器内脚本确认功能矩阵；运行余料库真实 MySQL/MinIO 闭环；使用现有账号读取工作流 5、6、8，确认工作流 8 的 Excel 第二阶段预检不再返回 `EXCEL_STAGE2_PIPELINE_DISABLED`，工作流 5/6 现有结果仍可下载。
+并通过容器内脚本确认可配置功能矩阵及 Excel 第二阶段常开模板/队列；运行余料库真实 MySQL/MinIO 闭环；使用现有账号读取工作流 5、6、8，确认工作流 8 的 Excel 第二阶段预检进入真实输入审核，工作流 5/6 现有结果仍可下载。
 
 - [ ] **Step 6: 运行浏览器与多账号回归**
 

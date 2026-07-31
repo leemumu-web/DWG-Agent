@@ -520,7 +520,6 @@ class TestDockerEnvironmentFiles:
             "DXF_CLASSIFICATION_PIPELINE_ENABLED",
             "DXF_SPLIT_PIPELINE_ENABLED",
             "EXCEL_FINAL_PIPELINE_ENABLED",
-            "EXCEL_STAGE2_PIPELINE_ENABLED",
             "REMNANT_INVENTORY_ENABLED",
         ):
             assert values[key] == "true"
