@@ -543,7 +543,9 @@ def run_excel_final_processing(
             result_payload = {
                 "source": "excel_final",
                 "job_id": job.id,
+                "job_attempt": attempt,
                 "task_type": TASK_EXCEL_FINAL,
+                "workflow_artifact_type": "stage1_excel",
                 "file_id": file_id,
                 "format": source_format,
                 "source_name": source_file.original_name,

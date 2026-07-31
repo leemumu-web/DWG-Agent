@@ -120,6 +120,16 @@ EXPECTED_ROUTES = [
     ),
     (
         ("GET",),
+        "/{workflow_id}/stages/excel_stage2/download-result",
+        "download_excel_stage2_result",
+    ),
+    (
+        ("GET",),
+        "/{workflow_id}/stages/excel_stage2/download-reader-result",
+        "download_excel_stage2_reader_result",
+    ),
+    (
+        ("GET",),
         "/{workflow_id}/stages/excel_stage1/preflight",
         "preflight_excel_stage1_api",
     ),

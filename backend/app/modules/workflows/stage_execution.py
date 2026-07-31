@@ -122,8 +122,8 @@ def preflight_excel_stage2(
         stage_code="excel_stage2",
         execution_kind="excel_stage2",
     )
-    require_stage_inputs(workflow, "excel_stage2")
     _, params = _prepare_excel_stage2(db, workflow, current_user)
+    require_stage_inputs(workflow, "excel_stage2")
     source = db.get(StoredFile, int(params["stage1_excel_file_id"]))
     if source is None:
         raise AppHTTPException(
@@ -227,15 +227,17 @@ def prepare_stage_execution(
                 "artifact_types": capability.artifact_types,
             },
         )
-    require_stage_inputs(workflow, stage_code)
-
     if payload.execution_kind == "excel_stage1":
+        require_stage_inputs(workflow, stage_code)
         task_type, params = _prepare_excel_stage1(db, workflow, current_user)
     elif payload.execution_kind == "excel_stage2":
         task_type, params = _prepare_excel_stage2(db, workflow, current_user)
+        require_stage_inputs(workflow, stage_code)
     elif payload.execution_kind == "steel_dxf_classification":
+        require_stage_inputs(workflow, stage_code)
         task_type, params = _prepare_dxf_classification(db, workflow, current_user)
     elif payload.execution_kind == "drawing_processing":
+        require_stage_inputs(workflow, stage_code)
         task_type, params = _prepare_dxf_splitting(db, workflow, current_user)
     else:
         raise AppHTTPException(

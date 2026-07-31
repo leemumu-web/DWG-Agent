@@ -11,7 +11,7 @@
 | `files` | implemented | 4 | 17 | 0 | 上传、登记、下载、预览、对象补偿 |
 | `remnant_inventory` | partial | 6 | 32 | 2 | 材质目录、导入账本、异步解析与全厂共享余料状态 |
 | `jobs` | implemented | 4 | 0 | 1 | Job attempt、步骤、结果、复核、SSE；HTTP 当前由 `/workflows` 聚合前缀拥有 |
-| `workflows` | partial | 7 | 83 | 1 | 生产批次、输入冻结、阶段、完整备份、异步整批清理和项目/Job 聚合路由 |
+| `workflows` | partial | 7 | 85 | 1 | 生产批次、输入冻结、阶段、完整备份、异步整批清理和项目/Job 聚合路由 |
 | `cad_processing` | partial | 0 | 0 | 5 | DWG/DXF 格式转换、DXF 预览解释与材料表提取 |
 | `dxf_classification` | partial | 2 | 0 | 1 | Steel DXF Classifier 1.2.0 分类分流、目录浏览与 DXF-only 下载 |
 | `dxf_splitting` | partial | 3 | 0 | 1 | Steel DXF Split 1.5.2 整批拆板、独立校验、MinIO 产物和人工复核来源清单 |
@@ -20,7 +20,7 @@
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |
 | `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Outbox、Beat 的目标边界 |
 | `windows_execution` | external | 0 | 0 | 0 | Node Agent、CAM Runner、SinoCAM Adapter |
-| **合计** |  | **47** | **209** | **16** | 所有运行契约唯一归属 |
+| **合计** |  | **47** | **211** | **16** | 所有运行契约唯一归属 |
 
 “HTTP operation 为 0”不表示模块不可用。例如 CAD 转换与分类由 Job/Workflow 公共端点触发，模块拥有任务和 Stage，而 HTTP 入口由 `jobs` 或 `workflows` 拥有。归属只设一个主 owner，避免同一契约由多个目录同时负责。
 
@@ -41,7 +41,7 @@ stale recovery 分别归 daily archive、storage reconciliation 和 control plan
 `runtime-contract.json`。空 Agent/CAD/dispatch task module 已删除，但对应路由仍保留，路由不
 等于任务注册或核心实现。
 
-`workflows` 的 7 张表和 83 个 operation 现集中在 `app/modules/workflows/` 聚合前缀。模型/Schema、模板、
+`workflows` 的 7 张表和 85 个 operation 现集中在 `app/modules/workflows/` 聚合前缀。模型/Schema、模板、
 状态机、Job 同步、阶段执行计划、输入登记/转换/冻结/展示以及七类 route 均可从目录直接
 追溯；人工输入仍严格为多个 DWG + 一个 Excel，DXF 只允许服务器派生。第三阶段通过
 `dxf_splitting` 的公共接口执行整批拆板，但任务、两张拆板表和 Stage 仍由拆板模块拥有；

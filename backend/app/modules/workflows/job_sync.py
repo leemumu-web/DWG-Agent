@@ -67,13 +67,12 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                     )
                 ).all()
             )
-            if stage.stage_code == "drawing_processing":
-                results = [
-                    result
-                    for result in results
-                    if isinstance(result.result_json, dict)
-                    and result.result_json.get("job_attempt") == job.attempt
-                ]
+            results = [
+                result
+                for result in results
+                if isinstance(result.result_json, dict)
+                and result.result_json.get("job_attempt") == job.attempt
+            ]
             for result in results:
                 requested_artifact_type = (
                     result.result_json.get("workflow_artifact_type")

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.modules.files.interface import StoredFile, validate_dxf_structure
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.workflows.intake import registration
-from app.modules.workflows.models import WorkflowRun
+from app.modules.workflows.models import WorkflowArtifact, WorkflowRun, WorkflowStageRun
 from app.modules.workflows.templates import get_stage_capability
 from app.platform.config.constants import EXCEL_FILE_EXTENSIONS
 from app.platform.http.exceptions import AppHTTPException
@@ -114,14 +114,28 @@ def _artifact_types_before_stage(
     stage = next(
         value for value in workflow.stages if value.stage_code == stage_code
     )
-    prior_stage_ids = {
-        value.id for value in workflow.stages if value.sequence < stage.sequence
-    }
     return {
         artifact.artifact_type
-        for artifact in workflow.artifacts
-        if artifact.stage_run_id in prior_stage_ids
+        for prior_stage in workflow.stages
+        if prior_stage.sequence < stage.sequence
+        for artifact in _current_attempt_artifacts(prior_stage)
     }
+
+
+def _current_attempt_artifacts(
+    stage: WorkflowStageRun,
+) -> list[WorkflowArtifact]:
+    """Return all manual artifacts, or only exact Job-attempt artifacts."""
+    artifacts = list(stage.artifacts)
+    if stage.job_id is None or stage.job_attempt is None:
+        return artifacts
+    return [
+        artifact
+        for artifact in artifacts
+        if isinstance(artifact.metadata_json, dict)
+        and artifact.metadata_json.get("job_id") == stage.job_id
+        and artifact.metadata_json.get("job_attempt") == stage.job_attempt
+    ]
 
 
 def require_stage_inputs(workflow: WorkflowRun, stage_code: str) -> None:
@@ -165,15 +179,7 @@ def require_stage_outputs(workflow: WorkflowRun, stage_code: str) -> None:
     stage = next(
         value for value in workflow.stages if value.stage_code == stage_code
     )
-    artifacts = stage.artifacts
-    if stage_code == "drawing_processing":
-        artifacts = [
-            artifact
-            for artifact in artifacts
-            if isinstance(artifact.metadata_json, dict)
-            and artifact.metadata_json.get("job_id") == stage.job_id
-            and artifact.metadata_json.get("job_attempt") == stage.job_attempt
-        ]
+    artifacts = _current_attempt_artifacts(stage)
     available = {artifact.artifact_type for artifact in artifacts}
     missing = [
         value for value in capability.required_outputs if value not in available
@@ -199,15 +205,7 @@ def verify_required_dxf_objects(
     stage = next(
         value for value in workflow.stages if value.stage_code == stage_code
     )
-    artifacts = stage.artifacts
-    if stage_code == "drawing_processing":
-        artifacts = [
-            artifact
-            for artifact in artifacts
-            if isinstance(artifact.metadata_json, dict)
-            and artifact.metadata_json.get("job_id") == stage.job_id
-            and artifact.metadata_json.get("job_attempt") == stage.job_attempt
-        ]
+    artifacts = _current_attempt_artifacts(stage)
     for artifact in artifacts:
         if artifact.artifact_type not in required_dxf:
             continue
