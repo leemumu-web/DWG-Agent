@@ -406,6 +406,65 @@ test('Excel 第一阶段未启用时使用中文业务标题且不显示错误�
   await expect.poll(() => preflightRequests).toBe(1);
 });
 
+test('全局查询遇到确定性功能关闭时不自动重复请求', async ({ page }) => {
+  const detail = workflow('waiting_input');
+  let detailRequests = 0;
+  await mockSharedApis(page, detail);
+  await page.route('**/api/v1/workflows/81', async (route) => {
+    detailRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'EXCEL_STAGE2_PIPELINE_DISABLED',
+          message: 'Excel 第二阶段处理服务当前未启用。',
+          details: {},
+        },
+        meta: { request_id: 'detail-disabled-r36' },
+      }),
+    });
+  });
+
+  await authenticate(page);
+  await page.goto('/workflows/81');
+
+  await expect(page.getByText('生产批次加载失败')).toBeVisible();
+  await expect(page.getByRole('button', { name: '重试' })).toHaveCount(0);
+  await expect.poll(() => detailRequests).toBe(1);
+});
+
+test('全局查询只对未知临时故障有限重试并可自动恢复', async ({ page }) => {
+  const detail = workflow('waiting_input');
+  let detailRequests = 0;
+  await mockSharedApis(page, detail);
+  await page.route('**/api/v1/workflows/81', async (route) => {
+    detailRequests += 1;
+    if (detailRequests < 3) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'SERVICE_TEMPORARILY_UNAVAILABLE',
+            message: '服务正在恢复，请稍候。',
+            details: {},
+          },
+          meta: { request_id: `transient-r36-${detailRequests}` },
+        }),
+      });
+      return;
+    }
+    await json(route, detail);
+  });
+
+  await authenticate(page);
+  await page.goto('/workflows/81');
+
+  await expect(page.getByRole('heading', { name: '生产批次 #81' })).toBeVisible();
+  await expect.poll(() => detailRequests).toBe(3);
+});
+
 test('Excel 第二阶段读取表与正式结果使用两个单独下载入口', async ({ page }) => {
   const detail = workflow('succeeded');
   let readerDownloads = 0;

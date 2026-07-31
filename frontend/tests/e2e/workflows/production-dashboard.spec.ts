@@ -126,3 +126,36 @@ test('production workbench is backed by workflows and opens the real project for
     '/api/v1/workflows/templates',
   ]));
 });
+
+test('production project query failures are not presented as an empty project list', async ({ page }) => {
+  let workflowRequests = 0;
+  await mockProductionApis(page);
+  await page.route('**/api/v1/workflows?**', async (route) => {
+    workflowRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'WORKFLOW_PIPELINE_DISABLED',
+          message: '生产流程服务当前未启用。',
+          details: {},
+        },
+        meta: { request_id: 'workflow-disabled-r36', timestamp: now },
+      }),
+    });
+  });
+
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'dashboard-token', savedUser: user });
+  await page.goto('/workflows');
+
+  await expect(page.getByText('生产流程服务当前未启用。')).toBeVisible();
+  await expect(page.getByText('还没有生产项目')).toHaveCount(0);
+  await expect(page.getByText('WORKFLOW_PIPELINE_DISABLED')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重新加载' })).toHaveCount(0);
+  await expect.poll(() => workflowRequests).toBe(1);
+});

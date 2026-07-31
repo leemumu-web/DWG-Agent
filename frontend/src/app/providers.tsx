@@ -1,7 +1,7 @@
 import { App, ConfigProvider, Spin } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { isAxiosError } from 'axios';
 import type { PropsWithChildren } from 'react';
+import { shouldRetryApiQuery } from '../shared/api';
 import { AppErrorBoundary, ConnectivityBanner } from '../shared/components';
 import { useAuthInit } from '../shared/auth';
 
@@ -9,10 +9,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: (failureCount, error) => {
-        const status = isAxiosError(error) ? error.response?.status : undefined;
-        return failureCount < 2 && (status === undefined || status >= 500);
-      },
+      retry: shouldRetryApiQuery,
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
     },
   },

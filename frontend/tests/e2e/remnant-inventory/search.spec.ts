@@ -146,3 +146,31 @@ test('original download failures show a Chinese worker-facing error', async ({ p
   await expect(page.getByText('Forbidden')).toHaveCount(0);
   await expect(page.getByText('REMNANT_DOWNLOAD_FORBIDDEN')).toHaveCount(0);
 });
+
+test('remnant material service failures are shown instead of an empty selector', async ({ page }) => {
+  let materialRequests = 0;
+  await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, { access_token: 'e2e-token', user }, 201));
+  await page.route('**/api/v1/remnant-materials', async (route) => {
+    materialRequests += 1;
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: {
+          code: 'REMNANT_INVENTORY_DISABLED',
+          message: '余料库服务当前未启用。',
+          details: {},
+        },
+        meta: { request_id: 'remnant-disabled-r36', timestamp: now },
+      }),
+    });
+  });
+
+  await page.goto('/remnants');
+
+  await expect(page.getByText('余料库服务当前未启用。')).toBeVisible();
+  await expect(page.getByText('当前部署未开启余料库，请联系管理员检查服务配置。')).toBeVisible();
+  await expect(page.getByText('REMNANT_INVENTORY_DISABLED')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '重新加载' })).toHaveCount(0);
+  await expect.poll(() => materialRequests).toBe(1);
+});

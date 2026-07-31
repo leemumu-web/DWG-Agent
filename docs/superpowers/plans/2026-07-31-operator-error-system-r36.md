@@ -113,7 +113,7 @@ uv run pytest -q tests/workflows/test_workflow_production.py \
 
 Expected: 全部通过；预审核仍不创建 Job，worker 的冻结摘要二次校验、逐图读取、重复零件号阻断和失败诊断全部保持通过。
 
-- [ ] **Step 11: 提交预审核加固**
+- [x] **Step 11: 提交预审核加固**
 
 ```bash
 git add backend/app/modules/workflows/stage_execution.py \
@@ -129,7 +129,7 @@ git commit -m "fix: harden BH stage2 preflight lineage"
 - Modify: `frontend/tests/e2e/workflows/excel-stage2.spec.ts`
 - Modify: `frontend/tests/e2e/workflows/workflow-detail.spec.ts`
 
-- [ ] **Step 1: 添加第二阶段确定性 503 回归**
+- [x] **Step 1: 添加第二阶段确定性 503 回归**
 
 在 `excel-stage2.spec.ts` 增加场景，预检返回：
 
@@ -155,11 +155,11 @@ await expect(page.getByRole('button', { name: '重新检查' })).toHaveCount(0);
 await expect.poll(() => preflightRequests).toBe(1);
 ```
 
-- [ ] **Step 2: 添加第一阶段标题不泄漏错误码回归**
+- [x] **Step 2: 添加第一阶段标题不泄漏错误码回归**
 
 在 `workflow-detail.spec.ts` 为第一阶段预检构造 `EXCEL_STAGE1_PIPELINE_DISABLED`，断言固定标题“Excel 第一阶段运行前检查未通过”可见，稳定错误码和“稍后重试一次”不可见，且没有“重新检查”按钮。
 
-- [ ] **Step 3: 运行测试确认当前实现失败**
+- [x] **Step 3: 运行测试确认当前实现失败**
 
 Run:
 
@@ -172,7 +172,7 @@ PLAYWRIGHT_FRONTEND_BASE_URL=http://127.0.0.1:18080 \
 
 Expected: FAIL；当前错误建议包含“稍后重试一次”，第二阶段仍出现“重新检查”，第一阶段标题可能展示错误码。
 
-- [ ] **Step 4: 提交失败测试**
+- [x] **Step 4: 提交失败测试**
 
 ```bash
 git add frontend/tests/e2e/workflows/excel-stage2.spec.ts \
@@ -187,7 +187,7 @@ git commit -m "test: define operator feature-disabled errors"
 - Modify: `frontend/src/shared/api/index.ts`
 - Modify: `frontend/src/app/providers.tsx`
 
-- [ ] **Step 1: 扩展解析类型**
+- [x] **Step 1: 扩展解析类型**
 
 在 `error.ts` 定义并导出：
 
@@ -216,11 +216,11 @@ export interface ParsedApiError {
 }
 ```
 
-- [ ] **Step 2: 实现稳定错误优先的分类**
+- [x] **Step 2: 实现稳定错误优先的分类**
 
 增加 `isFeatureDisabledCode()`，识别 `*_PIPELINE_DISABLED`、`AGENT_DISABLED` 和 `REMNANT_INVENTORY_DISABLED`。增加 `classifyApiError(code, status, responseReceived)`：稳定功能关闭优先；400/413/415/422 为输入，401 为登录，403 为权限，404 为不存在，409 为冲突，429 与存储满为容量；无响应、502、504和未知 503 为临时；其余 5xx 为服务器错误。
 
-- [ ] **Step 3: 给功能关闭配置精确中文和恢复动作**
+- [x] **Step 3: 给功能关闭配置精确中文和恢复动作**
 
 至少增加：
 
@@ -234,7 +234,7 @@ REMNANT_INVENTORY_DISABLED: '余料库功能当前未启用。',
 
 `apiErrorRecovery()` 对 `feature_disabled` 返回具体管理员动作，不返回等待或重试。对 500 返回保留请求编号并联系管理员；只有 `transient` 返回刷新状态后有限重试。
 
-- [ ] **Step 4: 导出统一查询重试函数**
+- [x] **Step 4: 导出统一查询重试函数**
 
 ```ts
 export function shouldRetryApiQuery(failureCount: number, error: unknown): boolean {
@@ -252,7 +252,7 @@ queries: {
 }
 ```
 
-- [ ] **Step 5: 运行类型和构建门禁**
+- [x] **Step 5: 运行类型和构建门禁**
 
 Run:
 
@@ -263,7 +263,7 @@ npm run build
 
 Expected: `check:architecture`、`tsc -b`、`vite build` 全部通过。
 
-- [ ] **Step 6: 提交统一错误语义**
+- [x] **Step 6: 提交统一错误语义**
 
 ```bash
 git add frontend/src/shared/api/error.ts frontend/src/shared/api/index.ts \
@@ -279,7 +279,7 @@ git commit -m "feat: classify operator API recovery actions"
 - Modify: `frontend/src/features/workflows/WorkflowDetailPage.tsx`
 - Modify: `frontend/src/shared/styles/index.css`
 
-- [ ] **Step 1: 让错误卡片只展示有效动作**
+- [x] **Step 1: 让错误卡片只展示有效动作**
 
 在 `ApiErrorAlert.tsx` 计算：
 
@@ -289,7 +289,7 @@ const canRetry = Boolean(onRetry && parsed.retryable);
 
 只有 `canRetry` 时展示重试按钮；`extraAction` 仍可独立显示。继续只显示 `parsed.message`、`apiErrorRecovery(parsed)` 和请求编号，不显示 `parsed.code`。
 
-- [ ] **Step 2: 固定 Excel 阶段中文标题**
+- [x] **Step 2: 固定 Excel 阶段中文标题**
 
 第二阶段保留“第二阶段运行前检查未通过”，其 `onRetry` 可以继续传入，由通用组件决定是否展示。第一阶段把：
 
@@ -303,11 +303,11 @@ title={excelPreflightError.code ?? '运行前检查未通过'}
 title="Excel 第一阶段运行前检查未通过"
 ```
 
-- [ ] **Step 3: 精炼错误卡片视觉层级**
+- [x] **Step 3: 精炼错误卡片视觉层级**
 
 在 `index.css` 保留现有工业化红色左边框，增加说明和动作区间距，确保窄屏换行，不增加大面积动画或技术详情展开区。
 
-- [ ] **Step 4: 重建前端并运行目标浏览器测试**
+- [x] **Step 4: 重建前端并运行目标浏览器测试**
 
 Run:
 
@@ -321,7 +321,7 @@ PLAYWRIGHT_FRONTEND_BASE_URL=http://127.0.0.1:18080 \
 
 Expected: build 通过；所有 Excel 第一/二阶段浏览器场景通过，新场景只请求一次且没有无效重试按钮或技术错误码。
 
-- [ ] **Step 5: 提交 UI 接入**
+- [x] **Step 5: 提交 UI 接入**
 
 ```bash
 git add frontend/src/shared/components/ApiErrorAlert.tsx \

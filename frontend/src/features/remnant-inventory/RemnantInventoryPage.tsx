@@ -4,6 +4,7 @@ import { DatabaseOutlined, EyeOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { DxfPreviewModal } from '../files';
+import { ApiErrorAlert } from '../../shared/components';
 import { useAuthStore } from '../../shared/auth';
 import {
   downloadOriginal,
@@ -148,6 +149,36 @@ export function RemnantInventoryPage() {
           <Typography.Text type="secondary">按材质与厚度查找、预览和预占全厂共享余料。</Typography.Text>
         </div>
       </header>
+      {materials.isError && (
+        <ApiErrorAlert
+          title="余料材质加载失败"
+          error={materials.error}
+          fallback="余料材质暂时无法加载"
+          onRetry={() => materials.refetch()}
+          retryLabel="重新加载"
+          retryLoading={materials.isFetching}
+        />
+      )}
+      {batch.isError && (
+        <ApiErrorAlert
+          title="余料导入批次加载失败"
+          error={batch.error}
+          fallback="余料导入批次暂时无法加载"
+          onRetry={() => batch.refetch()}
+          retryLabel="重新加载"
+          retryLoading={batch.isFetching}
+        />
+      )}
+      {detail.isError && (
+        <ApiErrorAlert
+          title="余料详情加载失败"
+          error={detail.error}
+          fallback="余料详情暂时无法加载"
+          onRetry={() => detail.refetch()}
+          retryLabel="重新加载"
+          retryLoading={detail.isFetching}
+        />
+      )}
       <Tabs
         activeKey={activeTab}
         onChange={(tab) => {
@@ -169,7 +200,16 @@ export function RemnantInventoryPage() {
             </Typography.Text>
           </div>
         </div>
-        <Table<Remnant>
+        {results.isError ? (
+          <ApiErrorAlert
+            title="余料检索失败"
+            error={results.error}
+            fallback="余料检索结果暂时无法加载"
+            onRetry={() => results.refetch()}
+            retryLabel="重新加载"
+            retryLoading={results.isFetching}
+          />
+        ) : <Table<Remnant>
           rowKey="id"
           loading={results.isFetching}
           dataSource={results.data?.data ?? []}
@@ -194,7 +234,7 @@ export function RemnantInventoryPage() {
               render: (_, row) => <Space><Button type="link" icon={<EyeOutlined />} onClick={() => setSelectedId(row.id)}>详情</Button></Space>,
             },
           ]}
-        />
+        />}
       </Card>
           </div> },
           { key: 'global', label: '全部余料', children: <RemnantGlobalPanel materials={materials.data ?? []} currentUserId={user?.id} isAdmin={isAdmin} onOpenDetail={setSelectedId} /> },
@@ -228,7 +268,16 @@ export function RemnantInventoryPage() {
               <RemnantConfirmationPanel batch={batch.data} materials={materials.data ?? []} />
             </>}
           </div> },
-          { key: 'materials', label: '材质管理', children: <RemnantMaterialCatalog
+          { key: 'materials', label: '材质管理', children: materialCatalog.isError ? (
+            <ApiErrorAlert
+              title="标准材质目录加载失败"
+              error={materialCatalog.error}
+              fallback="标准材质目录暂时无法加载"
+              onRetry={() => materialCatalog.refetch()}
+              retryLabel="重新加载"
+              retryLoading={materialCatalog.isFetching}
+            />
+          ) : <RemnantMaterialCatalog
             materials={materialCatalog.data ?? []}
             loading={materialCatalog.isLoading}
             isAdmin={isAdmin}

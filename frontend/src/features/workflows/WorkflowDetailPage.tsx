@@ -491,7 +491,7 @@ export function WorkflowDetailPage() {
                   )}
                   {selectedIsCurrent && excelPreflightError && !excelPreflightError.failure && (
                     <ApiErrorAlert
-                      title={excelPreflightError.code ?? '运行前检查未通过'}
+                      title="Excel 第一阶段运行前检查未通过"
                       error={excelPreflightQ.error}
                       fallback="Excel 运行前检查未通过"
                       retryLabel="重新检查"

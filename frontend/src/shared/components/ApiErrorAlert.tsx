@@ -21,6 +21,7 @@ export function ApiErrorAlert({
   extraAction?: ReactNode;
 }) {
   const parsed = parseApiError(error, fallback);
+  const canRetry = Boolean(onRetry && parsed.retryable);
   return (
     <Alert
       className="operator-error-alert"
@@ -36,9 +37,9 @@ export function ApiErrorAlert({
           </Typography.Text>
         </Space>
       )}
-      action={onRetry || extraAction ? (
+      action={canRetry || extraAction ? (
         <Space wrap>
-          {onRetry && (
+          {canRetry && onRetry && (
             <Button
               icon={<ReloadOutlined />}
               loading={retryLoading}

@@ -94,6 +94,17 @@ button, input, textarea, select { font: inherit; }
   color: #5e3d38;
   line-height: 1.65;
 }
+.operator-error-alert .ant-alert-action {
+  align-self: center;
+  margin-inline-start: 18px;
+}
+@media (max-width: 720px) {
+  .operator-error-alert .ant-alert-action {
+    align-self: flex-start;
+    margin-block-start: 10px;
+    margin-inline-start: 0;
+  }
+}
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 14px; margin-bottom: 20px; }
 .stat-card {
   height: 100%;

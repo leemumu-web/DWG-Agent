@@ -7,8 +7,10 @@ export {
   enrichApiError,
   operatorErrorMessage,
   parseApiError,
+  shouldRetryApiQuery,
 } from './error';
 export type {
+  ApiErrorKind,
   ExcelInputFailure,
   ExcelInputIssue,
   ParsedApiError,

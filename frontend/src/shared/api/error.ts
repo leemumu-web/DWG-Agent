@@ -30,7 +30,21 @@ export interface ParsedApiError {
   requestId?: string;
   failure?: ExcelInputFailure;
   workflowId?: number;
+  kind: ApiErrorKind;
+  retryable: boolean;
 }
+
+export type ApiErrorKind =
+  | 'input'
+  | 'authentication'
+  | 'authorization'
+  | 'not_found'
+  | 'conflict'
+  | 'feature_disabled'
+  | 'capacity'
+  | 'transient'
+  | 'server'
+  | 'unknown';
 
 interface ErrorBody {
   error?: {
@@ -81,6 +95,14 @@ const CODE_MESSAGES: Record<string, string> = {
   DXF_SPLIT_SOURCE_MISSING: '分类后的拆板图纸已缺失，请返回图纸分类阶段核对并重新确认。',
   DXF_SPLIT_STORAGE_FULL: '服务器拆板工作空间不足，请联系管理员清理存储后重试。',
   DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED: '拆板必须从所属生产项目重新处理，不能在任务列表中单独重试。',
+  DXF_CLASSIFICATION_PIPELINE_DISABLED: 'DXF 分类服务当前未启用。',
+  DXF_PIPELINE_DISABLED: 'DWG 转 DXF 服务当前未启用。',
+  DXF_SPLIT_PIPELINE_DISABLED: 'DXF 拆板服务当前未启用。',
+  DXF2DWG_PIPELINE_DISABLED: 'DXF 转 DWG 服务当前未启用。',
+  DXF2EXCEL_PIPELINE_DISABLED: 'DXF 转 Excel 服务当前未启用。',
+  EXCEL_FINAL_PIPELINE_DISABLED: 'Excel 整理服务当前未启用。',
+  EXCEL_STAGE1_PIPELINE_DISABLED: 'Excel 第一阶段处理服务当前未启用。',
+  EXCEL_STAGE2_PIPELINE_DISABLED: 'Excel 第二阶段处理服务当前未启用。',
   FILE_EMPTY: '上传的文件没有内容，请重新选择正确文件。',
   FILE_NOT_DWG: '所选文件不是有效的 DWG 图纸，请核对文件后重新上传。',
   FILE_TOO_LARGE: '文件超过服务器允许的大小，请拆分后重新上传。',
@@ -99,14 +121,63 @@ const CODE_MESSAGES: Record<string, string> = {
   INPUT_RESTORE_NOT_AVAILABLE: '当前没有可精确恢复的清空记录，或本批已经重新上传了文件。',
   IDENTITY_TABLE_READ_ONLY: '用户、角色和登录安全表只能查看，不能从数据控制台直接修改；请使用用户管理页面。',
   PASSWORD_RESET_REQUIRED: '该账号由删除状态恢复，必须先重置密码，再启用登录。',
+  REMNANT_INVENTORY_DISABLED: '余料库功能当前未启用。',
   SUPER_ADMIN_ACCOUNT_PROTECTED: '唯一的超级管理员账号受系统保护，不能删除、禁用、降级或由他人重置密码。',
   SUPER_ADMIN_ASSIGNMENT_FORBIDDEN: '管理员不能授予超级管理员权限；系统只保留一个超级管理员账号。',
   SUPER_ADMIN_ROLE_PROTECTED: '超级管理员角色是系统保护角色，不能修改其权限。',
   SUPER_ADMIN_SINGLETON: '系统只能有一个超级管理员，不能再向其他账号授予该角色。',
   USERNAME_EXISTS: '用户名已存在，请更换用户名后重新创建。',
   USER_NOT_DELETED: '该账号当前不是已删除状态，无需恢复，请刷新用户列表。',
+  WORKFLOW_PIPELINE_DISABLED: '生产流程服务当前未启用。',
   WORKFLOW_STAGE_INPUT_INCOMPLETE: '当前阶段缺少必需的上一步结果，请返回前序阶段补齐并确认。',
 };
+
+const FEATURE_DISABLED_CODES = new Set([
+  'AGENT_DISABLED',
+  'DXF_PIPELINE_DISABLED',
+  'DXF2DWG_PIPELINE_DISABLED',
+  'DXF2EXCEL_PIPELINE_DISABLED',
+  'DXF_CLASSIFICATION_PIPELINE_DISABLED',
+  'DXF_SPLIT_PIPELINE_DISABLED',
+  'EXCEL_FINAL_PIPELINE_DISABLED',
+  'EXCEL_STAGE1_PIPELINE_DISABLED',
+  'EXCEL_STAGE2_PIPELINE_DISABLED',
+  'REMNANT_INVENTORY_DISABLED',
+]);
+
+const FEATURE_LABELS: Record<string, string> = {
+  AGENT_DISABLED: '自动化服务',
+  WORKFLOW_PIPELINE_DISABLED: '生产流程',
+  DXF_PIPELINE_DISABLED: 'DWG 转 DXF 服务',
+  DXF2DWG_PIPELINE_DISABLED: 'DXF 转 DWG 服务',
+  DXF2EXCEL_PIPELINE_DISABLED: 'DXF 转 Excel 服务',
+  DXF_CLASSIFICATION_PIPELINE_DISABLED: 'DXF 分类服务',
+  DXF_SPLIT_PIPELINE_DISABLED: 'DXF 拆板服务',
+  EXCEL_FINAL_PIPELINE_DISABLED: 'Excel 整理服务',
+  EXCEL_STAGE1_PIPELINE_DISABLED: 'Excel 第一阶段处理',
+  EXCEL_STAGE2_PIPELINE_DISABLED: 'Excel 第二阶段处理',
+  REMNANT_INVENTORY_DISABLED: '余料库',
+};
+
+function classifyApiError(
+  code: string | undefined,
+  status: number | undefined,
+  responseReceived: boolean,
+): ApiErrorKind {
+  if (code && (FEATURE_DISABLED_CODES.has(code) || code.endsWith('_PIPELINE_DISABLED'))) {
+    return 'feature_disabled';
+  }
+  if (code === 'DXF_SPLIT_STORAGE_FULL' || status === 429) return 'capacity';
+  if (!responseReceived) return 'transient';
+  if (status === 400 || status === 413 || status === 415 || status === 422) return 'input';
+  if (status === 401) return 'authentication';
+  if (status === 403) return 'authorization';
+  if (status === 404) return 'not_found';
+  if (status === 409) return 'conflict';
+  if (status === 408 || status === 502 || status === 503 || status === 504) return 'transient';
+  if (status !== undefined && status >= 500) return 'server';
+  return 'unknown';
+}
 
 const TECHNICAL_MESSAGE = new RegExp([
   'traceback',
@@ -313,6 +384,7 @@ function parsedResponseError(
 ): ParsedApiError {
   const code = boundedText(body?.error?.code, 120);
   const requestId = requestIdOf(body, headers);
+  const kind = classifyApiError(code, status, true);
   const baseMessage = bodyMessage(body, code)
     || STATUS_MESSAGES[status]
     || (status >= 500 ? '服务器处理失败，请稍后重试' : `${fallback}（HTTP ${status}）`);
@@ -326,11 +398,15 @@ function parsedResponseError(
       && Number(body?.error?.details?.workflow_id) > 0
       ? Number(body?.error?.details?.workflow_id)
       : undefined,
+    kind,
+    retryable: kind === 'transient',
   };
 }
 
 /** Give an operator one bounded next action without exposing response internals. */
-export function apiErrorRecovery(error: ParsedApiError): string {
+export function apiErrorRecovery(
+  error: Pick<ParsedApiError, 'message'> & Partial<ParsedApiError>,
+): string {
   if (error.code === 'WORKFLOW_STAGE_INPUT_INCOMPLETE') {
     return '返回前序阶段补齐必需产物，再回到当前阶段重新检查。';
   }
@@ -364,6 +440,12 @@ export function apiErrorRecovery(error: ParsedApiError): string {
   if (['WORKFLOW_RETENTION_PURGE_FAILED', 'WORKFLOW_RETENTION_PURGE_PARTIAL', 'WORKFLOW_RETENTION_METADATA_COMMIT_FAILED'].includes(error.code ?? '')) {
     return '不要重新上传或手工删除对象；保留请求编号，由管理员核对补偿流水后从当前备份重试。';
   }
+  const kind = error.kind ?? classifyApiError(error.code, error.status, error.status !== undefined);
+  if (kind === 'feature_disabled') {
+    const feature = FEATURE_LABELS[error.code ?? ''] ?? '这项生产功能';
+    const separator = /^[A-Za-z]/.test(feature) ? ' ' : '';
+    return `当前部署未开启${separator}${feature}，请联系管理员检查服务配置。`;
+  }
   if (error.status === 401) return '重新登录后再执行；不要连续重复提交。';
   if (error.status === 403) return '确认当前账号属于该项目；如需提权，请联系管理员。';
   if (error.status === 404) return '刷新当前页面确认批次是否仍存在；若已切换 attempt，请使用最新批次。';
@@ -372,8 +454,11 @@ export function apiErrorRecovery(error: ParsedApiError): string {
   if (error.status === 415) return '核对文件扩展名和真实格式，改用页面支持的文件后重试。';
   if (error.status === 422) return '按错误中指出的字段、工作表或文件逐项修正后重新提交。';
   if (error.status === 429) return '停止连续点击，等待一分钟后刷新状态再操作。';
-  if (error.status !== undefined && error.status >= 500) {
-    return '服务器暂时无法完成操作，请保留请求编号，稍后重试一次；若重复出现，请联系管理员。';
+  if (kind === 'transient') {
+    return '先刷新当前状态，确认操作是否已经受理；若确认未受理，可稍后重试一次。';
+  }
+  if (kind === 'server') {
+    return '服务器内部处理未完成，请保留请求编号并联系管理员，不要连续重复提交。';
   }
   if (error.message.startsWith('请求超时')) {
     return '先刷新任务状态，确认服务器是否已受理；只有确认未受理时才重新提交。';
@@ -390,6 +475,8 @@ export function parseApiError(error: unknown, fallback = '操作失败'): Parsed
         error instanceof Error ? error.message : undefined,
         fallback,
       ),
+      kind: 'unknown',
+      retryable: false,
     };
   }
 
@@ -399,6 +486,8 @@ export function parseApiError(error: unknown, fallback = '操作失败'): Parsed
       message: error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT'
         ? '请求超时，服务器仍可能在处理，请先刷新状态再决定是否重试'
         : '无法连接服务器，请检查网络或确认服务已启动',
+      kind: 'transient',
+      retryable: true,
     };
   }
   const body = response.data && !(response.data instanceof Blob)
@@ -415,6 +504,11 @@ export function parseApiError(error: unknown, fallback = '操作失败'): Parsed
 /** Convert every API/network failure into a concrete, user-facing message. */
 export function describeApiError(error: unknown, fallback = '操作失败'): string {
   return parseApiError(error, fallback).message;
+}
+
+/** Retry only bounded, genuinely transient query failures. Mutations never use this policy. */
+export function shouldRetryApiQuery(failureCount: number, error: unknown): boolean {
+  return failureCount < 2 && parseApiError(error).retryable;
 }
 
 /** Blob downloads can still carry the normal JSON error envelope. */

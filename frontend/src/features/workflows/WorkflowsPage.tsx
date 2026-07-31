@@ -22,6 +22,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { parseApiError } from '../../shared/api';
 import {
+  ApiErrorAlert,
   fmtDateTime,
   PageHeader,
   StatCard,
@@ -272,7 +273,16 @@ export function WorkflowsPage() {
         </Typography.Text>
       </div>
 
-      <Table
+      {workflowsQ.isError ? (
+        <ApiErrorAlert
+          title="生产项目加载失败"
+          error={workflowsQ.error}
+          fallback="生产项目暂时无法加载"
+          onRetry={() => workflowsQ.refetch()}
+          retryLabel="重新加载"
+          retryLoading={workflowsQ.isFetching}
+        />
+      ) : <Table
         className="surface-table production-project-table"
         rowKey="id"
         dataSource={workflows}
@@ -305,7 +315,18 @@ export function WorkflowsPage() {
             </Empty>
           ),
         }}
-      />
+      />}
+
+      {templatesQ.isError && (
+        <ApiErrorAlert
+          title="生产阶段名称加载失败"
+          error={templatesQ.error}
+          fallback="生产阶段名称暂时无法加载"
+          onRetry={() => templatesQ.refetch()}
+          retryLabel="重新加载"
+          retryLoading={templatesQ.isFetching}
+        />
+      )}
 
       <ProductionProjectCreateDrawer
         open={createOpen}

@@ -3,6 +3,7 @@ import { DeleteOutlined, DownloadOutlined, EyeOutlined, SearchOutlined } from '@
 import { Alert, App, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Switch, Table, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { operatorErrorMessage } from '../../shared/api';
+import { ApiErrorAlert } from '../../shared/components';
 import { bulkArchiveRemnants, deleteArchivedRemnant, exportAllRemnants, listAllRemnants } from './api';
 import { describeRemnantError, describeRemnantErrorAsync } from './errors';
 import { StatusTag } from './RemnantDetailDrawer';
@@ -149,7 +150,16 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
         onClose={() => setArchiveResult(undefined)}
         style={{ marginBottom: 16 }}
       />}
-      <Table<Remnant>
+      {results.isError ? (
+        <ApiErrorAlert
+          title="全部余料加载失败"
+          error={results.error}
+          fallback="全部余料暂时无法加载"
+          onRetry={() => results.refetch()}
+          retryLabel="重新加载"
+          retryLoading={results.isFetching}
+        />
+      ) : <Table<Remnant>
         rowKey="id"
         scroll={{ x: 1900 }}
         loading={results.isFetching}
@@ -196,7 +206,7 @@ export function RemnantGlobalPanel({ materials, currentUserId, isAdmin, onOpenDe
             )}
           </Space> },
         ]}
-      />
+      />}
     </Card>
   </div>;
 }
