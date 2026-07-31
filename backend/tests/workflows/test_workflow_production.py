@@ -394,6 +394,14 @@ def _complete_excel_stage1_fixture(
     db.add(job)
     db.flush()
     output = _stored_file(db, name="stage1.xlsx")
+    stage1_payload = b"stage1-workbook-fixture".ljust(output.size_bytes, b"\0")
+    output.sha256 = hashlib.sha256(stage1_payload).hexdigest()
+    workflow_input_registration.get_storage_backend().put_fileobj(
+        output.bucket,
+        output.storage_key,
+        BytesIO(stage1_payload),
+        length=len(stage1_payload),
+    )
     output.uploaded_by = workflow.created_by
     result = AnalysisResult(
         job_id=job.id,
@@ -693,6 +701,82 @@ def test_excel_stage2_preflight_api_exposes_worker_facing_summary(tmp_path, monk
     assert data["stage1_file_name"] == "stage1.xlsx"
     with open_test_session() as db:
         assert db.query(Job).count() == before
+
+
+def test_excel_stage2_preflight_rejects_classification_from_old_frozen_manifest(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    workflow.input_batch.manifest_sha256 = "a" * 64
+    db.flush()
+    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
+    before = db.query(Job).count()
+
+    with pytest.raises(AppHTTPException) as caught:
+        preflight_excel_stage2(db, workflow, current_user=user)
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_CLASSIFICATION_BINDING_INVALID"
+    assert db.query(Job).count() == before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("workflow_artifact_type", "stage2_excel"),
+        ("job_attempt", 99),
+    ],
+)
+def test_excel_stage2_preflight_rejects_stage1_result_metadata_drift(
+    db,
+    tmp_path,
+    monkeypatch,
+    field,
+    value,
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_, stage1_result = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    stage1_result.result_json = {**stage1_result.result_json, field: value}
+    db.flush()
+    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
+
+    with pytest.raises(AppHTTPException) as caught:
+        preflight_excel_stage2(db, workflow, current_user=user)
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_STAGE1_BINDING_INVALID"
+
+
+def test_excel_stage2_preflight_rejects_missing_stage1_storage_object(
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    from app.platform.config.settings import settings
+
+    user, _, workflow, *_, stage1_file, _ = _stage2_ready_workflow(
+        db, tmp_path, monkeypatch
+    )
+    workflow_input_registration.get_storage_backend().delete_object(
+        stage1_file.bucket,
+        stage1_file.storage_key,
+    )
+    monkeypatch.setattr(settings, "excel_stage2_pipeline_enabled", True)
+    before = db.query(Job).count()
+
+    with pytest.raises(AppHTTPException) as caught:
+        preflight_excel_stage2(db, workflow, current_user=user)
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "EXCEL_STAGE2_STAGE1_FILE_UNAVAILABLE"
+    assert db.query(Job).count() == before
 
 
 def test_excel_stage2_rejects_cross_project_classification_without_job(db, tmp_path, monkeypatch):

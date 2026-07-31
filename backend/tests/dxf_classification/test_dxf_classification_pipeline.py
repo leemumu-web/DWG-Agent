@@ -186,6 +186,8 @@ def _completed_classification_run_for_stage2(
     workflow_id: int,
     job_id: int,
     project_id: int,
+    bh_count: int = 1,
+    other_count: int = 0,
 ) -> DxfClassificationRun:
     job = db.get(Job, job_id)
     job.status = "succeeded"
@@ -200,11 +202,14 @@ def _completed_classification_run_for_stage2(
         input_manifest_sha256=hashlib.sha256(
             f"workflow:{workflow_id}".encode()
         ).hexdigest(),
-        input_count=3,
-        classified_count=3,
+        input_count=bh_count + other_count,
+        classified_count=bh_count + other_count,
         review_required_count=0,
         unreadable_count=0,
-        type_counts_json={"BH": 2, "PX": 1},
+        type_counts_json={
+            **({"BH": bh_count} if bh_count else {}),
+            **({"PX": other_count} if other_count else {}),
+        },
     )
     db.add(run)
     db.flush()
@@ -225,6 +230,8 @@ def test_bh_stage2_batch_uses_only_the_exact_workflow_ledger_in_stable_order(
         workflow_id=first_workflow_id,
         job_id=first_job_id,
         project_id=first_workflow.project_id,
+        bh_count=2,
+        other_count=1,
     )
     first_outputs = [
         _classified_output_file(db, "BH-B_拆板前.dxf"),
@@ -379,6 +386,46 @@ def test_bh_stage2_manifest_changes_when_registered_object_digest_changes(
     )
 
     assert first.bh_manifest_sha256 != changed.bh_manifest_sha256
+
+
+def test_bh_stage2_batch_rejects_declared_bh_count_drift(
+    db,
+    tmp_path: Path,
+) -> None:
+    workflow_id, job_id, _source_id = _frozen_classification_job(db, tmp_path)
+    workflow = db.get(WorkflowRun, workflow_id)
+    run = _completed_classification_run_for_stage2(
+        db,
+        workflow_id=workflow_id,
+        job_id=job_id,
+        project_id=workflow.project_id,
+        bh_count=2,
+    )
+    output = _classified_output_file(db, "BH-COUNT_拆板前.dxf")
+    db.add(DxfClassificationItem(
+        run=run,
+        source_file_id=output.id,
+        output_file_id=output.id,
+        source_name="source.dxf",
+        output_name=output.original_name,
+        output_directory="type-BH",
+        disposition="classified",
+        part_type="BH",
+        profile_raw="BH500*200*10*16",
+        profile_normalized="BH500*200*10*16",
+        type_source="catalog",
+        group_key="type:BH",
+        next_stage_eligible=True,
+        diagnostics_json=[],
+        evidence_json={},
+    ))
+    db.flush()
+
+    with pytest.raises(ClassificationError, match="BH 分类数量"):
+        classification_interface.load_bh_stage2_classification_batch(
+            db,
+            workflow_id,
+        )
 
 
 @pytest.mark.parametrize(
