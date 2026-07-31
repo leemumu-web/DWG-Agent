@@ -19,9 +19,13 @@
 # ── Stage 1: build dependencies ──────────────────────────────────
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
+ARG DEBIAN_APT_MIRROR=
+ARG PYPI_INDEX_URL=
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv
+ENV UV_DEFAULT_INDEX=$PYPI_INDEX_URL
+ENV UV_LINK_MODE=copy
 
 WORKDIR /app
 
@@ -29,6 +33,10 @@ WORKDIR /app
 # pandas / openpyxl）在 CPython 3.12 + manylinux 下均有预编译 wheel，无需 gcc。
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    if [ -n "$DEBIAN_APT_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org/debian|$DEBIAN_APT_MIRROR|g; s|http://deb.debian.org/debian-security|$DEBIAN_APT_MIRROR-security|g" \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi && \
     apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     ca-certificates
 
@@ -49,7 +57,8 @@ COPY Stages/remnant_drawing_reader ./Stages/remnant_drawing_reader
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。
 WORKDIR /app/backend
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+RUN --mount=type=cache,id=dwg_agent_uv_cache_probe,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 # ── Stage 2: source-free runtime base ────────────────────────────
 # This stage deliberately never receives application or Stage source.  The
@@ -57,6 +66,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 # layer after an apparent deletion.
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime-base
 
+ARG DEBIAN_APT_MIRROR=
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/home/appuser
@@ -80,6 +90,10 @@ WORKDIR /app
 #   fonts-noto-cjk        — DXF 在线预览中文轮廓字体
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    if [ -n "$DEBIAN_APT_MIRROR" ]; then \
+        sed -i "s|http://deb.debian.org/debian|$DEBIAN_APT_MIRROR|g; s|http://deb.debian.org/debian-security|$DEBIAN_APT_MIRROR-security|g" \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi && \
     apt-get update && apt-get install -y --no-install-recommends --no-install-suggests \
     curl \
     ca-certificates \

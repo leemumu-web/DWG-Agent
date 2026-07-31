@@ -53,8 +53,9 @@ bash scripts/docker.sh check
 - `DWG_AGENT_IMAGE`、`DWG_AGENT_FRONTEND_IMAGE`：默认本地 tag；CI/CD 可改为不可变 registry tag/digest。
 - `VITE_API_BASE_URL`：前端构建期变量。留空表示 same-origin `/api`；修改后必须重建前端镜像。
 - `MAX_UPLOAD_SIZE_MB`：单个业务文件上限，服务器模板为 512 MiB。Excel 工作台会显示并提前执行同一上限；Nginx 使用 520 MiB 请求上限并流式转发，以免 multipart 封装或代理临时目录提前拒绝合法文件。
-- 服务器模板默认开启生产流程所需的 `DXF_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED` 和 `EXCEL_FINAL_PIPELINE_ENABLED`；它们已完成真实 DWG、BH 拆板、Tekla Excel、MySQL 与 MinIO 联调。`DXF2DWG_PIPELINE_ENABLED=true` 仅启用独立的 DXF→DWG 工作台，不进入主生产流程；`DXF2EXCEL_PIPELINE_ENABLED` 继续保持 false。各转换、分类、拆板和 Excel 使用独立队列。
-- `DXF_CLASSIFICATION_WORKER_CONCURRENCY=3`：分类队列固定保留的项目级执行进程数；`prefetch=1` 保证排队公平，不会加速单个项目内部的文件处理。修改后必须重启分类 worker；提高并发前必须在部署机器上复测连续批次、内存和 MySQL 负载。
+- 服务器模板默认开启生产流程所需的 `DXF_PIPELINE_ENABLED`、`DXF_CLASSIFICATION_PIPELINE_ENABLED`、`DXF_SPLIT_PIPELINE_ENABLED`、`EXCEL_FINAL_PIPELINE_ENABLED`、`EXCEL_STAGE2_PIPELINE_ENABLED` 和 `REMNANT_INVENTORY_ENABLED`；它们已完成真实 DWG、BH 拆板、Tekla Excel、BH 左右进、余料、MySQL 与 MinIO 联调。`DXF2DWG_PIPELINE_ENABLED=true` 仅启用独立的 DXF→DWG 工作台，不进入主生产流程；`DXF2EXCEL_PIPELINE_ENABLED` 继续保持 false。各转换、分类、拆板、Excel 和余料使用独立队列。
+- `DXF_CLASSIFICATION_WORKER_CONCURRENCY=2`：24 vCPU 生产基线固定保留两个项目级执行进程；`prefetch=1` 保证资源不足时任务留在队列，不会加速单个项目内部的文件处理。修改后必须重启分类 worker；提高并发前必须在部署机器上复测分类与拆板并行、退出登录后的后台续跑、容器重启/OOM、MySQL 和 MinIO 一致性。
+- `*_CPU_LIMIT` 与 `*_MEMORY_LIMIT`：Compose 的容器资源上限。正式模板以 CPU 为主要边界，64 GiB 内存不用于盲目放大 CPU 密集并发。
 - `AGENT_ENABLED`、`CAD_WORKER_ENABLED`：必须保持 false；任务实现仍是占位。
 
 ## 构建与启动

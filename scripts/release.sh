@@ -58,6 +58,8 @@ import importlib
 import sys
 import dxf2excel
 import dwg_converter, dxf_converter
+from bh_reader.batch import analyze_manifest as analyze_bh_left_right_manifest
+from bh_reader.simple_xlsx import write_results_xlsx as write_bh_left_right_xlsx
 from numpy._core import _multiarray_umath
 import remnant_drawing_reader
 import steel_dxf_classifier, steel_dxf_split
@@ -174,8 +176,20 @@ release_bundle() {
 
     if ! $skip_build; then
         bash "$PROJECT_ROOT/scripts/docker.sh" check
+        local -a build_args=()
+        if [[ -n "${DEBIAN_APT_MIRROR:-}" ]]; then
+            build_args+=(--build-arg "DEBIAN_APT_MIRROR=$DEBIAN_APT_MIRROR")
+        fi
+        if [[ -n "${PYPI_INDEX_URL:-}" ]]; then
+            build_args+=(--build-arg "PYPI_INDEX_URL=$PYPI_INDEX_URL")
+        fi
+        if ((${#build_args[@]})); then
         docker compose --project-directory "$PROJECT_ROOT" \
-            --env-file "$PROJECT_ROOT/.env.docker" build backend-api nginx
+                --env-file "$PROJECT_ROOT/.env.docker" build "${build_args[@]}" backend-api nginx
+        else
+            docker compose --project-directory "$PROJECT_ROOT" \
+                --env-file "$PROJECT_ROOT/.env.docker" build backend-api nginx
+        fi
     fi
 
     local backend_source frontend_source mysql_source minio_source
@@ -255,9 +269,14 @@ release_bundle() {
             | xargs -0 sha256sum > SHA256SUMS
     )
 
+    local -a gpg_extra_args=()
+    if [[ -n "${GPG_ENCRYPT_EXTRA_ARGS:-}" ]]; then
+        read -r -a gpg_extra_args <<< "$GPG_ENCRYPT_EXTRA_ARGS"
+    fi
+
     tar -C "$payload" -cf - . \
         | gzip -9 \
-        | gpg --batch --yes --encrypt --trust-model always \
+        | gpg --batch --yes --encrypt "${gpg_extra_args[@]}" --trust-model always \
             --recipient "$recipient" --output "$bundle"
     install -m 0755 "$PROJECT_ROOT/scripts/release/server-deploy.sh" "$installer"
     (

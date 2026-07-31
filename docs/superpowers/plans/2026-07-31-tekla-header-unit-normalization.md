@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: 锁定带单位表头的失败行为
+## Task 1: 锁定带单位表头的失败行为
 
 **Files:**
 - Modify: `Stages/excel_final/tests/test_input_contract.py`
@@ -20,7 +20,7 @@
 - [ ] 增加 `长度/mm`、`数量（件）`、`单毛重[kg]`、`总表面积（㎡）` 等表头输入。
 - [ ] 先运行对应测试，确认当前实现不能完整识别这些格式。
 
-### Task 2: 实现 Excel Final 输入层规范化
+## Task 2: 实现 Excel Final 输入层规范化
 
 **Files:**
 - Create: `Stages/excel_final/header_normalization.py`
@@ -31,7 +31,7 @@
 - [ ] 不删除规格、构件编号或零件号中的业务字符。
 - [ ] 复用现有别名、重复列冲突和长度/宽度/高度语义判断。
 
-### Task 3: 实现后端结果导入层规范化
+## Task 3: 实现后端结果导入层规范化
 
 **Files:**
 - Create: `backend/app/modules/excel_processing/header_normalization.py`
@@ -41,7 +41,7 @@
 - [ ] 让 `整理表` 和 `处理报告` 的数据库导入同时接受单位后缀表头。
 - [ ] 保持重复列、缺少核心列、报告哨兵等现有错误合同不变。
 
-### Task 4: 跨阶段验证
+## Task 4: 跨阶段验证
 
 **Files:**
 - Test: `Stages/excel_final/tests/test_input_contract.py`
@@ -52,7 +52,7 @@
 - [ ] 运行输入合同、初始表、后端导入和 Stage2 测试。
 - [ ] 用一个带单位表头的真实 `.xlsx` 复制样本验证第一阶段可读、第二阶段基线和输出固定表头不变。
 
-### Task 5: 提交
+## Task 5: 提交
 
 - [ ] 检查 `git diff --check`。
 - [ ] 只提交本功能相关源文件和测试。

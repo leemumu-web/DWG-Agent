@@ -59,6 +59,7 @@ BH/BOX/BT 的父理论重用于源毛重物理核验：BH=`腹板单重×1+翼�
 | `config.py` | 默认空配置；平台注入或独立运行时显式环境变量提供只读手册数据库连接 |
 | `domain.py` | 不可变规范记录与 `PipelineOutcome` |
 | `input_errors.py` | 版本化、有界且面向操作人员的输入错误 |
+| `header_normalization.py` | 只清理表头展示单位并保留业务字段语义 |
 | `input_contract.py` | 单 sheet 输入合同、集中表头别名和唯一题头检测 |
 | `source_intake.py` | 唯一生产输入 Interface 与六类 Adapter 选择 |
 | `legacy_xls.py` | 使用锁定的 `xlrd` 读取旧版 OLE/BIFF `.xls`，转换为统一行/单元格接口 |

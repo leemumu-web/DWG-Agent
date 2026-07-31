@@ -17,7 +17,7 @@ from celery.signals import (
     worker_ready,
     worker_shutdown,
 )
-from sqlalchemy import MetaData, Table, delete, inspect, text
+from sqlalchemy import MetaData, Table, delete, inspect, or_, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError
 
@@ -310,6 +310,51 @@ def cleanup_consumed_broker_messages(
     return result.rowcount or 0
 
 
+def cleanup_consumed_broker_message(
+    task_id: str,
+    db_engine: Engine = engine,
+    *,
+    table_name: str = "kombu_message",
+) -> int:
+    """Remove the SQL-transport row for one task after its postrun signal.
+
+    Kombu's SQL transport marks a message invisible when it reserves it, but
+    does not delete that row when the late acknowledgement is flushed from the
+    worker process.  The row is no longer consumable after ``task_postrun``;
+    matching the broker payload's unique Celery task id lets us reclaim it
+    immediately without deleting another task or a still-running reservation.
+    The age-based cleanup above remains the recovery path for a worker that
+    dies before emitting ``task_postrun``.
+    """
+    if not task_id:
+        return 0
+    inspector = inspect(db_engine)
+    if not inspector.has_table(table_name):
+        return 0
+
+    metadata = MetaData()
+    message_table = Table(table_name, metadata, autoload_with=db_engine)
+    if "visible" not in message_table.c or "payload" not in message_table.c:
+        raise RuntimeError(f"{table_name} has no visible/payload columns")
+
+    # Celery's JSON serializer writes the header as either `"id": "<uuid>"`
+    # or `"id":"<uuid>"` depending on the serializer version. The bound
+    # parameters keep the task id data-only even if a custom id format is
+    # introduced later.
+    id_markers = (
+        message_table.c.payload.like(f'%"id": "{task_id}"%'),
+        message_table.c.payload.like(f'%"id":"{task_id}"%'),
+    )
+    with db_engine.begin() as connection:
+        result = connection.execute(
+            delete(message_table).where(
+                message_table.c.visible.is_(False),
+                or_(*id_markers),
+            )
+        )
+    return result.rowcount or 0
+
+
 def register_worker_ready_callback(name: str, callback: Callable[[], None]) -> None:
     """Register one idempotently named application maintenance callback."""
     _worker_ready_callbacks[name] = callback
@@ -427,6 +472,20 @@ def _record_task_start(task_id=None, task=None, **_kwargs) -> None:
 @task_postrun.connect
 def _record_task_finish(task_id=None, task=None, **_kwargs) -> None:
     _emit_worker_signal("online", "task.finished", sender=task, task_id=task_id)
+
+
+@task_postrun.connect
+def _cleanup_task_broker_message(task_id=None, **_kwargs) -> None:
+    if not task_id:
+        return
+    try:
+        removed = cleanup_consumed_broker_message(str(task_id))
+        if removed:
+            logger.debug("Removed consumed SQL broker row for task %s", task_id)
+    except Exception:
+        # Broker-row cleanup must never change the task result or take down a
+        # worker. The startup stale-row sweep remains the fallback.
+        logger.exception("Failed to remove consumed SQL broker row for task %s", task_id)
 
 
 # Load the explicit task registry once so tests, workers and shell probes see

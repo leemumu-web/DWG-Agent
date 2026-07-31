@@ -191,7 +191,7 @@ class TestAppServices:
 
         assert "--workers ${WEB_CONCURRENCY:-4}" in dockerfile
         expected = {
-            "worker-report": ("REPORT_WORKER_CONCURRENCY", "2"),
+            "worker-report": ("REPORT_WORKER_CONCURRENCY", "1"),
             "worker-dxf-split": ("DXF_SPLIT_WORKER_CONCURRENCY", "1"),
             "worker-excel-final": ("EXCEL_FINAL_WORKER_CONCURRENCY", "1"),
             "worker-excel-stage2": ("EXCEL_STAGE2_WORKER_CONCURRENCY", "1"),

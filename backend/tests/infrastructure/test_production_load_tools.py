@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.production.resource_sampler import (  # noqa: E402
     DockerStat,
+    ResourceSampler,
     clamp_sampling_interval,
     parse_docker_stat,
     parse_size_bytes,
@@ -586,6 +587,43 @@ def test_resource_sampler_parses_docker_stat_without_locale_assumptions() -> Non
         block_write_bytes=250_000_000,
         pids=7,
     )
+
+
+def test_resource_sampler_keeps_inspect_status_when_one_stats_row_is_unavailable(
+    monkeypatch,
+) -> None:
+    calls = {
+        "stats": (
+            '{"Name":"gone","CPUPerc":"0%","MemUsage":"--","MemPerc":"--",'
+            '"NetIO":"--","BlockIO":"--","PIDs":"--"}\n'
+            '{"Name":"healthy","CPUPerc":"1%","MemUsage":"1MiB / 2MiB",'
+            '"MemPerc":"50%","NetIO":"1B / 2B","BlockIO":"3B / 4B","PIDs":"1"}'
+        ),
+        "ps": "container-id\n",
+        "inspect": (
+            '[{"Name":"/gone","State":{"Status":"restarting","Health":{}},'
+            '"RestartCount":2},'
+            '{"Name":"/healthy","State":{"Status":"running","Health":{"Status":"healthy"}},'
+            '"RestartCount":0,"OOMKilled":false}]'
+        ),
+    }
+
+    def fake_run(command, **_kwargs):
+        if command[1] == "stats":
+            return calls["stats"]
+        if command[1] == "ps":
+            return calls["ps"]
+        if command[1] == "inspect":
+            return calls["inspect"]
+        raise AssertionError(command)
+
+    monkeypatch.setattr("scripts.production.resource_sampler._run", fake_run)
+
+    sampled = ResourceSampler()._docker()
+
+    assert sampled["gone"]["status"] == "restarting"
+    assert sampled["gone"]["restart_count"] == 2
+    assert sampled["healthy"]["memory_used_bytes"] == 1_048_576
 
 
 @pytest.mark.parametrize(

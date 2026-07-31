@@ -9,6 +9,7 @@ from app.modules.excel_processing.models import ExcelFinalBatch
 from app.modules.jobs.interface import Job, reconcile_stale_running_jobs, summarize_job_execution
 from app.platform.messaging import celery_app as celery_runtime
 from app.platform.messaging.celery_app import (
+    cleanup_consumed_broker_message,
     JOB_QUEUE_NAMES,
     cleanup_consumed_broker_messages,
     dispose_inherited_resources,
@@ -110,6 +111,44 @@ def test_cleanup_preserves_reserved_message_within_stale_window(db: Session):
     remaining = db.execute(text("SELECT id, visible FROM test_kombu_message ORDER BY id")).all()
     assert deleted == 0
     assert remaining == [(1, 0), (2, 0)]
+
+
+def test_cleanup_consumed_broker_message_removes_only_matching_task_row(db: Session):
+    db.execute(
+        text(
+            """
+            CREATE TABLE test_kombu_message (
+                id INTEGER PRIMARY KEY,
+                visible BOOLEAN NOT NULL,
+                timestamp DATETIME NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+    )
+    now = datetime.now(UTC)
+    db.execute(
+        text(
+            "INSERT INTO test_kombu_message (id, visible, timestamp, payload) "
+            "VALUES "
+            "(1, 0, :now, '{\"headers\":{\"id\":\"task-a\"}}'), "
+            "(2, 0, :now, '{\"headers\":{\"id\":\"task-b\"}}'), "
+            "(3, 1, :now, '{\"headers\":{\"id\":\"task-a\"}}'), "
+            "(4, 0, :now, '{\"headers\":{\"root_id\":\"task-a\"}}')"
+        ),
+        {"now": now},
+    )
+    db.commit()
+
+    removed = cleanup_consumed_broker_message(
+        "task-a",
+        db.get_bind(),
+        table_name="test_kombu_message",
+    )
+
+    remaining = db.execute(text("SELECT id FROM test_kombu_message ORDER BY id")).scalars().all()
+    assert removed == 1
+    assert remaining == [2, 3, 4]
 
 
 def test_excel_stage2_queue_participates_in_broker_recovery():

@@ -128,6 +128,8 @@ ODA 字段为 `ODA_CONVERTER_VERSION=ACAD2018`、`ODA_CONVERTER_AUDIT=true`、`O
 
 DXF 分类 worker 使用固定 Celery prefork 进程池和 `prefetch=1`。默认始终保留 3 个执行进程，最多并行 3 个分类 Job；这不会并行拆分单个项目内部的 DXF。固定池避免空闲缩容后再次扩容造成进程池锁死。提高并发前必须使用代表性项目连续执行至少两轮，并检查内存、交换分区和 MySQL 负载。
 
+上表是直接实例化/本地开发的代码回退值。正式 `.env.docker.example` 针对 24 vCPU / 64 GiB 主机把 DWG→DXF、DXF→DWG、分类分别限制为 4、2、2，把拆板限制为 1，并为 API、worker、MySQL、MinIO设置独立 CPU/内存上限。所有队列使用 `prefetch=1` 和晚确认：并发满时保持 `queued`，浏览器退出登录不影响已入队任务；任务终态后 SQL broker 消费行应清理。
+
 同一队列只能有一套 worker topology。`scripts/status.sh` 报告“本地与 Compose 同时消费”时，基准、调度归属和取消结果均不可信，应停止其中一套后再验收。worker/Celery healthy 只证明进程与 broker 可达，不能证明 ODA 对具体 DWG/DXF 有效；必须检查终态、输出头、文件数和下载结果。
 
 `Settings` 的 stale 默认值仍为 600 秒，而 `.env.example` 与 `.env.docker.example` 都显式设置 7200 秒。该差异是当前实现边界：按模板部署时有效值为 7200；直接实例化默认 Settings 时为 600。由于 Excel Final 子进程允许最长 1800 秒，真实部署不应删除模板覆盖，也应根据有效处理时长重新评估阈值。

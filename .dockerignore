@@ -73,6 +73,13 @@ backend/.env
 # ── VCS / IDE / OS / 压缩包 ────────────────────────────────────
 .git/
 .gitignore
+releases/
+output/
+*.gpg
+*.sha256
+argparse
+sys
+tarfile
 .vscode/
 .idea/
 .DS_Store

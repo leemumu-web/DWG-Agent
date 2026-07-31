@@ -20,6 +20,7 @@
 - `schemas.py` 定义导入统计、五金手册类别、零件类别和重量状态等稳定英文枚举；HTTP DTO 由 route/presentation 保持稳定。
 - `staging.py` 只解析 file ID 并下载登记对象，不打开工作簿或识别格式。后端以 `format=auto` 记录委托事实；标准工作簿、初始表、制表符文本和固定宽度文本均由 Stage 的 Source Intake 唯一识别。
 - `uploads.py` 复用 files transfer saga 保存上传对象，避免另建一套对象补偿逻辑。
+- `header_normalization.py` 统一清理导入工作簿表头的展示单位，不改写业务值。
 - `validation.py` 在创建 Job 前读取并校验上传或冻结对象，统一映射结构化输入错误。
 - `importers.py` 流式读取结果工作簿，`persistence.py` 写入/替换关系投影。
 - `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。

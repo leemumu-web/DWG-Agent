@@ -281,7 +281,15 @@ class ResourceSampler:
         for line in raw_stats.splitlines():
             if not line.strip():
                 continue
-            stat = parse_docker_stat(json.loads(line))
+            try:
+                stat = parse_docker_stat(json.loads(line))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                # A container can disappear between `docker stats` and the
+                # JSON line (or report "--" while restarting). The inspect
+                # pass below still records its status and restart/OOM fields;
+                # one transient stats row must not discard every container
+                # sample or make the pressure sampler fail.
+                continue
             stats_by_name[stat.name] = asdict(stat)
 
         container_ids = [

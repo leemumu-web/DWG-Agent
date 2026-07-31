@@ -44,10 +44,13 @@ x-app-service: &app-service
     - /tmp:size=768m,mode=1777
     - /home/appuser:size=128m,mode=0700,uid=1000,gid=1000
   ulimits: *service-ulimits
+  pids_limit: ${APP_PIDS_LIMIT:-256}
   logging: *service-logging
 
 x-worker: &worker
   <<: *app-service
+  cpus: "${WORKER_CPU_LIMIT:-2.0}"
+  mem_limit: "${WORKER_MEMORY_LIMIT:-4g}"
   depends_on:
     backend-api:
       condition: service_healthy
@@ -86,6 +89,9 @@ services:
     tmpfs:
       - /tmp:size=64m,mode=1777
     ulimits: *service-ulimits
+    cpus: "${NGINX_CPU_LIMIT:-1.0}"
+    mem_limit: "${NGINX_MEMORY_LIMIT:-512m}"
+    pids_limit: ${NGINX_PIDS_LIMIT:-128}
     logging: *service-logging
 
   backend-api:
@@ -101,19 +107,24 @@ services:
       timeout: 5s
       retries: 8
       start_period: 60s
+    cpus: "${API_CPU_LIMIT:-4.0}"
+    mem_limit: "${API_MEMORY_LIMIT:-6g}"
+    pids_limit: ${API_PIDS_LIMIT:-256}
     volumes:
       - app_var:/app/var
 
   worker-report:
     <<: *worker
-    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "report", "-n", "report@%h", "--concurrency=${REPORT_WORKER_CONCURRENCY:-2}"]
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "report", "-n", "report@%h", "--concurrency=${REPORT_WORKER_CONCURRENCY:-1}"]
     volumes:
       - app_var:/app/var
     environment:
       MYSQL_ROOT_PASSWORD: ""
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: report
-      DWG_WORKER_CONCURRENCY: "${REPORT_WORKER_CONCURRENCY:-2}"
+      DWG_WORKER_CONCURRENCY: "${REPORT_WORKER_CONCURRENCY:-1}"
+    cpus: "${REPORT_WORKER_CPU_LIMIT:-1.0}"
+    mem_limit: "${REPORT_WORKER_MEMORY_LIMIT:-1g}"
 
   worker-dxf:
     <<: *worker
@@ -130,6 +141,9 @@ services:
       start_period: 30s
     volumes:
       - app_var:/app/var
+    cpus: "${DXF_WORKER_CPU_LIMIT:-6.0}"
+    mem_limit: "${DXF_WORKER_MEMORY_LIMIT:-8g}"
+    pids_limit: ${DXF_WORKER_PIDS_LIMIT:-128}
     profiles: [workers]
 
   worker-dxf2dwg:
@@ -147,6 +161,9 @@ services:
       start_period: 30s
     volumes:
       - app_var:/app/var
+    cpus: "${DXF2DWG_WORKER_CPU_LIMIT:-3.0}"
+    mem_limit: "${DXF2DWG_WORKER_MEMORY_LIMIT:-6g}"
+    pids_limit: ${DXF2DWG_WORKER_PIDS_LIMIT:-128}
     profiles: [workers]
 
   worker-dxf2excel:
@@ -160,6 +177,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf2excel
       DWG_WORKER_CONCURRENCY: "1"
+    cpus: "${DXF2EXCEL_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: "${DXF2EXCEL_WORKER_MEMORY_LIMIT:-3g}"
 
   worker-dxf-classification:
     <<: *worker
@@ -172,6 +191,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf_classification
       DWG_WORKER_CONCURRENCY: "${DXF_CLASSIFICATION_WORKER_CONCURRENCY:-3}"
+    cpus: "${DXF_CLASSIFICATION_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: "${DXF_CLASSIFICATION_WORKER_MEMORY_LIMIT:-4g}"
 
   worker-dxf-split:
     <<: *worker
@@ -184,6 +205,9 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf_split
       DWG_WORKER_CONCURRENCY: "${DXF_SPLIT_WORKER_CONCURRENCY:-1}"
+    cpus: "${DXF_SPLIT_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: "${DXF_SPLIT_WORKER_MEMORY_LIMIT:-4g}"
+    pids_limit: ${DXF_SPLIT_WORKER_PIDS_LIMIT:-128}
 
   worker-remnant-convert:
     <<: *worker
@@ -197,6 +221,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: remnant_convert
       DWG_WORKER_CONCURRENCY: "${REMNANT_CONVERT_WORKER_CONCURRENCY:-2}"
+    cpus: "${REMNANT_CONVERT_WORKER_CPU_LIMIT:-1.5}"
+    mem_limit: "${REMNANT_CONVERT_WORKER_MEMORY_LIMIT:-2g}"
 
   worker-remnant-parse:
     <<: *worker
@@ -210,6 +236,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: remnant_parse
       DWG_WORKER_CONCURRENCY: "${REMNANT_PARSE_WORKER_CONCURRENCY:-4}"
+    cpus: "${REMNANT_PARSE_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: "${REMNANT_PARSE_WORKER_MEMORY_LIMIT:-2g}"
 
   worker-excel-final:
     <<: *worker
@@ -222,6 +250,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: excel_final
       DWG_WORKER_CONCURRENCY: "${EXCEL_FINAL_WORKER_CONCURRENCY:-1}"
+    cpus: "${EXCEL_FINAL_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: "${EXCEL_FINAL_WORKER_MEMORY_LIMIT:-4g}"
 
   worker-excel-stage2:
     <<: *worker
@@ -234,6 +264,9 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: excel_stage2
       DWG_WORKER_CONCURRENCY: "${EXCEL_STAGE2_WORKER_CONCURRENCY:-1}"
+    cpus: "${EXCEL_STAGE2_WORKER_CPU_LIMIT:-2.0}"
+    mem_limit: "${EXCEL_STAGE2_WORKER_MEMORY_LIMIT:-8g}"
+    pids_limit: ${EXCEL_STAGE2_WORKER_PIDS_LIMIT:-128}
 
   worker-maintenance:
     <<: *worker
@@ -246,6 +279,8 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: maintenance
       DWG_WORKER_CONCURRENCY: "1"
+    cpus: "${MAINTENANCE_WORKER_CPU_LIMIT:-1.0}"
+    mem_limit: "${MAINTENANCE_WORKER_MEMORY_LIMIT:-1g}"
 
   mysql:
     image: ${MYSQL_IMAGE:-public.ecr.aws/docker/library/mysql@sha256:224bcb427d70a54ea2a5c8f47dfcf697ae4baefedd02ecf8d4229dd7b061293d}
@@ -284,6 +319,9 @@ services:
       - no-new-privileges:true
     ulimits: *service-ulimits
     logging: *service-logging
+    cpus: "${MYSQL_CPU_LIMIT:-4.0}"
+    mem_limit: "${MYSQL_MEMORY_LIMIT:-8g}"
+    pids_limit: ${MYSQL_PIDS_LIMIT:-512}
 
   minio:
     image: ${MINIO_IMAGE:-quay.io/minio/minio@sha256:1dce27c494a16bae114774f1cec295493f3613142713130c2d22dd5696be6ad3}
@@ -317,6 +355,9 @@ services:
       - no-new-privileges:true
     ulimits: *service-ulimits
     logging: *service-logging
+    cpus: "${MINIO_CPU_LIMIT:-2.0}"
+    mem_limit: "${MINIO_MEMORY_LIMIT:-4g}"
+    pids_limit: ${MINIO_PIDS_LIMIT:-256}
 
 volumes:
   app_var:
