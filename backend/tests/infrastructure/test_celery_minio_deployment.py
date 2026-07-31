@@ -545,6 +545,15 @@ def test_env_examples_expose_celery_eager_flag_with_consistent_keys():
     assert local_keys == docker_keys
 
 
+def test_celery_keeps_utc_protocol_with_beijing_business_scheduling():
+    content = (
+        REPO_ROOT / "backend/app/platform/messaging/celery_app.py"
+    ).read_text(encoding="utf-8")
+
+    assert "enable_utc=True" in content
+    assert "timezone=settings.business_timezone" in content
+
+
 def test_deployment_docs_match_mysql_derived_celery_url_behavior():
     content = (REPO_ROOT / "docs/guides/deployment.md").read_text()
 

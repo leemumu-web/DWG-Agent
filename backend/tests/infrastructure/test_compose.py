@@ -15,6 +15,7 @@ from tests.support.paths import REPO_ROOT
 COMPOSE_PATH = REPO_ROOT / "compose.yaml"
 DEV_COMPOSE_PATH = REPO_ROOT / "compose.dev.yaml"
 DOCKERFILE_PATH = REPO_ROOT / "backend" / "Dockerfile"
+FRONTEND_DOCKERFILE_PATH = REPO_ROOT / "frontend" / "Dockerfile"
 BACKEND_PYPROJECT_PATH = REPO_ROOT / "backend" / "pyproject.toml"
 DOCKERIGNORE_PATH = REPO_ROOT / ".dockerignore"
 GITIGNORE_PATH = REPO_ROOT / ".gitignore"
@@ -249,6 +250,22 @@ class TestAppServices:
 class TestComposeYamlValid:
     def test_is_parseable_yaml(self):
         assert _load() is not None
+
+    def test_every_container_runs_with_beijing_timezone_data(self):
+        data = _load()
+        env_example = DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8")
+        backend_dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+        frontend_dockerfile = FRONTEND_DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        assert "TZ=Asia/Shanghai" in env_example
+        assert "--default-time-zone=+08:00" in data["services"]["mysql"]["command"]
+        assert data["services"]["nginx"]["environment"]["TZ"] == "Asia/Shanghai"
+        assert "tzdata" in backend_dockerfile
+        assert "apk add --no-cache tzdata" in frontend_dockerfile
+        for name, service in data["services"].items():
+            if name == "nginx":
+                continue
+            assert service.get("env_file") == [".env.docker"], name
 
     def test_has_expected_services(self):
         data = _load()

@@ -14,6 +14,9 @@ RUN npm run build
 
 FROM ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 
+USER root
+RUN apk add --no-cache tzdata
+
 COPY infra/gateway/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
