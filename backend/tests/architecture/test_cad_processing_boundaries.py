@@ -47,7 +47,10 @@ CAD_PUBLIC_CONTRACT = {
 CLASSIFICATION_PUBLIC_CONTRACT = {
     "CLASSIFIER_VERSION",
     "CLI_SCHEMA",
+    "ClassificationError",
     "REPORT_SCHEMA",
+    "DxfBhStage2ClassificationBatch",
+    "DxfBhStage2Input",
     "DxfClassificationItem",
     "DxfClassificationItemRead",
     "DxfClassificationGroupItemRead",
@@ -62,6 +65,7 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "classifier_project_name",
     "enqueue_dxf_classification_job",
     "latest_classification_run",
+    "load_bh_stage2_classification_batch",
     "list_next_stage_inputs",
     "list_split_candidate_inputs",
     "run_dxf_classification",

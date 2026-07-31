@@ -240,7 +240,7 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
     workflow_contract = """
 ## Linux 生产工作流契约
 
-`GET /api/v1/workflows/templates` 返回后端权威模板和阶段能力。新建 `linux_production` 使用 definition_revision 4，固定为 `source_intake`、`dxf_classification`、`drawing_processing`、`excel_stage1`、`excel_stage2`、`design_barrier`、`cam_packaging`、`windows_cam`、`result_acceptance`、`delivery_archive` 十阶段；历史流程不自动改写。`excel_stage2` 预留 `stage1_excel + processed_dxf → stage2_excel` 合同，当前执行返回 501。每个阶段声明执行方式、实现状态、execution kind、所需输入和产物类型；前端不得自行把 placeholder 判断为已实现。
+`GET /api/v1/workflows/templates` 返回后端权威模板和阶段能力。新建 `linux_production` 使用 definition_revision 4，固定为 `source_intake`、`dxf_classification`、`drawing_processing`、`excel_stage1`、`excel_stage2`、`design_barrier`、`cam_packaging`、`windows_cam`、`result_acceptance`、`delivery_archive` 十阶段；历史流程不自动改写。`excel_stage2` 已实现，合同为 `stage1_excel + classified_dxf（当前分类账中冻结的拆板前 BH DXF）→ bh_setback_excel + stage2_excel`。先调用 `GET .../stages/excel_stage2/preflight` 核对第一阶段正式 attempt、分类正式 attempt、对象摘要和 BH 清单；通过后以 `execution_kind=excel_stage2` 创建专用队列 Job。读取表和正式深化表分别经 `download-reader-result`、`download-result` 返回一个 `.xlsx`，不混入 ZIP。服务未启用时稳定返回 `EXCEL_STAGE2_PIPELINE_DISABLED`。每个阶段声明执行方式、实现状态、execution kind、所需输入和产物类型；前端不得自行把 placeholder 判断为已实现。
 
 `POST /api/v1/workflows/{workflow_id}/artifacts` 只绑定现有 `file_id` / `result_id`，不接收文件字节。服务端同时验证项目写权限与目标资源读权限；相同 workflow、stage、artifact type、file、result 的重放返回原 artifact 和 `reused=true`。
 
@@ -252,7 +252,7 @@ Job 的 `progress` 是单任务快照。转换页的“成功进度”按当前�
 
 `linux_production` 对每阶段强制执行模板声明的 artifact type 白名单；不匹配返回 `422 WORKFLOW_ARTIFACT_TYPE_INVALID`。因此 placeholder/external 阶段必须提交约定类型的真实交接产物，不能用任意文件满足 completion。旧模板未声明白名单，保持兼容。
 
-`POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 只执行当前阶段。`dxf_classification` 接收 `execution_kind=steel_dxf_classification` 并从冻结清单确定输入；`drawing_processing` 接收 `execution_kind=drawing_processing` 并从最新分类 run 冻结整批输入；`excel_stage1` 接收 `execution_kind=excel_stage1`，由服务端解析唯一冻结 Excel 与当前拆板交接。三者以工作流/阶段幂等键创建或复用 Job，同事务绑定 attempt，commit 后才投递。执行端先锁定工作流行；拆板阶段一旦绑定 Job，后续项目成员始终复用该 Job，不因操作者变化重置 attempt 预算。自动阶段不能通过 completion 绕过。一般自动阶段的失败或单独取消 Job 可由相同 executions 请求复用 Job、递增 attempt、清除阶段错误并重投；响应以 `retried=true` 明确区分普通幂等复用。拆板技术失败由 worker 自动执行最多 3 个不可变整批 attempt，业务人工复核不触发技术重试；公共 Job 创建/重试端点以 `409 DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED` 拒绝绕过阶段绑定和 attempt 预算。显式取消整个流程后不可重开。
+`POST /api/v1/workflows/{workflow_id}/stages/{stage_code}/executions` 只执行当前阶段。`dxf_classification` 接收 `execution_kind=steel_dxf_classification` 并从冻结清单确定输入；`drawing_processing` 接收 `execution_kind=drawing_processing` 并从最新分类 run 冻结整批输入；`excel_stage1` 接收 `execution_kind=excel_stage1`，由服务端解析唯一冻结 Excel 与当前拆板交接；`excel_stage2` 接收 `execution_kind=excel_stage2`，再次冻结已预检的第一阶段正式 Excel 和分类 BH 账本。四者以工作流/阶段幂等键创建或复用 Job，同事务绑定 attempt，commit 后才投递。执行端先锁定工作流行；拆板阶段一旦绑定 Job，后续项目成员始终复用该 Job，不因操作者变化重置 attempt 预算。自动阶段不能通过 completion 绕过。一般自动阶段的失败或单独取消 Job 可由相同 executions 请求复用 Job、递增 attempt、清除阶段错误并重投；响应以 `retried=true` 明确区分普通幂等复用。拆板技术失败由 worker 自动执行最多 3 个不可变整批 attempt，业务人工复核不触发技术重试；公共 Job 创建/重试端点以 `409 DXF_SPLIT_WORKFLOW_EXECUTION_REQUIRED` 拒绝绕过阶段绑定和 attempt 预算。显式取消整个流程后不可重开。
 
 `GET /api/v1/workflows/{workflow_id}/dxf-classification` 返回最新 attempt 的分类器/schema 版本、冻结清单摘要、Job、类型汇总、逐图来源/分流 DXF 登记以及 JSON 报告和 CSV 清单。每个输出先在 MinIO 保存并建立 `files` 记录；待确认/无法读取也是明确处置，不伪装为自动分类。
 

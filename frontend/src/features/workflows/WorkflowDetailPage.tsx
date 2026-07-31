@@ -40,6 +40,7 @@ import {
 import { listProjects } from '../projects';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
 import { DrawingProcessingPanel } from './DrawingProcessingPanel';
+import { ExcelStage2Panel } from './ExcelStage2Panel';
 import { FutureStageNotice } from './FutureStageNotice';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
@@ -197,6 +198,7 @@ export function WorkflowDetailPage() {
     onMutate: () => setExecutionError(null),
     onSuccess: (result) => {
       setSelectedStageCode(authoritativeCurrentStage?.stage_code ?? null);
+      queryClient.setQueryData(['workflow', workflowId], result.workflow);
       message.success(
         result.retried
           ? `任务 #${result.job.id} 已重新入队`
@@ -510,6 +512,15 @@ export function WorkflowDetailPage() {
                     </Button>
                   )}
                 </Card>
+              )}
+              {selectedStage.stage_code === 'excel_stage2' && (
+                <ExcelStage2Panel
+                  workflowId={detail.id}
+                  stage={selectedStage}
+                  isCurrent={selectedIsCurrent}
+                  executing={executeM.isPending}
+                  onExecute={() => executeM.mutate()}
+                />
               )}
               {manualConfirmation && (
                 <Card className="workflow-manual-stage">

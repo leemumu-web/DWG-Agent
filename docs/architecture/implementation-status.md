@@ -6,6 +6,8 @@
 
 > 2026-07-22 余料库更新：独立 `remnant_inventory` 后端领域、DXF 确定性解析 Stage、六张业务表、21 个 API 操作、`remnant_convert`/`remnant_parse` 专用队列（默认并发 2/4）以及 Web 检索、批量导入、刷新恢复、人工校正、部分确认、预占和原图下载界面已实现。功能仍默认关闭，只有完成[余料库上线与运行手册](../operations/remnant-inventory.md)中的真实样本、材质、权限、备份和回滚门禁后才允许启用。该纵向功能不代表历史审计所述自动拆板或 Windows/SinoCAM 闭环已经实现。
 
+> 2026-07-31 当前状态更新：`excel_stage2` 已成为实现的自动阶段，使用独立、并发受限的 worker。它只读取当前第一阶段正式结果与分类账中冻结的拆板前 BH DXF，重复核对项目、Job/attempt、对象摘要和清单来源；先登记 BH 左右进读取表，再登记正式深化 Excel，并分别提供单个 xlsx 下载。阶段完成后只解锁人工设计确认，不自动放行后续生产。CAM 工作包、Windows/SinoCAM、结果接纳与交付归档仍未实现。本报告余下带日期的审计段落均为当时快照，不应覆盖本更新。
+
 ## 历史审计说明
 
 > 2026-07-25 结构更新：后端 platform/bootstrap 已分层，identity、projects、files、jobs、cad_processing、dxf_classification、dxf_splitting、excel_processing 和 workflows 已完成纵向归域；HTTP、ORM、权限、attempt、Stage 包版本与稳定 Celery 任务名由机器契约锁定。新建 `linux_production` 为 revision 4 十阶段框架，在 Excel 第一阶段与设计屏障之间加入 `excel_stage2`，预留 `stage2_excel` 且当前等待上线；历史流程保持原 revision。Steel DXF Classifier、默认关闭的 Steel DXF Split 1.5.2 和冻结 Excel `excel_stage1` 已接通，Excel 第二阶段、CAM 工作包、Windows Node Agent/SinoCAM、结果接纳与交付归档在前端统一弱化为等待上线。本报告其余较早日期章节作为当时审计快照保留。
@@ -269,7 +271,7 @@ Celery workers
 | 创建、启动、人工确认、取消 | 已实现 | API 与 React 页面存在 |
 | Job 绑定、同步和重试 | 已实现于自动阶段 | 公开执行端点按阶段能力创建/复用 Job，绑定 `job_id + attempt`，同步 Result、失败/取消并支持新 attempt；不适用于留白阶段 |
 | 自动挂接文件/结果产物 | 部分实现 | 输入冻结、分类和 Excel 第一阶段能将受支持的 File/Result 挂接为 artifact；独立 DXF→Excel 仍登记自身结果，但不推进 workflow；拆板、CAM 和结果接纳没有产物实现 |
-| 目标钢结构批次工作流 | 部分实现 | 新建 `linux_production` 已提供 revision 4 十阶段框架，输入冻结、分类和 Excel 第一阶段可调用现有实现；Excel 第二阶段、拆板、CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
+| 目标钢结构批次工作流 | 部分实现 | 新建 `linux_production` 已提供 revision 4 十阶段框架，输入冻结、分类、拆板、Excel 第一阶段与 BH 左右进第二阶段可调用现有实现；CAM 工作包、Windows CAM 和结果接纳明确为 placeholder/external |
 | 数据库屏障 | 未实现 | 没有目标的原子 compare-and-set 批次阶段推进 |
 
 **评价：** 这是可复用的编排元数据框架，但不能被视为目标业务 orchestration 已完成。

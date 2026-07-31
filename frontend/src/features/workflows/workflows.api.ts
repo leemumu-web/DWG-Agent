@@ -23,6 +23,7 @@ import type {
   WorkflowBatchExportPurgeResult,
   WorkflowExportCategory,
   WorkflowExcelStagePreflight,
+  WorkflowExcelStage2Preflight,
   WorkflowRetentionExport,
   WorkflowRetentionPreview,
 } from './workflow';
@@ -144,9 +145,40 @@ export async function downloadWorkflowExcelStageResult(
   );
 }
 
+export async function downloadWorkflowExcelStage2Result(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage2/download-result`,
+    `workflow-${workflowId}-excel-stage2.xlsx`,
+    'Excel 第二阶段结果下载失败',
+    onProgress,
+  );
+}
+
+export async function downloadWorkflowExcelStage2ReaderResult(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage2/download-reader-result`,
+    `workflow-${workflowId}-bh-setback.xlsx`,
+    'BH 左右进读取表下载失败',
+    onProgress,
+  );
+}
+
 export async function getWorkflowExcelStagePreflight(workflowId: number) {
   const response = await apiClient.get<ApiEnvelope<WorkflowExcelStagePreflight>>(
     `/api/v1/workflows/${workflowId}/stages/excel_stage1/preflight`,
+  );
+  return response.data.data;
+}
+
+export async function getWorkflowExcelStage2Preflight(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowExcelStage2Preflight>>(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage2/preflight`,
   );
   return response.data.data;
 }

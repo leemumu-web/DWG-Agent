@@ -92,6 +92,20 @@ export interface WorkflowExcelStagePreflight {
   checks: WorkflowExcelPreflightCheck[];
 }
 
+export interface WorkflowExcelStage2Preflight {
+  ready: boolean;
+  mode: 'bh_enhancement' | 'no_bh_inputs';
+  stage1_file_id: number;
+  stage1_file_name: string;
+  stage1_job_id: number;
+  stage1_job_attempt: number;
+  classification_run_id: number;
+  classification_job_id: number;
+  classification_job_attempt: number;
+  bh_input_count: number;
+  checks: WorkflowExcelPreflightCheck[];
+}
+
 export interface DxfClassificationItem {
   id: number;
   drawing_id?: number | null;

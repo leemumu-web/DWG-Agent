@@ -355,6 +355,10 @@ def _split_job_fixture(
             stage_code="dxf_classification",
             artifact_type="classified_dxf",
             file_id=source.id,
+            metadata={
+                "job_id": classification_job.id,
+                "job_attempt": classification_job.attempt,
+            },
         )
     for artifact_type, stored in (
         ("classification_report", report),
@@ -366,6 +370,10 @@ def _split_job_fixture(
             stage_code="dxf_classification",
             artifact_type=artifact_type,
             file_id=stored.id,
+            metadata={
+                "job_id": classification_job.id,
+                "job_attempt": classification_job.attempt,
+            },
         )
     db.flush()
 

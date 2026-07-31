@@ -44,7 +44,7 @@ operation。其他业务模块只能导入 `workflows.interface`；旧的 workfl
 | 2 | `dxf_classification` | automated | 消费 `canonical_dxf`；产出 `classified_dxf`、JSON 报告和清单 |
 | 3 | `drawing_processing` | automated | 整批消费 `classified_dxf`；BH/BOX 通过 Steel DXF Split 1.5.2 生成正常拆板与余量增长 DXF，并由独立步骤重开校验；其他类型或未通过图纸保留明确原因且不进入正式交接；若没有任何 BH/BOX 候选则明确跳过本阶段并以 `no_split_candidates` 解锁 Excel；产出 7 类正式 artifact |
 | 4 | `excel_stage1` | automated | 从冻结输入中解析唯一 `source_excel`，同时接收当前拆板 run 的 `processed_dxf` 与 `BH拆板信息表.xlsx` 交接，重核对象摘要和登记时表格检查，真实创建 `process_excel_final` Job；产物 `stage1_excel` |
-| 5 | `excel_stage2` | placeholder | 消费 `stage1_excel` 与 `processed_dxf`，预留 `stage2_excel`；当前等待上线 |
+| 5 | `excel_stage2` | automated | 消费当前成功 attempt 的 `stage1_excel` 与分类账中冻结的拆板前 BH `classified_dxf`；先生成 `bh_setback_excel`，再生成 `stage2_excel`，两者分别以单个 xlsx 下载 |
 | 6 | `design_barrier` | manual | 人工确认图纸和 `stage2_excel` 已满足后续生产条件 |
 | 7 | `cam_packaging` | placeholder | 合同要求 `cam_input_dxf` 与 CAM 清单；等待上线 |
 | 8 | `windows_cam` | external | 合同要求 `cam_output_dxf`；Node Agent、租约、fencing token、SinoCAM Runner 等待上线 |
@@ -300,7 +300,7 @@ React `生产流程` 页面读取模板，提供：
 - 生产项目列表响应聚合 Project 编号/名称并提供全局状态统计；状态筛选只影响行分页，不改变统计口径；
 - 通用 Workflow 创建服务锁定 Project，并以 `PRODUCTION_WORKFLOW_ALREADY_EXISTS` 拒绝同一项目的第二条 `linux_production` 流程；兼容 workflow 类型保持原行为；
 - 已创建但启动失败的 draft 在详情页保留启动恢复入口；
-- Linux 十阶段生产轨道、实现状态标签和等待上线视觉边界；
+- Linux 十阶段生产轨道、实现状态标签、Excel 第二阶段预检/执行/单文件下载和其余等待上线视觉边界；
 - 项目内流程创建、分页、状态筛选、启动和取消；
 - source intake 专用面板：分步提交 Excel 与 DWG 文件夹、确认忽略其他文件、服务器转换、确认冻结；
 - 普通工作流产物按阶段组织为 ZIP；Excel 第一阶段只提供唯一 `.xlsx` 单文件下载，不套 ZIP；
@@ -312,7 +312,7 @@ React `生产流程` 页面读取模板，提供：
 - Stage A3 拆板卡片标题栏右侧的“分批导出”：四类勾选、受认证 Blob 下载、字节进度、下载完成状态、明确“暂不删除”和第二次不可恢复清理确认；该入口不出现在全局“生产产物与证据”区；
 - 拆板卡片提供正式配对结果和本批全部分类原图两个异步进度下载入口；不展示候选图、算法报告或逐图人工复核工作台；
 - Excel 第一阶段先显示五层预检；预检通过后只提交 `execution_kind`，正式执行再次运行同一门禁。服务端自动使用冻结 `source_excel`，页面不存在第二个文件选择器；成功结果只下载一个 `.xlsx`；
-- Excel 第二阶段及 CAM/归档节点只展示等待上线和输入/产物合同，不发送必然失败的探测请求；
+- Excel 第二阶段先在页面核对第一阶段正式结果与冻结 BH 图纸，预检通过后才提交专用执行 Job；读取表与正式 Excel 分别单文件下载，完成后不自动跳到人工设计确认；CAM/归档节点只展示等待上线和输入/产物合同，不发送必然失败的探测请求；
 - Job/attempt/进度/错误展示；
 - 生产产物按 artifact type 精炼汇总，并复用 `/files` 生成全量 ZIP。
 
@@ -320,7 +320,7 @@ React `生产流程` 页面读取模板，提供：
 
 ## 7. 当前验证和未完成边界
 
-新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、Excel 同规则预检与单 `.xlsx` 下载、严格执行体、拆板整批单次执行、当前 attempt 产物过滤、正式配对结果数量守恒、流式 ZIP、下载中断保留、确认后对象与预览缓存物理删除、迁移和 Excel 交接，以及 `excel_stage2` 未实现门禁和产物挂接；前端合同和真实浏览器验收锁定阶段完成后只解锁且不自动切换、第三阶段异步字节进度下载、40 张原图完整保留，以及正式包仅含 `原长/`、`余量增长后短文件/` 各 40 张 DXF。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
+新建工作流为十阶段 revision 4，历史流程保留原阶段快照。后端回归锁定冻结 Excel 校验、Excel 同规则预检与单 `.xlsx` 下载、Excel 第二阶段对正式第一阶段结果和分类 BH 账本的再次冻结、专用队列执行、当前 attempt 产物过滤及两份 xlsx 的独立下载、严格执行体、拆板整批单次执行、正式配对结果数量守恒、流式 ZIP、下载中断保留、确认后对象与预览缓存物理删除、迁移和 Excel 交接；前端合同和真实浏览器验收锁定阶段完成后只解锁且不自动切换、第三阶段异步字节进度下载、Excel 第二阶段预检/执行/两份下载，以及正式包仅含 `原长/`、`余量增长后短文件/` 各 40 张 DXF。最终门禁和确切计数见[当前验证证据](../verification/current.md)。
 
 仍未完成：
 

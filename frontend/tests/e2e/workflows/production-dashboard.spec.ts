@@ -104,6 +104,9 @@ test('production workbench is backed by workflows and opens the real project for
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByText('准备什么', { exact: true })).toBeVisible();
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await page.screenshot({
     path: path.resolve(process.cwd(), '../output/playwright/production-workbench-mobile.png'),

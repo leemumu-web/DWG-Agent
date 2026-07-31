@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示十阶段工作台和错误，`WorkflowStageRail.tsx` 提供可点击的阶段导航，`WorkflowStageArchiveCard.tsx` 负责当前或历史阶段的批量 ZIP 下载和传输进度；`WorkflowArtifactSummary.tsx` 按类型精炼汇总生产产物并下载全量 ZIP；`WorkflowRetentionControl.tsx` 仅在终态批次提供“核对范围→下载完整备份→管理员确认清理”三步界面，并从服务器恢复后台状态；`FutureStageNotice.tsx` 统一呈现 Excel 第二阶段及 CAM/归档等待上线边界；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.2.0 的类型文件夹、预警、分页逐图详情以及分类/全量 DXF 压缩包下载；`DrawingProcessingPanel.tsx` 展示当前拆板 attempt、数量与生产结果，并分别下载正式拆板 DXF 和本批全部原图，不展示报告或逐图复核工作台；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
+`WorkflowsPage.tsx` 以 Project 为主对象查询完整生产流程；`ProductionProjectCreateDrawer.tsx` 一次提交项目资料并原子创建、启动其唯一工作流；`WorkflowDetailPage.tsx` 在独立 URL 展示十阶段工作台和错误，`WorkflowStageRail.tsx` 提供可点击的阶段导航，`WorkflowStageArchiveCard.tsx` 负责当前或历史阶段的批量 ZIP 下载，以及 Excel 两阶段各自单文件的下载与传输进度；`WorkflowArtifactSummary.tsx` 按类型精炼汇总生产产物并下载全量 ZIP；`WorkflowRetentionControl.tsx` 仅在终态批次提供“核对范围→下载完整备份→管理员确认清理”三步界面，并从服务器恢复后台状态；`ExcelStage2Panel.tsx` 核验冻结 BH 图纸、执行左右进深化并说明两份输出；`FutureStageNotice.tsx` 仅呈现尚未实现的 CAM/归档边界；`ProductionInputPanel.tsx` 完成 Excel 单文件、DWG 文件夹、忽略文件确认、配对和冻结；`DxfClassificationPanel.tsx` 展示 Classifier 1.2.0 的类型文件夹、预警、分页逐图详情以及分类/全量 DXF 压缩包下载；`DrawingProcessingPanel.tsx` 展示当前拆板 attempt、数量与生产结果，并分别下载正式拆板 DXF 和本批全部原图，不展示报告或逐图复核工作台；API/DTO 分别在 `workflows.api.ts`、`workflow-inputs.api.ts`、`workflow*.ts`，展示规则在 `model/`。
 
 `workflow.ts` 定义 run/stage/artifact/template、阶段执行请求、分类 run/item 和导出合同；`workflow-input.ts` 定义输入批次、计数、问题、item 和转换反馈；`workflows.api.ts` 与 `workflow-inputs.api.ts` 分别拥有流程及输入 HTTP 调用。`DrawingProcessingExportActions.tsx` 在 Stage A3 “03 · 图纸拆板与独立校验”卡片标题栏组合两个独立入口：`DrawingSelectiveExportControl.tsx` 按未通过的 BH、未通过的 BOX、PL、其他多选流式下载且不删除，`WorkflowBatchExportControl.tsx` 提供四类生产文件下载、状态轮询和二次确认物理删除；两者都不属于下方 `WorkflowArtifactSummary.tsx`，禁用时必须说明原因。正式拆板结果的原长版和余量增长版复用同一后端导出账本，但只由正式结果下载入口成对选择，不进入四类清理弹窗。`styles.css` 拥有生产项目创建、工业化阶段轨道、当前工作区和窄屏布局；`index.ts` 统一重导出页面、API 与合同，其他 feature 不深层导入。
 
@@ -14,9 +14,9 @@ Project 分页在浏览器中拼接。新建 Project 时原子创建并启动其
 DWG→DXF Job；全部配对无冲突后冻结 `canonical_dxf` 并进入 DXF 分类。DWG 只在输入阶段
 留档，后续图纸按 `classified_dxf → processed_dxf → cam_input_dxf → cam_output_dxf →
 accepted_dxf → delivery_dxf` 流通。Excel 第一阶段从冻结清单解析唯一源 Excel，报告、清单
-和 Excel 保持各自格式。Excel 第二阶段位于第一阶段和设计屏障之间，当前只展示
-`stage1_excel + processed_dxf → stage2_excel` 合同及等待上线状态。页面直接展示服务端 `required_inputs`、`artifact_types` 和
-`required_outputs`。
+和 Excel 保持各自格式。Excel 第二阶段位于第一阶段和设计屏障之间，先核对当前第一阶段正式结果和分类账中冻结的拆板前 BH DXF，再以零件号读取左右进并深化整理表与 part 表；其合同是
+`stage1_excel + classified_dxf → bh_setback_excel + stage2_excel`。页面直接展示服务端 `required_inputs`、`artifact_types` 和
+`required_outputs`，阶段完成后仍停留在本阶段，等待操作员主动进入人工设计确认。
 
 `PRODUCTION ROUTE` 按钮只切换所查看的阶段，实际上传、执行和确认始终绑定服务端
 `current_stage`。阶段完成后服务端只解锁下一阶段，工作区继续显示刚完成阶段，直到操作员主动
@@ -33,9 +33,9 @@ accepted_dxf → delivery_dxf` 流通。Excel 第一阶段从冻结清单解析�
 `GET /workflows/{id}/drawing-processing` 读取当前 attempt 的权威进度、正式配对数量、未形成
 正式结果数量和逐图原因。页面分别提供只含 `原长/`、`余量增长后短文件/` 的正式拆板 ZIP，
 以及本批全部分类原图 ZIP；不展示候选图、算法报告或逐图人工复核工作台。Excel 第一阶段执行
-前调用同规则预检，成功后只下载唯一 `.xlsx`，不使用阶段 ZIP。Excel 第二阶段、
-CAM 工作包、Windows CAM、结果接纳和交付归档统一弱化为“等待上线”，且不提供执行、
-人工确认或阶段下载操作。
+前调用同规则预检，成功后只下载唯一 `.xlsx`，不使用阶段 ZIP。Excel 第二阶段同样先预检，
+然后由专用队列生成 BH 左右进读取表与深化后的正式 Excel；两份均单独下载，绝不混入 ZIP。
+CAM 工作包、Windows CAM、结果接纳和交付归档统一弱化为“等待上线”，且不提供执行、人工确认或阶段下载操作。
 
 分批导出使用统一 Axios Blob 下载器接收字节进度，完成后再触发浏览器保存。选择弹窗显示
 `原 DXF`、`正常拆板 DXF`、`原 Excel`、`产出 Excel` 四个 UI 标签；机器类型和数据库中的

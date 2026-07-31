@@ -30,7 +30,6 @@ export const STAGE_STATUS: Record<string, 'wait' | 'process' | 'finish' | 'error
 export const TERMINAL = new Set(['succeeded', 'skipped', 'failed', 'cancelled']);
 export const ACTIONABLE = new Set(['ready', 'waiting_input', 'waiting_review']);
 export const WAITING_LAUNCH_STAGES = new Set([
-  'excel_stage2',
   'cam_packaging',
   'windows_cam',
   'result_acceptance',

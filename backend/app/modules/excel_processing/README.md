@@ -9,6 +9,7 @@
 3. `stage_adapter.py` 是父进程唯一的 Stage 入口；`stage_runner.py` 在隔离子进程内导入 `Stages/excel_final`。二者使用严格的 `protocol_version=1` JSON 结果，密码只通过子进程环境传递，child traceback 不进入公共错误或日志。子进程同时生成任务临时目录中的完整内部导入工作簿和删列后的最终工作簿；数据库只读前者，对象存储和下载只使用后者。
 4. `importers.py` 流式读取规范六表工作簿的“整理表”“构件表”“处理报告”，投影到 `excel_final_parts`、`excel_final_components` 和批次质量摘要；缺构件身份的 part 行跳过，重复构件 ID、负长度/数量/重量/面积及 NaN/Infinity 等非有限数值拒绝；`persistence.py` 拥有批次替换、表净重/表毛重统计和清理。
 5. `routes/catalog.py` 只查询关系化投影；`routes/tools.py` 提供手册比重查询；`routes/health.py` 分项报告 Stage、依赖、手册库、业务库和对象存储状态。
+6. `stage2_execution.py` 接收工作流已冻结的第一阶段正式 Excel 与分类阶段 BH DXF 清单，在任务临时目录调用 BH 读取器，再调用 Stage 二阶段深化；中间读取表和正式结果分别登记，任何项目、Job 或 attempt 血缘不一致都会拒绝继续。
 
 ## 顶层源码分工
 
@@ -24,6 +25,7 @@
 - `presentation.py` 把模型投影为 batch、part、component、process status 等稳定响应。
 - `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
 - `stage_adapter.py` / `stage_runner.py` 隔离父进程与 Stage；`interface.py` 是跨域唯一入口。
+- `stage2_execution.py` 是工作流 Excel 第二阶段的应用层入口，只消费工作流已冻结的精确文件清单，不扫描项目目录或拆板产物。
 - `handbook_catalog_source.py` 把唯一可信 `五金手册.xls` 逐行映射为可追溯的关系表、生成确定性 SQL，并提供源表与已部署手册库的逐值审计。
 
 ## 规范结果与质量语义
@@ -57,4 +59,4 @@ DWG_RUN_LIVE_EXCEL_FINAL=1 .venv/bin/pytest -q -s tests/excel_processing/test_ex
 
 ## 范围边界
 
-这里实现的是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。跨图纸数据库屏障、左右进结果合并、自动汇总触发和生产输入 schema 的最终验收仍是待实现能力；由唯一可信 `五金手册.xls` 生成并审计的 `hardware_handbook` 数据库也是部署依赖。代码移动和健康检查不能被解释为这些能力已经完成。
+这里的基础链路仍是一个源 Excel 文件的 Excel Final 处理，不是目标架构中的完整“全部图纸就绪后最终汇总”。生产工作流已实现 BH 左右进二阶段：它使用分类账中的拆板前 BH DXF 深化当前第一阶段正式 Excel，并同步整理表与 part；它不代表跨图纸数据库屏障、CAM 自动汇总或所有截面深化已经实现。由唯一可信 `五金手册.xls` 生成并审计的 `hardware_handbook` 数据库仍是部署依赖。

@@ -63,6 +63,8 @@ BH/BOX/BT 的父理论重用于源毛重物理核验：BH=`腹板单重×1+翼�
 | `quality.py` | 结构化问题台账与质量摘要 |
 | `weights.py` | 未舍入理论重与源重量物理核验 |
 | `splitter.py` | 仅 BH/BOX/BT 的规范拆板 |
+| `bh_stage2.py` | 按零件号归一化读取 BH 左右进记录，拒绝含糊归属并形成可审计匹配结果 |
+| `stage2_workbook.py` | 以第一阶段正式工作簿和 BH 读取表深化整理表、同步重建 part，并保持公式与数量重量链 |
 | `part_builder.py` | `part` 准入、主零件身份冲突检测与按类型选择构件/全局范围汇总 |
 | `canonical_pipeline.py` | 共享生产引擎 |
 | `writer_parts.py` / `ooxml_formula.py` | 固定六表、有界自适应列宽、样式、报告和公式缓存 |

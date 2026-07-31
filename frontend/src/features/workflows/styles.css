@@ -384,6 +384,54 @@
   min-width: 230px;
 }
 
+.workflow-excel-stage-route {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 30px;
+  margin: 0;
+  padding: 10px 14px;
+  color: #1d535d;
+  background: repeating-linear-gradient(90deg, #f7fbfb 0 30px, #eef7f7 30px 31px);
+  border: 1px solid #c9e1e2;
+  border-radius: 2px;
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 650;
+  list-style: none;
+}
+
+.workflow-excel-stage-route li {
+  position: relative;
+  padding: 4px 6px;
+  color: #123c4a;
+  background: rgba(255, 255, 255, .82);
+  border: 1px solid #d6e7e8;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.workflow-excel-stage-route li:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  width: 14px;
+  color: #087e8b;
+  content: "→";
+  font-size: 16px;
+  line-height: 1;
+  transform: translateY(-50%);
+}
+
+.workflow-excel-stage2-downloads > .ant-card-body {
+  display: grid;
+  gap: 12px;
+}
+
+.workflow-excel-stage2-downloads .ant-typography-secondary {
+  display: block;
+  margin-top: 4px;
+}
+
 .workflow-artifact-summary,
 .workflow-current-job,
 .workflow-manual-stage {
@@ -875,6 +923,35 @@
   .workflow-stage-archive-card .ant-card-body {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .workflow-excel-stage-card > .ant-card-body > .ant-btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workflow-excel-stage-route {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .workflow-excel-stage-route li:not(:last-child)::after {
+    top: calc(100% + 7px);
+    left: 50%;
+    content: "↓";
+    transform: translateX(-50%);
+  }
+
+  .workflow-excel-stage2-downloads .ant-space {
+    width: 100%;
+  }
+
+  .workflow-excel-stage2-downloads .ant-space-item {
+    flex: 1 1 220px;
+  }
+
+  .workflow-excel-stage2-downloads .ant-btn {
+    width: 100%;
   }
 
   .workflow-artifact-summary__heading {

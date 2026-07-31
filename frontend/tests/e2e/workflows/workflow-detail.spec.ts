@@ -29,7 +29,7 @@ test('workflow detail runs frozen Excel stage without a second file selector', a
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
     ['drawing_processing', '图纸拆板与独立校验', 'automated', 'implemented', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
-    ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
+    ['excel_stage2', 'Excel 第二阶段处理', 'automated', 'implemented', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
     ['cam_packaging', 'CAM 工作包生成', 'placeholder', 'placeholder', 'cam_packaging'],
     ['windows_cam', 'Windows CAM 排版', 'external', 'external', 'windows_cam'],
@@ -204,7 +204,7 @@ test('production route inspects stages safely and keeps classification output co
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
     ['drawing_processing', '图纸拆板与独立校验', 'automated', 'implemented', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
-    ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
+    ['excel_stage2', 'Excel 第二阶段处理', 'automated', 'implemented', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
     ['cam_packaging', 'CAM 工作包生成', 'placeholder', 'placeholder', 'cam_packaging'],
     ['windows_cam', 'Windows CAM 排版', 'external', 'external', 'windows_cam'],
@@ -534,9 +534,10 @@ test('production route inspects stages safely and keeps classification output co
 
   await page.getByRole('button', { name: /Excel 第二阶段处理/ }).click();
   await expect(page.getByRole('heading', { name: 'Excel 第二阶段处理' })).toBeVisible();
-  await expect(page.getByText('能力等待上线')).toBeVisible();
-  await expect(page.getByText('流程位置与数据接口已经预留')).toBeVisible();
-  await expect(page.getByRole('button', { name: /开始|重试|确认当前阶段|下载本阶段结果压缩包/ })).toHaveCount(0);
+  await expect(page.getByText('以当前项目的冻结 BH 图纸深化 Excel')).toBeVisible();
+  await expect(page.getByRole('button', { name: '处理 BH 的左右进' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '下载 BH 左右进读取表' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '下载 Excel 第二阶段结果' })).toBeDisabled();
 
   await page.getByRole('button', { name: /Windows CAM 排版/ }).click();
   await expect(page.getByRole('heading', { name: 'Windows CAM 排版' })).toBeVisible();
@@ -559,7 +560,7 @@ test('partial split keeps downloads recoverable with operator guidance', async (
     ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
     ['drawing_processing', '图纸拆板与独立校验', 'automated', 'implemented', 'drawing_processing'],
     ['excel_stage1', 'Excel 第一阶段处理', 'automated', 'implemented', 'excel_stage1'],
-    ['excel_stage2', 'Excel 第二阶段处理', 'placeholder', 'placeholder', 'excel_stage2'],
+    ['excel_stage2', 'Excel 第二阶段处理', 'automated', 'implemented', 'excel_stage2'],
     ['design_barrier', '深化设计完整性屏障', 'manual', 'implemented', null],
     ['cam_packaging', 'CAM 工作包生成', 'placeholder', 'placeholder', 'cam_packaging'],
     ['windows_cam', 'Windows CAM 排版', 'external', 'external', 'windows_cam'],

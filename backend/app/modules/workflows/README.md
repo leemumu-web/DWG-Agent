@@ -87,10 +87,11 @@ ZIP 一级目录固定为 `原DXF/`、`正常拆板DXF/`、`原Excel/`、`产出
 筛选当前 run 未自动接纳的分类 DXF，通过短期路径能力直接从对象存储流式生成 ZIP；
 它不落服务器临时文件、不改叶子文件名，也不执行物理删除。
 
-`excel_stage2` 消费 `stage1_excel` 与 `processed_dxf` 并预留 `stage2_excel`；它与
-`cam_packaging`、`windows_cam`、`result_acceptance` 仍只有稳定输入、产物和
-501/人工交接契约。CAM 打包、Windows Node Agent/SinoCAM 和结果接纳算法尚未实现，
-目录整理不能被解释为这些后续阶段已形成生产闭环。
+`excel_stage2` 已接入独立、并发受限的 `excel_stage2` worker：只消费当前成功 attempt 的
+`stage1_excel`，以及分类账中冻结的拆板前 BH `classified_dxf`，不读取拆板产物。预检与
+正式执行都核对工作流、项目、Job/attempt、对象摘要和 BH 清单来源；worker 先登记
+`bh_setback_excel`，再登记正式 `stage2_excel`，二者仅通过独立 xlsx 下载端点交付。没有
+BH 图纸时仍生成保留第一阶段内容的正式结果；读图或匹配阻断时只允许下载当前 attempt 的诊断读取表，绝不回退旧批次。CAM 打包、Windows Node Agent/SinoCAM 和结果接纳算法尚未实现，目录整理不能被解释为这些后续阶段已形成生产闭环。
 Workflow 列表在服务端聚合 Project 编号/名称，并返回忽略状态筛选、但遵守项目权限与
 Workflow 类型范围的全局状态统计，避免前端用独立分页做不完整关联。
 
