@@ -2,7 +2,7 @@
 
 ## 现有实现
 
-`render_server_compose.py` 从仓库 Compose 生成只引用固定发布镜像的服务器配置；`verify_image_archive.py` 逐层检查导出的后端镜像，拒绝业务 Python 源码、测试和样本混入；`verify_live_remnant.py` 在服务健康后用受保护运行时验证余料 DXF 的 MySQL 登记、MinIO 写入与回读、解析、确认、库存查询和预览权限，并自动清理本次唯一标记的测试记录与对象；`server-deploy.sh` 是发布包外部与包内共用的部署器，负责校验、解密、加载镜像、创建受限环境文件，并按 MySQL/MinIO、API、其余服务三层启动和核验。
+`render_server_compose.py` 从仓库 Compose 生成只引用固定发布镜像的服务器配置；`verify_image_archive.py` 逐层检查导出的后端镜像，拒绝业务 Python 源码、测试和样本混入；`verify_runtime_features.py` 在容器内核对公开的生产功能矩阵和 Excel 第二阶段常开模板/队列，不读取或输出密钥；`verify_live_remnant.py` 在服务健康后用受保护运行时验证余料 DXF 的 MySQL 登记、MinIO 写入与回读、解析、确认、库存查询和预览权限，并自动清理本次唯一标记的测试记录与对象；`server-deploy.sh` 是发布包外部与包内共用的部署器，负责校验、解密、加载镜像、创建受限环境文件，并按 MySQL/MinIO、API、其余服务三层启动和核验。
 
 首次部署或发布更新后，以 root 身份运行：
 

@@ -256,7 +256,8 @@ def test_frontend_has_global_recovery_and_connectivity_feedback():
     connectivity = _frontend_source("shared/components/ConnectivityBanner.tsx")
 
     assert "AppErrorBoundary" in providers
-    assert "retry: (failureCount, error)" in providers
+    assert "retry: shouldRetryApiQuery" in providers
+    assert "shouldRetryApiQuery" in _frontend_source("shared/api/error.ts")
     assert "online" in connectivity and "offline" in connectivity
     assert "重新加载当前页面" in boundary
 
@@ -666,7 +667,8 @@ def test_workflow_primary_read_failures_share_operator_recovery_feedback():
     assert "ApiErrorAlert" in input_source
     assert "处理建议：" in shared_source
     assert "apiErrorRecovery" in shared_source
-    assert "服务器暂时无法完成操作" in error_source
+    assert "服务器内部处理未完成" in error_source
+    assert "不要连续重复提交" in error_source
     assert "先刷新当前状态" in error_source
     assert "WORKFLOW_STAGE_INPUT_INCOMPLETE" in error_source
     assert "返回前序阶段补齐必需产物" in error_source
