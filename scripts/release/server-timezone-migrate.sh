@@ -22,6 +22,30 @@ timezone_env_value() {
     ' "$env_file"
 }
 
+timezone_ensure_shanghai_runtime_timezone() {
+    local target=$1 env_file="$1/.env.docker" pending
+    [[ -f "$env_file" && ! -L "$env_file" ]] \
+        || timezone_die "runtime environment file is missing or unsafe"
+    pending=$(mktemp "$target/.env.docker.tz.XXXXXX")
+    chmod 0600 "$pending"
+    if ! awk '
+        BEGIN { written = 0 }
+        /^TZ=/ {
+            if (!written) print "TZ=Asia/Shanghai"
+            written = 1
+            next
+        }
+        { print }
+        END { if (!written) print "TZ=Asia/Shanghai" }
+    ' "$env_file" >"$pending"; then
+        find "$pending" -maxdepth 0 -delete 2>/dev/null || true
+        timezone_die "cannot update the runtime timezone"
+    fi
+    mv -- "$pending" "$env_file"
+    sync -f "$env_file"
+    timezone_info "runtime timezone configured as Asia/Shanghai"
+}
+
 timezone_require_target() {
     local requested=${1:-}
     [[ -n "$requested" ]] || timezone_die "TARGET_DIR is required"
@@ -510,7 +534,7 @@ timezone_service_exists() {
 }
 
 timezone_verify_database_runtime() {
-    local target=$1 database head session_zone delta
+    local target=$1 database head session_zone delta app_offset
     database=$(timezone_env_value "$target/.env.docker" MYSQL_DATABASE)
     head=$(timezone_mysql_scalar "$target" 'SELECT version_num FROM alembic_version' "$database")
     session_zone=$(timezone_mysql_scalar "$target" 'SELECT @@session.time_zone' "$database")
@@ -525,7 +549,10 @@ timezone_verify_database_runtime() {
     '
     [[ "$session_zone" == +08:00 ]] || timezone_die "unexpected MySQL session timezone: $session_zone"
     (( delta >= 28798 && delta <= 28802 )) || timezone_die "MySQL UTC offset is invalid: $delta"
-    timezone_info "Alembic head $head includes a4c8e1f2b730 and MySQL timezone is +08:00"
+    app_offset=$(timezone_compose "$target" exec -T backend-api date +%z | tr -d '\r')
+    [[ "$app_offset" == +0800 ]] \
+        || timezone_die "application container timezone is invalid: $app_offset"
+    timezone_info "Alembic head $head includes a4c8e1f2b730; MySQL and application timezone are +08:00"
 }
 
 timezone_verify_rollback_database_runtime() {
@@ -618,6 +645,7 @@ timezone_migrate() {
     timezone_require_quiescent "$target"
     timezone_require_datetime_audit "$target"
     timezone_require_pre_migration_head "$target"
+    timezone_ensure_shanghai_runtime_timezone "$target"
     mapfile -t application < <(timezone_application_services "$target")
     timezone_compose "$target" stop -t 180 "${application[@]}"
     timestamp=$(date +%Y%m%d-%H%M%S)

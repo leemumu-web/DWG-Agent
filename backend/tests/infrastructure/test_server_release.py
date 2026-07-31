@@ -456,6 +456,41 @@ def test_timezone_service_probe_does_not_drop_dispatcher_under_pipefail():
     assert result.returncode == 0, result.stderr
 
 
+def test_timezone_cutover_adds_shanghai_tz_without_changing_runtime_secrets(tmp_path: Path):
+    target = tmp_path / "server"
+    target.mkdir()
+    env_file = target / ".env.docker"
+    env_file.write_text(
+        "MYSQL_PASSWORD=mysql-secret\nJWT_SECRET_KEY=jwt-secret\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$TIMEZONE_SCRIPT" >/dev/null; '
+            'timezone_ensure_shanghai_runtime_timezone "$TARGET"; '
+            'timezone_ensure_shanghai_runtime_timezone "$TARGET"',
+        ],
+        env={
+            **os.environ,
+            "TIMEZONE_SCRIPT": str(TIMEZONE_SCRIPT),
+            "TARGET": str(target),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert env_file.read_text(encoding="utf-8") == (
+        "MYSQL_PASSWORD=mysql-secret\n"
+        "JWT_SECRET_KEY=jwt-secret\n"
+        "TZ=Asia/Shanghai\n"
+    )
+    assert env_file.stat().st_mode & 0o777 == 0o600
+
+
 def test_unverified_timezone_backup_is_rejected(tmp_path: Path):
     target = tmp_path / "server"
     backup = target / "backups" / "timezone-20260801-120000"
