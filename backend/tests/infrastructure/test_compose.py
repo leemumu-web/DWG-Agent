@@ -520,6 +520,8 @@ class TestDockerEnvironmentFiles:
             "DXF_CLASSIFICATION_PIPELINE_ENABLED",
             "DXF_SPLIT_PIPELINE_ENABLED",
             "EXCEL_FINAL_PIPELINE_ENABLED",
+            "EXCEL_STAGE2_PIPELINE_ENABLED",
+            "REMNANT_INVENTORY_ENABLED",
         ):
             assert values[key] == "true"
         assert values["DXF2EXCEL_PIPELINE_ENABLED"] == "false"
@@ -538,6 +540,14 @@ class TestDockerfile:
         assert (
             "COPY scripts/storage/verify_transactions.py "
             "/app/scripts/storage/verify_transactions.py"
+        ) in content
+
+    def test_runtime_feature_probe_is_available_in_protected_image(self):
+        content = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        assert (
+            "COPY scripts/release/verify_runtime_features.py "
+            "/app/scripts/release/verify_runtime_features.py"
         ) in content
 
     def test_storage_probe_bootstraps_packaged_app_before_importing_it(self):

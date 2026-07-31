@@ -17,6 +17,7 @@ RELEASE_SCRIPT = REPO_ROOT / "scripts/release.sh"
 SERVER_SCRIPT = REPO_ROOT / "scripts/release/server-deploy.sh"
 ARCHIVE_VERIFIER = REPO_ROOT / "scripts/release/verify_image_archive.py"
 LIVE_REMNANT_VERIFIER = REPO_ROOT / "scripts/release/verify_live_remnant.py"
+RUNTIME_FEATURE_VERIFIER = REPO_ROOT / "scripts/release/verify_runtime_features.py"
 ODA_SMOKE_FIXTURE = REPO_ROOT / "scripts/release/fixtures/oda_runtime_smoke.dxf"
 PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
 
@@ -186,6 +187,7 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert "--no-build" in server
     assert "CHANGE_ME_" in server
     assert "verify_live_remnant.py" in server
+    assert "verify_runtime_features.py" in server
     assert "oda_runtime_smoke.dxf" in server
 
 
@@ -203,6 +205,47 @@ def test_server_recovery_starts_dependency_tiers_before_the_full_stack():
     smoke = recovery.index('server_smoke "$target"')
 
     assert storage_up < storage_ready < api_up < api_ready < full_up < full_ready < smoke
+
+
+def test_server_release_gates_env_and_runtime_feature_matrix_before_remnant_smoke():
+    server = SERVER_SCRIPT.read_text(encoding="utf-8")
+    validation = server[
+        server.index("server_validate_runtime()") : server.index("server_recover()")
+    ]
+    smoke = server[server.index("server_smoke()") : server.index("server_down()")]
+
+    for key in (
+        "DXF_PIPELINE_ENABLED",
+        "DXF2DWG_PIPELINE_ENABLED",
+        "DXF2EXCEL_PIPELINE_ENABLED",
+        "DXF_CLASSIFICATION_PIPELINE_ENABLED",
+        "DXF_SPLIT_PIPELINE_ENABLED",
+        "EXCEL_FINAL_PIPELINE_ENABLED",
+        "EXCEL_STAGE2_PIPELINE_ENABLED",
+        "REMNANT_INVENTORY_ENABLED",
+    ):
+        assert key in validation
+    runtime_features = smoke.index("verify_runtime_features.py")
+    remnant_round_trip = smoke.index("verify_live_remnant.py")
+    assert runtime_features < remnant_round_trip
+
+
+def test_runtime_feature_verifier_has_exact_public_contract():
+    source = RUNTIME_FEATURE_VERIFIER.read_text(encoding="utf-8")
+
+    for setting in (
+        "dxf_pipeline_enabled",
+        "dxf2dwg_pipeline_enabled",
+        "dxf2excel_pipeline_enabled",
+        "dxf_classification_pipeline_enabled",
+        "dxf_split_pipeline_enabled",
+        "excel_final_pipeline_enabled",
+        "excel_stage2_pipeline_enabled",
+        "remnant_inventory_enabled",
+    ):
+        assert setting in source
+    assert "model_dump" not in source
+    assert "os.environ" not in source
 
 
 def test_server_systemd_service_runs_recovery_after_docker_and_retries_failures():
@@ -282,6 +325,10 @@ def test_protected_runtime_and_context_exclude_business_source_and_samples():
     assert "/app/Stages/dwg2dxf/tools" in dockerfile
     assert (
         "COPY scripts/release/verify_live_remnant.py /app/scripts/release/verify_live_remnant.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/release/verify_runtime_features.py "
+        "/app/scripts/release/verify_runtime_features.py"
     ) in dockerfile
     assert (
         "COPY scripts/release/fixtures/oda_runtime_smoke.dxf "

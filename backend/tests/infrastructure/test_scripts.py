@@ -147,6 +147,88 @@ def test_stable_compose_startup_orders_health_gate_before_smoke():
     assert "up-workers) compose_up_workers" in content
 
 
+APPROVED_PRODUCTION_FEATURES = {
+    "DXF_PIPELINE_ENABLED": "true",
+    "DXF2DWG_PIPELINE_ENABLED": "true",
+    "DXF2EXCEL_PIPELINE_ENABLED": "false",
+    "DXF_CLASSIFICATION_PIPELINE_ENABLED": "true",
+    "DXF_SPLIT_PIPELINE_ENABLED": "true",
+    "EXCEL_FINAL_PIPELINE_ENABLED": "true",
+    "EXCEL_STAGE2_PIPELINE_ENABLED": "true",
+    "REMNANT_INVENTORY_ENABLED": "true",
+}
+
+
+def _run_compose_env_gate(tmp_path, overrides: dict[str, str | None]):
+    values = {
+        "APP_ENV": "production",
+        "MYSQL_PASSWORD": "mysql-secret",
+        "MYSQL_ROOT_PASSWORD": "mysql-root-secret",
+        "MINIO_ROOT_USER": "minio-admin",
+        "MINIO_ROOT_PASSWORD": "minio-root-secret",
+        "JWT_SECRET_KEY": "jwt-secret",
+        "SUPER_ADMIN_PASSWORD": "Admin-passphrase-2026!",
+        **APPROVED_PRODUCTION_FEATURES,
+    }
+    values.update(overrides)
+    env_file = tmp_path / ".env.docker"
+    env_file.write_text(
+        "\n".join(f"{key}={value}" for key, value in values.items() if value is not None) + "\n",
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f'set -u; source "{PROJECT_ROOT}/scripts/lib/compose.sh"; '
+                'DOCKER_ENV_FILE="$1"; compose_require_env'
+            ),
+            "bash",
+            str(env_file),
+        ],
+        cwd=PROJECT_ROOT,
+        env=os.environ,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_production_env_gate_accepts_complete_approved_feature_matrix(tmp_path):
+    result = _run_compose_env_gate(tmp_path, {})
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("EXCEL_STAGE2_PIPELINE_ENABLED", None),
+        ("EXCEL_STAGE2_PIPELINE_ENABLED", "false"),
+        ("REMNANT_INVENTORY_ENABLED", None),
+        ("REMNANT_INVENTORY_ENABLED", "false"),
+        ("DXF2EXCEL_PIPELINE_ENABLED", "true"),
+    ],
+)
+def test_production_env_gate_rejects_feature_drift(tmp_path, key, value):
+    result = _run_compose_env_gate(tmp_path, {key: value})
+
+    assert result.returncode != 0
+    assert key in result.stderr
+    assert "mysql-secret" not in result.stderr
+    assert "Admin-passphrase-2026!" not in result.stderr
+
+
+def test_compose_smoke_checks_runtime_feature_matrix_after_readiness():
+    content = _read("scripts/lib/compose.sh")
+    smoke = content[content.index("compose_smoke()") : content.index("compose_verify_storage()")]
+
+    readiness = smoke.index('/health/ready')
+    runtime_features = smoke.index('/app/scripts/release/verify_runtime_features.py')
+    assert readiness < runtime_features
+
+
 def test_compose_backup_and_restore_use_tar_capable_helper_for_minio_volume():
     content = _read("scripts/lib/compose.sh")
     backup = content[content.index("compose_backup()") : content.index("compose_restore()")]
