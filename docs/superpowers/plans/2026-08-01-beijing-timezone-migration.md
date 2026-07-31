@@ -4,7 +4,7 @@
 
 **Goal:** 将容器、MySQL 业务墙上时间、FastAPI 时间响应、前端显示和 Celery 业务调度统一为 `Asia/Shanghai`，并在可回滚的短维护窗内把现有 UTC `DATETIME` 数据转换为北京时间。
 
-**Architecture:** 新增唯一的业务时钟模块，并在 ORM 装载边界为 MySQL 返回的无时区 `DATETIME` 补上 `Asia/Shanghai`；所有业务当前时间改用该模块，MySQL 每条连接强制 `+08:00`。独立 Alembic 数据迁移只在维护窗内把既有 `DATETIME` 增加 8 小时，发布工具负责上传完成门槛、备份、分层重建和回滚证据。
+**Architecture:** 新增唯一的业务时钟模块，并在 ORM 装载边界为 MySQL 返回的无时区业务 `DATETIME` 补上 `Asia/Shanghai`；所有业务当前时间改用该模块，MySQL 每条连接强制 `+08:00`。独立 Alembic 数据迁移只在维护窗内把既有 126 个业务 `DATETIME` 增加 8 小时，明确排除 3 个 Celery UTC 协议列；发布工具负责上传完成门槛、备份、分层重建和回滚证据。
 
 **Tech Stack:** Python 3.12、FastAPI、Pydantic 2、SQLAlchemy 2、Alembic、PyMySQL、Celery、MySQL 8、Docker Compose、React/TypeScript、Playwright、Bash。
 
@@ -352,7 +352,7 @@ Expected: FAIL，指出迁移模块不存在。
 
 - [ ] **Step 3: 实现 fail-closed 列发现和升级**
 
-迁移从 `information_schema.COLUMNS` 查询当前 schema 的全部 `DATA_TYPE='datetime'` 列，按 table 分组；生产 preflight 必须确认迁移前仍为已审计的 129 列，数量漂移时拒绝自动迁移。table/column 必须匹配 `^[A-Za-z0-9_]+$`，否则抛 `RuntimeError`。MySQL upgrade 对每张表执行一条 `DATE_ADD(..., INTERVAL 8 HOUR)`；非 MySQL dialect 明确 no-op，便于 SQLite 测试链运行。
+迁移从 `information_schema.COLUMNS` 查询当前 schema 的全部 `DATA_TYPE='datetime'` 列，按 table 分组；必须精确识别 126 个业务列，并排除 `kombu_message.timestamp`、`celery_taskmeta.date_done`、`celery_tasksetmeta.date_done` 这 3 个 Celery UTC 协议列。空库允许 3 个协议列尚未创建，生产 preflight 则应看到总计 129（业务 126、排除 3）；数量或未知列漂移时拒绝自动迁移。table/column 必须匹配 `^[A-Za-z0-9_]+$`，否则抛 `RuntimeError`。MySQL upgrade 对每张业务表执行一条 `DATE_ADD(..., INTERVAL 8 HOUR)`；非 MySQL dialect 明确 no-op，便于 SQLite 测试链运行。
 
 - [ ] **Step 4: 实现受控 downgrade**
 
@@ -509,7 +509,7 @@ git commit -m "docs: record Beijing timezone operations"
 
 Run: `/opt/dwg-agent/server/scripts/server-timezone-migrate.sh preflight /opt/dwg-agent/server`
 
-Expected: `PASS`，并明确显示两个 workflow 输入完整、活动写入为 0、MySQL `DATETIME` 列为 129、磁盘门槛满足。
+Expected: `PASS`，并明确显示两个 workflow 输入完整、活动写入为 0、MySQL `DATETIME` 总列数 129、业务列 126、排除的 Celery UTC 列 3、磁盘门槛满足。
 
 ### Task 9: 安装发布并执行短维护窗迁移
 

@@ -11,7 +11,7 @@
 - 宿主机、15 个业务容器、Python 运行时和 MySQL 当前均显示 UTC。
 - MySQL `@@global.time_zone` 与 `@@session.time_zone` 均为 `SYSTEM`，`@@system_time_zone` 为 `UTC`。
 - Celery 当前使用 `timezone=UTC`、`enable_utc=True`。
-- 业务库含 129 个 `DATETIME` 列，没有 `TIMESTAMP` 列。无时区列不能依靠修改 MySQL 会话时区自动转换。
+- 生产 schema 共含 129 个 `DATETIME` 列，没有 `TIMESTAMP` 列。其中 126 个是业务墙上时间；`kombu_message.timestamp`、`celery_taskmeta.date_done`、`celery_tasksetmeta.date_done` 由依赖库按 UTC 协议写入，必须排除。空库在 Celery 建表前只有 126 个业务列。无时区列不能依靠修改 MySQL 会话时区自动转换。
 - 当前有两个项目和两个已登记文件；文件夹 Multipart 上传在请求提交前可能尚无 `file_transfers` 或 `files` 记录。
 
 ## 方案
@@ -19,14 +19,14 @@
 ### 集成发布约束
 
 - 本迁移与生产命令事务发件箱、可恢复生产输入和前端弱网/懒加载改造组成同一个最终服务器版本，只执行一次生产维护窗和一次容器切换。
-- 迁移前生成的历史 `DATETIME` 仍按本规格统一增加 8 小时；同一版本新增的 `job_dispatches`、`api_command_receipts`、上传会话及其项目表从创建起直接使用北京时间墙上时间，不再进行二次转换。
+- 迁移前生成的 126 个历史业务 `DATETIME` 按本规格统一增加 8 小时；3 个 Celery UTC 协议列保持不变。同一版本新增的 `job_dispatches`、`api_command_receipts`、上传会话及其项目表从创建起直接使用北京时间墙上时间，不再进行二次转换。
 - Alembic 先创建新结构并完成历史时间迁移，backend API 健康后再启动 dispatcher。dispatcher、worker 和 API 必须读取同一个 `Asia/Shanghai` 业务时钟与 MySQL `+08:00` 会话。
 - 现有生产数据卷、两个项目及其已提交文件保持不变；弱网上传协议升级不授权清空、重建或重新导入现有对象。
 
 ### 时间语义
 
 - 应用对外返回的业务时间统一为带 `+08:00` 偏移的 ISO 8601 字符串。
-- MySQL `DATETIME` 统一保存北京时间墙上时间。历史值在维护窗内统一增加 8 小时。
+- 业务表 `DATETIME` 统一保存北京时间墙上时间，历史值在维护窗内统一增加 8 小时；Celery/Kombu 自有协议列继续保存 UTC，不纳入业务序列化。
 - 令牌、签名到期时间和消息协议中的 Unix epoch 继续代表绝对时刻；只改变其本地格式化和数据库墙上时间表示，不改变有效期长度。
 - Celery 的业务调度时区改为 `Asia/Shanghai`。消息传输仍保留 Celery 的 UTC 标准化能力，避免跨进程 ETA 解释不一致。
 
@@ -48,7 +48,7 @@
 4. 令牌有效期、幂等窗口、任务超时和保留期在迁移前后保持相同秒数。
 5. Celery 的北京时间自然日调度边界正确。
 6. Compose 渲染结果为所有相关容器提供 `TZ=Asia/Shanghai`，MySQL 含默认时区参数。
-7. 数据迁移脚本只处理 `DATETIME` 列，可重复检测，且不会对已迁移库再次增加 8 小时。
+7. 数据迁移脚本只处理经审计的 126 个业务 `DATETIME` 列，排除 3 个 Celery UTC 列，可重复检测，且不会对已迁移库再次增加 8 小时。
 
 ## 生产迁移步骤
 

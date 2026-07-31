@@ -79,7 +79,7 @@ Compose 渲染断言所有 16 个服务为 `Asia/Shanghai`，MySQL 为 `+08:00`�
 
 - [ ] **Step 2: 完成历史 DATETIME 迁移**
 
-实现 `a4c8e1f2b730`，down revision 为当前 `d1e7f3a9c520`；只转换迁移前已存在的 DATETIME 列。后续 `b6d2c8f4e910`、`c2f7a9d4e610` 新表从创建起写北京时间，不参与 +8。
+实现 `a4c8e1f2b730`，down revision 为当前 `d1e7f3a9c520`；只转换迁移前已存在的 126 个业务 DATETIME 列，排除 3 个 Celery UTC 协议列。后续 `b6d2c8f4e910`、`c2f7a9d4e610` 新表从创建起写北京时间，不参与 +8。
 
 - [ ] **Step 3: 完成一次维护窗工具**
 
