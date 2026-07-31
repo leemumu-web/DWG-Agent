@@ -434,6 +434,9 @@ export function apiErrorRecovery(
   if (['WORKFLOW_RETENTION_ENQUEUE_FAILED', 'WORKFLOW_RETENTION_STORAGE_UNAVAILABLE'].includes(error.code ?? '')) {
     return '服务器文件仍完整保留；等待后台处理和文件存储恢复后再重试一次。';
   }
+  if (error.code === 'DRAWING_SELECTIVE_EXPORT_STORAGE_UNAVAILABLE') {
+    return '服务器暂时无法完成操作；文件仍完整保留，请等待文件存储恢复后重新检查。';
+  }
   if (['WORKFLOW_RETENTION_PURGE_FAILED', 'WORKFLOW_RETENTION_PURGE_PARTIAL', 'WORKFLOW_RETENTION_METADATA_COMMIT_FAILED'].includes(error.code ?? '')) {
     return '不要重新上传或手工删除对象；保留请求编号，由管理员核对补偿流水后从当前备份重试。';
   }
