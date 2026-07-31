@@ -1,8 +1,10 @@
 # DWG-Agent Platform — production-oriented Docker Compose deployment
 #
 # Prepare: cp .env.docker.example .env.docker && replace every CHANGE_ME_* value
-# Start core: docker compose up -d --build
-# Start conversion workers: docker compose --profile workers up -d --build
+# Start core: bash scripts/docker.sh up
+# Start conversion workers: bash scripts/docker.sh up-workers
+# The wrapper fixes the Compose project name to dwg-agent so persistent volumes
+# cannot silently fork when the command is launched from another directory.
 
 x-app-image: &app-image
   image: ${DWG_AGENT_IMAGE:-dwg-agent-backend:local}

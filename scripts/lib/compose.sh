@@ -9,7 +9,13 @@ DWG_COMPOSE_LIB_LOADED=1
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 DOCKER_ENV_FILE="$PROJECT_ROOT/.env.docker"
-COMPOSE_CMD=(docker compose --project-directory "$PROJECT_ROOT" --env-file "$DOCKER_ENV_FILE")
+COMPOSE_PROJECT_NAME="${DWG_COMPOSE_PROJECT_NAME:-dwg-agent}"
+COMPOSE_CMD=(
+    docker compose
+    --project-name "$COMPOSE_PROJECT_NAME"
+    --project-directory "$PROJECT_ROOT"
+    --env-file "$DOCKER_ENV_FILE"
+)
 
 compose_usage() {
     cat <<'EOF'

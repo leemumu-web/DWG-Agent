@@ -147,6 +147,16 @@ def test_stable_compose_startup_orders_health_gate_before_smoke():
     assert "up-workers) compose_up_workers" in content
 
 
+def test_compose_commands_use_a_stable_project_name_for_persistent_volumes():
+    content = _read("scripts/lib/compose.sh")
+
+    assert 'DWG_COMPOSE_PROJECT_NAME:-dwg-agent' in content
+    assert '--project-name "$COMPOSE_PROJECT_NAME"' in content
+    assert content.index('--project-name "$COMPOSE_PROJECT_NAME"') < content.index(
+        '--project-directory "$PROJECT_ROOT"'
+    )
+
+
 APPROVED_PRODUCTION_FEATURES = {
     "DXF_PIPELINE_ENABLED": "true",
     "DXF2DWG_PIPELINE_ENABLED": "true",
