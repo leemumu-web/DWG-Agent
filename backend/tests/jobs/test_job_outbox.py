@@ -162,6 +162,39 @@ def test_expired_lease_is_reclaimed(db):
     assert second.lease_token != first.lease_token
 
 
+def test_reclaim_only_mutates_the_selected_expired_dispatch_group(db):
+    jobs = _queued_jobs(db)
+    staged = [stage_job_dispatch(db, job) for job in jobs]
+    db.commit()
+    factory = get_test_session_factory()
+
+    original_leases = [lease_next_dispatch(factory) for _ in jobs]
+    assert all(lease is not None for lease in original_leases)
+    expired_at = business_now() - timedelta(seconds=1)
+    db.execute(
+        JobDispatch.__table__.update()
+        .where(JobDispatch.id.in_([row.id for row in staged]))
+        .values(lease_expires_at=expired_at)
+    )
+    db.commit()
+
+    reclaimed = lease_next_dispatch(factory)
+
+    assert reclaimed is not None
+    untouched_uid = next(
+        lease.dispatch_uid
+        for lease in original_leases
+        if lease is not None and lease.dispatch_uid != reclaimed.dispatch_uid
+    )
+    db.expire_all()
+    untouched = db.scalar(
+        select(JobDispatch).where(JobDispatch.dispatch_uid == untouched_uid)
+    )
+    assert untouched is not None
+    assert untouched.status == "leased"
+    assert untouched.lease_expires_at == expired_at
+
+
 def test_conversion_batch_is_leased_as_one_group(db):
     jobs = _queued_jobs(db)
     staged = stage_conversion_dispatch(

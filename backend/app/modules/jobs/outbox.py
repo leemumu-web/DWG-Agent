@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import uuid4
 
-from sqlalchemy import func, select, tuple_, update
+from sqlalchemy import and_, func, or_, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -16,7 +16,7 @@ from app.modules.jobs.models import Job, JobDispatch
 from app.platform.config.constants import JOB_FAILED, JOB_QUEUED, PIPELINE_STUB
 from app.platform.config.settings import settings
 from app.platform.http.exceptions import AppHTTPException
-from app.platform.time import business_now
+from app.platform.time import as_business_time, business_now
 
 logger = logging.getLogger(__name__)
 
@@ -199,33 +199,24 @@ def lease_next_dispatch(
     if lease_seconds <= 0:
         raise ValueError("lease_seconds must be positive")
     now = business_now()
-    # Keep expiry recovery out of the SKIP LOCKED claim transaction. On MySQL,
-    # concurrent zero-row UPDATE scans can otherwise hide every pending leader
-    # from both claimers until their transactions end.
-    with factory() as db:
-        db.execute(
-            update(JobDispatch)
-            .where(
-                JobDispatch.status == "leased",
-                JobDispatch.lease_expires_at <= now,
-            )
-            .values(
-                status="pending",
-                lease_token=None,
-                lease_expires_at=None,
-                updated_at=now,
-            )
-            .execution_options(synchronize_session=False)
-        )
-        db.commit()
+    claimable = or_(
+        and_(
+            JobDispatch.status == "pending",
+            JobDispatch.available_at <= now,
+        ),
+        and_(
+            JobDispatch.status == "leased",
+            JobDispatch.lease_expires_at.is_not(None),
+            JobDispatch.lease_expires_at <= now,
+        ),
+    )
     with factory() as db:
         leader_ids = select(func.min(JobDispatch.id)).group_by(JobDispatch.dispatch_uid)
         leader = db.scalar(
             select(JobDispatch)
             .where(
                 JobDispatch.id.in_(leader_ids),
-                JobDispatch.status == "pending",
-                JobDispatch.available_at <= now,
+                claimable,
             )
             .order_by(JobDispatch.available_at, JobDispatch.id)
             .with_for_update(skip_locked=True)
@@ -245,9 +236,21 @@ def lease_next_dispatch(
         modes = {row.dispatch_mode for row in rows}
         task_types = {row.task_type for row in rows}
         pipelines = {row.pipeline for row in rows}
+        rows_are_claimable = all(
+            (
+                row.status == "pending"
+                and as_business_time(row.available_at) <= now
+            )
+            or (
+                row.status == "leased"
+                and row.lease_expires_at is not None
+                and as_business_time(row.lease_expires_at) <= now
+            )
+            for row in rows
+        )
         if (
             not rows
-            or any(row.status != "pending" or row.available_at > now for row in rows)
+            or not rows_are_claimable
             or len(modes) != 1
             or len(task_types) != 1
             or len(pipelines) != 1
