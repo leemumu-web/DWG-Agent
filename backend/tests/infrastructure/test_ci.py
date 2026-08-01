@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -93,6 +94,25 @@ def test_ci_env_writer_creates_private_placeholder_free_environment(tmp_path: Pa
     )
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     assert "PASSWORD" not in result.stdout
+
+
+def test_ci_env_writer_caps_every_production_service_for_two_cpu_runner(tmp_path: Path):
+    output = tmp_path / ".env.docker"
+
+    result = _run_env_writer(output)
+
+    assert result.returncode == 0, result.stderr
+    rendered = dict(
+        line.split("=", maxsplit=1)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if line and not line.lstrip().startswith("#") and "=" in line
+    )
+    compose_source = PRODUCTION_COMPOSE.read_text(encoding="utf-8")
+    cpu_keys = set(re.findall(r"\$\{([A-Z0-9_]+_CPU_LIMIT):-", compose_source))
+
+    assert cpu_keys
+    assert cpu_keys <= rendered.keys()
+    assert all(0 < float(rendered[key]) <= 2 for key in cpu_keys)
 
 
 def test_ci_env_writer_refuses_to_overwrite_existing_environment(tmp_path: Path):
