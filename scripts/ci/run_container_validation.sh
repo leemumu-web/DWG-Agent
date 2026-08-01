@@ -79,6 +79,10 @@ done
 
 backend_image=$(compose_env_value DWG_AGENT_IMAGE)
 frontend_image=$(compose_env_value DWG_AGENT_FRONTEND_IMAGE)
+verify_admin_username=$(compose_env_value VERIFY_ADMIN_USERNAME)
+verify_admin_password=$(compose_env_value VERIFY_ADMIN_PASSWORD)
+[[ -n "$verify_admin_username" ]] || ci_die "VERIFY_ADMIN_USERNAME is empty"
+[[ -n "$verify_admin_password" ]] || ci_die "VERIFY_ADMIN_PASSWORD is empty"
 docker image inspect "$backend_image" >/dev/null \
     || ci_die "prebuilt backend image is missing: $backend_image"
 docker image inspect "$frontend_image" >/dev/null \
@@ -114,5 +118,7 @@ compose_verify_storage
 (
     cd "$PROJECT_ROOT/frontend"
     PLAYWRIGHT_FRONTEND_BASE_URL="http://127.0.0.1:${CI_HTTP_PORT}" \
+    PLAYWRIGHT_ADMIN_USERNAME="$verify_admin_username" \
+    PLAYWRIGHT_ADMIN_PASSWORD="$verify_admin_password" \
         npx playwright test
 )
