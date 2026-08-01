@@ -125,7 +125,7 @@ BH DXF 和当前 Excel 第一阶段正式结果。后台先生成 BH 左右进�
 | 运行时合同与迁移 | **pass** | 唯一 Alembic head 为 `b4e8c2a7d910`；快照为 14 个模块、45 张 ORM 表、190 个 HTTP operation、14 个 Celery task、13 条 task route、16 个 Compose service。 |
 | 前端生产构建 | **pass** | 125 个源码文件、12 个 feature 边界、TypeScript 与 Vite production build 通过；仅有既存大 chunk 提示。 |
 | 工作流 Playwright | **3 passed** | 使用短时 Vite preview 与系统 Chrome；人工复核场景确认 ZIP 只请求当前拆板批次未通过的原始 DXF。后端未启动造成的 preview proxy 拒绝日志不影响 route fixture 断言。 |
-| Backend Linux 全量 | **本功能无失败** | Debian 12 / Python 3.12 容器接入临时 MySQL broker 后为 **1399 passed，24 skipped，1 failed**。唯一失败是 `origin/main` 未改动的 `nginx.local.conf` 把运行目录固定为 `/home/Creeken/Paper/CAD_research/complete_framework`；同一用例在该配置声明路径下复跑 **1 passed**。此前受 MySQL/Git 环境影响的集合复跑为 **38 passed，2 skipped**。 |
+| Backend Linux 全量 | **通过** | Python 3.12 在仓库根目录运行并显式移除外部管理员环境变量后为 **1837 passed，10 skipped**；测试身份已在导入应用前固定，本地 Nginx 路径已改为由 `-p` 绑定仓库根目录，不再依赖特定 checkout 绝对路径。 |
 | 真实部署链路 | **部分验证，仍待业务验收** | 已验证真实 MySQL SQL transport 可供非 eager Celery 投递测试使用；临时容器无端口、无持久卷且已清理。尚未运行 FastAPI/Celery worker/MinIO 的真实拆板批次，也未进行人工浏览器操作；合并前须在启用 `DXF_SPLIT_PIPELINE_ENABLED` 的部署环境验证正常拆板、余量增长、Excel 交接和人工复核 ZIP。 |
 
 ## 2026-07-25 十阶段生产工作台与 Excel 第二阶段合同

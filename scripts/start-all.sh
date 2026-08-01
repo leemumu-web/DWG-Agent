@@ -88,16 +88,16 @@ if [ -f "$NGINX_PIDFILE" ] && process_exists "$NGINX_PID"; then
 else
     # 端口被占但不是我们的 → 报错退出，让用户自行处理
     if ! port_free 8080; then
-        err "端口 8080 已被占用，请先释放: nginx -c $NGINX_CONF -s quit"
+        err "端口 8080 已被占用，请先释放: nginx -p $PROJECT_ROOT/ -c $NGINX_CONF -s quit"
         exit 1
     fi
     info "启动 Nginx (:8080)..."
-    nginx -c "$NGINX_CONF"
+    nginx -p "$PROJECT_ROOT/" -c "$NGINX_CONF"
     sleep 1
     if ! port_free 8080; then
         ok "Nginx 已启动 (:8080)"
     else
-        err "Nginx 启动失败，请检查: nginx -t -c $NGINX_CONF"
+        err "Nginx 启动失败，请检查: nginx -p $PROJECT_ROOT/ -t -c $NGINX_CONF"
         exit 1
     fi
 fi

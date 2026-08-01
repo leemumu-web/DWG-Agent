@@ -25,12 +25,12 @@ FastAPI JSON 错误直接通过，Nginx 只格式化自身错误。生产 FastAP
 
 ```bash
 mkdir -p infra/gateway/nginx/logs/client-body
-nginx -t -c "$(pwd)/infra/gateway/nginx/nginx.local.conf"
-nginx -c "$(pwd)/infra/gateway/nginx/nginx.local.conf"
-nginx -c "$(pwd)/infra/gateway/nginx/nginx.local.conf" -s reload
-nginx -c "$(pwd)/infra/gateway/nginx/nginx.local.conf" -s quit
+nginx -p "$(pwd)/" -t -c "$(pwd)/infra/gateway/nginx/nginx.local.conf"
+nginx -p "$(pwd)/" -c "$(pwd)/infra/gateway/nginx/nginx.local.conf"
+nginx -p "$(pwd)/" -c "$(pwd)/infra/gateway/nginx/nginx.local.conf" -s reload
+nginx -p "$(pwd)/" -c "$(pwd)/infra/gateway/nginx/nginx.local.conf" -s quit
 ```
 
-本地配置包含当前仓库绝对路径，移动仓库后必须检查其 header、root、log、上传临时目录和 PID 路径。
+本地配置的仓库路径相对 `-p` 指定的运行前缀，移动仓库后无需改写配置；启动和管理命令不得省略 `-p`。
 Nginx 语法和代理冒烟通过不能替代 TLS 证书、外部域名、上传大文件和长时 SSE 的生产验收；
 未经这些证据不得把当前 HTTP Compose 入口写成 HTTPS 已发布。

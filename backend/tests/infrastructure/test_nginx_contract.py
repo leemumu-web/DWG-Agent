@@ -17,6 +17,9 @@ NGINX_CONFIGS = (
     REPO_ROOT / "infra/gateway/nginx/nginx.conf",
     REPO_ROOT / "infra/gateway/nginx/nginx.local.conf",
 )
+START_ALL = REPO_ROOT / "scripts/start-all.sh"
+STOP_ALL = REPO_ROOT / "scripts/stop-all.sh"
+INFRA_VERIFY = REPO_ROOT / "infra/verification/verify.sh"
 
 
 @pytest.mark.parametrize("config_path", NGINX_CONFIGS)
@@ -60,9 +63,20 @@ def test_nginx_forwards_request_identity_and_client_context(config_path: Path):
 def test_local_nginx_buffers_uploads_inside_the_owned_runtime_directory():
     content = NGINX_CONFIGS[1].read_text(encoding="utf-8")
 
-    expected = REPO_ROOT / "infra/gateway/nginx/logs/client-body"
-    assert f"client_body_temp_path {expected} 1 2;" in content
+    assert "client_body_temp_path infra/gateway/nginx/logs/client-body 1 2;" in content
     assert "client_body_temp_path /var/lib/nginx/client-body" not in content
+    assert str(REPO_ROOT) not in content
+    assert "/home/Creeken/" not in content
+
+
+def test_local_nginx_commands_bind_relative_paths_to_the_repository_prefix():
+    start_source = START_ALL.read_text(encoding="utf-8")
+    stop_source = STOP_ALL.read_text(encoding="utf-8")
+    verify_source = INFRA_VERIFY.read_text(encoding="utf-8")
+
+    assert 'nginx -p "$PROJECT_ROOT/" -c "$NGINX_CONF"' in start_source
+    assert 'nginx -p "$PROJECT_ROOT/" -c "$NGINX_CONF"' in stop_source
+    assert 'nginx -p "$PROJECT_ROOT/" -t -c "$PROJECT_ROOT/$NGINX_LOCAL"' in verify_source
 
 
 @pytest.mark.parametrize("config_path", NGINX_CONFIGS)

@@ -76,9 +76,9 @@ assert_file "$NGINX_LOCAL"   "nginx.local.conf (本地) 存在"
 # 1.2 语法检查
 echo ""
 dim "  nginx 语法检查..."
-NGINX_TEST_CMD=(nginx -t -c "$(pwd)/$NGINX_LOCAL")
+NGINX_TEST_CMD=(nginx -p "$PROJECT_ROOT/" -t -c "$PROJECT_ROOT/$NGINX_LOCAL")
 if sudo -n true 2>/dev/null; then
-    NGINX_TEST_CMD=(sudo nginx -t -c "$(pwd)/$NGINX_LOCAL")
+    NGINX_TEST_CMD=(sudo nginx -p "$PROJECT_ROOT/" -t -c "$PROJECT_ROOT/$NGINX_LOCAL")
 fi
 OUT=$("${NGINX_TEST_CMD[@]}" 2>&1) || true
 if echo "$OUT" | grep -q 'syntax is ok'; then

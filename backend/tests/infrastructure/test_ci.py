@@ -16,6 +16,7 @@ PRODUCTION_COMPOSE = REPO_ROOT / "compose.yaml"
 CI_WORKFLOW = REPO_ROOT / ".github/workflows/ci.yml"
 CONTAINER_WORKFLOW = REPO_ROOT / ".github/workflows/container-ci.yml"
 LOCAL_VERIFY = REPO_ROOT / "scripts/verify.sh"
+BACKEND_CONFTEST = REPO_ROOT / "backend/tests/conftest.py"
 
 
 def _load_workflow(path: Path) -> dict:
@@ -198,3 +199,15 @@ def test_local_quick_gate_includes_ci_and_release_contracts():
 
     assert "tests/infrastructure/test_ci.py" in source
     assert "tests/infrastructure/test_server_release.py" in source
+
+
+def test_backend_suite_declares_its_test_identity_before_importing_the_app():
+    source = BACKEND_CONFTEST.read_text(encoding="utf-8")
+
+    username_assignment = 'os.environ["SUPER_ADMIN_USERNAME"] = "admin"'
+    password_assignment = 'os.environ["SUPER_ADMIN_PASSWORD"] = "SuperAdminPass1"'
+    app_import = "from app.main import app"
+    assert username_assignment in source
+    assert password_assignment in source
+    assert source.index(username_assignment) < source.index(app_import)
+    assert source.index(password_assignment) < source.index(app_import)

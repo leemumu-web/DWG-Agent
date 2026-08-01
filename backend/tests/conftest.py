@@ -4,6 +4,10 @@ import os
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["CELERY_TASK_ALWAYS_EAGER"] = "true"
+# The test suite must not inherit a developer's private .env identity.  Many
+# API fixtures intentionally exercise the stable public test account below.
+os.environ["SUPER_ADMIN_USERNAME"] = "admin"
+os.environ["SUPER_ADMIN_PASSWORD"] = "SuperAdminPass1"
 
 import pytest
 from sqlalchemy import create_engine, event

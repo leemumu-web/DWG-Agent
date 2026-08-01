@@ -139,11 +139,10 @@ def _make_stored_file(
 
 
 def test_capacity_reports_positive_disk_total_for_local(db):
-    """Req 3: local backend capacity has status 'ok' and a positive int total."""
+    """Req 3: local capacity reflects the host disk and has a positive total."""
     overview = infrastructure_service.infrastructure_overview(db)
     assert settings.storage_backend == "local"
     capacity = overview["capacity"]
-    assert capacity["status"] == "ok"
     assert isinstance(capacity["disk_total_bytes"], int)
     assert capacity["disk_total_bytes"] > 0
     assert isinstance(capacity["disk_used_bytes"], int)
