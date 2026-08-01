@@ -281,6 +281,23 @@ class TestComposeYamlValid:
                 continue
             assert service.get("env_file") == [".env.docker"], name
 
+    def test_frontend_builder_uses_one_pinned_non_docker_hub_node_image(self):
+        node_image = (
+            "public.ecr.aws/docker/library/node:22-alpine@sha256:"
+            "c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32"
+        )
+        data = _load()
+        dockerfile = FRONTEND_DOCKERFILE_PATH.read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        docker_env_example = DOCKER_ENV_EXAMPLE_PATH.read_text(encoding="utf-8")
+
+        assert f"ARG NODE_IMAGE={node_image}" in dockerfile
+        assert data["services"]["nginx"]["build"]["args"]["NODE_IMAGE"] == (
+            "${NODE_IMAGE:-" + node_image + "}"
+        )
+        assert f"NODE_IMAGE={node_image}" in env_example
+        assert f"NODE_IMAGE={node_image}" in docker_env_example
+
     def test_has_expected_services(self):
         data = _load()
         actual = set(data.get("services", {}))
