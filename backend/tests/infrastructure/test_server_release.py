@@ -22,7 +22,53 @@ ARCHIVE_VERIFIER = REPO_ROOT / "scripts/release/verify_image_archive.py"
 LIVE_REMNANT_VERIFIER = REPO_ROOT / "scripts/release/verify_live_remnant.py"
 RUNTIME_FEATURE_VERIFIER = REPO_ROOT / "scripts/release/verify_runtime_features.py"
 ODA_SMOKE_FIXTURE = REPO_ROOT / "scripts/release/fixtures/oda_runtime_smoke.dxf"
+CI_CONTAINER_RUNNER = REPO_ROOT / "scripts/ci/run_container_validation.sh"
 PYPROJECT = REPO_ROOT / "backend" / "pyproject.toml"
+
+
+def test_release_verifiers_can_be_sourced_without_executing_cli():
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; declare -F release_verify_protected_image >/dev/null; '
+            "declare -F release_verify_oda_roundtrip >/dev/null",
+            "bash",
+            str(RELEASE_SCRIPT),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_ci_container_runner_covers_release_runtime_storage_and_exact_cleanup():
+    source = CI_CONTAINER_RUNNER.read_text(encoding="utf-8")
+
+    for contract in (
+        "CI_COMPOSE_PROJECT",
+        "compose.ci.yaml",
+        "--no-build",
+        "compose_wait_for_healthy_services",
+        "compose_smoke",
+        "compose_verify_storage",
+        "verify_live_remnant.py",
+        "release_verify_protected_image",
+        "release_verify_oda_roundtrip",
+        "verify_image_archive.py",
+        "down --volumes --remove-orphans",
+    ):
+        assert contract in source
+    assert '[[ ! -e "$PROJECT_ROOT/.env.docker" ]]' in source
+    assert "trap ci_cleanup EXIT" in source
+    assert source.index('[[ ! -e "$PROJECT_ROOT/.env.docker" ]]') < source.index(
+        "trap ci_cleanup EXIT"
+    )
 
 
 def test_runtime_feature_verifier_bootstraps_application_imports_from_any_cwd(tmp_path):

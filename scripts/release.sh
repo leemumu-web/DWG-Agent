@@ -2,7 +2,7 @@
 # Build and encrypt a complete offline server release. No runtime secret is copied.
 set -Eeuo pipefail
 
-source "$(dirname "$0")/lib/common.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 release_usage() {
     cat <<'EOF'
@@ -302,8 +302,10 @@ release_bundle() {
     release_info "no runtime .env.docker or repository source was included"
 }
 
-case "${1:-}" in
-    bundle) shift; release_bundle "$@" ;;
-    -h|--help|"") release_usage ;;
-    *) release_usage; release_die "unknown command: $1" ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        bundle) shift; release_bundle "$@" ;;
+        -h|--help|"") release_usage ;;
+        *) release_usage; release_die "unknown command: $1" ;;
+    esac
+fi
