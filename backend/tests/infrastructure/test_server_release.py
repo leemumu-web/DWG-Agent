@@ -61,6 +61,8 @@ def test_ci_container_runner_covers_release_runtime_storage_and_exact_cleanup():
         "release_verify_protected_image",
         "release_verify_oda_roundtrip",
         "verify_image_archive.py",
+        "PLAYWRIGHT_FRONTEND_BASE_URL",
+        "npx playwright test",
         "down --volumes --remove-orphans",
     ):
         assert contract in source

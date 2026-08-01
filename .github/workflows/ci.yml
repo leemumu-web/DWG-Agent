@@ -1,0 +1,162 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality and architecture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.25"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install backend dependencies
+        run: cd backend && uv sync --frozen
+      - name: Check Shell syntax
+        run: find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: Check Python style
+        run: >-
+          cd backend && uv run ruff check app tests ../tests/run_full_verify.py
+          ../scripts/ci/write_env.py
+      - name: Check architecture contracts
+        run: |
+          cd backend
+          uv run python ../scripts/architecture/snapshot_contracts.py --check
+          uv run python ../scripts/architecture/check_module_catalog.py
+          uv run python ../scripts/architecture/check_partition_docs.py
+      - name: Check generated API documentation
+        run: make docs-check
+
+  backend:
+    name: Backend and integrated stages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.25"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install backend dependencies
+        run: cd backend && uv sync --frozen
+      - name: Run complete backend suite
+        run: cd backend && uv run pytest -q
+      - name: Run BH left-right reader suite in the integrated environment
+        run: cd backend && uv run pytest -q ../Stages/bh_left_right_reader/tests
+      - name: Verify steel split runtime entry point
+        run: cd backend && uv run python -m steel_dxf_split.cli --help >/dev/null
+
+  stages:
+    name: Stage / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: DWG to DXF
+            directory: Stages/dwg2dxf
+          - name: DXF to DWG
+            directory: Stages/dxf2dwg
+          - name: DXF to Excel
+            directory: Stages/dxf2excel
+          - name: Excel Final
+            directory: Stages/excel_final
+          - name: Remnant Drawing Reader
+            directory: Stages/remnant_drawing_reader
+          - name: Steel DXF Classifier
+            directory: Stages/steel_dxf_classifier_v1.1.0
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: "0.11.25"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.directory }}/uv.lock
+      - name: Install locked Stage dependencies
+        working-directory: ${{ matrix.directory }}
+        run: uv sync --frozen
+      - name: Run Stage tests
+        working-directory: ${{ matrix.directory }}
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install exact frontend dependencies
+        run: cd frontend && npm ci
+      - name: Build production frontend
+        run: cd frontend && npm run build
+
+  container:
+    name: Protected full-stack validation
+    needs:
+      - quality
+      - backend
+      - stages
+      - frontend
+    uses: ./.github/workflows/container-ci.yml
+
+  required:
+    name: Required CI summary
+    if: ${{ always() }}
+    needs:
+      - quality
+      - backend
+      - stages
+      - frontend
+      - container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI layer to pass
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          STAGES_RESULT: ${{ needs.stages.result }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          CONTAINER_RESULT: ${{ needs.container.result }}
+        run: |
+          printf 'quality=%s\nbackend=%s\nstages=%s\nfrontend=%s\ncontainer=%s\n' \
+            "$QUALITY_RESULT" "$BACKEND_RESULT" "$STAGES_RESULT" \
+            "$FRONTEND_RESULT" "$CONTAINER_RESULT"
+          for result in "$QUALITY_RESULT" "$BACKEND_RESULT" "$STAGES_RESULT" \
+            "$FRONTEND_RESULT" "$CONTAINER_RESULT"; do
+            [[ "$result" == success ]] || exit 1
+          done

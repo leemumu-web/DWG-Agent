@@ -105,3 +105,14 @@ compose_verify_storage
 "${COMPOSE_CMD[@]}" exec -T backend-api \
     python /app/scripts/release/verify_live_remnant.py \
     --fixture /app/scripts/release/fixtures/oda_runtime_smoke.dxf
+
+# The browser suite uses real login, runtime configuration, MySQL and MinIO.
+# Run it only against the isolated production-shaped gateway, never a Vite-only
+# preview that would turn backend connectivity into misleading UI failures.
+[[ -d "$PROJECT_ROOT/frontend/node_modules" ]] \
+    || ci_die "frontend dependencies are missing; run npm ci before validation"
+(
+    cd "$PROJECT_ROOT/frontend"
+    PLAYWRIGHT_FRONTEND_BASE_URL="http://127.0.0.1:${CI_HTTP_PORT}" \
+        npx playwright test
+)

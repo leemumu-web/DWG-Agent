@@ -13,6 +13,16 @@ from tests.support.paths import REPO_ROOT
 CI_ENV_WRITER = REPO_ROOT / "scripts/ci/write_env.py"
 CI_COMPOSE = REPO_ROOT / "compose.ci.yaml"
 PRODUCTION_COMPOSE = REPO_ROOT / "compose.yaml"
+CI_WORKFLOW = REPO_ROOT / ".github/workflows/ci.yml"
+CONTAINER_WORKFLOW = REPO_ROOT / ".github/workflows/container-ci.yml"
+LOCAL_VERIFY = REPO_ROOT / "scripts/verify.sh"
+
+
+def _load_workflow(path: Path) -> dict:
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if "on" not in payload and True in payload:
+        payload["on"] = payload.pop(True)
+    return payload
 
 
 def _run_env_writer(output: Path, *, project: str = "dwg-agent-ci-123-1"):
@@ -129,3 +139,61 @@ def test_ci_env_writer_rejects_unsafe_project_name(tmp_path: Path):
 
     assert result.returncode != 0
     assert not output.exists()
+
+
+def test_ci_workflow_runs_every_pull_request_and_every_main_push():
+    workflow = _load_workflow(CI_WORKFLOW)
+    triggers = workflow["on"]
+
+    assert triggers["pull_request"] is None
+    assert triggers["push"] == {"branches": ["main"]}
+    assert "workflow_dispatch" in triggers
+    assert workflow["permissions"] == {"contents": "read"}
+    assert set(workflow["jobs"]) == {
+        "quality",
+        "backend",
+        "stages",
+        "frontend",
+        "container",
+        "required",
+    }
+    assert workflow["jobs"]["container"]["uses"] == "./.github/workflows/container-ci.yml"
+    assert workflow["jobs"]["required"]["if"] == "${{ always() }}"
+
+
+def test_container_workflow_is_reusable_scheduled_and_does_not_publish():
+    workflow = _load_workflow(CONTAINER_WORKFLOW)
+    triggers = workflow["on"]
+    source = CONTAINER_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "workflow_call" in triggers
+    assert "workflow_dispatch" in triggers
+    assert triggers["schedule"] == [{"cron": "17 18 * * *"}]
+    assert workflow["permissions"] == {"contents": "read"}
+    assert "push: false" in source
+    assert "target: protected" in source
+    assert "run_container_validation.sh" in source
+    assert "pull_request_target" not in source
+    assert "continue-on-error" not in source
+    assert "docker/login-action" not in source
+    assert "secrets." not in source
+
+
+def test_workflow_actions_are_pinned_to_full_commit_shas():
+    for workflow_path in (CI_WORKFLOW, CONTAINER_WORKFLOW):
+        source = workflow_path.read_text(encoding="utf-8")
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("uses:") and not stripped.endswith(
+                "container-ci.yml"
+            ):
+                reference = stripped.split("@", maxsplit=1)[1]
+                assert len(reference) == 40
+                assert all(character in "0123456789abcdef" for character in reference)
+
+
+def test_local_quick_gate_includes_ci_and_release_contracts():
+    source = LOCAL_VERIFY.read_text(encoding="utf-8")
+
+    assert "tests/infrastructure/test_ci.py" in source
+    assert "tests/infrastructure/test_server_release.py" in source

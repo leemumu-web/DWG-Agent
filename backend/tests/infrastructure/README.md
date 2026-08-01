@@ -6,4 +6,6 @@
 
 ## 证据边界
 
+`test_ci.py` 锁定所有 PR 与 main push 的 CI 触发、最小权限、Action SHA、临时凭据和独立 Compose 卷；容器实际运行边界继续由 `test_server_release.py` 约束。
+
 输入是仓库配置、临时环境与可选活动服务，输出是部署/运维入口可解析且声明真实的证据；被跳过的活动探针不能算生产验收。

@@ -49,11 +49,9 @@ Job 划分：
    - 独立锁定工程分别运行自身测试：DWG→DXF、DXF→DWG、DXF→Excel、Steel DXF Classifier、Excel Final、余料读取器；
    - BH 左右进读取器和 Steel DXF Split 使用后端锁定环境运行其测试或集成契约，避免在 CI 中生成未提交的新锁文件；
    - 每个矩阵项独立显示结果，一个 Stage 失败不掩盖其他 Stage。
-4. **前端生产构建与浏览器契约**
+4. **前端生产构建**
    - `npm ci`；
    - 架构检查、TypeScript 编译和 Vite 生产构建；
-   - Playwright Chromium 回归；
-   - 失败时上传 trace、截图和 HTML 报告，成功时不保留大体积产物。
 5. **生产容器验收调用**
    - 在前四类门禁通过后调用仓库内可复用的 `container-ci.yml`；
    - 每一个 pull request 和每一次 push 到 `main` 都必须执行，不使用路径过滤跳过；
@@ -85,7 +83,8 @@ Job 划分：
 6. 使用独立 Compose 项目名和独立命名卷启动完整栈；
 7. 等待 MySQL、MinIO、API、dispatcher、Nginx 和全部 worker 健康；
 8. 验证公开健康接口、生产功能矩阵、MySQL↔MinIO 文件事务和余料真实链路；
-9. 无论成功或失败都执行 `down --volumes --remove-orphans`，删除本次 CI 容器、网络、卷和临时环境文件。
+9. 通过生产形态 Nginx 入口运行 Playwright Chromium 全量回归；现有浏览器测试需要真实登录、运行配置、MySQL 和 MinIO，不允许对仅有静态资源的 Vite preview 运行并产生假失败；
+10. 浏览器失败时保留 7 天 trace、截图和 HTML 报告；无论成功或失败都执行 `down --volumes --remove-orphans`，删除本次 CI 容器、网络、卷和临时环境文件。
 
 CI 必须通过专用 Compose override 重命名 `app_var`、`mysql_data` 和 `minio_data`，名称包含 GitHub run ID 与 attempt。即使未来改用 self-hosted runner，也不能连接或覆盖 `dwg-agent_*` 生产卷。运行时端口仅绑定回环地址，避免暴露到 runner 网络。
 

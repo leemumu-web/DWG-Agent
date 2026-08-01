@@ -12,6 +12,8 @@
 
 ---
 
+## Implementation tasks
+
 ### Task 1: Lock the CI data-isolation contract
 
 **Files:**
@@ -260,58 +262,17 @@ git add scripts/release.sh scripts/ci/run_container_validation.sh backend/tests/
 git commit -m "ci: reuse protected runtime release gates"
 ```
 
-### Task 3: Add a reproducible frontend browser runner
+### Task 3: Prove the browser suite's runtime boundary
 
-**Files:**
-- Modify: `backend/tests/infrastructure/test_ci.py`
-- Create: `scripts/ci/run_frontend_e2e.sh`
+**Evidence:** A real Vite-only run reached the built SPA, but the suite immediately
+required `/api/v1/auth/sessions`, runtime configuration, MySQL and MinIO. Only two
+presentation tests were independent; treating the remaining failures as frontend
+regressions would be incorrect. The preview process group was successfully reaped.
 
-- [ ] **Step 1: Write a failing runner contract test**
-
-```python
-def test_frontend_ci_runner_serves_build_waits_and_cleans_up():
-    source = (REPO_ROOT / "scripts/ci/run_frontend_e2e.sh").read_text(encoding="utf-8")
-    assert "set -Eeuo pipefail" in source
-    assert "npm run preview" in source
-    assert "curl -fsS" in source
-    assert "PLAYWRIGHT_FRONTEND_BASE_URL" in source
-    assert "npx playwright test" in source
-    assert "trap" in source
-    assert "kill" in source
-```
-
-- [ ] **Step 2: Run and verify RED**
-
-```bash
-cd backend
-uv run pytest -q tests/infrastructure/test_ci.py -k frontend_ci_runner
-```
-
-Expected: FAIL because the runner does not exist.
-
-- [ ] **Step 3: Implement the runner**
-
-Create a fail-closed Bash script that requires `frontend/dist`, starts `npm run preview -- --host 127.0.0.1 --port ${CI_FRONTEND_PORT:-4173}`, polls with curl for at most 30 seconds, runs Playwright against that URL, and always stops/waits for the preview process. On readiness failure it prints the bounded preview log and exits nonzero.
-
-- [ ] **Step 4: Build and run the browser suite locally**
-
-```bash
-cd frontend
-npm ci
-npm run build
-npx playwright install chromium
-cd ..
-bash scripts/ci/run_frontend_e2e.sh
-```
-
-Expected: all Playwright tests pass; the preview process no longer exists afterward.
-
-- [ ] **Step 5: Commit the browser runner**
-
-```bash
-git add scripts/ci/run_frontend_e2e.sh backend/tests/infrastructure/test_ci.py
-git commit -m "ci: add reproducible frontend browser gate"
-```
+- [x] **Step 1:** Reject the Vite-only browser runner and delete the experimental script.
+- [x] **Step 2:** Put Playwright after protected-stack health, runtime, storage and remnant probes in `run_container_validation.sh`.
+- [x] **Step 3:** Keep the standalone frontend job responsible for deterministic architecture, TypeScript and Vite production build checks.
+- [ ] **Step 4:** Run all 144 browser tests against the isolated production-shaped Nginx endpoint during the container gate.
 
 ### Task 4: Define and lock the GitHub Actions workflows
 
@@ -328,7 +289,7 @@ Use a YAML loader that preserves the key `on` as a string. Tests must assert:
 - `ci.yml` has unfiltered `pull_request`, `push.branches == ["main"]`, and `workflow_dispatch`;
 - top-level permissions equal `{"contents": "read"}` and concurrency cancels old runs;
 - required jobs are `quality`, `backend`, `stages`, `frontend`, `container`, and `required`;
-- full backend pytest, Stage matrix, production frontend build, Playwright, and reusable container call are present;
+- full backend pytest, Stage matrix, production frontend build, and reusable container call are present; Playwright is enforced inside that protected full-stack call;
 - no required job uses `continue-on-error`;
 - `container-ci.yml` supports `workflow_call`, schedule, and dispatch;
 - all remote `uses:` values end in a 40-character hexadecimal SHA, while the only local use is `./.github/workflows/container-ci.yml`;
@@ -356,7 +317,7 @@ actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
 actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
 ```
 
-The Stage matrix uses frozen independent projects for the six committed locks and a backend-integrated entry for BH reader and Steel Split. Set `fail-fast: false`. The frontend job builds, installs Chromium with system dependencies, runs `run_frontend_e2e.sh`, and uploads only Playwright failure output. The local reusable container job depends on all four code jobs. The `required` job runs with `if: always()` and fails unless every dependency result is `success`.
+The Stage matrix uses frozen independent projects for the six committed locks; BH reader tests and the Steel Split CLI contract run in the backend-integrated environment. Set `fail-fast: false`. The frontend job performs the production build. The local reusable container job depends on all four code jobs, installs Chromium, runs Playwright against the healthy Nginx endpoint, and uploads only Playwright failure output. The `required` job runs with `if: always()` and fails unless every dependency result is `success`.
 
 - [ ] **Step 4: Implement reusable `container-ci.yml`**
 
@@ -408,14 +369,13 @@ done
 
 Expected: PASS or only existing explicitly skipped tests. Any command/path defect must be fixed in the workflow and contract before continuing.
 
-- [ ] **Step 2: Run frontend build and Playwright**
+- [ ] **Step 2: Run frontend build**
 
 ```bash
-cd frontend && npm ci && npm run build && npx playwright install chromium && cd ..
-bash scripts/ci/run_frontend_e2e.sh
+cd frontend && npm ci && npm run build && cd ..
 ```
 
-Expected: PASS.
+Expected: PASS. Playwright runs in Step 3 after the isolated full stack is healthy.
 
 - [ ] **Step 3: Run container CI in a clean temporary worktree**
 

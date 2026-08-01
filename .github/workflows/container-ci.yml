@@ -1,0 +1,78 @@
+name: Protected Container Validation
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 18 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-container-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Build and verify isolated production stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI_COMPOSE_PROJECT: dwg-agent-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CI_HTTP_PORT: "21801"
+      BACKEND_IMAGE: dwg-agent-backend:ci-dwg-agent-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      FRONTEND_IMAGE: dwg-agent-frontend:ci-dwg-agent-ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend and browser dependencies
+        run: |
+          cd frontend
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Build protected backend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: protected
+          tags: ${{ env.BACKEND_IMAGE }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=protected-backend
+          cache-to: type=gha,mode=max,scope=protected-backend
+      - name: Build frontend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: frontend/Dockerfile
+          tags: ${{ env.FRONTEND_IMAGE }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=protected-frontend
+          cache-to: type=gha,mode=max,scope=protected-frontend
+      - name: Validate protected runtime and full stack
+        run: bash scripts/ci/run_container_validation.sh
+      - name: Upload browser diagnostics after failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
