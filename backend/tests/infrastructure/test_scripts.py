@@ -987,6 +987,20 @@ def test_script_implementations_are_classified_and_legacy_paths_retired():
         assert not (PROJECT_ROOT / relative).exists(), relative
 
 
+def test_storage_transaction_probe_suppresses_the_current_outbox_boundary():
+    source = (PROJECT_ROOT / "scripts/storage/verify_transactions.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        "app.modules.excel_processing.routes.processing.stage_job_dispatch" in source
+    )
+    assert (
+        "app.modules.excel_processing.routes.processing.dispatch_committed_job"
+        not in source
+    )
+
+
 def test_all_shell_interfaces_and_libraries_have_valid_syntax():
     scripts = sorted(
         path

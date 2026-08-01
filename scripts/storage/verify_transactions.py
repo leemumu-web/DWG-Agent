@@ -89,11 +89,12 @@ def main() -> None:
     excel_key = f"verify-excel-{probe_id}"
     workbook = _xlsx_bytes()
     # This is an isolated validation process: exercise registration even when the optional
-    # production pipeline is disabled, while suppressing all task dispatch.
+    # production pipeline is disabled, while preventing a durable outbox intent from being
+    # consumed by the concurrently running dispatcher.
     with (
         patch.object(settings, "excel_final_pipeline_enabled", True),
         patch(
-            "app.modules.excel_processing.routes.processing.dispatch_committed_job",
+            "app.modules.excel_processing.routes.processing.stage_job_dispatch",
             lambda _db, _job: None,
         ),
     ):
