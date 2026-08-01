@@ -338,7 +338,10 @@ class TestComposeYamlValid:
             in services["minio"]["image"]
         )
         assert ":latest" not in services["minio"]["image"]
-        assert "${HTTP_PORT:-80}:8080" in services["nginx"]["ports"]
+        assert (
+            "${HTTP_BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:8080"
+            in services["nginx"]["ports"]
+        )
 
         nginx_conf = (REPO_ROOT / "infra/gateway/nginx/nginx.conf").read_text(encoding="utf-8")
         assert "listen 8080;" in nginx_conf

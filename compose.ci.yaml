@@ -1,0 +1,11 @@
+name: ${CI_COMPOSE_PROJECT:?CI_COMPOSE_PROJECT is required}
+
+# CI owns these volumes. Their names include the GitHub run identity so that a
+# validation job can never attach to the formal dwg-agent_* data volumes.
+volumes:
+  app_var:
+    name: ${CI_COMPOSE_PROJECT}_app_var
+  mysql_data:
+    name: ${CI_COMPOSE_PROJECT}_mysql_data
+  minio_data:
+    name: ${CI_COMPOSE_PROJECT}_minio_data
