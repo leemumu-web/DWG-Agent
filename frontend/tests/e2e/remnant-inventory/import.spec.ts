@@ -52,6 +52,7 @@ async function mockImport(page: Page, options: {
   let patchCalls = 0;
   let materialCreateCalls = 0;
   let lastPatchedParts: string[] = [];
+  const bulkThicknessPayloads: Array<Record<string, unknown>> = [];
   const bulkMetadataPayloads: Array<Record<string, unknown>> = [];
   let releaseMaterialRequest: (() => void) | undefined;
   const batch = () => ({
@@ -79,6 +80,7 @@ async function mockImport(page: Page, options: {
   await page.route('**/api/v1/remnant-import-items/3/retry', async (route) => { retryCalls += 1; await json(route, { item_id: 3, attempt: 2 }, 202); });
   await page.route('**/api/v1/remnant-import-batches/77/bulk-thickness', async (route) => {
     const payload = route.request().postDataJSON();
+    bulkThicknessPayloads.push(payload);
     for (const selected of items.filter((row) => payload.item_ids.includes(row.id))) selected.thickness_mm = String(payload.thickness_mm);
     await json(route, { updated_item_ids: payload.item_ids });
   });
@@ -112,6 +114,7 @@ async function mockImport(page: Page, options: {
     patchCalls: () => patchCalls,
     materialRequestWaiting: () => Boolean(releaseMaterialRequest),
     materialCreateCalls: () => materialCreateCalls,
+    bulkThicknessPayloads: () => bulkThicknessPayloads,
     bulkMetadataPayloads: () => bulkMetadataPayloads,
     lastPatchedParts: () => lastPatchedParts,
     releaseMaterialCreate: () => releaseMaterialRequest?.(),
@@ -195,8 +198,15 @@ test('mixed batch upload, refresh recovery, retry, bulk thickness, edit and part
   await confirmation.getByRole('checkbox').nth(1).check();
   await confirmation.getByRole('checkbox').nth(2).check();
   await confirmation.getByRole('button', { name: '批量填写厚度' }).click();
-  await page.getByLabel('批量厚度').fill('10');
-  await page.getByRole('dialog', { name: '批量填写厚度' }).getByRole('button', { name: '确 定' }).click({ force: true });
+  const bulkDialog = page.getByRole('dialog', { name: '批量填写厚度' });
+  const bulkSubmit = bulkDialog.getByRole('button', { name: '确 定' });
+  await bulkDialog.getByLabel('批量厚度').fill('10');
+  await expect(bulkSubmit).toBeEnabled();
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith('/api/v1/remnant-import-batches/77/bulk-thickness') && response.ok()),
+    bulkSubmit.click(),
+  ]);
+  await expect.poll(state.bulkThicknessPayloads).toEqual([{ item_ids: [1, 2], thickness_mm: '10' }]);
   await expect(confirmation.getByText('10 mm').first()).toBeVisible();
 
   await confirmation.getByRole('button', { name: '编辑' }).first().click();
