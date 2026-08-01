@@ -63,7 +63,7 @@ def test_ci_container_runner_covers_release_runtime_storage_and_exact_cleanup():
         "verify_image_archive.py",
         "PLAYWRIGHT_FRONTEND_BASE_URL",
         "npx playwright test",
-        "down --volumes --remove-orphans",
+        "down --volumes --remove-orphans --timeout 20",
     ):
         assert contract in source
     assert '[[ ! -e "$PROJECT_ROOT/.env.docker" ]]' in source

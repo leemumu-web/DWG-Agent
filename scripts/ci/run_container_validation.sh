@@ -19,7 +19,7 @@ ci_cleanup() {
             "${COMPOSE_CMD[@]}" --profile workers ps --all >&2
             "${COMPOSE_CMD[@]}" --profile workers logs --tail=100 >&2
         fi
-        "${COMPOSE_CMD[@]}" --profile workers down --volumes --remove-orphans
+        "${COMPOSE_CMD[@]}" --profile workers down --volumes --remove-orphans --timeout 20
     fi
     if [[ -e "$PROJECT_ROOT/.env.docker" ]]; then
         unlink "$PROJECT_ROOT/.env.docker"
