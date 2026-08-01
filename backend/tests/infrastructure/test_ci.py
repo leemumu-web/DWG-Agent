@@ -149,6 +149,7 @@ def test_ci_workflow_runs_every_pull_request_and_every_main_push():
     assert triggers["push"] == {"branches": ["main"]}
     assert "workflow_dispatch" in triggers
     assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["env"] == {"UV_PYTHON": "3.12"}
     assert set(workflow["jobs"]) == {
         "quality",
         "backend",
