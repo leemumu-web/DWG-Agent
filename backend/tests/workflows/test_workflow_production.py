@@ -1763,6 +1763,10 @@ def _api_workflow_at_excel_stage(client, owner_headers, project_id: int):
 def test_excel_stage1_execution_creates_binds_and_reuses_real_job(monkeypatch):
     from app.platform.config.settings import settings
 
+    # This test owns the durable HTTP -> outbox idempotency boundary. Keep the
+    # staged dispatch queued for the production dispatcher instead of executing
+    # the Excel/handbook integration inline against a developer-only database.
+    monkeypatch.setattr(settings, "celery_task_always_eager", False)
     client = workflow_test_api.client()
     admin_headers = workflow_test_api.admin_headers(client)
     _, owner_headers = workflow_test_api.create_engineer_user(client, admin_headers, "prod-exec")

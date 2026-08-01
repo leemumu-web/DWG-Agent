@@ -150,7 +150,8 @@ def test_celery_app_registers_stage1_stub_task():
     from app.platform.messaging.celery_app import celery_app
 
     assert celery_app.conf.broker_url == settings.celery_broker_url
-    assert celery_app.conf.result_backend == settings.celery_result_backend
+    assert settings.celery_result_backend.startswith("db+mysql+pymysql://")
+    assert celery_app.conf.result_backend == "cache+memory://"
     assert "app.workers.tasks_report.run_stub_job" in celery_app.tasks
 
 

@@ -17,7 +17,14 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.platform.database.base import Base
 from app.platform.database.session import get_db as original_get_db
+from app.platform.messaging.celery_app import celery_app
 from tests.support.database import get_test_session_factory, install_test_session_factory
+
+# Eager Celery execution still resolves ``task.backend`` before deciding not to
+# persist the result.  Keep unit tests hermetic instead of allowing that lazy
+# lookup to create MySQL result tables on a developer machine or CI runner.
+# Production URL derivation remains covered through ``settings`` contract tests.
+celery_app.conf.result_backend = "cache+memory://"
 
 
 @pytest.fixture(autouse=True)

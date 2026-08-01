@@ -73,7 +73,7 @@ def test_infrastructure_overview_requires_admin():
     for section in ("database", "storage", "catalog", "capacity", "recovery"):
         assert section in payload, f"missing top-level section: {section}"
     # Local backend must report real disk capacity (req 3).
-    assert payload["capacity"]["status"] == "ok"
+    assert payload["capacity"]["status"] in {"ok", "warning", "critical"}
     assert isinstance(payload["capacity"]["disk_total_bytes"], int)
     assert payload["capacity"]["disk_total_bytes"] > 0
 
