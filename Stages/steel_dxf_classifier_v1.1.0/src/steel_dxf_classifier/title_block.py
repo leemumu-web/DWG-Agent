@@ -8,6 +8,7 @@ TITLE_PROFILE_LABELS = frozenset(
     {
         "截面",
         "截面型材",
+        "截面规格",
         "规格",
         "PROFILE",
         "SECTION",

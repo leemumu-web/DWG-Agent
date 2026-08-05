@@ -10,8 +10,9 @@ def fact(
     y: float,
     *,
     block_path: tuple[str, ...] = ("TITLE",),
+    height: float = 3.0,
 ) -> TextFact:
-    return TextFact(text, text, x, y, 3.0, "TEXT", "Other", None, block_path)
+    return TextFact(text, text, x, y, height, "TEXT", "Other", None, block_path)
 
 
 def test_unique_upper_right_section_value_is_classified() -> None:
@@ -52,6 +53,44 @@ def test_material_table_with_multiple_profile_rows_requires_review() -> None:
     assert result.part_type is None
     assert result.group_key == "status:review_required"
     assert result.next_stage_eligible is False
+
+
+def test_duplicate_profile_value_in_multiple_blocks_is_classified() -> None:
+    # Real drawings repeat the same title-block text in several anonymous
+    # blocks (*A5, *A7). Identical profile values are redundancy, not conflict.
+    result = classify_facts(
+        "dup-block.dxf",
+        [
+            fact("规格", 9140.0, 8167.0, block_path=("*A5",), height=50.0),
+            fact("BOX700*400*30*30", 9037.4, 8067.0, block_path=("*A5",), height=50.0),
+            fact("规格", 9140.0, 8167.0, block_path=("*A7",), height=50.0),
+            fact("BOX700*400*30*30", 9037.4, 8067.0, block_path=("*A7",), height=50.0),
+        ],
+    )
+
+    assert result.disposition is Disposition.CLASSIFIED
+    assert result.part_type == "BOX"
+    assert result.diagnostics == ("TITLE_PROFILE_PROVED",)
+    assert result.profile_normalized == "BOX700*400*30*30"
+    assert result.group_key == "type:BOX"
+    assert result.next_stage_eligible is True
+
+
+def test_section_spec_label_is_recognized() -> None:
+    result = classify_facts(
+        "section-spec.dxf",
+        [
+            fact("截面规格", 80, 95),
+            fact("BOX700*400*30*30", 78, 85),
+            fact("图纸", 0, 0, block_path=()),
+        ],
+    )
+
+    assert result.disposition is Disposition.CLASSIFIED
+    assert result.part_type == "BOX"
+    assert result.profile_normalized == "BOX700*400*30*30"
+    assert result.group_key == "type:BOX"
+    assert result.next_stage_eligible is True
 
 
 def test_lower_left_section_label_is_not_treated_as_title_block() -> None:

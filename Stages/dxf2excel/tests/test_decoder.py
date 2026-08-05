@@ -56,3 +56,11 @@ def test_decode_partial_hex() -> None:
     """Partial/incomplete sequences pass through."""
     result = decode_m5("\\M+5AB")
     assert "\\M+5AB" in result
+
+
+def test_header_section_spec_alias_maps_to_spec() -> None:
+    from dxf2excel.config import HEADER_ALIASES
+    from dxf2excel.text_normalizer import header_to_field_key
+
+    assert "截面规格" in HEADER_ALIASES
+    assert header_to_field_key("截面规格") == "spec"

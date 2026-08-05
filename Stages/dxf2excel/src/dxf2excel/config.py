@@ -140,6 +140,7 @@ HEADER_ALIASES: Final[dict[str, str]] = {
     "零件号": "part_no",
     "零件编号": "part_no",
     "截面型材": "spec",
+    "截面规格": "spec",
     "规格": "spec",
     "长度(mm)": "length_mm",
     "长度": "length_mm",

@@ -108,7 +108,7 @@ uv run steel-dxf-classify /data/项目2_dxf --overwrite
 
 ## 证据边界
 
-分类器支持 `TEXT`、`MTEXT`、`ATTRIB` 和嵌套 `INSERT`，支持 GB2312、ANSI_936/GBK、UTF-8、DXF `\U+` Unicode 和中文 MIF 转义。它用“截面 / 截面型材 / 规格 / PROFILE / SECTION”等标签及相邻单元格建立证据。
+分类器支持 `TEXT`、`MTEXT`、`ATTRIB` 和嵌套 `INSERT`，支持 GB2312、ANSI_936/GBK、UTF-8、DXF `\U+` Unicode 和中文 MIF 转义。它用“截面 / 截面型材 / 截面规格 / 规格 / PROFILE / SECTION”等标签及相邻单元格建立证据。
 
 材料表可能同时包含大量 PL、BOX、TT 等规格。若没有唯一的标题栏字段配对，这些内容只会造成 `TITLE_VALUE_CONFLICT` 或 `TITLE_FIELD_MISSING`，不能触发自动分类。完整规则见 [docs/CLASSIFICATION_RULES.md](docs/CLASSIFICATION_RULES.md)。
 

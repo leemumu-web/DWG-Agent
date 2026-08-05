@@ -286,6 +286,32 @@ def test_header_detection_accepts_common_aliases_without_batch(tmp_path: Path) -
     }
 
 
+def test_header_detection_accepts_section_spec_alias(tmp_path: Path) -> None:
+    contract = _contract()
+    source = tmp_path / "section-spec-alias.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["构件号", "零件编号", "截面规格", "长度(mm)", "材质", "数量"])
+    workbook.save(source)
+    workbook.close()
+
+    loaded = load_workbook(source, read_only=True, data_only=False)
+    try:
+        detection = contract.detect_canonical_header(loaded.active)
+    finally:
+        loaded.close()
+
+    assert detection.row_number == 1
+    assert detection.columns == {
+        "构件编号": 1,
+        "零件号": 2,
+        "规格": 3,
+        "零件长度": 4,
+        "材质": 5,
+        "数量": 6,
+    }
+
+
 def test_header_detection_rejects_duplicate_alias_for_core_field(tmp_path: Path) -> None:
     contract = _contract()
     source = tmp_path / "duplicate-part-number.xlsx"

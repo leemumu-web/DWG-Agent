@@ -50,6 +50,7 @@ const EXPECTED_E2E_WORKSPACES = new Set([
   'contracts',
   'excel-processing',
   'files',
+  'identity',
   'jobs',
   'operations',
   'remnant-inventory',

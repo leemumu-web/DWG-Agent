@@ -70,7 +70,7 @@ _HEADER_ALIASES = {
     "批次": frozenset({"批次"}),
     "构件编号": frozenset({"构件编号", "构件号"}),
     "零件号": frozenset({"零件号", "零件编号"}),
-    "规格": frozenset({"规格", "型材", "截面型材"}),
+    "规格": frozenset({"规格", "型材", "截面型材", "截面规格"}),
     "材质": frozenset({"材质"}),
     "数量": frozenset({"数量"}),
     "单净重": frozenset({"单净重"}),

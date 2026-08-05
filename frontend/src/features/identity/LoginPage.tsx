@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../../shared/auth';
 import { describeApiError } from '../../shared/api';
 import { useAuthStore } from '../../shared/auth';
+import { BrandLogo } from '../../shared/components';
 
 interface ApiError {
   response?: {
@@ -65,9 +66,10 @@ export function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex' }}>
+    <div className="login-page" style={{ minHeight: '100vh', display: 'flex' }}>
       {/* ── left brand panel ─────────────────────────────────────────────── */}
       <div
+        className="login-brand-panel"
         style={{
           flex: '1 1 0',
           minWidth: 0,
@@ -107,26 +109,7 @@ export function LoginPage() {
         />
 
         <div style={{ position: 'relative' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 10,
-                background: 'rgba(255,255,255,0.18)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: 22,
-                fontWeight: 700,
-              }}
-            >
-              DW
-            </div>
-            <Typography.Title level={3} style={{ color: '#fff', margin: 0 }}>
-              DWG-Agent
-            </Typography.Title>
-          </div>
+          <BrandLogo variant="on-blue" className="login-brand-logo" />
         </div>
 
         <div style={{ position: 'relative' }}>
@@ -167,6 +150,7 @@ export function LoginPage() {
 
       {/* ── right login form ─────────────────────────────────────────────── */}
       <div
+        className="login-form-panel"
         style={{
           flex: '0 0 440px',
           display: 'flex',
@@ -177,6 +161,7 @@ export function LoginPage() {
         }}
       >
         <div style={{ width: '100%', maxWidth: 360 }}>
+          <BrandLogo variant="on-light" className="login-mobile-logo" />
           <Typography.Title level={2} style={{ marginBottom: 4 }}>
             登录
           </Typography.Title>

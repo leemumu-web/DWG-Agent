@@ -695,7 +695,7 @@ def test_classifier_run_persists_routed_dxf_reports_and_mysql_ledger(
     assert next_stage[0].type_source == "catalog"
     assert next_stage[0].source_file_id == source_file_id
     assert next_stage[0].output_file_id == output.id
-    assert next_stage[0].classifier_version == "1.2.0"
+    assert next_stage[0].classifier_version == "1.3.0"
 
 
 def test_classifier_naming_contract_uses_project_code_and_workflow_id():

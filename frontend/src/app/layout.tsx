@@ -19,7 +19,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout } from '../shared/auth';
 import { useAuthStore } from '../shared/auth';
-import { roleColor } from '../shared/components';
+import { BrandLogo, roleColor } from '../shared/components';
 
 const { Header, Sider, Content } = Layout;
 
@@ -117,13 +117,10 @@ export function AppLayout() {
     return (
       <>
         <div className="app-brand" style={{ paddingInline: navCollapsed ? 23 : 20 }}>
-          <div className="app-brand-mark">DW</div>
-          {!navCollapsed && (
-            <div>
-              <div className="app-brand-name">DWG-Agent</div>
-              <div className="app-brand-subtitle">CAD 智能处理平台</div>
-            </div>
-          )}
+          <BrandLogo
+            variant="on-dark"
+            className={navCollapsed ? 'app-brand-logo app-brand-logo--collapsed' : 'app-brand-logo'}
+          />
         </div>
         <Menu
           className="app-nav"

@@ -1,4 +1,4 @@
-"""Steel DXF Classifier 1.2 process, schema and naming contract."""
+"""Steel DXF Classifier 1.3 process, schema and naming contract."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any
 
 from app.platform.config.settings import settings
 
-CLASSIFIER_VERSION = "1.2.0"
+CLASSIFIER_VERSION = "1.3.0"
 REPORT_SCHEMA = "STEEL-DXF-CLASSIFICATION-1.2"
 CLI_SCHEMA = "STEEL-DXF-CLI-1.2"
 ERROR_CODE_CLASSIFICATION_FAILED = "DXF_CLASSIFICATION_FAILED"

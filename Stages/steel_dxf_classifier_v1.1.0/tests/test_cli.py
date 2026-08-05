@@ -116,7 +116,7 @@ def test_cli_version_is_a_stable_single_line(capsys) -> None:
 
     captured = capsys.readouterr()
     assert code == 0
-    assert captured.out == "steel-dxf-classifier 1.2.0\n"
+    assert captured.out == "steel-dxf-classifier 1.3.0\n"
     assert captured.err == ""
 
 

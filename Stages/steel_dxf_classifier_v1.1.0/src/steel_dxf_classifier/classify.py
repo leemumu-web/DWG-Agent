@@ -7,13 +7,11 @@ from .reader import DXFReadError, read_text_facts
 from .title_block import find_title_candidates
 
 
-def _value_identity(candidate: TitleCandidate) -> tuple[str, float, float, tuple[str, ...]]:
-    return (
-        candidate.profile.normalized,
-        candidate.value.x,
-        candidate.value.y,
-        candidate.value.block_path,
-    )
+def _value_identity(candidate: TitleCandidate) -> str:
+    # Duplicated title-block text in several anonymous blocks is redundant
+    # references to the same profile, not a conflicting value. Only the parsed
+    # profile decides uniqueness; geometry/blocks must not split one value.
+    return candidate.profile.normalized
 
 
 def classify_facts(

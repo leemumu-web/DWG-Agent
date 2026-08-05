@@ -79,6 +79,8 @@ Thumbs.db
 Data/
 # CAD samples & pipeline intermediates in excel_final
 /Stages/excel_final/data/
+# Ad-hoc analysis bundles (zips, unpacked samples, repro scripts)
+/tmp_data/
 
 # --- Test runner output (playwright, etc.) ---
 /output/
