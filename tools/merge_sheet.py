@@ -16,8 +16,8 @@ from pathlib import Path
 import ezdxf
 from ezdxf import bbox
 
-GAP_X = 60.0
-GAP_Y = 60.0
+GAP_X = 20.0
+GAP_Y = 20.0
 
 
 def _safe_block_name(raw: str) -> str:
@@ -136,7 +136,6 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
     """Merge one chunk of [before, after] pairs into a single output sheet."""
     # Pass 1: read every drawing once to learn each cell extents.
     cells = []  # (path, w, h)
-    max_h = 0.0
     for before, after in pairs:
         for p in (before, after):
             doc = ezdxf.readfile(p)
@@ -147,15 +146,37 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
                 w = ext.extmax[0] - ext.extmin[0]
                 h = ext.extmax[1] - ext.extmin[1]
             cells.append((p, w, h))
-            max_h = max(max_h, h)
-    cell_h = max_h + GAP_Y
-    # Per-row column width so each row is packed tightly around its widest
-    # cell instead of being stretched by a global maximum.  Each row holds
-    # pairs_per_row pairs = pairs_per_row*2 cells.
-    row_cell_w = []
-    for start in range(0, len(cells), pairs_per_row * 2):
-        row_slice = cells[start : start + pairs_per_row * 2]
-        row_cell_w.append(max(w for _, w, _ in row_slice) + GAP_X)
+    # Adaptive layout: each column is as wide as its widest cell, each row as
+    # tall as its tallest cell, so the sheet packs tightly (small GAP_X/Y)
+    # instead of stretching every cell by one large drawing.
+    n_cells = len(cells)
+    n_cols = pairs_per_row * 2
+    n_rows = (n_cells + n_cols - 1) // n_cols
+    col_w = []
+    for col in range(n_cols):
+        col_max = max(
+            (
+                cells[r * n_cols + col][1]
+                for r in range(n_rows)
+                if r * n_cols + col < n_cells
+            ),
+            default=100.0,
+        )
+        col_w.append(col_max + GAP_X)
+    row_h = []
+    for start in range(0, n_cells, n_cols):
+        row_slice = cells[start : start + n_cols]
+        row_h.append(max(h for _, _, h in row_slice) + GAP_Y)
+    col_x = []
+    acc = 0.0
+    for w in col_w:
+        col_x.append(acc)
+        acc += w
+    row_y = []
+    acc = 0.0
+    for h in row_h:
+        row_y.append(-acc)
+        acc += h
 
     main = ezdxf.new("R2000")
     main.units = ezdxf.units.MM
@@ -166,10 +187,10 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
             p, w, h = cells[pi * 2 + ji]
             row = pi // pairs_per_row
             col = (pi % pairs_per_row) * 2 + ji
-            x = col * row_cell_w[row]
-            y = -row * cell_h
-            ccx = x + row_cell_w[row] / 2.0
-            ccy = y - cell_h / 2.0
+            x = col_x[col]
+            y = row_y[row]
+            ccx = x + col_w[col] / 2.0
+            ccy = y + row_h[row] / 2.0
             doc = ezdxf.readfile(p)
             _copy_styles(main, doc)
             ext = bbox.extents(doc.modelspace())
