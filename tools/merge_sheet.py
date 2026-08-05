@@ -70,17 +70,21 @@ def copy_block_recursive(main: ezdxf.document.Drawing, target, entity, src_doc, 
     target.add_entity(entity.copy())
 
 
-def _copy_expanded(msp, entity, dx: float, dy: float) -> None:
+def _copy_expanded(msp, entity, dx: float, dy: float, only_layers=None) -> None:
     """Recursively copy an entity into the modelspace, exploding INSERTs.
 
     ZWCAD (and other lightweight CADs) open plain entity sheets more reliably
     than deep nested-block references, so each source drawing is flattened to
     base primitives (LINE/ARC/CIRCLE/TEXT/LWPOLYLINE/...) translated into its
-    grid cell centre.
+    grid cell centre.  ``only_layers`` keeps only matching layer entities
+    (used to trim the original plate to its Part/Bolt member views instead of
+    the whole Tekla sheet frame).
     """
     if entity.dxftype() == "INSERT":
         for ve in entity.virtual_entities():
-            _copy_expanded(msp, ve, dx, dy)
+            _copy_expanded(msp, ve, dx, dy, only_layers)
+        return
+    if only_layers is not None and entity.dxf.layer not in only_layers:
         return
     copy = entity.copy()
     try:
@@ -88,6 +92,30 @@ def _copy_expanded(msp, entity, dx: float, dy: float) -> None:
     except Exception:
         pass
     msp.add_entity(copy)
+
+
+def _entity_extent_layers(doc, layers):
+    """Explode the modelspace and return the bbox of entities on ``layers``.
+
+    Used to size an original Tekla sheet by its member view geometry (Part /
+    Bolt) instead of the whole paper frame, so rows pack tightly.
+    """
+    shapes = []
+
+    def walk(entity):
+        if entity.dxftype() == "INSERT":
+            for ve in entity.virtual_entities():
+                walk(ve)
+            return
+        if layers is not None and entity.dxf.layer not in layers:
+            return
+        shapes.append(entity)
+
+    for e in doc.modelspace():
+        walk(e)
+    if not shapes:
+        return None
+    return bbox.extents(shapes)
 
 
 def _translate_block(blk, dx: float, dy: float) -> None:
@@ -134,18 +162,23 @@ def main() -> None:
 
 def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
     """Merge one chunk of [before, after] pairs into a single output sheet."""
-    # Pass 1: read every drawing once to learn each cell extents.
-    cells = []  # (path, w, h)
+    # Pass 1: read every drawing once to learn each cell extents.  The
+    # original plate is sized by its member view geometry (Part/Bolt), not the
+    # whole Tekla sheet frame, so rows pack tightly.
+    cells = []  # (path, w, h, ext)
     for before, after in pairs:
-        for p in (before, after):
+        for p, is_before in ((before, True), (after, False)):
             doc = ezdxf.readfile(p)
-            ext = bbox.extents(doc.modelspace())
-            if not ext.has_data:
+            if is_before:
+                ext = _entity_extent_layers(doc, {"Part", "Bolt"})
+            else:
+                ext = bbox.extents(doc.modelspace())
+            if ext is None or not ext.has_data:
                 w = h = 100.0
             else:
                 w = ext.extmax[0] - ext.extmin[0]
                 h = ext.extmax[1] - ext.extmin[1]
-            cells.append((p, w, h))
+            cells.append((p, w, h, ext))
     # Per-row horizontal packing: each cell starts right after the previous
     # one (tiny GAP_X), vertically centred on the row; rows stack by their own
     # height.  Drawings of very different widths pack tightly instead of being
@@ -160,13 +193,13 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
         xs: list[float] = []
         widths: list[float] = []
         acc = 0.0
-        for _, w, _ in row_slice:
+        for _, w, _, _ in row_slice:
             xs.append(acc)
             acc += w + GAP_X
             widths.append(w)
         row_x.append(xs)
         row_cell_w.append(widths)
-        row_h.append(max(h for _, _, h in row_slice) + GAP_Y)
+        row_h.append(max(h for _, _, h, _ in row_slice) + GAP_Y)
     row_y: list[float] = []
     acc = 0.0
     for h in row_h:
@@ -179,7 +212,7 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
 
     for pi in range(len(pairs)):
         for ji in range(2):
-            p, w, h = cells[pi * 2 + ji]
+            p, w, h, ext = cells[pi * 2 + ji]
             row = pi // pairs_per_row
             col = (pi % pairs_per_row) * 2 + ji
             x = row_x[row][col]
@@ -188,16 +221,16 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
             ccy = y + row_h[row] / 2.0
             doc = ezdxf.readfile(p)
             _copy_styles(main, doc)
-            ext = bbox.extents(doc.modelspace())
-            if ext.has_data:
+            if ext is not None and ext.has_data:
                 bcx = (ext.extmin[0] + ext.extmax[0]) / 2.0
                 bcy = (ext.extmin[1] + ext.extmax[1]) / 2.0
             else:
                 bcx = bcy = 0.0
             dx = ccx - bcx
             dy = ccy - bcy
+            only_layers = {"Part", "Bolt"} if ji == 0 else None
             for e in doc.modelspace():
-                _copy_expanded(msp, e, dx, dy)
+                _copy_expanded(msp, e, dx, dy, only_layers)
         if pi % 20 == 0:
             print(f"  {pi+1}/{len(pairs)}")
 
