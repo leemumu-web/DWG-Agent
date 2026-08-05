@@ -161,6 +161,7 @@ def _fabricated_theory(
             fabricated.web_thickness,
             fabricated.flange_thickness,
             length,
+            secondary_height=fabricated.secondary_height,
         )
     except ValueError:
         return None

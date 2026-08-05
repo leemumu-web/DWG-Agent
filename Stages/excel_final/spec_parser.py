@@ -38,6 +38,7 @@ class LookupPolicy(StrEnum):
 
 class SplitPolicy(StrEnum):
     NONE = "none"
+    BBH = "BBH"
     BH = "BH"
     BOX = "BOX"
     BT = "BT"
@@ -235,7 +236,12 @@ def classify_normalized_spec(
             lookup=LookupPolicy.FLAT_THEN_PLATE,
         )
 
-    for prefix, split in (("BOX", SplitPolicy.BOX), ("BH", SplitPolicy.BH), ("BT", SplitPolicy.BT)):
+    for prefix, split in (
+        ("BBH", SplitPolicy.BBH),
+        ("BOX", SplitPolicy.BOX),
+        ("BH", SplitPolicy.BH),
+        ("BT", SplitPolicy.BT),
+    ):
         if upper.startswith(prefix):
             try:
                 fabricated = parse_fabricated_profile(upper)

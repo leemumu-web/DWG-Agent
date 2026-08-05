@@ -143,6 +143,88 @@ def test_split_children_keep_parent_identity_but_have_distinct_counts_and_import
     assert web.quantity * parent.source.component_qty == Decimal("12")
 
 
+def _bbh_parent(spec: str, *, original_qty: str = "1") -> ParentPartEvidence:
+    import re
+
+    match = re.fullmatch(
+        r"BBH([0-9.]+)[-~～—]([0-9.]+)\*([0-9.]+)\*([0-9.]+)\*([0-9.]+)",
+        spec,
+    )
+    assert match is not None
+    height, secondary, width, web, flange = (
+        Decimal(value) for value in match.groups()
+    )
+    length = Decimal("3704")
+    theory = fabricated_parent_unit_weight(
+        "BBH",
+        height,
+        width,
+        web,
+        flange,
+        length,
+        secondary_height=secondary,
+    )
+    qty = Decimal(original_qty)
+    source = SourcePart(
+        source_sheet="原表",
+        source_row=16,
+        source_seq="source-bbh",
+        batch="B1",
+        component_no="C1",
+        component_qty=Decimal("1"),
+        part_no="p1",
+        original_spec=spec,
+        material="Q355B",
+        length=length,
+        original_qty=qty,
+        source_unit_net=theory,
+        source_total_net=theory * qty,
+        source_unit_gross=theory,
+        source_total_gross=theory * qty,
+        source_unit_area=Decimal("1.2"),
+        source_total_area=Decimal("1.2"),
+        classification="BBH",
+    )
+    return ParentPartEvidence(
+        source=source,
+        normalized_type="BBH",
+        normalized_spec=spec,
+        normalized_width=None,
+        density_value=Decimal("7.85"),
+        density_source="plate_constant:7.85",
+        theoretical_unit_weight_unrounded=theory,
+        theoretical_total_weight_unrounded=theory * qty,
+        material_utilization=Decimal("1"),
+        weight_validation_status="ok",
+        weight_validation_details=(),
+    )
+
+
+def test_bbh_variable_height_split_uses_mean_web_and_conserves_weight() -> None:
+    splitter = _splitter()
+    parent = _bbh_parent("BBH700~500*300*16*30")
+
+    result = splitter.split_parent(
+        parent,
+        classify_normalized_spec(parent.source.original_spec, material="Q355B"),
+    )
+
+    assert not result.issues
+    web, flange = result.children
+    assert web.part_type == "BBH腹"
+    assert (str(web.spec), str(web.width)) == ("16", "540")  # (700+500)/2 - 2*30
+    assert web.is_main is True
+    assert web.quantity == Decimal("1")
+    assert flange.part_type == "BBH翼"
+    assert (str(flange.spec), str(flange.width)) == ("30", "300")
+    assert flange.quantity == Decimal("2")
+    assert web.import_part_no == "p1-BBH腹"
+    assert flange.import_part_no == "p1-BBH翼"
+    assert sum(
+        child.theoretical_contribution_unrounded for child in result.children
+    ) == parent.theoretical_unit_weight_unrounded
+
+
 def test_split_children_retain_parent_reference_and_main_role() -> None:
     splitter = _splitter()
     parent = _parent("BH700*300*16*30")

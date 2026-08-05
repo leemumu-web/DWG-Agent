@@ -80,6 +80,8 @@ _RED_FONT = Font(color="FF0000")
 _SEVERE_FONT = Font(color="9C0006")
 _HEADER_FILL = PatternFill(fill_type="solid", fgColor="D9EAF7")
 _COMPONENT_SCOPED_TYPES = frozenset({
+    "BBH腹",
+    "BBH翼",
     "BH腹",
     "BH翼",
     "BOX腹",

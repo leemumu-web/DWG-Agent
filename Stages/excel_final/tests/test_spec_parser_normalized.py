@@ -107,6 +107,29 @@ def test_only_bh_box_bt_are_split_candidates(
     assert result.split_policy.value == split_policy
 
 
+@pytest.mark.parametrize(
+    ("spec", "expected_normalized"),
+    [
+        ("BBH700~500*300*16*30", "BBH700-500*300*16*30"),
+        ("BBH700-500*300*16*30", "BBH700-500*300*16*30"),
+        ("BBH600*200*12*22", "BBH600*200*12*22"),
+    ],
+)
+def test_bbh_is_a_split_candidate_with_variable_height(
+    spec: str,
+    expected_normalized: str,
+) -> None:
+    parser = _parser()
+
+    result = parser.classify_normalized_spec(spec, material="Q355B")
+
+    assert result.normalized_type == "BBH"
+    assert result.normalized_spec == expected_normalized
+    assert result.handbook_category is None
+    assert result.lookup_policy is parser.LookupPolicy.PLATE_CONSTANT
+    assert result.split_policy.value == "BBH"
+
+
 def test_ordinary_i_is_handbook_profile_and_ha_is_unsupported() -> None:
     parser = _parser()
 

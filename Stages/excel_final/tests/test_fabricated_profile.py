@@ -47,6 +47,90 @@ def test_parse_fabricated_profile(
     ) == expected
 
 
+@pytest.mark.parametrize(
+    ("spec", "expected_height", "expected_secondary"),
+    [
+        ("BBH700~500*300*16*30", Decimal("700"), Decimal("500")),
+        ("BBH700-500*300*16*30", Decimal("700"), Decimal("500")),
+        ("BBH700～500*300*16*30", Decimal("700"), Decimal("500")),
+        ("BBH600*200*12*22", Decimal("600"), None),
+    ],
+)
+def test_parse_bbh_variable_height(
+    spec: str,
+    expected_height: Decimal,
+    expected_secondary: Decimal | None,
+) -> None:
+    profile = parse_fabricated_profile(spec)
+
+    assert profile is not None
+    assert profile.kind == "BBH"
+    assert profile.height == expected_height
+    assert profile.secondary_height == expected_secondary
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_normalized", "expected_mean"),
+    [
+        ("BBH700~500*300*16*30", "BBH700-500*300*16*30", Decimal("600")),
+        ("BBH600*200*12*22", "BBH600*200*12*22", Decimal("600")),
+    ],
+)
+def test_bbh_mean_height_and_normalized_spec(
+    spec: str,
+    expected_normalized: str,
+    expected_mean: Decimal,
+) -> None:
+    profile = parse_fabricated_profile(spec)
+
+    assert profile is not None
+    assert profile.mean_height == expected_mean
+    assert profile.normalized_spec == expected_normalized
+
+
+@pytest.mark.parametrize(
+    ("spec", "expected_children"),
+    [
+        (
+            "BBH700~500*300*16*30",
+            (
+                ("BBH腹", "16", "540", "1", True),
+                ("BBH翼", "30", "300", "2", False),
+            ),
+        ),
+        (
+            "BBH600*200*12*22",
+            (
+                ("BBH腹", "12", "556", "1", True),
+                ("BBH翼", "22", "200", "2", False),
+            ),
+        ),
+    ],
+)
+def test_bbh_split_geometry_uses_mean_web_height(
+    spec: str,
+    expected_children: tuple[tuple[str, str, str, str, bool], ...],
+) -> None:
+    profile = parse_fabricated_profile(spec)
+
+    assert profile is not None
+    assert tuple(
+        (
+            child.part_type,
+            str(child.thickness),
+            str(child.width),
+            str(child.quantity_multiplier),
+            child.is_main,
+        )
+        for child in profile.children()
+    ) == expected_children
+
+
+def test_constant_height_profiles_reject_variable_heights() -> None:
+    with pytest.raises(FabricatedProfileError, match="only BBH supports a variable height"):
+        parse_fabricated_profile("BH700~500*300*16*30")
+
+
 def test_box_three_parameter_geometry_is_uniform_wall() -> None:
     profile = parse_fabricated_profile("BOX100*80*10")
 

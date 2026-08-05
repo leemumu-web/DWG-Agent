@@ -29,7 +29,7 @@ def _geometry_issue(parent: ParentPartEvidence, description: str) -> QualityIssu
         spec=source.original_spec,
         field="截面型材",
         actual_value=source.original_spec,
-        expected_value="BH/BOX/BT 正尺寸且内嵌尺寸大于0",
+        expected_value="BBH/BH/BOX/BT 正尺寸且内嵌尺寸大于0",
         absolute_error=None,
         relative_error=None,
         affects_part=True,
@@ -73,7 +73,7 @@ def split_parent(
     parent: ParentPartEvidence,
     classification: ClassificationResult,
 ) -> CanonicalSplitResult:
-    allowed = {SplitPolicy.BH, SplitPolicy.BOX, SplitPolicy.BT}
+    allowed = {SplitPolicy.BBH, SplitPolicy.BH, SplitPolicy.BOX, SplitPolicy.BT}
     if classification.split_policy not in allowed:
         raise ValueError(
             f"{classification.original_spec!r} is not a canonical split candidate"

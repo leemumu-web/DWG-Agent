@@ -11,8 +11,12 @@ class FabricatedProfileError(ValueError):
 
 
 _NUMBER = r"\d+(?:\.\d+)?"
+# BBH is a variable-height BH whose web tapers between two end heights,
+# written H1-H2 (also ~ / ～ / —).  BH/BOX/BT stay constant-section.
 _FABRICATED = re.compile(
-    rf"^(?P<kind>BH|BOX|BT)(?P<height>{_NUMBER})\*(?P<width>{_NUMBER})"
+    rf"^(?P<kind>BBH|BH|BOX|BT)(?P<height>{_NUMBER})"
+    rf"(?:\s*[-~～—]\s*(?P<secondary>{_NUMBER}))?"
+    rf"\*(?P<width>{_NUMBER})"
     rf"\*(?P<web>{_NUMBER})(?:\*(?P<flange>{_NUMBER}))?$"
 )
 
@@ -54,6 +58,7 @@ def _split_geometry(
     width: Decimal,
     web_thickness: Decimal,
     flange_thickness: Decimal,
+    secondary_height: Decimal | None = None,
 ) -> tuple[FabricatedChildGeometry, FabricatedChildGeometry]:
     if kind == "BT":
         web_width = height - flange_thickness
@@ -63,6 +68,17 @@ def _split_geometry(
         web_multiplier = flange_multiplier = Decimal("2")
     elif kind == "BH":
         web_width = height - Decimal("2") * flange_thickness
+        web_multiplier = Decimal("1")
+        flange_multiplier = Decimal("2")
+    elif kind == "BBH":
+        # Variable-height BH: the tapered web is treated as a rectangle at the
+        # mean of the two end heights, so the shop plate area is conserved.
+        effective_height = (
+            height
+            if secondary_height is None
+            else (height + secondary_height) / Decimal("2")
+        )
+        web_width = effective_height - Decimal("2") * flange_thickness
         web_multiplier = Decimal("1")
         flange_multiplier = Decimal("2")
     else:
@@ -96,11 +112,16 @@ class FabricatedProfile:
     width: Decimal
     web_thickness: Decimal
     flange_thickness: Decimal
+    secondary_height: Decimal | None = None
 
     def __post_init__(self) -> None:
-        if self.kind not in {"BH", "BOX", "BT"}:
+        if self.kind not in {"BH", "BOX", "BT", "BBH"}:
             raise FabricatedProfileError(
                 f"unsupported fabricated profile: {self.kind}"
+            )
+        if self.secondary_height is not None and self.kind != "BBH":
+            raise FabricatedProfileError(
+                f"only BBH supports a variable height, not {self.kind}"
             )
         _split_geometry(
             self.kind,
@@ -108,17 +129,26 @@ class FabricatedProfile:
             self.width,
             self.web_thickness,
             self.flange_thickness,
+            self.secondary_height,
         )
 
     @property
+    def mean_height(self) -> Decimal:
+        """Section height used for the shop-plate web: mean of both ends."""
+        if self.secondary_height is None:
+            return self.height
+        return (self.height + self.secondary_height) / Decimal("2")
+
+    @property
     def normalized_spec(self) -> str:
-        dimensions = (
-            self.height,
-            self.width,
-            self.web_thickness,
-            self.flange_thickness,
+        height = _number_text(self.height)
+        if self.kind == "BBH" and self.secondary_height is not None:
+            height = f"{height}-{_number_text(self.secondary_height)}"
+        return (
+            f"{self.kind}{height}*{_number_text(self.width)}"
+            f"*{_number_text(self.web_thickness)}"
+            f"*{_number_text(self.flange_thickness)}"
         )
-        return self.kind + "*".join(_number_text(value) for value in dimensions)
 
     def children(
         self,
@@ -129,6 +159,7 @@ class FabricatedProfile:
             self.width,
             self.web_thickness,
             self.flange_thickness,
+            self.secondary_height,
         )
 
     @property
@@ -142,7 +173,7 @@ class FabricatedProfile:
 def parse_fabricated_profile(spec: object) -> FabricatedProfile | None:
     """Parse one fabricated profile, returning None for unrelated specifications."""
     compact = _compact(spec)
-    if not compact.startswith(("BH", "BOX", "BT")):
+    if not compact.startswith(("BBH", "BH", "BOX", "BT")):
         return None
     match = _FABRICATED.fullmatch(compact)
     if match is None:
@@ -151,6 +182,10 @@ def parse_fabricated_profile(spec: object) -> FabricatedProfile | None:
         )
     kind = match.group("kind")
     height = _decimal(match.group("height"))
+    secondary_text = match.group("secondary")
+    secondary = (
+        _decimal(secondary_text) if secondary_text is not None else None
+    )
     width = _decimal(match.group("width"))
     web = _decimal(match.group("web"))
     flange_text = match.group("flange")
@@ -162,4 +197,4 @@ def parse_fabricated_profile(spec: object) -> FabricatedProfile | None:
         flange = web
     else:
         flange = _decimal(flange_text)
-    return FabricatedProfile(kind, height, width, web, flange)
+    return FabricatedProfile(kind, height, width, web, flange, secondary)

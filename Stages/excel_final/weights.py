@@ -85,6 +85,7 @@ def fabricated_parent_unit_weight(
     flange_thickness: Decimal,
     length: Decimal,
     density: Decimal = STEEL_DENSITY,
+    secondary_height: Decimal | None = None,
 ) -> Decimal:
     if length <= 0:
         raise ValueError(f"fabricated profile has non-positive geometry: {profile}")
@@ -94,6 +95,7 @@ def fabricated_parent_unit_weight(
         width,
         web_thickness,
         flange_thickness,
+        secondary_height,
     )
     return sum(
         (

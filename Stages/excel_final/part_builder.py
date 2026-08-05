@@ -10,16 +10,20 @@ from domain import ParentPartEvidence, SplitPart
 from quality import IssueLevel, QualityIssue
 
 TYPE_PRIORITY = {
-    "BH腹": 0,
-    "BH翼": 1,
-    "BOX腹": 2,
-    "BOX翼": 3,
-    "BT腹": 4,
-    "BT翼": 5,
-    "扁钢": 6,
-    "板材": 7,
+    "BBH腹": 0,
+    "BBH翼": 1,
+    "BH腹": 2,
+    "BH翼": 3,
+    "BOX腹": 4,
+    "BOX翼": 5,
+    "BT腹": 6,
+    "BT翼": 7,
+    "扁钢": 8,
+    "板材": 9,
 }
 COMPONENT_SCOPED_TYPES = frozenset({
+    "BBH腹",
+    "BBH翼",
     "BH腹",
     "BH翼",
     "BOX腹",

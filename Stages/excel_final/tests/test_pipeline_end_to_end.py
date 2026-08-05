@@ -1009,3 +1009,56 @@ def test_documentation_contract_rejects_legacy_production_rules() -> None:
         for path in stage_root.glob("*.py")
     )
     assert "multi_split" not in production_modules
+
+
+def test_bbh_variable_height_split_lands_in_both_organized_and_part(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "bbh.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "原表"
+    sheet.append(["测试零件清单"])
+    sheet.append([
+        "批次", "构件编号", "零件号", "规格", "长度(mm)", "材质", "数量",
+        "单净重(kg)", "总净重(kg)", "单毛重(kg)", "总毛重(kg)",
+        "单表面积(㎡)", "总表面积(㎡)", "长度(mm)", "宽度(mm)",
+        "高度(mm)", "版本",
+    ])
+    sheet.append(["B1", "C1", None, "BBH700~500*300*16*30", 1000, "Q355B", 1])
+    sheet.append([None, None, "p-bbh", "BBH700~500*300*16*30", 1000, "Q355B", 1])
+    sheet.append(["B1", "C1", "构件小计", None, None, None, 1])
+    workbook.save(source)
+    workbook.close()
+
+    output = tmp_path / "bbh-output.xlsx"
+    outcome = run_auto_pipeline(
+        source,
+        output,
+        handbook_repository=FakeHandbook(),
+    )
+    assert outcome.severe_warning_count == 0
+
+    organized = {row["零件号"]: row for row in _organized(output) if row["类型"] in {"BBH腹", "BBH翼"}}
+    assert set(organized) == {"p-bbh"}
+    web = organized["p-bbh"]
+    assert organized["p-bbh"]["导入零件号"] in {"p-bbh-BBH腹", "p-bbh-BBH翼"}
+    by_type = {row["类型"]: row for row in _organized(output) if row["类型"] in {"BBH腹", "BBH翼"}}
+    assert (str(by_type["BBH腹"]["规格"]), int(by_type["BBH腹"]["宽度"])) == ("16", 540)
+    assert (str(by_type["BBH翼"]["规格"]), int(by_type["BBH翼"]["宽度"])) == ("30", 300)
+    assert int(by_type["BBH翼"]["数量"]) == 2
+
+    parts = load_workbook(output, data_only=True, read_only=True)["part"]
+    try:
+        part_rows = [
+            dict(zip((c.value for c in parts[1]), row, strict=True))
+            for row in parts.iter_rows(min_row=2, values_only=True)
+        ]
+    finally:
+        parts.parent.close()
+    bbh_types = [
+        row["类型"]
+        for row in part_rows
+        if str(row["导入零件号"]).startswith("p-bbh-BBH")
+    ]
+    assert set(bbh_types) == {"BBH腹", "BBH翼"}

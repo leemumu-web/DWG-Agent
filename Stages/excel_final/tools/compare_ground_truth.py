@@ -18,6 +18,8 @@ from openpyxl.utils import get_column_letter
 
 EXPECTED_SHEETS = ["原表", "清洗表", "构件表", "整理表", "part", "处理报告"]
 COMPONENT_SCOPED_TYPES = frozenset({
+    "BBH腹",
+    "BBH翼",
     "BH腹",
     "BH翼",
     "BOX腹",
