@@ -6,7 +6,7 @@ from itertools import combinations
 from math import hypot
 import ezdxf
 from ezdxf.entities import DXFEntity, Insert
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon, box
 from shapely.ops import unary_union
 
 from .bh_bolt_semantics import opening_nominal_width, polygonize_closed_bolt_linework
@@ -546,6 +546,58 @@ def _compact_bolt_line_side_counts(
     return counts
 
 
+def _split_developed_flange_cuts(
+    cuts: list[OwnedCircularCut],
+    target_lengths: tuple[float, float],
+    *,
+    long_axis: str,
+    src_bounds: tuple[float, float, float, float],
+    side_counts: dict[str, int],
+    tolerance_mm: float = 0.5,
+) -> tuple[list[OwnedCircularCut], list[OwnedCircularCut]]:
+    """Assign source-projection circles to the two rectangular flange plates.
+
+    ``target_lengths`` follow the development order: index 0 is the upper
+    flange (positive web side) and index 1 the lower flange.  A circle whose
+    source longitudinal position exceeds the shorter plate's end belongs to
+    the longer plate; a circle inside the overlap uses the edge-view Bolt side
+    counts to pick the upper (high) vs lower (low) plate, so a flanged member
+    with distinct upper/lower lengths and real flange holes is still split
+    instead of silently collapsing to a same-length pair.
+    """
+    upper_len, lower_len = target_lengths
+    longer_index = 0 if upper_len >= lower_len else 1
+    short_len = min(upper_len, lower_len)
+    if long_axis == "x":
+        src_origin = src_bounds[0]
+    else:
+        src_origin = src_bounds[1]
+    src_x0, src_y0 = src_bounds[0], src_bounds[1]
+    high_count = int(side_counts.get("high", 0) or 0)
+    low_count = int(side_counts.get("low", 0) or 0)
+    # High/low symbol counts are rare on the flange projection itself; when
+    # absent, overlap circles go to the longer plate (the plate that extends
+    # further is the one whose footprint covers the shared region).
+    assignments: list[list[OwnedCircularCut]] = [[], []]
+    for cut in cuts:
+        position = (
+            (cut.center.x if long_axis == "x" else cut.center.y) - src_origin
+        )
+        # Circles stay in the source-projection frame: the rectangular plates
+        # are also emitted in that frame, so ``_normalize_polygon_plate``
+        # applies one shared translation to outline and circles and cut
+        # provenance (source_ids / blocks / region) stays intact.
+        if position > short_len + tolerance_mm:
+            assignments[longer_index].append(cut)
+        elif high_count > low_count:
+            assignments[0].append(cut)
+        elif low_count > high_count:
+            assignments[1].append(cut)
+        else:
+            assignments[longer_index].append(cut)
+    return assignments[0], assignments[1]
+
+
 def _assign_flange_cuts(
     polygons: list[Polygon],
     cuts: list[OwnedCircularCut],
@@ -856,6 +908,11 @@ def lower_bh_assembly(
         nominal_length=metadata.nominal_length,
         hole_centers=[cut.center for cut in web_cuts],
         source_bbox=main.bbox,
+        clear_web_height=(
+            metadata.profile.clear_web_height
+            if not metadata.profile.is_variable_height
+            else None
+        ),
         observer=observer,
         hypothesis_id=hypothesis_id,
     )
@@ -923,9 +980,12 @@ def lower_bh_assembly(
         flange_thickness=metadata.profile.flange_thickness,
         nominal_length=metadata.nominal_length,
     )
-    distinct_main_flange_spans = len(
-        {round(value, 3) for value in main_flange_spans.values()}
-    ) >= 2
+    span_values = tuple(sorted(main_flange_spans.values()))
+    distinct_main_flange_spans = (
+        len(span_values) == 2
+        and (span_values[1] - span_values[0])
+        > max(5.0, 0.005 * metadata.nominal_length)
+    )
     flange_polygons, flange_grid, flange_selection = select_flange_polygons(
         flange.entities,
         entity_source_ids=flange.entity_source_ids,
@@ -950,6 +1010,7 @@ def lower_bh_assembly(
     needs_development = (
         metadata.profile.is_variable_height
         or actual_web_transverse > metadata.profile.max_height + 1.0
+        or distinct_main_flange_spans
     )
     development = None
     source_flange_polygons = flange_polygons[:]
@@ -968,20 +1029,53 @@ def lower_bh_assembly(
             observer=observer,
             hypothesis_id=hypothesis_id,
         )
-        developed: list[Polygon] = []
-        for target in development.target_lengths:
-            polygon = extend_flange_polygon_to_length(
-                flange_polygons[0],
-                target,
-                long_axis=flange_axis,
-                observer=observer,
-                hypothesis_id=hypothesis_id,
-            )
-            if any(polygon.hausdorff_distance(existing) <= 0.05 for existing in developed):
-                continue
-            developed.append(polygon)
-        if developed:
-            flange_polygons = developed
+        if development.mode == "constant_height_two_flange_paths":
+            # Equal-height member whose two flange paths differ: the flanges
+            # are flat rectangular plates (length x width).  Projection end
+            # bevels/stepped edges are assembly detail, not plate outline, so
+            # materialize clean rectangles instead of carrying the stepped
+            # silhouette (left-end protrusion) into the plate.  The rectangle
+            # is emitted in the source-projection frame (same origin as the
+            # flange circles) so ``_normalize_polygon_plate`` applies one
+            # shared translation to both outline and circles, keeping cut
+            # provenance registrable.  The long edge follows ``flange_axis``
+            # so a vertical member (long axis = y) is not rotated 90 deg.
+            src_b = source_flange_polygons[0].bounds
+            if flange_axis == "x":
+                flange_polygons = [
+                    box(
+                        src_b[0],
+                        src_b[1],
+                        src_b[0] + target,
+                        src_b[1] + metadata.profile.flange_width,
+                    )
+                    for target in development.target_lengths
+                ]
+            else:
+                flange_polygons = [
+                    box(
+                        src_b[0],
+                        src_b[1],
+                        src_b[0] + metadata.profile.flange_width,
+                        src_b[1] + target,
+                    )
+                    for target in development.target_lengths
+                ]
+        else:
+            developed: list[Polygon] = []
+            for target in development.target_lengths:
+                polygon = extend_flange_polygon_to_length(
+                    flange_polygons[0],
+                    target,
+                    long_axis=flange_axis,
+                    observer=observer,
+                    hypothesis_id=hypothesis_id,
+                )
+                if any(polygon.hausdorff_distance(existing) <= 0.05 for existing in developed):
+                    continue
+                developed.append(polygon)
+            if developed:
+                flange_polygons = developed
     else:
         reason = (
             "当前构件为等高直梁，翼缘直接采用投影视图。"
@@ -1014,12 +1108,11 @@ def lower_bh_assembly(
             payload={"reason": "no_development_target"},
         )
 
-    # Cuts are classified on the source projection.  Development is normally
-    # relevant only to hole-less variable/cranked flanges; reject an ambiguous
-    # combination rather than silently moving holes to an altered outline.
-    cut_polygons = source_flange_polygons if len(source_flange_polygons) == len(flange_polygons) else flange_polygons
-    if flange_cuts and len(source_flange_polygons) != len(flange_polygons):
-        raise ValueError("Flange development with explicit flange holes requires a unique source-to-developed mapping.")
+    # Circles are classified on the source projection, where their centres
+    # live.  A developed (rectangular) flange plate uses a local coordinate
+    # frame, so circle ownership is decided from the source outline and then
+    # re-split by developed length when two different-length plates exist.
+    cut_polygons = source_flange_polygons
     flange_openings: list[OwnedPolygonalOpening] = []
     flange_opening_blocks: set[str] = set()
     for polygon in cut_polygons:
@@ -1036,10 +1129,6 @@ def lower_bh_assembly(
             ):
                 continue
             flange_openings.append(opening)
-    if flange_openings and len(source_flange_polygons) != len(flange_polygons):
-        raise ValueError(
-            "Flange development with polygonal openings requires a unique source-to-developed mapping."
-        )
     flange_opening_assignments: list[list[OwnedPolygonalOpening]] = [
         [] for _ in cut_polygons
     ]
@@ -1069,6 +1158,27 @@ def lower_bh_assembly(
         observer=observer,
         hypothesis_id=hypothesis_id,
     )
+
+    # Equal-height member whose two flange paths differ AND the flange carries
+    # circles: re-split ownership by developed length so the plate pair keeps
+    # its distinct lengths instead of silently collapsing to a same-length q2.
+    if (
+        development is not None
+        and development.mode == "constant_height_two_flange_paths"
+        and flange_cuts
+        and len(flange_polygons) == 2
+    ):
+        developed_upper, developed_lower = _split_developed_flange_cuts(
+            flange_cuts,
+            development.target_lengths,
+            long_axis=flange_axis,
+            src_bounds=cut_polygons[0].bounds,
+            side_counts=flange_cut_diagnostics.get(
+                "main_bolt_line_symbol_counts", {}
+            ),
+        )
+        flange_cut_assignments = [developed_upper, developed_lower]
+        split_single = False
 
     flange_plates: list[BHPlate] = []
     if len(flange_polygons) == 1 and not split_single:

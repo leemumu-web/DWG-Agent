@@ -1075,6 +1075,7 @@ def build_proof_obligations(
     elif development_mode in {
         "variable_height_two_paths",
         "constant_height_cranked_path",
+        "constant_height_two_flange_paths",
     }:
         profile_authorized = bool(
             development_assessment.get("profile_authorized")

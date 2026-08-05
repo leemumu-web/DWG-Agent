@@ -120,7 +120,10 @@ def assess_flange_development_semantics(
         determinacy = "direct_projection"
         requires_unfolding_policy = False
         fabrication_authority = "source_projection"
-    elif mode == "variable_height_two_paths" and valid_straight_strips:
+    elif mode in {
+        "variable_height_two_paths",
+        "constant_height_two_flange_paths",
+    } and valid_straight_strips:
         determinacy = "rigid_projection_determined"
         requires_unfolding_policy = False
         fabrication_authority = "bound_total_length_required"
@@ -138,6 +141,7 @@ def assess_flange_development_semantics(
     if profile_authorized and mode in {
         "variable_height_two_paths",
         "constant_height_cranked_path",
+        "constant_height_two_flange_paths",
     }:
         requires_unfolding_policy = False
         fabrication_authority = "profile_authorized_source_geometry"

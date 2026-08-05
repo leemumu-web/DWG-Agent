@@ -6,7 +6,7 @@ from typing import Iterable
 
 from ezdxf.entities import Arc, DXFEntity
 from shapely import set_precision
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, box
 from shapely.ops import polygonize, unary_union
 
 from .bh_models import BulgeContour, BulgeVertex
@@ -882,6 +882,79 @@ def estimate_flange_developments(
             certificate=certificate,
         ))
 
+    # A constant-height member with two measurably different flange paths
+    # (end bevel / stepped flange).  The web projection exposes both
+    # developed lengths, so emit two targets instead of one identical pair.
+    ordered_details = tuple(reversed(details))
+    raw_lengths = tuple(
+        _numeric_measurement(item, "raw_length") for item in ordered_details
+    )
+    if max(raw_lengths) - min(raw_lengths) > max(
+        5.0,
+        0.005 * nominal_length,
+    ):
+        strip_tolerance = max(
+            float(manufacturing_tolerance_mm),
+            0.02 * float(flange_thickness),
+        )
+        valid_straight_strips = tuple(
+            bool(item.get("straight"))
+            and item.get("method") == "straight_strip_projection"
+            and item.get("observed_strip_thickness_mm") is not None
+            and abs(
+                _numeric_measurement(item, "observed_strip_thickness_mm")
+                - float(flange_thickness)
+            )
+            <= strip_tolerance
+            and _numeric_measurement(
+                item,
+                "rectangular_fill_ratio",
+                default=0.0,
+            )
+            >= 0.98
+            for item in ordered_details
+        )
+        profile_authorized = development_policy.authorizes_profile(
+            development_profile_id
+        )
+        direct_projection_flags = tuple(
+            development_policy.preserve_direct_projection
+            and abs(value - source_projection_length)
+            <= manufacturing_tolerance_mm
+            for value in raw_lengths
+        )
+        targets = tuple(
+            source_projection_length
+            if direct
+            else quantize_derived_flange_length(value, development_policy)
+            if profile_authorized and valid
+            else value
+            for value, direct, valid in zip(
+                raw_lengths,
+                direct_projection_flags,
+                valid_straight_strips,
+            )
+        )
+        certificate = {
+            "authorized": profile_authorized and all(valid_straight_strips),
+            "certificate_kind": "constant_height_two_flange_paths",
+            "raw_lengths_mm": list(raw_lengths),
+            "quantized_lengths_mm": list(targets),
+            "direct_projection_flags": list(direct_projection_flags),
+            "valid_straight_strip_flags": list(valid_straight_strips),
+            "strip_tolerance_mm": strip_tolerance,
+            "source_projection_length_mm": source_projection_length,
+            "policy": asdict(development_policy),
+        }
+        return traced(FlangeDevelopmentEstimate(
+            mode="constant_height_two_flange_paths",
+            target_lengths=targets,
+            raw_lengths=raw_lengths,
+            source_projection_length=source_projection_length,
+            details=ordered_details,
+            certificate=certificate,
+        ))
+
     # A constant-height member whose web bbox exceeds H contains a crank/offset.
     # Select the boundary-path measurement nearest the table length.  Preserve
     # that observed development instead of rounding toward an offline manual
@@ -945,7 +1018,12 @@ def extend_flange_polygon_to_length(
     observer: TraceObserver | None = None,
     hypothesis_id: str | None = None,
 ) -> Polygon:
-    """Extend a flange plan without distorting an existing diagonal end cut."""
+    """Extend or shorten a flange plan without distorting its diagonal end cut.
+
+    A constant-height member can expose two flange paths of different lengths
+    (end bevel / stepped web); the shorter flange is a real member property,
+    so shortening is allowed as long as the resulting outline stays valid.
+    """
     min_x, min_y, max_x, max_y = polygon.bounds
     current = (max_x - min_x) if long_axis == "x" else (max_y - min_y)
     delta = target_length - current
@@ -962,10 +1040,6 @@ def extend_flange_polygon_to_length(
             payload={"current_length_mm": current, "target_length_mm": target_length},
         )
         return polygon
-    if delta < -tolerance:
-        raise ValueError(
-            f"Refusing to shorten flange projection from {current:.6f} to {target_length:.6f} mm."
-        )
 
     coordinates = [(float(x), float(y)) for x, y in list(polygon.exterior.coords)[:-1]]
     diagonal_midpoints: list[float] = []
@@ -1772,6 +1846,113 @@ def _complete_longitudinal_boundary_faces(
     }
 
 
+def _clip_web_to_clear_height(
+    polygon: Polygon,
+    *,
+    entities: list[DXFEntity],
+    long_axis: str,
+    flange_thickness: float,
+    profile_height: float,
+    nominal_length: float,
+    tolerance_mm: float = 0.5,
+) -> Polygon:
+    """等高梁腹板净高校正：轮廓横向超净高时用翼缘厚度边界裁剪。
+
+    腹板轮廓可能因翼缘端部未闭合而在多边形化时吸收下/上翼缘厚度。
+    此函数利用 web 视图的近水平长线确定构件底面/顶面 transverse
+    坐标，再按 profile 翼缘厚度定位净高范围。仅在证据充分时裁剪，
+    否则保守保留原轮廓，避免为单一图纸过拟合。
+    """
+    bounds = polygon.bounds
+    if long_axis == "x":
+        long_min, lo, long_max, hi = bounds
+    else:
+        lo, long_min, hi, long_max = bounds
+    clear_height = profile_height - 2.0 * flange_thickness
+    if hi - lo <= clear_height + tolerance_mm:
+        return polygon
+    if hi - lo > clear_height + 2.5 * flange_thickness + tolerance_mm:
+        # 超出"含 1~2 张翼缘厚度"的合理范围：这类轮廓多半来自端板/
+        # 加劲区域或独立投影，而不是腹板吸收了翼缘厚度。保守保留，
+        # 避免把真实几何裁剪到失败。
+        return polygon
+
+    transverse_lines: list[float] = []
+    for entity in entities:
+        if entity.dxftype() != "LINE":
+            continue
+        start = (float(entity.dxf.start.x), float(entity.dxf.start.y))
+        end = (float(entity.dxf.end.x), float(entity.dxf.end.y))
+        if long_axis == "x":
+            span = abs(end[0] - start[0])
+            t0, t1 = start[1], end[1]
+        else:
+            span = abs(end[1] - start[1])
+            t0, t1 = start[0], end[0]
+        if span < max(0.30 * nominal_length, 100.0):
+            continue
+        if abs(t1 - t0) > max(tolerance_mm, span * 1e-4):
+            continue
+        transverse_lines.append((t0 + t1) / 2.0)
+    if len(transverse_lines) < 2:
+        return polygon
+    # Locate the pair of horizontal lines whose span matches the clear web
+    # height.  A constant-height web keeps two explicit flange-to-web edges
+    # (bottom+tf and top-tf); a cranked web has no such horizontal pair, so
+    # it is deliberately left untouched.
+    boundary_pairs = []
+    for lo_t in transverse_lines:
+        for hi_t in transverse_lines:
+            if hi_t <= lo_t:
+                continue
+            span = hi_t - lo_t
+            if abs(span - clear_height) <= max(tolerance_mm, 1.0):
+                boundary_pairs.append((span, lo_t, hi_t))
+    if not boundary_pairs:
+        return polygon
+    _, clip_lo, clip_hi = max(boundary_pairs, key=lambda item: item[0])
+    if long_axis == "x":
+        clip = box(long_min, clip_lo, long_max, clip_hi)
+    else:
+        clip = box(clip_lo, long_min, clip_hi, long_max)
+    clipped = polygon.intersection(clip)
+    if clipped.geom_type == "MultiPolygon":
+        clipped = max(clipped.geoms, key=lambda item: item.area)
+    elif clipped.geom_type == "GeometryCollection":
+        polygons = [
+            item
+            for item in clipped.geoms
+            if item.geom_type == "Polygon"
+        ]
+        if not polygons:
+            return polygon
+        clipped = max(polygons, key=lambda item: item.area)
+    if clipped.is_empty or clipped.geom_type != "Polygon":
+        return polygon
+    clipped_bounds = clipped.bounds
+    new_lo, new_hi = (
+        (clipped_bounds[1], clipped_bounds[3])
+        if long_axis == "x"
+        else (clipped_bounds[0], clipped_bounds[2])
+    )
+    if abs((new_hi - new_lo) - clear_height) > max(2.0, flange_thickness):
+        return polygon
+    if clipped.area < 0.5 * polygon.area:
+        return polygon
+    # A stepped/cranked web may carry end height changes that this profile
+    # check would otherwise clip away.  Require the clipped outline to remain
+    # nearly a full clear-height rectangle: if a real step survived the line
+    # pair, the fill ratio drops and we keep the original outline.
+    if long_axis == "x":
+        clipped_long = clipped_bounds[2] - clipped_bounds[0]
+    else:
+        clipped_long = clipped_bounds[3] - clipped_bounds[1]
+    rect_area = clipped_long * clear_height
+    if rect_area > 0.0 and clipped.area / rect_area < 0.90:
+        return polygon
+    return clipped
+
+
 def select_web_polygon(
     entities: list[DXFEntity],
     *,
@@ -1780,6 +1961,7 @@ def select_web_polygon(
     nominal_length: float,
     hole_centers: list[Point2D],
     source_bbox: BoundingBox,
+    clear_web_height: float | None = None,
     observer: TraceObserver | None = None,
     hypothesis_id: str | None = None,
 ) -> PolygonizedResult:
@@ -1788,8 +1970,26 @@ def select_web_polygon(
     Hole-less webs are supported.  When holes exist, containment remains a
     strong semantic constraint.  A valid direct face is expanded only through
     adjacent end faces that extend its longitudinal envelope.
+
+    ``clear_web_height`` is the profile's net web height (H - 2*tf).  When
+    provided, the selected web outline is verified against it before being
+    returned: a constant-height web that absorbed a flange thickness is
+    corrected to its true net height instead of being shipped oversized.
     """
     long_axis = choose_long_axis(source_bbox, nominal_length)
+
+    def _corrected(polygon: Polygon) -> Polygon:
+        if clear_web_height is None:
+            return polygon
+        return _clip_web_to_clear_height(
+            polygon,
+            entities=entities,
+            long_axis=long_axis,
+            flange_thickness=(profile_height - clear_web_height) / 2.0,
+            profile_height=profile_height,
+            nominal_length=nominal_length,
+        )
+
     grid_candidates = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1)
     failures: list[str] = []
     for grid_size in grid_candidates:
@@ -1989,7 +2189,7 @@ def select_web_polygon(
                     },
                 )
                 return PolygonizedResult(
-                    expanded,
+                    _corrected(expanded),
                     grid_size,
                     faces,
                     {
@@ -2061,7 +2261,7 @@ def select_web_polygon(
             },
         )
         return PolygonizedResult(
-            cleaned,
+            _corrected(cleaned),
             grid_size,
             faces,
             {

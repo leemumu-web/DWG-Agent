@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import gc
 import json
+import os
 from pathlib import Path
 import shutil
-from time import perf_counter
 
 from . import __version__
 from .bh_compare import compare_bh_to_manual
@@ -14,7 +14,31 @@ from .bh_knowledge import BHSourceContract
 from .bh_validator import validate_bh_assembly, validate_bh_saved_dxf
 from .bh_writer import OutputPurpose, write_bh_clean
 from .dxf_io import load_document
-from .dxf_preview import render_preview_pair
+
+
+def _light_report_enabled() -> bool:
+    """Light-weight audit report: skip the full source IR dump.
+
+    The complete per-entity ``source_ir`` makes a report tens of MB and slows
+    every drawing.  Set ``DWG_AGENT_LIGHT_REPORT=1`` to keep the audit fields
+    (manufacturing IR, proofs, diagnostics, fingerprints) while replacing the
+    per-entity dump with a compact summary.
+    """
+    return os.environ.get("DWG_AGENT_LIGHT_REPORT") == "1"
+
+
+def _report_source_ir(source_ir) -> dict[str, object] | None:
+    if not _light_report_enabled():
+        return source_ir.to_dict()
+    return {
+        "summary_only": True,
+        "dxf_version": source_ir.dxf_version,
+        "encoding": source_ir.encoding,
+        "units": source_ir.units,
+        "entity_count": len(source_ir.entities),
+        "container_count": len(source_ir.containers),
+        "audit_error_count": len(source_ir.audit_errors),
+    }
 
 
 def _base_name(input_path: Path) -> str:
@@ -44,23 +68,6 @@ def _empty_preview_outputs() -> dict[str, object]:
     """Represent routes that have no output DXF and therefore no PNG pair."""
 
     return {"before": None, "after": None, "shared_view": False}
-
-
-def _remove_preview_pair(route_dir: Path, base: str) -> None:
-    """Remove only this item's partial previews, never another item's output."""
-
-    preview_root = route_dir / "previews"
-    for phase, suffix in (("before", "拆板前"), ("after", "拆板后")):
-        path = preview_root / phase / f"{base}_{suffix}.png"
-        path.unlink(missing_ok=True)
-        try:
-            path.parent.rmdir()
-        except OSError:
-            pass
-    try:
-        preview_root.rmdir()
-    except OSError:
-        pass
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:
@@ -111,7 +118,7 @@ def _rejected_report(
     )
     destination = report_path or route_dir / f"{base}_隔离_报告.json"
     source_ir = (
-        error.source_ir.to_dict()
+        _report_source_ir(error.source_ir)
         if isinstance(error, BHCompilationRejected)
         and error.source_ir is not None
         else None
@@ -334,22 +341,10 @@ def split_bh_dxf(
     finally:
         pending_path.unlink(missing_ok=True)
 
-    preview_started = perf_counter()
-    try:
-        preview = render_preview_pair(
-            input_path,
-            written_path,
-            route_dir / "previews",
-            stem=base,
-        )
-    except Exception as exc:
-        written_path.unlink(missing_ok=True)
-        _remove_preview_pair(route_dir, base)
-        raise RuntimeError(
-            f"BH preview rendering failed for {input_path.name}: {exc}"
-        ) from exc
-    preview_render_seconds = perf_counter() - preview_started
-    preview_outputs = preview.to_report_dict()
+    # Preview PNG rendering is disabled.  The report keeps a stable
+    # before/after placeholder so downstream contracts see no artifact.
+    preview_render_seconds = 0.0
+    preview_outputs = _empty_preview_outputs()
 
     source_copy = (
         _copy_source(input_path, route_dir)
@@ -390,13 +385,13 @@ def split_bh_dxf(
             "previews": preview_outputs,
         },
         "preview_rendering": {
-            "schema": preview_outputs["schema"],
-            "renderer": preview_outputs["renderer"],
-            "shared_view": preview_outputs["shared_view"],
-            "view_bounds": preview_outputs["view_bounds"],
-            "canvas_pixels": preview_outputs["canvas_pixels"],
-            "dpi": preview_outputs["dpi"],
-            "font_fallback": preview_outputs["font_fallback"],
+            "schema": None,
+            "renderer": None,
+            "shared_view": False,
+            "view_bounds": None,
+            "canvas_pixels": None,
+            "dpi": None,
+            "font_fallback": None,
             "render_seconds": preview_render_seconds,
         },
         "naming_policy": {
@@ -421,7 +416,7 @@ def split_bh_dxf(
         "hypothesis_solver": assembly.diagnostics.get("hypothesis_solver"),
         "automation_assessment": assembly.diagnostics.get("automation_assessment"),
         "proof_report": compiled.proof_report.to_dict(),
-        "source_ir": compiled.source_ir.to_dict(),
+        "source_ir": _report_source_ir(compiled.source_ir),
         "canonical_frames": compiled.frame_result.to_dict(),
         "drawing_graph": compiled.drawing_graph.to_dict(),
         "search_status": {

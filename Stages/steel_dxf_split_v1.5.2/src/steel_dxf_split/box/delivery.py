@@ -9,9 +9,6 @@ from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import TYPE_CHECKING
 
-from ezdxf.fonts import fonts
-
-from . import preview as box_preview
 from .contracts import BOX_AUTO_ACCEPTED_ROUTE, BOX_COMPILATION_REPORT_SCHEMA
 from .provenance import (
     BOX_CORE_COMMIT,
@@ -24,8 +21,6 @@ from .writer import BoxLayout, OutputPurpose, write_box_clean
 
 if TYPE_CHECKING:
     from .compiler import BoxCompileConfig, BoxCoreCompilation
-
-_WINDOWS_PREVIEW_FONTS = ("simsun.ttc", "msyh.ttc", "simhei.ttf")
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,71 +107,6 @@ def _promote_staged_files(
         raise
 
 
-def _host_preview_font() -> str:
-    try:
-        return box_preview.select_cjk_fallback_font()
-    except RuntimeError:
-        for candidate in _WINDOWS_PREVIEW_FONTS:
-            if fonts.font_manager.has_font(candidate):
-                return candidate
-        raise
-
-
-def _render_preview_pair(
-    before_dxf: Path,
-    after_dxf: Path,
-    preview_root: Path,
-    *,
-    stem: str,
-) -> box_preview.PreviewPair:
-    """Render with Project 2, adding only a Windows CJK font fallback."""
-
-    try:
-        return box_preview.render_preview_pair(
-            before_dxf,
-            after_dxf,
-            preview_root,
-            stem=stem,
-        )
-    except RuntimeError as error:
-        if "requires an installed CJK font" not in str(error):
-            raise
-    fallback = _host_preview_font()
-    fonts.font_manager._fallback_font_name = fallback
-    box_preview.plt.rcParams["font.sans-serif"] = [
-        "SimSun",
-        "Microsoft YaHei",
-        "DejaVu Sans",
-    ]
-    box_preview.plt.rcParams["axes.unicode_minus"] = False
-    bounds = box_preview._shared_view_bounds(before_dxf, after_dxf)
-    before_path = preview_root / "before" / f"{stem}_拆板前.png"
-    after_path = preview_root / "after" / f"{stem}_拆板后.png"
-    box_preview._render_dxf(
-        before_dxf,
-        before_path,
-        view_bounds=bounds,
-        title=f"拆板前 | {stem}",
-        font_fallback=fallback,
-    )
-    box_preview._render_dxf(
-        after_dxf,
-        after_path,
-        view_bounds=bounds,
-        title=f"拆板后 | {stem}",
-        font_fallback=fallback,
-    )
-    box_preview._assert_decodeable_pair(before_path, after_path)
-    return box_preview.PreviewPair(
-        before_path=before_path,
-        after_path=after_path,
-        view_bounds=bounds,
-        canvas_pixels=box_preview.PREVIEW_CANVAS_PIXELS,
-        dpi=box_preview.PREVIEW_DPI,
-        font_fallback=fallback,
-    )
-
-
 def _owned_artifact_paths(
     source_path: Path,
     output_root: Path,
@@ -187,26 +117,10 @@ def _owned_artifact_paths(
     return (
         production / f"{base}_自动拆板_清洁1to1.dxf",
         production / f"{base}_自动拆板_报告.json",
-        production / "previews/before" / f"{base}_拆板前.png",
-        production / "previews/after" / f"{base}_拆板后.png",
         review / f"{base}_复核候选_1to1.dxf",
         review / f"{base}_复核_报告.json",
         review / source_path.name,
-        review / "previews/before" / f"{base}_拆板前.png",
-        review / "previews/after" / f"{base}_拆板后.png",
     )
-
-
-def _preview_report(
-    preview: box_preview.PreviewPair,
-    *,
-    before_path: Path,
-    after_path: Path,
-) -> dict[str, object]:
-    payload = preview.to_report_dict()
-    payload["before"] = str(before_path.resolve())
-    payload["after"] = str(after_path.resolve())
-    return payload
 
 
 def _layout_report(layout: BoxLayout) -> list[dict[str, object]]:
@@ -287,8 +201,6 @@ def deliver_box_compilation(
         raise ValueError("BOX 原子批次要求报告与 DXF 输出位于同一磁盘。")
 
     output_root.mkdir(parents=True, exist_ok=True)
-    preview_before = route_dir / "previews/before" / f"{base}_拆板前.png"
-    preview_after = route_dir / "previews/after" / f"{base}_拆板后.png"
     with TemporaryDirectory(prefix=".box-v1-stage-", dir=output_root) as temporary:
         stage_root = Path(temporary)
         staged_dxf = stage_root / "output" / written_path.name
@@ -298,7 +210,6 @@ def deliver_box_compilation(
             if source_copy is not None
             else None
         )
-        staged_preview_root = stage_root / "previews"
 
         layout = write_box_clean(
             core.manufacturing,
@@ -316,23 +227,18 @@ def deliver_box_compilation(
                 + ", ".join(_failed_checks(saved))
             )
 
-        preview_started = perf_counter()
-        preview = _render_preview_pair(
-            source_path,
-            staged_dxf,
-            staged_preview_root,
-            stem=base,
-        )
-        preview_seconds = perf_counter() - preview_started
         if staged_source is not None:
             staged_source.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, staged_source)
 
-        preview_payload = _preview_report(
-            preview,
-            before_path=preview_before,
-            after_path=preview_after,
-        )
+        # Preview PNG rendering is disabled.  The report keeps a stable
+        # before/after placeholder so downstream contracts see no artifact.
+        preview_seconds = 0.0
+        preview_payload = {
+            "before": None,
+            "after": None,
+            "shared_view": False,
+        }
         best = core.search.best
         report: dict[str, object] = {
             "version": BOX_CORE_VERSION,
@@ -421,8 +327,6 @@ def deliver_box_compilation(
         _write_json_staged(staged_report, report)
         staged_pairs = [
             (staged_dxf, written_path),
-            (preview.before_path, preview_before),
-            (preview.after_path, preview_after),
         ]
         if staged_source is not None and source_copy is not None:
             staged_pairs.append((staged_source, source_copy))
