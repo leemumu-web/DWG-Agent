@@ -16,8 +16,8 @@ from pathlib import Path
 import ezdxf
 from ezdxf import bbox
 
-GAP_X = 20.0
-GAP_Y = 20.0
+GAP_X = 3.0
+GAP_Y = 3.0
 
 
 def _safe_block_name(raw: str) -> str:
@@ -146,33 +146,28 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
                 w = ext.extmax[0] - ext.extmin[0]
                 h = ext.extmax[1] - ext.extmin[1]
             cells.append((p, w, h))
-    # Adaptive layout: each column is as wide as its widest cell, each row as
-    # tall as its tallest cell, so the sheet packs tightly (small GAP_X/Y)
-    # instead of stretching every cell by one large drawing.
+    # Per-row horizontal packing: each cell starts right after the previous
+    # one (tiny GAP_X), vertically centred on the row; rows stack by their own
+    # height.  Drawings of very different widths pack tightly instead of being
+    # stretched to a common column width.
     n_cells = len(cells)
     n_cols = pairs_per_row * 2
-    n_rows = (n_cells + n_cols - 1) // n_cols
-    col_w = []
-    for col in range(n_cols):
-        col_max = max(
-            (
-                cells[r * n_cols + col][1]
-                for r in range(n_rows)
-                if r * n_cols + col < n_cells
-            ),
-            default=100.0,
-        )
-        col_w.append(col_max + GAP_X)
-    row_h = []
+    row_x: list[list[float]] = []
+    row_cell_w: list[list[float]] = []
+    row_h: list[float] = []
     for start in range(0, n_cells, n_cols):
         row_slice = cells[start : start + n_cols]
+        xs: list[float] = []
+        widths: list[float] = []
+        acc = 0.0
+        for _, w, _ in row_slice:
+            xs.append(acc)
+            acc += w + GAP_X
+            widths.append(w)
+        row_x.append(xs)
+        row_cell_w.append(widths)
         row_h.append(max(h for _, _, h in row_slice) + GAP_Y)
-    col_x = []
-    acc = 0.0
-    for w in col_w:
-        col_x.append(acc)
-        acc += w
-    row_y = []
+    row_y: list[float] = []
     acc = 0.0
     for h in row_h:
         row_y.append(-acc)
@@ -187,9 +182,9 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
             p, w, h = cells[pi * 2 + ji]
             row = pi // pairs_per_row
             col = (pi % pairs_per_row) * 2 + ji
-            x = col_x[col]
+            x = row_x[row][col]
             y = row_y[row]
-            ccx = x + col_w[col] / 2.0
+            ccx = x + row_cell_w[row][col] / 2.0
             ccy = y + row_h[row] / 2.0
             doc = ezdxf.readfile(p)
             _copy_styles(main, doc)
