@@ -72,9 +72,16 @@ Thumbs.db
 *.tar.gz.gpg.asc
 /dwg-agent-*-deploy.sh
 *.7z
+# release packages + deploy artifacts (external storage / remote host)
+/releases/
 
 # --- Local working data (test files, docs, CAD samples — never commit) ---
 Data/
+# CAD samples & pipeline intermediates in excel_final
+/Stages/excel_final/data/
+
+# --- Test runner output (playwright, etc.) ---
+/output/
 
 # --- Package-manager artifacts in wrong directories ---
 /backend/package-lock.json
