@@ -15,7 +15,7 @@ STAGE_PRODUCTS = {
     "Stages/dxf2excel": ("dxf2excel", "0.1.0", "dxf2excel"),
     "Stages/steel_dxf_classifier_v1.1.0": (
         "steel-dxf-classifier",
-        "1.2.0",
+        "1.3.0",
         "steel-dxf-classify",
     ),
     "Stages/steel_dxf_split_v1.5.2": (
@@ -187,7 +187,7 @@ def test_stage_products_keep_paths_package_versions_and_cli_names() -> None:
         assert cli_name in scripts
 
     classifier_root = REPO_ROOT / "Stages/steel_dxf_classifier_v1.1.0"
-    assert (classifier_root / "VERSION").read_text(encoding="utf-8").strip() == "1.2.0"
+    assert (classifier_root / "VERSION").read_text(encoding="utf-8").strip() == "1.3.0"
     assert (classifier_root / "docs/IO_CONTRACT.md").is_file()
     splitter_root = REPO_ROOT / "Stages/steel_dxf_split_v1.5.2"
     assert (splitter_root / "VERSION").read_text(encoding="utf-8").strip() == "1.5.2"

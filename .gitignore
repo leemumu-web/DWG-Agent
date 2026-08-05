@@ -91,3 +91,6 @@ Data/
 # --- Vendored kkFileView: track source, exclude the ~832M portable
 #     LibreOffice bundle (fetched at deploy time, not source) ---
 third_parts/kkFileView/server/LibreOfficePortable/
+
+# --- BH split before/after merged review sheets (large delivery artifacts) ---
+/BH拆板合图/

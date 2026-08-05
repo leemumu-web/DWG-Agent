@@ -546,7 +546,8 @@ class TestClassifiedInfrastructureLayout:
         assert not (REPO_ROOT / "cad-worker").exists()
 
     def test_root_logo_duplicate_is_removed(self):
-        assert (REPO_ROOT / "frontend/public/logo.png").is_file()
+        assert (REPO_ROOT / "frontend/public/brand/logo-on-light.png").is_file()
+        assert not (REPO_ROOT / "frontend/public/logo.png").exists()
         assert not (REPO_ROOT / "image.png").exists()
 
 
