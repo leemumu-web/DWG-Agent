@@ -70,6 +70,26 @@ def copy_block_recursive(main: ezdxf.document.Drawing, target, entity, src_doc, 
     target.add_entity(entity.copy())
 
 
+def _copy_expanded(msp, entity, dx: float, dy: float) -> None:
+    """Recursively copy an entity into the modelspace, exploding INSERTs.
+
+    ZWCAD (and other lightweight CADs) open plain entity sheets more reliably
+    than deep nested-block references, so each source drawing is flattened to
+    base primitives (LINE/ARC/CIRCLE/TEXT/LWPOLYLINE/...) translated into its
+    grid cell centre.
+    """
+    if entity.dxftype() == "INSERT":
+        for ve in entity.virtual_entities():
+            _copy_expanded(msp, ve, dx, dy)
+        return
+    copy = entity.copy()
+    try:
+        copy.translate(dx, dy, 0)
+    except Exception:
+        pass
+    msp.add_entity(copy)
+
+
 def _translate_block(blk, dx: float, dy: float) -> None:
     for e in blk:
         if e.dxftype() == "INSERT":
@@ -91,6 +111,7 @@ def main() -> None:
     ap.add_argument("manifest", type=Path, help="batch CLI result JSON (list of summaries)")
     ap.add_argument("-o", "--output", type=Path, default=Path("merged_sheet.dxf"))
     ap.add_argument("--pairs-per-row", type=int, default=7, help="pairs per row")
+    ap.add_argument("--chunk-size", type=int, default=0, help="pairs per output sheet (0=all in one)")
     ap.add_argument("--limit", type=int, default=0, help="only first N pairs (0=all)")
     args = ap.parse_args()
 
@@ -101,9 +122,21 @@ def main() -> None:
     pairs = [(Path(r["input"]), Path(r["production_clean"])) for r in auto]
     print(f"pairs: {len(pairs)}")
 
+    chunk_size = args.chunk_size or len(pairs)
+    for ci, start in enumerate(range(0, len(pairs), chunk_size), start=1):
+        chunk = pairs[start : start + chunk_size]
+        out = args.output.with_name(
+            f"{args.output.stem}_{ci:02d}{args.output.suffix}"
+        )
+        merge_pairs(chunk, out, args.pairs_per_row)
+        print(f"chunk {ci}: {len(chunk)} pairs -> {out}")
+
+
+def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
+    """Merge one chunk of [before, after] pairs into a single output sheet."""
     # Pass 1: read every drawing once to learn each cell extents.
     cells = []  # (path, w, h)
-    max_w = max_h = 0.0
+    max_h = 0.0
     for before, after in pairs:
         for p in (before, after):
             doc = ezdxf.readfile(p)
@@ -114,39 +147,46 @@ def main() -> None:
                 w = ext.extmax[0] - ext.extmin[0]
                 h = ext.extmax[1] - ext.extmin[1]
             cells.append((p, w, h))
-            max_w = max(max_w, w)
             max_h = max(max_h, h)
-    cell_w = max_w + GAP_X
     cell_h = max_h + GAP_Y
+    # Per-row column width so each row is packed tightly around its widest
+    # cell instead of being stretched by a global maximum.  Each row holds
+    # pairs_per_row pairs = pairs_per_row*2 cells.
+    row_cell_w = []
+    for start in range(0, len(cells), pairs_per_row * 2):
+        row_slice = cells[start : start + pairs_per_row * 2]
+        row_cell_w.append(max(w for _, w, _ in row_slice) + GAP_X)
 
-    main = ezdxf.new("R2010")
+    main = ezdxf.new("R2000")
     main.units = ezdxf.units.MM
     msp = main.modelspace()
-    renamed: dict = {}
 
     for pi in range(len(pairs)):
         for ji in range(2):
             p, w, h = cells[pi * 2 + ji]
-            col = (pi % args.pairs_per_row) * 2 + ji
-            row = pi // args.pairs_per_row
-            x = col * cell_w
+            row = pi // pairs_per_row
+            col = (pi % pairs_per_row) * 2 + ji
+            x = col * row_cell_w[row]
             y = -row * cell_h
-            prefix = f"P{pi}"
-            blk = main.blocks.new(name=f"{prefix}_IMG{ji}")
+            ccx = x + row_cell_w[row] / 2.0
+            ccy = y - cell_h / 2.0
             doc = ezdxf.readfile(p)
             _copy_styles(main, doc)
+            ext = bbox.extents(doc.modelspace())
+            if ext.has_data:
+                bcx = (ext.extmin[0] + ext.extmax[0]) / 2.0
+                bcy = (ext.extmin[1] + ext.extmax[1]) / 2.0
+            else:
+                bcx = bcy = 0.0
+            dx = ccx - bcx
+            dy = ccy - bcy
             for e in doc.modelspace():
-                copy_block_recursive(main, blk, e, doc, prefix, renamed)
-            # Align the block's own bbox to the grid cell.
-            bext = bbox.extents(blk)
-            if bext.has_data:
-                _translate_block(blk, x - bext.extmin[0], y - bext.extmin[1])
-            msp.add_blockref(f"{prefix}_IMG{ji}", (x, y))
+                _copy_expanded(msp, e, dx, dy)
         if pi % 20 == 0:
             print(f"  {pi+1}/{len(pairs)}")
 
-    main.saveas(args.output)
-    print(f"merged {len(pairs)} pairs -> {args.output}")
+    main.saveas(output)
+    print(f"merged {len(pairs)} pairs -> {output}")
 
 
 if __name__ == "__main__":
