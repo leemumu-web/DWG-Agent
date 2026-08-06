@@ -8,7 +8,7 @@ from math import atan, ceil, cos, hypot, pi
 
 from shapely import normalize
 from shapely.affinity import translate
-from shapely.geometry import Point
+from shapely.geometry import Point, box
 
 from .manufacturing_ir import (
     CircularCutIR,
@@ -561,6 +561,56 @@ def _opening_is_full_transverse_candidate_course(
     return False
 
 
+def _opening_is_outer_section_envelope(
+    opening: ProjectedInnerContourOpening,
+    candidates: tuple[OpeningOwnershipRoleCandidate, ...],
+    *,
+    tolerance_mm: float,
+) -> bool:
+    """Identify a full-section loop surrounding a developed plate course."""
+
+    opening_polygon = opening.loop.polygon
+    opening_rectangle = box(*opening_polygon.bounds)
+    opening_area_tolerance = max(
+        tolerance_mm * max(opening_rectangle.length, 1.0),
+        tolerance_mm**2,
+    )
+    if (
+        opening_polygon.symmetric_difference(opening_rectangle).area
+        > opening_area_tolerance
+    ):
+        return False
+    opening_min_x, opening_min_y, opening_max_x, opening_max_y = (
+        opening_polygon.bounds
+    )
+    for candidate in candidates:
+        candidate_polygon = candidate.projection.polygon
+        candidate_rectangle = box(*candidate_polygon.bounds)
+        candidate_area_tolerance = max(
+            tolerance_mm * max(candidate_rectangle.length, 1.0),
+            tolerance_mm**2,
+        )
+        if (
+            candidate_polygon.symmetric_difference(candidate_rectangle).area
+            > candidate_area_tolerance
+        ):
+            continue
+        candidate_min_x, candidate_min_y, candidate_max_x, candidate_max_y = (
+            candidate_polygon.bounds
+        )
+        if (
+            abs(opening_min_x - candidate_min_x) <= tolerance_mm
+            and abs(opening_max_x - candidate_max_x) <= tolerance_mm
+            and opening_min_y < candidate_min_y - tolerance_mm
+            and opening_max_y > candidate_max_y + tolerance_mm
+            and opening_polygon.buffer(tolerance_mm).covers(candidate_polygon)
+            and opening_polygon.boundary.distance(candidate_polygon.boundary)
+            <= tolerance_mm
+        ):
+            return True
+    return False
+
+
 def lower_inner_contour_openings(
     target_role_candidate: OpeningOwnershipRoleCandidate,
     openings: InnerContourOpeningInventory,
@@ -641,6 +691,10 @@ def lower_inner_contour_openings(
             )
             continue
         if _opening_is_full_transverse_candidate_course(
+            opening,
+            ownership_candidates,
+            tolerance_mm=boundary_tolerance_mm,
+        ) or _opening_is_outer_section_envelope(
             opening,
             ownership_candidates,
             tolerance_mm=boundary_tolerance_mm,

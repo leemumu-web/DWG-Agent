@@ -526,6 +526,22 @@ def enumerate_web_role_pairs(
         for candidate in without_remainders
         if candidate.candidate_id not in rejected_partitions
     )
+    rejected_short_courses: set[str] = set()
+    if not openings:
+        minimum_span = max(
+            BOX_DRAFTING_RESOLUTION_MM * 2.0,
+            *(candidate.projection.grid_size_mm * 2.0 for candidate in eligible),
+        )
+        rejected_short_courses = {
+            candidate.candidate_id
+            for candidate in eligible
+            if candidate.longitudinal_span <= minimum_span
+        }
+        eligible = tuple(
+            candidate
+            for candidate in eligible
+            if candidate.candidate_id not in rejected_short_courses
+        )
     if not eligible:
         raise RoleHypothesisError("no source-backed physical web candidate")
 
@@ -675,6 +691,10 @@ def enumerate_web_role_pairs(
                 *(
                     f"BOX.ROLE.WEB.BOUNDED_PARTITION_REJECTED:{candidate_id}"
                     for candidate_id in sorted(rejected_partitions)
+                ),
+                *(
+                    f"BOX.ROLE.WEB.SUB_DRAFTING_SLIVER_REJECTED:{candidate_id}"
+                    for candidate_id in sorted(rejected_short_courses)
                 ),
                 *(
                     (
