@@ -7,6 +7,7 @@ interface ExcelFinalUploadActionsProps {
   file: File | null;
   maximumBytes?: number;
   submitting: boolean;
+  requestKeyAvailable: boolean;
   onSelect: (file: File) => void;
   onRemove: () => void;
   onSubmit: () => void;
@@ -21,6 +22,7 @@ export function ExcelFinalUploadActions({
   file,
   maximumBytes,
   submitting,
+  requestKeyAvailable,
   onSelect,
   onRemove,
   onSubmit,
@@ -55,7 +57,7 @@ export function ExcelFinalUploadActions({
       <Button
         type="primary"
         icon={<PlayCircleOutlined />}
-        disabled={!file}
+        disabled={!file || !requestKeyAvailable}
         loading={submitting}
         onClick={onSubmit}
       >

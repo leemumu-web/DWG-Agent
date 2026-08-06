@@ -147,6 +147,108 @@ test.describe('Excel Final retry and download closure', () => {
     }));
   });
 
+  test('Excel submit falls back when randomUUID is unavailable', async ({ page }) => {
+    const envelope = (data: unknown) => ({
+      data,
+      meta: { request_id: 'excel-request-key-fallback' },
+    });
+    const paged = (data: unknown[]) => ({
+      ...envelope(data),
+      pagination: { page: 1, page_size: 50, total: data.length, total_pages: 1 },
+    });
+    let requestKey = '';
+
+    await page.addInitScript(() => {
+      Object.defineProperty(globalThis.crypto, 'randomUUID', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+    await page.route('**/api/v1/auth/tokens/refresh', (route) => route.fulfill({
+      json: envelope({
+        access_token: 'excel-request-key-token',
+        token_type: 'bearer',
+        user: {
+          id: 1,
+          username: 'admin',
+          real_name: 'Admin',
+          status: 'active',
+          password_reset_required: false,
+          roles: [{ id: 1, code: 'super_admin', name: 'Super Admin', is_system: true }],
+          created_at: '2026-08-06T00:00:00Z',
+          updated_at: '2026-08-06T00:00:00Z',
+        },
+      }),
+    }));
+    await page.route('**/api/v1/workflows/jobs?**', (route) => route.fulfill({ json: paged([]) }));
+    await page.route('**/api/v1/excel-final/**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith('/health')) {
+        await route.fulfill({ json: envelope({
+          pipeline_enabled: true,
+          stage_available: true,
+          dependencies_available: true,
+          package_available: true,
+          handbook_available: true,
+          handbook_database_available: true,
+          database_backend: 'mysql',
+          database_available: true,
+          storage_backend: 'local',
+          storage_available: true,
+          storage_bucket: 'dwg-reports',
+          max_upload_size_bytes: 512 * 1024 * 1024,
+          degraded_components: [],
+          ready: true,
+        }) });
+      } else if (url.pathname.endsWith('/overview')) {
+        await route.fulfill({ json: envelope({
+          batch_count: 0,
+          part_count: 0,
+          component_count: 0,
+          total_net_weight: 0,
+          total_gross_weight: 0,
+          latest_created_at: null,
+        }) });
+      } else if (url.pathname.endsWith('/upload-and-process')) {
+        requestKey = route.request().headers()['idempotency-key'] ?? '';
+        await route.fulfill({
+          status: 202,
+          json: envelope({
+            job_id: 9101,
+            file_id: 8101,
+            original_name: 'fallback.xlsx',
+            status: 'queued',
+            reused: false,
+            message: 'queued',
+          }),
+        });
+      } else if (url.pathname.endsWith('/process/9101')) {
+        await route.fulfill({ json: envelope({
+          job_id: 9101,
+          status: 'queued',
+          progress: 0,
+          result_file_id: null,
+        }) });
+      } else {
+        await route.fallback();
+      }
+    });
+
+    await page.goto('/files/excel-final');
+    await page.locator('.ant-upload input[type="file"]').setInputFiles({
+      name: 'fallback.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer: Buffer.from('mock workbook'),
+    });
+    const submit = page.getByRole('button', { name: '\u63d0\u4ea4\u5904\u7406' });
+    await expect(submit).toBeEnabled();
+    await submit.click();
+
+    await expect.poll(() => requestKey).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
   test('invalid workbook response shows bounded operator guidance', async ({ page }) => {
     const envelope = (data: unknown) => ({
       data,
