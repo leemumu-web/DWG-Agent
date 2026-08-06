@@ -21,6 +21,7 @@ from .manufacturing_ir import (
 )
 from .metadata import BoxMetadata
 from .projection_geometry import (
+    CONNECTED_MAXIMAL_MATERIAL_FACE_RULE_ID,
     ProjectionFaceCandidate,
     enumerate_connected_inner_course_cycles,
     enumerate_endpoint_cap_path_cycles,
@@ -78,6 +79,22 @@ class FlangeCandidateSearchResult:
     direct_face_search_pruned: bool
     direct_face_search_complete: bool
     diagnostics: tuple[str, ...]
+
+
+def preserves_exact_source_course_authority(
+    candidate: FlangeOutlineCandidate,
+    course_length_mm: float,
+    *,
+    tolerance_mm: float = 0.02,
+) -> bool:
+    """Whether a source face exactly preserves one observed flange course."""
+
+    return (
+        candidate.projection.source_conserved
+        and FlangeDerivation.SOURCE_FACE_UNION in candidate.derivations
+        and abs(candidate.longitudinal_span - course_length_mm) <= tolerance_mm
+        and CONNECTED_MAXIMAL_MATERIAL_FACE_RULE_ID in candidate.rule_ids
+    )
 
 
 def _contour_key(contour: tuple[ContourSegmentIR, ...]) -> str:

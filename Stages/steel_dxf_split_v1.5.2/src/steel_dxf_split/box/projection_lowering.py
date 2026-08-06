@@ -10,9 +10,11 @@ from .manufacturing_ir import (
     ContourSegmentIR,
     EvidenceState,
     FeatureEvidence,
+    validate_contour,
 )
 from .metadata import BoxProfile
 from .projection_geometry import (
+    ProjectedSourceLoop,
     ProjectionFaceCandidate,
     _angle_in_sweep,
     _source_curves,
@@ -23,12 +25,55 @@ from .source_ir import SourceEntityIR
 from .view_frame import Point2, ViewFrame
 
 
+def lower_projected_loop_to_contour(
+    loop: ProjectedSourceLoop,
+    *,
+    origin: Point2,
+) -> tuple[ContourSegmentIR, ...]:
+    """Translate one proved source loop into plate-relative MIR segments."""
+
+    origin_x, origin_y = origin
+    result: list[ContourSegmentIR] = []
+    for index, segment in enumerate(loop.segments):
+        snapped = segment.residual_mm > 1e-12
+        evidence = FeatureEvidence(
+            state=EvidenceState.INFERRED if snapped else EvidenceState.DIRECT,
+            source_ids=segment.source_ids,
+            rule_ids=(
+                "BOX.LOWER.SOURCE_INNER_CONTOUR_ARC"
+                if abs(segment.bulge) > 1e-12
+                else "BOX.LOWER.SOURCE_INNER_CONTOUR_LINE",
+                *(
+                    ("BOX.LOWER.SNAPPED_INNER_CONTOUR_ENDPOINT",)
+                    if snapped
+                    else ()
+                ),
+            ),
+            proof_ids=("BOX.PROOF.OPENING.WITHIN_PLATE",),
+            residual_mm=segment.residual_mm,
+            description="source-backed Part loop retained as an inner contour",
+        )
+        result.append(
+            ContourSegmentIR(
+                segment_id=f"inner-projection:{index:04d}",
+                start=(segment.start[0] - origin_x, segment.start[1] - origin_y),
+                end=(segment.end[0] - origin_x, segment.end[1] - origin_y),
+                bulge=segment.bulge,
+                evidence=evidence,
+            )
+        )
+    lowered = tuple(result)
+    validate_contour(lowered)
+    return lowered
+
+
 @dataclass(frozen=True, slots=True)
 class _AtomicBoundary:
     start: Point2
     end: Point2
     arc: _SourceCurve | None
     source_ids: tuple[str, ...]
+    source_line_direct: bool = False
 
 
 def _point_on_arc(point: Point2, arc: _SourceCurve, tolerance: float) -> bool:
@@ -123,7 +168,7 @@ def _line_sources(
     end: Point2,
     curves: tuple[_SourceCurve, ...],
     tolerance: float,
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], bool]:
     segment = LineString((start, end))
     direct = {
         curve.source_id
@@ -132,13 +177,17 @@ def _line_sources(
         and curve.line.buffer(tolerance, cap_style="flat").covers(segment)
     }
     if direct:
-        return tuple(sorted(direct))
-    return tuple(
+        return tuple(sorted(direct)), True
+    # Endpoint coincidence proves a derived boundary vertex, not that the
+    # complete boundary segment is the source LINE.  Preserve the endpoint
+    # provenance for course grouping while marking the segment as inferred.
+    endpoint_sources = tuple(
         sorted(
             set(_vertex_authority(start, curves, tolerance=tolerance))
             | set(_vertex_authority(end, curves, tolerance=tolerance))
         )
     )
+    return endpoint_sources, False
 
 
 def _arc_bulge(arc: _SourceCurve, start: Point2, end: Point2) -> float:
@@ -212,20 +261,32 @@ def lower_projection_face_to_contour(
                 maximum_projection_fillet_radius,
             ),
             source_ids=(),
+            source_line_direct=False,
         )
         for index, start in enumerate(points)
     ]
-    atoms = [
-        _AtomicBoundary(
-            start=atom.start,
-            end=atom.end,
-            arc=atom.arc,
-            source_ids=(atom.arc.source_id,)
-            if atom.arc is not None
-            else _line_sources(atom.start, atom.end, curves, matching_tolerance_mm),
+    attributed_atoms: list[_AtomicBoundary] = []
+    for atom in atoms:
+        if atom.arc is not None:
+            source_ids = (atom.arc.source_id,)
+            source_line_direct = False
+        else:
+            source_ids, source_line_direct = _line_sources(
+                atom.start,
+                atom.end,
+                curves,
+                matching_tolerance_mm,
+            )
+        attributed_atoms.append(
+            _AtomicBoundary(
+                start=atom.start,
+                end=atom.end,
+                arc=atom.arc,
+                source_ids=source_ids,
+                source_line_direct=source_line_direct,
+            )
         )
-        for atom in atoms
-    ]
+    atoms = attributed_atoms
     # Rotate the cyclic list onto a semantic boundary so one source ARC is not
     # split into two output groups merely because Polygon chose that start.
     if atoms and atoms[0].arc is not None and atoms[-1].arc is not None:
@@ -308,10 +369,15 @@ def lower_projection_face_to_contour(
             description = "source course ARC retained as a manufacturing arc"
         else:
             bulge = 0.0
-            state = EvidenceState.DIRECT if source_ids else EvidenceState.INFERRED
+            source_line_direct = all(atom.source_line_direct for atom in group)
+            state = (
+                EvidenceState.DIRECT
+                if source_line_direct
+                else EvidenceState.INFERRED
+            )
             rule_id = (
                 "BOX.LOWER.SOURCE_LINE"
-                if source_ids
+                if source_line_direct
                 else "BOX.LOWER.INNER_COURSE_EXTENSION"
             )
             rule_ids = (rule_id,)

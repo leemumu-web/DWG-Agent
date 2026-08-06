@@ -153,7 +153,11 @@ def _entity_to_ir(
         values["closed"] = bool(entity.closed)  # type: ignore[attr-defined]
     elif kind == "POLYLINE":
         values["points"] = tuple(
-            _point3(vertex.dxf.location)
+            (
+                float(vertex.dxf.location.x),
+                float(vertex.dxf.location.y),
+                float(getattr(vertex.dxf, "bulge", 0.0)),
+            )
             for vertex in entity.vertices  # type: ignore[attr-defined]
         )
         values["closed"] = bool(entity.is_closed)  # type: ignore[attr-defined]

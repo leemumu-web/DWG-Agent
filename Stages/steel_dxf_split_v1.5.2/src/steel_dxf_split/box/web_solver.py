@@ -5,16 +5,19 @@ from enum import StrEnum
 from hashlib import sha256
 from math import hypot
 
+from shapely import normalize, set_precision
+
+from .equivalence import BOX_DRAFTING_RESOLUTION_MM
 from .manufacturing_ir import (
     ContourSegmentIR,
     contour_polygon,
-    contour_semantic_key,
 )
 from .metadata import BoxMetadata
 from .projection_geometry import (
     ProjectionFaceCandidate,
     enumerate_endpoint_cap_path_cycles,
     enumerate_projection_course_virtual_cycles,
+    enumerate_source_backed_straight_overlay_cycles,
     enumerate_straight_inner_band_faces,
     polygonize_part_projection,
     search_connected_inner_course_cycles,
@@ -30,6 +33,28 @@ class WebDerivation(StrEnum):
     CONNECTED_COURSE_CYCLE = "connected_course_cycle"
     ENDPOINT_CAP_PATH_CYCLE = "endpoint_cap_path_cycle"
     BOUNDED_VIRTUAL_COURSE_CYCLE = "bounded_virtual_course_cycle"
+    SOURCE_BACKED_STRAIGHT_OVERLAY_CYCLE = "source_backed_straight_overlay_cycle"
+
+
+_WEB_DERIVATION_AUTHORITY = {
+    WebDerivation.BOUNDED_VIRTUAL_COURSE_CYCLE: 95.0,
+    WebDerivation.SOURCE_BACKED_STRAIGHT_OVERLAY_CYCLE: 92.0,
+    WebDerivation.CONNECTED_COURSE_CYCLE: 90.0,
+    WebDerivation.INNER_COURSE_BAND: 85.0,
+    WebDerivation.SOURCE_FACE_UNION: 80.0,
+    WebDerivation.ENDPOINT_CAP_PATH_CYCLE: 75.0,
+}
+
+
+def web_derivation_authority(
+    derivations: tuple[WebDerivation, ...],
+) -> float:
+    """Return the source-topology authority of one web representation."""
+
+    return max(
+        (_WEB_DERIVATION_AUTHORITY[derivation] for derivation in derivations),
+        default=0.0,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,12 +89,82 @@ class WebCandidateSearchResult:
     diagnostics: tuple[str, ...]
 
 
-def _contour_key(contour: tuple[ContourSegmentIR, ...]) -> str:
-    return contour_semantic_key(contour)
+def _candidate_representation_key(projection: ProjectionFaceCandidate) -> str:
+    """Keep physical placement until role assignment is complete.
+
+    Manufacturing contours are origin-normalized, so using only their shape as
+    a candidate key collapses two equal opposite webs into one instance.  The
+    projection key retains placement while merging sub-resolution spellings of
+    the same source face.
+    """
+
+    return normalize(
+        set_precision(
+            projection.polygon,
+            grid_size=BOX_DRAFTING_RESOLUTION_MM,
+        )
+    ).wkb_hex
 
 
 def _candidate_id(key: str) -> str:
     return f"web:{sha256(key.encode('ascii')).hexdigest()[:16]}"
+
+
+def _merge_coincident_source_representations(
+    candidates: tuple[WebOutlineCandidate, ...],
+) -> tuple[WebOutlineCandidate, ...]:
+    """Merge derivation spellings, never translated physical instances."""
+
+    by_sources: dict[tuple[str, ...], list[WebOutlineCandidate]] = {}
+    for candidate in candidates:
+        by_sources.setdefault(candidate.source_ids, []).append(candidate)
+    merged: list[WebOutlineCandidate] = []
+    tolerance = BOX_DRAFTING_RESOLUTION_MM
+    for source_ids in sorted(by_sources):
+        representations: list[WebOutlineCandidate] = []
+        for candidate in sorted(
+            by_sources[source_ids],
+            key=lambda item: item.candidate_id,
+        ):
+            polygon = candidate.projection.polygon
+            existing_index = next(
+                (
+                    index
+                    for index, existing in enumerate(representations)
+                    if polygon.hausdorff_distance(existing.projection.polygon)
+                    <= tolerance
+                    and polygon.symmetric_difference(
+                        existing.projection.polygon
+                    ).area
+                    <= tolerance
+                    * max(polygon.length, existing.projection.polygon.length, 1.0)
+                ),
+                None,
+            )
+            if existing_index is None:
+                representations.append(candidate)
+                continue
+            existing = representations[existing_index]
+            representations[existing_index] = replace(
+                existing,
+                derivations=tuple(
+                    sorted(
+                        {*existing.derivations, *candidate.derivations},
+                        key=str,
+                    )
+                ),
+                projection=replace(
+                    existing.projection,
+                    rule_ids=tuple(
+                        sorted(
+                            set(existing.projection.rule_ids)
+                            | set(candidate.projection.rule_ids)
+                        )
+                    ),
+                ),
+            )
+        merged.extend(representations)
+    return tuple(merged)
 
 
 def _has_negligible_course_backtrack(
@@ -154,6 +249,15 @@ def enumerate_web_outline_candidates(
         frame,
         target_transverse_mm=target,
     )
+    straight_overlay_cycles = (
+        enumerate_source_backed_straight_overlay_cycles(
+            entities,
+            frame,
+            target_transverse_mm=target,
+        )
+        if frame.transverse_span <= profile.height * 1.5
+        else ()
+    )
     virtual_cycles = (
         enumerate_projection_course_virtual_cycles(
             entities,
@@ -184,6 +288,10 @@ def enumerate_web_outline_candidates(
         (WebDerivation.INNER_COURSE_BAND, band),
         (WebDerivation.CONNECTED_COURSE_CYCLE, cycles),
         (WebDerivation.ENDPOINT_CAP_PATH_CYCLE, endpoint_cycles),
+        (
+            WebDerivation.SOURCE_BACKED_STRAIGHT_OVERLAY_CYCLE,
+            straight_overlay_cycles,
+        ),
         (WebDerivation.BOUNDED_VIRTUAL_COURSE_CYCLE, virtual_cycles),
     )
     by_key: dict[str, WebOutlineCandidate] = {}
@@ -215,7 +323,7 @@ def enumerate_web_outline_candidates(
                 )
             ):
                 continue
-            key = _contour_key(contour)
+            key = _candidate_representation_key(projection)
             source_ids = tuple(
                 sorted(
                     set(projection.boundary_source_ids)
@@ -232,12 +340,35 @@ def enumerate_web_outline_candidates(
                     source_ids=source_ids,
                 )
                 continue
-            by_key[key] = replace(
-                existing,
-                derivations=tuple(sorted({*existing.derivations, derivation}, key=str)),
-                source_ids=tuple(sorted(set(existing.source_ids) | set(source_ids))),
+            representative = (
+                existing
+                if len(existing.source_ids) <= len(source_ids)
+                else WebOutlineCandidate(
+                    candidate_id=existing.candidate_id,
+                    contour=contour,
+                    projection=projection,
+                    derivations=existing.derivations,
+                    source_ids=source_ids,
+                )
             )
-    candidates = list(by_key.values())
+            by_key[key] = replace(
+                representative,
+                derivations=tuple(
+                    sorted({*existing.derivations, derivation}, key=str)
+                ),
+                projection=replace(
+                    representative.projection,
+                    rule_ids=tuple(
+                        sorted(
+                            set(existing.projection.rule_ids)
+                            | set(projection.rule_ids)
+                        )
+                    ),
+                ),
+            )
+    candidates = list(
+        _merge_coincident_source_representations(tuple(by_key.values()))
+    )
     candidates.sort(
         key=lambda candidate: (
             -candidate.area,

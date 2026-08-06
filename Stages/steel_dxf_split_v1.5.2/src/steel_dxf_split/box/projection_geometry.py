@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from heapq import heappop, heappush
-from math import ceil, cos, hypot, radians, sin
+from math import atan, atan2, ceil, cos, degrees, hypot, radians, sin, tan
 
 from shapely import set_precision
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
@@ -35,6 +35,9 @@ class ProjectionFaceCandidate:
 CONNECTED_MAXIMAL_MATERIAL_FACE_RULE_ID = (
     "BOX.PROJECTION.CONNECTED_MAXIMAL_MATERIAL_FACE"
 )
+BOUNDED_ENDPOINT_MICRO_GAP_RULE_ID = (
+    "BOX.PROJECTION.BOUNDED_ENDPOINT_MICRO_GAP"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +48,515 @@ class SourceFaceUnionSearchResult:
     states_visited: int
     connected_maximal_candidate_count: int
     diagnostics: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedLoopSegment:
+    """One source-backed segment of an isolated Part-layer loop."""
+
+    start: Point2
+    end: Point2
+    bulge: float
+    source_ids: tuple[str, ...]
+    visible_source_ids: tuple[str, ...]
+    hidden_source_ids: tuple[str, ...]
+    residual_mm: float
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedSourceLoop:
+    """One simple closed Part-layer loop in a view-local frame."""
+
+    polygon: Polygon
+    segments: tuple[ProjectedLoopSegment, ...]
+    source_ids: tuple[str, ...]
+    visible_source_ids: tuple[str, ...]
+    hidden_source_ids: tuple[str, ...]
+    representation_multiplicity: int
+    residual_mm: float
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedLoopRejection:
+    source_ids: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedLoopInventory:
+    loops: tuple[ProjectedSourceLoop, ...]
+    rejections: tuple[ProjectedLoopRejection, ...]
+
+
+def polygonize_isolated_part_loops(
+    entities: Iterable[SourceEntityIR],
+    frame: ViewFrame,
+    *,
+    endpoint_tolerance_mm: float = 0.05,
+    max_arc_step_degrees: float = 3.0,
+) -> tuple[ProjectedSourceLoop, ...]:
+    """Return accepted source-backed isolated loops from one selected Part view."""
+
+    return inventory_isolated_part_loops(
+        entities,
+        frame,
+        endpoint_tolerance_mm=endpoint_tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    ).loops
+
+
+def _inventory_isolated_part_loops_single_pass(
+    entities: Iterable[SourceEntityIR],
+    frame: ViewFrame,
+    *,
+    endpoint_tolerance_mm: float = 0.05,
+    max_arc_step_degrees: float = 3.0,
+) -> ProjectedLoopInventory:
+    """Return accepted and rejected isolated-loop evidence from one Part view."""
+
+    if endpoint_tolerance_mm <= 0.0:
+        raise ValueError("endpoint_tolerance_mm must be positive")
+    materialized = tuple(entities)
+    source_curves = _opening_source_curves(
+        materialized,
+        frame,
+        max_arc_step_degrees=max_arc_step_degrees,
+    )
+    snap_result = _snap_opening_curve_endpoints(
+        source_curves,
+        tolerance_mm=endpoint_tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    )
+    compact_conflict_groups = tuple(
+        group
+        for group in snap_result.conflict_curve_index_groups
+        if _opening_curve_group_is_interior_scale(
+            tuple(source_curves[index] for index in group),
+            frame,
+        )
+    )
+    blocked_source_ids = {
+        source_curves[index].source_id
+        for group in compact_conflict_groups
+        for index in group
+    }
+    curves = _atomicize_opening_curves(
+        tuple(
+            curve
+            for curve in snap_result.curves
+            if curve.source_id not in blocked_source_ids
+        ),
+        tolerance_mm=endpoint_tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    )
+    if not curves:
+        return ProjectedLoopInventory(
+            loops=(),
+            rejections=tuple(
+                ProjectedLoopRejection(
+                    source_ids=tuple(
+                        sorted(
+                            {
+                                source_curves[index].source_id
+                                for index in group
+                            }
+                        )
+                    ),
+                    reason="endpoint_topology_conflict",
+                )
+                for group in compact_conflict_groups
+            ),
+        )
+    by_source_id = {entity.source_id: entity for entity in materialized}
+    curve_groups = _coincident_opening_curve_groups(
+        curves,
+        tolerance_mm=endpoint_tolerance_mm,
+    )
+    representatives = tuple(group[0] for group in curve_groups)
+    linework = unary_union([curve.line for curve in representatives])
+    loops: list[ProjectedSourceLoop] = []
+    rejections: list[ProjectedLoopRejection] = [
+        ProjectedLoopRejection(
+            source_ids=tuple(
+                sorted({source_curves[index].source_id for index in group})
+            ),
+            reason="endpoint_topology_conflict",
+        )
+        for group in compact_conflict_groups
+    ]
+    for polygon in polygonize(linework):
+        if (
+            polygon.area <= endpoint_tolerance_mm * endpoint_tolerance_mm
+            or polygon.interiors
+        ):
+            continue
+        boundary_buffer = polygon.boundary.buffer(
+            endpoint_tolerance_mm,
+            cap_style="flat",
+        )
+        if any(
+            curve.line.intersects(boundary_buffer)
+            and not boundary_buffer.covers(curve.line)
+            for curve in representatives
+        ):
+            # An isolated opening loop has degree two everywhere.  A Part
+            # course, end structure, or crossing overlay touching the loop is
+            # source evidence that the polygonized face is not a standalone
+            # manufacturing removal.
+            continue
+        boundary_groups = tuple(
+            group for group in curve_groups if boundary_buffer.covers(group[0].line)
+        )
+        conflicting_groups = tuple(
+            group
+            for group in boundary_groups
+            if _opening_curve_group_has_geometric_conflict(
+                group,
+                tolerance_mm=endpoint_tolerance_mm,
+            )
+        )
+        if conflicting_groups:
+            rejections.append(
+                ProjectedLoopRejection(
+                    source_ids=tuple(
+                        sorted(
+                            {
+                                curve.source_id
+                                for group in conflicting_groups
+                                for curve in group
+                            }
+                        )
+                    ),
+                    reason="conflicting_representations",
+                )
+            )
+            continue
+        if not boundary_groups or not unary_union(
+            [group[0].line for group in boundary_groups]
+        ).buffer(endpoint_tolerance_mm, cap_style="flat").covers(polygon.boundary):
+            continue
+        ordered = _order_opening_curve_groups(
+            boundary_groups,
+            tolerance_mm=endpoint_tolerance_mm,
+        )
+        if not ordered:
+            rejections.append(
+                ProjectedLoopRejection(
+                    source_ids=tuple(
+                        sorted(
+                            {
+                                curve.source_id
+                                for group in boundary_groups
+                                for curve in group
+                            }
+                        )
+                    ),
+                    reason="non_unique_loop_order",
+                )
+            )
+            continue
+        segments: list[ProjectedLoopSegment] = []
+        for group, forward in ordered:
+            representative = group[0]
+            source_ids = tuple(sorted({curve.source_id for curve in group}))
+            residual_mm = max(
+                max(curve.residual_mm for curve in group),
+                max(
+                    representative.line.hausdorff_distance(curve.line)
+                    for curve in group
+                ),
+            )
+            visible_source_ids = tuple(
+                source_id
+                for source_id in source_ids
+                if not is_hidden_projection_linetype(
+                    by_source_id[source_id].linetype
+                )
+            )
+            hidden_source_ids = tuple(
+                source_id
+                for source_id in source_ids
+                if is_hidden_projection_linetype(by_source_id[source_id].linetype)
+            )
+            segments.append(
+                ProjectedLoopSegment(
+                    start=(
+                        representative.start if forward else representative.end
+                    ),
+                    end=(representative.end if forward else representative.start),
+                    bulge=representative.bulge if forward else -representative.bulge,
+                    source_ids=source_ids,
+                    visible_source_ids=visible_source_ids,
+                    hidden_source_ids=hidden_source_ids,
+                    residual_mm=residual_mm,
+                )
+            )
+        all_source_ids = tuple(
+            sorted({source_id for segment in segments for source_id in segment.source_ids})
+        )
+        visible_source_ids = tuple(
+            sorted(
+                {
+                    source_id
+                    for segment in segments
+                    for source_id in segment.visible_source_ids
+                }
+            )
+        )
+        hidden_source_ids = tuple(
+            sorted(
+                {
+                    source_id
+                    for segment in segments
+                    for source_id in segment.hidden_source_ids
+                }
+            )
+        )
+        loops.append(
+            ProjectedSourceLoop(
+                polygon=polygon,
+                segments=tuple(segments),
+                source_ids=all_source_ids,
+                visible_source_ids=visible_source_ids,
+                hidden_source_ids=hidden_source_ids,
+                representation_multiplicity=min(
+                    len({curve.source_id for curve in group})
+                    for group, _forward in ordered
+                ),
+                residual_mm=max(segment.residual_mm for segment in segments),
+            )
+        )
+    return ProjectedLoopInventory(
+        loops=tuple(
+            sorted(
+                loops,
+                key=lambda loop: (
+                    loop.polygon.bounds,
+                    loop.polygon.area,
+                    loop.source_ids,
+                ),
+            )
+        ),
+        rejections=tuple(
+            sorted(rejections, key=lambda value: (value.reason, value.source_ids))
+        ),
+    )
+
+
+def _is_long_slot_loop(
+    loop: ProjectedSourceLoop,
+    *,
+    tolerance_mm: float,
+) -> bool:
+    minimum_x, minimum_y, maximum_x, maximum_y = loop.polygon.bounds
+    spans = sorted((maximum_x - minimum_x, maximum_y - minimum_y))
+    return (
+        spans[0] > 2.0 * tolerance_mm
+        and spans[1] >= 3.0 * spans[0]
+    )
+
+
+def _same_opening_loop_geometry(
+    first: ProjectedSourceLoop,
+    second: ProjectedSourceLoop,
+    *,
+    tolerance_mm: float,
+) -> bool:
+    if first.polygon.boundary.hausdorff_distance(second.polygon.boundary) > tolerance_mm:
+        return False
+    area_tolerance = tolerance_mm * max(
+        first.polygon.length,
+        second.polygon.length,
+        1.0,
+    )
+    return abs(first.polygon.area - second.polygon.area) <= area_tolerance
+
+
+def _slot_overlay_context_tolerance(
+    loop: ProjectedSourceLoop,
+    *,
+    base_tolerance_mm: float,
+) -> float:
+    minimum_x, minimum_y, maximum_x, maximum_y = loop.polygon.bounds
+    transverse_span = min(maximum_x - minimum_x, maximum_y - minimum_y)
+    return max(base_tolerance_mm, min(0.15, transverse_span * 0.005))
+
+
+def _with_opposite_visibility_overlay_context(
+    loop: ProjectedSourceLoop,
+    entities: tuple[SourceEntityIR, ...],
+    frame: ViewFrame,
+    *,
+    tolerance_mm: float,
+    max_arc_step_degrees: float,
+) -> ProjectedSourceLoop:
+    primary_is_hidden = bool(loop.hidden_source_ids) and not loop.visible_source_ids
+    primary_is_visible = bool(loop.visible_source_ids) and not loop.hidden_source_ids
+    if not primary_is_hidden and not primary_is_visible:
+        return loop
+    boundary = loop.polygon.boundary
+    context_tolerance_mm = _slot_overlay_context_tolerance(
+        loop,
+        base_tolerance_mm=tolerance_mm,
+    )
+    boundary_buffer = boundary.buffer(context_tolerance_mm)
+    context_source_ids: set[str] = set()
+    context_visible_source_ids: set[str] = set()
+    context_hidden_source_ids: set[str] = set()
+    context_residual_mm = loop.residual_mm
+    for entity in entities:
+        entity_is_hidden = is_hidden_projection_linetype(entity.linetype)
+        if entity_is_hidden == primary_is_hidden:
+            continue
+        curves = _opening_source_curves(
+            (entity,),
+            frame,
+            max_arc_step_degrees=max_arc_step_degrees,
+        )
+        if not curves or not all(
+            boundary_buffer.covers(curve.line) for curve in curves
+        ):
+            continue
+        context_source_ids.add(entity.source_id)
+        (
+            context_hidden_source_ids
+            if entity_is_hidden
+            else context_visible_source_ids
+        ).add(entity.source_id)
+        context_residual_mm = max(
+            context_residual_mm,
+            max(
+                boundary.distance(Point(point))
+                for curve in curves
+                for point in curve.line.coords
+            ),
+        )
+    if not context_source_ids:
+        return loop
+    return replace(
+        loop,
+        source_ids=tuple(sorted(set(loop.source_ids) | context_source_ids)),
+        visible_source_ids=tuple(
+            sorted(set(loop.visible_source_ids) | context_visible_source_ids)
+        ),
+        hidden_source_ids=tuple(
+            sorted(set(loop.hidden_source_ids) | context_hidden_source_ids)
+        ),
+        representation_multiplicity=max(loop.representation_multiplicity, 2),
+        residual_mm=context_residual_mm,
+    )
+
+
+def inventory_isolated_part_loops(
+    entities: Iterable[SourceEntityIR],
+    frame: ViewFrame,
+    *,
+    endpoint_tolerance_mm: float = 0.05,
+    max_arc_step_degrees: float = 3.0,
+) -> ProjectedLoopInventory:
+    """Inventory isolated loops, including Tekla visibility-channel slot overlays.
+
+    Some real Tekla DXF exports add sub-0.1 mm hidden or duplicate edge strips
+    around an otherwise closed, dimensioned long slot.  A combined topology
+    graph correctly treats those strips as branches, but must not erase the
+    independently closed visible (or hidden) slot representation.  The normal
+    combined pass remains authoritative for general contours; the two
+    visibility-channel passes may only contribute high-aspect-ratio slot loops.
+    """
+
+    if endpoint_tolerance_mm <= 0.0:
+        raise ValueError("endpoint_tolerance_mm must be positive")
+    materialized = tuple(entities)
+    combined = _inventory_isolated_part_loops_single_pass(
+        materialized,
+        frame,
+        endpoint_tolerance_mm=endpoint_tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    )
+    channel_tolerance_mm = max(endpoint_tolerance_mm, 0.1)
+    visible = _inventory_isolated_part_loops_single_pass(
+        tuple(
+            entity
+            for entity in materialized
+            if not is_hidden_projection_linetype(entity.linetype)
+        ),
+        frame,
+        endpoint_tolerance_mm=channel_tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    )
+    hidden = _inventory_isolated_part_loops_single_pass(
+        tuple(
+            entity
+            for entity in materialized
+            if is_hidden_projection_linetype(entity.linetype)
+        ),
+        frame,
+        endpoint_tolerance_mm=channel_tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    )
+
+    accepted = list(combined.loops)
+    channel_candidates = (
+        ()
+        if any(
+            rejection.reason == "conflicting_representations"
+            for rejection in combined.rejections
+        )
+        else (*visible.loops, *hidden.loops)
+    )
+    for candidate in channel_candidates:
+        if not _is_long_slot_loop(candidate, tolerance_mm=channel_tolerance_mm):
+            continue
+        candidate = _with_opposite_visibility_overlay_context(
+            candidate,
+            materialized,
+            frame,
+            tolerance_mm=channel_tolerance_mm,
+            max_arc_step_degrees=max_arc_step_degrees,
+        )
+        if any(
+            _same_opening_loop_geometry(
+                candidate,
+                existing,
+                tolerance_mm=channel_tolerance_mm,
+            )
+            for existing in accepted
+        ):
+            continue
+        accepted.append(candidate)
+
+    accepted_source_ids = {
+        source_id
+        for loop in accepted
+        for source_id in loop.source_ids
+    }
+    rejections = tuple(
+        sorted(
+            {
+                *combined.rejections,
+                *visible.rejections,
+                *hidden.rejections,
+            },
+            key=lambda value: (value.reason, value.source_ids),
+        )
+    )
+    return ProjectedLoopInventory(
+        loops=tuple(
+            sorted(
+                accepted,
+                key=lambda loop: (
+                    loop.polygon.bounds,
+                    loop.polygon.area,
+                    loop.source_ids,
+                ),
+            )
+        ),
+        rejections=tuple(
+            rejection
+            for rejection in rejections
+            if not set(rejection.source_ids).issubset(accepted_source_ids)
+        ),
+    )
 
 
 CoursePath = tuple[tuple[CourseEdge, bool], ...]
@@ -77,6 +589,556 @@ class _SourceCurve:
     arc_radius: float | None = None
     arc_start_angle: float | None = None
     arc_sweep: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OpeningSourceCurve:
+    source_id: str
+    line: LineString
+    start: Point2
+    end: Point2
+    bulge: float
+    residual_mm: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class _EndpointSnapResult:
+    curves: tuple[_OpeningSourceCurve, ...]
+    conflict_curve_index_groups: tuple[tuple[int, ...], ...]
+
+
+def _bulged_opening_curve(
+    *,
+    source_id: str,
+    start: Point2,
+    end: Point2,
+    bulge: float,
+    max_arc_step_degrees: float,
+    residual_mm: float = 0.0,
+) -> _OpeningSourceCurve | None:
+    chord_x = end[0] - start[0]
+    chord_y = end[1] - start[1]
+    chord_length = hypot(chord_x, chord_y)
+    if chord_length <= 1e-9:
+        return None
+    if abs(bulge) <= 1e-12:
+        return _OpeningSourceCurve(
+            source_id=source_id,
+            line=LineString((start, end)),
+            start=start,
+            end=end,
+            bulge=0.0,
+            residual_mm=residual_mm,
+        )
+    signed_sweep = 4.0 * atan(bulge)
+    midpoint = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+    center_offset = chord_length * (1.0 - bulge * bulge) / (4.0 * bulge)
+    center = (
+        midpoint[0] - chord_y / chord_length * center_offset,
+        midpoint[1] + chord_x / chord_length * center_offset,
+    )
+    radius = hypot(start[0] - center[0], start[1] - center[1])
+    start_angle = atan2(start[1] - center[1], start[0] - center[0])
+    count = max(2, int(ceil(abs(degrees(signed_sweep)) / max_arc_step_degrees)))
+    sampled = tuple(
+        (
+            center[0] + radius * cos(start_angle + signed_sweep * index / count),
+            center[1] + radius * sin(start_angle + signed_sweep * index / count),
+        )
+        for index in range(count + 1)
+    )
+    points = (start, *sampled[1:-1], end)
+    return _OpeningSourceCurve(
+        source_id=source_id,
+        line=LineString(points),
+        start=start,
+        end=end,
+        bulge=bulge,
+        residual_mm=residual_mm,
+    )
+
+
+def _opening_source_curves(
+    entities: tuple[SourceEntityIR, ...],
+    frame: ViewFrame,
+    *,
+    max_arc_step_degrees: float,
+) -> tuple[_OpeningSourceCurve, ...]:
+    if max_arc_step_degrees <= 0.0:
+        raise ValueError("max_arc_step_degrees must be positive")
+    result: list[_OpeningSourceCurve] = []
+    for entity in entities:
+        if entity.layer.casefold() != "part":
+            continue
+        if entity.kind == "LINE" and entity.start is not None and entity.end is not None:
+            curve = _bulged_opening_curve(
+                source_id=entity.source_id,
+                start=frame.world_to_local(entity.start),
+                end=frame.world_to_local(entity.end),
+                bulge=0.0,
+                max_arc_step_degrees=max_arc_step_degrees,
+            )
+            if curve is not None:
+                result.append(curve)
+            continue
+        if (
+            entity.kind == "ARC"
+            and entity.center is not None
+            and entity.radius is not None
+            and entity.radius > 0.0
+            and entity.start_angle is not None
+            and entity.end_angle is not None
+        ):
+            sweep = (entity.end_angle - entity.start_angle) % 360.0
+            if sweep <= 1e-9:
+                continue
+            world_start = (
+                entity.center[0] + entity.radius * cos(radians(entity.start_angle)),
+                entity.center[1] + entity.radius * sin(radians(entity.start_angle)),
+            )
+            world_end = (
+                entity.center[0] + entity.radius * cos(radians(entity.end_angle)),
+                entity.center[1] + entity.radius * sin(radians(entity.end_angle)),
+            )
+            curve = _bulged_opening_curve(
+                source_id=entity.source_id,
+                start=frame.world_to_local(world_start),
+                end=frame.world_to_local(world_end),
+                bulge=tan(radians(sweep) / 4.0),
+                max_arc_step_degrees=max_arc_step_degrees,
+            )
+            if curve is not None:
+                result.append(curve)
+            continue
+        if entity.kind not in {"LWPOLYLINE", "POLYLINE"}:
+            continue
+        points = tuple(frame.world_to_local((point[0], point[1])) for point in entity.points)
+        if len(points) < 2:
+            continue
+        edge_count = len(points) if entity.closed else len(points) - 1
+        for index in range(edge_count):
+            start = points[index]
+            end = points[(index + 1) % len(points)]
+            bulge = float(entity.points[index][2])
+            curve = _bulged_opening_curve(
+                source_id=entity.source_id,
+                start=start,
+                end=end,
+                bulge=bulge,
+                max_arc_step_degrees=max_arc_step_degrees,
+            )
+            if curve is not None:
+                result.append(curve)
+    return tuple(result)
+
+
+def _opening_curve_group_is_interior_scale(
+    curves: tuple[_OpeningSourceCurve, ...],
+    frame: ViewFrame,
+) -> bool:
+    if not curves:
+        return False
+    points = tuple(
+        point
+        for curve in curves
+        for point in (curve.start, curve.end)
+    )
+    longitudinal_span = max(point[0] for point in points) - min(
+        point[0] for point in points
+    )
+    transverse_span = max(point[1] for point in points) - min(
+        point[1] for point in points
+    )
+    return (
+        longitudinal_span < 0.5 * frame.longitudinal_span
+        and transverse_span < 0.5 * frame.transverse_span
+    )
+
+
+def _expand_endpoint_conflict_curve_indexes(
+    curves: tuple[_OpeningSourceCurve, ...],
+    seed_indexes: set[int],
+    *,
+    tolerance_mm: float,
+) -> tuple[int, ...]:
+    connected = set(seed_indexes)
+    changed = True
+    while changed:
+        changed = False
+        connected_points = tuple(
+            point
+            for index in connected
+            for point in (curves[index].start, curves[index].end)
+        )
+        for index, curve in enumerate(curves):
+            if index in connected:
+                continue
+            if any(
+                hypot(point[0] - endpoint[0], point[1] - endpoint[1])
+                <= tolerance_mm
+                for point in (curve.start, curve.end)
+                for endpoint in connected_points
+            ):
+                connected.add(index)
+                changed = True
+    return tuple(sorted(connected))
+
+
+def _snap_opening_curve_endpoints(
+    curves: tuple[_OpeningSourceCurve, ...],
+    *,
+    tolerance_mm: float,
+    max_arc_step_degrees: float,
+) -> _EndpointSnapResult:
+    """Normalize near-coincident source endpoints onto audited loop nodes."""
+
+    references = tuple(
+        (curve_index, at_start, point)
+        for curve_index, curve in enumerate(curves)
+        for at_start, point in ((True, curve.start), (False, curve.end))
+    )
+    parents = list(range(len(references)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[max(first_root, second_root)] = min(first_root, second_root)
+
+    for first, (_first_curve, _first_at_start, first_point) in enumerate(references):
+        for second in range(first + 1, len(references)):
+            second_point = references[second][2]
+            if (
+                hypot(
+                    first_point[0] - second_point[0],
+                    first_point[1] - second_point[1],
+                )
+                <= tolerance_mm
+            ):
+                union(first, second)
+
+    components: dict[int, list[int]] = {}
+    for index in range(len(references)):
+        components.setdefault(find(index), []).append(index)
+    snapped: dict[tuple[int, bool], Point2] = {}
+    residual_by_curve = [curve.residual_mm for curve in curves]
+    conflict_groups: list[tuple[int, ...]] = []
+    for component in components.values():
+        points = tuple(references[index][2] for index in component)
+        diameter = max(
+            (
+                hypot(first[0] - second[0], first[1] - second[1])
+                for offset, first in enumerate(points)
+                for second in points[offset + 1 :]
+            ),
+            default=0.0,
+        )
+        if diameter > tolerance_mm + 1e-12:
+            # Transitive endpoint chains wider than the topology contract do
+            # not have one defensible manufacturing node.
+            conflict_groups.append(
+                _expand_endpoint_conflict_curve_indexes(
+                    curves,
+                    {references[index][0] for index in component},
+                    tolerance_mm=tolerance_mm,
+                )
+            )
+            continue
+        arc_points = tuple(
+            references[index][2]
+            for index in component
+            if abs(curves[references[index][0]].bulge) > 1e-12
+        )
+        authority = arc_points or points
+        canonical = (
+            sum(point[0] for point in authority) / len(authority),
+            sum(point[1] for point in authority) / len(authority),
+        )
+        for index in component:
+            curve_index, at_start, _point = references[index]
+            snapped[(curve_index, at_start)] = canonical
+            residual_by_curve[curve_index] = max(
+                residual_by_curve[curve_index],
+                diameter,
+            )
+
+    normalized: list[_OpeningSourceCurve] = []
+    for index, curve in enumerate(curves):
+        rebuilt = _bulged_opening_curve(
+            source_id=curve.source_id,
+            start=snapped.get((index, True), curve.start),
+            end=snapped.get((index, False), curve.end),
+            bulge=curve.bulge,
+            max_arc_step_degrees=max_arc_step_degrees,
+            residual_mm=residual_by_curve[index],
+        )
+        if rebuilt is None:
+            return _EndpointSnapResult((), tuple(sorted(set(conflict_groups))))
+        normalized.append(rebuilt)
+    return _EndpointSnapResult(
+        tuple(normalized),
+        tuple(sorted(set(conflict_groups))),
+    )
+
+
+def _coincident_opening_curve_groups(
+    curves: tuple[_OpeningSourceCurve, ...],
+    *,
+    tolerance_mm: float,
+) -> tuple[tuple[_OpeningSourceCurve, ...], ...]:
+    groups: list[list[_OpeningSourceCurve]] = []
+    for curve in sorted(curves, key=lambda value: (value.source_id, value.start, value.end)):
+        for group in groups:
+            representative = group[0]
+            if (
+                abs(curve.line.length - representative.line.length) <= tolerance_mm
+                and curve.line.hausdorff_distance(representative.line) <= tolerance_mm
+            ):
+                group.append(curve)
+                break
+        else:
+            groups.append([curve])
+    return tuple(
+        tuple(
+            sorted(
+                group,
+                key=lambda value: (
+                    value.source_id,
+                    value.start,
+                    value.end,
+                ),
+            )
+        )
+        for group in groups
+    )
+
+
+def _atomicize_opening_curves(
+    curves: tuple[_OpeningSourceCurve, ...],
+    *,
+    tolerance_mm: float,
+    max_arc_step_degrees: float,
+) -> tuple[_OpeningSourceCurve, ...]:
+    """Split coincident representations at every source endpoint on their course."""
+
+    endpoints = tuple(point for curve in curves for point in (curve.start, curve.end))
+    atomic: list[_OpeningSourceCurve] = []
+    for curve in curves:
+        cut_fractions: dict[float, float] = {
+            0.0: curve.residual_mm,
+            1.0: curve.residual_mm,
+        }
+        for point in endpoints:
+            parameter = _opening_curve_parameter_at_point(
+                curve,
+                point,
+                tolerance_mm=tolerance_mm,
+            )
+            if parameter is None:
+                continue
+            fraction, point_residual = parameter
+            endpoint_fraction_tolerance = tolerance_mm / max(curve.line.length, 1e-9)
+            if endpoint_fraction_tolerance < fraction < 1.0 - endpoint_fraction_tolerance:
+                cut_fractions[fraction] = max(
+                    cut_fractions.get(fraction, 0.0),
+                    curve.residual_mm,
+                    point_residual,
+                )
+        ordered = sorted(cut_fractions)
+        signed_sweep = 4.0 * atan(curve.bulge)
+        for start_fraction, end_fraction in zip(ordered, ordered[1:], strict=False):
+            start = _opening_curve_point_at_fraction(curve, start_fraction)
+            end = _opening_curve_point_at_fraction(curve, end_fraction)
+            fraction = end_fraction - start_fraction
+            rebuilt = _bulged_opening_curve(
+                source_id=curve.source_id,
+                start=start,
+                end=end,
+                bulge=tan(signed_sweep * fraction / 4.0),
+                max_arc_step_degrees=max_arc_step_degrees,
+                residual_mm=max(
+                    curve.residual_mm,
+                    cut_fractions[start_fraction],
+                    cut_fractions[end_fraction],
+                ),
+            )
+            if rebuilt is not None:
+                atomic.append(rebuilt)
+    # Analytic splitting can introduce sub-micron trigonometric roundoff at a
+    # shared cut point.  Polygonization requires exact graph nodes, so normalize
+    # the newly created endpoints once more under the same audited tolerance.
+    return _snap_opening_curve_endpoints(
+        tuple(atomic),
+        tolerance_mm=tolerance_mm,
+        max_arc_step_degrees=max_arc_step_degrees,
+    ).curves
+
+
+def _opening_curve_point_at_fraction(
+    curve: _OpeningSourceCurve,
+    fraction: float,
+) -> Point2:
+    """Return an exact point on a source curve, independent of display tessellation."""
+
+    fraction = min(1.0, max(0.0, fraction))
+    if fraction <= 1e-15:
+        return curve.start
+    if fraction >= 1.0 - 1e-15:
+        return curve.end
+    if abs(curve.bulge) <= 1e-12:
+        return (
+            curve.start[0] + (curve.end[0] - curve.start[0]) * fraction,
+            curve.start[1] + (curve.end[1] - curve.start[1]) * fraction,
+        )
+    circle = _opening_curve_circle(curve)
+    if circle is None:
+        return curve.start
+    center, radius = circle
+    start_angle = atan2(curve.start[1] - center[1], curve.start[0] - center[0])
+    signed_sweep = 4.0 * atan(curve.bulge)
+    angle = start_angle + signed_sweep * fraction
+    return (
+        center[0] + radius * cos(angle),
+        center[1] + radius * sin(angle),
+    )
+
+
+def _opening_curve_parameter_at_point(
+    curve: _OpeningSourceCurve,
+    point: Point2,
+    *,
+    tolerance_mm: float,
+) -> tuple[float, float] | None:
+    """Return the exact source-curve fraction and residual for a nearby point."""
+
+    if abs(curve.bulge) <= 1e-12:
+        chord_x = curve.end[0] - curve.start[0]
+        chord_y = curve.end[1] - curve.start[1]
+        chord_squared = chord_x * chord_x + chord_y * chord_y
+        if chord_squared <= 1e-18:
+            return None
+        fraction = (
+            (point[0] - curve.start[0]) * chord_x
+            + (point[1] - curve.start[1]) * chord_y
+        ) / chord_squared
+        if fraction < 0.0 or fraction > 1.0:
+            return None
+        exact = _opening_curve_point_at_fraction(curve, fraction)
+        residual = hypot(point[0] - exact[0], point[1] - exact[1])
+        return (fraction, residual) if residual <= tolerance_mm else None
+
+    circle = _opening_curve_circle(curve)
+    if circle is None:
+        return None
+    center, radius = circle
+    radial_distance = hypot(point[0] - center[0], point[1] - center[1])
+    if abs(radial_distance - radius) > tolerance_mm:
+        return None
+    start_angle = atan2(curve.start[1] - center[1], curve.start[0] - center[0])
+    point_angle = atan2(point[1] - center[1], point[0] - center[0])
+    signed_sweep = 4.0 * atan(curve.bulge)
+    if signed_sweep > 0.0:
+        travelled = (point_angle - start_angle) % (2.0 * radians(180.0))
+    else:
+        travelled = -((start_angle - point_angle) % (2.0 * radians(180.0)))
+    fraction = travelled / signed_sweep
+    angular_tolerance = tolerance_mm / max(radius, tolerance_mm)
+    fraction_tolerance = angular_tolerance / max(abs(signed_sweep), 1e-12)
+    if fraction < -fraction_tolerance or fraction > 1.0 + fraction_tolerance:
+        return None
+    fraction = min(1.0, max(0.0, fraction))
+    exact = _opening_curve_point_at_fraction(curve, fraction)
+    residual = hypot(point[0] - exact[0], point[1] - exact[1])
+    return (fraction, residual) if residual <= tolerance_mm else None
+
+
+def _opening_curve_circle(
+    curve: _OpeningSourceCurve,
+) -> tuple[Point2, float] | None:
+    bulge = curve.bulge
+    if abs(bulge) <= 1e-12:
+        return None
+    chord_x = curve.end[0] - curve.start[0]
+    chord_y = curve.end[1] - curve.start[1]
+    chord_length = hypot(chord_x, chord_y)
+    if chord_length <= 1e-12:
+        return None
+    midpoint = (
+        (curve.start[0] + curve.end[0]) / 2.0,
+        (curve.start[1] + curve.end[1]) / 2.0,
+    )
+    center_offset = chord_length * (1.0 - bulge * bulge) / (4.0 * bulge)
+    center = (
+        midpoint[0] - chord_y / chord_length * center_offset,
+        midpoint[1] + chord_x / chord_length * center_offset,
+    )
+    return center, hypot(curve.start[0] - center[0], curve.start[1] - center[1])
+
+
+def _opening_curve_group_has_geometric_conflict(
+    group: tuple[_OpeningSourceCurve, ...],
+    *,
+    tolerance_mm: float,
+) -> bool:
+    circles = tuple(_opening_curve_circle(curve) for curve in group)
+    if any(value is None for value in circles):
+        return not all(value is None for value in circles)
+    materialized = tuple(value for value in circles if value is not None)
+    first_center, first_radius = materialized[0]
+    return any(
+        hypot(center[0] - first_center[0], center[1] - first_center[1])
+        > tolerance_mm
+        or abs(radius - first_radius) > tolerance_mm
+        for center, radius in materialized[1:]
+    )
+
+
+def _order_opening_curve_groups(
+    groups: tuple[tuple[_OpeningSourceCurve, ...], ...],
+    *,
+    tolerance_mm: float,
+) -> tuple[tuple[tuple[_OpeningSourceCurve, ...], bool], ...]:
+    def close(first: Point2, second: Point2) -> bool:
+        return hypot(first[0] - second[0], first[1] - second[1]) <= tolerance_mm
+
+    remaining = list(groups)
+    seed = min(
+        remaining,
+        key=lambda group: (
+            min(group[0].start, group[0].end),
+            max(group[0].start, group[0].end),
+            tuple(curve.source_id for curve in group),
+        ),
+    )
+    remaining.remove(seed)
+    forward = seed[0].start <= seed[0].end
+    ordered: list[tuple[tuple[_OpeningSourceCurve, ...], bool]] = [(seed, forward)]
+    first_point = seed[0].start if forward else seed[0].end
+    current = seed[0].end if forward else seed[0].start
+    while remaining:
+        matches: list[tuple[tuple[_OpeningSourceCurve, ...], bool]] = []
+        for group in remaining:
+            representative = group[0]
+            if close(current, representative.start):
+                matches.append((group, True))
+            if close(current, representative.end):
+                matches.append((group, False))
+        if len(matches) != 1:
+            return ()
+        group, direction = matches[0]
+        remaining.remove(group)
+        ordered.append((group, direction))
+        representative = group[0]
+        current = representative.end if direction else representative.start
+    if not close(current, first_point):
+        return ()
+    return tuple(ordered)
 
 
 def _angle_in_sweep(angle: float, start: float, sweep: float, tolerance: float) -> bool:
@@ -1111,6 +2173,7 @@ def enumerate_endpoint_cap_path_cycles(
         base_incident[edge.end_node].append(edge)
         existing_pairs.add(frozenset((edge.start_node, edge.end_node)))
     synthetic: list[SourceEntityIR] = []
+    synthetic_provenance: dict[str, tuple[str, ...]] = {}
     node_ids = tuple(sorted(base_points))
     for first_index, first_node in enumerate(node_ids):
         for second_node in node_ids[first_index + 1 :]:
@@ -1147,9 +2210,12 @@ def enumerate_endpoint_cap_path_cycles(
                     break
             if not aligned:
                 continue
+            synthetic_source_id = (
+                f"inferred:micro-gap:{first_node}:{second_node}"
+            )
             synthetic.append(
                 SourceEntityIR(
-                    source_id=f"inferred:micro-gap:{first_node}:{second_node}",
+                    source_id=synthetic_source_id,
                     group_id="inferred:micro-gap",
                     handle=f"{first_node}:{second_node}",
                     kind="LINE",
@@ -1157,6 +2223,16 @@ def enumerate_endpoint_cap_path_cycles(
                     linetype="XKITLINE04",
                     start=frame.local_to_world(first),
                     end=frame.local_to_world(second),
+                )
+            )
+            synthetic_provenance[synthetic_source_id] = tuple(
+                sorted(
+                    {
+                        source_id
+                        for node_id in (first_node, second_node)
+                        for edge in base_incident[node_id]
+                        for source_id in edge.source_ids
+                    }
                 )
             )
     augmented = (*materialized, *synthetic)
@@ -1235,6 +2311,44 @@ def enumerate_endpoint_cap_path_cycles(
                 )
                 if candidate is None:
                     continue
+                inferred_source_ids = (
+                    set(candidate.boundary_source_ids)
+                    | set(candidate.vertex_source_ids)
+                ).intersection(synthetic_provenance)
+                if inferred_source_ids:
+                    def source_provenance(
+                        source_ids: tuple[str, ...],
+                    ) -> tuple[str, ...]:
+                        return tuple(
+                            sorted(
+                                {
+                                    raw_source_id
+                                    for source_id in source_ids
+                                    for raw_source_id in synthetic_provenance.get(
+                                        source_id,
+                                        (source_id,),
+                                    )
+                                }
+                            )
+                        )
+
+                    candidate = replace(
+                        candidate,
+                        boundary_source_ids=source_provenance(
+                            candidate.boundary_source_ids
+                        ),
+                        vertex_source_ids=source_provenance(
+                            candidate.vertex_source_ids
+                        ),
+                        rule_ids=tuple(
+                            sorted(
+                                {
+                                    *candidate.rule_ids,
+                                    BOUNDED_ENDPOINT_MICRO_GAP_RULE_ID,
+                                }
+                            )
+                        ),
+                    )
                 bucket = _candidate_bucket(
                     candidate,
                     target_transverse_mm=target_transverse_mm,
@@ -1260,6 +2374,155 @@ class _VirtualCycleEdge:
     end_node: str
     source_id: str | None
     virtual: bool
+
+
+def enumerate_source_backed_straight_overlay_cycles(
+    entities: Iterable[SourceEntityIR],
+    frame: ViewFrame,
+    *,
+    target_transverse_mm: float,
+    endpoint_tolerance_mm: float = 0.15,
+    maximum_candidates: int = 64,
+) -> tuple[ProjectionFaceCandidate, ...]:
+    """Recover closed straight courses split across visibility channels.
+
+    A near and far BOX web can project onto the same two longitudinal rails.
+    Tekla may emit their shared portion as one hidden line and only the exposed
+    tail as visible linework.  Polygonized faces then omit one real web even
+    though both of its terminals and every point of both rails are explicit
+    source geometry.  This enumerator nodes those source-backed crossings and
+    closes only rectangles whose two rails have gap-free source coverage.
+    """
+
+    if target_transverse_mm <= 0.0:
+        raise ValueError("target_transverse_mm must be positive")
+    curves = tuple(
+        curve
+        for curve in _source_curves(entities, frame, include_hidden=True)
+        if curve.arc_center is None
+    )
+    if not curves:
+        return ()
+    alignment_tolerance = max(
+        endpoint_tolerance_mm,
+        target_transverse_mm * 0.0002,
+    )
+    transverse_tolerance = max(0.20, target_transverse_mm * 0.002)
+    terminals: list[tuple[float, float, float, _SourceCurve]] = []
+    courses: list[tuple[float, float, float, _SourceCurve]] = []
+    for curve in curves:
+        start, end = curve.endpoints
+        dx = abs(end[0] - start[0])
+        dy = abs(end[1] - start[1])
+        if (
+            dx <= alignment_tolerance
+            and abs(dy - target_transverse_mm) <= transverse_tolerance
+        ):
+            terminals.append(
+                (
+                    0.5 * (start[0] + end[0]),
+                    min(start[1], end[1]),
+                    max(start[1], end[1]),
+                    curve,
+                )
+            )
+        elif dy <= alignment_tolerance and dx > alignment_tolerance:
+            courses.append(
+                (
+                    min(start[0], end[0]),
+                    max(start[0], end[0]),
+                    0.5 * (start[1] + end[1]),
+                    curve,
+                )
+            )
+    if len(terminals) < 2 or len(courses) < 2:
+        return ()
+
+    def covering_course_source_ids(
+        left: float,
+        right: float,
+        ordinate: float,
+    ) -> tuple[str, ...] | None:
+        intervals = tuple(
+            (start, end, curve.source_id)
+            for start, end, course_ordinate, curve in courses
+            if abs(course_ordinate - ordinate) <= transverse_tolerance
+            and end >= left - endpoint_tolerance_mm
+            and start <= right + endpoint_tolerance_mm
+        )
+        cursor = left
+        contributing: set[str] = set()
+        for start, end, source_id in sorted(intervals):
+            if end < cursor - endpoint_tolerance_mm:
+                continue
+            if start > cursor + endpoint_tolerance_mm:
+                break
+            contributing.add(source_id)
+            cursor = max(cursor, end)
+            if cursor >= right - endpoint_tolerance_mm:
+                return tuple(sorted(contributing))
+        return None
+
+    by_bucket: dict[tuple[float, ...], ProjectionFaceCandidate] = {}
+    terminals.sort(key=lambda item: (item[0], item[3].source_id))
+    for first_index, first in enumerate(terminals):
+        for second in terminals[first_index + 1 :]:
+            left = first[0]
+            right = second[0]
+            if right - left <= target_transverse_mm:
+                continue
+            if (
+                abs(first[1] - second[1]) > transverse_tolerance
+                or abs(first[2] - second[2]) > transverse_tolerance
+            ):
+                continue
+            bottom = 0.5 * (first[1] + second[1])
+            top = 0.5 * (first[2] + second[2])
+            if (
+                covering_course_source_ids(left, right, bottom) is None
+                or covering_course_source_ids(left, right, top) is None
+            ):
+                continue
+            polygon = Polygon(
+                (
+                    (left, bottom),
+                    (right, bottom),
+                    (right, top),
+                    (left, top),
+                )
+            )
+            candidate = _assess_candidate(
+                polygon,
+                curves,
+                grid_size_mm=0.001,
+                endpoint_tolerance_mm=max(
+                    endpoint_tolerance_mm,
+                    alignment_tolerance,
+                ),
+            )
+            if candidate is None:
+                continue
+            bucket = _candidate_bucket(
+                candidate,
+                target_transverse_mm=target_transverse_mm,
+            )
+            existing = by_bucket.get(bucket)
+            if (
+                existing is None
+                or len(candidate.boundary_source_ids)
+                < len(existing.boundary_source_ids)
+            ):
+                by_bucket[bucket] = candidate
+    return tuple(
+        sorted(
+            by_bucket.values(),
+            key=lambda candidate: (
+                -candidate.polygon.area,
+                candidate.polygon.bounds,
+                candidate.boundary_source_ids,
+            ),
+        )[:maximum_candidates]
+    )
 
 
 def enumerate_projection_course_virtual_cycles(
