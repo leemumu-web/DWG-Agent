@@ -25,7 +25,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "DWG-Agent Platform"
+    app_name: str = "钢结构AI智能排版"
     app_env: str = "development"
     debug: bool = True
     api_v1_prefix: str = "/api/v1"

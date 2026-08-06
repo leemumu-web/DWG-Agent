@@ -45,7 +45,7 @@ function useBreadcrumb() {
   const loc = useLocation();
   return useMemo(() => {
     const seg = loc.pathname.split('/').filter(Boolean);
-    const crumbs: { title: string }[] = [{ title: 'DWG-Agent' }];
+    const crumbs: { title: string }[] = [{ title: '钢结构AI智能排版' }];
     const byKey: Record<string, string> = {};
     for (const n of NAV) byKey[n.key] = n.label;
     if (seg[0] === 'admin' && seg[1]) {

@@ -114,11 +114,8 @@ export function LoginPage() {
 
         <div style={{ position: 'relative' }}>
           <Typography.Title level={2} style={{ color: '#fff', marginTop: 0 }}>
-            企业级 CAD 智能处理平台
+            钢结构AI智能排版
           </Typography.Title>
-          <Typography.Paragraph style={{ color: 'rgba(255,255,255,0.85)', fontSize: 15, maxWidth: 480 }}>
-            接收 DWG/DXF 与工程表格，按任务路由至转换、提取和审核流程，覆盖上传、处理、复核与审计。
-          </Typography.Paragraph>
 
           <div style={{ marginTop: 32, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, maxWidth: 480 }}>
             {HIGHLIGHTS.map((h) => (
