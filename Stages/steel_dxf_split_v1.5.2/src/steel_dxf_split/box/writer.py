@@ -89,14 +89,6 @@ def authorize_codegen(disposition: str, purpose: OutputPurpose) -> None:
         )
 
 
-_CONFIRMED_ROLE_LABEL_CORRECTIONS = {
-    ("2b1-cb-86", PhysicalPlateRole.WEB_LEFT): "下腹",
-    ("2b1-cb-86", PhysicalPlateRole.WEB_RIGHT): "上腹",
-    ("h-9-cb-133", PhysicalPlateRole.FLANGE_TOP): "下翼",
-    ("h-9-cb-133", PhysicalPlateRole.FLANGE_BOTTOM): "上翼",
-}
-
-
 def canonical_box_label(
     part_number: str,
     roles: tuple[PhysicalPlateRole, ...],
@@ -109,15 +101,12 @@ def canonical_box_label(
         role = "翼"
     else:
         physical_role = roles[0]
-        role = _CONFIRMED_ROLE_LABEL_CORRECTIONS.get(
-            (part_number.casefold(), physical_role),
-            {
-                PhysicalPlateRole.WEB_LEFT: "上腹",
-                PhysicalPlateRole.WEB_RIGHT: "下腹",
-                PhysicalPlateRole.FLANGE_TOP: "上翼",
-                PhysicalPlateRole.FLANGE_BOTTOM: "下翼",
-            }[physical_role],
-        )
+        role = {
+            PhysicalPlateRole.WEB_LEFT: "上腹",
+            PhysicalPlateRole.WEB_RIGHT: "下腹",
+            PhysicalPlateRole.FLANGE_TOP: "上翼",
+            PhysicalPlateRole.FLANGE_BOTTOM: "下翼",
+        }[physical_role]
     return f"p={part_number}{role}"
 
 

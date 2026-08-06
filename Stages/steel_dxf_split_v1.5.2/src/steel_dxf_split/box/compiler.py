@@ -61,14 +61,19 @@ def compile_box_core(
     source = run_frontend(input_path, limits=source_limits)
     metadata = run_analysis(source)
     search = run_solve(source, metadata)
-    manufacturing = freeze_manufacturing(search)
+    manufacturing = freeze_manufacturing(source, search)
+    selected_hypothesis = next(
+        hypothesis
+        for hypothesis in search.hypotheses
+        if hypothesis.mir is manufacturing
+    )
     validation = run_validation(manufacturing)
     return BoxCoreCompilation(
         source=source,
         metadata=metadata,
         search=search,
         manufacturing=manufacturing,
-        proof_report=search.best.proof_report,
+        proof_report=selected_hypothesis.proof_report,
         validation=validation,
     )
 

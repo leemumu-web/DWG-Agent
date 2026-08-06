@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 
 from .dxf_io import normalize_text
@@ -185,6 +186,65 @@ def _resolve_drawing_scale(
     return min(candidates, key=lambda entity: entity.source_id)
 
 
+def _title_entity_signature(entity: SourceEntityIR) -> tuple[object, ...]:
+    """Return identity-free title content for exact duplicate detection."""
+
+    return (
+        entity.kind,
+        entity.layer,
+        entity.linetype,
+        entity.start,
+        entity.end,
+        entity.center,
+        entity.radius,
+        entity.start_angle,
+        entity.end_angle,
+        entity.points,
+        entity.closed,
+        normalize_text(entity.text_decoded) if entity.text_decoded is not None else None,
+        entity.rotation,
+        entity.major_axis,
+        entity.ratio,
+        entity.extras,
+    )
+
+
+def _title_groups_are_exact_duplicates(
+    source: SourceDocumentIR,
+    group_ids: set[str],
+) -> bool:
+    """Accept only cloned title inserts with identical placement and content."""
+
+    groups = {group.group_id: group for group in source.groups}
+    ordered_ids = sorted(group_ids)
+    if not ordered_ids or any(group_id not in groups for group_id in ordered_ids):
+        return False
+
+    reference_group = groups[ordered_ids[0]]
+    reference_transform = (
+        reference_group.insert_point,
+        reference_group.rotation,
+        reference_group.scale,
+    )
+    reference_entities = Counter(
+        _title_entity_signature(entity)
+        for entity in source.entities_for_group(ordered_ids[0])
+    )
+    if not reference_entities:
+        return False
+
+    for group_id in ordered_ids[1:]:
+        group = groups[group_id]
+        transform = (group.insert_point, group.rotation, group.scale)
+        entities = Counter(
+            _title_entity_signature(entity)
+            for entity in source.entities_for_group(group_id)
+        )
+        if transform != reference_transform or entities != reference_entities:
+            return False
+    return True
+
+
 def resolve_box_metadata(source: SourceDocumentIR) -> BoxMetadata:
     """Resolve one complete BOX title record with per-field source evidence."""
 
@@ -208,15 +268,22 @@ def resolve_box_metadata(source: SourceDocumentIR) -> BoxMetadata:
             "conflicting BOX profiles: " + ", ".join(sorted(canonical_profiles))
         )
     title_group_ids = {entity.group_id for entity, _ in profile_candidates}
-    if len(title_group_ids) != 1:
+    if len(title_group_ids) != 1 and not _title_groups_are_exact_duplicates(
+        source,
+        title_group_ids,
+    ):
         raise MetadataResolutionError(
             "equivalent BOX profiles occur in multiple title groups"
         )
-    title_group_id = next(iter(title_group_ids))
+    title_group_id = min(title_group_ids)
     title_entities = tuple(
         entity for entity in text_entities if entity.group_id == title_group_id
     )
-    profile_entity, profile = profile_candidates[0]
+    profile_entity, profile = next(
+        (entity, candidate)
+        for entity, candidate in profile_candidates
+        if entity.group_id == title_group_id
+    )
 
     member_entity = _unique_match(
         title_entities,

@@ -54,6 +54,7 @@ def _package_root() -> Path:
 
 def _source_production_files(package_root: Path) -> tuple[tuple[str, Path], ...]:
     box_package = package_root / "box"
+    decision_package = package_root / "manufacturing_decision"
     files = [
         *(
             (
@@ -61,6 +62,14 @@ def _source_production_files(package_root: Path) -> tuple[tuple[str, Path], ...]
                 path,
             )
             for path in box_package.rglob("*.py")
+        ),
+        *(
+            (
+                "src/steel_dxf_split/manufacturing_decision/"
+                f"{path.relative_to(decision_package).as_posix()}",
+                path,
+            )
+            for path in decision_package.rglob("*.py")
         ),
         ("src/steel_dxf_split/pipeline.py", package_root / "pipeline.py"),
         ("src/steel_dxf_split/cli.py", package_root / "cli.py"),

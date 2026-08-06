@@ -27,6 +27,24 @@ def test_packaged_box_release_attestation_matches_current_runtime() -> None:
     )
 
 
+def test_box_release_fingerprint_covers_neutral_decision_kernel() -> None:
+    payload = box_release.production_implementation_payload()
+    entries = payload["files"]
+    assert isinstance(entries, list)
+    paths = {
+        entry["path"]
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+    }
+
+    assert {
+        "src/steel_dxf_split/manufacturing_decision/__init__.py",
+        "src/steel_dxf_split/manufacturing_decision/engine.py",
+        "src/steel_dxf_split/manufacturing_decision/errors.py",
+        "src/steel_dxf_split/manufacturing_decision/model.py",
+    } <= paths
+
+
 def test_packaged_box_release_attestation_accepts_verified_bytecode_runtime(
     tmp_path: Path,
     monkeypatch,
