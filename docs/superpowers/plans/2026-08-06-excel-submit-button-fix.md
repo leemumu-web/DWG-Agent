@@ -1,4 +1,4 @@
-﻿# Excel 提交按钮最小修复 Implementation Plan
+# Excel 提交按钮最小修复 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -20,6 +20,7 @@
 ### Task 1: Harden Excel request-key state and submit feedback
 
 **Files:**
+- Create: `frontend/src/features/excel-processing/model/requestKey.ts`
 - Modify: `frontend/src/features/excel-processing/ExcelFinalPage.tsx`
 - Modify: `frontend/src/features/excel-processing/components/ExcelFinalUploadActions.tsx`
 - Test: `frontend/tests/e2e/excel-processing/excel-final-flow.spec.ts`
@@ -30,7 +31,7 @@
 
 - [ ] **Step 1: Add a request-key helper and test fixture control**
 
-Add a local helper in `ExcelFinalPage.tsx` that returns a backend-safe key. It must prefer `globalThis.crypto.randomUUID`, then use `getRandomValues`, then use a timestamp/random fallback containing only `[A-Za-z0-9._:-]` characters.
+Add `createRequestKey()` in `model/requestKey.ts` and import it into `ExcelFinalPage.tsx`. The helper returns a backend-safe key. It must prefer `globalThis.crypto.randomUUID`, then use `getRandomValues`, then use a timestamp/random fallback containing only `[A-Za-z0-9._:-]` characters.
 
 Add an end-to-end test that stubs the browser crypto object before file selection and verifies the upload still sends a POST with an `Idempotency-Key` header.
 
@@ -68,6 +69,6 @@ git diff -- frontend/src/features/excel-processing/ExcelFinalPage.tsx frontend/s
 Commit only the focused fix and test changes with:
 
 ```powershell
-git add frontend/src/features/excel-processing/ExcelFinalPage.tsx frontend/src/features/excel-processing/components/ExcelFinalUploadActions.tsx frontend/tests/e2e/excel-processing/excel-final-flow.spec.ts
+git add frontend/src/features/excel-processing/model/requestKey.ts frontend/src/features/excel-processing/ExcelFinalPage.tsx frontend/src/features/excel-processing/components/ExcelFinalUploadActions.tsx frontend/tests/e2e/excel-processing/excel-final-flow.spec.ts
 git commit -m "fix(frontend): handle Excel submit request key fallback"
 ```

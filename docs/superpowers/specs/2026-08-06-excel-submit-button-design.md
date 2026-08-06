@@ -1,4 +1,4 @@
-﻿# Excel 提交按钮最小修复设计
+# Excel 提交按钮最小修复设计
 
 ## 目标
 修复 Excel 页面在请求幂等号生成失败时，文件已显示但“提交处理”按钮点击无反应的问题。
@@ -7,7 +7,7 @@
 仅修改前端 Excel Final 上传提交组件及其测试，不修改后端接口、数据库、任务队列、轮询、重试或下载逻辑。
 
 ## 方案
-- 在 `ExcelFinalPage.tsx` 内增加本地请求号生成函数。
+- 在 Excel Final 的 `model/requestKey.ts` 中增加独立请求号生成函数，避免页面文件超过架构行数限制。
 - 优先使用 `globalThis.crypto.randomUUID()`。
 - 当浏览器不提供 `randomUUID` 时，使用 `crypto.getRandomValues` 生成 UUID 格式的回退值；若连 `getRandomValues` 也不可用，再使用时间戳和随机值组成的短键，确保符合后端允许的字符集合。
 - 提交按钮同时检查文件和请求号，避免无效状态下显示可点击。

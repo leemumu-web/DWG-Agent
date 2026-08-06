@@ -46,6 +46,7 @@ import {
   ExcelFinalUploadActions,
   excelUploadSizeMessage,
 } from './components/ExcelFinalUploadActions';
+import { createRequestKey } from './model/requestKey';
 import {
   DEFAULT_BATCH_PAGE_SIZE,
   mergeExcelFinalParams,
@@ -157,7 +158,14 @@ export function ExcelFinalPage() {
   }
 
   async function submit() {
-    if (!selectedFile || !selectedRequestKey) return;
+    if (!selectedFile) {
+      message.error('请先选择需要处理的 Excel 文件');
+      return;
+    }
+    if (!selectedRequestKey) {
+      message.error('无法生成本次提交标识，请重新选择 Excel');
+      return;
+    }
     if (!/\.xlsx?$/i.test(selectedFile.name)) {
       message.error('请选择 .xlsx 或 .xls 文件');
       return;
@@ -408,9 +416,10 @@ export function ExcelFinalPage() {
               file={selectedFile}
               maximumBytes={healthQ.data?.max_upload_size_bytes}
               submitting={submitting}
+              requestKeyAvailable={selectedRequestKey !== null}
               onSelect={(file) => {
                 setSelectedFile(file);
-                setSelectedRequestKey(crypto.randomUUID());
+                setSelectedRequestKey(createRequestKey());
                 setSubmissionError(null);
               }}
               onRemove={() => {
