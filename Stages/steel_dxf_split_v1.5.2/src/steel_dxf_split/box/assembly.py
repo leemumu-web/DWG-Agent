@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations_with_replacement
 from math import ceil, cos, hypot, radians, sin
@@ -9,6 +9,7 @@ from typing import Protocol
 
 from shapely.geometry import LineString, Point
 
+from .equivalence import BOX_DRAFTING_RESOLUTION_MM
 from .flange_solver import (
     PAIRED_CAP_THICKNESS_BOUNDED_SOURCE_BOUNDARY_RULE_ID,
     FlangeCandidateSearchResult,
@@ -24,6 +25,7 @@ from .manufacturing_ir import (
     InnerContourIR,
     PhysicalPlateIR,
     PhysicalPlateRole,
+    contour_polygon,
 )
 from .metadata import BoxMetadata, resolve_box_metadata
 from .openings import (
@@ -511,6 +513,254 @@ class _OuterFlangeCourse:
     longitudinal_center: float
     transverse: float
     source_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _CrossViewWebCourseEnvelope:
+    reference_min_x: float
+    reference_max_x: float
+    envelope_min_x: float
+    envelope_max_x: float
+    source_ids: tuple[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _CrossViewLongCourse:
+    source_id: str
+    hidden: bool
+    minimum_x: float
+    maximum_x: float
+    transverse: float
+
+    @property
+    def length(self) -> float:
+        return self.maximum_x - self.minimum_x
+
+
+_CROSS_VIEW_WEB_TOTAL_SPAN_RULE_ID = (
+    "BOX.WEB.CROSS_VIEW_VISIBLE_HIDDEN_COURSE_ENVELOPE"
+)
+
+
+def _cross_view_web_course_envelopes(
+    assignment: ViewAssignmentCandidate,
+    *,
+    face_separation_mm: float,
+) -> tuple[_CrossViewWebCourseEnvelope, ...]:
+    """Return total spans proved by translated visible/hidden thickness faces."""
+
+    if face_separation_mm <= 0.0:
+        return ()
+    frame = assignment.b_view.frame
+    tolerance = max(
+        BOX_DRAFTING_RESOLUTION_MM,
+        frame.transverse_span * 0.0002,
+    )
+    minimum_length = frame.longitudinal_span * 0.40
+    courses: list[_CrossViewLongCourse] = []
+    for entity in assignment.b_view.entities:
+        if entity.kind != "LINE" or entity.start is None or entity.end is None:
+            continue
+        start = frame.world_to_local(entity.start)
+        end = frame.world_to_local(entity.end)
+        if abs(end[1] - start[1]) > tolerance:
+            continue
+        minimum_x = min(start[0], end[0])
+        maximum_x = max(start[0], end[0])
+        if maximum_x - minimum_x < minimum_length:
+            continue
+        courses.append(
+            _CrossViewLongCourse(
+                source_id=entity.source_id,
+                hidden=is_hidden_projection_linetype(entity.linetype),
+                minimum_x=minimum_x,
+                maximum_x=maximum_x,
+                transverse=(start[1] + end[1]) / 2.0,
+            )
+        )
+
+    envelopes: dict[
+        tuple[float, float, float, float, tuple[str, str]],
+        _CrossViewWebCourseEnvelope,
+    ] = {}
+    for index, first in enumerate(courses):
+        for second in courses[index + 1 :]:
+            if first.hidden == second.hidden:
+                continue
+            if (
+                abs(abs(first.transverse - second.transverse) - face_separation_mm)
+                > tolerance
+                or abs(first.length - second.length) > tolerance
+            ):
+                continue
+            minimum_shift = second.minimum_x - first.minimum_x
+            maximum_shift = second.maximum_x - first.maximum_x
+            longitudinal_shift = (minimum_shift + maximum_shift) / 2.0
+            if (
+                abs(minimum_shift - maximum_shift) > tolerance
+                or abs(longitudinal_shift) <= tolerance
+                or abs(longitudinal_shift) > face_separation_mm * 2.5
+            ):
+                continue
+            envelope_min_x = min(first.minimum_x, second.minimum_x)
+            envelope_max_x = max(first.maximum_x, second.maximum_x)
+            if (
+                envelope_max_x - envelope_min_x
+                <= max(first.length, second.length) + tolerance
+            ):
+                continue
+            source_ids = tuple(sorted((first.source_id, second.source_id)))
+            for reference in (first, second):
+                envelope = _CrossViewWebCourseEnvelope(
+                    reference_min_x=reference.minimum_x,
+                    reference_max_x=reference.maximum_x,
+                    envelope_min_x=envelope_min_x,
+                    envelope_max_x=envelope_max_x,
+                    source_ids=source_ids,
+                )
+                key = (
+                    round(envelope.reference_min_x, 6),
+                    round(envelope.reference_max_x, 6),
+                    round(envelope.envelope_min_x, 6),
+                    round(envelope.envelope_max_x, 6),
+                    envelope.source_ids,
+                )
+                envelopes[key] = envelope
+    return tuple(envelopes[key] for key in sorted(envelopes))
+
+
+def _apply_cross_view_web_total_spans(
+    candidates: tuple[WebOutlineCandidate, WebOutlineCandidate],
+    assignment: ViewAssignmentCandidate,
+    *,
+    face_separation_mm: float,
+) -> tuple[WebOutlineCandidate, WebOutlineCandidate]:
+    """Extend proven web terminals to the complete cross-view source envelope."""
+
+    envelopes = _cross_view_web_course_envelopes(
+        assignment,
+        face_separation_mm=face_separation_mm,
+    )
+    if not envelopes:
+        return candidates
+
+    adjusted: list[WebOutlineCandidate] = []
+    for candidate in candidates:
+        polygon = contour_polygon(candidate.contour)
+        minimum_x, minimum_y, maximum_x, maximum_y = polygon.bounds
+        (
+            projection_minimum_x,
+            _,
+            projection_maximum_x,
+            _,
+        ) = candidate.projection.polygon.bounds
+        tolerance = max(
+            BOX_DRAFTING_RESOLUTION_MM,
+            candidate.projection.grid_size_mm * 2.0,
+        )
+        matches = tuple(
+            envelope
+            for envelope in envelopes
+            if abs(envelope.reference_min_x - projection_minimum_x) <= tolerance
+            and abs(envelope.reference_max_x - projection_maximum_x) <= tolerance
+        )
+        adjustments = {
+            (
+                round(envelope.envelope_min_x - envelope.reference_min_x, 6),
+                round(envelope.envelope_max_x - envelope.reference_max_x, 6),
+            )
+            for envelope in matches
+        }
+        if len(adjustments) != 1 or any(
+            abs(segment.bulge) > 1e-12 for segment in candidate.contour
+        ):
+            adjusted.append(candidate)
+            continue
+        minimum_adjustment, maximum_adjustment = next(iter(adjustments))
+        envelope_min_x = minimum_x + minimum_adjustment
+        envelope_max_x = maximum_x + maximum_adjustment
+        if (
+            envelope_min_x > minimum_x + tolerance
+            or envelope_max_x < maximum_x - tolerance
+            or envelope_max_x - envelope_min_x
+            > maximum_x - minimum_x + face_separation_mm * 2.5
+        ):
+            adjusted.append(candidate)
+            continue
+
+        def move(point: tuple[float, float]) -> tuple[float, float]:
+            if abs(point[0] - minimum_x) <= tolerance:
+                return (envelope_min_x, point[1])
+            if abs(point[0] - maximum_x) <= tolerance:
+                return (envelope_max_x, point[1])
+            return point
+
+        contour = tuple(
+            replace(
+                segment,
+                start=move(segment.start),
+                end=move(segment.end),
+                evidence=replace(
+                    segment.evidence,
+                    state=EvidenceState.INFERRED,
+                    rule_ids=tuple(
+                        sorted(
+                            set(segment.evidence.rule_ids)
+                            | {_CROSS_VIEW_WEB_TOTAL_SPAN_RULE_ID}
+                        )
+                    ),
+                    description=(
+                        "web terminal extended to visible/hidden cross-view "
+                        "source-course envelope"
+                    ),
+                ),
+            )
+            for segment in candidate.contour
+        )
+        adjusted_polygon = contour_polygon(contour)
+        if (
+            not adjusted_polygon.is_valid
+            or not adjusted_polygon.exterior.is_simple
+            or abs(
+                (adjusted_polygon.bounds[3] - adjusted_polygon.bounds[1])
+                - (maximum_y - minimum_y)
+            )
+            > tolerance
+        ):
+            adjusted.append(candidate)
+            continue
+        cross_view_source_ids = tuple(
+            sorted({source_id for match in matches for source_id in match.source_ids})
+        )
+        adjusted.append(
+            replace(
+                candidate,
+                contour=contour,
+                projection=replace(
+                    candidate.projection,
+                    polygon=adjusted_polygon,
+                    boundary_source_ids=tuple(
+                        sorted(
+                            set(candidate.projection.boundary_source_ids)
+                            | set(cross_view_source_ids)
+                        )
+                    ),
+                    vertex_source_ids=tuple(
+                        sorted(
+                            set(candidate.projection.vertex_source_ids)
+                            | set(cross_view_source_ids)
+                        )
+                    ),
+                    rule_ids=tuple(
+                        sorted(
+                            set(candidate.projection.rule_ids)
+                            | {_CROSS_VIEW_WEB_TOTAL_SPAN_RULE_ID}
+                        )
+                    ),
+                ),
+            )
+        )
+    return (adjusted[0], adjusted[1])
 
 
 def _outer_flange_courses(
@@ -2140,6 +2390,11 @@ def _compile_assignment(
     )
     web_inner_buckets, web_inner_rejections = web_inner_lowering
     flange_inner_buckets, flange_inner_rejections = flange_inner_lowering
+    manufacturing_web_pair = _apply_cross_view_web_total_spans(
+        web_pair,
+        assignment,
+        face_separation_mm=metadata.profile.value.flange_thickness,
+    )
     opening_rejections = tuple(
         sorted(
             {
@@ -2161,7 +2416,7 @@ def _compile_assignment(
         )
         for role, candidate, openings, inner_contours in zip(
             web_roles,
-            web_pair,
+            manufacturing_web_pair,
             web_buckets,
             web_inner_buckets,
             strict=True,
@@ -2188,7 +2443,7 @@ def _compile_assignment(
         plates,
         web_search,
         flange_search,
-        web_pair,
+        manufacturing_web_pair,
         flange_pair,
         source_openings,
         (*web_inner_inventory.openings, *flange_inner_inventory.openings),
@@ -2229,12 +2484,13 @@ def _compile_assignment(
         -float(inner_contour_openings),
         -float(bool(web_part_openings)),
         -sum(
-            _strength(candidate.derivations) for candidate in (*web_pair, *flange_pair)
+            _strength(candidate.derivations)
+            for candidate in (*manufacturing_web_pair, *flange_pair)
         ),
     )
     return CompleteBoxHypothesis(
         assignment=assignment,
-        web_candidates=web_pair,
+        web_candidates=manufacturing_web_pair,
         flange_candidates=flange_pair,
         mir=mir,
         proof_report=proof,
