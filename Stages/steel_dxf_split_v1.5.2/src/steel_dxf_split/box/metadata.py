@@ -78,6 +78,11 @@ _MEMBER_RE = re.compile(
 )
 _SCALE_RE = re.compile(r"^1\s*:\s*(\d+)$")
 _PLAIN_NUMBER_RE = re.compile(rf"^({_NUMBER})$")
+_LENGTH_HEADER_RE = re.compile(
+    r"^长度(?:\s*[（(]\s*MM\s*[)）])?$",
+    re.IGNORECASE,
+)
+_QUANTITY_HEADER_RE = re.compile(r"^数量$")
 
 
 def _format_dimension(value: float) -> str:
@@ -185,6 +190,54 @@ def _resolve_drawing_scale(
     return min(candidates, key=lambda entity: entity.source_id)
 
 
+def _resolve_nominal_length(
+    title_entities: tuple[SourceEntityIR, ...],
+) -> SourceEntityIR:
+    candidates = tuple(
+        entity
+        for entity in title_entities
+        if entity.text_decoded is not None
+        and _PLAIN_NUMBER_RE.fullmatch(normalize_text(entity.text_decoded))
+        is not None
+    )
+    if len(candidates) == 1:
+        return candidates[0]
+
+    length_headers = tuple(
+        entity
+        for entity in title_entities
+        if entity.text_decoded is not None
+        and _LENGTH_HEADER_RE.fullmatch(normalize_text(entity.text_decoded))
+        is not None
+        and entity.center is not None
+    )
+    quantity_headers = tuple(
+        entity
+        for entity in title_entities
+        if entity.text_decoded is not None
+        and _QUANTITY_HEADER_RE.fullmatch(normalize_text(entity.text_decoded))
+        is not None
+        and entity.center is not None
+    )
+    if len(length_headers) == 1 and len(quantity_headers) == 1:
+        length_x = length_headers[0].center[0]
+        quantity_x = quantity_headers[0].center[0]
+        column_matches = tuple(
+            entity
+            for entity in candidates
+            if entity.center is not None
+            and abs(entity.center[0] - length_x)
+            < abs(entity.center[0] - quantity_x)
+        )
+        if len(column_matches) == 1:
+            return column_matches[0]
+
+    raise MetadataResolutionError(
+        "expected exactly one nominal length in BOX title group, "
+        f"found {len(candidates)}"
+    )
+
+
 def resolve_box_metadata(source: SourceDocumentIR) -> BoxMetadata:
     """Resolve one complete BOX title record with per-field source evidence."""
 
@@ -229,11 +282,7 @@ def resolve_box_metadata(source: SourceDocumentIR) -> BoxMetadata:
         predicate=lambda text: _MATERIAL_RE.fullmatch(text) is not None,
     )
     scale_entity = _resolve_drawing_scale(title_entities, text_entities)
-    length_entity = _unique_match(
-        title_entities,
-        label="nominal length",
-        predicate=lambda text: _PLAIN_NUMBER_RE.fullmatch(text) is not None,
-    )
+    length_entity = _resolve_nominal_length(title_entities)
 
     assert member_entity.text_decoded is not None
     assert material_entity.text_decoded is not None

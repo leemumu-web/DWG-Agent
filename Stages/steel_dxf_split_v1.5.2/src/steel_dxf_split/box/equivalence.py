@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
+from hashlib import sha256
 
 from .manufacturing_ir import (
     BoxWeldAllowanceContract,
@@ -25,6 +26,9 @@ class PlateOutputGroup:
     quantity: int
     merge_authorized: bool
     equivalence_tolerance_mm: float
+
+
+BOX_DRAFTING_RESOLUTION_MM = 0.05
 
 
 _TRANSFORMS = (
@@ -65,7 +69,13 @@ def _canonical_loop(
         return ()
     forward = segments
     reverse = tuple(
-        (end_x, end_y, start_x, start_y, -bulge)
+        (
+            end_x,
+            end_y,
+            start_x,
+            start_y,
+            0.0 if bulge == 0.0 else -bulge,
+        )
         for start_x, start_y, end_x, end_y, bulge in reversed(segments)
     )
     variants = tuple(
@@ -147,6 +157,57 @@ def plates_equivalent(
     return not first_signatures.isdisjoint(second_signatures)
 
 
+def plate_manufacturing_key(
+    plate: PhysicalPlateIR,
+    *,
+    tolerance: float = 1e-5,
+) -> str:
+    """Return the complete role-neutral manufacturing identity of one plate.
+
+    Source identifiers, proof wording, plate identifiers, and physical-role names
+    are deliberately excluded.  Material, thickness, the complete outer contour,
+    every circular/non-circular opening, and the effective weld allowance remain.
+    """
+
+    if tolerance <= 0.0:
+        raise ValueError("manufacturing-key tolerance must be positive")
+    effective_plate = _effective_manufacturing_plate(plate)
+    geometry = min(
+        _geometry_signature(effective_plate, transform, tolerance)
+        for transform in _TRANSFORMS
+    )
+    contract = plate.weld_allowance_contract
+    allowance = (
+        None
+        if contract is None
+        else {
+            "schema_version": contract.schema_version,
+            "coordinate_unit": contract.coordinate_unit,
+            "longitudinal_axis": contract.longitudinal_axis,
+            "horizontal_residual_mm": _round(
+                contract.horizontal_residual_mm, tolerance
+            ),
+            "main_length_mm": _round(contract.main_length_mm, tolerance),
+            "allowance_mm": _round(contract.allowance_mm, tolerance),
+            "stationary_end": contract.stationary_end,
+            "movable_end": contract.movable_end,
+        }
+    )
+    payload = {
+        "material": plate.material,
+        "thickness_mm": _round(plate.thickness_mm, tolerance),
+        "geometry": json.loads(geometry),
+        "weld_allowance": allowance,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
 def _stretched_plate(plate: PhysicalPlateIR) -> PhysicalPlateIR | None:
     contract = plate.weld_allowance_contract
     if contract is None:
@@ -156,6 +217,30 @@ def _stretched_plate(plate: PhysicalPlateIR) -> PhysicalPlateIR | None:
     except BoxWeldAllowanceProcessingError:
         return None
     return replace(plate, outer_segments=stretched)
+
+
+def _effective_manufacturing_plate(plate: PhysicalPlateIR) -> PhysicalPlateIR:
+    if plate.weld_allowance_contract is None:
+        return plate
+    stretched = _stretched_plate(plate)
+    if stretched is None:
+        raise ValueError("plate weld allowance could not be applied")
+    return stretched
+
+
+def plates_equivalent_after_allowance(
+    first: PhysicalPlateIR,
+    second: PhysicalPlateIR,
+    *,
+    tolerance: float,
+) -> bool:
+    """Compare the actual manufacturing geometry after one-sided growth."""
+
+    return plates_equivalent(
+        _effective_manufacturing_plate(first),
+        _effective_manufacturing_plate(second),
+        tolerance=tolerance,
+    )
 
 
 def allowance_group_contract(

@@ -77,6 +77,10 @@ def _source_production_files(package_root: Path) -> tuple[tuple[str, Path], ...]
             package_root / "part_mark_layout.py",
         ),
         (
+            "src/steel_dxf_split/preview_fonts.py",
+            package_root / "preview_fonts.py",
+        ),
+        (
             "src/steel_dxf_split/release_evidence/box_build_contract.json",
             package_root / "release_evidence/box_build_contract.json",
         ),

@@ -25,6 +25,7 @@ matplotlib.use("Agg", force=True)
 from matplotlib import pyplot as plt
 from PIL import Image
 
+from ..preview_fonts import select_cjk_fallback_font as _select_cjk_fallback_font
 from .box_region import region_boundary
 from .dxf_io import decode_cad_text_transport
 
@@ -84,13 +85,7 @@ class PreviewRenderContext(RenderContext):
 
 
 def select_cjk_fallback_font() -> str:
-    manager = fonts.font_manager
-    for candidate in _CJK_FONT_CANDIDATES:
-        if manager.has_font(candidate):
-            return candidate
-    raise RuntimeError(
-        "DXF preview requires an installed CJK font: " + ", ".join(_CJK_FONT_CANDIDATES)
-    )
+    return _select_cjk_fallback_font(_CJK_FONT_CANDIDATES)
 
 
 def _configure_font_fallback() -> str:
