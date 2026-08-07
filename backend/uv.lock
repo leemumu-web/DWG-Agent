@@ -126,6 +126,25 @@ wheels = [
 ]
 
 [[package]]
+name = "box-left-right-reader"
+version = "0.1.0"
+source = { editable = "../Stages/BOX左右进读取" }
+dependencies = [
+    { name = "ezdxf" },
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pillow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ezdxf", specifier = ">=1.4,<2" },
+    { name = "matplotlib", specifier = ">=3.10,<4" },
+    { name = "numpy", specifier = ">=2,<3" },
+    { name = "pillow", specifier = ">=11,<13" },
+]
+
+[[package]]
 name = "celery"
 version = "5.6.3"
 source = { registry = "https://pypi.org/simple" }
@@ -287,6 +306,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "bh-left-right-reader" },
+    { name = "box-left-right-reader" },
     { name = "celery", extra = ["sqlalchemy"] },
     { name = "dwg-converter" },
     { name = "dxf-converter" },
@@ -326,6 +346,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13.1" },
     { name = "bh-left-right-reader", editable = "../Stages/bh_left_right_reader" },
+    { name = "box-left-right-reader", editable = "../Stages/BOX左右进读取" },
     { name = "celery", extras = ["sqlalchemy"], specifier = ">=5.4,<6" },
     { name = "dwg-converter", editable = "../Stages/dwg2dxf" },
     { name = "dxf-converter", editable = "../Stages/dxf2dwg" },

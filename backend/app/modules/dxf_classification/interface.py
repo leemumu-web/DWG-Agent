@@ -66,6 +66,19 @@ def load_bh_stage2_classification_batch(
     return load_batch(db, workflow_id, expected_run_id=expected_run_id)
 
 
+def load_box_stage2_classification_batch(
+    db,
+    workflow_id: int,
+    *,
+    expected_run_id: int | None = None,
+) -> DxfBhStage2ClassificationBatch:
+    from app.modules.dxf_classification.persistence import (
+        load_box_stage2_classification_batch as load_batch,
+    )
+
+    return load_batch(db, workflow_id, expected_run_id=expected_run_id)
+
+
 def enqueue_dxf_classification_job(
     job_id: int, attempt: int, *, task_id: str | None = None
 ) -> str:

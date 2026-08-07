@@ -12,6 +12,7 @@ from app.modules.dxf_classification.interface import (
     latest_classification_run,
     list_split_candidate_inputs,
     load_bh_stage2_classification_batch,
+    load_box_stage2_classification_batch,
 )
 from app.modules.dxf_splitting.interface import (
     MAX_AUTOMATIC_ATTEMPTS,
@@ -132,9 +133,14 @@ def preflight_excel_stage2(
             {"file_id": params["stage1_excel_file_id"]},
         )
     bh_input_count = int(params["bh_input_count"])
+    box_input_count = int(params.get("box_input_count", 0))
     return {
         "ready": True,
-        "mode": "bh_enhancement" if bh_input_count else "no_bh_inputs",
+        "mode": (
+            "bh_enhancement"
+            if bh_input_count or box_input_count
+            else "no_bh_inputs"
+        ),
         "stage1_file_id": source.id,
         "stage1_file_name": source.original_name,
         "stage1_job_id": params["stage1_job_id"],
@@ -143,6 +149,7 @@ def preflight_excel_stage2(
         "classification_job_id": params["classification_job_id"],
         "classification_job_attempt": params["classification_job_attempt"],
         "bh_input_count": bh_input_count,
+        "box_input_count": box_input_count,
         "checks": [
             {"code": "stage1_job_verified", "label": "第一阶段正式任务来源一致"},
             {
@@ -163,6 +170,14 @@ def preflight_excel_stage2(
                     f"已冻结 {bh_input_count} 张拆板前 BH 图纸"
                     if bh_input_count
                     else "当前分类账无 BH 图纸，将原样生成第二阶段结果"
+                ),
+            },
+            {
+                "code": "box_batch_frozen",
+                "label": (
+                    f"已冻结 {box_input_count} 张拆板前 BOX 图纸"
+                    if box_input_count
+                    else "当前分类账无 BOX 图纸"
                 ),
             },
         ],
@@ -641,6 +656,38 @@ def _prepare_excel_stage2(
             },
         )
 
+    try:
+        box_classification = load_box_stage2_classification_batch(
+            db,
+            workflow.id,
+        )
+    except ClassificationError as exc:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_CLASSIFICATION_INPUT_INVALID",
+            f"BOX 左右进处理无法使用当前分类结果：{exc}",
+        ) from exc
+    if (
+        box_classification.workflow_run_id != workflow.id
+        or box_classification.project_id != workflow.project_id
+        or box_classification.classification_job_id
+        != classification.classification_job_id
+        or box_classification.classification_job_attempt
+        != classification.classification_job_attempt
+        or box_classification.input_manifest_sha256
+        != classification.input_manifest_sha256
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE2_CLASSIFICATION_BINDING_INVALID",
+            "当前 BOX 分类账没有绑定本项目已成功的正式分类 Job attempt。",
+            {
+                "classification_run_id": box_classification.classification_run_id,
+                "classification_job_id": box_classification.classification_job_id,
+                "classification_job_attempt": box_classification.classification_job_attempt,
+            },
+        )
+
     return TASK_EXCEL_STAGE2, {
         "workflow_id": workflow.id,
         "project_id": workflow.project_id,
@@ -660,6 +707,12 @@ def _prepare_excel_stage2(
         "bh_input_count": len(classification.items),
         "bh_manifest_version": classification.bh_manifest_version,
         "bh_manifest_sha256": classification.bh_manifest_sha256,
+        "box_classification_run_id": box_classification.classification_run_id,
+        "box_classification_job_id": box_classification.classification_job_id,
+        "box_classification_job_attempt": box_classification.classification_job_attempt,
+        "box_input_count": len(box_classification.items),
+        "box_manifest_version": box_classification.bh_manifest_version,
+        "box_manifest_sha256": box_classification.bh_manifest_sha256,
     }
 
 

@@ -40,6 +40,7 @@ _REQUIRED_STAGE_FILES = (
     "config.py",
     "material_routing.py",
     "bh_stage2.py",
+    "box_stage2.py",
     "stage2_workbook.py",
 )
 _QUALITY_STATUSES = {"ok", "warning", "severe_warning"}
@@ -313,9 +314,10 @@ def run_excel_stage2_pipeline(
     measurements_path: Path,
     output_path: Path,
     *,
+    box_measurements_path: Path | None = None,
     on_heartbeat: Callable[[], None] | None = None,
 ) -> ExcelStage2ProcessResult:
-    """Run the isolated BH Stage 2 and publish both validated workbooks."""
+    """Run the isolated BH/BOX Stage 2 and publish both validated workbooks."""
     if not formal_stage1_path.is_file():
         raise ExcelFinalProcessError("Excel Stage 1 formal workbook does not exist")
     if not measurements_path.is_file():
@@ -336,17 +338,27 @@ def run_excel_stage2_pipeline(
         f".{output_path.stem}.{publish_token}.internal.xlsx"
     )
     try:
-        arguments = (
+        arguments = [
             "process-stage2",
             "--stage1",
             str(formal_stage1_path.resolve()),
             "--measurements",
             str(measurements_path.resolve()),
+        ]
+        if box_measurements_path is not None:
+            if not box_measurements_path.is_file():
+                raise ExcelFinalProcessError("BOX measurement contract does not exist")
+            arguments.extend((
+                "--box-measurements",
+                str(box_measurements_path.resolve()),
+            ))
+        arguments.extend((
             "--output",
             str(stage_output_path),
             "--internal-output",
             str(stage_internal_output_path),
-        )
+        ))
+        arguments = tuple(arguments)
         completed = (
             _run_stage(*arguments, on_heartbeat=on_heartbeat)
             if on_heartbeat is not None

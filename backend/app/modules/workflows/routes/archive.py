@@ -77,6 +77,15 @@ _EXCEL_STAGE2_READER_RESULT = ExcelResultDownload(
     audit_action="workflow_excel_stage2_reader_results.download",
     allow_failed_diagnostic=True,
 )
+_EXCEL_STAGE2_BOX_READER_RESULT = ExcelResultDownload(
+    stage_code="excel_stage2",
+    stage_label="BOX 左右进读取",
+    task_type=TASK_EXCEL_STAGE2,
+    artifact_type="box_setback_excel",
+    operation="workflow_excel_stage2_box_reader_download",
+    audit_action="workflow_excel_stage2_box_reader_results.download",
+    allow_failed_diagnostic=True,
+)
 
 
 def _collect_archive_members(
@@ -738,6 +747,30 @@ def download_excel_stage2_result(
         current_user,
         db,
         spec=_EXCEL_STAGE2_RESULT,
+    )
+
+
+@router.get(
+    "/{workflow_id}/stages/excel_stage2/download-box-reader-result",
+    summary="下载 BOX 左右进读取结果",
+    response_class=StreamingResponse,
+    responses=_XLSX_RESPONSE,
+    description=(
+        "成功批次返回当前 BOX 读取表；读取阻断时仅返回当前 attempt 的诊断表，绝不回退到旧批次。"
+    ),
+)
+def download_excel_stage2_box_reader_result(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    return _stream_excel_result(
+        workflow_id,
+        request,
+        current_user,
+        db,
+        spec=_EXCEL_STAGE2_BOX_READER_RESULT,
     )
 
 

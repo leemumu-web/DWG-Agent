@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.modules.dxf_classification.interface import (
     DxfBhStage2ClassificationBatch,
     load_bh_stage2_classification_batch,
+    load_box_stage2_classification_batch,
 )
 from app.modules.excel_processing.persistence import (
     cleanup_excel_processing_rows,
@@ -88,6 +89,12 @@ _PARAM_FIELDS = frozenset({
     "bh_input_count",
     "bh_manifest_version",
     "bh_manifest_sha256",
+    "box_classification_run_id",
+    "box_classification_job_id",
+    "box_classification_job_attempt",
+    "box_input_count",
+    "box_manifest_version",
+    "box_manifest_sha256",
 })
 
 
@@ -108,10 +115,20 @@ class ExcelStage2WorkerInputs:
     source_excel: StoredFile
     stage1_excel: StoredFile
     classification_batch: DxfBhStage2ClassificationBatch
+    box_classification_batch: DxfBhStage2ClassificationBatch | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class BhReaderArtifacts:
+    workbook_path: Path
+    measurements_path: Path
+    processed_count: int
+    ok_count: int
+    failure_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class BoxReaderArtifacts:
     workbook_path: Path
     measurements_path: Path
     processed_count: int
@@ -346,10 +363,38 @@ def resolve_excel_stage2_worker_inputs(
             "EXCEL_STAGE2_INPUT_MANIFEST_CHANGED",
             "BH 图纸清单在任务启动后发生变化，请重新运行。",
         )
+    box_batch: DxfBhStage2ClassificationBatch | None = None
+    if "box_classification_run_id" in params:
+        box_run_id = _positive_int(params, "box_classification_run_id")
+        box_batch = load_box_stage2_classification_batch(
+            db,
+            workflow.id,
+            expected_run_id=box_run_id,
+        )
+        box_job = db.get(Job, _positive_int(params, "box_classification_job_id"))
+        if (
+            box_batch.workflow_run_id != workflow.id
+            or box_batch.project_id != project_id
+            or box_job is None
+            or box_job.project_id != project_id
+            or box_job.status != "succeeded"
+            or box_job.attempt != _positive_int(params, "box_classification_job_attempt")
+            or len(box_batch.items)
+            != _positive_int(params, "box_input_count", allow_zero=True)
+            or box_batch.bh_manifest_version
+            != _positive_int(params, "box_manifest_version")
+            or box_batch.bh_manifest_sha256
+            != _required_text(params, "box_manifest_sha256")
+        ):
+            raise Stage2WorkerError(
+                "EXCEL_STAGE2_INPUT_MANIFEST_CHANGED",
+                "BOX 图纸清单在任务启动后发生变化，请重新运行。",
+            )
     return ExcelStage2WorkerInputs(
         source_excel=source,
         stage1_excel=stage1,
         classification_batch=batch,
+        box_classification_batch=box_batch,
     )
 
 
@@ -522,6 +567,139 @@ def run_bh_reader_batch(
     return artifacts
 
 
+def run_box_reader_batch(
+    db: Session,
+    job: Job,
+    inputs: ExcelStage2WorkerInputs,
+    work_dir: Path,
+    progress,
+) -> BoxReaderArtifacts:
+    """Download and analyze each BOX drawing, retaining compact results only."""
+    from box_reader.analyzer import BoxAnalyzer
+    from box_reader.batch import (
+        BoxInputEntry,
+        analyze_manifest as analyze_box_manifest,
+    )
+    from box_reader.simple_xlsx import (
+        write_results_xlsx as write_box_results_xlsx,
+    )
+
+    del db, job
+    batch = inputs.box_classification_batch
+    if batch is None or not batch.items:
+        workbook_path = work_dir / "BOX左右进读取表.xlsx"
+        measurements_path = work_dir / "box-measurements.json"
+        workbook_path.write_bytes(b"")
+        measurements_path.write_text(
+            json.dumps(
+                {"schema": "box_setback_measurements/v1", "items": []},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        return BoxReaderArtifacts(
+            workbook_path=workbook_path,
+            measurements_path=measurements_path,
+            processed_count=0,
+            ok_count=0,
+            failure_count=0,
+        )
+
+    analyzer = BoxAnalyzer()
+    batch_items = []
+    contract_items: list[dict[str, object]] = []
+    part_number_sources: dict[str, str] = {}
+    duplicate_part_numbers: list[tuple[str, str, str]] = []
+    total = len(batch.items)
+    input_dir = work_dir / "box-input"
+    for processed, item in enumerate(batch.items, start=1):
+        physical_path = input_dir / f"{item.classification_item_id}.dxf"
+        _stage_storage_object(
+            bucket=item.input_bucket,
+            storage_key=item.input_storage_key,
+            original_name=item.input_name,
+            size_bytes=item.input_size_bytes,
+            expected_sha256=item.input_sha256,
+            destination=physical_path,
+        )
+        try:
+            outcome = analyze_box_manifest(
+                (BoxInputEntry(path=physical_path, file_name=item.input_name),),
+                on_progress=lambda _value: None,
+                analyzer=analyzer,
+            )
+        finally:
+            physical_path.unlink(missing_ok=True)
+        result = outcome.items[0]
+        normalized_part_number = result.part_number.strip().casefold()
+        first_source = part_number_sources.get(normalized_part_number)
+        if normalized_part_number and first_source is not None:
+            duplicate_part_numbers.append(
+                (result.part_number.strip(), first_source, item.input_name)
+            )
+        if normalized_part_number:
+            part_number_sources.setdefault(normalized_part_number, item.input_name)
+        batch_items.append(result)
+        contract_items.append({
+            "source_file_id": item.input_file_id,
+            "file_name": item.input_name,
+            "part_number": result.part_number,
+            "classification_spec": item.profile_normalized,
+            "reader_spec": result.specification,
+            "status": result.status,
+            "warnings": list(result.warnings),
+            "measurements": [
+                {
+                    "role": measurement.role,
+                    "left_safe": measurement.left_safe,
+                    "right_safe": measurement.right_safe,
+                }
+                for measurement in result.measurements
+            ],
+        })
+        progress(processed, total, item.input_name, result.status)
+
+    from box_reader.batch import BoxBatchOutcome
+
+    outcome = BoxBatchOutcome(tuple(batch_items))
+    workbook_path = work_dir / "BOX左右进读取表.xlsx"
+    measurements_path = work_dir / "box-measurements.json"
+    write_box_results_xlsx(
+        workbook_path,
+        outcome.iter_result_rows(),
+        outcome.iter_diagnostic_rows(),
+    )
+    measurements_path.write_text(
+        json.dumps(
+            {"schema": "box_setback_measurements/v1", "items": contract_items},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
+        encoding="utf-8",
+    )
+    artifacts = BoxReaderArtifacts(
+        workbook_path=workbook_path,
+        measurements_path=measurements_path,
+        processed_count=outcome.processed_count,
+        ok_count=outcome.ok_count,
+        failure_count=outcome.failure_count,
+    )
+    if duplicate_part_numbers:
+        part_number, first_source, conflicting_source = duplicate_part_numbers[0]
+        extra_count = len(duplicate_part_numbers) - 1
+        suffix = f"，另有 {extra_count} 处重复" if extra_count else ""
+        raise Stage2ReaderBlockingError(
+            "EXCEL_STAGE2_DUPLICATE_PART_NUMBER",
+            (
+                f"BOX 零件号 {part_number} 同时出现在图纸 {first_source} 和 "
+                f"{conflicting_source}{suffix}，无法唯一匹配整理表。"
+            ),
+            diagnostic=artifacts,
+        )
+    return artifacts
+
+
 def _add_step(
     db: Session,
     *,
@@ -597,6 +775,35 @@ def _reader_progress_callback(db: Session, *, job_id: int, attempt: int):
             step_name=STEP_RUN_BH_SETBACK_READER,
             message=f"正在读取 BH 图纸：{processed}/{total}",
             phase="bh_reader",
+            processed_files=processed,
+            total_files=total,
+            current_file_name=file_name,
+            reader_status=status,
+        )
+        last_time = now
+        last_processed = processed
+
+    return report
+
+
+def _box_reader_progress_callback(db: Session, *, job_id: int, attempt: int):
+    last_time = 0.0
+    last_processed = 0
+
+    def report(processed: int, total: int, file_name: str, status: str) -> None:
+        nonlocal last_time, last_processed
+        now = time.monotonic()
+        threshold = max(1, total // 200)
+        if processed != total and now - last_time < 1.0 and processed - last_processed < threshold:
+            return
+        _commit_progress(
+            db,
+            job_id=job_id,
+            attempt=attempt,
+            progress=50,
+            step_name=STEP_RUN_BH_SETBACK_READER,
+            message=f"正在读取 BOX 图纸：{processed}/{total}",
+            phase="box_reader",
             processed_files=processed,
             total_files=total,
             current_file_name=file_name,
@@ -876,13 +1083,56 @@ def run_excel_stage2_processing(
             },
         )
 
+        box_reader: BoxReaderArtifacts | None = None
+        if inputs.box_classification_batch is not None and inputs.box_classification_batch.items:
+            box_reader = run_box_reader_batch(
+                db,
+                job,
+                inputs,
+                work_dir,
+                _box_reader_progress_callback(db, job_id=job.id, attempt=attempt),
+            )
+            _add_step(
+                db,
+                job_id=job.id,
+                attempt=attempt,
+                worker_name=worker_name,
+                step_name=STEP_RUN_BH_SETBACK_READER,
+                status="succeeded",
+                started_at=business_now(),
+                output_json={
+                    "reader": "box",
+                    "processed_count": box_reader.processed_count,
+                    "ok_count": box_reader.ok_count,
+                    "failure_count": box_reader.failure_count,
+                },
+            )
+            _persist_workbook(
+                db,
+                job=job,
+                attempt=attempt,
+                path=box_reader.workbook_path,
+                original_name="BOX左右进读取表.xlsx",
+                artifact_type="box_setback_excel",
+                result_payload={
+                    "source": "box_left_right_reader",
+                    "stage2_status": "pending_excel",
+                    "processed_count": box_reader.processed_count,
+                    "ok_count": box_reader.ok_count,
+                    "failure_count": box_reader.failure_count,
+                },
+            )
+
         stage_started = business_now()
-        output_name = f"{Path(inputs.stage1_excel.original_name).stem}_BH左右进处理后.xlsx"
+        output_name = f"{Path(inputs.stage1_excel.original_name).stem}_BH和BOX左右进处理后.xlsx"
         output_path = work_dir / "stage2.xlsx"
         stage_result = run_excel_stage2_pipeline(
             stage1_path,
             reader.measurements_path,
             output_path,
+            box_measurements_path=(
+                box_reader.measurements_path if box_reader is not None else None
+            ),
             on_heartbeat=_rebuild_progress_callback(
                 db,
                 job_id=job.id,
@@ -1008,11 +1258,11 @@ def run_excel_stage2_processing(
                 progress=100,
                 step_name=STEP_PERSIST_EXCEL_STAGE2,
                 message=(
-                    "BH 左右进处理完成"
+                    "BH 和 BOX 左右进处理完成"
                     if stage_result.status == "complete"
-                    else "项目无 BH，第二阶段已原样完成"
+                    else "项目无 BH/BOX，第二阶段已原样完成"
                     if stage_result.status == "noop"
-                    else "BH 左右进处理已部分完成，请按红色提示人工处理"
+                    else "BH 和 BOX 左右进处理已部分完成，请按红色提示人工处理"
                 ),
                 phase="completed",
                 stage2_status=stage_result.status,
@@ -1067,10 +1317,12 @@ def run_excel_stage2_processing(
 
 __all__ = [
     "BhReaderArtifacts",
+    "BoxReaderArtifacts",
     "ExcelStage2WorkerInputs",
     "Stage2WorkerError",
     "resolve_excel_stage2_worker_inputs",
     "run_bh_reader_batch",
+    "run_box_reader_batch",
     "run_excel_stage2_processing",
     "stage_registered_file",
 ]

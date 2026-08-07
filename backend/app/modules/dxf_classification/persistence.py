@@ -398,34 +398,36 @@ def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificatio
 MAX_BH_STAGE2_INPUTS = 5000
 
 
-def _validate_bh_stage2_count(
+def _validate_stage2_count(
     type_counts: object,
     *,
+    family: str,
     actual_count: int,
 ) -> None:
     if not isinstance(type_counts, dict):
         raise ClassificationError("DXF 分类运行缺少可核验的类型数量统计。")
-    declared_count = type_counts.get("BH", 0)
+    declared_count = type_counts.get(family, 0)
     if (
         isinstance(declared_count, bool)
         or not isinstance(declared_count, int)
         or declared_count < 0
         or declared_count != actual_count
     ):
-        raise ClassificationError("BH 分类数量与正式分类账不一致。")
+        raise ClassificationError(f"{family} 分类数量与正式分类账不一致。")
     if actual_count > MAX_BH_STAGE2_INPUTS:
         raise ClassificationError(
-            f"BH 分类账超过单批 {MAX_BH_STAGE2_INPUTS} 张处理上限。"
+            f"{family} 分类账超过单批 {MAX_BH_STAGE2_INPUTS} 张处理上限。"
         )
 
 
-def load_bh_stage2_classification_batch(
+def _load_stage2_classification_batch(
     db: Session,
     workflow_id: int,
     *,
     expected_run_id: int | None = None,
+    family: str,
 ) -> DxfBhStage2ClassificationBatch:
-    """Load one immutable BH input batch from the workflow classification ledger."""
+    """Load one immutable {family} input batch from the workflow ledger."""
     run = db.scalar(
         select(DxfClassificationRun)
         .where(DxfClassificationRun.workflow_run_id == workflow_id)
@@ -447,29 +449,33 @@ def load_bh_stage2_classification_batch(
         .where(
             DxfClassificationItem.run_id == run.id,
             DxfClassificationItem.disposition == "classified",
-            DxfClassificationItem.part_type == "BH",
+            DxfClassificationItem.part_type == family,
         )
         .order_by(DxfClassificationItem.id)
     ).all()
-    _validate_bh_stage2_count(run.type_counts_json, actual_count=len(rows))
+    _validate_stage2_count(
+        run.type_counts_json,
+        family=family,
+        actual_count=len(rows),
+    )
     inputs: list[DxfBhStage2Input] = []
     seen_input_file_ids: set[int] = set()
     for item, stored in rows:
         if not item.next_stage_eligible:
-            raise ClassificationError("BH 分类记录未获准进入下一阶段。")
+            raise ClassificationError(f"{family} 分类记录未获准进入下一阶段。")
         profile = str(item.profile_normalized or "").strip()
         type_source = str(item.type_source or "").strip()
         if not profile or type_source not in {"catalog", "auto_discovered"}:
-            raise ClassificationError("BH 分类记录缺少规格或类型来源。")
+            raise ClassificationError(f"{family} 分类记录缺少规格或类型来源。")
         if (
             stored.status != "available"
             or stored.file_ext.casefold() != ".dxf"
             or item.output_name != stored.original_name
             or not stored.sha256
         ):
-            raise ClassificationError("BH 分类后的拆板前 DXF 文件不可用。")
+            raise ClassificationError(f"{family} 分类后的拆板前 DXF 文件不可用。")
         if stored.id in seen_input_file_ids:
-            raise ClassificationError("BH 分类账重复引用同一个输入 DXF。")
+            raise ClassificationError(f"{family} 分类账重复引用同一个输入 DXF。")
         seen_input_file_ids.add(stored.id)
         inputs.append(DxfBhStage2Input(
             classification_item_id=item.id,
@@ -500,6 +506,36 @@ def load_bh_stage2_classification_batch(
         bh_manifest_version=1,
         bh_manifest_sha256=hashlib.sha256(manifest_payload).hexdigest(),
         items=tuple(inputs),
+    )
+
+
+def load_bh_stage2_classification_batch(
+    db: Session,
+    workflow_id: int,
+    *,
+    expected_run_id: int | None = None,
+) -> DxfBhStage2ClassificationBatch:
+    """Load one immutable BH input batch from the workflow classification ledger."""
+    return _load_stage2_classification_batch(
+        db,
+        workflow_id,
+        expected_run_id=expected_run_id,
+        family="BH",
+    )
+
+
+def load_box_stage2_classification_batch(
+    db: Session,
+    workflow_id: int,
+    *,
+    expected_run_id: int | None = None,
+) -> DxfBhStage2ClassificationBatch:
+    """Load one immutable BOX input batch from the workflow classification ledger."""
+    return _load_stage2_classification_batch(
+        db,
+        workflow_id,
+        expected_run_id=expected_run_id,
+        family="BOX",
     )
 
 

@@ -20,6 +20,7 @@ _REQUIRED_STAGE_FILES = (
     "config.py",
     "material_routing.py",
     "bh_stage2.py",
+    "box_stage2.py",
     "stage2_workbook.py",
 )
 _MAX_STAGE2_MEASUREMENTS_BYTES = 64 * 1024 * 1024
@@ -56,6 +57,7 @@ def _parse_args() -> argparse.Namespace:
     stage2_parser.add_argument("--stage-root", required=True, type=Path)
     stage2_parser.add_argument("--stage1", required=True, type=Path)
     stage2_parser.add_argument("--measurements", required=True, type=Path)
+    stage2_parser.add_argument("--box-measurements", type=Path)
     stage2_parser.add_argument("--output", required=True, type=Path)
     stage2_parser.add_argument("--internal-output", required=True, type=Path)
 
@@ -136,14 +138,26 @@ def _process_stage2(args: argparse.Namespace) -> None:
     if measurement_path.stat().st_size > _MAX_STAGE2_MEASUREMENTS_BYTES:
         raise ValueError("BH measurement contract exceeds the 64 MiB limit")
     from bh_stage2 import parse_bh_measurement_contract
+    from box_stage2 import parse_box_measurement_contract
     from pipeline import run_stage2_pipeline
 
     payload = json.loads(measurement_path.read_text(encoding="utf-8"))
     contract = parse_bh_measurement_contract(payload)
+    box_contract = None
+    if args.box_measurements is not None:
+        box_path = args.box_measurements.resolve()
+        if not box_path.is_file():
+            raise FileNotFoundError("BOX measurement contract does not exist")
+        if box_path.stat().st_size > _MAX_STAGE2_MEASUREMENTS_BYTES:
+            raise ValueError("BOX measurement contract exceeds the 64 MiB limit")
+        box_contract = parse_box_measurement_contract(
+            json.loads(box_path.read_text(encoding="utf-8"))
+        )
     result = run_stage2_pipeline(
         args.stage1.resolve(),
         args.output.resolve(),
         measurements=contract,
+        box_measurements=box_contract,
         internal_output_file=args.internal_output.resolve(),
     )
     if not result.output_path.is_file():
