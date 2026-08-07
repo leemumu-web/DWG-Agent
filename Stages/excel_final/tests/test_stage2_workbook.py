@@ -221,8 +221,8 @@ def test_baseline_comparison_allows_stage_specific_report_rebuild(
         stage1,
         report_changed,
         entry_name="xl/worksheets/sheet6.xml",
-        old=b"<t>\xe6\x97\xa0</t>",
-        new=b"<t>\xe8\xad\xa6\xe5\x91\x8a</t>",
+        old=b"<t>&#26080;</t>",
+        new=b"<t>&#35686;&#21578;</t>",
     )
 
     assert verify_canonical_baseline(stage1, report_changed).sheet_names

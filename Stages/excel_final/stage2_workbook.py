@@ -16,6 +16,7 @@ from typing import Mapping
 from openpyxl import load_workbook
 
 from bh_stage2 import BhMeasurementContract, enhance_bh_projection
+from box_stage2 import BoxMeasurementContract, enhance_box_projection
 from canonical_pipeline import (
     HandbookReader,
     build_canonical_projection,
@@ -406,10 +407,11 @@ def run_stage2_workbook(
     output_path: str | Path,
     *,
     measurements: BhMeasurementContract,
+    box_measurements: BoxMeasurementContract | None = None,
     handbook: HandbookReader,
     internal_output_path: str | Path | None = None,
 ) -> Stage2WorkbookOutcome:
-    """Validate Stage 1, enhance BH rows, and publish a six-sheet Stage 2."""
+    """Validate Stage 1, enhance BH/BOX rows, and publish a six-sheet Stage 2."""
     stage1 = Path(formal_stage1_path).resolve()
     output = Path(output_path).resolve()
     internal_output = (
@@ -455,6 +457,38 @@ def run_stage2_workbook(
         )
         verify_canonical_baseline(stage1, baseline_candidate)
         enhanced = enhance_bh_projection(projection, measurements)
+        if box_measurements is not None:
+            # BH 与 BOX 是不同构件（零件号不同），链式增强互不干扰；
+            # 状态取"更不完整"的一侧（noop < complete < partial）。
+            box_enhanced = enhance_box_projection(
+                enhanced.projection,
+                box_measurements,
+            )
+            if box_enhanced.status != "noop":
+                combined = enhanced.status
+                if combined == "noop" or box_enhanced.status == "partial":
+                    combined = box_enhanced.status
+                enhanced = replace(
+                    enhanced,
+                    projection=box_enhanced.projection,
+                    status=combined,
+                    matched_occurrence_count=(
+                        enhanced.matched_occurrence_count
+                        + box_enhanced.matched_occurrence_count
+                    ),
+                    missing_drawing_count=(
+                        enhanced.missing_drawing_count
+                        + box_enhanced.missing_drawing_count
+                    ),
+                    unmatched_drawing_count=(
+                        enhanced.unmatched_drawing_count
+                        + box_enhanced.unmatched_drawing_count
+                    ),
+                    manual_occurrence_count=(
+                        enhanced.manual_occurrence_count
+                        + box_enhanced.manual_occurrence_count
+                    ),
+                )
 
         if enhanced.status == "noop":
             formal_candidate = baseline_candidate

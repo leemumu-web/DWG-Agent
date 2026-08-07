@@ -13,6 +13,7 @@ from openpyxl import Workbook
 
 import config as cfg
 from bh_stage2 import BhMeasurementContract
+from box_stage2 import BoxMeasurementContract
 from canonical_pipeline import HandbookReader, process_canonical_records
 from config import OUTPUT_DIR
 from domain import PipelineOutcome
@@ -164,10 +165,11 @@ def run_stage2_pipeline(
     output_file: str | Path,
     *,
     measurements: BhMeasurementContract,
+    box_measurements: BoxMeasurementContract | None = None,
     handbook_repository: HandbookReader | None = None,
     internal_output_file: str | Path | None = None,
 ) -> Stage2WorkbookOutcome:
-    """Run the validated BH setback Stage 2 with one handbook repository."""
+    """Run the validated BH/BOX setback Stage 2 with one handbook repository."""
     owned_repository = handbook_repository is None
     repository = handbook_repository or init_handbook(cfg.DB_CONFIG)
     try:
@@ -175,6 +177,7 @@ def run_stage2_pipeline(
             formal_stage1_file,
             output_file,
             measurements=measurements,
+            box_measurements=box_measurements,
             handbook=repository,
             internal_output_path=internal_output_file,
         )
