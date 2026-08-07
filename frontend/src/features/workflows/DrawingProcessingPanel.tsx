@@ -12,10 +12,17 @@ import {
 import {
   DownloadOutlined,
   ReloadOutlined,
+  StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
+import {
+  describeApiError,
+  isDownloadCancelled,
+  operatorErrorMessage,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
 import { ApiErrorAlert, TransferProgressBar } from '../../shared/components';
 import type {
   WorkflowBatchExport,
@@ -48,6 +55,7 @@ function useNativeWorkflowDownload({
   errorText: string;
 }) {
   const { message } = App.useApp();
+  const downloadCtrl = useDownload();
   const [created, setCreated] = useState<WorkflowBatchExport | null>(null);
   const [launchFailed, setLaunchFailed] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -89,14 +97,19 @@ function useNativeWorkflowDownload({
     setDownloading(true);
     setProgress(null);
     try {
-      await downloadWorkflowBatchExport(next, setProgress);
+      await downloadWorkflowBatchExport(next, setProgress, downloadCtrl.start());
       setLaunchFailed(false);
       setTimeout(() => { void statusQ.refetch(); }, 300);
     } catch (error) {
       setLaunchFailed(true);
-      message.error(describeApiError(error, errorText));
+      if (isDownloadCancelled(error)) {
+        message.info('下载已取消，服务器文件仍保留，可重新下载');
+      } else {
+        message.error(describeApiError(error, errorText));
+      }
     } finally {
       setDownloading(false);
+      downloadCtrl.finish();
     }
   };
   const createM = useMutation({
@@ -131,6 +144,8 @@ function useNativeWorkflowDownload({
       || (!launchFailed && ACTIVE_EXPORT_STATUSES.has(row?.status ?? '')),
     failed: launchFailed || row?.status === 'download_failed',
     progress,
+    cancel: downloadCtrl.cancel,
+    active: downloadCtrl.active,
   };
 }
 
@@ -441,16 +456,30 @@ export function DrawingProcessingPanel({
             </>
           )}
           {splitResultsDownload.progress && (
-            <TransferProgressBar
-              label="拆板结果下载"
-              progress={splitResultsDownload.progress}
-            />
+            <Space wrap>
+              <TransferProgressBar
+                label="拆板结果下载"
+                progress={splitResultsDownload.progress}
+              />
+              {splitResultsDownload.active && (
+                <Button size="small" icon={<StopOutlined />} onClick={splitResultsDownload.cancel}>
+                  取消下载
+                </Button>
+              )}
+            </Space>
           )}
           {allDrawingsDownload.progress && (
-            <TransferProgressBar
-              label="本批原图下载"
-              progress={allDrawingsDownload.progress}
-            />
+            <Space wrap>
+              <TransferProgressBar
+                label="本批原图下载"
+                progress={allDrawingsDownload.progress}
+              />
+              {allDrawingsDownload.active && (
+                <Button size="small" icon={<StopOutlined />} onClick={allDrawingsDownload.cancel}>
+                  取消下载
+                </Button>
+              )}
+            </Space>
           )}
           {run.items.length > 0 && (
             <details className="workflow-dxf-split-ledger">
