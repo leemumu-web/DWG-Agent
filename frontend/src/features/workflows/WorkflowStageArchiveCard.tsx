@@ -50,6 +50,8 @@ export function WorkflowStageArchiveCard({
         error,
         stage.stage_code === 'excel_stage1' ? 'Excel 结果下载失败' : '阶段结果压缩包下载失败',
       );
+      setDownloadProgress(null);
+      setReaderDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {
@@ -70,6 +72,8 @@ export function WorkflowStageArchiveCard({
     onSuccess: () => message.success('BH 左右进读取表已下载'),
     onError: (error) => {
       const result = describeDownloadError(error, 'BH 左右进读取表下载失败');
+      setDownloadProgress(null);
+      setReaderDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {
@@ -87,6 +91,8 @@ export function WorkflowStageArchiveCard({
     onSuccess: () => message.success('Excel 第二阶段结果已下载'),
     onError: (error) => {
       const result = describeDownloadError(error, 'Excel 第二阶段结果下载失败');
+      setDownloadProgress(null);
+      setReaderDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {

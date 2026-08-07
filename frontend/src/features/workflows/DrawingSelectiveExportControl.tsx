@@ -87,6 +87,7 @@ export function DrawingSelectiveExportControl({
     },
     onError: (error) => {
       const result = describeDownloadError(error, '选择导出下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {

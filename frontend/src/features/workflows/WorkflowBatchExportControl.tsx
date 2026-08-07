@@ -111,6 +111,7 @@ export function WorkflowBatchExportControl({
     },
     onError: (error) => {
       const result = describeDownloadError(error, '分批导出下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消，服务器文件仍保留，可重新下载');
       } else {

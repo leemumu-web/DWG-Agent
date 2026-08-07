@@ -137,6 +137,7 @@ export function WorkflowRetentionControl({
     },
     onError: (error) => {
       const result = describeDownloadError(error, '完整备份下载未能完成');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消，服务器文件仍保留');
       } else {

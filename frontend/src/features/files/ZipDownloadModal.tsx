@@ -120,6 +120,7 @@ export function ZipDownloadModal({
       onClose();
     } catch (err) {
       const result = describeDownloadError(err, '打包下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {

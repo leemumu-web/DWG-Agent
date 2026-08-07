@@ -445,7 +445,7 @@ export function DrawingProcessingPanel({
                       type="primary"
                       icon={<DownloadOutlined />}
                       loading={splitResultsDownload.loading}
-                      disabled={run.auto_accepted_count === 0}
+                      disabled={run.auto_accepted_count === 0 || allDrawingsDownload.active}
                       onClick={splitResultsDownload.start}
                     >
                       {splitResultsDownload.failed ? '重试拆板结果 ZIP' : '下载拆板结果 ZIP'}

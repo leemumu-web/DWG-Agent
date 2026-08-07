@@ -158,6 +158,7 @@ export function DxfClassificationPanel({
     },
     onError: (error) => {
       const result = describeDownloadError(error, '全部 DXF 下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {
@@ -178,6 +179,7 @@ export function DxfClassificationPanel({
     },
     onError: (error) => {
       const result = describeDownloadError(error, '分类文件夹下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {
@@ -199,6 +201,7 @@ export function DxfClassificationPanel({
     onSuccess: (_data, vars) => message.success(`已下载 ${vars.outputName}`),
     onError: (error) => {
       const result = describeDownloadError(error, '分类 DXF 下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {

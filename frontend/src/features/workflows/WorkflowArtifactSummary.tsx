@@ -37,6 +37,7 @@ export function WorkflowArtifactSummary({
     },
     onError: (error) => {
       const result = describeDownloadError(error, '生产压缩包下载失败');
+      setDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {

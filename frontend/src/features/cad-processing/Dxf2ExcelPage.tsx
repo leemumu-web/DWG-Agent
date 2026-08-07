@@ -310,6 +310,7 @@ export function Dxf2ExcelPage() {
       }
     } catch (err) {
       const result = describeDownloadError(err, '下载失败');
+      setBatchDownloadProgress(null);
       if (result.cancelled) {
         message.info('下载已取消');
       } else {
