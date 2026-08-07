@@ -5,6 +5,7 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -21,7 +22,13 @@ import {
   Typography,
 } from 'antd';
 
-import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
+import {
+  describeApiError,
+  isDownloadCancelled,
+  operatorErrorMessage,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
 import {
   ApiErrorAlert,
   fmtDateTime,
@@ -57,6 +64,7 @@ export function WorkflowRetentionControl({
 }) {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
+  const downloadCtrl = useDownload();
   const [open, setOpen] = useState(false);
   const [created, setCreated] = useState<WorkflowRetentionExport | null>(null);
   const [backupChecked, setBackupChecked] = useState(false);
@@ -121,14 +129,20 @@ export function WorkflowRetentionControl({
   });
   const downloadM = useMutation({
     mutationFn: (row: WorkflowRetentionExport) => (
-      downloadWorkflowRetentionExport(row, setDownloadProgress)
+      downloadWorkflowRetentionExport(row, setDownloadProgress, downloadCtrl.start())
     ),
     onSuccess: () => {
+      downloadCtrl.finish();
       message.success('完整备份已下载到浏览器');
       setTimeout(() => { void statusQ.refetch(); }, 300);
     },
     onError: (error) => {
-      message.error(describeApiError(error, '完整备份下载未能完成'));
+      downloadCtrl.finish();
+      if (isDownloadCancelled(error)) {
+        message.info('下载已取消，服务器文件仍保留');
+      } else {
+        message.error(describeApiError(error, '完整备份下载未能完成'));
+      }
       void statusQ.refetch();
     },
   });
@@ -151,7 +165,8 @@ export function WorkflowRetentionControl({
   };
 
   const close = () => {
-    if (downloadM.isPending || purgeM.isPending) return;
+    if (purgeM.isPending) return;
+    if (downloadM.isPending) downloadCtrl.cancel();
     setOpen(false);
     setBackupChecked(false);
     setConfirmation('');
@@ -178,9 +193,9 @@ export function WorkflowRetentionControl({
         title={`生产批次 #${workflowId} · 完整备份与释放空间`}
         width={760}
         maskClosable={false}
-        closable={!purgeM.isPending && !downloadM.isPending}
+        closable={!purgeM.isPending}
         onCancel={close}
-        footer={<Button onClick={close} disabled={purgeM.isPending || downloadM.isPending}>关闭</Button>}
+        footer={<Button onClick={close} disabled={purgeM.isPending}>关闭</Button>}
       >
         <Space orientation="vertical" size={16} style={{ width: '100%' }}>
           <Alert
@@ -321,7 +336,21 @@ export function WorkflowRetentionControl({
                 )}
               />
               {downloadProgress && (
-                <TransferProgressBar label="完整备份下载" progress={downloadProgress} />
+                <Space wrap>
+                  <TransferProgressBar label="完整备份下载" progress={downloadProgress} />
+                  {downloadCtrl.active && (
+                    <Button
+                      size="small"
+                      icon={<StopOutlined />}
+                      onClick={() => {
+                        downloadCtrl.cancel();
+                        setDownloadProgress(null);
+                      }}
+                    >
+                      取消下载
+                    </Button>
+                  )}
+                </Space>
               )}
             </Space>
           )}
