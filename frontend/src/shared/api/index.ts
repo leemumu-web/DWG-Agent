@@ -19,6 +19,7 @@ export {
   completedTransferProgress,
   downloadBlob,
   initialTransferProgress,
+  isDownloadCancelled,
   transferProgressFromAxios,
   triggerBlobDownload,
 } from './transfer';

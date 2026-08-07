@@ -9,6 +9,11 @@ export interface TransferProgress {
   percent?: number;
   completed: boolean;
   totalIsEstimated: boolean;
+  /** Download-only: true while the request is sent but the first body byte has
+   *  not arrived yet (the server is still generating the payload). Uploads and
+   *  completed progress never set this, so the bar can render a "preparing"
+   *  state instead of a stuck 0% bar. */
+  preparing?: boolean;
 }
 
 export type TransferProgressHandler = (progress: TransferProgress) => void;
@@ -56,6 +61,20 @@ export function completedTransferProgress(
     completed: true,
     totalIsEstimated: false,
   };
+}
+
+/** True when the request was intentionally aborted (user cancelled the download)
+ *  rather than failing. Axios surfaces this as a CanceledError. */
+export function isDownloadCancelled(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    code?: string;
+    name?: string;
+    __CANCEL__?: boolean;
+  };
+  return candidate.code === 'ERR_CANCELED'
+    || candidate.name === 'CanceledError'
+    || candidate.__CANCEL__ === true;
 }
 
 export function triggerBlobDownload(blob: Blob, filename: string): void {
@@ -107,6 +126,7 @@ export async function downloadBlob({
   expectedBytes,
   onProgress,
   timeout = 300_000,
+  signal,
 }: {
   url: string;
   fallbackName: string;
@@ -116,8 +136,9 @@ export async function downloadBlob({
   expectedBytes?: number;
   onProgress?: TransferProgressHandler;
   timeout?: number;
+  signal?: AbortSignal;
 }): Promise<void> {
-  onProgress?.(initialTransferProgress(expectedBytes));
+  onProgress?.({ ...initialTransferProgress(expectedBytes), preparing: true });
   try {
     const response = await apiClient.request<Blob>({
       url,
@@ -125,6 +146,7 @@ export async function downloadBlob({
       data,
       responseType: 'blob',
       timeout,
+      signal,
       onDownloadProgress: (event) => {
         onProgress?.(transferProgressFromAxios(event, expectedBytes));
       },
@@ -133,6 +155,9 @@ export async function downloadBlob({
     onProgress?.(completedTransferProgress(response.data.size, response.data.size));
     triggerBlobDownload(response.data, filename);
   } catch (error) {
+    // Cancellation must surface as-is so components can distinguish a user
+    // abort from a real failure; wrapping it would turn it into a network error.
+    if (isDownloadCancelled(error)) throw error;
     throw new Error(await describeApiErrorAsync(error, errorMessage));
   }
 }
