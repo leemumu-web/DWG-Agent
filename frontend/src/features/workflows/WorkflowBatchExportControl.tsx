@@ -4,6 +4,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   ReloadOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -17,7 +18,12 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { describeApiError, type TransferProgress } from '../../shared/api';
+import {
+  describeApiError,
+  isDownloadCancelled,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
 import { ApiErrorAlert, fmtSize, TransferProgressBar } from '../../shared/components';
 import type {
   WorkflowBatchExport,
@@ -46,6 +52,7 @@ export function WorkflowBatchExportControl({
 }) {
   const { message, modal } = App.useApp();
   const queryClient = useQueryClient();
+  const downloadCtrl = useDownload();
   const [open, setOpen] = useState(false);
   const [selectionInitialized, setSelectionInitialized] = useState(false);
   const [selected, setSelected] = useState<WorkflowExportCategory[]>([]);
@@ -95,14 +102,20 @@ export function WorkflowBatchExportControl({
 
   const downloadM = useMutation({
     mutationFn: (row: WorkflowBatchExport) => (
-      downloadWorkflowBatchExport(row, setDownloadProgress)
+      downloadWorkflowBatchExport(row, setDownloadProgress, downloadCtrl.start())
     ),
     onSuccess: () => {
+      downloadCtrl.finish();
       message.success('分批导出 ZIP 已下载到浏览器');
       setTimeout(() => { void statusQ.refetch(); }, 300);
     },
     onError: (error) => {
-      message.error(describeApiError(error, '分批导出下载失败'));
+      downloadCtrl.finish();
+      if (isDownloadCancelled(error)) {
+        message.info('下载已取消，服务器文件仍保留，可重新下载');
+      } else {
+        message.error(describeApiError(error, '分批导出下载失败'));
+      }
       void statusQ.refetch();
     },
   });
@@ -155,7 +168,8 @@ export function WorkflowBatchExportControl({
   };
 
   const closeAndRetain = () => {
-    if (purgeM.isPending || downloadM.isPending) return;
+    if (purgeM.isPending) return;
+    if (downloadM.isPending) downloadCtrl.cancel();
     setOpen(false);
     setCreatedExport(null);
     setSelectionInitialized(false);
@@ -267,11 +281,11 @@ export function WorkflowBatchExportControl({
         title="分批导出并释放服务器空间"
         width={660}
         maskClosable={false}
-        closable={!purgeM.isPending && !downloadM.isPending}
+        closable={!purgeM.isPending}
         onCancel={closeAndRetain}
         footer={exportRow ? (
           <Space wrap>
-            <Button onClick={closeAndRetain} disabled={purgeM.isPending || downloadM.isPending}>
+            <Button onClick={closeAndRetain} disabled={purgeM.isPending}>
               暂不删除
             </Button>
             {exportRow.status === 'download_failed' && (
@@ -377,7 +391,21 @@ export function WorkflowBatchExportControl({
             </div>
             {downloadStatus}
             {downloadProgress && (
-              <TransferProgressBar label="分批图纸下载" progress={downloadProgress} />
+              <Space wrap>
+                <TransferProgressBar label="分批图纸下载" progress={downloadProgress} />
+                {downloadCtrl.active && (
+                  <Button
+                    size="small"
+                    icon={<StopOutlined />}
+                    onClick={() => {
+                      downloadCtrl.cancel();
+                      setDownloadProgress(null);
+                    }}
+                  >
+                    取消下载
+                  </Button>
+                )}
+              </Space>
             )}
           </Space>
         )}
