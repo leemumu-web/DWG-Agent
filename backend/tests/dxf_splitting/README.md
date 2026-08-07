@@ -15,5 +15,6 @@
 单次技术 attempt、30 张检查点、MinIO 键空间、MySQL 账本、Excel 交接和 HTTP 下载合同；
 `test_classified_dispatch.py` 锁定冻结分类到 BH/BOX 业务的直接分发；
 `test_bh_weld_allowance_terminal_chain.py` 锁定斜腹板、复合右端轮廓、歧义关闭与旧合同兼容；
+`test_box_regressions.py` 锁定拆板回归样本的行为契约；
 `test_box_release_attestation_runtime.py` 锁定内置 BOX 认证与当前受保护实现指纹一致。测试不能调用真实
 外部 MinIO、MySQL 或拆板子进程；这些依赖分别由 SQLite、本地对象存储和保真 CLI 假实现隔离。

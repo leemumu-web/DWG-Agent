@@ -144,7 +144,7 @@ def _process_stage2(args: argparse.Namespace) -> None:
     payload = json.loads(measurement_path.read_text(encoding="utf-8"))
     contract = parse_bh_measurement_contract(payload)
     box_contract = None
-    if args.box_measurements is not None:
+    if getattr(args, "box_measurements", None) is not None:
         box_path = args.box_measurements.resolve()
         if not box_path.is_file():
             raise FileNotFoundError("BOX measurement contract does not exist")

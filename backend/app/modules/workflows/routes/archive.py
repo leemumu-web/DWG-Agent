@@ -751,30 +751,6 @@ def download_excel_stage2_result(
 
 
 @router.get(
-    "/{workflow_id}/stages/excel_stage2/download-box-reader-result",
-    summary="下载 BOX 左右进读取结果",
-    response_class=StreamingResponse,
-    responses=_XLSX_RESPONSE,
-    description=(
-        "成功批次返回当前 BOX 读取表；读取阻断时仅返回当前 attempt 的诊断表，绝不回退到旧批次。"
-    ),
-)
-def download_excel_stage2_box_reader_result(
-    workflow_id: int,
-    request: Request,
-    current_user: CurrentUser,
-    db: Session = Depends(get_db),
-):
-    return _stream_excel_result(
-        workflow_id,
-        request,
-        current_user,
-        db,
-        spec=_EXCEL_STAGE2_BOX_READER_RESULT,
-    )
-
-
-@router.get(
     "/{workflow_id}/stages/excel_stage2/download-reader-result",
     summary="下载 BH 左右进读取结果",
     response_class=StreamingResponse,
@@ -795,4 +771,28 @@ def download_excel_stage2_reader_result(
         current_user,
         db,
         spec=_EXCEL_STAGE2_READER_RESULT,
+    )
+
+
+@router.get(
+    "/{workflow_id}/stages/excel_stage2/download-box-reader-result",
+    summary="下载 BOX 左右进读取结果",
+    response_class=StreamingResponse,
+    responses=_XLSX_RESPONSE,
+    description=(
+        "成功批次返回当前 BOX 读取表；读取阻断时仅返回当前 attempt 的诊断表，绝不回退到旧批次。"
+    ),
+)
+def download_excel_stage2_box_reader_result(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    return _stream_excel_result(
+        workflow_id,
+        request,
+        current_user,
+        db,
+        spec=_EXCEL_STAGE2_BOX_READER_RESULT,
     )

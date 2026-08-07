@@ -178,7 +178,8 @@ def test_stage2_worker_publishes_two_attempt_bound_results_and_mysql_projection(
 
     rebuild_activity: list[dict[str, object]] = []
 
-    def fake_pipeline(_stage1, _measurements, output, *, on_heartbeat=None):
+    def fake_pipeline(_stage1, _measurements, output, *, box_measurements_path=None, on_heartbeat=None):
+        assert box_measurements_path is None  # 该用例无 BOX 图纸
         assert on_heartbeat is not None
         on_heartbeat()
         with service.SessionLocal() as observer:
@@ -288,7 +289,7 @@ def test_stage2_worker_publishes_two_attempt_bound_results_and_mysql_projection(
     assert batch is not None
     assert batch.source_type == "stage2_bh"
     assert batch.file_id == inputs.stage1_excel.id
-    assert saved_names == ["BH左右进读取表.xlsx", "stage1_BH左右进处理后.xlsx"]
+    assert saved_names == ["BH左右进读取表.xlsx", "stage1_BH和BOX左右进处理后.xlsx"]
     assert not (tmp_path / "work" / "11" / str(job.id) / "attempt-1").exists()
 
 

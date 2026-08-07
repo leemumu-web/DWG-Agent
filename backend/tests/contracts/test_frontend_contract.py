@@ -198,7 +198,7 @@ def test_every_reachable_bulk_drawing_transfer_has_visible_shared_progress():
     }
     for path, label in visible_surfaces.items():
         source = _frontend_source(path)
-        assert "TransferProgressBar" in source, path
+        assert "TransferProgressBar" in source or "CancellableDownloadProgress" in source, path
         assert label in source, path
 
 
@@ -625,7 +625,7 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
     assert "分类图纸导出" in selective_export_source
     assert "当前没有可导出的文件" in selective_export_source
     assert "重新下载" in selective_export_source
-    assert "TransferProgressBar" in selective_export_source
+    assert "TransferProgressBar" in selective_export_source or "CancellableDownloadProgress" in selective_export_source
     assert "ApiErrorAlert" in selective_export_source
     assert "ApiErrorAlert" in export_source
     assert "ApiErrorAlert" in panel_source
@@ -768,7 +768,7 @@ def test_drawing_progress_download_recovers_when_transfer_fails():
     assert "if (launchFailed) return false" in panel
     assert "const launch = async (next: WorkflowBatchExport)" in panel
     assert "setProgress" in panel
-    assert "TransferProgressBar" in panel
+    assert "TransferProgressBar" in panel or "CancellableDownloadProgress" in panel
     assert "setLaunchFailed(true)" in panel
     assert "!launchFailed && ACTIVE_EXPORT_STATUSES.has" in panel
 

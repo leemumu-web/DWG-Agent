@@ -398,6 +398,9 @@ def latest_classification_run(db: Session, workflow_id: int) -> DxfClassificatio
 MAX_BH_STAGE2_INPUTS = 5000
 
 
+_validate_bh_stage2_count = None  # 兼容旧名（见下方别名定义）
+
+
 def _validate_stage2_count(
     type_counts: object,
     *,
@@ -418,6 +421,15 @@ def _validate_stage2_count(
         raise ClassificationError(
             f"{family} 分类账超过单批 {MAX_BH_STAGE2_INPUTS} 张处理上限。"
         )
+
+
+# 旧名兼容（BH 版测试直接引用 _validate_bh_stage2_count，默认 BH 族）
+def _validate_bh_stage2_count(type_counts: object, *, actual_count: int) -> None:
+    _validate_stage2_count(
+        type_counts,
+        family="BH",
+        actual_count=actual_count,
+    )
 
 
 def _load_stage2_classification_batch(

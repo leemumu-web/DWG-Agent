@@ -9,15 +9,13 @@ from app.modules.dxf_classification.interface import (
     build_classification_run_read,
     latest_classification_run,
 )
-from app.modules.files.exports import download_headers
 from app.modules.files.interface import (
     StoredFile,
+    TransferSpec,
+    download_headers,
+    prepare_transfer_in_transaction,
     require_file_read_access,
     sanitize_filename,
-)
-from app.modules.files.storage_transactions import (
-    TransferSpec,
-    prepare_transfer_in_transaction,
     session_factory_for,
     settle_stream,
 )
