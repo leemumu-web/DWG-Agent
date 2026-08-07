@@ -343,7 +343,7 @@ export function WorkflowDetailPage() {
                   message={selectedIsPast ? '正在查看历史阶段' : '该阶段尚未解锁'}
                   description={selectedIsPast
                     ? '历史阶段仅供核对结果和下载已有压缩包，不能重新上传、执行或确认。'
-                    : '可以提前查看阶段合同；上传、执行和确认仍严格绑定服务器当前阶段。'}
+                    : '可以提前查看阶段要求；上传、执行和确认仍严格绑定服务器当前阶段。'}
                   action={authoritativeCurrentStage && (
                     <Button onClick={() => setSelectedStageCode(null)}>
                       返回当前阶段
@@ -351,17 +351,6 @@ export function WorkflowDetailPage() {
                   )}
                 />
               )}
-
-              <Alert
-                type="info"
-                showIcon
-                message="阶段数据合同"
-                description={[
-                  `所需输入：${selectedCapability.required_inputs.join('、') || '无'}`,
-                  `允许产物：${selectedCapability.artifact_types.join('、') || '无'}`,
-                  `完成必需产物：${selectedCapability.required_outputs.join('、') || '无'}`,
-                ].join('；')}
-              />
 
               {selectedStage.error_message && (
                 <Alert

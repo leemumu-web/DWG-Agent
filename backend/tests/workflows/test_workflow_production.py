@@ -15,6 +15,7 @@ from app.modules.dxf_classification.interface import (
     DxfClassificationItem,
     DxfClassificationRun,
     load_bh_stage2_classification_batch,
+    load_box_stage2_classification_batch,
 )
 from app.modules.dxf_splitting.interface import (
     DxfSplitItem,
@@ -540,6 +541,7 @@ def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(db, tmp_path,
         stage1_result,
     ) = _stage2_ready_workflow(db, tmp_path, monkeypatch)
     frozen_bh_batch = load_bh_stage2_classification_batch(db, workflow.id)
+    box_frozen = load_box_stage2_classification_batch(db, workflow.id)
     payload = WorkflowStageExecutionCreate(execution_kind="excel_stage2")
 
     first = prepare_stage_execution(
@@ -595,6 +597,12 @@ def test_excel_stage2_execution_freezes_lineage_and_reuses_one_job(db, tmp_path,
         "bh_input_count": 1,
         "bh_manifest_version": 1,
         "bh_manifest_sha256": frozen_bh_batch.bh_manifest_sha256,
+        "box_classification_run_id": box_frozen.classification_run_id,
+        "box_classification_job_id": box_frozen.classification_job_id,
+        "box_classification_job_attempt": box_frozen.classification_job_attempt,
+        "box_input_count": len(box_frozen.items),
+        "box_manifest_version": box_frozen.bh_manifest_version,
+        "box_manifest_sha256": box_frozen.bh_manifest_sha256,
     }
     assert "bh_inputs" not in first.job.params_json
     stage2 = next(item for item in workflow.stages if item.stage_code == "excel_stage2")
@@ -645,9 +653,13 @@ def test_excel_stage2_preflight_is_read_only_and_allows_empty_bh_batch(db, tmp_p
     assert result["mode"] == "no_bh_inputs"
     assert result["bh_input_count"] == 0
     assert result["classification_run_id"] == classification.id
-    assert result["checks"][-1] == {
+    assert result["checks"][-2] == {
         "code": "bh_batch_frozen",
         "label": "当前分类账无 BH 图纸，将原样生成第二阶段结果",
+    }
+    assert result["checks"][-1] == {
+        "code": "box_batch_frozen",
+        "label": "当前分类账无 BOX 图纸",
     }
 
 

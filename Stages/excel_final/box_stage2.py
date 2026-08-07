@@ -744,7 +744,7 @@ def enhance_box_projection(
                 category="BOX读取失败需补录",
                 field="左右进",
                 actual=f"{drawing.file_name}: {exc}",
-                expected="Reader状态OK、三方规格一致且全部板件左右进有效",
+                expected="图纸状态正常、分类账/图纸/清单规格一致且全部板件左右进有效",
                 description=(
                     f"零件 {source.part_no} 的图纸 {drawing.file_name} 无法可靠套用左右进；"
                     f"{exc}"

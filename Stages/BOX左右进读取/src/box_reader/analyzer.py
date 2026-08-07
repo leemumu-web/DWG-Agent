@@ -1068,7 +1068,7 @@ class BoxAnalyzer:
                 "ERROR_CRANKED_UNSUPPORTED",
                 0.0,
                 [],
-                warnings + ["折线（多段弯折）构件，读取器不支持自动左右进，需人工处理"],
+                warnings + ["该构件为多段弯折（折线）构件，系统无法自动读取左右进，请在 Excel 第二阶段人工补录"],
             )
 
         plates, evidence = self._step2_identify_plates(front, top, spec)
