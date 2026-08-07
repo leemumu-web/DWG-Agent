@@ -1,4 +1,5 @@
-import { Progress, Space, Typography } from 'antd';
+import { LoadingOutlined } from '@ant-design/icons';
+import { Progress, Space, Spin, Typography } from 'antd';
 
 import type { TransferProgress } from '../api/transfer';
 import { fmtSize } from './ui';
@@ -10,6 +11,15 @@ export function TransferProgressBar({
   label: string;
   progress: TransferProgress;
 }) {
+  if (progress.preparing) {
+    return (
+      <Space style={{ width: '100%', minWidth: 220 }}>
+        <Spin indicator={<LoadingOutlined spin />} size="small" />
+        <Typography.Text strong>{label}</Typography.Text>
+        <Typography.Text type="secondary">服务器正在生成，请稍候…</Typography.Text>
+      </Space>
+    );
+  }
   const total = progress.totalBytes;
   const detail = total
     ? `${fmtSize(progress.loadedBytes)} / ${progress.totalIsEstimated ? '约 ' : ''}${fmtSize(total)}`
