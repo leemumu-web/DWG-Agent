@@ -39,24 +39,24 @@ export function ExcelStage2Panel({
           <FileSearchOutlined />
         </span>
         <div>
-          <Typography.Text strong>以当前项目的冻结 BH 图纸深化 Excel</Typography.Text>
+          <Typography.Text strong>以当前项目的冻结 BH 和 BOX 图纸深化 Excel</Typography.Text>
           <p>
-            只读取分类阶段已冻结的拆板前 BH DXF；先生成左右进读取表，再更新同一批次的整理表和 part 表。
+            只读取分类阶段已冻结的拆板前 BH/BOX DXF；先生成左右进读取表，再更新同一批次的整理表和 part 表。
           </p>
         </div>
       </div>
       <ol className="workflow-excel-stage-route" aria-label="Excel 第二阶段处理路径">
         <li>第一阶段正式 Excel</li>
-        <li>BH 左右进读取表</li>
+        <li>BH 和 BOX 左右进读取表</li>
         <li>整理表与 part 表</li>
       </ol>
       <Descriptions
         size="small"
         column={1}
         items={[
-          { key: 'source', label: '读取依据', children: '当前分类账中的拆板前 BH DXF，不读取拆板产物' },
+          { key: 'source', label: '读取依据', children: '当前分类账中的拆板前 BH/BOX DXF，不读取拆板产物' },
           { key: 'match', label: '匹配方式', children: '以零件号匹配；翼板唯一时直接填写，多种翼板时按方案增行，并同步整理表与 part 表' },
-          { key: 'outputs', label: '交付结果', children: 'BH 左右进读取表与深化后的单个 Excel 文件分别下载' },
+          { key: 'outputs', label: '交付结果', children: 'BH/BOX 左右进读取表与深化后的单个 Excel 文件分别下载' },
         ]}
       />
       {active && (
@@ -64,11 +64,11 @@ export function ExcelStage2Panel({
           type="info"
           showIcon
           message={stage.status === 'queued'
-            ? 'BH 左右进任务已进入处理队列'
-            : '服务器正在处理 BH 左右进'}
+            ? 'BH 和 BOX 左右进任务已进入处理队列'
+            : '服务器正在处理 BH 和 BOX 左右进'}
           description={stage.status === 'queued'
             ? '系统会按队列顺序开始处理，页面将自动更新；无需重复点击。'
-            : `当前进度 ${stage.progress}%，页面将自动刷新；处理完成后会开放两份 Excel 下载。`}
+            : `当前进度 ${stage.progress}%，页面将自动刷新；处理完成后会开放 Excel 下载。`}
         />
       )}
       {isCurrent && !active && preflightQ.isLoading && (
@@ -89,8 +89,8 @@ export function ExcelStage2Panel({
               <Typography.Text>第一阶段结果：{preflight.stage1_file_name}</Typography.Text>
               <Typography.Text>
                 {preflight.mode === 'no_bh_inputs'
-                  ? '当前项目没有 BH 图纸，第二阶段将保留第一阶段 Excel 原样输出'
-                  : `已冻结 ${preflight.bh_input_count} 张拆板前 BH 图纸`}
+                  ? '当前项目没有 BH/BOX 图纸，第二阶段将保留第一阶段 Excel 原样输出'
+                  : `已冻结 ${preflight.bh_input_count} 张拆板前 BH 图纸、${preflight.box_input_count ?? 0} 张 BOX 图纸`}
               </Typography.Text>
               <Space wrap size={[4, 4]}>
                 {preflight.checks
@@ -128,7 +128,7 @@ export function ExcelStage2Panel({
           disabled={active || !preflight?.ready}
           onClick={onExecute}
         >
-          {active ? '正在处理 BH 的左右进' : '处理 BH 的左右进'}
+          {active ? '正在处理 BH 和 BOX 的左右进' : '处理 BH 和 BOX 的左右进'}
         </Button>
       )}
     </Card>

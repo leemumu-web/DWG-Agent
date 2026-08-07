@@ -69,9 +69,9 @@ export function WorkflowStageArchiveCard({
       ).finally(handle.finish);
     },
     onMutate: clearProgress,
-    onSuccess: () => message.success('BH 左右进读取表已下载'),
+    onSuccess: () => message.success('BH 和 BOX 左右进读取表已下载'),
     onError: (error) => {
-      const result = describeDownloadError(error, 'BH 左右进读取表下载失败');
+      const result = describeDownloadError(error, 'BH 和 BOX 左右进读取表下载失败');
       setDownloadProgress(null);
       setReaderDownloadProgress(null);
       if (result.cancelled) {
@@ -111,7 +111,7 @@ export function WorkflowStageArchiveCard({
             {stage2Available
               ? '已生成第二阶段正式 Excel'
               : readerAvailable
-                ? '已生成 BH 左右进读取表，可先下载核对'
+                ? '已生成 BH 和 BOX 左右进读取表，可先下载核对'
                 : '本阶段尚无可下载产物'}
           </Typography.Text>
           <Typography.Text type="secondary">
@@ -125,7 +125,7 @@ export function WorkflowStageArchiveCard({
             disabled={!readerAvailable || downloadCtrl.active}
             onClick={() => readerM.mutate()}
           >
-            下载 BH 左右进读取表
+            下载 BH 和 BOX 左右进读取表
           </Button>
           <Button
             type="primary"
@@ -139,7 +139,7 @@ export function WorkflowStageArchiveCard({
         </Space>
         {readerDownloadProgress && (
           <CancellableDownloadProgress
-            label="BH 左右进读取表下载"
+            label="BH 和 BOX 左右进读取表下载"
             progress={readerDownloadProgress}
             active={downloadCtrl.active}
             onCancel={() => {
