@@ -1,29 +1,31 @@
 # DWG-Agent 企业 CAD 处理平台
 
-<img src="frontend/public/logo.png" alt="DWG-Agent" width="120" />
+<div align="center">
 
-[简体中文](README.md) | [English](README_EN.md)
+<img src="frontend/public/brand/logo-on-light.png" alt="DWG-Agent" width="140" />
 
-**交付级别：v0.1 技术预览版。当前文档基线：2026-07-25。** 该级别面向技术人员试用与继续开发，不代表生产就绪。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；[开发指南](docs/guides/development.md)给出首次安装和验收路径，[实现状态](docs/architecture/implementation-status.md)记录证据与剩余风险，[企业平台技术规范](docs/architecture/platform-specification.md)给出规范性边界。仓库只维护中文项目文档。
+[简体中文](README.md) ｜ [English](README_EN.md)
+
+**交付级别：** `v0.1 技术预览版` — 面向技术试用与继续开发，不代表生产就绪
+
+</div>
 
 > [!IMPORTANT]
-> 本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。详细项目文档仅维护[中文版本](docs/README.md)，英文 README 用于提供项目概览。
+> 本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；详细项目文档仅维护[中文版本](docs/README.md)，英文 README 用于提供项目概览。
 
 ## 🧭 分层阅读
 
-根据你的目标选择入口：
-
-| 你想了解什么 | 建议阅读 |
+| 你想了解什么 | 建议入口 |
 |---|---|
-| 项目能做什么、不能做什么 | [平台状态](#-平台状态) → [范围边界](#-范围边界) |
-| 系统如何部署和通信 | [系统架构](#️-系统架构) → [本地启动](#-本地启动) |
-| 哪些处理管线可以启用 | [处理能力](#-处理能力) → [工作流与启用边界](docs/architecture/workflow.md) |
-| 如何开发和验证 | [开发与验证](#-开发与验证) → [开发文档](docs/guides/development.md) |
-| 如何部署和运维 | [Compose 部署](#compose-部署) → [部署文档](docs/guides/deployment.md) → [运维文档](docs/guides/operations.md) |
+| 🏢 平台能做什么、不能做什么 | [平台一览](#-平台一览) → [范围边界](#-范围边界) |
+| 🏗️ 系统如何部署和通信 | [系统架构](#️-系统架构) → [本地启动](#-本地启动) |
+| 🧩 哪些处理能力可以启用 | [平台一览](#-平台一览) → [工作流边界](docs/architecture/workflow.md) |
+| 🚀 如何开发、验证和发布 | [开发与验证](#-开发与验证) → [开发指南](docs/guides/development.md) |
+| 📦 如何部署和运维 | [Compose 部署](#compose-部署) → [部署指南](docs/guides/deployment.md) → [运维指南](docs/guides/operations.md) |
 
-状态标记：**✅ 已实现** · **⚠️ 有条件可用** · **⏸️ 默认关闭/占位** · **❌ 不在当前交付范围**
+**状态标记：** ✅ 已交付 · ⚠️ 有条件可用 · ⏸️ 默认关闭/占位 · ❌ 不在当前交付范围
 
-## 🚦 平台状态
+## 🏢 平台一览
 
 ### 核心能力
 
@@ -34,8 +36,8 @@
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
 | 存储 | ✅ | Local/MinIO 清单、流转账本、异步一致性扫描、DXF 预览生命周期和四类安全处置 | MySQL 保存登记，存储层保存字节；跨系统使用 saga/补偿，不宣称单一 ACID |
-| 数据管理台 | ✅ | `/data-console` 收拢为生产任务与文件存储两个工作区；项目、阶段、Job 和存储区均读取现有业务接口 | 不直接编辑 MySQL 行；管理员只能按任务状态机与已登记文件规则取消、重试、下载、改路径或软删除，后端继续校验权限与审计 |
-| Excel 第一阶段工作台 | ✅ | 处理、批次、零件、五金手册四个 URL 标签；结构化输入错误、任务监视、批次明细、精确手册查询和结果预览 | 各标签按需请求；生产流程自动使用冻结 Excel，独立入口上传/建任务继续使用数据库级幂等键 |
+| 数据控制台 | ✅ | `/data-console` 收拢为生产任务与文件存储两个工作区；项目、阶段、Job 和存储区均读取现有业务接口 | 不直接编辑 MySQL 行；管理员只能按任务状态机与已登记文件规则操作，后端继续校验权限与审计 |
+| Excel 第一阶段工作台 | ✅ | 处理、批次、零件、五金手册四个 URL 标签；结构化输入错误、任务监视、批次明细、精确手册查询和结果预览 | 生产流程自动使用冻结 Excel，独立入口上传/建任务继续使用数据库级幂等键 |
 
 ### 编排与扩展能力
 
@@ -74,31 +76,13 @@ Celery workers（无入站监听端口）
 > [!WARNING]
 > 当前 Compose 仅发布 HTTP，默认把宿主 `${HTTP_PORT:-80}` 映射到 Nginx 容器 `8080`，**不发布 443，也不提供 TLS**。公网部署前必须在受控入口补齐证书、HTTPS 跳转、HSTS、续期和真实浏览器/握手验证；不能把网络隔离或安全响应头等同于传输加密。
 
-## 🧩 处理能力
-
-### 管线矩阵
-
-| 管线 / 队列 | 状态 | 默认开关 | 运行前提 |
-|---|---|---|---|
-| framework smoke / `report` | ✅ 可运行的框架任务 | 核心 worker 默认启动 | MySQL broker/result 与存储可用；不代表报告 Agent 已实现 |
-| DWG → DXF / `dxf` | ✅ 生产流程已验收 | 服务器模板为 `DXF_PIPELINE_ENABLED=true` | ODA File Converter、专用 AppImage 临时目录、无头 X 环境、源 DWG 校验通过 |
-| DXF → DWG / `dxf2dwg` | ✅ 独立转换、原名展示、下载和原始 DXF 预览已接通 | 服务器模板为 `DXF2DWG_PIPELINE_ENABLED=true` | 同上，并要求有效 DXF；不进入主生产流程 |
-| DXF → Excel / `dxf2excel` | ⚠️ Stage 源码、平台 service/task 和测试已纳入父仓库 | `DXF2EXCEL_PIPELINE_ENABLED=false` | 有效 DXF、Stage 锁定依赖；当前内置单测只覆盖解码，真实批次仍需外部 corpus 验收 |
-| Steel DXF 分类 / `dxf_classification` | ✅ 生产流程已验收；逐图账本与全量原图下载已接通 | 服务器模板为 `DXF_CLASSIFICATION_PIPELINE_ENABLED=true` | 只读取冻结的服务器派生 DXF；无标题栏证据时进入人工确认，不按文件名猜测 |
-| Steel DXF 拆板 / `dxf_split` | ✅ BH/BOX 整批拆板和独立复开校验已验收 | 服务器模板为 `DXF_SPLIT_PIPELINE_ENABLED=true` | 只消费数据库登记的 BH/BOX；非 BH/BOX 和未通过图纸不进入正式结果 |
-| Excel Final / `excel_final` | ✅ 独立工作中心与生产流程第一阶段均已验收 | 服务器模板为 `EXCEL_FINAL_PIPELINE_ENABLED=true` | 有效 Tekla Excel、正式拆板配对、`hardware_handbook` 唯一数据库、足够超时 |
-| Agent / `agent` | ⏸️ API/持久化与队列名保留，没有注册 Celery task | `AGENT_ENABLED=false` | 缺少真实执行器；运行一个空闲 queue worker 也不代表能力可用 |
-| Windows / `cad` | ⏸️ `windows/` 按 Node Agent/CAM Runner/Adapter/协议保留外部合同，没有注册 Celery task | `CAD_WORKER_ENABLED=false` | 尚未满足交付条件；Compose 没有 `worker-cad` |
-
-### 任务一致性
-
-任务以 `(job_id, attempt)` 作为执行世代。重试递增 `attempt`；worker 的领取、进度和终态更新都必须匹配当前状态与 attempt，从而阻止旧消息或旧 worker 覆盖新一轮任务。SSE 轮询 MySQL 并发送当前 attempt 的权威快照，不提供按 event ID 的历史回放。
-
 ### 工作流边界
 
 工作流以 `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段和产物引用。新建 `linux_production` 使用 revision 4，接收多个 DWG 与唯一 Excel，源 DWG 全部留档并转换为 canonical DXF；冻结后图纸只按 classified/processed/CAM/accepted/delivery DXF 流通。`excel_stage1` 直接读取冻结清单中的唯一 `source_excel`，复用现有 Job/Celery 管线并自动挂接 `stage1_excel`；`excel_stage2` 位于其后，复核当前正式 `stage1_excel` 与分类账中冻结的拆板前 BH DXF，生成 `bh_setback_excel` 和 `stage2_excel` 两份单独下载的 Excel。历史流程保持原 revision，不被自动改写。
 
 这仍不是 SinoCAM 完整生产闭环：拆板已经接入服务器工作流，但默认关闭；一批图纸全部处理完后，只要存在未通过图纸，流程保持 `waiting_review`，前端仅提供该 attempt 的未通过分类原始 DXF 压缩包。CAM 工作包、Windows Node Agent/SinoCAM 与结果接纳仍返回 `WORKFLOW_STAGE_NOT_IMPLEMENTED`。详见[Linux 生产工作流框架](docs/architecture/workflow.md)。
+
+任务以 `(job_id, attempt)` 作为执行世代。重试递增 `attempt`；worker 的领取、进度和终态更新都必须匹配当前状态与 attempt，从而阻止旧消息或旧 worker 覆盖新一轮任务。SSE 轮询 MySQL 并发送当前 attempt 的权威快照，不提供按 event ID 的历史回放。
 
 ## 🎯 范围边界
 
@@ -107,7 +91,7 @@ Celery workers（无入站监听端口）
 - 项目、文件与格式转换；
 - Excel Final 与通用流程；
 - 任务、复核、权限与审计；
-- 部署和运维框架。
+- 部署和运维框架；
 - 非破坏式每日归档：预检冻结清单、维护队列生成 ZIP/manifest、MySQL 与对象存储双登记。
 
 ### 不在当前交付范围
@@ -120,11 +104,11 @@ Celery workers（无入站监听端口）
 
 ## ⚠️ 已知限制
 
-1. Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
-2. 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
-3. MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
-4. ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
-5. 仓库尚未声明 LICENSE；在项目负责人确认授权、第三方许可和样本数据分发范围前，只能作为内部技术预览使用，不得推定为开源或可对外再分发。
+1. **Compose 无 TLS：** Compose 当前仅提供 HTTP 且不发布 `443`；TLS 入口、证书生命周期和 HTTPS 验证尚未实现。
+2. **运维自动化不完整：** 备份、保留策略、监控告警、集中日志和灾难恢复演练尚未自动化；文档中的相关步骤是操作基线，不是已部署服务。
+3. **Broker 能力有界：** MySQL SQL transport 缺少 RabbitMQ 一类 broker 的吞吐、路由和远程控制能力。扩容 broker 时仍应保留 MySQL 作为业务事实源。
+4. **ODA 依赖外部环境：** ODA 转换依赖专有二进制及其许可/运行环境；单元测试通过不等于所有真实 DWG/DXF 版本均兼容。
+5. **未声明 LICENSE：** 在项目负责人确认授权、第三方许可和样本数据分发范围前，只能作为内部技术预览使用，不得推定为开源或可对外再分发。
 
 ## 🚀 本地启动
 
@@ -181,9 +165,7 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-数据控制台随主服务启动。管理员可查看全部登记数据和原始 MySQL 表；非管理员
-只看到自己产生的文件和流转记录。身份与权限表只读，其他允许的管理员写操作进入审计日志。详见
-[数据控制台运行手册](docs/operations/data-console.md)。
+数据控制台随主服务启动。管理员可查看全部登记数据和原始 MySQL 表；非管理员只看到自己产生的文件和流转记录。身份与权限表只读，其他允许的管理员写操作进入审计日志。详见[数据控制台运行手册](docs/operations/data-console.md)。
 
 核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。
 
@@ -226,17 +208,17 @@ npx playwright test
 
 ## 🗂️ 仓库结构
 
-```text
-backend/        FastAPI、SQLAlchemy、Alembic、Celery、存储适配与 pytest
-frontend/       React 管理端、API client 与 Playwright
-Stages/         独立 CAD/Excel 处理阶段；Python Stage 源码已跟踪，外部二进制/corpus 另行管理
-agents/         未交付的 Agent 目录占位
-windows/        Node Agent、CAM Runner、SinoCAM Adapter 与协议留白
-infra/          网关、数据库、存储、消息目标、运维与验证
-scripts/        本地启停、数据库与文档工具
-docs/           唯一维护的中文详细文档
-third_parts/    外部/上游项目；不代表平台直接交付的能力
-```
+| 路径 | 职责 |
+|---|---|
+| `backend/` | FastAPI、SQLAlchemy、Alembic、Celery、存储适配与 pytest |
+| `frontend/` | React 管理端、API client 与 Playwright |
+| `Stages/` | 独立 CAD/Excel 处理阶段；Python Stage 源码已跟踪，外部二进制/corpus 另行管理 |
+| `infra/` | 网关、数据库、存储、消息目标、运维与验证 |
+| `scripts/` | 本地启停、数据库与文档工具 |
+| `agents/` | 未交付的 Agent 目录占位 |
+| `windows/` | Node Agent、CAM Runner、SinoCAM Adapter 与协议留白 |
+| `docs/` | 唯一维护的中文详细文档 |
+| `third_parts/` | 外部/上游项目；不代表平台直接交付的能力 |
 
 ## 📚 文档导航
 

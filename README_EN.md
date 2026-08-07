@@ -1,48 +1,50 @@
 # DWG-Agent Enterprise CAD Processing Platform
 
-<img src="frontend/public/logo.png" alt="DWG-Agent" width="120" />
+<div align="center">
 
-[简体中文](README.md) | [English](README_EN.md)
+<img src="frontend/public/brand/logo-on-light.png" alt="DWG-Agent" width="140" />
 
-**Delivery tier: v0.1 technical preview. Current documentation baseline: July 25, 2026.** This tier is intended for technical evaluation and continued development; it does not represent production readiness. Runtime facts are governed by the current code, migrations, configuration, and [verification evidence](docs/verification/current.md). The [development guide](docs/guides/development.md) provides the first-install path, the [implementation status](docs/architecture/implementation-status.md) records residual risks, and the [Enterprise Platform Technical Specification](docs/architecture/platform-specification.md) defines normative boundaries. The repository maintains Chinese project documentation only.
+[简体中文](README.md) ｜ [English](README_EN.md)
+
+**Delivery tier:** `v0.1 technical preview` — intended for technical evaluation and continued development; it does not represent production readiness
+
+</div>
 
 > [!IMPORTANT]
-> This README describes only what is present in the repository today. Placeholder directories, disabled feature flags, and unconfigured infrastructure are not presented as delivered capabilities. Detailed project documentation is maintained **in Chinese only** under [docs/](docs/README.md); this English README provides a project-level overview.
+> This README describes only what is present in the repository today. Placeholder directories, disabled feature flags, and unconfigured infrastructure are not presented as delivered capabilities. Runtime facts are governed by the current code, migrations, configuration, and [verification evidence](docs/verification/current.md). Detailed project documentation is maintained **in Chinese only** under [docs/](docs/README.md); this English README provides a project-level overview.
 
 ## 🧭 Layered Guide
 
-Choose a path based on what you need:
-
-| Goal | Recommended path |
+| What do you want to know | Suggested path |
 |---|---|
-| Understand what the platform can and cannot do | [Platform Status](#-platform-status) → [Scope Boundaries](#-scope-boundaries) |
-| Understand deployment and communication | [System Architecture](#️-system-architecture) → [Local Setup](#-local-setup) |
-| See which processing pipelines can be enabled | [Processing Capabilities](#-processing-capabilities) → [Workflow boundaries](docs/architecture/workflow.md) |
-| Develop and validate changes | [Development and Verification](#-development-and-verification) → [Development guide](docs/guides/development.md) |
-| Deploy and operate the platform | [Compose Deployment](#compose-deployment) → [Deployment guide](docs/guides/deployment.md) → [Operations guide](docs/guides/operations.md) |
+| 🏢 What the platform can and cannot do | [Platform Overview](#-platform-overview) → [Scope Boundaries](#-scope-boundaries) |
+| 🏗️ How the system is deployed and communicates | [System Architecture](#️-system-architecture) → [Local Setup](#-local-setup) |
+| 🧩 Which processing capabilities can be enabled | [Platform Overview](#-platform-overview) → [Workflow boundaries](docs/architecture/workflow.md) |
+| 🚀 How to develop, validate, and release | [Development and Verification](#-development-and-verification) → [Development guide](docs/guides/development.md) |
+| 📦 How to deploy and operate | [Compose Deployment](#compose-deployment) → [Deployment guide](docs/guides/deployment.md) → [Operations guide](docs/guides/operations.md) |
 
-Status markers: **✅ Implemented** · **⚠️ Conditionally available** · **⏸️ Disabled/placeholder** · **❌ Out of scope**
+**Status markers:** ✅ Delivered · ⚠️ Conditionally available · ⏸️ Disabled/placeholder · ❌ Out of scope
 
-## 🚦 Platform Status
+## 🏢 Platform Overview
 
 ### Core Capabilities
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Web and API | ✅ | React administration UI, Nginx gateway, 152 OpenAPI paths, and 176 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
-| Data | ✅ | MySQL 8.x is the only runtime source of business truth; Alembic manages 44 model tables, and Celery creates 8 broker/result tables on demand | A migrated empty database has 45 tables including `alembic_version`; up to 53 after all Celery runtime tables exist; SQLite is used only by pytest |
+| Web and API | ✅ | React administration UI, Nginx gateway, 185 OpenAPI paths, and 213 operations | Production disables `/docs`, `/redoc`, and `/openapi.json`; Nginx is not an authorization boundary |
+| Data | ✅ | MySQL 8.x is the only runtime source of business truth; Alembic manages 47 model tables, and Celery creates 8 broker/result tables on demand | A migrated empty database has 48 tables; up to 56 after all Celery runtime tables exist; SQLite is used only by pytest |
 | Asynchronous jobs | ✅ | Celery uses the MySQL SQLAlchemy transport and MySQL result backend | Suitable for the current bounded worker topology; not equivalent to a high-throughput message broker |
 | Runtime communication | ✅ | MySQL persists best-effort worker observations, control-plane events, and administrator messages | RabbitMQ, Beat, Outbox, and a Windows Node Agent remain explicit target contracts |
 | Storage | ✅ | Local/MinIO inventory, transfer ledger, asynchronous consistency scans, DXF preview lifecycle, and four safe remediation actions | MySQL stores registrations and the storage layer stores bytes; cross-system changes use saga/compensation rather than a claimed single ACID transaction |
-| Data console | ✅ | Seven workspaces: overview, file registrations, objects, transfers, daily archive, consistency, and runtime communication | Administrators can archive/scan/remediate; auditors are read-only and may run previews; permanent deletion is irreversible and requires confirmation |
-| Excel Final console | ✅ | Permission-filtered overview, job monitoring, cross-batch search, weight-ratio queries, batch/part/component pagination, result preview, and URL state restoration | Upload/job creation uses database idempotency keys; health bars show actual database/storage backends; historical data remains available while the pipeline is disabled |
+| Data console | ✅ | `/data-console` consolidates into two workspaces, production jobs and file storage; projects, stages, jobs, and storage areas all read existing business interfaces | No direct MySQL row editing; administrators act only through the job state machine and registered-file rules, while the backend keeps enforcing permissions and auditing |
+| Excel Stage One workspace | ✅ | Four URL tabs for processing, batches, parts, and hardware handbook; structured input errors, job monitoring, batch details, exact handbook queries, and result preview | Production workflows consume the frozen Excel automatically; uploads/jobs at the standalone entry keep using database-level idempotency keys |
 
 ### Orchestration and Extension Capabilities
 
 | Area | Status | Current implementation | Boundary |
 |---|---|---|---|
-| Linux production workflow | ⚠️ | Multiple-DWG + one-Excel intake, server-side DWG→DXF pairing/freezing, Steel DXF Classifier 1.2.0 routing, Steel DXF Split 1.5.2 batch execution and independent validation, ten stages, frozen Excel stage-one Jobs, attempt synchronization, and a production console | Splitting is disabled by default and still needs real MinIO/MySQL and representative-drawing acceptance; Excel stage two, CAM packaging, Windows/SinoCAM, and result acceptance remain waiting-for-launch interfaces |
-| Conversion pipelines | ⚠️ | Standalone DWG → DXF and DXF → DWG workspaces with source/result names, downloads, and authenticated DXF SVG preview; service paths for DXF → Excel and Excel Final | The server template enables both CAD conversions; DXF → Excel remains disabled; online preview has independent size/complexity limits |
+| Linux production workflow | ⚠️ | Multiple-DWG + single-Excel intake ledger, server-side DWG→DXF pairing/freezing, Steel DXF Classifier 1.2.0 routing, Steel DXF Split 1.5.2 batch execution and independent validation, ten stages, frozen Excel Stage One and BH left/right Stage Two jobs, attempt synchronization, per-batch detail pages, and streaming four-file exports with post-download confirmed physical release | Splitting and Excel Stage Two still require real MinIO/MySQL, dedicated workers, and representative business-sample acceptance; batch exports create no server-side temporary ZIP, and objects are deleted only after the server confirms the download stream finished and the user confirms again; CAM packages, Windows/SinoCAM, and result acceptance remain waiting-for-launch interfaces |
+| Conversion pipelines | ⚠️ | Standalone DWG → DXF and DXF → DWG workspaces with bidirectional original-name display, result downloads, and authenticated DXF SVG preview; service paths for DXF → Excel and Excel Final | The server template enables both CAD conversions; DXF → Excel remains disabled; online preview has independent size/complexity limits |
 | Agent | ⏸️ | Three MySQL tables, bounded session memory, API/permission boundaries, and machine-readable capability contracts are grouped under `automation` | No Agent Celery task or LLM/LangGraph/MCP executor exists; `AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Node/CAM/protocol directories and a draft control-plane contract remain | Node authentication, leases/fencing, left/right feed, interactive CAD, CAM Runner, and SinoCAM Adapter are not implemented; Steel DXF classification and splitting are Linux workflow slices |
 | Redis/Valkey | ❌ | Not part of the current runtime | Business state, SSE, token revocation, Agent memory, and Celery broker/results use MySQL directly |
@@ -74,31 +76,13 @@ Celery workers (no inbound listening ports)
 > [!WARNING]
 > The current Compose stack publishes **HTTP only**. It maps host `${HTTP_PORT:-80}` to Nginx container port `8080`; it does **not** publish port 443 or provide TLS. Before exposing the platform publicly, add certificates, HTTPS redirects, HSTS, renewal, and real browser/handshake verification at a controlled ingress. Network isolation and security headers are not substitutes for transport encryption.
 
-## 🧩 Processing Capabilities
-
-### Pipeline Matrix
-
-| Pipeline / queue | Status | Default flag | Runtime requirements |
-|---|---|---|---|
-| framework smoke / `report` | ✅ Runnable framework task | Core worker starts by default | MySQL broker/results and storage must be available; this does not mean the report Agent exists |
-| DWG → DXF / `dxf` | ✅ Accepted in the production workflow | Server template sets `DXF_PIPELINE_ENABLED=true` | ODA File Converter, its dedicated AppImage temporary directory, a headless X environment, and a validated source DWG |
-| DXF → DWG / `dxf2dwg` | ✅ Standalone conversion, original-name display, download, and source DXF preview are wired | Server template sets `DXF2DWG_PIPELINE_ENABLED=true` | Same as above, plus a valid DXF input; this is outside the main production workflow |
-| DXF → Excel / `dxf2excel` | ⚠️ Stage source, platform service/task, and tests are tracked in the parent repository | `DXF2EXCEL_PIPELINE_ENABLED=false` | Valid DXF, Stage locked dependencies; built-in tests cover decoding only; real batches still require external corpus acceptance |
-| Steel DXF classification / `dxf_classification` | ⚠️ Classifier 1.2.0, PX/safe discovered types, explicit per-drawing DB semantics, folder details, and DXF-only category/all downloads are wired; JSON/CSV remain audit records | `DXF_CLASSIFICATION_PIPELINE_ENABLED=false` | Requires frozen server-derived DXFs and representative business samples; classification is not plate splitting |
-| Steel DXF splitting / `dxf_split` | ⚠️ Split 1.5.2 processes BH/BOX as a complete batch, independently reopens outputs, and registers normal split, weld-allowance growth, reports, manifest, and `BH拆板信息表.xlsx`; current-attempt failed originals are zipped on demand | `DXF_SPLIT_PIPELINE_ENABLED=false` | Consumes registered classified DXFs only; non-BH/BOX and validation failures require manual review; real MinIO/MySQL and browser acceptance remain release gates |
-| Excel Final / `excel_final` | ⚠️ Backend adapter, isolated subprocess, relational import, and Stage tests exist | `EXCEL_FINAL_PIPELINE_ENABLED=false` | Valid Tekla/initial-sheet schema, read-only `hardware_handbook` database, and sufficient timeout |
-| Agent / `agent` | ⏸️ API/persistence and the queue name remain; no Celery task is registered | `AGENT_ENABLED=false` | A connected idle queue worker does not make the missing executor available |
-| Windows / `cad` | ⏸️ `windows/` separates Node Agent, CAM Runner, Adapter, and protocol contracts; no Celery task is registered | `CAD_WORKER_ENABLED=false` | Delivery conditions are not met; Compose has no `worker-cad` service |
-
-### Job Consistency
-
-Each execution generation is identified by `(job_id, attempt)`. A retry increments `attempt`; worker claims, progress updates, terminal transitions, cancellations, and compensation writes must match both the current status and attempt. This prevents stale messages or workers from overwriting a newer run. SSE polls MySQL and emits the authoritative snapshot for the current attempt; it does not provide event-ID history replay.
-
 ### Workflow Boundary
 
-The revision-4, ten-stage `linux_production` workflow uses `workflow_runs → workflow_stage_runs → workflow_artifacts` plus input-batch/drawing-unit rows. Operators upload multiple DWGs and exactly one Excel file; every DWG is retained as source evidence and converted to a canonical DXF. The frozen DrawingVersion and all later drawing artifacts use DXF, while Excel, reports, and manifests retain their own formats. Public routes bind the current Job attempt, synchronize authoritative state, and attach registered File/AnalysisResult artifacts.
+The workflow layer coordinates business stages and artifact references via `workflow_runs → workflow_stage_runs → workflow_artifacts`. A new `linux_production` run uses definition revision 4: it accepts multiple DWGs and exactly one Excel, keeps every source DWG as evidence, and converts them to canonical DXFs; after freezing, drawings circulate only as classified/processed/CAM/accepted/delivery DXFs. `excel_stage1` reads the single `source_excel` from the frozen batch, reuses the existing Job/Celery pipeline, and attaches `stage1_excel` automatically; `excel_stage2` follows, reviewing the current official `stage1_excel` against the pre-split BH DXFs frozen in the classification ledger, and produces two separately downloadable Excel files, `bh_setback_excel` and `stage2_excel`. Historical runs keep their original revision and are never rewritten.
 
-Plate splitting is now wired behind a disabled feature flag. Every drawing in a batch is processed; if any drawing needs review, the workflow remains in `waiting_review` and the UI exposes only an on-demand ZIP of the failed classified source DXFs for the current attempt. CAM packaging, Windows/SinoCAM execution, and deterministic result acceptance remain placeholder/external stages. See the [Linux production workflow](docs/architecture/workflow.md).
+This is still not a complete SinoCAM production loop: splitting is wired into the server workflow but disabled by default. When a whole batch finishes with any drawing still pending review, the run stays in `waiting_review` and the frontend exposes only an on-demand ZIP of that attempt's failed classified source DXFs. CAM packages, Windows Node Agent/SinoCAM, and result acceptance still return `WORKFLOW_STAGE_NOT_IMPLEMENTED`. See the [Linux production workflow framework](docs/architecture/workflow.md).
+
+Each execution generation is identified by `(job_id, attempt)`. A retry increments `attempt`; worker claims, progress updates, terminal transitions, cancellations, and compensation writes must match both the current status and attempt. This prevents stale messages or workers from overwriting a newer run. SSE polls MySQL and emits the authoritative snapshot for the current attempt; it does not provide event-ID history replay.
 
 ## 🎯 Scope Boundaries
 
@@ -107,11 +91,12 @@ Plate splitting is now wired behind a disabled feature flag. Every drawing in a 
 - Projects, files, and format conversion;
 - Excel Final and generic workflows;
 - Jobs, review, permissions, and auditing;
-- Deployment and operations framework.
+- Deployment and operations framework;
+- Non-destructive daily archiving: pre-flight frozen batches, maintenance-queue ZIP/manifest generation, and dual registration in MySQL and object storage.
 
 ### Outside the Current Delivery Scope
 
-- CAD component extraction, automatic/interactive plate splitting, and left/right feed algorithms (Steel DXF preprocessing/classification is already implemented and is not in this list);
+- CAD component extraction, automatic/interactive plate splitting, and left/right feed algorithms (Steel DXF preprocessing, classification routing, and BH/BOX automatic splitting form a disabled server-side vertical slice and are not in this list);
 - ZWCAD secondary development and the Windows CAD Worker;
 - Agent execution, model calls, MCP tool orchestration, and product orchestration around the delivered bounded session memory.
 
@@ -119,11 +104,11 @@ Only real routes/models/configuration and machine-readable capability contracts 
 
 ## ⚠️ Known Limitations
 
-1. Compose currently provides HTTP only and does not publish `443`; TLS ingress, certificate lifecycle, and HTTPS verification are not implemented.
-2. Backups, retention, monitoring and alerting, centralized logs, and disaster-recovery drills are not automated. Documented procedures are operational baselines, not deployed services.
-3. The MySQL SQL transport lacks the throughput, routing, and remote-control capabilities of brokers such as RabbitMQ. MySQL must remain the source of business truth if the broker is replaced or scaled out.
-4. Conversion depends on proprietary ODA binaries, licensing, and runtime setup. Passing unit tests does not prove compatibility with every real DWG/DXF version.
-5. The repository has not declared a LICENSE. Until the project lead confirms authorization, third-party licensing, and sample-data distribution scope, the code may only be used as an internal technical preview and must not be assumed to be open-source or redistributable.
+1. **No Compose TLS:** Compose currently provides HTTP only and does not publish `443`; TLS ingress, certificate lifecycle, and HTTPS verification are not implemented.
+2. **Incomplete operations automation:** Backups, retention, monitoring and alerting, centralized logs, and disaster-recovery drills are not automated. Documented procedures are operational baselines, not deployed services.
+3. **Bounded broker capabilities:** The MySQL SQL transport lacks the throughput, routing, and remote-control capabilities of brokers such as RabbitMQ. MySQL must remain the source of business truth if the broker is replaced or scaled out.
+4. **External ODA dependency:** Conversion depends on proprietary ODA binaries, licensing, and runtime setup. Passing unit tests does not prove compatibility with every real DWG/DXF version.
+5. **No declared LICENSE:** Until the project lead confirms authorization, third-party licensing, and sample-data distribution scope, the code may only be used as an internal technical preview and must not be assumed to be open-source or redistributable.
 
 ## 🚀 Local Setup
 
@@ -180,7 +165,9 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
-The core set is `nginx/backend-api/mysql/minio/worker-report`. The `workers` profile adds 11 services: four CAD/Excel workers, classification, splitting, remnant conversion/parsing, `dispatch`, `maintenance`, and the contract-only `worker-agent`, for 16 Compose services in total. A healthy `worker-agent` means only that a Celery process connected to the broker; no Agent task or executor is registered.
+The data console starts with the main services. Administrators can inspect all registered data and raw MySQL tables; non-administrators only see files and transfer records they created. Identity and permission tables are read-only, and other allowed administrator writes enter the audit log. See the [data console runbook](docs/operations/data-console.md).
+
+The core set is `nginx/backend-api/mysql/minio/worker-report`; the `workers` profile adds 11 services: four CAD/Excel workers, classification, splitting, remnant conversion/parsing, `dispatch`, `maintenance`, and the contract-only `worker-agent`. A healthy `worker-agent` means only that a Celery process connected to the broker; no Agent task or executor is registered.
 
 ## 🧪 Development and Verification
 
@@ -217,21 +204,21 @@ npx playwright test
 
 These verification layers are not interchangeable: SQLite pytest checks business logic, `migration-test` checks an empty MySQL schema, `infra/verification/verify.sh` checks static and active infrastructure contracts, and Playwright checks browser interactions.
 
-A complete release acceptance still requires real MySQL, Celery, MinIO, and valid sample files to exercise upload, processing, retry, SSE, signed download, storage interruption, and recovery end to end. See [current verification evidence](docs/verification/current.md).
+A complete release acceptance still requires real MySQL, Celery, MinIO, and valid sample files to exercise upload, processing, retry, SSE, signed download, storage interruption, and recovery end to end. See the [current verification evidence](docs/verification/current.md).
 
 ## 🗂️ Repository Layout
 
-```text
-backend/        FastAPI, SQLAlchemy, Alembic, Celery, storage adapters, and pytest
-frontend/       React administration UI, API client, and Playwright
-Stages/         Independent CAD/Excel processing stages; Python Stage source is tracked, external binaries/corpus managed separately
-agents/         Placeholder directories for undelivered Agents
-windows/        Node Agent, CAM Runner, SinoCAM Adapter, and protocol contracts
-infra/          Gateway, database, storage, messaging target, operations, verification
-scripts/        Local lifecycle, database, and documentation tools
-docs/           The only maintained detailed documentation set; written in Chinese
-third_parts/    External/upstream projects; not automatically delivered platform capabilities
-```
+| Path | Responsibility |
+|---|---|
+| `backend/` | FastAPI, SQLAlchemy, Alembic, Celery, storage adapters, and pytest |
+| `frontend/` | React administration UI, API client, and Playwright |
+| `Stages/` | Independent CAD/Excel processing stages; Python Stage source is tracked, external binaries/corpus managed separately |
+| `infra/` | Gateway, database, storage, messaging target, operations, verification |
+| `scripts/` | Local lifecycle, database, and documentation tools |
+| `agents/` | Placeholder directories for undelivered Agents |
+| `windows/` | Node Agent, CAM Runner, SinoCAM Adapter, and protocol contracts |
+| `docs/` | The only maintained detailed documentation set; written in Chinese |
+| `third_parts/` | External/upstream projects; not automatically delivered platform capabilities |
 
 ## 📚 Documentation
 
