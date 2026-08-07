@@ -798,11 +798,13 @@ def _box_reader_progress_callback(db: Session, *, job_id: int, attempt: int):
         threshold = max(1, total // 200)
         if processed != total and now - last_time < 1.0 and processed - last_processed < threshold:
             return
+        # BH 读取占用 15-75；BOX 读取紧随其后占用 75-80（进度单调不回退）
+        percentage = 75 + int(5 * processed / max(total, 1))
         _commit_progress(
             db,
             job_id=job_id,
             attempt=attempt,
-            progress=50,
+            progress=percentage,
             step_name=STEP_RUN_BH_SETBACK_READER,
             message=f"正在读取 BOX 图纸：{processed}/{total}",
             phase="box_reader",
