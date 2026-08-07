@@ -17,19 +17,27 @@ import {
   FileSearchOutlined,
   FolderOpenOutlined,
   ReloadOutlined,
+  StopOutlined,
   ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   downloadAllDxfClassificationArchive,
+  downloadDxfClassificationFile,
   downloadDxfClassificationGroupArchive,
   executeWorkflowStage,
   getDxfClassification,
   getDxfClassificationGroup,
   getWorkflow,
 } from './workflows.api';
-import { describeApiError, operatorErrorMessage, type TransferProgress } from '../../shared/api';
+import {
+  describeApiError,
+  isDownloadCancelled,
+  operatorErrorMessage,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
 import { ApiErrorAlert, fmtSize, TransferProgressBar } from '../../shared/components';
 import type {
   DxfClassificationGroup,
@@ -82,6 +90,7 @@ export function DxfClassificationPanel({
 }: Props) {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
+  const downloadCtrl = useDownload();
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>();
   const [detailPage, setDetailPage] = useState(1);
   const [downloadProgress, setDownloadProgress] = useState<{
@@ -144,8 +153,17 @@ export function DxfClassificationPanel({
       workflowId,
       (progress) => setDownloadProgress({ label: '全部分类图纸下载', progress }),
       run?.groups.reduce((total, group) => total + group.total_size_bytes, 0),
+      downloadCtrl.start(),
     ),
-    onError: (error) => message.error(describeApiError(error, '全部 DXF 下载失败')),
+    onSuccess: () => downloadCtrl.finish(),
+    onError: (error) => {
+      downloadCtrl.finish();
+      if (isDownloadCancelled(error)) {
+        message.info('下载已取消');
+      } else {
+        message.error(describeApiError(error, '全部 DXF 下载失败'));
+      }
+    },
   });
   const groupDownload = useMutation({
     mutationFn: (group: DxfClassificationGroup) => (
@@ -154,9 +172,38 @@ export function DxfClassificationPanel({
         group.group_key,
         (progress) => setDownloadProgress({ label: `${group.label} 类图纸下载`, progress }),
         group.total_size_bytes,
+        downloadCtrl.start(),
       )
     ),
-    onError: (error) => message.error(describeApiError(error, '分类文件夹下载失败')),
+    onSuccess: () => downloadCtrl.finish(),
+    onError: (error) => {
+      downloadCtrl.finish();
+      if (isDownloadCancelled(error)) {
+        message.info('下载已取消');
+      } else {
+        message.error(describeApiError(error, '分类文件夹下载失败'));
+      }
+    },
+  });
+  const singleFileDownload = useMutation({
+    mutationFn: ({ groupKey, outputName }: { groupKey: string; outputName: string }) => (
+      downloadDxfClassificationFile(
+        workflowId,
+        groupKey,
+        outputName,
+        (progress) => setDownloadProgress({ label: `下载 ${outputName}`, progress }),
+        downloadCtrl.start(),
+      )
+    ),
+    onSuccess: (_data, vars) => message.success(`已下载 ${vars.outputName}`),
+    onError: (error) => {
+      if (isDownloadCancelled(error)) {
+        message.info('下载已取消');
+      } else {
+        message.error(describeApiError(error, '分类 DXF 下载失败'));
+      }
+    },
+    onSettled: () => downloadCtrl.finish(),
   });
 
   const canExecute = isCurrent
@@ -224,6 +271,34 @@ export function DxfClassificationPanel({
       dataIndex: 'size_bytes',
       width: 100,
       render: (value: number) => fmtSize(value),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 110,
+      render: (_: unknown, item: DxfClassificationGroupItem) => (
+        <Button
+          type="text"
+          size="small"
+          icon={<DownloadOutlined />}
+          aria-label={`下载 ${item.output_name}`}
+          loading={
+            singleFileDownload.isPending
+            && singleFileDownload.variables?.outputName === item.output_name
+          }
+          disabled={
+            downloadCtrl.active
+            && !(singleFileDownload.isPending
+              && singleFileDownload.variables?.outputName === item.output_name)
+          }
+          onClick={() => singleFileDownload.mutate({
+            groupKey: selectedGroupKey!,
+            outputName: item.output_name,
+          })}
+        >
+          下载
+        </Button>
+      ),
     },
   ];
 
@@ -343,6 +418,7 @@ export function DxfClassificationPanel({
                 type="primary"
                 icon={<DownloadOutlined />}
                 loading={allDownload.isPending}
+                disabled={downloadCtrl.active && !allDownload.isPending}
                 onClick={() => allDownload.mutate()}
               >
                 下载全部 DXF
@@ -364,10 +440,24 @@ export function DxfClassificationPanel({
             ))}
           </div>
           {downloadProgress && (
-            <TransferProgressBar
-              label={downloadProgress.label}
-              progress={downloadProgress.progress}
-            />
+            <Space wrap>
+              <TransferProgressBar
+                label={downloadProgress.label}
+                progress={downloadProgress.progress}
+              />
+              {downloadCtrl.active && (
+                <Button
+                  size="small"
+                  icon={<StopOutlined />}
+                  onClick={() => {
+                    downloadCtrl.cancel();
+                    setDownloadProgress(null);
+                  }}
+                >
+                  取消下载
+                </Button>
+              )}
+            </Space>
           )}
 
           {warningCount > 0 && (
@@ -423,6 +513,11 @@ export function DxfClassificationPanel({
                     groupDownload.isPending
                     && groupDownload.variables?.group_key === group.group_key
                   }
+                  disabled={
+                    downloadCtrl.active
+                    && !(groupDownload.isPending
+                      && groupDownload.variables?.group_key === group.group_key)
+                  }
                   onClick={() => groupDownload.mutate(group)}
                 >
                   下载本类
@@ -445,6 +540,11 @@ export function DxfClassificationPanel({
             loading={
               groupDownload.isPending
               && groupDownload.variables?.group_key === selectedGroup.group_key
+            }
+            disabled={
+              downloadCtrl.active
+              && !(groupDownload.isPending
+                && groupDownload.variables?.group_key === selectedGroup.group_key)
             }
             onClick={() => groupDownload.mutate(selectedGroup)}
           >
