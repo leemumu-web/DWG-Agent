@@ -53,6 +53,7 @@ COPY Stages/dxf2excel ./Stages/dxf2excel
 COPY Stages/steel_dxf_classifier_v1.1.0 ./Stages/steel_dxf_classifier_v1.1.0
 COPY Stages/steel_dxf_split_v1.5.2 ./Stages/steel_dxf_split_v1.5.2
 COPY Stages/bh_left_right_reader ./Stages/bh_left_right_reader
+COPY Stages/BOX左右进读取 ./Stages/BOX左右进读取
 COPY Stages/remnant_drawing_reader ./Stages/remnant_drawing_reader
 
 # editable path 依赖相对 backend/ 解析为 ../Stages/* —— 镜像内 /app/Stages/* 正好命中。

@@ -30,6 +30,7 @@ Stages/*/test/
 Stages/*/samples/
 Stages/*/data/
 Stages/*/output/
+Stages/*/outputs/
 Stages/*/logs/
 Stages/*/convert/output/
 Stages/*/convert/tmp/
