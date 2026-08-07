@@ -28,6 +28,7 @@ class SplitOptions:
     source_contract: BHSourceContract | None = None
     box_source_contract: BoxSourceContract | None = None
     box_release_attestation: Path | None = None
+    skip_png_and_json: bool = False
 
 
 @dataclass(slots=True)
@@ -190,7 +191,9 @@ class SplitResult:
                 if self.review_candidate_path is not None
                 else None
             ),
-            "report": str(self.report_path),
+            "report": (
+                str(self.report_path) if self.report_path is not None else None
+            ),
             "weld_allowance": (
                 str(self.weld_allowance_path)
                 if self.weld_allowance_path is not None
@@ -284,12 +287,15 @@ def _copy_report_artifacts(
     *,
     member: str,
     include_source: bool,
+    skip_png_and_json: bool = False,
 ) -> tuple[dict[str, str], dict[str, object] | None, Path | None]:
     replacements: dict[str, str] = {}
     staged_previews = staged_task / "previews"
     final_previews = final_task / "previews"
     preview_payload = deepcopy(result.previews) if result.previews is not None else None
-    if isinstance(preview_payload, dict):
+    if skip_png_and_json:
+        preview_payload = None
+    elif isinstance(preview_payload, dict):
         for phase in ("before", "after"):
             value = preview_payload.get(phase)
             if not isinstance(value, str):
@@ -389,6 +395,7 @@ def _publish_successful_pair(
     stage_root: Path,
     output_root: Path,
     member: str,
+    skip_png_and_json: bool = False,
 ) -> SplitResult:
     if result.production_path is None or not result.production_path.is_file():
         raise ValueError("native auto-accepted result has no complete normal DXF")
@@ -445,6 +452,7 @@ def _publish_successful_pair(
         final_task,
         member=member,
         include_source=False,
+        skip_png_and_json=skip_png_and_json,
     )
     replacements.update(
         {
@@ -488,11 +496,12 @@ def _publish_successful_pair(
         ),
         replacements,
     )
-    write_json_atomic(
-        staged_task / f"{member}_weld_allowance_report.json",
-        allowance_report,
-    )
-    write_json_atomic(staged_task / f"{member}_report.json", updated_report)
+    if not skip_png_and_json:
+        write_json_atomic(
+            staged_task / f"{member}_weld_allowance_report.json",
+            allowance_report,
+        )
+        write_json_atomic(staged_task / f"{member}_report.json", updated_report)
     if set(path.name for path in staged_task.rglob("*.dxf")) != {
         staged_normal.name,
         staged_allowance.name,
@@ -508,9 +517,11 @@ def _publish_successful_pair(
     )
     result.production_path = final_normal
     result.review_candidate_path = None
-    result.report_path = final_report
+    result.report_path = final_report if not skip_png_and_json else None
     result.weld_allowance_path = final_allowance
-    result.weld_allowance_report_path = final_allowance_report
+    result.weld_allowance_report_path = (
+        final_allowance_report if not skip_png_and_json else None
+    )
     result.task_dir = final_task
     result.report = updated_report
     result.previews = preview_payload
@@ -526,6 +537,7 @@ def _publish_manual_review(
     output_root: Path,
     member: str,
     pair_error: Exception | None = None,
+    skip_png_and_json: bool = False,
 ) -> SplitResult:
     staged_task = stage_root / "task"
     staged_task.mkdir(parents=True, exist_ok=True)
@@ -549,6 +561,7 @@ def _publish_manual_review(
         final_task,
         member=member,
         include_source=True,
+        skip_png_and_json=skip_png_and_json,
     )
     if candidate_source is not None and final_candidate is not None:
         replacements[str(candidate_source.resolve())] = str(final_candidate.resolve())
@@ -622,7 +635,8 @@ def _publish_manual_review(
         "error": str(pair_error) if pair_error is not None else None,
         "error_zh": pair_error_zh,
     }
-    write_json_atomic(staged_task / f"{member}_report.json", updated_report)
+    if not skip_png_and_json:
+        write_json_atomic(staged_task / f"{member}_report.json", updated_report)
     _promote_task_directory(
         staged_task,
         final_task,
@@ -633,7 +647,7 @@ def _publish_manual_review(
 
     result.production_path = None
     result.review_candidate_path = final_candidate
-    result.report_path = final_report
+    result.report_path = final_report if not skip_png_and_json else None
     result.weld_allowance_path = None
     result.weld_allowance_report_path = None
     result.task_dir = final_task
@@ -814,6 +828,7 @@ def split_classified_dxf(
                 stage_root=stage_root,
                 output_root=output_dir,
                 member=member,
+                skip_png_and_json=options.skip_png_and_json,
             )
         try:
             return _publish_successful_pair(
@@ -821,6 +836,7 @@ def split_classified_dxf(
                 stage_root=stage_root,
                 output_root=output_dir,
                 member=member,
+                skip_png_and_json=options.skip_png_and_json,
             )
         except (
             WeldAllowanceProcessingError,
@@ -833,4 +849,5 @@ def split_classified_dxf(
                 output_root=output_dir,
                 member=member,
                 pair_error=exc,
+                skip_png_and_json=options.skip_png_and_json,
             )

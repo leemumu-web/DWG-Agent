@@ -6,6 +6,7 @@
 
 ### Added
 
+- `steel-dxf-split` 新增 `--no-png-and-json` 开关：完全不生成 PNG 与 JSON 报告（`report.json`、`weld_allowance_report.json`、`previews/`），任务目录仅保留成对 DXF，BH 与 BOX 均生效。
 - 按架构、参考、指南、验证四层重建项目文档，并建立领域化仓库重构设计与可回滚实施计划。
 - 增加运行契约快照、12 模块归属清单和结构图追溯矩阵；校正 Celery 稳定任务数为 11。
 - 恢复非破坏性的运行栈验证脚本，保持统一门禁的静态检查入口完整。

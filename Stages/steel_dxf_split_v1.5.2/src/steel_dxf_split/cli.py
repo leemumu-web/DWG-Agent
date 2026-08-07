@@ -56,6 +56,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="可选：逐图完成后原子更新平台进度 JSON。",
     )
+    parser.add_argument(
+        "--no-png-and-json",
+        action="store_true",
+        default=False,
+        help=(
+            "不生成 PNG 与 JSON 报告（report.json / weld_allowance_report.json），"
+            "任务目录仅保留成对 DXF。BH 与 BOX 均生效。"
+        ),
+    )
     return parser
 
 
@@ -235,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             else None
         ),
         box_release_attestation=args.box_release_attestation,
+        skip_png_and_json=args.no_png_and_json,
     )
     if "BOX" in classified_inputs.values():
         try:
