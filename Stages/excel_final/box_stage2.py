@@ -730,7 +730,9 @@ def enhance_box_projection(
                 flange_width=flange.width,
                 measurements=drawing.measurements,
             )
-        except ValueError as exc:
+        except Exception as exc:
+            # 单图异常隔离：任何未预期错误（TypeError/KeyError 等）也走人工
+            # 补录标红，绝不因一张图的数据问题导致整个 Excel 第二阶段失败。
             replacement_rows[key] = _manual_placeholder_rows(
                 baseline_rows,
                 source_file_id=drawing.source_file_id,

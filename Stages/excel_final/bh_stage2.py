@@ -786,7 +786,8 @@ def enhance_bh_projection(
                 flange_width=flange.width,
                 measurements=drawing.measurements,
             )
-        except ValueError as exc:
+        except Exception as exc:
+            # 单图异常隔离：与 box_stage2 一致，任何未预期错误也走人工补录
             replacement_rows[key] = _manual_placeholder_rows(
                 baseline_rows,
                 source_file_id=drawing.source_file_id,
