@@ -2240,15 +2240,23 @@ def _build_assignment_context(
 ) -> _AssignmentCompileContext:
     web_search = enumerate_web_outline_candidates(assignment, metadata)
     flange_search = enumerate_flange_outline_candidates(assignment, metadata)
+    web_bolt_openings = project_circular_openings(source, assignment.h_view)
+    flange_bolt_openings = project_circular_openings(source, assignment.b_view)
     return _AssignmentCompileContext(
         web_search=web_search,
         flange_search=flange_search,
-        web_bolt_openings=project_circular_openings(source, assignment.h_view),
-        flange_bolt_openings=project_circular_openings(source, assignment.b_view),
+        web_bolt_openings=web_bolt_openings,
+        flange_bolt_openings=flange_bolt_openings,
         web_part_openings=project_part_arc_openings(source, assignment.h_view),
         flange_part_openings=project_part_arc_openings(source, assignment.b_view),
-        web_inner_inventory=project_inner_contour_openings(assignment.h_view),
-        flange_inner_inventory=project_inner_contour_openings(assignment.b_view),
+        web_inner_inventory=project_inner_contour_openings(
+            assignment.h_view,
+            circular_openings=web_bolt_openings,
+        ),
+        flange_inner_inventory=project_inner_contour_openings(
+            assignment.b_view,
+            circular_openings=flange_bolt_openings,
+        ),
     )
 
 

@@ -355,6 +355,27 @@ def _contour_sampling_sagitta_bound(
     return bound
 
 
+def _loop_matches_circle(
+    loop: ProjectedSourceLoop,
+    *,
+    center: Point2,
+    radius: float,
+    tolerance_mm: float = 0.05,
+) -> bool:
+    """True when every loop endpoint lies on the given circle's circumference.
+
+    Tekla 会把同一个圆形孔同时输出为 Part 图层的 ARC+切线环（被当作“非圆形
+    内轮廓”）与 Bolt 图层的单个 CIRCLE（圆孔）。两种表示指向同一物理孔时，
+    内轮廓必须让位于圆孔，否则材料会被内轮廓挖掉后圆孔又无处可放。
+    """
+    return all(
+        abs(hypot(point[0] - center[0], point[1] - center[1]) - radius)
+        <= tolerance_mm
+        for segment in loop.segments
+        for point in (segment.start, segment.end)
+    )
+
+
 def _source_loop_is_circle(
     loop: ProjectedSourceLoop,
     *,
@@ -396,6 +417,8 @@ def _source_loop_is_circle(
 
 def project_inner_contour_openings(
     view: PartViewIR,
+    *,
+    circular_openings: tuple[ProjectedCircularOpening, ...] = (),
 ) -> InnerContourOpeningInventory:
     """Project non-circular isolated Part loops in one selected view."""
 
@@ -403,6 +426,17 @@ def project_inner_contour_openings(
     projected: list[ProjectedInnerContourOpening] = []
     for loop in loop_inventory.loops:
         if _source_loop_is_circle(loop):
+            continue
+        if any(
+            _loop_matches_circle(
+                loop,
+                center=opening.center,
+                radius=opening.radius_mm,
+            )
+            for opening in circular_openings
+        ):
+            # 同一物理孔已被 Bolt CIRCLE 识别为圆孔：内轮廓只是它的另一种
+            # 表示，不作为独立内轮廓，避免材料被重复挖掉后圆孔校验失败。
             continue
         visibility = (
             OpeningVisibility.HIDDEN

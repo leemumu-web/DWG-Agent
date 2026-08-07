@@ -219,18 +219,38 @@ def _resolve_nominal_length(
         is not None
         and entity.center is not None
     )
-    if len(length_headers) == 1 and len(quantity_headers) == 1:
+    if len(length_headers) == 1:
         length_x = length_headers[0].center[0]
-        quantity_x = quantity_headers[0].center[0]
-        column_matches = tuple(
-            entity
-            for entity in candidates
-            if entity.center is not None
-            and abs(entity.center[0] - length_x)
-            < abs(entity.center[0] - quantity_x)
-        )
-        if len(column_matches) == 1:
-            return column_matches[0]
+        if len(quantity_headers) == 1:
+            quantity_x = quantity_headers[0].center[0]
+            column_matches = tuple(
+                entity
+                for entity in candidates
+                if entity.center is not None
+                and abs(entity.center[0] - length_x)
+                < abs(entity.center[0] - quantity_x)
+            )
+            if len(column_matches) == 1:
+                return column_matches[0]
+        else:
+            # 料表模板没有“数量”列（例如 长度+重量），仍按长度表头
+            # 的 X 坐标就近消歧；距离长度表头最近的唯一数字即长度。
+            located = tuple(
+                entity
+                for entity in candidates
+                if entity.center is not None
+            )
+            nearest_distance = min(
+                abs(entity.center[0] - length_x) for entity in located
+            )
+            nearest = tuple(
+                entity
+                for entity in located
+                if abs(entity.center[0] - length_x)
+                <= nearest_distance + 1e-9
+            )
+            if len(nearest) == 1:
+                return nearest[0]
 
     raise MetadataResolutionError(
         "expected exactly one nominal length in BOX title group, "

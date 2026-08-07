@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from shapely.geometry import Polygon
-
 from steel_dxf_split.box.manufacturing_ir import (
     EvidenceState,
     FeatureEvidence,
@@ -24,8 +23,10 @@ from steel_dxf_split.box.openings import (
     OpeningOwnershipRoleCandidate,
     OpeningOwnershipScope,
     OpeningVisibility,
+    ProjectedCircularOpening,
     ProjectedInnerContourOpening,
     lower_inner_contour_openings,
+    project_inner_contour_openings,
 )
 from steel_dxf_split.box.projection_geometry import (
     ProjectedLoopSegment,
@@ -107,6 +108,29 @@ def test_multiple_numbers_without_length_header_still_fail_closed() -> None:
 
     with pytest.raises(MetadataResolutionError, match="nominal length"):
         resolve_box_metadata(source)
+
+
+def test_nominal_length_uses_length_column_when_weight_replaces_quantity() -> None:
+    # RDTSG-01-workflow-14 料表模板：零件编号/规格/长度/材质/重量（无“数量”列）。
+    # 长度值与重量值都是纯数字，必须按“长度”表头 X 坐标消歧。
+    source = _title_source(
+        _title_text("01", "零件编号", x=4493.0, y=4084.0),
+        _title_text("02", "规 格", x=4727.0, y=4080.0),
+        _title_text("03", "长度", x=4954.0, y=4081.0),
+        _title_text("04", "材质", x=5114.0, y=4081.0),
+        _title_text("05", "重量", x=5282.0, y=4085.0),
+        _title_text("11", "a1-cb-1", x=4483.0, y=4030.0),
+        _title_text("12", "BOX800*800*40*40", x=4665.9, y=4028.0),
+        _title_text("13", "4742", x=4946.5, y=4031.0),
+        _title_text("14", "Q460CZ15", x=5071.0, y=4033.0),
+        _title_text("15", "4509.0", x=5269.9, y=4036.0),
+        _title_text("16", "1:10", x=5199.0, y=4040.0),
+    )
+
+    metadata = resolve_box_metadata(source)
+
+    assert metadata.nominal_length.value == 4742.0
+    assert metadata.nominal_length.source_id == "insert:title/13"
 
 
 def _part_line(
@@ -399,3 +423,58 @@ def test_web_roles_keep_a_source_course_above_drafting_sliver_scale() -> None:
         tuple(candidate.candidate_id for candidate in pair)
         for pair in result.pairs
     ) == (("web:full", "web:shorter"),)
+
+
+def test_inner_loop_that_is_same_bolt_circle_is_not_projected() -> None:
+    # RDTSG a1-cb-* 特殊结构：同一圆孔被输出为 Part 图层的 ARC+切线环
+    # （被当作“非圆形内轮廓”）与 Bolt 图层的单个 CIRCLE。内轮廓必须让位
+    # 于圆孔，否则材料被挖掉后圆孔校验失败。
+    import math
+
+    center = (1135.73, 0.0)
+    radius = 100.0
+    n = 8
+    points = [
+        (
+            center[0] + radius * math.cos(2.0 * math.pi * i / n),
+            center[1] + radius * math.sin(2.0 * math.pi * i / n),
+        )
+        for i in range(n)
+    ]
+    loop_entities = tuple(
+        _part_line(
+            f"slot-{index}",
+            points[index],
+            points[(index + 1) % n],
+        )
+        for index in range(n)
+    )
+    view = PartViewIR(
+        group_id="insert:H",
+        block_name="H",
+        entities=loop_entities,
+        frame=ViewFrame(
+            origin=(0.0, 0.0),
+            longitudinal_axis=(1.0, 0.0),
+            transverse_axis=(0.0, 1.0),
+            longitudinal_min=0.0,
+            longitudinal_max=1400.0,
+            transverse_min=-600.0,
+            transverse_max=600.0,
+        ),
+    )
+    bolt = ProjectedCircularOpening(
+        center=center,
+        radius_mm=radius,
+        source_ids=("insert:bolt/1A",),
+        cluster_residual_mm=0.0,
+    )
+
+    without_filter = project_inner_contour_openings(view)
+    with_filter = project_inner_contour_openings(
+        view,
+        circular_openings=(bolt,),
+    )
+
+    assert len(without_filter.openings) == 1
+    assert len(with_filter.openings) == 0
