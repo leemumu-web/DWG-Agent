@@ -1342,9 +1342,10 @@ def run_excel_stage2_processing(
     except Exception as exc:
         db.rollback()
         logger.error(
-            "Excel Stage2 worker failed for job %s (error_type=%s)",
+            "Excel Stage2 worker failed for job %s (error_type=%s): %s",
             job_id,
             exc.__class__.__name__,
+            str(exc)[-2000:],
         )
         if "attempt" in locals():
             _mark_reader_result_failed(
