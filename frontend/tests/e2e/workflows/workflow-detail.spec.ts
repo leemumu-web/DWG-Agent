@@ -399,6 +399,7 @@ test('production route inspects stages safely and keeps classification output co
   let executionRequests = 0;
   let categoryArchiveRequests = 0;
   let allDxfArchiveRequests = 0;
+  let singleFileRequests = 0;
 
   await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
     access_token: 'e2e-token',
@@ -460,6 +461,21 @@ test('production route inspects stages safely and keeps classification output co
       });
     },
   );
+  await page.route(
+    /\/api\/v1\/workflows\/42\/dxf-classification\/groups\/type(?:%3A|:)PX\/files\/px-1_%E6%8B%86%E6%9D%BF%E5%89%8D.dxf\/download/,
+    async (route) => {
+      singleFileRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/octet-stream',
+        headers: {
+          'content-disposition': "attachment; filename*=UTF-8''px-1_%E6%8B%86%E6%9D%BF%E5%89%8D.dxf",
+          'access-control-expose-headers': 'content-disposition',
+        },
+        body: 'PX-SINGLE-DXF',
+      });
+    },
+  );
   await page.route('**/api/v1/workflows/42', (route) => json(route, workflow));
 
   await page.goto('/');
@@ -517,6 +533,16 @@ test('production route inspects stages safely and keeps classification output co
   await expect.poll(() => categoryArchiveRequests).toBe(1);
   expect(categoryDownload.suggestedFilename()).toBe('workflow-42-dxf-PX.zip');
 
+  const singleDownloadPromise = page.waitForEvent('download');
+  await page
+    .getByRole('dialog', { name: 'PX · 3 张 DXF' })
+    .getByRole('button', { name: '下载 px-1_拆板前.dxf' })
+    .click();
+  const singleDownload = await singleDownloadPromise;
+  await expect.poll(() => singleFileRequests).toBe(1);
+  expect(singleDownload.suggestedFilename()).toBe('px-1_拆板前.dxf');
+  await singleDownload.delete();
+
   await page.getByRole('dialog', { name: 'PX · 3 张 DXF' }).getByRole('button', { name: '关闭' }).click();
   await expect(page.getByRole('dialog', { name: 'PX · 3 张 DXF' })).toBeHidden();
 
@@ -552,6 +578,155 @@ test('production route inspects stages safely and keeps classification output co
   await expect(page.getByText(/版本 v/)).toHaveCount(0);
   await expect(page.getByText(/已登记 ·/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '下载全部' })).toBeEnabled();
+});
+
+test('classification download exposes cancel and aborts the request', async ({ page }) => {
+  const stageDefinitions = [
+    ['source_intake', '文件接收与输入冻结', 'manual', 'implemented', null],
+    ['dxf_classification', 'DXF 分类与分流', 'automated', 'implemented', 'steel_dxf_classification'],
+  ] as const;
+  const stages = stageDefinitions.map(([code, name], index) => ({
+    id: 300 + index,
+    stage_code: code,
+    name,
+    sequence: index + 1,
+    status: index === 0 ? 'succeeded' : 'ready',
+    job_id: index === 1 ? 901 : null,
+    job_attempt: index === 1 ? 1 : null,
+    progress: index === 1 ? 100 : 0,
+    input_json: null,
+    output_json: null,
+    error_code: null,
+    error_message: null,
+    started_at: index < 2 ? now : null,
+    finished_at: index < 2 ? now : null,
+    created_at: now,
+    updated_at: now,
+  }));
+  const workflow = {
+    id: 44,
+    project_id: 8,
+    created_by: 1,
+    name: '取消下载测试批次',
+    workflow_type: 'linux_production',
+    status: 'waiting_input',
+    current_stage: 'dxf_classification',
+    progress: 10,
+    config_json: { definition_revision: 4 },
+    error_code: null,
+    error_message: null,
+    started_at: now,
+    finished_at: null,
+    created_at: now,
+    updated_at: now,
+    stages,
+    artifacts: [],
+  };
+  const template = {
+    code: 'linux_production',
+    name: 'Linux 生产流程',
+    description: '服务器端生产编排框架',
+    stages: stageDefinitions.map(([code, name, mode, status, kind]) => ({
+      code,
+      name,
+      description: `${name}阶段说明`,
+      execution_mode: mode,
+      implementation_status: status,
+      execution_kind: kind,
+      required_inputs: code === 'dxf_classification' ? ['canonical_dxf'] : [],
+      artifact_types: code === 'dxf_classification'
+        ? ['classified_dxf', 'classification_report', 'classification_manifest']
+        : [],
+      required_outputs: code === 'dxf_classification'
+        ? ['classified_dxf', 'classification_report', 'classification_manifest']
+        : [],
+    })),
+  };
+  const classification = {
+    id: 78,
+    workflow_run_id: 44,
+    status: 'completed',
+    classifier_version: '1.2.0',
+    report_schema: 'STEEL-DXF-CLASSIFICATION-1.2',
+    cli_schema: 'STEEL-DXF-CLI-1.2',
+    project_name: '取消下载测试项目',
+    input_manifest_sha256: 'a'.repeat(64),
+    input_count: 3,
+    classified_count: 3,
+    review_required_count: 0,
+    unreadable_count: 0,
+    type_counts: { PX: 3 },
+    groups: [
+      {
+        group_key: 'type:PX',
+        label: 'PX',
+        part_type: 'PX',
+        type_source: 'catalog',
+        disposition: 'classified',
+        count: 3,
+        warning_count: 0,
+        total_size_bytes: 6144,
+      },
+    ],
+    report_file: { original_name: 'classification-report.json' },
+    manifest_file: { original_name: 'classification-manifest.csv' },
+    job: { id: 901, status: 'succeeded', progress: 100, attempt: 1 },
+    items: [],
+    error_code: null,
+    error_message: null,
+    started_at: now,
+    finished_at: now,
+    created_at: now,
+    updated_at: now,
+  };
+  let downloadRequestCount = 0;
+  let downloadFired = false;
+
+  await page.route('**/api/v1/auth/tokens/refresh', (route) => json(route, {
+    access_token: 'e2e-token',
+    user,
+  }, 201));
+  await page.route('**/api/v1/workflows/projects?**', (route) => route.fulfill({
+    json: {
+      ...envelope([{ id: 8, code: 'PLANT', name: '厂房钢构项目' }]),
+      pagination: { page: 1, page_size: 200, total: 1, total_pages: 1 },
+    },
+  }));
+  await page.route('**/api/v1/workflows/templates', (route) => json(route, [template]));
+  await page.route('**/api/v1/workflows/44/dxf-classification', (route) => json(route, classification));
+  await page.route('**/api/v1/workflows/44/drawing-processing', (route) => json(route, null));
+  await page.route('**/api/v1/workflows/44', (route) => json(route, workflow));
+  await page.route(
+    '**/api/v1/workflows/44/dxf-classification/download-archive',
+    async (route) => {
+      downloadRequestCount += 1;
+      // Hold the response open so the download stays "in progress". Abort is
+      // observed via the page-level requestaborted event (registered above).
+      await new Promise(() => {});
+    },
+  );
+
+  await page.goto('/');
+  await page.evaluate(({ token, savedUser }) => {
+    sessionStorage.setItem('dwg_access_token', token);
+    sessionStorage.setItem('dwg_user', JSON.stringify(savedUser));
+  }, { token: 'e2e-token', savedUser: user });
+  await page.goto('/workflows/44');
+
+  await expect(page.getByRole('heading', { name: 'DXF 分类与分流' })).toBeVisible();
+  page.on('download', () => { downloadFired = true; });
+  await page.getByRole('button', { name: '下载全部 DXF' }).click();
+  // Wait until the download request is actually on the wire (the cancel button
+  // appears before the XHR is registered, so aborting earlier would never hit
+  // the network and Playwright would not see an abort).
+  await expect.poll(() => downloadRequestCount).toBe(1);
+  const cancelButton = page.getByRole('button', { name: '取消下载' });
+  await expect(cancelButton).toBeVisible();
+  await cancelButton.click();
+  // The download was cancelled: the progress area (with its cancel button)
+  // is dismissed and no browser download was ever initiated.
+  await expect(cancelButton).toHaveCount(0);
+  expect(downloadFired).toBe(false);
 });
 
 test('partial split keeps downloads recoverable with operator guidance', async ({ page }) => {
