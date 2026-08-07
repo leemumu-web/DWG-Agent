@@ -578,6 +578,8 @@ def run_box_reader_batch(
     from box_reader.analyzer import BoxAnalyzer
     from box_reader.batch import (
         BoxInputEntry,
+    )
+    from box_reader.batch import (
         analyze_manifest as analyze_box_manifest,
     )
     from box_reader.simple_xlsx import (
@@ -956,6 +958,7 @@ def run_excel_stage2_processing(
     db = SessionLocal()
     work_dir: Path | None = None
     reader_result: AnalysisResult | None = None
+    box_reader_result: AnalysisResult | None = None
     try:
         job = claim_queued_job(
             db,
@@ -1085,13 +1088,34 @@ def run_excel_stage2_processing(
 
         box_reader: BoxReaderArtifacts | None = None
         if inputs.box_classification_batch is not None and inputs.box_classification_batch.items:
-            box_reader = run_box_reader_batch(
-                db,
-                job,
-                inputs,
-                work_dir,
-                _box_reader_progress_callback(db, job_id=job.id, attempt=attempt),
-            )
+            box_reader_started = business_now()
+            try:
+                box_reader = run_box_reader_batch(
+                    db,
+                    job,
+                    inputs,
+                    work_dir,
+                    _box_reader_progress_callback(db, job_id=job.id, attempt=attempt),
+                )
+            except Stage2ReaderBlockingError as exc:
+                box_reader_result = _persist_workbook(
+                    db,
+                    job=job,
+                    attempt=attempt,
+                    path=exc.diagnostic.workbook_path,
+                    original_name="BOX左右进诊断表.xlsx",
+                    artifact_type="box_setback_excel",
+                    result_payload={
+                        "source": "box_left_right_reader",
+                        "stage2_status": "failed",
+                        "diagnostic_only": True,
+                        "error_code": exc.code,
+                        "processed_count": exc.diagnostic.processed_count,
+                        "ok_count": exc.diagnostic.ok_count,
+                        "failure_count": exc.diagnostic.failure_count,
+                    },
+                )
+                raise
             _add_step(
                 db,
                 job_id=job.id,
@@ -1107,7 +1131,7 @@ def run_excel_stage2_processing(
                     "failure_count": box_reader.failure_count,
                 },
             )
-            _persist_workbook(
+            box_reader_result = _persist_workbook(
                 db,
                 job=job,
                 attempt=attempt,
@@ -1234,6 +1258,21 @@ def run_excel_stage2_processing(
             **dict(reader_result.result_json or {}),
             "stage2_status": stage_result.status,
         }
+        if box_reader_result is not None:
+            box_reader_result = db.get(
+                AnalysisResult,
+                box_reader_result.id,
+                populate_existing=True,
+            )
+            if box_reader_result is None:
+                raise Stage2WorkerError(
+                    "EXCEL_STAGE2_RESULT_PERSIST_FAILED",
+                    "BOX 左右进读取表登记失败，未发布第二阶段结果。",
+                )
+            box_reader_result.result_json = {
+                **dict(box_reader_result.result_json or {}),
+                "stage2_status": stage_result.status,
+            }
         _add_step(
             db,
             job_id=job.id,
@@ -1282,6 +1321,15 @@ def run_excel_stage2_processing(
                 result_id=reader_result.id if reader_result is not None else None,
                 error_code=exc.code,
             )
+            _mark_reader_result_failed(
+                db,
+                result_id=(
+                    box_reader_result.id
+                    if box_reader_result is not None
+                    else None
+                ),
+                error_code=exc.code,
+            )
             _mark_failed(
                 db,
                 job_id=job_id,
@@ -1300,6 +1348,15 @@ def run_excel_stage2_processing(
             _mark_reader_result_failed(
                 db,
                 result_id=reader_result.id if reader_result is not None else None,
+                error_code="EXCEL_STAGE2_INTERNAL_ERROR",
+            )
+            _mark_reader_result_failed(
+                db,
+                result_id=(
+                    box_reader_result.id
+                    if box_reader_result is not None
+                    else None
+                ),
                 error_code="EXCEL_STAGE2_INTERNAL_ERROR",
             )
             _mark_failed(

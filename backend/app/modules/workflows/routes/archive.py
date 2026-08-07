@@ -733,7 +733,7 @@ def download_excel_stage1_result(
     summary="下载 Excel 第二阶段处理结果",
     response_class=StreamingResponse,
     responses=_XLSX_RESPONSE,
-    description="只返回当前批次正式登记的 BH 左右进深化处理 xlsx。",
+    description="只返回当前批次正式登记的 BH/BOX 左右进深化处理 xlsx。",
 )
 def download_excel_stage2_result(
     workflow_id: int,
