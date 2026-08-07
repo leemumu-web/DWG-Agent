@@ -219,13 +219,19 @@ def parse_box_measurement_contract(payload: object) -> BoxMeasurementContract:
                     path=f"{measurement_path}.right_safe",
                 ),
             ))
+        file_name = _required_text(item["file_name"], path=f"{path}.file_name")
+        part_number = _required_text(
+            item["part_number"],
+            path=f"{path}.part_number",
+            allow_blank=True,
+        )
+        if not part_number:
+            # 无零件号的图无法与 Excel 零件匹配：跳过（不阻塞其余图纸深化）
+            continue
         drawings.append(BoxDrawingMeasurement(
             source_file_id=source_file_id,
-            file_name=_required_text(item["file_name"], path=f"{path}.file_name"),
-            part_number=_required_text(
-                item["part_number"],
-                path=f"{path}.part_number",
-            ),
+            file_name=file_name,
+            part_number=part_number,
             classification_spec=_required_text(
                 item["classification_spec"],
                 path=f"{path}.classification_spec",

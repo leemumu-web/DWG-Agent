@@ -502,6 +502,12 @@ def run_bh_reader_batch(
             physical_path.unlink(missing_ok=True)
         result = outcome.items[0]
         normalized_part_number = result.part_number.strip().casefold()
+        if not normalized_part_number:
+            # PartMark 缺失的图无法与 Excel 零件匹配：跳过合同（诊断表保留
+            # 该图供人工核对），绝不因单张图问题阻塞整个阶段产出。
+            progress(processed, total, item.input_name, "SKIPPED_NO_PARTMARK")
+            batch_items.append(result)
+            continue
         first_source = part_number_sources.get(normalized_part_number)
         if normalized_part_number and first_source is not None:
             duplicate_part_numbers.append(
@@ -635,6 +641,12 @@ def run_box_reader_batch(
             physical_path.unlink(missing_ok=True)
         result = outcome.items[0]
         normalized_part_number = result.part_number.strip().casefold()
+        if not normalized_part_number:
+            # PartMark 缺失的图无法与 Excel 零件匹配：跳过合同（诊断表保留
+            # 该图供人工核对），绝不因单张图问题阻塞整个阶段产出。
+            progress(processed, total, item.input_name, "SKIPPED_NO_PARTMARK")
+            batch_items.append(result)
+            continue
         first_source = part_number_sources.get(normalized_part_number)
         if normalized_part_number and first_source is not None:
             duplicate_part_numbers.append(
