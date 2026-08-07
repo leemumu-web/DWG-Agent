@@ -59,6 +59,7 @@ class JobRead(BaseModel):
     priority: int
     progress: int
     params_json: dict[str, Any] | None = None
+    source_name: str | None = None
     error_code: str | None = None
     error_message: str | None = None
     progress_data: dict[str, Any] | None = None

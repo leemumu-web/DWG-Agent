@@ -11,6 +11,7 @@ export interface Job {
   priority: number;
   progress: number;
   params_json?: Record<string, unknown> | null;
+  source_name?: string | null;
   error_code?: string | null;
   error_message?: string | null;
   progress_data?: Record<string, unknown> | null;

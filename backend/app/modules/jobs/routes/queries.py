@@ -109,10 +109,30 @@ def list_jobs(
                 ).all()
             )
     payloads: list[JobRead] = []
+    file_ids: set[int] = set()
+    for job in jobs:
+        params = job.params_json if isinstance(job.params_json, dict) else {}
+        file_id = params.get("file_id")
+        if isinstance(file_id, int):
+            file_ids.add(file_id)
+    file_name_by_id: dict[int, str] = {}
+    if file_ids:
+        file_name_by_id = dict(
+            db.execute(
+                select(StoredFile.id, StoredFile.original_name).where(
+                    StoredFile.id.in_(file_ids),
+                    StoredFile.deleted_at.is_(None),
+                )
+            ).all()
+        )
     for job in jobs:
         payload = JobRead.model_validate(job)
         if latest_per_file and job.status == "succeeded":
             payload.result_available = (job.id, job.task_type) in available_result_pairs
+        params = job.params_json if isinstance(job.params_json, dict) else {}
+        file_id = params.get("file_id")
+        if isinstance(file_id, int):
+            payload.source_name = file_name_by_id.get(file_id)
         payloads.append(payload)
     return page_response(
         payloads,

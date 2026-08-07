@@ -260,7 +260,8 @@ export function ExcelFinalPage() {
       title: '源文件',
       dataIndex: 'params_json',
       ellipsis: true,
-      render: (params: Record<string, unknown> | null) => `文件 #${params?.file_id ?? '-'}`,
+      render: (_: unknown, job: Job) =>
+        job.source_name ?? (job.params_json?.file_id ? `文件 #${job.params_json.file_id}` : '-'),
     },
     {
       title: '状态',
