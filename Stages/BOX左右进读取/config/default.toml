@@ -1,0 +1,17 @@
+[geometry]
+endpoint_tolerance_mm = 0.20
+# BOX 图（Tekla 单零件图）的实体轮廓所在图层。PartMark 是零件标识，Section 是品红剖面标识。
+part_layer_regex = "(?i)^part$"
+partmark_layer_regex = "(?i)^partmark$"
+section_layer_regex = "(?i)^section$"
+minimum_view_segments = 4
+# 主视图高度与 BOX 深度 H 的允许偏差（mm）
+view_height_tolerance_mm = 1.5
+# 翼厚分界线的判定容差（mm）：主视图顶部/底部条带 = 上翼/下翼
+flange_band_tolerance_mm = 2.0
+# 深度匹配误差驱动置信度的衰减比例
+spec_dimension_tolerance_ratio = 0.12
+# 单位验证：$INSUNITS 与 BOX 深度/宽度几何复现的相对误差门限
+unit_verification_tolerance_ratio = 0.02
+# 左右进与尺寸文字相互佐证的容差（mm）
+dimension_corroboration_tolerance_mm = 0.50
