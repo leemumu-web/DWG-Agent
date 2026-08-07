@@ -170,7 +170,8 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
         for p, is_before in ((before, True), (after, False)):
             doc = ezdxf.readfile(p)
             if is_before:
-                ext = _entity_extent_layers(doc, {"Part", "Bolt"})
+                # 原图按全部图层计算范围（本次合图原图所有图层都合入）
+                ext = _entity_extent_layers(doc, None)
             else:
                 ext = bbox.extents(doc.modelspace())
             if ext is None or not ext.has_data:
@@ -228,7 +229,8 @@ def merge_pairs(pairs: list, output: Path, pairs_per_row: int) -> None:
                 bcx = bcy = 0.0
             dx = ccx - bcx
             dy = ccy - bcy
-            only_layers = {"Part", "Bolt"} if ji == 0 else None
+            # 原图与拆后图均合并全部图层
+            only_layers = None
             for e in doc.modelspace():
                 _copy_expanded(msp, e, dx, dy, only_layers)
         if pi % 20 == 0:

@@ -92,5 +92,6 @@ Data/
 #     LibreOffice bundle (fetched at deploy time, not source) ---
 third_parts/kkFileView/server/LibreOfficePortable/
 
-# --- BH split before/after merged review sheets (large delivery artifacts) ---
+# --- BH/BOX split before/after merged review sheets (large delivery artifacts) ---
 /BH拆板合图/
+/BOX拆板前分类/
