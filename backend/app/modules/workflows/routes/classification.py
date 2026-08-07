@@ -1,5 +1,7 @@
 """DXF classification ledger projection for a workflow."""
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -9,19 +11,29 @@ from app.modules.dxf_classification.interface import (
     build_classification_run_read,
     latest_classification_run,
 )
+from app.modules.files.exports import download_headers
 from app.modules.files.interface import (
     StoredFile,
     require_file_read_access,
     sanitize_filename,
 )
+from app.modules.files.storage_transactions import (
+    TransferSpec,
+    prepare_transfer_in_transaction,
+    session_factory_for,
+    settle_stream,
+)
 from app.modules.identity.interface import CurrentUser
+from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member
 from app.modules.workflows.access import load_workflow_detail
 from app.modules.workflows.job_sync import sync_workflow_from_jobs
 from app.modules.workflows.routes.archive import stream_registered_workflow_archive
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
-from app.platform.http.exceptions import AppHTTPException
+from app.platform.http.exceptions import AppHTTPException, not_found
+from app.platform.storage import factory as storage_factory
+from app.platform.storage.base import StorageError, StorageObjectNotFound
 
 router = APIRouter()
 
@@ -225,4 +237,115 @@ def download_all_dxf_classification_archive(
         f"workflow-{workflow.id}-all-classified-dxf",
         operation="dxf_class_all_zip",
         audit_action="dxf_classification_archives.download",
+    )
+
+
+@router.get(
+    "/{workflow_id}/dxf-classification/groups/{group_key}/files/{output_name}/download",
+    summary="下载分类组内单个 DXF 文件",
+    response_class=StreamingResponse,
+    description=(
+        "按分类文件夹和输出文件名下载单个正式 DXF；不经过归档 ZIP，"
+        "也不暴露内部文件标识。生产 workflow 文件必须经此类归档路径下载。"
+    ),
+)
+def download_dxf_classification_single_file(
+    workflow_id: int,
+    group_key: str,
+    output_name: str,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    sync_workflow_from_jobs(db, workflow)
+    run = latest_classification_run(db, workflow.id)
+    db.commit()
+    if run is None:
+        raise AppHTTPException(
+            404,
+            "CLASSIFICATION_RUN_NOT_FOUND",
+            "No DXF classification run exists for this workflow.",
+        )
+    item = next(
+        (row for row in run.items
+         if row.group_key == group_key and row.output_name == output_name),
+        None,
+    )
+    if item is None:
+        raise AppHTTPException(
+            404,
+            "CLASSIFICATION_FILE_NOT_FOUND",
+            "The DXF classification file was not found.",
+            {"group_key": group_key},
+        )
+    stored = db.get(StoredFile, item.output_file_id)
+    if (
+        stored is None
+        or stored.status == "deleted"
+        or stored.file_ext.lower() != ".dxf"
+    ):
+        raise AppHTTPException(
+            409,
+            "CLASSIFICATION_OUTPUT_MISSING",
+            "A classified DXF output is unavailable.",
+            {"group_key": group_key},
+        )
+    require_file_read_access(db, current_user, stored)
+
+    storage = storage_factory.get_storage_backend()
+    try:
+        object_info = storage.stat_object(stored.bucket, stored.storage_key)
+    except StorageObjectNotFound:
+        raise not_found("StoredFileObject") from None
+    except StorageError as exc:
+        raise AppHTTPException(
+            503,
+            "STORAGE_READ_FAILED",
+            "Failed to read stored file object.",
+        ) from exc
+
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="outbound",
+            operation="dxf_class_single_file",
+            actor_user_id=current_user.id,
+            request_id=request.state.request_id,
+            idempotency_key=request.state.request_id,
+            file_id=stored.id,
+            bucket=stored.bucket,
+            storage_key=stored.storage_key,
+            original_name=stored.original_name,
+            expected_bytes=object_info.size_bytes,
+        ),
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="dxf_classification_files.download",
+        resource_type="workflow",
+        resource_id=workflow.id,
+        after_json={
+            "group_key": group_key,
+            "output_name": output_name,
+            "file_id": stored.id,
+        },
+        request=request,
+    )
+    db.commit()
+    factory = session_factory_for(db)
+    encoded_filename = quote(stored.original_name)
+    return StreamingResponse(
+        settle_stream(
+            factory,
+            transfer.transfer_uid,
+            storage.iter_file(stored.bucket, stored.storage_key),
+        ),
+        media_type=stored.content_type or "application/octet-stream",
+        headers={
+            **download_headers(stored.original_name),
+            "Content-Length": str(object_info.size_bytes),
+        },
     )
