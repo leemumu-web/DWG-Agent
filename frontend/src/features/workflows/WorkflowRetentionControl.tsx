@@ -22,7 +22,6 @@ import {
 } from 'antd';
 
 import {
-  describeApiError,
   describeDownloadError,
   operatorErrorMessage,
   useDownload,

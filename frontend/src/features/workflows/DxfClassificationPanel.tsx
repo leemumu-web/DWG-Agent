@@ -31,7 +31,6 @@ import {
   getWorkflow,
 } from './workflows.api';
 import {
-  describeApiError,
   describeDownloadError,
   operatorErrorMessage,
   useDownload,

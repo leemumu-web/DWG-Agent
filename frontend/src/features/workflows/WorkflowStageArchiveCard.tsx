@@ -4,7 +4,6 @@ import { App, Button, Card, Space, Tag, Typography } from 'antd';
 import { useState } from 'react';
 
 import {
-  describeApiError,
   describeDownloadError,
   useDownload,
   type TransferProgress,
