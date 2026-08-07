@@ -61,12 +61,13 @@ function useNativeWorkflowDownload({
   const [progress, setProgress] = useState<TransferProgress | null>(null);
   const notifiedStatus = useRef<string | null>(null);
   useEffect(() => {
+    downloadCtrl.cancel();
     setCreated(null);
     setLaunchFailed(false);
     setDownloading(false);
     setProgress(null);
     notifiedStatus.current = null;
-  }, [workflowId]);
+  }, [downloadCtrl, workflowId]);
   const statusQ = useQuery({
     queryKey: ['workflow-native-export', workflowId, created?.export_uid],
     queryFn: () => getWorkflowBatchExport(workflowId, created!.export_uid),
