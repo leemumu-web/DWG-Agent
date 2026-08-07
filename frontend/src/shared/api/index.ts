@@ -24,3 +24,5 @@ export {
   triggerBlobDownload,
 } from './transfer';
 export type { TransferProgress, TransferProgressHandler } from './transfer';
+export { useDownload } from './useDownload';
+export type { DownloadControl } from './useDownload';
