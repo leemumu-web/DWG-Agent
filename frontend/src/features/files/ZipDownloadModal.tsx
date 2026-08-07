@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Checkbox, Input, Modal, Space, Tooltip, Typography, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
-import { describeApiError, type TransferProgress } from '../../shared/api';
-import { TransferProgressBar } from '../../shared/components';
+import {
+  describeApiError,
+  describeDownloadError,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
+import { CancellableDownloadProgress } from '../../shared/components';
 import {
   downloadZip,
   previewZip,
@@ -30,6 +35,7 @@ export function ZipDownloadModal({
   const [folderName, setFolderName] = useState('图纸导出');
   const [dwg, setDwg] = useState(true);
   const [dxf, setDxf] = useState(false);
+  const downloadCtrl = useDownload();
   const [loading, setLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
@@ -106,27 +112,42 @@ export function ZipDownloadModal({
     if (dxf) formats.push('dxf');
     setLoading(true);
     setDownloadProgress(null);
+    const handle = downloadCtrl.start();
     try {
-      await downloadZip(fileIds, formats, folderName.trim(), setDownloadProgress);
+      await downloadZip(fileIds, formats, folderName.trim(), setDownloadProgress, handle.signal);
       message.success('打包下载完成');
       onDone();
       onClose();
     } catch (err) {
-      message.error(describeApiError(err, '打包下载失败'));
+      const result = describeDownloadError(err, '打包下载失败');
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
       await refreshPreview(false);
     } finally {
       setLoading(false);
+      handle.finish();
     }
+  };
+
+  const handleClose = () => {
+    if (downloadCtrl.active) {
+      downloadCtrl.cancel();
+      setDownloadProgress(null);
+    }
+    onClose();
   };
 
   return (
     <Modal
       title="打包下载"
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       width={400}
       footer={[
-        <Button key="cancel" onClick={onClose}>取消</Button>,
+        <Button key="cancel" onClick={handleClose}>取消</Button>,
         <Tooltip title={disabledReason} open={!canDownload ? undefined : false}>
           <Button
             key="download"
@@ -199,7 +220,15 @@ export function ZipDownloadModal({
           />
         )}
         {downloadProgress && (
-          <TransferProgressBar label="图纸打包下载" progress={downloadProgress} />
+          <CancellableDownloadProgress
+            label="图纸打包下载"
+            progress={downloadProgress}
+            active={downloadCtrl.active}
+            onCancel={() => {
+              downloadCtrl.cancel();
+              setDownloadProgress(null);
+            }}
+          />
         )}
         <div style={{ background: '#fafafa', borderRadius: 6, padding: '8px 12px' }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>

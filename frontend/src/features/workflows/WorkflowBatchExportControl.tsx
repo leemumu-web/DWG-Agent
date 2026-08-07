@@ -4,7 +4,6 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   ReloadOutlined,
-  StopOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -20,11 +19,11 @@ import {
 } from 'antd';
 import {
   describeApiError,
-  isDownloadCancelled,
+  describeDownloadError,
   useDownload,
   type TransferProgress,
 } from '../../shared/api';
-import { ApiErrorAlert, fmtSize, TransferProgressBar } from '../../shared/components';
+import { ApiErrorAlert, CancellableDownloadProgress, fmtSize } from '../../shared/components';
 import type {
   WorkflowBatchExport,
   WorkflowExportCategory,
@@ -101,20 +100,21 @@ export function WorkflowBatchExportControl({
   const exportRow = statusQ.data ?? createdExport;
 
   const downloadM = useMutation({
-    mutationFn: (row: WorkflowBatchExport) => (
-      downloadWorkflowBatchExport(row, setDownloadProgress, downloadCtrl.start())
-    ),
+    mutationFn: (row: WorkflowBatchExport) => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowBatchExport(row, setDownloadProgress, handle.signal)
+        .finally(handle.finish);
+    },
     onSuccess: () => {
-      downloadCtrl.finish();
       message.success('分批导出 ZIP 已下载到浏览器');
       setTimeout(() => { void statusQ.refetch(); }, 300);
     },
     onError: (error) => {
-      downloadCtrl.finish();
-      if (isDownloadCancelled(error)) {
+      const result = describeDownloadError(error, '分批导出下载失败');
+      if (result.cancelled) {
         message.info('下载已取消，服务器文件仍保留，可重新下载');
       } else {
-        message.error(describeApiError(error, '分批导出下载失败'));
+        message.error(result.message);
       }
       void statusQ.refetch();
     },
@@ -391,21 +391,15 @@ export function WorkflowBatchExportControl({
             </div>
             {downloadStatus}
             {downloadProgress && (
-              <Space wrap>
-                <TransferProgressBar label="分批图纸下载" progress={downloadProgress} />
-                {downloadCtrl.active && (
-                  <Button
-                    size="small"
-                    icon={<StopOutlined />}
-                    onClick={() => {
-                      downloadCtrl.cancel();
-                      setDownloadProgress(null);
-                    }}
-                  >
-                    取消下载
-                  </Button>
-                )}
-              </Space>
+              <CancellableDownloadProgress
+                label="分批图纸下载"
+                progress={downloadProgress}
+                active={downloadCtrl.active}
+                onCancel={() => {
+                  downloadCtrl.cancel();
+                  setDownloadProgress(null);
+                }}
+              />
             )}
           </Space>
         )}

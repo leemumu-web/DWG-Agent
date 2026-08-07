@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DownloadOutlined, StopOutlined } from '@ant-design/icons';
+import { DownloadOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Alert,
@@ -14,15 +14,15 @@ import {
 } from 'antd';
 import {
   describeApiError,
-  isDownloadCancelled,
+  describeDownloadError,
   useDownload,
   type TransferProgress,
 } from '../../shared/api';
 import {
   ApiErrorAlert,
+  CancellableDownloadProgress,
   fmtDateTime,
   fmtSize,
-  TransferProgressBar,
 } from '../../shared/components';
 import type {
   DrawingSelectiveExport,
@@ -77,19 +77,20 @@ export function DrawingSelectiveExportControl({
   }, [open, previewQ.data, previewQ.isFetching, selectionInitialized]);
 
   const downloadM = useMutation({
-    mutationFn: (next: DrawingSelectiveExport) => (
-      downloadDrawingSelectiveExport(next, setDownloadProgress, downloadCtrl.start())
-    ),
+    mutationFn: (next: DrawingSelectiveExport) => {
+      const handle = downloadCtrl.start();
+      return downloadDrawingSelectiveExport(next, setDownloadProgress, handle.signal)
+        .finally(handle.finish);
+    },
     onSuccess: (_data, next) => {
-      downloadCtrl.finish();
       message.success(`已下载 ${next.file_count} 个 DXF`);
     },
     onError: (error) => {
-      downloadCtrl.finish();
-      if (isDownloadCancelled(error)) {
+      const result = describeDownloadError(error, '选择导出下载失败');
+      if (result.cancelled) {
         message.info('下载已取消');
       } else {
-        message.error(describeApiError(error, '选择导出下载失败'));
+        message.error(result.message);
       }
     },
   });
@@ -152,7 +153,7 @@ export function DrawingSelectiveExportControl({
         onCancel={close}
         footer={prepared ? (
           <Space wrap>
-            <Button onClick={close} disabled={downloadM.isPending}>关闭</Button>
+            <Button onClick={close} disabled={createM.isPending}>关闭</Button>
             <Button
               type="primary"
               icon={<DownloadOutlined />}
@@ -256,21 +257,15 @@ export function DrawingSelectiveExportControl({
               </div>
             </div>
             {downloadProgress && (
-              <Space wrap>
-                <TransferProgressBar label="分类图纸下载" progress={downloadProgress} />
-                {downloadCtrl.active && (
-                  <Button
-                    size="small"
-                    icon={<StopOutlined />}
-                    onClick={() => {
-                      downloadCtrl.cancel();
-                      setDownloadProgress(null);
-                    }}
-                  >
-                    取消下载
-                  </Button>
-                )}
-              </Space>
+              <CancellableDownloadProgress
+                label="分类图纸下载"
+                progress={downloadProgress}
+                active={downloadCtrl.active}
+                onCancel={() => {
+                  downloadCtrl.cancel();
+                  setDownloadProgress(null);
+                }}
+              />
             )}
             <Typography.Text type="secondary">
               下载凭据有效至 {fmtDateTime(prepared.token_expires_at)}；下载不会删除服务器文件。

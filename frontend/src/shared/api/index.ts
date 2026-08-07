@@ -17,6 +17,7 @@ export type {
 } from './error';
 export {
   completedTransferProgress,
+  describeDownloadError,
   downloadBlob,
   initialTransferProgress,
   isDownloadCancelled,
@@ -25,4 +26,4 @@ export {
 } from './transfer';
 export type { TransferProgress, TransferProgressHandler } from './transfer';
 export { useDownload } from './useDownload';
-export type { DownloadControl } from './useDownload';
+export type { DownloadControl, DownloadHandle } from './useDownload';

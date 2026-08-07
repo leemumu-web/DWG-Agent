@@ -17,7 +17,6 @@ import {
   FileSearchOutlined,
   FolderOpenOutlined,
   ReloadOutlined,
-  StopOutlined,
   ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -33,12 +32,12 @@ import {
 } from './workflows.api';
 import {
   describeApiError,
-  isDownloadCancelled,
+  describeDownloadError,
   operatorErrorMessage,
   useDownload,
   type TransferProgress,
 } from '../../shared/api';
-import { ApiErrorAlert, fmtSize, TransferProgressBar } from '../../shared/components';
+import { ApiErrorAlert, CancellableDownloadProgress, fmtSize } from '../../shared/components';
 import type {
   DxfClassificationGroup,
   DxfClassificationGroupItem,
@@ -149,61 +148,64 @@ export function DxfClassificationPanel({
     },
   });
   const allDownload = useMutation({
-    mutationFn: () => downloadAllDxfClassificationArchive(
-      workflowId,
-      (progress) => setDownloadProgress({ label: '全部分类图纸下载', progress }),
-      run?.groups.reduce((total, group) => total + group.total_size_bytes, 0),
-      downloadCtrl.start(),
-    ),
-    onSuccess: () => downloadCtrl.finish(),
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadAllDxfClassificationArchive(
+        workflowId,
+        (progress) => setDownloadProgress({ label: '全部分类图纸下载', progress }),
+        run?.groups.reduce((total, group) => total + group.total_size_bytes, 0),
+        handle.signal,
+      ).finally(handle.finish);
+    },
     onError: (error) => {
-      downloadCtrl.finish();
-      if (isDownloadCancelled(error)) {
+      const result = describeDownloadError(error, '全部 DXF 下载失败');
+      if (result.cancelled) {
         message.info('下载已取消');
       } else {
-        message.error(describeApiError(error, '全部 DXF 下载失败'));
+        message.error(result.message);
       }
     },
   });
   const groupDownload = useMutation({
-    mutationFn: (group: DxfClassificationGroup) => (
-      downloadDxfClassificationGroupArchive(
+    mutationFn: (group: DxfClassificationGroup) => {
+      const handle = downloadCtrl.start();
+      return downloadDxfClassificationGroupArchive(
         workflowId,
         group.group_key,
         (progress) => setDownloadProgress({ label: `${group.label} 类图纸下载`, progress }),
         group.total_size_bytes,
-        downloadCtrl.start(),
-      )
-    ),
-    onSuccess: () => downloadCtrl.finish(),
+        handle.signal,
+      ).finally(handle.finish);
+    },
     onError: (error) => {
-      downloadCtrl.finish();
-      if (isDownloadCancelled(error)) {
+      const result = describeDownloadError(error, '分类文件夹下载失败');
+      if (result.cancelled) {
         message.info('下载已取消');
       } else {
-        message.error(describeApiError(error, '分类文件夹下载失败'));
+        message.error(result.message);
       }
     },
   });
   const singleFileDownload = useMutation({
-    mutationFn: ({ groupKey, outputName }: { groupKey: string; outputName: string }) => (
-      downloadDxfClassificationFile(
+    mutationFn: ({ groupKey, outputName }: { groupKey: string; outputName: string }) => {
+      const handle = downloadCtrl.start();
+      return downloadDxfClassificationFile(
         workflowId,
         groupKey,
         outputName,
         (progress) => setDownloadProgress({ label: `下载 ${outputName}`, progress }),
-        downloadCtrl.start(),
-      )
-    ),
+        handle.signal,
+      ).finally(handle.finish);
+    },
     onSuccess: (_data, vars) => message.success(`已下载 ${vars.outputName}`),
     onError: (error) => {
-      if (isDownloadCancelled(error)) {
+      const result = describeDownloadError(error, '分类 DXF 下载失败');
+      if (result.cancelled) {
         message.info('下载已取消');
       } else {
-        message.error(describeApiError(error, '分类 DXF 下载失败'));
+        message.error(result.message);
       }
     },
-    onSettled: () => downloadCtrl.finish(),
   });
 
   const canExecute = isCurrent
@@ -440,24 +442,15 @@ export function DxfClassificationPanel({
             ))}
           </div>
           {downloadProgress && (
-            <Space wrap>
-              <TransferProgressBar
-                label={downloadProgress.label}
-                progress={downloadProgress.progress}
-              />
-              {downloadCtrl.active && (
-                <Button
-                  size="small"
-                  icon={<StopOutlined />}
-                  onClick={() => {
-                    downloadCtrl.cancel();
-                    setDownloadProgress(null);
-                  }}
-                >
-                  取消下载
-                </Button>
-              )}
-            </Space>
+            <CancellableDownloadProgress
+              label={downloadProgress.label}
+              progress={downloadProgress.progress}
+              active={downloadCtrl.active}
+              onCancel={() => {
+                downloadCtrl.cancel();
+                setDownloadProgress(null);
+              }}
+            />
           )}
 
           {warningCount > 0 && (

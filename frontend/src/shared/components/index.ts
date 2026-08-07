@@ -3,5 +3,5 @@ export { ApiErrorAlert } from './ApiErrorAlert';
 export { BrandLogo } from './BrandLogo';
 export { ConnectivityBanner } from './ConnectivityBanner';
 export { ExcelInputFailurePanel } from './ExcelInputFailurePanel';
-export { TransferProgressBar } from './TransferProgressBar';
+export { CancellableDownloadProgress, TransferProgressBar } from './TransferProgressBar';
 export * from './ui';

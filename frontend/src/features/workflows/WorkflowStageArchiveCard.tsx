@@ -3,13 +3,18 @@ import { useMutation } from '@tanstack/react-query';
 import { App, Button, Card, Space, Tag, Typography } from 'antd';
 import { useState } from 'react';
 
-import { describeApiError, type TransferProgress } from '../../shared/api';
-import { TransferProgressBar } from '../../shared/components';
+import {
+  describeApiError,
+  describeDownloadError,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
+import { CancellableDownloadProgress } from '../../shared/components';
 import type { WorkflowArtifact, WorkflowStage } from './workflow';
 import {
-  downloadWorkflowExcelStageResult,
   downloadWorkflowExcelStage2ReaderResult,
   downloadWorkflowExcelStage2Result,
+  downloadWorkflowExcelStageResult,
   downloadWorkflowStageArchive,
 } from './workflows.api';
 
@@ -23,28 +28,72 @@ export function WorkflowStageArchiveCard({
   artifacts: WorkflowArtifact[];
 }) {
   const { message } = App.useApp();
+  const downloadCtrl = useDownload();
   const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
   const [readerDownloadProgress, setReaderDownloadProgress] = useState<TransferProgress | null>(null);
+
+  const clearProgress = () => {
+    setDownloadProgress(null);
+    setReaderDownloadProgress(null);
+  };
+
   const archiveM = useMutation({
-    mutationFn: () => stage.stage_code === 'excel_stage1'
-      ? downloadWorkflowExcelStageResult(workflowId, setDownloadProgress)
-      : downloadWorkflowStageArchive(workflowId, stage.stage_code, setDownloadProgress),
-    onError: (error) => message.error(describeApiError(
-      error,
-      stage.stage_code === 'excel_stage1' ? 'Excel 结果下载失败' : '阶段结果压缩包下载失败',
-    )),
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      const promise = stage.stage_code === 'excel_stage1'
+        ? downloadWorkflowExcelStageResult(workflowId, setDownloadProgress, handle.signal)
+        : downloadWorkflowStageArchive(workflowId, stage.stage_code, setDownloadProgress, handle.signal);
+      return promise.finally(handle.finish);
+    },
+    onMutate: clearProgress,
+    onError: (error) => {
+      const result = describeDownloadError(
+        error,
+        stage.stage_code === 'excel_stage1' ? 'Excel 结果下载失败' : '阶段结果压缩包下载失败',
+      );
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
   });
   const readerM = useMutation({
-    mutationFn: () => downloadWorkflowExcelStage2ReaderResult(workflowId, setReaderDownloadProgress),
-    onMutate: () => setReaderDownloadProgress(null),
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowExcelStage2ReaderResult(
+        workflowId,
+        setReaderDownloadProgress,
+        handle.signal,
+      ).finally(handle.finish);
+    },
+    onMutate: clearProgress,
     onSuccess: () => message.success('BH 左右进读取表已下载'),
-    onError: (error) => message.error(describeApiError(error, 'BH 左右进读取表下载失败')),
+    onError: (error) => {
+      const result = describeDownloadError(error, 'BH 左右进读取表下载失败');
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
   });
   const stage2M = useMutation({
-    mutationFn: () => downloadWorkflowExcelStage2Result(workflowId, setDownloadProgress),
-    onMutate: () => setDownloadProgress(null),
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowExcelStage2Result(workflowId, setDownloadProgress, handle.signal)
+        .finally(handle.finish);
+    },
+    onMutate: clearProgress,
     onSuccess: () => message.success('Excel 第二阶段结果已下载'),
-    onError: (error) => message.error(describeApiError(error, 'Excel 第二阶段结果下载失败')),
+    onError: (error) => {
+      const result = describeDownloadError(error, 'Excel 第二阶段结果下载失败');
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
   });
   const readerAvailable = artifacts.some((artifact) => artifact.artifact_type === 'bh_setback_excel');
   const stage2Available = artifacts.some((artifact) => artifact.artifact_type === 'stage2_excel');
@@ -68,7 +117,7 @@ export function WorkflowStageArchiveCard({
           <Button
             icon={<DownloadOutlined />}
             loading={readerM.isPending}
-            disabled={!readerAvailable}
+            disabled={!readerAvailable || downloadCtrl.active}
             onClick={() => readerM.mutate()}
           >
             下载 BH 左右进读取表
@@ -77,17 +126,33 @@ export function WorkflowStageArchiveCard({
             type="primary"
             icon={<DownloadOutlined />}
             loading={stage2M.isPending}
-            disabled={!stage2Available}
+            disabled={!stage2Available || downloadCtrl.active}
             onClick={() => stage2M.mutate()}
           >
             下载 Excel 第二阶段结果
           </Button>
         </Space>
         {readerDownloadProgress && (
-          <TransferProgressBar label="BH 左右进读取表下载" progress={readerDownloadProgress} />
+          <CancellableDownloadProgress
+            label="BH 左右进读取表下载"
+            progress={readerDownloadProgress}
+            active={downloadCtrl.active}
+            onCancel={() => {
+              downloadCtrl.cancel();
+              setReaderDownloadProgress(null);
+            }}
+          />
         )}
         {downloadProgress && (
-          <TransferProgressBar label="Excel 第二阶段结果下载" progress={downloadProgress} />
+          <CancellableDownloadProgress
+            label="Excel 第二阶段结果下载"
+            progress={downloadProgress}
+            active={downloadCtrl.active}
+            onCancel={() => {
+              downloadCtrl.cancel();
+              setDownloadProgress(null);
+            }}
+          />
         )}
       </Card>
     );
@@ -125,7 +190,15 @@ export function WorkflowStageArchiveCard({
         {downloadLabel}
       </Button>
       {downloadProgress && stage.stage_code !== 'excel_stage1' && (
-        <TransferProgressBar label="阶段图纸结果下载" progress={downloadProgress} />
+        <CancellableDownloadProgress
+          label="阶段图纸结果下载"
+          progress={downloadProgress}
+          active={downloadCtrl.active}
+          onCancel={() => {
+            downloadCtrl.cancel();
+            setDownloadProgress(null);
+          }}
+        />
       )}
     </Card>
   );

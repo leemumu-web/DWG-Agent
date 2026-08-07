@@ -1,5 +1,5 @@
-import { LoadingOutlined } from '@ant-design/icons';
-import { Progress, Space, Spin, Typography } from 'antd';
+import { LoadingOutlined, StopOutlined } from '@ant-design/icons';
+import { Button, Progress, Space, Spin, Typography } from 'antd';
 
 import type { TransferProgress } from '../api/transfer';
 import { fmtSize } from './ui';
@@ -37,6 +37,30 @@ export function TransferProgressBar({
         size="small"
         format={(percent) => progress.percent === undefined ? '传输中' : `${percent}%`}
       />
+    </Space>
+  );
+}
+
+/** A transfer progress bar with an inline "cancel" control while a download is active. */
+export function CancellableDownloadProgress({
+  label,
+  progress,
+  active,
+  onCancel,
+}: {
+  label: string;
+  progress: TransferProgress;
+  active: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <Space wrap>
+      <TransferProgressBar label={label} progress={progress} />
+      {active && (
+        <Button size="small" icon={<StopOutlined />} onClick={onCancel}>
+          取消下载
+        </Button>
+      )}
     </Space>
   );
 }

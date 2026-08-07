@@ -3,8 +3,12 @@ import { DownloadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 
-import { describeApiError, type TransferProgress } from '../../shared/api';
-import { TransferProgressBar } from '../../shared/components';
+import {
+  describeDownloadError,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
+import { CancellableDownloadProgress } from '../../shared/components';
 import { downloadWorkflowArchive } from './workflows.api';
 import type { WorkflowArtifact } from './workflow';
 
@@ -16,6 +20,7 @@ export function WorkflowArtifactSummary({
   artifacts: WorkflowArtifact[];
 }) {
   const { message } = App.useApp();
+  const downloadCtrl = useDownload();
   const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
   const groups = useMemo(() => {
     const counts = new Map<string, number>();
@@ -25,8 +30,19 @@ export function WorkflowArtifactSummary({
     return Array.from(counts.entries()).sort(([left], [right]) => left.localeCompare(right));
   }, [artifacts]);
   const archiveM = useMutation({
-    mutationFn: () => downloadWorkflowArchive(workflowId, setDownloadProgress),
-    onError: (error) => message.error(describeApiError(error, '生产压缩包下载失败')),
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowArchive(workflowId, setDownloadProgress, handle.signal)
+        .finally(handle.finish);
+    },
+    onError: (error) => {
+      const result = describeDownloadError(error, '生产压缩包下载失败');
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
   });
 
   return (
@@ -55,7 +71,15 @@ export function WorkflowArtifactSummary({
         </div>
       )}
       {downloadProgress && (
-        <TransferProgressBar label="全部生产产物下载" progress={downloadProgress} />
+        <CancellableDownloadProgress
+          label="全部生产产物下载"
+          progress={downloadProgress}
+          active={downloadCtrl.active}
+          onCancel={() => {
+            downloadCtrl.cancel();
+            setDownloadProgress(null);
+          }}
+        />
       )}
     </Card>
   );

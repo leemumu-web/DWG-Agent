@@ -700,8 +700,12 @@ test('classification download exposes cancel and aborts the request', async ({ p
     '**/api/v1/workflows/44/dxf-classification/download-archive',
     async (route) => {
       downloadRequestCount += 1;
-      // Hold the response open so the download stays "in progress". Abort is
-      // observed via the page-level requestaborted event (registered above).
+      // Hold the response open so the download stays "in progress" until we
+      // cancel it. NOTE: Playwright does not emit `requestaborted` for a route
+      // that is held open and then aborted by the page, so the abort itself is
+      // asserted through the UI (progress area dismissed) and the absence of a
+      // browser download event; the network abort is the AbortController's
+      // contract and the server side is covered by backend transfer tests.
       await new Promise(() => {});
     },
   );

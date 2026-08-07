@@ -5,7 +5,6 @@ import {
   DeleteOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
-  StopOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -24,16 +23,16 @@ import {
 
 import {
   describeApiError,
-  isDownloadCancelled,
+  describeDownloadError,
   operatorErrorMessage,
   useDownload,
   type TransferProgress,
 } from '../../shared/api';
 import {
   ApiErrorAlert,
+  CancellableDownloadProgress,
   fmtDateTime,
   fmtSize,
-  TransferProgressBar,
 } from '../../shared/components';
 import type { WorkflowRetentionExport } from './workflow';
 import {
@@ -128,20 +127,21 @@ export function WorkflowRetentionControl({
     },
   });
   const downloadM = useMutation({
-    mutationFn: (row: WorkflowRetentionExport) => (
-      downloadWorkflowRetentionExport(row, setDownloadProgress, downloadCtrl.start())
-    ),
+    mutationFn: (row: WorkflowRetentionExport) => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowRetentionExport(row, setDownloadProgress, handle.signal)
+        .finally(handle.finish);
+    },
     onSuccess: () => {
-      downloadCtrl.finish();
       message.success('完整备份已下载到浏览器');
       setTimeout(() => { void statusQ.refetch(); }, 300);
     },
     onError: (error) => {
-      downloadCtrl.finish();
-      if (isDownloadCancelled(error)) {
+      const result = describeDownloadError(error, '完整备份下载未能完成');
+      if (result.cancelled) {
         message.info('下载已取消，服务器文件仍保留');
       } else {
-        message.error(describeApiError(error, '完整备份下载未能完成'));
+        message.error(result.message);
       }
       void statusQ.refetch();
     },
@@ -336,21 +336,15 @@ export function WorkflowRetentionControl({
                 )}
               />
               {downloadProgress && (
-                <Space wrap>
-                  <TransferProgressBar label="完整备份下载" progress={downloadProgress} />
-                  {downloadCtrl.active && (
-                    <Button
-                      size="small"
-                      icon={<StopOutlined />}
-                      onClick={() => {
-                        downloadCtrl.cancel();
-                        setDownloadProgress(null);
-                      }}
-                    >
-                      取消下载
-                    </Button>
-                  )}
-                </Space>
+                <CancellableDownloadProgress
+                  label="完整备份下载"
+                  progress={downloadProgress}
+                  active={downloadCtrl.active}
+                  onCancel={() => {
+                    downloadCtrl.cancel();
+                    setDownloadProgress(null);
+                  }}
+                />
               )}
             </Space>
           )}

@@ -29,8 +29,14 @@ import { cancelJob, createDxf2ExcelJob, getJobResults, listJobsPage, retryJob } 
 import type { Job } from '../jobs';
 import { DxfBatchCard } from './components/dxf2excel/DxfBatchCard';
 import { DxfUploadPanel } from './components/dxf2excel/DxfUploadPanel';
-import { describeApiError, type TransferProgress } from '../../shared/api';
-import { TransferProgressBar } from '../../shared/components';
+import {
+  describeApiError,
+  describeDownloadError,
+  isDownloadCancelled,
+  useDownload,
+  type TransferProgress,
+} from '../../shared/api';
+import { CancellableDownloadProgress } from '../../shared/components';
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
@@ -46,6 +52,7 @@ export function Dxf2ExcelPage() {
   const [previewFileId, setPreviewFileId] = useState<number | null>(null);
   const [previewFileName, setPreviewFileName] = useState<string>('');
   const [finalSubmittingBatches, setFinalSubmittingBatches] = useState<Set<string>>(new Set());
+  const downloadCtrl = useDownload();
   const [batchDownloadBusy, setBatchDownloadBusy] = useState(false);
   const [batchDownloadProgress, setBatchDownloadProgress] = useState<{
     label: string;
@@ -272,29 +279,47 @@ export function Dxf2ExcelPage() {
   const handleBulkDownload = useCallback(async () => {
     setBatchDownloadBusy(true);
     setBatchDownloadProgress(null);
-    if (selectedArr.length === 1) {
-      // Single batch — download directly
-      try {
-        const batchName = selectedArr[0];
-        await downloadBatchZip(batchName, (progress) => {
-          setBatchDownloadProgress({ label: `${batchName} 批次下载`, progress });
-        });
-      } catch (err) { message.error(describeApiError(err, '下载失败')); }
-    } else {
-      // Multiple batches — download each one sequentially
-      let count = 0;
-      for (const bn of selectedArr) {
-        try {
-          await downloadBatchZip(bn, (progress) => {
-            setBatchDownloadProgress({ label: `${bn} 批次下载`, progress });
-          });
-          count++;
-        } catch { /* continue */ }
+    const handle = downloadCtrl.start();
+    const onBatchProgress = (label: string, progress: TransferProgress) => {
+      setBatchDownloadProgress({ label, progress });
+    };
+    try {
+      if (selectedArr.length === 1) {
+        // Single batch — download directly
+        await downloadBatchZip(
+          selectedArr[0],
+          (progress) => onBatchProgress(`${selectedArr[0]} 批次下载`, progress),
+          handle.signal,
+        );
+      } else {
+        // Multiple batches — download each one sequentially; cancel stops the whole sequence
+        let count = 0;
+        for (const bn of selectedArr) {
+          try {
+            await downloadBatchZip(
+              bn,
+              (progress) => onBatchProgress(`${bn} 批次下载`, progress),
+              handle.signal,
+            );
+            count++;
+          } catch (err) {
+            if (isDownloadCancelled(err)) throw err;
+          }
+        }
+        if (count > 0) message.success(`已下载 ${count} 个批次`);
       }
-      if (count > 0) message.success(`已下载 ${count} 个批次`);
+    } catch (err) {
+      const result = describeDownloadError(err, '下载失败');
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    } finally {
+      setBatchDownloadBusy(false);
+      handle.finish();
     }
-    setBatchDownloadBusy(false);
-  }, [selectedArr]);
+  }, [downloadCtrl, selectedArr]);
 
   // ── error state ───────────────────────────────────────────────────────────
   if (batchesQ.isError && !batchesQ.data) {
@@ -379,9 +404,14 @@ export function Dxf2ExcelPage() {
       )}
       {batchDownloadProgress && (
         <div style={{ maxWidth: 560, marginBottom: 12 }}>
-          <TransferProgressBar
+          <CancellableDownloadProgress
             label={batchDownloadProgress.label}
             progress={batchDownloadProgress.progress}
+            active={downloadCtrl.active}
+            onCancel={() => {
+              downloadCtrl.cancel();
+              setBatchDownloadProgress(null);
+            }}
           />
         </div>
       )}

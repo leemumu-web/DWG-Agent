@@ -1,7 +1,7 @@
 import type { AxiosProgressEvent, Method } from 'axios';
 
 import { apiClient } from './client';
-import { describeApiErrorAsync } from './error';
+import { describeApiError, describeApiErrorAsync } from './error';
 
 export interface TransferProgress {
   loadedBytes: number;
@@ -75,6 +75,16 @@ export function isDownloadCancelled(error: unknown): boolean {
   return candidate.code === 'ERR_CANCELED'
     || candidate.name === 'CanceledError'
     || candidate.__CANCEL__ === true;
+}
+
+/** Split a download failure into "user cancelled" vs "real error with a message",
+ *  so call sites can show a neutral cancel notice instead of an error. */
+export function describeDownloadError(
+  error: unknown,
+  fallback: string,
+): { cancelled: true } | { cancelled: false; message: string } {
+  if (isDownloadCancelled(error)) return { cancelled: true };
+  return { cancelled: false, message: describeApiError(error, fallback) };
 }
 
 export function triggerBlobDownload(blob: Blob, filename: string): void {

@@ -1,7 +1,5 @@
 """DXF classification ledger projection for a workflow."""
 
-from urllib.parse import quote
-
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -336,7 +334,6 @@ def download_dxf_classification_single_file(
     )
     db.commit()
     factory = session_factory_for(db)
-    encoded_filename = quote(stored.original_name)
     return StreamingResponse(
         settle_stream(
             factory,

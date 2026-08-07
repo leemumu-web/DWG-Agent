@@ -179,6 +179,7 @@ export async function downloadZip(
   formats: string[],
   folderName: string,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ): Promise<void> {
   return downloadBlob({
     url: '/api/v1/files/download-zip',
@@ -187,6 +188,7 @@ export async function downloadZip(
     fallbackName: `${folderName}.zip`,
     errorMessage: '打包下载失败',
     onProgress,
+    signal,
   });
 }
 
@@ -326,12 +328,14 @@ export async function deleteBatch(batchName: string): Promise<void> {
 export async function downloadBatchZip(
   batchName: string,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ): Promise<void> {
   return downloadBlob({
     url: `/api/v1/files/batches/${encodeURIComponent(batchName)}/download-zip`,
     fallbackName: `${batchName}.zip`,
     errorMessage: '批次下载失败',
     onProgress,
+    signal,
   });
 }
 
