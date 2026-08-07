@@ -1142,6 +1142,7 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
             "project_tekla_bh_dxf_v1",
             "--authorize-tekla-box-single-part-profile",
             "project_tekla_box_dxf_v1",
+            "--lean-report",
             "--progress-json",
             str(tmp_path.parent / "output" / ".dwg-agent-split-progress.json"),
         ]

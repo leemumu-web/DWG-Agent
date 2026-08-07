@@ -110,6 +110,7 @@ def invoke_splitter(
         BH_SOURCE_CONTRACT,
         "--authorize-tekla-box-single-part-profile",
         BOX_SOURCE_CONTRACT,
+        "--lean-report",
         "--progress-json",
         str(progress_path),
     ]

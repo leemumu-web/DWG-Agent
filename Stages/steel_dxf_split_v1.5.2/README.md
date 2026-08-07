@@ -46,7 +46,7 @@ output/
    └─ box/<原图名称>/
 ```
 
-每个 `auto_accepted` 任务目录中恰好有两个 `.dxf` 文件。JSON 与 PNG 是验收旁证，不计入 DXF 产出数量。加 `--no-png-and-json` 时，`report.json`、`weld_allowance_report.json` 与 `previews/` 不再生成，任务目录仅保留成对 DXF（BH 与 BOX 均生效）。
+每个 `auto_accepted` 任务目录中恰好有两个 `.dxf` 文件。JSON 与 PNG 是验收旁证，不计入 DXF 产出数量。加 `--lean-report` 时，`report.json` 精简为验收所需字段（paired_output / automation_route / outputs / metadata 等），不生成 PNG 预览；`weld_allowance_report.json` 照常生成（BH 与 BOX 均生效）。
 
 `BH拆板信息表.xlsx` 是项目级台账。统一命令每次从本次输入快照重新生成，
 只记录 BH 的“零件号”“BH尺寸”“上下翼板是否相同”三列，其中最后一列
@@ -108,7 +108,7 @@ uv run steel-dxf-split `
 
 如果目录中只有一种类型，只需提供对应授权。`--box-release-attestation` 仅用于显式指定经过验证的 BOX 发布认证；省略时使用安装包内置认证。
 
-加 `--no-png-and-json` 可完全跳过 PNG 与 JSON 报告生成（`report.json`、`weld_allowance_report.json`、`previews/`），任务目录仅保留成对 DXF；BH 与 BOX 均生效。省略时行为不变（仍生成报告与旁证）。
+加 `--lean-report` 可精简报告：`report.json` 只保留验收所需字段，不生成 PNG 预览；`weld_allowance_report.json` 照常生成；BH 与 BOX 均生效。省略时生成完整报告与旁证。
 
 退出码：
 
