@@ -11,6 +11,7 @@ import {
 import { CancellableDownloadProgress } from '../../shared/components';
 import type { WorkflowArtifact, WorkflowStage } from './workflow';
 import {
+  downloadWorkflowExcelStage2BoxReaderResult,
   downloadWorkflowExcelStage2ReaderResult,
   downloadWorkflowExcelStage2Result,
   downloadWorkflowExcelStageResult,
@@ -69,9 +70,31 @@ export function WorkflowStageArchiveCard({
       ).finally(handle.finish);
     },
     onMutate: clearProgress,
-    onSuccess: () => message.success('BH 和 BOX 左右进读取表已下载'),
+    onSuccess: () => message.success('BH 左右进读取表已下载'),
     onError: (error) => {
-      const result = describeDownloadError(error, 'BH 和 BOX 左右进读取表下载失败');
+      const result = describeDownloadError(error, 'BH 左右进读取表下载失败');
+      setDownloadProgress(null);
+      setReaderDownloadProgress(null);
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
+  });
+  const boxReaderM = useMutation({
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowExcelStage2BoxReaderResult(
+        workflowId,
+        setReaderDownloadProgress,
+        handle.signal,
+      ).finally(handle.finish);
+    },
+    onMutate: clearProgress,
+    onSuccess: () => message.success('BOX 左右进读取表已下载'),
+    onError: (error) => {
+      const result = describeDownloadError(error, 'BOX 左右进读取表下载失败');
       setDownloadProgress(null);
       setReaderDownloadProgress(null);
       if (result.cancelled) {
@@ -101,6 +124,7 @@ export function WorkflowStageArchiveCard({
     },
   });
   const readerAvailable = artifacts.some((artifact) => artifact.artifact_type === 'bh_setback_excel');
+  const boxReaderAvailable = artifacts.some((artifact) => artifact.artifact_type === 'box_setback_excel');
   const stage2Available = artifacts.some((artifact) => artifact.artifact_type === 'stage2_excel');
   if (stage.stage_code === 'excel_stage2') {
     return (
@@ -111,7 +135,7 @@ export function WorkflowStageArchiveCard({
             {stage2Available
               ? '已生成第二阶段正式 Excel'
               : readerAvailable
-                ? '已生成 BH 和 BOX 左右进读取表，可先下载核对'
+                ? '已生成 BH/BOX 左右进读取表，可先下载核对'
                 : '本阶段尚无可下载产物'}
           </Typography.Text>
           <Typography.Text type="secondary">
@@ -125,7 +149,15 @@ export function WorkflowStageArchiveCard({
             disabled={!readerAvailable || downloadCtrl.active}
             onClick={() => readerM.mutate()}
           >
-            下载 BH 和 BOX 左右进读取表
+            下载 BH 左右进读取表
+          </Button>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={boxReaderM.isPending}
+            disabled={!boxReaderAvailable || downloadCtrl.active}
+            onClick={() => boxReaderM.mutate()}
+          >
+            下载 BOX 左右进读取表
           </Button>
           <Button
             type="primary"
@@ -139,7 +171,7 @@ export function WorkflowStageArchiveCard({
         </Space>
         {readerDownloadProgress && (
           <CancellableDownloadProgress
-            label="BH 和 BOX 左右进读取表下载"
+            label="BH 左右进读取表下载"
             progress={readerDownloadProgress}
             active={downloadCtrl.active}
             onCancel={() => {

@@ -186,6 +186,21 @@ export async function downloadWorkflowExcelStage2ReaderResult(
   );
 }
 
+export async function downloadWorkflowExcelStage2BoxReaderResult(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage2/download-box-reader-result`,
+    `workflow-${workflowId}-box-setback.xlsx`,
+    'BOX 左右进读取表下载失败',
+    onProgress,
+    undefined,
+    signal,
+  );
+}
+
 export async function getWorkflowExcelStagePreflight(workflowId: number) {
   const response = await apiClient.get<ApiEnvelope<WorkflowExcelStagePreflight>>(
     `/api/v1/workflows/${workflowId}/stages/excel_stage1/preflight`,

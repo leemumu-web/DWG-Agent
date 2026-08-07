@@ -103,6 +103,7 @@ export interface WorkflowExcelStage2Preflight {
   classification_job_id: number;
   classification_job_attempt: number;
   bh_input_count: number;
+  box_input_count: number;
   checks: WorkflowExcelPreflightCheck[];
 }
 
