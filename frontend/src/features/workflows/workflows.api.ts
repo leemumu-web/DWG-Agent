@@ -98,6 +98,7 @@ async function downloadArchive(
   errorMessage: string,
   onProgress?: TransferProgressHandler,
   expectedBytes?: number,
+  signal?: AbortSignal,
 ) {
   return downloadBlob({
     url,
@@ -105,18 +106,22 @@ async function downloadArchive(
     errorMessage,
     onProgress,
     expectedBytes,
+    signal,
   });
 }
 
 export async function downloadWorkflowArchive(
   workflowId: number,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/download-archive`,
     `workflow-${workflowId}.zip`,
     '生产压缩包下载失败',
     onProgress,
+    undefined,
+    signal,
   );
 }
 
@@ -124,48 +129,60 @@ export async function downloadWorkflowStageArchive(
   workflowId: number,
   stageCode: string,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/stages/${stageCode}/download-archive`,
     `workflow-${workflowId}-${stageCode}.zip`,
     '阶段结果压缩包下载失败',
     onProgress,
+    undefined,
+    signal,
   );
 }
 
 export async function downloadWorkflowExcelStageResult(
   workflowId: number,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/stages/excel_stage1/download-result`,
     `workflow-${workflowId}-excel-stage1.xlsx`,
     'Excel 结果下载失败',
     onProgress,
+    undefined,
+    signal,
   );
 }
 
 export async function downloadWorkflowExcelStage2Result(
   workflowId: number,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/stages/excel_stage2/download-result`,
     `workflow-${workflowId}-excel-stage2.xlsx`,
     'Excel 第二阶段结果下载失败',
     onProgress,
+    undefined,
+    signal,
   );
 }
 
 export async function downloadWorkflowExcelStage2ReaderResult(
   workflowId: number,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/stages/excel_stage2/download-reader-result`,
     `workflow-${workflowId}-bh-setback.xlsx`,
     'BH 左右进读取表下载失败',
     onProgress,
+    undefined,
+    signal,
   );
 }
 
@@ -243,6 +260,7 @@ export async function downloadDxfClassificationGroupArchive(
   groupKey: string,
   onProgress?: TransferProgressHandler,
   expectedBytes?: number,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/dxf-classification/groups/${encodeURIComponent(groupKey)}/download-archive`,
@@ -250,6 +268,7 @@ export async function downloadDxfClassificationGroupArchive(
     '分类文件夹下载失败',
     onProgress,
     expectedBytes,
+    signal,
   );
 }
 
@@ -257,6 +276,7 @@ export async function downloadAllDxfClassificationArchive(
   workflowId: number,
   onProgress?: TransferProgressHandler,
   expectedBytes?: number,
+  signal?: AbortSignal,
 ) {
   return downloadArchive(
     `/api/v1/workflows/${workflowId}/dxf-classification/download-archive`,
@@ -264,6 +284,24 @@ export async function downloadAllDxfClassificationArchive(
     '全部 DXF 下载失败',
     onProgress,
     expectedBytes,
+    signal,
+  );
+}
+
+export async function downloadDxfClassificationFile(
+  workflowId: number,
+  groupKey: string,
+  outputName: string,
+  onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/dxf-classification/groups/${encodeURIComponent(groupKey)}/files/${encodeURIComponent(outputName)}/download`,
+    outputName,
+    '分类 DXF 下载失败',
+    onProgress,
+    undefined,
+    signal,
   );
 }
 
@@ -299,6 +337,7 @@ export async function createDrawingSelectiveExport(
 export async function downloadDrawingSelectiveExport(
   prepared: DrawingSelectiveExport,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   if (!prepared.download_url) {
     throw new Error('本次选择导出没有可用的下载地址');
@@ -309,6 +348,7 @@ export async function downloadDrawingSelectiveExport(
     '选择导出下载失败',
     onProgress,
     prepared.source_size_bytes,
+    signal,
   );
 }
 export async function getWorkflowBatchExportPreview(workflowId: number) {
@@ -342,6 +382,7 @@ export async function getWorkflowBatchExport(
 export async function downloadWorkflowBatchExport(
   exportRow: WorkflowBatchExport,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   if (!exportRow.download_url) {
     throw new Error('本次分批导出没有可用的下载地址');
@@ -352,6 +393,7 @@ export async function downloadWorkflowBatchExport(
     '分批导出下载失败',
     onProgress,
     exportRow.source_size_bytes,
+    signal,
   );
 }
 
@@ -399,6 +441,7 @@ export async function getWorkflowRetentionExport(
 export async function downloadWorkflowRetentionExport(
   exportRow: WorkflowRetentionExport,
   onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
 ) {
   if (!exportRow.download_url) {
     throw new Error('本次完整备份没有可用的下载地址，请重新生成备份凭据');
@@ -409,6 +452,7 @@ export async function downloadWorkflowRetentionExport(
     '完整备份下载失败',
     onProgress,
     exportRow.source_size_bytes,
+    signal,
   );
 }
 
