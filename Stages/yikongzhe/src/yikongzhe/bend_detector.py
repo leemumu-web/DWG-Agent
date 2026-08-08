@@ -24,7 +24,7 @@ _PARALLEL_ANGLE_TOLERANCE = 5.0
 _MAX_PAIR_DISTANCE_RATIO = 0.30
 
 
-def detect_bend(web_part: Part) -> bool:
+def detect_bend(web_part: Part) -> tuple[bool, float, float]:
     """检测腹板是否存在折弯特征。
 
     折弯特征定义：
@@ -42,17 +42,20 @@ def detect_bend(web_part: Part) -> bool:
         web_part: 腹板 Part 对象。
 
     Returns:
-        True 表示腹板存在折弯特征。
+        (has_bend, A, B)：
+        - has_bend: True 表示腹板存在折弯特征。
+        - A: 水平边较长侧的长度。
+        - B: 水平边较短侧的长度。
     """
     from yikongzhe.geometry import extract_outer_contour
 
     entities = web_part.entities
     if not entities:
-        return False
+        return False, 0.0, 0.0
 
     contour, poly = extract_outer_contour(entities)
     if not contour or len(contour) < 7:
-        return False
+        return False, 0.0, 0.0
 
     # 去掉闭合点
     vertices = list(contour)
@@ -60,12 +63,14 @@ def detect_bend(web_part: Part) -> bool:
         vertices = vertices[:-1]
 
     if len(vertices) < 6:
-        return False
+        return False, 0.0, 0.0
 
     return _has_bend_signature(vertices)
 
 
-def _has_bend_signature(vertices: list[tuple[float, float]]) -> bool:
+def _has_bend_signature(
+    vertices: list[tuple[float, float]],
+) -> tuple[bool, float, float]:
     """分析轮廓顶点序列，检测成对的阶梯形折弯斜边。
 
     核心逻辑：
@@ -76,18 +81,22 @@ def _has_bend_signature(vertices: list[tuple[float, float]]) -> bool:
     - 验证空间距离合理（相对板件尺寸不会太远）。
 
     Returns:
-        True 表示存在折弯特征。
+        (has_bend, A, B)：
+        - has_bend: True 表示存在折弯特征。
+        - A: 平行斜边两侧水平边中较长的长度。
+        - B: 平行斜边两侧水平边中较短的长度。
+          无折弯时 A、B 均为 0.0。
     """
     n = len(vertices)
     if n < 6:
-        return False
+        return False, 0.0, 0.0
 
     # 计算板件包围盒（用于距离归一化）
     xs = [v[0] for v in vertices]
     ys = [v[1] for v in vertices]
     bbox_diag = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
     if bbox_diag < 1e-6:
-        return False
+        return False, 0.0, 0.0
 
     max_pair_distance = _MAX_PAIR_DISTANCE_RATIO * bbox_diag
 
@@ -112,7 +121,7 @@ def _has_bend_signature(vertices: list[tuple[float, float]]) -> bool:
 
     m = len(edges)
     if m < 6:
-        return False
+        return False, 0.0, 0.0
 
     # 收集 H-D-H 模式的斜边候选
     candidates = []
@@ -149,7 +158,7 @@ def _has_bend_signature(vertices: list[tuple[float, float]]) -> bool:
         })
 
     if len(candidates) < 2:
-        return False
+        return False, 0.0, 0.0
 
     # 按角度分组（平行斜边）
     angle_groups: dict[float, list[dict]] = {}
@@ -179,6 +188,15 @@ def _has_bend_signature(vertices: list[tuple[float, float]]) -> bool:
                 dist = math.hypot(c1["mid_x"] - c2["mid_x"],
                                   c1["mid_y"] - c2["mid_y"])
                 if dist <= max_pair_distance:
-                    return True
+                    # 取四个相邻 H 边长度
+                    h_lengths = [
+                        edges[(c1["idx"] - 1) % m]["length"],
+                        edges[(c1["idx"] + 1) % m]["length"],
+                        edges[(c2["idx"] - 1) % m]["length"],
+                        edges[(c2["idx"] + 1) % m]["length"],
+                    ]
+                    A = max(h_lengths)
+                    B = min(h_lengths)
+                    return True, A, B
 
-    return False
+    return False, 0.0, 0.0

@@ -39,7 +39,7 @@ _CATEGORY_TABLE: dict[tuple[ShapeType, HoleType, BendType], str] = {
 }
 
 # 所有合法类别名，用于验证
-VALID_CATEGORIES = set(_CATEGORY_TABLE.values())
+VALID_CATEGORIES = set(_CATEGORY_TABLE.values()) | {"待人工"}
 
 
 def build_category_name(
@@ -90,6 +90,23 @@ def classify_part_shape_and_hole(
 
 
 
+def _get_part_length(part: Part) -> float:
+    """获取零件外轮廓包围盒的最长边长度（mm）。
+
+    Args:
+        part: 零件对象。
+
+    Returns:
+        包围盒最长边长度；无法提取轮廓时返回 0.0。
+    """
+    contour, _poly = extract_outer_contour(part.entities)
+    if not contour or len(contour) < 4:
+        return 0.0
+    xs = [p[0] for p in contour]
+    ys = [p[1] for p in contour]
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
 def classify_dxf(parts: list[Part]) -> DxfResult:
     """对单个 DXF 文件的所有板件执行三步分类。
 
@@ -131,33 +148,63 @@ def classify_dxf(parts: list[Part]) -> DxfResult:
     elif flanges:
         # BH/BOX 模式：腹板检测折弯，翼板继承
         web_has_bend = False
+        bend_A, bend_B = 0.0, 0.0
         for web in webs:
-            if detect_bend(web):
+            has_bend, a, b = detect_bend(web)
+            if has_bend:
                 web_has_bend = True
+                bend_A, bend_B = a, b
                 break
+
+        # 翼板长度校验
+        all_manual = False
+        if web_has_bend:
+            num_flanges = len(flanges)
+            flange_len = _get_part_length(flanges[0]) if flanges else 0.0
+            if num_flanges == 2:
+                all_manual = True
+            elif num_flanges == 1:
+                if flange_len > bend_A:
+                    pass  # 真折弯
+                elif flange_len > bend_B:
+                    all_manual = True
+                else:  # flange_len <= bend_B
+                    web_has_bend = False
 
         for web in webs:
             shape, hole = classify_part_shape_and_hole(web)
             bend = BendType.WITHOUT_BEND
-            results.append(PartClassification(
-                part_name=web.name, dxf_file=dxf_file,
-                shape=shape, hole=hole, bend=bend,
-                category=build_category_name(shape, hole, bend),
-            ))
+            if all_manual:
+                results.append(PartClassification(
+                    part_name=web.name, dxf_file=dxf_file,
+                    shape=shape, hole=hole, bend=bend, category="待人工",
+                ))
+            else:
+                results.append(PartClassification(
+                    part_name=web.name, dxf_file=dxf_file,
+                    shape=shape, hole=hole, bend=bend,
+                    category=build_category_name(shape, hole, bend),
+                ))
 
         for flange in flanges:
             shape, hole = classify_part_shape_and_hole(flange)
             bend = BendType.WITH_BEND if web_has_bend else BendType.WITHOUT_BEND
-            results.append(PartClassification(
-                part_name=flange.name, dxf_file=dxf_file,
-                shape=shape, hole=hole, bend=bend,
-                category=build_category_name(shape, hole, bend),
-            ))
+            if all_manual:
+                results.append(PartClassification(
+                    part_name=flange.name, dxf_file=dxf_file,
+                    shape=shape, hole=hole, bend=bend, category="待人工",
+                ))
+            else:
+                results.append(PartClassification(
+                    part_name=flange.name, dxf_file=dxf_file,
+                    shape=shape, hole=hole, bend=bend,
+                    category=build_category_name(shape, hole, bend),
+                ))
     else:
         # 通用多零件模式：每个零件独立检测折弯
         for part in parts:
             shape, hole = classify_part_shape_and_hole(part)
-            has_bend = detect_bend(part)
+            has_bend, _a, _b = detect_bend(part)
             bend = BendType.WITH_BEND if has_bend else BendType.WITHOUT_BEND
             results.append(PartClassification(
                 part_name=part.name, dxf_file=dxf_file,

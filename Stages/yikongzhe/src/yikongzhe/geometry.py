@@ -381,10 +381,13 @@ def _simplify_bevels(
     # 沿轮廓依次处理
     result: list[tuple[float, float]] = []
     i = 0
+    skip_start = False
     while i < n:
         if not is_short[i]:
-            # 长边：保留起点
-            result.append(vertices[i])
+            # 长边：保留起点（除非刚处理完坡口，交点已替代该起点）
+            if not skip_start:
+                result.append(vertices[i])
+            skip_start = False
             i += 1
         else:
             # 进入候选短边段：收集连续短边
@@ -396,6 +399,11 @@ def _simplify_bevels(
 
             # 角部验证：检查短边前后的两条主边是否接近垂直
             prev_idx = (bevel_start - 1) % n
+            # 回退跳过连续短边，找到真正的主边（处理跨数组末尾的坡口组）
+            _steps = 0
+            while is_short[prev_idx] and _steps < n:
+                prev_idx = (prev_idx - 1) % n
+                _steps += 1
             p_prev = vertices[prev_idx]
             # 前主边方向 (prev_idx → prev_idx+1)
             fwd_vec = edge_vec[prev_idx]
@@ -419,6 +427,7 @@ def _simplify_bevels(
             )
             if pt is not None:
                 result.append(pt)
+                skip_start = True  # 交点已替代下一长边的起点
             else:
                 result.append(vertices[bevel_start])
 
