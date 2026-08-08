@@ -545,6 +545,18 @@ def has_internal_holes(
             if outer_poly.contains(center):
                 return True
 
+        elif dtype == "LWPOLYLINE" and e.closed:
+            pts = list(e.get_points("xy"))
+            if len(pts) >= 2:
+                # 检查所有顶点是否都严格位于外轮廓内部
+                # 用 contains_properly 排除外轮廓自身（顶点在边界上）
+                all_inside = all(
+                    outer_poly.contains_properly(Point(p[0], p[1]))
+                    for p in pts
+                )
+                if all_inside:
+                    return True
+
     # 检测 LINE/LWPOLYLINE 构成的内部闭合环
     edges = _collect_edge_pairs(all_entities)
     if len(edges) < 3:
