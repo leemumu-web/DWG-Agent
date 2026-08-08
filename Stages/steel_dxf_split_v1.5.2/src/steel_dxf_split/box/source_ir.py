@@ -188,13 +188,29 @@ def _entity_to_ir(
     )
 
 
-def _iter_insert_entities_with_lineage(
+def _nested_block_has_part(insert: Insert) -> bool:
+    block = insert.block()
+    if block is None:
+        return False
+    return any(
+        str(getattr(entity.dxf, "layer", "0")).casefold() == "part"
+        for entity in block
+    )
+
+
+def _collect_insert_entities(
     insert: Insert,
     *,
     group_id: str,
+    entities: list[SourceEntityIR],
     source_path: tuple[str, ...],
-) -> Iterator[SourceEntityIR]:
-    """Pair transformed virtual entities with stable definition handles."""
+) -> None:
+    """Pair transformed virtual entities with stable definition handles.
+
+    Tekla ``SmartMerge`` can fold the H and B projection views into separate
+    nested Part blocks inside one merged INSERT.  Each such nested Part block
+    keeps its own group id so the two projections survive as two Part views.
+    """
 
     block = insert.block()
     if block is None:
@@ -215,17 +231,32 @@ def _iter_insert_entities_with_lineage(
         source_id = "/".join(nested_path)
         if virtual.dxftype() == "INSERT":
             assert isinstance(virtual, Insert)
-            yield from _iter_insert_entities_with_lineage(
-                virtual,
-                group_id=group_id,
-                source_path=nested_path,
-            )
+            if _nested_block_has_part(virtual):
+                sub_group_id = (
+                    "insert:"
+                    + str(getattr(virtual.dxf, "handle", "") or original_handle)
+                )
+                _collect_insert_entities(
+                    virtual,
+                    group_id=sub_group_id,
+                    entities=entities,
+                    source_path=(sub_group_id,),
+                )
+            else:
+                _collect_insert_entities(
+                    virtual,
+                    group_id=group_id,
+                    entities=entities,
+                    source_path=nested_path,
+                )
             continue
-        yield _entity_to_ir(
-            virtual,
-            source_id=source_id,
-            group_id=group_id,
-            original_handle=original_handle,
+        entities.append(
+            _entity_to_ir(
+                virtual,
+                source_id=source_id,
+                group_id=group_id,
+                original_handle=original_handle,
+            )
         )
 
 
@@ -278,14 +309,15 @@ def build_source_ir(path: str | Path) -> SourceDocumentIR:
         assert isinstance(entity, Insert)
         insert = entity
         group_id = f"insert:{handle}"
-        group_entities = tuple(
-            _iter_insert_entities_with_lineage(
-                insert,
-                group_id=group_id,
-                source_path=(group_id,),
-            )
+        entities_before = len(entities)
+        _collect_insert_entities(
+            insert,
+            group_id=group_id,
+            entities=entities,
+            source_path=(group_id,),
         )
-        entities.extend(group_entities)
+        expanded = entities[entities_before:]
+        appeared_group_ids = sorted({value.group_id for value in expanded})
         insert_point = _point2(insert.dxf.insert)
         groups.append(
             ObjectGroupIR(
@@ -299,10 +331,42 @@ def build_source_ir(path: str | Path) -> SourceDocumentIR:
                     float(getattr(insert.dxf, "yscale", 1.0)),
                     float(getattr(insert.dxf, "zscale", 1.0)),
                 ),
-                source_ids=tuple(value.source_id for value in group_entities),
-                layers=tuple(sorted({value.layer for value in group_entities})),
+                source_ids=tuple(
+                    value.source_id
+                    for value in expanded
+                    if value.group_id == group_id
+                ),
+                layers=tuple(
+                    sorted(
+                        {
+                            value.layer
+                            for value in expanded
+                            if value.group_id == group_id
+                        }
+                    )
+                ),
             )
         )
+        for sub_group_id in appeared_group_ids:
+            if sub_group_id == group_id:
+                continue
+            sub_entities = tuple(
+                value for value in expanded if value.group_id == sub_group_id
+            )
+            groups.append(
+                ObjectGroupIR(
+                    group_id=sub_group_id,
+                    insert_handle=sub_group_id.removeprefix("insert:"),
+                    block_name="",
+                    insert_point=(0.0, 0.0),
+                    rotation=0.0,
+                    scale=(1.0, 1.0, 1.0),
+                    source_ids=tuple(value.source_id for value in sub_entities),
+                    layers=tuple(
+                        sorted({value.layer for value in sub_entities})
+                    ),
+                )
+            )
 
     materialized = tuple(entities)
     return SourceDocumentIR(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from math import hypot
 
 from .dxf_io import normalize_text
 from .source_ir import SourceDocumentIR, SourceEntityIR
@@ -152,6 +153,14 @@ def _unique_match(
         and check(normalize_text(entity.text_decoded))
     )
     if len(matches) != 1:
+        # Tekla can repeat the same member mark (title table cell plus a callout
+        # near the view).  Identical repeated values describe the same fact, so
+        # accept the first occurrence; genuinely conflicting values still fail.
+        distinct = {
+            normalize_text(entity.text_decoded or "") for entity in matches
+        }
+        if len(matches) > 1 and len(distinct) == 1:
+            return min(matches, key=lambda entity: entity.source_id)
         raise MetadataResolutionError(
             f"expected exactly one {label} in BOX title group, found {len(matches)}"
         )
@@ -221,6 +230,7 @@ def _resolve_nominal_length(
     )
     if len(length_headers) == 1:
         length_x = length_headers[0].center[0]
+        length_y = length_headers[0].center[1]
         if len(quantity_headers) == 1:
             quantity_x = quantity_headers[0].center[0]
             column_matches = tuple(
@@ -232,6 +242,26 @@ def _resolve_nominal_length(
             )
             if len(column_matches) == 1:
                 return column_matches[0]
+            if column_matches:
+                # 视图尺寸标注可以散落在同一列但更靠下；取距长度表头
+                # 欧氏距离最近的唯一数字（表格长度列值），而不是只看 X。
+                def _distance(entity: SourceEntityIR) -> float:
+                    assert entity.center is not None
+                    return hypot(
+                        entity.center[0] - length_x,
+                        entity.center[1] - length_y,
+                    )
+
+                nearest_distance = min(
+                    _distance(entity) for entity in column_matches
+                )
+                nearest = tuple(
+                    entity
+                    for entity in column_matches
+                    if _distance(entity) <= nearest_distance + 1e-9
+                )
+                if len(nearest) == 1:
+                    return nearest[0]
         else:
             # 料表模板没有“数量”列（例如 长度+重量），仍按长度表头
             # 的 X 坐标就近消歧；距离长度表头最近的唯一数字即长度。
