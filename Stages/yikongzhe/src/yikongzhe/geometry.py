@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # 矩形判断容差
 _RECT_ANGLE_TOLERANCE = 1.0  # 角度偏差容忍度（度）
 _RECT_LENGTH_RATIO_TOLERANCE = 0.02  # 对边长度相对偏差 < 2%
+_BEVEL_LENGTH_RATIO = 0.10  # 短边 < 对角线 10% 视为候选坡口边
+_BEVEL_CORNER_ANGLE_TOL = 15.0  # 短边两侧主边夹角需在 90°±此值内，才确认为角部坡口
 # 坐标合并容差（用于连接相邻线段端点）
 _SNAP_TOLERANCE = 0.5
 
@@ -295,6 +297,134 @@ def _collect_segments(entities: list) -> list[LineString]:
     return segments
 
 
+def _line_intersection(
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    p3: tuple[float, float],
+    p4: tuple[float, float],
+) -> tuple[float, float] | None:
+    """求直线 p1→p2 与 p3→p4 的交点（无限延伸），平行时返回 None。"""
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = p3
+    x4, y4 = p4
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(denom) < 1e-10:
+        return None  # 平行
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+
+
+def _angle_between(
+    v1: tuple[float, float], v2: tuple[float, float]
+) -> float:
+    """两向量夹角（度），0~180。"""
+    l1 = math.hypot(v1[0], v1[1])
+    l2 = math.hypot(v2[0], v2[1])
+    if l1 < 1e-10 or l2 < 1e-10:
+        return 0.0
+    dot = v1[0] * v2[0] + v1[1] * v2[1]
+    cos_a = max(-1.0, min(1.0, dot / (l1 * l2)))
+    return math.degrees(math.acos(cos_a))
+
+
+def _simplify_bevels(
+    vertices: list[tuple[float, float]],
+    *,
+    length_ratio: float = _BEVEL_LENGTH_RATIO,
+    corner_angle_tol: float = _BEVEL_CORNER_ANGLE_TOL,
+) -> list[tuple[float, float]]:
+    """去除坡口短边，用相邻主边的延长交点还原矩形角。
+
+    坡口必须同时满足两个条件：
+    1. 长度 < (零件对角线 × length_ratio)
+    2. 位于角部：前后两条主边夹角 ≈ 90°（偏差 < corner_angle_tol）
+
+    不满足条件 2 的短斜边视为轮廓的异形特征，不被去除。
+
+    Args:
+        vertices: 外轮廓顶点（不含首尾重复闭合点）。
+        length_ratio: 短边判定阈值，默认 0.10（对角线 10%）。
+        corner_angle_tol: 角部夹角容忍度（度），默认 15。
+
+    Returns:
+        去除坡口后的顶点列表。
+    """
+    n = len(vertices)
+    if n <= 4:
+        return list(vertices)
+
+    # 零件尺寸参考：包围盒对角线
+    xs = [v[0] for v in vertices]
+    ys = [v[1] for v in vertices]
+    diag = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    if diag <= 0:
+        return list(vertices)
+    short_limit = diag * length_ratio
+
+    # 计算各边长度和方向向量
+    edge_len = []
+    edge_vec = []
+    for i in range(n):
+        p1 = vertices[i]
+        p2 = vertices[(i + 1) % n]
+        edge_len.append(math.hypot(p2[0] - p1[0], p2[1] - p1[1]))
+        edge_vec.append((p2[0] - p1[0], p2[1] - p1[1]))
+
+    # 标记候选短边（仅按长度）
+    is_short = [l < short_limit for l in edge_len]
+
+    # 如果没有短边，直接返回
+    if not any(is_short):
+        return list(vertices)
+
+    # 沿轮廓依次处理
+    result: list[tuple[float, float]] = []
+    i = 0
+    while i < n:
+        if not is_short[i]:
+            # 长边：保留起点
+            result.append(vertices[i])
+            i += 1
+        else:
+            # 进入候选短边段：收集连续短边
+            bevel_start = i
+            while i < n and is_short[i]:
+                i += 1
+            if i >= n:
+                break
+
+            # 角部验证：检查短边前后的两条主边是否接近垂直
+            prev_idx = (bevel_start - 1) % n
+            p_prev = vertices[prev_idx]
+            # 前主边方向 (prev_idx → prev_idx+1)
+            fwd_vec = edge_vec[prev_idx]
+            # 后主边方向 (i → i+1)，注意 i 是短边段后的第一条长边
+            next_vec = edge_vec[i]
+
+            angle = _angle_between(fwd_vec, next_vec)
+            if abs(90.0 - angle) > corner_angle_tol:
+                # 不满足角部条件：不是坡口，是异形斜边，保留原顶点不动
+                for j in range(bevel_start, i):
+                    result.append(vertices[j])
+                continue
+
+            # 满足坡口条件：用延长交点代替
+            p_next_dir = vertices[(i + 1) % n]
+            pt = _line_intersection(
+                p_prev,
+                vertices[(prev_idx + 1) % n],
+                vertices[i],
+                p_next_dir,
+            )
+            if pt is not None:
+                result.append(pt)
+            else:
+                result.append(vertices[bevel_start])
+
+    return result
+
+
 def is_rectangle(
     contour: list[tuple[float, float]], *, tolerance: float = _RECT_ANGLE_TOLERANCE
 ) -> bool:
@@ -322,6 +452,12 @@ def is_rectangle(
         vertices = vertices[:-1]
 
     if len(vertices) != 4:
+        # 可能存在坡口短边，尝试去除后重新判断
+        simplified = _simplify_bevels(vertices)
+        if len(simplified) == 4 and simplified != vertices:
+            # 用简化后的 4 顶点构建新轮廓重新判断
+            simplified_contour = list(simplified) + [simplified[0]]
+            return is_rectangle(simplified_contour, tolerance=tolerance)
         return False
 
     # 提取四条边向量
