@@ -28,8 +28,10 @@ from app.modules.workflows.interface import (
     start_workflow,
     sync_workflow_from_jobs,
 )
+from app.modules.workflows.job_sync import workflow_needs_sync
 from app.modules.workflows.schemas import WorkflowCreate
 from app.platform.http.exceptions import AppHTTPException
+from app.platform.time import business_now
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -519,7 +521,112 @@ def test_sync_job_still_running_keeps_workflow_running(db: Session):
     assert workflow.status == "running"
 
 
-# ── recompute boundaries ─────────────────────────────────────────────────────
+def test_workflow_needs_sync_false_after_full_sync(db: Session):
+    """A fully synced workflow must not require another sync (read-path gate)."""
+    _, _, workflow = _make_draft(db)
+    start_workflow(db, workflow)
+    job = Job(
+        task_type="process_excel_final",
+        precision_level="normal",
+        pipeline="excel_final",
+        status="succeeded",
+        attempt=1,
+        progress=100,
+    )
+    db.add(job)
+    db.flush()
+    bind_stage_job(db, workflow, stage_code="source_upload", job=job)
+    db.commit()
+    sync_workflow_from_jobs(db, workflow)
+    db.commit()
+    assert workflow_needs_sync(db, workflow) is False
+
+
+def test_workflow_needs_sync_true_on_status_drift(db: Session):
+    """A job moving forward while its stage mirror is stale must need sync."""
+    _, _, workflow = _make_draft(db)
+    start_workflow(db, workflow)
+    job = Job(
+        task_type="process_excel_final",
+        precision_level="normal",
+        pipeline="excel_final",
+        status="running",
+        attempt=1,
+        progress=40,
+    )
+    db.add(job)
+    db.flush()
+    bind_stage_job(db, workflow, stage_code="source_upload", job=job)
+    db.commit()
+    job.status = "succeeded"
+    job.progress = 100
+    db.flush()
+    assert workflow_needs_sync(db, workflow) is True
+    sync_workflow_from_jobs(db, workflow)
+    db.commit()
+    assert workflow_needs_sync(db, workflow) is False
+
+
+def test_workflow_needs_sync_ignores_mismatched_attempt(db: Session):
+    """An attempt mismatch is skipped by sync, so the drift gate skips it too."""
+    _, _, workflow = _make_draft(db)
+    start_workflow(db, workflow)
+    job = Job(
+        task_type="process_excel_final",
+        precision_level="normal",
+        pipeline="excel_final",
+        status="succeeded",
+        attempt=1,
+        progress=100,
+    )
+    db.add(job)
+    db.flush()
+    bind_stage_job(db, workflow, stage_code="source_upload", job=job)
+    db.commit()
+    job.attempt = 2
+    db.flush()
+    assert workflow_needs_sync(db, workflow) is False
+
+
+def test_workflow_needs_sync_true_when_drawing_output_json_missing(db: Session):
+    """A succeeded drawing_processing job without output_json must still sync,
+    so the split outcome is projected even if the run finished after the last
+    sync."""
+    _, _, workflow = _make_draft(db, "linux_production")
+    start_workflow(db, workflow)
+    job = Job(
+        task_type="classify_steel_dxf",
+        precision_level="normal",
+        pipeline="steel_dxf_classifier",
+        status="succeeded",
+        attempt=1,
+        progress=100,
+    )
+    db.add(job)
+    db.flush()
+    drawing_stage = next(
+        stage for stage in workflow.stages if stage.stage_code == "drawing_processing"
+    )
+    bind_stage_job(db, workflow, stage_code="drawing_processing", job=job)
+    db.commit()
+    assert drawing_stage.output_json is None
+    assert workflow_needs_sync(db, workflow) is True
+
+
+def test_workflow_needs_sync_false_when_all_stages_converged(db: Session):
+    """Once every stage mirror matches its job and the workflow has fully
+    converged (succeeded), the drift gate must report clean so read endpoints
+    stop paying for sync+commit on every poll."""
+    _, _, workflow = _make_draft(db, "linux_production")
+    start_workflow(db, workflow)
+    for stage in workflow.stages:
+        stage.status = "succeeded"
+        stage.progress = 100
+        stage.finished_at = business_now()
+    recompute_workflow(workflow)
+    db.commit()
+    assert workflow.status == "succeeded"
+    assert workflow_needs_sync(db, workflow) is False
 
 
 def test_recompute_progress_averages_stages(db: Session):

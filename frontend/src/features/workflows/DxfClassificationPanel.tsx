@@ -104,7 +104,7 @@ export function DxfClassificationPanel({
       return status === 'running'
         || stage?.status === 'queued'
         || stage?.status === 'running'
-        ? 2000
+        ? 4000
         : false;
     },
   });

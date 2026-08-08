@@ -83,7 +83,7 @@ function useNativeWorkflowDownload({
       return ACTIVE_EXPORT_STATUSES.has(
         query.state.data?.status ?? created?.status ?? '',
       )
-        ? 1000
+        ? 2000
         : false;
     },
   });
@@ -185,7 +185,7 @@ export function DrawingProcessingPanel({
       return runStatus === 'running'
         || stage?.status === 'queued'
         || stage?.status === 'running'
-        ? 2000
+        ? 4000
         : false;
     },
   });

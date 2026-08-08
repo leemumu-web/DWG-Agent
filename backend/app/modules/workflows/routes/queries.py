@@ -15,7 +15,7 @@ from app.modules.workflows.access import (
     WORKFLOW_STATUSES,
     load_workflow_detail,
 )
-from app.modules.workflows.job_sync import sync_workflow_from_jobs
+from app.modules.workflows.job_sync import sync_workflow_from_jobs, workflow_needs_sync
 from app.modules.workflows.models import WorkflowRun
 from app.modules.workflows.schemas import WORKFLOW_TYPES, WorkflowDetail, WorkflowRead
 from app.platform.database.pagination import paginate_scalars
@@ -119,6 +119,7 @@ def get_workflow(
 ):
     workflow = load_workflow_detail(db, workflow_id)
     require_project_member(db, current_user, workflow.project_id)
-    sync_workflow_from_jobs(db, workflow)
-    db.commit()
+    if workflow_needs_sync(db, workflow):
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
     return ok(WorkflowDetail.model_validate(workflow), request.state.request_id)

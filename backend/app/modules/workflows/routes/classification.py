@@ -23,7 +23,7 @@ from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member
 from app.modules.workflows.access import load_workflow_detail
-from app.modules.workflows.job_sync import sync_workflow_from_jobs
+from app.modules.workflows.job_sync import sync_workflow_from_jobs, workflow_needs_sync
 from app.modules.workflows.routes.archive import stream_registered_workflow_archive
 from app.platform.http.dependencies import get_db
 from app.platform.http.envelopes import ok
@@ -118,9 +118,10 @@ def get_dxf_classification(
 ):
     workflow = load_workflow_detail(db, workflow_id)
     require_project_member(db, current_user, workflow.project_id)
-    sync_workflow_from_jobs(db, workflow)
+    if workflow_needs_sync(db, workflow):
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
     run = latest_classification_run(db, workflow.id)
-    db.commit()
     if run is None:
         return ok(None, request.state.request_id)
     payload = build_classification_run_read(db, run)
@@ -143,9 +144,10 @@ def get_dxf_classification_group(
 ):
     workflow = load_workflow_detail(db, workflow_id)
     require_project_member(db, current_user, workflow.project_id)
-    sync_workflow_from_jobs(db, workflow)
+    if workflow_needs_sync(db, workflow):
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
     run = latest_classification_run(db, workflow.id)
-    db.commit()
     if run is None:
         raise AppHTTPException(
             404,
@@ -255,9 +257,10 @@ def download_dxf_classification_single_file(
 ):
     workflow = load_workflow_detail(db, workflow_id)
     require_project_member(db, current_user, workflow.project_id)
-    sync_workflow_from_jobs(db, workflow)
+    if workflow_needs_sync(db, workflow):
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
     run = latest_classification_run(db, workflow.id)
-    db.commit()
     if run is None:
         raise AppHTTPException(
             404,

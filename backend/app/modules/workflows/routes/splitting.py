@@ -39,7 +39,7 @@ from app.modules.identity.interface import CurrentUser
 from app.modules.operations.audit.interface import write_audit_log
 from app.modules.projects.interface import require_project_member, require_project_role
 from app.modules.workflows.access import WORKFLOW_WRITE_ROLES, load_workflow_detail
-from app.modules.workflows.job_sync import sync_workflow_from_jobs
+from app.modules.workflows.job_sync import sync_workflow_from_jobs, workflow_needs_sync
 from app.modules.workflows.routes.archive import stream_registered_workflow_archive
 from app.modules.workflows.schemas import (
     DrawingSelectiveExportCreate,
@@ -91,9 +91,10 @@ def get_drawing_processing(
 ):
     workflow = load_workflow_detail(db, workflow_id)
     require_project_member(db, current_user, workflow.project_id)
-    sync_workflow_from_jobs(db, workflow)
+    if workflow_needs_sync(db, workflow):
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
     run = latest_dxf_split_run(db, workflow.id)
-    db.commit()
     if not _is_current_drawing_attempt(workflow, run):
         return ok(None, request.state.request_id)
     return ok(build_dxf_split_run_read(db, run), request.state.request_id)
