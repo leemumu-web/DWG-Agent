@@ -95,31 +95,26 @@ def _convert_dwg_directory(
     logger.info("使用 ODA: %s", oda_exe)
     logger.info("转换 %d 个 DWG → DXF...", len(dwg_files))
 
+    # ODA 第一个参数是目录，不是单个文件，一次调用批量转换
+    try:
+        subprocess.run(
+            [oda_exe, str(input_dir), str(temp_dir), "ACAD2018", "DXF", "0", "1", "*.dwg"],
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("DWG 转换超时")
+    except Exception as exc:
+        logger.warning("DWG 转换异常: %s", exc)
+
+    # 检查产物
     converted = 0
     for dwg in dwg_files:
-        dwg_stem = dwg.stem
-        expected_dxf = temp_dir / f"{dwg_stem}.dxf"
-
-        # 跳过已存在的
+        expected_dxf = temp_dir / f"{dwg.stem}.dxf"
         if expected_dxf.exists():
             converted += 1
-            continue
-
-        try:
-            result = subprocess.run(
-                [oda_exe, str(dwg), str(temp_dir), "ACAD2018", "DXF", "0", "1", "*.dwg"],
-                capture_output=True, text=True, timeout=120,
-            )
-            # ODA 转换成功也返回 0，检查产物
-            if expected_dxf.exists():
-                converted += 1
-                logger.debug("  %s → %s", dwg.name, expected_dxf.name)
-            else:
-                logger.warning("  %s 转换失败（无 DXF 产物）", dwg.name)
-        except subprocess.TimeoutExpired:
-            logger.warning("  %s 转换超时", dwg.name)
-        except Exception as exc:
-            logger.warning("  %s 转换异常: %s", dwg.name, exc)
+            logger.debug("  %s → %s", dwg.name, expected_dxf.name)
+        else:
+            logger.warning("  %s 转换失败（无 DXF 产物）", dwg.name)
 
     logger.info("DWG 转换完成: %d/%d 成功", converted, len(dwg_files))
     return converted
