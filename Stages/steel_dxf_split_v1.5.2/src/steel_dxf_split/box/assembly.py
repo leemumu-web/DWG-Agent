@@ -1991,7 +1991,96 @@ def _proof_report(
         candidate.projection.source_conserved and bool(candidate.source_ids)
         for candidate in (*web_candidates, *flange_candidates)
     )
+
+    # A prismatic BOX has two identical webs.  When an end chamfer line leaks
+    # into the H-view polygonization, one web reads ~tf-2 short and the pair is
+    # unequal even though both flanges are plain rectangles (a straight box).
+    # Such a hypothesis is manufacturing-inconsistent and must not be
+    # auto-accepted; it is routed to manual review instead of shipping a short
+    # plate.  Skewed members (trapezoid flanges) keep their legitimately
+    # unequal webs.
+    flange_plates = tuple(
+        plate for plate in plates if plate.role.value.startswith("flange")
+    )
+    web_plates = tuple(
+        plate for plate in plates if plate.role.value.startswith("web")
+    )
+
+    def _plate_is_axis_rect(plate: PhysicalPlateIR) -> bool:
+        coordinates = list(contour_polygon(plate.outer_segments).exterior.coords)
+        count = len(coordinates) - 1
+        for index in range(count):
+            x1, y1 = coordinates[index]
+            x2, y2 = coordinates[(index + 1) % count]
+            if abs(x1 - x2) > 1.0 and abs(y1 - y2) > 1.0:
+                return False
+        return True
+
+    flanges_are_plain_rectangles = all(
+        _plate_is_axis_rect(plate) for plate in flange_plates
+    )
+    web_lengths = tuple(
+        (lambda b: abs(b[2] - b[0]))(
+            contour_polygon(plate.outer_segments).bounds
+        )
+        for plate in web_plates
+    )
+    webs_length_consistent = (
+        len(web_lengths) == 2 and abs(web_lengths[0] - web_lengths[1]) <= 2.0
+    )
+    web_length_delta = (
+        abs(web_lengths[0] - web_lengths[1]) if len(web_lengths) == 2 else 0.0
+    )
+    minimum_wall = min(
+        metadata.profile.value.web_thickness,
+        metadata.profile.value.flange_thickness,
+    )
+    # Only a chamfer-scale mismatch (~one wall thickness) is a manufacturing
+    # inconsistency worth rejecting.  A much larger web difference (e.g. a
+    # long member whose broken-section lines leak into the outline) is a
+    # separate real geometry case and must keep its review path.
+    chamfer_scale_uneven_webs = (
+        flanges_are_plain_rectangles
+        and 2.0 < web_length_delta <= 2.0 * minimum_wall
+    )
+    web_consistency_status = (
+        ProofStatus.CONFLICT
+        if chamfer_scale_uneven_webs
+        else ProofStatus.PASS
+    )
     obligations = (
+        ProofObligation(
+            obligation_id="BOX.PROOF.ASSEMBLY.WEB_LENGTH_CONSISTENCY",
+            status=web_consistency_status,
+            critical=True,
+            evidence=(
+                ProofEvidence(
+                    evidence_id="assembly:web-length-consistency",
+                    channel="manufacturing",
+                    source_ids=tuple(
+                        sorted(
+                            {
+                                source_id
+                                for plate in web_plates
+                                for source_id in plate.role_evidence.source_ids
+                            }
+                        )
+                    )
+                    or geometry_sources,
+                    measured=(
+                        f"web_lengths={tuple(round(v, 2) for v in web_lengths)};"
+                        f"flanges_plain={flanges_are_plain_rectangles}"
+                    ),
+                    expected="consistent_web_lengths",
+                    tolerance=2.0,
+                ),
+            ),
+            diagnostic_code=(
+                "BOX.ASSEMBLY.UNEVEN_WEB_LENGTHS"
+                if web_consistency_status is ProofStatus.CONFLICT
+                else None
+            ),
+        ),
         ProofObligation(
             obligation_id="BOX.PROOF.METADATA.UNIQUE",
             status=ProofStatus.PASS,
