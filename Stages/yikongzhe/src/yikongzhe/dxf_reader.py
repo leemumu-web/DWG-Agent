@@ -339,6 +339,10 @@ def read_dxf_directory(
     results: list[list[Part]] = []
 
     for filepath in sorted(directory.rglob("*.dxf")):
+        # 跳过合并图（包含所有板件的汇总图，会导致重复）
+        if "合并" in filepath.name:
+            logger.debug("跳过合并图: %s", filepath.name)
+            continue
         try:
             parts = read_dxf(filepath, encoding=encoding)
             if parts:
@@ -455,6 +459,17 @@ def _associate_entities_to_texts(
 
     if not part_infos:
         return []
+
+    # 若文件中存在含"腹"/"翼"的板件标签，则只保留这些标签，
+    # 过滤掉标题栏、图纸编号等非板件 TEXT（常见于 BH/BOX 图）。
+    has_web_flange = any("腹" in p["name"] or "翼" in p["name"] for p in part_infos)
+    if has_web_flange:
+        part_infos = [p for p in part_infos if "腹" in p["name"] or "翼" in p["name"]]
+        # 同一文件可能存在两套标签（带/不带 "p=" 前缀），
+        # 优先保留带 "p=" 前缀的主标签，避免重复。
+        p_prefixed = [p for p in part_infos if p["name"].startswith("p=")]
+        if p_prefixed:
+            part_infos = p_prefixed
 
     parts = [
         Part(
