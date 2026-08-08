@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.jobs.interface import AnalysisResult, Job
 from app.modules.workflows.artifacts import attach_artifact
 from app.modules.workflows.contracts import require_stage_outputs
 from app.modules.workflows.lifecycle import WORKFLOW_TERMINAL, recompute_workflow
-from app.modules.workflows.models import WorkflowRun
+from app.modules.workflows.models import WorkflowArtifact, WorkflowRun
 from app.modules.workflows.templates import get_stage_capability
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.time import business_now
@@ -201,3 +201,78 @@ def _skip_empty_split_stage(
 
 def _next_stage(workflow: WorkflowRun, sequence: int):
     return next((stage for stage in workflow.stages if stage.sequence == sequence + 1), None)
+
+
+def workflow_needs_sync(db: Session, workflow: WorkflowRun) -> bool:
+    """Read-only drift check: does any stage mirror lag its bound Job?
+
+    `sync_workflow_from_jobs` replays the whole projection and commits; read
+    endpoints should only run it when this check reports drift, instead of
+    paying the N+1 replay and a write transaction on every poll. This check
+    itself must not trigger lazy loads: `workflow.artifacts` is expected to be
+    loaded via `load_workflow_detail`'s selectinload, so it is filtered
+    in-memory rather than touching `stage.artifacts`.
+    """
+    artifacts_by_stage: dict[int, list[WorkflowArtifact]] = {}
+    for artifact in workflow.artifacts:
+        artifacts_by_stage.setdefault(artifact.stage_run_id, []).append(artifact)
+
+    # Two bulk queries for all bound jobs instead of a per-stage N+1.
+    # `AnalysisResult` has no attempt column (attempt lives in `result_json`),
+    # so the count includes stale attempts from retried jobs; that over-reports
+    # drift, which is safe (falls back to the legacy every-poll sync) rather
+    # than under-reporting it.
+    job_ids = [stage.job_id for stage in workflow.stages if stage.job_id is not None]
+    jobs = {
+        job.id: job for job in db.scalars(
+            select(Job).where(Job.id.in_(job_ids))
+        ).all()
+    } if job_ids else {}
+    result_counts = dict(
+        db.execute(
+            select(AnalysisResult.job_id, func.count())
+            .where(
+                AnalysisResult.job_id.in_(job_ids),
+                AnalysisResult.status == "succeeded",
+            )
+            .group_by(AnalysisResult.job_id)
+        ).all()
+    ) if job_ids else {}
+
+    for stage in workflow.stages:
+        if stage.job_id is None:
+            continue
+        job = jobs.get(stage.job_id)
+        if job is None or job.attempt != stage.job_attempt:
+            continue
+        if (
+            stage.status != job.status
+            or stage.progress != job.progress
+            or stage.error_code != job.error_code
+            or stage.error_message != job.error_message
+            or (job.started_at is not None and stage.started_at != job.started_at)
+            or stage.finished_at != job.finished_at
+        ):
+            return True
+        if job.status != "succeeded":
+            continue
+        stage_artifacts = [
+            artifact
+            for artifact in artifacts_by_stage.get(stage.id, [])
+            if isinstance(artifact.metadata_json, dict)
+            and artifact.metadata_json.get("job_id") == stage.job_id
+            and artifact.metadata_json.get("job_attempt") == stage.job_attempt
+        ]
+        result_count = result_counts.get(job.id, 0)
+        if result_count and len(stage_artifacts) < result_count:
+            return True
+        # `sync` also writes drawing_processing output_json when the split run
+        # reaches a terminal outcome; without this check a run that finished
+        # after the last sync would never be projected.
+        if stage.stage_code == "drawing_processing" and stage.output_json is None:
+            return True
+        # A succeeded job also advances the next pending stage in sync.
+        next_stage = _next_stage(workflow, stage.sequence)
+        if next_stage is not None and next_stage.status == "pending":
+            return True
+    return False

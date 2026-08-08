@@ -55,19 +55,25 @@ function useNativeWorkflowDownload({
 }) {
   const { message } = App.useApp();
   const downloadCtrl = useDownload();
+  // `cancel` is a stable useCallback identity; the control object itself is
+  // recreated on every render (its `active` field changes), so depending on
+  // the whole object here would re-run this effect after every render and
+  // abort every freshly started download. Only reset when the workflow
+  // changes.
+  const cancelInFlight = downloadCtrl.cancel;
   const [created, setCreated] = useState<WorkflowBatchExport | null>(null);
   const [launchFailed, setLaunchFailed] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<TransferProgress | null>(null);
   const notifiedStatus = useRef<string | null>(null);
   useEffect(() => {
-    downloadCtrl.cancel();
+    cancelInFlight();
     setCreated(null);
     setLaunchFailed(false);
     setDownloading(false);
     setProgress(null);
     notifiedStatus.current = null;
-  }, [downloadCtrl, workflowId]);
+  }, [cancelInFlight, workflowId]);
   const statusQ = useQuery({
     queryKey: ['workflow-native-export', workflowId, created?.export_uid],
     queryFn: () => getWorkflowBatchExport(workflowId, created!.export_uid),
@@ -77,7 +83,7 @@ function useNativeWorkflowDownload({
       return ACTIVE_EXPORT_STATUSES.has(
         query.state.data?.status ?? created?.status ?? '',
       )
-        ? 1000
+        ? 2000
         : false;
     },
   });
@@ -179,7 +185,7 @@ export function DrawingProcessingPanel({
       return runStatus === 'running'
         || stage?.status === 'queued'
         || stage?.status === 'running'
-        ? 2000
+        ? 4000
         : false;
     },
   });
