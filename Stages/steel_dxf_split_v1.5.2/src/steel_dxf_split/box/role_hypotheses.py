@@ -413,6 +413,14 @@ def _bounded_partition_candidate_ids(
     partition only when a source-related candidate contains it, their boundary
     drift is bounded by wall thickness, and the material difference stays
     below two percent.  A genuinely different web course therefore survives.
+
+    The rejection is a least fixed point.  A candidate may only be rejected by
+    a container that is itself retained: an intermediate overlay face (the
+    union of two real webs) must not reject one of the real webs before it is
+    itself removed, otherwise a shallow skew end collapses two physical plates
+    into one.  A *nearly coincident* container (a distinct polygonization of
+    the same physical face) still participates even when rejected, so two
+    spellings of one face never both survive the fixed point.
     """
 
     maximum_boundary_drift = (
@@ -423,41 +431,69 @@ def _bounded_partition_candidate_ids(
         + 1.0
     )
     rejected: set[str] = set()
-    for candidate in candidates:
-        candidate_polygon = contour_polygon(candidate.contour)
-        candidate_sources = set(candidate.source_ids)
-        for container in candidates:
-            if container.candidate_id == candidate.candidate_id:
-                continue
-            container_polygon = contour_polygon(container.contour)
-            area_tolerance = max(
-                1e-6,
-                container.projection.grid_size_mm**2,
-                candidate.projection.grid_size_mm**2,
-            )
-            if container_polygon.area <= candidate_polygon.area + area_tolerance:
-                continue
-            if (
-                container_polygon.hausdorff_distance(candidate_polygon)
-                > maximum_boundary_drift
-            ):
-                continue
-            if (
-                container_polygon.symmetric_difference(candidate_polygon).area
-                / max(container_polygon.area, candidate_polygon.area, 1.0)
-                > 0.02
-            ):
-                continue
-            container_sources = set(container.source_ids)
-            source_union = container_sources | candidate_sources
-            if (
-                not source_union
-                or len(container_sources & candidate_sources) / len(source_union)
-                < 0.25
-            ):
-                continue
-            rejected.add(candidate.candidate_id)
+    # The rejection operator is anti-monotone in ``rejected`` (a container that
+    # is itself removed stops rejecting others), so a bare fixed-point loop can
+    # in principle oscillate forever between two sets.  Rejection strictly
+    # follows decreasing area, so the fixed point is reached within
+    # ``len(candidates)`` additions; the +2 bound leaves headroom and
+    # guarantees termination on any future corpus.
+    for _iteration in range(len(candidates) + 2):
+        newly_rejected: set[str] = set()
+        for candidate in candidates:
+            candidate_polygon = contour_polygon(candidate.contour)
+            candidate_sources = set(candidate.source_ids)
+            for container in candidates:
+                if container.candidate_id == candidate.candidate_id:
+                    continue
+                if container.candidate_id in rejected:
+                    rejected_container_polygon = contour_polygon(container.contour)
+                    if (
+                        rejected_container_polygon.symmetric_difference(
+                            candidate_polygon
+                        ).area
+                        / max(
+                            rejected_container_polygon.area,
+                            candidate_polygon.area,
+                            1.0,
+                        )
+                        > 0.005
+                    ):
+                        # The rejected container is genuinely different material;
+                        # it must not decide this candidate's fate.
+                        continue
+                    # Nearly coincident: still a spelling of the same face.
+                container_polygon = contour_polygon(container.contour)
+                area_tolerance = max(
+                    1e-6,
+                    container.projection.grid_size_mm**2,
+                    candidate.projection.grid_size_mm**2,
+                )
+                if container_polygon.area <= candidate_polygon.area + area_tolerance:
+                    continue
+                if (
+                    container_polygon.hausdorff_distance(candidate_polygon)
+                    > maximum_boundary_drift
+                ):
+                    continue
+                if (
+                    container_polygon.symmetric_difference(candidate_polygon).area
+                    / max(container_polygon.area, candidate_polygon.area, 1.0)
+                    > 0.02
+                ):
+                    continue
+                container_sources = set(container.source_ids)
+                source_union = container_sources | candidate_sources
+                if (
+                    not source_union
+                    or len(container_sources & candidate_sources) / len(source_union)
+                    < 0.25
+                ):
+                    continue
+                newly_rejected.add(candidate.candidate_id)
+                break
+        if newly_rejected == rejected:
             break
+        rejected = newly_rejected
     return tuple(sorted(rejected))
 
 
@@ -527,6 +563,7 @@ def enumerate_web_role_pairs(
         if candidate.candidate_id not in rejected_partitions
     )
     rejected_short_courses: set[str] = set()
+    rejected_slivers: tuple[str, ...] = ()
     if not openings:
         minimum_span = max(
             BOX_DRAFTING_RESOLUTION_MM * 2.0,
@@ -665,10 +702,31 @@ def enumerate_web_role_pairs(
             for pierced_candidate, hidden_candidate in product(pierced, hidden):
                 pairs.append((hidden_candidate, pierced_candidate))
     else:
+        # Drop sub-drafting face fragments that survive the partition filters.
+        # A skewed end or a small overlay detail can polygonize into a short
+        # strip whose area is a tiny fraction of the real web.  The 0.18 floor
+        # mirrors the single-pair selector, and is far below any real web of a
+        # prismatic BOX (both webs share length x box-height), so it only
+        # removes strips that could never be a physical plate.
+        maximum_area = max(candidate.area for candidate in eligible)
+        plausible = tuple(
+            candidate
+            for candidate in eligible
+            if candidate.area >= maximum_area * 0.18
+        )
+        rejected_slivers = tuple(
+            sorted(
+                candidate.candidate_id
+                for candidate in eligible
+                if candidate.area < maximum_area * 0.18
+            )
+        )
+        if not plausible:
+            plausible = eligible
         pair_source = (
-            combinations_with_replacement(eligible, 2)
-            if len(eligible) == 1
-            else combinations(eligible, 2)
+            combinations_with_replacement(plausible, 2)
+            if len(plausible) == 1
+            else combinations(plausible, 2)
         )
         for first, second in pair_source:
             pairs.append(_web_source_authority_order(first, second, view))
@@ -695,6 +753,10 @@ def enumerate_web_role_pairs(
                 *(
                     f"BOX.ROLE.WEB.SUB_DRAFTING_SLIVER_REJECTED:{candidate_id}"
                     for candidate_id in sorted(rejected_short_courses)
+                ),
+                *(
+                    f"BOX.ROLE.WEB.AREA_SLIVER_REJECTED:{candidate_id}"
+                    for candidate_id in rejected_slivers
                 ),
                 *(
                     (

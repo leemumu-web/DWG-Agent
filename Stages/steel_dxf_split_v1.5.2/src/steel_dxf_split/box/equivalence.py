@@ -285,33 +285,54 @@ def group_equivalent_plate_pairs(
     *,
     tolerance_mm: float = 1e-5,
 ) -> tuple[PlateOutputGroup, ...]:
-    """Merge only the two physical BOX pairs after complete equivalence."""
+    """Merge only the physical BOX flange pair after complete equivalence.
+
+    The two webs are always two independent physical plates (upper/lower web)
+    and are never merged into one quantity-2 output, even when their outer
+    contour and openings are identical.  A web can carry side-specific openings
+    and each web must be cut and sourced separately.
+    """
 
     materialized = tuple(plates)
     by_role = {plate.role: plate for plate in materialized}
     if len(by_role) != 4 or set(by_role) != set(PhysicalPlateRole):
         raise ValueError("equivalence grouping requires all four physical BOX roles")
-    pairs = (
-        (PhysicalPlateRole.WEB_LEFT, PhysicalPlateRole.WEB_RIGHT),
-        (PhysicalPlateRole.FLANGE_TOP, PhysicalPlateRole.FLANGE_BOTTOM),
-    )
     groups: list[PlateOutputGroup] = []
-    for first_role, second_role in pairs:
-        first = by_role[first_role]
-        second = by_role[second_role]
-        if plates_equivalent(first, second, tolerance=tolerance_mm):
-            groups.append(
-                PlateOutputGroup(
-                    group_id=f"{first_role.value}+{second_role.value}",
-                    roles=(first_role, second_role),
-                    physical_plates=(first, second),
-                    representative=first,
-                    quantity=2,
-                    merge_authorized=True,
-                    equivalence_tolerance_mm=tolerance_mm,
-                )
+    for role, plate in (
+        (PhysicalPlateRole.WEB_LEFT, by_role[PhysicalPlateRole.WEB_LEFT]),
+        (PhysicalPlateRole.WEB_RIGHT, by_role[PhysicalPlateRole.WEB_RIGHT]),
+    ):
+        groups.append(
+            PlateOutputGroup(
+                group_id=role.value,
+                roles=(role,),
+                physical_plates=(plate,),
+                representative=plate,
+                quantity=1,
+                merge_authorized=False,
+                equivalence_tolerance_mm=tolerance_mm,
             )
-            continue
+        )
+    flange_roles = (
+        PhysicalPlateRole.FLANGE_TOP,
+        PhysicalPlateRole.FLANGE_BOTTOM,
+    )
+    first_role, second_role = flange_roles
+    first = by_role[first_role]
+    second = by_role[second_role]
+    if plates_equivalent(first, second, tolerance=tolerance_mm):
+        groups.append(
+            PlateOutputGroup(
+                group_id=f"{first_role.value}+{second_role.value}",
+                roles=(first_role, second_role),
+                physical_plates=(first, second),
+                representative=first,
+                quantity=2,
+                merge_authorized=True,
+                equivalence_tolerance_mm=tolerance_mm,
+            )
+        )
+    else:
         for role, plate in ((first_role, first), (second_role, second)):
             groups.append(
                 PlateOutputGroup(

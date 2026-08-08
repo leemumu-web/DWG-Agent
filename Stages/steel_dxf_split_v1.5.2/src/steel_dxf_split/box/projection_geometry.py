@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from heapq import heappop, heappush
-from math import atan, atan2, ceil, cos, degrees, hypot, radians, sin, tan
+from math import atan, atan2, ceil, cos, degrees, hypot, isfinite, radians, sin, tan
 
 from shapely import set_precision
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
@@ -1428,9 +1428,18 @@ def _candidate_bucket(
     candidate: ProjectionFaceCandidate,
     *,
     target_transverse_mm: float,
-) -> tuple[float, ...]:
-    """Coarsely group numerical face partitions without O(n²) geometry calls."""
+) -> tuple[float, ...] | None:
+    """Coarsely group numerical face partitions without O(n²) geometry calls.
 
+    Returns ``None`` when the candidate polygon carries no finite bounds
+    (degenerate or NaN geometry), so callers skip it instead of crashing on a
+    ``round(NaN)``.
+    """
+
+    if not candidate.polygon.is_valid or not all(
+        isfinite(float(value)) for value in candidate.polygon.bounds
+    ):
+        return None
     bounds = tuple(
         round(float(value) / 0.05) * 0.05 for value in candidate.polygon.bounds
     )
@@ -1684,6 +1693,8 @@ def enumerate_straight_inner_band_faces(
                     candidate,
                     target_transverse_mm=target_transverse_mm,
                 )
+                if bucket is None:
+                    continue
                 existing = accepted_by_bucket.get(bucket)
                 if existing is None or candidate.polygon.area > existing.polygon.area:
                     accepted_by_bucket[bucket] = candidate
@@ -1995,6 +2006,8 @@ def search_connected_inner_course_cycles(
                         candidate,
                         target_transverse_mm=target_transverse_mm,
                     )
+                    if bucket is None:
+                        continue
                     existing = accepted_by_bucket.get(bucket)
                     if (
                         existing is None
@@ -2353,6 +2366,8 @@ def enumerate_endpoint_cap_path_cycles(
                     candidate,
                     target_transverse_mm=target_transverse_mm,
                 )
+                if bucket is None:
+                    continue
                 existing = accepted_by_bucket.get(bucket)
                 if existing is None or candidate.polygon.area > existing.polygon.area:
                     accepted_by_bucket[bucket] = candidate
@@ -2506,6 +2521,8 @@ def enumerate_source_backed_straight_overlay_cycles(
                 candidate,
                 target_transverse_mm=target_transverse_mm,
             )
+            if bucket is None:
+                continue
             existing = by_bucket.get(bucket)
             if (
                 existing is None
@@ -2733,6 +2750,8 @@ def enumerate_projection_course_virtual_cycles(
             candidate,
             target_transverse_mm=target_transverse_mm,
         )
+        if bucket is None:
+            continue
         existing = accepted_by_bucket.get(bucket)
         if existing is None or candidate.polygon.area > existing.polygon.area:
             accepted_by_bucket[bucket] = candidate
@@ -2864,6 +2883,8 @@ def search_source_conserving_face_unions(
             candidate,
             target_transverse_mm=target_transverse_mm,
         )
+        if bucket is None:
+            return
         existing = accepted_by_bucket.get(bucket)
         if existing is None:
             accepted_by_bucket[bucket] = candidate

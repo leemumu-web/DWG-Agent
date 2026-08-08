@@ -81,6 +81,31 @@ def _infer_geometry_scale(
         )
     ):
         return expected_factor
+    # Fall back to a geometry-driven search.  The drawing scale field may be
+    # unreliable (e.g. a sheet-wide value that does not match the member view),
+    # but every Part projection is still a rigid uniform scaling of the
+    # nominal BOX dimensions.  Candidate factors are the ratios of the nominal
+    # length/height/width to each observed projection span; the first one that
+    # makes all four section spans consistent is adopted.  ``_supports_geometry_scale``
+    # requires every dimension to match, so a stray ratio cannot be accepted.
+    candidates: set[float] = {1.0, expected_factor}
+    nominal_length = metadata.nominal_length.value
+    height = metadata.profile.value.height
+    width = metadata.profile.value.width
+    for view in views:
+        for span in (
+            view.frame.longitudinal_span,
+            view.frame.transverse_span,
+        ):
+            if span <= 0.0:
+                continue
+            for expected in (nominal_length, height, width):
+                factor = expected / span
+                if factor > 0.0 and abs(factor - 1.0) > 1e-9:
+                    candidates.add(factor)
+    for factor in sorted(candidates, reverse=True):
+        if _supports_geometry_scale(views, metadata, factor):
+            return factor
     return 1.0
 
 

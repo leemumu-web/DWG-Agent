@@ -50,6 +50,7 @@ from .projection_geometry import (
     ProjectionFaceCandidate,
 )
 from .proofs import (
+    ProofDisposition,
     ProofEvidence,
     ProofObligation,
     ProofReport,
@@ -2715,12 +2716,29 @@ def solve_complete_box(
                 )
     hypotheses.sort(
         key=lambda hypothesis: (
+            # A prismatic BOX has two identical webs.  A skewed-end chamfer
+            # line can leak into one view's polygonization and read one web
+            # shorter by ~tf-2; the equal-length hypothesis is then the
+            # physically correct one even when its H/B direction disagrees
+            # with the PartMark leader (square members are direction-free and
+            # non-square members are already pinned by the section-span score).
+            -float(
+                abs(
+                    hypothesis.web_candidates[0].longitudinal_span
+                    - hypothesis.web_candidates[1].longitudinal_span
+                )
+                <= 1.0
+            ),
             any(
                 obligation.obligation_id == "BOX.PROOF.VIEW.PART_MARK_H_ROLE"
                 and obligation.status is ProofStatus.CONFLICT
                 for obligation in hypothesis.proof_report.obligations
             ),
             not hypothesis.proof_report.search_complete,
+            # A hypothesis whose critical proof obligations already conflict
+            # must never surface as the search ``best`` ahead of a complete,
+            # auto-acceptable candidate with the same score.
+            hypothesis.proof_report.disposition is not ProofDisposition.AUTO_ACCEPT,
             hypothesis.rank_key,
             hypothesis.assignment.signature,
             hypothesis.mir.fingerprint,
