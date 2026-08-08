@@ -163,7 +163,7 @@ EXPECTED_PRODUCTION_STAGES = [
         "implemented",
         "excel_stage2",
         ("stage1_excel", "classified_dxf"),
-        ("bh_setback_excel", "stage2_excel"),
+        ("bh_setback_excel", "box_setback_excel", "stage2_excel"),
         ("bh_setback_excel", "stage2_excel"),
     ),
     (

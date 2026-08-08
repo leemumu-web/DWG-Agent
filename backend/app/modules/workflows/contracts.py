@@ -31,6 +31,7 @@ EXCEL_ARTIFACT_TYPES = frozenset(
         "stage1_excel",
         "stage2_excel",
         "bh_setback_excel",
+        "box_setback_excel",
         "delivery_excel",
         "bh_split_ledger",
     }

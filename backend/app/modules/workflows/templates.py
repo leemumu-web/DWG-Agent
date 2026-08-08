@@ -128,7 +128,7 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 execution_mode="automated",
                 execution_kind="excel_stage2",
                 required_inputs=("stage1_excel", "classified_dxf"),
-                artifact_types=("bh_setback_excel", "stage2_excel"),
+                artifact_types=("bh_setback_excel", "box_setback_excel", "stage2_excel"),
                 required_outputs=("bh_setback_excel", "stage2_excel"),
             ),
             _stage(

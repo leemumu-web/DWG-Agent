@@ -133,6 +133,7 @@ def test_linux_production_template_exposes_honest_capabilities():
     ]
     assert stages["excel_stage2"].artifact_types == [
         "bh_setback_excel",
+        "box_setback_excel",
         "stage2_excel",
     ]
     assert stages["excel_stage2"].required_outputs == [
@@ -2970,6 +2971,64 @@ def test_stage2_sync_does_not_combine_previous_and_current_attempt_outputs(
     assert stage.status == "failed"
     assert stage.error_code == "WORKFLOW_STAGE_OUTPUT_INCOMPLETE"
     assert workflow.current_stage == "excel_stage2"
+
+
+def test_stage2_sync_preserves_box_setback_excel_artifact_type(db, tmp_path, monkeypatch):
+    # 回归：BOX 左右进读取结果必须登记为 box_setback_excel，而不是被 job_sync
+    # 回退成 bh_setback_excel。此前 excel_stage2 模板未声明 box_setback_excel，
+    # 导致 BOX 结果在前端无法作为独立产物下载。
+    _, project, workflow, *_ = _stage2_ready_workflow(db, tmp_path, monkeypatch)
+    job = Job(
+        project_id=project.id,
+        created_by=workflow.created_by,
+        task_type="process_excel_stage2",
+        pipeline="excel_stage2",
+        status="queued",
+        attempt=1,
+        progress=0,
+        precision_level="normal",
+        params_json={},
+    )
+    db.add(job)
+    db.flush()
+    workflow_service.bind_stage_job(db, workflow, stage_code="excel_stage2", job=job)
+
+    # 三个正式结果：BH 读取表、BOX 读取表、深化后的 stage2 Excel
+    for artifact_type, name in (
+        ("bh_setback_excel", "BH左右进读取表.xlsx"),
+        ("box_setback_excel", "BOX左右进读取表.xlsx"),
+        ("stage2_excel", "stage2.xlsx"),
+    ):
+        out = _stored_file(db, name=name)
+        db.add(
+            AnalysisResult(
+                job_id=job.id,
+                result_type="process_excel_stage2",
+                result_file_id=out.id,
+                status="succeeded",
+                result_json={
+                    "workflow_artifact_type": artifact_type,
+                    "job_attempt": 1,
+                },
+            )
+        )
+    job.status = "succeeded"
+    job.progress = 100
+    db.flush()
+
+    workflow_service.sync_workflow_from_jobs(db, workflow)
+
+    stage = next(item for item in workflow.stages if item.stage_code == "excel_stage2")
+    assert stage.status == "succeeded"
+    stage_artifacts = [
+        artifact
+        for artifact in workflow.artifacts
+        if artifact.stage_run_id == stage.id
+    ]
+    types = {artifact.artifact_type for artifact in stage_artifacts}
+    assert "box_setback_excel" in types
+    assert "bh_setback_excel" in types
+    assert "stage2_excel" in types
 
 
 def test_linux_stage_rejects_artifact_type_outside_declared_contract(db):
