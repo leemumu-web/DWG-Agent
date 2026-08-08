@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.modules.dxf_classification.models import DxfClassificationRun
+from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.dxf_splitting.models import DxfSplitRun
 from app.modules.dxf_splitting.schemas import DxfSplitItemRead, DxfSplitRunRead
 from app.modules.files.interface import FileRead, StoredFile
@@ -71,18 +72,34 @@ def build_dxf_split_run_read(
             "拆板批次引用的分类运行不可用。",
             {"classification_run_id": run.classification_run_id},
         )
-    classification_only_type_counts: dict[str, int] = {}
-    for item in classification.items:
-        if (
-            item.disposition == "classified"
-            and item.part_type in {"BH", "BOX"}
-            and item.next_stage_eligible
-        ):
-            continue
-        label = item.part_type or item.disposition or "unclassified"
-        classification_only_type_counts[label] = (
-            classification_only_type_counts.get(label, 0) + 1
-        )
+    # Aggregate classification-only types in the database instead of loading
+    # and iterating every classification item on each poll. `notin_` yields
+    # NULL for a NULL part_type, which would drop the row in a WHERE clause;
+    # coalesce it to True so NULL part types are kept, matching the previous
+    # Python `part_type in {"BH", "BOX"}` check.
+    kept = or_(
+        DxfClassificationItem.disposition != "classified",
+        func.coalesce(DxfClassificationItem.part_type.notin_(("BH", "BOX")), True),
+        DxfClassificationItem.next_stage_eligible.is_(False),
+    )
+    label = func.coalesce(
+        func.nullif(DxfClassificationItem.part_type, ""),
+        DxfClassificationItem.disposition,
+        "unclassified",
+    )
+    classification_only_type_counts = {
+        name: int(count)
+        for name, count in db.execute(
+            select(label, func.count(DxfClassificationItem.id))
+            .where(
+                and_(
+                    DxfClassificationItem.run_id == classification.id,
+                    kept,
+                )
+            )
+            .group_by(label)
+        ).all()
+    }
     return DxfSplitRunRead(
         id=run.id,
         workflow_run_id=run.workflow_run_id,

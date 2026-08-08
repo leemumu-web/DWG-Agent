@@ -79,7 +79,7 @@ export function WorkflowDetailPage() {
     queryKey: ['workflow', workflowId],
     queryFn: () => getWorkflow(workflowId),
     enabled: Number.isInteger(workflowId) && workflowId > 0,
-    refetchInterval: (query) => ['running'].includes(query.state.data?.status ?? '') ? 2500 : false,
+    refetchInterval: (query) => ['running'].includes(query.state.data?.status ?? '') ? 4000 : false,
   });
   const templatesQ = useQuery({
     queryKey: ['workflow-templates'],

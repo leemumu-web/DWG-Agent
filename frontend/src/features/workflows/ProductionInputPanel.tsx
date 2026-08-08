@@ -113,7 +113,7 @@ export function ProductionInputPanel({
       return getWorkflowInputBatch(workflowId, itemPage, INPUT_ITEMS_PAGE_SIZE);
     },
     placeholderData: (previous) => previous,
-    refetchInterval: (query) => ACTIVE_BATCH.has(query.state.data?.status ?? '') ? 2500 : false,
+    refetchInterval: (query) => ACTIVE_BATCH.has(query.state.data?.status ?? '') ? 4000 : false,
   });
   const batch = batchQ.data;
   const editable = Boolean(sourceIntakeActive && batch?.status !== 'frozen');
