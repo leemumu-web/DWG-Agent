@@ -273,6 +273,35 @@ def read_ezdxf(path: Path) -> DrawingData:
             None,
         )
 
+    # Tekla 板零件图（BYSJ@板零件图@*）把 BOX 规格、材质等料表文字直接放在
+    # modelspace（而非块内），此前被完全漏读导致 ERROR_BOX_SPEC_NOT_FOUND。
+    # modelspace 顶层实体没有 INSERT 变换，identity 即可。
+    for entity in doc.modelspace():
+        kind = entity.dxftype()
+        if kind not in _TEXT_KINDS:
+            continue
+        layer = entity.dxf.get("layer", "0")
+        try:
+            if kind == "MTEXT":
+                text = entity.plain_text()
+                insert_point = (float(entity.dxf.insert.x), float(entity.dxf.insert.y))
+            else:
+                text = entity.dxf.text
+                insert_point = (float(entity.dxf.insert.x), float(entity.dxf.insert.y))
+        except Exception:
+            continue
+        point = transform_point(insert_point, (0.0, 0.0), 0.0, (1.0, 1.0))
+        primitive = Primitive(
+            kind="TEXT",
+            layer=layer,
+            points=[point],
+            source_block="MODELSPACE",
+            source_handle=entity.dxf.get("handle", ""),
+            text=text,
+        )
+        primitives.append(primitive)
+        texts.append(primitive)
+
     return DrawingData(
         path=path,
         primitives=primitives,
