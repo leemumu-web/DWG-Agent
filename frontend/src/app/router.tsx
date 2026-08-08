@@ -19,6 +19,7 @@ const WorkflowsPage = lazy(() => import('../features/workflows').then((module) =
 const WorkflowDetailPage = lazy(() => import('../features/workflows').then((module) => ({ default: module.WorkflowDetailPage })));
 const InfrastructurePage = lazy(() => import('../features/operations').then((module) => ({ default: module.InfrastructurePage })));
 const RemnantInventoryPage = lazy(() => import('../features/remnant-inventory').then((module) => ({ default: module.RemnantInventoryPage })));
+const PlateClassificationPage = lazy(() => import('../features/plate-classification').then((module) => ({ default: module.PlateClassificationPage })));
 
 export function AppRouter() {
   return (
@@ -41,6 +42,7 @@ export function AppRouter() {
               <Route path="dxf2dwg" element={<Dxf2DwgPage />} />
               <Route path="dxf2excel" element={<Dxf2ExcelPage />} />
               <Route path="excel-final" element={<ExcelFinalPage />} />
+              <Route path="plate-classification" element={<PlateClassificationPage />} />
             </Route>
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/data-console" element={<InfrastructurePage />} />

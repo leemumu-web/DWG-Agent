@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.modules.automation.agent.routes import router as agent_router
 from app.modules.excel_processing.routes.router import router as excel_processing_router
+from app.modules.plate_classification.router import router as plate_classification_router
 from app.modules.files.routes.router import router as files_router
 from app.modules.identity.routes.router import roles_router, sessions_router, users_router
 from app.modules.jobs.routes.router import jobs_router, results_router, reviews_router
@@ -65,3 +66,8 @@ api_router.include_router(
     import_items_router, prefix="/remnant-import-items", tags=["remnant-imports"]
 )
 api_router.include_router(remnants_router, prefix="/remnants", tags=["remnants"])
+api_router.include_router(
+    plate_classification_router,
+    prefix="/plate-classification",
+    tags=["plate-classification"],
+)

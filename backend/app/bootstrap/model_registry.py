@@ -8,6 +8,7 @@ from types import ModuleType
 def load_models() -> tuple[ModuleType, ...]:
     """Import every model owner exactly once and return the loaded modules."""
     from app.modules.automation.agent.models import memory as agent_memory
+from app.modules.plate_classification import models as plate_classification
     from app.modules.automation.agent.models import runs as agent_run
     from app.modules.dxf_classification import models as dxf_classification
     from app.modules.dxf_splitting import models as dxf_splitting
@@ -30,6 +31,7 @@ def load_models() -> tuple[ModuleType, ...]:
         daily_archive,
         drawing,
         dxf_classification,
+        plate_classification,
         dxf_splitting,
         excel_processing,
         files,
