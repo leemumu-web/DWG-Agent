@@ -94,13 +94,12 @@ def classify_dxf(parts: list[Part]) -> DxfResult:
     """对单个 DXF 文件的所有板件执行三步分类。
 
     编排逻辑：
-    1. 分离腹板和翼板。
-    2. 腹板 → classify_part_shape_and_hole() 得到 shape + hole。
-    3. 腹板 → detect_bend() 得到折弯状态。
-    4. 翼板 → classify_part_shape_and_hole() 得到 shape + hole。
-    5. 将腹板的折弯状态传递给所有翼板。
-    6. 腹板的 bend 固定为 WITHOUT_BEND。
-    7. 查表得到最终类别名。
+    1. 单零件 → 不检测折弯，bend = WITHOUT_BEND。
+    2. 存在翼板（is_web=False）→ BH/BOX 模式：
+       - 腹板检测折弯，翼板继承腹板折弯状态。
+       - 腹板的 bend 固定为 WITHOUT_BEND。
+    3. 通用多零件 → 每个零件独立检测折弯。
+    4. 查表得到最终类别名。
 
     Args:
         parts: 单个 DXF 文件的 Part 列表。
@@ -114,48 +113,61 @@ def classify_dxf(parts: list[Part]) -> DxfResult:
     dxf_file = parts[0].dxf_file
     webs = [p for p in parts if p.is_web]
     flanges = [p for p in parts if not p.is_web]
+    results: list[PartClassification] = []
 
-    # 检测腹板折弯状态
-    web_has_bend = False
-    if webs:
+    if len(parts) == 1:
+        # 单零件 DXF → 不检测折弯
+        part = parts[0]
+        shape, hole = classify_part_shape_and_hole(part)
+        bend = BendType.WITHOUT_BEND
+        results.append(PartClassification(
+            part_name=part.name,
+            dxf_file=dxf_file,
+            shape=shape,
+            hole=hole,
+            bend=bend,
+            category=build_category_name(shape, hole, bend),
+        ))
+    elif flanges:
+        # BH/BOX 模式：腹板检测折弯，翼板继承
+        web_has_bend = False
         for web in webs:
             if detect_bend(web):
                 web_has_bend = True
                 break
 
-    results: list[PartClassification] = []
+        for web in webs:
+            shape, hole = classify_part_shape_and_hole(web)
+            bend = BendType.WITHOUT_BEND
+            results.append(PartClassification(
+                part_name=web.name, dxf_file=dxf_file,
+                shape=shape, hole=hole, bend=bend,
+                category=build_category_name(shape, hole, bend),
+            ))
 
-    # 处理腹板
-    for web in webs:
-        shape, hole = classify_part_shape_and_hole(web)
-        bend = BendType.WITHOUT_BEND  # 腹板永远为无折
-        category = build_category_name(shape, hole, bend)
-        results.append(PartClassification(
-            part_name=web.name,
-            dxf_file=dxf_file,
-            shape=shape,
-            hole=hole,
-            bend=bend,
-            category=category,
-        ))
-
-    # 处理翼板：统一继承腹板的折弯状态
-    for flange in flanges:
-        shape, hole = classify_part_shape_and_hole(flange)
-        bend = BendType.WITH_BEND if web_has_bend else BendType.WITHOUT_BEND
-        category = build_category_name(shape, hole, bend)
-        results.append(PartClassification(
-            part_name=flange.name,
-            dxf_file=dxf_file,
-            shape=shape,
-            hole=hole,
-            bend=bend,
-            category=category,
-        ))
+        for flange in flanges:
+            shape, hole = classify_part_shape_and_hole(flange)
+            bend = BendType.WITH_BEND if web_has_bend else BendType.WITHOUT_BEND
+            results.append(PartClassification(
+                part_name=flange.name, dxf_file=dxf_file,
+                shape=shape, hole=hole, bend=bend,
+                category=build_category_name(shape, hole, bend),
+            ))
+    else:
+        # 通用多零件模式：每个零件独立检测折弯
+        for part in parts:
+            shape, hole = classify_part_shape_and_hole(part)
+            has_bend = detect_bend(part)
+            bend = BendType.WITH_BEND if has_bend else BendType.WITHOUT_BEND
+            results.append(PartClassification(
+                part_name=part.name, dxf_file=dxf_file,
+                shape=shape, hole=hole, bend=bend,
+                category=build_category_name(shape, hole, bend),
+            ))
 
     logger.info(
-        "分类 %s: %d 块板, 腹板折弯=%s",
-        dxf_file, len(results), web_has_bend,
+        "分类 %s: %d 块板, 单零件=%s",
+        dxf_file, len(results), len(parts) == 1,
     )
     return DxfResult(dxf_file=dxf_file, parts=results)
 

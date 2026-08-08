@@ -443,11 +443,10 @@ def _associate_entities_to_texts(
         if not name:
             continue
         pos = (t.dxf.insert.x, t.dxf.insert.y)
-        is_web = "腹" in name
-        is_flange = "翼" in name
-        if not is_web and not is_flange:
-            logger.debug("跳过非板件文本: %s", name)
-            continue
+        # 腹板 → is_web=True（主件）
+        # 翼板 → is_web=False（从件，继承腹板折弯）
+        # 其他 → is_web=True（独立主件）
+        is_web = "腹" in name or "翼" not in name
         part_infos.append({
             "name": name,
             "pos": pos,
