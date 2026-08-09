@@ -133,17 +133,15 @@ def classify_dxf(parts: list[Part]) -> DxfResult:
     results: list[PartClassification] = []
 
     if len(parts) == 1:
-        # 单零件 DXF → 不检测折弯
+        # 单零件 DXF → 不自动分类，交由人工判断
         part = parts[0]
-        shape, hole = classify_part_shape_and_hole(part)
-        bend = BendType.WITHOUT_BEND
         results.append(PartClassification(
             part_name=part.name,
             dxf_file=dxf_file,
-            shape=shape,
-            hole=hole,
-            bend=bend,
-            category=build_category_name(shape, hole, bend),
+            shape=ShapeType.IRREGULAR,
+            hole=HoleType.WITHOUT_HOLE,
+            bend=BendType.WITHOUT_BEND,
+            category="待人工",
         ))
     elif flanges:
         # BH/BOX 模式：腹板检测折弯，翼板继承

@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 _RECT_ANGLE_TOLERANCE = 1.0  # 角度偏差容忍度（度）
 _RECT_LENGTH_RATIO_TOLERANCE = 0.02  # 对边长度相对偏差 < 2%
 _BEVEL_LENGTH_RATIO = 0.10  # 短边 < 对角线 10% 视为候选坡口边
+_BEVEL_MAX_LENGTH = 80.0  # 坡口短边绝对上限（mm），实测坡口对角线≤41mm，异形斜边≥206mm
 _BEVEL_CORNER_ANGLE_TOL = 15.0  # 短边两侧主边夹角需在 90°±此值内，才确认为角部坡口
+_MERGE_CLOSE_VERTEX_DIST = 1.0  # 合并极近顶点的距离阈值（mm）
 # 坐标合并容差（用于连接相邻线段端点）
 _SNAP_TOLERANCE = 0.5
 
@@ -334,13 +336,18 @@ def _simplify_bevels(
     length_ratio: float = _BEVEL_LENGTH_RATIO,
     corner_angle_tol: float = _BEVEL_CORNER_ANGLE_TOL,
 ) -> list[tuple[float, float]]:
-    """去除坡口短边，用相邻主边的延长交点还原矩形角。
+    """去除坡口短边并合并共线边，还原矩形轮廓。
+
+    分两步处理：
+    1. 去除坡口：短边且位于角部（前后主边夹角 ≈ 90°），
+       用主边延长交点替换。
+    2. 合并共线边：连续边方向相同（夹角 ≈ 0° 或 ≈ 180°），
+       除去中间冗余顶点。适用于阶梯状外轮廓（板件在边缘有缺口/台阶，
+       但整体外形仍为矩形）。
 
     坡口必须同时满足两个条件：
     1. 长度 < (零件对角线 × length_ratio)
     2. 位于角部：前后两条主边夹角 ≈ 90°（偏差 < corner_angle_tol）
-
-    不满足条件 2 的短斜边视为轮廓的异形特征，不被去除。
 
     Args:
         vertices: 外轮廓顶点（不含首尾重复闭合点）。
@@ -348,7 +355,7 @@ def _simplify_bevels(
         corner_angle_tol: 角部夹角容忍度（度），默认 15。
 
     Returns:
-        去除坡口后的顶点列表。
+        去除坡口并合并共线边后的顶点列表。
     """
     n = len(vertices)
     if n <= 4:
@@ -360,7 +367,7 @@ def _simplify_bevels(
     diag = math.hypot(max(xs) - min(xs), max(ys) - min(ys))
     if diag <= 0:
         return list(vertices)
-    short_limit = diag * length_ratio
+    short_limit = min(diag * length_ratio, _BEVEL_MAX_LENGTH)
 
     # 计算各边长度和方向向量
     edge_len = []
@@ -374,11 +381,13 @@ def _simplify_bevels(
     # 标记候选短边（仅按长度）
     is_short = [l < short_limit for l in edge_len]
 
-    # 如果没有短边，直接返回
+    # 如果没有短边，跳过坡口去除直接做共线合并
     if not any(is_short):
-        return list(vertices)
+        result = _merge_collinear_edges(vertices)
+        result = _merge_close_vertices(result)
+        return _merge_collinear_edges(result)
 
-    # 沿轮廓依次处理
+    # ── 第一步：沿轮廓依次去除坡口 ──
     result: list[tuple[float, float]] = []
     i = 0
     skip_start = False
@@ -395,6 +404,39 @@ def _simplify_bevels(
             while i < n and is_short[i]:
                 i += 1
             if i >= n:
+                # 末尾短边段：先检查首部第一条长边是否构成环绕坡口
+                prev_idx = (bevel_start - 1) % n
+                _steps = 0
+                while is_short[prev_idx] and _steps < n:
+                    prev_idx = (prev_idx - 1) % n
+                    _steps += 1
+                fwd_vec = edge_vec[prev_idx]
+
+                # 在首部找到第一条长边作为"后主边"
+                after_idx = 0
+                while after_idx < n and is_short[after_idx]:
+                    after_idx += 1
+
+                if after_idx < n:
+                    next_vec = edge_vec[after_idx]
+                    angle = _angle_between(fwd_vec, next_vec)
+                    if abs(90.0 - angle) <= corner_angle_tol:
+                        pt = _line_intersection(
+                            vertices[prev_idx],
+                            vertices[(prev_idx + 1) % n],
+                            vertices[after_idx],
+                            vertices[(after_idx + 1) % n],
+                        )
+                        if pt is not None:
+                            result.append(pt)
+                        else:
+                            result.append(vertices[bevel_start])
+                        break
+
+                # 不满足环绕坡口条件，走原有末尾处理
+                _handle_wrapped_bevels(
+                    vertices, edge_vec, is_short, bevel_start, n, result
+                )
                 break
 
             # 角部验证：检查短边前后的两条主边是否接近垂直
@@ -431,7 +473,154 @@ def _simplify_bevels(
             else:
                 result.append(vertices[bevel_start])
 
-    return result
+    # ── 第二步：合并共线边 ──
+    result = _merge_collinear_edges(result)
+    # ── 第三步：合并极近顶点（消除微小台阶）──
+    result = _merge_close_vertices(result)
+    # 极近合并后可能产生新的共线，再合并一次
+    return _merge_collinear_edges(result)
+
+
+_COLLINEAR_ANGLE_TOL = 1.0  # 共线判定角度容差（度）
+
+
+def _merge_collinear_edges(
+    vertices: list[tuple[float, float]],
+    *,
+    angle_tol: float = _COLLINEAR_ANGLE_TOL,
+) -> list[tuple[float, float]]:
+    """合并连续共线边，去除中间冗余顶点。
+
+    遍历顶点列表，若连续两条边的方向夹角 ≈ 0°（同向共线）
+    或 ≈ 180°（反向共线），则移除中间顶点。
+
+    重复执行直到无更多可合并的共线边对。
+
+    返回简化后的顶点列表。
+    """
+    if len(vertices) <= 4:
+        return list(vertices)
+    merged = list(vertices)
+    changed = True
+    while changed:
+        changed = False
+        m = len(merged)
+        if m <= 4:
+            break
+        for i in range(m):
+            prev_v = merged[(i - 1) % m]
+            curr_v = merged[i]
+            next_v = merged[(i + 1) % m]
+            d1 = (curr_v[0] - prev_v[0], curr_v[1] - prev_v[1])
+            d2 = (next_v[0] - curr_v[0], next_v[1] - curr_v[1])
+            ang = _angle_between(d1, d2)
+            if ang < angle_tol or ang > (180.0 - angle_tol):
+                merged.pop(i)
+                changed = True
+                break
+    return merged
+
+
+def _merge_close_vertices(
+    vertices: list[tuple[float, float]],
+    *,
+    merge_dist: float = _MERGE_CLOSE_VERTEX_DIST,
+) -> list[tuple[float, float]]:
+    """合并距离极近的相邻顶点。
+
+    遍历顶点列表，如果相邻两个顶点的距离 < merge_dist，
+    移除其中一个（保留第一个），从而消除微小的台阶状缺陷。
+
+    重复执行直到无更多可合并的顶点对。
+
+    返回合并后的顶点列表。
+    """
+    if len(vertices) <= 4:
+        return list(vertices)
+    merged = list(vertices)
+    changed = True
+    while changed:
+        changed = False
+        m = len(merged)
+        if m <= 4:
+            break
+        for i in range(m):
+            v1 = merged[i]
+            v2 = merged[(i + 1) % m]
+            dist = math.hypot(v2[0] - v1[0], v2[1] - v1[1])
+            if dist < merge_dist:
+                # 移除后一个顶点，保留前一个
+                merged.pop((i + 1) % m)
+                changed = True
+                break
+    return merged
+
+
+def _handle_wrapped_bevels(
+    vertices: list[tuple[float, float]],
+    edge_vec: list[tuple[float, float]],
+    is_short: list[bool],
+    bevel_start: int,
+    n: int,
+    result: list[tuple[float, float]],
+) -> None:
+    """处理跨越数组末尾的坡口短边段（wrap-around）。
+
+    当短边段延伸到数组末尾（i >= n），尝试检测首尾连续短边
+    是否构成环绕坡口。如果从 bevel_start 到末尾的短边加上
+    开头连续的短边形成一个完整的坡口组，则进行处理。
+
+    否则，将未处理的短边顶点原样保留到结果中。
+    """
+    # 统计末尾和开头连续的短边
+    tail_short_count = n - bevel_start
+    head_short_count = 0
+    for j in range(n):
+        if is_short[j]:
+            head_short_count += 1
+        else:
+            break
+
+    if head_short_count == 0 or tail_short_count == 0:
+        # 没有形成环绕组，保留末尾短边
+        for j in range(bevel_start, n):
+            result.append(vertices[j])
+        return
+
+    # 末尾短边 + 开头短边 连续
+    # 真正的后长边在 head_short_count 处
+    after_idx = head_short_count % n
+    if after_idx >= n:
+        for j in range(bevel_start, n):
+            result.append(vertices[j])
+        return
+
+    prev_idx = (bevel_start - 1) % n
+    _steps = 0
+    while is_short[prev_idx] and _steps < n:
+        prev_idx = (prev_idx - 1) % n
+        _steps += 1
+
+    fwd_vec = edge_vec[prev_idx]
+    next_vec = edge_vec[after_idx]
+    angle = _angle_between(fwd_vec, next_vec)
+
+    if abs(90.0 - angle) > _BEVEL_CORNER_ANGLE_TOL:
+        # 不满足角部条件
+        for j in range(bevel_start, n):
+            result.append(vertices[j])
+        return
+
+    pt = _line_intersection(
+        vertices[prev_idx],
+        vertices[(prev_idx + 1) % n],
+        vertices[after_idx],
+        vertices[(after_idx + 1) % n],
+    )
+    if pt is not None:
+        result.append(pt)
+    else:
+        result.append(vertices[bevel_start])
 
 
 def is_rectangle(
