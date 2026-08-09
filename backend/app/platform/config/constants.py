@@ -82,6 +82,13 @@ STEP_RUN_EXCEL_STAGE2 = "run_excel_stage2_pipeline"
 STEP_IMPORT_EXCEL_STAGE2_DB = "import_excel_stage2_db"
 STEP_PERSIST_EXCEL_STAGE2 = "persist_excel_stage2_results"
 
+# Excel Stage3 plate-hole-bend classification pipeline
+PIPELINE_EXCEL_STAGE3 = "excel_stage3"
+TASK_EXCEL_STAGE3 = "process_excel_stage3"
+STEP_VALIDATE_EXCEL_STAGE3_INPUTS = "validate_excel_stage3_inputs"
+STEP_RUN_EXCEL_STAGE3 = "run_excel_stage3_pipeline"
+STEP_PERSIST_EXCEL_STAGE3 = "persist_excel_stage3_results"
+
 # Short-lived HttpOnly access-token cookie used only by the EventSource endpoint.
 JOB_EVENTS_COOKIE_NAME = "dwg_sse_token"
 
