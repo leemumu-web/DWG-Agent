@@ -158,10 +158,17 @@ def classify_dxf(parts: list[Part]) -> DxfResult:
         all_manual = False
         if web_has_bend:
             num_flanges = len(flanges)
-            flange_len = _get_part_length(flanges[0]) if flanges else 0.0
             if num_flanges == 2:
-                all_manual = True
+                len1 = _get_part_length(flanges[0])
+                len2 = _get_part_length(flanges[1])
+                if len1 > bend_A and len2 > bend_A:
+                    pass  # 两块翼板都大于长边 → 真折弯
+                elif len1 <= bend_B and len2 <= bend_B:
+                    web_has_bend = False  # 两块翼板都小于短边 → 无折弯
+                else:
+                    all_manual = True  # 不一致 → 转人工
             elif num_flanges == 1:
+                flange_len = _get_part_length(flanges[0]) if flanges else 0.0
                 if flange_len > bend_A:
                     pass  # 真折弯
                 elif flange_len > bend_B:

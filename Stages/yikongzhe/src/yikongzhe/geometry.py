@@ -755,6 +755,19 @@ def has_internal_holes(
                 if all_inside:
                     return True
 
+    # 检测 LINE 实体：若中点距外轮廓边界足够远，说明存在内部几何。
+    # 适用于 ODA 转换后将圆/槽孔转为孤立短线段、无法构成闭合环的情况。
+    # 距离阈值过滤坡口简化后轮廓偏移导致的假阳性。
+    _INTERNAL_LINE_MIN_DIST = 5.0  # mm，中点距边界最小距离
+    outer_boundary = outer_poly.boundary
+    for e in all_entities:
+        if e.dxftype() == "LINE":
+            mid_x = (e.dxf.start.x + e.dxf.end.x) / 2
+            mid_y = (e.dxf.start.y + e.dxf.end.y) / 2
+            mid = Point(mid_x, mid_y)
+            if outer_poly.contains_properly(mid) and outer_boundary.distance(mid) >= _INTERNAL_LINE_MIN_DIST:
+                return True
+
     # 检测 LINE/LWPOLYLINE 构成的内部闭合环
     edges = _collect_edge_pairs(all_entities)
     if len(edges) < 3:

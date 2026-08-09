@@ -14,8 +14,10 @@ import math
 
 from yikongzhe.models import Part
 
-# 折弯对角线最小长度（mm）
-_MIN_BEND_DIAGONAL_LENGTH = 100.0
+# 折弯对角线自适应长度参数
+_MIN_BEND_DIAGONAL_RATIO = 0.03   # 占包围盒对角线的比例
+_MIN_BEND_DIAGONAL_FLOOR = 50.0   # 绝对下限（mm）
+_MIN_BEND_DIAGONAL_CAP = 300.0    # 绝对上限（mm）
 
 # 平行判定角度容差（度）
 _PARALLEL_ANGLE_TOLERANCE = 5.0
@@ -99,6 +101,8 @@ def _has_bend_signature(
         return False, 0.0, 0.0
 
     max_pair_distance = _MAX_PAIR_DISTANCE_RATIO * bbox_diag
+    min_diag_len = max(_MIN_BEND_DIAGONAL_FLOOR,
+                       min(bbox_diag * _MIN_BEND_DIAGONAL_RATIO, _MIN_BEND_DIAGONAL_CAP))
 
     # 计算每条边的属性
     edges = []
@@ -123,26 +127,29 @@ def _has_bend_signature(
     if m < 6:
         return False, 0.0, 0.0
 
-    # 收集 H-D-H 模式的斜边候选
+    # 收集 H-D-H / V-D-V 模式的斜边候选
     candidates = []
     for i in range(m):
         e = edges[i]
         if e["type"] != "D":
             continue
-        if e["length"] < _MIN_BEND_DIAGONAL_LENGTH:
+        if e["length"] < min_diag_len:
             continue
 
         prev_edge = edges[(i - 1) % m]
         next_edge = edges[(i + 1) % m]
 
-        # 仅处理 H-D-H 模式（水平-斜-水平）
-        if prev_edge["type"] != "H" or next_edge["type"] != "H":
+        # 支持 H-D-H（水平夹斜边）和 V-D-V（垂直夹斜边）
+        if prev_edge["type"] == next_edge["type"] and prev_edge["type"] in ("H", "V"):
+            flank_type = prev_edge["type"]
+        else:
             continue
 
-        # 计算 Y 方向跳变符号
-        prev_y = prev_edge["y1"]
-        next_y = next_edge["y1"]
-        y_delta = next_y - prev_y
+        # 跳变方向：H型边看Y坐标差，V型边看X坐标差
+        if flank_type == "H":
+            delta = next_edge["y1"] - prev_edge["y1"]
+        else:
+            delta = next_edge["x1"] - prev_edge["x1"]
 
         # 斜边中点
         mid_x = (e["x1"] + e["x2"]) / 2
@@ -152,7 +159,7 @@ def _has_bend_signature(
             "idx": i,
             "length": e["length"],
             "angle": round(e["angle"], 1),
-            "y_delta": y_delta,
+            "delta": delta,
             "mid_x": mid_x,
             "mid_y": mid_y,
         })
@@ -181,7 +188,7 @@ def _has_bend_signature(
             for j in range(i + 1, len(group)):
                 c1, c2 = group[i], group[j]
                 # 检查垂直方向相反（一条上、一条下）
-                if c1["y_delta"] * c2["y_delta"] >= 0:
+                if c1["delta"] * c2["delta"] >= 0:
                     # 同向（都是上或都是下）→ 不是阶梯对
                     continue
                 # 检查空间距离
