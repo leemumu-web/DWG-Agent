@@ -37,6 +37,7 @@ from app.modules.workflows.templates import require_stage_execution
 from app.platform.config.constants import (
     TASK_EXCEL_FINAL,
     TASK_EXCEL_STAGE2,
+    TASK_EXCEL_STAGE3,
     TASK_STEEL_DXF_CLASSIFICATION,
     TASK_STEEL_DXF_SPLIT,
 )
@@ -184,6 +185,52 @@ def preflight_excel_stage2(
     }
 
 
+def preflight_excel_stage3(
+    db: Session,
+    workflow: WorkflowRun,
+    *,
+    current_user: User,
+) -> dict[str, object]:
+    """Validate the exact Stage3 lineage without creating or binding a Job."""
+    require_stage_execution(
+        workflow,
+        stage_code="excel_stage3",
+        execution_kind="excel_stage3",
+    )
+    _, params = _prepare_excel_stage3(db, workflow, current_user)
+    require_stage_inputs(workflow, "excel_stage3")
+    stage2_stored = db.get(StoredFile, int(params["stage2_excel_file_id"]))
+    if stage2_stored is None:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE3_STAGE2_FILE_UNAVAILABLE",
+            "Excel 第二阶段正式结果文件已不可用。",
+            {"file_id": params["stage2_excel_file_id"]},
+        )
+    dxf_file_ids = params["processed_dxf_file_ids"]
+    assert isinstance(dxf_file_ids, list)
+    dxf_count = len(dxf_file_ids)
+    for dxf_id in dxf_file_ids:
+        dxf_stored = db.get(StoredFile, int(dxf_id))
+        if dxf_stored is None or dxf_stored.status == "deleted":
+            raise AppHTTPException(
+                409,
+                "EXCEL_STAGE3_DXF_FILE_UNAVAILABLE",
+                "拆板结果 DXF 文件已不可用。",
+                {"file_id": dxf_id},
+            )
+    return {
+        "ready": True,
+        "stage2_file_name": stage2_stored.original_name,
+        "stage2_file_id": stage2_stored.id,
+        "dxf_count": dxf_count,
+        "checks": [
+            {"code": "stage2_artifact_verified", "label": "第二阶段正式 Excel 已登记且存储可用"},
+            {"code": "dxf_inputs_verified", "label": f"已冻结 {dxf_count} 张拆板后 DXF"},
+        ],
+    }
+
+
 def dispatch_stage_execution(
     db: Session,
     workflow: WorkflowRun,
@@ -263,6 +310,9 @@ def prepare_stage_execution(
     elif payload.execution_kind == "drawing_processing":
         require_stage_inputs(workflow, stage_code)
         task_type, params = _prepare_dxf_splitting(db, workflow, current_user)
+    elif payload.execution_kind == "excel_stage3":
+        task_type, params = _prepare_excel_stage3(db, workflow, current_user)
+        require_stage_inputs(workflow, stage_code)
     else:
         raise AppHTTPException(
             501,
@@ -279,6 +329,10 @@ def prepare_stage_execution(
         "excel_stage2": (
             "EXCEL_STAGE2_JOB_BINDING_INVALID",
             "Excel 第二阶段绑定的任务与当前冻结输入不一致。",
+        ),
+        "excel_stage3": (
+            "EXCEL_STAGE3_JOB_BINDING_INVALID",
+            "Excel 第三阶段绑定的任务与当前冻结输入不一致。",
         ),
     }
     error_code, error_message = binding_errors.get(
@@ -713,6 +767,128 @@ def _prepare_excel_stage2(
         "box_input_count": len(box_classification.items),
         "box_manifest_version": box_classification.bh_manifest_version,
         "box_manifest_sha256": box_classification.bh_manifest_sha256,
+    }
+
+
+def _prepare_excel_stage3(
+    db: Session,
+    workflow: WorkflowRun,
+    current_user: User,
+) -> tuple[str, dict[str, object]]:
+    """Freeze the Stage2 output Excel and drawing_processing DXF artifacts."""
+
+    # Resolve Stage 2 output
+    stage2 = next(
+        (stage for stage in workflow.stages if stage.stage_code == "excel_stage2"),
+        None,
+    )
+    stage2_job = db.get(Job, stage2.job_id) if stage2 is not None and stage2.job_id else None
+    if (
+        stage2 is None
+        or stage2.status != "succeeded"
+        or stage2.job_id is None
+        or stage2.job_attempt is None
+        or stage2_job is None
+        or stage2_job.project_id != workflow.project_id
+        or stage2_job.task_type != TASK_EXCEL_STAGE2
+        or stage2_job.status != "succeeded"
+        or stage2_job.attempt != stage2.job_attempt
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE3_STAGE2_BINDING_INVALID",
+            "Excel 第二阶段尚未形成与当前项目和 attempt 一致的正式结果。",
+            {
+                "stage_job_id": stage2.job_id if stage2 is not None else None,
+                "stage_job_attempt": stage2.job_attempt if stage2 is not None else None,
+            },
+        )
+
+    stage2_artifacts = [
+        artifact
+        for artifact in workflow.artifacts
+        if artifact.stage_run_id == stage2.id
+        and artifact.artifact_type == "stage2_excel"
+    ]
+    if len(stage2_artifacts) != 1:
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE3_STAGE2_ARTIFACT_INVALID",
+            "Excel 第二阶段必须且只能有一个 stage2_excel 产物。",
+            {"artifact_count": len(stage2_artifacts)},
+        )
+    stage2_artifact = stage2_artifacts[0]
+    stage2_result = db.get(AnalysisResult, stage2_artifact.result_id) if stage2_artifact.result_id else None
+    stage2_stored = db.get(StoredFile, stage2_artifact.file_id) if stage2_artifact.file_id else None
+    if (
+        stage2_result is None
+        or stage2_result.job_id != stage2_job.id
+        or stage2_result.status != "succeeded"
+        or stage2_stored is None
+        or stage2_stored.status != "available"
+        or stage2_stored.file_ext.casefold() != ".xlsx"
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE3_STAGE2_BINDING_INVALID",
+            "Excel 第二阶段的产物、分析结果和正式文件来源链不一致。",
+            {
+                "artifact_id": stage2_artifact.id,
+                "artifact_file_id": stage2_artifact.file_id,
+            },
+        )
+
+    # Resolve drawing_processing outputs (processed_dxf only)
+    drawing_stage = next(
+        (stage for stage in workflow.stages if stage.stage_code == "drawing_processing"),
+        None,
+    )
+    drawing_job = db.get(Job, drawing_stage.job_id) if drawing_stage is not None and drawing_stage.job_id else None
+    if (
+        drawing_stage is None
+        or drawing_stage.status not in ("succeeded", "waiting_review")
+        or drawing_stage.job_id is None
+        or drawing_stage.job_attempt is None
+        or drawing_job is None
+        or drawing_job.project_id != workflow.project_id
+        or drawing_job.task_type != TASK_STEEL_DXF_SPLIT
+        or drawing_job.status not in ("succeeded", "need_review")
+        or drawing_job.attempt != drawing_stage.job_attempt
+    ):
+        raise AppHTTPException(
+            409,
+            "EXCEL_STAGE3_DRAWING_BINDING_INVALID",
+            "拆板阶段尚未形成与当前项目和 attempt 一致的正式结果。",
+            {
+                "stage_job_id": drawing_stage.job_id if drawing_stage is not None else None,
+                "stage_job_attempt": drawing_stage.job_attempt if drawing_stage is not None else None,
+            },
+        )
+
+    processed_dxf_artifacts = [
+        artifact
+        for artifact in workflow.artifacts
+        if artifact.stage_run_id == drawing_stage.id
+        and artifact.artifact_type == "processed_dxf"
+        and isinstance(artifact.metadata_json, dict)
+        and artifact.metadata_json.get("job_id") == drawing_job.id
+        and artifact.metadata_json.get("job_attempt") == drawing_job.attempt
+        and artifact.file_id is not None
+    ]
+
+    processed_dxf_file_ids: list[int] = []
+    for artifact in processed_dxf_artifacts:
+        stored = db.get(StoredFile, artifact.file_id)
+        if stored is not None and stored.status != "deleted":
+            processed_dxf_file_ids.append(stored.id)
+
+    return TASK_EXCEL_STAGE3, {
+        "workflow_id": workflow.id,
+        "project_id": workflow.project_id,
+        "stage2_excel_file_id": stage2_stored.id,
+        "processed_dxf_file_ids": processed_dxf_file_ids,
+        "stage2_job_id": stage2_job.id,
+        "stage2_job_attempt": stage2_job.attempt,
     }
 
 

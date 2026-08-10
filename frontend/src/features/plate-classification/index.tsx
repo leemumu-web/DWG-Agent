@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button, Card, Form, Input, Space, Table, Tag, message, Typography } from 'antd';
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
-import api from '../../shared/api';
+import { apiClient as api } from '../../shared/api';
 
 const { Title, Text } = Typography;
 

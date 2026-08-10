@@ -70,6 +70,19 @@ def enqueue_excel_stage2_job(
     )
 
 
+def enqueue_excel_stage3_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
+    """Enqueue one Excel Stage3 attempt through its stable task boundary."""
+    from app.modules.excel_processing.tasks import process_excel_stage3_task
+
+    return str(
+        process_excel_stage3_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
+
+
 def inspect_excel_stage1_bytes(
     *,
     file_name: str,

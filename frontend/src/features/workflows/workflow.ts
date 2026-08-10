@@ -92,6 +92,14 @@ export interface WorkflowExcelStagePreflight {
   checks: WorkflowExcelPreflightCheck[];
 }
 
+export interface WorkflowExcelStage3Preflight {
+  ready: boolean;
+  stage2_file_name: string;
+  stage2_file_id: number;
+  dxf_count: number;
+  checks: WorkflowExcelPreflightCheck[];
+}
+
 export interface WorkflowExcelStage2Preflight {
   ready: boolean;
   mode: 'bh_enhancement' | 'no_bh_inputs';

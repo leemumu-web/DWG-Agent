@@ -41,6 +41,7 @@ import { listProjects } from '../projects';
 import { DxfClassificationPanel } from './DxfClassificationPanel';
 import { DrawingProcessingPanel } from './DrawingProcessingPanel';
 import { ExcelStage2Panel } from './ExcelStage2Panel';
+import { ExcelStage3Panel } from './ExcelStage3Panel';
 import { FutureStageNotice } from './FutureStageNotice';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
@@ -504,6 +505,15 @@ export function WorkflowDetailPage() {
               )}
               {selectedStage.stage_code === 'excel_stage2' && (
                 <ExcelStage2Panel
+                  workflowId={detail.id}
+                  stage={selectedStage}
+                  isCurrent={selectedIsCurrent}
+                  executing={executeM.isPending}
+                  onExecute={() => executeM.mutate()}
+                />
+              )}
+              {selectedStage.stage_code === 'excel_stage3' && (
+                <ExcelStage3Panel
                   workflowId={detail.id}
                   stage={selectedStage}
                   isCurrent={selectedIsCurrent}

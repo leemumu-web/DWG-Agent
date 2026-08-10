@@ -288,6 +288,21 @@ services:
     mem_limit: "${EXCEL_STAGE2_WORKER_MEMORY_LIMIT:-8g}"
     pids_limit: ${EXCEL_STAGE2_WORKER_PIDS_LIMIT:-128}
 
+  worker-excel-stage3:
+    <<: *worker
+    command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "excel_stage3", "-n", "excel_stage3@%h", "--concurrency=${EXCEL_STAGE3_WORKER_CONCURRENCY:-1}"]
+    volumes:
+      - app_var:/app/var
+    profiles: [workers]
+    environment:
+      MYSQL_ROOT_PASSWORD: ""
+      MINIO_ROOT_PASSWORD: ""
+      DWG_WORKER_QUEUE: excel_stage3
+      DWG_WORKER_CONCURRENCY: "${EXCEL_STAGE3_WORKER_CONCURRENCY:-1}"
+    cpus: "${EXCEL_STAGE3_WORKER_CPU_LIMIT:-1.0}"
+    mem_limit: "${EXCEL_STAGE3_WORKER_MEMORY_LIMIT:-2g}"
+    pids_limit: ${EXCEL_STAGE3_WORKER_PIDS_LIMIT:-128}
+
   worker-maintenance:
     <<: *worker
     command: ["/app/scripts/run-worker.sh", "celery", "-A", "app.platform.messaging.celery_app:celery_app", "worker", "-Q", "maintenance", "-n", "maintenance@%h", "--concurrency=1"]

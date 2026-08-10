@@ -22,8 +22,13 @@ _RED_FILL = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="sol
 # DXF 文件名中需要剥离的后缀
 _DXF_STRIP_SUFFIXES = [
     "_拆板后", "_拆分后", "_拆板", "_拆分",
-    "_处理后", "_处理",
+    "_处理后", "_处理", "_正常拆板", "_正常拆分",
+    "_切边后", "_切断后", "_切割后",
 ]
+
+# DXF 文件名前缀模式：BYSJ@...@ → 提取后面的板号
+# 例如 "BYSJ@板零件图@5b1-cb-14_正常拆板.dxf" → "5b1-cb-14_正常拆板"
+_DXF_PREFIX_RE = re.compile(r"^[A-Z]+@[^@]+@")
 
 # 零件名中标识 BH/BOX 类型的前缀模式（捕获完整后缀）
 _PART_TYPE_RE = re.compile(r"-(BH|BOX)(.+)")
@@ -73,12 +78,15 @@ def _extract_part_category(part_name: str) -> str | None:
 
 
 def _strip_dxf_suffix(filename: str) -> str:
-    """去除 DXF 文件名中的通用后缀，返回干净的 stem。
+    """去除 DXF 文件名中的前缀和后缀，返回干净的 stem。
 
-    "b4-1-cb-15_拆板后.dxf" → "b4-1-cb-15"
-    "b4-1-cb-15.dxf"        → "b4-1-cb-15"
+    "BYSJ@板零件图@5b1-cb-14_正常拆板.dxf" → "5b1-cb-14"
+    "b4-1-cb-15_拆板后.dxf"               → "b4-1-cb-15"
+    "b4-1-cb-15.dxf"                      → "b4-1-cb-15"
     """
     stem = Path(filename).stem
+    # 先剥离 BYSJ@...@ 前缀
+    stem = _DXF_PREFIX_RE.sub("", stem)
     for suffix in _DXF_STRIP_SUFFIXES:
         if stem.endswith(suffix):
             stem = stem[:-len(suffix)]
@@ -258,6 +266,10 @@ class Stage3Runner:
     ) -> tuple[dict[int, str], list[int]]:
         """建立 part 行 → DXF 文件名 的映射。
 
+        匹配策略：精确匹配 → 大小写不敏感匹配 → 包含匹配。
+        包含匹配会检查零件基础板号是否出现在 DXF 干净 stem 中，
+        以兼容 DXF 文件名中未剥离干净的前后缀。
+
         Returns:
             ({row_num → dxf_filename}, [unmatched_row_nums])
         """
@@ -272,19 +284,30 @@ class Stage3Runner:
 
             if base in dxf_index:
                 part_dxf_map[row["_row"]] = dxf_index[base]
-            else:
-                # 尝试不区分大小写匹配
-                base_lower = base.lower()
-                found = None
-                for key, val in dxf_index.items():
-                    if key.lower() == base_lower:
-                        found = val
-                        break
-                if found:
-                    part_dxf_map[row["_row"]] = found
-                else:
-                    unmatched.append(row["_row"])
-                    logger.debug("未匹配到 DXF: %s (base=%s)", part_name, base)
+                continue
+
+            # 尝试不区分大小写精确匹配
+            base_lower = base.lower()
+            found = None
+            for key, val in dxf_index.items():
+                if key.lower() == base_lower:
+                    found = val
+                    break
+            if found:
+                part_dxf_map[row["_row"]] = found
+                continue
+
+            # 尝试包含匹配：零件基础板号是否出现在 DXF stem 中
+            for key, val in dxf_index.items():
+                if base_lower in key.lower():
+                    found = val
+                    break
+            if found:
+                part_dxf_map[row["_row"]] = found
+                continue
+
+            unmatched.append(row["_row"])
+            logger.debug("未匹配到 DXF: %s (base=%s)", part_name, base)
 
         return part_dxf_map, unmatched
 

@@ -24,6 +24,7 @@ import type {
   WorkflowExportCategory,
   WorkflowExcelStagePreflight,
   WorkflowExcelStage2Preflight,
+  WorkflowExcelStage3Preflight,
   WorkflowRetentionExport,
   WorkflowRetentionPreview,
 } from './workflow';
@@ -201,6 +202,36 @@ export async function downloadWorkflowExcelStage2BoxReaderResult(
   );
 }
 
+export async function downloadWorkflowExcelStage3Result(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage3/download-result`,
+    `workflow-${workflowId}-excel-stage3.xlsx`,
+    'Excel 第三阶段结果下载失败',
+    onProgress,
+    undefined,
+    signal,
+  );
+}
+
+export async function downloadWorkflowExcelStage3ClassificationResult(
+  workflowId: number,
+  onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
+) {
+  return downloadArchive(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage3/download-classification-result`,
+    `workflow-${workflowId}-classification.xlsx`,
+    '异孔折分类结果下载失败',
+    onProgress,
+    undefined,
+    signal,
+  );
+}
+
 export async function getWorkflowExcelStagePreflight(workflowId: number) {
   const response = await apiClient.get<ApiEnvelope<WorkflowExcelStagePreflight>>(
     `/api/v1/workflows/${workflowId}/stages/excel_stage1/preflight`,
@@ -211,6 +242,13 @@ export async function getWorkflowExcelStagePreflight(workflowId: number) {
 export async function getWorkflowExcelStage2Preflight(workflowId: number) {
   const response = await apiClient.get<ApiEnvelope<WorkflowExcelStage2Preflight>>(
     `/api/v1/workflows/${workflowId}/stages/excel_stage2/preflight`,
+  );
+  return response.data.data;
+}
+
+export async function getWorkflowExcelStage3Preflight(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<WorkflowExcelStage3Preflight>>(
+    `/api/v1/workflows/${workflowId}/stages/excel_stage3/preflight`,
   );
   return response.data.data;
 }

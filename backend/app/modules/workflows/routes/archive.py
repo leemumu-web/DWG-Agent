@@ -31,7 +31,7 @@ from app.modules.workflows.contracts import (
 )
 from app.modules.workflows.job_sync import sync_workflow_from_jobs
 from app.modules.workflows.models import WorkflowArtifact, WorkflowRun, WorkflowStageRun
-from app.platform.config.constants import TASK_EXCEL_FINAL, TASK_EXCEL_STAGE2
+from app.platform.config.constants import TASK_EXCEL_FINAL, TASK_EXCEL_STAGE2, TASK_EXCEL_STAGE3
 from app.platform.http.dependencies import get_db
 from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage import factory as storage_factory
@@ -85,6 +85,22 @@ _EXCEL_STAGE2_BOX_READER_RESULT = ExcelResultDownload(
     operation="workflow_excel_stage2_box_reader_download",
     audit_action="workflow_excel_stage2_box_reader_results.download",
     allow_failed_diagnostic=True,
+)
+_EXCEL_STAGE3_RESULT = ExcelResultDownload(
+    stage_code="excel_stage3",
+    stage_label="Excel 第三阶段",
+    task_type=TASK_EXCEL_STAGE3,
+    artifact_type="stage3_excel",
+    operation="workflow_excel_stage3_result_download",
+    audit_action="workflow_excel_stage3_results.download",
+)
+_EXCEL_STAGE3_CLASSIFICATION = ExcelResultDownload(
+    stage_code="excel_stage3",
+    stage_label="异孔折分类结果",
+    task_type=TASK_EXCEL_STAGE3,
+    artifact_type="classification_excel",
+    operation="workflow_excel_stage3_classification_download",
+    audit_action="workflow_excel_stage3_classification_results.download",
 )
 
 
@@ -347,15 +363,21 @@ def download_workflow_stage_archive(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
 ):
-    if stage_code in {"excel_stage1", "excel_stage2"}:
-        download_paths = (
-            [(f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/download-result")]
-            if stage_code == "excel_stage1"
-            else [
-                (f"/api/v1/workflows/{workflow_id}/stages/excel_stage2/download-reader-result"),
-                (f"/api/v1/workflows/{workflow_id}/stages/excel_stage2/download-result"),
+    if stage_code in {"excel_stage1", "excel_stage2", "excel_stage3"}:
+        if stage_code == "excel_stage1":
+            download_paths = [
+                f"/api/v1/workflows/{workflow_id}/stages/excel_stage1/download-result",
             ]
-        )
+        elif stage_code == "excel_stage2":
+            download_paths = [
+                f"/api/v1/workflows/{workflow_id}/stages/excel_stage2/download-reader-result",
+                f"/api/v1/workflows/{workflow_id}/stages/excel_stage2/download-result",
+            ]
+        else:
+            download_paths = [
+                f"/api/v1/workflows/{workflow_id}/stages/excel_stage3/download-classification-result",
+                f"/api/v1/workflows/{workflow_id}/stages/excel_stage3/download-result",
+            ]
         raise AppHTTPException(
             409,
             "EXCEL_STAGE_SINGLE_FILE_DOWNLOAD_REQUIRED",
@@ -492,7 +514,7 @@ def _resolve_excel_result(
     result: AnalysisResult | None = None
     artifact: WorkflowArtifact | None = None
     if job.status == "succeeded" and stage.status == "succeeded":
-        if spec.stage_code == "excel_stage2":
+        if spec.stage_code in ("excel_stage2", "excel_stage3"):
             require_stage_outputs(workflow, spec.stage_code)
         artifacts = [
             item
@@ -795,4 +817,48 @@ def download_excel_stage2_box_reader_result(
         current_user,
         db,
         spec=_EXCEL_STAGE2_BOX_READER_RESULT,
+    )
+
+
+@router.get(
+    "/{workflow_id}/stages/excel_stage3/download-result",
+    summary="下载 Excel 第三阶段结果",
+    response_class=StreamingResponse,
+    responses=_XLSX_RESPONSE,
+    description="只返回当前批次正式登记的异孔折处理深化 xlsx。",
+)
+def download_excel_stage3_result(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    return _stream_excel_result(
+        workflow_id,
+        request,
+        current_user,
+        db,
+        spec=_EXCEL_STAGE3_RESULT,
+    )
+
+
+@router.get(
+    "/{workflow_id}/stages/excel_stage3/download-classification-result",
+    summary="下载异孔折分类结果",
+    response_class=StreamingResponse,
+    responses=_XLSX_RESPONSE,
+    description="返回异孔折判断的图形分类明细表。",
+)
+def download_excel_stage3_classification_result(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    return _stream_excel_result(
+        workflow_id,
+        request,
+        current_user,
+        db,
+        spec=_EXCEL_STAGE3_CLASSIFICATION,
     )

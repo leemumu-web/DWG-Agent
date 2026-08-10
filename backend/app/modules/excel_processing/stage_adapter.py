@@ -456,8 +456,9 @@ def run_excel_stage3_pipeline(
 ) -> ExcelStage3ProcessResult:
     """Run the excel_stage3 classification pipeline.
 
-    Calls ``uv run excel-stage3`` in the Stage package directory and parses
-    the versioned JSON result from stdout.
+    Prefers a pre-built .venv Python (Docker production) so the read-only
+    container filesystem does not block ``uv run`` from creating one.  Falls
+    back to ``uv run`` for local development.
     """
     if not stage2_excel_path.is_file():
         raise ExcelFinalProcessError("Stage2 Excel file does not exist")
@@ -467,14 +468,29 @@ def run_excel_stage3_pipeline(
     stage_root = get_excel_stage3_root()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        "uv", "run", "--directory", str(stage_root),
-        "excel-stage3",
-        "--stage2-excel", str(stage2_excel_path.resolve()),
-        "--dxf-dir", str(dxf_dir.resolve()),
-        "--output-dir", str(output_dir.resolve()),
-        "--encoding", encoding,
-    ]
+    # Prefer pre-built venv interpreter (Docker production) over uv run.
+    venv_bin = "Scripts" if sys.platform == "win32" else "bin"
+    venv_python = stage_root / ".venv" / venv_bin / "python"
+    if sys.platform == "win32":
+        venv_python = venv_python.with_suffix(".exe")
+
+    if venv_python.is_file():
+        cmd = [
+            str(venv_python), "-m", "excel_stage3",
+            "--stage2-excel", str(stage2_excel_path.resolve()),
+            "--dxf-dir", str(dxf_dir.resolve()),
+            "--output-dir", str(output_dir.resolve()),
+            "--encoding", encoding,
+        ]
+    else:
+        cmd = [
+            "uv", "run", "--directory", str(stage_root),
+            "excel-stage3",
+            "--stage2-excel", str(stage2_excel_path.resolve()),
+            "--dxf-dir", str(dxf_dir.resolve()),
+            "--output-dir", str(output_dir.resolve()),
+            "--encoding", encoding,
+        ]
 
     logger.info("Running excel-stage3: %s", " ".join(cmd))
     result = subprocess.run(

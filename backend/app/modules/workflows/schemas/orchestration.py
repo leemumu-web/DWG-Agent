@@ -51,6 +51,7 @@ class WorkflowStageExecutionCreate(BaseModel):
         "steel_dxf_classification",
         "excel_stage1",
         "excel_stage2",
+        "excel_stage3",
         "drawing_processing",
         "cam_packaging",
         "windows_cam",
