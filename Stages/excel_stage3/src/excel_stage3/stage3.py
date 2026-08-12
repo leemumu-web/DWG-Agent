@@ -36,6 +36,9 @@ _PART_TYPE_RE = re.compile(r"-(BH|BOX)(.+)")
 # 分类结果 part_name 中的前缀
 _CLASSIFICATION_NAME_PREFIX = "p="
 
+# 匹配中文字符（用于在 DXF part_name 中定位后缀起始位置）
+_CHINESE_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+
 
 def _normalize_part_type(suffix: str) -> str:
     """将零件名后缀归一化为"腹"或"翼"。
@@ -115,6 +118,24 @@ def _build_dxf_index(dxf_dir: str) -> dict[str, str]:
     return index
 
 
+def _extract_raw_part_suffix(part_name: str) -> str:
+    """从 DXF 分类结果的 part_name 中提取原始后缀，不做归一化。
+
+    "p=b4-1-cb-15上翼" → "上翼"
+    "p=b4-1-cb-15下翼" → "下翼"
+    "p=b4-1-cb-15腹"   → "腹"
+    "p=b4-1-cb-15腹板1" → "腹板1"
+    """
+    clean = part_name
+    if clean.startswith(_CLASSIFICATION_NAME_PREFIX):
+        clean = clean[len(_CLASSIFICATION_NAME_PREFIX):]
+    # 找到第一个中文字符的位置，从那里开始即为后缀
+    m = _CHINESE_CHAR_RE.search(clean)
+    if m:
+        return clean[m.start():]
+    return clean
+
+
 def _classify_part_name_to_type(name: str) -> str | None:
     """从分类结果的 part_name 中提取归一化的板件部位类别。
 
@@ -156,6 +177,7 @@ class Stage3Runner:
         self._col_part_name: int | None = None
         self._col_component: int | None = None
         self._col_graphics: int | None = None
+        self._col_summary: int | None = None
 
     def run(self) -> dict[str, object]:
         """执行完整流水线，返回统计信息。"""
@@ -190,14 +212,37 @@ class Stage3Runner:
         unique_dxfs = set(part_dxf_map.values())
         logger.info("待分类的唯一 DXF: %d 个", len(unique_dxfs))
 
-        # 5. 运行分类
-        classification_map = self._run_classification(unique_dxfs)
+        # 5. 运行分类（获取原始部件名 + 归一化映射）
+        classification_map, raw_parts_map = self._run_classification(unique_dxfs)
         logger.info("分类完成: %d 个 DXF", len(classification_map))
 
-        # 6. 回填"图形"列
+        # 6. [NEW] 检测需要拆分的通用行
+        split_groups = self._find_split_groups(part_rows, part_dxf_map, raw_parts_map)
+        if split_groups:
+            logger.info("检测到 %d 行需要拆分", len(split_groups))
+
+            # 读取汇总列缓存值（公式 → 数值）
+            summary_values = self._read_cached_summaries(split_groups.keys())
+
+            # 在 worksheet 中拆分行
+            new_rows = self._split_rows_in_part_sheet(ws, split_groups, summary_values)
+            logger.info("已拆分: 新增 %d 行", len(new_rows))
+
+            # 重新读取 part 行（行号已变）
+            part_rows = self._read_part_rows(ws)
+            logger.info("拆分后 part 表共 %d 行数据", len(part_rows))
+
+            # 重新匹配 part → DXF
+            part_dxf_map, unmatched = self._match_parts_to_dxfs(part_rows, dxf_index)
+            logger.info("拆分后重新匹配: %d 行 → DXF, %d 行未匹配",
+                        len(part_dxf_map), len(unmatched))
+        else:
+            logger.info("无需拆分行")
+
+        # 7. 回填"图形"列
         filled, manual = self._fill_graphics_column(ws, part_rows, part_dxf_map, classification_map)
 
-        # 7. 输出文件
+        # 8. 输出文件
         output_paths = self._write_outputs(wb, part_rows, part_dxf_map, classification_map)
 
         wb.close()
@@ -230,7 +275,7 @@ class Stage3Runner:
         """读取 part 表数据行，同时检测关键列索引。
 
         Returns:
-            [{"_row": 2, "_part_name": "...", "_component": "...", ...}, ...]
+            [{"_row": 2, "_part_name": "...", "_component": "...", "_summary": ..., ...}, ...]
         """
         headers = []
         for c in range(1, ws.max_column + 1):
@@ -240,12 +285,14 @@ class Stage3Runner:
         self._col_part_name = self._find_col(headers, "零件")
         self._col_component = self._find_col(headers, "构件")
         self._col_graphics = self._find_col(headers, "图形")
+        self._col_summary = self._find_col(headers, "汇总")
 
         logger.debug(
-            "列检测: 零件名=col%d, 构件编号=col%d, 图形=col%d",
+            "列检测: 零件名=col%d, 构件编号=col%d, 图形=col%d, 汇总=col%d",
             self._col_part_name or -1,
             self._col_component or -1,
             self._col_graphics or -1,
+            self._col_summary or -1,
         )
 
         rows = []
@@ -256,6 +303,8 @@ class Stage3Runner:
                 row_data["_part_name"] = ws.cell(r, self._col_part_name).value
             if self._col_component:
                 row_data["_component"] = ws.cell(r, self._col_component).value
+            if self._col_summary:
+                row_data["_summary"] = ws.cell(r, self._col_summary).value
             # 跳过完全空行
             if any(v is not None for k, v in row_data.items() if k != "_row"):
                 rows.append(row_data)
@@ -313,37 +362,272 @@ class Stage3Runner:
 
     def _run_classification(
         self, dxf_filenames: set[str]
-    ) -> dict[str, dict[str, str]]:
+    ) -> tuple[dict[str, dict[str, str]], dict[str, list[object]]]:
         """对指定 DXF 文件所在目录运行分类。
 
         classify_directory 会处理整个目录，我们只提取需要的 DXF 结果。
 
+        以原始后缀（上翼/下翼/腹/腹板1）作为 part_map 的 key，
+        保留具体子类型信息，避免归一化导致覆盖。
+
         Returns:
-            {dxf_filename: {"腹": "方孔折", "翼": "方", ...}}
+            (
+                {dxf_filename: {"上翼": "方孔折", "下翼": "方", "腹": "方孔", ...}},
+                {dxf_filename: [PartClassification, ...]},
+            )
         """
         if not dxf_filenames:
-            return {}
+            return {}, {}
 
         all_results = classify_directory(self.dxf_dir, encoding=self.encoding)
         classification_map: dict[str, dict[str, str]] = {}
+        raw_parts_map: dict[str, list[object]] = {}
 
         for result in all_results:
             if result.dxf_file not in dxf_filenames:
                 continue
             part_map: dict[str, str] = {}
+            raw_parts_map[result.dxf_file] = list(result.parts)
             for pc in result.parts:
-                ptype = _classify_part_name_to_type(pc.part_name)
-                if ptype:
-                    part_map[ptype] = pc.category
+                raw_suffix = _extract_raw_part_suffix(pc.part_name)
+                if raw_suffix:
+                    part_map[raw_suffix] = pc.category
                 else:
-                    # 无法识别类型 → 使用 part_name 原样作为 key
-                    clean = pc.part_name
-                    if clean.startswith(_CLASSIFICATION_NAME_PREFIX):
-                        clean = clean[len(_CLASSIFICATION_NAME_PREFIX):]
-                    part_map[clean] = pc.category
+                    # 无法提取后缀 → fallback 用归一化类型
+                    ptype = _classify_part_name_to_type(pc.part_name)
+                    if ptype:
+                        part_map[ptype] = pc.category
+                    else:
+                        clean = pc.part_name
+                        if clean.startswith(_CLASSIFICATION_NAME_PREFIX):
+                            clean = clean[len(_CLASSIFICATION_NAME_PREFIX):]
+                        part_map[clean] = pc.category
             classification_map[result.dxf_file] = part_map
 
-        return classification_map
+        return classification_map, raw_parts_map
+
+    @staticmethod
+    def _find_raw_suffix(part_name: str) -> str | None:
+        """从 Excel 零件名中提取原始后缀（不做归一化）。
+
+        "3b1-cb-4-BH上翼"  → "上翼"
+        "3b1-cb-4-BH翼"    → "翼"
+        "3b1-cb-4-BH腹板1"  → "腹板1"
+        "3b1-s-19"          → None
+        """
+        m = _PART_TYPE_RE.search(part_name)
+        if not m:
+            return None
+        return m.group(2)
+
+    def _find_split_groups(
+        self,
+        part_rows: list[dict],
+        part_dxf_map: dict[int, str],
+        raw_parts_map: dict[str, list],
+    ) -> dict[int, list[str]]:
+        """检测需要拆分的 part 行。
+
+        对每个 DXF 分类结果，将部件按归一化类型分组。
+        如果某归一化类型有 >1 个具体后缀，且 Excel 中仅有通用行，
+        则标记该通用行需要拆分。
+
+        Returns:
+            {row_num: ["3b1-cb-4-BH上翼", "3b1-cb-4-BH下翼"], ...}
+        """
+        split_groups: dict[int, list[str]] = {}
+
+        # 先按基础板号分组 part_rows，便于查找
+        by_base: dict[str, list[dict]] = {}
+        for row in part_rows:
+            pn = str(row.get("_part_name", "") or "")
+            base = _extract_base_part_number(pn)
+            if base:
+                by_base.setdefault(base, []).append(row)
+
+        for row in part_rows:
+            row_num = row["_row"]
+            if row_num not in part_dxf_map:
+                continue
+            dxf_filename = part_dxf_map[row_num]
+            if dxf_filename not in raw_parts_map:
+                continue
+
+            part_name = str(row.get("_part_name", "") or "")
+            base = _extract_base_part_number(part_name)
+            m = _PART_TYPE_RE.search(part_name)
+            if base is None or not m:
+                continue
+
+            profile = m.group(1)   # "BH" or "BOX"
+            suffix = m.group(2)    # current suffix: "翼", "上翼", etc.
+            normalized = _normalize_part_type(suffix)
+
+            # 只拆分通用行（当前后缀与归一化相同，即"翼"/"腹"无修饰）
+            if suffix != normalized:
+                continue
+
+            # 从 DXF 原始部件中收集属于该归一化类型的具体后缀
+            raw_parts = raw_parts_map[dxf_filename]
+            specific_suffixes: list[str] = []
+            for pc in raw_parts:
+                raw_suffix = _extract_raw_part_suffix(pc.part_name)
+                n = _normalize_part_type(raw_suffix)
+                if n == normalized and raw_suffix != normalized:
+                    specific_suffixes.append(raw_suffix)
+
+            # 去重并保持顺序
+            seen: set[str] = set()
+            unique_suffixes: list[str] = []
+            for s in specific_suffixes:
+                if s not in seen:
+                    seen.add(s)
+                    unique_suffixes.append(s)
+
+            if len(unique_suffixes) <= 1:
+                continue  # 只有一个或没有具体后缀，无需拆分
+
+            # 检查是否已有其他行覆盖了这些具体后缀
+            existing_suffixes: set[str] = set()
+            for other in by_base.get(base, []):
+                if other["_row"] == row_num:
+                    continue
+                other_suffix = self._find_raw_suffix(
+                    str(other.get("_part_name", "") or "")
+                )
+                if other_suffix:
+                    existing_suffixes.add(other_suffix)
+
+            if existing_suffixes >= set(unique_suffixes):
+                continue  # 已有足够的行覆盖各个子类型
+
+            # 构造新零件名
+            prefix = part_name[:m.start()]  # e.g. "3b1-cb-4"
+            new_names = [
+                f"{prefix}-{profile}{suffix}" for suffix in unique_suffixes
+            ]
+            split_groups[row_num] = new_names
+
+        return split_groups
+
+    def _read_cached_summaries(
+        self, row_nums: set[int]
+    ) -> dict[int, float]:
+        """通过 data_only 模式读取汇总列的缓存数值。
+
+        Stage 2 通过 patch_formula_caches 写入了缓存值，
+        读取这些值即可获得公式的计算结果。
+
+        Returns:
+            {row_num: cached_value, ...}
+        """
+        result: dict[int, float] = {}
+        if self._col_summary is None:
+            return result
+
+        try:
+            data_wb = openpyxl.load_workbook(
+                self.stage2_excel_path, data_only=True,
+            )
+        except Exception:
+            logger.warning("无法以 data_only 模式打开 Excel，汇总值拆分可能不准确")
+            return result
+
+        try:
+            if "part" not in data_wb.sheetnames:
+                return result
+            data_ws = data_wb["part"]
+            for row_num in row_nums:
+                val = data_ws.cell(row_num, self._col_summary).value
+                if val is not None:
+                    try:
+                        result[row_num] = float(val)
+                    except (ValueError, TypeError):
+                        pass
+        finally:
+            data_wb.close()
+
+        return result
+
+    def _split_rows_in_part_sheet(
+        self,
+        ws,
+        split_groups: dict[int, list[str]],
+        summary_values: dict[int, float],
+    ) -> list[int]:
+        """在 part 表 worksheet 中拆分行。
+
+        从高行号向低行号处理，避免插入行导致行号错位。
+        拆分后每行的"导入零件号"更新为具体名称，
+        "汇总"列除以拆分数 N。
+
+        Returns:
+            新增行的行号列表
+        """
+        if not split_groups:
+            return []
+
+        max_col = ws.max_column
+        new_row_nums: list[int] = []
+
+        for row_num in sorted(split_groups.keys(), reverse=True):
+            new_names = split_groups[row_num]
+            N = len(new_names)
+            if N <= 1:
+                continue
+
+            # 收集原行所有单元格数据
+            original_cells: dict[int, dict] = {}
+            for c in range(1, max_col + 1):
+                src = ws.cell(row_num, c)
+                original_cells[c] = {
+                    "value": src.value,
+                    "font": src.font.copy(),
+                    "fill": src.fill.copy(),
+                    "border": src.border.copy(),
+                    "alignment": src.alignment.copy(),
+                    "number_format": src.number_format,
+                }
+
+            # 插入 N-1 行（在原始行下方）
+            if N > 1:
+                ws.insert_rows(row_num + 1, N - 1)
+
+            original_summary = summary_values.get(row_num)
+
+            # 写入各拆分行
+            for i in range(N):
+                target_row = row_num + i
+                if i > 0:
+                    # 复制原行数据
+                    for c in range(1, max_col + 1):
+                        cell = ws.cell(target_row, c)
+                        orig = original_cells[c]
+                        cell.value = orig["value"]
+                        cell.font = orig["font"]
+                        cell.fill = orig["fill"]
+                        cell.border = orig["border"]
+                        cell.alignment = orig["alignment"]
+                        cell.number_format = orig["number_format"]
+                    new_row_nums.append(target_row)
+
+                # 更新导入零件号
+                if self._col_part_name:
+                    ws.cell(target_row, self._col_part_name).value = new_names[i]
+
+                # 清空图形列（待后续分类回填）
+                if self._col_graphics:
+                    ws.cell(target_row, self._col_graphics).value = None
+
+                # 汇总列 ÷ N
+                if (
+                    self._col_summary
+                    and original_summary is not None
+                    and original_summary != 0
+                ):
+                    ws.cell(target_row, self._col_summary).value = original_summary / N
+
+        return new_row_nums
 
     def _fill_graphics_column(
         self,
@@ -354,7 +638,8 @@ class Stage3Runner:
     ) -> tuple[int, int]:
         """回填"图形"列并标红"待人工"。
 
-        对于在分类映射中找不到的零件（如无匹配 DXF），跳过不填。
+        优先用原始后缀（上翼/下翼/腹板1）精确匹配 DXF 分类结果，
+        精确匹配不到再降级为归一化匹配或模糊匹配。
 
         Returns:
             (filled_count, manual_count)
@@ -363,7 +648,6 @@ class Stage3Runner:
             logger.warning("未检测到'图形'列，跳过回填")
             return 0, 0
 
-        col_letter = get_column_letter(self._col_graphics)
         filled = 0
         manual = 0
 
@@ -378,14 +662,20 @@ class Stage3Runner:
 
             part_maps = classification_map[dxf_filename]
             part_name = str(row.get("_part_name", "") or "")
-            ptype = _extract_part_category(part_name)
+            raw_suffix = self._find_raw_suffix(part_name)
+            normalized = _extract_part_category(part_name)
 
-            # 确定分类结果
+            # 确定分类结果：优先级
+            # 1. 原始后缀精确匹配（如"上翼" → "上翼"）
+            # 2. 归一化匹配（如"翼" → "翼"）
+            # 3. DXF 只有一个结果 → 直接使用
+            # 4. 模糊匹配（key 出现在 part_name 中）
             category: str | None = None
-            if ptype and ptype in part_maps:
-                category = part_maps[ptype]
+            if raw_suffix and raw_suffix in part_maps:
+                category = part_maps[raw_suffix]
+            elif normalized and normalized in part_maps:
+                category = part_maps[normalized]
             elif part_maps:
-                # 类型无法识别：如果 DXF 只有一个分类结果，直接使用
                 if len(part_maps) == 1:
                     category = next(iter(part_maps.values()))
                 else:
@@ -449,6 +739,7 @@ class Stage3Runner:
             component = str(row.get("_component", "") or "")
             base = _extract_base_part_number(part_name)
             ptype = _extract_part_category(part_name)
+            raw_suffix = self._find_raw_suffix(part_name)
 
             if row_num not in part_dxf_map:
                 continue
@@ -459,7 +750,9 @@ class Stage3Runner:
 
             part_maps = classification_map[dxf_filename]
             category: str | None = None
-            if ptype and ptype in part_maps:
+            if raw_suffix and raw_suffix in part_maps:
+                category = part_maps[raw_suffix]
+            elif ptype and ptype in part_maps:
                 category = part_maps[ptype]
             elif len(part_maps) == 1:
                 category = next(iter(part_maps.values()))
@@ -472,10 +765,12 @@ class Stage3Runner:
             if category is None:
                 continue
 
+            # 部位列显示原始后缀（更具体）
+            display_suffix = raw_suffix or ptype or ""
             ws_out.cell(row_out, 1, part_name)
             ws_out.cell(row_out, 2, component)
             ws_out.cell(row_out, 3, base or "")
-            ws_out.cell(row_out, 4, ptype or "")
+            ws_out.cell(row_out, 4, display_suffix)
             ws_out.cell(row_out, 5, category)
             ws_out.cell(row_out, 6, dxf_filename)
 
