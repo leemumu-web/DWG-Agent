@@ -72,6 +72,7 @@ REAL_TASK_MODULES = (
     "app.modules.dxf_splitting.tasks",
     "app.modules.excel_processing.tasks",
     "app.modules.jobs.tasks",
+    "app.modules.plate_classification.tasks",
     "app.modules.operations.daily_archive.tasks",
     "app.modules.operations.storage_reconciliation.tasks",
     "app.modules.operations.control_plane.tasks",

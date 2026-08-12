@@ -11,7 +11,6 @@ from pathlib import Path
 
 from app.modules.excel_processing.stage_adapter import (
     ExcelStage3ProcessResult,
-    get_excel_stage3_root,
     run_excel_stage3_pipeline,
 )
 from app.modules.files.interface import StoredFile, get_storage_backend
@@ -19,7 +18,6 @@ from app.platform.config.constants import (
     PIPELINE_EXCEL_STAGE3,
     STEP_PERSIST_EXCEL_STAGE3,
     STEP_RUN_EXCEL_STAGE3,
-    STEP_VALIDATE_EXCEL_STAGE3_INPUTS,
     TASK_EXCEL_STAGE3,
 )
 from app.platform.config.settings import settings

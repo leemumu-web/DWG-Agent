@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import select
-
-from app.modules.jobs.interface import Job, summarize_job_execution
+from app.modules.jobs.interface import summarize_job_execution
 from app.modules.plate_classification.execution import run_plate_classification
 from app.modules.plate_classification.models import (
     PlateClassificationRun,
@@ -46,7 +44,7 @@ def _run_plate_classification_job(
             )
 
         run.status = "running"
-        run.started_at = datetime.now(timezone.utc)
+        run.started_at = datetime.now(UTC)
         db.commit()
 
         logger.info(
@@ -64,7 +62,7 @@ def _run_plate_classification_job(
         run.status = "completed"
         run.input_count = result.get("dxf_count", 0)
         run.classified_count = result.get("total_parts", 0)
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         db.commit()
 
         logger.info(
@@ -85,7 +83,7 @@ def _run_plate_classification_job(
             if run:
                 run.status = "failed"
                 run.error_message = str(exc)
-                run.finished_at = datetime.now(timezone.utc)
+                run.finished_at = datetime.now(UTC)
                 db.commit()
         except Exception:
             pass

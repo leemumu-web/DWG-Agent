@@ -22,12 +22,13 @@ def trigger_plate_classification(
     db=Depends(get_db),
 ):
     """触发板件分类任务。创建运行记录并入队 Celery 任务。"""
-    from app.modules.jobs import models as job_models
+    from app.modules.jobs.interface import Job
 
     # Create job
-    job = job_models.Job(
-        type="plate_classification",
-        status="pending",
+    job = Job(
+        task_type="plate_classification",
+        precision_level="normal",
+        status="queued",
         attempt=1,
     )
     db.add(job)

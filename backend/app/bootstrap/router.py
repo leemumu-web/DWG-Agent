@@ -6,7 +6,6 @@ from fastapi import APIRouter
 
 from app.modules.automation.agent.routes import router as agent_router
 from app.modules.excel_processing.routes.router import router as excel_processing_router
-from app.modules.plate_classification.router import router as plate_classification_router
 from app.modules.files.routes.router import router as files_router
 from app.modules.identity.routes.router import roles_router, sessions_router, users_router
 from app.modules.jobs.routes.router import jobs_router, results_router, reviews_router
@@ -14,6 +13,7 @@ from app.modules.operations.audit.routes import router as audit_router
 from app.modules.operations.control_plane.routes import router as control_plane_router
 from app.modules.operations.data_catalog.system_routes import router as system_router
 from app.modules.operations.router import router as operations_router
+from app.modules.plate_classification.router import router as plate_classification_router
 from app.modules.projects.routes.router import drawings_router, projects_router
 from app.modules.remnant_inventory.routes import (
     import_items_router,

@@ -1108,10 +1108,9 @@ def _raise_for_failed_stage(
         raise ExcelFinalInputError(failure)
     details = (completed.stderr or completed.stdout or "unknown error").strip()
     logger.error(
-        "Excel Final %s failed (rc=%s): %s",
+        "Excel Final %s failed (rc=%s)",
         operation,
         completed.returncode,
-        details[-4000:],
     )
     failure_kind = "input_parse" if any(
         marker in details

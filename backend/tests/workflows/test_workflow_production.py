@@ -85,6 +85,7 @@ def test_linux_production_template_has_complete_ordered_server_framework(db):
         "drawing_processing",
         "excel_stage1",
         "excel_stage2",
+        "excel_stage3",
         "design_barrier",
         "cam_packaging",
         "windows_cam",
@@ -131,7 +132,7 @@ def test_linux_production_template_exposes_honest_capabilities():
         "bh_setback_excel",
         "stage2_excel",
     ]
-    assert stages["design_barrier"].required_inputs == ["processed_dxf", "stage2_excel"]
+    assert stages["design_barrier"].required_inputs == ["processed_dxf", "stage3_excel"]
     assert "stage2_excel" in stages["cam_packaging"].required_inputs
     assert "stage2_excel" in stages["delivery_archive"].required_inputs
     assert "excel_final" not in stages
@@ -3000,7 +3001,7 @@ def test_cancelling_workflow_cancels_bound_active_job(monkeypatch):
 
 
 def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
-    """Exercise the complete ten-stage server-side state machine."""
+    """Exercise the complete eleven-stage server-side state machine."""
     _, project, workflow = _production_workflow(db)
 
     def bind_and_complete(
@@ -3076,6 +3077,14 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
             ("stage2_excel", "stage2.xlsx"),
         ),
     )
+    finish_job(
+        "excel_stage3",
+        "process_excel_stage3",
+        (
+            ("classification_excel", "classification.xlsx"),
+            ("stage3_excel", "stage3.xlsx"),
+        ),
+    )
     bind_and_complete(
         "design_barrier",
         (("review_record", "review-record.json"),),
@@ -3110,7 +3119,7 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
     assert workflow.current_stage == "delivery_archive"
-    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 10
+    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 11
     assert {artifact.artifact_type for artifact in workflow.artifacts} == {
         "source_dwg",
         "source_excel",
@@ -3128,6 +3137,8 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
         "stage1_excel",
         "bh_setback_excel",
         "stage2_excel",
+        "classification_excel",
+        "stage3_excel",
         "review_record",
         "cam_input_dxf",
         "cam_package_manifest",

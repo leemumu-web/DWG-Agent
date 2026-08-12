@@ -107,6 +107,7 @@ def main() -> None:
         "REMNANT_PARSE_WORKER_CPU_LIMIT": "1.0",
         "EXCEL_FINAL_WORKER_CPU_LIMIT": "1.0",
         "EXCEL_STAGE2_WORKER_CPU_LIMIT": "1.0",
+        "EXCEL_STAGE3_WORKER_CPU_LIMIT": "1.0",
         "MAINTENANCE_WORKER_CPU_LIMIT": "1.0",
         "MYSQL_CPU_LIMIT": "1.0",
         "MINIO_CPU_LIMIT": "1.0",

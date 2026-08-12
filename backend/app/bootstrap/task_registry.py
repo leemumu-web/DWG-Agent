@@ -9,7 +9,6 @@ def load_tasks() -> tuple[ModuleType, ...]:
     """Import task modules while retaining their stable public task names."""
     from app.modules.cad_processing import tasks as cad_processing
     from app.modules.dxf_classification import tasks as dxf_classification
-    from app.modules.plate_classification import tasks as plate_classification
     from app.modules.dxf_splitting import tasks as dxf_splitting
     from app.modules.excel_processing import tasks as excel_processing
     from app.modules.jobs import tasks as jobs
@@ -22,6 +21,7 @@ def load_tasks() -> tuple[ModuleType, ...]:
     from app.modules.operations.storage_reconciliation import (
         tasks as storage_reconciliation,
     )
+    from app.modules.plate_classification import tasks as plate_classification
     from app.modules.remnant_inventory import tasks as remnant_inventory
 
     register_job_worker_maintenance()

@@ -256,9 +256,10 @@
       "http_prefixes": ["/api/v1/excel-final"],
       "celery_tasks": [
         "app.workers.tasks_excel_final.process_excel_final",
-        "app.workers.tasks_excel_stage2.process_excel_stage2"
+        "app.workers.tasks_excel_stage2.process_excel_stage2",
+        "app.workers.tasks_excel_stage3.process_excel_stage3"
       ],
-      "queues": ["excel_final", "excel_stage2"],
+      "queues": ["excel_final", "excel_stage2", "excel_stage3"],
       "stages": ["Stages/excel_final"],
       "tests": [
         "backend/tests/architecture/test_excel_processing_boundaries.py",
@@ -273,6 +274,25 @@
         "docs/architecture/workflow.md"
       ],
       "notes": "The implemented one-file Excel Final pipeline owns isolated Stage execution, MinIO result registration and three MySQL relationship tables. Production input schema, the external handbook database and the target drawing-wide final barrier remain dependencies or gaps. DXF material-workbook extraction belongs to cad_processing because DXF is its source domain."
+    },
+    {
+      "code": "plate_classification",
+      "title": "板件图形分类（异孔折判断）",
+      "status": "partial",
+      "architecture_nodes": ["API", "MYSQL", "WEB"],
+      "backend_paths": ["backend/app/modules/plate_classification"],
+      "frontend_paths": ["frontend/src/features/plate-classification"],
+      "tables": ["plate_classification_items", "plate_classification_runs"],
+      "http_prefixes": ["/api/v1/plate-classification"],
+      "celery_tasks": ["app.workers.tasks_plate_classification.classify_plates"],
+      "queues": [],
+      "stages": ["Stages/yikongzhe"],
+      "tests": [],
+      "docs": [
+        "backend/app/modules/plate_classification/README.md",
+        "docs/guides/plate-classification-branch.md"
+      ],
+      "notes": "拆板后 DXF 板件图形分类（方/异、有孔/无孔、有折/无折 8 类）由 yikongzhe Stage 计算，后端登记 MySQL 运行记录与条目，前端提供触发与结果面板；HTTP 路由与 Celery 任务通过功能开关保护，人工复核与完整验收仍在交付中。"
     },
     {
       "code": "operations",

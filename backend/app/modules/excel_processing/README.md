@@ -27,6 +27,7 @@
 - `tasks.py` 只注册历史 Celery 名并调用 `execution.py`，不复制 attempt 状态机。
 - `stage_adapter.py` / `stage_runner.py` 隔离父进程与 Stage；`interface.py` 是跨域唯一入口。
 - `stage2_execution.py` 是工作流 Excel 第二阶段的应用层入口，只消费工作流已冻结的精确文件清单，不扫描项目目录或拆板产物。
+- `stage3_execution.py` 是工作流 Excel 第三阶段（异孔折判断）的应用层入口，消费第二阶段 Excel 与拆板 DXF 清单，按拆板后图中不同翼/腹拆分通用 part 行并回填图形类别。
 - `handbook_catalog_source.py` 把唯一可信 `五金手册.xls` 逐行映射为可追溯的关系表、生成确定性 SQL，并提供源表与已部署手册库的逐值审计。
 
 ## 规范结果与质量语义
