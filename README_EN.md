@@ -25,6 +25,19 @@
 
 **Status markers:** ✅ Delivered · ⚠️ Conditionally available · ⏸️ Disabled/placeholder · ❌ Out of scope
 
+## 📌 Current Snapshot
+
+> Based on the current `main` branch (2026-08-12). This section records recent changes that are present in code and backed by regression evidence; it does not override the feature-flag, real-sample, or production-gate boundaries described below.
+
+| Recent update | Current result | Notes |
+|---|---|---|
+| BOX drawing recognition | ⚠️ | Tekla SmartMerge merged drawings are supported, including 10 `w-1-cb` samples; all 10 new samples were auto-accepted, while the route and failure set for the existing 253-sample corpus remained unchanged. The production path is still gated by `DXF_SPLIT_PIPELINE_ENABLED` and real business-sample acceptance. |
+| Geometry safety proofs | ✅ | Straight-column webs now require a length-consistency proof; suspected chamfer misreads route to manual review; the two webs remain separate physical plates; invalid geometry is skipped safely instead of being auto-published. |
+| Workflow read path | ✅ | Workflow detail, classification, and splitting reads now synchronize only when Job or artifact drift is detected; steady-state reads no longer perform unconditional database writes. Classification statistics use database aggregation, and active frontend polling is less frequent. |
+| Split ZIP downloads | ✅ | Fixed a render-effect interaction that could trigger `AbortController` and cancel a split-result ZIP request in the frontend; the server-side file remains available for retry after a failed download. |
+
+These BOX recognition improvements expand the algorithm and Stage regression coverage; they do not mean every real drawing can automatically prove its allowance geometry. When a proof obligation is not satisfied, the system remains on the manual-review or failure path. See the [current verification evidence](docs/verification/current.md) and [Linux production workflow framework](docs/architecture/workflow.md).
+
 ## 🏢 Platform Overview
 
 ### Core Capabilities
