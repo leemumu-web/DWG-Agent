@@ -45,6 +45,23 @@ def bind_stage_job(db: Session, workflow: WorkflowRun, *, stage_code: str, job: 
 
 
 def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
+    """把 Job 状态重放到工作流投影中（只读重放）。
+
+    投影规则（调用方先用 ``workflow_needs_sync`` 判断是否需要同步；本函数
+    不自行决定是否同步）：
+
+    - 绑定的 Job 缺失、或 ``job.attempt != stage.job_attempt`` 时跳过该
+      阶段——旧世代数据绝不进入投影。
+    - Job 成功时，只投影 ``result_json["job_attempt"]`` 等于当前 attempt
+      的 Result（AnalysisResult 没有 attempt 列）；Result 未声明产物类型时
+      回退到阶段 capability 的第一个类型。
+    - ``drawing_processing`` 额外从拆板账本记录同一 (job_id, attempt) 的
+      拆板结果。
+    - 必需产物缺失时，阶段置为 ``failed``
+      （WORKFLOW_STAGE_OUTPUT_INCOMPLETE），不推进。
+    - ``excel_process``→``waiting_review`` 是遗留 excel_delivery 模板的
+      人机交接特例；其余模板一律推进到 ``waiting_input``。
+    """
     now = business_now()
     for stage in workflow.stages:
         if stage.job_id is None:

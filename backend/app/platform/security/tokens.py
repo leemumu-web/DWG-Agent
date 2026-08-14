@@ -1,20 +1,18 @@
-"""Password hashing and JWT signing primitives.
+"""密码哈希与 JWT 签名原语。
 
-Token claim contract:
+令牌 claim 契约：
 
-- Every issued token carries ``sub`` (integer user id as string), ``jti``
-  (unique id), ``iat`` (fractional NumericDate), ``exp`` and ``type``
-  (``access`` vs ``refresh``).
-- ``decode_token`` only verifies signature and expiry — it does NOT check
-  ``type``. Callers (identity dependencies/authentication/sessions) must
-  validate ``payload["type"]`` themselves, and revocation is enforced by
-  writing the ``jti`` into the identity blacklist table plus the
-  ``password_changed_at`` timestamp check. Do not assume decode implies
-  authorization.
-- ``sub`` is the integer user id; extra_claims may add domain-specific
-  claims (e.g. cookie flags) but must never override the core claims above.
-- Passwords use Argon2id via pwdlib ``PasswordHash.recommended()``; the
-  stored ``password_algo`` column must stay consistent with this choice.
+- 每个签发的令牌都携带 ``sub``（整数用户 id 的字符串形式）、``jti``
+  （唯一 id）、``iat``（小数 NumericDate）、``exp`` 与 ``type``
+  （``access`` 或 ``refresh``）。
+- ``decode_token`` 只校验签名与过期——**不校验** ``type``。调用方
+  （identity 依赖/认证/会话）必须自行校验 ``payload["type"]``；吊销通过
+  把 ``jti`` 写入 identity 黑名单表并结合 ``password_changed_at`` 时间戳
+  检查实现。不要假设 decode 即授权。
+- ``sub`` 是整数用户 id；extra_claims 可添加领域特定 claim（如 cookie
+  标志），但绝不能覆盖上述核心 claim。
+- 密码使用 pwdlib ``PasswordHash.recommended()`` 的 Argon2id；存储的
+  ``password_algo`` 列必须与此选择保持一致。
 """
 
 from __future__ import annotations
@@ -33,17 +31,17 @@ password_hash = PasswordHash.recommended()
 
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password (Argon2id, pwdlib recommended)."""
+    """哈希明文密码（Argon2id，pwdlib recommended）。"""
     return password_hash.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plaintext password against a stored hash."""
+    """用存储的哈希校验明文密码。"""
     return password_hash.verify(plain_password, hashed_password)
 
 
 def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
-    """Issue a short-lived access token (minutes; see module claim contract)."""
+    """签发短时 access token（分钟级；见模块 claim 契约）。"""
     now = business_now()
     expire = now + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     payload: dict[str, Any] = {
@@ -62,7 +60,7 @@ def create_access_token(subject: str, extra_claims: dict[str, Any] | None = None
 
 
 def create_refresh_token(subject: str, extra_claims: dict[str, Any] | None = None) -> str:
-    """Issue a long-lived refresh token (days; see module claim contract)."""
+    """签发长时 refresh token（天级；见模块 claim 契约）。"""
     now = business_now()
     expire = now + timedelta(days=settings.jwt_refresh_token_expire_days)
     payload: dict[str, Any] = {
@@ -78,5 +76,5 @@ def create_refresh_token(subject: str, extra_claims: dict[str, Any] | None = Non
 
 
 def decode_token(token: str) -> dict[str, Any]:
-    """Decode and verify signature/expiry only (does NOT validate ``type``)."""
+    """仅解码并校验签名/过期（**不**校验 ``type``）。"""
     return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])

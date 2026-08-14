@@ -214,6 +214,10 @@ def freeze_input_batch(
         "excel": _manifest_entry(excel),
         "drawings": manifest_drawings,
     }
+    # 规范化清单哈希不变量：manifest_sha256 是对下面这份规范化 JSON 字节串
+    # （sort_keys + 紧凑分隔符 + ensure_ascii=False）的 SHA-256。任何对序列化
+    # 格式的改动（或新增字段）都会改变所有历史冻结批次的哈希，导致下游
+    # manifest_sha256 比对全部失败——此类变更必须走清单版本号升级，禁止就地修改。
     canonical = json.dumps(
         manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode()

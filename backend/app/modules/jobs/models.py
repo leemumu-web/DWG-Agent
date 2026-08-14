@@ -117,6 +117,15 @@ class JobStep(Base):
 
 
 class AnalysisResult(TimestampMixin, Base):
+    """分析结果行（由 worker 的某次 attempt 产出）。
+
+    世代约定：与 Job/JobStep/JobDispatch 不同，本表**没有 attempt 列**——
+    世代只记录在 ``result_json["job_attempt"]`` 中。旧 attempt 产生的行
+    仍保留在同一 ``job_id`` 下；消费方（job_sync、batch_exports、工作流
+    投影等）必须按 ``result_json["job_attempt"] == 当前 Job.attempt``
+    过滤，否则旧世代结果会污染新世代的投影。
+    """
+
     __tablename__ = "analysis_results"
 
     id: Mapped[int] = mapped_column(PKType, primary_key=True, autoincrement=True)

@@ -182,7 +182,19 @@ def enqueue_job(
 
 
 def publish_dispatch(lease: DispatchLease) -> str:
-    """Publish a leased immutable snapshot with its stable Celery task ID."""
+    """发布已租约的不可变快照，使用稳定的 Celery task ID。
+
+    稳定 ID 契约：``lease.dispatch_uid`` 同时充当 Celery ``task_id``，因此
+    同一组的模糊投递/重复投递会复用同一个 task id。业务幂等**不依赖**
+    Celery 去重——worker 的 status+attempt 守卫使重复投递安全（见
+    jobs.interface 模块 docstring）。
+
+    快照校验：租约的 pipeline 必须已知，且必须与 ``TASK_PIPELINES``
+    （task_type → pipeline）映射一致；否则整组以 ``PermanentDispatchError``
+    拒绝。``TASK_PIPELINES`` 与 ``enqueue_job`` 的分支必须同步维护——
+    未映射的 task 会落到 PIPELINE_STUB 兜底，再被 expected_pipeline
+    检查有意拒绝。
+    """
     known_pipelines = {
         PIPELINE_DXF,
         PIPELINE_DXF2DWG,

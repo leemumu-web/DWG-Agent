@@ -625,6 +625,15 @@ def purge_export(
     actor_user_id: int,
     request_id: str,
 ) -> tuple[int, int]:
+    """在双重下载证明通过后，物理删除已导出的批次文件。
+
+    双重门禁设计（防误删）：(1) ``row.status == "downloaded"`` 是流式传输
+    完成时的进程内标记；(2) ``_download_succeeded`` 要求存在已持久化的
+    FileTransfer 账本行（operation=workflow_batch_export）——这是跨进程的
+    权威下载证明，因为进程崩溃后 ``row.status`` 可能与真实情况不一致。
+    两个条件都必须满足，且工作流不能有排队/运行中的阶段，才允许删除对象
+    并结算 FileTransfer 行。
+    """
     if row.status == "purged":
         return row.purged_file_count, row.purged_size_bytes
     if row.status != "downloaded" or not _download_succeeded(db, row.export_uid):

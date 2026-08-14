@@ -1,21 +1,19 @@
-"""Canonical records shared by the normalized Excel Final pipeline.
+"""规范化 Excel Final 管线共享的规范记录。
 
-Cross-module input/evidence contract (reader → canonical_pipeline →
-writer_parts → stage2). These frozen records must stay stable: any field
-change ripples through the whole pipeline and the stage2 handoff.
+跨模块输入/证据契约（reader → canonical_pipeline → writer_parts →
+stage2）。这些 frozen 记录必须保持稳定：任何字段改动都会波及整条管线
+与 stage2 交接。
 
-Field conventions:
+字段约定：
 
-- ``component_qty`` is the 构件数 (component count) of the source row, while
-  ``original_qty`` is the 数量 (quantity) column; they are distinct and both
-  carried through validation.
-- ``invalid_fields`` lists the missing/invalid source column names; a
-  non-empty tuple means the row is not fully trusted. Consumers must treat
-  None weight/length fields as "source value missing", never as zero.
-- ``classification`` is the routed category and is None until the row has
-  been classified; do not assume it is always set.
-- Weights are unrounded Decimals on purpose: rounding happens only at
-  writer/report boundaries (see weights.py tolerances).
+- ``component_qty`` 是源行的构件数，``original_qty`` 是数量列；两者含义
+  不同且都随校验贯穿全程。
+- ``invalid_fields`` 列出缺失/无效的源列名；非空元组表示该行不完全可信。
+  消费方必须把 None 的重量/长度字段视为「源值缺失」，绝不能当作零。
+- ``classification`` 是路由后的类别，行未分类前为 None；不要假设它总是
+  有值。
+- 重量刻意保留未舍入的 Decimal：舍入只发生在 writer/报告边界（见
+  weights.py 的容差）。
 """
 
 from __future__ import annotations
@@ -30,11 +28,10 @@ from typing import Mapping
 
 @dataclass(frozen=True, slots=True)
 class SourcePart:
-    """One normalized source part row (构件行/零件行 input evidence).
+    """一条规范化源零件行（构件行/零件行输入证据）。
 
-    ``component_qty`` is 构件数, ``original_qty`` is 数量; ``invalid_fields``
-    lists the missing source columns (see module docstring). Frozen: parts
-    are passed through the pipeline without mutation.
+    ``component_qty`` 是构件数，``original_qty`` 是数量；``invalid_fields``
+    列出缺失的源列（见模块 docstring）。Frozen：零件在管线中传递不改动。
     """
 
     source_sheet: str
@@ -66,10 +63,10 @@ class ComponentRowKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ComponentSourceRow:
-    """One normalized component-scoped source row (构件 row evidence).
+    """一条规范化构件作用域源行（构件行证据）。
 
-    ``kind`` discriminates start/subtotal/summary rows of a component block;
-    quantity and weight fields are None for non-data rows.
+    ``kind`` 区分构件块的 start/subtotal/summary 行；非数据行的数量与
+    重量字段为 None。
     """
 
     source_sheet: str
@@ -94,11 +91,10 @@ class ComponentSourceRow:
 
 @dataclass(frozen=True, slots=True)
 class ParentPartEvidence:
-    """Evidence chain of one parent part before splitting.
+    """拆板前一条父零件的证据链。
 
-    Carries the normalized spec, density source, unrounded theoretical
-    weights and the weight-validation outcome; ``weight_validation_status``
-    is one of the quality levels and drives isolation decisions downstream.
+    携带规范化规格、密度来源、未舍入的理论重量与重量校验结果；
+    ``weight_validation_status`` 是质量等级之一，驱动下游的隔离决定。
     """
 
     source: SourcePart
@@ -116,11 +112,10 @@ class ParentPartEvidence:
 
 @dataclass(frozen=True, slots=True)
 class SplitPart:
-    """One split child of a parent part (拆板子件).
+    """父零件的一个拆板子件。
 
-    ``is_main`` marks the primary child; the unrounded theoretical
-    contribution must sum exactly with the other children to the parent's
-    theoretical weight (conservation check in splitter.py).
+    ``is_main`` 标记主子件；未舍入的理论贡献与其他子件之和必须与父件
+    理论重量精确相等（splitter.py 的守恒校验）。
     """
 
     parent: ParentPartEvidence
@@ -137,10 +132,10 @@ class SplitPart:
 
 @dataclass(frozen=True, slots=True)
 class PipelineOutcome:
-    """Result of one canonical pipeline run: output path + quality summary.
+    """一次规范管线的运行结果：输出路径 + 质量汇总。
 
-    ``output_path`` is resolved absolute; ``report_summary`` is immutable
-    (MappingProxyType) for safe cross-thread reads.
+    ``output_path`` 为解析后的绝对路径；``report_summary`` 不可变
+    （MappingProxyType），可跨线程安全读取。
     """
 
     output_path: Path

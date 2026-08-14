@@ -1,17 +1,16 @@
-"""Stable control-plane write boundary for workers and other operation modules.
+"""worker 与其他运维模块的稳定控制面写入边界。
 
-Calling contract:
+调用契约：
 
-- ``event_type`` should follow a dotted convention (e.g. ``worker.heartbeat``,
-  ``worker.stopped``) so consumers can filter and group events.
-- ``severity`` is one of ``info`` / ``warning`` (``error`` reserved for
-  future use); worker signals use ``warning`` when a worker stops.
-- ``direction`` is ``internal`` (default) or ``external`` (Windows/Node
-  contracts); keep it stable for filtering.
-- ``correlation_id`` links related events across sources; pass it through
-  from the originating job/run when available.
-- ``register_control_plane_worker_observer`` must be called during worker
-  assembly (bootstrap), before workers start, so signal callbacks are wired.
+- ``event_type`` 应遵循点分约定（如 ``worker.heartbeat``、
+  ``worker.stopped``），便于消费方过滤与分组。
+- ``severity`` 取值 ``info`` / ``warning``（``error`` 预留）；worker 停止时
+  信号用 ``warning``。
+- ``direction`` 取 ``internal``（默认）或 ``external``（Windows/Node
+  契约）；保持稳定以便过滤。
+- ``correlation_id`` 跨来源关联相关事件；有来源 job/run 时透传。
+- ``register_control_plane_worker_observer`` 必须在 worker 装配
+  （bootstrap）阶段、worker 启动前调用，以便接线信号回调。
 """
 
 from __future__ import annotations

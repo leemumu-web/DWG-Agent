@@ -142,9 +142,18 @@ def _scalar_file_ids(db: Session, statement) -> set[int]:
 
 
 def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[int]:
+    """仍被**其他**工作流引用的文件（这些文件禁止物理删除）。
+
+    关键维护规则：本函数必须穷举所有可能引用文件的表/列——输入批次条目、
+    工作流产物、分析结果（阶段运行与转换 Job 两条路径）、分类运行与条目、
+    拆板运行与条目（含人工复核候选）、以及复核决定。漏掉任何一张表，retention
+    就可能把别的运行仍在引用的文件物理删除。新增文件引用来源时，必须同步
+    扩展本函数。
+    """
     if not file_ids:
         return set()
     shared: set[int] = set()
+    # 1. 其他工作流的输入批次条目：源 DWG + 派生 DXF。
     input_scope = WorkflowInputBatch.workflow_run_id != workflow_id
     for column in (WorkflowInputItem.file_id, WorkflowInputItem.derived_dxf_file_id):
         shared.update(
@@ -158,6 +167,7 @@ def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[i
                 .where(input_scope, column.in_(file_ids)),
             )
         )
+    # 2. 其他运行挂接的工作流产物。
     shared.update(
         _scalar_file_ids(
             db,
@@ -167,6 +177,7 @@ def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[i
             ),
         )
     )
+    # 3. 绑定到其他工作流阶段运行的分析结果。
     shared.update(
         _scalar_file_ids(
             db,
@@ -181,6 +192,7 @@ def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[i
             ),
         )
     )
+    # 4. 其他工作流输入条目转换 Job 的分析结果。
     shared.update(
         _scalar_file_ids(
             db,
@@ -200,6 +212,7 @@ def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[i
         )
     )
 
+    # 5. 分类运行的报告/清单，以及逐条目源文件/输出文件。
     classification_columns = (
         DxfClassificationRun.report_file_id,
         DxfClassificationRun.manifest_file_id,
@@ -233,6 +246,8 @@ def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[i
             )
         )
 
+    # 6. 拆板运行的账本/清单/校验报告，以及所有条目文件
+    #    （normal、allowance、报告、人工复核候选）。
     for column in (
         DxfSplitRun.bh_split_ledger_file_id,
         DxfSplitRun.split_manifest_file_id,
@@ -270,6 +285,7 @@ def _shared_file_ids(db: Session, workflow_id: int, file_ids: set[int]) -> set[i
                 ),
             )
         )
+    # 7. 人工复核决定选定的最终文件。
     for column in (
         DxfSplitReviewDecision.final_normal_dxf_file_id,
         DxfSplitReviewDecision.final_weld_allowance_dxf_file_id,

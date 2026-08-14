@@ -1,29 +1,22 @@
-"""Public workflow boundary for other business modules.
+"""工作流对其他业务模块的公共边界。
 
-Calling contract (CONTEXT.md: Interface must document invariants, error
-modes, ordering and configuration):
+调用契约（CONTEXT.md：Interface 必须文档化不变量、错误模式、顺序与配置）：
 
-- ``bind_stage_job`` attaches a Job to a stage and moves the run to
-  ``running``; call it only after the input batch has been frozen and only
-  for a stage declared by the run's template. It rejects binding on a
-  terminal workflow (409) and unknown stages (422).
-- ``sync_workflow_from_jobs`` is a read-only projection replay: call
-  ``workflow_needs_sync`` first and only sync when drift is detected. It
-  skips stages whose bound ``job.attempt`` no longer matches the stage
-  generation, and only accepts succeeded Results whose
-  ``result_json["job_attempt"]`` equals the current attempt — stale
-  generations never enter the projection.
+- ``bind_stage_job`` 把 Job 挂到阶段并把运行置为 ``running``；只能在输入
+  批次**已冻结**后、且只对运行模板声明的阶段调用。终态运行拒绝绑定（409），
+  未知阶段抛 422。
+- ``sync_workflow_from_jobs`` 是只读投影重放：先调 ``workflow_needs_sync``，
+  检测到漂移才同步。绑定的 ``job.attempt`` 与阶段世代不一致时跳过该阶段；
+  只接受 ``result_json["job_attempt"]`` 等于当前 attempt 的 succeeded
+  Result——旧世代数据绝不进入投影。
 - ``find_frozen_input_reference`` / ``read_verified_input_object`` /
-  ``production_file_reference_exists`` back the files deletion guard: they
-  expose only frozen-manifest identifiers, so a file still referenced by a
-  frozen batch cannot be physically removed.
-- ``attach_artifact`` validates ``artifact_type`` against the stage
-  capability whitelist (422 ``WORKFLOW_ARTIFACT_TYPE_INVALID``) and enforces
-  the artifact reference rules before registering the artifact.
+  ``production_file_reference_exists`` 支撑文件删除守卫：只暴露冻结清单的
+  不可变标识，因此仍被冻结批次引用的文件不可能被物理删除。
+- ``attach_artifact`` 按阶段 capability 白名单校验 ``artifact_type``
+  （422 ``WORKFLOW_ARTIFACT_TYPE_INVALID``）并执行产物引用规则后再登记。
 - ``create_workflow``/``start_workflow``/``cancel_workflow``/
-  ``complete_manual_stage``/``recompute_workflow`` are lifecycle entry
-  points; ``recompute_workflow`` never commits — callers own the transaction
-  boundary.
+  ``complete_manual_stage``/``recompute_workflow`` 是生命周期入口；
+  ``recompute_workflow`` 从不提交——事务边界由调用方持有。
 """
 
 from app.modules.workflows.access import (

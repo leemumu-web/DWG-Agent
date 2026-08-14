@@ -248,6 +248,11 @@ def lease_next_dispatch(
             )
             for row in rows
         )
+        # 无效组回退：当整组不可认领、或组内各行的 mode/task_type/pipeline
+        # 不一致时，我们**故意**以 mode="invalid" 租约并提交。这不是 bug：
+        # 它让后续 settle 流程能重置这组坏行，避免 SKIP LOCKED 永远跳过同一
+        # 组坏行造成活锁。随后的 publish 会对 invalid 租约抛出
+        # PermanentDispatchError。
         if (
             not rows
             or not rows_are_claimable
@@ -332,6 +337,17 @@ def _settle_publish_failure(
     *,
     permanent: bool,
 ) -> bool:
+    """结算一次发布失败：永久失败则直接失败 Job，临时失败则退避重投。
+
+    永久失败（PermanentDispatchError，如本版本无法处理该快照）：通过带
+    status/attempt 守卫的 UPDATE 直接把排队中的 Job 置为 failed——只有
+    JOB_QUEUED 且 attempt 匹配的行才会被改写，已被 worker 认领的 Job
+    不会被覆盖。
+
+    临时失败（broker/投递错误）：投递行重置为 ``pending``，按
+    ``retry_delay`` 指数退避设置 ``available_at``，``delivery_attempts``
+    单调递增。
+    """
     now = business_now()
     error_code = (
         "JOB_DISPATCH_UNSUPPORTED" if permanent else "JOB_DISPATCH_TEMPORARY_FAILURE"

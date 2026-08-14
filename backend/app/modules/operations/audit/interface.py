@@ -1,19 +1,17 @@
-"""Stable cross-domain audit write interface.
+"""稳定的跨域审计写入接口。
 
-Calling contract:
+调用契约：
 
-- ``action`` must use the dotted ``<domain>.<action>`` convention (e.g.
-  ``files.delete``); the audit list endpoint filters by this prefix, so
-  callers must not invent free-form action names.
-- ``resource_type`` is a free-form stable noun (e.g. ``project``,
-  ``stored_file``); keep the spelling stable across call sites so the
-  resource can be traced.
-- ``before_json`` / ``after_json`` are pre/post change snapshots of the
-  mutated row (or None when not applicable); do not store blobs.
-- ``request`` is optional convenience: when passed (and IP/UA not already
-  given) the client host and User-Agent are extracted from it.
-- The row is flushed inside the caller's transaction — audit writes join
-  the business transaction and roll back with it.
+- ``action`` 必须使用 ``<domain>.<action>`` 点分命名约定（如
+  ``files.delete``）；审计列表接口按此前缀过滤，调用方不得发明自由格式的
+  动作名。
+- ``resource_type`` 是自由但稳定的名词（如 ``project``、
+  ``stored_file``）；各调用点的拼写必须保持一致，以便追踪资源。
+- ``before_json`` / ``after_json`` 是被改行的变更前后快照（不适用时为
+  None）；不要存大对象。
+- ``request`` 是可选便捷参数：传入时（且未显式给 IP/UA）从请求提取客户端
+  host 与 User-Agent。
+- 行在调用方事务内 flush——审计写入与业务事务同生共死，随事务一起回滚。
 """
 
 from __future__ import annotations
@@ -42,10 +40,9 @@ def write_audit_log(
     user_agent: str | None = None,
     request: "Request | None" = None,
 ) -> AuditLog:
-    """Write one audit row (``<domain>.<action>`` dotted convention).
+    """写入一条审计行（``<domain>.<action>`` 点分约定）。
 
-    See module docstring for the action/resource naming contract. Flushed
-    into the caller's transaction; nothing is committed here.
+    动作/资源命名契约见模块 docstring。在调用方事务内 flush；此处不提交。
     """
     # Extract IP/UA from the request when callers pass it (§20.4)
     if request is not None and (ip_address is None or user_agent is None):

@@ -1,14 +1,13 @@
-"""Project-scoped access rules shared through projects/interface.py.
+"""经 projects/interface.py 共享的项目级访问规则。
 
-Calling contract for every cross-module consumer (files/jobs/workflows):
+对每个跨模块消费方（files/jobs/workflows）的调用契约：
 
-- Global bypass: admin/super_admin pass every check and the helpers return
-  ``None`` for the membership row — ``None`` means "authorized without a
-  membership row", not "not a member".
-- ``require_active_project`` raises 404 for a missing or soft-deleted
-  project without leaking whether it exists; membership failures raise 403.
-- ``require_project_role`` raises 403 when the member's role is not in
-  ``allowed_project_roles``; it also requires an active project first.
+- 全局旁路：admin/super_admin 通过所有检查，助手对成员行返回 ``None``——
+  ``None`` 表示「已授权但无成员行」，不是「非成员」。
+- ``require_active_project`` 对不存在或已软删除的项目抛 404，且不泄露
+  项目是否存在；成员检查失败抛 403。
+- ``require_project_role`` 当成员角色不在 ``allowed_project_roles`` 中时
+  抛 403；它同时要求项目先处于活跃状态。
 """
 
 from __future__ import annotations
@@ -22,12 +21,12 @@ from app.platform.http.exceptions import forbidden, not_found
 
 
 def has_global_project_access(user: User) -> bool:
-    """Whether the user bypasses project-scoped rules (admin/super_admin)."""
+    """用户是否绕过项目级规则（admin/super_admin）。"""
     return is_admin(user)
 
 
 def get_project_membership(db: Session, user: User, project_id: int) -> ProjectMember | None:
-    """Return the user's membership row for a project, or None."""
+    """返回用户在项目中的成员行，或 None。"""
     return db.scalar(
         select(ProjectMember).where(
             ProjectMember.project_id == project_id,
@@ -37,17 +36,17 @@ def get_project_membership(db: Session, user: User, project_id: int) -> ProjectM
 
 
 def require_active_project(db: Session, project_id: int) -> None:
-    """Raise 404 if the project does not exist or has been soft-deleted."""
+    """项目不存在或已软删除时抛 404。"""
     project = db.get(Project, project_id)
     if not project or project.status == "deleted":
         raise not_found("Project")
 
 
 def require_project_member(db: Session, user: User, project_id: int) -> ProjectMember | None:
-    """Require membership (or global admin); return the membership row.
+    """要求成员身份（或全局 admin）；返回成员行。
 
-    Admin/super_admin return ``None`` (authorized without a row); missing or
-    soft-deleted project → 404; non-member → 403.
+    admin/super_admin 返回 ``None``（无成员行但已授权）；项目缺失/已软删除
+    → 404；非成员 → 403。
     """
     if has_global_project_access(user):
         return None
@@ -64,10 +63,10 @@ def require_project_role(
     project_id: int,
     allowed_project_roles: set[str],
 ) -> ProjectMember | None:
-    """Require an allowed project role (or global admin).
+    """要求允许的项目角色（或全局 admin）。
 
-    Admin/super_admin return ``None``; the member's ``project_role`` must be
-    in ``allowed_project_roles``, otherwise 403.
+    admin/super_admin 返回 ``None``；成员 ``project_role`` 必须在
+    ``allowed_project_roles`` 中，否则 403。
     """
     if has_global_project_access(user):
         return None

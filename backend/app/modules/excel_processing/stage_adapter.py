@@ -47,11 +47,10 @@ _QUALITY_STATUSES = {"ok", "warning", "severe_warning"}
 _LOOKUP_STATUSES = {"hit", "not_found", "skipped", "conflict"}
 _LOOKUP_CATEGORIES = {item.value for item in HandbookCategory}
 _D_MATERIAL_CATEGORY_BY_PREFIX = {
-    # Mirror of Stages/excel_final/material_routing.py (CONTEXT.md「五金手册
-    # 材质路由」): HRB→螺纹钢(rebar), HPB/Q235B/Q355B→圆钢(round_bar). This
-    # adapter only validates the calling contract; the Stage owns the lookup
-    # logic. Keep both sides plus the frontend validation in sync — the
-    # cross-seam tests enforce it.
+    # 镜像 Stages/excel_final/material_routing.py（CONTEXT.md「五金手册
+    # 材质路由」）：HRB→螺纹钢(rebar)、HPB/Q235B/Q355B→圆钢(round_bar)。
+    # 本适配器只校验调用契约；查询逻辑归 Stage 所有。本侧、Stage 与前端
+    # 校验必须保持同步——由跨 seam 测试强制。
     "HRB": "rebar",
     "HPB": "round_bar",
     "Q235B": "round_bar",
@@ -623,15 +622,13 @@ def _normalize_lookup_request(
     spec: str,
     material: str | None,
 ) -> tuple[str, str, str | None]:
-    """Validate/normalize one handbook lookup request against the Stage rules.
+    """按 Stage 规则校验/规范化一次手册查询请求。
 
-    This mirrors the Stage's handbook routing contract (see
-    ``_D_MATERIAL_CATEGORY_BY_PREFIX``): PIP/PD specs are formula-based
-    (steel_pipe/square_tube, no handbook query), D-series specs require the
-    material family to match the requested category (rebar vs round_bar
-    are mutually exclusive), and round_bar/rebar lookups always require a
-    material. Raises ValueError on contract violation — the caller turns it
-    into a structured Excel input failure.
+    镜像 Stage 的手册路由契约（见 ``_D_MATERIAL_CATEGORY_BY_PREFIX``）：
+    PIP/PD 规格走公式（steel_pipe/square_tube，不查手册）；D 系列规格要求
+    材质族与请求类别匹配（rebar 与 round_bar 互斥）；round_bar/rebar 查询
+    总是要求材质。契约违规抛 ValueError——调用方将其转为结构化 Excel 输入
+    失败。
     """
     normalized_category = str(category or "").strip()
     normalized_spec = str(spec or "").strip()
