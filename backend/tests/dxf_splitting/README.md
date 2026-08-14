@@ -18,3 +18,21 @@
 `test_box_regressions.py` 锁定拆板回归样本的行为契约；
 `test_box_release_attestation_runtime.py` 锁定内置 BOX 认证与当前受保护实现指纹一致。测试不能调用真实
 外部 MinIO、MySQL 或拆板子进程；这些依赖分别由 SQLite、本地对象存储和保真 CLI 假实现隔离。
+
+## 生产标准验收测试
+
+- `test_bh_annotation_physical_hole_capacity.py`
+- `test_bh_dimension_ordering_regression.py`
+- `test_bh_manufacturing_ir.py`
+- `test_bh_weld_allowance_feature_binding.py`
+- `test_box_acceptance_runner.py`
+- `test_box_equivalence_grouping.py`
+- `test_box_external_acceptance_contracts.py`
+- `test_box_external_geometry_oracle.py`
+- `test_box_historical_acceptance.py`
+- `test_box_historical_delta.py`
+- `test_box_historical_result.py`
+- `test_box_human_constraints.py`
+- `test_box_review_materialization.py`
+- `test_box_role_hypotheses.py`
+- `test_box_yellow_reference_snapshot_contract.py`

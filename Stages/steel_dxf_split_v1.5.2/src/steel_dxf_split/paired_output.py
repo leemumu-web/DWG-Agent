@@ -7,6 +7,11 @@ from typing import Any
 
 import ezdxf
 from ezdxf.lldxf.const import DXFError
+from ezdxf.lldxf.const import DXFValueError
+
+
+_XDATA_APPID = "STEEL_DXF_SPLIT"
+_CUT_XDATA_SCHEMA = "BH-CUT-FEATURE-1.0"
 
 
 class PairedOutputValidationError(ValueError):
@@ -50,6 +55,71 @@ def _cut_hole_geometry(
                 )
             )
     return tuple(sorted(values, key=repr))
+
+
+def _bh_bound_cuts(
+    document: ezdxf.document.Drawing,
+) -> dict[str, tuple[float, float, float, int]]:
+    result = {}
+    for entity in document.modelspace().query("CIRCLE[layer=='CUT_HOLE']"):
+        try:
+            tags = list(entity.get_xdata(_XDATA_APPID))
+        except DXFValueError as exc:
+            raise PairedOutputValidationError(
+                "BH CUT_HOLE feature contract is missing"
+            ) from exc
+        if (
+            [tag.code for tag in tags] != [1000, 1000, 1000]
+            or tags[0].value != _CUT_XDATA_SCHEMA
+        ):
+            raise PairedOutputValidationError(
+                "BH CUT_HOLE feature contract is invalid"
+            )
+        cut_id = str(tags[2].value)
+        if cut_id in result:
+            raise PairedOutputValidationError(
+                "BH CUT_HOLE feature contract has duplicate IDs"
+            )
+        result[cut_id] = (
+            float(entity.dxf.center.x),
+            float(entity.dxf.center.y),
+            float(entity.dxf.radius),
+            int(entity.dxf.color),
+        )
+    return result
+
+
+def _bh_cut_feature_contracts_match(
+    normal: ezdxf.document.Drawing,
+    allowance: ezdxf.document.Drawing,
+    report: dict[str, Any],
+) -> bool:
+    normal_cuts = _bh_bound_cuts(normal)
+    allowance_cuts = _bh_bound_cuts(allowance)
+    if set(normal_cuts) != set(allowance_cuts):
+        return False
+    translations = {
+        str(cut_id): float(item["allowance_mm"])
+        for item in report.get("plates", [])
+        if isinstance(item, dict)
+        for cut_id in item.get("positive_terminal_cut_ids", [])
+    }
+    for cut_id, before in normal_cuts.items():
+        after = allowance_cuts[cut_id]
+        if (
+            not math.isclose(after[0], before[0] + translations.get(cut_id, 0.0), abs_tol=1e-6)
+            or not math.isclose(after[1], before[1], abs_tol=1e-6)
+            or not math.isclose(after[2], before[2], abs_tol=1e-9)
+            or after[3] != before[3]
+        ):
+            return False
+    normal_inner = tuple(
+        item for item in _cut_hole_geometry(normal) if item[0] != "CIRCLE"
+    )
+    allowance_inner = tuple(
+        item for item in _cut_hole_geometry(allowance) if item[0] != "CIRCLE"
+    )
+    return normal_inner == allowance_inner
 
 
 def _entity_counts(
@@ -181,7 +251,12 @@ def validate_paired_outputs(
         raise PairedOutputValidationError(
             "normal and weld allowance entity sets differ"
         )
-    if _cut_hole_geometry(normal) != _cut_hole_geometry(allowance):
+    if family == "BH":
+        if not _bh_cut_feature_contracts_match(normal, allowance, report):
+            raise PairedOutputValidationError(
+                "normal and weld allowance hole feature contract differs"
+            )
+    elif _cut_hole_geometry(normal) != _cut_hole_geometry(allowance):
         raise PairedOutputValidationError(
             "normal and weld allowance hole geometry or color differs"
         )
@@ -197,7 +272,11 @@ def validate_paired_outputs(
             "weld_allowance_dxf_audit_clean": True,
             "same_dxf_and_unit_contract": True,
             "entity_and_layer_counts_identical": True,
-            "cut_hole_geometry_and_colors_identical": True,
+            (
+                "cut_hole_feature_contracts_match"
+                if family == "BH"
+                else "cut_hole_geometry_and_colors_identical"
+            ): True,
             "allowance_report_complete": True,
             "allowance_lengths_close": True,
         },

@@ -25,6 +25,7 @@ from .bh_writer import _escape_non_ascii_dxf_text
 
 _XDATA_APPID = "STEEL_DXF_SPLIT"
 _XDATA_SCHEMA = "BH-WELD-ALLOWANCE-1.0"
+_CUT_XDATA_SCHEMA = "BH-CUT-FEATURE-1.0"
 _REPORT_SCHEMA = "BH-WELD-ALLOWANCE-REPORT-1.0"
 _REPORT_INPUT_SCHEMA = "BH-COMPILATION-REPORT-1.4"
 _GEOMETRY_TOLERANCE_MM = MAX_SAGITTA_MM + 1e-6
@@ -165,6 +166,37 @@ def _plate_binding(entity) -> dict[str, object]:
     }
 
 
+def _cut_binding(entity) -> tuple[str, str]:
+    try:
+        tags = list(entity.get_xdata(_XDATA_APPID))
+    except DXFValueError as exc:
+        raise WeldAllowanceProcessingError(
+            "CUT_HOLE circle is missing its manufacturing feature binding."
+        ) from exc
+    if [tag.code for tag in tags] != [1000, 1000, 1000]:
+        raise WeldAllowanceProcessingError(
+            "CUT_HOLE circle has an invalid manufacturing feature binding."
+        )
+    values = [str(tag.value) for tag in tags]
+    if values[0] != _CUT_XDATA_SCHEMA:
+        raise WeldAllowanceProcessingError(
+            "CUT_HOLE circle has an incompatible manufacturing feature schema."
+        )
+    return values[1], values[2]
+
+
+def _bound_cuts(document: ezdxf.document.Drawing) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for entity in document.modelspace().query("CIRCLE[layer=='CUT_HOLE']"):
+        _, cut_id = _cut_binding(entity)
+        if cut_id in result:
+            raise WeldAllowanceProcessingError(
+                f"Duplicate circular-cut binding in input DXF: {cut_id}."
+            )
+        result[cut_id] = entity
+    return result
+
+
 def _boundary_segments(entity, plate_id: str) -> tuple[BHContourSegmentIR, ...]:
     if not entity.closed:
         raise WeldAllowanceProcessingError(
@@ -219,6 +251,54 @@ def _cut_geometry(document: ezdxf.document.Drawing) -> tuple[tuple[object, ...],
     return tuple(curves)
 
 
+def _verify_cut_feature_contract(
+    before: ezdxf.document.Drawing,
+    after: ezdxf.document.Drawing,
+    plate_results: tuple[dict[str, object], ...],
+) -> bool:
+    before_bound = _bound_cuts(before)
+    after_bound = _bound_cuts(after)
+    if set(before_bound) != set(after_bound):
+        return False
+    translations = {
+        str(cut_id): float(result["allowance_mm"])
+        for result in plate_results
+        for cut_id in result.get("positive_terminal_cut_ids", [])
+    }
+    for cut_id, before_entity in before_bound.items():
+        after_entity = after_bound[cut_id]
+        if (
+            int(before_entity.dxf.color) != int(after_entity.dxf.color)
+            or not math.isclose(
+                float(before_entity.dxf.radius),
+                float(after_entity.dxf.radius),
+                abs_tol=1e-9,
+            )
+            or not math.isclose(
+                float(after_entity.dxf.center.x),
+                float(before_entity.dxf.center.x) + translations.get(cut_id, 0.0),
+                abs_tol=1e-6,
+            )
+            or not math.isclose(
+                float(after_entity.dxf.center.y),
+                float(before_entity.dxf.center.y),
+                abs_tol=1e-6,
+            )
+        ):
+            return False
+    before_inner = tuple(
+        item
+        for item in _cut_geometry(before)
+        if item[0] == "LWPOLYLINE"
+    )
+    after_inner = tuple(
+        item
+        for item in _cut_geometry(after)
+        if item[0] == "LWPOLYLINE"
+    )
+    return before_inner == after_inner
+
+
 def _labels(document: ezdxf.document.Drawing) -> tuple[tuple[object, ...], ...]:
     return tuple(
         (
@@ -255,6 +335,7 @@ def _validate_and_transform(
             "Compilation report has no valid manufacturing fingerprint."
         )
     contracts = _contracts_by_plate_id(report)
+    bound_cuts = _bound_cuts(document)
     plates = list(document.modelspace().query("LWPOLYLINE[layer=='PLATE_CUT']"))
     if not plates:
         raise WeldAllowanceProcessingError("Input DXF has no plate closed polyline.")
@@ -321,6 +402,36 @@ def _validate_and_transform(
                 ],
                 format="xyb",
             )
+        moving_cut_ids = tuple(
+            map(str, source_contract.get("positive_terminal_cut_ids", ()))
+        )
+        declared_cut_ids = {
+            str(cut.get("cut_id"))
+            for plate in manufacturing.get("plates", [])
+            if isinstance(plate, dict) and plate.get("plate_id") == plate_id
+            for cut in plate.get("circular_cuts", [])
+            if isinstance(cut, dict) and isinstance(cut.get("cut_id"), str)
+        }
+        if not set(moving_cut_ids) <= declared_cut_ids:
+            raise WeldAllowanceProcessingError(
+                f"Allowance contract names an unknown circular cut for plate {plate_id}."
+            )
+        for cut_id in moving_cut_ids:
+            cut_entity = bound_cuts.get(cut_id)
+            if cut_entity is None:
+                raise WeldAllowanceProcessingError(
+                    f"Allowance cut binding is absent from the DXF: {cut_id}."
+                )
+            bound_plate_id, _ = _cut_binding(cut_entity)
+            if bound_plate_id != plate_id:
+                raise WeldAllowanceProcessingError(
+                    f"Allowance cut is bound to the wrong plate: {cut_id}."
+                )
+            cut_entity.dxf.center = (
+                float(cut_entity.dxf.center.x) + declared_allowance,
+                float(cut_entity.dxf.center.y),
+                float(cut_entity.dxf.center.z),
+            )
         results.append(
             {
                 "plate_id": plate_id,
@@ -333,7 +444,9 @@ def _validate_and_transform(
                 "moved_end": "positive_x",
                 "terminal_translation_mm": [declared_allowance, 0.0],
                 "terminal_inclination_preserved": True,
-                "cuts_and_inner_contours_moved": False,
+                "positive_terminal_cut_ids": list(moving_cut_ids),
+                "moved_circular_cut_count": len(moving_cut_ids),
+                "cuts_follow_declared_feature_contract": True,
             }
         )
     return tuple(results)
@@ -369,7 +482,7 @@ def apply_weld_allowance(
         raise WeldAllowanceProcessingError(
             f"Cannot read the split production DXF: {input_path}."
         ) from exc
-    before_cut_geometry = _cut_geometry(document)
+    before_document = ezdxf.readfile(input_path)
     before_labels = _labels(document)
     before_counts = _entity_counts(document)
     plate_results = _validate_and_transform(document, report)
@@ -403,9 +516,13 @@ def apply_weld_allowance(
             raise WeldAllowanceProcessingError(
                 "Saved allowance DXF lost its millimetre unit declaration."
             )
-        if _cut_geometry(saved) != before_cut_geometry:
+        if not _verify_cut_feature_contract(
+            before_document,
+            saved,
+            plate_results,
+        ):
             raise WeldAllowanceProcessingError(
-                "A hole or inner contour changed during allowance processing."
+                "A circular cut or inner contour violated its allowance feature contract."
             )
         if _labels(saved) != before_labels:
             raise WeldAllowanceProcessingError(
@@ -455,7 +572,8 @@ def apply_weld_allowance(
                 "native_curve_contracts_match_report": True,
                 "positive_terminal_rigid_translation": True,
                 "terminal_inclinations_preserved": True,
-                "cut_hole_curves_unchanged": True,
+                "cut_hole_feature_contracts_match": True,
+                "inner_contours_unchanged": True,
                 "labels_unchanged": True,
                 "entity_and_layer_counts_unchanged": True,
                 "saved_dxf_audit_clean": True,

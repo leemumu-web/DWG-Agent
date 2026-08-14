@@ -7,10 +7,12 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from .bh_associations import DrawingEdgeKind, DrawingGraph
 from .bh_frames import LocalFrame
 from .bh_models import BHAssembly, BHPlate, BulgeContour
 from .bh_proofs import ProofReport, ProofStatus
 from .bh_source import SourceDocument
+from .bh_text import canonical_bh_label
 
 
 class EvidenceState(str, Enum):
@@ -94,6 +96,7 @@ class WeldAllowanceContract:
     rail_segment_ids: tuple[str, str]
     positive_terminal_segment_ids: tuple[str, ...]
     rule_ids: tuple[str, ...]
+    positive_terminal_cut_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +110,9 @@ class WeldAllowanceContract:
             "rail_segment_ids": list(self.rail_segment_ids),
             "positive_terminal_segment_ids": list(
                 self.positive_terminal_segment_ids
+            ),
+            "positive_terminal_cut_ids": list(
+                self.positive_terminal_cut_ids
             ),
             "rule_ids": list(self.rule_ids),
         }
@@ -928,12 +934,32 @@ def _role_assignments(
     return tuple(result)
 
 
+def canonical_manufacturing_role_label(
+    part_number: str,
+    role: ManufacturingPlateRole,
+    *,
+    merge_authorized: bool = False,
+) -> str:
+    """Return the one display label authorized by a final physical role."""
+
+    if role == ManufacturingPlateRole.WEB:
+        return canonical_bh_label(part_number, "web")
+    if merge_authorized:
+        return canonical_bh_label(part_number, "flange", quantity=2)
+    return canonical_bh_label(
+        part_number,
+        "flange",
+        index=(1 if role == ManufacturingPlateRole.UPPER_FLANGE else 2),
+    )
+
+
 def build_bh_manufacturing_ir(
     assembly: BHAssembly,
     source: SourceDocument,
     frame: LocalFrame,
     proof_report: ProofReport,
     *,
+    drawing_graph: DrawingGraph | None = None,
     fit_tolerance_mm: float = 0.15,
 ) -> BHManufacturingIR:
     """Freeze a mutable assembly into physical plates with feature evidence."""
@@ -1007,11 +1033,52 @@ def build_bh_manufacturing_ir(
             allowance_contract = derive_weld_allowance_contract(outer)
         except WeldAllowanceContractError:
             allowance_contract = None
+        if allowance_contract is not None and drawing_graph is not None:
+            region_id = str(plate.provenance.get("source_region_id") or "")
+            positive_source_ids = {
+                source_id
+                for edge in drawing_graph.edges_of(DrawingEdgeKind.ALIGNED_WITH)
+                if edge.rule_id == "TEKLA.DIMENSION.END_DATUM_CUT"
+                and edge.attributes.get("end_role") == "positive_x"
+                and edge.attributes.get("region_id") == region_id
+                for source_id in next(
+                    node
+                    for node in drawing_graph.nodes
+                    if node.node_id == edge.target
+                ).source_ids
+            }
+            positive_cut_ids = tuple(
+                cut.cut_id
+                for cut in cuts
+                if positive_source_ids.intersection(cut.evidence.source_ids)
+            )
+            allowance_contract = WeldAllowanceContract(
+                schema_version="BH-WELD-ALLOWANCE-CONTRACT-1.1",
+                coordinate_unit=allowance_contract.coordinate_unit,
+                longitudinal_axis=allowance_contract.longitudinal_axis,
+                main_length_mm=allowance_contract.main_length_mm,
+                allowance_mm=allowance_contract.allowance_mm,
+                stationary_end=allowance_contract.stationary_end,
+                movable_end=allowance_contract.movable_end,
+                rail_segment_ids=allowance_contract.rail_segment_ids,
+                positive_terminal_segment_ids=(
+                    allowance_contract.positive_terminal_segment_ids
+                ),
+                positive_terminal_cut_ids=positive_cut_ids,
+                rule_ids=(
+                    *allowance_contract.rule_ids,
+                    "BH.RULE.WELD_ALLOWANCE.DIMENSION_ENDPOINT_CUT_BINDING",
+                ),
+            )
         plates.append(
             BHPlateIR(
                 plate_id=f"{assembly.metadata.part_number}:{role_name}",
                 role=role,
-                label=plate.label,
+                label=canonical_manufacturing_role_label(
+                    assembly.metadata.part_number,
+                    role,
+                    merge_authorized=merge_authorized,
+                ),
                 material=assembly.metadata.material,
                 thickness_mm=plate.thickness,
                 quantity=1,

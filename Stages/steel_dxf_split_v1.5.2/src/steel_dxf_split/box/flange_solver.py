@@ -685,7 +685,6 @@ def enumerate_flange_outline_candidates(
     assignment: ViewAssignmentCandidate,
     metadata: BoxMetadata,
     *,
-    maximum_face_union_states: int = 10_000,
     maximum_direct_faces: int = 45,
 ) -> FlangeCandidateSearchResult:
     """Enumerate full-width BOX flange plates from the B-direction projection."""
@@ -721,7 +720,6 @@ def enumerate_flange_outline_candidates(
         entities,
         frame,
         target_transverse_mm=target,
-        maximum_states=maximum_face_union_states,
         run_subset_search=not direct_face_search_pruned,
     )
     direct = direct_search.candidates

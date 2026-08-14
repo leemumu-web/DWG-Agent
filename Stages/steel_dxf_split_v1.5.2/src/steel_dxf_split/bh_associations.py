@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from math import cos, hypot, pi, sin
+from math import cos, hypot, inf, pi, sin
 import re
 from typing import Any, Iterable
 
@@ -181,6 +181,15 @@ class DrawingGraph:
             "nodes": [item.to_dict() for item in sorted(self.nodes, key=lambda item: item.node_id)],
             "edges": [item.to_dict() for item in sorted(self.edges, key=lambda item: item.edge_id)],
         }
+
+
+def _ordered_dimension_group(
+    group: Iterable[tuple[int, float, DrawingNode]],
+) -> list[tuple[int, float, DrawingNode]]:
+    return sorted(
+        group,
+        key=lambda item: (item[0], item[1], item[2].node_id),
+    )
 
 
 def _bbox_payload(bbox: BoundingBox | None) -> list[float] | None:
@@ -550,6 +559,117 @@ def _add_exploded_dimensions(
     view_nodes: list[tuple[ViewRegion, DrawingNode]],
     dialect: BHDialectProfile,
 ) -> None:
+    datum_candidates: list[dict[str, Any]] = []
+
+    def bind_end_datum_cuts(
+        node: DrawingNode,
+        *,
+        line_start: Point2D,
+        line_end: Point2D,
+        first_extension: NormalizedEntity,
+        second_extension: NormalizedEntity,
+        view_node: DrawingNode,
+        sources: tuple[str, ...],
+        tolerance_mm: float,
+    ) -> None:
+        """Promote an exploded longitudinal end dimension into datum evidence.
+
+        The dimension line endpoints are witnessed by perpendicular extension
+        lines.  One extension must be collinear with an actual view boundary;
+        the other must be collinear with one or more physical-cut centres.
+        No distance-to-nearest-end fallback is permitted.
+        """
+
+        if abs(line_end.x - line_start.x) < abs(line_end.y - line_start.y):
+            return
+        bbox = view_node.attributes.get("bbox_mm")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            return
+        minimum_x, _, maximum_x, _ = map(float, bbox)
+        extension_pairs = (
+            (first_extension, line_start.x, second_extension, line_end.x),
+            (second_extension, line_end.x, first_extension, line_start.x),
+        )
+        projected_cut_node_ids = {
+            edge.source
+            for edge in graph.edges_of(DrawingEdgeKind.PROJECTS_TO)
+            if edge.target == view_node.node_id
+        }
+        primitive_nodes = {
+            item.node_id: item
+            for item in graph.nodes_of(DrawingNodeKind.PRIMITIVE)
+            if item.node_id in projected_cut_node_ids
+            and item.attributes.get("entity_type") == "CIRCLE"
+        }
+        for boundary_extension, boundary_x, cut_extension, cut_x in extension_pairs:
+            end_role = None
+            boundary_residual = inf
+            for candidate_role, candidate_x in (
+                ("negative_x", minimum_x),
+                ("positive_x", maximum_x),
+            ):
+                residual = abs(boundary_x - candidate_x)
+                if residual < boundary_residual:
+                    end_role = candidate_role
+                    boundary_residual = residual
+            if end_role is None or boundary_residual > tolerance_mm:
+                continue
+            cut_points = _line_points(cut_extension)
+            boundary_points = _line_points(boundary_extension)
+            if cut_points is None or boundary_points is None:
+                continue
+            matching = []
+            for cut_node in primitive_nodes.values():
+                cut_bbox = cut_node.attributes.get("bbox_mm")
+                if not isinstance(cut_bbox, list) or len(cut_bbox) != 4:
+                    continue
+                center = Point2D(
+                    (float(cut_bbox[0]) + float(cut_bbox[2])) / 2.0,
+                    (float(cut_bbox[1]) + float(cut_bbox[3])) / 2.0,
+                )
+                axis_residual = abs(center.x - cut_x)
+                extension_residual = _point_line_distance(
+                    center,
+                    cut_points[0],
+                    cut_points[1],
+                )
+                if max(axis_residual, extension_residual) <= tolerance_mm:
+                    matching.append(
+                        (axis_residual, extension_residual, cut_node)
+                    )
+            if not matching:
+                continue
+            for axis_residual, extension_residual, cut_node in sorted(
+                matching,
+                key=lambda item: item[2].node_id,
+            ):
+                datum_candidates.append(
+                    {
+                        "node": node,
+                        "cut_node": cut_node,
+                        "sources": (*sources, *cut_node.source_ids),
+                        "dimension_value_mm": line_start.distance_to(line_end),
+                        "residual_mm": max(
+                        boundary_residual,
+                        axis_residual,
+                        extension_residual,
+                        ),
+                        "attributes": {
+                            "region_id": view_node.attributes["region_id"],
+                            "end_role": end_role,
+                            "boundary_x_mm": boundary_x,
+                            "cut_axis_x_mm": cut_x,
+                            "dimension_value_mm": line_start.distance_to(line_end),
+                            "boundary_extension_source_id": (
+                                boundary_extension.source_id
+                            ),
+                            "cut_extension_source_id": cut_extension.source_id,
+                            "maximum_residual_mm": tolerance_mm,
+                        },
+                    }
+                )
+            return
+
     already_bound = {
         source_id
         for node in graph.nodes_of(DrawingNodeKind.DIMENSION)
@@ -740,6 +860,170 @@ def _add_exploded_dimensions(
                         "view_envelope_residual_mm": round(view_residual, 9),
                     },
                 )
+                bind_end_datum_cuts(
+                    node,
+                    line_start=start,
+                    line_end=end,
+                    first_extension=first_extension,
+                    second_extension=second_extension,
+                    view_node=view_node,
+                    sources=sources,
+                    tolerance_mm=max(1.0, tolerance),
+                )
+
+    candidates_by_cut: dict[str, list[dict[str, Any]]] = {}
+    for candidate in datum_candidates:
+        cut_node = candidate["cut_node"]
+        candidates_by_cut.setdefault(cut_node.node_id, []).append(candidate)
+    for candidates in candidates_by_cut.values():
+        minimum_value = min(
+            float(candidate["dimension_value_mm"])
+            for candidate in candidates
+        )
+        selected = [
+            candidate
+            for candidate in candidates
+            if abs(float(candidate["dimension_value_mm"]) - minimum_value)
+            <= 1e-6
+        ]
+        end_roles = {
+            str(candidate["attributes"]["end_role"])
+            for candidate in selected
+        }
+        if len(end_roles) != 1:
+            continue
+        candidate = min(
+            selected,
+            key=lambda item: (
+                float(item["residual_mm"]),
+                item["node"].node_id,
+            ),
+        )
+        graph.add_edge(
+            candidate["node"],
+            DrawingEdgeKind.ALIGNED_WITH,
+            candidate["cut_node"],
+            source_ids=candidate["sources"],
+            rule_id="TEKLA.DIMENSION.END_DATUM_CUT",
+            residual_mm=float(candidate["residual_mm"]),
+            strength=AssociationStrength.GEOMETRIC,
+            attributes=candidate["attributes"],
+        )
+
+    datum_edges_by_cut: dict[str, list[DrawingEdge]] = {}
+    for edge in graph.edges_of(DrawingEdgeKind.ALIGNED_WITH):
+        if edge.rule_id == "TEKLA.DIMENSION.END_DATUM_CUT":
+            datum_edges_by_cut.setdefault(edge.target, []).append(edge)
+    pitch_edges = [
+        edge
+        for edge in graph.edges_of(DrawingEdgeKind.ALIGNED_WITH)
+        if edge.rule_id == "TEKLA.DIMENSION.PATTERN_START_CUT"
+    ]
+    measurement_edges = graph.edges_of(DrawingEdgeKind.MEASURES)
+    primitive_nodes = {
+        item.node_id: item
+        for item in graph.nodes_of(DrawingNodeKind.PRIMITIVE)
+        if item.attributes.get("entity_type") == "CIRCLE"
+    }
+    dimension_nodes = {
+        item.node_id: item
+        for item in graph.nodes_of(DrawingNodeKind.DIMENSION)
+    }
+    for pitch_edge in pitch_edges:
+        pitch_node = dimension_nodes[pitch_edge.source]
+        orientation = str(pitch_node.attributes.get("orientation"))
+        count = pitch_node.attributes.get("chain_interval_count")
+        pitch = pitch_node.attributes.get("chain_pitch_mm")
+        if (
+            orientation not in {"horizontal", "vertical"}
+            or not isinstance(count, int)
+            or count <= 0
+            or not isinstance(pitch, (int, float))
+            or pitch <= 0.0
+        ):
+            continue
+        target_regions = {
+            edge.target
+            for edge in measurement_edges
+            if edge.source == pitch_node.node_id
+        }
+        anchor = primitive_nodes[pitch_edge.target]
+        anchor_bbox = anchor.attributes.get("bbox_mm")
+        if not isinstance(anchor_bbox, list) or len(anchor_bbox) != 4:
+            continue
+        anchor_center = Point2D(
+            (float(anchor_bbox[0]) + float(anchor_bbox[2])) / 2.0,
+            (float(anchor_bbox[1]) + float(anchor_bbox[3])) / 2.0,
+        )
+        coordinate = "x" if orientation == "horizontal" else "y"
+        anchor_axis = getattr(anchor_center, coordinate)
+        candidates = []
+        for cut_node in primitive_nodes.values():
+            if cut_node.node_id == anchor.node_id:
+                continue
+            if not any(
+                edge.source == cut_node.node_id
+                and edge.target in target_regions
+                for edge in graph.edges_of(DrawingEdgeKind.PROJECTS_TO)
+            ):
+                continue
+            cut_bbox = cut_node.attributes.get("bbox_mm")
+            if not isinstance(cut_bbox, list) or len(cut_bbox) != 4:
+                continue
+            center = Point2D(
+                (float(cut_bbox[0]) + float(cut_bbox[2])) / 2.0,
+                (float(cut_bbox[1]) + float(cut_bbox[3])) / 2.0,
+            )
+            intervals = round(
+                abs(getattr(center, coordinate) - anchor_axis) / float(pitch)
+            )
+            residual = abs(
+                abs(getattr(center, coordinate) - anchor_axis)
+                - intervals * float(pitch)
+            )
+            if 1 <= intervals <= count and residual <= max(
+                1.0,
+                displayed_dimension_tolerance(str(pitch)),
+            ):
+                candidates.append((intervals, residual, cut_node))
+        if {item[0] for item in candidates} != set(range(1, count + 1)):
+            continue
+        group = [(0, 0.0, anchor), *candidates]
+        datum_edges = [
+            edge
+            for _, _, cut_node in group
+            for edge in datum_edges_by_cut.get(cut_node.node_id, ())
+        ]
+        end_roles = {
+            str(edge.attributes.get("end_role"))
+            for edge in datum_edges
+            if edge.attributes.get("end_role") in {"negative_x", "positive_x"}
+        }
+        if len(end_roles) != 1:
+            continue
+        datum_edge = min(
+            datum_edges,
+            key=lambda edge: (edge.residual_mm, edge.edge_id),
+        )
+        for intervals, residual, cut_node in _ordered_dimension_group(group):
+            if cut_node.node_id in datum_edges_by_cut:
+                continue
+            graph.add_edge(
+                pitch_node,
+                DrawingEdgeKind.ALIGNED_WITH,
+                cut_node,
+                source_ids=(*pitch_node.source_ids, *cut_node.source_ids),
+                rule_id="TEKLA.DIMENSION.END_DATUM_CUT",
+                residual_mm=residual,
+                strength=AssociationStrength.GEOMETRIC,
+                attributes={
+                    **datum_edge.attributes,
+                    "pitch_intervals_from_anchor": intervals,
+                    "datum_inherited_from_source_ids": list(
+                        primitive_nodes[datum_edge.target].source_ids
+                    ),
+                },
+            )
 
 
 def _group_bbox(items: list[NormalizedEntity]) -> BoundingBox | None:

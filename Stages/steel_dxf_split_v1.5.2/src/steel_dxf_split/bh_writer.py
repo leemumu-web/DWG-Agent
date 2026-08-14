@@ -44,6 +44,7 @@ _WINDOWS_CJK_DXF_FONT = "simsun.ttc"
 _CIRCLE_BUFFER_QUADRANT_SEGMENTS = 128
 _PLATE_XDATA_APPID = "STEEL_DXF_SPLIT"
 _PLATE_XDATA_SCHEMA = "BH-WELD-ALLOWANCE-1.0"
+_CUT_XDATA_SCHEMA = "BH-CUT-FEATURE-1.0"
 
 
 @dataclass(slots=True)
@@ -261,15 +262,27 @@ def _add_plate(doc: ezdxf.document.Drawing, plate: BHPlate) -> None:
         plate_min_x_mm=plate.bbox.min_x,
         plate_max_x_mm=plate.bbox.max_x,
     )
-    for cut, color_aci in zip(
+    cut_ids = plate.provenance.get("manufacturing_circular_cut_ids")
+    if not isinstance(cut_ids, list) or len(cut_ids) != len(plate.circular_cuts):
+        raise ValueError("BH circular cuts are missing manufacturing feature IDs.")
+    for cut, cut_id, color_aci in zip(
         plate.circular_cuts,
+        cut_ids,
         color_plan.colors_aci,
         strict=True,
     ):
-        doc.modelspace().add_circle(
+        circle = doc.modelspace().add_circle(
             (cut.center.x, cut.center.y),
             cut.radius,
             dxfattribs={"layer": "CUT_HOLE", "color": color_aci},
+        )
+        circle.set_xdata(
+            _PLATE_XDATA_APPID,
+            [
+                (1000, _CUT_XDATA_SCHEMA),
+                (1000, str(plate.provenance["manufacturing_plate_id"])),
+                (1000, str(cut_id)),
+            ],
         )
 
 
@@ -356,6 +369,9 @@ def _plate_from_ir(plate: BHPlateIR) -> BHPlate:
         provenance={
             "manufacturing_plate_id": plate.plate_id,
             "manufacturing_role": plate.role.value,
+            "manufacturing_circular_cut_ids": [
+                cut.cut_id for cut in plate.circular_cuts
+            ],
             **(
                 {
                     "weld_allowance_contract": (
