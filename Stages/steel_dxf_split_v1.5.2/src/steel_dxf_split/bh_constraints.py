@@ -1351,6 +1351,11 @@ def _repair_complexity(assembly: BHAssembly) -> tuple[float, dict[str, Any]]:
             repairs.append(keyword)
     # Precision relaxation and semantic repair are not errors: they are costs.
     # A valid interpretation requiring fewer interventions is preferred.
+    # 排序分惩罚系数（只影响 hypothesis「择优」，不影响证明义务判定）：
+    #   grid_penalty   —— 网格越粗扣分越多，斜率 0.20、归一化点 0.25mm，
+    #                      上限 0.40（避免粗网格解释永远落选）；
+    #   repair_penalty —— 每次干预（morph/repair/precision 等）扣 0.065，
+    #                      上限 0.45（干预过多的解释视为不可信）。
     grid_penalty = min(0.40, max(web_grid, flange_grid) / 0.25 * 0.20)
     repair_penalty = min(0.45, len(set(repairs)) * 0.065)
     quality = max(0.0, 1.0 - grid_penalty - repair_penalty)

@@ -428,6 +428,10 @@ def test_excel_final_dependency_probe_includes_legacy_xls_reader(monkeypatch):
 
 
 def test_backend_and_stage_share_one_d_series_material_routing_contract():
+    # 跨 seam 防漂移测试：后端 Adapter 与 Stage 必须共享同一材质路由映射
+    # （HRB→螺纹钢 rebar；HPB/Q235B/Q355B→圆钢 round_bar）。该路由只决定
+    # 查询类别、不代表手册命中，其他材质不得跨类别借用重量。任一侧改动
+    # 都会在此失败。
     stage_rules = runpy.run_path(
         str(excel_final.get_excel_final_stage_root() / "material_routing.py")
     )

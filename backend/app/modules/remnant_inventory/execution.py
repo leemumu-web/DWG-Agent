@@ -1,3 +1,17 @@
+"""余料导入的执行引擎：attempt 守卫的 DWG→DXF 转换与 DXF 解析。
+
+阶段划分：prepare（登记待执行项）→ dispatch（提交后投递 Celery）→
+settle（按 Job 结果结算条目状态）。Celery 任务只触发执行，MySQL 是唯一
+事实源；失败补偿通过 ``_mark_item_failed`` + ``_fail_active_job`` +
+``recalculate_batch_counters`` 收敛。
+
+世代语义：``item.attempt`` 是导入项的世代计数（重试 +1），而每次重试会
+清空 conversion/parse 的 job_id 并**新建** Job，因此 Job 自身的 attempt
+恒为 1。所有 UPDATE 都以 status + ``item.attempt == expected`` 双重条件做
+fencing——旧世代任务因 status/attempt 不匹配而失效，满足「旧 attempt 不得
+修改新 attempt 状态」的不变量。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -266,6 +280,14 @@ def _mark_item_failed(db: Session, item: RemnantImportItem, attempt: int, code: 
 
 
 def _fail_active_job(db: Session, job_id: int | None, code: str, message: str) -> None:
+    """把活动中的 Job 结算为失败（补偿助手）。
+
+    背景：``fail_job_attempt`` 只接受 running 状态的 Job，因此 queued 的
+    Job 必须先 ``claim_queued_job``（progress=0 表示重置进度）过渡到
+    running 再失败。对已 complete/failed 的 Job 是安全 no-op。本函数在
+    dispatch 失败与转换失败两条补偿路径中都会被调用，可同时失败 conversion
+    与 parse 两个 Job。
+    """
     if job_id is None:
         return
     job = db.get(Job, job_id, populate_existing=True)

@@ -38,6 +38,10 @@ const ExcelPreview: FC<ExcelPreviewProps> = ({ fileId, fileName, open, onClose }
     }
   }, [open]);
 
+  // 已知竞态：快速切换 sheet 时，前一个请求可能仍在飞行中，后到响应会
+  // 覆盖新 sheet 数据（last-write-wins），且没有 AbortController 或请求
+  // 序号保护。修复方向：记录请求序号或 AbortController，仅应用最新一次
+  // 请求的响应。
   const loadFast = useCallback(async (fid: number, sheet?: string) => {
     setFastLoading(true);
     try {

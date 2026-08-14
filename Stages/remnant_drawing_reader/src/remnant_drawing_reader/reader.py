@@ -1,3 +1,10 @@
+"""从 DXF 提取解析证据（Evidence）的读取器。
+
+遍历模型空间与 INSERT 块引用（含嵌套展开），把文字/线/块按证据字段收集；
+``_walk_insert`` 中单个实体损坏不中断整体遍历，只通过 ``anomalies``
+标志记录 STRUCTURE_ANOMALY。证据记录世界坐标而非块内局部坐标。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator

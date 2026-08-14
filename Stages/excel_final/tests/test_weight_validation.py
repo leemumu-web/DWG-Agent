@@ -95,6 +95,10 @@ def test_source_multiplication_chain_above_point_one_is_severe_and_exact() -> No
     ],
 )
 def test_theory_to_gross_threshold_boundaries(gross: str, expected: str) -> None:
+    # 参数化边界值刻意贴边构造，对应 weights.py 的判定阈值：
+    # 100.01 = 绝对容差 0.01 内 → pass；100.5 = 恰好 0.5% → pass；
+    # 100.5001 越过 0.5% → warning；102 = 恰好 2% → warning；
+    # 102.0001 越过 2% → severe。改容差必须先改这里。
     weights = _weights()
 
     assessment = weights.assess_theory_against_gross(

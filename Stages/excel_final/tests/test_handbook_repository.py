@@ -84,6 +84,10 @@ def _lookup_sql(connection: FakeConnection) -> list[tuple[str, tuple[object, ...
 
 
 def test_lookup_requires_category_spec_and_material_for_d_categories() -> None:
+    # 锁定 D 系列材质族互斥（CONTEXT.md 五金手册材质路由）：
+    # round_bar+HRB400 与 rebar+Q355B 必须抛 conflicts——HRB 只路由到
+    # 螺纹钢、HPB/Q235B/Q355B 只路由到圆钢。本用例同时充当
+    # material_routing.d_series_category 的间接覆盖（该模块无直接单测）。
     handbook = _handbook()
     repository = _repository(FakeConnection())
 

@@ -1,3 +1,13 @@
+"""经子进程调用 remnant_drawing_reader Stage 的 seam 适配器。
+
+稳定错误契约（程序化错误码；错误文本仅面向用户）：超时 →
+``REMNANT_PARSE_TIMEOUT``，非零退出或缺少侧车文件 →
+``REMNANT_PARSE_FAILED``，载荷畸形/版本不匹配 →
+``REMNANT_PARSE_CONTRACT_INVALID``。Stage 在输入旁写 ``.result.json``
+侧车文件；其 ``schema_version`` 必须与 ``remnant_drawing_reader.models``
+保持兼容。
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,7 +20,7 @@ from app.platform.config.settings import settings
 
 
 class RemnantStageError(RuntimeError):
-    """Client-safe parsing failure without subprocess output or local paths."""
+    """客户端安全的解析失败，不携带子进程输出或本地路径。"""
 
 
 def _candidates(payload: dict, name: str):
@@ -26,6 +36,13 @@ def _candidates(payload: dict, name: str):
 
 
 def parse_staged_dxf(path: Path):
+    """用 remnant_drawing_reader Stage 解析一个暂存 DXF。
+
+    在 ``remnant_parse_timeout_seconds`` 限时的子进程中运行
+    ``python -m remnant_drawing_reader.cli`` 并读取 ``.result.json`` 侧车。
+    按上面的稳定 REMNANT_* 错误码抛 ``RemnantStageError``；载荷不含标准
+    余料时 ``standard_offcut`` 为 None。
+    """
     from remnant_drawing_reader.models import (
         ParseResult,
         ParseWarning,

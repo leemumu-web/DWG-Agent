@@ -28,6 +28,9 @@ def test_all_historical_part_lists_enter_source_intake_with_row_conservation() -
     if not sources:
         pytest.skip("historical Tekla part-list corpus is absent")
 
+    # 11 是对「构件零件清单毛净重」语料快照的硬编码计数（语料增删会
+    # 静默失败，需同步更新）；下方断言验证的不变量是「每行非空数据都被
+    # 分类为零件或构件，行数守恒」。
     assert len(sources) == 11
     total_parts = 0
     total_components = 0

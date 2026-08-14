@@ -1,4 +1,24 @@
-"""Public Job/Result/Review boundary for other business modules."""
+"""Job/Result/Review 对其他业务模块的公共边界。
+
+调用契约（CONTEXT.md：Interface 必须文档化调用方必须知道的不变量、
+错误模式、顺序和配置，而不只是函数签名）：
+
+- 投递暂存：``stage_job_dispatch`` / ``stage_conversion_dispatch`` 只在
+  调用方事务内写入 outbox 行。它们必须在创建 Job 的**同一事务内、commit
+  之前**调用；随后 Celery worker 在它自己的短提交事务中租约并发布整组。
+  ``drain_eager_dispatches`` 仅用于 Celery eager 运行时。
+- worker 侧写入：worker 唯一的写入口是 ``claim_queued_job`` /
+  ``commit_job_progress`` / ``complete_job_attempt`` / ``fail_job_attempt``。
+  每次更新都以 ``status`` **和**精确的 ``attempt`` 双重守卫（fencing）：
+  旧 attempt 的过期消息或 worker 无法覆盖当前世代的运行状态。
+- ``run_local_stub_job`` 是非生产 stub 执行器，仅用于测试与本地开发；
+  绝不能当作真实 worker 路径使用。
+- ``reconcile_stale_running_jobs`` 是 worker 未结算就死亡时的恢复边界，
+  不是 broker 租约；它由维护队列定时执行，只处理超过 ``timeout_seconds``
+  的陈旧行。
+- 读取助手（``require_*`` / ``job_read_filter``）强制项目级 RBAC；拒绝时
+  抛 403/404 AppHTTPException，所有跨模块的 Job/Result 读取必须经过它们。
+"""
 
 from sqlalchemy.orm import sessionmaker
 
@@ -62,6 +82,12 @@ def run_local_stub_job(
     worker_name: str = "celery_stub",
     expected_attempt: int = 1,
 ) -> None:
+    """在当前进程内同步执行一个排队中的 Job。
+
+    非生产路径：以给定 attempt 认领 Job，执行本地 stub 并结算该 attempt
+    （成功则完成，失败则置为失败）。认领未命中（已被认领 / attempt 已推进
+    / 已终态）属于预期竞态，静默返回。
+    """
     from app.modules.jobs.stub_execution import run_local_stub_job as run_stub
 
     run_stub(job_id, worker_name=worker_name, expected_attempt=expected_attempt)
@@ -73,6 +99,10 @@ def summarize_job_execution(
     *,
     session_factory: sessionmaker | None = None,
 ) -> dict[str, int | str]:
+    """汇总某条管线在当前 attempt 下已执行的步骤。
+
+    只读；供控制面/状态视图渲染步骤进度，不修改任何 Job 状态。
+    """
     from app.modules.jobs.recovery import summarize_job_execution as summarize
 
     return summarize(job_id, pipeline, session_factory=session_factory)
@@ -83,6 +113,11 @@ def reconcile_stale_running_jobs(
     *,
     timeout_seconds: int | None = None,
 ) -> int:
+    """失败化因 worker 死亡而遗留的运行中 Job（恢复边界）。
+
+    由维护队列定时执行，不是 broker 租约：匹配超过陈旧窗口的
+    running/queued 行并置为 failed，以便重试开启新 attempt。
+    """
     from app.modules.jobs.recovery import reconcile_stale_running_jobs as reconcile
 
     return reconcile(session_factory, timeout_seconds=timeout_seconds)

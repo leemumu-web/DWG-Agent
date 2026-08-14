@@ -1,4 +1,20 @@
-"""Canonical records shared by the normalized Excel Final pipeline."""
+"""规范化 Excel Final 管线共享的规范记录。
+
+跨模块输入/证据契约（reader → canonical_pipeline → writer_parts →
+stage2）。这些 frozen 记录必须保持稳定：任何字段改动都会波及整条管线
+与 stage2 交接。
+
+字段约定：
+
+- ``component_qty`` 是源行的构件数，``original_qty`` 是数量列；两者含义
+  不同且都随校验贯穿全程。
+- ``invalid_fields`` 列出缺失/无效的源列名；非空元组表示该行不完全可信。
+  消费方必须把 None 的重量/长度字段视为「源值缺失」，绝不能当作零。
+- ``classification`` 是路由后的类别，行未分类前为 None；不要假设它总是
+  有值。
+- 重量刻意保留未舍入的 Decimal：舍入只发生在 writer/报告边界（见
+  weights.py 的容差）。
+"""
 
 from __future__ import annotations
 
@@ -12,6 +28,12 @@ from typing import Mapping
 
 @dataclass(frozen=True, slots=True)
 class SourcePart:
+    """一条规范化源零件行（构件行/零件行输入证据）。
+
+    ``component_qty`` 是构件数，``original_qty`` 是数量；``invalid_fields``
+    列出缺失的源列（见模块 docstring）。Frozen：零件在管线中传递不改动。
+    """
+
     source_sheet: str
     source_row: int
     source_seq: str | int | None
@@ -41,6 +63,12 @@ class ComponentRowKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ComponentSourceRow:
+    """一条规范化构件作用域源行（构件行证据）。
+
+    ``kind`` 区分构件块的 start/subtotal/summary 行；非数据行的数量与
+    重量字段为 None。
+    """
+
     source_sheet: str
     source_row: int
     kind: ComponentRowKind
@@ -63,6 +91,12 @@ class ComponentSourceRow:
 
 @dataclass(frozen=True, slots=True)
 class ParentPartEvidence:
+    """拆板前一条父零件的证据链。
+
+    携带规范化规格、密度来源、未舍入的理论重量与重量校验结果；
+    ``weight_validation_status`` 是质量等级之一，驱动下游的隔离决定。
+    """
+
     source: SourcePart
     normalized_type: str
     normalized_spec: str
@@ -78,6 +112,12 @@ class ParentPartEvidence:
 
 @dataclass(frozen=True, slots=True)
 class SplitPart:
+    """父零件的一个拆板子件。
+
+    ``is_main`` 标记主子件；未舍入的理论贡献与其他子件之和必须与父件
+    理论重量精确相等（splitter.py 的守恒校验）。
+    """
+
     parent: ParentPartEvidence
     part_type: str
     import_component_no: str
@@ -92,6 +132,12 @@ class SplitPart:
 
 @dataclass(frozen=True, slots=True)
 class PipelineOutcome:
+    """一次规范管线的运行结果：输出路径 + 质量汇总。
+
+    ``output_path`` 为解析后的绝对路径；``report_summary`` 不可变
+    （MappingProxyType），可跨线程安全读取。
+    """
+
     output_path: Path
     quality_status: str
     warning_count: int

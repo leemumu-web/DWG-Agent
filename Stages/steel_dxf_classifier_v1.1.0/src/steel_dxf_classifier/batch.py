@@ -116,6 +116,15 @@ def _write_reports(
 
 
 def _promote(staging: Path, parent: Path, existing: list[Path]) -> None:
+    """把 staging 目录整体提权为正式输出（备份-替换-回滚协议）。
+
+    崩溃一致性：旧结果先整体移入 ``.backup`` 子目录，再逐个 ``os.replace``
+    提权新结果——保证正式目录要么全新、要么全旧，绝不出现新旧混合。
+    异常时按「先删已提权项、再还原备份」的顺序恢复；崩溃后残留的
+    ``.backup`` 目录可据此识别并人工恢复。注意本函数不做 fsync，
+    崩溃窗口内文件系统缓存可能丢失（与 pipeline._promote_task_directory
+    的 fsync 协议不同）。
+    """
     backup = parent / f".{staging.name}.backup"
     promoted: list[Path] = []
     try:

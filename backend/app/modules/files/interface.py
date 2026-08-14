@@ -1,4 +1,27 @@
-"""Public file-registry boundary for other business modules."""
+"""文件登记（File Registry）对其他业务模块的公共边界。
+
+调用契约（CONTEXT.md：Interface 必须文档化不变量、错误模式、顺序与配置）：
+
+- 跨存储写序：登记助手（``save_upload_file`` / ``save_bytes_as_file`` /
+  ``save_path_as_file``）先写字节到存储后端、再在 MySQL 登记行；DB 事务
+  回滚时由 ``after_rollback`` 补偿删除孤儿存储对象。字节与登记从来不是
+  一个 ACID 单元——调用方必须把流转账本（FileTransfer）视为结算记录。
+- 流转账本生命周期：``FileTransfer`` 行按
+  ``prepared → in_progress → succeeded | failed | cancelled |
+  compensation_required`` 流转（见 ``ACTIVE_TRANSFER_STATUSES`` /
+  ``TERMINAL_TRANSFER_STATUSES``）。``prepare_*_transfer`` /
+  ``begin_transfer`` / ``settle_transfer`` / ``settle_stream`` 是唯一受控
+  的变更助手；不要直接改 status 列。
+- 破坏性流程：``soft_delete_file_in_transaction`` 只置
+  ``StoredFile.status = deleted`` 并登记待执行的破坏性流转；物理对象由
+  ``scripts/storage/reap.py`` 稍后回收——绝不内联删除存储对象。
+- 幂等：上传/批量操作对重复请求键返回 409 ``*_DUPLICATE`` 类错误；客户端
+  每次逻辑提交复用一个请求键，提交内容变化时重新生成。
+- 访问控制：``require_file_*_access`` / ``can_read_file`` /
+  ``file_list_access_filter`` 强制项目级 RBAC，所有跨模块的文件读/删必须
+  经过它们；下载额外校验短时 HMAC 签名（``download_signature`` /
+  ``validate_download_signature``）。
+"""
 
 from pathlib import Path
 

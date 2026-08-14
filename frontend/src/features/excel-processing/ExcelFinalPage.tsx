@@ -419,6 +419,9 @@ export function ExcelFinalPage() {
               submitting={submitting}
               requestKeyAvailable={selectedRequestKey !== null}
               onSelect={(file) => {
+                // 幂等键生命周期：key 绑定一次文件选择——同一文件重复提交
+                // 复用同一 key 由服务器去重；提交失败保留 key 使重试被去重，
+                // 成功后才清空；更换文件必须重新生成，否则会误合并为同一请求。
                 setSelectedFile(file);
                 setSelectedRequestKey(createRequestKey());
                 setSubmissionError(null);

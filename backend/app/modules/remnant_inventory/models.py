@@ -155,6 +155,8 @@ class Remnant(TimestampMixin, Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_by: Mapped[int | None] = mapped_column(PKType, ForeignKey("sys_users.id"))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 并发控制计数器：每次状态/字段变更递增，reserve/update 等操作依赖它
+    # 做条件更新与冲突检测（CAS）。不是业务余料版本号，请勿删除或复用。
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 

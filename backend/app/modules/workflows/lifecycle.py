@@ -157,6 +157,12 @@ def cancel_workflow(workflow: WorkflowRun) -> WorkflowRun:
 
 
 def recompute_workflow(workflow: WorkflowRun) -> None:
+    """根据各阶段状态重算运行状态与进度（调用方持有事务边界）。
+
+    本函数**不提交**——事务边界由调用方负责。整体 ``cancelled`` 会被
+    保留；否则失败阶段优先，其次是被取消阶段（见下方注释），最后才是
+    成功/进行中的回退判定。
+    """
     stages = sorted(workflow.stages, key=lambda item: item.sequence)
     if not stages:
         workflow.progress = 0
@@ -172,6 +178,10 @@ def recompute_workflow(workflow: WorkflowRun) -> None:
         workflow.error_message = failed.error_message
         workflow.finished_at = failed.finished_at or business_now()
         return
+    # 阶段被取消的语义：单个阶段被取消时，运行被重算为 status="failed"
+    # 且 error_code=WORKFLOW_STAGE_CANCELLED——含义是「该阶段可重试、运行
+    # 尚未终态」。只有 cancel_workflow 才产生整体 cancelled。两者必须区分：
+    # 调用方重试的是阶段，而不是整个运行。
     cancelled = next((stage for stage in stages if stage.status == "cancelled"), None)
     if cancelled is not None:
         workflow.status = "failed"

@@ -53,7 +53,13 @@ def cluster_1d(
 
 
 def classify_line(x1: float, y1: float, x2: float, y2: float) -> str:
-    """Classify a LINE as horizontal (H), vertical (V), or diagonal (D)."""
+    """Classify a LINE as horizontal (H), vertical (V), or diagonal (D).
+
+    0.1 是 H/V/D 分类的方向阈值：CAD 端点噪声量级为 0.01-0.5 单位，
+    两端在 0.1 内视为「无位移」；同时要求另一轴位移 > 0.1 排除点线。
+    改动会直接影响网格恢复，需与 candidate 的水平线判定（dy<0.1 且
+    dx>0.5）保持口径一致。
+    """
     dx = abs(x2 - x1)
     dy = abs(y2 - y1)
     if dy < 0.1 and dx > 0.1:
@@ -134,6 +140,9 @@ def recover_grid(
     col_xs.sort()
 
     # --- Fallback if grid is poor ---
+    # 0.3 是网格质量分门槛、[8,12] 是列数带宽（9-10 列材料表实测范围）：
+    # 任一不满足即整体回退 TEXT 聚类。两套评分口径不同——_compute_grid_score_quick
+    # 按 10 个边界计分，compute_grid_score 按 9 个数据列计分——勿混用。
     grid_score = _compute_grid_score_quick(row_ys, col_xs, len(texts))
     if grid_score < 0.3:
         logger.warning(
@@ -272,7 +281,9 @@ def _adaptive_row_height_min(
         median_h = heights[len(heights) // 2]
         return max(ROW_HEIGHT_MIN, median_h * ROW_HEIGHT_MIN_RATIO)
 
-    # Try horizontal line lengths as proxy for row height
+    # 水平线长推断分支目前是死代码：h_lengths 收集后从未使用，两分支都
+    # 直接返回固定 ROW_HEIGHT_MIN。若需要基于线长的自适应行高，应在此
+    # 实现（如 median×系数）；否则应删除该分支，避免误导读者。
     h_lengths: list[float] = []
     for ln in lines:
         dy = abs(ln.y2 - ln.y1)
@@ -289,8 +300,9 @@ def _adaptive_row_height_min(
 def estimate_data_columns(col_xs: list[float]) -> int:
     """Estimate actual data columns by filtering narrow divider columns.
 
-    A column narrower than 10% of median column width is considered
-    a divider, not a data column.
+    A column narrower than 15% of median column width is considered
+    a divider, not a data column (docstring corrected to match the
+    implementation and README — SKG 材料表「数量/单重」之间的窄分隔线实测值).
 
     Returns estimated number of data columns.
     """

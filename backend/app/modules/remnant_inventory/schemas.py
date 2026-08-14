@@ -150,6 +150,8 @@ class ImportConfirmationResult(BaseModel):
 
 
 class RemnantReserveRequest(BaseModel):
+    # 乐观并发契约：必须提交调用方最近一次读取到的 Remnant.version；
+    # 若已被其他操作修改则返回 409 REMNANT_STATE_CONFLICT，需重新读取后再试。
     version: int = Field(ge=1)
 
 

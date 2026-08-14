@@ -53,6 +53,10 @@ function useNativeWorkflowDownload({
   completedText: string;
   errorText: string;
 }) {
+  // 导出下载状态机：prepared→downloading→downloaded / download_failed /
+  // launchFailed。launch 后浏览器直收 ZIP 与服务器状态轮询并行；launchFailed
+  // 表示浏览器侧失败需重试，cancel 只停浏览器侧、服务器文件保留；launch 后
+  // 延迟 refetch 是为让服务器先落 downloaded 状态。失败可安全重试。
   const { message } = App.useApp();
   const downloadCtrl = useDownload();
   // `cancel` is a stable useCallback identity; the control object itself is
@@ -196,6 +200,9 @@ export function DrawingProcessingPanel({
       || !isCurrent
       || !['completed', 'completed_with_review', 'failed'].includes(run.status)
     ) return;
+    // 通知按 (run, attempt, status) 去重：key 刻意包含 job.attempt，
+    // 保证同一 run 跨世代重跑时每个 attempt 只通知一次；新 attempt 开始后
+    // 旧 attempt 的 terminal 帧不会重复触发 invalidateQueries/onChanged。
     const key = `${run.id}:${run.job.attempt}:${run.status}`;
     if (notifiedTerminalRun.current === key) return;
     notifiedTerminalRun.current = key;

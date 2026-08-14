@@ -1,4 +1,18 @@
-"""Stable cross-domain audit write interface."""
+"""稳定的跨域审计写入接口。
+
+调用契约：
+
+- ``action`` 必须使用 ``<domain>.<action>`` 点分命名约定（如
+  ``files.delete``）；审计列表接口按此前缀过滤，调用方不得发明自由格式的
+  动作名。
+- ``resource_type`` 是自由但稳定的名词（如 ``project``、
+  ``stored_file``）；各调用点的拼写必须保持一致，以便追踪资源。
+- ``before_json`` / ``after_json`` 是被改行的变更前后快照（不适用时为
+  None）；不要存大对象。
+- ``request`` 是可选便捷参数：传入时（且未显式给 IP/UA）从请求提取客户端
+  host 与 User-Agent。
+- 行在调用方事务内 flush——审计写入与业务事务同生共死，随事务一起回滚。
+"""
 
 from __future__ import annotations
 
@@ -26,6 +40,10 @@ def write_audit_log(
     user_agent: str | None = None,
     request: "Request | None" = None,
 ) -> AuditLog:
+    """写入一条审计行（``<domain>.<action>`` 点分约定）。
+
+    动作/资源命名契约见模块 docstring。在调用方事务内 flush；此处不提交。
+    """
     # Extract IP/UA from the request when callers pass it (§20.4)
     if request is not None and (ip_address is None or user_agent is None):
         if ip_address is None:

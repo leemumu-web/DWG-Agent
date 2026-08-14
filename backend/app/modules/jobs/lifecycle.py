@@ -1,3 +1,16 @@
+"""受守卫的 Job 状态机——平台 fencing 语义的核心。
+
+不变量：worker 只有在 ``status`` 与 ``attempt`` 同时匹配当前世代时才能
+写入 Job/JobStep 行（见 ``execute_guarded_job_update`` 及下方的每个状态
+迁移）。因此旧消息或旧 worker 永远无法覆盖新世代的运行状态。MySQL 1020
+（并发变更）只重试一次，且仅当守卫重新拒绝该行时；第二次执行成功会被
+回滚。
+
+边界：``retry_job`` 开启新 attempt（允许重新投递）；
+``rerun_succeeded_job`` 重跑已成功的 Job，仅限业务复核场景；
+``cancel_job`` 只取消活动世代。
+"""
+
 from __future__ import annotations
 
 import logging

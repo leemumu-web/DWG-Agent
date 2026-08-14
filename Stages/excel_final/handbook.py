@@ -232,6 +232,8 @@ def _decimal_weight(value: object) -> Decimal:
         weight = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:
         raise HandbookInfrastructureError("handbook query returned a non-numeric weight") from exc
+    # 2000 是型材理论单重（kg/m）的物理上限：拦截手册脏数据行，视为
+    # 基础设施错误而非「查无」，避免脏数据被当作命中。
     if weight <= 0 or weight > Decimal("2000"):
         raise HandbookInfrastructureError("handbook query returned an out-of-range weight")
     return weight

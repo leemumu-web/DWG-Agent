@@ -21,6 +21,8 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     description: str | None = None
+    # 合法取值仅 active / deleted（与 routes 的集合常量一致）；
+    # 写入其他值不会被拒绝，但项目策略按这两个状态判定。
     status: str | None = Field(default=None, max_length=32)
 
 
@@ -39,6 +41,9 @@ class ProjectRead(BaseModel):
 
 class ProjectMemberCreate(BaseModel):
     user_id: int
+    # 合法取值仅 project_owner / project_engineer（与 PROJECT_WRITE_ROLES /
+    # PROJECT_OWNER_ROLES 一致）；项目成员策略依赖这两个角色集合判定
+    # 写入与删除权限。
     project_role: str = Field(min_length=1, max_length=64)
 
 

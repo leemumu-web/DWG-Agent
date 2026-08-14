@@ -14,6 +14,10 @@ from .bh_source import SourceDocument
 from .bh_models import BHAssembly, BulgeContour
 
 
+# 指纹规范化精度：6 位小数 ≈ 0.001mm。低于 DXF 双精度（吸收子微米拓扑
+# 噪声，保证跨版本/跨平台哈希稳定），又高于制造公差（不吞真实几何差异）。
+# 指纹契约承诺：「相同制造解释必等值、不同解释不等值」；改动会破坏
+# 下游一致性校验的历史指纹，必须走版本升级。
 FLOAT_DIGITS = 6
 
 

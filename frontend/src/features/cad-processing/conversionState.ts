@@ -10,6 +10,9 @@ export const ACTIVE_JOB_STATUSES = new Set([
 ]);
 
 export function isStuckJob(job: Job, now = Date.now()): boolean {
+  // 60s 是「queued 且 progress=0」的卡死判定窗口（前端可见的最小阈值）：
+  // 允许用户重新提交。注意服务器端 Job 可能仍存活在队列中，重新提交
+  // 会产生重复任务——服务端靠幂等/attempt 收敛，此处的判定只是提示。
   return job.status === 'queued'
     && job.progress === 0
     && now - new Date(job.created_at).getTime() > 60_000;

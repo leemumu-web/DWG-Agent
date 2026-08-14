@@ -611,6 +611,12 @@ def _apply_final_issue_status(
     rows: Iterable[dict[str, object]],
     issues: Iterable[QualityIssue],
 ) -> None:
+    """给「重量核验」列叠加最终状态（严重优先、警告降级）。
+
+    规则：来源行有 SEVERE 或构件被隔离（构件编号冲突/构件物理量非法）→
+    显示「严重」；只有 WARNING 且当前为「通过」才降为「警告」——WARNING
+    不覆盖已有的严重/警告状态。
+    """
     severe_sources = {
         (issue.source_sheet, issue.source_row)
         for issue in issues

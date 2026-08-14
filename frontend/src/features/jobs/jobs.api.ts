@@ -17,6 +17,8 @@ export async function listJobs(taskType?: string) {
   return fetchAllPages<Job>('/api/v1/workflows/jobs', params);
 }
 
+// 批量分块：200 是后端单请求过滤/提交上限；3 是并发波次上限（限制瞬时
+// 请求数）。两处 3 须与下方 index += 3 同步，改其一必改另一。
 const MAX_BULK_IDS = 200;
 const MAX_PARALLEL_BULK_REQUESTS = 3;
 
@@ -170,6 +172,8 @@ export async function createConversionBatches(
   const unsubmittedFileIds: number[] = [];
   const errors: string[] = [];
 
+  // 波次提交：每波 3 个分块并行（MAX_PARALLEL_BULK_REQUESTS），
+  // 部分失败的分块进入 unsubmittedFileIds 由调用方重试。
   for (let index = 0; index < pendingChunks.length; index += 3) {
     const wave = pendingChunks.slice(index, index + 3);
     const settled = await Promise.allSettled(

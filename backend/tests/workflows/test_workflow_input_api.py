@@ -147,6 +147,8 @@ def test_input_folder_manifest_accepts_regular_unicode_engineering_names():
 
 
 def test_input_folder_manifest_accepts_5000_dwg_files():
+    # 5000 是输入批次的上限契约（生产常量 MAX_INPUT_DWG_FILES），不是任意值：
+    # multipart 数量与清单体积受控；测试与实现任一漂移都会在此暴露。
     names = [f"drawing-{index:04d}.dwg" for index in range(5000)]
 
     folder = validate_input_dwg_folder_manifest(

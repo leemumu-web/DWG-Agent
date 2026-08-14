@@ -697,6 +697,12 @@ def _ready_batch(db, tmp_path, monkeypatch, *, dwg_names=("A.dwg", "B.dwg")):
 def test_freeze_creates_drawings_manifest_artifacts_and_completes_source_intake(
     db, tmp_path, monkeypatch
 ):
+    # 输入冻结契约组（test_freeze_*）：固定文件集合与清单哈希、冻结后源
+    # 文件不可原位替换、drawing_id 关联派生 DXF、冻结前不可手工完成
+    # source_intake。manifest_sha256 为 64 位十六进制（SHA-256），重复
+    # 冻结幂等（first_manifest == replay 的哈希）。
+    # 本组共同守护 CONTEXT.md「输入冻结」不变量：修改必须形成新版本或
+    # 重新进入校验流程。
     _, project, workflow, batch = _ready_batch(db, tmp_path, monkeypatch)
 
     frozen = workflow_input_freeze.freeze_input_batch(db, batch)

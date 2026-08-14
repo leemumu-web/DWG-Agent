@@ -85,6 +85,14 @@ def resolve_or_create_material(
 def resolve_or_create_auto_material(
     db: Session, *, code: str, actor_id: int
 ) -> tuple[RemnantMaterial, bool, bool]:
+    """自动导入路径的材质解析（自动建档即启用）。
+
+    与工人确认路径 ``resolve_or_create_material``（对停用材质一律 409）
+    不同：本函数仅供服务端自动导入流水线（actor 为批次创建者）使用，图纸中
+    重新出现的停用材质按「自动建档即启用」策略处理，返回 reenabled 并写
+    ``remnants.material.auto_enable`` 审计。两条路径的策略差异是刻意设计，
+    防止自动导入被管理状态阻塞的同时，不让工人绕过管理停用。
+    """
     normalized = normalize_material_token(code)
     if not normalized:
         raise AppHTTPException(422, "REMNANT_MATERIAL_INVALID", "图纸中的材质牌号不完整。")

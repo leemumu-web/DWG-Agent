@@ -54,7 +54,13 @@ def archive_drawing(db: Session, drawing: Drawing) -> Drawing:
 def create_drawing_version(
     db: Session, drawing: Drawing, payload: DrawingVersionCreate, created_by: int
 ) -> DrawingVersion:
-    """Create a new version for a drawing with auto-incremented version_no."""
+    """为图纸创建新版本，版本号取事务内当前最大值 +1。
+
+    并发假设：version_no 在同一事务内「计算 + 插入」，且无行锁/唯一约束
+    兜底——在 MySQL 默认隔离级别下，两个并发事务可能算出相同 version_no。
+    当前调用方（单用户创建版本）可接受该竞争窗口；若未来并发创建版本，
+    需对 drawing 行加锁（``with_for_update``）或改为唯一约束。
+    """
     max_version = (
         db.scalar(
             select(func.max(DrawingVersion.version_no)).where(
