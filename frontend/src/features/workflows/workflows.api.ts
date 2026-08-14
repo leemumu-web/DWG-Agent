@@ -282,6 +282,10 @@ export async function executeWorkflowStage(
   stageCode: string,
   payload: WorkflowStageExecutionPayload,
 ) {
+  // 返回语义：reused=本次执行复用了已存在的 job（幂等去重，前端提示
+  // 「继续跟踪」）；retried=对失败 attempt 重新入队（提示「已重新入队」）。
+  // 提交前调用方应自行校验 current_stage 未漂移（fencing），漂移时
+  // 服务器会拒绝执行。
   const response = await apiClient.post<
     ApiEnvelope<{ workflow: WorkflowDetail; job: Job; reused: boolean; retried: boolean }>
   >(`/api/v1/workflows/${workflowId}/stages/${stageCode}/executions`, payload);

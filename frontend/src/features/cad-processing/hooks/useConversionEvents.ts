@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import type { Job } from '../../jobs';
 
 const VITE_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+// SSE 流按 200 个 file_id 切分：单次 EventSource 的 file_ids query 参数
+// 受后端/URL 长度约束，超过则需拆成多个流并各自监听（见 chunksOf 循环）。
 const MAX_STREAM_FILES = 200;
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 

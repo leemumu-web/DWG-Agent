@@ -31,6 +31,8 @@ interface WebkitDirectoryEntry extends WebkitEntry {
 }
 
 const drawingPattern = /\.(dwg|dxf)$/i;
+// 100 张上限来自后端单次自动导入批次的文件数约束；超限直接拒绝而非
+// 截断（与 files 域的 5000 张截断策略不同）。UI 文案与常量需同步。
 const maximumFiles = 100;
 
 function normalizePath(path: string): string {
@@ -57,6 +59,8 @@ function readFileEntry(entry: WebkitFileEntry): Promise<File> {
 }
 
 async function readDirectoryEntries(entry: WebkitDirectoryEntry): Promise<WebkitEntry[]> {
+  // WebKit 的 readEntries 每次最多返回约 100 条，必须循环调用直到返回
+  // 空数组；不要「简化」成单次调用——否则子目录超过 100 项会被静默丢弃。
   const reader = entry.createReader();
   const collected: WebkitEntry[] = [];
   while (true) {

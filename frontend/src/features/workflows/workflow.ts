@@ -74,6 +74,9 @@ export interface WorkflowTemplate {
 }
 
 export interface WorkflowStageExecutionPayload {
+  // 合法取值来自模板 capability.execution_kind（如 steel_dxf_classification、
+  // drawing_processing）或固定字面量；服务器按模板强制校验。执行遵循
+  // 「同一 attempt 幂等、旧 attempt 不得覆盖新 attempt 状态」不变量。
   execution_kind: string;
 }
 
@@ -347,6 +350,9 @@ export interface WorkflowRetentionPreview {
   reclaimable_size_bytes: number;
 }
 
+// 保留导出状态机：prepared→downloading→downloaded→purge_queued→purging
+// →purged；download_failed/purge_failed 时服务器文件仍保留、可安全重试。
+// 整个 UI（轮询、purge 按钮可用性、失败提示）依赖该转移关系。
 export type WorkflowRetentionStatus =
   | 'prepared'
   | 'downloading'

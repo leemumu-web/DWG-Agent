@@ -1,4 +1,8 @@
 export function createRequestKey(): string {
+  // 幂等键：前两分支按 RFC 4122 构造 UUID v4（bytes[6] 设 version=4、
+  // bytes[8] 设 variant=10 位），供服务器端幂等去重。
+  // 回退分支返回「时间戳-随机数」，不是 UUID 格式——需确认服务器端对
+  // key 格式的约束，若按 UUID 解析会破坏去重契约。
   const browserCrypto = globalThis.crypto;
   if (typeof browserCrypto?.randomUUID === 'function') return browserCrypto.randomUUID();
   if (typeof browserCrypto?.getRandomValues === 'function') {

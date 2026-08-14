@@ -1,3 +1,7 @@
+// Job 跨模块契约（files/cad-processing/workflows/excel-processing 共用）：
+// attempt 是执行代次——旧 attempt 不覆盖新状态；result_available=false
+// 表示结果已被释放、文件可重新提交；status 的 terminal 集合为
+// succeeded/failed/cancelled。
 export interface Job {
   id: number;
   project_id?: number | null;

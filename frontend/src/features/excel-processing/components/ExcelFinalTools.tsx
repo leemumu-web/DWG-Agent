@@ -61,6 +61,9 @@ function handbookValidation(
   spec: string,
   material: string,
 ): string | null {
+  // 与后端 Handbook Material Routing 映射保持一致（有跨 seam 测试约束）：
+  // D 系列（D8 这类直径规格）必须带材质，且 HRB→螺纹钢、HPB/Q235B/Q355B
+  // →圆钢互斥；修改任一侧都必须同步（Stage/后端适配器/前端三侧）。
   if (!category) return '请选择五金手册类别。';
   if (!spec.trim()) return '请输入完整规格。';
   const normalizedMaterial = material.replace(/[ 　]/g, '').toUpperCase();

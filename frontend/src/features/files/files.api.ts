@@ -154,6 +154,8 @@ async function downloadError(error: unknown): Promise<Error> {
 
 /** Download through a short-lived signed URL; every retry obtains a new signature. */
 export async function downloadFile(fileId: number, filename: string): Promise<void> {
+  // 重试策略：签名 URL 可能刚生成即过期，故 403/408/429/5xx 重试一次并
+  // 重新取签名（间隔 500ms）；401 交由全局拦截器刷新会话，不在此重试。
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

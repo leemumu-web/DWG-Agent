@@ -130,6 +130,9 @@ export async function getRemnant(remnantId: number): Promise<Remnant> {
 }
 
 export async function reserveRemnant(remnant: Remnant): Promise<Remnant> {
+  // 乐观并发契约：必须回传最近一次读取到的 remnant.version；他人已修改时
+  // 后端返回 409 REMNANT_STATE_CONFLICT，调用方应刷新余料后再操作，
+  // 否则会覆盖他人修改。
   const response = await apiClient.post<ApiEnvelope<Remnant>>(
     `/api/v1/remnants/${remnant.id}/reserve`,
     { version: remnant.version },

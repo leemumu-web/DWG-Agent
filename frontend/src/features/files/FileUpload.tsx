@@ -93,6 +93,8 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
       setTransferProgress({
         loadedBytes: loaded,
         totalBytes,
+        // 进度条封顶 99：全部完成后才由 completedTransferProgress 置 100，
+        // 中间的 99 表示「仍在进行」，避免完成前误判。
         percent: totalBytes > 0 ? Math.min(99, Math.round((loaded / totalBytes) * 100)) : 100,
         completed: false,
         totalIsEstimated: false,
@@ -126,6 +128,8 @@ export function FileUpload({ onUploaded, batchName, acceptExt = '.dwg', uploadFn
       }
     };
 
+    // 3 路并发上传：浏览器并发上限与带宽/服务器压力的权衡（刻意设计，
+    // 勿改成串行或无限并发）。
     await Promise.all(
       Array.from({ length: Math.min(3, total) }, () => worker()),
     );

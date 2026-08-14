@@ -115,6 +115,9 @@ export function WorkflowDetailPage() {
     && selectedStage.stage_code === authoritativeCurrentStage.stage_code,
   );
   const stageById = new Map((detail?.stages ?? []).map((stage) => [stage.id, stage]));
+  // Attempt 世代过滤：拆板（drawing_processing）阶段的产物必须匹配当前
+  // stage 的 job_id 与 job_attempt，旧世代产物被隐藏以免与正式结果混淆；
+  // 其他阶段不过滤（产物不按世代区分）。
   const visibleArtifacts = (detail?.artifacts ?? []).filter((artifact) => {
     const artifactStage = typeof artifact.stage_run_id === 'number'
       ? stageById.get(artifact.stage_run_id)
