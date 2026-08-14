@@ -116,6 +116,14 @@ class _FlangeTrace:
 
 
 class BHAnalyzer:
+    """BH 左右进读取器的核心分析器（固定三步流程）。
+
+    安全语义（fail-closed）：长度严格向下取整防下料偏短；单位先统一到 mm
+    再验证；几何无法区分时拒绝输出或保守齐平，绝不外推大进尺。输出低于
+    ``minimum_confidence_to_emit`` 时被拒绝。回归基线见 README 的 199 张
+    回归图结论。
+    """
+
     def __init__(self, config: AnalyzerConfig | None = None):
         self.config = config or AnalyzerConfig()
         self._layer_re = re.compile(self.config.layer_name_regex)

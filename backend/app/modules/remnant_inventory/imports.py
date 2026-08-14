@@ -1,3 +1,11 @@
+"""余料导入账本：批次/条目的登记、校正、重试、取消与确认。
+
+Import batch/item 承载 CONTEXT.md 的「文件登记与流转」领域概念。状态流转：
+``uploaded → converting → parsing → pending_confirmation →
+confirmed | cancelled | failed``；重试递增 ``item.attempt`` 开启新世代。
+``REMNANT_*`` 错误码是测试与程序判断的稳定契约，中文消息只面向工人。
+"""
+
 from __future__ import annotations
 
 import unicodedata
@@ -298,6 +306,13 @@ def bulk_apply_optional_metadata(
 
 
 def retry_import_item(db: Session, item_id: int, *, actor: User) -> ExecutionDispatch:
+    """重试一条失败的导入项（开启新世代）。
+
+    世代语义：``attempt += 1`` 即新世代，旧世代任务因 status/attempt 条件
+    不匹配而无法再写入（fencing 失效）。.dwg 源必须清空派生的
+    ``dxf_file_id``（需要重新转换）；.dxf 源文件仍是有效解析输入，保留沿用。
+    ``_PERMANENT_IMPORT_ERRORS``（重复图纸等）禁止重试。
+    """
     item = db.get(RemnantImportItem, item_id)
     if item is None:
         raise AppHTTPException(404, "REMNANT_IMPORT_ITEM_NOT_FOUND", "导入图纸不存在或已被删除。")
@@ -361,6 +376,12 @@ def cancel_import_batch(
     actor: User,
     request_id: str,
 ) -> list[int]:
+    """整批取消：放弃该批所有未确认文件。
+
+    与单条取消（只取消 Job、保留文件登记）不同，整批取消会经
+    ``soft_delete_file_in_transaction`` 同步软删源文件与派生 DXF 的文件登记，
+    以保持文件账本干净——这是有意差异而非疏漏；已确认条目不受影响。
+    """
     items = list(
         db.scalars(
             select(RemnantImportItem)

@@ -75,6 +75,14 @@ def _excel_datetime(value: datetime | None) -> datetime | None:
 
 
 def _excel_safe_value(value: object) -> object:
+    """把可能被 Excel 当作公式执行的字符串转义为纯文本。
+
+    威胁模型（公式注入）：导出内容来自工人手工填写的项目编号/备注等字段，
+    若以 ``=``、``+``、``-``、``@`` 开头，Excel/CSV 会把整格当作公式执行，
+    可能读取/修改外部数据。这里强制前缀单引号转义为文本；用
+    ``value.lstrip()[:1]`` 判断是为了防止前导空格绕过检查。这是安全措施，
+    不要当成无意义的字符串变换删除。
+    """
     if not isinstance(value, str):
         return value
     if value.lstrip()[:1] in {"=", "+", "-", "@"}:

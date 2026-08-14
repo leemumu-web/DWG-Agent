@@ -169,6 +169,10 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
             "Refresh token has been revoked (password changed).",
         )
 
+    # 有意不轮换 refresh token：只签发新 access token 与 job-events cookie，
+    # 不重设 refresh cookie。refresh token 的生命周期由过期时间、
+    # token_blacklist 黑名单与 password_changed_at 时间戳共同约束；若未来
+    # 引入轮换，必须同步把旧 jti 加入黑名单，防止并发刷新互相作废。
     access_token = build_login_token(user)
     _set_job_events_cookie(response, access_token)
     data = LoginResponse(

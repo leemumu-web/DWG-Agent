@@ -37,11 +37,14 @@ class JobCreate(BaseModel):
 
 class ConversionBatchCreate(BaseModel):
     task_type: Literal["convert_dwg_to_dxf", "convert_dxf_to_dwg"]
+    # 200 是单事务/单请求可承受的 Job 行数与参数体大小的上限，与 DWG 输入
+    # 上限（MAX_INPUT_DWG_FILES=5000）相互独立；调整任一需评估另一侧影响。
     file_ids: list[int] = Field(min_length=1, max_length=200)
     precision_level: str = Field(default="normal", min_length=1, max_length=32)
 
 
 class JobBulkCancellation(BaseModel):
+    # 同上：200 是单请求批量取消的上限（HTTP 体大小/事务长度权衡）。
     job_ids: list[int] = Field(min_length=1, max_length=200)
 
 

@@ -1,3 +1,13 @@
+"""余料库存 HTTP 面：导入、库存、材质与导出路由。
+
+四个 router 均受 ``remnant_inventory_enabled`` 功能开关保护（关闭时拒绝
+创建任务）。批量导入采用两阶段模式：
+上传→登记→``prepare_import_execution``→commit→``dispatch_import_execution``
+——必须先 commit 让 Celery worker 看到已登记行；dispatch 失败由
+``_settle_dispatch_failure`` 补偿。bulk 确认/归档与导出清理均遵循
+任务状态机与已登记文件规则。
+"""
+
 from __future__ import annotations
 
 from decimal import Decimal

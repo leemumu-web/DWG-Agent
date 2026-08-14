@@ -22,6 +22,9 @@ from app.modules.jobs.models import Job, JobStep
 
 logger = logging.getLogger(__name__)
 
+# SSE 轮询设计参数：2.0s 平衡实时性与 MySQL 轮询压力；600s 是 SSE 会话
+# 硬上限（短会话轮询 + 有界 SSE）。集合流另有 0.5s 的首帧快速呈现间隔。
+# 调整时需评估部署规模下的轮询写放大（见 presentation.INPUT_BATCH_SYNC_LIMIT）。
 _POLL_INTERVAL = 2.0
 _MAX_DURATION = 600.0
 _TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}

@@ -56,6 +56,15 @@ def _section_layers(config: AnalyzerConfig) -> re.Pattern:
 
 
 class BoxAnalyzer:
+    """BOX 左右进读取器的核心分析器。
+
+    领域决策：主视图以带 PartMark 的视图为准（优先于 Section 剖面符号）；
+    上下腹板投影重叠时合并输出；端部窗口按 ``max(2*tf, 40mm)`` 扩展；
+    左右进构件按拆板 equivalence 语义成对合并/区分输出。已知限制：
+    折线构件标红、坡口信息论不可区分。安全取整与单位验证同 BHAnalyzer
+    （fail-closed）。
+    """
+
     def __init__(self, config: AnalyzerConfig | None = None):
         self.config = config or AnalyzerConfig()
         self._part_re = _part_layers(self.config)

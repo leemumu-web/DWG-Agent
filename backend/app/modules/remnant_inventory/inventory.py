@@ -1,3 +1,11 @@
+"""正式余料生命周期：available→reserved→used 状态机与乐观并发。
+
+``Remnant.version`` 是每次状态/字段变更递增的乐观锁计数器，不是业务版本号；
+``reserve_remnant`` 等操作依赖它做条件更新（CAS）与冲突检测。预占可取消回
+``available``；归档/删除受管理权限与引用约束。跨 HTTP 层的乐观并发契约：
+客户端必须回传其最近一次读到的 version，过期则 409 REMNANT_STATE_CONFLICT。
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence

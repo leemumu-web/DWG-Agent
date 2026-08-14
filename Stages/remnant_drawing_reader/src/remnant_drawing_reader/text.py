@@ -1,3 +1,10 @@
+"""图纸文本规范化管线。
+
+串联四步：\\M+5（ZWCAD BigFont）GBK 解码 → ``ezdxf.decode_dxf_unicode``
+（\\U+XXXX 转义）→ NFKC 归一化（全角→半角，使候选分类正则稳定匹配）→
+空白折叠。解码失败时保留原文，不抛错。
+"""
+
 from __future__ import annotations
 
 import re

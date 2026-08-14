@@ -34,9 +34,8 @@ from app.platform.http.exceptions import AppHTTPException
 from app.platform.storage.base import StorageError, StorageObjectNotFound
 
 _WHITESPACE = re.compile(r"\s+")
-# One production intake is bounded at five thousand source drawings.  This is
-# the authoritative server-side gate; browsers may give an earlier warning but
-# must never be trusted to enforce the limit.
+# 单次生产输入批次上限为五千张源 DWG。这是权威的服务器端门禁；浏览器可提前
+# 提示，但绝不能依赖前端执行该限制。测试中的 5000 裸数字应引用此常量。
 MAX_INPUT_DWG_FILES = 5000
 ACTIVE_INPUT_JOB_STATUSES = {
     "pending",
