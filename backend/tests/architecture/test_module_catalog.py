@@ -23,9 +23,9 @@ def test_module_catalog_has_no_validation_errors() -> None:
 def test_module_catalog_owns_every_runtime_contract_once() -> None:
     coverage = build_catalog_coverage(load_catalog(CATALOG_PATH))
 
-    assert len(coverage["tables"]) == 48
-    assert len(coverage["http_operations"]) == 213
-    assert len(coverage["celery_tasks"]) == 16
+    assert len(coverage["tables"]) == 50
+    assert len(coverage["http_operations"]) == 219
+    assert len(coverage["celery_tasks"]) == 18
     assert coverage["duplicate_table_owners"] == {}
     assert coverage["duplicate_operation_owners"] == {}
     assert coverage["duplicate_task_owners"] == {}

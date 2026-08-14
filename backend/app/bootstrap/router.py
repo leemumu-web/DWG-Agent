@@ -13,6 +13,7 @@ from app.modules.operations.audit.routes import router as audit_router
 from app.modules.operations.control_plane.routes import router as control_plane_router
 from app.modules.operations.data_catalog.system_routes import router as system_router
 from app.modules.operations.router import router as operations_router
+from app.modules.plate_classification.router import router as plate_classification_router
 from app.modules.projects.routes.router import drawings_router, projects_router
 from app.modules.remnant_inventory.routes import (
     import_items_router,
@@ -65,3 +66,8 @@ api_router.include_router(
     import_items_router, prefix="/remnant-import-items", tags=["remnant-imports"]
 )
 api_router.include_router(remnants_router, prefix="/remnants", tags=["remnants"])
+api_router.include_router(
+    plate_classification_router,
+    prefix="/plate-classification",
+    tags=["plate-classification"],
+)

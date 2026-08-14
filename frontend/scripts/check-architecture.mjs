@@ -18,6 +18,7 @@ const EXPECTED_FEATURES = new Set([
   'identity',
   'jobs',
   'operations',
+  'plate-classification',
   'projects',
   'remnant-inventory',
   'reviews',
@@ -113,7 +114,11 @@ function featureName(filePath) {
 }
 
 function featureEntry(feature) {
-  return path.join(FEATURE_ROOT, feature, 'index.ts');
+  const tsEntry = path.join(FEATURE_ROOT, feature, 'index.ts');
+  if (fs.existsSync(tsEntry)) return tsEntry;
+  const tsxEntry = path.join(FEATURE_ROOT, feature, 'index.tsx');
+  if (fs.existsSync(tsxEntry)) return tsxEntry;
+  return tsEntry;
 }
 
 function checkLayout(violations) {

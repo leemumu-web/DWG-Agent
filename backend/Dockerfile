@@ -206,5 +206,18 @@ COPY --from=bytecode-compiler /app/app /app/app
 COPY --from=bytecode-compiler /app/migrations /app/migrations
 COPY --from=bytecode-compiler /app/Stages /app/Stages
 COPY --from=bytecode-compiler /app/alembic.ini /app/alembic.ini
+# excel_stage3 is a standalone subprocess package called via its own venv.  It
+# must retain its pyproject.toml and source files, which the bytecode-compiler
+# strips.  Its editable path dependency yikongzhe must also be present so the
+# editable install's .pth can resolve at runtime.
+COPY Stages/excel_stage3 /app/Stages/excel_stage3
+COPY Stages/yikongzhe /app/Stages/yikongzhe
+# Pre-build the excel_stage3 venv at build time (filesystem is writable).
+# At runtime the container is read_only: true, so uv run cannot create .venv.
+# UV_LINK_MODE=copy avoids symlinks that could break in the final image.
+USER root
+RUN --mount=type=cache,target=/root/.cache/uv \
+    UV_LINK_MODE=copy uv sync --directory /app/Stages/excel_stage3 --no-dev
+USER appuser
 
 USER appuser

@@ -67,8 +67,13 @@ EXPECTED_DRAWING_FLOW = {
         "artifact_types": ["bh_setback_excel", "stage2_excel"],
         "required_outputs": ["bh_setback_excel", "stage2_excel"],
     },
+    "excel_stage3": {
+        "required_inputs": ["stage2_excel", "processed_dxf"],
+        "artifact_types": ["classification_excel", "stage3_excel"],
+        "required_outputs": ["classification_excel", "stage3_excel"],
+    },
     "design_barrier": {
-        "required_inputs": ["processed_dxf", "stage2_excel"],
+        "required_inputs": ["processed_dxf", "stage3_excel"],
         "artifact_types": ["review_record"],
         "required_outputs": ["review_record"],
     },

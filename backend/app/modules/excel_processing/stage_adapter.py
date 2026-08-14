@@ -158,6 +158,20 @@ class ExcelStage2ProcessResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ExcelStage3ProcessResult:
+    """Stage3 classification pipeline result."""
+    protocol_version: int
+    classification_excel: str
+    deepened_excel: str
+    bh_box_count: int
+    matched_count: int
+    unmatched_count: int
+    classified_dxf_count: int
+    filled_count: int
+    manual_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ExcelFinalLookupResult:
     protocol_version: int
     category: str
@@ -385,6 +399,150 @@ def run_excel_stage2_pipeline(
         stage_output_path.unlink(missing_ok=True)
         stage_internal_output_path.unlink(missing_ok=True)
     return replace(result, output_path=output_path)
+
+
+# ---------------------------------------------------------------------------
+# Excel Stage 3 — 异孔折判断对接
+# ---------------------------------------------------------------------------
+
+_STAGE3_REQUIRED_FILES = (
+    "pyproject.toml",
+    "src/excel_stage3/__init__.py",
+    "src/excel_stage3/__main__.py",
+    "src/excel_stage3/stage3.py",
+)
+
+_STAGE3_RESULT_FIELDS = {
+    "protocol_version",
+    "operation",
+    "classification_excel",
+    "deepened_excel",
+    "bh_box_count",
+    "matched_count",
+    "unmatched_count",
+    "classified_dxf_count",
+    "filled_count",
+    "manual_count",
+}
+
+
+def get_excel_stage3_root() -> Path:
+    """Resolve the excel_stage3 Stage package directory."""
+    integration_file = Path(__file__).resolve()
+    candidates: list[Path] = []
+    if settings.excel_stage3_root is not None:
+        candidates.append(settings.excel_stage3_root.expanduser())
+    candidates.extend((
+        integration_file.parents[4] / "Stages" / "excel_stage3",
+        integration_file.parents[3] / "Stages" / "excel_stage3",
+    ))
+    checked: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in checked:
+            continue
+        checked.add(resolved)
+        if all((resolved / f).exists() for f in _STAGE3_REQUIRED_FILES):
+            return resolved
+    raise ExcelFinalUnavailableError("Excel Stage3 package is unavailable")
+
+
+def run_excel_stage3_pipeline(
+    stage2_excel_path: Path,
+    dxf_dir: Path,
+    output_dir: Path,
+    *,
+    encoding: str = "utf-8",
+) -> ExcelStage3ProcessResult:
+    """Run the excel_stage3 classification pipeline.
+
+    Prefers a pre-built .venv Python (Docker production) so the read-only
+    container filesystem does not block ``uv run`` from creating one.  Falls
+    back to ``uv run`` for local development.
+    """
+    if not stage2_excel_path.is_file():
+        raise ExcelFinalProcessError("Stage2 Excel file does not exist")
+    if not dxf_dir.is_dir():
+        raise ExcelFinalProcessError("DXF directory does not exist")
+
+    stage_root = get_excel_stage3_root()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Prefer pre-built venv interpreter (Docker production) over uv run.
+    venv_bin = "Scripts" if sys.platform == "win32" else "bin"
+    venv_python = stage_root / ".venv" / venv_bin / "python"
+    if sys.platform == "win32":
+        venv_python = venv_python.with_suffix(".exe")
+
+    if venv_python.is_file():
+        cmd = [
+            str(venv_python), "-m", "excel_stage3",
+            "--stage2-excel", str(stage2_excel_path.resolve()),
+            "--dxf-dir", str(dxf_dir.resolve()),
+            "--output-dir", str(output_dir.resolve()),
+            "--encoding", encoding,
+        ]
+    else:
+        cmd = [
+            "uv", "run", "--directory", str(stage_root),
+            "excel-stage3",
+            "--stage2-excel", str(stage2_excel_path.resolve()),
+            "--dxf-dir", str(dxf_dir.resolve()),
+            "--output-dir", str(output_dir.resolve()),
+            "--encoding", encoding,
+        ]
+
+    logger.info("Running excel-stage3: %s", " ".join(cmd))
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        stderr_tail = (result.stderr or "").splitlines()[-10:]
+        raise ExcelFinalProcessError(
+            f"Excel Stage3 failed (rc={result.returncode}): "
+            + "\n".join(stderr_tail)
+        )
+
+    # Parse the JSON result from stdout
+    result_lines = [
+        line for line in (result.stdout or "").splitlines()
+        if line.startswith(_RESULT_PREFIX)
+    ]
+    if len(result_lines) != 1:
+        raise ExcelFinalProcessError(
+            "Excel Stage3 returned an invalid result"
+        )
+
+    try:
+        payload = json.loads(result_lines[0].removeprefix(_RESULT_PREFIX))
+    except json.JSONDecodeError as exc:
+        raise ExcelFinalProcessError(
+            "Excel Stage3 returned invalid JSON"
+        ) from exc
+
+    if not isinstance(payload, dict) or set(payload) != _STAGE3_RESULT_FIELDS:
+        raise ExcelFinalProcessError("Excel Stage3 result fields mismatch")
+    if payload["protocol_version"] != _PROTOCOL_VERSION:
+        raise ExcelFinalProcessError("Excel Stage3 unsupported protocol version")
+    if payload["operation"] != "process-stage3":
+        raise ExcelFinalProcessError("Excel Stage3 wrong operation")
+
+    return ExcelStage3ProcessResult(
+        protocol_version=_PROTOCOL_VERSION,
+        classification_excel=str(payload["classification_excel"]),
+        deepened_excel=str(payload["deepened_excel"]),
+        bh_box_count=int(payload["bh_box_count"]),
+        matched_count=int(payload["matched_count"]),
+        unmatched_count=int(payload["unmatched_count"]),
+        classified_dxf_count=int(payload["classified_dxf_count"]),
+        filled_count=int(payload["filled_count"]),
+        manual_count=int(payload["manual_count"]),
+    )
 
 
 def lookup_excel_final_weight(
@@ -950,10 +1108,9 @@ def _raise_for_failed_stage(
         raise ExcelFinalInputError(failure)
     details = (completed.stderr or completed.stdout or "unknown error").strip()
     logger.error(
-        "Excel Final %s failed (rc=%s): %s",
+        "Excel Final %s failed (rc=%s)",
         operation,
         completed.returncode,
-        details[-4000:],
     )
     failure_kind = "input_parse" if any(
         marker in details

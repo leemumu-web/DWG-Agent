@@ -125,6 +125,10 @@ class Settings(BaseSettings):
     # reject unsafe fan-out until a deployment has passed the concurrency gate.
     excel_stage2_worker_concurrency: int = Field(default=1, ge=1, le=2)
     excel_stage2_work_root: Path = _BACKEND_DIR / "var" / "excel-stage2-work"
+    # Excel Stage3 — 异孔折判断对接，回填 part 表图形列
+    excel_stage3_root: Path | None = None
+    excel_stage3_timeout_seconds: int = Field(default=1800, ge=60, le=7200)
+    excel_stage3_work_root: Path = _BACKEND_DIR / "var" / "excel-stage3-work"
 
     # Read-only steel handbook database used by the Excel Final pipeline. When
     # unset, connection fields inherit the platform MySQL endpoint/credentials.

@@ -23,6 +23,7 @@ from app.platform.config.constants import (
     PIPELINE_DXF2EXCEL,
     PIPELINE_EXCEL_FINAL,
     PIPELINE_EXCEL_STAGE2,
+    PIPELINE_EXCEL_STAGE3,
     PIPELINE_REMNANT_CONVERT,
     PIPELINE_REMNANT_PARSE,
     PIPELINE_STEEL_DXF_CLASSIFIER,
@@ -33,6 +34,7 @@ from app.platform.config.constants import (
     TASK_DXF_TO_EXCEL,
     TASK_EXCEL_FINAL,
     TASK_EXCEL_STAGE2,
+    TASK_EXCEL_STAGE3,
     TASK_REMNANT_CONVERT,
     TASK_REMNANT_PARSE,
     TASK_STEEL_DXF_CLASSIFICATION,
@@ -53,6 +55,7 @@ TASK_PIPELINES = {
     TASK_DXF_TO_EXCEL: PIPELINE_DXF2EXCEL,
     TASK_EXCEL_FINAL: PIPELINE_EXCEL_FINAL,
     TASK_EXCEL_STAGE2: PIPELINE_EXCEL_STAGE2,
+    TASK_EXCEL_STAGE3: PIPELINE_EXCEL_STAGE3,
     TASK_REMNANT_CONVERT: PIPELINE_REMNANT_CONVERT,
     TASK_REMNANT_PARSE: PIPELINE_REMNANT_PARSE,
     TASK_STEEL_DXF_CLASSIFICATION: PIPELINE_STEEL_DXF_CLASSIFIER,
@@ -120,6 +123,15 @@ def enqueue_excel_stage2_job(
     return enqueue(job_id, attempt, task_id=task_id)
 
 
+def enqueue_excel_stage3_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
+    """投递 Excel 第三阶段异孔折判断任务。"""
+    from app.modules.excel_processing.interface import enqueue_excel_stage3_job as enqueue
+
+    return enqueue(job_id, attempt, task_id=task_id)
+
+
 def enqueue_dxf_classification_job(
     job_id: int, attempt: int, *, task_id: str | None = None
 ) -> str:
@@ -160,6 +172,8 @@ def enqueue_job(
         return enqueue_excel_final_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_EXCEL_STAGE2:
         return enqueue_excel_stage2_job(job_id, attempt, **kwargs)
+    if pipeline == PIPELINE_EXCEL_STAGE3:
+        return enqueue_excel_stage3_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_STEEL_DXF_CLASSIFIER:
         return enqueue_dxf_classification_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_STEEL_DXF_SPLIT:
@@ -175,6 +189,7 @@ def publish_dispatch(lease: DispatchLease) -> str:
         PIPELINE_DXF2EXCEL,
         PIPELINE_EXCEL_FINAL,
         PIPELINE_EXCEL_STAGE2,
+        PIPELINE_EXCEL_STAGE3,
         PIPELINE_REMNANT_CONVERT,
         PIPELINE_REMNANT_PARSE,
         PIPELINE_STEEL_DXF_CLASSIFIER,

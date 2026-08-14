@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.modules.excel_processing.execution import run_excel_final_processing
 from app.modules.excel_processing.stage2_execution import run_excel_stage2_processing
+from app.modules.excel_processing.stage3_execution import run_excel_stage3_processing
 from app.modules.jobs.interface import summarize_job_execution
 from app.platform.messaging.celery_app import celery_app
 
@@ -31,4 +32,20 @@ def process_excel_stage2_task(self, job_id: int, attempt: int = 1) -> dict[str, 
     return summarize_job_execution(job_id, "excel_stage2")
 
 
-__all__ = ["process_excel_final_task", "process_excel_stage2_task"]
+@celery_app.task(name="app.workers.tasks_excel_stage3.process_excel_stage3", bind=True)
+def process_excel_stage3_task(self, job_id: int, attempt: int = 1) -> dict[str, int | str]:
+    """Excel 第三阶段处理 — 异孔折判断对接，回填 part 表图形列。"""
+    worker_name = self.request.hostname or "celery_excel_stage3"
+    run_excel_stage3_processing(
+        job_id,
+        worker_name=worker_name,
+        expected_attempt=attempt,
+    )
+    return summarize_job_execution(job_id, "excel_stage3")
+
+
+__all__ = [
+    "process_excel_final_task",
+    "process_excel_stage2_task",
+    "process_excel_stage3_task",
+]

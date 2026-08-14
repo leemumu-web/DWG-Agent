@@ -18,6 +18,7 @@ def load_models() -> tuple[ModuleType, ...]:
     from app.modules.operations.audit import models as audit_log
     from app.modules.operations.control_plane import models as control_plane
     from app.modules.operations.daily_archive import models as daily_archive
+    from app.modules.plate_classification import models as plate_classification
     from app.modules.projects.models import drawing, project
     from app.modules.remnant_inventory import models as remnant_inventory
     from app.modules.workflows import models as workflows
@@ -30,6 +31,7 @@ def load_models() -> tuple[ModuleType, ...]:
         daily_archive,
         drawing,
         dxf_classification,
+        plate_classification,
         dxf_splitting,
         excel_processing,
         files,

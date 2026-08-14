@@ -14,6 +14,8 @@ import {
   downloadWorkflowExcelStage2BoxReaderResult,
   downloadWorkflowExcelStage2ReaderResult,
   downloadWorkflowExcelStage2Result,
+  downloadWorkflowExcelStage3ClassificationResult,
+  downloadWorkflowExcelStage3Result,
   downloadWorkflowExcelStageResult,
   downloadWorkflowStageArchive,
 } from './workflows.api';
@@ -31,10 +33,12 @@ export function WorkflowStageArchiveCard({
   const downloadCtrl = useDownload();
   const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
   const [readerDownloadProgress, setReaderDownloadProgress] = useState<TransferProgress | null>(null);
+  const [stage3DownloadProgress, setStage3DownloadProgress] = useState<TransferProgress | null>(null);
 
   const clearProgress = () => {
     setDownloadProgress(null);
     setReaderDownloadProgress(null);
+    setStage3DownloadProgress(null);
   };
 
   const archiveM = useMutation({
@@ -123,6 +127,45 @@ export function WorkflowStageArchiveCard({
       }
     },
   });
+  const stage3ClassificationM = useMutation({
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowExcelStage3ClassificationResult(
+        workflowId,
+        setStage3DownloadProgress,
+        handle.signal,
+      ).finally(handle.finish);
+    },
+    onMutate: () => setStage3DownloadProgress(null),
+    onSuccess: () => message.success('异孔折分类结果已下载'),
+    onError: (error) => {
+      const result = describeDownloadError(error, '异孔折分类结果下载失败');
+      setStage3DownloadProgress(null);
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
+  });
+  const stage3ResultM = useMutation({
+    mutationFn: () => {
+      const handle = downloadCtrl.start();
+      return downloadWorkflowExcelStage3Result(workflowId, setStage3DownloadProgress, handle.signal)
+        .finally(handle.finish);
+    },
+    onMutate: () => setStage3DownloadProgress(null),
+    onSuccess: () => message.success('Excel 第三阶段结果已下载'),
+    onError: (error) => {
+      const result = describeDownloadError(error, 'Excel 第三阶段结果下载失败');
+      setStage3DownloadProgress(null);
+      if (result.cancelled) {
+        message.info('下载已取消');
+      } else {
+        message.error(result.message);
+      }
+    },
+  });
   const readerAvailable = artifacts.some((artifact) => artifact.artifact_type === 'bh_setback_excel');
   const boxReaderAvailable = artifacts.some((artifact) => artifact.artifact_type === 'box_setback_excel');
   const stage2Available = artifacts.some((artifact) => artifact.artifact_type === 'stage2_excel');
@@ -188,6 +231,57 @@ export function WorkflowStageArchiveCard({
             onCancel={() => {
               downloadCtrl.cancel();
               setDownloadProgress(null);
+            }}
+          />
+        )}
+      </Card>
+    );
+  }
+  const classificationAvailable = artifacts.some((artifact) => artifact.artifact_type === 'classification_excel');
+  const stage3Available = artifacts.some((artifact) => artifact.artifact_type === 'stage3_excel');
+  if (stage.stage_code === 'excel_stage3') {
+    return (
+      <Card className="workflow-stage-archive-card workflow-excel-stage3-downloads">
+        <div>
+          <span>第三阶段产物</span>
+          <Typography.Text strong>
+            {stage3Available
+              ? '已生成第三阶段正式 Excel'
+              : classificationAvailable
+                ? '已生成异孔折分类结果，可先下载核对'
+                : '本阶段尚无可下载产物'}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            两份结果必须单独下载，不以 ZIP 混合返回。
+          </Typography.Text>
+        </div>
+        <Space wrap>
+          <Button
+            icon={<DownloadOutlined />}
+            loading={stage3ClassificationM.isPending}
+            disabled={!classificationAvailable || downloadCtrl.active}
+            onClick={() => stage3ClassificationM.mutate()}
+          >
+            下载异孔折分类结果
+          </Button>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            loading={stage3ResultM.isPending}
+            disabled={!stage3Available || downloadCtrl.active}
+            onClick={() => stage3ResultM.mutate()}
+          >
+            下载 Excel 第三阶段结果
+          </Button>
+        </Space>
+        {stage3DownloadProgress && (
+          <CancellableDownloadProgress
+            label="第三阶段结果下载"
+            progress={stage3DownloadProgress}
+            active={downloadCtrl.active}
+            onCancel={() => {
+              downloadCtrl.cancel();
+              setStage3DownloadProgress(null);
             }}
           />
         )}

@@ -21,6 +21,7 @@ def load_tasks() -> tuple[ModuleType, ...]:
     from app.modules.operations.storage_reconciliation import (
         tasks as storage_reconciliation,
     )
+    from app.modules.plate_classification import tasks as plate_classification
     from app.modules.remnant_inventory import tasks as remnant_inventory
 
     register_job_worker_maintenance()
@@ -32,6 +33,7 @@ def load_tasks() -> tuple[ModuleType, ...]:
         dxf_splitting,
         excel_processing,
         jobs,
+        plate_classification,
         daily_archive,
         storage_reconciliation,
         control_plane,
