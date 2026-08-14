@@ -1,4 +1,32 @@
-"""Public DXF split boundary for workflows, HTTP and Excel processing."""
+"""Public DXF split boundary for workflows, HTTP and Excel processing.
+
+Calling contract (CONTEXT.md: Interface must document invariants, error
+modes, ordering and configuration):
+
+- Execution: ``run_dxf_splitting(job_id)`` is the worker-side entry that
+  invokes the Steel DXF Split CLI (exit codes 0/1/2/3 map to
+  auto-accepted / review / failed / batch-level failure) and records the
+  run ledger. ``MAX_AUTOMATIC_ATTEMPTS = 1`` — a failed automatic attempt
+  is not retried automatically; recovery goes through manual review or a
+  new attempt.
+- Selective exports: ``create_download_token`` issues a JWT binding the
+  workflow/run/export_uid and its category list, valid for
+  ``workflow_batch_export_ttl_minutes``; ``require_download_token`` raises
+  410 when expired and 403 when invalid/forged. Exports stream members
+  without server-side ZIP staging (``storage_members`` + ``export_preview``).
+- Review: ``list_split_review_items`` / ``decide_split_item`` /
+  ``complete_split_review`` drive the manual-review state machine; archive
+  member helpers (``manual_review_archive_members`` /
+  ``review_candidate_archive_members`` / ``split_results_archive_members``)
+  enumerate the file ids for each outcome category.
+- Excel handoff: ``get_excel_split_handoff`` requires a current official
+  split run for the workflow's attempt; its ``mode`` is
+  ``no_split_candidates`` only when the drawing-processing stage skipped
+  with ``reason = "no_split_candidates"`` — do not change either side of
+  that hidden string contract without syncing the other.
+- Reconcilers mirror the classification ones: they close projections for
+  the exact (job_id, attempt) or for orphaned runs only.
+"""
 
 from app.modules.dxf_splitting.adapter import (
     BH_SOURCE_CONTRACT,
@@ -37,24 +65,28 @@ from app.modules.dxf_splitting.selective_exports import (
 
 
 def list_split_review_items(db, **kwargs) -> DxfSplitReviewPage:
+    """Page the manual-review candidates of a split run."""
     from app.modules.dxf_splitting.review import list_split_review_items as list_items
 
     return list_items(db, **kwargs)
 
 
 def decide_split_item(db, **kwargs) -> DxfSplitReviewDecision:
+    """Record one manual decision for a review-candidate item."""
     from app.modules.dxf_splitting.review import decide_split_item as decide
 
     return decide(db, **kwargs)
 
 
 def complete_split_review(db, **kwargs) -> DxfSplitRun:
+    """Finish the review round and finalize the run's official results."""
     from app.modules.dxf_splitting.review import complete_split_review as complete
 
     return complete(db, **kwargs)
 
 
 def run_dxf_splitting(job_id: int, **kwargs) -> None:
+    """Execute one split Job (worker side, fenced by status + attempt)."""
     from app.modules.dxf_splitting.execution import run_dxf_splitting as run
 
     run(job_id, **kwargs)
@@ -63,6 +95,7 @@ def run_dxf_splitting(job_id: int, **kwargs) -> None:
 def enqueue_dxf_splitting_job(
     job_id: int, attempt: int, *, task_id: str | None = None
 ) -> str:
+    """Dispatch one split Job to Celery; returns the task id."""
     from app.modules.dxf_splitting.tasks import split_steel_dxf_task
 
     return str(
@@ -73,12 +106,14 @@ def enqueue_dxf_splitting_job(
 
 
 def latest_dxf_split_run(db, workflow_id: int) -> DxfSplitRun | None:
+    """Return the most recent split run for a workflow, if any."""
     from app.modules.dxf_splitting.persistence import latest_split_run
 
     return latest_split_run(db, workflow_id)
 
 
 def get_dxf_split_outcome(db, *, job_id: int, attempt: int) -> str | None:
+    """Return the official outcome of one exact (job_id, attempt), if any."""
     from app.modules.dxf_splitting.persistence import get_split_outcome
 
     return get_split_outcome(db, job_id=job_id, attempt=attempt)
@@ -90,6 +125,7 @@ def reconcile_dxf_split_run_for_terminal_job(
     job_id: int,
     attempt: int,
 ) -> bool:
+    """Close the split projection for one exact Job attempt."""
     from app.modules.dxf_splitting.persistence import (
         reconcile_split_run_for_terminal_job as reconcile,
     )
@@ -98,18 +134,21 @@ def reconcile_dxf_split_run_for_terminal_job(
 
 
 def reconcile_orphan_dxf_split_runs(db) -> int:
+    """Close split projections whose Job is no longer active (read repair)."""
     from app.modules.dxf_splitting.persistence import reconcile_orphan_split_runs
 
     return reconcile_orphan_split_runs(db)
 
 
 def manual_review_archive_members(db, run: DxfSplitRun) -> list[tuple[int, str]]:
+    """List (file_id, label) members archived under the manual-review outcome."""
     from app.modules.dxf_splitting.persistence import manual_review_archive_members as members
 
     return members(db, run)
 
 
 def review_candidate_archive_members(db, run: DxfSplitRun) -> list[tuple[int, str]]:
+    """List (file_id, label) members of the review-candidate archive."""
     from app.modules.dxf_splitting.persistence import (
         review_candidate_archive_members as members,
     )
@@ -118,6 +157,7 @@ def review_candidate_archive_members(db, run: DxfSplitRun) -> list[tuple[int, st
 
 
 def split_results_archive_members(db, run: DxfSplitRun) -> list[tuple[int, str]]:
+    """List (file_id, label) members of the official split-results archive."""
     from app.modules.dxf_splitting.persistence import (
         split_results_archive_members as members,
     )
@@ -126,18 +166,26 @@ def split_results_archive_members(db, run: DxfSplitRun) -> list[tuple[int, str]]
 
 
 def split_candidate_available(db, item: DxfSplitItem) -> bool:
+    """Whether the item still has candidate files to review."""
     from app.modules.dxf_splitting.persistence import split_candidate_files
 
     return split_candidate_files(db, item) is not None
 
 
 def get_excel_split_handoff(db, workflow_id: int) -> DxfSplitExcelHandoff:
+    """Build the Excel-processing handoff from the workflow's split ledger.
+
+    Requires a current official split run for the workflow's attempt; the
+    ``no_split_candidates`` mode depends on the drawing-processing skip
+    reason contract (see module docstring).
+    """
     from app.modules.dxf_splitting.persistence import get_excel_split_handoff as handoff
 
     return handoff(db, workflow_id)
 
 
 def find_dxf_split_file_workflow_id(db, file_id: int) -> int | None:
+    """Resolve the workflow owning a split-result file (deletion guard)."""
     from app.modules.dxf_splitting.persistence import (
         find_split_file_workflow_id as find_workflow_id,
     )
@@ -146,6 +194,7 @@ def find_dxf_split_file_workflow_id(db, file_id: int) -> int | None:
 
 
 def dxf_split_file_reference_exists(file_id):
+    """Whether any split ledger row still references the file (deletion guard)."""
     from app.modules.dxf_splitting.persistence import split_file_reference_exists
 
     return split_file_reference_exists(file_id)

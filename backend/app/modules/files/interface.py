@@ -1,4 +1,33 @@
-"""Public file-registry boundary for other business modules."""
+"""Public file-registry boundary for other business modules.
+
+Calling contract (CONTEXT.md: Interface must document invariants, error
+modes, ordering and configuration):
+
+- Ordering across stores: registration helpers (``save_upload_file`` /
+  ``save_bytes_as_file`` / ``save_path_as_file``) first write bytes to the
+  storage backend and then register the row in MySQL; when the DB
+  transaction rolls back, ``after_rollback`` compensation removes the
+  orphaned storage object. Bytes and registration are never one ACID unit —
+  callers must treat the transfer ledger as the settlement record.
+- Transfer ledger lifecycle: a ``FileTransfer`` row moves
+  ``prepared → in_progress → succeeded | failed | cancelled |
+  compensation_required`` (see ``ACTIVE_TRANSFER_STATUSES`` /
+  ``TERMINAL_TRANSFER_STATUSES``). ``prepare_*_transfer`` /
+  ``begin_transfer`` / ``settle_transfer`` / ``settle_stream`` are the only
+  sanctioned mutation helpers; do not write status columns directly.
+- Destructive flows: ``soft_delete_file_in_transaction`` only flags
+  ``StoredFile.status = deleted`` and registers the pending destructive
+  transfer; the physical object is reclaimed later by
+  ``scripts/storage/reap.py`` — never delete storage objects inline.
+- Idempotency: uploads/bulk operations reject duplicate request keys with
+  409 ``*_DUPLICATE``-style errors; clients reuse one request key per logical
+  submission and regenerate it when the submission changes.
+- Access: ``require_file_*_access`` / ``can_read_file`` /
+  ``file_list_access_filter`` enforce project-scoped RBAC and must be used
+  by every cross-module read/delete of file rows; downloads additionally
+  validate the short-lived HMAC signature (``download_signature`` /
+  ``validate_download_signature``).
+"""
 
 from pathlib import Path
 

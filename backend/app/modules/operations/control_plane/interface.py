@@ -1,4 +1,18 @@
-"""Stable control-plane write boundary for workers and other operation modules."""
+"""Stable control-plane write boundary for workers and other operation modules.
+
+Calling contract:
+
+- ``event_type`` should follow a dotted convention (e.g. ``worker.heartbeat``,
+  ``worker.stopped``) so consumers can filter and group events.
+- ``severity`` is one of ``info`` / ``warning`` (``error`` reserved for
+  future use); worker signals use ``warning`` when a worker stops.
+- ``direction`` is ``internal`` (default) or ``external`` (Windows/Node
+  contracts); keep it stable for filtering.
+- ``correlation_id`` links related events across sources; pass it through
+  from the originating job/run when available.
+- ``register_control_plane_worker_observer`` must be called during worker
+  assembly (bootstrap), before workers start, so signal callbacks are wired.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,22 @@
-"""Canonical records shared by the normalized Excel Final pipeline."""
+"""Canonical records shared by the normalized Excel Final pipeline.
+
+Cross-module input/evidence contract (reader → canonical_pipeline →
+writer_parts → stage2). These frozen records must stay stable: any field
+change ripples through the whole pipeline and the stage2 handoff.
+
+Field conventions:
+
+- ``component_qty`` is the 构件数 (component count) of the source row, while
+  ``original_qty`` is the 数量 (quantity) column; they are distinct and both
+  carried through validation.
+- ``invalid_fields`` lists the missing/invalid source column names; a
+  non-empty tuple means the row is not fully trusted. Consumers must treat
+  None weight/length fields as "source value missing", never as zero.
+- ``classification`` is the routed category and is None until the row has
+  been classified; do not assume it is always set.
+- Weights are unrounded Decimals on purpose: rounding happens only at
+  writer/report boundaries (see weights.py tolerances).
+"""
 
 from __future__ import annotations
 
@@ -12,6 +30,13 @@ from typing import Mapping
 
 @dataclass(frozen=True, slots=True)
 class SourcePart:
+    """One normalized source part row (构件行/零件行 input evidence).
+
+    ``component_qty`` is 构件数, ``original_qty`` is 数量; ``invalid_fields``
+    lists the missing source columns (see module docstring). Frozen: parts
+    are passed through the pipeline without mutation.
+    """
+
     source_sheet: str
     source_row: int
     source_seq: str | int | None
@@ -41,6 +66,12 @@ class ComponentRowKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ComponentSourceRow:
+    """One normalized component-scoped source row (构件 row evidence).
+
+    ``kind`` discriminates start/subtotal/summary rows of a component block;
+    quantity and weight fields are None for non-data rows.
+    """
+
     source_sheet: str
     source_row: int
     kind: ComponentRowKind
@@ -63,6 +94,13 @@ class ComponentSourceRow:
 
 @dataclass(frozen=True, slots=True)
 class ParentPartEvidence:
+    """Evidence chain of one parent part before splitting.
+
+    Carries the normalized spec, density source, unrounded theoretical
+    weights and the weight-validation outcome; ``weight_validation_status``
+    is one of the quality levels and drives isolation decisions downstream.
+    """
+
     source: SourcePart
     normalized_type: str
     normalized_spec: str
@@ -78,6 +116,13 @@ class ParentPartEvidence:
 
 @dataclass(frozen=True, slots=True)
 class SplitPart:
+    """One split child of a parent part (拆板子件).
+
+    ``is_main`` marks the primary child; the unrounded theoretical
+    contribution must sum exactly with the other children to the parent's
+    theoretical weight (conservation check in splitter.py).
+    """
+
     parent: ParentPartEvidence
     part_type: str
     import_component_no: str
@@ -92,6 +137,12 @@ class SplitPart:
 
 @dataclass(frozen=True, slots=True)
 class PipelineOutcome:
+    """Result of one canonical pipeline run: output path + quality summary.
+
+    ``output_path`` is resolved absolute; ``report_summary`` is immutable
+    (MappingProxyType) for safe cross-thread reads.
+    """
+
     output_path: Path
     quality_status: str
     warning_count: int

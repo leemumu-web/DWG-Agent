@@ -1,4 +1,28 @@
-"""Public Job/Result/Review boundary for other business modules."""
+"""Public Job/Result/Review boundary for other business modules.
+
+Calling contract (CONTEXT.md: Interface must document invariants, error
+modes, ordering and configuration, not only signatures):
+
+- Dispatch staging: ``stage_job_dispatch`` / ``stage_conversion_dispatch``
+  only write the outbox row inside the caller's transaction. They must be
+  called in the same transaction that creates the Job and **before commit**;
+  the Celery worker then leases and publishes the group in its own short
+  committed transaction. ``drain_eager_dispatches`` exists for Celery's
+  eager runtime only.
+- Worker-side writes: the only write entry points for workers are
+  ``claim_queued_job`` / ``commit_job_progress`` / ``complete_job_attempt`` /
+  ``fail_job_attempt``. Every update is guarded by ``status`` **and** the
+  exact ``attempt`` (fencing): a stale message or worker from an older
+  attempt cannot overwrite the current generation's state.
+- ``run_local_stub_job`` is a non-production stub executor used by tests and
+  local development; it must never be used as a real worker path.
+- ``reconcile_stale_running_jobs`` is a recovery boundary for jobs whose
+  worker died without settling, not a broker lease; it runs on a schedule
+  (maintenance queue) and only touches rows older than ``timeout_seconds``.
+- Read helpers (``require_*`` / ``job_read_filter``) enforce project-scoped
+  RBAC; they raise 403/404 AppHTTPException on denial and must be used by
+  every cross-module read of Job/Result data.
+"""
 
 from sqlalchemy.orm import sessionmaker
 
@@ -62,6 +86,13 @@ def run_local_stub_job(
     worker_name: str = "celery_stub",
     expected_attempt: int = 1,
 ) -> None:
+    """Run one queued Job synchronously inside the calling process.
+
+    Non-production path: claims the Job with the given attempt, executes a
+    local stub, and settles the attempt as failed. A claim miss (already
+    claimed / attempt advanced / terminal) is an expected race and returns
+    silently.
+    """
     from app.modules.jobs.stub_execution import run_local_stub_job as run_stub
 
     run_stub(job_id, worker_name=worker_name, expected_attempt=expected_attempt)
@@ -73,6 +104,11 @@ def summarize_job_execution(
     *,
     session_factory: sessionmaker | None = None,
 ) -> dict[str, int | str]:
+    """Summarize the current attempt's executed steps for a pipeline.
+
+    Reads only; used by control-plane/status views to render step progress
+    without touching Job state.
+    """
     from app.modules.jobs.recovery import summarize_job_execution as summarize
 
     return summarize(job_id, pipeline, session_factory=session_factory)
@@ -83,6 +119,12 @@ def reconcile_stale_running_jobs(
     *,
     timeout_seconds: int | None = None,
 ) -> int:
+    """Fail jobs left running by dead workers (recovery boundary).
+
+    Scheduled by the maintenance queue, not a broker lease: it matches rows
+    in a running/queued state older than the stale cutoff and settles them as
+    failed so a retry can start a fresh attempt.
+    """
     from app.modules.jobs.recovery import reconcile_stale_running_jobs as reconcile
 
     return reconcile(session_factory, timeout_seconds=timeout_seconds)

@@ -1,3 +1,13 @@
+"""Seam adapter invoking the remnant_drawing_reader Stage via subprocess.
+
+Stable error contract (programmatic codes; the message text is user-facing
+only): timeout → ``REMNANT_PARSE_TIMEOUT``, non-zero exit or missing sidecar
+→ ``REMNANT_PARSE_FAILED``, malformed/version-mismatched payload →
+``REMNANT_PARSE_CONTRACT_INVALID``. The Stage writes a ``.result.json``
+sidecar next to the input; its ``schema_version`` must stay compatible with
+``remnant_drawing_reader.models``.
+"""
+
 from __future__ import annotations
 
 import json
@@ -26,6 +36,13 @@ def _candidates(payload: dict, name: str):
 
 
 def parse_staged_dxf(path: Path):
+    """Parse one staged DXF with the remnant_drawing_reader Stage.
+
+    Runs ``python -m remnant_drawing_reader.cli`` in a subprocess bounded by
+    ``remnant_parse_timeout_seconds`` and reads the ``.result.json`` sidecar.
+    Raises ``RemnantStageError`` with the stable REMNANT_* codes above;
+    ``standard_offcut`` is None when the payload carries no standard offcut.
+    """
     from remnant_drawing_reader.models import (
         ParseResult,
         ParseWarning,
