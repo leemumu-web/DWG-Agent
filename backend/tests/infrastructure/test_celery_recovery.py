@@ -46,6 +46,9 @@ def test_cleanup_removes_only_stale_consumed_sql_broker_rows(db: Session):
             """
         )
     )
+    # 边界来自生产 cleanup 的陈旧窗口配置：5 分钟内为「新保留」（reserved
+    # 未 ack 的行必须在窗口内存活，以便 worker_lost 重投递），24 小时为
+    # 「陈旧」判定；与生产 stale-cutoff 常量应保持一致。
     fresh_reserved = datetime.now(UTC) - timedelta(minutes=5)
     stale_acked = datetime.now(UTC) - timedelta(hours=24)
     db.execute(

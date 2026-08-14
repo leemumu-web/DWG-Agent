@@ -74,6 +74,12 @@ def _dxf_bytes() -> bytes:
 
 
 def _seed_global_remnants() -> tuple[int, int]:
+    """播种全局余料矩阵（2 种材质 × 4 条不同状态余料）。
+
+    四条余料覆盖 available/reserved/used/archived 状态矩阵，均绑定
+    批次/零件/项目；第 1 行额外携带副项目号/库位/备注等扩展字段。
+    后续测试按状态名取用具体行，修改矩阵前请确认依赖方。
+    """
     with get_test_session_factory()() as db:
         worker = db.scalar(select(User).where(User.username == "material-worker"))
         assert worker is not None

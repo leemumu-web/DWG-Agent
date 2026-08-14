@@ -29,6 +29,10 @@ def _save_labelled_drawing(path: Path) -> None:
 
 
 def _save_nested_drawing(path: Path) -> None:
+    """构造嵌套块图纸：TITLE 块引用 PARTS 块（偏移 (2,3)），
+    TITLE 再插入模型空间 (10,20)。世界坐标 = (2,3)+(10,20)=(12,23)，
+    测试断言验证证据记录的是世界坐标而非块内局部坐标。
+    """
     document = ezdxf.new("R2018")
     inner = document.blocks.new("PARTS")
     inner.add_text("零件编号: L-101、L-102", dxfattribs={"layer": "PARTS"}).set_placement((0, 0))

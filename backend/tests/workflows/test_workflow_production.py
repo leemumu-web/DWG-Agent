@@ -1,3 +1,10 @@
+"""Linux 生产工作流全链路测试（本仓库最大的测试模块）。
+
+覆盖 source_intake 冻结 → DXF 分类 → stage1/stage2 → 交付/归档的完整
+链路，以及输入冻结、Attempt 世代（旧 attempt 不得污染新投影）、阶段契约
+等文件级不变量。共享 fixture 链见 ``_stage2_ready_workflow``。
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -495,6 +502,13 @@ def _attach_valid_source_excel(db, workflow, tmp_path, monkeypatch) -> StoredFil
 
 
 def _stage2_ready_workflow(db, tmp_path, monkeypatch):
+    """建立 stage2 就绪的完整状态（约 25 个测试共用）。
+
+    串联 _production_workflow → _attach_valid_source_excel →
+    _complete_classification_fixture → _complete_excel_stage1_fixture。
+    调用方可依赖的不变量：输入批次已冻结（manifest/sha256 已固化）、
+    分类与 stage1 已完成且 Job 已绑定到阶段、lineage 各 sha256 一致。
+    """
     user, project, workflow = _production_workflow(db)
     _attach_valid_source_excel(db, workflow, tmp_path, monkeypatch)
     classification = _complete_classification_fixture(db, workflow)
@@ -972,6 +986,9 @@ def test_excel_stage2_job_params_stay_small_for_5000_bh_inputs(db, tmp_path, mon
     )
 
     assert plan.job.params_json["bh_input_count"] == 5000
+    # 4096 字节是 params_json 存储/投递的体积上限契约（超出会撑爆消息或列宽）；
+    # 5000 对应生产常量 MAX_BH_STAGE2_INPUTS —— 生产调整时此处应同步，
+    # 理想做法是直接引用生产常量而非裸数字。
     assert len(json.dumps(plan.job.params_json, ensure_ascii=False).encode("utf-8")) < 4096
 
 

@@ -367,6 +367,10 @@ def test_canonical_pipeline_applies_lookup_split_skip_and_report_rules(tmp_path:
         "p-box-BOX腹", "p-box-BOX翼",
     ]
     assert by_part["p-box"][0]["序号"] == by_part["p-box"][1]["序号"]
+    # p-box（BOX100*100*10*10）拆板推导：腹板取宽 100-2*10=80，
+    # 理单重 6.28 = 10×80×1000×7.85/1e6，翼缘 7.85 = 10×100×1000×7.85/1e6；
+    # 数量 4 时 25.12 + 31.40 = 56.52 断言的是「拆板子件理论总重
+    # 守恒于父理论重」（splitter 精确守恒规则）。
     assert by_part["p-box"][0]["理单重(kg)"] == 6.28
     assert by_part["p-box"][0]["理总重(kg)"] == 25.12
     assert by_part["p-box"][1]["理单重(kg)"] == 7.85

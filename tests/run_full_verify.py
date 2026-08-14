@@ -34,6 +34,13 @@ def request_json(
     payload: dict[str, Any] | None = None,
     timeout: float = 10,
 ) -> tuple[int, dict[str, Any]]:
+    """请求 API 并解析 envelope（非破坏性验证的公共 helper）。
+
+    envelope 约定：状态取 ``data.status``；非 2xx 时 body 仍按 JSON 解析
+    （错误详情在 detail 中）。默认超时 10s（status.sh 用 30s，本脚本更快
+    失败）。checks 按顺序执行：认证必须最先完成，带 token 的列表检查
+    依赖其结果；认证失败即提前返回。
+    """
     data = json.dumps(payload).encode() if payload is not None else None
     headers = {"Accept": "application/json"}
     if payload is not None:

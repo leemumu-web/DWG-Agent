@@ -1,3 +1,9 @@
+"""Steel DXF Split 1.5.2 适配、复核路由、账本与检查点测试。
+
+覆盖：splitter 适配契约（退出码/产物）、manual_review 候选与正式产物
+分离、BH 账本、数量检查点（每 30 张一个窗口）与恢复路径。
+"""
+
 from __future__ import annotations
 
 import errno
@@ -1400,6 +1406,9 @@ def test_bh_project_ledger_requires_manufacturing_ir_for_auto_accepted_result():
 
 
 def test_stage_cli_quantity_checkpoint_accepts_thirty_drawing_results():
+    # 每 30 张一个 quantity checkpoint 是外部 Stage CLI 的合同约束
+    # （56 张 → 窗口 [1-30, 31-56]）；24/5/1 是窗口内
+    # auto_accepted/manual_review/failed 的计数口径，非随意取值。
     from steel_dxf_split.cli import _verify_quantity_checkpoint
 
     _verify_quantity_checkpoint(
@@ -1425,6 +1434,9 @@ def test_stage_cli_quantity_checkpoint_rejects_report_as_drawing_result():
 
 
 def test_platform_records_one_quantity_checkpoint_per_thirty_drawings():
+    # 56 张输入验证窗口切分与累计结果推导：每 30 张一个检查点，
+    # 尾批按剩余数量收口；与 Stage 侧 cli.py 的 QUANTITY_CHECK_INTERVAL
+    # 镜像一致，两侧漂移会导致 checkpoint 与 Stage 实际校验点不一致。
     assert split_adapter.quantity_checkpoints(56) == [
         {
             "range_start": 1,

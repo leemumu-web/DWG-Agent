@@ -134,6 +134,9 @@ def test_stage_dispatch_rejects_non_queued_job(db):
 
 
 def test_retry_delay_is_jittered_and_bounded():
+    # retry_delay 契约：指数退避 0.5×2^n 封顶 30 秒并加 equal jitter；
+    # 边界 0.5-1.0 / 15.0-30.0 验证退避曲线与封顶，防发布失败后
+    # 重投节奏失控或租约风暴。
     first = retry_delay(1)
     saturated = retry_delay(100)
 
