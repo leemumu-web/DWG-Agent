@@ -15,6 +15,13 @@ CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR = Decimal("0.02466")
 CIRCULAR_HOLLOW_DENSITY_SOURCE = (
     f"circular_hollow_formula:{CIRCULAR_HOLLOW_LINEAR_WEIGHT_FACTOR}"
 )
+# 重量核验容差（对应 README 人工核验规则；改阈值必须先改对应测试
+# test_weight_validation.py 的贴边边界值）：
+#   SOURCE_CHAIN_TOLERANCE      —— 源单重×数量链的绝对容差 0.1kg；
+#   ABSOLUTE_THEORY_TOLERANCE   —— 四舍五入保护 0.01；
+#   PASS_RELATIVE_TOLERANCE     —— 0.5% 内判定通过；
+#   WARNING_RELATIVE_TOLERANCE  —— 2% 内判定警告；超 2% 为严重（手册依据
+#                                  硬隔离零件，几何依据仅提示复核）。
 SOURCE_CHAIN_TOLERANCE = Decimal("0.1")
 ABSOLUTE_THEORY_TOLERANCE = Decimal("0.01")
 PASS_RELATIVE_TOLERANCE = Decimal("0.005")
@@ -158,6 +165,9 @@ def _theory_to_gross_issue_level(
     level: AssessmentLevel,
     basis: TheoryBasis,
 ) -> IssueLevel:
+    # 核验口径差异：GEOMETRY 依据的偏差只提示复核（SEVERE 降级为 WARNING、
+    # 不隔离 part）；HANDBOOK 依据超 2% 仍为严重（硬隔离零件）——手册是
+    # 权威重量来源，几何只是佐证。
     if basis is TheoryBasis.GEOMETRY:
         return IssueLevel.WARNING
     return _issue_level(level)

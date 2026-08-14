@@ -2796,6 +2796,11 @@ def search_source_conserving_face_unions(
 ) -> SourceFaceUnionSearchResult:
     """Enumerate connected face unions whose real corners are source-backed.
 
+    注意（fail-closed）：``maximum_states=50_000`` 不是性能开关。枚举达到
+    预算上限会置 ``state_budget_exhausted``，使 ``subset_search_complete``
+    为 False，最终传导到 proof 的 ``search_complete=False`` → 整图路由到
+    拒收/复核。调大预算会放宽证据完整性，破坏 fail-closed 语义。
+
     Noding a long projection overlay creates apparent polygon corners at the
     overlay's interior.  Such corners are not source endpoints and are rejected,
     preventing a drawing line from becoming a fabricated end cap.  The union of

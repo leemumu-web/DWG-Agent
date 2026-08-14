@@ -1825,6 +1825,11 @@ class BHAnalyzer:
             right_raw = max(0.0, front.s_max - right) * scale_to_mm
             return left_raw, right_raw, self._safe_integer(left_raw), self._safe_integer(right_raw)
 
+        # 置信度加权公式（决定输出是否低于 minimum_confidence_to_emit 而被
+        # 拒绝）：0.66 基准 + 0.14×深度拟合衰减（exp 使误差越大贡献越小）
+        # + 0.08×深度支撑 + 0.10×腹板证据 + 0.08×长度校验衰减（分母 0.10
+        # 为相对误差的软化尺度）+ 俯视图佐证 0.05。各权重按 199 张回归图
+        # 的置信度分布校准；调整输出门槛时须同时复核回归结论。
         confidence = 0.66
         depth_error, depth_support = min(
             [self._dimension_fit(front, spec.depth_min), self._dimension_fit(front, spec.depth_max)],

@@ -120,6 +120,9 @@ def split_parent(
             )
         )
     children = tuple(children_list)
+    # 重量守恒校验：子板理论贡献之和必须与父件理论单重**精确相等**
+    # （Decimal 无容差比较）——防止中间舍入掩盖拆板错误；失败时整份拆板
+    # 被拒并生成 _weight_conservation_issue（SEVERE 隔离）。
     child_theory = sum(
         (child.theoretical_contribution_unrounded for child in children),
         start=Decimal("0"),

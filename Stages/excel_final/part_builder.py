@@ -201,6 +201,13 @@ def _parameterized_identity(
 
 
 def build_part_rows(candidates: Iterable[PartCandidate]) -> PartBuildResult:
+    """零件准入与投影：按 (构件号, 零件号, 模型长度, 左右进) 聚合。
+
+    规则（README part 投影语义）：同一 identity 出现多组几何 → 冲突即
+    SEVERE 隔离（_conflict_issue）；板材/扁钢（GLOBAL_SCOPED_TYPES）清空
+    构件号后按完整属性跨构件汇总；excluded 行不进入结果。summary 累加
+    child_quantity×component_quantity 口径。
+    """
     source_candidates = [
         candidate
         for candidate in candidates

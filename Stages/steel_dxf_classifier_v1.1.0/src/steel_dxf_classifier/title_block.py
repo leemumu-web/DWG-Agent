@@ -36,6 +36,8 @@ def _title_region_labels(facts: list[TextFact]) -> list[TextFact]:
             continue
         relative_x = (fact.x - min_x) / width
         relative_y = (fact.y - min_y) / height
+        # 0.55/0.65：标题栏区域定位的工程约定——文本位于图纸右 55% 或
+        # 上 65% 才视为右上信息表标签；放太宽会把正文误配为标签，太窄会漏检。
         if relative_x >= 0.55 or relative_y >= 0.65:
             labels.append(fact)
     return labels
@@ -64,6 +66,10 @@ def find_title_candidates(
             delta_y = value.y - label.y
             direction: str | None = None
             distance = 0.0
+            # 标签-取值配对门限（倍数基于字高 scale，均设页面比例兜底）：
+            #   below —— 值在标签正下方 30 倍字高内、横向偏差 8 倍字高内；
+            #   right —— 值在标签右侧 60 倍字高内、纵向偏差 3 倍字高内。
+            # 门限太宽造成 TITLE_VALUE_CONFLICT 误配，太窄造成漏检。
             if (
                 delta_y < 0
                 and -delta_y <= max(30.0 * scale, 0.20 * page_height)

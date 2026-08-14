@@ -250,6 +250,11 @@ def split_bh_dxf(
 
     Only ``auto_accept`` can create a production clean DXF.  Auto-accepted,
     review-required and unprocessable inputs use separate physical directories
+
+    注意：``require_auto_accept`` 在 BH 路径仅为审计记录——路由仍由
+    proof disposition 决定（fail-closed），不会强制执行；BOX 路径
+    （box/delivery.py）才是真正强制。两处语义不一致是有意的现状，若需
+    对齐强制执行需显式改造。
     so a downstream batch job cannot confuse their manufacturing authority.
     """
 

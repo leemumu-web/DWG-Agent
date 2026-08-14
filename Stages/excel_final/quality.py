@@ -60,6 +60,8 @@ _STAGE2_AGGREGATE_CATEGORIES = frozenset({
     "BH缺图沿用原长度",
     "BH读取失败需补录",
 })
+# 代表说明截断数：同一分组最多保留 3 条说明，超出只计数——防止人工
+# 复核报告被重复行淹没（README 人工处置规则）。
 _REPRESENTATIVE_LIMIT = 3
 _FABRICATED_THEORY_BASIS = {
     "BH": "BH拆板合计父理论重（腹板×1+翼板×2）",

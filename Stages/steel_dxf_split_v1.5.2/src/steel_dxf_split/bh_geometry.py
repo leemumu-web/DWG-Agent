@@ -433,6 +433,8 @@ def _near_full_flange_width(
     long_axis: str,
     flange_width: float,
 ) -> bool:
+    # 0.80/1.20 带宽：横向跨度落在翼缘宽度的 ±20% 内视为「近满宽」种子面，
+    # 与制造翼缘宽度公差对应；门槛不满足时保守保留原轮廓，不强行矩形化。
     _, transverse = _axis_lengths(face.bounds, long_axis)
     return 0.80 * flange_width <= transverse <= 1.20 * flange_width
 
@@ -527,6 +529,9 @@ def _reconstruct_proven_rectangular_projection(
     exact_min_y = min(point.y for point in candidates)
     exact_max_y = max(point.y for point in candidates)
     # Only rectify shapes already very close to a rectangle.
+    # 0.985 填充比门槛：候选矩形须覆盖多边形 98.5% 以上面积才执行「纠成
+    # 矩形」修复；低于门槛说明轮廓含真实斜端/倒角，必须保留原轮廓
+    # （0.15mm 端点容差只吸收多边形化噪声，不吞真实几何）。
     rectangle_area = (exact_max_x - exact_min_x) * (exact_max_y - exact_min_y)
     if rectangle_area <= 0 or polygon.area / rectangle_area < 0.985:
         return _unchanged_boundary_decision(
@@ -759,14 +764,19 @@ def estimate_flange_developments(
     long_axis = choose_long_axis(source_bbox, nominal_length)
     source_long, _ = _axis_lengths(source_bbox.as_tuple() if hasattr(source_bbox, "as_tuple") else (source_bbox.min_x, source_bbox.min_y, source_bbox.max_x, source_bbox.max_y), long_axis)
     web_center_transverse = web_polygon.centroid.y if long_axis == "x" else web_polygon.centroid.x
+    # 翼缘展开候选的过滤阈值（启发式，直接影响下料长度）：
+    #   minimum_area   —— 面片最小面积：max(100mm², 板厚×max(100, 2%×名义长度))，
+    #                     过滤掉被腹板吸收/碎屑级的面，防止其冒充翼缘路径候选；
+    #   minimum_span   —— 面片最小跨度：max(100mm, 30%×min(源长,名义长度))，
+    #                     排除仅沿短边延伸的细长噪声面。
+    # 阈值判定失败时保守回退到 projection_only，不输出猜测性展开。
     minimum_area = max(100.0, flange_thickness * max(100.0, 0.02 * nominal_length))
     minimum_span = max(100.0, 0.30 * min(source_long, nominal_length))
     side_candidates: dict[int, list[Polygon]] = {-1: [], 1: []}
     for face in all_faces:
-        # The selected web may have undergone sub-millimetre topology cleanup,
-        # so exact GEOS equality is too brittle.  Exclude any face already
-        # represented by the web material instead of allowing it to masquerade
-        # as a flange path candidate.
+        # 0.98 覆盖比：面片与腹板（外扩 0.25mm 容差）的交叠面积占比达到 98%
+        # 即视为「已被腹板材质吸收」，排除该面冒充翼缘路径候选；子毫米拓扑
+        # 清理使 GEOS 精确相等过于脆弱，故用面积比而非几何相等判断。
         covered_by_web = (
             face.intersection(web_polygon.buffer(0.25, join_style=2)).area
             / max(face.area, 1.0)
@@ -819,6 +829,8 @@ def estimate_flange_developments(
             _numeric_measurement(item, "raw_length")
             for item in ordered_details
         )
+        # 直条带判定容差：取制造公差与 2% 板厚的较大者——只吸收轻微厚度
+        # 噪声，不吞掉真实变厚/斜切；配合 0.98 矩形填充比过滤非矩形条带。
         strip_tolerance = max(
             float(manufacturing_tolerance_mm),
             0.02 * float(flange_thickness),
@@ -1990,6 +2002,10 @@ def select_web_polygon(
             nominal_length=nominal_length,
         )
 
+    # 多边形化精度阶梯：先细后粗（0.001→0.1mm 共 7 级），逐级试探
+    # polygonize 能否产出候选面。选择最粗可用网格可吸收子毫米拓扑噪声；
+    # 0.1mm 是上限——再粗会吞掉真实倒角/斜切。各级失败记录进 failures，
+    # 全部失败才判定整体失败（见下方 fallback）。
     grid_candidates = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1)
     failures: list[str] = []
     for grid_size in grid_candidates:
@@ -2312,6 +2328,8 @@ def select_flange_polygons(
         flange_width=flange_width,
         source_bbox=source_bbox,
     )
+    # 与 select_web_polygon 相同的 7 级精度阶梯（0.001→0.1mm 由细到粗）：
+    # 先用细网格保证召回，再用最粗可用网格稳定化输出轮廓；失败逐级回退。
     for grid_size in (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1):
         faces = polygonize_part_entities(
             entities,

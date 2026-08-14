@@ -152,6 +152,9 @@ def classify_normalized_spec(
     if width is not None and re.fullmatch(_NUMBER, compact):
         thickness = _number_text(compact)
         width_text = _number_text(width)
+        # 6×30 特例：手册 flat_steel 表收录的标准扁钢规格，故优先查手册
+        # 而不是按裸板常量 7.85 计算（否则 6×30 会落入板材分支）。该特例
+        # 在两处出现，修改必须同步。
         if thickness == "6" and width_text == "30":
             return _handbook_profile(
                 original_spec,

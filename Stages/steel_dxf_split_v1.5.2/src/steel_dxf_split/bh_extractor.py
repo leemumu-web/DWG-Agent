@@ -102,7 +102,16 @@ class _BoltSymbolStroke:
 def _edge_view_symbol_centers(
     strokes: list[_BoltSymbolStroke],
 ) -> list[Point2D]:
-    """Recognize Tekla's symmetric three-stroke edge-view bolt symbol."""
+    """Recognize Tekla's symmetric three-stroke edge-view bolt symbol.
+
+    几何门限（误识别会把中心十字误当孔或漏孔，直接影响孔洞归属）：
+    0.05 —— 三笔方向平行度容差（叉积判平行）；
+    0.2  —— 两间隙的相对不对称上限（排除不等距箭头形符号）；
+    0.15 —— 左右外笔长度相对差上限；
+    0.08 —— 中笔必须显著长于外笔均值（区分中心短划与等长三笔）；
+    0.5  —— 三笔切向散布上限（排除过长散布的组合）；
+    1.0mm —— 去重距离（同一中心只记一个孔）。
+    """
 
     result: list[Point2D] = []
     for triple in combinations(strokes, 3):
