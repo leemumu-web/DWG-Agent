@@ -13,6 +13,44 @@
 > [!IMPORTANT]
 > 本 README 只描述仓库当前实现，不把占位目录、关闭的功能开关或尚未配置的基础设施写成已交付能力。运行事实以当前代码、迁移、配置和[验证证据](docs/verification/current.md)为准；详细项目文档仅维护[中文版本](docs/README.md)，英文 README 用于提供项目概览。
 
+## 🎯 项目简介
+
+DWG-Agent 是面向**钢结构深化设计与加工制造**场景的企业级 CAD 图纸处理平台。平台以服务器端自动化管线为核心，将钢结构生产环节中高度依赖人工的重复性工作——图纸格式转换、构件自动分类、自动拆板、排版计算与五金手册查询——转化为**可追踪、可复核、可审计**的标准化处理流程。
+
+针对钢结构加工企业普遍存在的"图纸来源多样、格式不统一、批次管理困难、人工处理易错且难以追溯"等痛点，DWG-Agent 提供从 **图纸接收 → 格式转换 → 自动分类 → 拆板处理 → 排版计算 → 结果交付** 的端到端处理闭环：
+
+- **统一输入账本**：以"生产批次 + 输入冻结"模型管理多个 DWG 与唯一业务 Excel；源文件全部留档、清单哈希固化，处理过程中输入不可漂移；
+- **确定性的处理管线**：服务器端 DWG→DXF 转换、Steel DXF Classifier 分类分流、Steel DXF Split 整批拆板、Excel Final 排版与五金手册查询——每个阶段都是可独立测试、可版本化的确定性 Stage；
+- **严格的执行语义**：以 `(job_id, attempt)` 定义执行世代，旧消息与旧 worker 无法覆盖新一轮任务；文件登记、流转与处置全部写入 MySQL 账本，全链路审计；
+- **分层治理与权限**：Web 管理端、数据控制台、任务状态机与 RBAC 协同，管理员只能按任务状态机与已登记文件规则操作，所有写操作进入审计日志。
+
+> [!NOTE]
+> 当前交付级别为 `v0.1 技术预览版`。转换、分类、拆板与 Excel 处理的纵向切片已具备可运行实现与回归证据；Agent 执行、Windows CAD Worker、SinoCAM 集成与生产级 TLS 等能力仍为明确留白。能力清单以[实现状态](docs/architecture/implementation-status.md)与[验证证据](docs/verification/current.md)为准。
+
+## ✨ 核心特性
+
+| 特性 | 说明 |
+|---|---|
+| 🔄 服务器端格式转换 | DWG→DXF 与 DXF→DWG 双向转换，保留原文件名，支持鉴权 SVG 在线预览与结果下载 |
+| 🗂️ 自动分类与拆板 | Steel DXF Classifier 1.2.0 分类分流；Steel DXF Split 1.5.2 整批拆板与独立校验（BH/BOX，含几何安全证明）。拆板生产流程默认关闭，需真实业务样本验收 |
+| 📊 Excel 排版处理 | Excel Final 阶段：工作簿规范化、批次/零件/构件建模、五金手册精确查询与最终工作簿生成 |
+| 🔒 输入冻结与文件账本 | 生产批次输入冻结（多个 DWG + 唯一 Excel，清单哈希固化）；文件登记、流转、处置全程 MySQL 账本与审计 |
+| ⚙️ 十阶段工作流编排 | `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段；attempt 世代同步防止旧消息覆盖 |
+| 🖥️ 管理端与数据控制台 | React 管理端 + 生产任务/文件存储双工作区，RBAC 权限、审计日志与 SSE 任务监视 |
+| 📦 流式交付与物理释放 | 四类文件分批流式导出；服务端确认下载完成后由用户二次确认再删除对象，不生成服务器临时 ZIP |
+
+## 🧰 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 前端 | React 19 · TypeScript · Vite · axios（Playwright 端到端测试） |
+| 后端 | Python 3.12 · FastAPI · SQLAlchemy 2.x · Alembic · Celery 5.x · Pydantic |
+| 数据 | MySQL 8.x（唯一运行时业务事实源，兼作 Celery broker/result） |
+| 网关与部署 | Nginx · Docker Compose |
+| 存储 | Local FS / MinIO（对象存储存字节，MySQL 存登记） |
+| 处理 Stage | ODA（DWG↔DXF）· Steel DXF Classifier · Steel DXF Split · Excel Final |
+| 质量验证 | pytest · Playwright · 空库迁移测试 · 基础设施契约验证（`infra/verification/verify.sh`） |
+
 ## 🧭 分层阅读
 
 | 你想了解什么 | 建议入口 |

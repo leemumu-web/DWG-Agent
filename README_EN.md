@@ -13,6 +13,44 @@
 > [!IMPORTANT]
 > This README describes only what is present in the repository today. Placeholder directories, disabled feature flags, and unconfigured infrastructure are not presented as delivered capabilities. Runtime facts are governed by the current code, migrations, configuration, and [verification evidence](docs/verification/current.md). Detailed project documentation is maintained **in Chinese only** under [docs/](docs/README.md); this English README provides a project-level overview.
 
+## 🎯 Project Overview
+
+DWG-Agent is an **enterprise-grade CAD drawing processing platform for steel-structure detailing and fabrication**. Built around server-side automation pipelines, it turns the highly repetitive manual work of steel fabrication — drawing format conversion, automatic part classification, automatic plate splitting, layout computation, and hardware-handbook lookup — into **traceable, reviewable, and auditable** standardized processes.
+
+For fabrication shops that struggle with heterogeneous drawing sources, inconsistent formats, hard-to-manage batches, and error-prone manual processing, DWG-Agent delivers an end-to-end loop from **drawing intake → format conversion → automatic classification → plate splitting → layout computation → result delivery**:
+
+- **Unified intake ledger**: multiple DWGs plus exactly one business Excel are managed as a "production batch + input freeze"; every source file is archived and the manifest hash is pinned, so inputs cannot drift during processing;
+- **Deterministic processing pipelines**: server-side DWG→DXF conversion, Steel DXF Classifier routing, Steel DXF Split batch execution, and Excel Final layout/handbook processing — each stage is a versioned, independently testable deterministic Stage;
+- **Strict execution semantics**: execution generations are identified by `(job_id, attempt)`, so stale messages or workers can never overwrite a newer run; file registration, transfer, and disposal are all recorded in the MySQL ledger for end-to-end audit;
+- **Layered governance and permissions**: the web console, data console, job state machine, and RBAC work together — administrators act only through the job state machine and registered-file rules, and every write enters the audit log.
+
+> [!NOTE]
+> The current delivery tier is `v0.1 technical preview`. The conversion, classification, splitting, and Excel processing vertical slices are runnable and backed by regression evidence; Agent execution, the Windows CAD Worker, SinoCAM integration, and production-grade TLS remain explicit gaps. The authoritative capability list is [implementation status](docs/architecture/implementation-status.md) and [verification evidence](docs/verification/current.md).
+
+## ✨ Key Features
+
+| Feature | Description |
+|---|---|
+| 🔄 Server-side format conversion | Bidirectional DWG→DXF and DXF→DWG conversion with original file names preserved, plus authenticated SVG preview and result download |
+| 🗂️ Automatic classification and splitting | Steel DXF Classifier 1.2.0 routing; Steel DXF Split 1.5.2 batch execution with independent validation (BH/BOX, including geometry safety proofs). Splitting is disabled by default in production and requires real business-sample acceptance |
+| 📊 Excel layout processing | Excel Final stage: workbook normalization, batch/part/component modeling, exact hardware-handbook lookup, and final workbook generation |
+| 🔒 Input freeze and file ledger | Production-batch input freeze (multiple DWGs + one Excel with pinned manifest hash); file registration, transfer, and disposal tracked end to end in the MySQL ledger with auditing |
+| ⚙️ Ten-stage workflow orchestration | `workflow_runs → workflow_stage_runs → workflow_artifacts` coordinate business stages; attempt generations prevent stale messages from overwriting newer runs |
+| 🖥️ Admin console and data console | React admin UI plus production-job and file-storage workspaces, with RBAC, audit logs, and SSE job monitoring |
+| 📦 Streaming delivery and physical release | Four file kinds exported in streamed batches; objects are deleted only after the server confirms the download stream finished and the user confirms again — no server-side temporary ZIPs |
+
+## 🧰 Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 · TypeScript · Vite · axios (Playwright end-to-end tests) |
+| Backend | Python 3.12 · FastAPI · SQLAlchemy 2.x · Alembic · Celery 5.x · Pydantic |
+| Data | MySQL 8.x (the only runtime source of business truth; also the Celery broker/result store) |
+| Gateway and deployment | Nginx · Docker Compose |
+| Storage | Local FS / MinIO (bytes live in object storage; MySQL holds registrations) |
+| Processing Stages | ODA (DWG↔DXF) · Steel DXF Classifier · Steel DXF Split · Excel Final |
+| Quality verification | pytest · Playwright · empty-schema migration tests · infrastructure contract verification (`infra/verification/verify.sh`) |
+
 ## 🧭 Layered Guide
 
 | What do you want to know | Suggested path |
