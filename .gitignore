@@ -39,6 +39,8 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .vite/
+.uv_cache/
+.mplconfig/
 
 # --- Runtime data (filesystem-based storage, logs, dbs) ---
 var/
@@ -81,6 +83,11 @@ Data/
 /Stages/excel_final/data/
 # Ad-hoc analysis bundles (zips, unpacked samples, repro scripts)
 /tmp_data/
+# BH_optimization 工作区：仅跟踪源码/文档/配置，样本 DXF 与拆板结果属大数据
+/BH_optimization/sample_input/
+/BH_optimization/sample_output/
+/BH_optimization/single_input/
+/BH_optimization/single_output/
 
 # --- Test runner output (playwright, etc.) ---
 /output/
@@ -95,3 +102,6 @@ third_parts/kkFileView/server/LibreOfficePortable/
 # --- BH/BOX split before/after merged review sheets (large delivery artifacts) ---
 /BH拆板合图/
 /BOX拆板前分类/
+# BH/BOX 拆板前 DXF 交付件（352 张 BH + 大量 BOX Tekla 单件图，数百 MB）
+/BH_拆板前_dxf汇总/
+/BOX_拆板前_dxf汇总/

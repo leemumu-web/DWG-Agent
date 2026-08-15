@@ -1,0 +1,13 @@
+[project]
+name = "bh-optimization"
+version = "0.1.0"
+description = "BH 拆板算法研究环境：steel_dxf_split(BH/BOX拆板核心) + bh_left_right_reader(左右进)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "steel-dxf-split",
+    "bh-left-right-reader",
+]
+
+[tool.uv.sources]
+steel-dxf-split = { path = "../Stages/steel_dxf_split_v1.5.2", editable = true }
+bh-left-right-reader = { path = "../Stages/bh_left_right_reader", editable = true }
