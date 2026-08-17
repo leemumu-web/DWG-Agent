@@ -292,7 +292,7 @@ curl -s http://localhost:1117/ | grep -oE "assets/index-[A-Za-z0-9_]+\.js"
 
 ---
 
-## 六、本机端口映射（长期稳定）
+## 六、本机端口映射（长期稳定, 非本机不要使用）
 
 ```bash
 # systemd 用户服务（已配置）：
@@ -308,6 +308,12 @@ systemctl --user status dwg-agent-tunnel   # active
 
 格式：`server-production-YYYYMMDD-rNN`。同一版本名不可重复构建/覆盖；代码变化必须提升版本号。
 
+版本号语义：
+- **`rNN` 主版本**：完整增量发布（打包全部 backend/frontend，通常整体 recover）。
+- **`rNN.x` 小版本（修复版）**：在同一主版本的增量修复，只更新受影响的服务（例如 r39.1 仅更新
+  `worker-excel-stage3`，其他容器不动）。小版本同样走完整打包（镜像标签独立），但部署时可最小化到
+  单服务替换。下一版规划为 **r39.2**，沿用 §9 检查清单。
+
 | 版本 | 日期 | 要点 |
 |---|---|---|
 | r36 | 07-31 | 全量加密发布（GPG 自检解密起） |
@@ -315,7 +321,7 @@ systemctl --user status dwg-agent-tunnel   # active
 | r38 系列（r38~r38.7） | 08-07 ~ 08-09 | 前端/后端多轮增量，gg 本机打包 |
 | **r39** | 08-17 | 完整增量：PR #21 拆板 + excel_stage3 全链路 + 前端 |
 | **r39.1** | 08-17 | excel_stage3 venv numpy 1.26.4 修复（仅 worker-excel-stage3 更新） |
-| r40（下一版） | 待定 | 见 §9 要求 |
+| r39.2（下一版） | 待定 | 见 §9 要求 |
 
 ---
 
@@ -332,12 +338,12 @@ systemctl --user status dwg-agent-tunnel   # active
 
 ---
 
-## 九、下一次增量更新的要求（r40 检查清单）
+## 九、下一次增量更新的要求（r39.2 检查清单）
 
 | # | 要求 | 操作 |
 |---|---|---|
 | 1 | **打包必须带镜像源** | `DEBIAN_APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian` + `PYPI_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`，否则 apt-get update 与 excel_stage3 uv sync 卡死 |
-| 2 | **版本号提升** | `--version server-production-YYYYMMDD-r40`，与现有 r39/r39.1 不同 |
+| 2 | **版本号提升** | `--version server-production-YYYYMMDD-r39.2`，与现有 r39/r39.1 不同 |
 | 3 | **数据库保留原配置** | install 后按 §4.5 把 mysql/minio tag 改回 `server-production-20260801-r37` |
 | 4 | **服务数校验** | 若服务数变化，同步 `server-deploy.sh` 的 `-eq <N>`；当前 17 |
 | 5 | **excel_stage3 numpy 兼容** | 保持 `numpy>=1.26,<2` 约束；release.sh 会验证 venv numpy 基线 ≤ SSE3 |
