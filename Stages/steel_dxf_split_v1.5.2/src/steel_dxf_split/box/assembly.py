@@ -5,9 +5,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from math import ceil, cos, hypot, radians, sin
-import re
 
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, box
 
 from .equivalence import BOX_DRAFTING_RESOLUTION_MM
 from .flange_solver import (
@@ -19,6 +18,7 @@ from .flange_solver import (
 )
 from .manufacturing_ir import (
     BoxManufacturingIR,
+    ContourSegmentIR,
     EvidenceState,
     FeatureEvidence,
     InnerContourIR,
@@ -57,6 +57,7 @@ from .proofs import (
 )
 from .role_hypotheses import (
     FlangeCourseEvidence,
+    NOMINAL_PRISMATIC_INNER_COURSE_RULE_ID,
     RoleHypothesisError,
     enumerate_cranked_flange_role_pairs,
     enumerate_straight_flange_role_pairs,
@@ -149,6 +150,39 @@ class _AssignmentCompileContext:
     flange_inner_inventory: InnerContourOpeningInventory
 
 
+def _has_paired_access_opening_evidence(
+    context: _AssignmentCompileContext,
+    metadata: BoxMetadata,
+) -> bool:
+    """Recognize the complete access-hole/web and bolt-hole/flange bundle."""
+
+    if (
+        abs(metadata.profile.value.height - metadata.profile.value.width)
+        > BOX_DRAFTING_RESOLUTION_MM
+        or context.web_bolt_openings
+        or context.flange_part_openings
+        or len(context.web_part_openings) != 1
+        or len(context.flange_bolt_openings) != 1
+        or context.web_inner_inventory.openings
+        or context.flange_inner_inventory.openings
+    ):
+        return False
+    access_hole = context.web_part_openings[0]
+    bolt_hole = context.flange_bolt_openings[0]
+    rim_signature = (
+        access_hole.visible_representation_multiplicity,
+        access_hole.hidden_representation_multiplicity,
+    )
+    return (
+        access_hole.kind is CircularOpeningKind.PART_ARC_CIRCLE
+        and access_hole.representation_multiplicity == 2
+        and rim_signature in {(0, 2), (1, 1)}
+        and bolt_hole.kind is CircularOpeningKind.BOLT_CIRCLE
+        and bolt_hole.representation_multiplicity == 1
+        and access_hole.radius_mm >= 2.0 * bolt_hole.radius_mm
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _PartGeometryEdge:
     source_id: str
@@ -232,6 +266,9 @@ def _select_single_side_candidate(
     candidates: tuple[WebOutlineCandidate | FlangeOutlineCandidate, ...],
     opening: ProjectedCircularOpening,
     view: PartViewIR,
+    *,
+    paired_access_web_depth: bool = False,
+    paired_access_flange_top: bool = False,
 ) -> int:
     feasible = tuple(
         index
@@ -242,14 +279,29 @@ def _select_single_side_candidate(
         raise AssemblyResolutionError(
             f"opening {opening.source_ids!r} is outside every selected plate"
         )
-    if (
-        opening.kind is CircularOpeningKind.BOLT_CIRCLE
-        and _candidate_indexes_form_coincident_pair(candidates, feasible)
-    ):
-        if opening.visibility is OpeningVisibility.VISIBLE:
+    if _candidate_indexes_form_coincident_pair(candidates, feasible):
+        if (
+            paired_access_web_depth
+            and opening.kind is CircularOpeningKind.PART_ARC_CIRCLE
+        ):
+            rim_signature = (
+                opening.visible_representation_multiplicity,
+                opening.hidden_representation_multiplicity,
+            )
+            if rim_signature == (0, 2):
+                return feasible[0]
+            if rim_signature == (1, 1):
+                return feasible[-1]
+        if (
+            paired_access_flange_top
+            and opening.kind is CircularOpeningKind.BOLT_CIRCLE
+        ):
             return feasible[0]
-        if opening.visibility is OpeningVisibility.HIDDEN:
-            return feasible[-1]
+        if opening.kind is CircularOpeningKind.BOLT_CIRCLE:
+            if opening.visibility is OpeningVisibility.VISIBLE:
+                return feasible[0]
+            if opening.visibility is OpeningVisibility.HIDDEN:
+                return feasible[-1]
     # ``max`` is deterministic.  The index is the final tie breaker and keeps
     # the established top/left ordering when the two projected faces are
     # geometrically coincident and have no distinct line-type evidence.
@@ -285,6 +337,8 @@ def _assign_openings_to_pair(
     view: PartViewIR,
     *,
     duplicate_legacy_bolt_openings: bool,
+    paired_access_web_depth: bool = False,
+    paired_access_flange_top: bool = False,
 ) -> tuple[tuple[ProjectedCircularOpening, ...], ...]:
     """Assign observations to a physical pair exactly once or by legacy proof.
 
@@ -318,7 +372,13 @@ def _assign_openings_to_pair(
             selected = feasible
         else:
             selected = (
-                _select_single_side_candidate(candidates, opening, view),
+                _select_single_side_candidate(
+                    candidates,
+                    opening,
+                    view,
+                    paired_access_web_depth=paired_access_web_depth,
+                    paired_access_flange_top=paired_access_flange_top,
+                ),
             )
         for index in selected:
             buckets[index].append(opening)
@@ -895,6 +955,103 @@ def _role_evidence(
     )
 
 
+def _classify_inner_contour_component_context(
+    view: PartViewIR,
+    openings: InnerContourOpeningInventory,
+    *,
+    candidate_search_projections: tuple[ProjectionFaceCandidate, ...],
+) -> InnerContourOpeningInventory:
+    """Classify inner loops by exact connected source-component authority."""
+
+    components, _unsupported = _part_geometry_components(view)
+    component_index_by_source_id = {
+        source_id: component_index
+        for component_index, component in enumerate(components)
+        for source_id in component.source_ids
+    }
+    candidate_anchor_ids = {
+        source_id
+        for candidate in candidate_search_projections
+        for source_id in (
+            *candidate.boundary_source_ids,
+            *candidate.vertex_source_ids,
+        )
+    }
+    retained: list[ProjectedInnerContourOpening] = []
+    rejections = list(openings.rejections)
+    for opening in openings.openings:
+        matched_component_indices = {
+            component_index_by_source_id.get(source_id)
+            for source_id in opening.source_ids
+        }
+        if None in matched_component_indices or len(matched_component_indices) != 1:
+            retained.append(opening)
+            continue
+        component = components[next(iter(matched_component_indices))]
+        outside_source_ids = set(component.source_ids) - set(opening.source_ids)
+        if not outside_source_ids:
+            retained.append(opening)
+        elif outside_source_ids.intersection(candidate_anchor_ids):
+            rejections.append(
+                OpeningInventoryRejection(
+                    stage="ownership",
+                    reason="candidate_course_context",
+                    source_ids=opening.source_ids,
+                )
+            )
+        else:
+            retained.append(opening)
+    return InnerContourOpeningInventory(tuple(retained), tuple(rejections))
+
+
+def _candidate_course_boundary_witness_source_sets(
+    openings: tuple[ProjectedInnerContourOpening, ...],
+    candidate_search_projections: tuple[ProjectionFaceCandidate, ...],
+    selected_projections: tuple[ProjectionFaceCandidate, ProjectionFaceCandidate],
+) -> set[frozenset[str]]:
+    """Return loops directly witnessed by a source-conserved candidate."""
+
+    result: set[frozenset[str]] = set()
+    for opening in openings:
+        opening_polygon = opening.loop.polygon
+        tolerance = BOX_DRAFTING_RESOLUTION_MM
+        opening_source_ids = set(opening.source_ids)
+        for candidate in candidate_search_projections:
+            candidate_source_ids = set(candidate.boundary_source_ids) | set(
+                candidate.vertex_source_ids
+            )
+            if not candidate.source_conserved or not opening_source_ids.intersection(
+                candidate_source_ids
+            ):
+                continue
+            source_equivalent = opening_source_ids.issubset(
+                candidate_source_ids
+            ) and (
+                opening_polygon.symmetric_difference(candidate.polygon).area
+                <= tolerance
+                * max(opening_polygon.length, candidate.polygon.length, 1.0)
+            )
+            if source_equivalent:
+                result.add(frozenset(opening.source_ids))
+                break
+        else:
+            for candidate in selected_projections:
+                candidate_source_ids = set(candidate.boundary_source_ids) | set(
+                    candidate.vertex_source_ids
+                )
+                if (
+                    candidate.source_conserved
+                    and opening_source_ids.intersection(candidate_source_ids)
+                    and opening_polygon.boundary.distance(
+                        candidate.polygon.boundary
+                    )
+                    <= tolerance
+                ):
+                    result.add(frozenset(opening.source_ids))
+                    break
+    return result
+
+
 def _lower_inner_openings_for_pair(
     *,
     hypothesis_id: str,
@@ -958,17 +1115,65 @@ def _lower_inner_openings_for_pair(
         )
         for candidate in role_candidates
     )
+    materialized_source_sets = {
+        frozenset(contour.evidence.source_ids)
+        for result in lowered
+        for contour in result.contours
+    }
+    classified_connected = _classify_inner_contour_component_context(
+        view,
+        InnerContourOpeningInventory(
+            openings=openings.openings,
+            rejections=(),
+        ),
+        candidate_search_projections=candidate_search_projections,
+    )
+    connected_source_sets = {
+        frozenset(rejection.source_ids)
+        for rejection in classified_connected.rejections
+        if rejection.reason == "candidate_course_context"
+    }
+    connected_openings = tuple(
+        opening
+        for opening in openings.openings
+        if frozenset(opening.source_ids) in connected_source_sets
+    )
+    candidate_course_witness_sets = (
+        _candidate_course_boundary_witness_source_sets(
+            connected_openings,
+            candidate_search_projections,
+            projections,
+        )
+    )
+    structural_source_sets = connected_source_sets.intersection(
+        materialized_source_sets | candidate_course_witness_sets
+    )
+    structural_rejections = {
+        rejection
+        for rejection in classified_connected.rejections
+        if frozenset(rejection.source_ids) in structural_source_sets
+    }
+    lowered_contours = tuple(
+        tuple(
+            contour
+            for contour in result.contours
+            if frozenset(contour.evidence.source_ids) not in structural_source_sets
+        )
+        for result in lowered
+    )
     rejections = tuple(
         sorted(
             {
                 rejection
                 for result in lowered
                 for rejection in result.rejections
-            },
+                if frozenset(rejection.source_ids) not in structural_source_sets
+            }
+            | structural_rejections,
             key=lambda value: (value.stage, value.reason, value.source_ids),
         )
     )
-    return ((lowered[0].contours, lowered[1].contours), rejections)
+    return ((lowered_contours[0], lowered_contours[1]), rejections)
 
 
 def _make_plate(
@@ -1004,6 +1209,133 @@ def _make_plate(
         circular_cuts=tuple(cuts),  # type: ignore[arg-type]
         inner_contours=inner_contours,
         role_evidence=evidence,
+    )
+
+
+_NOMINAL_PRISMATIC_RECTANGLE_RULE_ID = (
+    "BOX.PRISMATIC.NOMINAL_TERMINAL_RECTANGLE"
+)
+
+
+def _canonical_nominal_rectangle(
+    candidate: WebOutlineCandidate | FlangeOutlineCandidate,
+    *,
+    length_mm: float,
+    width_mm: float,
+) -> WebOutlineCandidate | FlangeOutlineCandidate:
+    contour_bounds = contour_polygon(candidate.contour).bounds
+    contour_min_x, contour_min_y, _contour_max_x, _contour_max_y = contour_bounds
+    contour_points = (
+        (contour_min_x, contour_min_y),
+        (contour_min_x + length_mm, contour_min_y),
+        (contour_min_x + length_mm, contour_min_y + width_mm),
+        (contour_min_x, contour_min_y + width_mm),
+    )
+    residual = abs(candidate.longitudinal_span - length_mm)
+    evidence = FeatureEvidence(
+        state=EvidenceState.INFERRED,
+        source_ids=candidate.source_ids,
+        rule_ids=(_NOMINAL_PRISMATIC_RECTANGLE_RULE_ID,),
+        proof_ids=("BOX.PROOF.COMPLETE_FOUR_PLATE_ASSEMBLY",),
+        residual_mm=residual,
+        description=(
+            "source-proved prismatic course normalized to metadata nominal "
+            "length and profile width"
+        ),
+    )
+    contour = tuple(
+        ContourSegmentIR(
+            segment_id=f"{candidate.candidate_id}:nominal:{index}",
+            start=start,
+            end=contour_points[(index + 1) % len(contour_points)],
+            bulge=0.0,
+            evidence=evidence,
+        )
+        for index, start in enumerate(contour_points)
+    )
+    projection_min_x, projection_min_y, _projection_max_x, _projection_max_y = (
+        candidate.projection.polygon.bounds
+    )
+    projection_polygon = box(
+        projection_min_x,
+        projection_min_y,
+        projection_min_x + length_mm,
+        projection_min_y + width_mm,
+    )
+    return replace(
+        candidate,
+        candidate_id=f"{candidate.candidate_id}:nominal-prismatic",
+        contour=contour,
+        projection=replace(
+            candidate.projection,
+            polygon=projection_polygon,
+            rule_ids=tuple(
+                sorted(
+                    set(candidate.projection.rule_ids)
+                    | {_NOMINAL_PRISMATIC_RECTANGLE_RULE_ID}
+                )
+            ),
+        ),
+    )
+
+
+def _canonicalize_proven_prismatic_pairs(
+    web_pair: tuple[WebOutlineCandidate, WebOutlineCandidate],
+    flange_pair: tuple[FlangeOutlineCandidate, FlangeOutlineCandidate],
+    *,
+    metadata: BoxMetadata,
+    web_candidate_count: int,
+    has_openings: bool,
+) -> tuple[
+    tuple[WebOutlineCandidate, WebOutlineCandidate],
+    tuple[FlangeOutlineCandidate, FlangeOutlineCandidate],
+]:
+    """Normalize one uniquely proved straight no-opening BOX course."""
+
+    nominal_length = metadata.nominal_length.value
+    web_width = metadata.profile.value.web_clear_width
+    flange_width = metadata.profile.value.width
+    tolerance = max(
+        BOX_DRAFTING_RESOLUTION_MM,
+        *(candidate.projection.grid_size_mm * 2.0 for candidate in (*web_pair, *flange_pair)),
+    )
+    proved = (
+        not has_openings
+        and web_candidate_count > 1
+        and web_pair[0].candidate_id == web_pair[1].candidate_id
+        and flange_pair[0].candidate_id == flange_pair[1].candidate_id
+        and all(candidate.projection.source_conserved for candidate in (*web_pair, *flange_pair))
+        and all(candidate.source_ids for candidate in (*web_pair, *flange_pair))
+        and NOMINAL_PRISMATIC_INNER_COURSE_RULE_ID
+        in web_pair[0].projection.rule_ids
+        and WebDerivation.INNER_COURSE_BAND in web_pair[0].derivations
+        and round(web_pair[0].longitudinal_span) == nominal_length
+        and round(flange_pair[0].longitudinal_span) == nominal_length
+        and abs(web_pair[0].transverse_span - web_width) <= tolerance
+        and abs(flange_pair[0].transverse_span - flange_width) <= tolerance
+        and all(
+            abs(segment.bulge) <= 1e-12
+            for candidate in (*web_pair, *flange_pair)
+            for segment in candidate.contour
+        )
+    )
+    if not proved:
+        return web_pair, flange_pair
+    canonical_web = _canonical_nominal_rectangle(
+        web_pair[0],
+        length_mm=nominal_length,
+        width_mm=web_width,
+    )
+    canonical_flange = _canonical_nominal_rectangle(
+        flange_pair[0],
+        length_mm=nominal_length,
+        width_mm=flange_width,
+    )
+    assert isinstance(canonical_web, WebOutlineCandidate)
+    assert isinstance(canonical_flange, FlangeOutlineCandidate)
+    return (
+        (canonical_web, canonical_web),
+        (canonical_flange, canonical_flange),
     )
 
 
@@ -1487,87 +1819,8 @@ def _search_measurement_proves_complete_domain(measurement: str) -> bool:
     }
 
 
-_SINGLE_BOLT_MARK_RE = re.compile(r"^1[\u03a6Ø⌀](?:\d+(?:\.\d*)?|\.\d+)$")
-
-
-def _bolt_mark_support_source_ids(
-    source: SourceDocumentIR,
-    assignment: ViewAssignmentCandidate,
-    opening: ProjectedCircularOpening,
-    *,
-    tolerance_mm: float = 0.05,
-) -> tuple[str, ...]:
-    views = {
-        assignment.h_view.group_id: assignment.h_view,
-        assignment.b_view.group_id: assignment.b_view,
-    }
-    view = views.get(opening.view_group_id)
-    if view is None:
-        return ()
-    world_center = view.frame.local_to_world(opening.center)
-    matches: list[tuple[str, ...]] = []
-    for group in source.groups_by_layer("BoltMark"):
-        entities = source.entities_for_group(group.group_id)
-        mark_texts = tuple(
-            entity
-            for entity in entities
-            if entity.text_decoded is not None
-            and _SINGLE_BOLT_MARK_RE.fullmatch(
-                "".join(entity.text_decoded.split())
-            )
-            is not None
-        )
-        if len(mark_texts) != 1:
-            continue
-        lines = tuple(
-            entity
-            for entity in entities
-            if entity.layer.casefold() == "boltmark"
-            and entity.kind == "LINE"
-            and entity.start is not None
-            and entity.end is not None
-        )
-        connected_leader = False
-        for leader in lines:
-            for endpoint, joint in (
-                (leader.start, leader.end),
-                (leader.end, leader.start),
-            ):
-                if hypot(
-                    endpoint[0] - world_center[0],
-                    endpoint[1] - world_center[1],
-                ) > tolerance_mm:
-                    continue
-                if any(
-                    other is not leader
-                    and (
-                        hypot(
-                            other.start[0] - joint[0],
-                            other.start[1] - joint[1],
-                        )
-                        <= tolerance_mm
-                        or hypot(
-                            other.end[0] - joint[0],
-                            other.end[1] - joint[1],
-                        )
-                        <= tolerance_mm
-                    )
-                    for other in lines
-                ):
-                    connected_leader = True
-                    break
-            if connected_leader:
-                break
-        if connected_leader:
-            matches.append(group.source_ids)
-    return matches[0] if len(matches) == 1 else ()
-
-
 def _opening_representation_obligation(
     openings: tuple[ProjectedCircularOpening, ...],
-    *,
-    source: SourceDocumentIR | None = None,
-    assignment: ViewAssignmentCandidate | None = None,
 ) -> ProofObligation:
     """Require drawing-level visible evidence for the hidden Bolt convention."""
 
@@ -1583,33 +1836,7 @@ def _opening_representation_obligation(
         if opening.kind is CircularOpeningKind.BOLT_CIRCLE
         and opening.visibility in {OpeningVisibility.VISIBLE, OpeningVisibility.MIXED}
     )
-    bolt_mark_support = {
-        opening.source_ids: _bolt_mark_support_source_ids(
-            source,
-            assignment,
-            opening,
-        )
-        for opening in hidden
-        if source is not None and assignment is not None
-    }
-    unpaired_hidden = (
-        ()
-        if visible
-        else tuple(
-            opening
-            for opening in hidden
-            if not bolt_mark_support.get(opening.source_ids)
-        )
-    )
-    bolt_mark_source_ids = tuple(
-        sorted(
-            {
-                source_id
-                for source_ids in bolt_mark_support.values()
-                for source_id in source_ids
-            }
-        )
-    )
+    unpaired_hidden = () if visible else hidden
     return ProofObligation(
         obligation_id="BOX.PROOF.OPENINGS.REPRESENTATION_PAIR",
         status=(
@@ -1631,17 +1858,14 @@ def _opening_representation_obligation(
                             for opening in openings
                             for source_id in opening.source_ids
                         }
-                        | set(bolt_mark_source_ids)
                     )
                 ),
                 measured=(
                     f"visible={len(visible)};hidden={len(hidden)};"
-                    f"bolt_mark_supported={sum(bool(value) for value in bolt_mark_support.values())};"
                     f"unpaired_hidden={len(unpaired_hidden)}"
                 ),
                 expected=(
-                    "hidden Bolt representation supported by visible drawing evidence "
-                    "or a connected single-hole BoltMark"
+                    "hidden Bolt representation supported by visible drawing evidence"
                 ),
                 tolerance=None,
             ),
@@ -1655,7 +1879,6 @@ def _opening_representation_obligation(
 
 
 def _proof_report(
-    source: SourceDocumentIR,
     metadata: BoxMetadata,
     assignment: ViewAssignmentCandidate,
     plates: tuple[PhysicalPlateIR, ...],
@@ -2109,11 +2332,7 @@ def _proof_report(
                 ),
             ),
         ),
-        _opening_representation_obligation(
-            source_openings,
-            source=source,
-            assignment=assignment,
-        ),
+        _opening_representation_obligation(source_openings),
         ProofObligation(
             obligation_id="BOX.PROOF.FLANGE.EXACT_SOURCE_COURSE_AUTHORITY",
             status=(
@@ -2267,6 +2486,10 @@ def _compile_assignment(
         *flange_part_openings,
     )
     asymmetric_part_evidence = bool(web_part_openings or flange_part_openings)
+    paired_access_opening_evidence = _has_paired_access_opening_evidence(
+        context,
+        metadata,
+    )
 
     web_roles = (PhysicalPlateRole.WEB_LEFT, PhysicalPlateRole.WEB_RIGHT)
     flange_roles = (PhysicalPlateRole.FLANGE_TOP, PhysicalPlateRole.FLANGE_BOTTOM)
@@ -2275,12 +2498,14 @@ def _compile_assignment(
         (*web_bolt_openings, *web_part_openings),
         assignment.h_view,
         duplicate_legacy_bolt_openings=not asymmetric_part_evidence,
+        paired_access_web_depth=paired_access_opening_evidence,
     )
     flange_buckets = _assign_openings_to_pair(
         flange_pair,
         (*flange_bolt_openings, *flange_part_openings),
         assignment.b_view,
         duplicate_legacy_bolt_openings=not asymmetric_part_evidence,
+        paired_access_flange_top=paired_access_opening_evidence,
     )
     hypothesis_scope_id = (
         f"box-native:{assignment.signature}:"
@@ -2355,6 +2580,19 @@ def _compile_assignment(
         assignment,
         face_separation_mm=metadata.profile.value.flange_thickness,
     )
+    manufacturing_web_pair, manufacturing_flange_pair = (
+        _canonicalize_proven_prismatic_pairs(
+            manufacturing_web_pair,
+            flange_pair,
+            metadata=metadata,
+            web_candidate_count=len(web_search.candidates),
+            has_openings=bool(
+                source_openings
+                or web_inner_inventory.openings
+                or flange_inner_inventory.openings
+            ),
+        )
+    )
     opening_rejections = tuple(
         sorted(
             {
@@ -2391,7 +2629,7 @@ def _compile_assignment(
         )
         for role, candidate, openings, inner_contours in zip(
             flange_roles,
-            flange_pair,
+            manufacturing_flange_pair,
             flange_buckets,
             flange_inner_buckets,
             strict=True,
@@ -2404,7 +2642,7 @@ def _compile_assignment(
         web_search,
         flange_search,
         manufacturing_web_pair,
-        flange_pair,
+        manufacturing_flange_pair,
         source_openings,
         (*web_inner_inventory.openings, *flange_inner_inventory.openings),
         opening_rejections,
@@ -2437,6 +2675,7 @@ def _compile_assignment(
     rank_key = (
         assignment.score,
         -assignment.drawing_graph_score,
+        -float(paired_access_opening_evidence),
         -float(direct_features),
         float(inferred_features),
         -float(bolt_circles),
@@ -2445,13 +2684,13 @@ def _compile_assignment(
         -float(bool(web_part_openings)),
         -sum(
             _strength(candidate.derivations)
-            for candidate in (*manufacturing_web_pair, *flange_pair)
+            for candidate in (*manufacturing_web_pair, *manufacturing_flange_pair)
         ),
     )
     return CompleteBoxHypothesis(
         assignment=assignment,
         web_candidates=manufacturing_web_pair,
-        flange_candidates=flange_pair,
+        flange_candidates=manufacturing_flange_pair,
         mir=mir,
         proof_report=proof,
         score_terms=(
@@ -2464,6 +2703,11 @@ def _compile_assignment(
                 "drawing_graph_h_role",
                 assignment.drawing_graph_score,
                 "PartMark leader target agrees with the H-view role",
+            ),
+            AssemblyScoreTerm(
+                "paired_access_opening_role",
+                float(paired_access_opening_evidence),
+                "paired Part ARC access hole and Bolt hole prove web/flange roles",
             ),
             AssemblyScoreTerm(
                 "direct_manufacturing_edges",

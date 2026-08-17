@@ -289,6 +289,8 @@ class ProjectedCircularOpening:
     kind: CircularOpeningKind = CircularOpeningKind.BOLT_CIRCLE
     visibility: OpeningVisibility = OpeningVisibility.VISIBLE
     representation_multiplicity: int = 1
+    visible_representation_multiplicity: int = 0
+    hidden_representation_multiplicity: int = 0
     view_group_id: str = ""
 
 
@@ -549,52 +551,6 @@ def _opening_matches_candidate_exterior(
     )
 
 
-def _opening_is_full_transverse_candidate_course(
-    opening: ProjectedInnerContourOpening,
-    candidates: tuple[OpeningOwnershipRoleCandidate, ...],
-    *,
-    tolerance_mm: float,
-) -> bool:
-    """Identify a source-backed plate/course loop before slot ownership.
-
-    A valid through-opening must have clearance in the plate transverse
-    direction.  A loop spanning essentially the whole candidate width and
-    reusing at least one of its source boundary entities is instead another
-    projection spelling of plate geometry.  The source-overlap requirement
-    keeps an unrelated loop that merely crosses an exterior fail-closed.
-    """
-
-    _opening_min_x, opening_min_y, _opening_max_x, opening_max_y = (
-        opening.loop.polygon.bounds
-    )
-    opening_transverse_span = opening_max_y - opening_min_y
-    opening_source_ids = set(opening.source_ids)
-    for candidate in candidates:
-        _candidate_min_x, candidate_min_y, _candidate_max_x, candidate_max_y = (
-            candidate.projection.polygon.bounds
-        )
-        candidate_transverse_span = candidate_max_y - candidate_min_y
-        candidate_source_ids = set(candidate.projection.boundary_source_ids) | set(
-            candidate.projection.vertex_source_ids
-        )
-        if (
-            candidate_transverse_span > tolerance_mm
-            # Tekla may inset the end-course loop by one wall thickness on
-            # both sides; 85% still requires a near-full-width course, while
-            # the source-boundary overlap below prevents an ordinary slot
-            # from being reclassified as plate context.
-            and opening_transverse_span
-            >= candidate_transverse_span * 0.85 - tolerance_mm
-            and opening_source_ids.intersection(candidate_source_ids)
-            and candidate.projection.polygon.boundary.distance(
-                opening.loop.polygon.boundary
-            )
-            <= tolerance_mm
-        ):
-            return True
-    return False
-
-
 def _opening_is_outer_section_envelope(
     opening: ProjectedInnerContourOpening,
     candidates: tuple[OpeningOwnershipRoleCandidate, ...],
@@ -724,11 +680,7 @@ def lower_inner_contour_openings(
                 )
             )
             continue
-        if _opening_is_full_transverse_candidate_course(
-            opening,
-            ownership_candidates,
-            tolerance_mm=boundary_tolerance_mm,
-        ) or _opening_is_outer_section_envelope(
+        if _opening_is_outer_section_envelope(
             opening,
             ownership_candidates,
             tolerance_mm=boundary_tolerance_mm,
@@ -1251,6 +1203,12 @@ def project_part_arc_openings(
         )
         total_sweep = sum(_arc_sweep_degrees(entity) for entity in cluster)
         multiplicity = max(1, round(total_sweep / 360.0))
+        hidden_sweep = sum(
+            _arc_sweep_degrees(entity)
+            for entity in cluster
+            if is_hidden_projection_linetype(entity.linetype)
+        )
+        visible_sweep = total_sweep - hidden_sweep
         openings.append(
             ProjectedCircularOpening(
                 center=view.frame.world_to_local(center_world),
@@ -1260,6 +1218,12 @@ def project_part_arc_openings(
                 kind=CircularOpeningKind.PART_ARC_CIRCLE,
                 visibility=visibility,
                 representation_multiplicity=multiplicity,
+                visible_representation_multiplicity=round(
+                    visible_sweep / 360.0
+                ),
+                hidden_representation_multiplicity=round(
+                    hidden_sweep / 360.0
+                ),
                 view_group_id=view.group_id,
             )
         )
