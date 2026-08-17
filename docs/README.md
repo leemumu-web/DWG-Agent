@@ -39,6 +39,7 @@
 |---|---|
 | [开发指南](guides/development.md) | 本地开发、测试、迁移和提交前检查 |
 | [部署指南](guides/deployment.md) | 当前 Compose 拓扑、密钥、启动与验收 |
+| [离线发布与 gg 部署注意事项](guides/offline-release-deploy-notes.md) | 打包镜像源、excel_stage3 打包例外、gg 增量部署与数据库保留约定 |
 | [运维指南](guides/operations.md) | 状态检查、归档、备份恢复和事故处理 |
 | [安全指南](guides/security.md) | 信任边界、授权、文件安全和剩余风险 |
 | [余料库使用说明](guides/remnant-inventory.md) | 工人导入、自动解析、材质、库存状态、预览下载和 Excel 导出 |
