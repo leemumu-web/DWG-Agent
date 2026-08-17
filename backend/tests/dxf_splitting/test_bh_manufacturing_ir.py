@@ -9,7 +9,7 @@ from steel_dxf_split.bh_manufacturing_ir import ManufacturingPlateRole
 from steel_dxf_split.bh_validator import validate_bh_manufacturing_ir
 from steel_dxf_split.dxf_io import load_document
 
-from tests.dxf_splitting._sample_roots import b4_sample_root, require_sample
+from tests.support.sample_roots import b4_sample_root, require_sample
 
 _SAMPLE_ROOT = b4_sample_root()
 

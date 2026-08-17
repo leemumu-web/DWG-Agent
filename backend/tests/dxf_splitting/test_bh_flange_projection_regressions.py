@@ -11,7 +11,7 @@ from steel_dxf_split.bh_knowledge import DEFAULT_TEKLA_BH_SOURCE_CONTRACT
 from steel_dxf_split.bh_manufacturing_ir import ManufacturingPlateRole
 from steel_dxf_split.dxf_io import load_document
 
-from tests.dxf_splitting._sample_roots import (
+from tests.support.sample_roots import (
     a1_sample_root,
     b4_sample_root,
     require_sample,

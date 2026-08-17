@@ -21,7 +21,7 @@ from steel_dxf_split.weld_allowance import (
     apply_weld_allowance,
 )
 
-from tests.dxf_splitting._sample_roots import b4_sample_root, require_sample
+from tests.support.sample_roots import b4_sample_root, require_sample
 
 _SAMPLE_ROOT = b4_sample_root()
 _XDATA_APPID = "STEEL_DXF_SPLIT"

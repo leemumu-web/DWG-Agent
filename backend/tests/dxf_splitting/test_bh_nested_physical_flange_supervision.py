@@ -16,7 +16,7 @@ from steel_dxf_split.bh_manufacturing_ir import (
 from steel_dxf_split.bh_models import BHAssembly
 from steel_dxf_split.dxf_io import load_document
 
-from tests.dxf_splitting._sample_roots import diag_sample_root, require_sample
+from tests.support.sample_roots import diag_sample_root, require_sample
 
 _ROOT = diag_sample_root()
 _CASES = (

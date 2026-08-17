@@ -210,7 +210,7 @@ def test_server_compose_renderer_freezes_complete_no_build_stack(tmp_path: Path)
     payload = yaml.safe_load(output.read_text(encoding="utf-8"))
     services = payload["services"]
     assert payload["name"] == "dwg-agent"
-    assert len(services) == 16
+    assert len(services) == 17
     assert all("build" not in service for service in services.values())
     assert all("profiles" not in service for service in services.values())
     assert all(service["pull_policy"] == "never" for service in services.values())
@@ -826,7 +826,16 @@ def test_protected_runtime_and_context_exclude_business_source_and_samples():
     assert "COPY --from=bytecode-compiler /app/app /app/app" in dockerfile
     protected_section = dockerfile.split("FROM runtime-base AS protected", maxsplit=1)[1]
     assert "COPY backend/app" not in protected_section
-    assert "COPY Stages/" not in protected_section
+    # excel_stage3 以独立 venv 子进程方式保留源码,其 editable 依赖 yikongzhe 一并保留。
+    protected_stage_copies = [
+        line.strip()
+        for line in protected_section.splitlines()
+        if "COPY Stages/" in line
+    ]
+    assert protected_stage_copies == [
+        "COPY Stages/excel_stage3 /app/Stages/excel_stage3",
+        "COPY Stages/yikongzhe /app/Stages/yikongzhe",
+    ]
     assert "python -m compileall" in dockerfile
     assert "write_protected_runtime_manifest" in dockerfile
     assert "chmod 0444" in dockerfile

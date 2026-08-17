@@ -36,7 +36,11 @@ release_verify_protected_image() {
         --tmpfs /home/appuser:rw,nosuid,size=128m,uid=1000,gid=1000,mode=0700 \
         --entrypoint sh "$image" -c '
         set -eu
-        source_count=$(find /app/app /app/Stages -type f -name "*.py" | wc -l)
+        # excel_stage3/yikongzhe 以独立 venv 方式保留源码(后端以子进程调用),
+        # 其余业务 Python 必须全部字节码化。
+        source_count=$(find /app/app /app/Stages -type f -name "*.py" \
+            ! -path "*/Stages/excel_stage3/*" \
+            ! -path "*/Stages/yikongzhe/*" | wc -l)
         if [ "$source_count" -ne 0 ]; then
             echo "business Python source remains in protected image" >&2
             exit 41
@@ -84,6 +88,8 @@ assert cpu_baseline <= {\"SSE\", \"SSE2\", \"SSE3\"}, (
         steel-dxf-classify --version | grep -q "steel-dxf-classifier"
         steel-dxf-split --help >/dev/null
         remnant-drawing-read --help >/dev/null
+        /app/Stages/excel_stage3/.venv/bin/python -c "import excel_stage3, yikongzhe"
+        /app/Stages/excel_stage3/.venv/bin/excel-stage3 --help >/dev/null
     '
 }
 
