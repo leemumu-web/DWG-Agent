@@ -1,27 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
-
 from steel_dxf_split.bh_compiler import compile_bh_document
 from steel_dxf_split.bh_knowledge import DEFAULT_TEKLA_BH_SOURCE_CONTRACT
 from steel_dxf_split.bh_manufacturing_ir import ManufacturingPlateRole
 from steel_dxf_split.bh_validator import validate_bh_manufacturing_ir
 from steel_dxf_split.dxf_io import load_document
 
+from tests.dxf_splitting._sample_roots import b4_sample_root, require_sample
 
-_SAMPLE_ROOT = Path(
-    r"D:\Documents\Codex\DWG-Agent拆板问题样本\最终交付\01_全部原文件"
-)
+_SAMPLE_ROOT = b4_sample_root()
 
 
 @pytest.fixture(scope="module")
 def cb2_compiled():
     source = _SAMPLE_ROOT / "b4-3-cb-2.dxf"
     return compile_bh_document(
-        load_document(source),
+        load_document(require_sample(source)),
         source_contract=DEFAULT_TEKLA_BH_SOURCE_CONTRACT,
         source_path=source,
     )

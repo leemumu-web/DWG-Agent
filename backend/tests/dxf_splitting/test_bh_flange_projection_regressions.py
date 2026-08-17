@@ -2,21 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import ezdxf
+import pytest
 from shapely.geometry import box
-
 from steel_dxf_split.bh_compiler import compile_bh_document
 from steel_dxf_split.bh_extractor import _main_flange_side_spans
 from steel_dxf_split.bh_knowledge import DEFAULT_TEKLA_BH_SOURCE_CONTRACT
 from steel_dxf_split.bh_manufacturing_ir import ManufacturingPlateRole
 from steel_dxf_split.dxf_io import load_document
 
-
-_A1_ROOT = Path(r"D:\Documents\Codex\a1-4问题4-8_根因定位_2026-08-15\02_转换DXF")
-_B4_ROOT = Path(
-    r"D:\Documents\Codex\DWG-Agent拆板问题样本\最终交付\01_全部原文件"
+from tests.dxf_splitting._sample_roots import (
+    a1_sample_root,
+    b4_sample_root,
+    require_sample,
 )
+
+_A1_ROOT = a1_sample_root()
+_B4_ROOT = b4_sample_root()
 
 
 def test_main_flange_span_ignores_a_disconnected_thin_face() -> None:
@@ -49,6 +51,7 @@ def test_direct_projection_rectangularization_rejects_a_direct_source_notch() ->
         for start, end in zip(
             projected.exterior.coords,
             tuple(projected.exterior.coords)[1:],
+            strict=False,
         )
     ]
 
@@ -74,6 +77,7 @@ def test_direct_projection_rectangle_is_the_same_geometry_that_was_verified() ->
         for start, end in zip(
             projected.exterior.coords,
             tuple(projected.exterior.coords)[1:],
+            strict=False,
         )
     ]
 
@@ -109,7 +113,7 @@ def test_nested_projection_is_not_materialized_as_a_stepped_flange(
     """A nested drawing projection must not become a second physical plate."""
 
     compiled = compile_bh_document(
-        load_document(source),
+        load_document(require_sample(source)),
         source_contract=DEFAULT_TEKLA_BH_SOURCE_CONTRACT,
         source_path=source,
     )
@@ -131,7 +135,7 @@ def test_same_length_flange_projection_drops_the_assembly_end_step() -> None:
     source = _A1_ROOT / "BYSJ@零件图@a1-4-cb-117.dxf"
 
     compiled = compile_bh_document(
-        load_document(source),
+        load_document(require_sample(source)),
         source_contract=DEFAULT_TEKLA_BH_SOURCE_CONTRACT,
         source_path=source,
     )
@@ -166,7 +170,7 @@ def test_notched_web_proves_its_unique_weld_allowance_terminal() -> None:
     source = _A1_ROOT / "BYSJ@零件图@a1-4-cb-126.dxf"
 
     compiled = compile_bh_document(
-        load_document(source),
+        load_document(require_sample(source)),
         source_contract=DEFAULT_TEKLA_BH_SOURCE_CONTRACT,
         source_path=source,
     )

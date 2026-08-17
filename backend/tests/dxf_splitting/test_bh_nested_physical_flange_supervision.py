@@ -6,7 +6,6 @@ from pathlib import Path
 import ezdxf
 import pytest
 from shapely.geometry import Polygon, box
-
 from steel_dxf_split.bh_compare import compare_bh_to_manual
 from steel_dxf_split.bh_compiler import compile_bh_document
 from steel_dxf_split.bh_knowledge import DEFAULT_TEKLA_BH_SOURCE_CONTRACT
@@ -17,10 +16,9 @@ from steel_dxf_split.bh_manufacturing_ir import (
 from steel_dxf_split.bh_models import BHAssembly
 from steel_dxf_split.dxf_io import load_document
 
+from tests.dxf_splitting._sample_roots import diag_sample_root, require_sample
 
-_ROOT = Path(
-    r"D:\Documents\Codex\BH_BOX_三组手工标准诊断_2026-08-17\01_DXF"
-)
+_ROOT = diag_sample_root()
 _CASES = (
     (
         "3b1-cb-100",
@@ -48,7 +46,7 @@ _CASES = (
 
 def _compile(path: Path):
     return compile_bh_document(
-        load_document(path),
+        load_document(require_sample(path)),
         source_contract=DEFAULT_TEKLA_BH_SOURCE_CONTRACT,
         source_path=path,
     )
@@ -90,7 +88,7 @@ def _source_lines(*polygons: Polygon):
         coordinates = tuple(polygon.exterior.coords)
         result.extend(
             modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
-            for start, end in zip(coordinates, coordinates[1:])
+            for start, end in zip(coordinates, coordinates[1:], strict=False)
         )
     return result
 

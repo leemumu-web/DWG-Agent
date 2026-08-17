@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from functools import lru_cache
+from dataclasses import replace
+from functools import cache
 from pathlib import Path
 
 import ezdxf
 import pytest
-from dataclasses import replace
-
 from steel_dxf_split.bh_associations import DrawingEdgeKind
 from steel_dxf_split.bh_compiler import compile_bh_document
 from steel_dxf_split.bh_knowledge import DEFAULT_TEKLA_BH_SOURCE_CONTRACT
@@ -22,19 +21,18 @@ from steel_dxf_split.weld_allowance import (
     apply_weld_allowance,
 )
 
+from tests.dxf_splitting._sample_roots import b4_sample_root, require_sample
 
-_SAMPLE_ROOT = Path(
-    r"D:\Documents\Codex\DWG-Agent拆板问题样本\最终交付\01_全部原文件"
-)
+_SAMPLE_ROOT = b4_sample_root()
 _XDATA_APPID = "STEEL_DXF_SPLIT"
 _CUT_XDATA_SCHEMA = "BH-CUT-FEATURE-1.0"
 
 
-@lru_cache(maxsize=None)
+@cache
 def _compile(sample: str):
     source = _SAMPLE_ROOT / f"{sample}.dxf"
     return compile_bh_document(
-        load_document(source),
+        load_document(require_sample(source)),
         source_contract=DEFAULT_TEKLA_BH_SOURCE_CONTRACT,
         source_path=source,
     )
