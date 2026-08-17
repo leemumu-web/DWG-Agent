@@ -15,6 +15,7 @@ from .bh_manufacturing_ir import (
     EvidenceState,
     ManufacturingPlateRole,
     WeldAllowanceContractError,
+    canonical_manufacturing_role_label,
     derive_weld_allowance_contract,
 )
 from .bh_models import BHAssembly, BHPlate, BulgeContour, CircularCut
@@ -131,8 +132,23 @@ def validate_bh_manufacturing_ir(
                 plate.weld_allowance_contract is None
             )
         else:
+            actual = plate.weld_allowance_contract
             allowance_contracts_match.append(
-                expected_contract == plate.weld_allowance_contract
+                actual is not None
+                and actual.coordinate_unit == expected_contract.coordinate_unit
+                and actual.longitudinal_axis == expected_contract.longitudinal_axis
+                and abs(actual.main_length_mm - expected_contract.main_length_mm)
+                <= 1e-6
+                and actual.allowance_mm == expected_contract.allowance_mm
+                and actual.stationary_end == expected_contract.stationary_end
+                and actual.movable_end == expected_contract.movable_end
+                and actual.rail_segment_ids == expected_contract.rail_segment_ids
+                and actual.positive_terminal_segment_ids
+                == expected_contract.positive_terminal_segment_ids
+                and len(actual.positive_terminal_cut_ids)
+                == len(set(actual.positive_terminal_cut_ids))
+                and set(actual.positive_terminal_cut_ids)
+                <= {cut.cut_id for cut in plate.circular_cuts}
             )
     physical_cut_count = len(assembly.web_plate.circular_cuts) + sum(
         len(plate.circular_cuts) * plate.quantity
@@ -149,6 +165,15 @@ def validate_bh_manufacturing_ir(
             ManufacturingPlateRole.UPPER_FLANGE,
             ManufacturingPlateRole.LOWER_FLANGE,
         ],
+        "final_role_labels_match": all(
+            plate.label
+            == canonical_manufacturing_role_label(
+                manufacturing.part_number,
+                plate.role,
+                merge_authorized=plate.merge_authorized,
+            )
+            for plate in manufacturing.plates
+        ),
         "physical_quantities_are_explicit": all(
             plate.quantity == 1 for plate in manufacturing.plates
         ),
@@ -443,6 +468,21 @@ def _plate_allowance_binding_matches(entity, plate: BHPlate) -> bool:
     return actual == expected
 
 
+def _circle_feature_binding_matches(entity, plate: BHPlate, index: int) -> bool:
+    cut_ids = plate.provenance.get("manufacturing_circular_cut_ids")
+    if not isinstance(cut_ids, list) or index >= len(cut_ids):
+        return False
+    try:
+        actual = [tag.value for tag in entity.get_xdata("STEEL_DXF_SPLIT")]
+    except DXFValueError:
+        return False
+    return actual == [
+        "BH-CUT-FEATURE-1.0",
+        str(plate.provenance["manufacturing_plate_id"]),
+        str(cut_ids[index]),
+    ]
+
+
 def validate_bh_saved_dxf(
     path: Path,
     manufacturing_ir: BHManufacturingIR,
@@ -498,11 +538,15 @@ def validate_bh_saved_dxf(
     )
     expected_inner: list[BulgeContour] = []
     expected_circles: list[CircularCut] = []
+    expected_circle_bindings: list[tuple[BHPlate, int]] = []
     expected_circle_colors: list[int] = []
     ambiguous_hole_count = 0
     for plate in expected_layout.plates:
         expected_inner.extend(plate.inner_contours)
         expected_circles.extend(plate.circular_cuts)
+        expected_circle_bindings.extend(
+            (plate, index) for index in range(len(plate.circular_cuts))
+        )
         color_plan = plan_symmetric_circle_colors(
             tuple(
                 (cut.center.x, cut.center.y, cut.radius)
@@ -567,6 +611,17 @@ def validate_bh_saved_dxf(
                 and all(
                     _saved_circle_matches(entity, cut)
                     for entity, cut in zip(saved_circles, expected_circles, strict=True)
+                )
+            ),
+            "circular_cut_feature_bindings_match": (
+                len(saved_circles) == len(expected_circle_bindings)
+                and all(
+                    _circle_feature_binding_matches(entity, plate, index)
+                    for entity, (plate, index) in zip(
+                        saved_circles,
+                        expected_circle_bindings,
+                        strict=True,
+                    )
                 )
             ),
             "labels_match_writer_layout": labels

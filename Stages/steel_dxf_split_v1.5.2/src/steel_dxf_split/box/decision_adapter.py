@@ -37,6 +37,7 @@ from .assembly import AssemblySearchResult, CompleteBoxHypothesis
 from .equivalence import (
     BOX_DRAFTING_RESOLUTION_MM,
     plate_manufacturing_key,
+    plates_manufacturing_equivalent,
     plates_equivalent_after_allowance,
 )
 from .manufacturing_ir import (
@@ -72,13 +73,18 @@ _NATIVE_PRODUCTION_PROOF_IDS = (
     "BOX.PROOF.VIEW_ASSIGNMENT.SECTION_SPANS",
     "BOX.PROOF.ASSEMBLY.FOUR_PHYSICAL_ROLES",
     "BOX.PROOF.OPENINGS.CONTAINED",
+    "BOX.PROOF.OPENINGS.REPRESENTATION_PAIR",
     "BOX.PROOF.VIEW.PART_MARK_H_ROLE",
     "BOX.PROOF.SEARCH.DIRECT_SOURCE_FACE_DOMAIN",
 )
 _NATIVE_REQUIRED_APPLICABLE_PROOF_IDS = tuple(
     proof_id
     for proof_id in _NATIVE_PRODUCTION_PROOF_IDS
-    if proof_id != "BOX.PROOF.VIEW.PART_MARK_H_ROLE"
+    if proof_id
+    not in {
+        "BOX.PROOF.OPENINGS.REPRESENTATION_PAIR",
+        "BOX.PROOF.VIEW.PART_MARK_H_ROLE",
+    }
 )
 _SOURCE_CONTRACT_CONSTRAINT_ID = "BOX.ADAPTER.SOURCE_CONTRACT.CLOSED"
 
@@ -100,6 +106,21 @@ class BoxDecisionAdapterResult:
         ):
             return None
         return self.native_hypotheses_by_id[selected_id]
+
+    @property
+    def selected_review_hypothesis(self) -> CompleteBoxHypothesis | None:
+        """Expose only a native review candidate that remains non-production."""
+
+        selected_id = self.decision.selected_hypothesis_id
+        if (
+            self.decision.disposition is not DecisionDisposition.REVIEW_REQUIRED
+            or selected_id is None
+        ):
+            return None
+        selected = self.native_hypotheses_by_id[selected_id]
+        if selected.proof_report.disposition is not ProofDisposition.REVIEW_REQUIRED:
+            return None
+        return selected
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,6 +472,13 @@ def _native_proof_schema_errors(
 
 
 def _native_proof_search_is_complete(native: CompleteBoxHypothesis) -> bool:
+    """Return whether the candidate domain was fully evaluated.
+
+    A missing critical proof is a completed negative finding and therefore a
+    review gate, not unfinished search.  ``INCOMPLETE`` retains its literal
+    meaning and keeps the neutral decision kernel fail-closed.
+    """
+
     missing_schema_ids, invalid_schema_ids = _native_proof_schema_errors(native)
     return (
         native.proof_report.search_complete
@@ -458,7 +486,7 @@ def _native_proof_search_is_complete(native: CompleteBoxHypothesis) -> bool:
         and not invalid_schema_ids
         and not any(
             obligation.critical
-            and obligation.status in {ProofStatus.MISSING, ProofStatus.INCOMPLETE}
+            and obligation.status is ProofStatus.INCOMPLETE
             for obligation in native.proof_report.obligations
         )
     )
@@ -505,6 +533,64 @@ def _meaning_key(plates_by_role: Mapping[PhysicalPlateRole, PhysicalPlateIR]) ->
     return sha256(encoded).hexdigest()
 
 
+def _plates_by_role(
+    native: CompleteBoxHypothesis,
+) -> dict[PhysicalPlateRole, PhysicalPlateIR]:
+    return {plate.role: plate for plate in native.mir.physical_plates}
+
+
+def _hypotheses_manufacturing_equivalent(
+    first: CompleteBoxHypothesis,
+    second: CompleteBoxHypothesis,
+) -> bool:
+    first_by_role = _plates_by_role(first)
+    second_by_role = _plates_by_role(second)
+    return set(first_by_role) == set(_ROLE_ORDER) and set(second_by_role) == set(
+        _ROLE_ORDER
+    ) and all(
+        plates_manufacturing_equivalent(
+            first_by_role[role],
+            second_by_role[role],
+            tolerance=BOX_DRAFTING_RESOLUTION_MM,
+        )
+        for role in _ROLE_ORDER
+    )
+
+
+def _manufacturing_meaning_keys(
+    natives: tuple[CompleteBoxHypothesis, ...],
+) -> tuple[str, ...]:
+    """Cluster complete candidates by actual geometry, never hash bucket proximity."""
+
+    keys: list[str | None] = [None] * len(natives)
+    representatives: list[int] = []
+    order = sorted(
+        range(len(natives)),
+        key=lambda index: (
+            natives[index].rank_key,
+            natives[index].mir.fingerprint,
+            index,
+        ),
+    )
+    for index in order:
+        representative = next(
+            (
+                candidate
+                for candidate in representatives
+                if _hypotheses_manufacturing_equivalent(
+                    natives[index],
+                    natives[candidate],
+                )
+            ),
+            None,
+        )
+        if representative is None:
+            representatives.append(index)
+            representative = index
+        keys[index] = _meaning_key(_plates_by_role(natives[representative]))
+    return tuple(str(key) for key in keys)
+
+
 def _adapt_hypothesis(
     hypothesis_id: str,
     native: CompleteBoxHypothesis,
@@ -513,6 +599,7 @@ def _adapt_hypothesis(
     source_index: _SourceIndex,
     current_scope_fact_ids: set[str],
     all_candidate_view_fact_ids: set[str],
+    meaning_key: str,
 ) -> Hypothesis:
     physical_plates = native.mir.physical_plates
     roles = tuple(plate.role for plate in physical_plates)
@@ -1082,7 +1169,7 @@ def _adapt_hypothesis(
 
     return Hypothesis(
         hypothesis_id=hypothesis_id,
-        meaning_key=_meaning_key(plates_by_role),
+        meaning_key=meaning_key,
         rank_key=native.rank_key,
         instances=tuple(instances),
         claims=tuple(claims),
@@ -1217,6 +1304,7 @@ def adapt_box_decision(
     )
     native_by_id: dict[str, CompleteBoxHypothesis] = {}
     hypotheses: list[Hypothesis] = []
+    meaning_keys = _manufacturing_meaning_keys(native_hypotheses)
     for index, native in enumerate(native_hypotheses):
         hypothesis_id = (
             f"box:hypothesis:{index}:"
@@ -1246,6 +1334,7 @@ def adapt_box_decision(
                     )
                 ),
                 all_candidate_view_fact_ids,
+                meaning_keys[index],
             )
         )
     candidate_ids = tuple(hypothesis.hypothesis_id for hypothesis in hypotheses)

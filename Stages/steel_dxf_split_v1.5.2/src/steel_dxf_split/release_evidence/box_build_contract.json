@@ -2,6 +2,6 @@
  "schema": "BOX-BUILD-CONTRACT-1.0",
  "files": {
   "pyproject.toml": "bd09975d1d28d991714c8f538f0fa3a2aab5474b96d57ff2ddb6df6aa7862554",
-  "uv.lock": "da0886a4f8f6c06b8c82f020b8e7eabc79a8f6130b8e2dd7dd481a99e209e1d7"
+  "uv.lock": "bd42701ccc57edbd84aa53ed3b347e861553406031c8383a1e0f3ab8cf6a252b"
  }
 }

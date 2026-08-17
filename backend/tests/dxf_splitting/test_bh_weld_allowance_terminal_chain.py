@@ -137,7 +137,63 @@ def test_two_equally_valid_right_terminals_remain_fail_closed() -> None:
         ]
     )
 
-    with pytest.raises(WeldAllowanceContractError, match="exactly two"):
+    with pytest.raises(
+        WeldAllowanceContractError,
+        match="cannot select exactly two unique longitudinal rails",
+    ):
+        derive_weld_allowance_contract(segments)
+
+
+def test_quarter_length_terminal_rail_is_admitted() -> None:
+    segments = _segments(
+        [
+            (1000.0, 0.0, 0.0),
+            (750.0, 0.0, 0.0),
+            (750.0, 10.0, 0.0),
+            (600.0, 10.0, 0.0),
+            (600.0, 0.0, 0.0),
+            (450.0, 0.0, 0.0),
+            (450.0, 10.0, 0.0),
+            (300.0, 10.0, 0.0),
+            (300.0, 0.0, 0.0),
+            (150.0, 0.0, 0.0),
+            (150.0, 10.0, 0.0),
+            (0.0, 10.0, 0.0),
+            (0.0, 100.0, 0.0),
+            (1000.0, 100.0, 0.0),
+        ]
+    )
+
+    contract = derive_weld_allowance_contract(segments)
+
+    assert set(contract.rail_segment_ids) == {"segment-00", "segment-12"}
+    assert contract.positive_terminal_segment_ids == ("segment-13",)
+
+
+def test_sub_quarter_length_terminal_rail_is_rejected() -> None:
+    segments = _segments(
+        [
+            (1000.0, 0.0, 0.0),
+            (750.001, 0.0, 0.0),
+            (750.001, 10.0, 0.0),
+            (600.0008, 10.0, 0.0),
+            (600.0008, 0.0, 0.0),
+            (450.0006, 0.0, 0.0),
+            (450.0006, 10.0, 0.0),
+            (300.0004, 10.0, 0.0),
+            (300.0004, 0.0, 0.0),
+            (150.0002, 0.0, 0.0),
+            (150.0002, 10.0, 0.0),
+            (0.0, 10.0, 0.0),
+            (0.0, 100.0, 0.0),
+            (1000.0, 100.0, 0.0),
+        ]
+    )
+
+    with pytest.raises(
+        WeldAllowanceContractError,
+        match="horizontal or longitudinal rail topology",
+    ):
         derive_weld_allowance_contract(segments)
 
 
