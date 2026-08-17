@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Excel 第三阶段处理 — 异孔折判断对接，回填 part 表图形列"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+    # numpy<2: 官方 2.x wheel 使用 X86_V2(AVX) CPU 基线,旧服务器(Core2,
+    # 仅 SSE3/SSE4_2)无法导入;1.26.x 的 SSE2 基线兼容全部 x86_64。
+    "numpy>=1.26,<2",
     "openpyxl>=3.1.5",
     "yikongzhe",
 ]

@@ -92,7 +92,14 @@ assert cpu_baseline <= {\"SSE\", \"SSE2\", \"SSE3\"}, (
         steel-dxf-classify --version | grep -q "steel-dxf-classifier"
         steel-dxf-split --help >/dev/null
         remnant-drawing-read --help >/dev/null
-        /app/Stages/excel_stage3/.venv/bin/python -c "import excel_stage3, yikongzhe"
+        /app/Stages/excel_stage3/.venv/bin/python -c "
+import excel_stage3
+import yikongzhe
+import numpy._core._multiarray_umath as _multiarray
+assert set(_multiarray.__cpu_baseline__) <= {\"SSE\", \"SSE2\", \"SSE3\"}, (
+    f\"excel_stage3 NumPy wheel requires an unsupported CPU baseline: {sorted(_multiarray.__cpu_baseline__)}\"
+)
+"
         /app/Stages/excel_stage3/.venv/bin/excel-stage3 --help >/dev/null
     '
 }
