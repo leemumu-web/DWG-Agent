@@ -289,6 +289,8 @@ class ProjectedCircularOpening:
     kind: CircularOpeningKind = CircularOpeningKind.BOLT_CIRCLE
     visibility: OpeningVisibility = OpeningVisibility.VISIBLE
     representation_multiplicity: int = 1
+    visible_representation_multiplicity: int = 0
+    hidden_representation_multiplicity: int = 0
     view_group_id: str = ""
 
 
@@ -549,52 +551,6 @@ def _opening_matches_candidate_exterior(
     )
 
 
-def _opening_is_full_transverse_candidate_course(
-    opening: ProjectedInnerContourOpening,
-    candidates: tuple[OpeningOwnershipRoleCandidate, ...],
-    *,
-    tolerance_mm: float,
-) -> bool:
-    """Identify a source-backed plate/course loop before slot ownership.
-
-    A valid through-opening must have clearance in the plate transverse
-    direction.  A loop spanning essentially the whole candidate width and
-    reusing at least one of its source boundary entities is instead another
-    projection spelling of plate geometry.  The source-overlap requirement
-    keeps an unrelated loop that merely crosses an exterior fail-closed.
-    """
-
-    _opening_min_x, opening_min_y, _opening_max_x, opening_max_y = (
-        opening.loop.polygon.bounds
-    )
-    opening_transverse_span = opening_max_y - opening_min_y
-    opening_source_ids = set(opening.source_ids)
-    for candidate in candidates:
-        _candidate_min_x, candidate_min_y, _candidate_max_x, candidate_max_y = (
-            candidate.projection.polygon.bounds
-        )
-        candidate_transverse_span = candidate_max_y - candidate_min_y
-        candidate_source_ids = set(candidate.projection.boundary_source_ids) | set(
-            candidate.projection.vertex_source_ids
-        )
-        if (
-            candidate_transverse_span > tolerance_mm
-            # Tekla may inset the end-course loop by one wall thickness on
-            # both sides; 85% still requires a near-full-width course, while
-            # the source-boundary overlap below prevents an ordinary slot
-            # from being reclassified as plate context.
-            and opening_transverse_span
-            >= candidate_transverse_span * 0.85 - tolerance_mm
-            and opening_source_ids.intersection(candidate_source_ids)
-            and candidate.projection.polygon.boundary.distance(
-                opening.loop.polygon.boundary
-            )
-            <= tolerance_mm
-        ):
-            return True
-    return False
-
-
 def _opening_is_outer_section_envelope(
     opening: ProjectedInnerContourOpening,
     candidates: tuple[OpeningOwnershipRoleCandidate, ...],
@@ -724,11 +680,7 @@ def lower_inner_contour_openings(
                 )
             )
             continue
-        if _opening_is_full_transverse_candidate_course(
-            opening,
-            ownership_candidates,
-            tolerance_mm=boundary_tolerance_mm,
-        ) or _opening_is_outer_section_envelope(
+        if _opening_is_outer_section_envelope(
             opening,
             ownership_candidates,
             tolerance_mm=boundary_tolerance_mm,
@@ -880,22 +832,127 @@ def _circle_belongs_to_view(
     )
 
 
+def _complete_bolt_center_cross(
+    entities: tuple[SourceEntityIR, ...],
+    view: PartViewIR,
+    *,
+    tolerance_mm: float,
+) -> tuple[Point2, float, tuple[str, ...]] | None:
+    """Reconstruct one far-face hole from a complete Tekla center cross.
+
+    A center cross is accepted only when one Bolt object group contains four
+    axis-aligned, pairwise symmetric fragments and no CIRCLE.  Partial center
+    marks remain unclassified so source ambiguity cannot create material cuts.
+    """
+
+    bolt_entities = tuple(
+        entity for entity in entities if entity.layer.casefold() == "bolt"
+    )
+    if len(bolt_entities) != 4 or any(
+        entity.kind != "LINE" or entity.start is None or entity.end is None
+        for entity in bolt_entities
+    ):
+        return None
+    lines = tuple(
+        (
+            entity,
+            view.frame.world_to_local(entity.start),  # type: ignore[arg-type]
+            view.frame.world_to_local(entity.end),  # type: ignore[arg-type]
+        )
+        for entity in bolt_entities
+    )
+    horizontal = tuple(
+        (entity, start, end)
+        for entity, start, end in lines
+        if abs(start[1] - end[1]) <= tolerance_mm
+    )
+    vertical = tuple(
+        (entity, start, end)
+        for entity, start, end in lines
+        if abs(start[0] - end[0]) <= tolerance_mm
+    )
+    if len(horizontal) != 2 or len(vertical) != 2:
+        return None
+
+    horizontal_ranges = sorted(
+        (
+            min(start[0], end[0]),
+            max(start[0], end[0]),
+            (start[1] + end[1]) / 2.0,
+        )
+        for _entity, start, end in horizontal
+    )
+    vertical_ranges = sorted(
+        (
+            min(start[1], end[1]),
+            max(start[1], end[1]),
+            (start[0] + end[0]) / 2.0,
+        )
+        for _entity, start, end in vertical
+    )
+    left, right = horizontal_ranges
+    bottom, top = vertical_ranges
+    if left[1] >= right[0] or bottom[1] >= top[0]:
+        return None
+
+    center_x = (left[0] + right[1]) / 2.0
+    center_y = (bottom[0] + top[1]) / 2.0
+    symmetry_residuals = (
+        abs((left[1] + right[0]) / 2.0 - center_x),
+        abs((bottom[1] + top[0]) / 2.0 - center_y),
+        abs(left[2] - center_y),
+        abs(right[2] - center_y),
+        abs(bottom[2] - center_x),
+        abs(top[2] - center_x),
+        abs((left[1] - left[0]) - (right[1] - right[0])),
+        abs((bottom[1] - bottom[0]) - (top[1] - top[0])),
+    )
+    if max(symmetry_residuals) > tolerance_mm:
+        return None
+    horizontal_span = right[1] - left[0]
+    vertical_span = top[1] - bottom[0]
+    if (
+        horizontal_span <= 0.0
+        or vertical_span <= 0.0
+        or abs(horizontal_span - vertical_span) > tolerance_mm
+    ):
+        return None
+    radius = (horizontal_span + vertical_span) / 8.0
+    if not (
+        view.frame.longitudinal_min - radius - tolerance_mm
+        <= center_x
+        <= view.frame.longitudinal_max + radius + tolerance_mm
+        and view.frame.transverse_min - radius - tolerance_mm
+        <= center_y
+        <= view.frame.transverse_max + radius + tolerance_mm
+    ):
+        return None
+    return (
+        (center_x, center_y),
+        radius,
+        tuple(sorted(entity.source_id for entity in bolt_entities)),
+    )
+
+
 def project_circular_openings(
     source: SourceDocumentIR,
     view: PartViewIR,
     *,
     duplicate_tolerance_mm: float = 0.05,
 ) -> tuple[ProjectedCircularOpening, ...]:
-    """Associate and deduplicate Tekla Bolt CIRCLE objects for one view.
+    """Associate Tekla near/far-face circular observations to one view.
 
-    Tekla may emit the same physical bolt object more than once (for example,
-    visible and projected object groups).  Clustering is purely geometric and
-    retains every source ID; it never assigns the hole to a plate role.
+    A Bolt CIRCLE is a near-face observation.  A complete four-fragment center
+    cross is a far-face observation unless the selected Part view contains a
+    matching source loop.  Geometric clustering retains independent object
+    group multiplicity; this function never assigns an observation to a role.
     """
 
     if duplicate_tolerance_mm <= 0:
         raise ValueError("duplicate_tolerance_mm must be positive")
-    pending: list[tuple[Point2, float, str]] = []
+    pending: list[
+        tuple[Point2, float, tuple[str, ...], str, OpeningVisibility]
+    ] = []
     for entity in source.entities:
         if (
             entity.layer.casefold() != "bolt"
@@ -915,12 +972,40 @@ def project_circular_openings(
             (
                 view.frame.world_to_local(entity.center),
                 entity.radius,
-                entity.source_id,
+                (entity.source_id,),
+                entity.group_id,
+                OpeningVisibility.VISIBLE,
             )
         )
-    pending.sort(key=lambda item: (item[0], item[1], item[2]))
+    part_loops = inventory_isolated_part_loops(view.entities, view.frame).loops
+    for group in source.groups_by_layer("Bolt"):
+        reconstructed = _complete_bolt_center_cross(
+            source.entities_for_group(group.group_id),
+            view,
+            tolerance_mm=duplicate_tolerance_mm,
+        )
+        if reconstructed is None:
+            continue
+        center, radius, source_ids = reconstructed
+        if any(
+            _loop_matches_circle(loop, center=center, radius=radius)
+            for loop in part_loops
+        ):
+            continue
+        pending.append(
+            (
+                center,
+                radius,
+                source_ids,
+                group.group_id,
+                OpeningVisibility.HIDDEN,
+            )
+        )
+    pending.sort(key=lambda item: (item[0], item[1], item[2], item[3]))
 
-    clusters: list[list[tuple[Point2, float, str]]] = []
+    clusters: list[
+        list[tuple[Point2, float, tuple[str, ...], str, OpeningVisibility]]
+    ] = []
     for opening in pending:
         for cluster in clusters:
             center = (
@@ -948,12 +1033,22 @@ def project_circular_openings(
         residual = max(
             hypot(item[0][0] - center[0], item[0][1] - center[1]) for item in cluster
         )
+        visibilities = {item[4] for item in cluster}
+        visibility = (
+            next(iter(visibilities))
+            if len(visibilities) == 1
+            else OpeningVisibility.MIXED
+        )
         result.append(
             ProjectedCircularOpening(
                 center=center,
                 radius_mm=radius,
-                source_ids=tuple(sorted(item[2] for item in cluster)),
+                source_ids=tuple(
+                    sorted(source_id for item in cluster for source_id in item[2])
+                ),
                 cluster_residual_mm=residual,
+                visibility=visibility,
+                representation_multiplicity=len({item[3] for item in cluster}),
                 view_group_id=view.group_id,
             )
         )
@@ -1108,6 +1203,12 @@ def project_part_arc_openings(
         )
         total_sweep = sum(_arc_sweep_degrees(entity) for entity in cluster)
         multiplicity = max(1, round(total_sweep / 360.0))
+        hidden_sweep = sum(
+            _arc_sweep_degrees(entity)
+            for entity in cluster
+            if is_hidden_projection_linetype(entity.linetype)
+        )
+        visible_sweep = total_sweep - hidden_sweep
         openings.append(
             ProjectedCircularOpening(
                 center=view.frame.world_to_local(center_world),
@@ -1117,6 +1218,12 @@ def project_part_arc_openings(
                 kind=CircularOpeningKind.PART_ARC_CIRCLE,
                 visibility=visibility,
                 representation_multiplicity=multiplicity,
+                visible_representation_multiplicity=round(
+                    visible_sweep / 360.0
+                ),
+                hidden_representation_multiplicity=round(
+                    hidden_sweep / 360.0
+                ),
                 view_group_id=view.group_id,
             )
         )

@@ -4,12 +4,18 @@ import json
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from hashlib import sha256
+from math import hypot
+
+from shapely.affinity import affine_transform, translate
+from shapely.geometry import Polygon
 
 from .manufacturing_ir import (
     BoxWeldAllowanceContract,
     ContourSegmentIR,
+    EvidenceState,
     PhysicalPlateIR,
     PhysicalPlateRole,
+    contour_polygon,
 )
 from .weld_allowance import (
     BoxWeldAllowanceProcessingError,
@@ -208,6 +214,193 @@ def plate_manufacturing_key(
     return sha256(encoded).hexdigest()
 
 
+def _normalized_point(
+    point: tuple[float, float],
+    transform: tuple[float, float, float, float],
+    origin: tuple[float, float],
+) -> tuple[float, float]:
+    a, b, c, d = transform
+    x, y = point
+    return (a * x + b * y - origin[0], c * x + d * y - origin[1])
+
+
+def _polygons_within_tolerance(
+    first: Polygon,
+    second: Polygon,
+    tolerance: float,
+) -> bool:
+    return (
+        first.boundary.hausdorff_distance(second.boundary) <= tolerance
+        and first.symmetric_difference(second).area
+        <= tolerance * max(first.length, second.length, 1.0)
+    )
+
+
+def _has_perfect_matching(adjacency: tuple[tuple[bool, ...], ...]) -> bool:
+    if any(not any(row) for row in adjacency):
+        return False
+    matched_left_by_right: dict[int, int] = {}
+
+    def assign(left: int, seen_right: set[int]) -> bool:
+        for right, allowed in enumerate(adjacency[left]):
+            if not allowed or right in seen_right:
+                continue
+            seen_right.add(right)
+            current = matched_left_by_right.get(right)
+            if current is None or assign(current, seen_right):
+                matched_left_by_right[right] = left
+                return True
+        return False
+
+    return all(assign(left, set()) for left in range(len(adjacency)))
+
+
+def _allowance_contracts_equivalent(
+    first: BoxWeldAllowanceContract | None,
+    second: BoxWeldAllowanceContract | None,
+    tolerance: float,
+) -> bool:
+    if first is None or second is None:
+        return first is second
+    return (
+        first.schema_version == second.schema_version
+        and first.coordinate_unit == second.coordinate_unit
+        and first.longitudinal_axis == second.longitudinal_axis
+        and first.stationary_end == second.stationary_end
+        and first.movable_end == second.movable_end
+        and abs(first.horizontal_residual_mm - second.horizontal_residual_mm)
+        <= tolerance
+        and abs(first.main_length_mm - second.main_length_mm) <= tolerance
+        and abs(first.allowance_mm - second.allowance_mm) <= tolerance
+    )
+
+
+def _geometry_matches_under_transform(
+    first: PhysicalPlateIR,
+    second: PhysicalPlateIR,
+    transform: tuple[float, float, float, float],
+    tolerance: float,
+) -> bool:
+    first_outer = contour_polygon(first.outer_segments)
+    second_outer_raw = contour_polygon(second.outer_segments)
+    a, b, c, d = transform
+    second_transformed = affine_transform(
+        second_outer_raw,
+        (a, b, c, d, 0.0, 0.0),
+    )
+    first_min_x, first_min_y, _first_max_x, _first_max_y = first_outer.bounds
+    second_min_x, second_min_y, _second_max_x, _second_max_y = (
+        second_transformed.bounds
+    )
+    first_normalized = translate(first_outer, xoff=-first_min_x, yoff=-first_min_y)
+    second_normalized = translate(
+        second_transformed,
+        xoff=-second_min_x,
+        yoff=-second_min_y,
+    )
+    if not _polygons_within_tolerance(
+        first_normalized,
+        second_normalized,
+        tolerance,
+    ):
+        return False
+
+    if len(first.circular_cuts) != len(second.circular_cuts):
+        return False
+    first_centers = tuple(
+        (
+            cut.center[0] - first_min_x,
+            cut.center[1] - first_min_y,
+            cut.radius_mm,
+        )
+        for cut in first.circular_cuts
+    )
+    second_centers = tuple(
+        (
+            *_normalized_point(
+                cut.center,
+                transform,
+                (second_min_x, second_min_y),
+            ),
+            cut.radius_mm,
+        )
+        for cut in second.circular_cuts
+    )
+    circular_adjacency = tuple(
+        tuple(
+            hypot(left[0] - right[0], left[1] - right[1]) <= tolerance
+            and abs(left[2] - right[2]) <= tolerance
+            for right in second_centers
+        )
+        for left in first_centers
+    )
+    if circular_adjacency and not _has_perfect_matching(circular_adjacency):
+        return False
+
+    if len(first.inner_contours) != len(second.inner_contours):
+        return False
+    first_inner = tuple(
+        translate(
+            contour_polygon(contour.segments),
+            xoff=-first_min_x,
+            yoff=-first_min_y,
+        )
+        for contour in first.inner_contours
+    )
+    second_inner = tuple(
+        translate(
+            affine_transform(
+                contour_polygon(contour.segments),
+                (a, b, c, d, 0.0, 0.0),
+            ),
+            xoff=-second_min_x,
+            yoff=-second_min_y,
+        )
+        for contour in second.inner_contours
+    )
+    inner_adjacency = tuple(
+        tuple(
+            _polygons_within_tolerance(left, right, tolerance)
+            for right in second_inner
+        )
+        for left in first_inner
+    )
+    return not inner_adjacency or _has_perfect_matching(inner_adjacency)
+
+
+def plates_manufacturing_equivalent(
+    first: PhysicalPlateIR,
+    second: PhysicalPlateIR,
+    *,
+    tolerance: float,
+) -> bool:
+    """Compare actual role-neutral output geometry without quantization buckets."""
+
+    if tolerance <= 0.0:
+        raise ValueError("manufacturing-equivalence tolerance must be positive")
+    if first.material != second.material:
+        return False
+    if abs(first.thickness_mm - second.thickness_mm) > tolerance:
+        return False
+    if not _allowance_contracts_equivalent(
+        first.weld_allowance_contract,
+        second.weld_allowance_contract,
+        tolerance,
+    ):
+        return False
+    effective_first = _effective_manufacturing_plate(first)
+    effective_second = _effective_manufacturing_plate(second)
+    return any(
+        _geometry_matches_under_transform(
+            effective_first,
+            effective_second,
+            transform,
+            tolerance,
+        )
+        for transform in _TRANSFORMS
+    )
+
+
 def _stretched_plate(plate: PhysicalPlateIR) -> PhysicalPlateIR | None:
     contract = plate.weld_allowance_contract
     if contract is None:
@@ -248,6 +441,10 @@ def allowance_group_contract(
 ) -> BoxWeldAllowanceContract | None:
     """Authorize one grouped result only if growth preserves full equivalence."""
 
+    comparison_tolerance = max(
+        group.equivalence_tolerance_mm,
+        BOX_DRAFTING_RESOLUTION_MM,
+    )
     stretched = tuple(_stretched_plate(plate) for plate in group.physical_plates)
     if any(plate is None for plate in stretched):
         return None
@@ -261,7 +458,7 @@ def allowance_group_contract(
             plate.weld_allowance_contract.main_length_mm
             - representative.main_length_mm
         )
-        > 1e-6
+        > comparison_tolerance
         or plate.weld_allowance_contract.allowance_mm
         != representative.allowance_mm
         for plate in group.physical_plates
@@ -272,7 +469,7 @@ def allowance_group_contract(
         not plates_equivalent(
             first,
             other,
-            tolerance=group.equivalence_tolerance_mm,
+            tolerance=comparison_tolerance,
         )
         for other in materialized[1:]
     ):
@@ -280,17 +477,40 @@ def allowance_group_contract(
     return representative
 
 
+def _source_group_id(source_id: str) -> str:
+    group_id, separator, _ = source_id.rpartition("/")
+    return group_id if separator else source_id
+
+
+def _plate_internal_features_have_independent_direct_sources(
+    plate: PhysicalPlateIR,
+) -> bool:
+    features = (*plate.circular_cuts, *plate.inner_contours)
+    return all(
+        feature.evidence.state is EvidenceState.DIRECT
+        and len(
+            {
+                _source_group_id(source_id)
+                for source_id in feature.evidence.source_ids
+            }
+        )
+        >= 2
+        for feature in features
+    )
+
+
 def group_equivalent_plate_pairs(
     plates: Iterable[PhysicalPlateIR],
     *,
     tolerance_mm: float = 1e-5,
 ) -> tuple[PlateOutputGroup, ...]:
-    """Merge only the physical BOX flange pair after complete equivalence.
+    """Merge complete equivalent pairs with sufficient physical-source proof.
 
-    The two webs are always two independent physical plates (upper/lower web)
-    and are never merged into one quantity-2 output, even when their outer
-    contour and openings are identical.  A web can carry side-specific openings
-    and each web must be cut and sourced separately.
+    A feature-free equivalent web pair needs no additional opening proof.  Every
+    circular cut or inner contour carried by an equivalent web pair must instead
+    have direct evidence from at least two independent source drawing groups.
+    This prevents one legacy source opening copied to both webs from authorizing
+    a quantity-2 output.  Flange grouping retains its complete-equivalence rule.
     """
 
     materialized = tuple(plates)
@@ -298,21 +518,43 @@ def group_equivalent_plate_pairs(
     if len(by_role) != 4 or set(by_role) != set(PhysicalPlateRole):
         raise ValueError("equivalence grouping requires all four physical BOX roles")
     groups: list[PlateOutputGroup] = []
-    for role, plate in (
-        (PhysicalPlateRole.WEB_LEFT, by_role[PhysicalPlateRole.WEB_LEFT]),
-        (PhysicalPlateRole.WEB_RIGHT, by_role[PhysicalPlateRole.WEB_RIGHT]),
-    ):
+    web_roles = (
+        PhysicalPlateRole.WEB_LEFT,
+        PhysicalPlateRole.WEB_RIGHT,
+    )
+    first_role, second_role = web_roles
+    first = by_role[first_role]
+    second = by_role[second_role]
+    web_merge_authorized = (
+        plates_equivalent(first, second, tolerance=tolerance_mm)
+        and _plate_internal_features_have_independent_direct_sources(first)
+        and _plate_internal_features_have_independent_direct_sources(second)
+    )
+    if web_merge_authorized:
         groups.append(
             PlateOutputGroup(
-                group_id=role.value,
-                roles=(role,),
-                physical_plates=(plate,),
-                representative=plate,
-                quantity=1,
-                merge_authorized=False,
+                group_id=f"{first_role.value}+{second_role.value}",
+                roles=web_roles,
+                physical_plates=(first, second),
+                representative=first,
+                quantity=2,
+                merge_authorized=True,
                 equivalence_tolerance_mm=tolerance_mm,
             )
         )
+    else:
+        for role, plate in ((first_role, first), (second_role, second)):
+            groups.append(
+                PlateOutputGroup(
+                    group_id=role.value,
+                    roles=(role,),
+                    physical_plates=(plate,),
+                    representative=plate,
+                    quantity=1,
+                    merge_authorized=False,
+                    equivalence_tolerance_mm=tolerance_mm,
+                )
+            )
     flange_roles = (
         PhysicalPlateRole.FLANGE_TOP,
         PhysicalPlateRole.FLANGE_BOTTOM,
@@ -320,7 +562,11 @@ def group_equivalent_plate_pairs(
     first_role, second_role = flange_roles
     first = by_role[first_role]
     second = by_role[second_role]
-    if plates_equivalent(first, second, tolerance=tolerance_mm):
+    if plates_manufacturing_equivalent(
+        first,
+        second,
+        tolerance=max(tolerance_mm, BOX_DRAFTING_RESOLUTION_MM),
+    ):
         groups.append(
             PlateOutputGroup(
                 group_id=f"{first_role.value}+{second_role.value}",

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import combinations, combinations_with_replacement, product
-from math import hypot
-
 from shapely import normalize, set_precision
 from shapely.affinity import affine_transform, translate
 
@@ -23,11 +21,20 @@ from .openings import (
 )
 from .source_ir import is_hidden_projection_linetype
 from .view_frame import PartViewIR
-from .web_solver import WebOutlineCandidate, web_derivation_authority
+from .web_solver import (
+    WebDerivation,
+    WebOutlineCandidate,
+    web_derivation_authority,
+)
 
 
 class RoleHypothesisError(ValueError):
     """The source observations do not yield a closed physical-role domain."""
+
+
+NOMINAL_PRISMATIC_INNER_COURSE_RULE_ID = (
+    "BOX.ROLE.WEB.NOMINAL_PRISMATIC_INNER_COURSE_PROVEN"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,6 +504,40 @@ def _bounded_partition_candidate_ids(
     return tuple(sorted(rejected))
 
 
+def _nominal_prismatic_inner_course(
+    candidates: tuple[WebOutlineCandidate, ...],
+    metadata: BoxMetadata,
+) -> WebOutlineCandidate | None:
+    """Return one complete source-backed inner course at metadata scale."""
+
+    tolerance = max(
+        BOX_DRAFTING_RESOLUTION_MM,
+        *(candidate.projection.grid_size_mm * 2.0 for candidate in candidates),
+    )
+    expected_width = metadata.profile.value.web_clear_width
+    matches = tuple(
+        candidate
+        for candidate in candidates
+        if candidate.projection.source_conserved
+        and candidate.source_ids
+        and WebDerivation.INNER_COURSE_BAND in candidate.derivations
+        and abs(candidate.transverse_span - expected_width) <= tolerance
+        and round(candidate.longitudinal_span) == metadata.nominal_length.value
+    )
+    if len(matches) != 1:
+        return None
+    minimum_wall = min(
+        metadata.profile.value.web_thickness,
+        metadata.profile.value.flange_thickness,
+    )
+    has_end_face_witness = any(
+        candidate.candidate_id != matches[0].candidate_id
+        and candidate.longitudinal_span <= 2.0 * minimum_wall
+        for candidate in candidates
+    )
+    return matches[0] if has_end_face_witness else None
+
+
 def enumerate_web_role_pairs(
     candidates: tuple[WebOutlineCandidate, ...],
     openings: tuple[ProjectedCircularOpening, ...],
@@ -563,9 +604,12 @@ def enumerate_web_role_pairs(
         if candidate.candidate_id not in rejected_partitions
     )
     rejected_short_courses: set[str] = set()
-    rejected_slivers: tuple[str, ...] = ()
     if not openings:
         minimum_span = max(
+            min(
+                metadata.profile.value.web_thickness,
+                metadata.profile.value.flange_thickness,
+            ),
             BOX_DRAFTING_RESOLUTION_MM * 2.0,
             *(candidate.projection.grid_size_mm * 2.0 for candidate in eligible),
         )
@@ -584,6 +628,8 @@ def enumerate_web_role_pairs(
 
     pairs: list[tuple[WebOutlineCandidate, WebOutlineCandidate]] = []
     bolt_evidence_domain_reduced = False
+    nominal_inner_band_reuse_id: str | None = None
+    nominal_prismatic_inner_course_id: str | None = None
     if openings:
         minimum_span = metadata.nominal_length.value * 0.80
         long_eligible = tuple(
@@ -702,34 +748,63 @@ def enumerate_web_role_pairs(
             for pierced_candidate, hidden_candidate in product(pierced, hidden):
                 pairs.append((hidden_candidate, pierced_candidate))
     else:
-        # Drop sub-drafting face fragments that survive the partition filters.
-        # A skewed end or a small overlay detail can polygonize into a short
-        # strip whose area is a tiny fraction of the real web.  The 0.18 floor
-        # mirrors the single-pair selector, and is far below any real web of a
-        # prismatic BOX (both webs share length x box-height), so it only
-        # removes strips that could never be a physical plate.
-        maximum_area = max(candidate.area for candidate in eligible)
-        plausible = tuple(
+        nominal_prismatic = _nominal_prismatic_inner_course(eligible, metadata)
+        if nominal_prismatic is not None:
+            nominal_prismatic = replace(
+                nominal_prismatic,
+                candidate_id=(
+                    f"{nominal_prismatic.candidate_id}:nominal-prismatic-authority"
+                ),
+                projection=replace(
+                    nominal_prismatic.projection,
+                    rule_ids=tuple(
+                        sorted(
+                            set(nominal_prismatic.projection.rule_ids)
+                            | {NOMINAL_PRISMATIC_INNER_COURSE_RULE_ID}
+                        )
+                    ),
+                ),
+            )
+            pairs.append((nominal_prismatic, nominal_prismatic))
+            nominal_prismatic_inner_course_id = nominal_prismatic.candidate_id
+        else:
+            pair_source = (
+                combinations_with_replacement(eligible, 2)
+                if len(eligible) == 1
+                else combinations(eligible, 2)
+            )
+            for first, second in pair_source:
+                pairs.append(_web_source_authority_order(first, second, view))
+        nominal_tolerance = max(
+            BOX_DRAFTING_RESOLUTION_MM,
+            *(candidate.projection.grid_size_mm * 2.0 for candidate in eligible),
+        )
+        nominal_inner_bands = tuple(
             candidate
             for candidate in eligible
-            if candidate.area >= maximum_area * 0.18
-        )
-        rejected_slivers = tuple(
-            sorted(
-                candidate.candidate_id
-                for candidate in eligible
-                if candidate.area < maximum_area * 0.18
+            if WebDerivation.INNER_COURSE_BAND in candidate.derivations
+            and abs(
+                candidate.longitudinal_span - metadata.nominal_length.value
             )
+            <= nominal_tolerance
         )
-        if not plausible:
-            plausible = eligible
-        pair_source = (
-            combinations_with_replacement(plausible, 2)
-            if len(plausible) == 1
-            else combinations(plausible, 2)
-        )
-        for first, second in pair_source:
-            pairs.append(_web_source_authority_order(first, second, view))
+        if len(nominal_inner_bands) == 1 and len(eligible) > 1:
+            nominal = nominal_inner_bands[0]
+            minimum_wall = min(
+                metadata.profile.value.web_thickness,
+                metadata.profile.value.flange_thickness,
+            )
+            other_deltas = tuple(
+                nominal.longitudinal_span - candidate.longitudinal_span
+                for candidate in eligible
+                if candidate.candidate_id != nominal.candidate_id
+            )
+            if other_deltas and all(
+                nominal_tolerance < delta <= 2.0 * minimum_wall
+                for delta in other_deltas
+            ):
+                pairs.append((nominal, nominal))
+                nominal_inner_band_reuse_id = nominal.candidate_id
 
     materialized = _deduplicate_pairs(pairs)
     if not materialized:
@@ -755,8 +830,20 @@ def enumerate_web_role_pairs(
                     for candidate_id in sorted(rejected_short_courses)
                 ),
                 *(
-                    f"BOX.ROLE.WEB.AREA_SLIVER_REJECTED:{candidate_id}"
-                    for candidate_id in rejected_slivers
+                    (
+                        f"{NOMINAL_PRISMATIC_INNER_COURSE_RULE_ID}:"
+                        f"{nominal_prismatic_inner_course_id}"
+                    ,)
+                    if nominal_prismatic_inner_course_id is not None
+                    else ()
+                ),
+                *(
+                    (
+                        "BOX.ROLE.WEB.NOMINAL_INNER_BAND_REUSE_PROVEN:"
+                        f"{nominal_inner_band_reuse_id}"
+                    ,)
+                    if nominal_inner_band_reuse_id is not None
+                    else ()
                 ),
                 *(
                     (
@@ -860,6 +947,33 @@ def _flange_authority_strength(candidate: FlangeOutlineCandidate) -> int:
     return max(_FLANGE_AUTHORITY[derivation] for derivation in candidate.derivations)
 
 
+def _source_conserved_single_cap_nominal_development(
+    candidate: FlangeOutlineCandidate,
+    nominal_length_mm: float,
+) -> bool:
+    """Recognize one complete, bounded end-cap development to nominal length."""
+
+    prefix = "BOX.FLANGE.PAIRED_CAPS.EXTENDED_INNER_COUNT_"
+    extension_counts = {
+        int(rule_id.removeprefix(prefix))
+        for rule_id in candidate.rule_ids
+        if rule_id.startswith(prefix)
+        and rule_id.removeprefix(prefix).isdigit()
+    }
+    return (
+        candidate.projection.source_conserved
+        and bool(candidate.source_ids)
+        and abs(candidate.longitudinal_span - nominal_length_mm)
+        <= BOX_DRAFTING_RESOLUTION_MM
+        and extension_counts == {1}
+        and FlangeDerivation.PAIRED_COURSE_CAP_DEVELOPMENT
+        in candidate.derivations
+        and FlangeDerivation.PARALLEL_COURSE_OFFSET_DEVELOPMENT
+        in candidate.derivations
+        and "BOX.FLANGE.PARALLEL_COURSE_OFFSET" in candidate.rule_ids
+    )
+
+
 def _source_course_authoritative(
     candidate: FlangeOutlineCandidate,
     course: FlangeCourseEvidence,
@@ -867,6 +981,77 @@ def _source_course_authoritative(
     return preserves_exact_source_course_authority(
         candidate,
         course.length_mm,
+    )
+
+
+def _exact_role_course(
+    candidate: FlangeOutlineCandidate,
+    course: FlangeCourseEvidence,
+    *,
+    tolerance_mm: float = 0.02,
+) -> bool:
+    """Whether this source-conserved candidate preserves this role's course."""
+
+    return (
+        candidate.projection.source_conserved
+        and bool(candidate.source_ids)
+        and abs(candidate.longitudinal_span - course.length_mm) <= tolerance_mm
+    )
+
+
+def role_aligned_exact_flange_pair(
+    pair: tuple[FlangeOutlineCandidate, FlangeOutlineCandidate],
+    *,
+    bottom_course: FlangeCourseEvidence,
+    top_course: FlangeCourseEvidence,
+    alignment_tolerance_mm: float = BOX_DRAFTING_RESOLUTION_MM,
+) -> bool:
+    """Whether exact courses preserve role spacing with a valid frame anchor."""
+
+    top, bottom = pair
+    if not (
+        _exact_role_course(bottom, bottom_course)
+        and _exact_role_course(top, top_course)
+    ):
+        return False
+    course_order = (
+        top_course.longitudinal_center_mm
+        - bottom_course.longitudinal_center_mm
+    )
+    candidate_order = (
+        float(top.projection.polygon.centroid.x)
+        - float(bottom.projection.polygon.centroid.x)
+    )
+    has_material_topology = all(
+        any(
+            derivation is not FlangeDerivation.COURSE_STATION_RECTANGLE
+            for derivation in candidate.derivations
+        )
+        for candidate in pair
+    )
+    shares_course_frame = (
+        abs(
+            float(bottom.projection.polygon.centroid.x)
+            - bottom_course.longitudinal_center_mm
+        )
+        <= alignment_tolerance_mm
+        and abs(
+            float(top.projection.polygon.centroid.x)
+            - top_course.longitudinal_center_mm
+        )
+        <= alignment_tolerance_mm
+    )
+    has_distinct_role_signature = (
+        abs(course_order) > alignment_tolerance_mm
+        or abs(top_course.length_mm - bottom_course.length_mm)
+        > alignment_tolerance_mm
+    )
+    return (
+        abs(candidate_order - course_order) <= alignment_tolerance_mm
+        and (
+            shares_course_frame
+            or (has_material_topology and has_distinct_role_signature)
+        )
     )
 
 
@@ -932,8 +1117,28 @@ def _straight_flange_pair_authority(
         and authoritative_source_course_count >= 1
         and all(candidate.projection.source_conserved for candidate in pair)
     )
+    nominal_single_cap_development = (
+        same_manufacturing_geometry
+        and all(
+            _source_conserved_single_cap_nominal_development(
+                candidate,
+                metadata.nominal_length.value,
+            )
+            for candidate in pair
+        )
+        and all(0.05 < offset <= transfer_tolerance for offset in offsets)
+        and offset_mismatch <= BOX_DRAFTING_RESOLUTION_MM
+        and unsupported_outward_offset <= BOX_DRAFTING_RESOLUTION_MM
+    )
+    aligned_exact_pair = role_aligned_exact_flange_pair(
+        pair,
+        bottom_course=bottom_course,
+        top_course=top_course,
+    )
     return (
-        float(authoritative_source_course_count == 2),
+        float(nominal_single_cap_development),
+        float(aligned_exact_pair),
+        float(aligned_exact_pair and authoritative_source_course_count == 2),
         float(equivalent_source_reuse),
         float(authoritative_source_course_count),
         float(order_score > 0.0),
@@ -950,6 +1155,32 @@ def _straight_flange_pair_authority(
         -offset_mismatch,
         -abs(top.longitudinal_span - bottom.longitudinal_span),
     )
+
+
+def _straight_flange_pair_course_fit(
+    pair: tuple[FlangeOutlineCandidate, FlangeOutlineCandidate],
+    *,
+    bottom_course: FlangeCourseEvidence,
+    top_course: FlangeCourseEvidence,
+) -> tuple[float, ...]:
+    """Prefer the least-drift representative inside one manufacturing meaning."""
+
+    top, bottom = pair
+    ordered = (bottom, top)
+    courses = (bottom_course, top_course)
+    length_error = sum(
+        abs(candidate.longitudinal_span - course.length_mm)
+        for candidate, course in zip(ordered, courses, strict=True)
+    )
+    center_error = sum(
+        abs(
+            float(candidate.projection.polygon.centroid.x)
+            - course.longitudinal_center_mm
+        )
+        for candidate, course in zip(ordered, courses, strict=True)
+    )
+    area = top.area + bottom.area
+    return (-length_error, -center_error, -area)
 
 
 def enumerate_straight_flange_role_pairs(
@@ -1028,13 +1259,11 @@ def enumerate_straight_flange_role_pairs(
         list[tuple[FlangeOutlineCandidate, FlangeOutlineCandidate]],
     ] = {}
     for pair in generated:
-        by_meaning.setdefault(
-            (
-                meaning_by_candidate_id[pair[0].candidate_id],
-                meaning_by_candidate_id[pair[1].candidate_id],
-            ),
-            [],
-        ).append(pair)
+        meaning = (
+            meaning_by_candidate_id[pair[0].candidate_id],
+            meaning_by_candidate_id[pair[1].candidate_id],
+        )
+        by_meaning.setdefault(meaning, []).append(pair)
     authority_by_meaning = {
         meaning: max(
             _straight_flange_pair_authority(
@@ -1055,13 +1284,30 @@ def enumerate_straight_flange_role_pairs(
         if authority == winning_authority
     }
     materialized = tuple(
-        pair
-        for pair in generated
-        if (
-            meaning_by_candidate_id[pair[0].candidate_id],
-            meaning_by_candidate_id[pair[1].candidate_id],
+        max(
+            (
+                pair
+                for pair in generated
+                if (
+                    meaning_by_candidate_id[pair[0].candidate_id],
+                    meaning_by_candidate_id[pair[1].candidate_id],
+                )
+                == meaning
+            ),
+            key=lambda pair: (
+                role_aligned_exact_flange_pair(
+                    pair,
+                    bottom_course=bottom_course,
+                    top_course=top_course,
+                ),
+                _straight_flange_pair_course_fit(
+                    pair,
+                    bottom_course=bottom_course,
+                    top_course=top_course,
+                ),
+            ),
         )
-        in winning_meanings
+        for meaning in sorted(winning_meanings)
     )
     return RolePairSearchResult(
         pairs=materialized,
@@ -1158,9 +1404,11 @@ def enumerate_cranked_flange_role_pairs(
 
 __all__ = (
     "FlangeCourseEvidence",
+    "NOMINAL_PRISMATIC_INNER_COURSE_RULE_ID",
     "RoleHypothesisError",
     "RolePairSearchResult",
     "enumerate_cranked_flange_role_pairs",
     "enumerate_straight_flange_role_pairs",
     "enumerate_web_role_pairs",
+    "role_aligned_exact_flange_pair",
 )

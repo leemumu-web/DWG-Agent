@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from inspect import signature
 from pathlib import Path
 
 import pytest
 from shapely.geometry import Polygon
+from steel_dxf_split.box.assembly import (
+    _apply_cross_view_web_total_spans,
+    _assign_openings_to_pair,
+    _cross_view_web_course_envelopes,
+    _opening_representation_obligation,
+)
+from steel_dxf_split.box.flange_solver import enumerate_flange_outline_candidates
 from steel_dxf_split.box.manufacturing_ir import (
     EvidenceState,
     FeatureEvidence,
@@ -26,16 +35,24 @@ from steel_dxf_split.box.openings import (
     ProjectedCircularOpening,
     ProjectedInnerContourOpening,
     lower_inner_contour_openings,
+    project_circular_openings,
     project_inner_contour_openings,
 )
 from steel_dxf_split.box.projection_geometry import (
     ProjectedLoopSegment,
     ProjectedSourceLoop,
     ProjectionFaceCandidate,
+    search_source_conserving_face_unions,
 )
+from steel_dxf_split.box.proofs import ProofStatus
 from steel_dxf_split.box.role_hypotheses import enumerate_web_role_pairs
-from steel_dxf_split.box.source_ir import SourceDocumentIR, SourceEntityIR
+from steel_dxf_split.box.source_ir import (
+    ObjectGroupIR,
+    SourceDocumentIR,
+    SourceEntityIR,
+)
 from steel_dxf_split.box.view_frame import PartViewIR, ViewFrame
+from steel_dxf_split.box.view_solver import ViewAssignmentCandidate
 from steel_dxf_split.box.web_solver import WebDerivation, WebOutlineCandidate
 
 
@@ -147,6 +164,293 @@ def _part_line(
         linetype="XKITLINE00",
         start=start,
         end=end,
+    )
+
+
+def _cross_view_assignment(
+    *courses: tuple[str, str, tuple[float, float], tuple[float, float]],
+) -> ViewAssignmentCandidate:
+    entities = tuple(
+        SourceEntityIR(
+            source_id=f"insert:B/{handle}",
+            group_id="insert:B",
+            handle=handle,
+            kind="LINE",
+            layer="Part",
+            linetype=linetype,
+            start=start,
+            end=end,
+        )
+        for handle, linetype, start, end in courses
+    )
+    b_view = PartViewIR(
+        group_id="insert:B",
+        block_name="B",
+        entities=entities,
+        frame=ViewFrame(
+            origin=(0.0, 0.0),
+            longitudinal_axis=(1.0, 0.0),
+            transverse_axis=(0.0, 1.0),
+            longitudinal_min=-150.0,
+            longitudinal_max=150.0,
+            transverse_min=0.0,
+            transverse_max=100.0,
+        ),
+    )
+    h_view = replace(b_view, group_id="insert:H", block_name="H", entities=())
+    return ViewAssignmentCandidate(
+        h_view=h_view,
+        b_view=b_view,
+        h_span_error=0.0,
+        b_span_error=0.0,
+        score=0.0,
+    )
+
+
+def test_nested_visible_and_hidden_courses_prove_the_complete_web_span() -> None:
+    assignment = _cross_view_assignment(
+        ("visible", "XKITLINE00", (-100.0, 0.0), (100.0, 0.0)),
+        ("hidden", "XKITLINE04", (-128.0, 30.0), (128.0, 30.0)),
+    )
+
+    envelopes = _cross_view_web_course_envelopes(
+        assignment,
+        face_separation_mm=30.0,
+    )
+
+    short = next(
+        envelope
+        for envelope in envelopes
+        if envelope.reference_min_x == -100.0
+    )
+    assert (short.envelope_min_x, short.envelope_max_x) == (-128.0, 128.0)
+
+
+def test_flange_search_uses_the_shared_face_union_budget() -> None:
+    assert (
+        "maximum_face_union_states"
+        not in signature(enumerate_flange_outline_candidates).parameters
+    )
+    assert (
+        signature(search_source_conserving_face_unions)
+        .parameters["maximum_states"]
+        .default
+        == 50_000
+    )
+
+
+def test_nested_cross_view_courses_reject_an_unbounded_span_expansion() -> None:
+    assignment = _cross_view_assignment(
+        ("visible", "XKITLINE00", (-100.0, 0.0), (100.0, 0.0)),
+        ("hidden", "XKITLINE04", (-180.0, 30.0), (180.0, 30.0)),
+    )
+
+    assert _cross_view_web_course_envelopes(
+        assignment,
+        face_separation_mm=30.0,
+    ) == ()
+
+
+def test_cross_view_span_application_is_independent_of_view_frame_origins() -> None:
+    assignment = _cross_view_assignment(
+        ("visible", "XKITLINE00", (-100.0, 0.0), (100.0, 0.0)),
+        ("hidden", "XKITLINE04", (-128.0, 30.0), (128.0, 30.0)),
+    )
+    short = _web_candidate(
+        "web:short",
+        length=200.0,
+        source_id="insert:H/short",
+    )
+    complete = _web_candidate(
+        "web:complete",
+        length=256.0,
+        source_id="insert:H/complete",
+    )
+
+    adjusted = _apply_cross_view_web_total_spans(
+        (short, complete),
+        assignment,
+        face_separation_mm=30.0,
+    )
+
+    assert adjusted[0].longitudinal_span == pytest.approx(256.0)
+    assert adjusted[1] is complete
+
+
+def _bolt_line(
+    group_id: str,
+    handle: str,
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> SourceEntityIR:
+    return SourceEntityIR(
+        source_id=f"{group_id}/{handle}",
+        group_id=group_id,
+        handle=handle,
+        kind="LINE",
+        layer="Bolt",
+        linetype="XKITLINE00",
+        start=start,
+        end=end,
+    )
+
+
+def _bolt_circle(
+    group_id: str,
+    handle: str,
+    center: tuple[float, float],
+    radius: float,
+) -> SourceEntityIR:
+    return SourceEntityIR(
+        source_id=f"{group_id}/{handle}",
+        group_id=group_id,
+        handle=handle,
+        kind="CIRCLE",
+        layer="Bolt",
+        linetype="XKITLINE00",
+        center=center,
+        radius=radius,
+    )
+
+
+def _source_with_bolt_groups(
+    *groups: tuple[str, tuple[SourceEntityIR, ...]],
+) -> SourceDocumentIR:
+    return SourceDocumentIR(
+        path=Path("synthetic-bolt-openings.dxf"),
+        dxf_version="AC1021",
+        units=4,
+        declared_codepage="ANSI_936",
+        detected_encoding="utf-8",
+        file_sha256="0" * 64,
+        geometry_fingerprint="1" * 64,
+        groups=tuple(
+            ObjectGroupIR(
+                group_id=group_id,
+                insert_handle=group_id.removeprefix("insert:"),
+                block_name=group_id,
+                insert_point=(0.0, 0.0),
+                rotation=0.0,
+                scale=(1.0, 1.0, 1.0),
+                source_ids=tuple(entity.source_id for entity in entities),
+                layers=("Bolt",),
+            )
+            for group_id, entities in groups
+        ),
+        entities=tuple(entity for _, entities in groups for entity in entities),
+    )
+
+
+def _opening_view(*part_entities: SourceEntityIR) -> PartViewIR:
+    return PartViewIR(
+        group_id="insert:H",
+        block_name="H",
+        entities=part_entities,
+        frame=ViewFrame(
+            origin=(0.0, 0.0),
+            longitudinal_axis=(1.0, 0.0),
+            transverse_axis=(0.0, 1.0),
+            longitudinal_min=0.0,
+            longitudinal_max=1000.0,
+            transverse_min=0.0,
+            transverse_max=600.0,
+        ),
+    )
+
+
+def _four_line_cross(
+    group_id: str,
+    *,
+    center: tuple[float, float] = (400.0, 300.0),
+    radius: float = 10.0,
+) -> tuple[SourceEntityIR, ...]:
+    x, y = center
+    outer = radius * 2.0
+    inner = radius * (2.0 / 3.0)
+    return (
+        _bolt_line(group_id, "left", (x - outer, y), (x - inner, y)),
+        _bolt_line(group_id, "right", (x + inner, y), (x + outer, y)),
+        _bolt_line(group_id, "bottom", (x, y - outer), (x, y - inner)),
+        _bolt_line(group_id, "top", (x, y + inner), (x, y + outer)),
+    )
+
+
+def test_complete_bolt_center_cross_projects_hidden_face_circle() -> None:
+    group_id = "insert:cross"
+    source = _source_with_bolt_groups((group_id, _four_line_cross(group_id)))
+
+    openings = project_circular_openings(source, _opening_view())
+
+    assert len(openings) == 1
+    assert openings[0].center == pytest.approx((400.0, 300.0))
+    assert openings[0].radius_mm == pytest.approx(10.0)
+    assert openings[0].visibility is OpeningVisibility.HIDDEN
+    assert openings[0].source_ids == (
+        "insert:cross/bottom",
+        "insert:cross/left",
+        "insert:cross/right",
+        "insert:cross/top",
+    )
+
+
+def test_incomplete_bolt_center_cross_stays_fail_closed() -> None:
+    group_id = "insert:partial-cross"
+    entities = _four_line_cross(group_id)[:-1]
+    source = _source_with_bolt_groups((group_id, entities))
+
+    assert project_circular_openings(source, _opening_view()) == ()
+
+
+def test_center_cross_matching_part_inner_loop_does_not_create_circle() -> None:
+    group_id = "insert:cross"
+    source = _source_with_bolt_groups((group_id, _four_line_cross(group_id)))
+    center = (400.0, 300.0)
+    radius = 10.0
+    points = (
+        (center[0] - radius, center[1]),
+        (center[0], center[1] + radius),
+        (center[0] + radius, center[1]),
+        (center[0], center[1] - radius),
+    )
+    view = _opening_view(
+        *(
+            SourceEntityIR(
+                source_id=f"insert:H/arc-{index}",
+                group_id="insert:H",
+                handle=f"arc-{index}",
+                kind="ARC",
+                layer="Part",
+                linetype="XKITLINE04",
+                center=center,
+                radius=radius,
+                start_angle=(180.0, 90.0, 0.0, 270.0)[index],
+                end_angle=(90.0, 0.0, 270.0, 180.0)[index],
+            )
+            for index, _point in enumerate(points)
+        )
+    )
+
+    assert project_circular_openings(source, view) == ()
+
+
+def test_coincident_bolt_groups_preserve_independent_representation_count() -> None:
+    first_id = "insert:near-face"
+    second_id = "insert:far-face"
+    source = _source_with_bolt_groups(
+        (first_id, (_bolt_circle(first_id, "circle", (400.0, 300.0), 10.0),)),
+        (
+            second_id,
+            (_bolt_circle(second_id, "circle", (400.02, 300.0), 10.0),),
+        ),
+    )
+
+    openings = project_circular_openings(source, _opening_view())
+
+    assert len(openings) == 1
+    assert openings[0].representation_multiplicity == 2
+    assert openings[0].source_ids == (
+        "insert:far-face/circle",
+        "insert:near-face/circle",
     )
 
 
@@ -327,6 +631,7 @@ def _web_candidate(
     *,
     length: float,
     source_id: str,
+    derivations: tuple[WebDerivation, ...] = (WebDerivation.SOURCE_FACE_UNION,),
 ) -> WebOutlineCandidate:
     evidence = FeatureEvidence(
         state=EvidenceState.DIRECT,
@@ -349,7 +654,7 @@ def _web_candidate(
             grid_size_mm=0.001,
             rule_ids=("BOX.PROJECTION.SOURCE_FACE_UNION",),
         ),
-        derivations=(WebDerivation.SOURCE_FACE_UNION,),
+        derivations=derivations,
         source_ids=(source_id,),
     )
 
@@ -383,6 +688,178 @@ def _web_view(*candidates: WebOutlineCandidate) -> PartViewIR:
             transverse_max=600.0,
         ),
     )
+
+
+def _opening_pair_buckets(
+    opening: ProjectedCircularOpening,
+) -> tuple[tuple[ProjectedCircularOpening, ...], ...]:
+    first = _web_candidate(
+        "web:first",
+        length=4405.0,
+        source_id="insert:H/first",
+    )
+    second = _web_candidate(
+        "web:second",
+        length=4405.0,
+        source_id="insert:H/second",
+    )
+    return _assign_openings_to_pair(
+        (first, second),
+        (opening,),
+        _web_view(first, second),
+        duplicate_legacy_bolt_openings=True,
+    )
+
+
+def test_single_visible_bolt_circle_belongs_only_to_near_face_plate() -> None:
+    opening = ProjectedCircularOpening(
+        center=(400.0, 300.0),
+        radius_mm=10.0,
+        source_ids=("insert:near/circle",),
+        cluster_residual_mm=0.0,
+        visibility=OpeningVisibility.VISIBLE,
+        representation_multiplicity=1,
+        view_group_id="insert:H",
+    )
+
+    buckets = _opening_pair_buckets(opening)
+
+    assert tuple(len(bucket) for bucket in buckets) == (1, 0)
+
+
+def test_single_hidden_bolt_cross_belongs_only_to_far_face_plate() -> None:
+    opening = ProjectedCircularOpening(
+        center=(400.0, 300.0),
+        radius_mm=10.0,
+        source_ids=(
+            "insert:far/bottom",
+            "insert:far/left",
+            "insert:far/right",
+            "insert:far/top",
+        ),
+        cluster_residual_mm=0.0,
+        visibility=OpeningVisibility.HIDDEN,
+        representation_multiplicity=1,
+        view_group_id="insert:H",
+    )
+
+    buckets = _opening_pair_buckets(opening)
+
+    assert tuple(len(bucket) for bucket in buckets) == (0, 1)
+
+
+def test_two_independent_coincident_bolt_groups_prove_shared_pair_hole() -> None:
+    opening = ProjectedCircularOpening(
+        center=(400.0, 300.0),
+        radius_mm=10.0,
+        source_ids=("insert:near/circle", "insert:far/circle"),
+        cluster_residual_mm=0.02,
+        visibility=OpeningVisibility.VISIBLE,
+        representation_multiplicity=2,
+        view_group_id="insert:H",
+    )
+
+    buckets = _opening_pair_buckets(opening)
+
+    assert tuple(len(bucket) for bucket in buckets) == (1, 1)
+
+
+def test_unpaired_hidden_bolt_representation_requires_review() -> None:
+    hidden = ProjectedCircularOpening(
+        center=(400.0, 300.0),
+        radius_mm=10.0,
+        source_ids=(
+            "insert:far/bottom",
+            "insert:far/left",
+            "insert:far/right",
+            "insert:far/top",
+        ),
+        cluster_residual_mm=0.0,
+        visibility=OpeningVisibility.HIDDEN,
+        representation_multiplicity=1,
+        view_group_id="insert:B",
+    )
+
+    obligation = _opening_representation_obligation((hidden,))
+
+    assert obligation.status is ProofStatus.MISSING
+    assert obligation.critical is True
+    assert obligation.diagnostic_code == "BOX.OPENING.UNPAIRED_HIDDEN_REPRESENTATION"
+
+
+def test_visible_only_bolt_representation_needs_no_pair_proof() -> None:
+    visible = ProjectedCircularOpening(
+        center=(300.0, 300.0),
+        radius_mm=10.0,
+        source_ids=("insert:near/circle",),
+        cluster_residual_mm=0.0,
+        visibility=OpeningVisibility.VISIBLE,
+        representation_multiplicity=1,
+        view_group_id="insert:B",
+    )
+
+    obligation = _opening_representation_obligation((visible,))
+
+    assert obligation.status is ProofStatus.NOT_APPLICABLE
+    assert obligation.diagnostic_code is None
+
+
+def test_visible_and_hidden_bolt_representations_complete_the_pair_evidence() -> None:
+    visible = ProjectedCircularOpening(
+        center=(300.0, 300.0),
+        radius_mm=10.0,
+        source_ids=("insert:near/circle",),
+        cluster_residual_mm=0.0,
+        visibility=OpeningVisibility.VISIBLE,
+        representation_multiplicity=1,
+        view_group_id="insert:B",
+    )
+    hidden = replace(
+        visible,
+        center=(500.0, 300.0),
+        source_ids=(
+            "insert:far/bottom",
+            "insert:far/left",
+            "insert:far/right",
+            "insert:far/top",
+        ),
+        visibility=OpeningVisibility.HIDDEN,
+    )
+
+    obligation = _opening_representation_obligation((visible, hidden))
+
+    assert obligation.status is ProofStatus.PASS
+    assert obligation.diagnostic_code is None
+
+
+def test_visible_bolt_in_other_view_proves_hidden_representation_convention() -> None:
+    visible = ProjectedCircularOpening(
+        center=(300.0, 300.0),
+        radius_mm=100.0,
+        source_ids=("insert:web/circle",),
+        cluster_residual_mm=0.0,
+        visibility=OpeningVisibility.VISIBLE,
+        representation_multiplicity=1,
+        view_group_id="insert:H",
+    )
+    hidden = replace(
+        visible,
+        center=(500.0, 300.0),
+        radius_mm=10.0,
+        source_ids=(
+            "insert:flange/bottom",
+            "insert:flange/left",
+            "insert:flange/right",
+            "insert:flange/top",
+        ),
+        visibility=OpeningVisibility.HIDDEN,
+        view_group_id="insert:B",
+    )
+
+    obligation = _opening_representation_obligation((visible, hidden))
+
+    assert obligation.status is ProofStatus.PASS
+    assert obligation.diagnostic_code is None
 
 
 def test_web_roles_reject_a_near_zero_longitudinal_face_partition() -> None:
@@ -423,6 +900,58 @@ def test_web_roles_keep_a_source_course_above_drafting_sliver_scale() -> None:
         tuple(candidate.candidate_id for candidate in pair)
         for pair in result.pairs
     ) == (("web:full", "web:shorter"),)
+
+
+def test_web_roles_add_nominal_inner_band_reuse_for_chamfer_scale_course() -> None:
+    full = _web_candidate(
+        "web:full",
+        length=4405.0,
+        source_id="insert:H/full",
+        derivations=(WebDerivation.INNER_COURSE_BAND,),
+    )
+    chamfer_course = _web_candidate(
+        "web:chamfer-course",
+        length=4385.0,
+        source_id="insert:H/chamfer-course",
+    )
+
+    result = enumerate_web_role_pairs(
+        (full, chamfer_course),
+        (),
+        _web_view(full, chamfer_course),
+        _box_metadata(),
+        part_arc_evidence=False,
+    )
+
+    assert {
+        tuple(candidate.candidate_id for candidate in pair)
+        for pair in result.pairs
+    } == {
+        ("web:full", "web:full"),
+        ("web:full", "web:chamfer-course"),
+    }
+
+
+def test_web_roles_reject_a_longitudinal_partition_shorter_than_wall() -> None:
+    full = _web_candidate("web:full", length=4405.0, source_id="insert:H/full")
+    partition = _web_candidate(
+        "web:partition",
+        length=19.0,
+        source_id="insert:H/partition",
+    )
+
+    result = enumerate_web_role_pairs(
+        (full, partition),
+        (),
+        _web_view(full, partition),
+        _box_metadata(),
+        part_arc_evidence=False,
+    )
+
+    assert tuple(
+        tuple(candidate.candidate_id for candidate in pair)
+        for pair in result.pairs
+    ) == (("web:full", "web:full"),)
 
 
 def test_inner_loop_that_is_same_bolt_circle_is_not_projected() -> None:

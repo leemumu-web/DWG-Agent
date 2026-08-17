@@ -1430,6 +1430,194 @@ def _clean_candidate_polygon(
     return polygon
 
 
+def _longitudinal_rail_lengths(
+    polygon: Polygon,
+    *,
+    long_axis: str,
+    tolerance_mm: float,
+) -> tuple[float, float] | None:
+    """Return the two long-axis rails of one simple rectangular/trapezoid plate."""
+
+    coordinates = list(polygon.exterior.coords)
+    if coordinates and coordinates[0] == coordinates[-1]:
+        coordinates.pop()
+    if len(coordinates) != 4 or polygon.interiors:
+        return None
+
+    rails: list[float] = []
+    transverse_edges = 0
+    oblique_edges = 0
+    for start, end in zip(coordinates, coordinates[1:] + coordinates[:1]):
+        dx = float(end[0] - start[0])
+        dy = float(end[1] - start[1])
+        longitudinal = dx if long_axis == "x" else dy
+        transverse = dy if long_axis == "x" else dx
+        if abs(transverse) <= tolerance_mm and abs(longitudinal) > tolerance_mm:
+            rails.append(abs(longitudinal))
+        elif abs(longitudinal) <= tolerance_mm and abs(transverse) > tolerance_mm:
+            transverse_edges += 1
+        elif hypot(longitudinal, transverse) > tolerance_mm:
+            oblique_edges += 1
+
+    if len(rails) != 2 or transverse_edges + oblique_edges != 2:
+        return None
+    if (transverse_edges, oblique_edges) not in {(2, 0), (1, 1)}:
+        return None
+    return tuple(sorted(rails))
+
+
+def _simple_trapezoid_end_edges(
+    polygon: Polygon,
+    *,
+    long_axis: str,
+    tolerance_mm: float,
+) -> tuple[LineString, LineString] | None:
+    """Return the full transverse cap and oblique end of a four-edge flange."""
+
+    if _longitudinal_rail_lengths(
+        polygon,
+        long_axis=long_axis,
+        tolerance_mm=tolerance_mm,
+    ) is None:
+        return None
+    coordinates = list(polygon.exterior.coords)
+    if coordinates and coordinates[0] == coordinates[-1]:
+        coordinates.pop()
+    caps: list[LineString] = []
+    oblique: list[LineString] = []
+    for start, end in zip(coordinates, coordinates[1:] + coordinates[:1]):
+        dx = float(end[0] - start[0])
+        dy = float(end[1] - start[1])
+        longitudinal = dx if long_axis == "x" else dy
+        transverse = dy if long_axis == "x" else dx
+        edge = LineString((start, end))
+        if abs(longitudinal) <= tolerance_mm and abs(transverse) > tolerance_mm:
+            caps.append(edge)
+        elif abs(longitudinal) > tolerance_mm and abs(transverse) > tolerance_mm:
+            oblique.append(edge)
+    if len(caps) != 1 or len(oblique) != 1:
+        return None
+    return caps[0], oblique[0]
+
+
+def _recover_source_backed_nested_flange_pair(
+    *,
+    primary: Polygon,
+    seeds: Iterable[Polygon],
+    entities: list[DXFEntity],
+    entity_source_ids: tuple[str, ...],
+    long_axis: str,
+    flange_width: float,
+    main_flange_spans: dict[str, float],
+    grid_size: float,
+    manufacturing_tolerance_mm: float,
+) -> tuple[Polygon, Polygon] | None:
+    """Recover two nested physical trapezoids only from complete source evidence."""
+
+    boundary_tolerance = max(1e-7, grid_size * 0.51)
+
+    def cleaned_with_contract(candidate: Polygon) -> tuple[Polygon, tuple[float, float], LineString] | None:
+        semantics = analyse_projection_boundary(
+            candidate,
+            entities,
+            entity_source_ids=entity_source_ids,
+            association_tolerance_mm=boundary_tolerance,
+        )
+        cleaned = _clean_candidate_polygon(
+            candidate,
+            grid_size=grid_size,
+            projection_semantics=semantics,
+            fidelity_tolerance_mm=boundary_tolerance,
+        )
+        rails = _longitudinal_rail_lengths(
+            cleaned,
+            long_axis=long_axis,
+            tolerance_mm=manufacturing_tolerance_mm,
+        )
+        ends = _simple_trapezoid_end_edges(
+            cleaned,
+            long_axis=long_axis,
+            tolerance_mm=manufacturing_tolerance_mm,
+        )
+        _, transverse = _axis_lengths(cleaned.bounds, long_axis)
+        if (
+            rails is None
+            or ends is None
+            or abs(transverse - flange_width) > manufacturing_tolerance_mm
+        ):
+            return None
+        conservation = assess_selected_projection_boundary(
+            cleaned,
+            entities,
+            entity_source_ids=entity_source_ids,
+            association_tolerance_mm=boundary_tolerance,
+            fidelity_tolerance_mm=boundary_tolerance,
+        )
+        if (
+            not conservation.applied
+            or conservation.lost_source_ids
+            or not conservation.protected_source_ids
+        ):
+            return None
+        return cleaned, rails, ends[0]
+
+    primary_contract = cleaned_with_contract(primary)
+    if primary_contract is None:
+        return None
+    cleaned_primary, primary_rails, primary_cap = primary_contract
+    geometric_candidates: list[tuple[Polygon, tuple[float, float]]] = []
+    for seed in seeds:
+        contract = cleaned_with_contract(seed)
+        if contract is None:
+            continue
+        cleaned_seed, seed_rails, seed_cap = contract
+        if _polygon_nearly_equal(cleaned_seed, cleaned_primary):
+            continue
+        if not cleaned_primary.buffer(manufacturing_tolerance_mm).covers(cleaned_seed):
+            continue
+        if primary_cap.hausdorff_distance(seed_cap) > manufacturing_tolerance_mm:
+            continue
+        if abs(primary_cap.length - seed_cap.length) > manufacturing_tolerance_mm:
+            continue
+        if max(primary_rails) - max(seed_rails) <= manufacturing_tolerance_mm:
+            continue
+        geometric_candidates.append((cleaned_seed, seed_rails))
+
+    if not geometric_candidates:
+        return None
+    if len(geometric_candidates) != 1:
+        raise ValueError("Nested flange projection has multiple physical seed candidates.")
+
+    cleaned_seed, seed_rails = geometric_candidates[0]
+
+    def rail_matches(rails: tuple[float, float], span: float) -> bool:
+        return any(
+            abs(value - float(span)) <= manufacturing_tolerance_mm
+            for value in rails
+        )
+
+    high_span = main_flange_spans.get("high")
+    low_span = main_flange_spans.get("low")
+    if high_span is not None and low_span is not None:
+        assignments = [
+            (upper, lower)
+            for upper, lower in ((primary_rails, seed_rails), (seed_rails, primary_rails))
+            if rail_matches(upper, high_span) and rail_matches(lower, low_span)
+        ]
+        unique_side_evidence = len(assignments) == 1
+    else:
+        observed_spans = tuple(float(span) for span in main_flange_spans.values())
+        candidate_matches = tuple(
+            any(rail_matches(rails, span) for span in observed_spans)
+            for rails in (primary_rails, seed_rails)
+        )
+        unique_side_evidence = sum(candidate_matches) == 1
+
+    if not unique_side_evidence:
+        return None
+    return cleaned_primary, cleaned_seed
+
+
 def _expand_at_longitudinal_ends(
     seed: Polygon,
     faces: list[Polygon],
@@ -1737,6 +1925,227 @@ def _regularize_micro_topology(
     }
 
 
+def _complete_parallel_terminal_web_strip(
+    polygon: Polygon,
+    faces: list[Polygon],
+    *,
+    source_entities: list[DXFEntity],
+    entity_source_ids: tuple[str, ...] = (),
+    long_axis: str,
+    web_thickness: float,
+    grid_size: float,
+) -> tuple[Polygon, int | None, dict[str, object]]:
+    """Merge one source-backed terminal strip whose connectors equal tw."""
+
+    if long_axis not in {"x", "y"}:
+        raise ValueError("long_axis must be 'x' or 'y'")
+    if web_thickness <= 0.0:
+        return polygon, None, {"applied": False, "reason": "invalid_web_thickness"}
+
+    manufacturing_tolerance = max(0.15, grid_size * 5.0)
+    fidelity_tolerance = max(1e-7, grid_size * 0.51)
+    current_long = _longitudinal_bounds(polygon, long_axis)
+    source_lines = [
+        LineString(
+            (
+                (float(entity.dxf.start.x), float(entity.dxf.start.y)),
+                (float(entity.dxf.end.x), float(entity.dxf.end.y)),
+            )
+        )
+        for entity in solid_part_entities(source_entities)
+        if entity.dxftype() == "LINE"
+    ]
+    if not source_lines:
+        return polygon, None, {"applied": False, "reason": "no_direct_source_lines"}
+    source_band = unary_union(source_lines).buffer(
+        fidelity_tolerance,
+        cap_style=2,
+        join_style=2,
+    )
+
+    qualified: list[tuple[int, Polygon, Polygon, dict[str, object]]] = []
+    for index, face in enumerate(faces):
+        if not isinstance(face, Polygon) or not face.is_valid or face.interiors:
+            continue
+        coordinates = [
+            (float(x), float(y)) for x, y in list(face.exterior.coords)[:-1]
+        ]
+        if len(coordinates) != 4:
+            continue
+        segments: list[dict[str, object]] = []
+        for start, end in zip(coordinates, coordinates[1:] + coordinates[:1]):
+            dx = end[0] - start[0]
+            dy = end[1] - start[1]
+            length = hypot(dx, dy)
+            if length <= fidelity_tolerance:
+                break
+            longitudinal = dx if long_axis == "x" else dy
+            transverse = dy if long_axis == "x" else dx
+            segments.append(
+                {
+                    "line": LineString((start, end)),
+                    "length": length,
+                    "longitudinal": longitudinal,
+                    "transverse": transverse,
+                    "angle": _segment_angle_mod_180(start, end),
+                }
+            )
+        if len(segments) != 4:
+            continue
+        connectors = [
+            segment
+            for segment in segments
+            if abs(float(segment["transverse"])) <= manufacturing_tolerance
+        ]
+        rails = [segment for segment in segments if segment not in connectors]
+        if len(connectors) != 2 or len(rails) != 2:
+            continue
+        if any(
+            abs(float(segment["length"]) - web_thickness)
+            > manufacturing_tolerance
+            for segment in connectors
+        ):
+            continue
+        if min(float(segment["length"]) for segment in rails) <= (
+            web_thickness + manufacturing_tolerance
+        ):
+            continue
+        if (
+            abs(float(rails[0]["length"]) - float(rails[1]["length"]))
+            > manufacturing_tolerance
+            or _angle_distance_180(
+                float(rails[0]["angle"]), float(rails[1]["angle"])
+            )
+            > 0.1
+        ):
+            continue
+
+        shared_rails = [
+            segment
+            for segment in rails
+            if float(segment["line"].intersection(polygon.boundary).length)
+            >= float(segment["length"]) - fidelity_tolerance
+        ]
+        if len(shared_rails) != 1:
+            continue
+        shared = shared_rails[0]
+        outer = rails[0] if rails[1] is shared else rails[1]
+
+        def midpoint_long(segment: dict[str, object]) -> float:
+            midpoint = segment["line"].interpolate(0.5, normalized=True)
+            return float(midpoint.x if long_axis == "x" else midpoint.y)
+
+        outer_coordinates = list(outer["line"].coords)
+        outer_values = [
+            float(point[0] if long_axis == "x" else point[1])
+            for point in outer_coordinates
+        ]
+        shared_mid = midpoint_long(shared)
+        outer_mid = midpoint_long(outer)
+        at_high_end = (
+            abs(max(outer_values) - current_long[1]) <= manufacturing_tolerance
+            and outer_mid > shared_mid + 0.5 * web_thickness
+        )
+        at_low_end = (
+            abs(min(outer_values) - current_long[0]) <= manufacturing_tolerance
+            and outer_mid < shared_mid - 0.5 * web_thickness
+        )
+        if not (at_high_end or at_low_end):
+            continue
+
+        if any(
+            segment["line"].difference(source_band).length > fidelity_tolerance
+            for segment in segments
+        ):
+            continue
+        if face.difference(polygon).area <= max(0.5, grid_size * grid_size * 10.0):
+            continue
+        merged = unary_union((polygon, face))
+        if not isinstance(merged, Polygon) or not merged.is_valid:
+            continue
+        if max(
+            abs(merged.bounds[dimension] - polygon.bounds[dimension])
+            for dimension in range(4)
+        ) > manufacturing_tolerance:
+            continue
+
+        current_semantics = analyse_projection_boundary(
+            polygon,
+            source_entities,
+            entity_source_ids=entity_source_ids,
+            association_tolerance_mm=fidelity_tolerance,
+        )
+        merged_boundary_band = merged.boundary.buffer(
+            fidelity_tolerance,
+            cap_style=2,
+            join_style=2,
+        )
+        shared_interface_band = face.boundary.intersection(polygon.boundary).buffer(
+            fidelity_tolerance,
+            cap_style=2,
+            join_style=2,
+        )
+        removed_direct_edges = [
+            edge
+            for edge in current_semantics.direct_edges
+            if edge.line.difference(merged_boundary_band).length > fidelity_tolerance
+        ]
+        if any(
+            edge.line.difference(shared_interface_band).length > fidelity_tolerance
+            for edge in removed_direct_edges
+        ):
+            continue
+
+        qualified.append(
+            (
+                index,
+                face,
+                merged,
+                {
+                    "source_ids": list(
+                        analyse_projection_boundary(
+                            face,
+                            source_entities,
+                            entity_source_ids=entity_source_ids,
+                            association_tolerance_mm=fidelity_tolerance,
+                        ).protected_source_ids
+                    ),
+                    "connector_lengths_mm": [
+                        float(segment["length"]) for segment in connectors
+                    ],
+                    "rail_lengths_mm": [
+                        float(segment["length"]) for segment in rails
+                    ],
+                    "removed_shared_source_edge_count": len(removed_direct_edges),
+                },
+            )
+        )
+
+    unique: list[tuple[int, Polygon, Polygon, dict[str, object]]] = []
+    for candidate in qualified:
+        if any(_polygon_nearly_equal(candidate[1], item[1]) for item in unique):
+            continue
+        unique.append(candidate)
+    if len(unique) != 1:
+        return polygon, None, {
+            "applied": False,
+            "reason": (
+                "no_qualified_terminal_strip"
+                if not unique
+                else "ambiguous_terminal_strips"
+            ),
+            "qualified_face_indices": [item[0] for item in unique],
+        }
+
+    index, _, merged, details = unique[0]
+    return merged, index, {
+        "applied": True,
+        "reason": "unique_source_backed_parallel_terminal_strip",
+        "face_index": index,
+        **details,
+    }
+
+
 def _complete_longitudinal_boundary_faces(
     polygon: Polygon,
     faces: list[Polygon],
@@ -1746,6 +2155,7 @@ def _complete_longitudinal_boundary_faces(
     long_axis: str,
     profile_height: float,
     nominal_length: float,
+    web_thickness: float | None = None,
     grid_size: float,
     observer: TraceObserver | None = None,
     hypothesis_id: str | None = None,
@@ -1807,6 +2217,25 @@ def _complete_longitudinal_boundary_faces(
             changed = True
             break
 
+    parallel_completion: dict[str, object] = {
+        "applied": False,
+        "reason": "web_thickness_not_provided",
+    }
+    if web_thickness is not None:
+        current, strip_index, parallel_completion = (
+            _complete_parallel_terminal_web_strip(
+                current,
+                faces,
+                source_entities=source_entities or [],
+                entity_source_ids=entity_source_ids,
+                long_axis=long_axis,
+                web_thickness=web_thickness,
+                grid_size=grid_size,
+            )
+        )
+        if strip_index is not None and strip_index not in used:
+            used.append(strip_index)
+
     before_regularization = current
     regularization_semantics = (
         analyse_projection_boundary(
@@ -1836,7 +2265,11 @@ def _complete_longitudinal_boundary_faces(
             polygon_shape("web-before-boundary-completion", "repair_removed", polygon),
             polygon_shape("web-after-boundary-completion", "repair_added", before_regularization),
         ),
-        payload={"merged_face_indices": used, "grid_size_mm": grid_size},
+        payload={
+            "merged_face_indices": used,
+            "grid_size_mm": grid_size,
+            "parallel_terminal_strip_completion": parallel_completion,
+        },
     )
     emit_trace(
         observer,
@@ -1854,6 +2287,7 @@ def _complete_longitudinal_boundary_faces(
     )
     return regularized, used, {
         "merged_face_indices": used,
+        "parallel_terminal_strip_completion": parallel_completion,
         "regularization": regularization,
     }
 
@@ -1974,6 +2408,7 @@ def select_web_polygon(
     hole_centers: list[Point2D],
     source_bbox: BoundingBox,
     clear_web_height: float | None = None,
+    web_thickness: float | None = None,
     observer: TraceObserver | None = None,
     hypothesis_id: str | None = None,
 ) -> PolygonizedResult:
@@ -2133,6 +2568,7 @@ def select_web_polygon(
                 long_axis=long_axis,
                 profile_height=profile_height,
                 nominal_length=nominal_length,
+                web_thickness=web_thickness,
                 grid_size=grid_size,
                 observer=observer,
                 hypothesis_id=hypothesis_id,
@@ -2308,7 +2744,8 @@ def select_flange_polygons(
     flange_width: float,
     nominal_length: float,
     source_bbox: BoundingBox,
-    retain_nested_projection_candidates: bool = False,
+    main_flange_spans: dict[str, float] | None = None,
+    manufacturing_tolerance_mm: float = 0.15,
     observer: TraceObserver | None = None,
     hypothesis_id: str | None = None,
 ) -> tuple[list[Polygon], float, dict[str, object]]:
@@ -2493,31 +2930,28 @@ def select_flange_polygons(
                 continue
             expanded_unique.append(expanded)
 
+        nested_projection_classification = "not_applicable"
         # Physical drawings contain at most the two H-section flange plates.
         chosen: list[Polygon] = expanded_unique[:2]
-        if len(chosen) == 1 and retain_nested_projection_candidates:
-            primary = chosen[0]
-            additional: list[Polygon] = []
-            for seed in seeds:
-                area_ratio = seed.area / max(primary.area, 1.0)
-                difference_ratio = seed.symmetric_difference(primary).area / max(primary.area, 1.0)
-                if area_ratio < 0.20 or difference_ratio < 0.02:
-                    continue
-                # The common guarded cleaning pass below owns simplification.
-                cleaned = seed
-                if any(_polygon_nearly_equal(cleaned, item) for item in additional):
-                    continue
-                additional.append(cleaned)
-            if additional:
-                # Prefer the largest simple plate; tiny overlap fragments are rejected.
-                additional.sort(
-                    key=lambda polygon: (
-                        len(list(polygon.exterior.coords)),
-                        -polygon.area,
-                    )
-                )
-                chosen.append(additional[0])
-
+        if len(chosen) == 1 and main_flange_spans:
+            recovered = _recover_source_backed_nested_flange_pair(
+                primary=chosen[0],
+                seeds=seeds,
+                entities=entities,
+                entity_source_ids=entity_source_ids,
+                long_axis=long_axis,
+                flange_width=flange_width,
+                main_flange_spans=main_flange_spans,
+                grid_size=grid_size,
+                manufacturing_tolerance_mm=manufacturing_tolerance_mm,
+            )
+            if recovered is not None:
+                chosen = list(recovered)
+                nested_projection_classification = "physical_pair"
+            elif len(seeds) > 1 or any(
+                not _polygon_nearly_equal(seed, chosen[0]) for seed in seeds
+            ):
+                nested_projection_classification = "projection_artifact"
         if not chosen:
             continue
         cleaning_repairs: list[dict[str, object]] = []
@@ -2575,7 +3009,23 @@ def select_flange_polygons(
             "expanded_lengths_mm": [_axis_lengths(item[0].bounds, long_axis)[0] for item in expanded_records],
             "selected_lengths_mm": [_axis_lengths(item.bounds, long_axis)[0] for item in chosen],
             "expanded_face_indices": [item[1] for item in expanded_records],
-            "nested_projection_candidates_enabled": retain_nested_projection_candidates,
+            "nested_projection_classification": nested_projection_classification,
+            "selected_rail_lengths_mm": [
+                list(rails)
+                if (
+                    rails := _longitudinal_rail_lengths(
+                        item,
+                        long_axis=long_axis,
+                        tolerance_mm=manufacturing_tolerance_mm,
+                    )
+                )
+                is not None
+                else []
+                for item in chosen
+            ],
+            "nested_pair_source_conserved": (
+                nested_projection_classification == "physical_pair"
+            ),
             "projection_boundary_repairs": [
                 decision.to_dict() for decision in rectangular_repairs
             ] + cleaning_repairs,
@@ -2644,3 +3094,4 @@ def flatten_bulge_contour(
                 )
             )
     return points
+

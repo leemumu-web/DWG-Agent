@@ -199,7 +199,12 @@ def _extract_graph_annotation_model(graph: DrawingGraph) -> AnnotationModel:
             continue
         value = node.attributes.get("value_mm")
         text = str(node.attributes.get("text") or value or "")
-        anchors = [edge for edge in alignment_edges if edge.source == node.node_id]
+        anchors = [
+            edge
+            for edge in alignment_edges
+            if edge.source == node.node_id
+            and edge.rule_id == "TEKLA.DIMENSION.PATTERN_START_CUT"
+        ]
         for edge in edges:
             model.dimensions.append(
                 DimensionObservation(
@@ -698,21 +703,55 @@ def annotation_consistency(
         )
         for item in selected_bolt_marks
     )
-    marked_count = sum(item.count for item in selected_bolt_marks)
-    actual_count = sum(len(plate.circular_cuts) for plate in assembly.plates)
-    actual_count += sum(
-        1
-        for plate in assembly.plates
+    actual_hole_capacity: dict[tuple[str, float], int] = {}
+    actual_count = 0
+    for plate in assembly.plates:
+        quantity = plate.quantity
+        region_id = str(plate.provenance.get("source_region_id") or "")
+        for cut in plate.circular_cuts:
+            diameter = round(cut.radius * 2.0, 3)
+            actual_count += quantity
+            if region_id:
+                key = (region_id, diameter)
+                actual_hole_capacity[key] = (
+                    actual_hole_capacity.get(key, 0) + quantity
+                )
         for sources, diameter in zip(
             plate.provenance.get("inner_contour_source_ids", []),
             plate.provenance.get("inner_contour_nominal_diameters_mm", []),
-        )
-        if sources and diameter is not None
-    )
+        ):
+            if not sources or diameter is None:
+                continue
+            normalized_diameter = round(float(diameter), 3)
+            actual_count += quantity
+            if region_id:
+                key = (region_id, normalized_diameter)
+                actual_hole_capacity[key] = (
+                    actual_hole_capacity.get(key, 0) + quantity
+                )
+    marked_count = sum(item.count for item in selected_bolt_marks)
+    marked_hole_demand: dict[tuple[str, float], int] = {}
+    bolt_mark_regions_unambiguous = True
+    for item in selected_bolt_marks:
+        if len(item.target_region_ids) != 1:
+            bolt_mark_regions_unambiguous = False
+            continue
+        region_id = item.target_region_ids[0]
+        if region_id not in selected_region_ids:
+            bolt_mark_regions_unambiguous = False
+            continue
+        key = (region_id, round(item.diameter, 3))
+        marked_hole_demand[key] = marked_hole_demand.get(key, 0) + item.count
     # A drawing may annotate only one view or only flange holes, so marked count
     # is supporting evidence rather than a strict equality constraint.
     bolt_mark_count_plausible = (
-        marked_count <= actual_count if selected_bolt_marks else True
+        bolt_mark_regions_unambiguous
+        and all(
+            marked <= actual_hole_capacity.get(key, 0)
+            for key, marked in marked_hole_demand.items()
+        )
+        if selected_bolt_marks
+        else True
     )
     selected_part_marks = [
         item

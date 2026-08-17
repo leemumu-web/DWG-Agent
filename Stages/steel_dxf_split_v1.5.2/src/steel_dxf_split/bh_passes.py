@@ -520,6 +520,7 @@ class ManufacturingIRPass:
             context.source_ir,
             context.frame_result.selected,
             preliminary.proof_report,
+            drawing_graph=context.drawing_graph,
             fit_tolerance_mm=context.knowledge.manufacturing_tolerance_mm,
         )
         context.manufacturing_validation = validate_bh_manufacturing_ir(

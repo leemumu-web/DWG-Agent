@@ -25,6 +25,7 @@ from .bh_geometry import (
 from .bh_development import assess_flange_development_semantics
 from .bh_knowledge import BHFlangeDevelopmentPolicy
 from .bh_models import BHAssembly, BHMetadata, BHPlate, BHPlateRole, CircularCut, Point2D
+from .bh_projection_semantics import analyse_projection_boundary, evaluate_boundary_repair
 from .geometry_types import BoundingBox
 from .bh_text import canonical_bh_label
 from .bh_trace import TraceObserver, emit_trace
@@ -470,9 +471,77 @@ def _main_flange_side_spans(
             continue
         if length < max(0.10 * nominal_length, 100.0):
             continue
+        adjacency_tolerance = max(0.15, 0.02 * flange_thickness)
+        adjacent_boundary_length = face.boundary.intersection(
+            web_polygon.boundary.buffer(
+                adjacency_tolerance,
+                cap_style=2,
+                join_style=2,
+            )
+        ).length
+        if adjacent_boundary_length < 0.80 * length:
+            continue
         side = "low" if _transverse_center(face.bounds, long_axis) < web_center else "high"
         spans[side] = max(spans.get(side, 0.0), length)
     return spans
+
+
+def _validated_direct_projection_rectangle(
+    *,
+    projected: Polygon,
+    entities: list[DXFEntity],
+    entity_source_ids: tuple[str, ...],
+    projection_grid_mm: float,
+    flange_axis: str,
+    flange_width: float,
+    main_flange_spans: dict[str, float],
+    manufacturing_tolerance_mm: float,
+) -> Polygon | None:
+    bounds = projected.bounds
+    projected_length = (
+        bounds[2] - bounds[0]
+        if flange_axis == "x"
+        else bounds[3] - bounds[1]
+    )
+    projected_width = (
+        bounds[3] - bounds[1]
+        if flange_axis == "x"
+        else bounds[2] - bounds[0]
+    )
+    bounding_area = projected_length * projected_width
+    geometry_supported = (
+        not projected.interiors
+        and bounding_area > 0.0
+        and projected.area / bounding_area >= 0.985
+        and abs(projected_width - flange_width) <= manufacturing_tolerance_mm
+        and any(
+            abs(span - projected_length) <= manufacturing_tolerance_mm
+            for span in main_flange_spans.values()
+        )
+    )
+    if not geometry_supported:
+        return None
+    if flange_axis == "x":
+        candidate = box(bounds[0], bounds[1], bounds[2], bounds[1] + flange_width)
+    else:
+        candidate = box(bounds[0], bounds[1], bounds[0] + flange_width, bounds[3])
+    boundary_tolerance = max(1e-7, projection_grid_mm * 0.51)
+    semantics = analyse_projection_boundary(
+        projected,
+        entities,
+        entity_source_ids=entity_source_ids,
+        association_tolerance_mm=boundary_tolerance,
+    )
+    if not semantics.direct_edges:
+        return None
+    decision = evaluate_boundary_repair(
+        projected,
+        candidate,
+        semantics,
+        fidelity_tolerance_mm=boundary_tolerance,
+        repair_kind="direct_flange_projection_rectangularization",
+    )
+    return candidate if decision.applied and not decision.lost_source_ids else None
 
 
 def _compact_bolt_line_side_counts(
@@ -922,6 +991,7 @@ def lower_bh_assembly(
             if not metadata.profile.is_variable_height
             else None
         ),
+        web_thickness=metadata.profile.web_thickness,
         observer=observer,
         hypothesis_id=hypothesis_id,
     )
@@ -1002,7 +1072,8 @@ def lower_bh_assembly(
         flange_width=metadata.profile.flange_width,
         nominal_length=metadata.nominal_length,
         source_bbox=flange.bbox,
-        retain_nested_projection_candidates=distinct_main_flange_spans,
+        main_flange_spans=main_flange_spans,
+        manufacturing_tolerance_mm=manufacturing_tolerance_mm,
         observer=observer,
         hypothesis_id=hypothesis_id,
     )
@@ -1116,6 +1187,26 @@ def lower_bh_assembly(
             shapes=polygon_shapes("flange-no-rigid-extension", "face_selected", flange_polygons),
             payload={"reason": "no_development_target"},
         )
+
+    # A direct flange projection can include a short end return that belongs
+    # to the assembled view rather than to the flat plate.  Rectangularize it
+    # only when the complete projection already supplies the fabrication
+    # length, the full profile width is present, and a main-view flange band
+    # independently reaches the same longitudinal extent.
+    if development is None and len(flange_polygons) == 1:
+        projected = flange_polygons[0]
+        validated_rectangle = _validated_direct_projection_rectangle(
+            projected=projected,
+            entities=flange.entities,
+            entity_source_ids=flange.entity_source_ids,
+            projection_grid_mm=flange_grid,
+            flange_axis=flange_axis,
+            flange_width=metadata.profile.flange_width,
+            main_flange_spans=main_flange_spans,
+            manufacturing_tolerance_mm=manufacturing_tolerance_mm,
+        )
+        if validated_rectangle is not None:
+            flange_polygons = [validated_rectangle]
 
     # Circles are classified on the source projection, where their centres
     # live.  A developed (rectangular) flange plate uses a local coordinate
@@ -1460,3 +1551,4 @@ def lower_bh_assembly(
         },
     )
     return assembly
+

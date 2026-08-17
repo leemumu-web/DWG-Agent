@@ -7,10 +7,12 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+from .bh_associations import DrawingEdgeKind, DrawingGraph
 from .bh_frames import LocalFrame
 from .bh_models import BHAssembly, BHPlate, BulgeContour
 from .bh_proofs import ProofReport, ProofStatus
 from .bh_source import SourceDocument
+from .bh_text import canonical_bh_label
 
 
 class EvidenceState(str, Enum):
@@ -94,6 +96,7 @@ class WeldAllowanceContract:
     rail_segment_ids: tuple[str, str]
     positive_terminal_segment_ids: tuple[str, ...]
     rule_ids: tuple[str, ...]
+    positive_terminal_cut_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,6 +110,9 @@ class WeldAllowanceContract:
             "rail_segment_ids": list(self.rail_segment_ids),
             "positive_terminal_segment_ids": list(
                 self.positive_terminal_segment_ids
+            ),
+            "positive_terminal_cut_ids": list(
+                self.positive_terminal_cut_ids
             ),
             "rule_ids": list(self.rule_ids),
         }
@@ -316,8 +322,7 @@ def _longitudinal_rail_contract(
         raise WeldAllowanceContractError(
             "Weld allowance contract requires horizontal or longitudinal rail topology."
         )
-    longest_span = max(span for _, span in longitudinal_spans)
-    minimum_dominant_span = max(0.25 * main_length, 0.5 * longest_span)
+    minimum_dominant_span = 0.25 * main_length
     rails = tuple(
         index
         for index, span in longitudinal_spans
@@ -775,6 +780,75 @@ def _proof_passed(proof_report: ProofReport, obligation_id: str) -> bool:
     )
 
 
+def _physical_flange_rail_lengths(plate: BHPlate) -> tuple[float, ...]:
+    """Return the selected physical flange's source-backed longitudinal rails."""
+
+    selection = plate.provenance.get("selection", {})
+    if not isinstance(selection, dict):
+        return ()
+    selected = selection.get("selected_rail_lengths_mm", ())
+    if not isinstance(selected, (list, tuple)):
+        return ()
+    try:
+        source_index = int(plate.provenance.get("source_index", 0)) - 1
+    except (TypeError, ValueError):
+        return ()
+    if not 0 <= source_index < len(selected):
+        return ()
+    rails = selected[source_index]
+    if not isinstance(rails, (list, tuple)):
+        return ()
+    try:
+        return tuple(float(value) for value in rails)
+    except (TypeError, ValueError):
+        return ()
+
+
+def _nested_physical_flange_role_indices(
+    flanges: list[BHPlate],
+    *,
+    high_span: object,
+    low_span: object,
+    tolerance_mm: float = 0.15,
+) -> tuple[int, int] | None:
+    """Resolve upper/lower roles from main-view spans and physical rails."""
+
+    if len(flanges) != 2:
+        return None
+    rail_sets = tuple(_physical_flange_rail_lengths(plate) for plate in flanges)
+    if any(not rails for rails in rail_sets):
+        return None
+
+    def matches(index: int, raw_span: object) -> bool:
+        if raw_span is None:
+            return False
+        try:
+            span = float(raw_span)
+        except (TypeError, ValueError):
+            return False
+        return min(abs(rail - span) for rail in rail_sets[index]) <= tolerance_mm
+
+    if high_span is not None and low_span is not None:
+        candidates = [
+            (upper_index, lower_index)
+            for upper_index, lower_index in ((0, 1), (1, 0))
+            if matches(upper_index, high_span) and matches(lower_index, low_span)
+        ]
+        return candidates[0] if len(candidates) == 1 else None
+
+    if high_span is not None:
+        upper_candidates = [index for index in (0, 1) if matches(index, high_span)]
+        if len(upper_candidates) == 1:
+            upper_index = upper_candidates[0]
+            return upper_index, 1 - upper_index
+    if low_span is not None:
+        lower_candidates = [index for index in (0, 1) if matches(index, low_span)]
+        if len(lower_candidates) == 1:
+            lower_index = lower_candidates[0]
+            return 1 - lower_index, lower_index
+    return None
+
+
 def _role_assignments(
     assembly: BHAssembly,
     proof_report: ProofReport,
@@ -857,7 +931,26 @@ def _role_assignments(
     spans = diagnostics.get("main_flange_side_spans_mm", {}) or {}
     high = spans.get("high")
     low = spans.get("low")
-    if high is not None and low is not None:
+    selection = flanges[0].provenance.get("selection", {})
+    nested_physical_pair = (
+        isinstance(selection, dict)
+        and selection.get("nested_projection_classification") == "physical_pair"
+        and selection.get("nested_pair_source_conserved") is True
+    )
+    if nested_physical_pair:
+        resolved_roles = _nested_physical_flange_role_indices(
+            flanges,
+            high_span=high,
+            low_span=low,
+        )
+        upper_index, lower_index = resolved_roles or (0, 1)
+        rule_id = "BH.RULE.FLANGE.PHYSICAL_RAIL_SIDE_CORRESPONDENCE"
+        state = (
+            EvidenceState.INFERRED
+            if resolved_roles is not None
+            else EvidenceState.MISSING
+        )
+    elif high is not None and low is not None:
         first, second = flanges
         direct_cost = abs(first.bbox.width - float(high)) + abs(
             second.bbox.width - float(low)
@@ -928,12 +1021,32 @@ def _role_assignments(
     return tuple(result)
 
 
+def canonical_manufacturing_role_label(
+    part_number: str,
+    role: ManufacturingPlateRole,
+    *,
+    merge_authorized: bool = False,
+) -> str:
+    """Return the one display label authorized by a final physical role."""
+
+    if role == ManufacturingPlateRole.WEB:
+        return canonical_bh_label(part_number, "web")
+    if merge_authorized:
+        return canonical_bh_label(part_number, "flange", quantity=2)
+    return canonical_bh_label(
+        part_number,
+        "flange",
+        index=(1 if role == ManufacturingPlateRole.UPPER_FLANGE else 2),
+    )
+
+
 def build_bh_manufacturing_ir(
     assembly: BHAssembly,
     source: SourceDocument,
     frame: LocalFrame,
     proof_report: ProofReport,
     *,
+    drawing_graph: DrawingGraph | None = None,
     fit_tolerance_mm: float = 0.15,
 ) -> BHManufacturingIR:
     """Freeze a mutable assembly into physical plates with feature evidence."""
@@ -1007,11 +1120,52 @@ def build_bh_manufacturing_ir(
             allowance_contract = derive_weld_allowance_contract(outer)
         except WeldAllowanceContractError:
             allowance_contract = None
+        if allowance_contract is not None and drawing_graph is not None:
+            region_id = str(plate.provenance.get("source_region_id") or "")
+            positive_source_ids = {
+                source_id
+                for edge in drawing_graph.edges_of(DrawingEdgeKind.ALIGNED_WITH)
+                if edge.rule_id == "TEKLA.DIMENSION.END_DATUM_CUT"
+                and edge.attributes.get("end_role") == "positive_x"
+                and edge.attributes.get("region_id") == region_id
+                for source_id in next(
+                    node
+                    for node in drawing_graph.nodes
+                    if node.node_id == edge.target
+                ).source_ids
+            }
+            positive_cut_ids = tuple(
+                cut.cut_id
+                for cut in cuts
+                if positive_source_ids.intersection(cut.evidence.source_ids)
+            )
+            allowance_contract = WeldAllowanceContract(
+                schema_version="BH-WELD-ALLOWANCE-CONTRACT-1.1",
+                coordinate_unit=allowance_contract.coordinate_unit,
+                longitudinal_axis=allowance_contract.longitudinal_axis,
+                main_length_mm=allowance_contract.main_length_mm,
+                allowance_mm=allowance_contract.allowance_mm,
+                stationary_end=allowance_contract.stationary_end,
+                movable_end=allowance_contract.movable_end,
+                rail_segment_ids=allowance_contract.rail_segment_ids,
+                positive_terminal_segment_ids=(
+                    allowance_contract.positive_terminal_segment_ids
+                ),
+                positive_terminal_cut_ids=positive_cut_ids,
+                rule_ids=(
+                    *allowance_contract.rule_ids,
+                    "BH.RULE.WELD_ALLOWANCE.DIMENSION_ENDPOINT_CUT_BINDING",
+                ),
+            )
         plates.append(
             BHPlateIR(
                 plate_id=f"{assembly.metadata.part_number}:{role_name}",
                 role=role,
-                label=plate.label,
+                label=canonical_manufacturing_role_label(
+                    assembly.metadata.part_number,
+                    role,
+                    merge_authorized=merge_authorized,
+                ),
                 material=assembly.metadata.material,
                 thickness_mm=plate.thickness,
                 quantity=1,
