@@ -55,27 +55,13 @@ import {
   type ExcelFinalTab,
 } from './model/excelFinalUrlState';
 import './components/ExcelFinalPage.css';
-
-const TASK_TYPE = 'process_excel_final';
-const ACTIVE_STATUSES = new Set(['queued', 'running']);
-const STATUS_COLOR: Record<string, string> = {
-  queued: 'warning',
-  running: 'processing',
-  succeeded: 'success',
-  failed: 'error',
-  cancelled: 'default',
-};
-const STATUS_TEXT: Record<string, string> = {
-  queued: '等待中',
-  running: '处理中',
-  succeeded: '已完成',
-  failed: '失败',
-  cancelled: '已取消',
-};
-
-function numberText(value: number | null | undefined, digits = 2): string {
-  return value == null ? '-' : value.toLocaleString('zh-CN', { maximumFractionDigits: digits });
-}
+import {
+  ACTIVE_STATUSES,
+  numberText,
+  STATUS_COLOR,
+  STATUS_TEXT,
+  TASK_TYPE,
+} from './excelFinalUi';
 
 export function ExcelFinalPage() {
   const { message } = App.useApp();
