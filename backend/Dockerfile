@@ -202,6 +202,8 @@ USER appuser
 # administrator performing dedicated reverse engineering.
 FROM runtime-base AS protected
 
+ARG PYPI_INDEX_URL=
+ENV UV_DEFAULT_INDEX=$PYPI_INDEX_URL
 COPY --from=bytecode-compiler /app/app /app/app
 COPY --from=bytecode-compiler /app/migrations /app/migrations
 COPY --from=bytecode-compiler /app/Stages /app/Stages
