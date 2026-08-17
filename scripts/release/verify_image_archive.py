@@ -106,6 +106,16 @@ def _is_business_source(name: str) -> bool:
     path = _normalized_member(name)
     if path.suffix != ".py":
         return False
+    # excel_stage3/yikongzhe 以独立 venv 方式保留源码(后端以子进程调用),
+    # 不属于被字节码化的业务源码。
+    if any(
+        prefix in path.parents
+        for prefix in (
+            PurePosixPath("app/Stages/excel_stage3"),
+            PurePosixPath("app/Stages/yikongzhe"),
+        )
+    ):
+        return False
     return any(path == root or root in path.parents for root in BUSINESS_ROOTS)
 
 
