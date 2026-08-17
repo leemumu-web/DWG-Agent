@@ -50,7 +50,11 @@ release_verify_protected_image() {
             echo "Excel samples remain in protected image" >&2
             exit 42
         fi
-        test_count=$(find /app/Stages -type d \( -name tests -o -name test \) | wc -l)
+        # excel_stage3/yikongzhe 以独立 venv 保留,venv 内第三方库自带
+        # tests(如 numpy/shapely)不属于业务 Stage 测试,校验时排除。
+        test_count=$(find /app/Stages -type d \( -name tests -o -name test \) \
+            ! -path "*/excel_stage3/.venv/*" \
+            ! -path "*/yikongzhe/.venv/*" | wc -l)
         if [ "$test_count" -ne 0 ]; then
             echo "Stage tests remain in protected image" >&2
             exit 43
