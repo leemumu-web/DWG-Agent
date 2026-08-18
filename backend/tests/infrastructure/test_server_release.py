@@ -285,7 +285,7 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
 
 def test_server_recovery_starts_dependency_tiers_before_the_full_stack():
     server = SERVER_SCRIPT.read_text(encoding="utf-8")
-    assert "exactly 16 services" in server
+    assert "exactly 17 services" in server
 
     recovery = server[server.index("server_recover()") : server.index("server_enable_service()")]
     storage_up = recovery.index('server_compose "$target" up -d --no-build mysql minio')
@@ -738,7 +738,10 @@ def test_runtime_feature_verifier_accepts_only_the_approved_matrix():
     assert accepted.returncode == 0, accepted.stderr
     payload = json.loads(accepted.stdout)
     assert payload["status"] == "ok"
-    assert payload["always_on_capabilities"] == {"excel_stage2": True}
+    assert payload["always_on_capabilities"] == {
+        "excel_stage2": True,
+        "excel_stage3": True,
+    }
     assert rejected.returncode == 1
     assert "remnant_inventory_enabled" in rejected.stderr
     for secret in ("mysql-runtime-secret", "jwt-runtime-secret"):
