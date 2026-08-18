@@ -79,6 +79,8 @@ Thumbs.db
 
 # --- Local working data (test files, docs, CAD samples — never commit) ---
 Data/
+# 本轮 BH/BOX 比例与翼缘规则验收输入（85 张 DXF，约 300 MB）
+/准备优化的目标图纸/
 # CAD samples & pipeline intermediates in excel_final
 /Stages/excel_final/data/
 # Ad-hoc analysis bundles (zips, unpacked samples, repro scripts)
