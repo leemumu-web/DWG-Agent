@@ -26,17 +26,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - name: Install Node.js 22
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend and browser dependencies
-        run: |
-          cd frontend
-          npm ci
-          npx playwright install --with-deps chromium
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - name: Build protected backend image
@@ -66,13 +55,3 @@ jobs:
           cache-to: type=gha,mode=max,scope=protected-frontend
       - name: Validate protected runtime and full stack
         run: bash scripts/ci/run_container_validation.sh
-      - name: Upload browser diagnostics after failure
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            frontend/test-results
-            frontend/playwright-report
-          if-no-files-found: ignore
-          retention-days: 7
