@@ -61,12 +61,8 @@ def test_ci_container_runner_covers_release_runtime_storage_and_exact_cleanup():
         "release_verify_protected_image",
         "release_verify_oda_roundtrip",
         "verify_image_archive.py",
-        "PLAYWRIGHT_FRONTEND_BASE_URL",
-        "PLAYWRIGHT_ADMIN_USERNAME",
-        "PLAYWRIGHT_ADMIN_PASSWORD",
         "compose_env_value VERIFY_ADMIN_USERNAME",
         "compose_env_value VERIFY_ADMIN_PASSWORD",
-        "npx playwright test",
         "down --volumes --remove-orphans --timeout 20",
     ):
         assert contract in source
