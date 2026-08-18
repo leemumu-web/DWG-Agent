@@ -38,6 +38,7 @@ PIPELINE_QUEUE_MAP = {
     "dxf2excel": "dxf2excel",
     "excel_final": "excel_final",
     "excel_stage2": "excel_stage2",
+    "excel_stage3": "excel_stage3",
     "zwcad_worker": "cad",
 }
 

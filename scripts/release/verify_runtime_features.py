@@ -12,17 +12,15 @@ import json
 import sys
 from pathlib import Path
 
-
 repository_root = Path(__file__).resolve().parents[2]
 application_root = (
     repository_root if (repository_root / "app").is_dir() else repository_root / "backend"
 )
 sys.path.insert(0, str(application_root))
 
-from app.platform.config.settings import settings
 from app.modules.operations.control_plane.service import PIPELINE_QUEUE_MAP
 from app.modules.workflows.templates import WORKFLOW_TEMPLATES
-
+from app.platform.config.settings import settings
 
 EXPECTED: dict[str, bool] = {
     "dxf_pipeline_enabled": True,
@@ -63,12 +61,28 @@ def main() -> int:
     if not stage2_ready:
         print("Excel 第二阶段常开能力的模板或队列路由不完整。", file=sys.stderr)
         return 1
+    stage3 = next(
+        (stage for stage in production_template.stages if stage.code == "excel_stage3"),
+        None,
+    )
+    stage3_ready = bool(
+        stage3 is not None
+        and stage3.implementation_status == "implemented"
+        and stage3.execution_kind == "excel_stage3"
+        and PIPELINE_QUEUE_MAP.get("excel_stage3") == "excel_stage3"
+    )
+    if not stage3_ready:
+        print("Excel 第三阶段常开能力的模板或队列路由不完整。", file=sys.stderr)
+        return 1
     print(
         json.dumps(
             {
                 "status": "ok",
                 "features": actual,
-                "always_on_capabilities": {"excel_stage2": True},
+                "always_on_capabilities": {
+                    "excel_stage2": True,
+                    "excel_stage3": True,
+                },
             },
             ensure_ascii=False,
             sort_keys=True,

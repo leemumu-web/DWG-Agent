@@ -92,6 +92,18 @@ jobs:
             directory: Stages/remnant_drawing_reader
           - name: Steel DXF Classifier
             directory: Stages/steel_dxf_classifier_v1.1.0
+          - name: BOX Left-Right Reader
+            directory: Stages/BOX左右进读取
+            command: uv run box-reader --help >/dev/null
+          - name: Steel DXF Split
+            directory: Stages/steel_dxf_split_v1.5.2
+            command: uv run python -m steel_dxf_split.cli --help >/dev/null
+          - name: Excel Stage 3
+            directory: Stages/excel_stage3
+            command: uv run python -m excel_stage3 --help >/dev/null
+          - name: Yikongzhe
+            directory: Stages/yikongzhe
+            command: uv run python -m yikongzhe --help >/dev/null
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -105,9 +117,14 @@ jobs:
       - name: Install locked Stage dependencies
         working-directory: ${{ matrix.directory }}
         run: uv sync --frozen
-      - name: Run Stage tests
+      - name: Run Stage checks
         working-directory: ${{ matrix.directory }}
-        run: uv run pytest -q
+        run: |
+          if [[ -n "${{ matrix.command }}" ]]; then
+            ${{ matrix.command }}
+          else
+            uv run pytest -q
+          fi
 
   frontend:
     name: Frontend production build
