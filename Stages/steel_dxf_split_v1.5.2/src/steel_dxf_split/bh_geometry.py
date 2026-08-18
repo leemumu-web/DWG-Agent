@@ -711,6 +711,7 @@ def estimate_flange_developments(
     flange_thickness: float,
     source_projection_length: float,
     variable_height: bool,
+    source_course_spans: dict[str, float] | None = None,
     development_policy: BHFlangeDevelopmentPolicy,
     development_profile_id: str,
     manufacturing_tolerance_mm: float,
@@ -799,6 +800,33 @@ def estimate_flange_developments(
         measurement["side"] = "positive" if side > 0 else "negative"
         details.append(measurement)
 
+    if (
+        source_course_spans is not None
+        and set(source_course_spans) == {"low", "high"}
+        and all(float(value) > 0.0 for value in source_course_spans.values())
+    ):
+        # Direct plate-edge/bevel-course pairs are independent of precision
+        # polygonisation.  They implement the drawing rule "read the longer
+        # edge, not the shorter bevel course" and replace incomplete or fused
+        # thin-face measurements as one coherent two-side evidence set.
+        details = [
+            {
+                "method": "source_course_pair",
+                "straight": True,
+                "raw_length": float(source_course_spans[side_name]),
+                "path_lengths": (
+                    float(source_course_spans[side_name]),
+                    float(source_course_spans[side_name]),
+                ),
+                "axis_angle_deg": 0.0 if long_axis == "x" else 90.0,
+                "observed_strip_thickness_mm": float(flange_thickness),
+                "rectangular_fill_ratio": 1.0,
+                "side": "positive" if side_name == "high" else "negative",
+                "evidence": "direct_source_plate_edge_and_bevel_course_pair",
+            }
+            for side_name in ("low", "high")
+        ]
+
     if len(details) < 2:
         return traced(FlangeDevelopmentEstimate(
             mode="projection_only",
@@ -825,7 +853,8 @@ def estimate_flange_developments(
         )
         valid_straight_strips = tuple(
             bool(item.get("straight"))
-            and item.get("method") == "straight_strip_projection"
+            and item.get("method")
+            in {"straight_strip_projection", "source_course_pair"}
             and item.get("observed_strip_thickness_mm") is not None
             and abs(
                 _numeric_measurement(item, "observed_strip_thickness_mm")
@@ -889,6 +918,43 @@ def estimate_flange_developments(
     raw_lengths = tuple(
         _numeric_measurement(item, "raw_length") for item in ordered_details
     )
+    equal_source_course_pair = (
+        all(item.get("method") == "source_course_pair" for item in ordered_details)
+        and max(raw_lengths) - min(raw_lengths) <= manufacturing_tolerance_mm
+        and source_projection_length - max(raw_lengths)
+        > max(5.0, 0.005 * nominal_length)
+    )
+    if equal_source_course_pair:
+        # Two equal plate-edge/bevel-course pairs represent one unique flange
+        # geometry with quantity two.  The longer fused projection is only the
+        # envelope of their offset assembly positions, not a plate boundary.
+        target = max(raw_lengths)
+        profile_authorized = development_policy.authorizes_profile(
+            development_profile_id
+        )
+        certificate = {
+            "authorized": profile_authorized,
+            "certificate_kind": "constant_height_two_flange_paths",
+            "raw_lengths_mm": list(raw_lengths),
+            "quantized_lengths_mm": [target],
+            "direct_projection_flags": [False, False],
+            "valid_straight_strip_flags": [True, True],
+            "strip_tolerance_mm": max(
+                float(manufacturing_tolerance_mm),
+                0.02 * float(flange_thickness),
+            ),
+            "source_projection_length_mm": source_projection_length,
+            "unique_geometry_count": 1,
+            "policy": asdict(development_policy),
+        }
+        return traced(FlangeDevelopmentEstimate(
+            mode="constant_height_two_flange_paths",
+            target_lengths=(target,),
+            raw_lengths=raw_lengths,
+            source_projection_length=source_projection_length,
+            details=ordered_details,
+            certificate=certificate,
+        ))
     if max(raw_lengths) - min(raw_lengths) > max(
         5.0,
         0.005 * nominal_length,
@@ -899,7 +965,8 @@ def estimate_flange_developments(
         )
         valid_straight_strips = tuple(
             bool(item.get("straight"))
-            and item.get("method") == "straight_strip_projection"
+            and item.get("method")
+            in {"straight_strip_projection", "source_course_pair"}
             and item.get("observed_strip_thickness_mm") is not None
             and abs(
                 _numeric_measurement(item, "observed_strip_thickness_mm")

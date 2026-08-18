@@ -25,6 +25,7 @@
 - `test_bh_annotation_physical_hole_capacity.py` 锁定 BH 标注物理孔容量校验；
 - `test_bh_dimension_ordering_regression.py` 锁定 BH 尺寸排序回归；
 - `test_bh_flange_projection_regressions.py` 锁定 BH 翼缘投影(嵌套投影、同长端步)回归；
+- `test_bh_main_flange_course_authority.py` 锁定 BH 翼缘主边界来源权威与等长合并回归；
 - `test_bh_manufacturing_ir.py` 锁定 BH 制造 IR 的角色标签契约；
 - `test_bh_nested_physical_flange_supervision.py` 锁定嵌套物理翼缘与手工标准几何比对；
 - `test_bh_weld_allowance_feature_binding.py` 锁定焊接余量特征绑定与切面契约。
