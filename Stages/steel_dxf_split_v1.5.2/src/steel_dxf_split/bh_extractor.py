@@ -20,6 +20,7 @@ from .bh_geometry import (
     polygon_to_bulge_contours,
     select_flange_polygons,
     select_web_polygon,
+    solid_part_entities,
     source_arcs,
 )
 from .bh_development import assess_flange_development_semantics
@@ -585,6 +586,101 @@ def _main_flange_side_spans(
     return spans
 
 
+def _source_backed_main_flange_side_spans(
+    entities: list[DXFEntity],
+    web_polygon: Polygon,
+    *,
+    long_axis: str,
+    flange_thickness: float,
+    nominal_length: float,
+    manufacturing_tolerance_mm: float,
+) -> dict[str, float]:
+    """Read each flange's longer edge from a complete source-course pair.
+
+    A longitudinal BH view exposes two courses on each side of the clear web:
+    the plate edge and its bevel-side course.  Polygonisation can merge either
+    thin strip into the web depending on the precision grid, so these four
+    direct source lines are the stable authority.  A side is admitted only
+    when both courses exist one flange thickness apart and substantially
+    overlap; isolated internal or auxiliary lines cannot create a flange.
+    """
+
+    if long_axis not in {"x", "y"} or flange_thickness <= 0.0:
+        return {}
+    bounds = web_polygon.bounds
+    web_low = bounds[1] if long_axis == "x" else bounds[0]
+    web_high = bounds[3] if long_axis == "x" else bounds[2]
+    expected_courses = {
+        "low": (web_low - flange_thickness, web_low),
+        "high": (web_high, web_high + flange_thickness),
+    }
+    position_tolerance = max(
+        manufacturing_tolerance_mm,
+        0.02 * flange_thickness,
+    )
+    minimum_span = max(100.0, 0.10 * nominal_length)
+    intervals: dict[str, list[list[tuple[float, float]]]] = {
+        side: [[], []] for side in expected_courses
+    }
+
+    for entity in solid_part_entities(entities):
+        if entity.dxftype() != "LINE":
+            continue
+        start = entity.dxf.start
+        end = entity.dxf.end
+        start_long = float(start.x if long_axis == "x" else start.y)
+        end_long = float(end.x if long_axis == "x" else end.y)
+        start_transverse = float(start.y if long_axis == "x" else start.x)
+        end_transverse = float(end.y if long_axis == "x" else end.x)
+        longitudinal_span = abs(end_long - start_long)
+        if (
+            longitudinal_span < minimum_span
+            or abs(end_transverse - start_transverse) > position_tolerance
+        ):
+            continue
+        transverse = 0.5 * (start_transverse + end_transverse)
+        matches = [
+            (side, index)
+            for side, positions in expected_courses.items()
+            for index, position in enumerate(positions)
+            if abs(transverse - position) <= position_tolerance
+        ]
+        if len(matches) != 1:
+            continue
+        side, index = matches[0]
+        intervals[side][index].append(
+            (min(start_long, end_long), max(start_long, end_long))
+        )
+
+    def longest_continuous_interval(
+        rows: list[tuple[float, float]],
+    ) -> tuple[float, float] | None:
+        if not rows:
+            return None
+        merged: list[list[float]] = []
+        for low, high in sorted(rows):
+            if merged and low <= merged[-1][1] + position_tolerance:
+                merged[-1][1] = max(merged[-1][1], high)
+            else:
+                merged.append([low, high])
+        low, high = max(merged, key=lambda row: row[1] - row[0])
+        return low, high
+
+    spans: dict[str, float] = {}
+    for side, course_rows in intervals.items():
+        first = longest_continuous_interval(course_rows[0])
+        second = longest_continuous_interval(course_rows[1])
+        if first is None or second is None:
+            continue
+        first_length = first[1] - first[0]
+        second_length = second[1] - second[0]
+        overlap = min(first[1], second[1]) - max(first[0], second[0])
+        if overlap < 0.80 * min(first_length, second_length):
+            continue
+        spans[side] = max(first_length, second_length)
+    return spans
+
+
 def _validated_direct_projection_rectangle(
     *,
     projected: Polygon,
@@ -786,6 +882,7 @@ def _assign_flange_cuts(
     flange_thickness: float,
     main_long_axis: str,
     flange_long_axis: str,
+    main_flange_spans: dict[str, float] | None = None,
     polygonal_opening_count: int = 0,
     observer: TraceObserver | None = None,
     hypothesis_id: str | None = None,
@@ -809,12 +906,16 @@ def _assign_flange_cuts(
                 f"Flange cut at ({cut.center.x:.3f}, {cut.center.y:.3f}) is outside all flange candidates."
             )
 
-    spans = _main_flange_side_spans(
-        all_main_faces,
-        web_polygon,
-        long_axis=main_long_axis,
-        flange_thickness=flange_thickness,
-        nominal_length=nominal_length,
+    spans = (
+        dict(main_flange_spans)
+        if main_flange_spans is not None
+        else _main_flange_side_spans(
+            all_main_faces,
+            web_polygon,
+            long_axis=main_long_axis,
+            flange_thickness=flange_thickness,
+            nominal_length=nominal_length,
+        )
     )
     side_counts = _compact_bolt_line_side_counts(
         instances,
@@ -1183,17 +1284,39 @@ def lower_bh_assembly(
     )
 
     web_axis = choose_long_axis(main.bbox, metadata.nominal_length)
-    main_flange_spans = _main_flange_side_spans(
+    face_main_flange_spans = _main_flange_side_spans(
         web_result.all_faces,
         web_result.polygon,
         long_axis=web_axis,
         flange_thickness=metadata.profile.flange_thickness,
         nominal_length=metadata.nominal_length,
     )
-    span_values = tuple(sorted(main_flange_spans.values()))
-    distinct_main_flange_spans = (
-        len(span_values) == 2
-        and (span_values[1] - span_values[0])
+    source_course_spans = _source_backed_main_flange_side_spans(
+        main.entities,
+        web_result.polygon,
+        long_axis=web_axis,
+        flange_thickness=metadata.profile.flange_thickness,
+        nominal_length=metadata.nominal_length,
+        manufacturing_tolerance_mm=manufacturing_tolerance_mm,
+    )
+    course_span_values = tuple(sorted(source_course_spans.values()))
+    complete_source_course_spans = (
+        set(source_course_spans) == {"low", "high"}
+    )
+    distinct_source_course_spans = (
+        len(course_span_values) == 2
+        and (course_span_values[1] - course_span_values[0])
+        > max(5.0, 0.005 * metadata.nominal_length)
+    )
+    equivalent_source_course_spans = (
+        len(course_span_values) == 2
+        and (course_span_values[1] - course_span_values[0])
+        <= manufacturing_tolerance_mm
+    )
+    face_span_values = tuple(sorted(face_main_flange_spans.values()))
+    distinct_face_spans = (
+        len(face_span_values) == 2
+        and (face_span_values[1] - face_span_values[0])
         > max(5.0, 0.005 * metadata.nominal_length)
     )
     flange_polygons, flange_grid, flange_selection = select_flange_polygons(
@@ -1203,7 +1326,10 @@ def lower_bh_assembly(
         flange_width=metadata.profile.flange_width,
         nominal_length=metadata.nominal_length,
         source_bbox=flange.bbox,
-        main_flange_spans=main_flange_spans,
+        # Physical/nested flange selection keeps its established face-backed
+        # evidence.  Source-course recovery is a later development fallback;
+        # feeding it back here could flatten a genuine chamfered source plate.
+        main_flange_spans=face_main_flange_spans,
         manufacturing_tolerance_mm=manufacturing_tolerance_mm,
         observer=observer,
         hypothesis_id=hypothesis_id,
@@ -1218,10 +1344,47 @@ def lower_bh_assembly(
     source_projection_length = (
         first_bounds[2] - first_bounds[0] if flange_axis == "x" else first_bounds[3] - first_bounds[1]
     )
+    source_projection_overrun = (
+        complete_source_course_spans
+        and source_projection_length - max(course_span_values)
+        > max(5.0, 0.005 * metadata.nominal_length)
+    )
+    use_source_course_spans = (
+        complete_source_course_spans
+        and not distinct_face_spans
+        and (
+            distinct_source_course_spans
+            or (
+                equivalent_source_course_spans
+                and source_projection_overrun
+            )
+        )
+    )
+    # A complete four-course source pattern is more stable than polygon faces
+    # whose topology changes with precision-grid phase.  Different course
+    # lengths prove two distinct plates; equivalent course lengths also take
+    # authority when the direct projection is a longer fused envelope.
+    main_flange_spans = (
+        source_course_spans
+        if use_source_course_spans
+        else face_main_flange_spans
+    )
+    span_values = tuple(sorted(main_flange_spans.values()))
+    distinct_main_flange_spans = (
+        len(span_values) == 2
+        and (span_values[1] - span_values[0])
+        > max(5.0, 0.005 * metadata.nominal_length)
+    )
+    equal_course_projection_recovery = (
+        use_source_course_spans
+        and equivalent_source_course_spans
+        and source_projection_overrun
+    )
     needs_development = (
         metadata.profile.is_variable_height
         or actual_web_transverse > metadata.profile.max_height + 1.0
         or distinct_main_flange_spans
+        or equal_course_projection_recovery
     )
     development = None
     source_flange_polygons = flange_polygons[:]
@@ -1234,6 +1397,11 @@ def lower_bh_assembly(
             flange_thickness=metadata.profile.flange_thickness,
             source_projection_length=source_projection_length,
             variable_height=metadata.profile.is_variable_height,
+            source_course_spans=(
+                source_course_spans
+                if use_source_course_spans
+                else None
+            ),
             development_policy=flange_development_policy,
             development_profile_id=development_profile_id,
             manufacturing_tolerance_mm=manufacturing_tolerance_mm,
@@ -1385,6 +1553,7 @@ def lower_bh_assembly(
         flange_thickness=metadata.profile.flange_thickness,
         main_long_axis=web_axis,
         flange_long_axis=flange_axis,
+        main_flange_spans=main_flange_spans,
         polygonal_opening_count=len(flange_openings),
         observer=observer,
         hypothesis_id=hypothesis_id,
