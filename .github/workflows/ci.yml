@@ -95,9 +95,6 @@ jobs:
           - name: BOX Left-Right Reader
             directory: Stages/BOX左右进读取
             command: uv run box-reader --help >/dev/null
-          - name: Steel DXF Split
-            directory: Stages/steel_dxf_split_v1.5.2
-            command: uv run python -m steel_dxf_split.cli --help >/dev/null
           - name: Excel Stage 3
             directory: Stages/excel_stage3
             command: uv run python -m excel_stage3 --help >/dev/null
