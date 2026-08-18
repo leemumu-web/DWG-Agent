@@ -598,6 +598,7 @@ def _source_backed_main_flange_side_spans(
     nominal_length: float,
     manufacturing_tolerance_mm: float,
     outer_endpoint_envelope: bool = False,
+    require_parallel_endpoint_shifts: bool = True,
 ) -> dict[str, float]:
     """Read each flange's longer edge from a complete source-course pair.
 
@@ -607,9 +608,12 @@ def _source_backed_main_flange_side_spans(
     direct source lines are the stable authority.  A side is admitted only
     when both courses exist one flange thickness apart and substantially
     overlap; isolated internal or auxiliary lines cannot create a flange.
-    For a proved parallel bevel pair, ``outer_endpoint_envelope`` measures
-    between the outside end points of those same two courses.  It never uses
-    the longer overall projection/member span as the flange length.
+    For a proved bevel pair, ``outer_endpoint_envelope`` measures between the
+    outside end points of those same two courses.  Parallel endpoint shifts
+    remain the default proof; callers may relax that one condition only when
+    an independent two-side expansion bound proves the resulting envelope.
+    It never uses the longer overall projection/member span as the flange
+    length.
     """
 
     if long_axis not in {"x", "y"} or flange_thickness <= 0.0:
@@ -687,7 +691,10 @@ def _source_backed_main_flange_side_spans(
         if outer_endpoint_envelope:
             start_shift = second[0] - first[0]
             end_shift = second[1] - first[1]
-            if abs(start_shift - end_shift) > position_tolerance:
+            if (
+                require_parallel_endpoint_shifts
+                and abs(start_shift - end_shift) > position_tolerance
+            ):
                 continue
             spans[side] = max(first[1], second[1]) - min(first[0], second[0])
         else:
@@ -1364,9 +1371,9 @@ def lower_bh_assembly(
         > max(5.0, 0.005 * metadata.nominal_length)
     )
     equal_course_outer_endpoint_spans: dict[str, float] = {}
+    distinct_course_outer_endpoint_spans: dict[str, float] = {}
     if (
-        equivalent_source_course_spans
-        and source_projection_overrun
+        complete_source_course_spans
         and flange_development_policy.authorizes_profile(development_profile_id)
     ):
         raw_outer_spans = _source_backed_main_flange_side_spans(
@@ -1377,12 +1384,9 @@ def lower_bh_assembly(
             nominal_length=metadata.nominal_length,
             manufacturing_tolerance_mm=manufacturing_tolerance_mm,
             outer_endpoint_envelope=True,
+            require_parallel_endpoint_shifts=not distinct_source_course_spans,
         )
-        if (
-            set(raw_outer_spans) == {"low", "high"}
-            and abs(raw_outer_spans["low"] - raw_outer_spans["high"])
-            <= manufacturing_tolerance_mm
-        ):
+        if set(raw_outer_spans) == {"low", "high"}:
             quantized_outer_spans = {
                 side: quantize_derived_flange_length(
                     value,
@@ -1390,13 +1394,41 @@ def lower_bh_assembly(
                 )
                 for side, value in raw_outer_spans.items()
             }
-            if (
-                abs(quantized_outer_spans["low"] - quantized_outer_spans["high"])
+            if equivalent_source_course_spans and source_projection_overrun and (
+                abs(raw_outer_spans["low"] - raw_outer_spans["high"])
+                <= manufacturing_tolerance_mm
+                and abs(
+                    quantized_outer_spans["low"]
+                    - quantized_outer_spans["high"]
+                )
                 <= manufacturing_tolerance_mm
             ):
                 equal_course_outer_endpoint_spans = quantized_outer_spans
+            elif distinct_source_course_spans:
+                outer_expansions = {
+                    side: raw_outer_spans[side] - source_course_spans[side]
+                    for side in ("low", "high")
+                }
+                expansion_tolerance = max(
+                    manufacturing_tolerance_mm,
+                    0.02 * metadata.profile.flange_thickness,
+                )
+                if (
+                    max(outer_expansions.values()) > expansion_tolerance
+                    and abs(
+                        outer_expansions["low"] - outer_expansions["high"]
+                    )
+                    <= expansion_tolerance
+                ):
+                    # Keep the raw envelope so the development stage can
+                    # preserve a direct source projection before flooring a
+                    # genuinely derived side.
+                    distinct_course_outer_endpoint_spans = raw_outer_spans
     equal_course_outer_endpoint_recovery = bool(
         equal_course_outer_endpoint_spans
+    )
+    distinct_course_outer_endpoint_recovery = bool(
+        distinct_course_outer_endpoint_spans
     )
     use_source_course_spans = (
         complete_source_course_spans
@@ -1408,12 +1440,14 @@ def lower_bh_assembly(
     )
     # A complete four-course source pattern is more stable than polygon faces
     # whose topology changes with precision-grid phase.  Different course
-    # lengths prove two distinct plates.  For equivalent parallel bevel pairs,
-    # measure only between the outside end points of each flange's two source
-    # courses; the longer overall projection remains non-authoritative.
+    # lengths prove two distinct plates.  When the paired source courses show
+    # a proved outer-end recovery, measure only between their outside end
+    # points; the longer overall projection remains non-authoritative.
     development_source_course_spans = (
         equal_course_outer_endpoint_spans
         if equal_course_outer_endpoint_recovery
+        else distinct_course_outer_endpoint_spans
+        if distinct_course_outer_endpoint_recovery
         else source_course_spans
     )
     main_flange_spans = (
@@ -1427,15 +1461,18 @@ def lower_bh_assembly(
         and (span_values[1] - span_values[0])
         > max(5.0, 0.005 * metadata.nominal_length)
     )
-    equal_course_projection_recovery = (
+    outer_endpoint_projection_recovery = (
         use_source_course_spans
-        and equal_course_outer_endpoint_recovery
+        and (
+            equal_course_outer_endpoint_recovery
+            or distinct_course_outer_endpoint_recovery
+        )
     )
     needs_development = (
         metadata.profile.is_variable_height
         or actual_web_transverse > metadata.profile.max_height + 1.0
         or distinct_main_flange_spans
-        or equal_course_projection_recovery
+        or outer_endpoint_projection_recovery
     )
     development = None
     source_flange_polygons = flange_polygons[:]

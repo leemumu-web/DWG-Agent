@@ -100,6 +100,42 @@ def test_parallel_bevel_courses_use_their_outer_endpoint_envelope() -> None:
     assert spans == pytest.approx({"low": 1000.0, "high": 1000.0})
 
 
+def test_outer_endpoint_envelope_can_recover_a_nonparallel_pair_explicitly() -> None:
+    web = box(0.0, 14.0, 1000.0, 286.0)
+    entities = _part_lines(
+        (
+            ((3.6, 0.0), (996.4, 0.0)),
+            ((0.0, 14.0), (1000.0, 14.0)),
+            ((50.0, 286.0), (1046.4, 286.0)),
+            ((53.6, 300.0), (1050.0, 300.0)),
+        )
+    )
+
+    strict_spans = _source_backed_main_flange_side_spans(
+        entities,
+        web,
+        long_axis="x",
+        flange_thickness=14.0,
+        nominal_length=1000.0,
+        manufacturing_tolerance_mm=0.15,
+        outer_endpoint_envelope=True,
+    )
+    assert strict_spans == pytest.approx({"high": 1000.0})
+
+    spans = _source_backed_main_flange_side_spans(
+        entities,
+        web,
+        long_axis="x",
+        flange_thickness=14.0,
+        nominal_length=1000.0,
+        manufacturing_tolerance_mm=0.15,
+        outer_endpoint_envelope=True,
+        require_parallel_endpoint_shifts=False,
+    )
+
+    assert spans == pytest.approx({"low": 1000.0, "high": 1000.0})
+
+
 def _fixture_root() -> Path:
     configured = os.environ.get("DWG_AGENT_BH_MAIN_COURSE_FIXTURE_ROOT")
     if not configured:
@@ -151,10 +187,11 @@ def _flange_lengths(compiled) -> dict[ManufacturingPlateRole, float]:
     (
         (55, 3636.337977, 3561.0),
         (56, 2455.0, 2530.517),
-        (68, 2833.0, 2919.0),
+        (29, 1174.498357, 1099.0),
+        (68, 2836.0, 2923.0),
     ),
 )
-def test_main_course_authority_keeps_cb56_and_repairs_cb55_cb68(
+def test_main_course_authority_preserves_known_distinct_flange_lengths(
     sample: int,
     expected_upper: float,
     expected_lower: float,
@@ -165,6 +202,18 @@ def test_main_course_authority_keeps_cb56_and_repairs_cb55_cb68(
         {
             ManufacturingPlateRole.UPPER_FLANGE: expected_upper,
             ManufacturingPlateRole.LOWER_FLANGE: expected_lower,
+        },
+        abs=0.02,
+    )
+
+
+def test_distinct_source_course_bevel_uses_outer_endpoint_envelope() -> None:
+    lengths = _flange_lengths(_compile(27))
+
+    assert lengths == pytest.approx(
+        {
+            ManufacturingPlateRole.UPPER_FLANGE: 1374.699187,
+            ManufacturingPlateRole.LOWER_FLANGE: 1299.0,
         },
         abs=0.02,
     )
