@@ -6,8 +6,8 @@ from itertools import combinations
 from math import hypot
 import ezdxf
 from ezdxf.entities import DXFEntity, Insert
-from shapely.geometry import LineString, Point, Polygon, box
-from shapely.ops import unary_union
+from shapely.geometry import LineString, MultiLineString, Point, Polygon, box
+from shapely.ops import linemerge, nearest_points, unary_union
 
 from .bh_bolt_semantics import opening_nominal_width, polygonize_closed_bolt_linework
 
@@ -103,16 +103,7 @@ class _BoltSymbolStroke:
 def _edge_view_symbol_centers(
     strokes: list[_BoltSymbolStroke],
 ) -> list[Point2D]:
-    """Recognize Tekla's symmetric three-stroke edge-view bolt symbol.
-
-    几何门限（误识别会把中心十字误当孔或漏孔，直接影响孔洞归属）：
-    0.05 —— 三笔方向平行度容差（叉积判平行）；
-    0.2  —— 两间隙的相对不对称上限（排除不等距箭头形符号）；
-    0.15 —— 左右外笔长度相对差上限；
-    0.08 —— 中笔必须显著长于外笔均值（区分中心短划与等长三笔）；
-    0.5  —— 三笔切向散布上限（排除过长散布的组合）；
-    1.0mm —— 去重距离（同一中心只记一个孔）。
-    """
+    """Recognize Tekla's symmetric three-stroke edge-view bolt symbol."""
 
     result: list[Point2D] = []
     for triple in combinations(strokes, 3):
@@ -362,6 +353,114 @@ def _subtract_owned_openings(
     if sum(item is not None for item in matched) != len(openings):
         raise ValueError("Closed Bolt-line openings did not produce stable inner contours.")
     return opened
+
+
+def _filter_projection_cell_interiors(
+    polygon: Polygon,
+    entities: list[DXFEntity],
+    *,
+    tolerance_mm: float,
+) -> tuple[Polygon, dict[str, object]]:
+    """Drop Part-line cells crossed by a source-backed hidden projection chord."""
+
+    hidden_lines = [
+        LineString(
+            (
+                (float(entity.dxf.start.x), float(entity.dxf.start.y)),
+                (float(entity.dxf.end.x), float(entity.dxf.end.y)),
+            )
+        )
+        for entity in entities
+        if entity.dxftype() == "LINE"
+        and entity.dxf.layer == "Part"
+        and entity.dxf.linetype == "XKITLINE04"
+    ]
+    hidden_union = unary_union(hidden_lines) if hidden_lines else MultiLineString([])
+    if isinstance(hidden_union, MultiLineString):
+        hidden_union = linemerge(hidden_union)
+
+    def line_components(geometry: object) -> list[LineString]:
+        if isinstance(geometry, LineString):
+            return [geometry]
+        return [
+            component
+            for item in getattr(geometry, "geoms", ())
+            for component in line_components(item)
+        ]
+
+    hidden_components = line_components(hidden_union)
+
+    kept_rings: list[tuple[tuple[float, float], ...]] = []
+    rejected_bounds: list[list[float]] = []
+    chord_count = 0
+    for ring in polygon.interiors:
+        interior = Polygon(ring.coords)
+        projection_chords = 0
+        continuation_contacts: list[Point] = []
+        for line in hidden_components:
+            inside = line.intersection(interior)
+            segments = (
+                [inside]
+                if isinstance(inside, LineString)
+                else [
+                    item
+                    for item in getattr(inside, "geoms", ())
+                    if isinstance(item, LineString)
+                ]
+            )
+            # A Tekla hidden projection course can be emitted as several
+            # end-to-end LINE entities.  Judge the merged source course, not an
+            # arbitrary DXF segment boundary, while still requiring two true
+            # contacts with the visible cell boundary.
+            if any(
+                segment.length > tolerance_mm
+                and Point(segment.coords[0]).distance(interior.boundary)
+                <= tolerance_mm
+                and Point(segment.coords[-1]).distance(interior.boundary)
+                <= tolerance_mm
+                and Point(segment.coords[0]).distance(Point(segment.coords[-1]))
+                > tolerance_mm
+                for segment in segments
+            ):
+                projection_chords += 1
+            if (
+                line.distance(interior.boundary) <= tolerance_mm
+                and line.difference(interior.buffer(tolerance_mm)).length
+                > tolerance_mm
+            ):
+                contact = nearest_points(line, interior.boundary)[1]
+                if all(
+                    contact.distance(existing) > tolerance_mm
+                    for existing in continuation_contacts
+                ):
+                    continuation_contacts.append(contact)
+        if len(continuation_contacts) >= 2:
+            projection_chords += len(continuation_contacts)
+        if projection_chords:
+            rejected_bounds.append([float(value) for value in interior.bounds])
+            chord_count += projection_chords
+            continue
+        kept_rings.append(tuple((float(x), float(y)) for x, y in ring.coords))
+
+    if len(kept_rings) == len(polygon.interiors):
+        return polygon, {
+            "rejected_count": 0,
+            "kept_count": len(kept_rings),
+            "hidden_projection_chord_count": 0,
+            "rejected_bounds": [],
+        }
+
+    filtered = Polygon(polygon.exterior.coords, kept_rings)
+    if not filtered.is_valid or filtered.area <= 0:
+        raise ValueError("Filtering projection-cell interiors produced an invalid web polygon.")
+    if filtered.exterior.hausdorff_distance(polygon.exterior) > 1e-9:
+        raise ValueError("Filtering projection-cell interiors changed the web outer boundary.")
+    return filtered, {
+        "rejected_count": len(rejected_bounds),
+        "kept_count": len(kept_rings),
+        "hidden_projection_chord_count": chord_count,
+        "rejected_bounds": rejected_bounds,
+    }
 
 
 def _collect_circular_cuts(
@@ -650,7 +749,6 @@ def _split_developed_flange_cuts(
         src_origin = src_bounds[0]
     else:
         src_origin = src_bounds[1]
-    src_x0, src_y0 = src_bounds[0], src_bounds[1]
     high_count = int(side_counts.get("high", 0) or 0)
     low_count = int(side_counts.get("low", 0) or 0)
     # High/low symbol counts are rare on the flange projection itself; when
@@ -995,13 +1093,43 @@ def lower_bh_assembly(
         observer=observer,
         hypothesis_id=hypothesis_id,
     )
+    web_source_polygon, projection_cell_diagnostics = (
+        _filter_projection_cell_interiors(
+            web_result.polygon,
+            main.entities,
+            tolerance_mm=0.15,
+        )
+    )
+    emit_trace(
+        observer,
+        stage_id="05_candidate_lowering",
+        artifact_id="web_projection_cell_interiors",
+        status=(
+            "repaired"
+            if projection_cell_diagnostics["rejected_count"]
+            else "not_applicable"
+        ),
+        title_zh="腹板投影单元内轮廓",
+        summary_zh=(
+            f"排除 {projection_cell_diagnostics['rejected_count']} 个隐藏线分割投影单元"
+            if projection_cell_diagnostics["rejected_count"]
+            else "腹板内轮廓未发现隐藏投影弦"
+        ),
+        hypothesis_id=hypothesis_id,
+        shapes=polygon_shapes(
+            "web-projection-cell",
+            "repair_removed",
+            [Polygon(ring.coords) for ring in web_result.polygon.interiors],
+        ),
+        payload=projection_cell_diagnostics,
+    )
     web_openings, web_opening_blocks = _collect_bolt_line_openings(
         instances,
         main,
-        web_result.polygon,
+        web_source_polygon,
     )
     web_manufacturing_polygon = _subtract_owned_openings(
-        web_result.polygon,
+        web_source_polygon,
         web_openings,
     )
     emit_trace(
@@ -1042,7 +1170,10 @@ def lower_bh_assembly(
             "source_block": main.name,
             "source_insert_handle": main.handle,
             **source_view_trace(main),
-            "selection": web_result.diagnostics,
+            "selection": {
+                **web_result.diagnostics,
+                "projection_cell_interiors": projection_cell_diagnostics,
+            },
             "cut_source_blocks": web_hole_blocks,
             "polygonal_cut_source_blocks": web_opening_blocks,
             **_entity_trace(main.entities),
@@ -1551,4 +1682,3 @@ def lower_bh_assembly(
         },
     )
     return assembly
-

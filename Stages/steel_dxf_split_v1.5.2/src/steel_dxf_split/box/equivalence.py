@@ -35,6 +35,7 @@ class PlateOutputGroup:
 
 
 BOX_DRAFTING_RESOLUTION_MM = 0.05
+BOX_WEB_MANUFACTURING_EQUIVALENCE_MM = 1.0
 
 
 _TRANSFORMS = (
@@ -526,7 +527,11 @@ def group_equivalent_plate_pairs(
     first = by_role[first_role]
     second = by_role[second_role]
     web_merge_authorized = (
-        plates_equivalent(first, second, tolerance=tolerance_mm)
+        plates_manufacturing_equivalent(
+            first,
+            second,
+            tolerance=max(tolerance_mm, BOX_WEB_MANUFACTURING_EQUIVALENCE_MM),
+        )
         and _plate_internal_features_have_independent_direct_sources(first)
         and _plate_internal_features_have_independent_direct_sources(second)
     )

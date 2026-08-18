@@ -135,9 +135,21 @@ def test_feature_free_equivalent_webs_group_as_quantity_two() -> None:
     assert web_groups[0].merge_authorized is True
 
 
-def test_non_equivalent_web_outlines_remain_separate() -> None:
+def test_feature_free_webs_group_within_one_mm_manufacturing_tolerance() -> None:
     groups = group_equivalent_plate_pairs(
-        _four_plates(web_widths=(200.0, 201.0))
+        _four_plates(web_widths=(200.0, 200.999))
+    )
+
+    web_groups = _web_groups(groups)
+    assert len(web_groups) == 1
+    assert web_groups[0].roles == WEB_ROLES
+    assert web_groups[0].quantity == 2
+    assert web_groups[0].merge_authorized is True
+
+
+def test_web_outlines_beyond_one_mm_remain_separate() -> None:
+    groups = group_equivalent_plate_pairs(
+        _four_plates(web_widths=(200.0, 201.001))
     )
 
     web_groups = _web_groups(groups)
