@@ -433,8 +433,6 @@ def _near_full_flange_width(
     long_axis: str,
     flange_width: float,
 ) -> bool:
-    # 0.80/1.20 带宽：横向跨度落在翼缘宽度的 ±20% 内视为「近满宽」种子面，
-    # 与制造翼缘宽度公差对应；门槛不满足时保守保留原轮廓，不强行矩形化。
     _, transverse = _axis_lengths(face.bounds, long_axis)
     return 0.80 * flange_width <= transverse <= 1.20 * flange_width
 
@@ -529,9 +527,6 @@ def _reconstruct_proven_rectangular_projection(
     exact_min_y = min(point.y for point in candidates)
     exact_max_y = max(point.y for point in candidates)
     # Only rectify shapes already very close to a rectangle.
-    # 0.985 填充比门槛：候选矩形须覆盖多边形 98.5% 以上面积才执行「纠成
-    # 矩形」修复；低于门槛说明轮廓含真实斜端/倒角，必须保留原轮廓
-    # （0.15mm 端点容差只吸收多边形化噪声，不吞真实几何）。
     rectangle_area = (exact_max_x - exact_min_x) * (exact_max_y - exact_min_y)
     if rectangle_area <= 0 or polygon.area / rectangle_area < 0.985:
         return _unchanged_boundary_decision(
@@ -764,19 +759,14 @@ def estimate_flange_developments(
     long_axis = choose_long_axis(source_bbox, nominal_length)
     source_long, _ = _axis_lengths(source_bbox.as_tuple() if hasattr(source_bbox, "as_tuple") else (source_bbox.min_x, source_bbox.min_y, source_bbox.max_x, source_bbox.max_y), long_axis)
     web_center_transverse = web_polygon.centroid.y if long_axis == "x" else web_polygon.centroid.x
-    # 翼缘展开候选的过滤阈值（启发式，直接影响下料长度）：
-    #   minimum_area   —— 面片最小面积：max(100mm², 板厚×max(100, 2%×名义长度))，
-    #                     过滤掉被腹板吸收/碎屑级的面，防止其冒充翼缘路径候选；
-    #   minimum_span   —— 面片最小跨度：max(100mm, 30%×min(源长,名义长度))，
-    #                     排除仅沿短边延伸的细长噪声面。
-    # 阈值判定失败时保守回退到 projection_only，不输出猜测性展开。
     minimum_area = max(100.0, flange_thickness * max(100.0, 0.02 * nominal_length))
     minimum_span = max(100.0, 0.30 * min(source_long, nominal_length))
     side_candidates: dict[int, list[Polygon]] = {-1: [], 1: []}
     for face in all_faces:
-        # 0.98 覆盖比：面片与腹板（外扩 0.25mm 容差）的交叠面积占比达到 98%
-        # 即视为「已被腹板材质吸收」，排除该面冒充翼缘路径候选；子毫米拓扑
-        # 清理使 GEOS 精确相等过于脆弱，故用面积比而非几何相等判断。
+        # The selected web may have undergone sub-millimetre topology cleanup,
+        # so exact GEOS equality is too brittle.  Exclude any face already
+        # represented by the web material instead of allowing it to masquerade
+        # as a flange path candidate.
         covered_by_web = (
             face.intersection(web_polygon.buffer(0.25, join_style=2)).area
             / max(face.area, 1.0)
@@ -829,8 +819,6 @@ def estimate_flange_developments(
             _numeric_measurement(item, "raw_length")
             for item in ordered_details
         )
-        # 直条带判定容差：取制造公差与 2% 板厚的较大者——只吸收轻微厚度
-        # 噪声，不吞掉真实变厚/斜切；配合 0.98 矩形填充比过滤非矩形条带。
         strip_tolerance = max(
             float(manufacturing_tolerance_mm),
             0.02 * float(flange_thickness),
@@ -1436,17 +1424,42 @@ def _longitudinal_rail_lengths(
     long_axis: str,
     tolerance_mm: float,
 ) -> tuple[float, float] | None:
-    """Return the two long-axis rails of one simple rectangular/trapezoid plate."""
+    """Return the two long-axis rails of one simple convex flange plate."""
 
     coordinates = list(polygon.exterior.coords)
     if coordinates and coordinates[0] == coordinates[-1]:
         coordinates.pop()
-    if len(coordinates) != 4 or polygon.interiors:
+    # Polygonisation may node one physical end course at hidden-line
+    # intersections.  Merge only consecutive, manufacturing-collinear pieces;
+    # this changes no boundary and prevents the node count from masquerading as
+    # a more complex plate shape.
+    changed = True
+    while changed and len(coordinates) > 3:
+        changed = False
+        for index, current in enumerate(coordinates):
+            previous = coordinates[index - 1]
+            following = coordinates[(index + 1) % len(coordinates)]
+            course = LineString((previous, following))
+            if (
+                course.length > tolerance_mm
+                and Point(current).distance(course) <= tolerance_mm
+                and (
+                    (current[0] - previous[0]) * (following[0] - current[0])
+                    + (current[1] - previous[1]) * (following[1] - current[1])
+                )
+                >= 0.0
+            ):
+                del coordinates[index]
+                changed = True
+                break
+    if not 4 <= len(coordinates) <= 6 or polygon.interiors:
+        return None
+    hull_area_delta = float(polygon.convex_hull.area - polygon.area)
+    if hull_area_delta > max(1e-6, tolerance_mm * tolerance_mm):
         return None
 
     rails: list[float] = []
-    transverse_edges = 0
-    oblique_edges = 0
+    end_edges = 0
     for start, end in zip(coordinates, coordinates[1:] + coordinates[:1]):
         dx = float(end[0] - start[0])
         dy = float(end[1] - start[1])
@@ -1454,50 +1467,49 @@ def _longitudinal_rail_lengths(
         transverse = dy if long_axis == "x" else dx
         if abs(transverse) <= tolerance_mm and abs(longitudinal) > tolerance_mm:
             rails.append(abs(longitudinal))
-        elif abs(longitudinal) <= tolerance_mm and abs(transverse) > tolerance_mm:
-            transverse_edges += 1
         elif hypot(longitudinal, transverse) > tolerance_mm:
-            oblique_edges += 1
+            end_edges += 1
 
-    if len(rails) != 2 or transverse_edges + oblique_edges != 2:
-        return None
-    if (transverse_edges, oblique_edges) not in {(2, 0), (1, 1)}:
+    if len(rails) != 2 or not 2 <= end_edges <= 4:
         return None
     return tuple(sorted(rails))
 
 
-def _simple_trapezoid_end_edges(
+def _full_transverse_end_edges(
     polygon: Polygon,
     *,
     long_axis: str,
+    flange_width: float,
     tolerance_mm: float,
-) -> tuple[LineString, LineString] | None:
-    """Return the full transverse cap and oblique end of a four-edge flange."""
+) -> tuple[LineString, ...]:
+    """Return source edges that close the complete flange width."""
 
     if _longitudinal_rail_lengths(
         polygon,
         long_axis=long_axis,
         tolerance_mm=tolerance_mm,
     ) is None:
-        return None
+        return ()
     coordinates = list(polygon.exterior.coords)
     if coordinates and coordinates[0] == coordinates[-1]:
         coordinates.pop()
     caps: list[LineString] = []
-    oblique: list[LineString] = []
+    orientation_tolerance = max(
+        2.0 * tolerance_mm,
+        0.001 * flange_width,
+    )
     for start, end in zip(coordinates, coordinates[1:] + coordinates[:1]):
         dx = float(end[0] - start[0])
         dy = float(end[1] - start[1])
         longitudinal = dx if long_axis == "x" else dy
         transverse = dy if long_axis == "x" else dx
         edge = LineString((start, end))
-        if abs(longitudinal) <= tolerance_mm and abs(transverse) > tolerance_mm:
+        if (
+            abs(longitudinal) <= orientation_tolerance
+            and abs(abs(transverse) - flange_width) <= tolerance_mm
+        ):
             caps.append(edge)
-        elif abs(longitudinal) > tolerance_mm and abs(transverse) > tolerance_mm:
-            oblique.append(edge)
-    if len(caps) != 1 or len(oblique) != 1:
-        return None
-    return caps[0], oblique[0]
+    return tuple(caps)
 
 
 def _recover_source_backed_nested_flange_pair(
@@ -1511,12 +1523,20 @@ def _recover_source_backed_nested_flange_pair(
     main_flange_spans: dict[str, float],
     grid_size: float,
     manufacturing_tolerance_mm: float,
+    faces: Iterable[Polygon] = (),
+    nominal_length: float | None = None,
 ) -> tuple[Polygon, Polygon] | None:
-    """Recover two nested physical trapezoids only from complete source evidence."""
+    """Recover two nested physical flanges only from complete source evidence."""
 
-    boundary_tolerance = max(1e-7, grid_size * 0.51)
+    # Stay on the finest grid that still preserves short source chamfers.  A
+    # full grid cell is the maximum quantisation drift between polygonisation
+    # and the original source line; using half a cell can reject that same
+    # source edge and force a coarser retry which then erases the chamfer.
+    boundary_tolerance = max(1e-7, grid_size * 1.02)
 
-    def cleaned_with_contract(candidate: Polygon) -> tuple[Polygon, tuple[float, float], LineString] | None:
+    def cleaned_with_contract(
+        candidate: Polygon,
+    ) -> tuple[Polygon, tuple[float, float], tuple[LineString, ...]] | None:
         semantics = analyse_projection_boundary(
             candidate,
             entities,
@@ -1534,15 +1554,16 @@ def _recover_source_backed_nested_flange_pair(
             long_axis=long_axis,
             tolerance_mm=manufacturing_tolerance_mm,
         )
-        ends = _simple_trapezoid_end_edges(
+        caps = _full_transverse_end_edges(
             cleaned,
             long_axis=long_axis,
+            flange_width=flange_width,
             tolerance_mm=manufacturing_tolerance_mm,
         )
         _, transverse = _axis_lengths(cleaned.bounds, long_axis)
         if (
             rails is None
-            or ends is None
+            or not caps
             or abs(transverse - flange_width) > manufacturing_tolerance_mm
         ):
             return None
@@ -1559,36 +1580,64 @@ def _recover_source_backed_nested_flange_pair(
             or not conservation.protected_source_ids
         ):
             return None
-        return cleaned, rails, ends[0]
+        return cleaned, rails, caps
 
-    primary_contract = cleaned_with_contract(primary)
-    if primary_contract is None:
-        return None
-    cleaned_primary, primary_rails, primary_cap = primary_contract
-    geometric_candidates: list[tuple[Polygon, tuple[float, float]]] = []
-    for seed in seeds:
-        contract = cleaned_with_contract(seed)
-        if contract is None:
+    seed_rows = tuple(seeds)
+    pair_inputs: list[tuple[Polygon, Polygon]] = [
+        (primary, seed) for seed in seed_rows
+    ]
+    face_rows = list(faces)
+    if nominal_length is not None and face_rows:
+        for seed in seed_rows:
+            connected_candidates: list[Polygon] = []
+            connected, _ = _complete_connected_projection(
+                seed,
+                face_rows,
+                long_axis=long_axis,
+                flange_width=flange_width,
+                nominal_length=nominal_length,
+                grid_size=grid_size,
+                completed_candidates=connected_candidates,
+            )
+            pair_inputs.extend(
+                (candidate, seed) for candidate in connected_candidates
+            )
+            if not connected_candidates:
+                pair_inputs.append((connected, seed))
+
+    geometric_candidates: list[
+        tuple[Polygon, tuple[float, float], Polygon, tuple[float, float]]
+    ] = []
+    for outer, inner in pair_inputs:
+        outer_contract = cleaned_with_contract(outer)
+        inner_contract = cleaned_with_contract(inner)
+        if outer_contract is None or inner_contract is None:
             continue
-        cleaned_seed, seed_rails, seed_cap = contract
-        if _polygon_nearly_equal(cleaned_seed, cleaned_primary):
+        cleaned_outer, outer_rails, _outer_caps = outer_contract
+        cleaned_inner, inner_rails, _inner_caps = inner_contract
+        if _polygon_nearly_equal(cleaned_inner, cleaned_outer):
             continue
-        if not cleaned_primary.buffer(manufacturing_tolerance_mm).covers(cleaned_seed):
+        if not cleaned_outer.buffer(manufacturing_tolerance_mm).covers(cleaned_inner):
             continue
-        if primary_cap.hausdorff_distance(seed_cap) > manufacturing_tolerance_mm:
+        minimum_difference_area = manufacturing_tolerance_mm * flange_width
+        if cleaned_outer.symmetric_difference(cleaned_inner).area <= minimum_difference_area:
             continue
-        if abs(primary_cap.length - seed_cap.length) > manufacturing_tolerance_mm:
+        if any(
+            _polygon_nearly_equal(cleaned_outer, existing[0])
+            and _polygon_nearly_equal(cleaned_inner, existing[2])
+            for existing in geometric_candidates
+        ):
             continue
-        if max(primary_rails) - max(seed_rails) <= manufacturing_tolerance_mm:
-            continue
-        geometric_candidates.append((cleaned_seed, seed_rails))
+        geometric_candidates.append(
+            (cleaned_outer, outer_rails, cleaned_inner, inner_rails)
+        )
 
     if not geometric_candidates:
         return None
     if len(geometric_candidates) != 1:
         raise ValueError("Nested flange projection has multiple physical seed candidates.")
 
-    cleaned_seed, seed_rails = geometric_candidates[0]
+    cleaned_primary, primary_rails, cleaned_seed, seed_rails = geometric_candidates[0]
 
     def rail_matches(rails: tuple[float, float], span: float) -> bool:
         return any(
@@ -1599,12 +1648,21 @@ def _recover_source_backed_nested_flange_pair(
     high_span = main_flange_spans.get("high")
     low_span = main_flange_spans.get("low")
     if high_span is not None and low_span is not None:
-        assignments = [
-            (upper, lower)
-            for upper, lower in ((primary_rails, seed_rails), (seed_rails, primary_rails))
-            if rail_matches(upper, high_span) and rail_matches(lower, low_span)
-        ]
-        unique_side_evidence = len(assignments) == 1
+        if abs(float(high_span) - float(low_span)) <= manufacturing_tolerance_mm:
+            unique_side_evidence = rail_matches(
+                primary_rails,
+                float(high_span),
+            ) and rail_matches(seed_rails, float(low_span))
+        else:
+            assignments = [
+                (upper, lower)
+                for upper, lower in (
+                    (primary_rails, seed_rails),
+                    (seed_rails, primary_rails),
+                )
+                if rail_matches(upper, high_span) and rail_matches(lower, low_span)
+            ]
+            unique_side_evidence = len(assignments) == 1
     else:
         observed_spans = tuple(float(span) for span in main_flange_spans.values())
         candidate_matches = tuple(
@@ -1779,6 +1837,7 @@ def _complete_connected_projection(
     flange_width: float,
     nominal_length: float,
     grid_size: float,
+    completed_candidates: list[Polygon] | None = None,
 ) -> tuple[Polygon, list[int]]:
     """Complete an overlapping flange projection from its connected face graph."""
     current = polygon
@@ -1808,6 +1867,8 @@ def _complete_connected_projection(
                 continue
             current = merged
             used.append(index)
+            if completed_candidates is not None:
+                completed_candidates.append(current)
             changed = True
             break
     return current, used
@@ -2437,10 +2498,6 @@ def select_web_polygon(
             nominal_length=nominal_length,
         )
 
-    # 多边形化精度阶梯：先细后粗（0.001→0.1mm 共 7 级），逐级试探
-    # polygonize 能否产出候选面。选择最粗可用网格可吸收子毫米拓扑噪声；
-    # 0.1mm 是上限——再粗会吞掉真实倒角/斜切。各级失败记录进 failures，
-    # 全部失败才判定整体失败（见下方 fallback）。
     grid_candidates = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1)
     failures: list[str] = []
     for grid_size in grid_candidates:
@@ -2765,8 +2822,7 @@ def select_flange_polygons(
         flange_width=flange_width,
         source_bbox=source_bbox,
     )
-    # 与 select_web_polygon 相同的 7 级精度阶梯（0.001→0.1mm 由细到粗）：
-    # 先用细网格保证召回，再用最粗可用网格稳定化输出轮廓；失败逐级回退。
+    source_loss_retry_count = 0
     for grid_size in (0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1):
         faces = polygonize_part_entities(
             entities,
@@ -2944,6 +3000,8 @@ def select_flange_polygons(
                 main_flange_spans=main_flange_spans,
                 grid_size=grid_size,
                 manufacturing_tolerance_mm=manufacturing_tolerance_mm,
+                faces=faces,
+                nominal_length=nominal_length,
             )
             if recovered is not None:
                 chosen = list(recovered)
@@ -2952,6 +3010,46 @@ def select_flange_polygons(
                 not _polygon_nearly_equal(seed, chosen[0]) for seed in seeds
             ):
                 nested_projection_classification = "projection_artifact"
+        direct_source_edge_loss = any(
+            decision.to_dict().get("reason") == "direct_source_edge_loss"
+            for decision in rectangular_repairs
+        )
+        nested_oblique_source_course = any(
+            entity.dxftype() == "LINE"
+            and entity.dxf.layer == "Part"
+            and entity.dxf.linetype != "XKITLINE04"
+            and abs(float(entity.dxf.end.x - entity.dxf.start.x))
+            > manufacturing_tolerance_mm
+            and abs(float(entity.dxf.end.y - entity.dxf.start.y))
+            > manufacturing_tolerance_mm
+            and Point(
+                float(entity.dxf.start.x),
+                float(entity.dxf.start.y),
+            ).distance(chosen[0].boundary)
+            <= manufacturing_tolerance_mm
+            and Point(
+                float(entity.dxf.end.x),
+                float(entity.dxf.end.y),
+            ).distance(chosen[0].boundary)
+            <= manufacturing_tolerance_mm
+            and chosen[0].buffer(manufacturing_tolerance_mm).covers(
+                LineString(
+                    (
+                        (float(entity.dxf.start.x), float(entity.dxf.start.y)),
+                        (float(entity.dxf.end.x), float(entity.dxf.end.y)),
+                    )
+                )
+            )
+            for entity in entities
+        )
+        if (
+            nested_projection_classification != "physical_pair"
+            and direct_source_edge_loss
+            and source_loss_retry_count
+            < (2 if nested_oblique_source_course else 1)
+        ):
+            source_loss_retry_count += 1
+            continue
         if not chosen:
             continue
         cleaning_repairs: list[dict[str, object]] = []
@@ -3003,6 +3101,7 @@ def select_flange_polygons(
             payload={"selected_geometry_count": len(chosen)},
         )
         diagnostics = {
+            "grid_size_mm": grid_size,
             "long_axis": long_axis,
             "seed_count": len(seeds),
             "seed_lengths_mm": [_axis_lengths(seed.bounds, long_axis)[0] for seed in seeds],
@@ -3025,6 +3124,17 @@ def select_flange_polygons(
             ],
             "nested_pair_source_conserved": (
                 nested_projection_classification == "physical_pair"
+            ),
+            "nested_equal_span_role_authority": (
+                nested_projection_classification == "physical_pair"
+                and main_flange_spans is not None
+                and main_flange_spans.get("high") is not None
+                and main_flange_spans.get("low") is not None
+                and abs(
+                    float(main_flange_spans["high"])
+                    - float(main_flange_spans["low"])
+                )
+                <= manufacturing_tolerance_mm
             ),
             "projection_boundary_repairs": [
                 decision.to_dict() for decision in rectangular_repairs
@@ -3094,4 +3204,3 @@ def flatten_bulge_contour(
                 )
             )
     return points
-

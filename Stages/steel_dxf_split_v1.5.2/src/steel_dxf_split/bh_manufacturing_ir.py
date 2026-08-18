@@ -943,8 +943,20 @@ def _role_assignments(
             high_span=high,
             low_span=low,
         )
+        equal_span_nested_authority = (
+            selection.get("nested_equal_span_role_authority") is True
+        )
+        if resolved_roles is None and equal_span_nested_authority:
+            # Physical-pair selection is ordered outer first, inner second.
+            # When the main view proves equal spans, the nested source-view
+            # convention supplies the remaining role correspondence.
+            resolved_roles = (1, 0)
         upper_index, lower_index = resolved_roles or (0, 1)
-        rule_id = "BH.RULE.FLANGE.PHYSICAL_RAIL_SIDE_CORRESPONDENCE"
+        rule_id = (
+            "BH.RULE.FLANGE.NESTED_INNER_UPPER_EQUAL_SPAN"
+            if equal_span_nested_authority
+            else "BH.RULE.FLANGE.PHYSICAL_RAIL_SIDE_CORRESPONDENCE"
+        )
         state = (
             EvidenceState.INFERRED
             if resolved_roles is not None
