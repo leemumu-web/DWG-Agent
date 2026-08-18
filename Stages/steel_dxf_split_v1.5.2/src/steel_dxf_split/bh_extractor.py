@@ -23,7 +23,10 @@ from .bh_geometry import (
     solid_part_entities,
     source_arcs,
 )
-from .bh_development import assess_flange_development_semantics
+from .bh_development import (
+    assess_flange_development_semantics,
+    quantize_derived_flange_length,
+)
 from .bh_knowledge import BHFlangeDevelopmentPolicy
 from .bh_models import BHAssembly, BHMetadata, BHPlate, BHPlateRole, CircularCut, Point2D
 from .bh_projection_semantics import analyse_projection_boundary, evaluate_boundary_repair
@@ -594,6 +597,7 @@ def _source_backed_main_flange_side_spans(
     flange_thickness: float,
     nominal_length: float,
     manufacturing_tolerance_mm: float,
+    outer_endpoint_envelope: bool = False,
 ) -> dict[str, float]:
     """Read each flange's longer edge from a complete source-course pair.
 
@@ -603,6 +607,9 @@ def _source_backed_main_flange_side_spans(
     direct source lines are the stable authority.  A side is admitted only
     when both courses exist one flange thickness apart and substantially
     overlap; isolated internal or auxiliary lines cannot create a flange.
+    For a proved parallel bevel pair, ``outer_endpoint_envelope`` measures
+    between the outside end points of those same two courses.  It never uses
+    the longer overall projection/member span as the flange length.
     """
 
     if long_axis not in {"x", "y"} or flange_thickness <= 0.0:
@@ -677,7 +684,14 @@ def _source_backed_main_flange_side_spans(
         overlap = min(first[1], second[1]) - max(first[0], second[0])
         if overlap < 0.80 * min(first_length, second_length):
             continue
-        spans[side] = max(first_length, second_length)
+        if outer_endpoint_envelope:
+            start_shift = second[0] - first[0]
+            end_shift = second[1] - first[1]
+            if abs(start_shift - end_shift) > position_tolerance:
+                continue
+            spans[side] = max(first[1], second[1]) - min(first[0], second[0])
+        else:
+            spans[side] = max(first_length, second_length)
     return spans
 
 
@@ -1349,23 +1363,61 @@ def lower_bh_assembly(
         and source_projection_length - max(course_span_values)
         > max(5.0, 0.005 * metadata.nominal_length)
     )
+    equal_course_outer_endpoint_spans: dict[str, float] = {}
+    if (
+        equivalent_source_course_spans
+        and source_projection_overrun
+        and flange_development_policy.authorizes_profile(development_profile_id)
+    ):
+        raw_outer_spans = _source_backed_main_flange_side_spans(
+            main.entities,
+            web_result.polygon,
+            long_axis=web_axis,
+            flange_thickness=metadata.profile.flange_thickness,
+            nominal_length=metadata.nominal_length,
+            manufacturing_tolerance_mm=manufacturing_tolerance_mm,
+            outer_endpoint_envelope=True,
+        )
+        if (
+            set(raw_outer_spans) == {"low", "high"}
+            and abs(raw_outer_spans["low"] - raw_outer_spans["high"])
+            <= manufacturing_tolerance_mm
+        ):
+            quantized_outer_spans = {
+                side: quantize_derived_flange_length(
+                    value,
+                    flange_development_policy,
+                )
+                for side, value in raw_outer_spans.items()
+            }
+            if (
+                abs(quantized_outer_spans["low"] - quantized_outer_spans["high"])
+                <= manufacturing_tolerance_mm
+            ):
+                equal_course_outer_endpoint_spans = quantized_outer_spans
+    equal_course_outer_endpoint_recovery = bool(
+        equal_course_outer_endpoint_spans
+    )
     use_source_course_spans = (
         complete_source_course_spans
         and not distinct_face_spans
         and (
             distinct_source_course_spans
-            or (
-                equivalent_source_course_spans
-                and source_projection_overrun
-            )
+            or equal_course_outer_endpoint_recovery
         )
     )
     # A complete four-course source pattern is more stable than polygon faces
     # whose topology changes with precision-grid phase.  Different course
-    # lengths prove two distinct plates; equivalent course lengths also take
-    # authority when the direct projection is a longer fused envelope.
+    # lengths prove two distinct plates.  For equivalent parallel bevel pairs,
+    # measure only between the outside end points of each flange's two source
+    # courses; the longer overall projection remains non-authoritative.
+    development_source_course_spans = (
+        equal_course_outer_endpoint_spans
+        if equal_course_outer_endpoint_recovery
+        else source_course_spans
+    )
     main_flange_spans = (
-        source_course_spans
+        development_source_course_spans
         if use_source_course_spans
         else face_main_flange_spans
     )
@@ -1377,8 +1429,7 @@ def lower_bh_assembly(
     )
     equal_course_projection_recovery = (
         use_source_course_spans
-        and equivalent_source_course_spans
-        and source_projection_overrun
+        and equal_course_outer_endpoint_recovery
     )
     needs_development = (
         metadata.profile.is_variable_height
@@ -1398,7 +1449,7 @@ def lower_bh_assembly(
             source_projection_length=source_projection_length,
             variable_height=metadata.profile.is_variable_height,
             source_course_spans=(
-                source_course_spans
+                development_source_course_spans
                 if use_source_course_spans
                 else None
             ),

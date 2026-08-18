@@ -76,6 +76,30 @@ def test_one_unpaired_course_cannot_authorize_a_flange_span() -> None:
     assert spans == {"high": 950.0}
 
 
+def test_parallel_bevel_courses_use_their_outer_endpoint_envelope() -> None:
+    web = box(0.0, 14.0, 1000.0, 286.0)
+    entities = _part_lines(
+        (
+            ((0.0, 0.0), (996.4, 0.0)),
+            ((3.6, 14.0), (1000.0, 14.0)),
+            ((50.0, 286.0), (1046.4, 286.0)),
+            ((53.6, 300.0), (1050.0, 300.0)),
+        )
+    )
+
+    spans = _source_backed_main_flange_side_spans(
+        entities,
+        web,
+        long_axis="x",
+        flange_thickness=14.0,
+        nominal_length=1000.0,
+        manufacturing_tolerance_mm=0.15,
+        outer_endpoint_envelope=True,
+    )
+
+    assert spans == pytest.approx({"low": 1000.0, "high": 1000.0})
+
+
 def _fixture_root() -> Path:
     configured = os.environ.get("DWG_AGENT_BH_MAIN_COURSE_FIXTURE_ROOT")
     if not configured:
@@ -149,12 +173,12 @@ def test_main_course_authority_keeps_cb56_and_repairs_cb55_cb68(
 @pytest.mark.parametrize(
     ("sample", "expected_length"),
     (
-        (61, 2899.628976),
-        (62, 2708.355205),
-        (63, 2996.847024),
-        (64, 2996.567767),
-        (65, 2895.080026),
-        (66, 2704.080593),
+        (61, 2903.0),
+        (62, 2712.0),
+        (63, 3000.0),
+        (64, 3000.0),
+        (65, 2898.0),
+        (66, 2707.0),
     ),
 )
 def test_equal_source_course_pairs_emit_one_clean_quantity_two_flange(
