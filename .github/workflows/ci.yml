@@ -120,8 +120,9 @@ jobs:
       - name: Run Stage checks
         working-directory: ${{ matrix.directory }}
         run: |
-          if [[ -n "${{ matrix.command }}" ]]; then
-            ${{ matrix.command }}
+          check_command="${{ matrix.command }}"
+          if [ -n "$check_command" ]; then
+            eval "$check_command"
           else
             uv run pytest -q
           fi
