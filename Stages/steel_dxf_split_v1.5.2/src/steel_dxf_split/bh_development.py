@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import floor
+from math import ceil
 from typing import Iterable
 from typing import Any
 
@@ -26,11 +26,11 @@ def quantize_derived_flange_length(
     quantum = float(policy.derived_length_quantum_mm)
     if (
         not policy.enabled
-        or policy.derived_length_rounding != "floor"
+        or policy.derived_length_rounding != "ceil"
         or quantum <= 0.0
     ):
         raise ValueError("BH flange development policy is not authorized")
-    return floor(float(value) / quantum + 1e-9) * quantum
+    return ceil(float(value) / quantum - 1e-9) * quantum
 
 
 def select_profile_authorized_cranked_candidate(
