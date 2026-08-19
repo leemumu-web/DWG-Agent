@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
@@ -21,6 +21,10 @@ from .bh_manufacturing_ir import (
 )
 from .bh_region import MAX_SAGITTA_MM
 from .bh_writer import _escape_non_ascii_dxf_text
+from .weld_allowance_geometry import (
+    cut_feature_x_extents,
+    stretch_boundary_segments,
+)
 
 
 _XDATA_APPID = "STEEL_DXF_SPLIT"
@@ -46,47 +50,26 @@ class AllowanceResult:
 def stretch_outer_segments(
     segments: tuple[BHContourSegmentIR, ...],
     contract: WeldAllowanceContract,
+    *,
+    feature_x_extents: tuple[tuple[float, float], ...] | None = None,
 ) -> tuple[BHContourSegmentIR, ...]:
-    """Translate only the proven positive terminal chain along +X."""
+    """Grow only the boundary, preferring a feature-free middle insertion."""
 
     expected = derive_weld_allowance_contract(segments)
     if expected != contract:
         raise WeldAllowanceProcessingError(
             "Weld allowance contract does not match the supplied outer contour."
         )
-    if contract.allowance_mm == 0.0:
-        return segments
-    index_by_id = {
-        segment.segment_id: index for index, segment in enumerate(segments)
-    }
     try:
-        terminal_indices = tuple(
-            index_by_id[segment_id]
-            for segment_id in contract.positive_terminal_segment_ids
+        return stretch_boundary_segments(
+            segments,
+            contract,
+            feature_x_extents=feature_x_extents,
         )
     except KeyError as exc:
         raise WeldAllowanceProcessingError(
             "Weld allowance terminal segment is absent from the contour."
         ) from exc
-    movable_vertices = {
-        vertex_index
-        for segment_index in terminal_indices
-        for vertex_index in (segment_index, (segment_index + 1) % len(segments))
-    }
-
-    def moved(point: tuple[float, float], vertex_index: int) -> tuple[float, float]:
-        if vertex_index not in movable_vertices:
-            return point
-        return (point[0] + contract.allowance_mm, point[1])
-
-    return tuple(
-        replace(
-            segment,
-            start=moved(segment.start, index),
-            end=moved(segment.end, (index + 1) % len(segments)),
-        )
-        for index, segment in enumerate(segments)
-    )
 
 
 def _load_compilation_report(path: Path) -> dict[str, Any]:
@@ -254,17 +237,11 @@ def _cut_geometry(document: ezdxf.document.Drawing) -> tuple[tuple[object, ...],
 def _verify_cut_feature_contract(
     before: ezdxf.document.Drawing,
     after: ezdxf.document.Drawing,
-    plate_results: tuple[dict[str, object], ...],
 ) -> bool:
     before_bound = _bound_cuts(before)
     after_bound = _bound_cuts(after)
     if set(before_bound) != set(after_bound):
         return False
-    translations = {
-        str(cut_id): float(result["allowance_mm"])
-        for result in plate_results
-        for cut_id in result.get("positive_terminal_cut_ids", [])
-    }
     for cut_id, before_entity in before_bound.items():
         after_entity = after_bound[cut_id]
         if (
@@ -276,7 +253,7 @@ def _verify_cut_feature_contract(
             )
             or not math.isclose(
                 float(after_entity.dxf.center.x),
-                float(before_entity.dxf.center.x) + translations.get(cut_id, 0.0),
+                float(before_entity.dxf.center.x),
                 abs_tol=1e-6,
             )
             or not math.isclose(
@@ -393,7 +370,11 @@ def _validate_and_transform(
             raise WeldAllowanceProcessingError(
                 f"Saved geometry and allowance length contract disagree for plate {plate_id}."
             )
-        after_segments = stretch_outer_segments(before_segments, actual_contract)
+        after_segments = stretch_outer_segments(
+            before_segments,
+            actual_contract,
+            feature_x_extents=cut_feature_x_extents(document),
+        )
         if declared_allowance > 0.0:
             entity.set_points(
                 [
@@ -416,6 +397,8 @@ def _validate_and_transform(
             raise WeldAllowanceProcessingError(
                 f"Allowance contract names an unknown circular cut for plate {plate_id}."
             )
+        # Endpoint witnesses remain useful provenance, but never move with the
+        # boundary: allowance changes the plate outline only.
         for cut_id in moving_cut_ids:
             cut_entity = bound_cuts.get(cut_id)
             if cut_entity is None:
@@ -427,11 +410,6 @@ def _validate_and_transform(
                 raise WeldAllowanceProcessingError(
                     f"Allowance cut is bound to the wrong plate: {cut_id}."
                 )
-            cut_entity.dxf.center = (
-                float(cut_entity.dxf.center.x) + declared_allowance,
-                float(cut_entity.dxf.center.y),
-                float(cut_entity.dxf.center.z),
-            )
         results.append(
             {
                 "plate_id": plate_id,
@@ -445,8 +423,12 @@ def _validate_and_transform(
                 "terminal_translation_mm": [declared_allowance, 0.0],
                 "terminal_inclination_preserved": True,
                 "positive_terminal_cut_ids": list(moving_cut_ids),
-                "moved_circular_cut_count": len(moving_cut_ids),
+                "moved_circular_cut_count": 0,
+                "stationary_circular_cut_count": len(
+                    [cut_id for cut_id in bound_cuts if cut_id in declared_cut_ids]
+                ),
                 "cuts_follow_declared_feature_contract": True,
+                "cut_geometry_stationary": True,
             }
         )
     return tuple(results)
@@ -519,7 +501,6 @@ def apply_weld_allowance(
         if not _verify_cut_feature_contract(
             before_document,
             saved,
-            plate_results,
         ):
             raise WeldAllowanceProcessingError(
                 "A circular cut or inner contour violated its allowance feature contract."
@@ -572,7 +553,9 @@ def apply_weld_allowance(
                 "native_curve_contracts_match_report": True,
                 "positive_terminal_rigid_translation": True,
                 "terminal_inclinations_preserved": True,
+                "boundary_feature_free_insertion_or_safe_terminal_fallback": True,
                 "cut_hole_feature_contracts_match": True,
+                "cut_hole_geometry_stationary": True,
                 "inner_contours_unchanged": True,
                 "labels_unchanged": True,
                 "entity_and_layer_counts_unchanged": True,

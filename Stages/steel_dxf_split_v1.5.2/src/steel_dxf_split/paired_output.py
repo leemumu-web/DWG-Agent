@@ -98,16 +98,10 @@ def _bh_cut_feature_contracts_match(
     allowance_cuts = _bh_bound_cuts(allowance)
     if set(normal_cuts) != set(allowance_cuts):
         return False
-    translations = {
-        str(cut_id): float(item["allowance_mm"])
-        for item in report.get("plates", [])
-        if isinstance(item, dict)
-        for cut_id in item.get("positive_terminal_cut_ids", [])
-    }
     for cut_id, before in normal_cuts.items():
         after = allowance_cuts[cut_id]
         if (
-            not math.isclose(after[0], before[0] + translations.get(cut_id, 0.0), abs_tol=1e-6)
+            not math.isclose(after[0], before[0], abs_tol=1e-6)
             or not math.isclose(after[1], before[1], abs_tol=1e-6)
             or not math.isclose(after[2], before[2], abs_tol=1e-9)
             or after[3] != before[3]

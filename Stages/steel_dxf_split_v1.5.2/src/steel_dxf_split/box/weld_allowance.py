@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,6 +28,10 @@ from .manufacturing_ir import (
     contour_polygon,
     derive_weld_allowance_contract,
     weld_allowance_mm,
+)
+from ..weld_allowance_geometry import (
+    cut_feature_x_extents,
+    stretch_boundary_segments,
 )
 
 _XDATA_APPID = "BOX_DXF_SPLIT"
@@ -82,8 +86,10 @@ class _ReportedGroup:
 def stretch_outer_segments(
     segments: tuple[ContourSegmentIR, ...],
     contract: BoxWeldAllowanceContract,
+    *,
+    feature_x_extents: tuple[tuple[float, float], ...] | None = None,
 ) -> tuple[ContourSegmentIR, ...]:
-    """Translate the proven positive terminal chain rigidly along +X."""
+    """Grow only the boundary, preferring a feature-free middle insertion."""
 
     try:
         expected = derive_weld_allowance_contract(segments)
@@ -95,40 +101,16 @@ def stretch_outer_segments(
         raise BoxWeldAllowanceProcessingError(
             "BOX weld allowance contract does not match the outer contour"
         )
-    if contract.allowance_mm == 0.0:
-        return segments
-    index_by_id = {segment.segment_id: index for index, segment in enumerate(segments)}
     try:
-        terminal_indices = tuple(
-            index_by_id[segment_id]
-            for segment_id in contract.positive_terminal_segment_ids
+        return stretch_boundary_segments(
+            segments,
+            contract,
+            feature_x_extents=feature_x_extents,
         )
     except KeyError as exc:
         raise BoxWeldAllowanceProcessingError(
             "BOX allowance terminal segment is absent from the contour"
         ) from exc
-    movable_vertices = {
-        vertex_index
-        for segment_index in terminal_indices
-        for vertex_index in (segment_index, (segment_index + 1) % len(segments))
-    }
-
-    def moved(
-        point: tuple[float, float],
-        vertex_index: int,
-    ) -> tuple[float, float]:
-        if vertex_index not in movable_vertices:
-            return point
-        return (point[0] + contract.allowance_mm, point[1])
-
-    return tuple(
-        replace(
-            segment,
-            start=moved(segment.start, index),
-            end=moved(segment.end, (index + 1) % len(segments)),
-        )
-        for index, segment in enumerate(segments)
-    )
 
 
 def _load_compilation_report(path: Path, input_path: Path) -> dict[str, Any]:
@@ -536,7 +518,11 @@ def _validate_and_transform(
                 "Saved geometry and allowance contract disagree for BOX group "
                 f"{group_id}"
             )
-        after_segments = stretch_outer_segments(before_segments, actual_contract)
+        after_segments = stretch_outer_segments(
+            before_segments,
+            actual_contract,
+            feature_x_extents=cut_feature_x_extents(document),
+        )
         after_points = tuple(
             (segment.start[0], segment.start[1], segment.bulge)
             for segment in after_segments
@@ -771,6 +757,7 @@ def apply_weld_allowance(
                 "input_is_r2007_millimetres": True,
                 "group_contracts_match_report_and_xdata": True,
                 "horizontal_rails_extended_at_positive_end": True,
+                "boundary_feature_free_insertion_or_safe_terminal_fallback": True,
                 "positive_terminal_rigid_translation": True,
                 "terminal_slopes_and_arc_shapes_preserved": True,
                 "cut_hole_native_curves_unchanged": True,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from functools import cache
 from pathlib import Path
@@ -147,7 +148,7 @@ def _bound_circles(document: ezdxf.document.Drawing) -> dict[str, object]:
 
 
 @pytest.mark.parametrize("sample", ["b4-3-cb-12", "b4-3-cb-13", "b4-3-cb-17", "b4-3-cb-18"])
-def test_allowance_moves_only_contract_bound_positive_terminal_cuts(
+def test_allowance_keeps_all_cut_features_and_hole_distances_stationary(
     sample: str,
     tmp_path: Path,
 ) -> None:
@@ -163,6 +164,14 @@ def test_allowance_moves_only_contract_bound_positive_terminal_cuts(
         cut_id: tuple(float(value) for value in entity.dxf.center)
         for cut_id, entity in _bound_circles(document).items()
     }
+    before_inner = tuple(
+        (
+            entity.dxf.handle,
+            entity.closed,
+            tuple(tuple(float(value) for value in point) for point in entity.get_points("xyb")),
+        )
+        for entity in document.modelspace().query("LWPOLYLINE[layer=='CUT_HOLE']")
+    )
 
     manufacturing_payload = compiled.manufacturing_ir.to_dict()
     manufacturing_payload["fingerprint"] = compiled.manufacturing_ir.fingerprint
@@ -178,24 +187,44 @@ def test_allowance_moves_only_contract_bound_positive_terminal_cuts(
         plate.plate_id: plate.weld_allowance_contract
         for plate in compiled.manufacturing_ir.plates
     }
-    expected_moving = {
-        cut_id: contract.allowance_mm
+    expected_bound = {
+        cut_id
         for contract in contracts.values()
         if contract is not None
         for cut_id in contract.positive_terminal_cut_ids
     }
 
-    assert expected_moving
+    assert expected_bound
     assert {item["plate_id"] for item in plate_results} <= set(contracts)
     assert {item["plate_id"] for item in plate_results} == {
         str(entity.get_xdata(_XDATA_APPID)[1].value)
         for entity in document.modelspace().query("LWPOLYLINE[layer=='PLATE_CUT']")
     }
     for cut_id, center in before.items():
-        assert after[cut_id][0] - center[0] == pytest.approx(
-            expected_moving.get(cut_id, 0.0)
+        assert after[cut_id] == pytest.approx(center)
+    after_inner = tuple(
+        (
+            entity.dxf.handle,
+            entity.closed,
+            tuple(tuple(float(value) for value in point) for point in entity.get_points("xyb")),
         )
-        assert after[cut_id][1] == pytest.approx(center[1])
+        for entity in document.modelspace().query("LWPOLYLINE[layer=='CUT_HOLE']")
+    )
+    assert after_inner == before_inner
+
+    before_centers = tuple(before.values())
+    after_centers = tuple(after.values())
+    assert sorted(
+        math.hypot(a[0] - b[0], a[1] - b[1])
+        for index, a in enumerate(before_centers)
+        for b in before_centers[index + 1 :]
+    ) == pytest.approx(
+        sorted(
+            math.hypot(a[0] - b[0], a[1] - b[1])
+            for index, a in enumerate(after_centers)
+            for b in after_centers[index + 1 :]
+        )
+    )
 
 
 def _compilation_report(compiled, normal_path: Path) -> dict[str, object]:
@@ -212,7 +241,7 @@ def _compilation_report(compiled, normal_path: Path) -> dict[str, object]:
     }
 
 
-def test_saved_allowance_and_pair_validator_accept_only_declared_cut_motion(
+def test_saved_allowance_and_pair_validator_accept_stationary_cut_features(
     tmp_path: Path,
 ) -> None:
     compiled = _compile("b4-3-cb-17")

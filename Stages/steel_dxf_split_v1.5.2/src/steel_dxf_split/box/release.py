@@ -69,6 +69,10 @@ def _source_production_files(package_root: Path) -> tuple[tuple[str, Path], ...]
             package_root / "paired_output.py",
         ),
         (
+            "src/steel_dxf_split/weld_allowance_geometry.py",
+            package_root / "weld_allowance_geometry.py",
+        ),
+        (
             "src/steel_dxf_split/hole_color_policy.py",
             package_root / "hole_color_policy.py",
         ),

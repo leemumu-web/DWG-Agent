@@ -212,3 +212,38 @@ def test_existing_horizontal_contract_keeps_legacy_rule_identity() -> None:
     assert set(contract.rail_segment_ids) == {"segment-00", "segment-02"}
     assert contract.positive_terminal_segment_ids == ("segment-01",)
     assert contract.rule_ids[0] == "BH.RULE.WELD_ALLOWANCE.HORIZONTAL_RAILS"
+
+
+def test_boundary_allowance_is_inserted_in_a_feature_free_middle_gap() -> None:
+    segments = _segments(
+        [
+            (0.0, 0.0, 0.0),
+            (3000.0, 0.0, 0.0),
+            (3000.0, 100.0, 0.0),
+            (0.0, 100.0, 0.0),
+        ]
+    )
+    contract = derive_weld_allowance_contract(segments)
+
+    stretched = stretch_outer_segments(
+        segments,
+        contract,
+        feature_x_extents=((100.0, 110.0), (2890.0, 2900.0)),
+    )
+
+    assert max(
+        coordinate
+        for segment in stretched
+        for coordinate in (segment.start[0], segment.end[0])
+    ) - min(
+        coordinate
+        for segment in stretched
+        for coordinate in (segment.start[0], segment.end[0])
+    ) == pytest.approx(3005.0)
+    inserted_x = {
+        round(point[0], 6)
+        for segment in stretched
+        for point in (segment.start, segment.end)
+        if 1496.0 <= point[0] <= 1506.0
+    }
+    assert inserted_x == {1497.5, 1502.5}

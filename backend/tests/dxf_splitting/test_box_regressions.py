@@ -17,6 +17,7 @@ from steel_dxf_split.box.manufacturing_ir import (
     EvidenceState,
     FeatureEvidence,
     PhysicalPlateRole,
+    derive_weld_allowance_contract,
     rectangle_contour,
 )
 from steel_dxf_split.box.metadata import (
@@ -54,6 +55,7 @@ from steel_dxf_split.box.source_ir import (
 from steel_dxf_split.box.view_frame import PartViewIR, ViewFrame
 from steel_dxf_split.box.view_solver import ViewAssignmentCandidate
 from steel_dxf_split.box.web_solver import WebDerivation, WebOutlineCandidate
+from steel_dxf_split.box.weld_allowance import stretch_outer_segments
 
 
 def _title_text(
@@ -111,6 +113,36 @@ def test_nominal_length_uses_length_column_when_quantity_is_numeric() -> None:
 
     assert metadata.nominal_length.value == 2197.0
     assert metadata.nominal_length.source_id == "insert:title/13"
+
+
+def test_box_boundary_allowance_uses_feature_free_middle_gap() -> None:
+    evidence = FeatureEvidence(
+        state=EvidenceState.DIRECT,
+        source_ids=("synthetic",),
+        rule_ids=("TEST",),
+        proof_ids=("TEST",),
+    )
+    segments = rectangle_contour(0.0, 0.0, 3000.0, 100.0, evidence)
+    contract = derive_weld_allowance_contract(segments)
+
+    stretched = stretch_outer_segments(
+        segments,
+        contract,
+        feature_x_extents=((100.0, 110.0), (2890.0, 2900.0)),
+    )
+
+    all_x = tuple(
+        coordinate
+        for segment in stretched
+        for coordinate in (segment.start[0], segment.end[0])
+    )
+    assert max(all_x) - min(all_x) == pytest.approx(3005.0)
+    assert {
+        round(point[0], 6)
+        for segment in stretched
+        for point in (segment.start, segment.end)
+        if 1496.0 <= point[0] <= 1506.0
+    } == {1497.5, 1502.5}
 
 
 def test_multiple_numbers_without_length_header_still_fail_closed() -> None:
